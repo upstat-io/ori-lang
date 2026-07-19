@@ -1,0 +1,8 @@
+@fallible (ok: bool) -> Result<int, str> =
+    if ok then Ok(7) else Err("e");
+
+@main () -> int = {
+    let r = fallible(ok: false);
+    let v = r ?? 42;
+    if v == 42 then 0 else 1
+}

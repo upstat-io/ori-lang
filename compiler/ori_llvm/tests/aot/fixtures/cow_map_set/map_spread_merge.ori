@@ -1,0 +1,30 @@
+type Pt = { x: int, y: int }
+
+@main () -> int = {
+    let a = {"x": 1, "y": 2};
+    let b = {"z": 3};
+    let m = {...a, ...b};
+
+    let c = {"k": 1, "keep": 9};
+    let d = {"k": 2};
+    let later = {...c, ...d};
+
+    let e = {"p": Pt { x: 1, y: 2 }};
+    let f = {"q": Pt { x: 3, y: 4 }};
+    let structs = {...e, ...f};
+
+    let g = {1: 10};
+    let h: {int: int} = {};
+    let empty_b = {...g, ...h};
+    let empty_a = {...h, ...g};
+
+    if m["x"].unwrap() == 1
+        && m["z"].unwrap() == 3
+        && later["k"].unwrap() == 2
+        && later["keep"].unwrap() == 9
+        && structs["p"].unwrap().x == 1
+        && structs["q"].unwrap().y == 4
+        && empty_b[1].unwrap() == 10
+        && empty_a[1].unwrap() == 10
+    then 0 else 1
+}

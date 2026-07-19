@@ -13,7 +13,7 @@ use super::IrBuilder;
 use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
 
 impl<'ctx> IrBuilder<'_, 'ctx> {
-    // -- Direct calls --
+    // Direct calls
 
     /// Build a direct function call.
     ///
@@ -180,7 +180,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         call_val.add_attribute(inkwell::attributes::AttributeLoc::Param(0), noalias_attr);
     }
 
-    // -- sret call helper --
+    // sret call helper
 
     /// Build a call to an sret function, hiding the ABI complexity.
     ///
@@ -218,7 +218,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         Some(result)
     }
 
-    // -- Function declaration --
+    // Function declaration
 
     /// Declare a function in the LLVM module.
     pub fn declare_function(
@@ -246,6 +246,28 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         let fn_type = self.scx.type_void_func(&param_tys);
         let func = self.scx.llmod.add_function(name, fn_type, None);
         self.arena.push_function(func)
+    }
+
+    /// Mark a function definition module-local (`Linkage::Internal`).
+    ///
+    /// Per-module synthesized glue (`_ori_Error_ctor`, drop glue, element
+    /// fns, derive thunks, closure wrappers, catch thunks) is referenced only
+    /// through in-module maps or runtime pointers; an external definition of
+    /// the same fixed symbol in two objects fails the multi-module link step
+    /// (E5006 duplicate strong symbol).
+    pub fn set_internal_linkage(&mut self, func_id: FunctionId) {
+        self.arena
+            .get_function(func_id)
+            .set_linkage(Linkage::Internal);
+    }
+
+    /// Mark a synthesized module-local glue function: C calling convention +
+    /// internal linkage in one step. Every per-module glue creator (drop /
+    /// elem / eq / hash / partial / trampoline / catch thunks) uses this so
+    /// no glue symbol escapes its object file with external linkage.
+    pub fn set_module_local(&mut self, func_id: FunctionId) {
+        self.set_ccc(func_id);
+        self.set_internal_linkage(func_id);
     }
 
     /// Declare an external function with `External` linkage.
@@ -337,7 +359,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         func_val.count_basic_blocks() > 0
     }
 
-    // -- Calling conventions --
+    // Calling conventions
 
     /// Set the calling convention on a function.
     ///

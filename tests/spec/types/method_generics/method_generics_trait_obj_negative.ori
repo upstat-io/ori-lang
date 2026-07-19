@@ -12,5 +12,6 @@ trait Converter {
     @convert<T> (self) -> T
 }
 
-#compile_fail(code: "E2024", message: "not object-safe")
+#compile_fail(code: "E2024")
+@method_generics_trait_obj_negative tests _ () -> void = { () }
 @uses_trait_object (c: Converter) -> int = 0;

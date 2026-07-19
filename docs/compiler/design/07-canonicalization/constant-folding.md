@@ -272,7 +272,7 @@ The `Float(u64)` representation is a deliberate design choice. Storing IEEE-754 
 
 ### Elm — No Explicit Constant Folding
 
-[Elm](https://github.com/elm/compiler) performs no explicit constant-folding pass. The Elm compiler relies on the JavaScript engine's JIT compiler to fold constants at runtime. This is a valid strategy for a language that compiles to a JIT-compiled target — the runtime optimizer handles constant folding "for free." Ori cannot rely on this because it targets both a tree-walking interpreter (no JIT) and LLVM (where folding before codegen produces better IR).
+[Elm](https://github.com/elm/compiler) performs no explicit constant-folding pass. The Elm compiler relies on the JavaScript engine's JIT compiler to fold constants at runtime. This is valid for a language with one JIT-compiled target. Ori folds before the execution split so the evaluator, bytecode VM, LLVM, native, and compiled-WebAssembly paths all inherit the same result.
 
 ## Design Tradeoffs
 

@@ -28,7 +28,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let name = format!("_ori_catch_thunk${counter}");
         let thunk_id = self.builder.declare_void_function(&name, &[ptr_ty]);
-        self.builder.set_ccc(thunk_id);
+        self.builder.set_module_local(thunk_id);
         // NOT nounwind — the callee may panic, and the unwind must propagate
         // through this thunk so that ori_try_call's catch can intercept it.
         self.builder.add_uwtable_attribute(thunk_id);
@@ -37,7 +37,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
         let saved_emitter_func = self.current_function;
-        let saved_funclet_pad = self.current_funclet_pad.take();
+        let saved_cleanup_pad = self.current_cleanup_pad.take();
 
         let entry = self.builder.append_block(thunk_id, "entry");
         self.builder.position_at_end(entry);
@@ -131,7 +131,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         // Restore builder state
-        self.current_funclet_pad = saved_funclet_pad;
+        self.current_cleanup_pad = saved_cleanup_pad;
         self.current_function = saved_emitter_func;
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
@@ -157,7 +157,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let name = format!("_ori_catch_thunk${counter}");
         let thunk_id = self.builder.declare_void_function(&name, &[ptr_ty]);
-        self.builder.set_ccc(thunk_id);
+        self.builder.set_module_local(thunk_id);
         // NOT nounwind — callee may panic; uwtable for SEH frame info
         self.builder.add_uwtable_attribute(thunk_id);
 
@@ -165,7 +165,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
         let saved_emitter_func = self.current_function;
-        let saved_funclet_pad = self.current_funclet_pad.take();
+        let saved_cleanup_pad = self.current_cleanup_pad.take();
 
         let entry = self.builder.append_block(thunk_id, "entry");
         self.builder.position_at_end(entry);
@@ -213,7 +213,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         // Restore builder state
-        self.current_funclet_pad = saved_funclet_pad;
+        self.current_cleanup_pad = saved_cleanup_pad;
         self.current_function = saved_emitter_func;
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {

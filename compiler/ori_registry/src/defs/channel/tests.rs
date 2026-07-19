@@ -1,11 +1,11 @@
-//! Tests for the Channel `TypeDef` AND the §02.4.B `Channel<T>` burden
-//! template registered in `BURDEN_TABLE`.
+//! Tests for the Channel `TypeDef` AND the `Channel<T>` burden template
+//! registered in `BURDEN_TABLE`.
 //!
 //! The burden-template tests verify the registry-layer template only —
 //! composition (substituting `TYPE_PARAM_T` with concrete `Idx` values) and
 //! signature-dedup live in `ori_types::registry::burden_compose` /
 //! `ori_types::registry::burden_dedup`, outside this crate's zero-deps
-//! purity boundary (`registry.md §Invariants`).
+//! purity boundary.
 
 use super::*;
 
@@ -117,35 +117,35 @@ fn channel_methods_alphabetically_sorted() {
     );
 }
 
-// ─── §02.4.B Channel<T> burden template (registry-layer surface) ────────
+// Channel<T> burden template (registry-layer surface)
 
 fn channel_template() -> &'static BuiltinBurdenSpec {
     match BurdenRegistry::lookup_builtin(TYPE_ID_CHANNEL) {
         Some(spec) => spec,
         None => {
-            panic!("Channel template missing from BURDEN_TABLE — §02.4.B registration regression")
+            panic!("Channel template missing from BURDEN_TABLE — registration regression")
         }
     }
 }
 
 #[test]
 fn channel_template_present_in_burden_table() {
-    // Positive: BURDEN_TABLE registers a Channel<T> template (§02.4.B core
-    // deliverable). Regression catcher for the prior "DeferredToComposition"
-    // classification — Channel now ships an in-table template like LIST /
-    // MAP / SET / OPTION / RESULT.
-    let _ = channel_template();
+    // Positive: BURDEN_TABLE registers a Channel<T> in-table template like
+    // LIST / MAP / SET / OPTION / RESULT (not DeferredToComposition).
+    assert!(
+        BurdenRegistry::lookup_builtin(TYPE_ID_CHANNEL).is_some(),
+        "Channel<T> must be registered in BURDEN_TABLE (in-table, not DeferredToComposition)"
+    );
 }
 
 #[test]
-fn channel_template_self_heap_alloc() {
-    // The channel handle is `MemoryStrategy::Arc` (heap-managed shared
-    // primitive); the template MUST advertise `self_heap_alloc = true` so
-    // drop-glue knows the handle itself requires deallocation.
+fn channel_template_self_owned_identity() {
+    // The channel is a shared logical identity distinct from each buffered
+    // element. Physical storage and synchronization remain target-owned.
     let template = channel_template();
     assert!(
-        template.self_heap_alloc,
-        "Channel<T>: self_heap_alloc must be true (Arc-managed handle)"
+        template.self_owned_identity,
+        "Channel<T> must carry its own logical ownership identity"
     );
 }
 
@@ -165,7 +165,7 @@ fn channel_template_carries_type_param_placeholder() {
 
 #[test]
 fn channel_template_has_no_inline_owned_or_variant_fields() {
-    // Channel<T> is structurally a collection-like heap handle, not a
+    // Channel<T> is structurally a collection-like identity, not a
     // sum-of-variants or a struct with inline fields. The template body MUST
     // be empty across owned_fields / borrowed_fields / variant_burdens
     // (mirroring LIST/MAP/SET); T is reachable EXCLUSIVELY via the
@@ -187,14 +187,14 @@ fn channel_template_has_no_inline_owned_or_variant_fields() {
 }
 
 #[test]
-fn channel_template_has_no_user_or_compiled_drop() {
+fn channel_template_has_no_user_or_drop_operation() {
     // The Channel<T> template ships no `user_drop` (no `#free` annotation)
-    // and no `compiled_drop` — drop is emitted via the §03 Phase 5 trivial
+    // and no `drop_operation` — drop is emitted via the Phase 5 trivial
     // emission walk from the composed `UserBurdenSpec`.
     let template = channel_template();
     assert!(
-        template.compiled_drop.is_none(),
-        "Channel<T>: compiled_drop must be None"
+        template.drop_operation.is_none(),
+        "Channel<T>: drop_operation must be None"
     );
     assert!(
         template.user_drop.is_none(),
@@ -204,19 +204,16 @@ fn channel_template_has_no_user_or_compiled_drop() {
 
 #[test]
 fn channel_template_shape_matches_list_set_pattern() {
-    // Semantic pin: Channel<T> MUST follow the LIST/SET shape (heap-alloc +
-    // single element placeholder, no variants, no inline fields). Differing
-    // from this shape would force composition to produce structurally
-    // distinct UserBurdenSpec instances that no longer share the registry
-    // dedup path with other heap-buffered collections. Regression catcher
-    // for accidental drift toward sum-template or struct-template shape.
+    // INVARIANT: Channel<T> follows the LIST/SET shape (one identity + single
+    // element placeholder, no variants, no inline fields) so composition
+    // shares the registry dedup path with other managed collections.
     let channel = channel_template();
     let Some(list) = BurdenRegistry::lookup_builtin(crate::burden::table::TYPE_ID_LIST) else {
-        panic!("LIST template missing — §01 regression");
+        panic!("LIST template missing from BurdenRegistry");
     };
     assert_eq!(
-        channel.self_heap_alloc, list.self_heap_alloc,
-        "Channel<T> + List<T> must agree on self_heap_alloc"
+        channel.self_owned_identity, list.self_owned_identity,
+        "Channel<T> + List<T> must agree on self_owned_identity"
     );
     assert_eq!(
         channel.element_burden, list.element_burden,

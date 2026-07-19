@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn duration_method_count() {
-    assert_eq!(DURATION.methods.len(), 41);
+    assert_eq!(DURATION.methods.len(), 42);
 }
 
 #[test]
@@ -125,10 +125,10 @@ fn duration_conversion_alias_pairs() {
 #[test]
 fn duration_ops_int_instr_for_arithmetic() {
     let ops = &DURATION.operators;
-    assert_eq!(ops.add, OpStrategy::IntInstr);
-    assert_eq!(ops.sub, OpStrategy::IntInstr);
-    assert_eq!(ops.mul, OpStrategy::IntInstr);
-    assert_eq!(ops.div, OpStrategy::IntInstr);
-    assert_eq!(ops.rem, OpStrategy::IntInstr);
-    assert_eq!(ops.neg, OpStrategy::IntInstr);
+    assert_eq!(ops.add, OpStrategy::SignedInteger);
+    assert_eq!(ops.sub, OpStrategy::SignedInteger);
+    assert_eq!(ops.mul, OpStrategy::SignedInteger);
+    assert_eq!(ops.div, OpStrategy::SignedInteger);
+    assert_eq!(ops.rem, OpStrategy::SignedInteger);
+    assert_eq!(ops.neg, OpStrategy::SignedInteger);
 }

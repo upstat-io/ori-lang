@@ -1,58 +1,27 @@
-Theorem RL-11a: dynamic reuse for MaybeShared — IsShared check; unique fast / shared slow
+Theorem RL-11a: MaybeShared donor transfer depends on sharing observation
 
   Preconditions:
-    - RL-11a governs dynamic reuse per Annex E §AIMS Allocation Reuse:
-      "Dynamic reuse for MaybeShared: emit IsShared check; unique ->
-      Reset/Reuse fast path, shared -> fresh allocation slow path. Requires
-      DP-6 eligibility."
-    - Signature ArcFunction x AimsStateMap -> ArcFunction per
-      the canonical proof notation:264; discharged against the sec-01
-      Realization.proof sorry obligation.
-    - DP-6 (is_reuse_candidate) admits MaybeShared as a CANDIDATE (Owned,
-      not Shared, reusable shape); RL-11 requires static Unique, so a
-      MaybeShared candidate uses the runtime IsShared branch instead.
-    - Shipped: emit_reuse/dynamic.rs (the IsShared branch);
-      emit_reuse/detect.rs (DP-6 candidate detection).
-    - depends-on sec-05: DP-6 (is_reuse_candidate) soundness.
+    - DP-6 admits the MaybeShared donor as a candidate.
+    - A sharing observation yields one-owner or multiple-owner.
 
   Soundness property:
-    Forall MaybeShared owned reusable value v:
-
-      (P1) Branch decision: RL-11a emits a runtime IsShared check; the unique
-           runtime branch (RC == 1) takes the Reset/Reuse fast path; the
-           shared runtime branch (RC > 1) takes the fresh-allocation slow
-           path.
-
-      (P2) Value-semantics preservation: reuse fires ONLY on the unique
-           runtime branch (v is the sole owner, no alias observes the reuse);
-           the shared branch fresh-allocates, leaving every alias intact.
-           Both branches preserve correctness.
-
-    RL-11a refines plain ARC by reusing the dying allocation whenever the
-    runtime proves sole ownership, falling back to a fresh allocation only
-    when an alias actually exists.
+    Forall MaybeShared owned donor d and recipient r:
+      (P1) one-owner permits donor-to-recipient owner-credit transfer.
+      (P2) multiple-owner forbids transfer and requires an independent logical
+           birth for r.
+    The theorem does not select IsShared, a branch, Reset/Reuse, allocation, or
+    storage mechanisms.
 
   Proof obligation:
-    Constructive discharge by the case_analysis engine.
-
-    Part (P1/P2) — runtime-branch enumeration:
-      The verifier asserts DP-6 eligibility for the MaybeShared value, then
-      enumerates both runtime branches:
-        runtime_unique = true -> reuse fast path fires (sound)
-        runtime_unique = false -> fresh-allocation slow path (no reuse)
-      Coverage gate: 2 runtime branches. Negative-direction witness: reuse
-      MUST NOT fire on the shared (RC > 1) runtime branch (it would corrupt
-      the alias) — asserted.
+    Enumerate both observation results.
+    Coverage gate: 2 outcomes. Transfer on the multiple-owner result is the
+    negative-direction witness and is rejected.
 
     Engines dispatched:
-      case_analysis (PRIMARY — section_08::verify_rl11a_dynamic_reuse;
-        DP-6 eligibility + runtime-branch enumeration; emits Fail on an
-        unsound branch or a wrong fire)
-      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
-      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
+      case_analysis (PRIMARY — section_08::verify_rl11a_dynamic_reuse)
+      rc_counting (SECONDARY — gracious-accept)
+      refinement (SECONDARY — gracious-accept)
 
   Expected:
     status: valid
-    reason: section_08 case_analysis engine discharges RL-11a via DP-6 eligibility for the MaybeShared value + runtime IsShared branch enumeration (unique RC==1 -> Reset/Reuse fast path; shared RC>1 -> fresh-allocation slow path) with a negative-direction witness rejecting reuse on the shared branch, grounded in the shipped emit_reuse/dynamic.rs IsShared realization
+    reason: RL-11a admits owner-credit transfer only on the one-owner observation outcome and requires independent birth for multiple owners

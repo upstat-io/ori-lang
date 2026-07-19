@@ -21,8 +21,10 @@ fn test_parsed_attrs_token_capture() {
     let attrs = parser.parse_attributes(&mut errors);
 
     // Should have captured tokens
-    assert!(attrs.has_tokens(), "Expected tokens to be captured");
-    assert!(!attrs.token_range.is_empty());
+    assert!(
+        !attrs.token_range.is_empty(),
+        "Expected tokens to be captured"
+    );
 
     // Verify we can access the captured tokens
     let captured = tokens.get_range(attrs.token_range);
@@ -47,10 +49,9 @@ fn test_parsed_attrs_no_tokens_when_no_attributes() {
 
     // Should NOT have captured tokens (no attributes)
     assert!(
-        !attrs.has_tokens(),
+        attrs.token_range.is_empty(),
         "Should not capture tokens when no attributes"
     );
-    assert!(attrs.token_range.is_empty());
 }
 
 #[test]
@@ -329,4 +330,86 @@ fn test_parse_no_fbip_attribute() {
     assert!(!result.has_errors(), "errors: {:?}", result.errors);
     assert_eq!(result.module.functions.len(), 1);
     assert!(!result.module.functions[0].is_fbip);
+}
+
+#[test]
+fn test_parse_skip_backend_keyed_llvm() {
+    let (result, interner) = parse_with_errors(
+        r#"
+#[skip(backend: "llvm", reason: "AOT has no trace-injection machinery")]
+@test_example tests _ () -> void = print(msg: "test");
+"#,
+    );
+
+    assert!(!result.has_errors(), "errors: {:?}", result.errors);
+    let test = &result.module.tests[0];
+    // The keyed form populates skip_backends, NOT the both-backend skip_reason.
+    assert!(test.skip_reason.is_none());
+    assert_eq!(test.skip_backends.len(), 1);
+    assert_eq!(test.skip_backends[0].backend, ori_ir::TestBackend::Llvm);
+    assert_eq!(
+        interner.lookup(test.skip_backends[0].reason),
+        "AOT has no trace-injection machinery"
+    );
+}
+
+#[test]
+fn test_parse_skip_backend_keyed_interpreter() {
+    let (result, _interner) = parse_with_errors(
+        r#"
+#[skip(backend: "interpreter", reason: "needs JIT")]
+@test_example tests _ () -> void = print(msg: "test");
+"#,
+    );
+
+    assert!(!result.has_errors(), "errors: {:?}", result.errors);
+    let test = &result.module.tests[0];
+    assert_eq!(test.skip_backends.len(), 1);
+    assert_eq!(
+        test.skip_backends[0].backend,
+        ori_ir::TestBackend::Interpreter
+    );
+}
+
+#[test]
+fn test_parse_skip_backend_blank_reason_rejected() {
+    let (result, _interner) = parse_with_errors(
+        r#"
+#[skip(backend: "llvm", reason: "")]
+@test_example tests _ () -> void = print(msg: "test");
+"#,
+    );
+
+    // A blank reason is rejected — a per-backend skip is a disposition CLAIM and
+    // MUST carry a governing reason (never untracked).
+    assert!(result.has_errors(), "blank reason must be rejected");
+}
+
+#[test]
+fn test_parse_skip_backend_missing_reason_rejected() {
+    let (result, _interner) = parse_with_errors(
+        r#"
+#[skip(backend: "llvm")]
+@test_example tests _ () -> void = print(msg: "test");
+"#,
+    );
+
+    assert!(result.has_errors(), "missing reason must be rejected");
+}
+
+#[test]
+fn test_parse_skip_unkeyed_still_skips_both_backends() {
+    // Regression: the keyed dispatch must NOT capture the unkeyed `#skip("...")`
+    // form — it stays on skip_reason (both-backend skip), skip_backends empty.
+    let (result, _interner) = parse_with_errors(
+        r#"
+#[skip("not implemented")]
+@test_example tests _ () -> void = print(msg: "test");
+"#,
+    );
+
+    assert!(!result.has_errors(), "errors: {:?}", result.errors);
+    let test = &result.module.tests[0];
+    assert!(test.skip_reason.is_some());
+    assert!(test.skip_backends.is_empty());
 }

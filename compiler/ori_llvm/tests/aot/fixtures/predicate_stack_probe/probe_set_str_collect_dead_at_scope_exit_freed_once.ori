@@ -1,0 +1,7 @@
+@main () -> int = {
+    let s: Set<str> = [
+        "a very long set element string exceeding the sso threshold for sure",
+        "another long set element string for generic iter parameter cleanup"
+    ].iter().collect();
+    if s.len() == 2 then 0 else 1
+}

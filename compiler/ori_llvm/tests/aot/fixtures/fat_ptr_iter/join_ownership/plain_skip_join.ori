@@ -1,0 +1,10 @@
+// skip over source-borrowed elements: the skipped element is borrowed (the
+// source list frees it) and the passed-through elements stay borrowed — join
+// must not release any of them.
+@main () -> void = {
+    let $joined = ["chi-chi-chi-chi-chi-chi-chi-chi", "psi-psi-psi-psi-psi-psi-psi", "omega-omega-omega-omega-omega"]
+        .iter()
+        .skip(count: 1)
+        .join(separator: ", ");
+    print(msg: joined)
+}

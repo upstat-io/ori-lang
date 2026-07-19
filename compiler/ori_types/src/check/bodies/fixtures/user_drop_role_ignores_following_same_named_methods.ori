@@ -1,0 +1,6 @@
+trait Drop { @drop (self) -> void; }
+trait DecoyDrop { @drop (self) -> void; }
+type Guard = { id: int }
+impl Guard: Drop { @drop (self) -> void = (); }
+impl Guard { @drop (self) -> void = (); }
+impl Guard: DecoyDrop { @drop (self) -> void = (); }

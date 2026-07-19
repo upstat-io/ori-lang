@@ -217,7 +217,7 @@ fn find_overlapping_declarations(
 /// * `IncrementalResult::Regions` - Formatted regions to replace
 /// * `IncrementalResult::FullFormatNeeded` - Full format required
 /// * `IncrementalResult::NoChangeNeeded` - No formatting changes needed
-#[allow(
+#[expect(
     clippy::cast_possible_truncation,
     reason = "Source file offsets fit in u32"
 )]
@@ -314,7 +314,6 @@ fn find_preceding_comment_start(comments: &CommentList, decl_start: u32) -> Opti
     earliest
 }
 
-/// Format a single declaration.
 fn format_single_declaration<I: StringLookup>(
     module: &Module,
     decl: &DeclInfo,
@@ -384,8 +383,8 @@ pub fn apply_regions(source: &str, mut regions: Vec<FormattedRegion>) -> String 
         return source.to_string();
     }
 
-    // Sort by start position (descending) to apply from end to start
-    // This preserves earlier byte offsets as we replace
+    // Sort by start position (descending) to apply from end to start.
+    // Why: applying from the end preserves earlier byte offsets across replacements.
     regions.sort_by(|a, b| b.original_start.cmp(&a.original_start));
 
     let mut result = source.to_string();

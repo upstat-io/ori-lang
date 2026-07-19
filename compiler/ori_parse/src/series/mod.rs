@@ -219,7 +219,9 @@ impl Parser<'_> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// This is a schematic parser-internal fragment, not a standalone program:
+    ///
+    /// ```text
     /// let args = self.series(
     ///     SeriesConfig::comma(TokenKind::RParen),
     ///     |p| {
@@ -251,7 +253,7 @@ impl Parser<'_> {
         Ok(items)
     }
 
-    // --- Convenience Methods ---
+    // Convenience Methods
 
     /// Parse a comma-separated series in parentheses: `(item, item, ...)`
     ///
@@ -301,7 +303,7 @@ impl Parser<'_> {
         Ok(items)
     }
 
-    // --- Direct Push Series ---
+    // Direct Push Series
     //
     // These variants eliminate the intermediate Vec by having the closure push
     // directly into the arena. Same separator/terminator/trailing logic as

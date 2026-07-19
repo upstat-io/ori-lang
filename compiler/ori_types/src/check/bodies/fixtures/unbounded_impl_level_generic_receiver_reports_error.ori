@@ -1,0 +1,3 @@
+trait Greet { @hello (self) -> str }
+type Box<T> = { inner: T }
+impl<T> Box<T> { @greet (self, x: T) -> str = x.hello(); }

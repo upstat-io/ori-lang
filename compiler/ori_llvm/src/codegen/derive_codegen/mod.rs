@@ -1,62 +1,173 @@
 //! LLVM IR generation for derived trait methods.
 //!
-//! Generates synthetic LLVM functions for `#[derive(...)]` attributes on structs
-//! and enums. Each derived method becomes a real LLVM function registered in
-//! `method_functions`, so the existing `lower_method_call` dispatch finds them
-//! with no special path.
+//! # Registration
 //!
-//! Dispatch is strategy-driven: `DerivedTrait::strategy()` returns a `DeriveStrategy`
-//! describing the composition logic (field iteration, result combination), and this
-//! module interprets the strategy in LLVM IR terms. Adding a new trait only requires
-//! adding a strategy entry in `ori_ir` — no per-trait function needed here.
+//! Each derived method is a normal LLVM function registered in `method_functions`.
 //!
-//! **Struct derives** use `StructBody` (field iteration, formatting, cloning, default).
-//! **Enum derives** use `SumBody::MatchVariants` (tag comparison for unit variants,
-//! with payload comparison for payload variants planned).
+//! # Dispatch
+//!
+//! [`DerivedTrait::strategy`] selects struct and enum body generation.
+//! All submodules share the `ori_llvm::codegen::derive_codegen` tracing target.
 
 mod bodies;
 mod clone_rc;
 mod enum_bodies;
 mod field_ops;
+mod instantiation;
+mod scaffolding;
 mod string_helpers;
 #[cfg(test)]
 mod tests;
 
-use ori_ir::{DerivedMethodShape, DerivedTrait, Module, Name, StructBody, SumBody, TypeDeclKind};
+use ori_ir::{DerivedTrait, Module, Name, StructBody, SumBody, TypeDecl, TypeDeclKind};
 use ori_types::{FieldDef, Idx, Tag, TypeEntry, TypeKind, VariantDef};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use tracing::{debug, trace, warn};
 
-use super::abi::{compute_function_abi, FunctionAbi, ParamPassing, ReturnPassing};
 use super::function_compiler::FunctionCompiler;
-use super::value_id::{FunctionId, LLVMTypeId, ValueId};
 
 use bodies::{
     compile_clone_fields, compile_default_construct, compile_for_each_field, compile_format_fields,
 };
 use enum_bodies::compile_enum_match_variants;
+use instantiation::{
+    concrete_instantiations, nested_derive_instantiations, substitute_enum_variants,
+    substitute_struct_fields,
+};
+pub(in crate::codegen::derive_codegen) use scaffolding::{
+    declare_derive_method, emit_boxed_self_method_call, emit_derive_return,
+    emit_method_call_for_derive, setup_derive_function, verify_derive_function, DeriveSetup,
+};
 
 // Entry point
 
+/// A concrete struct/enum body whose `#[derive(...)]` methods are emitted: the
+/// substituted field/payload shape for one instantiation. Discovered once, then
+/// DECLARED (Pass 1) and DEFINED (Pass 2) — the two-pass split lets a parent
+/// body's field dispatch resolve an inner instantiation declared earlier.
+enum DeriveBody {
+    Struct(Vec<FieldDef>),
+    Enum(Vec<VariantDef>),
+}
+
+struct DeriveWorkItem {
+    type_name: Name,
+    /// The registration + dispatch `Idx`: the materialized concrete body for a
+    /// mono instantiation, the `TypeEntry.idx` for a non-generic type.
+    type_idx: Idx,
+    /// The `Applied` node mapped to `type_name` for receiver-type dispatch
+    /// (`Some` for mono instantiations only).
+    applied_idx: Option<Idx>,
+    type_name_str: String,
+    derives: Vec<Name>,
+    body: DeriveBody,
+    mono: bool,
+}
+
 /// Compile derived trait methods for all types in the module.
 ///
-/// Iterates `module.types`, finds types with `#[derive(...)]`, resolves their
-/// fields from `user_types`, and generates synthetic LLVM functions for each
-/// derived method. Results are registered in `method_functions` so that
-/// `lower_method_call` finds them through normal dispatch.
+/// DECLARE-ALL-THEN-DEFINE-ALL: a discovery pass enumerates every reachable
+/// derive instantiation (non-generic types + the transitive nested-generic
+/// closure); Pass 1 declares + registers every method WITHOUT a body; Pass 2
+/// emits all bodies. LLVM permits calling a declared-but-not-yet-defined
+/// function, so a parent body's field-dispatch lookup
+/// (`get_derived_method_for_type`) always resolves order-independently — and
+/// recursive / mutually-recursive derive types need no cycle-breaking. Results
+/// register in `method_functions` so `lower_method_call` finds them by normal
+/// dispatch.
 pub fn compile_derives<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     module: &Module,
     user_types: &[TypeEntry],
 ) {
+    let work = collect_derive_work_items(fc, module, user_types);
+
+    // PASS 1 — DECLARE + register every work item's derived methods, no bodies.
+    // The strategy gate mirrors Pass 2 exactly so no method is declared whose
+    // body Pass 2 would not emit (a dangling declaration is an LLVM link error).
+    for item in &work {
+        let is_enum = matches!(item.body, DeriveBody::Enum(_));
+        for derive_name in &item.derives {
+            let trait_name_str = fc.lookup_name(*derive_name);
+            let Some(trait_kind) = DerivedTrait::from_name(trait_name_str) else {
+                continue;
+            };
+            if is_enum && !matches!(trait_kind.strategy().sum_body, SumBody::MatchVariants) {
+                continue;
+            }
+            declare_derive_method(
+                fc,
+                trait_kind,
+                item.type_name,
+                item.type_idx,
+                &item.type_name_str,
+                item.mono,
+            );
+        }
+    }
+
+    // PASS 2 — emit all bodies; `setup_derive_function` reuses the Pass-1
+    // declaration so a body's field lookup finds an already-registered callee.
+    for item in &work {
+        match &item.body {
+            DeriveBody::Struct(fields) => compile_struct_derives(
+                fc,
+                &item.derives,
+                item.type_name,
+                item.type_idx,
+                &item.type_name_str,
+                fields,
+                item.mono,
+            ),
+            DeriveBody::Enum(variants) => compile_enum_derives(
+                fc,
+                &item.derives,
+                item.type_name,
+                item.type_idx,
+                &item.type_name_str,
+                variants,
+                item.mono,
+            ),
+        }
+        // Every call site whose receiver is this `Applied` Idx (or its resolved
+        // body) reaches the instantiation's method via receiver-type dispatch.
+        if let Some(applied_idx) = item.applied_idx {
+            fc.map_type_idx_to_name(applied_idx, item.type_name);
+        }
+    }
+}
+
+/// Discover every reachable derive work item: one per declared derive-bearing
+/// type, plus the transitive nested-generic closure for each generic composite.
+/// Visited keyed by the materialized concrete body `Idx` terminates the closure
+/// on recursive / cyclic types AND dedups an instantiation reachable through
+/// multiple nesting paths.
+fn collect_derive_work_items<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    module: &Module,
+    user_types: &[TypeEntry],
+) -> Vec<DeriveWorkItem> {
     let type_map: FxHashMap<Name, &TypeEntry> = user_types.iter().map(|te| (te.name, te)).collect();
+
+    // INVARIANT: only generic derive heads participate in nested instantiation closure.
+    let derive_bearing: FxHashSet<Name> = module
+        .types
+        .iter()
+        .filter(|td| !td.derives.is_empty() && !td.generics.is_empty())
+        .map(|td| td.name)
+        .collect();
+    let decl_by_name: FxHashMap<Name, &TypeDecl> =
+        module.types.iter().map(|td| (td.name, td)).collect();
+
+    let mut visited: FxHashSet<Idx> = FxHashSet::default();
+    let mut work: Vec<DeriveWorkItem> = Vec::new();
 
     for type_decl in &module.types {
         if type_decl.derives.is_empty() {
             continue;
         }
 
-        let Some(type_entry) = type_map.get(&type_decl.name) else {
+        let Some(type_entry) = type_map.get(&type_decl.name).copied() else {
             warn!(
                 name = %fc.lookup_name(type_decl.name),
                 "no TypeEntry for type with derives — skipping"
@@ -65,35 +176,185 @@ pub fn compile_derives<'a>(
         };
 
         let type_name = type_decl.name;
-        let type_idx = type_entry.idx;
-        let type_name_str = fc.lookup_name(type_name).to_owned();
 
-        match (&type_decl.kind, &type_entry.kind) {
-            (TypeDeclKind::Struct(_), TypeKind::Struct(struct_def)) => {
-                compile_struct_derives(
-                    fc,
-                    &type_decl.derives,
-                    type_name,
-                    type_idx,
-                    &type_name_str,
-                    &struct_def.fields,
-                );
+        // A generic composite needs a layout-correct method per concrete
+        // instantiation (each materialized body in `Pool.resolutions`); a
+        // non-generic type has no `Applied` and falls through to the declared body.
+        let instantiations = concrete_instantiations(fc, type_name);
+
+        if instantiations.is_empty() {
+            // Non-generic type: single declared-body work item, no closure.
+            let type_name_str = fc.lookup_name(type_name).to_owned();
+            if !derive_type_idx_resolved(fc, type_entry.idx, type_name, &type_name_str) {
+                continue;
             }
-            (TypeDeclKind::Sum(_), TypeKind::Enum { variants }) => {
-                compile_enum_derives(
-                    fc,
-                    &type_decl.derives,
+            if let Some(body) = derive_body(fc, type_decl, type_entry, None) {
+                work.push(DeriveWorkItem {
                     type_name,
-                    type_idx,
-                    &type_name_str,
-                    variants,
-                );
+                    type_idx: type_entry.idx,
+                    applied_idx: None,
+                    type_name_str,
+                    derives: type_decl.derives.clone(),
+                    body,
+                    mono: false,
+                });
             }
-            _ => {
-                trace!(
-                    name = %type_name_str,
-                    "skipping derives for unsupported type kind"
-                );
+            continue;
+        }
+
+        // Top-level enumeration misses inner-only instantiations (`Wrap<int>`
+        // reached only by nesting in `Wrap<Wrap<int>>`); the closure transitively
+        // closes over field/payload-reachable derive-bearing bodies.
+        for (applied_idx, concrete_idx) in instantiations {
+            collect_instantiation_closure(
+                fc,
+                concrete_idx,
+                applied_idx,
+                type_name,
+                &decl_by_name,
+                &type_map,
+                &derive_bearing,
+                &mut visited,
+                &mut work,
+            );
+        }
+    }
+
+    work
+}
+
+/// PC-2 gate: `true` iff `type_idx` is fully resolved (no surviving
+/// `Tag::Var`/`Tag::Projection`/`Tag::Infer`). On violation records a codegen
+/// error + returns `false` so the type's derives are skipped in BOTH passes (no
+/// dangling Pass-1 declaration). The `ArcFunction` seam that normally enforces
+/// PC-2 does not cover `derive_codegen`; the `debug_assert` adds `Tag::Infer`
+/// over the always-on `assert_no_unresolved_idx` production guard.
+fn derive_type_idx_resolved<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    type_idx: Idx,
+    type_name: Name,
+    type_name_str: &str,
+) -> bool {
+    debug_assert!(
+        !matches!(
+            fc.pool().tag(fc.pool().resolve_fully(type_idx)),
+            Tag::Var | Tag::Projection | Tag::Infer
+        ),
+        "derive_codegen received unresolved type_idx for {type_name_str}"
+    );
+    if let Err(err) = ori_arc::assert_no_unresolved_idx(fc.pool(), type_idx, type_name) {
+        tracing::error!(
+            contract_violation = true,
+            name = %type_name_str,
+            error = ?err,
+            "PC-2 violation in derive_codegen — skipping all derives for this type"
+        );
+        fc.builder_mut().record_codegen_error();
+        return false;
+    }
+    true
+}
+
+/// Build the concrete `DeriveBody` for an instantiation: the declared
+/// `FieldDef`/`VariantDef` shape (names/spans/visibility) from the `TypeEntry`,
+/// with `substitute_*` projecting the concrete instantiation's field/payload
+/// types onto it when `concrete_idx` is `Some` (mono); `None` keeps the declared
+/// body (non-generic). `None` return = unsupported type kind.
+fn derive_body<'a>(
+    fc: &FunctionCompiler<'_, 'a, 'a, '_>,
+    type_decl: &TypeDecl,
+    type_entry: &TypeEntry,
+    concrete_idx: Option<Idx>,
+) -> Option<DeriveBody> {
+    match (&type_decl.kind, &type_entry.kind) {
+        (TypeDeclKind::Struct(_), TypeKind::Struct(struct_def)) => {
+            let fields = struct_def.fields.clone();
+            let fields = match concrete_idx {
+                Some(ci) => substitute_struct_fields(fc, &fields, ci),
+                None => fields,
+            };
+            Some(DeriveBody::Struct(fields))
+        }
+        (TypeDeclKind::Sum(_), TypeKind::Enum { variants }) => {
+            let variants = variants.clone();
+            let variants = match concrete_idx {
+                Some(ci) => substitute_enum_variants(fc, &variants, ci),
+                None => variants,
+            };
+            Some(DeriveBody::Enum(variants))
+        }
+        _ => {
+            trace!(name = %fc.lookup_name(type_decl.name), "skipping derives for unsupported type kind");
+            None
+        }
+    }
+}
+
+/// Discover a generic-composite instantiation's derive work item and transitively
+/// close over every nested derive-bearing instantiation reachable through its
+/// field/payload types, appending each as a [`DeriveWorkItem`]. Iterative
+/// work-list (no recursion holding a `&mut fc` borrow) with a body-`Idx` visited
+/// set that terminates on recursive / cyclic types and dedups a shared inner
+/// instantiation.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the walk threads three shared read-only lookup tables plus two \
+              disjoint &mut accumulators (visited, work); bundling them into a \
+              config struct would force a whole-struct &mut over the read-only maps"
+)]
+fn collect_instantiation_closure<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    seed_concrete_idx: Idx,
+    seed_applied_idx: Idx,
+    seed_type_name: Name,
+    decl_by_name: &FxHashMap<Name, &TypeDecl>,
+    type_map: &FxHashMap<Name, &TypeEntry>,
+    derive_bearing: &FxHashSet<Name>,
+    visited: &mut FxHashSet<Idx>,
+    work: &mut Vec<DeriveWorkItem>,
+) {
+    let mut worklist: Vec<(Idx, Idx, Name)> =
+        vec![(seed_concrete_idx, seed_applied_idx, seed_type_name)];
+
+    while let Some((concrete_idx, applied_idx, type_name)) = worklist.pop() {
+        if !visited.insert(concrete_idx) {
+            continue;
+        }
+
+        let Some(type_decl) = decl_by_name.get(&type_name).copied() else {
+            continue;
+        };
+        if type_decl.derives.is_empty() {
+            continue;
+        }
+        let Some(type_entry) = type_map.get(&type_name).copied() else {
+            warn!(name = %fc.lookup_name(type_name), "no TypeEntry for nested instantiation — skipping");
+            continue;
+        };
+        let type_name_str = fc.lookup_name(type_name).to_owned();
+        if !derive_type_idx_resolved(fc, concrete_idx, type_name, &type_name_str) {
+            continue;
+        }
+
+        if let Some(body) = derive_body(fc, type_decl, type_entry, Some(concrete_idx)) {
+            work.push(DeriveWorkItem {
+                type_name,
+                type_idx: concrete_idx,
+                applied_idx: Some(applied_idx),
+                type_name_str,
+                derives: type_decl.derives.clone(),
+                body,
+                mono: true,
+            });
+        }
+
+        // Enqueue the inner derive-bearing instantiations this body recurses
+        // into through its concrete field/payload types.
+        for (inner_applied, inner_concrete, inner_name) in
+            nested_derive_instantiations(fc, concrete_idx, derive_bearing)
+        {
+            if !visited.contains(&inner_concrete) {
+                worklist.push((inner_concrete, inner_applied, inner_name));
             }
         }
     }
@@ -107,6 +368,7 @@ fn compile_struct_derives<'a>(
     type_idx: Idx,
     type_name_str: &str,
     fields: &[FieldDef],
+    mono: bool,
 ) {
     debug!(
         name = %type_name_str,
@@ -115,27 +377,9 @@ fn compile_struct_derives<'a>(
         "compiling struct derived methods"
     );
 
-    // PC-2 guard: derive_codegen synthesizes LLVM IR without going through
-    // the ArcFunction pipeline, so the primary seam does not cover
-    // `type_idx`. Always-on plus debug-assert for double-belt. The
-    // debug_assert covers `Tag::Var`, `Tag::Projection`, AND `Tag::Infer`
-    // (broader than the always-on guard, which targets the production
-    // PC-2 surface via `assert_no_unresolved_idx`).
-    debug_assert!(
-        !matches!(
-            fc.pool().tag(fc.pool().resolve_fully(type_idx)),
-            Tag::Var | Tag::Projection | Tag::Infer
-        ),
-        "derive_codegen received unresolved type_idx for struct {type_name_str}"
-    );
-    if let Err(err) = ori_arc::assert_no_unresolved_idx(fc.pool(), type_idx, type_name) {
-        tracing::error!(
-            contract_violation = true,
-            name = %type_name_str,
-            error = ?err,
-            "PC-2 violation in compile_struct_derives — skipping all derives for this type"
-        );
-        fc.builder_mut().record_codegen_error();
+    // INVARIANT: PC-2 — `type_idx` is resolved. Discovery already gated every
+    // work item; this defends a direct caller (the helper is the SSOT).
+    if !derive_type_idx_resolved(fc, type_idx, type_name, type_name_str) {
         return;
     }
 
@@ -158,6 +402,7 @@ fn compile_struct_derives<'a>(
                     fields,
                     field_op,
                     combine,
+                    mono,
                 );
             }
             StructBody::FormatFields {
@@ -177,10 +422,19 @@ fn compile_struct_derives<'a>(
                     separator,
                     suffix,
                     include_names,
+                    mono,
                 );
             }
             StructBody::CloneFields => {
-                compile_clone_fields(fc, trait_kind, type_name, type_idx, type_name_str, fields);
+                compile_clone_fields(
+                    fc,
+                    trait_kind,
+                    type_name,
+                    type_idx,
+                    type_name_str,
+                    fields,
+                    mono,
+                );
             }
             StructBody::DefaultConstruct => {
                 compile_default_construct(
@@ -190,6 +444,7 @@ fn compile_struct_derives<'a>(
                     type_idx,
                     type_name_str,
                     fields,
+                    mono,
                 );
             }
         }
@@ -204,6 +459,7 @@ fn compile_enum_derives<'a>(
     type_idx: Idx,
     type_name_str: &str,
     variants: &[VariantDef],
+    mono: bool,
 ) {
     debug!(
         name = %type_name_str,
@@ -212,9 +468,7 @@ fn compile_enum_derives<'a>(
         "compiling enum derived methods"
     );
 
-    // PC-2 guard: see compile_struct_derives above for rationale. The
-    // debug_assert covers `Tag::Var`, `Tag::Projection`, AND `Tag::Infer`
-    // (broader than the always-on guard).
+    // INVARIANT: PC-2 — `type_idx` is resolved here (see compile_struct_derives).
     debug_assert!(
         !matches!(
             fc.pool().tag(fc.pool().resolve_fully(type_idx)),
@@ -251,6 +505,7 @@ fn compile_enum_derives<'a>(
                     type_name_str,
                     variants,
                     &strategy.struct_body,
+                    mono,
                 );
             }
             SumBody::NotSupported => {
@@ -261,219 +516,5 @@ fn compile_enum_derives<'a>(
                 );
             }
         }
-    }
-}
-
-// Factory: common derive scaffolding
-
-/// Context returned by [`setup_derive_function`] for derive body emitters.
-#[derive(Debug)]
-pub(super) struct DeriveSetup {
-    pub(super) func_id: FunctionId,
-    pub(super) abi: FunctionAbi,
-    /// Value for `self` parameter. `None` for nullary methods (Default).
-    pub(super) self_val: Option<ValueId>,
-    /// Value for `other` parameter. `None` for unary/nullary methods.
-    pub(super) other_val: Option<ValueId>,
-    /// Resolved `str` type for string operations. `None` for shapes that
-    /// don't need string handling (`Nullary`, `UnaryIdentity`).
-    pub(super) str_ty_id: Option<LLVMTypeId>,
-    /// The Ori type index for this type (used for LLVM type resolution in
-    /// payload enum derives).
-    pub(super) type_idx: Idx,
-}
-
-/// Common scaffolding for all derived trait codegen functions.
-///
-/// Handles: method name interning, signature construction (driven by
-/// [`DerivedMethodShape`]), ABI computation, symbol mangling, and function
-/// declaration. Returns a [`DeriveSetup`] with the function handle and
-/// parameter values for the body to use.
-fn setup_derive_function<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    trait_kind: DerivedTrait,
-    type_name: Name,
-    type_idx: Idx,
-    type_name_str: &str,
-) -> DeriveSetup {
-    let method_name_str = trait_kind.method_name();
-    let method_name = fc.intern(method_name_str);
-    let shape = trait_kind.shape();
-
-    let (param_names, param_types) = build_derive_params(fc, shape, type_idx);
-    let return_type = derive_return_type(shape, type_idx);
-
-    let sig = make_sig(method_name, param_names, param_types, return_type);
-    let abi = compute_function_abi(&sig, fc.type_info(), fc.repr_plan());
-    let symbol = fc.mangle_method(type_name_str, method_name_str);
-
-    let (func_id, self_val, param_vals) =
-        fc.declare_and_bind_derive(&symbol, &abi, type_name, method_name, type_idx);
-
-    // Approach (b.1): mark pure derived methods as nounwind directly.
-    // Eq, Comparable, Hashable, Clone, Default only do field operations and
-    // call nounwind runtime functions (ori_rc_inc, etc.). Printable and Debug
-    // allocate strings and may call non-nounwind runtime functions.
-    if trait_kind.is_nounwind_derived() {
-        fc.builder_mut().add_nounwind_attribute(func_id);
-    }
-
-    let self_opt = if shape.has_self() {
-        Some(self_val)
-    } else {
-        None
-    };
-    let other_opt = if shape.has_other() {
-        Some(param_vals[0])
-    } else {
-        None
-    };
-
-    let str_ty_id = match shape {
-        DerivedMethodShape::BinaryPredicate
-        | DerivedMethodShape::BinaryToOrdering
-        | DerivedMethodShape::UnaryToInt
-        | DerivedMethodShape::UnaryToStr => {
-            let str_ty = fc.resolve_type(Idx::STR);
-            Some(fc.builder_mut().register_type(str_ty))
-        }
-        DerivedMethodShape::Nullary | DerivedMethodShape::UnaryIdentity => None,
-    };
-
-    DeriveSetup {
-        func_id,
-        abi,
-        self_val: self_opt,
-        other_val: other_opt,
-        str_ty_id,
-        type_idx,
-    }
-}
-
-/// Build parameter names and types for a derived method from its shape.
-fn build_derive_params<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    shape: DerivedMethodShape,
-    type_idx: Idx,
-) -> (Vec<Name>, Vec<Idx>) {
-    match shape {
-        DerivedMethodShape::BinaryPredicate | DerivedMethodShape::BinaryToOrdering => {
-            let self_name = fc.intern("self");
-            let other_name = fc.intern("other");
-            (vec![self_name, other_name], vec![type_idx, type_idx])
-        }
-        DerivedMethodShape::UnaryIdentity
-        | DerivedMethodShape::UnaryToInt
-        | DerivedMethodShape::UnaryToStr => {
-            let self_name = fc.intern("self");
-            (vec![self_name], vec![type_idx])
-        }
-        DerivedMethodShape::Nullary => (vec![], vec![]),
-    }
-}
-
-/// Determine the return type for a derived method from its shape.
-fn derive_return_type(shape: DerivedMethodShape, type_idx: Idx) -> Idx {
-    match shape {
-        DerivedMethodShape::BinaryPredicate => Idx::BOOL,
-        DerivedMethodShape::UnaryIdentity | DerivedMethodShape::Nullary => type_idx,
-        DerivedMethodShape::UnaryToInt => Idx::INT,
-        DerivedMethodShape::UnaryToStr => Idx::STR,
-        DerivedMethodShape::BinaryToOrdering => Idx::ORDERING,
-    }
-}
-
-// Shared helpers
-
-/// Build a `FunctionSig` for a derived method (no generics, no capabilities).
-fn make_sig(
-    name: Name,
-    param_names: Vec<Name>,
-    param_types: Vec<Idx>,
-    return_type: Idx,
-) -> ori_types::FunctionSig {
-    ori_types::FunctionSig::synthetic(name, param_names, param_types, return_type)
-}
-
-/// Verify a derived function's LLVM IR after body emission.
-///
-/// Gated on `FunctionCompiler::verify_arc()` (i.e., `ORI_VERIFY_ARC=1`).
-/// Called at the end of each top-level derive body function — this is the
-/// single source of truth for derive function verification logic.
-pub(super) fn verify_derive_function<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    func_id: FunctionId,
-    context: &str,
-) {
-    if fc.verify_arc() {
-        let fn_val = fc.builder_mut().get_function_value(func_id);
-        if !fn_val.verify(true) {
-            tracing::error!(context, "LLVM IR verification failed (derive codegen)");
-            fc.builder_mut().record_codegen_error();
-        }
-    }
-}
-
-/// Emit return instruction respecting ABI (direct, sret, or void).
-///
-/// Delegates to [`FunctionCompiler::emit_return`] which includes proper
-/// error recording for the Direct branch's `None` case.
-fn emit_derive_return<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    func_id: FunctionId,
-    abi: &FunctionAbi,
-    result: Option<ValueId>,
-) {
-    fc.emit_return(func_id, abi, result, "<derive>");
-}
-
-/// Emit a method call for a derived method (handles sret return).
-fn emit_method_call_for_derive<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    func_id: FunctionId,
-    abi: &FunctionAbi,
-    args: &[ValueId],
-    name: &str,
-) -> ValueId {
-    // Fixup args: if the callee expects Indirect/Reference, store the struct
-    // value to an alloca and pass the pointer instead.
-    let mut fixed_args: Vec<ValueId> = Vec::with_capacity(args.len());
-    for (i, &arg) in args.iter().enumerate() {
-        if let Some(param) = abi.params.get(i) {
-            match param.passing {
-                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
-                    let param_ty = fc.resolve_type(param.ty);
-                    let param_ty_id = fc.builder_mut().register_type(param_ty);
-                    let alloca = fc.entry_alloca(param_ty_id, &format!("{name}.arg.{i}"));
-                    fc.builder_mut().store(arg, alloca);
-                    fixed_args.push(alloca);
-                }
-                _ => fixed_args.push(arg),
-            }
-        } else {
-            fixed_args.push(arg);
-        }
-    }
-
-    match &abi.return_abi.passing {
-        ReturnPassing::Sret { .. } => {
-            let ret_ty = fc.resolve_type(abi.return_abi.ty);
-            let ret_ty_id = fc.builder_mut().register_type(ret_ty);
-            fc.builder_mut()
-                .call_with_sret(func_id, &fixed_args, ret_ty_id, name)
-                .unwrap_or_else(|| {
-                    warn!(name, "sret call in derive method produced no value");
-                    fc.builder_mut().record_codegen_error();
-                    fc.builder_mut().const_i64(0)
-                })
-        }
-        _ => fc
-            .builder_mut()
-            .call(func_id, &fixed_args, name)
-            .unwrap_or_else(|| {
-                warn!(name, "call in derive method produced no value");
-                fc.builder_mut().record_codegen_error();
-                fc.builder_mut().const_i64(0)
-            }),
     }
 }

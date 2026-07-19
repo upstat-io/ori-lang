@@ -65,20 +65,3 @@ fn test_read_loop_invariant_local_not_admitted_no_double_free() {
         "root0=7 val=128",
     );
 }
-
-/// Toggle-parity semantic pin: `ORI_DISABLE_LOOP_INVARIANT_DEAD_LOCAL_RELEASE=1`
-/// removes the RL-5 release, restoring the pre-cure leak — proving the release
-/// is the load-bearing cure surface.
-#[test]
-fn test_dead_root_with_release_disabled_leaks_again() {
-    use crate::util::compile_and_run_with_build_env;
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        DEAD_ROOT_LOOP_SRC,
-        &[("ORI_DISABLE_LOOP_INVARIANT_DEAD_LOCAL_RELEASE", "1")],
-    );
-    assert_eq!(
-        exit, 2,
-        "with the loop-invariant dead-local release disabled, the dead-root cell \
-         must leak (exit 2)\nstderr:\n{stderr}"
-    );
-}

@@ -1,6 +1,4 @@
 //! Tests for unary operator implementations.
-//!
-//! Relocated from `unary_operators.rs` per coding guidelines (>200 lines).
 
 use crate::unary_operators::evaluate_unary;
 use ori_ir::UnaryOp;

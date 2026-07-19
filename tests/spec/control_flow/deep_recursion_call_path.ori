@@ -1,0 +1,58 @@
+// Recursion correctness + dual-exec parity across every interpreter call-path
+// site: free-function (eval_call), method (eval_method_body), memoized (recurse).
+//
+// Spec: 19-control-flow.md (recursion); operator-rules.md
+
+use std.testing { assert_eq }
+
+// --- Free-function deep linear recursion (eval_call Function arm) ---
+@sum_to (n: int) -> int = if n == 0 then 0 else n + sum_to(n: n - 1);
+
+@test_deep_linear_recursion tests @sum_to () -> void = {
+    // 100*101/2 = 5050; deep enough to drive the per-call path many times.
+    assert_eq(actual: sum_to(n: 100), expected: 5050);
+}
+
+// --- Tree recursion (eval_call Function arm, exponential fan-out) ---
+@fib (n: int) -> int = if n < 2 then n else fib(n: n - 1) + fib(n: n - 2);
+
+@test_tree_recursion tests @fib () -> void = {
+    assert_eq(actual: fib(n: 15), expected: 610);
+}
+
+// --- Mutual-shaped recursion (Ackermann, small + tractable) ---
+@ack (m: int, n: int) -> int =
+    if m == 0 then n + 1
+    else if n == 0 then ack(m: m - 1, n: 1)
+    else ack(m: m - 1, n: ack(m: m, n: n - 1));
+
+@test_ackermann_small tests @ack () -> void = {
+    assert_eq(actual: ack(m: 2, n: 3), expected: 9);
+}
+
+// --- Method-call recursion (eval_method_body twin) ---
+type Counter = { n: int }
+
+impl Counter {
+    @sum_down (self) -> int =
+        if self.n == 0 then 0
+        else self.n + Counter { n: self.n - 1 }.sum_down();
+}
+
+@test_method_recursion tests @sum_down () -> void = {
+    let c = Counter { n: 50 };
+    // 50*51/2 = 1275
+    assert_eq(actual: c.sum_down(), expected: 1275);
+}
+
+// --- Memoized recursion (eval_call MemoizedFunction arm via recurse()) ---
+@fib_memo (n: int) -> int = recurse(
+    condition: n < 2,
+    base: n,
+    step: self(n - 1) + self(n - 2),
+    memo: true,
+);
+
+@test_memoized_recursion tests @fib_memo () -> void = {
+    assert_eq(actual: fib_memo(n: 20), expected: 6765);
+}

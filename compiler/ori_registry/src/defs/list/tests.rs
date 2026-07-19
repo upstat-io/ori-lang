@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn list_method_count() {
-    assert_eq!(LIST.methods.len(), 59);
+    assert_eq!(LIST.methods.len(), 61);
 }
 
 #[test]
@@ -85,7 +85,6 @@ fn list_self_returning_mutations() {
         "sort_stable",
         "sorted",
         "unique",
-        "flatten",
         "push",
         "append",
         "prepend",
@@ -139,8 +138,6 @@ fn list_higher_order_methods_return_fresh() {
         "filter",
         "flat_map",
         "find",
-        "any",
-        "all",
         "fold",
         "reduce",
         "for_each",
@@ -182,6 +179,22 @@ fn list_push_takes_owned_element() {
 }
 
 #[test]
+fn fixed_capacity_conversions_transfer_the_receiver() {
+    for name in ["to_dynamic", "to_fixed"] {
+        let method = LIST
+            .methods
+            .iter()
+            .find(|method| method.name == name)
+            .unwrap_or_else(|| panic!("List.{name} should exist"));
+        assert_eq!(
+            method.receiver,
+            Ownership::Owned,
+            "List.{name} returns the receiver's allocation identity"
+        );
+    }
+}
+
+#[test]
 fn list_set_takes_index_and_element() {
     let m = LIST
         .methods
@@ -191,6 +204,45 @@ fn list_set_takes_index_and_element() {
     assert_eq!(m.params.len(), 2);
     assert_eq!(m.params[0].ty, ReturnTag::Concrete(TypeTag::Int));
     assert_eq!(m.params[1].ty, ReturnTag::ElementType);
+}
+
+#[test]
+fn persistent_list_mutations_have_runtime_identities() {
+    let expected = [
+        ("insert", MethodRuntime::ListInsert),
+        ("prepend", MethodRuntime::ListPrepend),
+        ("push", MethodRuntime::ListPush),
+        ("remove", MethodRuntime::ListRemove),
+        ("set", MethodRuntime::ListSet),
+        ("updated", MethodRuntime::ListSet),
+    ];
+
+    for (name, runtime) in expected {
+        let method = LIST
+            .methods
+            .iter()
+            .find(|method| method.name == name)
+            .unwrap_or_else(|| panic!("List.{name} should exist"));
+        assert_eq!(method.runtime, Some(runtime), "List.{name}");
+    }
+
+    let tagged = LIST
+        .methods
+        .iter()
+        .filter(|method| {
+            matches!(
+                method.runtime,
+                Some(
+                    MethodRuntime::ListInsert
+                        | MethodRuntime::ListPrepend
+                        | MethodRuntime::ListPush
+                        | MethodRuntime::ListRemove
+                        | MethodRuntime::ListSet
+                )
+            )
+        })
+        .count();
+    assert_eq!(tagged, expected.len());
 }
 
 #[test]
@@ -211,4 +263,34 @@ fn list_methods_alphabetically_sorted() {
     let mut sorted = names.clone();
     sorted.sort_unstable();
     assert_eq!(names, sorted, "List methods must be alphabetically sorted");
+}
+
+#[test]
+fn list_flatten_returns_fresh() {
+    let m = LIST
+        .methods
+        .iter()
+        .find(|m| m.name == "flatten")
+        .unwrap_or_else(|| panic!("flatten method should exist"));
+    assert_eq!(
+        m.returns, FRESH,
+        "List.flatten should return Fresh — its whole purpose is to change \
+         the receiver's shape, which SelfType (bare identity) cannot express."
+    );
+}
+
+#[test]
+fn list_flatten_is_backend_required() {
+    let m = LIST
+        .methods
+        .iter()
+        .find(|m| m.name == "flatten")
+        .unwrap_or_else(|| panic!("flatten method should exist"));
+    assert!(
+        m.backend_required,
+        "List.flatten must be backend_required: true now that the direct-list-method \
+         codegen dispatch arm exists — the backend_required_methods_in_llvm parity test \
+         then mechanically requires the (\"list\",\"flatten\") emitter to stay registered \
+         in the LLVM BuiltinTable, catching a future accidental removal."
+    );
 }

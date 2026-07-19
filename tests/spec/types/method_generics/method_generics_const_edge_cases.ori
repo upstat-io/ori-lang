@@ -1,11 +1,8 @@
-// Spec: 08-declarations.md § Method-level Generics + 06-types.md § Fixed-Capacity Lists
+// Spec: Clause 8.2.2 Fixed-Capacity List; Clause 8.3.1 Const Generic Parameters
 // Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
-// BUG-02-023 §03 Edge Cases — boundary const-arg values (N=0, N=1, N=int_max, negative)
 //
-// Pre-fix failure mode: each test panics at runtime with `undefined variable: N`
-// because the const VALUE is not threaded through canon -> eval. After E0/E1/E2/E3/L3
-// land, the ascription `[int, max K]` on the LHS drives `N=K` inference at the call
-// site and the const value reaches the call_env at body entry.
+// Positive capacities reach the method body as exact const arguments. Zero and
+// negative capacities are rejected before evaluator or LLVM realization.
 
 use std.testing { assert_eq }
 
@@ -15,14 +12,13 @@ impl<T> Vec<T> {
     @first_n<$N: int> (self) -> [T, max N] = self.items.take(count: N).to_fixed<$N>();
 }
 
-#skip("BUG-02-023: const-generic value flow not yet wired; ascription-driven N=0 boundary case awaits eval call-env binding")
+#compile_fail(code: "E2057", message: "fixed-list capacity must be a positive compile-time integer; supplied 0")
 @test_const_zero tests _ () -> void = {
     let v = Vec { items: [1, 2, 3] };
     let none: [int, max 0] = v.first_n();
     assert_eq(actual: none.len(), expected: 0)
 }
 
-#skip("BUG-02-023: ascription-driven N=1 single-element case awaits eval call-env binding")
 @test_const_one tests _ () -> void = {
     let v = Vec { items: [10, 20, 30] };
     let one: [int, max 1] = v.first_n();
@@ -30,18 +26,15 @@ impl<T> Vec<T> {
     assert_eq(actual: one[0], expected: 10)
 }
 
-#skip("BUG-02-023: ascription-driven large literal const; verifies no integer overflow in mangling")
 @test_const_large tests _ () -> void = {
     let v = Vec { items: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] };
     let big: [int, max 1000] = v.first_n();
     assert_eq(actual: big.len(), expected: 10)
 }
 
-#skip("BUG-02-023: negative-literal capacity at type position; signature has no `where N >= 0`, must typecheck per spec; runtime semantics defer to take(count: int)")
+#compile_fail(code: "E2057", message: "fixed-list capacity must be a positive compile-time integer; supplied -1")
 @test_const_negative tests _ () -> void = {
     let v = Vec { items: [1, 2, 3] };
-    // [int, max -1] erases to [int] per TY-2 (target-only fixed-capacity erasure);
-    // const VALUE -1 reaches take(count:) at runtime which returns empty when count<0.
     let neg: [int, max -1] = v.first_n();
     assert_eq(actual: neg.len(), expected: 0)
 }

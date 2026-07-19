@@ -214,7 +214,7 @@ Theorem IC-3: ParamContract componentwise max join + may_share OR
       = Unique ⟹ StaticUnique`. The DP-9 fast path requires
       the converged contract's Uniqueness, not `may_share` —
       `may_share` flows into the EffectSummary OR-join
-      (sec-5 IC-5) and RL-30 LLVM attribute emission (sec-8).
+      (sec-5 IC-5) and RL-30 neutral access-fact derivation (sec-8).
 
     Part (P7) — Commutativity discharge:
 

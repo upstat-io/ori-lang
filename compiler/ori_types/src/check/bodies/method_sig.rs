@@ -57,6 +57,7 @@ pub(super) fn build_method_sig(
         param_types,
         return_type,
         capabilities: vec![],
+        capability_params: vec![],
         is_public: false,
         is_test: false,
         is_main: false,
@@ -69,6 +70,7 @@ pub(super) fn build_method_sig(
         param_defaults,
         param_hashes,
         return_hash,
+        return_projection: None,
     }
 }
 
@@ -97,7 +99,7 @@ pub(super) fn allocate_method_binders(
 /// impl-level (`impl<T: Bound>`) generics. Allocating impl-level generics as
 /// fresh `RigidVar`s (vs the `Tag::Named` fallback at
 /// `registration/type_resolution.rs`) is what makes a body-internal
-/// `receiver.method()` on an impl-level type parameter dispatch via the §10.1
+/// `receiver.method()` on an impl-level type parameter dispatch via the
 /// bound-chain (impl-level bound registered) or surface a method-not-found
 /// (impl-level param unbounded) — both impossible while impl-level `T` stayed
 /// an unresolved `Tag::Named`.
@@ -172,6 +174,17 @@ fn allocate_rigid_vars_for_names(
         map.insert(name, rigid_idx);
     }
     map
+}
+
+/// Allocate an impl-like rigid-binder map for a caller-supplied declaration
+/// order. Extension targets may introduce their binders through the target
+/// itself (`extend [T]`) rather than a `GenericParamRange`, so they cannot use
+/// `allocate_rigid_var_map` directly.
+pub(crate) fn allocate_rigid_var_map_for_names(
+    checker: &mut ModuleChecker<'_>,
+    names: &[Name],
+) -> FxHashMap<Name, Idx> {
+    allocate_rigid_vars_for_names(checker, names)
 }
 
 /// Allocate the impl-level `RigidVar` substitution map (non-const binders only)

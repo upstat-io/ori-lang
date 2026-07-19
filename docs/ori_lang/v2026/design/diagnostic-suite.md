@@ -42,7 +42,7 @@ The diagnostic flags operate at two distinct points in the pipeline:
 
 **Design principle**: All flags are zero-cost when disabled. Compile-time flags use `std::env::var` checked once at startup. Runtime flags use conditional compilation (`#[cfg(debug_assertions)]`) for the check overhead, with the actual instrumentation behind the flag.
 
-**Consistency**: `diagnostics/check-debug-flags.sh` validates that every `ORI_*` flag defined in `compiler/oric/src/debug_flags.rs` is (a) used somewhere in the codebase, (b) not orphaned as a raw `std::env::var` check, and (c) documented in `CLAUDE.md`.
+**Consistency**: `diagnostics/check-debug-flags.sh` validates that every `ORI_*` flag defined under `compiler/oric/src/debug_flags/` is (a) used somewhere in the codebase and (b) not orphaned as a raw `std::env::var` check.
 
 ### Diagnostic Scripts
 
@@ -87,7 +87,7 @@ Three analysis categories:
 
 ### Bug Debugging Workflow
 
-The diagnostic suite is integrated into the project's TDD-for-bugs protocol (see `CLAUDE.md`):
+The diagnostic suite is integrated into the project's TDD-for-bugs protocol:
 
 ```
 1. STOP — Don't jump to fixing
@@ -146,17 +146,13 @@ Test fixtures in `diagnostics/fixtures/` exercise different codegen patterns:
 
 3. Add fixture tests in `self-test.sh`.
 
-4. Document in:
-   - `diagnostics/README.md` (quick reference table + usage section)
-   - `CLAUDE.md` (Commands section, diagnostic scripts block)
-   - `.claude/rules/compiler.md` (Diagnostic Scripts section)
-   - Relevant domain rules files (e.g., `arc.md` for RC tools, `llvm.md` for IR tools)
+4. Document in `diagnostics/README.md` (quick reference table + usage section).
 
 5. Run `diagnostics/self-test.sh` to verify.
 
 ## Adding a New Debug Flag
 
-1. Define the flag in `compiler/oric/src/debug_flags.rs`.
+1. Define the flag in the appropriately-themed submodule under `compiler/oric/src/debug_flags/` (or add a new submodule when no existing theme fits).
 2. Use it in the relevant compiler phase.
-3. Document in `CLAUDE.md` (under the appropriate category: compile-time, runtime, or audit).
+3. Document the flag's purpose and stability tier (stable/experimental/debug-only) in its definition-site doc comment.
 4. Run `diagnostics/check-debug-flags.sh` to validate consistency.

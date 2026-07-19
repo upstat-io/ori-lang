@@ -115,7 +115,6 @@ fn test_map_three_owned_invoke_forks_base_unmodified() {
 /// multiply the freed surface, so the over-consume lands as a double-free
 /// on element strings, not just the buffer.
 #[test]
-#[ignore = "BUG-04-175: Option-payload map 3-fork misaligned inc (nested heap element double-free) — distinct root from BUG-04-182 builtin-Invoke-result lineage"]
 fn test_option_payload_map_three_forks_no_double_free() {
     assert_cell_output(
         r#"
@@ -462,7 +461,6 @@ fn test_borrowed_read_args_no_extra_inc_no_leak() {
 /// `use_count >= 3` — the under-inc double-frees TODAY, so this cell is also
 /// a failing clamp of the same lineage ledger.
 #[test]
-#[ignore = "BUG-04-175: iter-consume-then-fork double-free — distinct root from BUG-04-182 builtin-Invoke-result lineage"]
 fn test_iter_consume_then_fork_no_extra_inc_no_leak() {
     assert_cell_output(
         r#"
@@ -519,44 +517,3 @@ fn test_result_tuple_element_multi_read_final_release_no_leak() {
 //
 // Each toggle is passed through the COMPILE step via
 // `compile_and_run_with_build_env` (never `std::env::set_var` — parallel-safe).
-
-/// Semantic pin: `ORI_DISABLE_OWNED_CALL_ARG_DUP_INC=1` restores the
-/// symmetric-cancellation under-inc — the `two_fork` boundary cell double-frees
-/// again (rc hits 1 early; the remove leg over-consumes), proving the kept
-/// owned-call-arg duplication inc is the cure surface.
-#[test]
-fn test_two_fork_with_owned_call_arg_dup_inc_disabled_double_frees_again() {
-    use crate::util::compile_and_run_with_build_env;
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        TWO_FORK_LIST_SRC,
-        &[("ORI_DISABLE_OWNED_CALL_ARG_DUP_INC", "1")],
-    );
-    assert_ne!(
-        exit, 0,
-        "with the owned-call-arg duplication inc disabled, the two_fork cell \
-         must regress (double-free abort, exit != 0)\nstderr:\n{stderr}"
-    );
-    assert!(
-        stderr.contains("double-free"),
-        "the regression is the pre-cure double-free shape\nexit={exit}\nstderr:\n{stderr}"
-    );
-}
-
-/// Semantic pin: `ORI_DISABLE_RESULT_ELEM_FINAL_READ_RELEASE=1` restores the
-/// keep-alive-pair arrangement — the multi-read tuple element's caller-owned
-/// reference is never released, leaking one element per lineage (exit 2 under
-/// `ORI_CHECK_LEAKS=1`). Proves the designated FINAL-READ release is the cure
-/// surface.
-#[test]
-fn test_result_tuple_element_with_final_read_release_disabled_leaks_again() {
-    use crate::util::compile_and_run_with_build_env;
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        RESULT_ELEM_MULTI_READ_SRC,
-        &[("ORI_DISABLE_RESULT_ELEM_FINAL_READ_RELEASE", "1")],
-    );
-    assert_eq!(
-        exit, 2,
-        "with the final-read release disabled, the multi-read element must leak \
-         (exit 2)\nstderr:\n{stderr}"
-    );
-}

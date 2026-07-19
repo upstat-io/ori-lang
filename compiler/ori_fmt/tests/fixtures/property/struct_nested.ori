@@ -1,0 +1,5 @@
+
+type Inner = { a: int }
+type Outer = { inner: Inner, b: int }
+
+@f () -> Outer = Outer { inner: Inner { a: 1 }, b: 2 }

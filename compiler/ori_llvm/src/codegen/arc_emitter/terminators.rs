@@ -3,7 +3,7 @@
 //! Translates [`ArcTerminator`] variants into LLVM control flow: `ret`, `br`,
 //! `cond_br`, `switch`, `invoke`/`call`, `resume`, and `unreachable`.
 
-use ori_arc::ir::{ArcFunction, ArcTerminator, ArcVarId};
+use ori_arc::ir::{ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
 use ori_ir::{Name, CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN};
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
@@ -16,14 +16,10 @@ use crate::codegen::value_id::{BlockId, FunctionId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit an `ArcTerminator` as LLVM control flow.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "terminator dispatch over Return/Jump/Branch/Switch/Invoke"
-    )]
     pub(super) fn emit_terminator(
         &mut self,
         term: &ArcTerminator,
-        current_block: ori_arc::ir::ArcBlockId,
+        current_block: ArcBlockId,
         _phi_nodes: &[Vec<(ArcVarId, ValueId)>],
         abi: &FunctionAbi,
         landingpad_values: &FxHashMap<usize, ValueId>,
@@ -31,235 +27,215 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) {
         tracing::trace!(?term, block = current_block.index(), "emit_terminator");
         match term {
-            ArcTerminator::Return { value } => {
-                let val = self.var(*value);
-                match &abi.return_abi.passing {
-                    ReturnPassing::Sret { .. } => {
-                        // Skip identity store when the return value was written
-                        // directly to the sret pointer via sret forwarding.
-                        let is_identity = self.sret_forwarded_result.is_some_and(|fwd| fwd == val);
-                        if !is_identity {
-                            let sret_ptr = self.builder.get_param(self.current_function, 0);
-                            self.builder.store(val, sret_ptr);
-                        }
-                        self.builder.ret_void();
-                    }
-                    ReturnPassing::Direct => {
-                        self.builder.ret(val);
-                    }
-                    ReturnPassing::Void => {
-                        self.builder.ret_void();
-                    }
-                }
-            }
-
+            ArcTerminator::Return { value } => self.emit_return_terminator(*value, abi),
             ArcTerminator::Jump { target, args } => {
-                let target_idx = target.index();
-                debug_assert_eq!(
-                    args.len(),
-                    arc_func.blocks[target_idx].params.len(),
-                    "Jump arg count must match target block param count (block {target_idx})"
-                );
-
-                // If inside a SEH funclet (catch-unwind block), exit via catchret
-                // to a trampoline block before branching to the target.
-                // Same pattern as br_exiting_catchpad — kept inline for phi interleaving
-                // (source_block must be read between catchret and br).
-                if let Some((pad, kind)) = self.current_funclet_pad.take() {
-                    match kind {
-                        super::FuncletPadKind::Catch => {
-                            let continue_bb = self
-                                .builder
-                                .append_block(self.current_function, "seh.continue");
-                            self.builder.catchret(pad, continue_bb);
-                            self.builder.position_at_end(continue_bb);
-                        }
-                        super::FuncletPadKind::Cleanup => {
-                            self.builder.record_codegen_error_with_msg(
-                                "Jump terminator inside cleanuppad — \
-                                 cleanup pads must exit via cleanupret (Resume terminator)",
-                            );
-                            self.builder.unreachable();
-                            return;
-                        }
-                    }
-                }
-
-                // Record phi incoming values AFTER potential catchret insertion,
-                // so source_block is the block that will actually br to target.
-                if !args.is_empty() {
-                    let Some(source_block) = self.builder.current_block() else {
-                        tracing::error!("ARC jump: no current block — skipping phi incoming");
-                        self.builder.record_codegen_error();
-                        self.builder.br(self.block(*target));
-                        return;
-                    };
-                    for (i, &arg) in args.iter().enumerate() {
-                        let val = self.var(arg);
-                        // Trunc i64 → narrow for narrowed phi targets
-                        let val = {
-                            let target_var = arc_func.blocks[target_idx].params[i].0;
-                            if let Some(&width) = self.narrowed_vars.get(&target_var) {
-                                let narrow_ty = self.llvm_type_for_int_width(width);
-                                self.builder.trunc(val, narrow_ty, "phi.trunc")
-                            } else {
-                                val
-                            }
-                        };
-                        self.phi_incoming.push((target_idx, i, val, source_block));
-                    }
-                }
-                self.builder.br(self.block(*target));
+                self.emit_jump_terminator(*target, args, arc_func);
             }
-
             ArcTerminator::Branch {
                 cond,
                 then_block,
                 else_block,
             } => {
                 debug_assert!(
-                    self.current_funclet_pad.is_none(),
-                    "Branch terminator inside SEH funclet — \
-                     funclets must exit via catchret/cleanupret, not cond_br"
+                    self.current_cleanup_pad.is_none(),
+                    "Branch terminator inside SEH funclet"
                 );
-                let cond_val = self.var(*cond);
+                let condition = self.var(*cond);
                 self.builder
-                    .cond_br(cond_val, self.block(*then_block), self.block(*else_block));
+                    .cond_br(condition, self.block(*then_block), self.block(*else_block));
             }
-
             ArcTerminator::Switch {
                 scrutinee,
                 cases,
                 default,
-            } => {
-                debug_assert!(
-                    self.current_funclet_pad.is_none(),
-                    "Switch terminator inside SEH funclet — \
-                     funclets must exit via catchret/cleanupret, not switch"
-                );
-                let scrut_val = self.var(*scrutinee);
-
-                // Niche-encoded enum — emit icmp + cond_br instead of switch.
-                // Tagless single-variant enums never populate `niche_scrutinees`
-                // (their Project { field: 0 } yields a plain `const 0`), so they
-                // flow through the standard switch path below.
-                let handled_niche = self
-                    .niche_scrutinees
-                    .get(scrutinee)
-                    .copied()
-                    .and_then(|enum_ty| self.get_niche_encoding(enum_ty));
-                if let Some(encoding) = handled_niche {
-                    self.emit_niche_switch(scrut_val, &encoding, cases, *default);
-                } else {
-                    let llvm_cases: Vec<(ValueId, BlockId)> = cases
-                        .iter()
-                        .map(|&(tag, block_id)| {
-                            let tag_val = self.builder.const_int_matching(scrut_val, tag);
-                            (tag_val, self.block(block_id))
-                        })
-                        .collect();
-                    self.builder
-                        .switch(scrut_val, self.block(*default), &llvm_cases);
-                }
+            } => self.emit_switch_terminator(*scrutinee, cases, *default),
+            ArcTerminator::Invoke { .. } => {
+                self.emit_direct_invoke_terminator(term, arc_func);
             }
-
-            ArcTerminator::Invoke {
-                dst,
-                ty: _,
-                func,
-                args,
-                arg_ownership: _,
-                mono_instance_id,
-                normal,
-                unwind,
-            } => {
-                // On SEH, catch-type invokes use the ori_try_call trampoline
-                // instead of LLVM catchpad (which triggers "Rust panics must
-                // be rethrown" on MSVC).
-                let is_nounwind = self.ctx.nounwind_functions.contains(func);
-                let eh_model = self.builder.eh_model();
-                let is_seh_catch = !is_nounwind
-                    && eh_model == EhModel::Seh
-                    && !matches!(
-                        arc_func.blocks[unwind.index()].terminator,
-                        ArcTerminator::Resume
-                    );
-
-                if is_seh_catch {
-                    self.emit_seh_catch_invoke(
-                        *dst,
-                        *func,
-                        args,
-                        *normal,
-                        *unwind,
-                        arc_func,
-                        *mono_instance_id,
-                    );
-                } else {
-                    self.emit_invoke(
-                        *dst,
-                        *func,
-                        args,
-                        *normal,
-                        *unwind,
-                        arc_func,
-                        *mono_instance_id,
-                    );
-                }
-            }
-
             ArcTerminator::InvokeIndirect {
                 dst,
                 ty,
                 closure,
                 args,
-                arg_ownership: _,
                 normal,
                 unwind,
+                ..
             } => {
                 self.emit_invoke_indirect(*dst, *ty, *closure, args, *normal, *unwind, arc_func);
             }
-
             ArcTerminator::Resume => {
-                match self.builder.eh_model() {
-                    EhModel::Itanium => {
-                        // Re-raise the caught exception using the landingpad token
-                        // captured at the start of this unwind block.
-                        if let Some(&lp_val) = landingpad_values.get(&current_block.index()) {
-                            self.builder.resume(lp_val);
-                        } else {
-                            tracing::warn!(
-                                block = current_block.index(),
-                                "ARC Resume without landingpad — emitting unreachable"
-                            );
-                            self.builder.unreachable();
-                        }
-                    }
-                    EhModel::Seh => {
-                        // SEH: cleanupret re-raises the exception.
-                        // The cleanuppad token was stored in current_funclet_pad
-                        // during the unwind block prelude.
-                        if let Some((pad, _kind)) = self.current_funclet_pad.take() {
-                            self.builder.cleanupret(pad, None);
-                        } else {
-                            tracing::warn!(
-                                block = current_block.index(),
-                                "ARC Resume without cleanuppad — emitting unreachable"
-                            );
-                            self.builder.unreachable();
-                        }
-                    }
+                self.emit_resume_terminator(current_block, landingpad_values);
+            }
+            ArcTerminator::Unreachable => self.builder.unreachable(),
+        }
+    }
+
+    fn emit_return_terminator(&mut self, value: ArcVarId, abi: &FunctionAbi) {
+        let value = self.var(value);
+        match abi.return_abi.passing {
+            ReturnPassing::Sret { .. } => {
+                if self.sret_forwarded_result != Some(value) {
+                    let output = self.builder.get_param(self.current_function, 0);
+                    self.builder.store(value, output);
+                }
+                self.builder.ret_void();
+            }
+            ReturnPassing::Direct => self.builder.ret(value),
+            ReturnPassing::Void => self.builder.ret_void(),
+        }
+    }
+
+    fn emit_jump_terminator(
+        &mut self,
+        target: ArcBlockId,
+        args: &[ArcVarId],
+        arc_func: &ArcFunction,
+    ) {
+        let target_index = target.index();
+        debug_assert_eq!(
+            args.len(),
+            arc_func.blocks[target_index].params.len(),
+            "Jump arg count must match target block param count (block {target_index})"
+        );
+        if self.current_cleanup_pad.take().is_some() {
+            self.builder.record_codegen_error_with_msg(
+                "Jump terminator inside cleanuppad; cleanup pads must exit with Resume",
+            );
+            self.builder.unreachable();
+            return;
+        }
+        if args.is_empty() {
+            self.builder.br(self.block(target));
+            return;
+        }
+
+        let Some(source_block) = self.builder.current_block() else {
+            tracing::error!("ARC jump: no current block — skipping phi incoming");
+            self.builder.record_codegen_error();
+            self.builder.br(self.block(target));
+            return;
+        };
+        for (param_index, &arg) in args.iter().enumerate() {
+            let value = self.var(arg);
+            let target_var = arc_func.blocks[target_index].params[param_index].0;
+            let value = if let Some(&width) = self.narrowed_vars.get(&target_var) {
+                let narrow_ty = self.llvm_type_for_int_width(width);
+                self.builder.trunc(value, narrow_ty, "phi.trunc")
+            } else {
+                value
+            };
+            self.phi_incoming
+                .push((target_index, param_index, value, source_block));
+        }
+        self.builder.br(self.block(target));
+    }
+
+    fn emit_switch_terminator(
+        &mut self,
+        scrutinee: ArcVarId,
+        cases: &[(u64, ArcBlockId)],
+        default: ArcBlockId,
+    ) {
+        debug_assert!(
+            self.current_cleanup_pad.is_none(),
+            "Switch terminator inside SEH funclet"
+        );
+        let value = self.var(scrutinee);
+        let niche_encoding = self
+            .niche_scrutinees
+            .get(&scrutinee)
+            .copied()
+            .and_then(|enum_ty| self.get_niche_encoding(enum_ty));
+        if let Some(encoding) = niche_encoding {
+            self.emit_niche_switch(value, &encoding, cases, default);
+            return;
+        }
+
+        let llvm_cases = cases
+            .iter()
+            .map(|&(tag, block)| {
+                let tag_value = self.builder.const_int_matching(value, tag);
+                (tag_value, self.block(block))
+            })
+            .collect::<Vec<_>>();
+        self.builder.switch(value, self.block(default), &llvm_cases);
+    }
+
+    fn emit_direct_invoke_terminator(&mut self, term: &ArcTerminator, arc_func: &ArcFunction) {
+        let ArcTerminator::Invoke {
+            dst,
+            func,
+            args,
+            mono_instance_id,
+            normal,
+            unwind,
+            ..
+        } = term
+        else {
+            unreachable!("direct invoke helper requires Invoke")
+        };
+
+        let is_nounwind = self.ctx.nounwind_functions.contains(func);
+        let is_seh_catch = !is_nounwind
+            && self.builder.eh_model() == EhModel::Seh
+            && !matches!(
+                arc_func.blocks[unwind.index()].terminator,
+                ArcTerminator::Resume
+            );
+        if is_seh_catch {
+            self.emit_seh_catch_invoke(
+                *dst,
+                *func,
+                args,
+                *normal,
+                *unwind,
+                arc_func,
+                *mono_instance_id,
+            );
+        } else {
+            self.emit_invoke(
+                *dst,
+                *func,
+                args,
+                *normal,
+                *unwind,
+                arc_func,
+                *mono_instance_id,
+            );
+        }
+    }
+
+    fn emit_resume_terminator(
+        &mut self,
+        current_block: ArcBlockId,
+        landingpad_values: &FxHashMap<usize, ValueId>,
+    ) {
+        match self.builder.eh_model() {
+            EhModel::Itanium => {
+                if let Some(&landingpad) = landingpad_values.get(&current_block.index()) {
+                    self.builder.resume(landingpad);
+                } else {
+                    tracing::warn!(
+                        block = current_block.index(),
+                        "ARC Resume without landingpad — emitting unreachable"
+                    );
+                    self.builder.unreachable();
                 }
             }
-
-            ArcTerminator::Unreachable => {
-                self.builder.unreachable();
+            EhModel::Seh => {
+                if let Some(pad) = self.current_cleanup_pad.take() {
+                    self.builder.cleanupret(pad, None);
+                } else {
+                    tracing::warn!(
+                        block = current_block.index(),
+                        "ARC Resume without cleanuppad — emitting unreachable"
+                    );
+                    self.builder.unreachable();
+                }
             }
         }
     }
 
-    /// Emit an `Invoke` terminator (ABI-aware function call with unwind).
-    ///
     /// Emit a niche-aware switch as `icmp eq` + `cond_br`.
     ///
     /// For 2-variant niche enums (Option, Result): compare the raw niche field
@@ -338,24 +314,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         };
 
-        // Intercept ori_format_* calls: decompose string struct arg into (ptr, len).
-        if let Some(val) = self.try_emit_format_call(callee, arc_args, arc_func) {
-            self.br_exiting_catchpad(normal_block);
-            self.builder.position_at_end(normal_block);
-            self.def_var_repr(dst, val, arc_func);
-            return;
-        }
+        // Arm intercepted unwind routing before every interception tier,
+        // including prelude functions. Checked `int`/`byte` conversions live
+        // in that early tier and must retain their cleanup/catch edge.
+        self.intercepted_unwind = (callee_intercepted
+            && !unwind_is_empty_cleanup
+            && self.current_cleanup_pad.is_none()
+            && self.intercept_routes_unwind(callee, dst, arc_args, arc_func))
+        .then(|| self.block(unwind));
 
-        // Prelude builtin functions (str, int, float, byte, hash_combine, etc.)
-        if let Some(val) = super::builtins::prelude::try_emit_prelude_function(
-            self,
-            func_name_str,
+        let runtime_projection_allowed = self.runtime_projection_allowed(arc_func, dst);
+        if self.try_emit_invoke_runtime_projection(
+            dst,
+            callee,
             arc_args,
+            normal_block,
             arc_func,
+            runtime_projection_allowed,
         ) {
-            self.br_exiting_catchpad(normal_block);
-            self.builder.position_at_end(normal_block);
-            self.def_var_repr(dst, val, arc_func);
+            self.intercepted_unwind = None;
             return;
         }
 
@@ -385,45 +362,92 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // so cleanup decs run on the panic path and the panic lands in an
         // enclosing `catch(expr:)` handler. Same predicate as
         // `detect_dead_unwind_blocks` (the block is live iff this fires).
-        self.intercepted_unwind = (callee_intercepted
-            && !unwind_is_empty_cleanup
-            && self.current_funclet_pad.is_none()
-            && self.intercept_routes_unwind(callee, arc_args, arc_func))
-        .then(|| self.block(unwind));
         // Internal protocol intercepts: `__index` arrives as an Invoke when
         // the receiver can panic (list OOB → `ori_list_get`); the armed
         // route above sends that runtime call through `invoke`.
-        if self.try_emit_protocol(dst, callee, arc_args, arc_func) {
+        if runtime_projection_allowed && self.try_emit_protocol(dst, callee, arc_args, arc_func) {
             self.intercepted_unwind = None;
-            self.br_exiting_catchpad(normal_block);
+            self.br_outside_cleanup_pad(normal_block);
             self.builder.position_at_end(normal_block);
             return;
         }
-        let builtin_val =
-            self.try_emit_builtin_method(callee, arc_args, arc_func, arc_func.var_type(dst));
+        let builtin_val = runtime_projection_allowed.then(|| {
+            self.try_emit_builtin_method(callee, arc_args, arc_func, arc_func.var_type(dst))
+                .or_else(|| {
+                    self.try_emit_builtin_associated(callee, arc_args, arc_func.var_type(dst))
+                })
+        });
+        let builtin_val = builtin_val.flatten();
         self.intercepted_unwind = None;
 
         if let Some(val) = builtin_val {
             // Builtin method handled inline — branch to normal block
             // (the current block needs a terminator since we skipped invoke)
-            self.br_exiting_catchpad(normal_block);
+            self.br_outside_cleanup_pad(normal_block);
             self.builder.position_at_end(normal_block);
             self.def_var_repr(dst, val, arc_func);
-        } else if let Some(func_id) = self.builder.try_runtime_fn(func_name_str) {
+        } else if let Some(func_id) = runtime_projection_allowed
+            .then(|| self.builder.try_runtime_fn(func_name_str))
+            .flatten()
+        {
             self.emit_runtime_fn_call(dst, func_id, callee, arc_args, &arg_vals, mode, arc_func);
         } else {
-            let msg =
-                format!("unresolved function `{func_name_str}` in invoke — missing mono instance?");
+            let msg = self.unresolved_direct_call_message(arc_func, dst, func_name_str, "invoke");
             tracing::warn!("{msg}");
             // Emit a branch to the normal block so the IR stays well-formed
             // (every block must have a terminator).
-            self.br_exiting_catchpad(normal_block);
+            self.br_outside_cleanup_pad(normal_block);
             self.builder.position_at_end(normal_block);
             // Bind dst to unit constant so successor blocks don't crash
             let unit = self.builder.const_i64(0);
             self.def_var(dst, EmittedValue::Immediate(unit));
             self.builder.record_codegen_error_with_msg(msg);
         }
+    }
+
+    /// Emit runtime-backed direct-call projections before closed target resolution.
+    fn try_emit_invoke_runtime_projection(
+        &mut self,
+        dst: ArcVarId,
+        callee: Name,
+        arc_args: &[ArcVarId],
+        normal_block: BlockId,
+        arc_func: &ArcFunction,
+        runtime_projection_allowed: bool,
+    ) -> bool {
+        if !runtime_projection_allowed {
+            return false;
+        }
+
+        // Format, prelude, and traceless accessors are ordered to match Apply
+        // emission and must run before a same-named declaration is resolved.
+        let callee_name = self.interner.lookup(callee);
+        let value = self
+            .try_emit_format_call(callee, arc_args, arc_func)
+            .or_else(|| {
+                super::builtins::prelude::try_emit_prelude_function(
+                    self,
+                    callee_name,
+                    arc_args,
+                    arc_func,
+                )
+            })
+            .or_else(|| {
+                self.try_emit_traceless_traceable(
+                    callee,
+                    arc_args,
+                    arc_func,
+                    arc_func.var_type(dst),
+                )
+            });
+
+        let Some(value) = value else {
+            return false;
+        };
+        self.br_outside_cleanup_pad(normal_block);
+        self.builder.position_at_end(normal_block);
+        self.def_var_repr(dst, value, arc_func);
+        true
     }
 
     /// Emit an `InvokeIndirect` terminator — indirect call through a closure
@@ -471,32 +495,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         };
 
-        let ptr_ty = self.builder.ptr_type();
-        let mut arg_vals = Vec::with_capacity(1 + args.len());
-        let mut param_types = Vec::with_capacity(1 + args.len());
-        arg_vals.push(env_ptr);
-        param_types.push(ptr_ty);
-
-        for &a in args {
-            let arg_ty = arc_func.var_type(a);
-            let passing =
-                crate::codegen::abi::compute_param_passing(arg_ty, self.type_info, self.repr_plan);
-            match passing {
-                crate::codegen::abi::ParamPassing::Indirect { .. }
-                | crate::codegen::abi::ParamPassing::Reference => {
-                    let llvm_ty = self.resolve_type(arg_ty);
-                    let alloca = self.builder.alloca(llvm_ty, "icall.arg.tmp");
-                    self.builder.store(self.var(a), alloca);
-                    arg_vals.push(alloca);
-                    param_types.push(ptr_ty);
-                }
-                crate::codegen::abi::ParamPassing::Void => {}
-                crate::codegen::abi::ParamPassing::Direct => {
-                    arg_vals.push(self.var(a));
-                    param_types.push(self.resolve_type(arg_ty));
-                }
-            }
-        }
+        let (arg_vals, param_types) = self.marshal_indirect_call_args(env_ptr, args, arc_func);
 
         let ret_ty = self.resolve_type(ty);
         let ret_is_indirect =
@@ -513,7 +512,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 &arg_vals,
                 arc_func,
             );
-            self.br_exiting_catchpad(normal_block);
+            self.br_outside_cleanup_pad(normal_block);
             self.builder.position_at_end(normal_block);
         } else {
             // Real unwind path — emit LLVM `invoke`.
@@ -549,7 +548,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) {
         if ret_is_indirect {
             let sret_alloca = self.builder.alloca(ret_ty, "icall.sret");
-            if let Some((pad, _kind)) = self.current_funclet_pad {
+            if let Some(pad) = self.current_cleanup_pad {
                 self.builder.call_indirect_with_sret_and_funclet(
                     ret_ty,
                     param_types,
@@ -569,7 +568,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
             let loaded = self.builder.load(ret_ty, sret_alloca, "icall.sret.load");
             self.def_var_repr(dst, loaded, arc_func);
-        } else if let Some((pad, _kind)) = self.current_funclet_pad {
+        } else if let Some(pad) = self.current_cleanup_pad {
             let result = self.builder.call_indirect_with_funclet(
                 ret_ty,
                 param_types,

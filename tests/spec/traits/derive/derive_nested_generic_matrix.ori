@@ -1,0 +1,43 @@
+// Spec: 06-types.md § Derive — nested-generic struct derive, int equality/hash/order cells
+
+use std.testing { assert }
+
+#[derive(Eq, Hashable, Comparable, Clone)]
+#[derive(Debug, Printable, Default)]
+type Wrap<T> = { inner: T }
+
+// Default derivation is intentionally present on Wrap<T>; calling `.default()` on
+// a generic instantiation is a separate associated-function limitation, not part
+// of this matrix.
+
+@test_nested_int_eq tests @nested_int_eq () -> void = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    let b = Wrap { inner: Wrap { inner: 7 } };
+    let c = Wrap { inner: Wrap { inner: 8 } };
+    assert(cond: a == b);
+    assert(cond: a != c)
+}
+@nested_int_eq () -> bool = {
+    Wrap { inner: Wrap { inner: 7 } } == Wrap { inner: Wrap { inner: 7 } }
+}
+
+@test_nested_int_hash tests @nested_int_hash () -> void = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    let b = Wrap { inner: Wrap { inner: 7 } };
+    let c = Wrap { inner: Wrap { inner: 8 } };
+    assert(cond: a.hash() == b.hash());
+    assert(cond: a.hash() != c.hash())
+}
+@nested_int_hash () -> bool = {
+    Wrap { inner: Wrap { inner: 7 } }.hash() == Wrap { inner: Wrap { inner: 7 } }.hash()
+}
+
+@test_nested_int_compare tests @nested_int_compare () -> void = {
+    let small = Wrap { inner: Wrap { inner: 1 } };
+    let big = Wrap { inner: Wrap { inner: 2 } };
+    assert(cond: small < big);
+    assert(cond: big > small)
+}
+@nested_int_compare () -> bool = {
+    Wrap { inner: Wrap { inner: 1 } } < Wrap { inner: Wrap { inner: 2 } }
+}

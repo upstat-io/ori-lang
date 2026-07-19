@@ -472,12 +472,13 @@ fn safety_panic_call_detected() {
     }
 
     // Should also have a summary
-    let summaries: Vec<_> = report
-        .findings
-        .iter()
-        .filter(|f| matches!(f.kind, FindingKind::SafetyCheckSummary { .. }))
-        .collect();
-    assert!(!summaries.is_empty(), "should have safety summary");
+    assert!(
+        report
+            .findings
+            .iter()
+            .any(|f| matches!(f.kind, FindingKind::SafetyCheckSummary { .. })),
+        "should have safety summary"
+    );
 }
 
 /// 04.4: `ori_assert_eq_int` is detected as a safety check.
@@ -708,13 +709,11 @@ fn safety_unconditional_branch_not_detected() {
     );
 
     // But should still detect the call itself
-    let calls: Vec<_> = report
-        .findings
-        .iter()
-        .filter(|f| matches!(f.kind, FindingKind::SafetyCheckCall { .. }))
-        .collect();
     assert!(
-        !calls.is_empty(),
+        report
+            .findings
+            .iter()
+            .any(|f| matches!(f.kind, FindingKind::SafetyCheckCall { .. })),
         "should still detect the call to ori_panic"
     );
 }
@@ -932,12 +931,15 @@ fn function_filter_skips_non_matching() {
 
     // Without filter: both leaks detected
     let report = audit_module(&module);
-    let leaks: Vec<_> = report
-        .findings
-        .iter()
-        .filter(|f| matches!(f.kind, FindingKind::RcLeak { .. }))
-        .collect();
-    assert_eq!(leaks.len(), 2, "both functions should report leaks");
+    assert_eq!(
+        report
+            .findings
+            .iter()
+            .filter(|f| matches!(f.kind, FindingKind::RcLeak { .. }))
+            .count(),
+        2,
+        "both functions should report leaks"
+    );
 
     // With filter for "target": only target_fn leak
     let filtered_opts = AuditOptions {
@@ -958,7 +960,7 @@ fn function_filter_skips_non_matching() {
     assert_eq!(filtered_leaks[0].function_name, "target_fn");
 }
 
-// --- RC stats integration tests ---
+// RC stats integration tests
 
 #[test]
 fn test_audit_module_populates_rc_stats_with_counts() {

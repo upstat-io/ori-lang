@@ -1,7 +1,8 @@
 // Golden test: Multi-line sum type definitions
 // Spec: 08-declarations.md § Type Definitions
 // Design: tooling/formatter/design/02-constructs/declarations.md
-// Note: Sum types with many variants are formatted one per line with leading |
+// Note: Sum types with many variants are formatted one per line — first
+// variant bare, continuation variants prefixed with `| `.
 
 type Event = Click(x: int, y: int) | KeyPress(key: char, modifiers: int) | Scroll(delta_x: float, delta_y: float) | Resize(width: int, height: int);
 

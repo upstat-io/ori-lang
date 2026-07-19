@@ -2,15 +2,37 @@
 
 use ori_ir::{Name, Span};
 
-use super::super::InferEngine;
-use super::substitute_type_params_with_map;
 use crate::{Idx, TypeCheckError, TypeKind, TypeRegistry, VariantFields};
 
+use super::super::InferEngine;
+use super::substitute_type_params_with_map;
+
+/// Constructor info extracted from `TypeRegistry` (avoids borrow conflicts).
+pub(crate) enum ConstructorInfo {
+    Newtype {
+        underlying: Idx,
+        type_idx: Idx,
+    },
+    /// Unit variant (no fields).
+    /// For generic enums (e.g., `MyNone` from `MyOption<T>`), we need the type params
+    /// to instantiate fresh variables so that `MyNone` becomes `MyOption<$fresh>`.
+    UnitVariant {
+        enum_idx: Idx,
+        enum_name: Name,
+        type_params: Vec<Name>,
+    },
+    /// Tuple variant constructor with field types, base enum idx/name, and type parameter names.
+    /// For generic enums (e.g., `MyOk(value: T)` from `MyResult<T, E>`), the field types
+    /// may contain `Named(param_name)` indices that need substitution with fresh variables.
+    TupleVariant {
+        field_types: Vec<Idx>,
+        enum_idx: Idx,
+        enum_name: Name,
+        type_params: Vec<Name>,
+    },
+}
+
 /// Infer the type of an identifier reference.
-#[expect(
-    clippy::too_many_lines,
-    reason = "exhaustive identifier resolution: env, constructors, builtins, and prelude functions"
-)]
 pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) -> Idx {
     // 1. Environment lookup (functions, parameters, let bindings)
     if let Some(scheme) = engine.env().lookup(name) {
@@ -26,6 +48,13 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
         if let Some(self_ty) = engine.self_type() {
             return self_ty;
         }
+    }
+
+    // Module constructors shadow universe builtins. In particular, a local
+    // sum-type variant named `Error` must resolve before the builtin
+    // `Error(str) -> Error` constructor below.
+    if let Some(ctor) = resolve_variant_constructor_info(engine, name) {
+        return infer_constructor(engine, ctor);
     }
 
     if let Some(s) = name_str {
@@ -61,7 +90,7 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
             return prelude_function_to_idx(engine, prelude_fn);
         }
 
-        // 6. Type names used as expression-level receivers for associated functions
+        // 5. Type names used as expression-level receivers for associated functions
         //    e.g., Duration.from_seconds(s: 5), Size.from_bytes(b: 100)
         match s {
             "Duration" | "duration" => return Idx::DURATION,
@@ -71,78 +100,24 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
         }
     }
 
-    // 7. TypeRegistry: newtype constructors, enum variant constructors
-    //    Extract data with immutable borrow, then release before pool_mut
-    if let Some(ctor) = resolve_type_constructor_info(engine, name) {
-        return match ctor {
-            ConstructorInfo::Newtype {
-                underlying,
-                type_idx,
-            } => engine.pool_mut().function(&[underlying], type_idx),
-            ConstructorInfo::UnitVariant {
-                enum_idx,
-                enum_name,
-                type_params,
-            } => {
-                if type_params.is_empty() {
-                    // Non-generic enum: return bare idx
-                    enum_idx
-                } else {
-                    // Generic enum unit variant: instantiate fresh vars
-                    // e.g., `MyNone` becomes `MyOption<$fresh>`
-                    let fresh_vars: Vec<Idx> = type_params
-                        .iter()
-                        .map(|_| engine.pool_mut().fresh_var())
-                        .collect();
-                    engine.pool_mut().applied(enum_name, &fresh_vars)
-                }
-            }
-            ConstructorInfo::TupleVariant {
-                field_types,
-                enum_idx,
-                enum_name,
-                type_params,
-            } => {
-                if type_params.is_empty() {
-                    // Non-generic enum: use field types directly
-                    engine.pool_mut().function(&field_types, enum_idx)
-                } else {
-                    // Generic enum: instantiate fresh type variables for type parameters
-                    // Create fresh vars for each type parameter
-                    let fresh_vars: Vec<Idx> = type_params
-                        .iter()
-                        .map(|_| engine.pool_mut().fresh_var())
-                        .collect();
-
-                    // Build substitution map: type_param_name -> fresh_var
-                    let subst_map: Vec<(Name, Idx)> = type_params
-                        .into_iter()
-                        .zip(fresh_vars.iter().copied())
-                        .collect();
-
-                    // Substitute type params in field types
-                    let substituted_fields: Vec<Idx> = field_types
-                        .iter()
-                        .map(|&ft| substitute_type_params_with_map(engine, ft, &subst_map))
-                        .collect();
-
-                    // Build the return type: Applied(enum_name, fresh_vars) for generics
-                    // This creates e.g. MyResult<$0, $1> for a generic MyResult<T, E>
-                    let ret_type = engine.pool_mut().applied(enum_name, &fresh_vars);
-
-                    engine.pool_mut().function(&substituted_fields, ret_type)
-                }
-            }
-        };
-    }
-
-    // 8. Built-in Error constructor (after TypeRegistry so user-defined Error variants win)
+    // 5.5. Built-in `Error(message)` constructor.
+    // MUST precede step 6: the user-facing `Error` is now a registered builtin
+    // struct (`{ message: str }`), so step 6's `resolve_type_constructor_info`
+    // would catch it as a bare `UnitVariant` type (not callable → "expected a
+    // function, found Error"). The `Error(str) -> Error` constructor
+    // builds `(str) -> named("Error")`, which resolves to the struct Idx.
     if name_str == Some("Error") {
         let error_type = engine.pool_mut().named(name);
         return engine.pool_mut().function(&[Idx::STR], error_type);
     }
 
-    // 9. Unknown identifier — find similar names for typo suggestions
+    // 6. TypeRegistry: newtype constructors, enum variant constructors
+    //    Extract data with immutable borrow, then release before pool_mut
+    if let Some(ctor) = resolve_type_constructor_info(engine, name) {
+        return infer_constructor(engine, ctor);
+    }
+
+    // 7. Unknown identifier — find similar names for typo suggestions.
     let similar = engine
         .env()
         .find_similar(name, 3, |n| engine.lookup_name(n));
@@ -150,29 +125,85 @@ pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) 
     Idx::ERROR
 }
 
-/// Constructor info extracted from `TypeRegistry` (avoids borrow conflicts).
-pub(crate) enum ConstructorInfo {
-    Newtype {
-        underlying: Idx,
-        type_idx: Idx,
-    },
-    /// Unit variant (no fields).
-    /// For generic enums (e.g., `MyNone` from `MyOption<T>`), we need the type params
-    /// to instantiate fresh variables so that `MyNone` becomes `MyOption<$fresh>`.
-    UnitVariant {
-        enum_idx: Idx,
-        enum_name: Name,
-        type_params: Vec<Name>,
-    },
-    /// Tuple variant constructor with field types, base enum idx/name, and type parameter names.
-    /// For generic enums (e.g., `MyOk(value: T)` from `MyResult<T, E>`), the field types
-    /// may contain `Named(param_name)` indices that need substitution with fresh variables.
-    TupleVariant {
-        field_types: Vec<Idx>,
-        enum_idx: Idx,
-        enum_name: Name,
-        type_params: Vec<Name>,
-    },
+fn infer_constructor(engine: &mut InferEngine<'_>, ctor: ConstructorInfo) -> Idx {
+    match ctor {
+        ConstructorInfo::Newtype {
+            underlying,
+            type_idx,
+        } => engine.pool_mut().function(&[underlying], type_idx),
+        ConstructorInfo::UnitVariant {
+            enum_idx,
+            enum_name,
+            type_params,
+        } => {
+            if type_params.is_empty() {
+                return enum_idx;
+            }
+
+            let fresh_vars: Vec<Idx> = type_params
+                .iter()
+                .map(|_| engine.pool_mut().fresh_var())
+                .collect();
+            engine.pool_mut().applied(enum_name, &fresh_vars)
+        }
+        ConstructorInfo::TupleVariant {
+            field_types,
+            enum_idx,
+            enum_name,
+            type_params,
+        } => {
+            if type_params.is_empty() {
+                return engine.pool_mut().function(&field_types, enum_idx);
+            }
+
+            let fresh_vars: Vec<Idx> = type_params
+                .iter()
+                .map(|_| engine.pool_mut().fresh_var())
+                .collect();
+            let subst_map: Vec<(Name, Idx)> = type_params
+                .into_iter()
+                .zip(fresh_vars.iter().copied())
+                .collect();
+            let substituted_fields: Vec<Idx> = field_types
+                .iter()
+                .map(|&field| substitute_type_params_with_map(engine, field, &subst_map))
+                .collect();
+            let return_type = engine.pool_mut().applied(enum_name, &fresh_vars);
+
+            engine.pool_mut().function(&substituted_fields, return_type)
+        }
+    }
+}
+
+fn resolve_variant_constructor_info(
+    engine: &InferEngine<'_>,
+    name: Name,
+) -> Option<ConstructorInfo> {
+    let registry = engine.type_registry()?;
+    let (type_entry, variant_def) = registry.lookup_variant_def(name)?;
+    let enum_idx = type_entry.idx;
+    let enum_name = type_entry.name;
+    let type_params = type_entry.type_params.clone();
+
+    Some(match &variant_def.fields {
+        VariantFields::Unit => ConstructorInfo::UnitVariant {
+            enum_idx,
+            enum_name,
+            type_params,
+        },
+        VariantFields::Tuple(types) => ConstructorInfo::TupleVariant {
+            field_types: types.clone(),
+            enum_idx,
+            enum_name,
+            type_params,
+        },
+        VariantFields::Record(fields) => ConstructorInfo::TupleVariant {
+            field_types: fields.iter().map(|field| field.ty).collect(),
+            enum_idx,
+            enum_name,
+            type_params,
+        },
+    })
 }
 
 /// Look up a name in the `TypeRegistry` to find constructor info.
@@ -207,35 +238,7 @@ pub(crate) fn resolve_type_constructor_info(
         };
     }
 
-    // Check if name is an enum variant constructor
-    let (type_entry, variant_def) = registry.lookup_variant_def(name)?;
-    let enum_idx = type_entry.idx;
-    let enum_name = type_entry.name;
-    let type_params = type_entry.type_params.clone();
-
-    Some(match &variant_def.fields {
-        VariantFields::Unit => ConstructorInfo::UnitVariant {
-            enum_idx,
-            enum_name,
-            type_params,
-        },
-        VariantFields::Tuple(types) => ConstructorInfo::TupleVariant {
-            field_types: types.clone(),
-            enum_idx,
-            enum_name,
-            type_params,
-        },
-        VariantFields::Record(fields) => {
-            // Record variants can be constructed with positional args
-            let field_types: Vec<Idx> = fields.iter().map(|f| f.ty).collect();
-            ConstructorInfo::TupleVariant {
-                field_types,
-                enum_idx,
-                enum_name,
-                type_params,
-            }
-        }
-    })
+    resolve_variant_constructor_info(engine, name)
 }
 
 /// Infer the type of a function reference (@name).
@@ -342,6 +345,7 @@ fn prelude_function_to_idx(
     // Build return type
     let ret = match def.returns {
         ReturnTag::Concrete(tag) => super::registry_bridge::type_tag_to_idx(tag),
+        ReturnTag::Unit => Idx::UNIT,
         ReturnTag::IteratorOf(_) => {
             // For repeat: (T) -> Iterator<T>, use the first fresh var
             let elem = first_fresh.unwrap_or_else(|| engine.pool_mut().fresh_var());

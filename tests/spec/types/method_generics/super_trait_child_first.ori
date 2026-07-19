@@ -16,5 +16,6 @@ trait Super {
     @generic<T> (self) -> T
 }
 
-#compile_fail(code: "E2024", message: "not object-safe")
+#compile_fail(code: "E2024")
+@super_trait_child_first tests _ () -> void = { () }
 @uses_sub (s: Sub) -> int = s.ok();

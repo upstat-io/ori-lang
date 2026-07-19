@@ -27,8 +27,8 @@ fn type_id_to_str_void_is_keyword() {
 
 #[test]
 fn type_id_to_str_unknown_for_compound() {
-    // Compound types should not appear in ParsedType::Primitive,
-    // but if they do, we get "unknown" rather than a panic.
+    // Compound types should not appear in ParsedType::Primitive;
+    // if one does, the result is "unknown" rather than a panic.
     assert_eq!(
         type_id_to_str(TypeId::from_raw(TypeId::FIRST_COMPOUND)),
         "unknown"

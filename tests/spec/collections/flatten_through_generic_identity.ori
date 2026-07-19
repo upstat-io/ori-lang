@@ -1,0 +1,21 @@
+// List.flatten() through a generic single-element wrap — pins that the
+// computed return type resolves the receiver's FIRST-PEEL element through
+// an unresolved unification variable before testing Tag::List, not against
+// the raw, still-unresolved var stored in the wrapping list's data field.
+//
+// `wrap<T>(x: T) -> [T] = [x]` buries the call's fresh type variable one
+// level inside the outer list's data field — the receiver's OWN top-level
+// tag is already `Tag::List` (concrete), so it evades the shallow
+// `engine.resolve()` top-level chase in method-receiver resolution. Only
+// `computed_list_return`'s explicit `resolve_fully` on the first-peeled
+// element sees through to the variable's linked target.
+
+use std.testing { assert_eq }
+
+@wrap<T> (x: T) -> [T] = [x];
+
+@flattened_via_generic_wrap () -> [[int]] = wrap(x: [[1, 2], [3, 4]]).flatten();
+
+@test_flatten_through_generic_wrap tests @flattened_via_generic_wrap () -> void = {
+    assert_eq(actual: flattened_via_generic_wrap(), expected: [[1, 2], [3, 4]])
+}

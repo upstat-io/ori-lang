@@ -54,6 +54,9 @@
 #include <string.h>
 #include <unistd.h>
 
+/* Rust-side reporter for a panic that exhausted the native unwind stack. */
+extern void ori_report_unhandled_exception(int unwind_code);
+
 /* ── DWARF pointer encoding constants ────────────────────────────── */
 
 #define DW_EH_PE_absptr  0x00
@@ -419,8 +422,8 @@ static void ori_exception_cleanup(
  * Allocates an OriException on the heap, sets up the Itanium
  * _Unwind_Exception header, and calls _Unwind_RaiseException.
  *
- * If _Unwind_RaiseException returns (no handler found, or
- * internal error), prints a fatal message and aborts.
+ * If _Unwind_RaiseException returns, report the stored panic message and a
+ * friendly invariant-failure diagnostic before terminating.
  */
 __attribute__((noreturn))
 void ori_raise_exception(void) {
@@ -435,12 +438,10 @@ void ori_raise_exception(void) {
 
     _Unwind_Reason_Code result = _Unwind_RaiseException(&exc->header);
 
-    /* _Unwind_RaiseException should not return on success.
-     * If it does, no handler was found or an internal error occurred. */
+    /* _Unwind_RaiseException should not return on success. If it does, the
+     * generated program or embedding boundary omitted its exception handler. */
     free(exc);
-    fprintf(stderr,
-        "ori: fatal — _Unwind_RaiseException returned (code %d)\n",
-        (int)result);
+    ori_report_unhandled_exception((int)result);
     _exit(ORI_FATAL_EXIT_CODE);
 }
 

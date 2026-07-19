@@ -1,0 +1,7 @@
+@make () -> Result<str, [int]> = Err([10, 20, 30]);
+
+@main () -> int = {
+    let r = make();
+    let v = r.unwrap_err();
+    if v == [10, 20, 30] then 0 else 1
+}

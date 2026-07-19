@@ -1,5 +1,5 @@
 use ori_ir::ast::Expr;
-use ori_ir::canon::{CanExpr, ConstValue};
+use ori_ir::canon::{CanExpr, ConstEvalProblemKind, ConstValue};
 use ori_ir::{
     BinaryOp, DurationUnit, ExprArena, ExprKind, SharedInterner, SizeUnit, Span, UnaryOp,
 };
@@ -1059,4 +1059,133 @@ fn fold_size_div_int() {
         }
         other => panic!("expected Constant(250b), got {other:?}"),
     }
+}
+
+#[test]
+fn required_constant_reports_division_by_zero() {
+    let mut arena = ExprArena::new();
+    let left = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::DUMMY));
+    let right = arena.alloc_expr(Expr::new(ExprKind::Int(0), Span::DUMMY));
+    let root = arena.alloc_expr(Expr::new(
+        ExprKind::Binary {
+            op: BinaryOp::Div,
+            left,
+            right,
+        },
+        Span::DUMMY,
+    ));
+    let type_result = test_type_result(vec![Idx::INT; 3]);
+    let pool = ori_types::Pool::new();
+    let interner = test_interner();
+    let result = lower(&arena, &type_result, &pool, root, &interner);
+
+    assert_eq!(
+        super::evaluate_constant(&result.arena, &result.constants, result.root),
+        Err(ConstEvalProblemKind::DivisionByZero)
+    );
+}
+
+#[test]
+fn required_constant_reports_integer_overflow() {
+    let mut arena = ExprArena::new();
+    let left = arena.alloc_expr(Expr::new(ExprKind::Int(i64::MAX), Span::DUMMY));
+    let right = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::DUMMY));
+    let root = arena.alloc_expr(Expr::new(
+        ExprKind::Binary {
+            op: BinaryOp::Add,
+            left,
+            right,
+        },
+        Span::DUMMY,
+    ));
+    let type_result = test_type_result(vec![Idx::INT; 3]);
+    let pool = ori_types::Pool::new();
+    let interner = test_interner();
+    let result = lower(&arena, &type_result, &pool, root, &interner);
+
+    assert_eq!(
+        super::evaluate_constant(&result.arena, &result.constants, result.root),
+        Err(ConstEvalProblemKind::Overflow)
+    );
+}
+
+fn evaluate_required_logical_with_trapping_rhs(
+    left_value: bool,
+    op: BinaryOp,
+) -> Result<ConstValue, ConstEvalProblemKind> {
+    let mut arena = ExprArena::new();
+    let left = arena.alloc_expr(Expr::new(ExprKind::Bool(left_value), Span::DUMMY));
+    let numerator = arena.alloc_expr(Expr::new(ExprKind::Int(1), Span::DUMMY));
+    let divisor = arena.alloc_expr(Expr::new(ExprKind::Int(0), Span::DUMMY));
+    let division = arena.alloc_expr(Expr::new(
+        ExprKind::Binary {
+            op: BinaryOp::Div,
+            left: numerator,
+            right: divisor,
+        },
+        Span::DUMMY,
+    ));
+    let zero = arena.alloc_expr(Expr::new(ExprKind::Int(0), Span::DUMMY));
+    let trapping_rhs = arena.alloc_expr(Expr::new(
+        ExprKind::Binary {
+            op: BinaryOp::Eq,
+            left: division,
+            right: zero,
+        },
+        Span::DUMMY,
+    ));
+    let root = arena.alloc_expr(Expr::new(
+        ExprKind::Binary {
+            op,
+            left,
+            right: trapping_rhs,
+        },
+        Span::DUMMY,
+    ));
+    let type_result = test_type_result(vec![
+        Idx::BOOL,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
+        Idx::INT,
+        Idx::BOOL,
+        Idx::BOOL,
+    ]);
+    let pool = ori_types::Pool::new();
+    let interner = test_interner();
+    let result = lower(&arena, &type_result, &pool, root, &interner);
+
+    super::evaluate_constant(&result.arena, &result.constants, result.root)
+}
+
+#[test]
+fn required_constant_logical_and_skips_trapping_rhs_when_left_is_false() {
+    assert_eq!(
+        evaluate_required_logical_with_trapping_rhs(false, BinaryOp::And),
+        Ok(ConstValue::Bool(false))
+    );
+}
+
+#[test]
+fn required_constant_logical_or_skips_trapping_rhs_when_left_is_true() {
+    assert_eq!(
+        evaluate_required_logical_with_trapping_rhs(true, BinaryOp::Or),
+        Ok(ConstValue::Bool(true))
+    );
+}
+
+#[test]
+fn required_constant_logical_and_evaluates_trapping_rhs_when_left_is_true() {
+    assert_eq!(
+        evaluate_required_logical_with_trapping_rhs(true, BinaryOp::And),
+        Err(ConstEvalProblemKind::DivisionByZero)
+    );
+}
+
+#[test]
+fn required_constant_logical_or_evaluates_trapping_rhs_when_left_is_false() {
+    assert_eq!(
+        evaluate_required_logical_with_trapping_rhs(false, BinaryOp::Or),
+        Err(ConstEvalProblemKind::DivisionByZero)
+    );
 }

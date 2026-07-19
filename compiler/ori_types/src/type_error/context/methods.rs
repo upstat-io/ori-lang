@@ -1,6 +1,5 @@
 //! Method implementations for `ContextKind`.
 //!
-//! Split from `mod.rs` per BUG-02-013 §06 hygiene finding F-06 (file-length BLOAT).
 //! Houses the `impl ContextKind` block (`describe`, `expectation_reason`,
 //! `is_function_call`, `is_control_flow`, `expects_bool`) plus the `ordinal()`
 //! free helper used by `describe`. Identifier visibility is unchanged: methods

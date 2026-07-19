@@ -1,0 +1,8 @@
+type Rect = { w: int, h: int }
+
+impl Rect {
+    @area (self) -> int = self.w * self.h;
+    @perimeter (self) -> int = 2 * (self.w + self.h);
+    @is_square (self) -> bool = self.w == self.h;
+    @scale (self, factor: int) -> Self = Rect { w: self.w * factor, h: self.h * factor }
+}

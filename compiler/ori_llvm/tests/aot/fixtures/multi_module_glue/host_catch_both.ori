@@ -1,0 +1,11 @@
+use "./catchlib" { safe_div }
+
+@main () -> void = {
+    let $r = catch(expr: 10 / 2);
+    let $g = (x: int) -> x * 2;
+    let $v = match r {
+        Ok(v) -> g(v),
+        Err(_) -> 0,
+    };
+    print(msg: `{v} {safe_div(a: 9, b: 3)}`);
+}

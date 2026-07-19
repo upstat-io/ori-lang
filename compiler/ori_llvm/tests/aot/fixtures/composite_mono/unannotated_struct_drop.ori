@@ -1,0 +1,11 @@
+// Regression: un-annotated generic-composite construction. An
+// inferred `GenPair<int, str>` heap field must materialize a concrete pool body
+// so scope-exit drop emits a well-formed ori_rc_dec keyed on the concrete str
+// field (not a malformed dec on the generic param idx). AOT runs, zero leaks.
+type GenPair<A, B> = { a: A, b: B }
+
+@main () -> int = {
+    let p = GenPair { a: 1, b: "heap string payload" };
+    let n = p.a;
+    if n == 1 then 0 else 1
+}

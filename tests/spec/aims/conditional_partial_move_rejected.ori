@@ -12,6 +12,7 @@
 // resolve the join — keeping Phase 5 trivial.
 
 #compile_fail(code: "E2043", message: "conditional partial move")
+@conditional_partial_move_rejected tests _ () -> void = { () }
 
 type Pair = { data: str, name: str };
 

@@ -1,24 +1,29 @@
 //! Binary-operator support rules — operator-to-trait mapping, cross-type
 //! arithmetic, and trait dispatch.
 
-use ori_ir::{BinaryOp, ExprArena, ExprId, Name, Span};
+use ori_ir::{BinaryOp, DerivedTrait, ExprArena, ExprId, Name, Span};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::super::super::InferEngine;
 use super::super::registry_bridge::is_binary_op_supported;
 use crate::infer::expr::calls::{
-    match_self_type, pool_base_name as base_name, type_satisfies_named_trait,
+    match_self_type, pool_base_name as base_name, resolve_operator_method,
+    type_satisfies_named_trait,
 };
-use crate::{
-    ContextKind, Expected, ExpectedOrigin, Idx, MethodLookup, MethodLookupResult, Pool, Tag,
-    WhereConstraint,
-};
+use crate::{Idx, MethodLookup, MethodLookupResult, Pool, Tag, WhereConstraint};
 
 /// Map a binary operator to its trait method name.
 ///
-/// Delegates to `BinaryOp::trait_method_name()` — the single source of truth in `ori_ir`.
+/// Arithmetic/bitwise operators delegate to `BinaryOp::trait_method_name()`;
+/// comparison operators use their closed derived-trait method identities.
 fn binary_op_to_method_name(op: BinaryOp) -> Option<&'static str> {
-    op.trait_method_name()
+    match op {
+        BinaryOp::Eq | BinaryOp::NotEq => Some(DerivedTrait::Eq.method_name()),
+        BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq => {
+            Some(DerivedTrait::Comparable.method_name())
+        }
+        _ => op.trait_method_name(),
+    }
 }
 
 /// Map a binary operator to its trait name (for error messages).
@@ -127,7 +132,7 @@ fn type_implements_named_trait(
     let candidates = collect_named_trait_impls(engine, trait_name, base, Some(method_name));
     let mut visited: FxHashSet<(Idx, Name)> = FxHashSet::default();
     for cand in &candidates {
-        if let Some(subst) = extract_impl_subst(pool, cand.self_type, ty, &cand.type_params) {
+        if let Some(subst) = match_self_type(pool, cand.self_type, ty, &cand.type_params) {
             if impl_bounds_satisfied(
                 engine,
                 &cand.type_params,
@@ -179,44 +184,6 @@ fn collect_named_trait_impls(
             where_clause: e.where_clause.clone(),
         })
         .collect()
-}
-
-/// Resolve the impl-binder -> concrete-arg substitution for `target`. Manual
-/// impls carry `self_type = Applied(base, [binders])` so the structural matcher
-/// binds the params; derive-generated impls register `self_type = Named(base)`
-/// (bare), so the params zip positionally against `target`'s applied args.
-fn extract_impl_subst(
-    pool: &Pool,
-    self_type: Idx,
-    target: Idx,
-    type_params: &[Name],
-) -> Option<FxHashMap<Name, Idx>> {
-    if let Some(subst) = match_self_type(pool, self_type, target, type_params) {
-        return Some(subst);
-    }
-    if pool.tag(self_type) == Tag::Named && pool.tag(target) == Tag::Applied {
-        let targs = pool.applied_args(target);
-        if targs.len() == type_params.len() {
-            return Some(
-                type_params
-                    .iter()
-                    .copied()
-                    .zip(targs.iter().copied())
-                    .collect(),
-            );
-        }
-        // Length mismatch means const generics interleave type + const args
-        // (`type_params` excludes const params, `applied_args` includes them),
-        // so a positional zip would misalign. Treat the impl as applicable with
-        // no bound substitution rather than over-reject a valid instantiation —
-        // an empty subst leaves every inline bound unchecked, matching the
-        // pre-validation base-name behavior for this narrow case.
-        return Some(FxHashMap::default());
-    }
-    if type_params.is_empty() {
-        return Some(FxHashMap::default());
-    }
-    None
 }
 
 /// Every inline + trailing-`where` bound on the impl is satisfied by the
@@ -325,7 +292,7 @@ fn concrete_satisfies_trait(
             let mut satisfied = false;
             for cand in &candidates {
                 if let Some(subst) =
-                    extract_impl_subst(pool, cand.self_type, concrete, &cand.type_params)
+                    match_self_type(pool, cand.self_type, concrete, &cand.type_params)
                 {
                     if impl_bounds_satisfied(
                         engine,
@@ -359,7 +326,7 @@ pub(crate) fn has_comparable_trait(engine: &InferEngine<'_>, ty: Idx) -> bool {
 /// Recognizes `#derive(Eq)`, manual `impl T: Eq`, and generic
 /// (`impl<T: Eq> Pair<T>: Eq`) impls. Verifying the trait by name prevents an
 /// unrelated `eq` method from bypassing the equality-operator gate.
-/// Spec: 14-expressions.md "Equality" — operands shall implement `Eq`.
+/// Spec: Clause 14 "Equality" — operands shall implement `Eq`.
 pub(crate) fn has_eq_trait(engine: &InferEngine<'_>, ty: Idx) -> bool {
     type_implements_named_trait(engine, ty, "eq", "Eq")
 }
@@ -381,42 +348,15 @@ pub(super) fn resolve_binary_op_via_trait(
     let method_name = binary_op_to_method_name(op)?;
     let op_str = op.as_symbol();
     let name = engine.intern_name(method_name)?;
-
-    // Scoped borrow: extract signature and self-ness, then release the registry borrow.
-    let (sig_ty, has_self) = {
-        let trait_registry = engine.trait_registry()?;
-        let lookup = trait_registry.lookup_method(receiver_ty, name)?;
-        (lookup.method().signature, lookup.method().has_self)
-    };
-
-    let resolved_sig = engine.resolve(sig_ty);
-    if engine.pool().tag(resolved_sig) != Tag::Function {
-        return Some(Idx::ERROR);
-    }
-
-    let params = engine.pool().function_params(resolved_sig);
-    let ret = engine.pool().function_return(resolved_sig);
-
-    // Skip `self` parameter for instance methods
-    let skip = usize::from(has_self);
-    let method_params = &params[skip..];
-
-    // Binary operators expect exactly one non-self parameter
-    if method_params.len() != 1 {
-        return Some(Idx::ERROR);
-    }
-
-    // Check right operand against the method's parameter type
-    let expected = Expected {
-        ty: method_params[0],
-        origin: ExpectedOrigin::Context {
-            span,
-            kind: ContextKind::BinaryOpRight { op: op_str },
-        },
-    };
-    let _ = engine.check_type(right_ty, &expected, arena.get_expr(right).span);
-
-    Some(ret)
+    resolve_operator_method(
+        engine,
+        receiver_ty,
+        right_ty,
+        arena.get_expr(right).span,
+        name,
+        op_str,
+        span,
+    )
 }
 
 #[cfg(test)]

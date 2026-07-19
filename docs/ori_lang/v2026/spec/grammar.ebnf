@@ -506,8 +506,20 @@ handler_operation   = identifier ":" expression .
 
 // --- Let Binding ---
 // See: 09-expressions.md § Let Binding, 05-variables.md
+// The fallible form "let?" is one token (no interior whitespace, like "as?");
+// it admits refutable patterns and appears only in block-statement position.
+// See: 13-variables.md § Fallible Bindings, 16-control-flow.md § 16.5.
 
-let_expr = "let" binding_pattern [ ":" type ] "=" expression .
+let_expr = "let" binding_pattern [ ":" type ] "=" expression
+         | "let?" fallible_pattern [ ":" type ] "=" expression .
+
+fallible_pattern = match_pattern .
+/* fallible_pattern IS match_pattern (one shared grammar). The optional "$"
+   immutable-binding markers admitted at binding positions inside
+   identifier_pattern, at_pattern, and the list rest slot are legal ONLY in
+   fallible ("let?") context; a "$" binding marker in a match arm is rejected
+   semantically. const_pattern's "$" identifier (constant REFERENCE, range
+   endpoints only) is unchanged and distinct. */
 assignment        = assignment_target "=" expression
                   | assignment_target compound_op expression .
 assignment_target = identifier { "[" expression "]" | "." identifier } .
@@ -633,7 +645,9 @@ match_pattern = literal_pattern
               | at_pattern .
 
 literal_pattern     = [ "-" ] int_literal | string_literal | char_literal | byte_literal | bool_literal .
-identifier_pattern  = identifier .
+identifier_pattern  = [ "$" ] identifier .
+/* The "$" immutable-binding marker is admitted only in fallible ("let?")
+   context; in match arms identifier_pattern is a bare identifier. */
 wildcard_pattern    = "_" .
 variant_pattern     = type_path [ "(" [ variant_field { "," variant_field } ] ")" ] .
 variant_field       = identifier ":" [ match_pattern ]   /* named; punned if pattern omitted */
@@ -642,12 +656,12 @@ struct_pattern      = [ type_path ] "{" [ field_pattern { "," field_pattern } ] 
 field_pattern       = identifier [ ":" match_pattern ] .
 tuple_pattern       = "(" [ match_pattern { "," match_pattern } ] ")" .
 list_pattern        = "[" [ list_pattern_elems ] "]" .
-list_pattern_elems  = match_pattern { "," match_pattern } [ "," ".." [ identifier ] ]
-                    | ".." [ identifier ] .
+list_pattern_elems  = match_pattern { "," match_pattern } [ "," ".." [ [ "$" ] identifier ] ]
+                    | ".." [ [ "$" ] identifier ] .
 range_pattern       = const_pattern ( ".." | "..=" ) const_pattern .
 const_pattern       = literal_pattern | "$" identifier .
 or_pattern          = match_pattern "|" match_pattern .
-at_pattern          = identifier "@" match_pattern .
+at_pattern          = [ "$" ] identifier "@" match_pattern .
 
 // --- Binding Patterns ---
 // See: 05-variables.md § Destructuring

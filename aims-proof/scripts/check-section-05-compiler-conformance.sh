@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
 #
-# check-section-05-compiler-conformance.sh — the section-05 compiler-conformance cross-walk compiler-conformance
+# check-section-05-compiler-conformance.sh — the section-05 compiler-conformance
 # cross-walk gate.
 #
-# Per the decision-predicate proofs
-# the section-05 compiler-conformance cross-walk: "Mechanically cross-walks every proven DP-N rule against
-# the compiler implementation sites
+# Mechanical cross-walk: for each DP-N rule (9 active + DP-10-REMOVED),
+# verify the named implementation site
 # compiler/ori_arc/src/aims/realize/emit_unified.rs (RC + COW
 # emission — DP-1 / DP-7 / DP-4 / DP-5 / DP-9 consumers)
 # + decide.rs (COW decision policy — DP-4 / DP-5 / DP-9 predicate consumers)
-# + burden_elim.rs (DP-2 / DP-3 consumers per Annex E §AIMS RL-2/RL-3)."
-#
-# Mechanical cross-walk: for each DP-N rule (9 active + DP-10-REMOVED),
-# verify the compiler's realize/ site has the corresponding implementation
-# function or symbol that emits/consumes the canonical decision the proof
-# asserts.
+# + aims/transfer/mod.rs (DP-2 / DP-3 lattice transfer functions)
+# + aims/lattice/mod.rs (DP-6 / DP-8 lattice-state predicate methods)
+# still carries the named symbol. This proves the kernel-checked
+# implementation has not been dropped or renamed; it does NOT prove the
+# symbol is called from a production emission path — a DP-N rule's actual
+# call sites (or absence of any outside its own test file) must be verified
+# separately by reading the implementation, since a mere token match cannot
+# distinguish the symbol's own definition line from a real consumer.
 #
 # Exit codes + emitted lines:
 # exit 0 + emits `decision_predicates_proven` — ALL 10 entries confirm
@@ -31,10 +32,11 @@ cd "$(dirname "$0")/.."
 
 readonly EMIT_UNIFIED="../compiler/ori_arc/src/aims/realize/emit_unified.rs"
 readonly DECIDE="../compiler/ori_arc/src/aims/realize/decide.rs"
-readonly BURDEN_ELIM="../compiler/ori_arc/src/aims/realize/burden_elim.rs"
+readonly TRANSFER="../compiler/ori_arc/src/aims/transfer/mod.rs"
+readonly LATTICE="../compiler/ori_arc/src/aims/lattice/mod.rs"
 readonly PROOFS_DIR="proofs/05-decisions"
 
-for src in "$EMIT_UNIFIED" "$DECIDE" "$BURDEN_ELIM"; do
+for src in "$EMIT_UNIFIED" "$DECIDE" "$TRANSFER" "$LATTICE"; do
     if [[ ! -f "$src" ]]; then
         echo "decision_predicate_infrastructure_failed: compiler realize/ source not found at ${src}"
         exit 3
@@ -48,20 +50,22 @@ fi
 
 # Conformance entries: each row = "DP-id|target-file|required-token|description"
 #
-# Target-file is one of {emit_unified, decide, burden_elim} per the the section-05 compiler-conformance cross-walk
-# consumer-site mapping. Required-token is a literal string that MUST appear
-# in the named file (function name, symbol, or canonical-constant reference).
-# Absence indicates the compiler has dropped or renamed the rule's
-# implementation site.
+# Target-file is one of {emit_unified, decide, transfer, lattice} per the
+# section-05 compiler-conformance cross-walk consumer-site mapping.
+# Required-token is a literal string that MUST appear in the named file
+# (function name, symbol, or canonical-constant reference); presence proves
+# only that the definition site still exists under that name. Absence
+# indicates the compiler has dropped or renamed the rule's implementation
+# site.
 readonly -a CONFORMANCE_ROWS=(
     "DP-1|emit_unified|emit_rc_unified|DP-1 is_rc_needed: RC emission from state map (Owned ∧ ≠Dead ∧ ¬scalar)"
-    "DP-2|burden_elim|is_rc_dec_unnecessary|DP-2 is_rc_dec_unnecessary: burden elimination of supplementary decs (Absent ∨ Dead)"
-    "DP-3|burden_elim|is_rc_inc_elidable|DP-3 is_rc_inc_elidable: burden elimination of incs (Once AND {Linear, Affine})"
+    "DP-2|transfer|is_rc_dec_unnecessary|DP-2 is_rc_dec_unnecessary: lattice transfer verdict for supplementary decs (Absent ∨ Dead)"
+    "DP-3|transfer|is_rc_inc_elidable|DP-3 is_rc_inc_elidable: lattice transfer verdict for incs (Once AND {Linear, Affine})"
     "DP-4|decide|Uniqueness::MaybeShared|DP-4 needs_cow_check: COW decision branches on MaybeShared (decide_cow)"
     "DP-5|decide|decide_cow|DP-5 can_mutate_in_place: alias-safety gates StaticUnique branch in decide_cow"
-    "DP-6|decide|decide_reuse|DP-6 is_reuse_candidate: reuse decision policy (Owned ∧ ≠Shared ∧ ≠NonReusable)"
+    "DP-6|lattice|fn is_reuse_candidate|DP-6 is_reuse_candidate: reuse decision policy (Owned ∧ ≠Shared ∧ ≠NonReusable)"
     "DP-7|emit_unified|RcInc|DP-7 is_rc_skip_eligible: RC emission elides Owned+Linear+Once+Unique+local pairs"
-    "DP-8|decide|locality|DP-8 is_local: decide.rs consults locality for local/escape branching"
+    "DP-8|lattice|fn is_local|DP-8 is_local: lattice state consults locality for local/escape branching"
     "DP-9|decide|fn decide_cow|DP-9 cow_mode: 5-row classification in decide_cow returning CowMode"
     "DP-10-REMOVED|decide|Uniqueness|DP-10-REMOVED: Uniqueness dimension is SOLE source of RC=1 truth (former DP-10 removed)"
 )
@@ -87,7 +91,8 @@ for row in "${CONFORMANCE_ROWS[@]}"; do
     case "$target_file" in
         emit_unified) target_path="$EMIT_UNIFIED" ;;
         decide) target_path="$DECIDE" ;;
-        burden_elim) target_path="$BURDEN_ELIM" ;;
+        transfer) target_path="$TRANSFER" ;;
+        lattice) target_path="$LATTICE" ;;
         *)
             echo "decision_predicate_infrastructure_failed: unknown target_file '${target_file}' in conformance row '${dp_id}'"
             exit 3
@@ -108,5 +113,5 @@ if [[ ${#divergences[@]} -gt 0 ]]; then
     exit 2
 fi
 
-echo "decision_predicates_proven: ${checked}/10 DP rules confirmed in emit_unified.rs + decide.rs + burden_elim.rs"
+echo "decision_predicates_proven: ${checked}/10 DP rules confirmed in emit_unified.rs + decide.rs + transfer/mod.rs + lattice/mod.rs"
 exit 0

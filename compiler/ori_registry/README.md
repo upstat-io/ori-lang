@@ -6,7 +6,7 @@
 
 Defines every builtin type's methods, operator dispatch, memory characteristics (`heap`/`value`/`sendable`), and derivation eligibility as **pure data** — no logic, no side effects. Every compiler phase that needs to know "does this type implement `Eq`?" or "what does `str.split()` look like?" queries the registry; no phase maintains a parallel lookup table.
 
-This is the canonical home of builtin type behavior per — the test "where is this type's behavior defined?" always answers with a single file path in this crate.
+This is the canonical home of builtin type behavior: the test "where is this type's behavior defined?" always answers with a single file path in this crate.
 
 ## Architecture
 
@@ -47,4 +47,4 @@ cargo test -p ori_registry
 
 ## References
 
-- — Method Dispatch
+- Method dispatch is builtin-first: the type checker and evaluator query `find_method()` here before falling back to trait-impl lookup.

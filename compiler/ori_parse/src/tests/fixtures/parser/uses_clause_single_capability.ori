@@ -1,0 +1,2 @@
+
+@fetch (url: str) -> str uses Http = Http.get(url: url);

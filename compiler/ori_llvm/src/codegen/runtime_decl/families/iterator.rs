@@ -2,12 +2,13 @@
 
 use super::super::types::{Attr, RtFn, Ty};
 
+/// Runtime declarations for iterator construction, adaptation, consumption, and cleanup.
 pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
-    // Iterator constructors — all extern "C"
+    // Iterator constructors use the C ABI.
     RtFn {
         name: "ori_iter_from_list",
-        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64],
-        //        data   len   cap   elem_size
+        // INVARIANT: Runtime parameter order is data, len, cap, elem_size, owns_data.
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Bool],
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
@@ -20,16 +21,32 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
         jit_allowed: true,
     },
     RtFn {
+        name: "ori_range_len",
+        // INVARIANT: Runtime parameter order is start, end, step, inclusive.
+        params: &[Ty::I64, Ty::I64, Ty::I64, Ty::Bool],
+        ret: Some(Ty::I64),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_range_contains",
+        // INVARIANT: Runtime parameter order ends with the tested value.
+        params: &[Ty::I64, Ty::I64, Ty::I64, Ty::Bool, Ty::I64],
+        ret: Some(Ty::Bool),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
         name: "ori_iter_from_str",
+        // INVARIANT: The pointer addresses an SSO-safe `OriStr` value.
         params: &[Ty::Ptr],
-        //        *const OriStr (SSO-safe)
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_from_map",
-        // (data, cap, len, key_size, val_size, owns_data, key_dec_fn, val_dec_fn)
+        // INVARIANT: Map storage and layout precede ownership and drop hooks.
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -40,38 +57,62 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
             Ty::Ptr,
             Ty::Ptr,
         ],
-        //        data   cap    len   ks     vs     owns_data  k_dec  v_dec
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_from_option",
-        // (is_some, payload_ptr, elem_size, elem_dec_fn)
+        // INVARIANT: Presence and payload precede element layout and its drop hook.
         params: &[Ty::Bool, Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
-    // Iterator next — extern "C" (callbacks called inside, panics abort at boundary)
+    RtFn {
+        name: "ori_iter_repeat",
+        // INVARIANT: Element layout and its drop hook follow the repeated value.
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
+        ret: Some(Ty::Ptr),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    // Iterator advancement may unwind through adapter callbacks.
     RtFn {
         name: "ori_iter_next",
         params: &[Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: Some(Ty::I8),
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
-    // Iterator adapters — extern "C" (store callback, don't call it)
+    RtFn {
+        name: "ori_iter_next_back",
+        params: &[Ty::Ptr, Ty::Ptr, Ty::I64],
+        ret: Some(Ty::I8),
+        attrs: &[],
+        jit_allowed: true,
+    },
+    // Iterator adapters store callbacks without invoking them.
     RtFn {
         name: "ori_iter_map",
-        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64],
+        // INVARIANT: Transform code and environment precede the environment's
+        // retain/release hooks, input layout, and output cleanup.
+        params: &[
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::Ptr,
+        ],
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_filter",
-        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64],
+        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
@@ -113,7 +154,7 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_flatten",
-        // (iter, inner_elem_size)
+        // INVARIANT: The inner element size follows the source iterator.
         params: &[Ty::Ptr, Ty::I64],
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
@@ -121,70 +162,79 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_cycle",
-        // (iter, elem_size)
-        params: &[Ty::Ptr, Ty::I64],
+        // INVARIANT: Element layout precedes its retain and drop hooks.
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_rev",
-        // (iter, elem_size)
-        params: &[Ty::Ptr, Ty::I64],
+        // INVARIANT: Element layout precedes its retain and drop hooks.
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
         ret: Some(Ty::Ptr),
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
-    // Iterator consumers — extern "C" (call callbacks internally, panics abort at boundary)
+    // Iterator consumers may unwind through user callbacks.
     RtFn {
         name: "ori_iter_collect",
-        // (iter, elem_size, elem_inc_fn, out_ptr)
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
+        // INVARIANT: Element layout and ownership hooks precede the output pointer.
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr, Ty::Ptr],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_collect_set",
-        // (iter, elem_size, elem_eq, elem_hash, elem_inc_fn, out_ptr)
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::Ptr],
+        // INVARIANT: Equality/hash and ownership hooks precede the output pointer.
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_count",
         params: &[Ty::Ptr, Ty::I64],
         ret: Some(Ty::I64),
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_any",
         params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: Some(Ty::I8),
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_all",
         params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: Some(Ty::I8),
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_find",
-        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr],
+        // INVARIANT: The retain hook precedes the escaping Option output.
+        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_for_each",
         params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
@@ -197,30 +247,31 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
             Ty::I64,
             Ty::I64,
             Ty::Ptr,
+            Ty::Ptr,
         ],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_last",
-        // (iter, elem_size, out_ptr)
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
+        // INVARIANT: Element layout and retain hook precede the Option output.
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_rfind",
-        // (iter, pred_fn, pred_env, elem_size, out_ptr)
-        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr],
+        // INVARIANT: Predicate state and layout precede retain and Option output.
+        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_rfold",
-        // (iter, init_ptr, fold_fn, fold_env, elem_size, acc_size, out_ptr)
+        // INVARIANT: Fold state and callback precede element/accumulator layout and output.
         params: &[
             Ty::Ptr,
             Ty::Ptr,
@@ -229,15 +280,16 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
             Ty::I64,
             Ty::I64,
             Ty::Ptr,
+            Ty::Ptr,
         ],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
     RtFn {
         name: "ori_iter_join",
-        // (iter, sep_field0, sep_field1, sep_field2, to_str_fn, to_str_env, elem_size, out_ptr)
-        // sep_field0-2: raw fields of OriStr {i64, i64, ptr} — SSO-safe reconstruction in runtime
+        // INVARIANT: The separator crosses as three raw, SSO-safe `OriStr` fields.
+        // INVARIANT: Conversion code and environment precede element layout and output.
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -249,10 +301,10 @@ pub(in crate::codegen::runtime_decl) static ITERATOR: &[RtFn] = &[
             Ty::Ptr,
         ],
         ret: None,
-        attrs: &[Attr::Nounwind],
+        attrs: &[],
         jit_allowed: true,
     },
-    // Iterator cleanup — extern "C"
+    // Iterator cleanup uses the C ABI.
     RtFn {
         name: "ori_iter_drop",
         params: &[Ty::Ptr],

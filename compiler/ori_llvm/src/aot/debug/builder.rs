@@ -173,7 +173,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         self.config.level
     }
 
-    // -- Type Creation --
+    // Type Creation
 
     /// Get or create a debug type for `int` (64-bit signed integer).
     ///

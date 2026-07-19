@@ -85,6 +85,8 @@ impl PatternDefinition for SpawnPattern {
 /// Execute a task and discard the result.
 fn execute_task_silently(task: &Value) {
     if let Value::FunctionVal(func, _) = task {
+        // Why: spawn is fire-and-forget by contract — the task result and any
+        // error are intentionally discarded (no consumer awaits them).
         let _ = func(&[]);
     }
 }

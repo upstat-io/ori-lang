@@ -1,0 +1,7 @@
+@main () -> int = {
+    let m = {
+        "this is a very long heap string key that exceeds the SSO threshold here": 1,
+        "another long heap allocated string key for construct testing purposes": 2
+    };
+    if m.contains_key("this is a very long heap string key that exceeds the SSO threshold here") then 0 else 1
+}

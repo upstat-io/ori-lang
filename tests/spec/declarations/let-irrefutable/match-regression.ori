@@ -1,7 +1,7 @@
 // Axis 5 — Match-path regression guard.
 // The fix is BindingPattern-only. Match patterns (MatchPattern) MUST remain
 // unaffected — refutable list shapes are valid in match arms per
-// Spec/15-patterns.md:276-281.
+// Spec/15-patterns.md § Pattern Refutability.
 
 use std.testing { assert_eq }
 

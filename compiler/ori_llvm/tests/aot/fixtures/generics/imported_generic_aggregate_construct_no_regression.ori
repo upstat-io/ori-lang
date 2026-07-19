@@ -1,0 +1,30 @@
+// Negative pin: the scalar-integer-LLVM-type guard added to the
+// `CtorKind::EnumVariant` emitter must fire ONLY on scalar-int dst (Ordering
+// today). Aggregate sum dst — a user-defined sum, Option, and Result — must
+// keep their existing tagged-struct construction path and stay green.
+//
+// `wrap_ok`/`wrap_some`/`tag` are imported-shaped generic free functions whose
+// bodies construct an aggregate sum variant (`Ok`/`Some`/a user `Triple`); none
+// resolves to a scalar-int LLVM type, so the guard must NOT fire on them.
+
+type Triple = One | Two(x: int) | Three;
+
+@wrap_ok<T> (value: T) -> Result<T, str> = Ok(value);
+@wrap_some<T> (value: T) -> Option<T> = Some(value);
+@pick_two (x: int) -> Triple = Two(x: x);
+
+@main () -> int = {
+    let $r = wrap_ok(value: 7);
+    if !r.is_ok() then 1
+    else {
+        let $o = wrap_some(value: 42);
+        if !o.is_some() then 2
+        else {
+            let $t = pick_two(x: 99);
+            match t {
+                Two(x:) -> if x == 99 then 0 else 3,
+                _ -> 4,
+            }
+        }
+    }
+}

@@ -2,8 +2,9 @@
 
 use ori_ir::Name;
 
-use super::super::super::InferEngine;
 use crate::{Idx, Tag};
+
+use super::super::super::InferEngine;
 
 /// Substitute generic type parameters in a field type with concrete type arguments.
 ///

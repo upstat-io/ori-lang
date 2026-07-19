@@ -1,26 +1,30 @@
 //! Uniqueness lattice types for COW check elimination.
 //!
 //! Defines the three-point lattice (`Unique` / `MaybeShared` / `Shared`) and
-//! the derived [`CowMode`] annotation consumed by LLVM codegen.
+//! the derived [`CowMode`] fact consumed by physical execution projections.
 
 use std::fmt;
 
 /// Abstract uniqueness state for a value.
 ///
-/// Classifies whether a value is provably uniquely owned (RC == 1),
-/// provably shared (RC > 1), or unknown.
+/// Classifies whether a value has exactly one live logical owner, has a proven
+/// sharing obligation, or has unknown logical sharing state. A counter-based
+/// physical projection may encode these states as RC observations, but that
+/// encoding is not part of this lattice.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Uniqueness {
-    /// Provably uniquely owned. RC is guaranteed to be 1.
-    /// The runtime COW check can be eliminated — emit only the fast path.
+    /// Exactly one live logical owner with no competing share obligation.
+    /// A physical sharing observation can be eliminated.
     Unique,
 
-    /// May or may not be shared. The runtime check is needed.
+    /// May or may not be logically shared. A physical sharing observation is
+    /// needed unless a selected plan uses a conservative copy path.
     /// This is the conservative default for function parameters and
     /// values with unknown provenance.
     MaybeShared,
 
-    /// Provably shared (RC > 1). The slow path is always taken.
+    /// More than one live logical owner or a proven sharing obligation. The
+    /// non-mutating/copy path is required.
     /// Rare in practice — mostly for values bound to multiple variables
     /// without intervening COW operations.
     Shared,
@@ -80,20 +84,22 @@ impl fmt::Display for Uniqueness {
 /// Annotation on a COW operation indicating whether the runtime uniqueness
 /// check can be eliminated.
 ///
-/// Produced by static uniqueness analysis and consumed by LLVM codegen.
-/// When a collection operation (push, insert, etc.) is annotated with
-/// `StaticUnique`, the codegen emits only the fast (in-place) path.
+/// Produced by AIMS uniqueness analysis and consumed without re-derivation by
+/// physical projections. When a collection operation (push, insert, etc.) is
+/// `StaticUnique`, a projection can emit or execute only the fast (in-place)
+/// path; LLVM codegen is one such consumer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CowMode {
-    /// Runtime check needed: `if ori_rc_is_unique(ptr) { fast } else { slow }`.
-    /// Default when uniqueness cannot be proven statically.
+    /// A physical sharing observation is needed. The current compiled-counter
+    /// projection spells it `ori_rc_is_unique`; another plan may use a tag,
+    /// handle flag, side table, or a conservative copy path.
     Dynamic,
 
-    /// Statically proven unique — emit only the fast path.
-    /// No `ori_rc_is_unique` call, no branch, no slow path code.
+    /// Statically proven single logical owner — select only the in-place path.
+    /// No physical sharing observation or copy path is needed.
     StaticUnique,
 
-    /// Statically proven shared — emit only the slow path.
+    /// Statically proven sharing obligation — select only the copy path.
     /// Rare; useful when a value is provably aliased (e.g., bound twice).
     StaticShared,
 }

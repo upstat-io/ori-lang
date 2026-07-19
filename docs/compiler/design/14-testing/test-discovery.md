@@ -297,4 +297,4 @@ Several design decisions in Ori's test discovery reflect conscious tradeoffs bet
 ## Related Documents
 
 - [Testing System Overview](index.md) -- architecture, test types, attributes, outcomes, and the overall design philosophy behind Ori's testing system
-- [Test Runner](test-runner.md) -- execution dispatch, parallel and sequential strategies, interpreter and LLVM backend support, compile-fail test handling, and result reporting
+- [Test Runner](test-runner.md) -- execution dispatch, parallel and sequential strategies, the current evaluator/LLVM lanes, VM parity integration, compile-fail handling, and result reporting

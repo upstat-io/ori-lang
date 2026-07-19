@@ -1,32 +1,17 @@
-//! AIMS pipeline implementation — the unified AIMS analysis + emission
-//! pipeline (borrow inference, liveness, uniqueness, RC insertion,
-//! reset/reuse, RC elimination as one lattice-driven flow).
+//! Per-function AIMS realization pipeline.
 //!
-//! # Pipeline (unified realization)
+//! Interprocedural analysis freezes contracts before this module consumes them.
+//! Each function normalizes IR, solves the lattice, materializes logical
+//! ownership events and reuse, verifies them, rewrites control flow, and derives
+//! post-merge COW/drop annotations. Physical projections consume the frozen
+//! logical events through their own representation plans.
 //!
-//! **Interprocedural** (once across all functions):
-//! 1. `aims::analyze_program` — compute `MemoryContract` per function
-//! 2. `aims::apply_ownership` — populate `ArcParam.ownership`
-//!
-//! **Per-function** (steps 3–12):
-//! 3. `compute_var_reprs` — fill `ValueRepr` per variable
-//! 3a. `aims::normalize_function` — TRMC context region detection
-//! 4. `aims::analyze_function` — backward dataflow → converged state map
-//! 5. `aims::realize_rc_reuse` — Phase 1: `arg_ownership` + RC + reuse (pre-merge)
-//! 5a. `aims::verify::fip::verify_fip_contract` — FIP enforcement verification
-//! 6. `verify` — ARC IR sanity check
-//! 7. `run_aims_verify` — AIMS contract vs IR consistency
-//! 8. `detect_tail_calls` + `rewrite_tail_calls`
-//! 9. `merge_blocks` — CFG cleanup
-//! 10. `aims::realize_annotations` — Phase 2: COW + drop hints (post-merge)
-//! 11. `verify` — final sanity check
-//! 12. FBIP enforcement — read-only diagnostic
+//! Checkpoint diagnostics share the `ori_arc::aims::pipeline` target.
 
 mod batch;
+mod burden_emission;
 mod postprocess;
 mod trmc;
-
-use std::sync::LazyLock;
 
 use ori_ir::Name;
 use ori_types::TypeRegistry;
@@ -36,74 +21,33 @@ use crate::aims::contract::{ContractMapExt, MemoryContract};
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::{ArcFunction, ArcInstr};
 use crate::lower::ArcProblem;
-use crate::ownership::AnnotatedSig;
 use crate::pipeline::rc_count;
 use crate::ArcClassification;
 
-// Re-export batch entry points used by pipeline/mod.rs.
-pub(crate) use batch::{apply_aims_ownership, run_aims_pipeline_all};
+pub(crate) use batch::{
+    run_aims_pipeline_all_with_external_contracts, run_aims_pipeline_all_with_observer,
+};
 
-/// `ORI_DISABLE_BURDEN_OPS=1` skips `emit_burden_ops` at Step 4b; the
-/// predicate-stack realization path runs as in the pre-burden baseline. Read
-/// once at first access; permanent empty-harness parity + bisection flag.
-static BURDEN_OPS_DISABLED: LazyLock<bool> =
-    LazyLock::new(|| std::env::var("ORI_DISABLE_BURDEN_OPS").as_deref() == Ok("1"));
-
-/// `ORI_DUMP_AFTER_BURDEN=1` dumps each function's ARC IR to stderr immediately
-/// after Step 4b `emit_burden_ops`, before any realization. Surfaces the
-/// faithful Phase-5 `BurdenInc` / `BurdenDec*` emission for VF-1 residual
-/// localization (the post-realize `ORI_DUMP_AFTER_ARC` cannot show pre-realize
-/// burden placement). Read once at first access; zero overhead when unset.
-static DUMP_AFTER_BURDEN: LazyLock<bool> =
-    LazyLock::new(|| std::env::var("ORI_DUMP_AFTER_BURDEN").as_deref() == Ok("1"));
-
-/// `ORI_DUMP_AFTER_BURDEN_ELIM=1` dumps each function's ARC IR after running
-/// Phase-6 `eliminate_burden_ops` on a CLONE of the post-Step-4b function,
-/// before any predicate-stack realization. Surfaces which `BurdenInc` /
-/// `BurdenDec*` survive DP-2/DP-3 elimination — the ledger that Phase-7
-/// mechanical lowering would turn into real `RcInc`/`RcDec`. Read once at
-/// first access; zero overhead when unset.
-static DUMP_AFTER_BURDEN_ELIM: LazyLock<bool> =
-    LazyLock::new(|| std::env::var("ORI_DUMP_AFTER_BURDEN_ELIM").as_deref() == Ok("1"));
-
-/// Callback invoked at each pipeline checkpoint.
-///
-/// Receives the current function state and the phase name. Used by
-/// snapshot tests to capture ARC IR at pipeline boundaries. Production
-/// code passes `None` — zero overhead when not capturing.
+/// Receives stable function snapshots at realization checkpoints.
 pub type CheckpointObserver<'a> = dyn Fn(&ArcFunction, &str /* phase */) + 'a;
 
-/// Emit a pipeline checkpoint event for `bisect-passes.sh` consumption.
+/// Emits structural and ownership metrics and invokes `observer`.
 ///
-/// Uses `info` level on the `ori_arc::aims::pipeline` target so it can be
-/// captured with `ORI_LOG=ori_arc::aims::pipeline=info` without overwhelming
-/// verbosity. This is intentionally different from the existing
-/// `trace_phase_snapshot` in `emit_unified.rs` which uses `trace!` on
-/// `ori_arc::aims::realize` for finer-grained realization-step snapshots.
-///
-/// Uses existing `rc_count::count_rc_ops` (SSOT for RC counting) plus
-/// structural metrics (`blocks`, `vars`) to detect phases that change
-/// CFG structure without altering RC totals.
-///
-/// When `observer` is `Some`, invokes the callback with the current function
-/// and phase name — used by snapshot tests to capture ARC IR at pipeline
-/// boundaries. When `None`, zero overhead beyond the existing tracing check.
+/// The predictable `ori_arc::aims::pipeline` target supports pass bisection;
+/// disabled tracing avoids metric and name computation.
 pub(crate) fn trace_pipeline_checkpoint(
     func: &ArcFunction,
     phase: &str,
     interner: &ori_ir::StringInterner,
     observer: Option<&CheckpointObserver<'_>>,
 ) {
-    // Early exit when the pipeline target is disabled — avoids the cost of
-    // count_rc_opsand string lookup when tracing is off.
+    // Why: Disabled tracing must not pay for count and name computation.
     if tracing::enabled!(target: "ori_arc::aims::pipeline", tracing::Level::INFO) {
         let fn_name = interner.lookup(func.name);
         let rc = rc_count::count_rc_ops(func);
         let blocks = func.blocks.len();
         let vars = func.var_types.len();
-        // Per-block burden-op sites — pairs with the `verify_burden_balance`
-        // imbalance trace to localize WHICH pipeline phase relocated/dropped a
-        // burden op between checkpoints (merge_blocks / tail-call rewrite).
+        // INVARIANT: Burden sites retain coordinates for pass bisection.
         let mut burden_sites: Vec<String> = Vec::new();
         for (b, block) in func.blocks.iter().enumerate() {
             for (i, instr) in block.body.iter().enumerate() {
@@ -131,46 +75,27 @@ pub(crate) fn trace_pipeline_checkpoint(
             "AIMS phase checkpoint"
         );
     }
-    // Invoke observer if present (snapshot capture).
     if let Some(obs) = observer {
         obs(func, phase);
     }
 }
 
-/// Configuration for the AIMS per-function pipeline.
-///
-/// Bundles the shared parameters that `run_aims_pipeline` needs, avoiding
-/// the 7-parameter signature anti-pattern from the old pipeline.
+/// Shared immutable inputs for one per-function realization.
 pub(crate) struct AimsPipelineConfig<'a> {
     pub classifier: &'a dyn ArcClassification,
     pub contracts: &'a FxHashMap<Name, MemoryContract>,
-    /// Names of the functions in this compilation unit (the analyzed set).
-    ///
-    /// Consumed by Site-8 `is_safe_non_sharing_callee` to distinguish a
-    /// local analyzed callee (which IC-1 guarantees has a `MemoryContract`)
-    /// from an FFI / external / DCE'd callee (legitimately absent). The
-    /// `debug_assert!` fires when a callee in this set is missing from
-    /// `contracts` — an IC-1 pipeline-ordering violation.
+    /// Exact local functions whose contracts must be present.
     pub func_names: &'a FxHashSet<Name>,
+    /// Local and producer-validated external callables whose exact contracts
+    /// take precedence over same-spelled builtin ownership heuristics.
+    pub exact_callables: &'a FxHashSet<Name>,
     pub pool: &'a ori_types::Pool,
     pub interner: &'a ori_ir::StringInterner,
     pub builtins: &'a BuiltinOwnershipSets,
     pub verify_arc: bool,
-    /// Optional checkpoint observer for snapshot capture.
-    /// When `Some`, called after each pipeline step with the current
-    /// function state and phase name. When `None`, zero overhead.
+    /// Receives each stable checkpoint when snapshot capture is enabled.
     pub observer: Option<&'a CheckpointObserver<'a>>,
-    /// Annotated function signatures (borrow inference output).
-    ///
-    /// Consumed by per-variable derived-ownership inference
-    /// (`borrow::infer_derived_ownership`).
-    pub sigs: &'a FxHashMap<Name, AnnotatedSig>,
-    /// Type registry used by the burden-emission walker
-    /// (`lower::burden_lower::emit_burden_ops`). Carried per AIMS Invariant 5
-    /// ("unified model — new capabilities extend a lattice dimension OR a
-    /// contract field OR feed the lattice-driven analysis as a typed pre-pass
-    /// input"). Call sites pass either the live module `TypeRegistry` (`oric`
-    /// codegen path) or an empty placeholder (`TypeRegistry::default`).
+    /// Type information required to freeze class-ledger plans.
     pub type_registry: &'a TypeRegistry,
 }
 
@@ -187,33 +112,28 @@ pub(crate) struct AimsPipelineResult {
     pub was_trmc_rewritten: bool,
 }
 
-/// Run the AIMS pipeline on a single function (steps 3–12).
+/// Realizes one function after closed-program contracts are frozen.
 ///
-/// Called from within `run_arc_pipeline` when the `aims` feature is active.
-/// Interprocedural contracts must already be computed and passed via `config`.
-///
-/// Returns `Err` if ARC IR verification fails under explicit verification
-/// mode (`ORI_VERIFY_ARC=1`). Verification errors are ICEs — they indicate
-/// internal compiler bugs, not user-facing issues.
+/// Returns verification failures only when explicit ARC verification is enabled;
+/// such failures represent compiler invariants, not user diagnostics.
 pub(crate) fn run_aims_pipeline(
     func: &mut ArcFunction,
     config: &AimsPipelineConfig<'_>,
 ) -> Result<AimsPipelineResult, Vec<crate::verify::VerifyError>> {
-    // Steps 3–3a: compute var_reprs, detect immortals, normalize with
-    // TRMC rewrite loop (idempotent — at most 2 iterations).
+    // INVARIANT: Primitive facts are resolved once and otherwise validated unchanged.
+    crate::aims::primitive::ensure_primitive_facts(func, config.classifier)?;
+
     let (norm_result, immortals, did_trmc_transform, pre_trmc_func) =
-        trmc::normalize_with_trmc(func, config);
+        trmc::normalize_with_trmc(func, config)?;
     trace_pipeline_checkpoint(
         func,
         "normalize_with_trmc_complete",
         config.interner,
         config.observer,
     );
+    // INVARIANT: Structural rewrites preserve exact primitive-destination coverage.
+    crate::aims::primitive::ensure_primitive_facts(func, config.classifier)?;
 
-    // Step 3b: compute DerivedOwnership for the burden walker (consumed at Step 4b).
-    let derived_ownership = crate::borrow::infer_derived_ownership(func, config.sigs);
-
-    // Intraprocedural analysis → converged state map.
     let state_map = {
         let _span = tracing::info_span!("analyze_function").entered();
         crate::aims::intraprocedural::analyze_function(
@@ -226,8 +146,7 @@ pub(crate) fn run_aims_pipeline(
     };
     trace_pipeline_checkpoint(func, "analyze_function", config.interner, config.observer);
 
-    // Step 4a: TRMC semantic soundness verification.
-    let (state_map, trmc_rewrite_survived) =
+    let (mut state_map, trmc_rewrite_survived) =
         trmc::verify_trmc_soundness(func, state_map, did_trmc_transform, pre_trmc_func, config);
     trace_pipeline_checkpoint(
         func,
@@ -236,13 +155,14 @@ pub(crate) fn run_aims_pipeline(
         config.observer,
     );
 
-    // Step 4b-prelude — populate arg_ownership AFTER analyze_function (so
-    // post-convergence's payload-edge analysis sees empty arg_ownership,
-    // preserving class_payload_of computation) but BEFORE emit_burden_ops (so
-    // burden_lower observes converged arg_ownership at emission time — closes
-    // the VF-1 imbalance per AIMS TF-3 / RL-2). emit_arg_ownership is
-    // idempotent; `realize_rc_reuse` does not re-invoke it because arg_ownership
-    // is already populated here.
+    // INVARIANT: Converged state fixes the birth-site partition before burden emission.
+    let birth_site_partition =
+        crate::aims::intraprocedural::birth_site_population::compute_birth_site_partition(
+            func, &state_map,
+        );
+    state_map.set_birth_site_partition(birth_site_partition);
+
+    // INVARIANT: Payload analysis reads unannotated IR; class planning reads converged ownership.
     {
         let _span = tracing::debug_span!("emit_arg_ownership_prelude").entered();
         crate::aims::emit_rc::arg_ownership::emit_arg_ownership(
@@ -251,7 +171,8 @@ pub(crate) fn run_aims_pipeline(
             config.interner,
             config.builtins,
             config.pool,
-        );
+            config.exact_callables,
+        )?;
     }
     trace_pipeline_checkpoint(
         func,
@@ -260,20 +181,26 @@ pub(crate) fn run_aims_pipeline(
         config.observer,
     );
 
-    // Step 4b: emit BurdenInc/BurdenDec ops based on converged state map.
-    emit_burden_ops_step(func, config, &derived_ownership, &state_map);
-    trace_pipeline_checkpoint(func, "emit_burden_ops", config.interner, config.observer);
+    // INVARIANT: Class-ledger planning is the sole producer of ownership events.
+    crate::aims::class_ledger::apply_class_ledger_replacement(
+        func,
+        &state_map,
+        config.contracts,
+        config.type_registry,
+        config.interner,
+        burden_emission::burden_ops_enabled(),
+    );
+    crate::aims::realize::emit_survivor_remarks_all_kept(func, &state_map, config.interner);
+    trace_pipeline_checkpoint(
+        func,
+        "class_ledger_emission",
+        config.interner,
+        config.observer,
+    );
 
-    if *DUMP_AFTER_BURDEN {
-        eprintln!(
-            "=== ARC IR after emit_burden_ops ===\n{}",
-            crate::ir::format::format_function(func, config.pool, config.interner)
-        );
-    }
+    burden_emission::dump_after_burden(func, config);
+    burden_emission::dump_after_class_ledger_emission_compat(func, config);
 
-    dump_after_burden_elim(func, &state_map, config);
-
-    // Phase 1: RC + reuse + arg_ownership (pre-merge).
     let mut result = {
         let _span = tracing::info_span!("realize_rc_reuse").entered();
         crate::aims::realize::realize_rc_reuse(
@@ -283,14 +210,13 @@ pub(crate) fn run_aims_pipeline(
             config.interner,
             config.builtins,
             config.pool,
+            config.type_registry,
         )
     };
     trace_pipeline_checkpoint(func, "realize_rc_reuse", config.interner, config.observer);
 
-    // Post-emission missed_reuses count for the second pass (FP² Theorem 2).
     let missed_reuses = result.fip_evidence.missed_reuses;
 
-    // Step 5a: FIP enforcement pre-check.
     fip_precheck(func, config, &result)?;
     trace_pipeline_checkpoint(
         func,
@@ -299,15 +225,15 @@ pub(crate) fn run_aims_pipeline(
         config.observer,
     );
 
-    // Set canonicalize cross-dim fires from converged state analysis.
     result.synergy_metrics.canonicalize_cross_fires = state_map.count_cross_dim_states();
 
-    // Verify, AIMS-verify, tail calls, merge.
     postprocess::verify_and_merge(func, config)?;
+
+    // INVARIANT: Rewrites preserve authoritative variable metadata through handoff.
+    validate_metadata_checkpoint(func, config)?;
 
     apply_phase_2_annotations(func, &state_map, config, &mut result);
 
-    // Final verification + FBIP.
     let problems = postprocess::emit_postprocess(func, config)?;
 
     Ok(AimsPipelineResult {
@@ -317,70 +243,111 @@ pub(crate) fn run_aims_pipeline(
     })
 }
 
-/// Step 4b: emit `BurdenInc`/`BurdenDec*` ops from the converged state map.
-///
-/// `ORI_DISABLE_BURDEN_OPS=1` skips emission entirely.
-///
-/// The live `TypeRegistry` is threaded so `lookup_burden` resolves both the
-/// builtin (`BURDEN_TABLE`) partition AND user-side `[T]` / `{K:V}` / `Set<T>` /
-/// closure-env / struct burdens (`TypeRegistry::burden(idx)`); the burden path
-/// is the sole real-RC emitter, so the field-grain `BurdenDecPartial` /
-/// `BurdenDecField` / `BurdenDecVariant` codegen glue is exercised.
-fn emit_burden_ops_step(
-    func: &mut ArcFunction,
-    config: &AimsPipelineConfig<'_>,
-    derived_ownership: &[crate::ownership::DerivedOwnership],
-    // Converged Step-4 state map — supplies `apply_result_aliases` to the
-    // §1.9 unified alias-table construction inside the burden walk (the
-    // sibling-union cross-block identity). Spec: Annex E §AIMS.
-    state_map: &crate::aims::intraprocedural::AimsStateMap,
-) {
-    if *BURDEN_OPS_DISABLED {
-        return;
-    }
-    let _span = tracing::info_span!("emit_burden_ops").entered();
-    let immortals = crate::aims::immortal::detect_immortals(func, config.interner);
-    let _burden_ctx = crate::lower::burden_lower::emit_burden_ops(
-        func,
-        config.type_registry,
-        derived_ownership,
-        &immortals,
-        config.contracts,
-        state_map.apply_result_aliases(),
-        true,
-        config.interner,
-    );
-}
-
-/// Dump the post-`eliminate_burden_ops` ARC IR to stderr when
-/// `ORI_DUMP_AFTER_BURDEN_ELIM=1`. Operates on a clone so the live pipeline
-/// IR is untouched; no-op when the flag is unset.
-fn dump_after_burden_elim(
+pub(super) fn validate_variable_metadata(
     func: &ArcFunction,
-    state_map: &crate::aims::intraprocedural::AimsStateMap,
-    config: &AimsPipelineConfig<'_>,
-) {
-    if !*DUMP_AFTER_BURDEN_ELIM {
-        return;
+    classifier: &dyn crate::ArcClassification,
+    pool: &ori_types::Pool,
+) -> Result<(), Vec<crate::verify::VerifyError>> {
+    let mut errors = Vec::new();
+    if func.var_metadata_state != crate::ir::VariableMetadataState::Realized {
+        errors.push(crate::verify::VerifyError::VariableMetadataUnrealized);
     }
-    let mut clone = func.clone();
-    let same_alloc_reps =
-        crate::aims::emit_rc::compute_same_alloc_reps(&clone, state_map.apply_result_aliases());
-    crate::aims::realize::eliminate_burden_ops(
-        &mut clone,
-        state_map,
-        &same_alloc_reps,
-        config.contracts,
-        config.interner,
-    );
-    eprintln!(
-        "=== ARC IR after eliminate_burden_ops (clone) ===\n{}",
-        crate::ir::format::format_function(&clone, config.pool, config.interner)
-    );
+    let expected_representations = crate::ir::compute_var_reprs(func, classifier, pool);
+    errors.extend(representation_metadata_errors(
+        func,
+        &expected_representations,
+    ));
+
+    let expected_strategies =
+        crate::ir::derive_var_rc_strategies(&expected_representations, &func.var_types, pool);
+    errors.extend(rc_strategy_metadata_errors(func, &expected_strategies));
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
-/// Phase 2: COW + drop hints (post-merge) followed by post-realize
-/// cleanup of redundant project-alias decs.
+fn validate_metadata_checkpoint(
+    func: &ArcFunction,
+    config: &AimsPipelineConfig<'_>,
+) -> Result<(), Vec<crate::verify::VerifyError>> {
+    validate_variable_metadata(func, config.classifier, config.pool)?;
+    trace_pipeline_checkpoint(
+        func,
+        "validate_variable_metadata",
+        config.interner,
+        config.observer,
+    );
+    Ok(())
+}
+
+fn representation_metadata_errors(
+    func: &ArcFunction,
+    expected: &[crate::ir::ValueRepr],
+) -> Vec<crate::verify::VerifyError> {
+    use crate::verify::VerifyError;
+
+    if func.var_reprs.len() == func.var_types.len() {
+        expected
+            .iter()
+            .zip(&func.var_reprs)
+            .enumerate()
+            .filter(|(_, (expected, found))| expected != found)
+            .map(
+                |(index, (&expected, &found))| VerifyError::VariableRepresentationMismatch {
+                    var: variable_id(index),
+                    expected,
+                    found,
+                },
+            )
+            .collect()
+    } else {
+        vec![VerifyError::VariableMetadataLength {
+            table: "representation",
+            variables: func.var_types.len(),
+            entries: func.var_reprs.len(),
+        }]
+    }
+}
+
+fn rc_strategy_metadata_errors(
+    func: &ArcFunction,
+    expected: &[Option<crate::ir::RcStrategy>],
+) -> Vec<crate::verify::VerifyError> {
+    use crate::verify::VerifyError;
+
+    if func.var_rc_strategies.len() == func.var_types.len() {
+        expected
+            .iter()
+            .zip(&func.var_rc_strategies)
+            .enumerate()
+            .filter(|(_, (expected, found))| expected != found)
+            .map(
+                |(index, (&expected, &found))| VerifyError::VariableRcStrategyMismatch {
+                    var: variable_id(index),
+                    expected,
+                    found,
+                },
+            )
+            .collect()
+    } else {
+        vec![VerifyError::VariableMetadataLength {
+            table: "RC-strategy",
+            variables: func.var_types.len(),
+            entries: func.var_rc_strategies.len(),
+        }]
+    }
+}
+
+fn variable_id(index: usize) -> crate::ir::ArcVarId {
+    crate::ir::ArcVarId::new(
+        u32::try_from(index).unwrap_or_else(|_| panic!("variable index exceeds u32::MAX")),
+    )
+}
+
+/// Installs post-merge COW and drop annotations on `func`.
 fn apply_phase_2_annotations(
     func: &mut ArcFunction,
     state_map: &crate::aims::intraprocedural::AimsStateMap,
@@ -407,32 +374,12 @@ fn apply_phase_2_annotations(
     );
     func.cow_annotations = std::mem::take(&mut result.cow_annotations);
     func.drop_hints = std::mem::take(&mut result.drop_hints);
-
-    {
-        let _span = tracing::info_span!("cleanup_redundant_project_alias_decs").entered();
-        crate::aims::realize::cleanup_redundant_project_alias_decs(
-            func,
-            state_map,
-            config.pool,
-            config.interner,
-        );
-    }
-    trace_pipeline_checkpoint(
-        func,
-        "cleanup_redundant_project_alias_decs",
-        config.interner,
-        config.observer,
-    );
 }
 
-/// Step 5a: FIP enforcement pre-check.
+/// Rejects structural FIP violations before the contract refresh.
 ///
-/// Cross-checks `FipContract` against realization evidence. At this point,
-/// the contract has optimistic `may_deallocate=false` from interprocedural
-/// analysis — `CertifiedButHasMissedReuses` mismatches are expected and
-/// will be corrected by the second pass. But structural violations
-/// (`CertifiedButUnboundedStack`, `BoundedExceeded`) are genuine bugs
-/// that should be caught immediately.
+/// Missed reuses may change `may_deallocate` and are rechecked after refresh;
+/// unbounded stack or exceeded bounds are already final here.
 fn fip_precheck(
     func: &ArcFunction,
     config: &AimsPipelineConfig<'_>,
@@ -446,14 +393,12 @@ fn fip_precheck(
         use crate::aims::verify::fip::FipVerificationError;
         match e {
             FipVerificationError::CertifiedButHasMissedReuses { .. } => {
-                // Expected: may_deallocate is stale (optimistic default).
-                // Second pass will recompute contract.fip and re-verify.
+                // Why: Missed reuses feed the contract refresh before final verification.
                 tracing::debug!("FIP pre-check (will recompute in second pass): {e}");
             }
             FipVerificationError::CertifiedButUnboundedStack { .. }
             | FipVerificationError::BoundedExceeded { .. } => {
-                // Genuine bug: structural violations are known at
-                // interprocedural analysis time, not post-emission facts.
+                // INVARIANT: Stack and bound facts are final before emission.
                 tracing::error!("FIP verification failed: {e}");
                 if config.verify_arc {
                     structural_errors.push(crate::verify::VerifyError::FipStructural {

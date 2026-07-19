@@ -1,0 +1,306 @@
+{
+  "schema_version": 1,
+  "rows": [
+    {
+      "class_id": "UninhabitedEnumVariantWritten",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::UninhabitedEnumVariantWritten",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Never is uninhabited and cannot be a struct field or be constructed; the type checker rejects it, so no value of an uninhabited type ever exists at runtime. Spec Clause 4.5.",
+      "pin_ref": "compiler/ori_types/src/check/integration_tests.rs::never_struct_field_rejected"
+    },
+    {
+      "class_id": "UninhabitedEnumVariantRead",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::UninhabitedEnumVariantRead",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Never unifies with any type but has no values; an uninhabited variant cannot be projected or read because it cannot be constructed. Spec Clause 4.5.",
+      "pin_ref": "compiler/ori_types/src/unify/tests.rs::never_unifies_with_anything"
+    },
+    {
+      "class_id": "PointerOutOfBounds",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::PointerOutOfBounds",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Indexing is bounds-checked; an out-of-bounds index panics (defined behavior) rather than reading past the allocation. Spec Clause 17.2 (panics).",
+      "pin_ref": "compiler/ori_llvm/tests/aot/collections_ext.rs::test_coll_list_index_oob_panics"
+    },
+    {
+      "class_id": "DanglingIntPointer",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::DanglingIntPointer",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "The grammar has no raw-pointer type and no integer-to-pointer cast in safe code, so a dangling integer pointer is unrepresentable. Spec Clause 4.5.",
+      "pin_ref": "docs/ori_lang/v2026/spec/grammar.ebnf"
+    },
+    {
+      "class_id": "WriteToReadOnly",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::WriteToReadOnly",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Value semantics: reassignment replaces a binding rather than mutating shared memory in place, and there is no raw-pointer write form, so a write to read-only memory is unrepresentable. Spec Clause 4.5.",
+      "pin_ref": "docs/ori_lang/v2026/spec/grammar.ebnf"
+    },
+    {
+      "class_id": "DivisionByZero",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::DivisionByZero",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Integer division and remainder by zero panic (defined behavior) rather than producing undefined behavior. Spec Clause 17.2 (panics).",
+      "pin_ref": "compiler/ori_llvm/tests/aot/error_handling.rs::test_uncaught_div_by_zero_still_aborts"
+    },
+    {
+      "class_id": "ArithOverflow",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::ArithOverflow",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Integer arithmetic is checked; overflow panics (defined behavior) rather than wrapping silently. Spec Clause 17.3 (integer overflow).",
+      "pin_ref": "compiler/ori_llvm/tests/aot/error_handling.rs::test_uncaught_int_overflow_still_aborts"
+    },
+    {
+      "class_id": "ShiftOverflow",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::ShiftOverflow",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "A shift whose count is negative or at least the bit width panics (defined behavior). Spec Clause 14.5.1 (arithmetic operators).",
+      "pin_ref": "compiler/ori_llvm/tests/aot/error_handling.rs::test_uncaught_shift_overflow_still_aborts"
+    },
+    {
+      "class_id": "InvalidUninitBytes",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::InvalidUninitBytes",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "The grammar has no uninitialized-binding form; a let requires an initializer, so every binding is definitely assigned at declaration and an uninitialized read is unrepresentable. Spec Clause 4.5.",
+      "pin_ref": "docs/ori_lang/v2026/spec/grammar.ebnf"
+    },
+    {
+      "class_id": "InvalidBool",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::InvalidBool",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "bool has no invalid bit pattern: there is no transmute, and casts are checked (as is infallible, as? yields Option), so a bool can only hold true or false. Spec Clause 4.5.",
+      "pin_ref": "compiler/ori_types/src/infer/expr/operators/conversion.rs::infer_cast"
+    },
+    {
+      "class_id": "InvalidChar",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::InvalidChar",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "char literals are validated at lex time and there is no way to construct a char from an invalid scalar value, so an out-of-range char is unrepresentable. Spec Clause 4.5.",
+      "pin_ref": "compiler/oric/tests/phases/parse/lexer.rs::test_lex_char_literals"
+    },
+    {
+      "class_id": "InvalidStr",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::InvalidStr",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "str is always valid UTF-8: it is constructed from validated bytes, so an invalid-UTF-8 str is unrepresentable in safe code. Spec Clause 4.5.",
+      "pin_ref": "compiler/ori_types/src/infer/expr/tests.rs::str_from_utf8_resolves"
+    },
+    {
+      "class_id": "PointerUseAfterFree",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::PointerUseAfterFree",
+      "disposition": "aims-obligation",
+      "ori_mechanism": "ARC forecloses use-after-free and double-free at the source level (no manual free, no raw dereference). The no-double-free / no-UAF guarantee is the reference-count-balance obligation discharged at codegen, proven sound in the AIMS proof corpus: Coexistence CH-1 (the lattice == burden bridge) + CH-2 (single elimination) + Realization RL-comp (lowered burden ops preserve RC net balance). The verdict surface is the gated burden-sole reference-count probe; a default-path result is never an RC verdict, and some realization cells remain open obligations under active repair. Spec Clause 4.5.",
+      "pin_ref": "compiler/ori_llvm/tests/aot/predicate_stack_probe.rs"
+    },
+    {
+      "class_id": "AlignmentCheckFailed",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::AlignmentCheckFailed",
+      "disposition": "aims-obligation",
+      "ori_mechanism": "Field and type alignment is computed once by ori_repr (ReprPlan) and emitted by ori_llvm; foreclosed at the type level (no raw pointers, no transmute), with honoring alignment an obligation discharged at codegen and verified on the gated burden-sole probe and the AOT binary tests. A niche under-alignment is an open obligation under active repair, not a clean foreclosure. Spec Clause 4.5.",
+      "pin_ref": "compiler/ori_llvm/tests/aot/codegen.rs"
+    },
+    {
+      "class_id": "InvalidTag",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::InvalidTag",
+      "disposition": "aims-obligation",
+      "ori_mechanism": "Enum discriminants are type-checked, so an invalid tag is unrepresentable in source; but the codegen reference-count walk must read the discriminant before projecting a payload. Honoring the tag during the RC walk is an obligation discharged at codegen and verified on the gated burden-sole probe; a tag-blind walk is an open obligation under active repair, not a clean foreclosure. Spec Clause 4.5.",
+      "pin_ref": "compiler/ori_llvm/tests/aot/predicate_stack_probe.rs"
+    },
+    {
+      "class_id": "DataRace",
+      "miri_source": "miri: src/concurrency/data_race.rs (miri data-race detector; tests/fail/data_race)",
+      "disposition": "data-race-foreclosed",
+      "ori_mechanism": "Values use value semantics with no shared mutable state and closure captures are frozen at creation, so two tasks cannot alias the same mutable location; the Sendable marker bounds what crosses a channel. Foreclosure holds at value semantics and runtime-immutable captures; the compile-time capture-Sendable gate is a tracked gap (see SendableCaptureGate). Spec Clause 4.5; Clause 22 (concurrency model).",
+      "pin_ref": "tests/spec/types/duration_size_sendable.ori"
+    },
+    {
+      "class_id": "WeakMemoryOrdering",
+      "miri_source": "miri: src/concurrency/weak_memory (miri weak-memory detector; tests/fail/weak_memory)",
+      "disposition": "gap",
+      "ori_mechanism": "Ori exposes no user-facing atomics or memory-ordering primitives, so there is no user-observable weak-memory surface; the sole atomic surface is the runtime reference-count realization, whose ordering correctness is a runtime obligation tracked in the memory model. Spec Clause 21 (memory model).",
+      "pin_ref": "docs/ori_lang/v2026/spec/21-memory-model.md"
+    },
+    {
+      "class_id": "SendableCaptureGate",
+      "miri_source": "Ori-specific: the spec-mandated compile-time Sendable capture gate for parallel/spawn/nursery (spec Clause 22.6.1).",
+      "disposition": "gap",
+      "ori_mechanism": "The spec mandates that closures passed to parallel/spawn/nursery capture only Sendable values, moved into the task; the compile-time gate enforcing this is not yet implemented (no capture-time Sendable check). Foreclosure holds at runtime (captures are frozen) but is not compile-time-enforced. The hardening anchor is the disabled non-Sendable capture test, re-enabled when the gate lands. Spec Clause 22.6.1.",
+      "pin_ref": "tests/spec/patterns/channels.ori"
+    },
+    {
+      "class_id": "Deadlock",
+      "miri_source": "miri: tests/fail/concurrency (deadlock / blocked-forever detection).",
+      "disposition": "gap",
+      "ori_mechanism": "Structured concurrency (nursery) scopes task lifetimes but does not foreclose deadlock (two tasks each awaiting the other); deadlock is a liveness gap, not memory undefined behavior, tracked against the concurrency model. Spec Clause 22 (concurrency model).",
+      "pin_ref": "docs/ori_lang/v2026/spec/22-concurrency-model.md"
+    },
+    {
+      "class_id": "IntentionalLeak",
+      "miri_source": "miri: tests/fail/memleak (leak detection; intentional / reference-cycle leak).",
+      "disposition": "gap",
+      "ori_mechanism": "ARC reclaims acyclic memory deterministically but does not collect reference cycles, so a cycle is leaked rather than freed; a leak is a resource gap, not memory undefined behavior, tracked against the memory model. Spec Clause 21 (memory model).",
+      "pin_ref": "docs/ori_lang/v2026/spec/21-memory-model.md"
+    },
+    {
+      "class_id": "AbiMismatchArgument",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::AbiMismatchArgument",
+      "disposition": "ffi-unsafe-boundary",
+      "ori_mechanism": "FFI argument ABI is an obligation at the boundary: header-assisted extern signatures are validated against the C header and #repr(\"c\") struct layouts are verified field-by-field at compile time, so an argument-ABI mismatch is caught rather than silently miscompiled; a real violation at link/run time is caught by the sanitizer. Spec Clause 26 (FFI).",
+      "pin_ref": "docs/ori_lang/v2026/spec/26-ffi.md"
+    },
+    {
+      "class_id": "AbiMismatchReturn",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::AbiMismatchReturn",
+      "disposition": "ffi-unsafe-boundary",
+      "ori_mechanism": "FFI return ABI is checked at the boundary by the same header-signature + struct-layout verification as arguments; a return-ABI mismatch is caught at compile time where a C header is available, and a real violation is caught by the sanitizer. Spec Clause 26 (FFI).",
+      "pin_ref": "docs/ori_lang/v2026/spec/26-ffi.md"
+    },
+    {
+      "class_id": "UnterminatedCString",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::UnterminatedCString",
+      "disposition": "ffi-unsafe-boundary",
+      "ori_mechanism": "str and [byte] carry an explicit length; C-string marshalling at the FFI boundary is length-aware (the boundary appends or checks the terminator), so an unterminated C string is a boundary obligation rather than a silently-read overrun. Spec Clause 26 (FFI).",
+      "pin_ref": "docs/ori_lang/v2026/spec/26-ffi.md"
+    },
+    {
+      "class_id": "DerefFunctionPointer",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::DerefFunctionPointer",
+      "disposition": "ffi-unsafe-boundary",
+      "ori_mechanism": "Ori function values are type-safe; a raw function-pointer dereference is reachable only across the FFI boundary under the Unsafe capability, where it is the programmer's checked obligation and a real violation is caught by the sanitizer. Spec Clause 26.5 (Unsafe).",
+      "pin_ref": "compiler/ori_llvm/tests/aot/codegen.rs"
+    },
+    {
+      "class_id": "InvalidFunctionPointer",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::InvalidFunctionPointer",
+      "disposition": "ffi-unsafe-boundary",
+      "ori_mechanism": "A function pointer obtained from a native library is valid only as far as the foreign code guarantees; in safe Ori function values cannot be forged, so an invalid function pointer is an FFI-boundary obligation under the Unsafe capability, checked by the sanitizer. Spec Clause 26.5 (Unsafe).",
+      "pin_ref": "compiler/ori_llvm/tests/aot/codegen.rs"
+    },
+    {
+      "class_id": "ForeignPointerLifetime",
+      "miri_source": "miri: tests/fail/dangling_pointers (use-after-free of a pointer returned across the FFI boundary).",
+      "disposition": "ffi-unsafe-boundary",
+      "ori_mechanism": "A pointer returned from an FFI call may borrow from one of its arguments; the boundary obligation is that the returned view does not outlive its source. The hardening is a compile-time borrow-from lifetime check that rejects an outliving use; until it lands the obligation is checked by the sanitizer / leak surface. Spec Clause 26 (FFI).",
+      "pin_ref": "compiler/ori_llvm/tests/aot/codegen.rs"
+    },
+    {
+      "class_id": "DerefVTablePointer",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::DerefVTablePointer",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Ori has no raw vtable pointers; trait-object dispatch is type-checked and the vtable is compiler-managed, so a raw vtable-pointer dereference is unrepresentable in safe code. Spec Clause 4.5.",
+      "pin_ref": "docs/ori_lang/v2026/spec/grammar.ebnf"
+    },
+    {
+      "class_id": "DerefTypeIdPointer",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::DerefTypeIdPointer",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Ori has no reified type-id pointers exposed to user code; type identity is a compile-time property, so a type-id-pointer dereference is unrepresentable. Spec Clause 4.5.",
+      "pin_ref": "docs/ori_lang/v2026/spec/grammar.ebnf"
+    },
+    {
+      "class_id": "InvalidVTablePointer",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::InvalidVTablePointer",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Trait objects carry a compiler-managed vtable that the user cannot construct or forge, so an invalid vtable pointer is unrepresentable in safe code. Spec Clause 4.5.",
+      "pin_ref": "docs/ori_lang/v2026/spec/grammar.ebnf"
+    },
+    {
+      "class_id": "InvalidVTableTrait",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::InvalidVTableTrait",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Trait coherence and object-safety are checked at type-check time, so a trait-object whose vtable does not match its declared trait is unrepresentable. Spec Clause 4.5.",
+      "pin_ref": "docs/ori_lang/v2026/spec/grammar.ebnf"
+    },
+    {
+      "class_id": "BoundsCheckFailed",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::BoundsCheckFailed",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Every indexing operation is bounds-checked; an out-of-bounds index aborts deterministically rather than reading past the allocation. Spec Clause 4.5.",
+      "pin_ref": "compiler/ori_llvm/tests/aot/collections_ext.rs::test_coll_list_index_oob_panics"
+    },
+    {
+      "class_id": "RemainderByZero",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::RemainderByZero",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Remainder by zero aborts deterministically, identically to division by zero; it never produces an undefined result. Spec Clause 4.5.",
+      "pin_ref": "compiler/ori_llvm/tests/aot/error_handling.rs::test_uncaught_div_by_zero_still_aborts"
+    },
+    {
+      "class_id": "DivisionOverflow",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::DivisionOverflow",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "The single overflowing signed division (INT_MIN / -1) aborts deterministically rather than wrapping; integer overflow is a checked abort, never undefined. Spec Clause 4.5.",
+      "pin_ref": "compiler/ori_llvm/tests/aot/error_handling.rs::test_uncaught_int_overflow_still_aborts"
+    },
+    {
+      "class_id": "RemainderOverflow",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::RemainderOverflow",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "The single overflowing signed remainder (INT_MIN % -1) aborts deterministically rather than wrapping. Spec Clause 4.5.",
+      "pin_ref": "compiler/ori_llvm/tests/aot/error_handling.rs::test_uncaught_int_overflow_still_aborts"
+    },
+    {
+      "class_id": "PointerArithOverflow",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::PointerArithOverflow",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Ori exposes no raw pointer arithmetic in safe code; collection access is index-based and bounds-checked, so a pointer-arithmetic overflow is unrepresentable outside the FFI boundary. Spec Clause 4.5.",
+      "pin_ref": "docs/ori_lang/v2026/spec/grammar.ebnf"
+    },
+    {
+      "class_id": "InvalidMeta",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::InvalidMeta",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Slice and string lengths are compiler-managed metadata that user code cannot forge; an invalid wide-pointer length is unrepresentable. Spec Clause 4.5.",
+      "pin_ref": "docs/ori_lang/v2026/spec/grammar.ebnf"
+    },
+    {
+      "class_id": "DeadLocal",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::DeadLocal",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Every binding is definitely assigned before use (HM inference + scope checking); there is no uninitialized or dead local to read. Spec Clause 4.5.",
+      "pin_ref": "docs/ori_lang/v2026/spec/grammar.ebnf"
+    },
+    {
+      "class_id": "ScalarSizeMismatch",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::ScalarSizeMismatch",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Ori has no transmute or untyped reinterpretation in safe code; every value is read at its declared type, so a scalar-size mismatch is unrepresentable. Spec Clause 4.5.",
+      "pin_ref": "docs/ori_lang/v2026/spec/grammar.ebnf"
+    },
+    {
+      "class_id": "InvalidNichedEnumVariantWritten",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::InvalidNichedEnumVariantWritten",
+      "disposition": "aims-obligation",
+      "ori_mechanism": "Niche-encoded enum discriminants (e.g. Option<CPtr>) are written and read through compiler-managed tag logic; correctness of the niche write is a runtime AIMS realization obligation, sharing the invalid-tag surface. The verdict is the gated burden-sole RC/AOT probe (ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1) per arc.md STOP, never a default-path result.",
+      "pin_ref": "compiler/ori_llvm/tests/aot/predicate_stack_probe.rs"
+    },
+    {
+      "class_id": "ValidationError",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::ValidationError",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "The validity-invariant wrapper class (the parent of invalid-bool / -char / -str): every scalar is constructed only through type-checked operations, so no value can hold a bit pattern outside its type's validity. Spec Clause 4.5.",
+      "pin_ref": "docs/ori_lang/v2026/spec/grammar.ebnf"
+    },
+    {
+      "class_id": "Unreachable",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::Unreachable",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "Reaching an unreachable program point aborts deterministically: the unreachable() builtin and exhaustiveness-checked match arms produce a defined panic, never an undefined fall-through. Spec Clause 17 (errors and panics).",
+      "pin_ref": "docs/ori_lang/v2026/spec/17-errors-and-panics.md"
+    },
+    {
+      "class_id": "Ub",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::Ub (the generic catch-all)",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "The generic undefined-behavior catch-all: Ori's conformance contract (no silent UB) means every operation is either defined or a deterministic abort, so there is no generic-UB surface in safe code. Spec Clause 4.5.",
+      "pin_ref": "docs/ori_lang/v2026/spec/04-conformance.md"
+    },
+    {
+      "class_id": "Custom",
+      "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::Custom (miri-internal intrinsic UB hook)",
+      "disposition": "foreclosed-typesystem",
+      "ori_mechanism": "A miri-internal hook for intrinsic-specific UB; Ori exposes no user surface that raises a custom-UB condition, so it is unrepresentable outside the Unsafe FFI boundary. Spec Clause 4.5.",
+      "pin_ref": "docs/ori_lang/v2026/spec/04-conformance.md"
+    }
+  ]
+}

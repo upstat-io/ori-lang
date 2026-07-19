@@ -235,8 +235,14 @@ pub fn typed(db: &dyn Db, file: SourceFile) -> TypeCheckResult {
     // proves to type_check_with_imports_and_pool() that invalidation was performed.
     let guard = invalidate_file_caches(db, file_path);
 
+    // Mark this file mid-typecheck for the cycle guard. Every recursive
+    // caller (register_resolved_imports) already consulted `would_cycle`
+    // before reaching this call, so the push here is unconditional; `exit`
+    // always runs via the completion of this straight-line body.
+    db.typing_stack().enter(file_path);
     let (result, pool) =
         typeck::type_check_with_imports_and_pool(db, &parse_result, file_path, guard);
+    db.typing_stack().exit(file_path);
 
     // Cache the Pool for callers that need it alongside the TypeCheckResult.
     db.pool_cache().store(file_path, pool);
@@ -260,8 +266,8 @@ pub fn typed_pool(db: &dyn Db, file: SourceFile) -> Option<std::sync::Arc<ori_ty
 /// falling back to direct type checking otherwise.
 ///
 /// This consolidates the "resolve `TypeCheckResult` + Pool" logic shared by
-/// `Evaluator::canonicalize_module()` and the test runner's LLVM path. Both
-/// need to type-check imported modules and obtain a Pool for canonicalization.
+/// [`canonicalize_module`] and the test runner's LLVM path. Both need to
+/// type-check imported modules and obtain a Pool for canonicalization.
 ///
 /// Returns `None` only if the Salsa-based `typed()` succeeds but `typed_pool()`
 /// fails to return the Pool (an internal error — the Pool is cached as a side
@@ -292,6 +298,48 @@ pub(crate) fn type_check_module(
     }
 }
 
+/// Type-check and canonicalize one imported module.
+///
+/// Imported functions carry their defining module's canonical IR. Keeping this
+/// helper in the query layer lets both the root evaluator loader and recursive
+/// import registration use the same cache and type-check boundary.
+///
+/// Returns `None` when the module has type errors. Canonicalizing incomplete
+/// typed IR could leave imported function bodies inconsistent with their type
+/// information, so callers retain the parsed module but do not attach canon IR.
+pub(crate) fn canonicalize_module(
+    db: &dyn Db,
+    parse_output: &ParseOutput,
+    module_path: &std::path::Path,
+    source_file: Option<SourceFile>,
+) -> Option<SharedCanonResult> {
+    // Refresh tracked provider syntax before consulting the side cache. A
+    // provider constant can change value without changing its type result;
+    // using the resolver's older ParseOutput in that case would freeze a stale
+    // initializer even though Salsa correctly observed the source edit.
+    let current_parse = source_file.map_or_else(|| parse_output.clone(), |file| parsed(db, file));
+
+    // Run the tracked type query first so its side-cache invalidation executes
+    // when provider syntax changed, even if Salsa later cuts off an identical
+    // type result.
+    let (type_result, pool) = type_check_module(db, &current_parse, module_path, source_file)?;
+
+    if type_result.has_errors() {
+        tracing::debug!(
+            module = %module_path.display(),
+            errors = type_result.errors().len(),
+            "skipping canonicalization due to type errors"
+        );
+        return None;
+    }
+
+    Some(if source_file.is_some() {
+        canonicalize_cached_by_path(db, module_path, &current_parse, &type_result, &pool)
+    } else {
+        canonicalize_uncached_by_path(db, module_path, &current_parse, &type_result, &pool)
+    })
+}
+
 /// Canonicalize a module with session-scoped caching, keyed by `SourceFile`.
 ///
 /// Thin wrapper around [`canonicalize_cached_by_path`] that derives the cache
@@ -309,15 +357,16 @@ pub(crate) fn canonicalize_cached(
 
 /// Canonicalize a module with session-scoped caching, keyed by path.
 ///
-/// Performs `AST + types → canonical IR` via `ori_canon::lower_module()`, caching
-/// the result in `CanonCache`. This is the single source of truth for the
+/// Performs `AST + types + selected constant values → canonical IR` via
+/// `ori_canon::lower_module_with_constants()`, caching the result in
+/// `CanonCache`. This is the single source of truth for the
 /// cache-check → canonicalize → store pattern used by:
 /// - `canonicalize_cached()` (SourceFile-keyed convenience wrapper)
-/// - `Evaluator::canonicalize_module()` (imported module canonicalization)
+/// - [`canonicalize_module`] (imported module canonicalization)
 /// - `check_file`, `run_evaluation`, `check_source` (LLVM), and the test runner
 ///
 /// Always canonicalizes regardless of type errors — callers that need to skip
-/// on type errors (like `Evaluator::canonicalize_module`) should check before calling.
+/// on type errors (like [`canonicalize_module`]) should check before calling.
 pub(crate) fn canonicalize_cached_by_path(
     db: &dyn Db,
     path: &std::path::Path,
@@ -325,18 +374,167 @@ pub(crate) fn canonicalize_cached_by_path(
     type_result: &TypeCheckResult,
     pool: &ori_types::Pool,
 ) -> SharedCanonResult {
-    if let Some(cached) = db.canon_cache().get(path) {
-        return cached;
+    canonicalize_by_path(
+        db,
+        path,
+        parse_result,
+        type_result,
+        pool,
+        CanonCacheAccess::Tracked,
+    )
+}
+
+/// Canonicalize an untracked module without consulting or populating the
+/// session cache. A caller without a [`SourceFile`] has no Salsa invalidation
+/// identity, so path-only reuse would be stale after an in-memory source edit.
+pub(crate) fn canonicalize_uncached_by_path(
+    db: &dyn Db,
+    path: &std::path::Path,
+    parse_result: &ParseOutput,
+    type_result: &TypeCheckResult,
+    pool: &ori_types::Pool,
+) -> SharedCanonResult {
+    canonicalize_by_path(
+        db,
+        path,
+        parse_result,
+        type_result,
+        pool,
+        CanonCacheAccess::Untracked,
+    )
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CanonCacheAccess {
+    Tracked,
+    Untracked,
+}
+
+fn canonicalize_by_path(
+    db: &dyn Db,
+    path: &std::path::Path,
+    parse_result: &ParseOutput,
+    type_result: &TypeCheckResult,
+    pool: &ori_types::Pool,
+    cache_access: CanonCacheAccess,
+) -> SharedCanonResult {
+    let (constant_inputs, mut const_problems) =
+        collect_imported_constant_inputs(db, path, parse_result);
+    if cache_access == CanonCacheAccess::Tracked && const_problems.is_empty() {
+        if let Some(cached) = db.canon_cache().get(path) {
+            if cached.constant_inputs == constant_inputs {
+                return cached;
+            }
+        }
     }
-    let canon = ori_ir::canon::SharedCanonResult::new(ori_canon::lower_module(
+
+    let mut result = ori_canon::lower_module_with_constants(
         &parse_result.module,
         &parse_result.arena,
         type_result,
         pool,
         db.interner(),
-    ));
-    db.canon_cache().store(path, canon.clone());
+        &constant_inputs,
+    );
+    result.const_problems.append(&mut const_problems);
+    let canon = ori_ir::canon::SharedCanonResult::new(result);
+    if cache_access == CanonCacheAccess::Tracked {
+        db.canon_cache().store(path, canon.clone());
+    }
     canon
+}
+
+/// Resolve selected provider constants to evaluated values without making a
+/// provider canon artifact consumer-dependent.
+fn collect_imported_constant_inputs(
+    db: &dyn Db,
+    consumer_path: &std::path::Path,
+    parse_result: &ParseOutput,
+) -> (
+    Vec<ori_ir::canon::NamedConstValue>,
+    Vec<ori_ir::canon::ConstEvalProblem>,
+) {
+    let resolved = crate::imports::resolve_imports(db, parse_result, consumer_path);
+    let mut values = Vec::with_capacity(resolved.imported_constants.len());
+    let mut problems = Vec::new();
+
+    for constant_ref in &resolved.imported_constants {
+        let module = &resolved.modules[constant_ref.module_index];
+        let current_parse = module.source_file.map_or_else(
+            || module.parse_output.clone(),
+            |source_file| parsed(db, source_file),
+        );
+        let Some(definition) = current_parse
+            .module
+            .consts
+            .iter()
+            .find(|definition| definition.name == constant_ref.original_name)
+        else {
+            // Type checking owns missing-item diagnostics. Canon remains in
+            // recovery mode so the import error is not duplicated as E2058.
+            continue;
+        };
+        let parent_test_access = crate::imports::is_test_module(consumer_path)
+            && crate::imports::is_parent_module_import(consumer_path, &module.module_path);
+        if !definition.visibility.is_public() && !parent_test_access {
+            // Visibility likewise stays in the import-diagnostic family.
+            continue;
+        }
+
+        let Some(provider_canon) =
+            canonicalize_module(db, &current_parse, &module.module_path, module.source_file)
+        else {
+            problems.push(imported_value_unavailable_problem(
+                constant_ref,
+                &module.module_path,
+            ));
+            continue;
+        };
+        if !provider_canon.const_problems.is_empty() {
+            // A provider module is one compilation unit. Do not export a
+            // seemingly valid constant from a module whose constant graph is
+            // otherwise invalid; doing so makes consumers depend on which
+            // declaration happened to be selected.
+            problems.push(imported_value_unavailable_problem(
+                constant_ref,
+                &module.module_path,
+            ));
+            continue;
+        }
+        if let Some(value) = provider_canon
+            .named_constants
+            .iter()
+            .find(|value| value.name == constant_ref.original_name)
+        {
+            values.push(ori_ir::canon::NamedConstValue {
+                name: constant_ref.local_name,
+                value: value.value.clone(),
+            });
+        } else {
+            // Every visible selected constant must either export a value or
+            // block the consumer. This catches both provider-reported failures
+            // and any future producer invariant that omits the artifact.
+            problems.push(imported_value_unavailable_problem(
+                constant_ref,
+                &module.module_path,
+            ));
+        }
+    }
+
+    (values, problems)
+}
+
+fn imported_value_unavailable_problem(
+    constant_ref: &crate::imports::ImportedConstantRef,
+    module_path: &std::path::Path,
+) -> ori_ir::canon::ConstEvalProblem {
+    ori_ir::canon::ConstEvalProblem {
+        name: constant_ref.local_name,
+        span: constant_ref.span,
+        kind: ori_ir::canon::ConstEvalProblemKind::ImportedValueUnavailable {
+            module: module_path.display().to_string(),
+        },
+    }
 }
 
 /// Evaluate a source file.
@@ -476,6 +674,16 @@ pub(crate) fn run_evaluation(
     // Canonicalize: AST + types → self-contained canonical IR.
     // Uses session-scoped CanonCache for reuse across consumers.
     let shared_canon = canonicalize_cached(db, file, parse_result, type_result, pool);
+    if !shared_canon.const_problems.is_empty() {
+        let summary = crate::problem::semantic::const_eval_problems_summary(
+            &shared_canon.const_problems,
+            interner,
+        );
+        return (
+            ModuleEvalResult::constant_errors(summary, shared_canon.const_problems.clone()),
+            None,
+        );
+    }
 
     // Create evaluator with type information, canonical IR, and source info for Traceable
     let source_path = std::sync::Arc::new(file_path.to_string_lossy().to_string());

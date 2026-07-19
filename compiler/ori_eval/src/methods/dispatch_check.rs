@@ -16,9 +16,9 @@ use super::dispatch_builtin_method_str;
 /// Check if the evaluator can dispatch a builtin method for the given type.
 ///
 /// Queries both resolver paths:
-/// - [`CollectionMethodResolver`](crate::interpreter::resolvers::collection::CollectionMethodResolver)
+/// - [`CollectionMethodResolver`](crate::interpreter::resolvers::CollectionMethodResolver)
 ///   (priority 1): handles iterator, collection, and closure-taking methods
-/// - [`BuiltinMethodResolver`](crate::interpreter::resolvers::builtin::BuiltinMethodResolver)
+/// - [`BuiltinMethodResolver`](crate::interpreter::resolvers::BuiltinMethodResolver)
 ///   (priority 2): handles primitive type methods
 ///
 /// Returns `true` if a handler exists (even if it would fail with wrong args).
@@ -29,10 +29,24 @@ use super::dispatch_builtin_method_str;
 /// This is an enforcement-testing API. It verifies dispatch routing, not
 /// behavioral correctness. Used by cross-phase enforcement tests in `oric`.
 ///
-/// ```ignore
+/// ```
+/// use ori_eval::can_dispatch_builtin;
+/// use ori_ir::StringInterner;
+/// use ori_registry::TypeTag;
+///
+/// let interner = StringInterner::new();
 /// for type_def in ori_registry::BUILTIN_TYPES {
+///     // Channels require live runtime objects and cannot be probed statically.
+///     if type_def.tag == TypeTag::Channel {
+///         continue;
+///     }
 ///     for method in type_def.methods {
-///         assert!(can_dispatch_builtin(type_def.tag, method.name, &interner));
+///         assert!(
+///             can_dispatch_builtin(type_def.tag, method.name, &interner),
+///             "{}.{} has no evaluator dispatch",
+///             type_def.name,
+///             method.name,
+///         );
 ///     }
 /// }
 /// ```
@@ -181,7 +195,7 @@ fn is_collection_dispatched(tag: TypeTag, method: &str) -> bool {
 /// Construct the simplest possible `Value` for a `TypeTag`.
 ///
 /// Returns `None` for types without a direct `Value` representation
-/// (Unit, Never, Iterator, DEI, Channel, Function). Iterator and DEI
+/// (Never, Iterator, DEI, Channel, Function). Iterator and DEI
 /// are handled entirely by `CollectionMethodResolver` and checked via
 /// `is_collection_dispatched`.
 fn minimal_value_for_tag(tag: TypeTag) -> Option<Value> {
@@ -192,6 +206,7 @@ fn minimal_value_for_tag(tag: TypeTag) -> Option<Value> {
         TypeTag::Str => Some(Value::string("")),
         TypeTag::Char => Some(Value::Char(' ')),
         TypeTag::Byte => Some(Value::Byte(0)),
+        TypeTag::Unit => Some(Value::Void),
         TypeTag::Duration => Some(Value::Duration(0)),
         TypeTag::Size => Some(Value::Size(0)),
         TypeTag::Ordering => Some(Value::ordering_equal()),
@@ -204,8 +219,7 @@ fn minimal_value_for_tag(tag: TypeTag) -> Option<Value> {
         TypeTag::Tuple => Some(Value::tuple(vec![])),
         TypeTag::Error => Some(Value::error("test")),
         // No Value representation or dispatched entirely by CollectionMethodResolver
-        TypeTag::Unit
-        | TypeTag::Never
+        TypeTag::Never
         | TypeTag::Iterator
         | TypeTag::DoubleEndedIterator
         | TypeTag::Channel

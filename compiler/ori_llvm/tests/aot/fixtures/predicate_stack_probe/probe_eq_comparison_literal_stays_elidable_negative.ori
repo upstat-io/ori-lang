@@ -1,0 +1,5 @@
+@main () -> int = {
+    let a = "this is a long heap string that exceeds the SSO inline threshold";
+    let b = "this is a long heap string that exceeds the SSO inline threshold";
+    if a == b then 0 else 1
+}

@@ -1,4 +1,5 @@
-//! String iteration, comparison (incl. list/map deep-eq), operations, property access, conversion, debug formatting, methods.
+//! Runtime declarations for string iteration, comparison, property access,
+//! conversion, formatting, and methods, including deep list/map equality.
 
 use super::super::types::{Attr, RtFn, Ty};
 
@@ -79,22 +80,6 @@ pub(in crate::codegen::runtime_decl) static STRINGS: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: false,
     },
-    // ori_map_eq(a: ptr, b: ptr, key_size, val_size, key_eq, key_hash, val_eq) -> bool
-    RtFn {
-        name: "ori_map_eq",
-        params: &[
-            Ty::Ptr,
-            Ty::Ptr,
-            Ty::I64,
-            Ty::I64,
-            Ty::Ptr,
-            Ty::Ptr,
-            Ty::Ptr,
-        ],
-        ret: Some(Ty::Bool),
-        attrs: &[Attr::Nounwind],
-        jit_allowed: false,
-    },
     RtFn {
         name: "ori_str_ne",
         params: &[Ty::Ptr, Ty::Ptr],
@@ -155,8 +140,29 @@ pub(in crate::codegen::runtime_decl) static STRINGS: &[RtFn] = &[
         jit_allowed: true,
     },
     RtFn {
+        name: "ori_str_from_duration",
+        params: &[Ty::I64],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_str_from_size",
+        params: &[Ty::I64],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
         name: "ori_str_from_bool",
         params: &[Ty::Bool],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_str_from_ordering",
+        params: &[Ty::I64],
         ret: Some(Ty::Str),
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
@@ -191,6 +197,13 @@ pub(in crate::codegen::runtime_decl) static STRINGS: &[RtFn] = &[
         jit_allowed: true,
     },
     RtFn {
+        name: "ori_char_is_alpha",
+        params: &[Ty::I32],
+        ret: Some(Ty::Bool),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
         name: "ori_char_debug_format",
         params: &[Ty::I32],
         ret: Some(Ty::Str),
@@ -198,7 +211,7 @@ pub(in crate::codegen::runtime_decl) static STRINGS: &[RtFn] = &[
         jit_allowed: true,
     },
     RtFn {
-        name: "ori_byte_debug_format",
+        name: "ori_byte_printable_format",
         params: &[Ty::I64],
         ret: Some(Ty::Str),
         attrs: &[Attr::Nounwind],
@@ -259,6 +272,13 @@ pub(in crate::codegen::runtime_decl) static STRINGS: &[RtFn] = &[
         params: &[Ty::Ptr, Ty::I64],
         ret: Some(Ty::Str),
         attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_str_index",
+        params: &[Ty::Ptr, Ty::I64],
+        ret: Some(Ty::Str),
+        attrs: &[],
         jit_allowed: true,
     },
 ];

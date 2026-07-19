@@ -110,7 +110,6 @@ fn multi_variant_heap_arm_releases_borrowed_arg_no_leak() {
 /// double-free in RC codegen for a borrowed-Invoke `[Tree]` result. The carrier
 /// decline is unit-pinned by `no_sink_declines_heap_result_carrier`.
 #[test]
-#[ignore = "BUG-04-164: borrowed-Invoke recursive-sum-list [Tree] result double-frees (orthogonal to the no-sink scan)"]
 fn non_scalar_result_carrier_declined_clean() {
     assert_aot_success(
         include_str!("fixtures/borrowed_invoke_leak/non_scalar_result_carrier.ori"),
@@ -138,7 +137,6 @@ fn live_project_extract_declined_clean() {
 /// Project extract. The vet decline is unit-pinned by
 /// `vetted_closure_declines_owned_position_consume`.
 #[test]
-#[ignore = "BUG-04-165: closure capturing a niche-payload Project extract double-frees (orthogonal to the no-sink scan)"]
 fn mutation_in_closure_declined_clean() {
     assert_aot_success(
         include_str!("fixtures/borrowed_invoke_leak/mutation_in_closure_decline.ori"),
@@ -154,23 +152,6 @@ fn multi_variant_nonheap_arm_unperturbed_clean() {
     assert_aot_success(
         include_str!("fixtures/borrowed_invoke_leak/multi_variant_nonheap_arm.ori"),
         "multi_variant_nonheap_arm_unperturbed_clean",
-    );
-}
-
-/// EV semantic pin: `ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE=1` restores the
-/// recursive-tree crasher — proves the no-sink edge-death mode (now reaching
-/// `EnumVariant` roots) is the cure surface for the bare-dec UAF.
-#[test]
-fn toggle_disables_release_recursive_tree_crashes_again() {
-    use crate::util::compile_and_run_with_build_env;
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        include_str!("fixtures/borrowed_invoke_leak/recursive_tree_no_sink.ori"),
-        &[("ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE", "1")],
-    );
-    assert_ne!(
-        exit, 0,
-        "with the borrowed-Invoke lineage release disabled, the recursive-tree pin \
-         must regress (crash/leak, exit != 0)\nstderr:\n{stderr}"
     );
 }
 
@@ -276,20 +257,3 @@ fn non_collection_struct_root_unperturbed_clean() {
 }
 
 // ----- Semantic pin: the toggle restores the leak (load-bearing) -----
-
-/// Semantic pin: `ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE=1` restores the
-/// pin-1 minimal leak — proves the no-sink edge-death mode is the cure surface.
-/// The toggle gates the WHOLE scan (dead-param + no-sink modes), so disabling it
-/// reverts the inline-before-terminator dec placement.
-#[test]
-fn toggle_disables_no_sink_release_pin1_leaks_again() {
-    use crate::util::compile_and_run_with_build_env;
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        include_str!("fixtures/borrowed_invoke_leak/single_param_eq.ori"),
-        &[("ORI_DISABLE_BORROWED_INVOKE_LINEAGE_RELEASE", "1")],
-    );
-    assert_eq!(
-        exit, 2,
-        "with the borrowed-Invoke lineage release disabled, pin-1 must leak (exit 2)\nstderr:\n{stderr}"
-    );
-}

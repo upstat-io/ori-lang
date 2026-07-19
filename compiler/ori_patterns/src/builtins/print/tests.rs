@@ -39,10 +39,10 @@ fn print_uses_capability_when_available() {
         .with_capability(print_cap_name, Value::Void);
 
     let ctx = make_ctx(&interner, &arena, &props);
-    let result = PrintPattern.evaluate(&ctx, &mut exec);
+    let result = PrintPattern.evaluate(&ctx, &mut exec).unwrap();
 
-    // Should succeed (call_method returns Ok(Void) in mock)
-    assert!(result.is_ok());
+    // Printing via the capability yields void.
+    assert!(matches!(result, Value::Void));
 }
 
 #[test]
@@ -60,10 +60,10 @@ fn print_falls_back_when_no_capability() {
     let mut exec = MockPatternExecutor::new().with_expr(ExprId::new(0), Value::string("test"));
 
     let ctx = make_ctx(&interner, &arena, &props);
-    let result = PrintPattern.evaluate(&ctx, &mut exec);
+    let result = PrintPattern.evaluate(&ctx, &mut exec).unwrap();
 
-    // Should succeed using __builtin_println fallback
-    assert!(result.is_ok());
+    // The __builtin_println fallback yields void.
+    assert!(matches!(result, Value::Void));
 }
 
 #[test]

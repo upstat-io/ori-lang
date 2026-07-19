@@ -1,0 +1,31 @@
+// Spec: 07-properties-of-types.md § Traceable
+// Regression: a non-scalar Traceable accessor (`trace_entries()`) on the `Error`
+// payload `e` inside a `match` arm, consumed by `.len()` (non-tail position).
+// The `trace_entries()` sub-expression itself poisoned to Idx::ERROR upstream in
+// ori_types, so LLVM build failed (E5001) while interp succeeded. See the sibling
+// list-tail pin for the aggregate-phi manifestation.
+
+use std.testing { assert_eq }
+
+@fail () -> Result<int, Error> = Err(Error("fail"));
+
+@one_hop () -> Result<int, Error> = {
+    let x = fail()?;
+    Ok(x)
+}
+
+// Variant 2: the accessor is called inside the arm but its result is consumed by
+// `.len()`, so the arm value is a scalar `int` (non-tail accessor position).
+@entries_len_via_match () -> int = {
+    match one_hop() {
+        Ok(_) -> 0,
+        Err(e) -> e.trace_entries().len(),
+    }
+}
+
+@test_entries_len tests @entries_len_via_match () -> void = {
+    assert_eq(
+        actual: entries_len_via_match(),
+        expected: 1,
+    )
+}

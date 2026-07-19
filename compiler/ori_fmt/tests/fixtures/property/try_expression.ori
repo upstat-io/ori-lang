@@ -1,0 +1,1 @@
+@f (x: Result<int, str>) -> Result<int, str> = try { let v = x; Ok(v + 1) }

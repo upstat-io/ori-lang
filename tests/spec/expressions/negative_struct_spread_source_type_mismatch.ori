@@ -1,0 +1,18 @@
+// NEGATIVE PIN — struct-spread source type soundness (infer_struct_spread Spread arm).
+// Spreading an unrelated struct type into a target struct literal
+// (`Point { ...other, ... }` where `other: Other`) MUST be rejected with E2001:
+// the spread source type must unify with the target struct type, never be
+// silently accepted.
+// Spec: 14-expressions.md § Struct literals + spread; typeck E2001 (Mismatch).
+
+type Point = { x: int, y: int }
+type Other = { a: int }
+
+#compile_fail(code: "E2001")
+@test_struct_spread_source_type_mismatch tests @_anchor_spread_src () -> void = {
+    let $o = Other { a: 1 };
+    let $p = Point { ...o, x: 5, y: 6 };
+    ()
+}
+
+@_anchor_spread_src () -> bool = true;

@@ -92,7 +92,7 @@ impl Mangler {
     ///
     /// # Arguments
     ///
-    /// * `type_name` - The extended type (e.g., "[int]", "str")
+    /// * `type_name` - The extended type (e.g., `"[int]"`, `"str"`)
     /// * `method_name` - The extension method name
     /// * `module_path` - The module where the extension is defined
     ///
@@ -203,7 +203,7 @@ impl Mangler {
         result
     }
 
-    // -- Internal encoding helpers --
+    // Internal encoding helpers
     //
     // These helpers share a common pattern:
     // 1. Alphanumeric and '_' pass through unchanged

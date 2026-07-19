@@ -166,7 +166,7 @@ impl WasmOptRunner {
             if e.kind() == std::io::ErrorKind::NotFound {
                 WasmError::InvalidConfig {
                     message: format!(
-                        "wasm-opt not found at '{}'. Install Binaryen or specify path with --wasm-opt-path",
+                        "wasm-opt not found at '{}'. Install Binaryen and ensure wasm-opt is on PATH",
                         self.wasm_opt_path.display()
                     ),
                 }

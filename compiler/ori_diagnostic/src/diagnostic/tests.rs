@@ -91,7 +91,7 @@ fn test_diagnostic_salsa_traits() {
 
     // Hash
     let mut set = HashSet::new();
-    set.insert(d1.clone());
+    set.insert(d1);
     set.insert(d2); // duplicate
     set.insert(d3);
     assert_eq!(set.len(), 2);

@@ -2,14 +2,14 @@
 //!
 //! Handles scope context (current function, impl self type, capabilities),
 //! environment management (freezing/child envs), error accumulation,
-//! expression type storage, inference engine creation, and RAII-style
-//! context scoping.
+//! expression type storage, inference engine creation, and closure-based
+//! save/restore context scoping (NOT RAII — no `Drop`, not panic-safe).
 
 use ori_ir::{Name, Span};
 use rustc_hash::FxHashSet;
 
 use super::ModuleChecker;
-use crate::{Idx, InferEngine, TypeCheckError, TypeCheckWarning, TypeEnv};
+use crate::{ConstValue, Idx, InferEngine, TypeCheckError, TypeCheckWarning, TypeEnv};
 
 impl ModuleChecker<'_> {
     // Scope Context
@@ -26,6 +26,36 @@ impl ModuleChecker<'_> {
         self.current_impl_self
     }
 
+    /// The current impl's associated-type projection context: the in-scope
+    /// `assoc_name -> Idx` bindings plus the impl `trait_idx`. `None` outside an
+    /// impl method-signature resolution. Read by the `ParsedType::AssociatedType`
+    /// resolver arm to project `Self.Item` for the impl currently being resolved.
+    #[inline]
+    pub(crate) fn current_impl_assoc(
+        &self,
+    ) -> Option<&(rustc_hash::FxHashMap<Name, Idx>, Option<Idx>)> {
+        self.current_impl_assoc.as_ref()
+    }
+
+    /// Run `f` with the impl's associated-type projection context installed,
+    /// restoring the prior context on return. Mirrors `with_impl_scope`:
+    /// not panic-safe (an unwinding panic inside `f` does not restore), matching
+    /// the closure-based save/restore discipline.
+    pub(crate) fn with_impl_assoc_scope<T, F>(
+        &mut self,
+        bindings: rustc_hash::FxHashMap<Name, Idx>,
+        trait_idx: Option<Idx>,
+        f: F,
+    ) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        let saved = self.current_impl_assoc.replace((bindings, trait_idx));
+        let result = f(self);
+        self.current_impl_assoc = saved;
+        result
+    }
+
     /// Check if a capability is available (declared or provided).
     pub fn has_capability(&self, cap: Name) -> bool {
         self.current_capabilities.contains(&cap) || self.provided_capabilities.contains(&cap)
@@ -39,6 +69,11 @@ impl ModuleChecker<'_> {
     /// Register a constant type.
     pub fn register_const_type(&mut self, name: Name, ty: Idx) {
         self.const_types.insert(name, ty);
+    }
+
+    /// Register concrete value evidence for a module constant.
+    pub fn register_const_value(&mut self, name: Name, value: ConstValue) {
+        self.const_values.insert(name, value);
     }
 
     // Environment Management
@@ -120,21 +155,27 @@ impl ModuleChecker<'_> {
     pub fn create_engine(&mut self) -> InferEngine<'_> {
         let interner = self.interner;
         let well_known = &self.well_known;
-        // Split borrow: pool (mut) + traits, signatures, types, consts (shared)
+        // Split borrow: pool (mut) + registries and const evidence (shared)
         let traits = &self.traits;
         let sigs = &self.signatures;
+        let aliases = &self.module_aliases;
         let types = &self.types;
         let consts = &self.const_types;
+        let const_values = &self.const_values;
         let impl_self = self.current_impl_self;
         let current_caps = self.current_capabilities.clone();
         let provided_caps = self.provided_capabilities.clone();
+        let builtin_exts = self.builtin_extensions.clone();
         let mut engine = InferEngine::new(&mut self.pool);
         engine.set_interner(interner);
         engine.set_well_known(well_known);
         engine.set_trait_registry(traits);
         engine.set_signatures(sigs);
+        engine.set_module_aliases(aliases);
         engine.set_type_registry(types);
         engine.set_const_types(consts);
+        engine.set_const_values(const_values);
+        engine.set_builtin_extensions(builtin_exts);
         engine.set_capabilities(current_caps, provided_caps);
         if let Some(self_ty) = impl_self {
             engine.set_impl_self_type(self_ty);
@@ -150,11 +191,13 @@ impl ModuleChecker<'_> {
     pub fn create_engine_with_env(&mut self, env: TypeEnv) -> InferEngine<'_> {
         let interner = self.interner;
         let well_known = &self.well_known;
-        // Split borrow: pool (mut) + traits, signatures, types, consts (shared)
+        // Split borrow: pool (mut) + registries and const evidence (shared)
         let traits = &self.traits;
         let sigs = &self.signatures;
+        let aliases = &self.module_aliases;
         let types = &self.types;
         let consts = &self.const_types;
+        let const_values = &self.const_values;
         let impl_self = self.current_impl_self;
         let current_caps = self.current_capabilities.clone();
         let provided_caps = self.provided_capabilities.clone();
@@ -170,13 +213,17 @@ impl ModuleChecker<'_> {
             .base_env
             .as_ref()
             .map(|base| base.names().collect::<rustc_hash::FxHashSet<_>>());
+        let builtin_exts = self.builtin_extensions.clone();
         let mut engine = InferEngine::with_env(&mut self.pool, env);
         engine.set_interner(interner);
         engine.set_well_known(well_known);
         engine.set_trait_registry(traits);
         engine.set_signatures(sigs);
+        engine.set_module_aliases(aliases);
         engine.set_type_registry(types);
         engine.set_const_types(consts);
+        engine.set_const_values(const_values);
+        engine.set_builtin_extensions(builtin_exts);
         engine.set_capabilities(current_caps, provided_caps);
         if let Some(snapshot) = module_scope_snapshot {
             engine.set_module_scope_snapshot(snapshot);
@@ -187,7 +234,7 @@ impl ModuleChecker<'_> {
         engine
     }
 
-    // Context Management (RAII-style)
+    // Context Management (closure-based save/restore; not RAII)
 
     /// Execute a closure with a function scope.
     ///

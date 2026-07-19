@@ -37,10 +37,13 @@
 #   2 = usage error
 
 set -uo pipefail
-# Note: no -e because we intentionally handle failures per-section
+# No -e: failures are handled per-section, deliberately not fatal
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/_common.sh"
+# Shared strip_ansi stdin filter (no per-script copy).
+# shellcheck source=../scripts/lib/ansi.sh
+source "$SCRIPT_DIR/../scripts/lib/ansi.sh"
 
 # --- Defaults ---
 USE_VALGRIND=0
@@ -126,7 +129,7 @@ fi
 if [[ "$USE_BOTH_BUILDS" -eq 1 ]]; then
     require_both_builds
     # --both-builds: run the full battery for each profile, then compare
-    # per-section results. We recurse with all original flags minus
+    # per-section results. Recurses with all original flags minus
     # --both-builds (passthrough), plus _DIAGNOSE_AOT_RESULTS to capture
     # per-section structured output for comparison.
 
@@ -198,7 +201,7 @@ else
 fi
 
 # Export ORI_BIN so helper scripts (rc-stats.sh, ir-dump.sh, codegen-audit.sh,
-# arc-dump.sh, disasm-ori.sh) use the same binary we resolved above, rather
+# arc-dump.sh, disasm-ori.sh) use the same binary resolved above, rather
 # than re-resolving via their own find_ori_bin which may choose a different
 # build profile.
 export ORI_BIN="$ORI"
@@ -221,9 +224,7 @@ echo -e "${C_BOLD}Diagnostic Report: ${basename_file}${C_NC}${C_DIM} (${build_pr
 echo "════════════════════════════════════════════════════════"
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 1: Compilation
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[1/9] Compilation${C_NC}"
 
 start_time=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
@@ -250,9 +251,7 @@ else
 fi
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 2: Execution
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[2/9] Execution${C_NC}"
 
 rc_trace_env=()
@@ -288,9 +287,7 @@ if [[ $stderr_size -gt 0 ]]; then
 fi
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 3: Leak Check
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[3/9] Leak Check${C_NC}"
 
 leak_env=(env ORI_CHECK_LEAKS=1)
@@ -298,7 +295,6 @@ if [[ $USE_RC_TRACE -eq 1 ]]; then
     leak_env+=(ORI_TRACE_RC=1)
 fi
 "${leak_env[@]}" "$tmpdir/binary" > /dev/null 2>"$tmpdir/leak_stderr.txt"
-leak_exit=$?
 
 if grep -q "RC live count" "$tmpdir/leak_stderr.txt"; then
     # Extract the live count from the output
@@ -321,9 +317,7 @@ else
 fi
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 4: RC Stats
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[4/9] RC Stats${C_NC}"
 
 color_flag="--no-color"
@@ -341,9 +335,7 @@ fi
 sed 's/^/  │ /' "$tmpdir/rc_stats.txt"
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 5: LLVM IR
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[5/9] LLVM IR${C_NC}"
 
 ir_file="${tmpdir}/ir-${basename_file%.ori}.ll"
@@ -360,9 +352,7 @@ else
 fi
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 6: Codegen Audit
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[6/9] Codegen Audit${C_NC}"
 
 audit_color_flag="--no-color"
@@ -408,9 +398,7 @@ case $audit_exit in
 esac
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 7: ARC IR
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[7/9] ARC IR${C_NC}"
 
 arc_file="${tmpdir}/arc-${basename_file%.ori}.txt"
@@ -427,9 +415,7 @@ else
 fi
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 8: Valgrind
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[8/9] Valgrind${C_NC}"
 
 if [[ "$USE_VALGRIND" -eq 1 ]]; then
@@ -460,9 +446,7 @@ else
 fi
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 9: Disassembly
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[9/9] Disassembly${C_NC}"
 
 if [[ "$VERBOSE" -eq 1 ]]; then
@@ -484,9 +468,7 @@ else
 fi
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Summary
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}Summary${C_NC}"
 echo "════════════════════════════════════════════════════════"
 
@@ -504,10 +486,10 @@ fi
 
 # Write per-section results for --both-builds comparison (if requested via env)
 if [[ -n "${_DIAGNOSE_AOT_RESULTS:-}" ]]; then
-    # Strip ANSI color codes from status symbols for comparison
-    strip_ansi() { echo -e "$1" | sed 's/\x1b\[[0-9;]*m//g'; }
     for i in 1 2 3 4 5 6 7 8 9; do
-        status=$(strip_ansi "${results[$i]}")
+        # echo -e interprets the literal \033 escapes stored in C_* status
+        # symbols; strip_ansi (shared, scripts/lib/ansi.sh) then removes them.
+        status=$(echo -e "${results[$i]}" | strip_ansi)
         echo "${section_names[$i]}|${status}" >> "$_DIAGNOSE_AOT_RESULTS"
     done
 fi

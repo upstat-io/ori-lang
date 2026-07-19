@@ -68,9 +68,10 @@ Theorem IC-2: Interprocedural contract rule signatures — IC-1 through IC-7 + I
       Removed in: Annex E §AIMS IC-8 removal note
         (same root cause as DP-10)
 
-      Root cause: caller w/ MaybeShared arg used linearly may still hold
-        RC > 1 from upstream aliases; deriving callee parameter uniqueness
-        from caller consumption patterns was unsound.
+      Root cause: a caller with a MaybeShared argument used linearly may
+        still carry multiple logical owner credits through upstream aliases;
+        deriving callee parameter uniqueness from caller consumption patterns
+        was unsound.
 
       Subsumed by: IC-2 + IC-3 SCC fixpoint as natural convergence
         (parameter uniqueness established by joined caller-side state,

@@ -8,7 +8,8 @@
 //! owned (RC == 1), mutation happens in-place; when shared, a copy is made
 //! first. Each mutating method returns a `{i64 len, i64 cap, ptr data}` struct.
 
-use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN, RANGE_FIELD_END, RANGE_FIELD_START};
+use ori_arc::ir::ArgOwnership;
+use ori_ir::{RANGE_FIELD_END, RANGE_FIELD_START};
 use ori_types::Idx;
 
 use crate::codegen::value_id::ValueId;
@@ -16,33 +17,9 @@ use crate::codegen::value_id::ValueId;
 use super::super::super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Emit `set.length` — extract field 0 (len) from `{i64 len, i64 cap, ptr data}`.
-    pub(crate) fn emit_set_length(&mut self, receiver: ValueId) -> Option<ValueId> {
-        self.builder.extract_value(receiver, FIELD_LEN, "set.len")
-    }
-
-    /// Emit `set.is_empty()` — `len == 0`.
-    pub(crate) fn emit_set_is_empty(&mut self, receiver: ValueId) -> Option<ValueId> {
-        let len = self.builder.extract_value(receiver, FIELD_LEN, "set.len")?;
-        let zero = self.builder.const_i64(0);
-        Some(self.builder.icmp_eq(len, zero, "set.is_empty"))
-    }
-
     /// Extract set data, len, cap from `{i64 len, i64 cap, ptr data}`.
-    fn extract_set_components(&mut self, receiver: ValueId) -> (ValueId, ValueId, ValueId) {
-        let data_ptr = self
-            .builder
-            .extract_value(receiver, FIELD_DATA, "set.data")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
-        let len = self
-            .builder
-            .extract_value(receiver, FIELD_LEN, "set.len")
-            .unwrap_or_else(|| self.builder.const_i64(0));
-        let cap = self
-            .builder
-            .extract_value(receiver, FIELD_CAP, "set.cap")
-            .unwrap_or_else(|| self.builder.const_i64(0));
-        (data_ptr, len, cap)
+    fn extract_set_components(&mut self, receiver: ValueId) -> Option<(ValueId, ValueId, ValueId)> {
+        self.extract_collection_fields(receiver, "set.data", "set.len", "set.cap")
     }
 
     /// Emit `set.contains(elem)` — hash table lookup with type-specific equality.
@@ -56,7 +33,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_set_contains");
 
-        let (data_ptr, len, cap) = self.extract_set_components(receiver);
+        let (data_ptr, len, cap) = self.extract_set_components(receiver)?;
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "contains.elem");
         let elem_size = self
             .builder
@@ -91,7 +68,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_set_insert_cow");
 
-        let (data_ptr, len, cap) = self.extract_set_components(receiver);
+        let (data_ptr, len, cap) = self.extract_set_components(receiver)?;
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "insert.elem");
         let (elem_size, elem_align) = self.elem_size_and_align(elem_ty, None);
         let elem_eq = self.get_or_create_eq_thunk(elem_ty)?;
@@ -131,7 +108,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_set_remove_cow");
 
-        let (data_ptr, len, cap) = self.extract_set_components(receiver);
+        let (data_ptr, len, cap) = self.extract_set_components(receiver)?;
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "remove.elem");
         let (elem_size, elem_align) = self.elem_size_and_align(elem_ty, None);
         let elem_eq = self.get_or_create_eq_thunk(elem_ty)?;
@@ -183,20 +160,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn(func_name);
 
-        let (d1, l1, c1) = self.extract_set_components(receiver);
-        // Second set: need data, len, and cap for hash table lookups
-        let d2 = self
-            .builder
-            .extract_value(other, FIELD_DATA, "set2.data")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
-        let l2 = self
-            .builder
-            .extract_value(other, FIELD_LEN, "set2.len")
-            .unwrap_or_else(|| self.builder.const_i64(0));
-        let c2 = self
-            .builder
-            .extract_value(other, FIELD_CAP, "set2.cap")
-            .unwrap_or_else(|| self.builder.const_i64(0));
+        let (d1, l1, c1) = self.extract_set_components(receiver)?;
+        let (d2, l2, c2) = self.extract_set_components(other)?;
 
         let (elem_size, elem_align) = self.elem_size_and_align(elem_ty, None);
         let elem_eq = self.get_or_create_eq_thunk(elem_ty)?;
@@ -204,11 +169,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
         let set_ty = self.list_struct_type();
-        let out = self.builder.create_entry_alloca(
-            self.current_function,
-            &format!("set.{label}.out"),
-            set_ty,
-        );
+        let out = self
+            .builder
+            .create_entry_alloca(self.current_function, "set.binary.out", set_ty);
 
         self.emit_rt_call(
             func_id,
@@ -216,10 +179,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 d1, l1, c1, d2, l2, c2, elem_size, elem_align, elem_eq, elem_hash, inc_fn,
                 cow_mode, out,
             ],
-            &format!("set.{label}"),
+            label,
         );
 
-        Some(self.builder.load(set_ty, out, &format!("set.{label}.val")))
+        Some(self.builder.load(set_ty, out, "set.binary.val"))
     }
 
     /// Emit `set.union(other)` — COW union.
@@ -284,7 +247,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(crate) fn emit_set_to_list(&mut self, receiver: ValueId, elem_ty: Idx) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_set_to_list");
 
-        let (data_ptr, len, cap) = self.extract_set_components(receiver);
+        let (data_ptr, len, cap) = self.extract_set_components(receiver)?;
         let elem_size = self
             .builder
             .const_i64(self.element_store_size(elem_ty) as i64);
@@ -321,31 +284,60 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// tables. Instead: convert to a contiguous list via `ori_set_to_list`, then
     /// create an iterator over that list.
     ///
-    /// After conversion, the set buffer is explicitly decremented — the ARC
-    /// pipeline passes the set with `[own]`, expecting the callee to handle
-    /// cleanup. For lists, `IterState::List` Drop implicitly handles this
-    /// (same buffer). For sets, the iterator holds the converted list buffer
-    /// (different allocation), so we must explicitly dec the set buffer.
-    pub(crate) fn emit_set_iter(&mut self, receiver: ValueId, elem_ty: Idx) -> Option<ValueId> {
+    /// `receiver_owned` mirrors the list path's `owns_data`: the set buffer is a
+    /// SEPARATE allocation from the converted list (unlike `emit_list_iter`, which
+    /// reuses the same buffer), so the set buffer must be decremented HERE — but
+    /// only when the receiver is owned. The current compiled adapter inc'd an
+    /// owned receiver as its projection of `[own]` (or via the auto-iter
+    /// slice-aware path), so the dec matches that inc. A BORROWED receiver got
+    /// no callee inc — the current adapter emits the release for the owner/caller
+    /// (Spec: Annex E §AIMS RL-2; `AimsProof.Realization.RL2_borrowed_param_emits_caller_dec`),
+    /// so decrementing here would double-free the caller's still-owned set buffer.
+    pub(crate) fn emit_set_iter(
+        &mut self,
+        receiver: ValueId,
+        elem_ty: Idx,
+        receiver_ownership: ArgOwnership,
+    ) -> Option<ValueId> {
         // Convert set to contiguous list (copies elements, incs element RCs).
         let list_val = self.emit_set_to_list(receiver, elem_ty)?;
 
-        // Dec the set buffer — the converted list now owns the element references.
-        // The set buffer's RC was incremented by AIMS for the [own] parameter;
-        // this dec matches that inc, freeing the set buffer if no other refs exist.
-        let (data_ptr, len, cap) = self.extract_set_components(receiver);
-        let elem_size = self
-            .builder
-            .const_i64(self.element_store_size(elem_ty) as i64);
-        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
-        let func_id = self.builder.runtime_fn("ori_set_buffer_rc_dec");
-        self.emit_rt_call(func_id, &[data_ptr, cap, len, elem_size, elem_dec_fn], "");
+        if receiver_ownership == ArgOwnership::Owned {
+            // Owned receiver: the compiled adapter inc'd its RC when projecting
+            // the shared `[own]` fact (or auto-iter transfer), so dec the set
+            // buffer here — the converted list now owns the element
+            // references; this dec matches the inc, freeing the set buffer when no
+            // other refs exist (RL2_release_exactly_once).
+            let (data_ptr, len, cap) = self.extract_set_components(receiver)?;
+            let elem_size = self
+                .builder
+                .const_i64(self.element_store_size(elem_ty) as i64);
+            let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
+            let func_id = self.builder.runtime_fn("ori_set_buffer_rc_dec");
+            self.emit_rt_call(func_id, &[data_ptr, cap, len, elem_size, elem_dec_fn], "");
+        }
 
-        // Create iterator from the contiguous list.
-        self.emit_list_iter(list_val, elem_ty, elem_ty)
+        // Create iterator from the contiguous list. list_val is a fresh
+        // materialized buffer the iterator owns → owns_data = true.
+        self.emit_list_iter(list_val, elem_ty, elem_ty, ArgOwnership::Owned)
     }
 
     // Range methods
+
+    fn extract_range_fields(
+        &mut self,
+        receiver: ValueId,
+    ) -> Option<(ValueId, ValueId, ValueId, ValueId)> {
+        let start = self
+            .builder
+            .extract_value(receiver, RANGE_FIELD_START, "range.start")?;
+        let end = self
+            .builder
+            .extract_value(receiver, RANGE_FIELD_END, "range.end")?;
+        let step = self.builder.extract_value(receiver, 2, "range.step")?;
+        let inclusive = self.builder.extract_value(receiver, 3, "range.incl.raw")?;
+        Some((start, end, step, inclusive))
+    }
 
     /// Emit `range.iter()` — call `ori_iter_from_range(start, end, step, inclusive)`.
     ///
@@ -355,27 +347,52 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(crate) fn emit_range_iter(&mut self, receiver: ValueId) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_from_range");
 
-        let start = self
-            .builder
-            .extract_value(receiver, RANGE_FIELD_START, "range.start")
-            .unwrap_or_else(|| self.builder.const_i64(0));
-        let end = self
-            .builder
-            .extract_value(receiver, RANGE_FIELD_END, "range.end")
-            .unwrap_or_else(|| self.builder.const_i64(0));
-        let step = self
-            .builder
-            .extract_value(receiver, 2, "range.step")
-            .unwrap_or_else(|| self.builder.const_i64(1));
-        let incl_i64 = self
-            .builder
-            .extract_value(receiver, 3, "range.incl.raw")
-            .unwrap_or_else(|| self.builder.const_i64(0));
+        let (start, end, step, incl_i64) = self.extract_range_fields(receiver)?;
 
         // Truncate inclusive flag from i64 to i1 for the runtime
         let bool_ty = self.builder.bool_type();
         let inclusive = self.builder.trunc(incl_i64, bool_ty, "range.inclusive");
 
         self.emit_rt_call(func_id, &[start, end, step, inclusive], "range.iter")
+    }
+
+    /// Emit the element count of a bounded range via `ori_range_len`.
+    ///
+    /// Reads the same 4-field `{start, end, step, inclusive}` tuple layout as
+    /// [`Self::emit_range_iter`] and forwards to the runtime, which mirrors
+    /// `RangeValue::len`.
+    pub(crate) fn emit_range_len(&mut self, receiver: ValueId) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_range_len");
+
+        let (start, end, step, incl_i64) = self.extract_range_fields(receiver)?;
+
+        let bool_ty = self.builder.bool_type();
+        let inclusive = self.builder.trunc(incl_i64, bool_ty, "range.len.inclusive");
+
+        self.emit_rt_call(func_id, &[start, end, step, inclusive], "range.len")
+    }
+
+    /// Emit a range membership test (`range.contains(value)`) via
+    /// `ori_range_contains`, reading the same 4-field range layout as
+    /// [`Self::emit_range_iter`] plus the needle `value`.
+    pub(crate) fn emit_range_contains(
+        &mut self,
+        receiver: ValueId,
+        value: ValueId,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_range_contains");
+
+        let (start, end, step, incl_i64) = self.extract_range_fields(receiver)?;
+
+        let bool_ty = self.builder.bool_type();
+        let inclusive = self
+            .builder
+            .trunc(incl_i64, bool_ty, "range.contains.inclusive");
+
+        self.emit_rt_call(
+            func_id,
+            &[start, end, step, inclusive, value],
+            "range.contains",
+        )
     }
 }

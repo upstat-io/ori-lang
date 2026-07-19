@@ -1,8 +1,11 @@
-Theorem DP-1: is_rc_needed truth table — Owned AND non-Dead AND not is_scalar
+Theorem DP-1: needs_ownership_events truth table — Owned AND non-Dead AND not is_scalar
 
   Preconditions:
+    - `is_rc_needed` is the historical implementation name for whether a
+      logical ownership event is required; it does not select a physical
+      reference-counting mechanism
     - s is a canonical AimsState per Annex E §AIMS product lattice
-    - is_rc_needed : AimsState -> Bool per Annex E §AIMS DP-1 +
+    - needs_ownership_events : AimsState -> Bool per Annex E §AIMS DP-1 +
       Appendix C truth table
     - is_scalar(s) per §1.8 L-9 — SCALAR is sentinel, NOT a lattice element
     - DP-1 is a pure boolean predicate over Access x Consumption x is_scalar;
@@ -11,7 +14,7 @@ Theorem DP-1: is_rc_needed truth table — Owned AND non-Dead AND not is_scalar
 
   Soundness property:
     Forall s in AimsState (canonical).
-      is_rc_needed(s)
+      needs_ownership_events(s)
         <=> (s.access = O AND s.consumption != Dead AND NOT is_scalar(s))
 
   Proof obligation:
@@ -32,7 +35,7 @@ Theorem DP-1: is_rc_needed truth table — Owned AND non-Dead AND not is_scalar
         Soundness: predicate false (third conjunct NOT is_scalar fails).
       Row 4: Access = O, Consumption != Dead, is_scalar = false -> true
         Soundness: predicate true (all three conjuncts hold); s carries a
-          refcountable owned non-scalar value requiring RC.
+          managed owned non-scalar value carrying a logical ownership obligation.
 
     Part (b) — coverage gate:
       The 4 rows partition the 16 product states:
@@ -56,7 +59,7 @@ Theorem DP-1: is_rc_needed truth table — Owned AND non-Dead AND not is_scalar
 
     Engines dispatched:
       case_analysis (PRIMARY — Appendix C row enumeration across 16 states
-        per section_05::verify_dp1_rc_needed; the verifier checks the
+        per section_05::verify_dp1_needs_ownership_events; the verifier checks the
         soundness equality predicate-vs-row-partition on every enumerated
         row and emits Fail on any divergence)
 

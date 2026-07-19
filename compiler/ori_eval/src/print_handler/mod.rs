@@ -29,7 +29,7 @@ impl StdoutPrintHandler {
     /// Get all captured output (for testing/WASM).
     ///
     /// Returns empty string since stdout doesn't capture.
-    pub fn get_output(&self) -> String {
+    pub fn output(&self) -> String {
         String::new()
     }
 
@@ -70,7 +70,7 @@ impl BufferPrintHandler {
     }
 
     /// Get all captured output.
-    pub fn get_output(&self) -> String {
+    pub fn output(&self) -> String {
         self.buffer.lock().clone()
     }
 
@@ -95,7 +95,7 @@ pub enum PrintHandlerImpl {
     Stdout(StdoutPrintHandler),
     /// Captures to buffer (WASM/testing).
     Buffer(BufferPrintHandler),
-    /// Discards all output silently (const-eval mode).
+    /// Discards all output silently (opt-in, e.g. purity-sensitive evaluation).
     Silent,
 }
 
@@ -121,10 +121,10 @@ impl PrintHandlerImpl {
     /// Get all captured output (for testing/WASM).
     ///
     /// Returns empty string for handlers that don't capture (stdout, silent).
-    pub fn get_output(&self) -> String {
+    pub fn output(&self) -> String {
         match self {
-            Self::Stdout(h) => h.get_output(),
-            Self::Buffer(h) => h.get_output(),
+            Self::Stdout(h) => h.output(),
+            Self::Buffer(h) => h.output(),
             Self::Silent => String::new(),
         }
     }
@@ -166,7 +166,8 @@ pub fn buffer_handler() -> SharedPrintHandler {
 
 /// Create a silent print handler that discards all output.
 ///
-/// Used for `ConstEval` mode where print is forbidden (must be pure).
+/// For callers that must suppress print entirely (e.g. purity-sensitive
+/// evaluation); the builder default stays stdout — callers opt in.
 #[expect(
     clippy::disallowed_types,
     reason = "Arc required for SharedPrintHandler"

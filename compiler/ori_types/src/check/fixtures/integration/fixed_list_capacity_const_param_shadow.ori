@@ -1,0 +1,13 @@
+let $N = 0;
+
+type Vec<T> = { items: [T] }
+
+@function_shadow<$N: int> (items: [int]) -> void = {
+    let bounded: [int, max N * 2] = items;
+}
+
+impl<T> Vec<T> {
+    @method_shadow<$N: int> (self) -> void = {
+        let bounded: [T, max N] = self.items;
+    }
+}

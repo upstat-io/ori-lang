@@ -1,8 +1,7 @@
 //! `resolve_impl_signature` — resolve a looked-up impl/trait method to a
 //! concrete `ImplMethodSig` (impl-binder substitution → method-Scheme
-//! instantiation → arity check). Extracted from `impl_lookup.rs` to keep that
-//! module under the 500-line cap (§10.R-010); signature resolution is a
-//! distinct responsibility from method lookup.
+//! instantiation → arity check) — signature resolution, distinct from the
+//! method lookup in `impl_lookup.rs`.
 
 use rustc_hash::FxHashMap;
 
@@ -27,29 +26,35 @@ pub(super) fn resolve_impl_signature(
     span: Span,
 ) -> Option<Result<ImplMethodSig, ()>> {
     let (
+        producer,
         sig_ty,
         has_self,
         where_clause_metadata,
         generic_param_metadata,
+        fixed_list_capacity_constraints,
         scheme_var_ids,
         impl_subst,
         impl_type_params,
         optional_param_count,
     ) = match outcome {
         LookupOutcome::Found {
+            producer,
             sig,
             has_self,
             where_clause_metadata,
             generic_param_metadata,
+            fixed_list_capacity_constraints,
             scheme_var_ids,
             impl_subst,
             impl_type_params,
             optional_param_count,
         } => (
+            producer,
             sig,
             has_self,
             where_clause_metadata,
             generic_param_metadata,
+            fixed_list_capacity_constraints,
             scheme_var_ids,
             impl_subst,
             impl_type_params,
@@ -84,7 +89,6 @@ pub(super) fn resolve_impl_signature(
     };
 
     tracing::debug!(
-        target: "ori_types::mono",
         method = ?method,
         impl_type_params_len = impl_type_params.len(),
         method_mono_recorded = method_mono.is_some(),
@@ -101,7 +105,7 @@ pub(super) fn resolve_impl_signature(
     // instantiate it now so each call site gets fresh unification vars in
     // place of the scheme's bound vars. This is the `GN-2` instantiation
     // pattern, mirrored from the top-level identifier path at
-    // `infer/expr/identifiers.rs:16-17`. Method-level binders that would
+    // `infer/expr/identifiers.rs`. Method-level binders that would
     // otherwise fail to unify against function-type arguments (`UN-6` rigid
     // mismatch) unify cleanly because they have been replaced by fresh,
     // narrowable `Tag::Var`s.
@@ -127,7 +131,7 @@ pub(super) fn resolve_impl_signature(
     let skip = usize::from(has_self);
     let method_params = params[skip..].to_vec();
 
-    // BUG-04-190: a call may omit up to `optional_param_count` trailing
+    // A call may omit up to `optional_param_count` trailing
     // defaulted params; canon fills them. Valid arity is the inclusive range
     // [method_params.len() - optional_param_count, method_params.len()].
     // `optional_param_count == 0` reduces to strict equality (unchanged
@@ -145,11 +149,13 @@ pub(super) fn resolve_impl_signature(
     }
 
     Some(Ok(ImplMethodSig {
+        producer,
         params: method_params,
         ret,
         method_mono,
         where_clause_metadata,
         generic_param_metadata,
+        fixed_list_capacity_constraints,
         scheme_var_ids,
         instantiation_subst,
     }))
@@ -160,11 +166,11 @@ pub(super) fn resolve_impl_signature(
 ///
 /// Composition order is load-bearing: resolve → substitute `Tag::Named`
 /// impl refs → substitute `Tag::RigidVar` impl binders to concrete receiver
-/// types. `substitute_named_in_pool` rewrites only `Tag::Named`; §10.1.2 made
-/// impl binders `Tag::RigidVar` (dispatch parametricity), so a `@get (self)
+/// types. `substitute_named_in_pool` rewrites only `Tag::Named`; impl binders
+/// are `Tag::RigidVar` (dispatch parametricity), so a `@get (self)
 /// -> T` return needs the second pass to resolve `T` to the concrete receiver
 /// type — without it the `RigidVar(T)` survives to mono recording and fails
-/// its `is_fully_concrete` gate. SSOT scan: `build_impl_rigid_var_subst`.
+/// its `is_recordable` gate. SSOT scan: `build_impl_rigid_var_subst`.
 fn apply_impl_binder_substitution(
     engine: &mut InferEngine<'_>,
     sig_ty: Idx,

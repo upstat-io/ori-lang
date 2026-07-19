@@ -2,8 +2,8 @@
 //!
 //! Coverage: type-arg substitution × template-shape × nesting depth.
 //! - Sum templates: Option<T> (single payload, Some arm), Result<T, E> (two arms).
-//! - Mixed Value/HeapType: `Result<ValueType, HeapType>` per proposal
-//!   §Value Trait Composition.
+//! - Mixed zero-burden/ownership-bearing arguments: `Result<int, str>` per
+//!   the Value Trait Composition rule.
 //! - Nested generics: outer `Option<Result<int, str>>` composes to a field-type
 //!   `Idx` referencing the inner Result's monomorphized id (recursive
 //!   composition is via the type graph, NOT inline expansion).
@@ -23,10 +23,9 @@ use crate::registry::burden::UserBurdenSpec;
 use crate::{Idx, Pool, TypeRegistry};
 
 // Fetch the Option<T> / Result<T, E> templates from BURDEN_TABLE. Helpers
-// follow the canonical "panic when registry shape drifts" pattern from
-// `compiler_repo/compiler/ori_registry/src/burden/table/tests.rs` —
-// workspace clippy denies `expect`/`unwrap` even in tests per `tests.md`
-// §Test Hygiene.
+// follow the canonical "panic when registry shape drifts" pattern: workspace
+// clippy denies `expect`/`unwrap` even in tests, so a missing template panics
+// explicitly rather than unwrapping.
 fn option_template() -> &'static ori_registry::burden::BuiltinBurdenSpec {
     match BurdenRegistry::lookup_builtin(TYPE_ID_OPTION) {
         Some(spec) => spec,
@@ -51,7 +50,7 @@ fn find_variant(
     }
 }
 
-// ─── Positive: Result<int, str> ──────────────────────────────────────────
+// Positive: Result<int, str>
 
 #[test]
 fn compose_result_int_str_yields_two_variant_burdens() {
@@ -101,7 +100,7 @@ fn compose_result_int_str_err_arm_field_type_is_str() {
     );
 }
 
-// ─── Positive: Result<{str: int}, str> — recursive composition via type graph ───
+// Positive: Result<{str: int}, str> — recursive composition via type graph
 
 #[test]
 fn compose_result_with_map_payload_substitutes_map_idx() {
@@ -116,13 +115,13 @@ fn compose_result_with_map_payload_substitutes_map_idx() {
     let ok = find_variant(&composed, RESULT_VARIANT_OK);
     assert_eq!(
         ok.transfers_on_match[0].field_type, map_str_int,
-        "Ok arm carries the Map<str,int> Idx — recursive burden looked up at codegen"
+        "Ok arm carries the Map<str,int> Idx — recursive burden remains reachable by type identity"
     );
     let err = find_variant(&composed, RESULT_VARIANT_ERR);
     assert_eq!(err.transfers_on_match[0].field_type, Idx::STR);
 }
 
-// ─── Positive: Option<Result<int, str>> — nested generic ─────────────────
+// Positive: Option<Result<int, str>> — nested generic
 
 #[test]
 fn compose_option_with_result_payload_carries_inner_result_idx() {
@@ -130,9 +129,9 @@ fn compose_option_with_result_payload_carries_inner_result_idx() {
     // Idx as the Some arm's field_type. No inline expansion: the inner
     // Result's burden lives under its own Idx in TypeRegistry::burden.
     //
-    // §02.2 dedup ensures that two compositions of `Result<int, str>` from
+    // Dedup ensures that two compositions of `Result<int, str>` from
     // different parent contexts share the same UserBurdenSpec entry. This
-    // test predates §02.2; we exercise composition only.
+    // test exercises composition only.
     let mut pool = Pool::new();
     let registry = TypeRegistry::new();
     // Synthesize an Idx that stands in for "Result<int, str>'s monomorphized
@@ -165,20 +164,20 @@ fn compose_option_with_result_payload_carries_inner_result_idx() {
     );
     assert_eq!(
         some.transfers_on_match[0].field_type, inner_result_idx,
-        "Some arm carries the nested Result Idx — codegen recurses via TypeRegistry::burden"
+        "Some arm carries the nested Result Idx — executable planners recurse via frozen burden facts"
     );
 }
 
-// ─── Positive: mixed Value/HeapType ─────────────────────────────────────
+// Positive: mixed zero-burden/ownership-bearing arguments
 
 #[test]
-fn compose_result_with_value_and_heap_args_carries_both() {
-    // Per proposal §Value Trait Composition: Value-trait members have empty
+fn compose_result_with_zero_burden_and_owned_args_carries_both() {
+    // Per the Value Trait Composition rule: Value-trait members have empty
     // BurdenSpec entries. Composition does not in-line expand — it carries
-    // each concrete Idx; codegen looks up each one's burden separately.
+    // each concrete Idx; executable construction looks up each burden once.
     // Here `int` plays the Value role (empty burden table entry per
     // BURDEN_TABLE: `(TYPE_ID_INT, BuiltinBurdenSpec::EMPTY)`) and `str`
-    // plays the HeapType role (`self_heap_alloc = true`).
+    // carries its own logical identity (`self_owned_identity = true`).
     let pool = Pool::new();
     let registry = TypeRegistry::new();
     let template = result_template();
@@ -196,30 +195,27 @@ fn compose_result_with_value_and_heap_args_carries_both() {
     assert_eq!(
         err.transfers_on_match[0].field_type,
         Idx::STR,
-        "HeapType-role argument substituted at field_type position"
+        "ownership-bearing argument substituted at field_type position"
     );
     // Variant arm shape is identical for both — composition is type-erased
-    // across the Value/Heap boundary at the field_type level; differential
-    // codegen happens downstream via per-Idx burden lookup.
+    // across the ownership boundary at the field_type level; differential
+    // logical cleanup facts remain reachable through each concrete Idx.
 }
 
-// ─── Negative pin: instantiation-time wiring is load-bearing ────────────
+// Negative pin: instantiation-time wiring is load-bearing
 
 #[test]
 fn lookup_before_composition_returns_none_proves_wiring_load_bearing() {
     // BEFORE composition runs, a freshly-allocated monomorphized Idx has
-    // no entry in `TypeRegistry::burden`. This proves that the §02.1
+    // no entry in `TypeRegistry::burden`. This proves that the
     // wiring (composing AND registering on first instantiation) is the
-    // load-bearing step — without it, codegen would see `None` and the
-    // §03 burden-lookup `debug_assert!` (forward-referenced — see TODO
-    // below) would fire.
+    // load-bearing step — without it, executable construction would see `None` and the
+    // burden-lookup `debug_assert!` would fire.
     //
-    // §03 forward-reference: the `debug_assert!("monomorphized TypeId
-    // has registered UserBurdenSpec")` lives in
-    // `ori_arc::lower::burden_lookup` and consumes the composed entry.
-    // §02.4.A's "ContextHole-shaped variables inherit BurdenSpec from
-    // their underlying TypeId" verification depends on this same
-    // lookup path.
+    // The `debug_assert!("monomorphized TypeId has registered
+    // UserBurdenSpec")` lives in `ori_arc::lower::burden_lookup` and
+    // consumes the composed entry. ContextHole-shaped variables inherit
+    // BurdenSpec from their underlying TypeId via this same lookup path.
     let mut pool = Pool::new();
     let registry = TypeRegistry::new();
     let fresh_idx = pool.applied(ori_ir::Name::from_raw(0xDEAD_BEEF), &[Idx::INT, Idx::STR]);
@@ -229,21 +225,21 @@ fn lookup_before_composition_returns_none_proves_wiring_load_bearing() {
         "lookup before composition runs returns None — proves instantiation-time wiring is the load-bearing step"
     );
 
-    // After composition, if §02.1 integration is wired through to a registry
-    // mutation surface (currently API-gapped — see §02.1 deliverable note),
-    // this assertion would flip. Today the composition function alone
-    // produces the spec; the registry-insertion call site is the integration
-    // point §02.1's checklist item 2 names. The negative pin above is the
-    // local proof that without an insertion call, lookup yields None.
+    // After composition, if the integration is wired through to a registry
+    // mutation surface (currently API-gapped), this assertion would flip.
+    // Today the composition function alone produces the spec; the
+    // registry-insertion call site is the integration point. The negative
+    // pin above is the local proof that without an insertion call, lookup
+    // yields None.
 }
 
-// ─── Semantic pin: regression-pin counts ────────────────────────────────
+// Semantic pin: regression-pin counts
 
 #[test]
 fn semantic_pin_result_composition_counts() {
     // Pins the exact composition shape for Result<int, str> so any
     // future change to recursion / flattening / field-drop semantics
-    // surfaces as a regression. Per `tests.md §Matrix Clamping`.
+    // surfaces as a regression (matrix-clamping semantic pin).
     let pool = Pool::new();
     let registry = TypeRegistry::new();
     let template = result_template();
@@ -269,20 +265,20 @@ fn semantic_pin_result_composition_counts() {
         );
     }
     // Recursive depth = 1 (no flattening; nested generics would carry
-    // their own Idx, looked up separately at codegen).
+    // their own Idx, looked up separately by executable construction).
     assert_eq!(composed.element_burden, None);
     // Drop hooks: builtin Result template carries none.
-    assert_eq!(composed.compiled_drop, None);
+    assert_eq!(composed.drop_operation, None);
     assert_eq!(composed.user_drop, None);
 }
 
-// ─── §02.4.B Channel<T> composition (registry-layer surface) ────────────
+// Channel<T> composition (registry-layer surface)
 
 fn channel_template() -> &'static ori_registry::burden::BuiltinBurdenSpec {
     match BurdenRegistry::lookup_builtin(TYPE_ID_CHANNEL) {
         Some(spec) => spec,
         None => {
-            panic!("Channel template missing from BURDEN_TABLE — §02.4.B registration regression")
+            panic!("Channel template missing from BURDEN_TABLE — registration regression")
         }
     }
 }
@@ -290,10 +286,9 @@ fn channel_template() -> &'static ori_registry::burden::BuiltinBurdenSpec {
 #[test]
 fn compose_channel_int_substitutes_element_burden_to_int() {
     // Positive: composing Channel<int> with concrete `Idx::INT` yields a
-    // `UserBurdenSpec` whose `element_burden = Some(Idx::INT)`. The Arc
-    // handle stays heap-allocated (`self_heap_alloc = true`), and T's
-    // burden is reachable via the substituted Idx — codegen looks it up
-    // separately at drop-glue emission. Mirrors the LIST/SET composition
+    // `UserBurdenSpec` whose `element_burden = Some(Idx::INT)`. The channel
+    // keeps its own logical identity, and T's burden is reachable through the
+    // substituted Idx. Mirrors the LIST/SET composition
     // path tested elsewhere in this file.
     let pool = Pool::new();
     let registry = TypeRegistry::new();
@@ -303,8 +298,8 @@ fn compose_channel_int_substitutes_element_burden_to_int() {
     let composed = compose_user_burden(template, &type_args, &pool, &registry);
 
     assert!(
-        composed.self_heap_alloc,
-        "Channel<int>: composed spec preserves self_heap_alloc"
+        composed.self_owned_identity,
+        "Channel<int>: composed spec preserves self_owned_identity"
     );
     assert_eq!(
         composed.element_burden,
@@ -338,15 +333,15 @@ fn compose_channel_str_substitutes_element_burden_to_str() {
         Some(Idx::STR),
         "Channel<str>: TYPE_PARAM_T substituted to Idx::STR"
     );
-    assert!(composed.self_heap_alloc);
+    assert!(composed.self_owned_identity);
 }
 
 #[test]
 fn compose_channel_distinct_t_produces_distinct_specs() {
     // Positive (signature side): Channel<int> and Channel<str> compose to
-    // structurally distinct UserBurdenSpec instances. Carries the §02.2
+    // structurally distinct UserBurdenSpec instances. Carries the
     // dedup contract — the BurdenSignature naturally distinguishes them
-    // via element_burden Idx contents (codex blind-spot #3 cure).
+    // via element_burden Idx contents.
     let pool = Pool::new();
     let registry = TypeRegistry::new();
     let template = channel_template();
@@ -367,8 +362,8 @@ fn compose_channel_distinct_t_produces_distinct_specs() {
 #[test]
 fn compose_channel_map_payload_carries_map_idx() {
     // Positive (nested generic): composing Channel<{str: int}> uses the
-    // §02.1 substitution mechanism only — the inner map's BurdenSpec is
-    // looked up SEPARATELY at codegen via the map's own Idx. No inline
+    // substitution mechanism only — the inner map's BurdenSpec is
+    // looked up SEPARATELY during executable construction via the map's own Idx. No inline
     // expansion at composition time; recursive composition is via the
     // type graph. Confirms the channel template participates in the same
     // nested-generic flow as Option<Result<int, str>>.
@@ -386,8 +381,8 @@ fn compose_channel_map_payload_carries_map_idx() {
         "Channel<map_str_int>: element_burden carries the Map<str,int> Idx"
     );
     assert!(
-        composed.self_heap_alloc,
-        "Channel<map_str_int>: self_heap_alloc preserved"
+        composed.self_owned_identity,
+        "Channel<map_str_int>: self_owned_identity preserved"
     );
 }
 
@@ -395,8 +390,8 @@ fn compose_channel_map_payload_carries_map_idx() {
 fn semantic_pin_channel_composition_counts() {
     // Pins the exact composition shape for Channel<int> so any future
     // change to the channel template (e.g., switching from element_burden
-    // to inline owned_fields) surfaces as a regression. Per
-    // `tests.md §Matrix Clamping`.
+    // to inline owned_fields) surfaces as a regression (matrix-clamping
+    // semantic pin).
     let pool = Pool::new();
     let registry = TypeRegistry::new();
     let template = channel_template();
@@ -407,8 +402,8 @@ fn semantic_pin_channel_composition_counts() {
     assert_eq!(composed.borrowed_fields.len(), 0);
     assert_eq!(composed.variant_burdens.len(), 0);
     assert!(composed.element_burden.is_some());
-    assert!(composed.self_heap_alloc);
-    assert!(composed.compiled_drop.is_none());
+    assert!(composed.self_owned_identity);
+    assert!(composed.drop_operation.is_none());
     assert!(composed.user_drop.is_none());
 }
 
@@ -416,7 +411,7 @@ fn semantic_pin_channel_composition_counts() {
 fn negative_pin_channel_empty_element_burden_breaks_signature_distinctness() {
     // Negative pin: a hypothetical Channel<T> template where the
     // composition path lost the element_burden slot would produce
-    // structurally identical specs for every T — defeating the §02.2
+    // structurally identical specs for every T — defeating the
     // dedup contract (Channel<int> would collide with Channel<str>).
     //
     // We model the regression by composing TWO Channel<T> with different
@@ -442,27 +437,27 @@ fn negative_pin_channel_empty_element_burden_breaks_signature_distinctness() {
     );
 }
 
-// ─── Value Trait Composition ────────────────────────────────────────────
+// Value Trait Composition
 
-/// Mixed Value/Heap composition — `Result<ValueType, HeapType>` (e.g.,
-/// `Result<int, str>`) produces `variant_burdens` with asymmetric arms: Ok
-/// carries the Value-role `Idx`, Err carries the Heap-role `Idx`. Codegen
-/// recurses on each via `TypeRegistry::burden(idx)` — for `int` (Value)
-/// it sees an empty `BurdenSpec` (no drop emitted); for `str` (Heap) it
-/// sees a full spec (drop emitted).
+/// Mixed zero-burden/ownership-bearing composition — `Result<int, str>`
+/// produces `variant_burdens` with asymmetric arms: Ok carries the Value-role
+/// `Idx`, while Err carries an ownership-bearing `Idx`. Executable planners
+/// consume the corresponding frozen burden facts: `int` has an empty spec,
+/// while `str` has a logical cleanup obligation.
 ///
 /// Builds on the existing `variant_burden` machinery: assert that the
 /// asymmetry survives composition unchanged, since Value-marker semantics
-/// are realized via per-`Idx` burden lookup at codegen, NOT inline
+/// are realized via per-`Idx` burden lookup during executable construction,
+/// not inline
 /// expansion at composition.
 #[test]
-fn result_value_heap_composition_inherits_distinct_variant_burdens() {
+fn result_zero_burden_owned_composition_inherits_distinct_variant_burdens() {
     let pool = Pool::new();
     let registry = TypeRegistry::new();
     let template = result_template();
     // `int` plays the Value role (empty burden table entry per
     // BURDEN_TABLE: `(TYPE_ID_INT, BuiltinBurdenSpec::EMPTY)`); `str`
-    // plays the Heap role (`self_heap_alloc = true`).
+    // carries its own logical identity (`self_owned_identity = true`).
     let type_args = [Idx::INT, Idx::STR];
 
     let composed = compose_user_burden(template, &type_args, &pool, &registry);
@@ -488,12 +483,12 @@ fn result_value_heap_composition_inherits_distinct_variant_burdens() {
     assert_eq!(
         err.transfers_on_match[0].field_type,
         Idx::STR,
-        "Err arm's field_type is the Heap-role Idx (str)"
+        "Err arm's field_type is the ownership-bearing Idx (str)"
     );
 
     // Variant count + transfer_kind pin: composition path is symmetric
-    // across the Value/Heap boundary at the per-variant level. The
-    // role-asymmetric burden emission lives in codegen, NOT here.
+    // across the ownership boundary at the per-variant level. The
+    // role-asymmetric executable realization is deliberately not chosen here.
     assert_eq!(composed.variant_burdens.len(), 2, "Ok + Err");
     assert_eq!(
         ok.transfers_on_match[0].transfer_kind,
@@ -503,11 +498,11 @@ fn result_value_heap_composition_inherits_distinct_variant_burdens() {
     assert_eq!(
         err.transfers_on_match[0].transfer_kind,
         TransferKind::Move,
-        "Heap-role binding uses Move transfer"
+        "ownership-bearing binding uses Move transfer"
     );
 }
 
-/// `Option<ValueType>` with niche encoding (per `repr.md §7 NI-3`) composes
+/// `Option<ValueType>` with niche encoding (NI-3) composes
 /// identically to the tagged-variant form at the BURDEN level. Niche
 /// encoding operates on PHYSICAL layout; burden composition operates on
 /// LOGICAL variants — the two are orthogonal.
@@ -521,8 +516,8 @@ fn option_value_type_niche_encoded_inherits_empty_burden() {
     let pool = Pool::new();
     let registry = TypeRegistry::new();
     let template = option_template();
-    // `int` is Value-role (niche-encoded `Option<int>` per `repr.md §7
-    // NI-3` is physically `int + sentinel`, but burden composition sees
+    // `int` is Value-role (niche-encoded `Option<int>` per NI-3 is
+    // physically `int + sentinel`, but burden composition sees
     // logical None / Some(int) arms unchanged).
     let type_args = [Idx::INT];
 
@@ -548,8 +543,8 @@ fn option_value_type_niche_encoded_inherits_empty_burden() {
     );
 
     // Variant count pin: two logical variants regardless of niche
-    // encoding. Codegen lowers None to the niche sentinel; burden
-    // composition does not see the lowering.
+    // encoding. A physical plan may lower None to a niche sentinel; burden
+    // composition does not see that choice.
     assert_eq!(
         composed.variant_burdens.len(),
         2,

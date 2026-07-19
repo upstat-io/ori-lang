@@ -20,8 +20,8 @@ use ori_patterns::Value;
 
 /// Error returned by `Scope::assign` when assignment fails.
 ///
-/// Typed error replaces the previous `Result<(), String>`, letting callers
-/// distinguish the failure mode and produce the correct diagnostic.
+/// The variant lets callers distinguish the failure mode and produce the
+/// correct diagnostic.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AssignError {
     /// Variable exists but is immutable.

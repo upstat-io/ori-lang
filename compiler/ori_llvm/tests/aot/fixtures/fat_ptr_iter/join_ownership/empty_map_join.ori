@@ -1,0 +1,9 @@
+// Empty source through an adapter chain: no elements, no releases owed.
+@main () -> void = {
+    let empty: [str] = [];
+    let $joined = empty
+        .iter()
+        .map(transform: (s: str) -> str = s + "-suffix-suffix-suffix-suffix")
+        .join(separator: ", ");
+    print(msg: joined)
+}

@@ -7,13 +7,15 @@ use crate::aims::contract::{
 };
 use crate::aims::lattice::{AccessClass, Cardinality, Consumption, Locality, Uniqueness};
 use crate::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcTerminator, RcStrategy};
-use crate::test_helpers::{make_func, owned_param, v};
+use crate::test_helpers::{borrowed_param, make_func, owned_param, v};
 use crate::ArgOwnership;
 use ori_types::Idx;
 
+mod evidence;
+
 /// Build a one-block `ArcFunction` with the given params and body.
 fn func_with_body(params: Vec<crate::ir::ArcParam>, body: Vec<ArcInstr>) -> crate::ir::ArcFunction {
-    let num_vars = 1000; // large enough for any test var id
+    let num_vars = 1000;
     make_func(
         params,
         Idx::UNIT,
@@ -36,6 +38,20 @@ fn make_contract(param_contracts: Vec<ParamContract>) -> MemoryContract {
         fip: FipContract::Never,
         is_fbip: false,
     }
+}
+
+fn verify_isolated(
+    func: &crate::ir::ArcFunction,
+    contract: &MemoryContract,
+    missed_reuses: u32,
+) -> Vec<CoherenceMismatch> {
+    verify_coherence(
+        func,
+        contract,
+        &FxHashMap::default(),
+        &StringInterner::default(),
+        missed_reuses,
+    )
 }
 
 // derive_param_contracts tests
@@ -62,7 +78,7 @@ fn derive_param_linear_when_no_rc_ops() {
 }
 
 #[test]
-fn derive_param_unrestricted_when_rc_inc_present() {
+fn derive_param_credit_is_sharing_evidence_not_semantic_demand() {
     let func = func_with_body(
         vec![owned_param(0, Idx::UNIT)],
         vec![ArcInstr::RcInc {
@@ -74,12 +90,13 @@ fn derive_param_unrestricted_when_rc_inc_present() {
     );
 
     let contracts = derive_param_contracts(&func);
-    assert_eq!(contracts[0].access, AccessClass::Owned);
-    assert_eq!(contracts[0].consumption, Consumption::Unrestricted);
+    assert_eq!(contracts[0].access, AccessClass::Borrowed);
+    assert_eq!(contracts[0].consumption, Consumption::Dead);
+    assert!(contracts[0].may_share);
 }
 
 #[test]
-fn derive_param_affine_when_only_rc_dec() {
+fn derive_param_unfunded_release_requires_owned_without_adding_demand() {
     let func = func_with_body(
         vec![owned_param(0, Idx::UNIT)],
         vec![ArcInstr::RcDec {
@@ -91,7 +108,7 @@ fn derive_param_affine_when_only_rc_dec() {
 
     let contracts = derive_param_contracts(&func);
     assert_eq!(contracts[0].access, AccessClass::Owned);
-    assert_eq!(contracts[0].consumption, Consumption::Affine);
+    assert_eq!(contracts[0].consumption, Consumption::Dead);
 }
 
 #[test]
@@ -128,14 +145,14 @@ fn oracle_accepts_matching_contract() {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
-        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
-        capture_variant_return_project: None,
+        borrowed_cow_mutated: false,
+        iter_consumes_projected_field: None,
     }]);
 
-    let mismatches = verify_coherence(&func, &contract, 0);
+    let mismatches = verify_isolated(&func, &contract, 0);
     assert!(
         mismatches.is_empty(),
         "expected no mismatches: {mismatches:?}"
@@ -168,14 +185,14 @@ fn oracle_accepts_conservative_inference() {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
-        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
-        capture_variant_return_project: None,
+        borrowed_cow_mutated: false,
+        iter_consumes_projected_field: None,
     }]);
 
-    let mismatches = verify_coherence(&func, &contract, 0);
+    let mismatches = verify_isolated(&func, &contract, 0);
     assert!(
         mismatches.is_empty(),
         "conservative inference should not produce mismatches: {mismatches:?}"
@@ -187,21 +204,38 @@ fn oracle_rejects_unsafe_optimistic_inference() {
     let func = func_with_body(
         vec![owned_param(0, Idx::UNIT)],
         vec![
+            ArcInstr::RcDec {
+                var: v(0),
+                strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
+            },
             ArcInstr::RcInc {
                 var: v(0),
                 count: 1,
                 strategy: RcStrategy::HeapPointer,
                 atomicity: crate::ir::RcAtomicity::default_atomic(),
             },
-            ArcInstr::RcDec {
-                var: v(0),
-                strategy: RcStrategy::HeapPointer,
-                atomicity: crate::ir::RcAtomicity::default_atomic(),
+            ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::UNIT,
+                func: ori_ir::Name::from_raw(100),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Borrowed],
+                mono_instance_id: None,
+            },
+            ArcInstr::Apply {
+                dst: v(2),
+                ty: Idx::UNIT,
+                func: ori_ir::Name::from_raw(101),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Borrowed],
+                mono_instance_id: None,
             },
         ],
     );
 
-    // Inferred says Borrowed + Linear but realized has both RcInc and RcDec
+    // The later credit cannot fund the preceding release, and two semantic
+    // reads on one path compose to Unrestricted.
     let contract = make_contract(vec![ParamContract {
         access: AccessClass::Borrowed,
         consumption: Consumption::Linear,
@@ -213,14 +247,14 @@ fn oracle_rejects_unsafe_optimistic_inference() {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
-        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
-        capture_variant_return_project: None,
+        borrowed_cow_mutated: false,
+        iter_consumes_projected_field: None,
     }]);
 
-    let mismatches = verify_coherence(&func, &contract, 0);
+    let mismatches = verify_isolated(&func, &contract, 0);
     assert!(
         !mismatches.is_empty(),
         "unsafe optimistic inference should produce mismatches"
@@ -246,7 +280,7 @@ fn oracle_detects_may_deallocate_mismatch() {
     let mut contract = make_contract(vec![]);
     contract.effects.may_deallocate = false;
 
-    let mismatches = verify_coherence(&func, &contract, 3);
+    let mismatches = verify_isolated(&func, &contract, 3);
     assert!(
         mismatches.iter().any(|m| matches!(
             m,
@@ -259,11 +293,9 @@ fn oracle_detects_may_deallocate_mismatch() {
     );
 }
 
-// --- 05.PRE: Failing tests that expose known soundness bugs in the current oracle ---
+// Alias-aware, ownership-aware, and count-aware oracle derivation
 
-/// The oracle must detect RC operations on parameter aliases created via `Let` bindings.
-/// Bug: current oracle only checks direct parameter vars, not aliases.
-/// 05.PRE TDD: now passes with aliasing-aware oracle (05.1 rewrite).
+/// The oracle detects RC operations on parameter aliases created via `Let` bindings.
 #[test]
 fn oracle_tracks_aliased_param_via_let_binding() {
     // param0 -> v1 via Let { dst: v1, value: Var(param0) }
@@ -277,7 +309,8 @@ fn oracle_tracks_aliased_param_via_let_binding() {
                 value: crate::ir::ArcValue::Var(v(0)),
             },
             ArcInstr::RcInc {
-                var: v(1), // alias of param0
+                // Variable 1 aliases parameter 0.
+                var: v(1),
                 count: 1,
                 strategy: RcStrategy::HeapPointer,
                 atomicity: crate::ir::RcAtomicity::default_atomic(),
@@ -286,46 +319,51 @@ fn oracle_tracks_aliased_param_via_let_binding() {
     );
 
     let contracts = derive_param_contracts(&func);
-    // The oracle SHOULD detect this as Owned + Unrestricted (RcInc on an alias).
-    // Currently fails: oracle sees Borrowed + Linear (misses the aliased RcInc).
+    // A positive credit is independent sharing evidence but does not by itself
+    // require incoming ownership or add semantic demand.
     assert_eq!(
         contracts[0].access,
-        AccessClass::Owned,
-        "RcInc on alias of param0 should make access=Owned"
+        AccessClass::Borrowed,
+        "an explicit alias credit should preserve Borrowed access"
     );
     assert_eq!(
         contracts[0].consumption,
-        Consumption::Unrestricted,
-        "RcInc on alias of param0 should make consumption=Unrestricted"
+        Consumption::Dead,
+        "an RC event is evidence, not a semantic demand"
     );
+    assert!(contracts[0].may_share);
 }
 
-/// The oracle must count batched `RcInc.count`, not just increment by 1.
-/// Bug: current oracle does `rc_incs[idx] += 1` instead of `+= count`.
+/// The oracle counts batched `RcInc.count` rather than incrementing by 1
+/// per instruction.
 #[test]
 fn oracle_counts_batched_rc_inc() {
     let func = func_with_body(
         vec![owned_param(0, Idx::UNIT)],
-        vec![ArcInstr::RcInc {
-            var: v(0),
-            count: 3, // batched: 3 increments in one instruction
-            strategy: RcStrategy::HeapPointer,
-            atomicity: crate::ir::RcAtomicity::default_atomic(),
-        }],
+        vec![
+            ArcInstr::RcInc {
+                var: v(0),
+                count: 3,
+                strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
+            },
+            ArcInstr::Construct {
+                dst: v(1),
+                ty: Idx::UNIT,
+                ctor: crate::ir::CtorKind::Tuple,
+                args: vec![v(0), v(0), v(0)],
+            },
+        ],
     );
 
     let contracts = derive_param_contracts(&func);
-    // With count=3, the oracle should see 3 increments, not 1.
-    // Both current and correct oracle say Unrestricted (any rc_incs > 0),
-    // so the bug is unobservable at the current API surface. The real impact
-    // is in future `may_share` derivation and diagnostic detail.
-    assert_eq!(contracts[0].access, AccessClass::Owned);
+    // All three transfers are funded. Treating the batched credit as one would
+    // make the third transfer underflow.
+    assert_eq!(contracts[0].access, AccessClass::Borrowed);
     assert_eq!(contracts[0].consumption, Consumption::Unrestricted);
 }
 
-/// The oracle must detect ownership transfers via `arg_ownership` on `Apply`.
-/// Bug: current oracle treats all `Apply` args as non-RC uses, ignoring `arg_ownership`.
-/// 05.PRE TDD: now passes with ownership-aware oracle (05.1 rewrite).
+/// The oracle detects ownership transfers via `arg_ownership` on `Apply`.
 #[test]
 fn oracle_accounts_for_arg_ownership_transfer() {
     let func = func_with_body(
@@ -335,15 +373,15 @@ fn oracle_accounts_for_arg_ownership_transfer() {
             ty: Idx::UNIT,
             func: ori_ir::Name::from_raw(100),
             args: vec![v(0)],
-            arg_ownership: vec![ArgOwnership::Owned], // ownership transfer!
+            // The call transfers ownership.
+            arg_ownership: vec![ArgOwnership::Owned],
             mono_instance_id: None,
         }],
     );
 
     let contracts = derive_param_contracts(&func);
-    // When param0 is passed as Owned to a callee, the oracle SHOULD detect
-    // this as access=Owned (ownership was transferred). Currently the oracle
-    // sees this as a non-RC use -> Borrowed + Linear.
+    // param0 passed as an Owned arg to the callee makes access=Owned
+    // (ownership was transferred).
     assert_eq!(
         contracts[0].access,
         AccessClass::Owned,
@@ -351,8 +389,7 @@ fn oracle_accounts_for_arg_ownership_transfer() {
     );
 }
 
-/// The oracle should derive `may_share` from `rc_incs > 0`.
-/// Bug: current `RealizedParamContract` has no `may_share` field.
+/// The oracle derives `may_share` from `rc_incs > 0`.
 #[test]
 fn oracle_derives_may_share_from_rc_incs() {
     let func = func_with_body(
@@ -366,33 +403,28 @@ fn oracle_derives_may_share_from_rc_incs() {
     );
 
     let _contracts = derive_param_contracts(&func);
-    // The oracle SHOULD expose `may_share`. Currently `RealizedParamContract`
-    // has no `may_share` field. Verify the coherence comparison misses it.
     let inferred = make_contract(vec![ParamContract {
         access: AccessClass::Owned,
         consumption: Consumption::Unrestricted,
         cardinality: Cardinality::Many,
         may_escape: false,
-        may_share: false, // claims no sharing, but realized has RcInc
+        // The contract denies sharing despite the realized `RcInc`.
+        may_share: false,
         locality_bound: Locality::Unknown,
         uniqueness: Uniqueness::MaybeShared,
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
-        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
-        capture_variant_return_project: None,
+        borrowed_cow_mutated: false,
+        iter_consumes_projected_field: None,
     }]);
 
-    let mismatches = verify_coherence(&func, &inferred, 0);
-    // The oracle SHOULD detect that inferred.may_share=false but realized
-    // has rc_incs > 0 (meaning may_share should be true). Currently the
-    // oracle does not check may_share at all -- verify_coherence returns
-    // NO mismatches for this case, which is the bug.
-    //
-    // After 05.1 rewrite: oracle now checks may_share via ParamMayShare.
+    let mismatches = verify_isolated(&func, &inferred, 0);
+    // The oracle detects that inferred.may_share=false but realized has
+    // rc_incs > 0 (meaning may_share should be true) via ParamMayShare.
     assert!(
         mismatches
             .iter()
@@ -402,9 +434,6 @@ fn oracle_derives_may_share_from_rc_incs() {
 }
 
 /// `RcDec` after a non-RC use should be `Linear`, not `Affine`.
-/// Bug: current oracle derives `Affine` for any "`RcDec` only" pattern,
-/// regardless of whether there was a prior non-RC use.
-/// 05.PRE TDD: now passes with aggregate-count derivation (05.1 rewrite).
 #[test]
 fn oracle_distinguishes_affine_from_linear() {
     let func = func_with_body(
@@ -416,7 +445,8 @@ fn oracle_distinguishes_affine_from_linear() {
                 ty: Idx::UNIT,
                 func: ori_ir::Name::from_raw(100),
                 args: vec![v(0)],
-                arg_ownership: vec![], // empty = default Borrowed
+                // Empty ownership metadata defaults to borrowed.
+                arg_ownership: vec![],
                 mono_instance_id: None,
             },
             // Then: RcDec (cleanup after use)
@@ -429,10 +459,9 @@ fn oracle_distinguishes_affine_from_linear() {
     );
 
     let contracts = derive_param_contracts(&func);
-    // The current oracle sees rc_incs=0, rc_decs=1, and derives Affine.
-    // But there IS a non-RC use (the Apply), so the correct derivation
-    // is Linear (consumed at use, then dropped). Affine means "dropped
-    // WITHOUT use" -- which is not the case here.
+    // A prior non-RC use (the Apply) means the value is consumed at use,
+    // then dropped, so the correct derivation is Linear — Affine means
+    // "dropped WITHOUT use", which is not the case here.
     assert_eq!(
         contracts[0].consumption,
         Consumption::Linear,
@@ -442,10 +471,8 @@ fn oracle_distinguishes_affine_from_linear() {
 
 // Alias propagation across Jump→block-param→Let chains
 
-/// Regression: alias introduced via Let AFTER a Jump block-param propagation.
-/// Bug: the Let pass ran outside the fixpoint loop, so Let bindings in blocks
-/// reached by Jump were never resolved when the source was a block param.
-/// Fix: both Let and Jump propagation are now inside the fixpoint loop.
+/// An alias introduced via `Let` after a Jump block-param propagation is
+/// resolved — both `Let` and Jump propagation run inside the fixpoint loop.
 #[test]
 fn oracle_tracks_alias_through_jump_then_let() {
     // Block 0: Jump to block 1, passing param0 as arg
@@ -461,20 +488,24 @@ fn oracle_tracks_alias_through_jump_then_let() {
                 body: vec![],
                 terminator: ArcTerminator::Jump {
                     target: ArcBlockId::new(1),
-                    args: vec![v(0)], // pass param0 to block 1
+                    // Parameter 0 flows into block 1.
+                    args: vec![v(0)],
                 },
             },
             ArcBlock {
                 id: ArcBlockId::new(1),
-                params: vec![(v(100), Idx::UNIT)], // bp0 = v(100) aliases param0
+                // Block parameter 100 aliases parameter 0.
+                params: vec![(v(100), Idx::UNIT)],
                 body: vec![
                     ArcInstr::Let {
                         dst: v(101),
                         ty: Idx::UNIT,
-                        value: crate::ir::ArcValue::Var(v(100)), // alias of bp0
+                        // The assigned value aliases block parameter 100.
+                        value: crate::ir::ArcValue::Var(v(100)),
                     },
                     ArcInstr::RcInc {
-                        var: v(101), // alias chain: param0 → bp0 → v(101)
+                        // Variable 101 completes the alias chain from parameter 0.
+                        var: v(101),
                         count: 1,
                         strategy: RcStrategy::HeapPointer,
                         atomicity: crate::ir::RcAtomicity::default_atomic(),
@@ -489,18 +520,18 @@ fn oracle_tracks_alias_through_jump_then_let() {
     let contracts = derive_param_contracts(&func);
     assert_eq!(
         contracts[0].access,
-        AccessClass::Owned,
-        "RcInc on Jump→Let alias of param0 should detect as Owned"
+        AccessClass::Borrowed,
+        "the alias credit should preserve Borrowed access"
     );
-    assert_eq!(contracts[0].consumption, Consumption::Unrestricted);
+    assert_eq!(contracts[0].consumption, Consumption::Dead);
     assert!(
         contracts[0].may_share,
         "RcInc on Jump→Let alias should detect may_share"
     );
 }
 
-/// Regression: effect derivation must detect `PartialApply` as allocation source.
-/// Bug: `derive_effects()` only checked Construct, missing closure env allocation.
+/// Effect derivation detects `PartialApply` as an allocation source (closure
+/// env allocation), not only `Construct`.
 #[test]
 fn oracle_detects_may_allocate_from_partial_apply() {
     let func = func_with_body(
@@ -520,7 +551,7 @@ fn oracle_detects_may_allocate_from_partial_apply() {
     );
 }
 
-// --- 05.1.3 Additional matrix tests ---
+// Additional matrix tests
 
 /// Transitive alias chain: param0 -> v1 -> v2, `RcInc` on v2 detected.
 #[test]
@@ -539,7 +570,8 @@ fn oracle_tracks_transitive_alias_chain() {
                 value: crate::ir::ArcValue::Var(v(1)),
             },
             ArcInstr::RcInc {
-                var: v(2), // two-hop alias of param0
+                // Variable 2 is a two-hop alias of parameter 0.
+                var: v(2),
                 count: 1,
                 strategy: RcStrategy::HeapPointer,
                 atomicity: crate::ir::RcAtomicity::default_atomic(),
@@ -550,10 +582,10 @@ fn oracle_tracks_transitive_alias_chain() {
     let contracts = derive_param_contracts(&func);
     assert_eq!(
         contracts[0].access,
-        AccessClass::Owned,
-        "RcInc on two-hop alias should detect as Owned"
+        AccessClass::Borrowed,
+        "the transitive alias credit should preserve Borrowed access"
     );
-    assert_eq!(contracts[0].consumption, Consumption::Unrestricted);
+    assert_eq!(contracts[0].consumption, Consumption::Dead);
     assert!(contracts[0].may_share);
 }
 
@@ -565,7 +597,8 @@ fn oracle_detects_owned_transfer_via_apply_indirect() {
         vec![ArcInstr::ApplyIndirect {
             dst: v(2),
             ty: Idx::UNIT,
-            closure: v(10), // closure is always borrowed
+            // Closure operands are always borrowed.
+            closure: v(10),
             args: vec![v(0)],
             arg_ownership: vec![ArgOwnership::Owned],
         }],
@@ -656,7 +689,7 @@ fn oracle_detects_owned_transfer_via_partial_apply() {
     assert_eq!(contracts[0].consumption, Consumption::Linear);
 }
 
-// --- 05.2 Effect derivation tests ---
+// Effect derivation tests
 
 /// `may_allocate` detected from `Construct` instruction in the function.
 #[test]
@@ -690,7 +723,7 @@ fn oracle_detects_may_share_from_local_rc_inc() {
     let func = func_with_body(
         vec![owned_param(0, Idx::UNIT)],
         vec![ArcInstr::RcInc {
-            var: v(10), // local, not param
+            var: v(10),
             count: 1,
             strategy: RcStrategy::HeapPointer,
             atomicity: crate::ir::RcAtomicity::default_atomic(),
@@ -726,20 +759,21 @@ fn oracle_accepts_conservative_may_share() {
         consumption: Consumption::Linear,
         cardinality: Cardinality::Once,
         may_escape: false,
-        may_share: true, // conservative: claims sharing
+        // The contract conservatively allows sharing.
+        may_share: true,
         locality_bound: Locality::Unknown,
         uniqueness: Uniqueness::MaybeShared,
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
-        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
-        capture_variant_return_project: None,
+        borrowed_cow_mutated: false,
+        iter_consumes_projected_field: None,
     }]);
 
-    let mismatches = verify_coherence(&func, &contract, 0);
+    let mismatches = verify_isolated(&func, &contract, 0);
     assert!(
         mismatches.is_empty(),
         "conservative may_share (inferred=true, realized=false) should not produce mismatches: {mismatches:?}"
@@ -753,7 +787,7 @@ fn oracle_coherence_catches_function_level_may_share_mismatch() {
     let func = func_with_body(
         vec![],
         vec![ArcInstr::RcInc {
-            var: v(10), // local variable
+            var: v(10),
             count: 1,
             strategy: RcStrategy::HeapPointer,
             atomicity: crate::ir::RcAtomicity::default_atomic(),
@@ -761,9 +795,10 @@ fn oracle_coherence_catches_function_level_may_share_mismatch() {
     );
 
     let mut contract = make_contract(vec![]);
-    contract.effects.may_share = false; // claims no sharing
+    // The contract denies sharing.
+    contract.effects.may_share = false;
 
-    let mismatches = verify_coherence(&func, &contract, 0);
+    let mismatches = verify_isolated(&func, &contract, 0);
     assert!(
         mismatches.iter().any(|m| matches!(
             m,
@@ -777,7 +812,7 @@ fn oracle_coherence_catches_function_level_may_share_mismatch() {
 }
 
 /// Param count mismatch: inferred has 2 params but function has 1.
-/// Oracle should handle gracefully via `zip` (checks only the shared prefix).
+/// The oracle reports the structural disagreement and still checks the prefix.
 #[test]
 fn oracle_handles_param_count_mismatch_gracefully() {
     let func = func_with_body(
@@ -802,11 +837,11 @@ fn oracle_handles_param_count_mismatch_gracefully() {
             transfers_through_return: false,
             return_alias: None,
             return_payload_contains_param: false,
-            return_payload_contains_param_all_paths: false,
             iter_consumes: false,
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
-            capture_variant_return_project: None,
+            borrowed_cow_mutated: false,
+            iter_consumes_projected_field: None,
         },
         ParamContract {
             access: AccessClass::Owned,
@@ -819,26 +854,29 @@ fn oracle_handles_param_count_mismatch_gracefully() {
             transfers_through_return: false,
             return_alias: None,
             return_payload_contains_param: false,
-            return_payload_contains_param_all_paths: false,
             iter_consumes: false,
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
-            capture_variant_return_project: None,
+            borrowed_cow_mutated: false,
+            iter_consumes_projected_field: None,
         },
     ]);
 
-    // Should not panic — zip handles length mismatch by truncating to shorter.
-    let mismatches = verify_coherence(&func, &contract, 0);
-    // The matching param (index 0) should not produce mismatches since
-    // inferred=Owned/Affine matches realized=Owned/Affine.
+    let mismatches = verify_isolated(&func, &contract, 0);
     assert!(
-        mismatches.is_empty(),
-        "param count mismatch should be handled gracefully: {mismatches:?}"
+        matches!(
+            mismatches.as_slice(),
+            [CoherenceMismatch::ParamArity {
+                function_params: 1,
+                inferred_params: 2
+            }]
+        ),
+        "arity mismatch must not disappear through zip truncation: {mismatches:?}"
     );
 }
 
 /// Param count mismatch (reverse): function has 2 params, contract has 1.
-/// Extra function params beyond the contract are silently ignored by zip.
+/// Extra function params are an unsafe structural mismatch.
 #[test]
 fn oracle_handles_extra_function_params_gracefully() {
     let func = func_with_body(
@@ -857,18 +895,23 @@ fn oracle_handles_extra_function_params_gracefully() {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
-        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
-        capture_variant_return_project: None,
+        borrowed_cow_mutated: false,
+        iter_consumes_projected_field: None,
     }]);
 
-    // Should not panic — zip truncates to the shorter (1 param from contract).
-    let mismatches = verify_coherence(&func, &contract, 0);
+    let mismatches = verify_isolated(&func, &contract, 0);
     assert!(
-        mismatches.is_empty(),
-        "extra function params should be handled gracefully: {mismatches:?}"
+        matches!(
+            mismatches.as_slice(),
+            [CoherenceMismatch::ParamArity {
+                function_params: 2,
+                inferred_params: 1
+            }]
+        ),
+        "extra function parameters must be reported: {mismatches:?}"
     );
 }
 
@@ -879,16 +922,17 @@ fn oracle_accepts_conservative_may_allocate_effect() {
     let func = func_with_body(vec![], vec![]);
 
     let mut contract = make_contract(vec![]);
-    contract.effects.may_allocate = true; // conservative: claims allocation
+    // The contract conservatively allows allocation.
+    contract.effects.may_allocate = true;
 
-    let mismatches = verify_coherence(&func, &contract, 0);
+    let mismatches = verify_isolated(&func, &contract, 0);
     assert!(
         mismatches.is_empty(),
         "conservative may_allocate (inferred=true, realized=false) should not produce mismatches: {mismatches:?}"
     );
 }
 
-// --- Display impl tests ---
+// Display impl tests
 
 /// Display for `ParamAccess` mismatch produces actionable diagnostic text.
 #[test]

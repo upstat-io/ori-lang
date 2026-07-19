@@ -4,7 +4,7 @@
 //! variant to the appropriate emission handler, and [`ArcIrEmitter::emit_project`]
 //! for field extraction from structs and enums.
 
-use ori_arc::ir::{ArcFunction, ArcInstr, ArcVarId, RcStrategy, ValueRepr};
+use ori_arc::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId, CtorKind, RcStrategy, ValueRepr};
 use ori_types::{Idx, Tag};
 
 use super::context::{is_boxed_enum_field, EmittedValue};
@@ -62,11 +62,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if field == 0 {
             self.def_var_repr(dst, tag, func);
         } else {
-            // Load element from scratch buffer (deferred from emit_iter_next).
-            // Note: tuple reordering is currently disabled (only structs are
-            // reordered). If tuple reordering is enabled in the future,
-            // map iterator elements need special handling because the runtime
-            // writes (key, value) in declaration order.
+            // Why: Tuple reordering excludes map iterator elements because the
+            // runtime writes `(key, value)` in declaration order.
             let elem = self
                 .builder
                 .load(elem_llvm_ty, scratch_ptr, &format!("proj.{field}"));
@@ -85,7 +82,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Returns `true` if the field was an enum/Result payload and was handled,
     /// `false` if it should go through the normal `extractvalue` path.
-    #[expect(clippy::too_many_arguments, reason = "extracted from emit_project")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "payload projection carries source and destination representations"
+    )]
     fn try_emit_project_enum_payload(
         &mut self,
         dst: ArcVarId,
@@ -251,6 +251,75 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
+    /// Try to emit a niche-encoded enum tag extraction for `Project { field: 0 }`.
+    ///
+    /// Returns `true` when `val_ty` is niche-encoded and the projection was
+    /// emitted (the niche field value becomes the switch scrutinee, recorded in
+    /// [`niche_scrutinees`](Self::niche_scrutinees)); `false` otherwise.
+    fn try_emit_project_niche_tag(&mut self, dst: ArcVarId, value: ArcVarId, val_ty: Idx) -> bool {
+        let Some(encoding) = self.get_niche_encoding(val_ty) else {
+            return false;
+        };
+        let niche_idx = encoding.niche_field_index().unwrap();
+        let v = self.var(value);
+        let llvm_ty = self.resolve_type(val_ty);
+        let niche_val =
+            if let Some(extracted) = self.builder.extract_value(v, niche_idx, "niche.field") {
+                extracted
+            } else {
+                // Pointer-based access: GEP + load.
+                let field_ty = self
+                    .builder
+                    .struct_field_type(llvm_ty, niche_idx)
+                    .unwrap_or_else(|| self.builder.i64_type());
+                let gep = self
+                    .builder
+                    .struct_gep(llvm_ty, v, niche_idx, "niche.field.gep");
+                self.builder.load(field_ty, gep, "niche.field")
+            };
+        self.niche_scrutinees.insert(dst, val_ty);
+        self.def_var(dst, super::EmittedValue::Immediate(niche_val));
+        true
+    }
+
+    /// Try to emit a scalar-integer sum tag extraction for `Project { field: 0 }`.
+    ///
+    /// Returns `true` when `val_ty` lowers to a bare non-aggregate integer
+    /// (e.g. `Ordering` = i8) — the value IS the discriminant, so it is read
+    /// directly as the switch/comparison scrutinee; `false` otherwise.
+    ///
+    /// Symmetric to the scalar-int guard in `emit_construct`; without it, the
+    /// fall-through path would `extract_value(i8, 0)` (the `extract_value on
+    /// non-struct value` malformed IR). Keys on the resolved LLVM type via the
+    /// type-introspection SSOT, so aggregate struct/enum dst keep their path.
+    ///
+    /// The dst var carries the discriminant as `Tag::Int` (i64) in ARC IR, so
+    /// zero-extend the narrow tag (discriminants are non-negative 0..N-1) to
+    /// the dst's resolved width — otherwise the downstream decision-tree
+    /// `icmp eq` / `Switch` compares an i8 against i64 constants (`Both
+    /// operands to ICmp ... not of the same type`).
+    fn try_emit_project_scalar_tag(
+        &mut self,
+        dst: ArcVarId,
+        ty: Idx,
+        value: ArcVarId,
+        val_ty: Idx,
+    ) -> bool {
+        let val_llvm_ty = self.resolve_type(val_ty);
+        if !self.builder.is_scalar_int_type(val_llvm_ty) {
+            return false;
+        }
+        let tag = self.var(value);
+        let dst_ty = self.resolve_type(ty);
+        let widened = if dst_ty == val_llvm_ty {
+            tag
+        } else {
+            self.builder.zext(tag, dst_ty, "scalar.tag.zext")
+        };
+        self.def_var(dst, super::EmittedValue::Immediate(widened));
+        true
+    }
+
     /// Emit a `Project` instruction (field extraction).
     ///
     /// For tagged union payload fields (Result, Enum), delegates to
@@ -301,36 +370,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
+        // Scalar-integer sum tag extraction (e.g. `Ordering` = i8): the value
+        // IS the discriminant. Extracted to a helper so the dispatch body
+        // stays under the `too_many_lines` cap.
+        if field == 0 && self.try_emit_project_scalar_tag(dst, ty, value, val_ty) {
+            return;
+        }
+
         // Niche-encoded enum tag extraction.
         // When Project { field: 0 } targets a niche-encoded enum, extract the
         // niche field value (not a logical variant index). The raw niche field
         // value is recorded in `niche_scrutinees` so Switch can emit the
         // correct comparison.
-        if field == 0 {
-            if let Some(encoding) = self.get_niche_encoding(val_ty) {
-                // Niche: extract the niche field from the struct.
-                let niche_idx = encoding.niche_field_index().unwrap();
-                let v = self.var(value);
-                let llvm_ty = self.resolve_type(val_ty);
-                let niche_val = if let Some(extracted) =
-                    self.builder.extract_value(v, niche_idx, "niche.field")
-                {
-                    extracted
-                } else {
-                    // Pointer-based access: GEP + load.
-                    let field_ty = self
-                        .builder
-                        .struct_field_type(llvm_ty, niche_idx)
-                        .unwrap_or_else(|| self.builder.i64_type());
-                    let gep = self
-                        .builder
-                        .struct_gep(llvm_ty, v, niche_idx, "niche.field.gep");
-                    self.builder.load(field_ty, gep, "niche.field")
-                };
-                self.niche_scrutinees.insert(dst, val_ty);
-                self.def_var(dst, super::EmittedValue::Immediate(niche_val));
-                return;
-            }
+        if field == 0 && self.try_emit_project_niche_tag(dst, value, val_ty) {
+            return;
         }
 
         let val = self.var(value);
@@ -399,66 +452,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Emit a single `ArcInstr` as LLVM IR.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "ARC instruction dispatch over all ArcInstr variants"
-    )]
     pub(super) fn emit_instr(&mut self, instr: &ArcInstr, func: &ArcFunction) {
         tracing::trace!(?instr, "emit_instr");
         match instr {
-            ArcInstr::Let { dst, ty, value } => {
-                let val = if let Some(&elem_ty) = self.for_yield_elem_size_types.get(dst) {
-                    // Override ARC-emitted pool_type_store_size with the LLVM
-                    // struct store size. Required for reordered structs/tuples
-                    // where the ARC size (original layout) differs from the
-                    // LLVM size (reordered layout).
-                    let llvm_size = self.element_store_size(elem_ty);
-                    self.builder.const_i64(llvm_size as i64)
-                } else {
-                    // BUG-04-159: scope the catch-unwind target PER-DISPATCH.
-                    // A checked-op inside a same-frame catch routes its panic to
-                    // the catch landing pad; a checked-op outside (or any other
-                    // value) keeps the plain abort path. Set before / clear
-                    // after so only THIS checked op is affected.
-                    let catch_pad = self.same_frame_catch_landing_pads.get(dst).copied();
-                    if catch_pad.is_some() {
-                        self.builder.set_catch_unwind_target(catch_pad);
-                    }
-                    let v = self.emit_value(value, *ty, func);
-                    if catch_pad.is_some() {
-                        self.builder.set_catch_unwind_target(None);
-                    }
-                    v
-                };
-                // Only narrow computation results (PrimOps),
-                // not copies (Var) or literals (Literal). Narrowing copies
-                // or literals creates new SSA values that break CSE cache
-                // coherence — two `x + 1` expressions using different
-                // sext'd copies of `x` or `1` won't match in the cache.
-                let should_narrow = matches!(value, ori_arc::ir::ArcValue::PrimOp { .. });
-                if should_narrow {
-                    self.def_var_repr(*dst, val, func);
-                } else {
-                    let repr = func
-                        .var_repr(*dst)
-                        .unwrap_or(ori_arc::ir::ValueRepr::Scalar);
-                    self.def_var(*dst, super::EmittedValue::from_repr(repr, val));
-                }
-                // Propagate borrowed parameter source pointers through aliases.
-                // When `Let { dst, Var(src) }`, if src has a known source pointer
-                // (from a borrowed param), dst inherits it for pointer forwarding.
-                if let ori_arc::ir::ArcValue::Var(src) = value {
-                    if let Some(&ptr) = self.borrowed_param_ptrs.get(src) {
-                        self.borrowed_param_ptrs.insert(*dst, ptr);
-                        // Carry pointer-only-ness so a Direct (by-value) call
-                        // on the alias reloads the aggregate from the source
-                        // pointer rather than passing the zero placeholder.
-                        if self.pointer_only_params.contains(src) {
-                            self.pointer_only_params.insert(*dst);
-                        }
-                    }
-                }
-            }
+            ArcInstr::Let { dst, ty, value } => self.emit_let_instr(*dst, *ty, value, func),
 
             ArcInstr::Apply {
                 dst,
@@ -496,10 +493,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 ty,
                 ctor,
                 args,
-            } => {
-                let val = self.emit_construct(*ty, ctor, args);
-                self.def_var_repr(*dst, val, func);
-            }
+            } => self.emit_construct_instr(*dst, *ty, ctor, args, func),
 
             ArcInstr::CollectionReuse {
                 old_var,
@@ -507,10 +501,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 ty,
                 ctor,
                 args,
-            } => {
-                let val = self.emit_collection_reuse(*old_var, *ty, ctor, args);
-                self.def_var_repr(*dst, val, func);
-            }
+            } => self.emit_collection_reuse_instr(*old_var, *dst, *ty, ctor, args, func),
 
             // RC operations — dispatched by strategy (no Pool queries)
             ArcInstr::RcInc {
@@ -548,232 +539,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // Phase-7 realized form. One canonical glue body for both.
             ArcInstr::BurdenDecPartial { var, skip_fields }
             | ArcInstr::RcDecPartial { var, skip_fields } => {
-                // Per AIMS rule RL-2: partial-move BurdenDec on an owned
-                // struct emits RC cleanup for ONLY the fields NOT in
-                // `skip_fields` (the moved-out indices). Reuses the
-                // canonical `ori_arc::compute_drop_info` SSOT (already
-                // cross-crate-consumed at `element_fn_gen.rs:34` for
-                // drop-fn generation) for the Idx → DropKind::Fields
-                // derivation. Delegates the per-field GEP+load+RcDec loop
-                // to [`Self::emit_drop_field_loop`] — the shared
-                // SSOT-helper that also serves `emit_drop_fields`
-                // (drop-fn body path) and BurdenDecField (single-field
-                // mid-block cleanup).
-                let base_ty = func.var_type(*var);
-                // RE-2 defense-in-depth: compute_drop_info returns None
-                // for scalars. Upstream burden_lower's
-                // owned_vars_needing_rc guard already suppresses
-                // BurdenDecPartial on scalar bases; this is the
-                // cross-crate backstop.
-                let Some(drop_info) =
-                    ori_arc::compute_drop_info(base_ty, self.classifier, self.pool)
-                else {
-                    return;
-                };
-                // Spill a by-value aggregate base to a stack alloca before
-                // field addressing per AB-5; pass through an RcPointer base.
-                // After the scalar guard so a scalar base emits no dead alloca.
-                let base_val = self.var_field_base_ptr(*var, base_ty);
-                // BurdenDecPartial is the mid-block partial-move cleanup path;
-                // the user `@drop` body has NOT fired here (drop fires at
-                // refcount-zero via the drop-fn AUGMENT body, not at the move).
-                // Walk RC'd payloads only, skipping the moved-out positions.
-                match drop_info.kind {
-                    // Struct / tuple partial-move: drop owned fields NOT in
-                    // skip_fields (the moved-out top-level field indices).
-                    ori_arc::DropKind::Fields { fields, .. } => {
-                        self.emit_drop_field_loop(
-                            base_val,
-                            base_ty,
-                            &fields,
-                            Some(skip_fields),
-                            "burden_dec_partial",
-                        );
-                    }
-                    // Enum / Option / Result partial-move: a payload projected
-                    // out of one variant transfers that payload's ownership to
-                    // the projection consumer (RL-2). The surviving variants'
-                    // payloads still owe a release. For Option/Result the
-                    // moved-out top-level field index IS the source-variant
-                    // ordinal (Ok payload → field 0, Err payload → field 1; the
-                    // `Project %v.0`/`%v.1` lowering), and each variant carries a
-                    // single payload at variant-local field index 0. Skip the
-                    // source variant by ordinal, then walk the remainder through
-                    // the per-variant burden-walk SSOT (3-encoding dispatch
-                    // shared with the drop-fn path).
-                    ori_arc::DropKind::Enum { variants, .. } => {
-                        let surviving: Vec<Vec<(u32, Idx)>> = variants
-                            .into_iter()
-                            .enumerate()
-                            .map(|(ordinal, fields)| {
-                                if skip_fields.contains(&(ordinal as u32)) {
-                                    Vec::new()
-                                } else {
-                                    fields
-                                }
-                            })
-                            .collect();
-                        self.emit_variant_burden_walk(
-                            self.current_function,
-                            base_val,
-                            base_ty,
-                            &surviving,
-                        );
-                    }
-                    other => {
-                        // Release builds must not silently skip cleanup for a
-                        // drop shape this arm does not support — record a
-                        // codegen error so the compile fails loudly.
-                        debug_assert!(
-                            false,
-                            "BurdenDecPartial on unsupported drop shape: {other:?}"
-                        );
-                        self.builder.record_codegen_error_with_msg(format!(
-                            "BurdenDecPartial on unsupported drop shape: {other:?}"
-                        ));
-                    }
-                }
+                self.emit_burden_dec_partial(*var, skip_fields, func);
             }
 
             ArcInstr::BurdenDecVariant { var } | ArcInstr::RcDecVariant { var } => {
-                // Per AIMS rule TF-15a + RL-10: SetTag invalidates ALL
-                // payload fields of the OLD variant. Walk the per-variant
-                // RC-bearing fields BEFORE the upstream SetTag store
-                // overwrites the discriminant. Delegates to the canonical
-                // 3-encoding dispatcher [`Self::emit_variant_burden_walk`]
-                // (shared with the drop-fn codegen path); helper exits
-                // positioned at its convergence block with NO free / NO ret,
-                // which is exactly what SetTag pre-drop needs.
-                //
-                // Variant-list derivation goes through `ori_arc::compute_drop_info`
-                // — the canonical Idx → DropKind mapping consumed by drop-fn
-                // generation at drop_gen.rs:84-95. Reusing the SSOT avoids
-                // parallel-derivation drift.
-                let base_ty = func.var_type(*var);
-                // RE-2 defense-in-depth: compute_drop_info returns None for
-                // scalars. The upstream burden_lower's `owned_vars_needing_rc`
-                // guard already suppresses BurdenDecVariant emission on
-                // scalar bases; this is the cross-crate backstop.
-                let Some(drop_info) =
-                    ori_arc::compute_drop_info(base_ty, self.classifier, self.pool)
-                else {
-                    return;
-                };
-                let ori_arc::DropKind::Enum {
-                    variants,
-                    user_drop: _,
-                } = drop_info.kind
-                else {
-                    // Release builds must not silently skip the pre-SetTag
-                    // payload walk — record a codegen error so the compile
-                    // fails loudly.
-                    debug_assert!(
-                        false,
-                        "BurdenDecVariant on non-enum drop shape: {:?}",
-                        drop_info.kind
-                    );
-                    self.builder.record_codegen_error_with_msg(format!(
-                        "BurdenDecVariant on non-enum drop shape: {:?}",
-                        drop_info.kind
-                    ));
-                    return;
-                };
-                // Spill a by-value aggregate base to a stack alloca before
-                // tag/payload addressing per AB-5; pass through an RcPointer
-                // base. After the guards so a scalar base emits no dead alloca.
-                let base_val = self.var_field_base_ptr(*var, base_ty);
-                // BurdenDecVariant is the mid-block SetTag pre-drop path;
-                // the user `@drop` body has NOT fired (it fires at
-                // refcount-zero via `emit_drop_enum`'s AUGMENT body, not
-                // at SetTag mid-mutation). Walk per-variant fields only.
-                self.emit_variant_burden_walk(self.current_function, base_val, base_ty, &variants);
+                self.emit_burden_dec_variant(*var, func);
             }
 
             ArcInstr::BurdenDecField { base, field } | ArcInstr::RcDecField { base, field } => {
-                // Emit RC cleanup for the field's prior value BEFORE the
-                // upstream Set's GEP+store clobbers the slot. Codegen: GEP
-                // to the field position + load the prior value + dispatch
-                // through emit_drop_rc_dec — the canonical SSOT that
-                // handles RE-2 scalar exemption (extract_rc_data_ptrs
-                // empty-return short-circuit) AND closure-aware RcDec
-                // (Tag::Function early-return) via the same lookup the
-                // per-type drop functions use, avoiding any parallel
-                // dispatch surface. Shape mirrors emit_drop_fields:
-                // struct_gep + load + emit_drop_rc_dec.
-                let repr = func.var_repr(*base).unwrap_or(ValueRepr::Scalar);
-                if repr == ValueRepr::Scalar {
-                    // Scalar-repr base has no heap field layout to GEP into;
-                    // no drop required (RE-2 + scalar base is unreachable per
-                    // Set's symmetric guard).
-                    tracing::trace!(
-                        base = base.raw(),
-                        field,
-                        ?repr,
-                        "BurdenDecField on scalar base — skipping (unreachable)"
-                    );
-                } else {
-                    let base_ty = func.var_type(*base);
-                    let field_pos = *field as usize;
-                    let struct_fields = self.pool.struct_fields(base_ty);
-                    if let Some(&(_, field_type)) = struct_fields.get(field_pos) {
-                        // Spill a by-value aggregate base to a stack alloca
-                        // before field addressing per AB-5; pass through an
-                        // RcPointer base. Inside the in-range branch so an
-                        // out-of-range field emits no dead alloca.
-                        let base_val = self.var_field_base_ptr(*base, base_ty);
-                        // Delegate to the canonical struct-field-drop SSOT
-                        // at drop_gen.rs. Single-field slice for the
-                        // length-1 BurdenDecField shape; no skip filter.
-                        self.emit_drop_field_loop(
-                            base_val,
-                            base_ty,
-                            &[(*field, field_type)],
-                            None,
-                            "burden_dec_field",
-                        );
-                    } else {
-                        tracing::trace!(
-                            base = base.raw(),
-                            field,
-                            "BurdenDecField: field index out of struct_fields range — \
-                             likely tuple or non-struct base; skipping"
-                        );
-                    }
-                }
+                self.emit_burden_dec_field(*base, *field, func);
             }
 
-            ArcInstr::IsShared { dst, var } => {
-                // Inline refcount check: data_ptr - 8 = strong_count (i64).
-                // Shared when strong_count > 1 (more than one owner).
-                //
-                // Only valid for RcPointer values (heap-allocated behind an RC
-                // header). Aggregates (struct, tuple) and fat values (str) are
-                // inline SSA values with no RC header — they are always
-                // "shared" (force the slow Construct path).
-                let repr = func.var_repr(*var).unwrap_or(ValueRepr::Scalar);
-                if repr == ValueRepr::RcPointer {
-                    let data_ptr = self.var(*var);
-                    let i8_ty = self.builder.i8_type();
-                    let neg8 = self.builder.const_i64(-8);
-                    let rc_ptr = self.builder.gep(i8_ty, data_ptr, &[neg8], "rc_ptr");
-                    let i64_ty = self.builder.i64_type();
-                    let rc_val = self.builder.load(i64_ty, rc_ptr, "rc_val");
-                    let one = self.builder.const_i64(1);
-                    let is_shared = self.builder.icmp_sgt(rc_val, one, "is_shared");
-                    self.def_var(*dst, EmittedValue::Immediate(is_shared));
-                } else {
-                    // Non-pointer value: no RC header to check.
-                    // Emit `true` (always shared) to force the slow path
-                    // which uses Construct instead of in-place Set.
-                    tracing::trace!(
-                        var = var.raw(),
-                        ?repr,
-                        "IsShared on non-pointer value — emitting true"
-                    );
-                    let always_shared = self.builder.const_bool(true);
-                    self.def_var(*dst, EmittedValue::Immediate(always_shared));
-                }
-            }
+            ArcInstr::IsShared { dst, var } => self.emit_is_shared(*dst, *var, func),
 
             ArcInstr::Reset { var, token } => {
                 // Reset marks a value for potential reuse. After reuse expansion,
@@ -789,165 +566,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 ty,
                 ctor,
                 args,
-            } => {
-                // Defensive fallback: after expand_reuse, Reuse instructions are
-                // eliminated — the fast path uses Set/SetTag and the slow path uses
-                // Construct. If Reuse appears (e.g., expansion was skipped because
-                // Reset/Reuse span different blocks), fall back to: dec the original
-                // buffer (held by token) + fresh construction.
-                tracing::debug!(
-                    "ArcIrEmitter: Reuse instruction not expanded — using Construct fallback"
-                );
-
-                // Dec the original buffer held by the token. Without this, the
-                // Reset'd buffer leaks (Reset claimed ownership but Reuse didn't
-                // reclaim it).
-                if let Some(repr) = func.var_repr(*token) {
-                    let strategy = RcStrategy::from_repr(repr, self.pool, func.var_type(*token));
-                    self.emit_rc_dec(*token, strategy, func);
-                }
-
-                let val = self.emit_construct(*ty, ctor, args);
-                self.def_var_repr(*dst, val, func);
-            }
+            } => self.emit_reuse_fallback(*token, *dst, *ty, ctor, args, func),
 
             ArcInstr::Set { base, field, value } => {
-                // In-place field update (only valid when uniquely owned).
-                // After expand_reuse, this only appears in the fast path for
-                // heap-allocated RC'd objects (pointer-typed base).
-                let repr = func.var_repr(*base).unwrap_or(ValueRepr::Scalar);
-                if repr == ValueRepr::RcPointer {
-                    let base_val = self.var(*base);
-                    let new_val = self.var(*value);
-                    let base_ty = func.var_type(*base);
-                    let llvm_ty = self.resolve_type(base_ty);
-
-                    // Tagged-pointer enums have no struct layout —
-                    // there are no individual fields to GEP into. The entire
-                    // enum is a single i64 slot. AIMS reuse should never
-                    // generate a `Set` for a tagged-pointer enum because the
-                    // encoding is monolithic. If this ever fires, the AIMS
-                    // pipeline needs to be taught about tagged-pointer
-                    // encoding before in-place mutation can be supported.
-                    debug_assert!(
-                        self.get_tagged_ptr_encoding(base_ty).is_none(),
-                        "Set on tagged-pointer enum — AIMS reuse must produce \
-                         a full Construct, not a per-field Set, for tagged-ptr \
-                         encoded enums (no individual field layout exists)"
-                    );
-
-                    // Remap declaration-order field to memory-order.
-                    let mem_field = self.remap_struct_field(base_ty, *field);
-
-                    // Boxed recursive back-edge field: the slot holds an RC box
-                    // pointer, not the inline child aggregate. Box `new_val`
-                    // before the in-place store, mirroring the box-before-write
-                    // discipline of the Construct/Project sibling sites that
-                    // consult the same boxing oracle. Storing the unboxed
-                    // aggregate into a `ptr` slot would corrupt the layout.
-                    let field_decl_ty = self
-                        .pool
-                        .struct_fields(base_ty)
-                        .get(*field as usize)
-                        .map(|&(_, ty)| ty);
-                    let store_val = match field_decl_ty {
-                        Some(ft) if is_boxed_enum_field(self.pool, base_ty, ft) => {
-                            self.box_recursive_field(new_val, ft, Some(*value))
-                        }
-                        _ => new_val,
-                    };
-
-                    // GEP + store for heap-allocated RC'd objects.
-                    // The base is a pointer to the struct data on the heap.
-                    let field_ptr = self.builder.struct_gep(
-                        llvm_ty,
-                        base_val,
-                        mem_field,
-                        &format!("set.{field}.ptr"),
-                    );
-                    self.builder.store(store_val, field_ptr);
-                    // base pointer unchanged — mutation is in-place
-                } else {
-                    // Non-pointer base: this block is unreachable (IsShared
-                    // emitted `true` for non-pointer values, so the branch
-                    // always takes the slow Construct path). Emit nothing.
-                    tracing::trace!(
-                        base = base.raw(),
-                        field,
-                        ?repr,
-                        "Set on non-pointer value — skipping (unreachable)"
-                    );
-                }
+                self.emit_set_field(*base, *field, *value, func);
             }
 
-            ArcInstr::SetTag { base, tag } => {
-                let base_val = self.var(*base);
-                let base_ty = func.var_type(*base);
-                let llvm_ty = self.resolve_type(base_ty);
-
-                // Tagged-pointer enum — re-encode the tag bits.
-                // The encoded value lives in a single i64 slot. To set the
-                // discriminant we mask off the existing low 3 bits and OR
-                // in the new variant index. The pointer payload (high 61
-                // bits) is preserved — useful for variant→variant
-                // transitions where the same payload pointer applies (e.g.,
-                // marking a node).
-                if self.get_tagged_ptr_encoding(base_ty).is_some() {
-                    let cleared_ptr = self.tagged_ptr_decode_ptr(base_val, "set_tag.ptr");
-                    let updated = self.tagged_ptr_encode(cleared_ptr, *tag as u32, "set_tag");
-                    self.def_var(*base, super::EmittedValue::Immediate(updated));
-                    return;
-                }
-
-                // Tagless single-variant enum — no tag to store.
-                if self.is_tagless_enum(base_ty) {
-                    return;
-                }
-
-                // Niche encoding — conditional tag store.
-                if let Some(encoding) = self.get_niche_encoding(base_ty) {
-                    if encoding.needs_tag_store(*tag as u32) {
-                        // Niche variant: write niche_value into the niche field.
-                        let niche_idx = encoding.niche_field_index().unwrap();
-                        let niche_value = encoding.variant_to_tag_value(*tag as u32);
-                        if self.builder.is_struct_value(base_val) {
-                            // Register value: use insert_value + re-bind variable.
-                            let niche_const = self.builder.const_int_for_struct_field(
-                                llvm_ty,
-                                niche_idx,
-                                niche_value,
-                            );
-                            let updated = self.builder.insert_value(
-                                base_val,
-                                niche_const,
-                                niche_idx,
-                                "set.niche",
-                            );
-                            self.def_var(*base, super::EmittedValue::Aggregate(updated));
-                        } else {
-                            // Pointer: GEP + store (in-place mutation).
-                            let field_ptr = self.builder.struct_gep(
-                                llvm_ty,
-                                base_val,
-                                niche_idx,
-                                "set.niche.ptr",
-                            );
-                            let field_val = self.builder.const_int_for_struct_field(
-                                llvm_ty,
-                                niche_idx,
-                                niche_value,
-                            );
-                            self.builder.store(field_val, field_ptr);
-                        }
-                    }
-                    // Non-niche variant: no-op — payload implicitly identifies variant.
-                } else {
-                    // Explicit tag: field 0 of { narrowed_tag,... }
-                    let tag_ptr = self.builder.struct_gep(llvm_ty, base_val, 0, "set.tag.ptr");
-                    let tag_val = self.builder.const_int_for_struct_field(llvm_ty, 0, *tag);
-                    self.builder.store(tag_val, tag_ptr);
-                }
-            }
+            ArcInstr::SetTag { base, tag } => self.emit_set_tag(*base, *tag, func),
 
             ArcInstr::Select {
                 dst,
@@ -955,15 +580,327 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 true_val,
                 false_val,
                 ..
-            } => {
-                let c = self.var(*cond);
-                let t = self.var(*true_val);
-                let f = self.var(*false_val);
-                let result = self.builder.select(c, t, f, "sel");
-                // Select is a computation (branchless conditional),
-                // route through def_var_repr for local narrowing.
-                self.def_var_repr(*dst, result, func);
+            } => self.emit_select(*dst, *cond, *true_val, *false_val, func),
+        }
+    }
+
+    fn emit_construct_instr(
+        &mut self,
+        dst: ArcVarId,
+        ty: Idx,
+        ctor: &CtorKind,
+        args: &[ArcVarId],
+        func: &ArcFunction,
+    ) {
+        let value = self.emit_construct(ty, ctor, args);
+        self.def_var_repr(dst, value, func);
+    }
+
+    fn emit_collection_reuse_instr(
+        &mut self,
+        old_var: ArcVarId,
+        dst: ArcVarId,
+        ty: Idx,
+        ctor: &CtorKind,
+        args: &[ArcVarId],
+        func: &ArcFunction,
+    ) {
+        let value = self.emit_collection_reuse(old_var, ty, ctor, args);
+        self.def_var_repr(dst, value, func);
+    }
+
+    fn emit_select(
+        &mut self,
+        dst: ArcVarId,
+        condition: ArcVarId,
+        true_value: ArcVarId,
+        false_value: ArcVarId,
+        func: &ArcFunction,
+    ) {
+        let condition = self.var(condition);
+        let true_value = self.var(true_value);
+        let false_value = self.var(false_value);
+        let result = self
+            .builder
+            .select(condition, true_value, false_value, "sel");
+        self.def_var_repr(dst, result, func);
+    }
+
+    fn emit_let_instr(&mut self, dst: ArcVarId, ty: Idx, value: &ArcValue, func: &ArcFunction) {
+        let emitted = if let Some(&element_type) = self.for_yield_elem_size_types.get(&dst) {
+            let llvm_size = self.element_store_size(element_type);
+            self.builder.const_i64(llvm_size as i64)
+        } else {
+            let catch_pad = self.same_frame_catch_landing_pads.get(&dst).copied();
+            if catch_pad.is_some() {
+                self.builder.set_catch_unwind_target(catch_pad);
+            }
+            let emitted = self.emit_value(dst, value, ty, func);
+            if catch_pad.is_some() {
+                self.builder.set_catch_unwind_target(None);
+            }
+            emitted
+        };
+
+        // Narrow computations only. Narrowing copies creates distinct SSA
+        // extensions that prevent equivalent expressions from sharing CSE keys.
+        if matches!(value, ArcValue::PrimOp { .. }) {
+            self.def_var_repr(dst, emitted, func);
+        } else {
+            let repr = func.var_repr(dst).unwrap_or(ValueRepr::Scalar);
+            self.def_var(dst, EmittedValue::from_repr(repr, emitted));
+        }
+
+        if let ArcValue::Var(source) = value {
+            if let Some(&pointer) = self.borrowed_param_ptrs.get(source) {
+                self.borrowed_param_ptrs.insert(dst, pointer);
+                if self.pointer_only_params.contains(source) {
+                    self.pointer_only_params.insert(dst);
+                }
             }
         }
+    }
+
+    fn emit_burden_dec_partial(&mut self, var: ArcVarId, skip_fields: &[u32], func: &ArcFunction) {
+        let base_type = func.var_type(var);
+        let Some(drop_info) = ori_arc::compute_drop_info(base_type, self.classifier, self.pool)
+        else {
+            return;
+        };
+        let base_value = self.var_field_base_ptr(var, base_type);
+
+        match drop_info.kind {
+            ori_arc::DropKind::Fields { fields, .. } => self.emit_drop_field_loop(
+                base_value,
+                base_type,
+                &fields,
+                Some(skip_fields),
+                "burden_dec_partial",
+            ),
+            ori_arc::DropKind::Enum { variants, .. } => {
+                // A projected variant transfers its payload ownership; every
+                // other variant retains its release obligation.
+                let surviving: Vec<Vec<(u32, Idx)>> = variants
+                    .into_iter()
+                    .enumerate()
+                    .map(|(ordinal, fields)| {
+                        if skip_fields.contains(&(ordinal as u32)) {
+                            Vec::new()
+                        } else {
+                            fields
+                        }
+                    })
+                    .collect();
+                self.emit_variant_burden_walk(
+                    self.current_function,
+                    base_value,
+                    base_type,
+                    &surviving,
+                );
+            }
+            other => {
+                debug_assert!(
+                    false,
+                    "BurdenDecPartial on unsupported drop shape: {other:?}"
+                );
+                self.builder.record_codegen_error_with_msg(format!(
+                    "BurdenDecPartial on unsupported drop shape: {other:?}"
+                ));
+            }
+        }
+    }
+
+    fn emit_burden_dec_variant(&mut self, var: ArcVarId, func: &ArcFunction) {
+        let base_type = func.var_type(var);
+        let Some(drop_info) = ori_arc::compute_drop_info(base_type, self.classifier, self.pool)
+        else {
+            return;
+        };
+        let ori_arc::DropKind::Enum { variants, .. } = drop_info.kind else {
+            debug_assert!(
+                false,
+                "BurdenDecVariant on non-enum drop shape: {:?}",
+                drop_info.kind
+            );
+            self.builder.record_codegen_error_with_msg(format!(
+                "BurdenDecVariant on non-enum drop shape: {:?}",
+                drop_info.kind
+            ));
+            return;
+        };
+
+        // SetTag invalidates the old payload, so release it before the tag store.
+        let base_value = self.var_field_base_ptr(var, base_type);
+        self.emit_variant_burden_walk(self.current_function, base_value, base_type, &variants);
+    }
+
+    fn emit_burden_dec_field(&mut self, base: ArcVarId, field: u32, func: &ArcFunction) {
+        let repr = func.var_repr(base).unwrap_or(ValueRepr::Scalar);
+        if repr == ValueRepr::Scalar {
+            tracing::trace!(
+                base = base.raw(),
+                field,
+                ?repr,
+                "BurdenDecField on scalar base — skipping (unreachable)"
+            );
+            return;
+        }
+
+        let base_type = func.var_type(base);
+        let fields = self.pool.struct_fields(base_type);
+        let Some(&(_, field_type)) = fields.get(field as usize) else {
+            tracing::trace!(
+                base = base.raw(),
+                field,
+                "BurdenDecField index is outside struct fields; skipping"
+            );
+            return;
+        };
+        let base_value = self.var_field_base_ptr(base, base_type);
+        self.emit_drop_field_loop(
+            base_value,
+            base_type,
+            &[(field, field_type)],
+            None,
+            "burden_dec_field",
+        );
+    }
+
+    fn emit_is_shared(&mut self, dst: ArcVarId, var: ArcVarId, func: &ArcFunction) {
+        let repr = func.var_repr(var).unwrap_or(ValueRepr::Scalar);
+        if repr != ValueRepr::RcPointer {
+            tracing::trace!(
+                var = var.raw(),
+                ?repr,
+                "IsShared on non-pointer value — emitting true"
+            );
+            let always_shared = self.builder.const_bool(true);
+            self.def_var(dst, EmittedValue::Immediate(always_shared));
+            return;
+        }
+
+        let data_pointer = self.var(var);
+        let i8_type = self.builder.i8_type();
+        let header_offset = self.builder.const_i64(-8);
+        let rc_pointer = self
+            .builder
+            .gep(i8_type, data_pointer, &[header_offset], "rc_ptr");
+        let i64_type = self.builder.i64_type();
+        let ref_count = self.builder.load(i64_type, rc_pointer, "rc_val");
+        let one = self.builder.const_i64(1);
+        let is_shared = self.builder.icmp_sgt(ref_count, one, "is_shared");
+        self.def_var(dst, EmittedValue::Immediate(is_shared));
+    }
+
+    fn emit_reuse_fallback(
+        &mut self,
+        token: ArcVarId,
+        dst: ArcVarId,
+        ty: Idx,
+        ctor: &CtorKind,
+        args: &[ArcVarId],
+        func: &ArcFunction,
+    ) {
+        tracing::debug!("Reuse was not expanded; using Construct fallback");
+        if let Some(repr) = func.var_repr(token) {
+            let strategy = RcStrategy::from_repr(repr, self.pool, func.var_type(token));
+            self.emit_rc_dec(token, strategy, func);
+        }
+        let value = self.emit_construct(ty, ctor, args);
+        self.def_var_repr(dst, value, func);
+    }
+
+    fn emit_set_field(&mut self, base: ArcVarId, field: u32, value: ArcVarId, func: &ArcFunction) {
+        let repr = func.var_repr(base).unwrap_or(ValueRepr::Scalar);
+        if repr != ValueRepr::RcPointer {
+            tracing::trace!(
+                base = base.raw(),
+                field,
+                ?repr,
+                "Set on non-pointer value — skipping (unreachable)"
+            );
+            return;
+        }
+
+        let base_value = self.var(base);
+        let new_value = self.var(value);
+        let base_type = func.var_type(base);
+        let llvm_type = self.resolve_type(base_type);
+        debug_assert!(
+            self.get_tagged_ptr_encoding(base_type).is_none(),
+            "compiled layout must resolve tagged-pointer Set before LLVM emission"
+        );
+
+        let memory_field = self.remap_struct_field(base_type, field);
+        let field_type = self
+            .pool
+            .struct_fields(base_type)
+            .get(field as usize)
+            .map(|&(_, ty)| ty);
+        let stored_value = match field_type {
+            Some(field_type) if is_boxed_enum_field(self.pool, base_type, field_type) => {
+                self.box_recursive_field(new_value, field_type, Some(value))
+            }
+            _ => new_value,
+        };
+        let field_pointer = self.builder.struct_gep(
+            llvm_type,
+            base_value,
+            memory_field,
+            &format!("set.{field}.ptr"),
+        );
+        self.builder.store(stored_value, field_pointer);
+    }
+
+    fn emit_set_tag(&mut self, base: ArcVarId, tag: u64, func: &ArcFunction) {
+        let base_value = self.var(base);
+        let base_type = func.var_type(base);
+        let llvm_type = self.resolve_type(base_type);
+
+        if self.get_tagged_ptr_encoding(base_type).is_some() {
+            let pointer = self.tagged_ptr_decode_ptr(base_value, "set_tag.ptr");
+            let updated = self.tagged_ptr_encode(pointer, tag as u32, "set_tag");
+            self.def_var(base, EmittedValue::Immediate(updated));
+            return;
+        }
+        if self.is_tagless_enum(base_type) {
+            return;
+        }
+
+        if let Some(encoding) = self.get_niche_encoding(base_type) {
+            if !encoding.needs_tag_store(tag as u32) {
+                return;
+            }
+            let Some(niche_index) = encoding.niche_field_index() else {
+                self.builder
+                    .record_codegen_error_with_msg("niche encoding has no field index");
+                return;
+            };
+            let niche_value = encoding.variant_to_tag_value(tag as u32);
+            if self.builder.is_struct_value(base_value) {
+                let value =
+                    self.builder
+                        .const_int_for_struct_field(llvm_type, niche_index, niche_value);
+                let updated =
+                    self.builder
+                        .insert_value(base_value, value, niche_index, "set.niche");
+                self.def_var(base, EmittedValue::Aggregate(updated));
+            } else {
+                let pointer =
+                    self.builder
+                        .struct_gep(llvm_type, base_value, niche_index, "set.niche.ptr");
+                let value =
+                    self.builder
+                        .const_int_for_struct_field(llvm_type, niche_index, niche_value);
+                self.builder.store(value, pointer);
+            }
+            return;
+        }
+
+        let tag_pointer = self
+            .builder
+            .struct_gep(llvm_type, base_value, 0, "set.tag.ptr");
+        let tag_value = self.builder.const_int_for_struct_field(llvm_type, 0, tag);
+        self.builder.store(tag_value, tag_pointer);
     }
 }

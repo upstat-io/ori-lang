@@ -182,7 +182,7 @@ fn kind_display_matches_message() {
         undefined_function("main"),
         undefined_const("PI"),
         not_callable("int"),
-        index_out_of_bounds(5),
+        index_out_of_bounds(5, 3),
         key_not_found("name"),
         no_field_on_struct("age"),
         non_exhaustive_match(),
@@ -248,9 +248,9 @@ fn variant_name_returns_stable_strings() {
 
 #[test]
 fn control_action_break_carries_value() {
-    let action = ControlAction::Break(Value::int(42));
+    let action = ControlAction::Break(Value::int(42), ori_ir::Name::EMPTY);
     assert!(!action.is_error());
-    if let ControlAction::Break(v) = action {
+    if let ControlAction::Break(v, _) = action {
         assert_eq!(v, Value::int(42));
     } else {
         panic!("expected Break");
@@ -259,9 +259,9 @@ fn control_action_break_carries_value() {
 
 #[test]
 fn control_action_continue_carries_value() {
-    let action = ControlAction::Continue(Value::Void);
+    let action = ControlAction::Continue(Value::Void, ori_ir::Name::EMPTY);
     assert!(!action.is_error());
-    assert!(matches!(action, ControlAction::Continue(Value::Void)));
+    assert!(matches!(action, ControlAction::Continue(Value::Void, _)));
 }
 
 #[test]
@@ -300,7 +300,7 @@ fn control_action_into_eval_error_roundtrip() {
 
 #[test]
 fn control_action_into_eval_error_from_break() {
-    let action = ControlAction::Break(Value::int(5));
+    let action = ControlAction::Break(Value::int(5), ori_ir::Name::EMPTY);
     let err = action.into_eval_error();
     assert!(err.message.contains("break"));
 }
@@ -320,8 +320,8 @@ fn control_action_with_span_if_error_attaches_span() {
 #[test]
 fn control_action_with_span_if_error_ignores_control_flow() {
     let span = Span::new(10, 20);
-    let action = ControlAction::Break(Value::Void);
+    let action = ControlAction::Break(Value::Void, ori_ir::Name::EMPTY);
     let action = action.with_span_if_error(span);
     // Break should pass through unchanged
-    assert!(matches!(action, ControlAction::Break(Value::Void)));
+    assert!(matches!(action, ControlAction::Break(Value::Void, _)));
 }

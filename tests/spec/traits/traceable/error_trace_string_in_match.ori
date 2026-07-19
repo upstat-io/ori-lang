@@ -1,0 +1,28 @@
+// Spec: 07-properties-of-types.md § Traceable
+// Regression sibling: a non-scalar Traceable accessor (`trace() -> str`) on the
+// `Error` payload `e`, as the TAIL value of a `match` arm — the SAME
+// Named-error-struct-in-match shape as the trace_entries sibling pins, for the
+// `str` fat-pointer accessor (distinct physical shape from trace_entries()'s
+// list fat-pointer). Completes the "all four Traceable methods" coverage table.
+
+use std.testing { assert }
+
+@fail () -> Result<int, Error> = Err(Error("fail"));
+
+@one_hop () -> Result<int, Error> = {
+    let x = fail()?;
+    Ok(x)
+}
+
+// The non-scalar `str` accessor is the arm's tail value; the arm result type
+// is the fat-pointer `str`.
+@trace_via_match () -> str = {
+    match one_hop() {
+        Ok(_) -> "",
+        Err(e) -> e.trace(),
+    }
+}
+
+@test_trace_via_match tests @trace_via_match () -> void = {
+    assert(cond: trace_via_match() != "")
+}

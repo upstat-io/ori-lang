@@ -90,7 +90,8 @@ mod construct_tests {
     /// All `ConstructKind` variants in one place. When a new variant is added,
     /// update this array — the `construct_predicates_consistent` test below will
     /// verify it stays in sync with `is_always_stacked()`, `determine_packing()`,
-    /// `separator_for()`, and `name()`.
+    /// `separator_for()`, and `name()`. The `all_constructs_is_exhaustive` witness
+    /// below fails to compile until the new variant is also listed here.
     const ALL_CONSTRUCTS: [ConstructKind; 22] = [
         ConstructKind::RunTopLevel,
         ConstructKind::Try,
@@ -116,6 +117,49 @@ mod construct_tests {
         ConstructKind::MatchArms,
     ];
 
+    /// Compile-time-enforced completeness guard for `ALL_CONSTRUCTS`.
+    ///
+    /// The exhaustive `match` (no `_` catch-all) forces a compile error when a
+    /// new `ConstructKind` variant is added without being mapped here, and the
+    /// runtime assertion forces that the same variant is present in
+    /// `ALL_CONSTRUCTS`. Together they make the hand-maintained array unable to
+    /// silently drift out of sync with the enum.
+    #[test]
+    fn all_constructs_is_exhaustive() {
+        for &kind in &ALL_CONSTRUCTS {
+            // Adding a variant to `ConstructKind` breaks this match (no `_` arm),
+            // forcing the author to extend the witness and `ALL_CONSTRUCTS`.
+            let witnessed = match kind {
+                ConstructKind::RunTopLevel
+                | ConstructKind::Try
+                | ConstructKind::Match
+                | ConstructKind::Recurse
+                | ConstructKind::Parallel
+                | ConstructKind::Spawn
+                | ConstructKind::Nursery
+                | ConstructKind::FunctionParams
+                | ConstructKind::FunctionArgs
+                | ConstructKind::GenericParams
+                | ConstructKind::WhereConstraints
+                | ConstructKind::Capabilities
+                | ConstructKind::StructFieldsDef
+                | ConstructKind::StructFieldsLiteral
+                | ConstructKind::SumVariants
+                | ConstructKind::MapEntries
+                | ConstructKind::TupleElements
+                | ConstructKind::ImportItems
+                | ConstructKind::ListSimple
+                | ConstructKind::ListComplex
+                | ConstructKind::RunNested
+                | ConstructKind::MatchArms => kind,
+            };
+            assert!(
+                ALL_CONSTRUCTS.contains(&witnessed),
+                "{witnessed:?}: handled by the exhaustive witness but missing from ALL_CONSTRUCTS",
+            );
+        }
+    }
+
     #[test]
     fn construct_names_unique() {
         let mut names: Vec<_> = ALL_CONSTRUCTS.iter().map(|c| c.name()).collect();
@@ -134,7 +178,7 @@ mod construct_tests {
     #[test]
     fn construct_predicates_consistent() {
         for &kind in &ALL_CONSTRUCTS {
-            let packing = determine_packing(kind, false, false, false, 1);
+            let packing = determine_packing(kind, false, false, false);
             let stacked = kind.is_always_stacked();
 
             assert_eq!(
@@ -157,31 +201,31 @@ mod determine_packing_tests {
     fn always_stacked_constructs() {
         // Always-stacked constructs return AlwaysStacked regardless of other flags
         assert_eq!(
-            determine_packing(ConstructKind::RunTopLevel, false, false, false, 3),
+            determine_packing(ConstructKind::RunTopLevel, false, false, false),
             Packing::AlwaysStacked
         );
         assert_eq!(
-            determine_packing(ConstructKind::Try, false, false, false, 2),
+            determine_packing(ConstructKind::Try, false, false, false),
             Packing::AlwaysStacked
         );
         assert_eq!(
-            determine_packing(ConstructKind::Match, false, false, false, 5),
+            determine_packing(ConstructKind::Match, false, false, false),
             Packing::AlwaysStacked
         );
         assert_eq!(
-            determine_packing(ConstructKind::Recurse, false, false, false, 4),
+            determine_packing(ConstructKind::Recurse, false, false, false),
             Packing::AlwaysStacked
         );
         assert_eq!(
-            determine_packing(ConstructKind::Parallel, false, false, false, 3),
+            determine_packing(ConstructKind::Parallel, false, false, false),
             Packing::AlwaysStacked
         );
         assert_eq!(
-            determine_packing(ConstructKind::Spawn, false, false, false, 2),
+            determine_packing(ConstructKind::Spawn, false, false, false),
             Packing::AlwaysStacked
         );
         assert_eq!(
-            determine_packing(ConstructKind::Nursery, false, false, false, 1),
+            determine_packing(ConstructKind::Nursery, false, false, false),
             Packing::AlwaysStacked
         );
     }
@@ -189,11 +233,11 @@ mod determine_packing_tests {
     #[test]
     fn trailing_comma_forces_multiline() {
         assert_eq!(
-            determine_packing(ConstructKind::FunctionArgs, true, false, false, 3),
+            determine_packing(ConstructKind::FunctionArgs, true, false, false),
             Packing::AlwaysOnePerLine
         );
         assert_eq!(
-            determine_packing(ConstructKind::ListSimple, true, false, false, 10),
+            determine_packing(ConstructKind::ListSimple, true, false, false),
             Packing::AlwaysOnePerLine
         );
     }
@@ -201,7 +245,7 @@ mod determine_packing_tests {
     #[test]
     fn comments_force_multiline() {
         assert_eq!(
-            determine_packing(ConstructKind::FunctionParams, false, true, false, 2),
+            determine_packing(ConstructKind::FunctionParams, false, true, false),
             Packing::AlwaysOnePerLine
         );
     }
@@ -209,7 +253,7 @@ mod determine_packing_tests {
     #[test]
     fn empty_lines_force_multiline() {
         assert_eq!(
-            determine_packing(ConstructKind::MapEntries, false, false, true, 4),
+            determine_packing(ConstructKind::MapEntries, false, false, true),
             Packing::AlwaysOnePerLine
         );
     }
@@ -217,7 +261,7 @@ mod determine_packing_tests {
     #[test]
     fn simple_list_can_pack() {
         assert_eq!(
-            determine_packing(ConstructKind::ListSimple, false, false, false, 10),
+            determine_packing(ConstructKind::ListSimple, false, false, false),
             Packing::FitOrPackMultiple
         );
     }
@@ -225,7 +269,7 @@ mod determine_packing_tests {
     #[test]
     fn complex_list_one_per_line() {
         assert_eq!(
-            determine_packing(ConstructKind::ListComplex, false, false, false, 5),
+            determine_packing(ConstructKind::ListComplex, false, false, false),
             Packing::FitOrOnePerLine
         );
     }
@@ -233,19 +277,19 @@ mod determine_packing_tests {
     #[test]
     fn default_is_fit_or_one_per_line() {
         assert_eq!(
-            determine_packing(ConstructKind::FunctionParams, false, false, false, 3),
+            determine_packing(ConstructKind::FunctionParams, false, false, false),
             Packing::FitOrOnePerLine
         );
         assert_eq!(
-            determine_packing(ConstructKind::FunctionArgs, false, false, false, 2),
+            determine_packing(ConstructKind::FunctionArgs, false, false, false),
             Packing::FitOrOnePerLine
         );
         assert_eq!(
-            determine_packing(ConstructKind::GenericParams, false, false, false, 2),
+            determine_packing(ConstructKind::GenericParams, false, false, false),
             Packing::FitOrOnePerLine
         );
         assert_eq!(
-            determine_packing(ConstructKind::StructFieldsDef, false, false, false, 4),
+            determine_packing(ConstructKind::StructFieldsDef, false, false, false),
             Packing::FitOrOnePerLine
         );
     }
@@ -254,7 +298,7 @@ mod determine_packing_tests {
     fn nested_run_is_width_based() {
         // Nested run is NOT always stacked
         assert_eq!(
-            determine_packing(ConstructKind::RunNested, false, false, false, 2),
+            determine_packing(ConstructKind::RunNested, false, false, false),
             Packing::FitOrOnePerLine
         );
     }

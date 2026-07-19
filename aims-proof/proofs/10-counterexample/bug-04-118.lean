@@ -112,10 +112,10 @@ deriving Repr, DecidableEq
 
 -- RL-1 + RL-2 composition (per aims-proof/proofs/08-realization/RL-1-RL-2-composition.proof):
 -- the cumulative RC ledger over the full instruction schedule is net-zero for every
--- owned non-scalar heap value. Encoded as the soundness invariant.
+-- owned non-scalar allocation identity. Encoded as the soundness invariant.
 def rc_balance_invariant (rc_balance : ArcVarId → ProgramPoint → Int) : Prop :=
   ∀ v : ArcVarId,
-    -- restrict to owned non-scalar heap values; V_m is the BUG-04-118 fixture's witness
+    -- restrict to owned non-scalar identities; V_m is BUG-04-118's witness
     v = ArcVarId.V_m →
     rc_balance v ProgramPoint.PP_scope_exit = 0
 

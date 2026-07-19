@@ -1,4 +1,4 @@
-// Regression: BUG-04-159 — same-frame catch of shift-overflow implicit panic.
+// Regression: same-frame catch of shift-overflow implicit panic.
 // Same emit_panic_block carrier via emit_checked_shift.
 @main () -> int = {
     let result = catch(expr: 1 << 64);

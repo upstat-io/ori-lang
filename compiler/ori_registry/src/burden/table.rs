@@ -4,8 +4,9 @@
 //!
 //! - Primitives (`int`, `float`, `bool`, `char`, `byte`, `void`, `Never`,
 //!   `Duration`, `Size`, `Ordering`) and `Range<T>`: empty
-//!   `BuiltinBurdenSpec` (`Value` semantics; no heap, no drops).
-//! - Heap collections (`Str`, `List`, `Map`, `Set`): `self_heap_alloc = true`.
+//!   `BuiltinBurdenSpec` (`Value` semantics; no owned identity or cleanup).
+//! - Managed values (`Str`, `List`, `Map`, `Set`):
+//!   `self_owned_identity = true`.
 //!   `List`/`Map`/`Set` carry an `element_burden` type-parameter placeholder;
 //!   `Str` carries `None` (UTF-8 bytes have no recursive burden).
 //! - Sum templates (`Option<T>`, `Result<T, E>`): per-variant burdens with
@@ -18,7 +19,7 @@
 //! monomorphized entries are produced by the burden-composition layer that
 //! consumes these templates and substitutes concrete type-parameter `TypeId`s.
 //! Entries in this table are CONST TEMPLATES; the composition layer reads
-//! them and produces monomorphized `UserBurdenSpec` entries (heap-backed in
+//! them and produces monomorphized `UserBurdenSpec` entries (owned vectors in
 //! `ori_types`) for each first-instantiation type, substituting the
 //! type-parameter placeholders defined below at composition time.
 
@@ -180,7 +181,7 @@ const RESULT_VARIANTS: &[VariantBurden] = &[
 // layer downstream.
 
 pub const BURDEN_TABLE: &[(TypeId, BuiltinBurdenSpec)] = &[
-    // Primitives — Value semantics; no heap, no drops.
+    // Primitives — value semantics with no owned identity or cleanup.
     (TYPE_ID_INT, BuiltinBurdenSpec::EMPTY),
     (TYPE_ID_FLOAT, BuiltinBurdenSpec::EMPTY),
     (TYPE_ID_BOOL, BuiltinBurdenSpec::EMPTY),
@@ -193,11 +194,11 @@ pub const BURDEN_TABLE: &[(TypeId, BuiltinBurdenSpec)] = &[
     (TYPE_ID_ORDERING, BuiltinBurdenSpec::EMPTY),
     // Range<T> — range bounds are inline scalars; no recursive burden.
     (TYPE_ID_RANGE, BuiltinBurdenSpec::EMPTY),
-    // Str — UTF-8 bytes; heap-allocated, no recursive element burden.
+    // Str — one owned identity over UTF-8 bytes; no recursive element burden.
     (
         TYPE_ID_STR,
         BuiltinBurdenSpec {
-            self_heap_alloc: true,
+            self_owned_identity: true,
             element_burden: None,
             ..BuiltinBurdenSpec::EMPTY
         },
@@ -206,7 +207,7 @@ pub const BURDEN_TABLE: &[(TypeId, BuiltinBurdenSpec)] = &[
     (
         TYPE_ID_LIST,
         BuiltinBurdenSpec {
-            self_heap_alloc: true,
+            self_owned_identity: true,
             element_burden: Some(TYPE_PARAM_T),
             ..BuiltinBurdenSpec::EMPTY
         },
@@ -218,7 +219,7 @@ pub const BURDEN_TABLE: &[(TypeId, BuiltinBurdenSpec)] = &[
     (
         TYPE_ID_MAP,
         BuiltinBurdenSpec {
-            self_heap_alloc: true,
+            self_owned_identity: true,
             element_burden: Some(TYPE_PARAM_T),
             ..BuiltinBurdenSpec::EMPTY
         },
@@ -227,7 +228,7 @@ pub const BURDEN_TABLE: &[(TypeId, BuiltinBurdenSpec)] = &[
     (
         TYPE_ID_SET,
         BuiltinBurdenSpec {
-            self_heap_alloc: true,
+            self_owned_identity: true,
             element_burden: Some(TYPE_PARAM_T),
             ..BuiltinBurdenSpec::EMPTY
         },
@@ -248,25 +249,24 @@ pub const BURDEN_TABLE: &[(TypeId, BuiltinBurdenSpec)] = &[
             ..BuiltinBurdenSpec::EMPTY
         },
     ),
-    // Channel<T> — Arc-managed shared communication primitive carrying a
-    // buffer of T elements. `self_heap_alloc = true` covers the channel
-    // handle's Arc-managed allocation; `element_burden = Some(TYPE_PARAM_T)`
-    // exposes T's burden transitively so drop-glue can release buffered T
-    // elements when the channel refcount reaches zero. The composition layer
+    // Channel<T> — shared communication identity carrying T elements.
+    // `self_owned_identity = true` records the channel's logical identity;
+    // `element_burden = Some(TYPE_PARAM_T)` exposes T's burden transitively so
+    // cleanup can release buffered T elements when the channel's last logical
+    // owner ends. The composition layer
     // substitutes `TYPE_PARAM_T` at first-instantiation of `Channel<int>` /
     // `Channel<str>` / `Channel<{K: V}>` via `compose_user_burden`; the
-    // resulting `UserBurdenSpec` shares the LIST/MAP/SET shape (heap handle
-    // + parameterized element type), differing only at the registry layer.
+    // resulting `UserBurdenSpec` shares the LIST/MAP/SET logical shape (owned
+    // identity plus parameterized element type), differing only at the
+    // registry layer.
     //
-    // Channel-runtime gap: `compiler_repo/compiler/ori_patterns/src/channel.rs`
-    // is a stub today; emission of `BurdenInc(arg)` at `channel.send(arg)`
-    // is forward-referenced to §03 trivial-emission rules. This template
-    // produces the BurdenSpec data §03 will consume; no Phase 5 emission
-    // is wired in §02.
+    // This template produces the BurdenSpec data; Phase 5 emission of
+    // `BurdenInc(arg)` at `channel.send(arg)` is not wired here (the channel
+    // runtime in `ori_patterns` is a stub) and is the consuming layer's job.
     (
         TYPE_ID_CHANNEL,
         BuiltinBurdenSpec {
-            self_heap_alloc: true,
+            self_owned_identity: true,
             element_burden: Some(TYPE_PARAM_T),
             ..BuiltinBurdenSpec::EMPTY
         },
@@ -280,6 +280,7 @@ pub const BURDEN_TABLE: &[(TypeId, BuiltinBurdenSpec)] = &[
 /// All state lives in `BURDEN_TABLE`; this type names the lookup entry
 /// point and gives consumers (`ori_arc::lower::burden_lookup`) a single
 /// import surface (`use ori_registry::burden::table::BurdenRegistry`).
+#[derive(Debug)]
 pub struct BurdenRegistry;
 
 impl BurdenRegistry {

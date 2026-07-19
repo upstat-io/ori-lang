@@ -13,7 +13,13 @@ In a naive reference counting system, every function call site performs the same
 
 The question is: how does the compiler know which parameters are merely borrowed and which are truly consumed? Without analysis, the answer is "assume the worst" — treat every parameter as potentially consumed, and pay the RC cost at every call site. This is what CPython does, and it is a significant contributor to Python's overhead.
 
-AIMS answers this question through **interprocedural contracts** — a `MemoryContract` per function computed via SCC-based fixpoint iteration over the module's call graph. Each contract describes not just ownership (borrowed vs owned), but a rich multi-dimensional summary of how each parameter is used: access pattern, consumption mode, usage count, escape behavior, and uniqueness requirements. The unified realization step reads these contracts to skip RC operations at call sites for borrowed parameters and to make precise ownership decisions at every call.
+AIMS answers this question through **interprocedural contracts** — a
+`MemoryContract` per function computed by SCC-based fixpoint iteration over the
+module call graph. Each contract describes access, consumption, demand,
+lifetime, and uniqueness rather than only Borrowed versus Owned. Unified
+realization uses these contracts to omit caller-side logical credit/release
+events for borrowed parameters and to freeze precise transfer decisions at
+every call. Counter traffic is one downstream physical consequence.
 
 The interprocedural-contract shape drew on [Lean 4](https://github.com/leanprover/lean4)'s compiler (`src/Lean/Compiler/IR/Borrow.lean`), which pioneered SCC-based interprocedural borrow inference for a functional language with reference counting, as a historical influence. AIMS is Ori's own memory model: it composes that binary (Borrowed/Owned) classification SHAPE into a multi-dimensional contract covering all seven lattice dimensions, proven sound independently (see Spec: Annex E §AIMS).
 
@@ -52,7 +58,7 @@ Each parameter's contract captures multiple dimensions from AIMS's lattice:
 | `access` | `AccessClass` | `Borrowed` or `Owned` — callee's ownership requirement |
 | `consumption` | `Consumption` | `Dead`, `Linear`, `Affine`, or `Unrestricted` — how many times consumed |
 | `cardinality` | `Cardinality` | `Absent`, `Once`, or `Many` — forward usage count |
-| `may_escape` | `bool` | Whether the parameter may escape to heap |
+| `may_escape` | `bool` | Whether the parameter may outlive the current scope/caller-boundary contract; no physical storage verdict |
 | `may_share` | `bool` | Whether the parameter may become shared |
 | `locality_bound` | `Locality` | Tightest escape scope |
 | `uniqueness` | `Uniqueness` | Caller's uniqueness requirement |
@@ -65,9 +71,9 @@ The FIP certification status tracks whether a function achieves fully in-place m
 
 | Variant | Meaning |
 |---------|---------|
-| `Certified` | Provably zero unmatched allocations/deallocations |
+| `Certified` | Provably zero unmatched logical storage-acquisition/allocation and lifetime-end cleanup/release obligations |
 | `Conditional` | FIP only if specific arguments are unique at call sites |
-| `Bounded(n)` | FIP with at most n bounded allocations |
+| `Bounded(n)` | FIP with at most n unmatched logical storage-acquisition obligations |
 | `Never` | No FIP certification possible |
 
 ## Algorithm: SCC-Based Fixed-Point
@@ -80,7 +86,7 @@ Build an interprocedural call graph from all functions in the module. Extract di
 
 ### Phase 2: Seed Contracts
 
-All non-scalar parameters start as `all_borrowed()` — the optimistic assumption that no parameter needs ownership, with minimal consumption and cardinality. Scalar parameters (int, float, bool, etc.) start as `Owned` because they have no reference count. Built-in functions get pre-computed contracts from the `builtins` module.
+All non-scalar parameters start as `all_borrowed()` — the optimistic assumption that no parameter needs ownership, with minimal consumption and cardinality. Scalar parameters (int, float, bool, etc.) start as `Owned` because they have no managed owner-credit or drop obligation; this classification does not imply a physical counter. Built-in functions get pre-computed contracts from the `builtins` module.
 
 ### Phase 3: Topological Processing
 
@@ -95,7 +101,7 @@ SCCs are processed in topological order — callees before callers. This ensures
 After all SCCs converge:
 
 1. **Tighten uniqueness** from caller patterns — if all call sites of a function pass unique values for a parameter, the parameter's contract can reflect this.
-2. **Compute FIP status** — compare allocation balance against reuse opportunities for each function.
+2. **Compute FIP status** — compare logical storage-acquisition/cleanup balance against reuse opportunities for each function.
 3. **Coverage reporting** — FIP breakdown across the module.
 
 ## Contract Extraction
@@ -118,9 +124,14 @@ A parameter is promoted from Borrowed to Owned when any of the following holds:
 
 **Passed to an owned parameter.** If a parameter is passed as an argument to another function at a position where the callee's contract marks the parameter as Owned, ownership must transfer.
 
-**Stored in a Construct.** `Construct` instructions build structs, enums, and closures. All arguments are stored in heap-allocated memory — the constructed value takes ownership.
+**Stored in a Construct.** `Construct` instructions build structs, enums, and
+closures; an argument stored in the result must satisfy the result's logical
+lifetime, so the constructed value takes ownership. Stack, region, arena,
+inline, or managed-heap storage is selected later by a physical plan.
 
-**Passed to a PartialApply.** Captured into a closure environment. Captured values are stored on the heap, requiring Owned semantics.
+**Passed to a PartialApply.** Captured into a closure environment. The closure
+owns the capture for the environment's logical lifetime; this requires Owned
+semantics without requiring heap storage.
 
 **Passed to an ApplyIndirect.** Indirect calls through closures have unknown callee contracts. All arguments are conservatively promoted to Owned.
 
@@ -130,9 +141,13 @@ A parameter is promoted from Borrowed to Owned when any of the following holds:
 
 Parameters may be aliased via `Let { dst, value: Var(src) }` instructions. Before checking whether a variable is a parameter, the analysis resolves alias chains transitively: `v2 → v1 → v0 (param)`. This ensures that `let v1 = param; Construct([v1])` correctly promotes `param`.
 
-## Built-in Contracts
+## Bodyless Method Contracts
 
-AIMS must know about built-in methods that the LLVM backend compiles inline (they have no user-function entries in the contract map).
+- Built-in methods have no user-function body from which AIMS can extract a contract.
+- Their semantic signature, parameter ownership, and runtime identity belong to
+  the shared registry and reach AIMS as typed inputs.
+- LLVM inlining, VM opcode dispatch, and helper calls are later physical choices
+  that cannot change the contract.
 
 | Category | Behavior | Examples |
 |----------|----------|---------|
@@ -141,7 +156,9 @@ AIMS must know about built-in methods that the LLVM backend compiles inline (the
 | Consuming second arg | Receiver + arg[1] owned | `add`, `concat` (COW list concat — runtime takes both buffers) |
 | Consuming receiver only | Receiver owned, others borrowed | Map/Set `remove`, `difference`, `intersection`, `union` |
 
-These are pre-computed into a `BuiltinOwnershipSets` struct (interned names) constructed once per session.
+These are currently pre-computed into a `BuiltinOwnershipSets` struct of interned names once per session.
+
+> **Current gap — name-keyed compatibility sets.** `BuiltinOwnershipSets` still duplicates part of the registry contract surface by spelling. Production convergence must derive bodyless-call contracts from `MethodDef` and its typed runtime/ownership fields, carry that identity through the shared executable artifact, and reject missing identities. A VM or LLVM handler may implement the physical operation, but it may not infer ownership from a method name or backend implementation choice.
 
 ## Pipeline Integration
 
@@ -160,7 +177,7 @@ flowchart TB
     class AP,AO,AF,R native
 ```
 
-Contracts are recomputed per pipeline invocation — `analyze_program()` runs fresh each time `apply_aims_ownership()` is invoked; there is no per-session `MemoryContract` cache today. Incrementality, per `.claude/rules/missions.md §Compiler`, is Salsa-based and structural — not ad-hoc caching — so this behavior is expected. A durable per-function contract cache is a target-only capability, tracked for future work.
+The current implementation recomputes contracts per pipeline invocation: `analyze_program()` runs whenever `apply_aims_ownership()` is invoked, and there is no per-session `MemoryContract` cache. This is acknowledged construction debt, not the production architecture. Production realization runs once for the closed program batch and freezes one validated executable artifact consumed by every physical projection. Incremental recomputation is Salsa-based and structural, per `.claude/rules/missions.md §Compiler`; it must update that artifact constructor rather than introduce backend-local or ad-hoc caches.
 
 ## Prior Art
 
@@ -176,8 +193,8 @@ Contracts are recomputed per pipeline invocation — `analyze_program()` runs fr
 
 **Optimistic vs pessimistic initialization.** Starting all parameters as Borrowed (optimistic) and promoting to Owned produces the best results — fewer parameters end up Owned than if starting Owned and trying to demote. The tradeoff is that the fixed-point must iterate until no more promotions occur, rather than converging immediately. In practice, convergence is fast (typically 2-3 iterations per SCC).
 
-**Multi-dimensional vs binary contracts.** AIMS computes richer contracts (7 dimensions per parameter) than traditional borrow inference (binary Borrowed/Owned). The additional dimensions (consumption, cardinality, locality, uniqueness) enable more precise realization decisions but increase the contract size and fixpoint convergence time. The benefit is measurable: the extra dimensions enable RC optimizations that binary contracts miss.
+**Multi-dimensional vs binary contracts.** AIMS computes richer contracts (7 dimensions per parameter) than traditional borrow inference (binary Borrowed/Owned). The additional dimensions (consumption, cardinality, locality, uniqueness) enable more precise ownership-event, reuse, and COW decisions but increase the contract size and fixpoint convergence time. A counter-selecting projection consequently emits fewer physical RC operations, but that projection is not the contract's definition.
 
-**Interprocedural vs per-function.** Interprocedural analysis produces better results but has higher compile-time cost. A per-function analysis would be O(n) in the function count; the SCC-based approach adds Tarjan's algorithm (O(V + E)) and fixed-point iteration within each SCC. The cost is justified because the RC eliminations it enables are worth more than the analysis time.
+**Interprocedural vs per-function.** Interprocedural analysis produces better results but has higher compile-time cost. A per-function analysis would be O(n) in the function count; the SCC-based approach adds Tarjan's algorithm (O(V + E)) and fixed-point iteration within each SCC. The cost is justified because the logical ownership-event reductions benefit every physical projection.
 
-**Conservative for unknowns.** Unknown callees (not in the contract map, not in the builtin sets) get all-Owned arguments. This is correct but pessimistic — it means FFI calls and dynamically dispatched calls always pay full RC cost. A future extension could allow ownership annotations on FFI declarations.
+**Conservative for unknowns.** Unknown callees (not in the contract map, not in the builtin sets) get all-Owned arguments. This is correct but pessimistic: FFI and dynamically dispatched calls carry the full conservative ownership contract, and a counter-selecting projection may pay the corresponding RC cost. A future extension could allow ownership annotations on FFI declarations.

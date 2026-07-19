@@ -1,0 +1,16 @@
+// NEGATIVE PIN — use-after-`drop_early` via a POSITIONAL call (E2054).
+// `drop_early(s)` (no `value:`) is well-typed and consumes `s` just like the
+// named form; a later use reads reclaimed memory. The validator must recognise
+// the positional `Call` shape, not only `CallNamed`.
+//
+// Spec: 13-variables.md §13.7 (Variable Lifetime).
+
+#compile_fail(code: "E2054", message: "after `drop_early` consumed it")
+@drop_early_use_after_consume_positional_rejected tests @_anchor () -> void = {
+    let $s = "hello";
+    drop_early(s);
+    print(msg: s);
+    ()
+}
+
+@_anchor () -> bool = true;

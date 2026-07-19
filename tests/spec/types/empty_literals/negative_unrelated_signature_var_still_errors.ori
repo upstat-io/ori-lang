@@ -3,7 +3,8 @@
 // unannotated parameter `x` is not reachable from any empty literal in
 // the body, so the validator correctly fires on its fresh signature var.
 
-#compile_fail("E2005")
+#compile_fail(code: "E2005")
+@negative_unrelated_signature_var_still_errors tests _ () -> void = { () }
 @f (x) -> int = 0;
 
 @main () -> int = 0;

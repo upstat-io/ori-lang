@@ -109,7 +109,7 @@ let { position: { x, y } } = entity;   // nested destructure
 
 Pattern shall match value structure.
 
-A list pattern that fixes one or more element positions — `[a, b, c]`, `[head, ..tail]`, `[a, b, ..rest]`, `[only]` — is _refutable_ against a dynamic-length list `[T]`, because the list may have a different length, and shall not appear in a `let` binding; such a binding is an `error` (E2001). The rest-only pattern `[..all]` binds every element and is _irrefutable_. Refutable list shapes shall be bound through `match`. See [15 Patterns](15-patterns.md).
+A list pattern that fixes one or more element positions — `[a, b, c]`, `[head, ..tail]`, `[a, b, ..rest]`, `[only]` — is _refutable_ against a dynamic-length list `[T]`, because the list may have a different length, and shall not appear in a `let` binding; such a binding is an `error` (E2001). The rest-only pattern `[..all]` binds every element and is _irrefutable_. Refutable shapes shall be bound through `match`, or through the fallible binding form `let?` (see [13.9](#139-fallible-bindings)). See [15 Patterns](15-patterns.md).
 
 ```ori
 match list {                           // refutable shapes bind via match
@@ -173,7 +173,7 @@ Drop order for function parameters after the body returns is implementation-defi
 
 The built-in function `drop_early(value:)` explicitly drops a value before the end of its scope. After `drop_early(value: x)`, the binding `x` is inaccessible; any subsequent use is a compile-time error. `drop_early` works on both mutable and immutable bindings — it concerns ownership, not mutability.
 
-See [Clause 21](21-memory-model.md) for details on the ARC memory model.
+See [Clause 21](21-memory-model.md) for automatic ownership semantics and the informative current compiled ARC projection.
 
 ## 13.8 Blank Identifier
 
@@ -190,3 +190,52 @@ In `let _ = expr`, the expression is fully evaluated (including side effects and
 Multiple `_` patterns may appear in the same pattern, unlike named bindings which shall be unique.
 
 See [Clause 15](15-patterns.md) for pattern matching rules.
+
+## 13.9 Fallible Bindings
+
+> **Grammar:** See [grammar.ebnf](grammar.md) § EXPRESSIONS (`let_expr`, `fallible_pattern`)
+
+A _fallible binding_ `let? pattern = expression;` binds a refutable pattern. On match, the pattern's bindings are introduced exactly as a `let` binding introduces them. On mismatch, the binding propagates `None` to the enclosing function or `try` boundary, exactly as the `?` operator does on an `Option` value (see [16.5](16-control-flow.md)).
+
+`let?` is written with no interior whitespace (see [Annex D](annex-d-formatting.md)). A fallible binding shall appear only in block-statement position (see [16.0.3](16-control-flow.md)).
+
+### 13.9.1 Semantics
+
+`let? pattern = expression;` followed by the remaining statements of the enclosing block is equivalent to a `match` whose first arm is `pattern` with the remaining statements as its body, and whose second arm is a wildcard that propagates per [16.5.3](16-control-flow.md). When the fallible binding is the final statement of a block, the first arm's body is empty and the block's value is `void` per [16.0.3](16-control-flow.md).
+
+The enclosing function's return type shall be compatible with the propagated `Option` (the rule of [16.5.2](16-control-flow.md)). Shapes whose mismatch could silently discard a live `Err` value are compile-time errors per the error-preservation invariant of [16.5.3](16-control-flow.md).
+
+### 13.9.2 Type ascription
+
+The optional type annotation ascribes the _scrutinee_: in `let? pattern: T = expression;`, `expression` shall have type `T`, checked before pattern matching. The annotation never ascribes an individual binding.
+
+### 13.9.3 Bindings and mutability
+
+The pattern is the full match-pattern grammar extended with the `$` immutability marker at identifier binding positions (standalone bindings, variant, struct, tuple, and list element bindings, the list rest binding, and the at-pattern binder). A `$`-marked binding is immutable; an unmarked binding is mutable, as in `let`.
+
+- In or-patterns, bindings shall appear in every alternative with the same name and type, and the `$` marker shall agree per binding name across all alternatives.
+- `$identifier` inside a range-pattern endpoint remains a compile-time-constant reference (`const_pattern`); the binding-marker reading applies only at binding positions.
+- A `$`-marked binding whose name shadows a visible `$` constant produces a compiler warning; comparing against the constant requires a `match` guard (`x if x == $NAME`).
+
+### 13.9.4 Warnings
+
+- An irrefutable pattern under `let?` produces a warning: the `?` is inert; `let` is the correct form.
+- A pattern that is a bare top-level `Some(binding)` over an `Option` produces a warning: `let? Some(x) = e;` is equivalent to `let x = e?;`, which is the canonical spelling.
+
+EXAMPLE
+
+```ori
+@interleave (xs: [int]) -> Option<[int]> = {
+    let iter = xs.iter();
+    let? (Some(a), iter) = iter.next();
+    let? (Some(b), _) = iter.next_back();
+
+    Some([a, b])
+}
+
+@take_two (xs: [int]) -> Option<(int, int)> = {
+    let? [first, second, ..] = xs;
+
+    Some((first, second))
+}
+```

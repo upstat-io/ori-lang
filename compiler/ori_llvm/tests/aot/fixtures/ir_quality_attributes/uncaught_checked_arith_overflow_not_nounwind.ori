@@ -1,0 +1,11 @@
+// IR pin: an uncaught checked-arithmetic overflow with no other calls and no
+// same-frame catch must not mark the enclosing function `nounwind`. The
+// overflow panic (`call @ori_panic_cstr`) is an LLVM-emission-time-only
+// artifact of the checked-add intrinsic lowering — invisible to the ARC IR
+// nounwind scan, which only inspects `Apply`/`Invoke`/`RcDec` instructions.
+// A leaf function whose sole instruction is checked arithmetic must be
+// conservatively treated as may-unwind, exactly like an indirect call.
+@main () -> int = {
+    let x = 9223372036854775807;
+    x + 1
+}

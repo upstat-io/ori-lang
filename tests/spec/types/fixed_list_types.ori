@@ -1,14 +1,9 @@
-// Spec: 06-types.md § Compound Types - Fixed-Capacity List
-// Tests for [T, max N] fixed-capacity lists
-//
-// STATUS: Lexer [OK], Parser [OK] - fixed-capacity list type syntax supported
-// Parser now recognizes [T, max N] and [T, max $N] fixed-capacity list types.
+// Spec: Clause 6, fixed-capacity lists.
+// Both literal and const-generic capacities use `[T, max N]` syntax.
 
 use std.testing { assert, assert_eq }
 
-// =============================================================================
 // Basic Fixed-Capacity List Declaration
-// =============================================================================
 
 // NOTE: Fixed-capacity lists may not be fully implemented.
 // These tests are designed to expose missing features.
@@ -38,9 +33,7 @@ use std.testing { assert, assert_eq }
 
 @fixed_list_full () -> [int, max 3] = [1, 2, 3];
 
-// =============================================================================
 // Fixed-Capacity with Different Types
-// =============================================================================
 
 @test_fixed_str tests @fixed_str () -> void = {
     let names: [str, max 5] = ["alice", "bob"];
@@ -58,9 +51,7 @@ use std.testing { assert, assert_eq }
 
 @fixed_bool () -> [bool, max 4] = [true, false, true];
 
-// =============================================================================
 // Fixed-Capacity Methods
-// =============================================================================
 
 // NOTE: These methods may not be implemented yet.
 // Uncomment when available.
@@ -97,9 +88,7 @@ use std.testing { assert, assert_eq }
 //     buffer.remaining(),
 // }
 
-// =============================================================================
 // Fixed-Capacity Push Operations
-// =============================================================================
 
 // @test_push tests @push () -> void = {
 //     let buffer: [int, max 5] = [1, 2],
@@ -154,32 +143,25 @@ use std.testing { assert, assert_eq }
 //     buffer,
 // }
 
-// =============================================================================
 // Conversion Between Fixed and Dynamic
-// =============================================================================
 
-// @test_to_dynamic tests @to_dynamic () -> void = {
-//     let fixed: [int, max 5] = [1, 2, 3],
-//     let dynamic: [int] = fixed.to_dynamic(),
-//     assert_eq(actual: dynamic.len(), expected: 3),
-//     assert_eq(actual: dynamic[0], expected: 1),
-// }
+// The conversion transfers the same fat-pointer owner into the dynamic type;
+// both executors must preserve the value and release it exactly once.
+@test_to_dynamic tests @to_dynamic () -> void = {
+    let fixed: [int, max 5] = [1, 2, 3];
+    let dynamic: [int] = fixed.to_dynamic();
+    assert_eq(actual: dynamic.len(), expected: 3);
+    assert_eq(actual: dynamic[0], expected: 1)
+}
 
-// @to_dynamic () -> [int] = {
-//     let fixed: [int, max 5] = [1, 2, 3],
-//     fixed.to_dynamic(),
-// }
-
-// @test_to_fixed tests @to_fixed () -> void = {
-//     let dynamic: [int] = [1, 2, 3],
-//     let fixed: [int, max 10] = dynamic.to_fixed<10>(),
-//     assert_eq(actual: fixed.len(), expected: 3),
-// }
-
-// @to_fixed () -> [int, max 10] = {
-//     let dynamic: [int] = [1, 2, 3],
-//     dynamic.to_fixed<10>(),
-// }
+// The conversion transfers the same fat-pointer owner into the fixed type;
+// both executors must preserve the value and release it exactly once.
+@test_to_fixed tests @to_fixed () -> void = {
+    let dynamic: [int] = [1, 2, 3];
+    let fixed: [int, max 10] = dynamic.to_fixed<10>();
+    assert_eq(actual: fixed.len(), expected: 3);
+    assert_eq(actual: fixed[0], expected: 1)
+}
 
 // @test_try_to_fixed tests @try_to_fixed () -> void = {
 //     let dynamic: [int] = [1, 2, 3, 4, 5],
@@ -192,9 +174,7 @@ use std.testing { assert, assert_eq }
 //     dynamic.try_to_fixed<3>(),
 // }
 
-// =============================================================================
 // Fixed-Capacity Subtype Relationship
-// =============================================================================
 
 // [T, max N] <: [T]
 // Fixed-capacity can be passed where dynamic is expected
@@ -212,9 +192,7 @@ use std.testing { assert, assert_eq }
     accepts_dynamic(items: fixed)
 }
 
-// =============================================================================
 // Fixed-Capacity Index Access
-// =============================================================================
 
 @test_fixed_index tests @fixed_index () -> void = {
     let buffer: [int, max 10] = [10, 20, 30];
@@ -238,9 +216,7 @@ use std.testing { assert, assert_eq }
     buffer[# - 1]
 }
 
-// =============================================================================
 // Fixed-Capacity Iteration
-// =============================================================================
 
 @test_fixed_iter tests @fixed_iter () -> void = {
     let buffer: [int, max 5] = [1, 2, 3];
@@ -256,9 +232,7 @@ use std.testing { assert, assert_eq }
     sum
 }
 
-// =============================================================================
 // Const Generic Capacity (via type parameter)
-// =============================================================================
 
 // type RingBuffer<T, $N: int> = {
 //     data: [T, max N],
@@ -281,9 +255,7 @@ use std.testing { assert, assert_eq }
 //     tail: 0,
 // }
 
-// =============================================================================
 // Fallback: Basic fixed list as dynamic
-// =============================================================================
 
 // Until fixed-capacity is fully implemented, verify it at least
 // can be used as a dynamic list

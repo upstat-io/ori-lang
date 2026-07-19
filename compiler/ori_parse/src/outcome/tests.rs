@@ -1,4 +1,5 @@
 use super::*;
+use crate::{chain, committed, one_of};
 use ori_diagnostic::ErrorCode;
 use ori_ir::TokenKind;
 
@@ -176,7 +177,7 @@ fn test_with_error_context_doesnt_overwrite() {
     }
 }
 
-// === Macro Tests ===
+// Macro Tests
 //
 // These tests verify the backtracking macros work correctly.
 // We use a simple mock parser that tracks position for snapshot/restore.
@@ -365,7 +366,7 @@ fn test_chain_propagates_error() {
     assert!(result.failed_with_progress());
 }
 
-// === committed! macro tests ===
+// committed! macro tests
 
 fn parse_with_committed_ok(_p: &mut MockParser) -> ParseOutcome<i32> {
     let a: i32 = committed!(Ok::<i32, ParseError>(42));

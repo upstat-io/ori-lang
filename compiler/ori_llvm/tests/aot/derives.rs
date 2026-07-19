@@ -127,6 +127,79 @@ fn test_aot_derive_hash_different_values() {
     );
 }
 
+/// Product hashes start at zero and combine participating fields in declaration order.
+#[test]
+fn test_aot_derive_hash_product_uses_zero_seed_and_declaration_order() {
+    assert_aot_success(
+        r#"
+#derive(Eq, Hashable)
+type Product = { first: int, empty: void, second: int }
+
+@main () -> int = {
+    let product = Product { first: 2, empty: (), second: 3 };
+    if product.hash() == 175247769425 then 0 else 1
+}
+"#,
+        "derive_hash_product_zero_seed_declaration_order",
+    );
+}
+
+/// Empty and Unit-only products contribute no field hashes.
+#[test]
+fn test_aot_derive_hash_unit_only_product_returns_zero() {
+    assert_aot_success(
+        r#"
+#derive(Eq, Hashable)
+type UnitOnly = { empty: void }
+
+@main () -> int = {
+    let value = UnitOnly { empty: () };
+    if value.hash() == 0 then 0 else 1
+}
+"#,
+        "derive_hash_unit_only_product_zero",
+    );
+}
+
+/// Sum hashes combine the zero-based declaration ordinal before payload fields.
+#[test]
+fn test_aot_derive_hash_sum_uses_ordinal_then_payload() {
+    assert_aot_success(
+        r#"
+#derive(Eq, Hashable)
+type Choice = Empty | Filled(empty: void, value: int);
+
+@main () -> int = {
+    let empty = Empty;
+    let filled = Filled(empty: (), value: 5);
+    let empty_ok = empty.hash() == 2654435769;
+    let filled_ok = filled.hash() == 175247769366;
+    if empty_ok && filled_ok then 0 else 1
+}
+"#,
+        "derive_hash_sum_ordinal_then_payload",
+    );
+}
+
+// Derived Comparable/Hashable over Result + tuple fields must emit real
+// structural compare/hash, not a const_i8(1)/const_i64(0) field stub.
+
+#[test]
+fn test_aot_derive_result_field_compare_hash() {
+    assert_aot_success(
+        include_str!("fixtures/derives/aot_derive_result_field_compare_hash.ori"),
+        "derive_result_field_compare_hash",
+    );
+}
+
+#[test]
+fn test_aot_derive_tuple_field_compare_hash() {
+    assert_aot_success(
+        include_str!("fixtures/derives/aot_derive_tuple_field_compare_hash.ori"),
+        "derive_tuple_field_compare_hash",
+    );
+}
+
 // 3.5.4: Derive Printable
 
 #[test]

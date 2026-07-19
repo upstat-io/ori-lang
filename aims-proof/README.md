@@ -1,6 +1,20 @@
 # AIMS Proof Corpus
 
-The machine-checked calculus of AIMS (ARC Intelligent Memory System), Ori's memory model. The calculus, its soundness proofs, and the proof checker are Ori's own; prior compilers are cited as historical influences in the spec (`docs/ori_lang/v2026/spec/annex-e-system-considerations.md §AIMS`, the public algorithmic SSOT).
+The machine-checked calculus of AIMS, Ori's backend-neutral ownership and memory
+model. “ARC Intelligent Memory System” is a historical name from the first
+compiled counter projection, not a restriction on the calculus. The calculus,
+its soundness proofs, and the proof checker are Ori's own; prior compilers are
+cited as historical influences in Annex E §AIMS, the public algorithmic SSOT.
+
+## Scope and backend authority
+
+AIMS is the single backend-neutral ownership, lifetime, drop, effect, and
+logical ownership-event calculus. It freezes those facts once. VM, LLVM/native,
+compiled-WebAssembly, and JIT paths are sibling physical projections that must
+consume the same facts and prove their plans satisfy them. Storage placement,
+layout, ABI, object/header shape, counter representation, synchronization, and
+target instruction spelling are deliberately outside the AIMS fact model.
+LLVM is neither AIMS's destination nor its definition.
 
 ## Layout
 
@@ -31,7 +45,7 @@ CI runs the checker and the Lean cross-validation as hard gates (`.github/workfl
 | `Decision` | DP-family decision-predicate truth tables |
 | `Interprocedural` | IC-family contract algebra and SCC fixpoint convergence |
 | `Pipeline` | PL-family phase-ordering laws and TRMC contracts |
-| `Realization` | RL-family emission rules and reference-count balance |
+| `Realization` | RL-family logical event realization and owner-credit/release balance |
 | `Verification` | VF-family layered-stack coverage |
 | `Coexistence` | CH-family burden/lattice coexistence handshake |
 

@@ -148,7 +148,7 @@ impl LinkerDetection {
 
     /// Check if a specific linker flavor is available for a given target.
     ///
-    /// Unlike [`is_available`], this method accounts for cross-compilation:
+    /// Unlike `Self::is_available`, this method accounts for cross-compilation:
     /// when the target OS differs from the host, it checks for the appropriate
     /// cross-compiler instead of the host compiler.
     pub fn is_available_for_target(flavor: LinkerFlavor, target: &TargetConfig) -> bool {

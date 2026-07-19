@@ -177,9 +177,11 @@ Captured values shall implement `Sendable`:
 
 See [Types § Sendable Trait](08-types.md#814-sendable-trait) for `Sendable` definition.
 
-### 22.6.2 Reference count atomicity
+### 22.6.2 Cross-task ownership safety
 
-When values cross task boundaries, reference count operations are atomic. The compiler ensures thread-safe reference counting for values accessed by multiple tasks.
+When ownership-bearing values cross task boundaries, the compiler shall preserve their logical owner credits, visibility, and exactly-once cleanup without a data race. AIMS records thread reachability and sharing obligations; it does not choose a synchronization mechanism.
+
+A physical plan may satisfy those obligations with atomic counters, ownership transfer, immutable sharing, regions, locks, or another validated mechanism. The current compiled ARC projection uses atomic reference-count operations for potentially shared objects, but that is not language semantics and does not constrain the VM, native, direct-WebAssembly, or JIT projections.
 
 ## 22.7 Cancellation
 

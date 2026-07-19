@@ -192,7 +192,8 @@ Theorem CH-comp: layered-handshake composition — the handshake catches the UNI
       refinement (SECONDARY — gracious-accept per the coverage-manifest CH
         row's full 8-engine spectrum)
       rc_counting (SECONDARY — gracious-accept; inherited from CH-1's
-        RL-2/RL-7/RL-14 realization-rule consequences)
+        RL-2/RL-7 logical ownership consequences; allocation facts remain
+        orthogonal)
       monotonicity (SECONDARY — gracious-accept; L-6 inherited from CH-4)
       fixpoint (SECONDARY — gracious-accept; IA-7 + IC-7 inherited from
         CH-1 + CH-4)

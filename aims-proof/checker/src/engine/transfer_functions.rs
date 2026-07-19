@@ -2,7 +2,7 @@
 //!
 //! Per `Annex E §AIMS §4`
 //! Implementation Items the section-04 implementation: each of TF-1, TF-2, TF-2a,
-//! TF-3, TF-4, TF-5, TF-5a, TF-6, TF-6a, TF-6b, TF-6c, TF-7, TF-8, TF-9,
+//! TF-2b, TF-3, TF-4, TF-5, TF-5a, TF-6, TF-6a, TF-6b, TF-6c, TF-7, TF-8, TF-9,
 //! TF-9a, TF-10, TF-10a, TF-15, TF-15a, TF-N-A is discharged constructively
 //! via finite enumeration over the canonical per-dimension carriers +
 //! per-rule monotonicity (L-6 layer (b) per
@@ -43,6 +43,7 @@ pub fn discharge_for_engine(engine_name: &str, theorem: &Theorem) -> Option<Engi
         ("monotonicity", "TF-1") => Some(verify_tf1_scalar_literal()),
         ("monotonicity", "TF-2") => Some(verify_tf2_var_alias()),
         ("monotonicity", "TF-2a") => Some(verify_tf2a_primop_scalar()),
+        ("monotonicity", "TF-2b") => Some(verify_tf2b_owned_result_primitive()),
         ("monotonicity", "TF-3") => Some(verify_tf3_construct_fresh()),
         ("monotonicity", "TF-4") => Some(verify_tf4_project_borrowed_inherit()),
         ("monotonicity", "TF-5") => Some(verify_tf5_apply_no_contract_conservative()),
@@ -77,6 +78,7 @@ pub fn discharge_for_engine(engine_name: &str, theorem: &Theorem) -> Option<Engi
         ("case_analysis", "TF-1") => Some(verify_tf1_scalar_literal()),
         ("case_analysis", "TF-2") => Some(verify_tf2_var_alias()),
         ("case_analysis", "TF-2a") => Some(verify_tf2a_primop_scalar()),
+        ("case_analysis", "TF-2b") => Some(verify_tf2b_owned_result_primitive()),
         ("case_analysis", "TF-3") => Some(verify_tf3_construct_fresh()),
         ("case_analysis", "TF-4") => Some(verify_tf4_project_borrowed_inherit()),
         ("case_analysis", "TF-5") => Some(verify_tf5_apply_no_contract_conservative()),
@@ -141,7 +143,7 @@ fn is_section_04_4_theorem(id: &str) -> bool {
 fn is_section_04_1_theorem(id: &str) -> bool {
     matches!(
         id,
-        "TF-1" | "TF-2" | "TF-2a" | "TF-3" | "TF-4" | "TF-5" | "TF-5a"
+        "TF-1" | "TF-2" | "TF-2a" | "TF-2b" | "TF-3" | "TF-4" | "TF-5" | "TF-5a"
             | "TF-6" | "TF-6a" | "TF-6b" | "TF-6c" | "TF-8"
     )
 }
@@ -430,6 +432,201 @@ fn verify_tf2a_primop_scalar() -> EngineResult {
 
 fn transfer_tf2a(_primop_kind: &str) -> Tagged<'static> {
     Tagged::Scalar
+}
+
+// ============================================================================
+// TF-2b: typed owned-result PrimOp ownership interface
+// ============================================================================
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PrimitiveOperandUse {
+    Borrow,
+    Consume,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PrimitiveResultOwnership<'a> {
+    Scalar,
+    IndependentOwned,
+    OwnedFromConsumedOrIndependent(&'a [usize]),
+    Alias(usize),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AllocationEffect {
+    None,
+    MayAllocate,
+    StrategyDependent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PrimitiveDescriptor<'a> {
+    result: PrimitiveResultOwnership<'a>,
+    operand_uses: &'a [PrimitiveOperandUse],
+    allocation: AllocationEffect,
+}
+
+fn primitive_descriptor_valid(arity: usize, descriptor: Option<&PrimitiveDescriptor<'_>>) -> bool {
+    let Some(descriptor) = descriptor else {
+        return false;
+    };
+    if descriptor.operand_uses.len() != arity {
+        return false;
+    }
+    match (descriptor.result, descriptor.allocation) {
+        (PrimitiveResultOwnership::Scalar, AllocationEffect::None) => true,
+        (PrimitiveResultOwnership::IndependentOwned, AllocationEffect::MayAllocate) => true,
+        (PrimitiveResultOwnership::Alias(operand), AllocationEffect::None) => operand < arity,
+        (
+            PrimitiveResultOwnership::OwnedFromConsumedOrIndependent(eligible),
+            AllocationEffect::StrategyDependent,
+        ) => {
+            !eligible.is_empty()
+                && eligible.iter().all(|&operand| {
+                    operand < arity
+                        && descriptor.operand_uses[operand] == PrimitiveOperandUse::Consume
+                })
+        }
+        _ => false,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PrimitiveStrategy {
+    TakeOperandZero,
+    TakeOperandOne,
+    AllocateIndependent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StorageSource {
+    ConsumedOperand(usize),
+    Independent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PrimitiveStrategyRow {
+    consumed_inputs: [usize; 2],
+    produced_owner_count: usize,
+    storage_source: StorageSource,
+    allocated: bool,
+}
+
+fn realize_dual_consume(strategy: PrimitiveStrategy) -> PrimitiveStrategyRow {
+    match strategy {
+        PrimitiveStrategy::TakeOperandZero => PrimitiveStrategyRow {
+            consumed_inputs: [0, 1],
+            produced_owner_count: 1,
+            storage_source: StorageSource::ConsumedOperand(0),
+            allocated: false,
+        },
+        PrimitiveStrategy::TakeOperandOne => PrimitiveStrategyRow {
+            consumed_inputs: [0, 1],
+            produced_owner_count: 1,
+            storage_source: StorageSource::ConsumedOperand(1),
+            allocated: false,
+        },
+        PrimitiveStrategy::AllocateIndependent => PrimitiveStrategyRow {
+            consumed_inputs: [0, 1],
+            produced_owner_count: 1,
+            storage_source: StorageSource::Independent,
+            allocated: true,
+        },
+    }
+}
+
+fn primitive_source_is_funded(row: PrimitiveStrategyRow) -> bool {
+    match row.storage_source {
+        StorageSource::ConsumedOperand(operand) => row.consumed_inputs.contains(&operand),
+        StorageSource::Independent => row.allocated,
+    }
+}
+
+fn verify_tf2b_owned_result_primitive() -> EngineResult {
+    let operand_uses = [PrimitiveOperandUse::Consume, PrimitiveOperandUse::Consume];
+    let eligible = [0, 1];
+    let descriptor = PrimitiveDescriptor {
+        result: PrimitiveResultOwnership::OwnedFromConsumedOrIndependent(&eligible),
+        operand_uses: &operand_uses,
+        allocation: AllocationEffect::StrategyDependent,
+    };
+    if !primitive_descriptor_valid(2, Some(&descriptor)) {
+        return fail("TF-2b violation: valid dual-consuming descriptor was rejected".to_string());
+    }
+    if descriptor.allocation != AllocationEffect::StrategyDependent {
+        return fail("TF-2b violation: logical ownership collapsed into allocation policy".to_string());
+    }
+
+    let strategies = [
+        PrimitiveStrategy::TakeOperandZero,
+        PrimitiveStrategy::TakeOperandOne,
+        PrimitiveStrategy::AllocateIndependent,
+    ];
+    let mut checked = 0;
+    for strategy in strategies {
+        let row = realize_dual_consume(strategy);
+        if row.consumed_inputs != [0, 1]
+            || row.produced_owner_count != 1
+            || !primitive_source_is_funded(row)
+        {
+            return fail(format!(
+                "TF-2b ownership-interface violation in strategy {strategy:?}: {row:?}"
+            ));
+        }
+        checked += 1;
+    }
+
+    let borrowed = [PrimitiveOperandUse::Borrow];
+    let out_of_range = [1];
+    let malformed = PrimitiveDescriptor {
+        result: PrimitiveResultOwnership::OwnedFromConsumedOrIndependent(&out_of_range),
+        operand_uses: &borrowed,
+        allocation: AllocationEffect::StrategyDependent,
+    };
+    if primitive_descriptor_valid(1, Some(&malformed))
+        || primitive_descriptor_valid(1, None)
+    {
+        return fail("TF-2b fail-closed violation: malformed or missing descriptor admitted".to_string());
+    }
+
+    // Exercise every descriptor result/allocation class so the constructive
+    // checker pins the complete neutral carrier, not only one registry row.
+    let scalar = PrimitiveDescriptor {
+        result: PrimitiveResultOwnership::Scalar,
+        operand_uses: &borrowed,
+        allocation: AllocationEffect::None,
+    };
+    let independent = PrimitiveDescriptor {
+        result: PrimitiveResultOwnership::IndependentOwned,
+        operand_uses: &borrowed,
+        allocation: AllocationEffect::MayAllocate,
+    };
+    let alias = PrimitiveDescriptor {
+        result: PrimitiveResultOwnership::Alias(0),
+        operand_uses: &borrowed,
+        allocation: AllocationEffect::None,
+    };
+    if !primitive_descriptor_valid(1, Some(&scalar))
+        || !primitive_descriptor_valid(1, Some(&independent))
+        || !primitive_descriptor_valid(1, Some(&alias))
+    {
+        return fail("TF-2b violation: a well-formed neutral descriptor class was rejected".to_string());
+    }
+
+    for shape in [
+        "ReusableStruct",
+        "ReusableEnum",
+        "CollectionBuffer",
+        "NonReusable",
+    ] {
+        if !monotone_constant_check(fresh(shape)) {
+            return fail(format!(
+                "TF-2b monotonicity violation: FRESH({shape}) is not self-comparable"
+            ));
+        }
+    }
+
+    require_count("TF-2b", 3, checked, "abstract ownership strategies")
 }
 
 // ============================================================================
@@ -1433,18 +1630,67 @@ fn settag_has_value_operand() -> bool {
 }
 
 // ----------------------------------------------------------------------------
-// TF-N/A: RcInc + RcDec — side-effect-only (no dst, no TF-11 demand)
+// TF-N/A: logical ownership effects have no dst and create no TF-11 demand
 // ----------------------------------------------------------------------------
 //
-// Per Annex E §AIMS TF-N/A + Appendix A rows 16 + 17 + §3 TF-11 table.
-// The §3 TF-N/A side-effect-only set is RcInc + RcDec EXCLUSIVELY; burden-
-// tracking-plan BurdenInc/BurdenDec ops are scoped to §11 CH theorems.
+// The calculus-level classification is independent of the current MIR carrier
+// set. The latter is enumerated separately so a carrier migration cannot change
+// the logical transfer rule.
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LogicalOwnershipEffect {
+    OwnerCredit,
+    Release,
+    Cleanup,
+}
+
+impl LogicalOwnershipEffect {
+    fn name(self) -> &'static str {
+        match self {
+            Self::OwnerCredit => "OwnerCredit",
+            Self::Release => "Release",
+            Self::Cleanup => "Cleanup",
+        }
+    }
+}
+
+const LOGICAL_OWNERSHIP_EFFECTS: &[LogicalOwnershipEffect] = &[
+    LogicalOwnershipEffect::OwnerCredit,
+    LogicalOwnershipEffect::Release,
+    LogicalOwnershipEffect::Cleanup,
+];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TransitionalOwnershipCarrier {
+    RcInc,
+    RcDec,
+    BurdenInc,
+    BurdenDec,
+}
+
+impl TransitionalOwnershipCarrier {
+    fn name(self) -> &'static str {
+        match self {
+            Self::RcInc => "RcInc",
+            Self::RcDec => "RcDec",
+            Self::BurdenInc => "BurdenInc",
+            Self::BurdenDec => "BurdenDec",
+        }
+    }
+}
+
+const TRANSITIONAL_OWNERSHIP_CARRIERS: &[TransitionalOwnershipCarrier] = &[
+    TransitionalOwnershipCarrier::RcInc,
+    TransitionalOwnershipCarrier::RcDec,
+    TransitionalOwnershipCarrier::BurdenInc,
+    TransitionalOwnershipCarrier::BurdenDec,
+];
 
 fn verify_tf_n_a_side_effect_only() -> EngineResult {
-    let rc_ops = &["RcInc", "RcDec"];
     let mut checked: u64 = 0;
-    for &op in rc_ops.iter() {
-        // Part (a) / (b) — no-dst confirmation per Appendix A rows 16 + 17.
+    for &effect in LOGICAL_OWNERSHIP_EFFECTS {
+        let op = effect.name();
+        // Part (a)/(b): the logical effect has no destination or demand.
         let dst = transfer_tf_n_a(op);
         if dst != ForwardTransfer::NoDst {
             return fail(format!(
@@ -1469,26 +1715,44 @@ fn verify_tf_n_a_side_effect_only() -> EngineResult {
         }
         checked += 1;
     }
-    // Part (d) — Burden-op exclusion. Verify the side-effect-only ArcInstr
-    // SET is exactly {RcInc, RcDec}; BurdenInc / BurdenDec are §11 territory.
-    let side_effect_only_set = tf_n_a_member_set();
-    if side_effect_only_set != vec!["RcInc", "RcDec"] {
+
+    if tf_n_a_logical_event_set() != vec!["OwnerCredit", "Release", "Cleanup"] {
         return fail(format!(
-            "TF-N/A invariant violation: side-effect-only set MUST be exactly [RcInc, RcDec]; got {:?}",
-            side_effect_only_set
+            "TF-N/A invariant violation: logical event set drifted; got {:?}",
+            tf_n_a_logical_event_set()
         ));
     }
-    // Burden-op cross-check — these MUST NOT be in the §04 TF-N/A set.
-    let burden_ops = &["BurdenInc", "BurdenDec"];
-    for &bop in burden_ops.iter() {
-        if side_effect_only_set.iter().any(|m| *m == bop) {
+
+    // Part (c): every current transitional carrier refines the same neutral
+    // no-destination/no-demand shape. This is coverage, not calculus identity.
+    for &carrier in TRANSITIONAL_OWNERSHIP_CARRIERS {
+        let name = carrier.name();
+        let dst = transfer_tf_n_a(name);
+        let demand = backward_demand_tf_n_a(name);
+        if dst != ForwardTransfer::NoDst || !demand.is_empty() {
             return fail(format!(
-                "TF-N/A invariant violation: burden-op {} MUST NOT be in §04 TF-N/A set; ties to §11 CH theorems",
-                bop
+                "TF-N/A carrier refinement violation: {} must have NoDst and empty demand; got {:?} and {:?}",
+                name, dst, demand
             ));
         }
+        checked += 1;
     }
-    require_count("TF-N/A", 2, checked, "RC operations (RcInc, RcDec)")
+
+    if tf_n_a_transitional_carrier_set()
+        != vec!["RcInc", "RcDec", "BurdenInc", "BurdenDec"]
+    {
+        return fail(format!(
+            "TF-N/A transitional carrier enumeration drifted; got {:?}",
+            tf_n_a_transitional_carrier_set()
+        ));
+    }
+
+    require_count(
+        "TF-N/A",
+        7,
+        checked,
+        "logical effects plus transitional carrier refinements",
+    )
 }
 
 fn transfer_tf_n_a(_arc_instr: &str) -> ForwardTransfer<'static> {
@@ -1503,10 +1767,15 @@ fn backward_demand_tf_n_a(_arc_instr: &str) -> Vec<(&'static str, &'static str)>
     Vec::new()
 }
 
-fn tf_n_a_member_set() -> Vec<&'static str> {
-    // Per Annex E §AIMS TF-N/A: "Side-effect-only: `RcInc`/`RcDec`
-    // (no `dst`)." Cardinality = 2.
-    vec!["RcInc", "RcDec"]
+fn tf_n_a_logical_event_set() -> Vec<&'static str> {
+    LOGICAL_OWNERSHIP_EFFECTS.iter().map(|event| event.name()).collect()
+}
+
+fn tf_n_a_transitional_carrier_set() -> Vec<&'static str> {
+    TRANSITIONAL_OWNERSHIP_CARRIERS
+        .iter()
+        .map(|carrier| carrier.name())
+        .collect()
 }
 
 fn vacuous_monotonicity_ok(ft: ForwardTransfer<'_>) -> bool {
@@ -3194,6 +3463,12 @@ mod tests {
     }
 
     #[test]
+    fn tf2b_owned_result_primitive_passes() {
+        let r = verify_tf2b_owned_result_primitive();
+        assert_eq!(r.verdict, EngineVerdict::Valid, "TF-2b failed: {}", r.reason);
+    }
+
+    #[test]
     fn tf3_construct_fresh_passes() {
         let r = verify_tf3_construct_fresh();
         assert_eq!(r.verdict, EngineVerdict::Valid, "TF-3 failed: {}", r.reason);
@@ -3453,7 +3728,7 @@ mod tests {
     fn coverage_tf_shape_discharges_valid_via_transfer_functions() {
         let tf_ids = &[
             // §04.1 (12 forward proofs)
-            "TF-1", "TF-2", "TF-2a", "TF-3", "TF-4",
+            "TF-1", "TF-2", "TF-2a", "TF-2b", "TF-3", "TF-4",
             "TF-5", "TF-5a", "TF-6", "TF-6a", "TF-6b", "TF-6c", "TF-8",
             // §04.2 (7 forward proofs + TF-N-A confirmation)
             "TF-7", "TF-9", "TF-9a", "TF-10", "TF-10a",
@@ -3731,14 +4006,14 @@ mod tests {
         assert_ne!(s1, s2);
     }
 
-    // Negative witness: TF-N/A burden-op exclusion is real — burden ops
-    // would fail the side-effect-only invariant if smuggled in.
+    // Logical classification and transitional carrier coverage are separate.
     #[test]
-    fn tf_n_a_burden_op_exclusion_is_observable() {
-        let set = tf_n_a_member_set();
-        assert_eq!(set, vec!["RcInc", "RcDec"]);
-        assert!(!set.iter().any(|m| *m == "BurdenInc"));
-        assert!(!set.iter().any(|m| *m == "BurdenDec"));
+    fn tf_n_a_logical_classification_is_independent_of_carriers() {
+        let logical = tf_n_a_logical_event_set();
+        let carriers = tf_n_a_transitional_carrier_set();
+        assert_eq!(logical, vec!["OwnerCredit", "Release", "Cleanup"]);
+        assert_eq!(carriers, vec!["RcInc", "RcDec", "BurdenInc", "BurdenDec"]);
+        assert!(logical.iter().all(|event| !carriers.contains(event)));
     }
 
     // Negative witness: TF-15a no-value-operand invariant — SetTag's

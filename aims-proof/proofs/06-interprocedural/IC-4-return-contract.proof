@@ -13,12 +13,13 @@ Theorem IC-4: ReturnContract per-dim join over return paths
       whose output is the componentwise join over all
       Return-terminator paths within the function, iterated to
       the SCC fixpoint
-    - Spec statement (Annex E §AIMS IC-4): "Return contract:
-      `uniqueness(join), preserves_freshness(AND), locality(join),
-      shape(join)`. Freshness requires ALL paths preserve."
+    - Spec statement (Annex E §AIMS IC-4): ReturnContract joins uniqueness,
+      locality, and shape by their lattice joins; preserves_freshness and
+      returns_fresh_self_alloc are path-universal AND facts.
     - Per-path classification table (Annex E §AIMS.9 Return
       Provenance) enumerates the structural definition shape ->
-      4-tuple `(uniqueness, preserves_freshness, locality, shape)`
+      return tuple `(uniqueness, preserves_freshness,
+      returns_fresh_self_alloc, locality, shape)`
       for every ArcInstr kind reachable from a `Return { value }`
       terminator
     - Shipped engine: `extract_return_info` at
@@ -36,26 +37,22 @@ Theorem IC-4: ReturnContract per-dim join over return paths
       Annex E §AIMS IC-4 "Freshness requires ALL paths
       preserve" — the conjunction-monoid identity element is
       `true`, hence ALL-paths preservation
+    - `returns_fresh_self_alloc` is a distinct `bool` joined by AND. It is
+      false for parameter passthrough and possible consumed-storage takeover,
+      even when preserves_freshness remains true. RL-29 consumes only this
+      stronger provenance fact
     - Target-vs-shipped axis carve-out (per Annex E §AIMS
       "Target-only / partially-shipped subsystems" top-of-file +
       §AIMS §7 Return Provenance): shipped `extract_return_info`
-      computes `uniqueness` + `preserves_freshness` exactly; the
+      computes `uniqueness`, `preserves_freshness`, and
+      `returns_fresh_self_alloc` exactly; the
       `locality` + `shape` dimensions default to CONSERVATIVE
-      (`ReturnContract::CONSERVATIVE`) until the full 4-dim
-      extractor lands. IC-4 proof discharges the spec 4-dim join
-      shape; shipped 2-dim subset rides on the same
-      componentwise-monotone discipline (each dimension joined
-      independently, finite chain, AND for `preserves_freshness`)
-    - Target-vs-shipped parameter-passthrough divergence (per
-      Annex E §AIMS.9 Return Provenance "Tracing rules"
-      bullet 3 + top-of-file): spec rule "Parameters traced
-      directly or via Let chain -> `preserves_freshness = false`";
-      shipped `var_uniqueness` at lines 868 + 906-908 returns
-      `(MaybeShared, true)` for parameter passthrough. The proof
-      discharges the spec rule; the shipped inversion is an
-      enumerated drift surfaced by `/sync-aims-spec --check` and
-      tracked as a divergence row, not a soundness defect in the
-      proof shape
+      (`ReturnContract::CONSERVATIVE`) until the full locality/shape
+      extractor lands. The shipped semantic subset rides on the same
+      componentwise-monotone discipline
+    - Parameter passthrough may preserve freshness while remaining caller-
+      rooted. The separate returns_fresh_self_alloc=false field records that
+      distinction and prevents RL-29 from treating it as a self-allocation
     - L-1, L-2, L-4, L-6, L-8 lemmas from §AIMS §3 are proven in
       sec-02 of this plan (Plan-Bug DAG) and provide
       commutativity, associativity, partial-order axiom,
@@ -67,7 +64,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
     and corresponding per-path ReturnContract list
     `[rc_1, rc_2, ..., rc_N]`.
       Let `r := join_return_contract([rc_1, ..., rc_N])` be the
-      emitted result. Six conjuncts SHALL hold per spec
+      emitted result. Seven conjuncts SHALL hold per spec
       Annex E §AIMS IC-4 + Annex E §AIMS.9 Return
       Provenance:
 
@@ -89,8 +86,14 @@ Theorem IC-4: ReturnContract per-dim join over return paths
         `ReturnContract::CONSERVATIVE.preserves_freshness`
         (= false) by the N=0 fast path (extract.rs line 837);
         this preserves "ALL paths" vacuously while emitting the
-        CONSERVATIVE seed downstream consumers (RL-29 noalias
-        gate per Annex E §AIMS) require.
+        CONSERVATIVE seed downstream consumers require.
+
+      (P2a) returns_fresh_self_alloc AND over all paths:
+        r.returns_fresh_self_alloc is true iff every return path yields
+        fresh storage with no upstream alias, directly or through a callee
+        carrying the same path-universal proof. A
+        passthrough, borrowed view, or possible consumed-storage takeover on
+        any path sticky-clears the fact. RL-29 consumes this field exclusively.
 
       (P3) Locality componentwise max join:
         r.locality = max(rc_1.locality, ..., rc_N.locality)
@@ -98,8 +101,8 @@ Theorem IC-4: ReturnContract per-dim join over return paths
         ArgEscaping < HeapEscaping < Unknown` per §AIMS §3.5.
         Shipped extractor defaults this dim to
         `CONSERVATIVE.locality` (target-vs-shipped axis
-        carve-out); spec join shape preserved when full 4-dim
-        extractor lands.
+        carve-out); spec join shape is preserved when the locality extractor
+        lands.
 
       (P4) Shape componentwise join:
         r.shape = ShapeClass-join over the rc_i.shape values
@@ -166,6 +169,8 @@ Theorem IC-4: ReturnContract per-dim join over return paths
             Some(uniqueness) => ReturnContract {
                 uniqueness,
                 preserves_freshness: all_preserve_freshness,
+                returns_fresh_self_alloc:
+                    saw_return && all_return_fresh_self_alloc,
                 ..ReturnContract::CONSERVATIVE
             },
             // No Return terminators — conservative.
@@ -222,25 +227,21 @@ Theorem IC-4: ReturnContract per-dim join over return paths
         (associativity of AND on bool), fold-order independent.
         (P2) discharged.
 
-        Coherence side-condition: per-path `preserves_freshness`
-        classified per Annex E §AIMS.9 "Tracing rules":
-        only `Construct`/`Reuse`/`CollectionReuse`/`PartialApply`
-        + callees with `preserves_freshness = true` contracts
-        produce `preserves_freshness = true`. All other paths
-        (Apply no-contract, ApplyIndirect, Project, Select with
-        any non-fresh branch, parameter passthrough per spec)
-        produce `preserves_freshness = false`, sticky-clearing
-        the function-level result.
+        `preserves_freshness` is not a self-allocation proof. Parameter
+        passthrough and consumed-storage strategies may preserve uniqueness
+        conditionally, so RL-29 does not consume this field.
 
-        Spec-side parameter-passthrough rule "Returned param NOT
-        fresh (may alias caller's arg)" — line 906-908 of the
-        shipped extractor returns `(MaybeShared, true)` for
-        parameter passthrough, which inverts the spec
-        `preserves_freshness = false`. This is the
-        target-vs-shipped axis carve-out enumerated in the
-        Preconditions; the join's algorithmic shape (AND-monoid
-        fold) is preserved regardless of the per-instr
-        classification's drift.
+      Part (P2a) — returns_fresh_self_alloc AND over all paths:
+
+        The extractor begins optimistically and clears
+        all_return_fresh_self_alloc whenever a returned value is not in the
+        function-rooted fresh lineage. Parameter roots, projections, sharing
+        views, and consumed-storage primitive results clear it. A direct fresh
+        construct or transitively certified callee return may preserve it.
+
+        This second AND fold is the provenance guarantee RL-29 consumes. The
+        distinction is load-bearing: `(preserves_freshness=true,
+        uniqueness=Unique)` may still describe storage the caller supplied.
 
       Part (P3) — Locality componentwise max-join:
 
@@ -256,7 +257,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
         Apply-with-contract, `Unknown` otherwise), joined via
         `std::cmp::max` over the 5-element chain per §AIMS §3.5.
 
-        When the full 4-dim extractor lands, the same join
+        When the locality extractor lands, the same join
         shape applies — per L-1 + L-2 + L-6, the per-dim
         max-join is commutative, associative, and monotone over
         the locality chain. Empty-fold identity (N = 0) yields
@@ -316,20 +317,19 @@ Theorem IC-4: ReturnContract per-dim join over return paths
           §AIMS §7 "ReturnContract locality" paragraph + "CN-6
           notes" — the extractor traces STRUCTURALLY, NOT per-
           variable lattice state, so CN-6's per-variable demote
-          does not apply to the contract export. Fresh
-          allocations retain `Unique` in `ReturnContract`
-          (enables RL-29 `noalias` per sec-8) regardless of
-          CN-6's intra-function demotion. This carve-out is
+          does not apply to the contract export. Return uniqueness remains a
+          semantic contract dimension, while RL-29 independently consumes
+          returns_fresh_self_alloc. This carve-out is
           load-bearing for the AIMS mission ("RC rare not RC
           fast" per Annex E §AIMS §1) — without it, returned
-          fresh allocations would lose their `noalias`
-          annotation at the function boundary.
+          fresh allocations would lose useful return-semantics precision at
+          the function boundary.
 
         - CN-1 (sec-2): `Consumption = Dead ⟺ Cardinality =
           Absent` does NOT apply to ReturnContract — those are
           ParamContract dimensions, not ReturnContract
-          dimensions. ReturnContract carries only
-          `(uniqueness, preserves_freshness, locality, shape)`.
+          dimensions. ReturnContract carries return semantics and provenance,
+          including the distinct returns_fresh_self_alloc fact.
 
     Part (P5) — Empty-fold identity discharge:
 
@@ -352,14 +352,12 @@ Theorem IC-4: ReturnContract per-dim join over return paths
       `todo` (which lower to `ArcTerminator::Unreachable` or
       similar, not `Return`). Returns
       `ReturnContract::CONSERVATIVE = (uniqueness: MaybeShared,
-      preserves_freshness: false, locality: Unknown, shape:
-      NonReusable)`.
+      preserves_freshness: false, returns_fresh_self_alloc: false,
+      locality: Unknown, shape: NonReusable)`.
 
       This is the soundness floor: downstream consumers seeing
       a CONSERVATIVE return contract cannot assume freshness,
-      cannot assume Unique-noalias eligibility (RL-29 gates on
-      `preserves_freshness = true ∧ uniqueness = Unique` per
-      Annex E §AIMS), cannot inherit a specific locality
+      cannot assume a fresh-self-allocation proof, cannot inherit a specific locality
       or shape. The CONSERVATIVE seed exists to ENSURE that
       empty-return-set functions never accidentally widen a
       caller's optimistic claims.
@@ -393,6 +391,10 @@ Theorem IC-4: ReturnContract per-dim join over return paths
       doesn't (clear). Final value = `rc_1.preserves_freshness`
       (by AND-monoid identity: `true ∧ x = x`).
 
+      The same identity applies independently to
+      returns_fresh_self_alloc: one certified self-allocation path yields true;
+      one caller-rooted or consumed-storage path yields false.
+
       Per L-4 (partial-order axiom): `a ≤ b ⟺ a ⊔ b = b`. The
       single-path case is the trivial case of the partial-order
       reflexivity: `rc_1 ⊔ ∅ = rc_1` (where ∅ is the AND-monoid
@@ -406,7 +408,8 @@ Theorem IC-4: ReturnContract per-dim join over return paths
       iteration of the SCC fixpoint loop (PL-1a). The N-ary
       join over `Return` terminators is a finite fold; per-dim
       operators each have finite height (Uniqueness 2, Locality
-      4, Shape 1, `preserves_freshness` 1; sum 8 per
+      4, Shape 1, and two path-universal booleans; the formal convergence
+      bound includes the full ReturnContract carrier per
       Annex E §AIMS.8 L-5).
 
       IC-7 (proven separately) bounds the outer SCC fixpoint
@@ -433,15 +436,11 @@ Theorem IC-4: ReturnContract per-dim join over return paths
                 CONSERVATIVE; (P5) pin
         Row R2: single_construct_return —
                 `Return Construct(...)`; IC-4 returns
-                `(Unique, true, BlockLocal, ReusableCtor)`
-                (target: 4-dim) or `(Unique, true, ...)` (shipped
-                2-dim); (P6) + (P1) Unique-path pin
+                `(Unique, true, true, BlockLocal, ReusableCtor)`
+                semantically; (P6) + (P1) + (P2a) positive pin
         Row R3: single_param_passthrough —
-                `Return param`; spec yields `(MaybeShared, false,
-                HeapEscaping, NonReusable)`; shipped yields
-                `(MaybeShared, true, ...)` (target-vs-shipped
-                axis carve-out); (P6) + parameter-passthrough
-                divergence pin
+                `Return param`; may preserve freshness but sets
+                returns_fresh_self_alloc=false; (P6) + (P2a) negative pin
         Row R4: select_construct_or_construct —
                 `Return Select(_, Construct(A), Construct(B))`;
                 both branches fresh; (P1) Unique-join +
@@ -505,33 +504,16 @@ Theorem IC-4: ReturnContract per-dim join over return paths
           fresh-allocation rows (R2, R4, R6, R8)
 
     Negative-direction witness — replacing AND with OR on
-    preserves_freshness rejected:
+    returns_fresh_self_alloc rejected:
 
-      Take Row R5 (select_construct_or_apply_no_contract).
-      Suppose hypothetical implementer replaces the AND-monoid
-      fold at line 824-826 with an OR fold:
-        if preserves {
-            all_preserve_freshness = true; // OR instead of sticky-AND
-        }
+      Take one self-allocation return path and one parameter-passthrough or
+      consumed-storage path. An OR fold would report
+      returns_fresh_self_alloc=true even though one result may alias storage
+      already visible to the caller. RL-29 would then freeze Proven and an LLVM
+      direct-pointer projection could emit return noalias unsoundly.
 
-      Then a function with one fresh path AND one non-fresh
-      path would report `preserves_freshness = true` instead
-      of `false`. Downstream consequence: RL-29 LLVM `noalias`
-      annotation (per Annex E §AIMS) gates on
-      `preserves_freshness = true ∧ uniqueness = Unique`. With
-      OR-fold, the function's return — which the AIMS lattice
-      cannot prove is fresh on all paths — would be annotated
-      `noalias`. LLVM would then assume the return value cannot
-      alias any other pointer, enabling unsound optimizations:
-      load-reordering across the call, dead-store elimination
-      of writes through aliases, etc.
-
-      Result: silent miscompilation — exactly the AIMS
-      Invariant 1 ("Contracts and realization must agree" per
-      Annex E §AIMS §2 invariant 1) violation.
-      preserves_freshness's AND-monoid fold is therefore
-      load-bearing for the entire RL-29 noalias discipline;
-      OR-fold is a soundness failure.
+      The path-universal AND is therefore load-bearing. One non-self-allocation
+      path must sticky-clear the neutral fact before any backend projection.
 
     Negative-direction witness — empty-fold yielding
     OPTIMISTIC rejected:
@@ -543,19 +525,19 @@ Theorem IC-4: ReturnContract per-dim join over return paths
         None => ReturnContract {
             uniqueness: Uniqueness::Unique,
             preserves_freshness: true,
+            returns_fresh_self_alloc: true,
             ..ReturnContract::CONSERVATIVE
         },
 
       Then a non-returning function (`loop { }`, panic-only,
       `unreachable!`-only) would emit a ReturnContract claiming
-      `Unique` + `preserves_freshness = true`. Callers
+      `Unique` + both boolean facts true. Callers
       consuming this function's contract via TF-6 (refine)
       would receive a Unique-Unique-fresh return value
       classification — but the function never actually returns
       a value, so the lattice "refined" claim is meaningless.
-      Worse: any caller relying on RL-29 noalias (per sec-8)
-      would emit noalias on a value that, semantically, NEVER
-      EXISTS — undefined behavior at the LLVM IR level.
+      RL-29 would also receive an unsupported Proven fact despite there being
+      no returned allocation witness.
 
       Per Tarski (Pacific J. Math., 1955) least-fixpoint
       theorem: the iteration sequence converges to the LUB of
@@ -588,11 +570,10 @@ Theorem IC-4: ReturnContract per-dim join over return paths
       Per L-6 (monotonicity): `a ≤ b ⟹ f(a) ≤ f(b)`. The
       corrupted min-join is anti-monotone — joining with a
       strictly larger Uniqueness makes the result SMALLER. The
-      converged contract under-approximates observed return-path
-      demands; some return paths are silently dropped from the
-      lattice's view. Result: RL-29 noalias emitted on a value
-      that may legitimately alias — exactly the soundness
-      failure mode the lattice exists to prevent.
+      converged contract under-approximates observed return-path demands; some
+      return paths are silently dropped from the lattice's view. The distinct
+      RL-29 provenance fact prevents this uniqueness error from being mistaken
+      for a noalias proof, but the contract remains unsound.
 
       L-6 monotonicity is therefore load-bearing for the
       entire ReturnContract discipline; min-join (or any
@@ -611,7 +592,7 @@ Theorem IC-4: ReturnContract per-dim join over return paths
         IC-2 --> IC-3 (parameter contract componentwise join)
         IC-3 --> IC-4 (return contract componentwise join,
                          uses same join shape applied to
-                         ReturnContract's 4-dim tuple)
+                         ReturnContract's semantic/provenance tuple)
         L-1/L-2/L-4/L-6/L-8 (sec-02 lattice properties) --> IC-4
         IC-4 --> IC-5 (effect summary — return path may
                          contribute via callee EffectSummary
@@ -628,7 +609,8 @@ Theorem IC-4: ReturnContract per-dim join over return paths
                            componentwise N-ary join over Return
                            terminators; finite-fold with
                            CONSERVATIVE seed for the empty case;
-                           AND-monoid for preserves_freshness +
+                           independent AND-monoids for preserves_freshness and
+                           returns_fresh_self_alloc +
                            max-join for the lattice dims +
                            ShapeClass-join for shape
       published basis: Birkhoff, G., "Lattice Theory",
@@ -695,15 +677,17 @@ Theorem IC-4: ReturnContract per-dim join over return paths
     Engines dispatched:
       fixpoint (PRIMARY — IC-4 N-ary monotone fold over the
         list of per-path ReturnContracts; verifier checks the
-        six conjuncts (P1)..(P6) plus side-conditions:
+        seven conjuncts (P1)..(P6), including P2a, plus side-conditions:
           - (P1) Uniqueness per-path classification ⊔ max-join
             structural equality
           - (P2) preserves_freshness AND-monoid fold structural
             equality + sticky-false transition
+          - (P2a) returns_fresh_self_alloc AND-monoid fold + passthrough and
+            consumed-storage sticky-false transitions
           - (P3) Locality per-path classification + max-join
             structural equality (target-vs-shipped axis
             carve-out: defaults to CONSERVATIVE.locality until
-            full 4-dim extractor lands; proof shape preserved)
+            its extractor lands; proof shape preserved)
           - (P4) Shape per-path classification + ShapeClass-join
             structural equality (same carve-out as P3)
           - (P5) empty-fold = CONSERVATIVE structural equality
@@ -713,14 +697,13 @@ Theorem IC-4: ReturnContract per-dim join over return paths
         emits Fail on any divergence)
       interprocedural_summary (per-function ReturnContract
         export within SCC fixpoint loop; consumed by callers'
-        TF-6 refine and by RL-29 noalias annotation gate)
+        TF-6 refine and by RL-29 neutral fact derivation)
       case_analysis (per-path classification table per §AIMS §7
         Return Provenance: 13 ArcInstr/ArcTerminator cases
         enumerated, each verified against the classification
-        table; the parameter-passthrough divergence is
-        enumerated separately as the target-vs-shipped axis
-        carve-out)
+        table; passthrough and consumed-storage rows explicitly preserve the
+        distinction between conditional freshness and self-allocation)
 
   Expected:
     status: valid
-    reason: section_06 fixpoint engine discharges IC-4 via six-conjunct verification ((P1) Uniqueness max-join + (P2) preserves_freshness AND-monoid + (P3) Locality max-join + (P4) Shape ShapeClass-join + (P5) empty-fold = CONSERVATIVE + (P6) single-path identity) over a 13-test corpus covering empty-return / single-return / multi-return / select-mixed / Let-chain-trace / callee-inherit / SCC-recursive cases; lattice-property soundness inherited from Birkhoff 1967 (product lattice of totally-ordered chains under max + AND-monoid on bool) + Cousot/Cousot 1977 (interprocedural summary via SCC-topological monotone iteration) + Tarski 1955 (least-fixpoint theorem); shipped engine `extract_return_info` at compiler/ori_arc/src/aims/interprocedural/extract.rs lines 790-839 emits AND-monoid for preserves_freshness + max-join for uniqueness in O(R + L) per function, deterministically across all targets (deterministic query contract); target-vs-shipped axis carve-out (`locality` + `shape` default to CONSERVATIVE pending full 4-dim extractor; parameter-passthrough `preserves_freshness` inverted from spec per Annex E §AIMS.9 enumerated drift) preserves spec conformance on the 2 shipped lattice dims + lattice-property soundness on all 4 dims; CN-6 carve-out for ReturnContract (extractor traces structurally, not per-variable state) is load-bearing for RL-29 noalias enabling fresh-allocation returns
+    reason: section_06 fixpoint engine discharges IC-4 via seven-conjunct verification ((P1) Uniqueness max-join + (P2) preserves_freshness AND-monoid + (P2a) returns_fresh_self_alloc AND-monoid + (P3) Locality max-join + (P4) Shape ShapeClass-join + (P5) empty-fold = CONSERVATIVE + (P6) single-path identity) over a return-path corpus including fresh allocation, parameter passthrough, consumed-storage, empty-return, multi-return, Let-chain, callee-inherit, and SCC-recursive cases; the stronger provenance field is the sole RL-29 neutral-fact input and prevents conditional freshness or uniqueness from becoming a noalias proof

@@ -1,0 +1,95 @@
+// Result closure-method BD-2 propagation: the outer Result annotation must
+// propagate into the closure body so an unconstrained `.into()` target resolves.
+// Covers map / map_err / and_then / or_else with into-closures (target inferred
+// from the function's Result return annotation via int: Into<float>).
+use std.testing { assert_eq }
+
+// map_err + into: Err transformed, Ok preserved
+@map_err_into () -> Result<int, float> = {
+    let r: Result<int, int> = Err(2);
+    r.map_err(e -> e.into())
+}
+
+@test_map_err_into tests @map_err_into () -> void = {
+    assert_eq(actual: map_err_into(), expected: Err(2.0))
+}
+
+// map_err + into on Ok: Ok value preserved unchanged
+@map_err_into_ok_passthrough () -> Result<int, float> = {
+    let r: Result<int, int> = Ok(5);
+    r.map_err(e -> e.into())
+}
+
+@test_map_err_into_ok_passthrough tests @map_err_into_ok_passthrough () -> void = {
+    assert_eq(actual: map_err_into_ok_passthrough(), expected: Ok(5))
+}
+
+// map + into: Ok transformed, Err preserved
+@map_into () -> Result<float, int> = {
+    let r: Result<int, int> = Ok(2);
+    r.map(x -> x.into())
+}
+
+@test_map_into tests @map_into () -> void = {
+    assert_eq(actual: map_into(), expected: Ok(2.0))
+}
+
+// map short-circuit on Err: closure NOT called, Err preserved unchanged
+@map_into_err_passthrough () -> Result<float, int> = {
+    let r: Result<int, int> = Err(5);
+    r.map(x -> x.into())
+}
+
+@test_map_into_err_passthrough tests @map_into_err_passthrough () -> void = {
+    assert_eq(actual: map_into_err_passthrough(), expected: Err(5))
+}
+
+// and_then + into (closure returns a Result): Ok transformed via Ok(_.into())
+@and_then_into () -> Result<float, str> = {
+    let r: Result<int, str> = Ok(2);
+    r.and_then(x -> Ok(x.into()))
+}
+
+@test_and_then_into tests @and_then_into () -> void = {
+    assert_eq(actual: and_then_into(), expected: Ok(2.0))
+}
+
+// or_else + into (closure returns a Result): Err transformed via Err(_.into())
+@or_else_into () -> Result<int, float> = {
+    let r: Result<int, int> = Err(2);
+    r.or_else(e -> Err(e.into()))
+}
+
+@test_or_else_into tests @or_else_into () -> void = {
+    assert_eq(actual: or_else_into(), expected: Err(2.0))
+}
+
+// and_then short-circuit on Err: closure NOT called, Err preserved unchanged
+@and_then_into_err_passthrough () -> Result<float, str> = {
+    let r: Result<int, str> = Err("e");
+    r.and_then(x -> Ok(x.into()))
+}
+
+@test_and_then_into_err_passthrough tests @and_then_into_err_passthrough () -> void = {
+    assert_eq(actual: and_then_into_err_passthrough(), expected: Err("e"))
+}
+
+// or_else short-circuit on Ok: closure NOT called, Ok preserved unchanged
+@or_else_into_ok_passthrough () -> Result<int, float> = {
+    let r: Result<int, int> = Ok(7);
+    r.or_else(e -> Err(e.into()))
+}
+
+@test_or_else_into_ok_passthrough tests @or_else_into_ok_passthrough () -> void = {
+    assert_eq(actual: or_else_into_ok_passthrough(), expected: Ok(7))
+}
+
+// Chained: map_err then map, both into-closures inferred from the outer annotation
+@chained_into () -> Result<float, float> = {
+    let r: Result<int, int> = Ok(2);
+    r.map_err(e -> e.into()).map(x -> x.into())
+}
+
+@test_chained_into tests @chained_into () -> void = {
+    assert_eq(actual: chained_into(), expected: Ok(2.0))
+}

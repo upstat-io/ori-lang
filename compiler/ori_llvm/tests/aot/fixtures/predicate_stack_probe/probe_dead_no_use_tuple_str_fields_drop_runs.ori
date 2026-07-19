@@ -1,0 +1,9 @@
+type Logged = { tag: str }
+
+impl Logged: Drop {
+    @drop (self) -> void = print(msg: `drop-{self.tag}`);
+}
+
+@main () -> void = {
+    let t = (Logged { tag: "T0" }, Logged { tag: "T1" })
+}

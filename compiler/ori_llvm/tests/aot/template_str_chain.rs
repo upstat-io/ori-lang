@@ -288,7 +288,6 @@ fn test_template_in_match_arm_no_uaf_no_leak() {
 /// phi-threaded attribution covers conversion sources only). Failing clamp:
 /// flips GREEN when those roots are cured.
 #[test]
-#[ignore = "BUG-04-184: loop-body str-literal lineage leak (Let Literal::String root inside the loop + loop merge-disagreement elision) — distinct root from the builtin-Invoke-result family cured here"]
 fn test_template_in_loop_body_no_uaf_no_leak() {
     assert_cell_output(
         r#"
@@ -332,10 +331,9 @@ fn test_template_in_callee_return_no_uaf_no_leak() {
 /// pre-cure) on a DIFFERENT root outside this fix's family: the callee's
 /// RETURNED final template string (the lineage vet declines `Return` —
 /// transfer out; the caller-side released-by-result machinery misses the
-/// caught-call result shape). Failing clamp: flips GREEN when that root is
-/// cured.
+/// caught-call result shape). Clamp flipped GREEN — the callee-returned
+/// root is cured; this cell now pins the fixed behavior.
 #[test]
-#[ignore = "BUG-04-185: callee-returned template string leaks across the catch unwind boundary — distinct root from the builtin-Invoke-result family cured here"]
 fn test_template_across_catch_unwind_no_uaf_no_leak() {
     assert_cell_output(
         r#"

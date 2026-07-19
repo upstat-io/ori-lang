@@ -3,7 +3,7 @@
 //! Called during the function emission prologue.
 
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
-use ori_arc::Ownership;
+use ori_arc::{CalleeOwnerDemand, Ownership};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::context::EmittedValue;
@@ -29,12 +29,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // by adding 1 to the starting index.
         let has_sret = matches!(abi.return_abi.passing, ReturnPassing::Sret { .. });
         let sret_offset = u32::from(has_sret);
-        // Register sret pointer for sret forwarding optimization.
-        // When the function returns a large struct via sret, the first parameter
-        // is the caller-allocated return slot. We can forward this directly to
-        // inner call_with_sret calls to avoid intermediate alloca+load+store.
+        // Register the sret pointer and its pointee type for forwarding.
+        // The pointer is compatible only with nested calls returning the same
+        // LLVM type; a differently shaped aggregate needs a separate slot.
         if has_sret {
-            self.current_sret_ptr = Some(self.builder.get_param(self.current_function, 0));
+            let return_ty = self.resolve_type(abi.return_abi.ty);
+            self.current_sret = Some((self.builder.get_param(self.current_function, 0), return_ty));
         }
         let phantom_env_offset = u32::from(self.ctx.non_capturing_lambdas.contains(&func.name));
         let needs_loads = abi.params.iter().any(|p| {
@@ -125,9 +125,34 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// and `Jump` block-parameter passing.
     pub(super) fn compute_borrowed_rooted_vars(&mut self, func: &ArcFunction) {
         self.borrowed_rooted_vars.clear();
+        self.iter_owns_rooted_vars.clear();
         for param in &func.params {
             if param.ownership == Ownership::Borrowed {
                 self.borrowed_rooted_vars.insert(param.var);
+            }
+        }
+        // Seed the iterator-owner set from the same final owner demand used by
+        // closure adapters. A borrowed ABI parameter can still arrive with an
+        // independent ownership credit when its callee contract demands the
+        // whole value; `.iter()` must transfer that credit to the iterator.
+        // `func.params[i]` is parallel to `contract.params[i]`.
+        if let Some(contract) = self.func_contract {
+            for (i, param) in func.params.iter().enumerate() {
+                if let Some(pc) = contract.params.get(i) {
+                    match pc.callee_owner_demand() {
+                        Ok(CalleeOwnerDemand::WholeValue) => {
+                            self.iter_owns_rooted_vars.insert(param.var);
+                        }
+                        Ok(CalleeOwnerDemand::Borrow | CalleeOwnerDemand::ProjectedField(_)) => {}
+                        Err(conflict) => {
+                            self.builder.record_codegen_error_with_msg(format!(
+                                "invalid owner demand for {} parameter {i}: whole-value and projected-field({}) credits conflict",
+                                self.interner.lookup(func.name),
+                                conflict.field,
+                            ));
+                        }
+                    }
+                }
             }
         }
         // Trace alias chains: Let{Var} + Jump block-param passing.
@@ -148,6 +173,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         {
                             changed = true;
                         }
+                        if self.iter_owns_rooted_vars.contains(src)
+                            && self.iter_owns_rooted_vars.insert(*dst)
+                        {
+                            changed = true;
+                        }
                     }
                 }
                 // Jump { target, args } — args[i] flows to target.params[i]
@@ -156,6 +186,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     for (arg, &(param_var, _)) in args.iter().zip(target_params.iter()) {
                         if self.borrowed_rooted_vars.contains(arg)
                             && self.borrowed_rooted_vars.insert(param_var)
+                        {
+                            changed = true;
+                        }
+                        if self.iter_owns_rooted_vars.contains(arg)
+                            && self.iter_owns_rooted_vars.insert(param_var)
                         {
                             changed = true;
                         }

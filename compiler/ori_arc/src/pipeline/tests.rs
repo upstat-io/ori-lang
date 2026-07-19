@@ -12,7 +12,10 @@ use crate::aims::contract::{
 use crate::aims::lattice::{
     AccessClass, Cardinality, Consumption, Locality, ShapeClass, Uniqueness,
 };
-use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy};
+use crate::ir::{
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy, ValueRepr,
+    VariableMetadataState,
+};
 use crate::test_helpers::{owned_param, v};
 
 /// Build a function with a dangling block reference (block 0 jumps to non-existent block 99).
@@ -34,6 +37,7 @@ fn function_with_dangling_ref() -> ArcFunction {
 /// Build a function with an `RcInc` on a scalar variable (invariant violation).
 fn function_with_rc_on_scalar() -> ArcFunction {
     let mut func = ArcFunction {
+        var_types: vec![Idx::NONE],
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
@@ -47,7 +51,7 @@ fn function_with_rc_on_scalar() -> ArcFunction {
         }],
         ..Default::default()
     };
-    func.var_reprs = vec![crate::ir::ValueRepr::Scalar];
+    func.replace_variable_representations(vec![crate::ir::ValueRepr::Scalar]);
     func
 }
 
@@ -61,6 +65,7 @@ fn make_contract(params: Vec<ParamContract>) -> MemoryContract {
             locality: Locality::Unknown,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         },
         effects: EffectSummary::default(),
         context_behavior: ContextBehavior::default(),
@@ -81,15 +86,82 @@ fn absent_param() -> ParamContract {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
-        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
-        capture_variant_return_project: None,
+        borrowed_cow_mutated: false,
+        iter_consumes_projected_field: None,
     }
 }
 
-// ── run_verify: blocking under verify=true ──
+#[test]
+fn final_metadata_validation_rejects_corruption_without_repairing_it() {
+    let pool = ori_types::Pool::new();
+    let classifier = crate::ArcClassifier::new(&pool);
+    let func = ArcFunction {
+        var_types: vec![Idx::STR],
+        var_reprs: vec![ValueRepr::Scalar],
+        var_rc_strategies: vec![None],
+        var_metadata_state: VariableMetadataState::Realized,
+        ..ArcFunction::default()
+    };
+
+    let result = super::aims_pipeline::validate_variable_metadata(&func, &classifier, &pool);
+    let Err(errors) = result else {
+        panic!("corrupt realized metadata must fail at the realization owner seam");
+    };
+
+    assert!(errors.iter().any(|error| matches!(
+        error,
+        crate::verify::VerifyError::VariableRepresentationMismatch {
+            var,
+            expected: ValueRepr::FatValue,
+            found: ValueRepr::Scalar,
+        } if *var == ArcVarId::new(0)
+    )));
+    assert!(errors.iter().any(|error| matches!(
+        error,
+        crate::verify::VerifyError::VariableRcStrategyMismatch {
+            var,
+            expected: Some(RcStrategy::FatPointer),
+            found: None,
+        } if *var == ArcVarId::new(0)
+    )));
+    let strategy_error = errors
+        .iter()
+        .find(|error| {
+            matches!(
+                error,
+                crate::verify::VerifyError::VariableRcStrategyMismatch { .. }
+            )
+        })
+        .unwrap_or_else(|| panic!("strategy mismatch should be reported"));
+    assert_eq!(
+        strategy_error.to_string(),
+        "physical ownership-strategy metadata for v0 is inconsistent with its canonical type and representation: expected Some(FatPointer), found None; rerun the same command with ORI_VERIFY_ARC=1 and report this compiler bug (Annex E, AIMS §8.11)"
+    );
+    assert_eq!(func.var_reprs, [ValueRepr::Scalar]);
+    assert_eq!(func.var_rc_strategies, [None]);
+}
+
+#[test]
+fn final_metadata_validation_rejects_unrealized_zero_var_function() {
+    let pool = ori_types::Pool::new();
+    let classifier = crate::ArcClassifier::new(&pool);
+    let func = ArcFunction::default();
+
+    let result = super::aims_pipeline::validate_variable_metadata(&func, &classifier, &pool);
+    let Err(errors) = result else {
+        panic!("zero-variable metadata still requires an explicit realized state");
+    };
+
+    assert_eq!(
+        errors,
+        [crate::verify::VerifyError::VariableMetadataUnrealized]
+    );
+}
+
+// run_verify: blocking under verify=true
 
 #[test]
 fn verify_returns_err_when_verify_true_and_errors_found() {
@@ -135,22 +207,22 @@ fn verify_detects_rc_on_scalar() {
     );
 }
 
-// ── run_aims_verify: absent-param-has-uses (live vs dead path) ──
+// run_aims_verify: absent-param-has-uses (live vs dead path)
 
 #[test]
 fn aims_verify_blocks_absent_param_used_on_live_path() {
     // Live-path: single block `return v0`. The absent param IS used on a
     // path that reaches Return → genuine contract/IR inconsistency → Err.
     let func = crate::test_helpers::make_func(
-        vec![owned_param(0, Idx::NONE)],
-        Idx::NONE,
+        vec![owned_param(0, Idx::UNIT)],
+        Idx::UNIT,
         vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: vec![],
             body: vec![],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
-        vec![Idx::NONE],
+        vec![Idx::UNIT],
     );
     let contract = make_contract(vec![absent_param()]);
 
@@ -356,7 +428,7 @@ fn aims_verify_returns_ok_when_verify_false() {
     );
 }
 
-// ── Checkpoint observer tests ──
+// Checkpoint observer tests
 
 #[test]
 fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_order() {
@@ -369,10 +441,14 @@ fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_or
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: vec![],
-            body: vec![],
+            body: vec![ArcInstr::Let {
+                dst: v(0),
+                ty: Idx::INT,
+                value: crate::ir::ArcValue::Literal(crate::ir::LitValue::Int(0)),
+            }],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
-        var_types: vec![Idx::NONE],
+        var_types: vec![Idx::INT],
         ..Default::default()
     };
 
@@ -391,19 +467,18 @@ fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_or
     let func_names: rustc_hash::FxHashSet<ori_ir::Name> = contracts.keys().copied().collect();
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
-    let sigs = rustc_hash::FxHashMap::default();
     let type_registry = ori_types::TypeRegistry::default();
 
     let config = super::aims_pipeline::AimsPipelineConfig {
         classifier: &classifier,
         contracts: &contracts,
         func_names: &func_names,
+        exact_callables: &func_names,
         pool: &pool,
         interner: &interner,
         builtins: &builtins,
         verify_arc: false,
         observer: Some(&observer),
-        sigs: &sigs,
         type_registry: &type_registry,
     };
 
@@ -421,19 +496,20 @@ fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_or
         "normalize_function",
         "normalize_with_trmc_complete",
         "analyze_function",
+        "class_ledger_emission",
         "realize_rc_reuse",
     ];
     let mut last_idx = 0;
     for expected in &core_phases {
-        if let Some(pos) = phases.iter().position(|p| p == *expected) {
-            assert!(
-                pos >= last_idx,
-                "phase '{expected}' at {pos} should be after previous core phase at {last_idx}"
-            );
-            last_idx = pos;
-        }
-        // Phase may not appear if the pipeline short-circuits on error,
-        // but if it does appear it must be in order.
+        let pos = phases
+            .iter()
+            .position(|p| p == *expected)
+            .unwrap_or_else(|| panic!("phase '{expected}' missing from {phases:?}"));
+        assert!(
+            pos >= last_idx,
+            "phase '{expected}' at {pos} should be after previous core phase at {last_idx}"
+        );
+        last_idx = pos;
     }
 }
 
@@ -446,10 +522,14 @@ fn checkpoint_observer_when_none_skips_all_callbacks() {
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: vec![],
-            body: vec![],
+            body: vec![ArcInstr::Let {
+                dst: v(0),
+                ty: Idx::INT,
+                value: crate::ir::ArcValue::Literal(crate::ir::LitValue::Int(0)),
+            }],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
-        var_types: vec![Idx::NONE],
+        var_types: vec![Idx::INT],
         ..Default::default()
     };
 
@@ -461,19 +541,18 @@ fn checkpoint_observer_when_none_skips_all_callbacks() {
     let func_names: rustc_hash::FxHashSet<ori_ir::Name> = contracts.keys().copied().collect();
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
-    let sigs = rustc_hash::FxHashMap::default();
     let type_registry = ori_types::TypeRegistry::default();
 
     let config = super::aims_pipeline::AimsPipelineConfig {
         classifier: &classifier,
         contracts: &contracts,
         func_names: &func_names,
+        exact_callables: &func_names,
         pool: &pool,
         interner: &interner,
         builtins: &builtins,
         verify_arc: false,
         observer: None,
-        sigs: &sigs,
         type_registry: &type_registry,
     };
 
@@ -521,19 +600,18 @@ fn checkpoint_observer_after_realize_rc_reuse_captures_added_rc_ops() {
     let func_names: rustc_hash::FxHashSet<ori_ir::Name> = contracts.keys().copied().collect();
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
-    let sigs = rustc_hash::FxHashMap::default();
     let type_registry = ori_types::TypeRegistry::default();
 
     let config = super::aims_pipeline::AimsPipelineConfig {
         classifier: &classifier,
         contracts: &contracts,
         func_names: &func_names,
+        exact_callables: &func_names,
         pool: &pool,
         interner: &interner,
         builtins: &builtins,
         verify_arc: false,
         observer: Some(&observer),
-        sigs: &sigs,
         type_registry: &type_registry,
     };
 
@@ -551,7 +629,7 @@ fn checkpoint_observer_after_realize_rc_reuse_captures_added_rc_ops() {
     // bonus verification that the function state is accessible.
 }
 
-// ── FIP structural verification tests ──
+// FIP structural verification tests
 
 /// Verify that `FipStructural` errors are included in `VerifyError` and
 /// format correctly.
@@ -667,49 +745,62 @@ fn fip_second_pass_blocks_all_errors() {
     }
 }
 
-// ── IC-1 enforcement semantic pins ──
+// IC-1 enforcement semantic pins
 
 /// INV1 (positive pin): the batch pipeline computes a contract for every
-/// analyzed function. After `run_arc_pipeline_all` over a single function,
-/// the IC-1 invariant holds — the `get_required` sites never panic on the
-/// computed contracts map.
+/// analyzed function. The batch outcome returns the same finalized contract
+/// map consumed by the second pass, so the executable seam never reanalyzes.
 #[test]
 fn aims_pipeline_ic1_invariant_holds_end_to_end() {
     let func = crate::test_helpers::make_func(
-        vec![owned_param(0, Idx::NONE)],
-        Idx::NONE,
+        vec![owned_param(0, Idx::UNIT)],
+        Idx::UNIT,
         vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: vec![],
             body: vec![],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
-        vec![Idx::NONE],
+        vec![Idx::UNIT],
     );
 
     let interner = ori_ir::StringInterner::new();
     let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
-    let sigs = rustc_hash::FxHashMap::default();
     let type_registry = ori_types::TypeRegistry::default();
+    let external_contracts = rustc_hash::FxHashMap::default();
+    let callable_boundaries = crate::CallableBoundaryFacts::default();
 
     let mut funcs = vec![func];
-    let result = crate::run_arc_pipeline_all(
+    let result = crate::realize_closed_program(
         &mut funcs,
-        &classifier,
-        &sigs,
-        &interner,
-        &pool,
-        &builtins,
-        &type_registry,
-        false,
+        &crate::ArcPipelineContext {
+            classifier: &classifier,
+            interner: &interner,
+            pool: &pool,
+            builtins: &builtins,
+            type_registry: &type_registry,
+            callable_boundaries: &callable_boundaries,
+            verify_arc: false,
+            external_contracts: &external_contracts,
+        },
     );
     assert!(
         result.is_ok(),
         "IC-1 invariant: batch pipeline computes a contract for every \
          function — get_required sites must not panic"
     );
+    let outcome =
+        result.unwrap_or_else(|errors| panic!("unexpected verification errors: {errors:?}"));
+    assert_eq!(outcome.contracts.len(), funcs.len());
+    assert!(outcome.contracts.contains_key(&funcs[0].name));
+    assert_eq!(outcome.function_effects.len(), funcs.len());
+    assert!(outcome.function_effects.contains_key(&funcs[0].name));
+    assert_eq!(outcome.fresh_return_facts.len(), funcs.len());
+    assert!(outcome.fresh_return_facts.contains_key(&funcs[0].name));
+    assert_eq!(outcome.param_disjointness.len(), funcs.len());
+    assert!(outcome.param_disjointness.contains_key(&funcs[0].name));
 }
 
 /// INV2 (negative pin — load-bearing): invoking the per-function pipeline
@@ -740,21 +831,351 @@ fn aims_pipeline_panics_on_synthetic_invariant_break() {
     let func_names = rustc_hash::FxHashSet::default();
     let pool = ori_types::Pool::default();
     let classifier = crate::classify::ArcClassifier::new(&pool);
-    let sigs = rustc_hash::FxHashMap::default();
     let type_registry = ori_types::TypeRegistry::default();
 
     let config = super::aims_pipeline::AimsPipelineConfig {
         classifier: &classifier,
         contracts: &contracts,
         func_names: &func_names,
+        exact_callables: &func_names,
         pool: &pool,
         interner: &interner,
         builtins: &builtins,
         verify_arc: false,
         observer: None,
-        sigs: &sigs,
         type_registry: &type_registry,
     };
 
     let _ = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
+}
+
+// Class-ledger Step-4b replacement (pipeline-level)
+
+/// Drive `run_aims_pipeline` over a minimal config (the class-ledger
+/// emitter is unconditional; a declined function falls back per-function).
+fn run_pipeline(func: &mut ArcFunction) {
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let mut contracts = rustc_hash::FxHashMap::default();
+    contracts.insert(func.name, MemoryContract::conservative(func.params.len()));
+    let func_names: rustc_hash::FxHashSet<ori_ir::Name> = contracts.keys().copied().collect();
+    let pool = ori_types::Pool::default();
+    let classifier = crate::classify::ArcClassifier::new(&pool);
+    let type_registry = ori_types::TypeRegistry::default();
+
+    let config = super::aims_pipeline::AimsPipelineConfig {
+        classifier: &classifier,
+        contracts: &contracts,
+        func_names: &func_names,
+        exact_callables: &func_names,
+        pool: &pool,
+        interner: &interner,
+        builtins: &builtins,
+        verify_arc: false,
+        observer: None,
+        type_registry: &type_registry,
+    };
+    let result = super::aims_pipeline::run_aims_pipeline(func, &config);
+    assert!(
+        result.is_ok(),
+        "pipeline must succeed for the class-ledger fixtures"
+    );
+}
+
+/// Fresh `str` construct, read once (`IsShared`), dead — the fully-clean
+/// class-ledger skeleton whose plan is exactly one release after the read.
+fn class_ledger_clean_fixture() -> ArcFunction {
+    ArcFunction {
+        var_types: vec![Idx::STR, Idx::BOOL],
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: v(0),
+                    ty: Idx::STR,
+                    ctor: crate::ir::CtorKind::Tuple,
+                    args: vec![],
+                },
+                ArcInstr::IsShared {
+                    dst: v(1),
+                    var: v(0),
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        ..Default::default()
+    }
+}
+
+/// Loop-threaded `str` class with a pre-seeded per-iteration `BurdenInc`
+/// credit: the class's owed count disagrees at the loop-header merge, so the
+/// class-ledger analysis DECLINES the class (readiness not clean).
+fn class_ledger_declined_fixture() -> ArcFunction {
+    ArcFunction {
+        var_types: vec![Idx::STR, Idx::STR, Idx::BOOL, Idx::BOOL],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: vec![],
+                body: vec![ArcInstr::Construct {
+                    dst: v(0),
+                    ty: Idx::STR,
+                    ctor: crate::ir::CtorKind::Tuple,
+                    args: vec![],
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: vec![v(0)],
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![(v(1), Idx::STR)],
+                body: vec![
+                    ArcInstr::BurdenInc { var: v(1) },
+                    ArcInstr::Let {
+                        dst: v(2),
+                        ty: Idx::BOOL,
+                        value: crate::ir::ArcValue::Literal(crate::ir::LitValue::Bool(true)),
+                    },
+                ],
+                terminator: ArcTerminator::Branch {
+                    cond: v(2),
+                    then_block: ArcBlockId::new(2),
+                    else_block: ArcBlockId::new(3),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: vec![v(1)],
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(3),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: v(3),
+                    ty: Idx::BOOL,
+                    value: crate::ir::ArcValue::Literal(crate::ir::LitValue::Bool(false)),
+                }],
+                terminator: ArcTerminator::Return { value: v(3) },
+            },
+        ],
+        ..Default::default()
+    }
+}
+
+/// Count `(RcInc total, RcDec on var, Burden* residue)` across all blocks.
+fn count_rc_shape(func: &ArcFunction, dec_var: ArcVarId) -> (usize, usize, usize) {
+    let mut incs = 0usize;
+    let mut decs_on_var = 0usize;
+    let mut burden = 0usize;
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::RcInc { .. } => incs += 1,
+                ArcInstr::RcDec { var, .. } if *var == dec_var => decs_on_var += 1,
+                ArcInstr::BurdenInc { .. }
+                | ArcInstr::BurdenDec { .. }
+                | ArcInstr::BurdenDecPartial { .. }
+                | ArcInstr::BurdenDecField { .. }
+                | ArcInstr::BurdenDecVariant { .. } => burden += 1,
+                _ => {}
+            }
+        }
+    }
+    (incs, decs_on_var, burden)
+}
+
+/// Fully-clean function: the class-ledger plan replaces the standard
+/// burden-op emission — exactly ONE lowered release after the last read, no
+/// duplicate ops, no burden residue, edge machinery unmarked.
+#[test]
+fn class_ledger_replaces_clean_function_with_lowered_plan() {
+    let mut func = class_ledger_clean_fixture();
+    run_pipeline(&mut func);
+
+    assert!(func.class_ledger_emission, "replacement must commit");
+    let (incs, decs_on_v0, burden) = count_rc_shape(&func, v(0));
+    assert_eq!(incs, 0, "the plan funds no duplication on this shape");
+    assert_eq!(decs_on_v0, 1, "exactly one release for the dead class");
+    assert_eq!(burden, 0, "every planned op lowers to real RC");
+    assert!(
+        func.burden_emitted.iter().all(|marked| !marked),
+        "replacement never marks burden_emitted"
+    );
+
+    let body = &func.blocks[0].body;
+    assert!(matches!(body[1], ArcInstr::IsShared { .. }));
+    assert!(
+        matches!(body[2], ArcInstr::RcDec { var, .. } if var == v(0)),
+        "the release lands immediately after the last read; body={body:?}"
+    );
+}
+
+/// A declined class is FAIL-LOUD on every path: the class-ledger plan is the
+/// sole RC-emission input to the current compiled-counter adapter (the legacy
+/// repair passes are deleted; no fallback adapter input exists), so a decline
+/// is an ICE naming the function + gate.
+#[test]
+#[should_panic(expected = "class-ledger replacement declined")]
+fn class_ledger_declined_function_fails_loud() {
+    let mut func = class_ledger_declined_fixture();
+    run_pipeline(&mut func);
+}
+
+/// Double-emission guard: the replaced output carries the plan's single
+/// release and nothing else (two emitters on one function would double it);
+/// replacement never marks `burden_emitted`.
+#[test]
+fn class_ledger_replaced_function_carries_no_burden_ops() {
+    let mut replaced = class_ledger_clean_fixture();
+    run_pipeline(&mut replaced);
+
+    let (replaced_incs, replaced_decs, replaced_burden) = count_rc_shape(&replaced, v(0));
+    assert_eq!(
+        (replaced_incs, replaced_decs, replaced_burden),
+        (0, 1, 0),
+        "replaced output is exactly the lowered plan"
+    );
+    assert!(replaced.burden_emitted.iter().all(|marked| !marked));
+}
+
+/// Caller fixture for the contract-certified payload-view engagement pin:
+/// str literal -> sum `Construct` -> borrowed `Invoke` -> result returned.
+fn payload_view_caller_fixture(
+    interner: &ori_ir::StringInterner,
+    callee_name: ori_ir::Name,
+    container_idx: Idx,
+) -> ArcFunction {
+    ArcFunction {
+        var_types: vec![Idx::STR, container_idx, Idx::STR, Idx::UNIT, Idx::UNIT],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Let {
+                        dst: v(0),
+                        ty: Idx::STR,
+                        value: crate::ir::ArcValue::Literal(crate::ir::LitValue::String(
+                            interner.intern("heap payload string past the sso threshold"),
+                        )),
+                    },
+                    ArcInstr::Construct {
+                        dst: v(1),
+                        ty: container_idx,
+                        ctor: crate::ir::CtorKind::EnumVariant {
+                            enum_name: interner.intern("Wrapper"),
+                            variant: 0,
+                        },
+                        args: vec![v(0)],
+                    },
+                ],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(2),
+                    ty: Idx::STR,
+                    func: callee_name,
+                    args: vec![v(1)],
+                    arg_ownership: vec![crate::ir::ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: v(3),
+                    ty: Idx::UNIT,
+                    value: crate::ir::ArcValue::Literal(crate::ir::LitValue::Int(0)),
+                }],
+                terminator: ArcTerminator::Return { value: v(2) },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        ..ArcFunction::default()
+    }
+}
+
+/// ENGAGEMENT pin for the contract-boundary payload-view cure: a fresh sum
+/// container borrowed into an `Invoke` whose callee contract certifies
+/// `return_alias = Project` (the `assert_some` / field-accessor family). The
+/// extraction happens inside the callee (no local `Project` seed), and the
+/// credited call-result arrival funds the view — the caller REPLACES.
+/// Reverting the credited-arrival admission makes this fixture fall back
+/// with `field-view-liveness`.
+#[test]
+fn class_ledger_replaces_contract_certified_payload_view_caller() {
+    use crate::aims::contract::ReturnAliasShape;
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let interner = ori_ir::StringInterner::new();
+    let callee_name = interner.intern("payload_view_callee");
+    let mut pool = ori_types::Pool::default();
+    let container_idx = pool.named(interner.intern("Wrapper"));
+    let mut func = payload_view_caller_fixture(&interner, callee_name, container_idx);
+    func.name = interner.intern("payload_view_caller");
+
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let mut contracts = rustc_hash::FxHashMap::default();
+    contracts.insert(func.name, MemoryContract::conservative(0));
+    let mut callee_contract = MemoryContract::conservative(1);
+    callee_contract.params[0] = ParamContract {
+        access: AccessClass::Borrowed,
+        consumption: Consumption::Affine,
+        cardinality: Cardinality::Many,
+        return_alias: Some(ReturnAliasShape::Project { field: 0 }),
+        ..ParamContract::CONSERVATIVE
+    };
+    contracts.insert(callee_name, callee_contract);
+    let func_names: rustc_hash::FxHashSet<ori_ir::Name> = contracts.keys().copied().collect();
+    let classifier = crate::classify::ArcClassifier::new(&pool);
+    let mut type_registry = ori_types::TypeRegistry::default();
+    registered_struct_with_burden(
+        &mut type_registry,
+        "Wrapper",
+        container_idx,
+        Some(UserBurdenSpec {
+            self_owned_identity: false,
+            owned_fields: vec![UserOwnedField {
+                field_path: vec![0],
+                field_type: Idx::STR,
+            }],
+            ..Default::default()
+        }),
+    );
+
+    let config = super::aims_pipeline::AimsPipelineConfig {
+        classifier: &classifier,
+        contracts: &contracts,
+        func_names: &func_names,
+        exact_callables: &func_names,
+        pool: &pool,
+        interner: &interner,
+        builtins: &builtins,
+        verify_arc: false,
+        observer: None,
+        type_registry: &type_registry,
+    };
+    let result = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
+    assert!(result.is_ok(), "pipeline must succeed");
+    assert!(
+        func.class_ledger_emission,
+        "contract-certified payload-view caller must REPLACE (credited \
+         arrival funds the view); fallback here means the credited-arrival \
+         admission regressed"
+    );
 }

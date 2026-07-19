@@ -1,0 +1,1 @@
+@identity (x: int) -> int = x;

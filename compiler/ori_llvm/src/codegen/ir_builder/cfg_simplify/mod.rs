@@ -165,6 +165,15 @@ fn eliminate_empty_blocks(function: FunctionValue<'_>) -> u32 {
             let term = core::LLVMGetBasicBlockTerminator(block_ref);
             core::LLVMGetSuccessor(term, 0)
         };
+        // Don't eliminate a self-loop block (`bb: br label %bb`): it is a
+        // genuine infinite loop, not a removable trampoline. Removing it
+        // erases the block while its predecessor still branches to it,
+        // leaving a `br` to a detached block (LLVM "Referring to a basic
+        // block in another function"). Mirrors the self-loop guard in
+        // `merge_single_predecessor_blocks`.
+        if target == block_ref {
+            continue;
+        }
         candidates.push((*block, target));
     }
 

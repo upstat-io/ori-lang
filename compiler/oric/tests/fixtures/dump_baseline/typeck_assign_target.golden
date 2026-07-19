@@ -1,0 +1,52 @@
+=== Typed IR after typeck: <FIXTURE> ===
+  43 expressions, 10 functions, 8 types, 0 errors
+
+Type Point
+Function @main () -> ()
+  Block : ()
+    Let xs : [int] =
+      List [3 items] : [int]
+        Int(1) : int
+        Int(2) : int
+        Int(3) : int
+    Assign : ()
+      AssignTarget : ()
+        Ident(xs) : [int]
+        Int(0) : int
+      Int(9) : int
+    Let m : {str: int} =
+      Map {2 entries} : {str: int}
+        String("a") : str
+        Int(1) : int
+        String("b") : str
+        Int(2) : int
+    Assign : ()
+      AssignTarget : ()
+        Ident(m) : {str: int}
+        String("a") : str
+      Int(9) : int
+    Let p : Point =
+      Struct Point : Point
+        x:
+          Int(1) : int
+        y:
+          Int(2) : int
+    Assign : ()
+      AssignTarget : ()
+        Ident(p) : Point
+        .x
+      Int(9) : int
+    Let ps : [Point] =
+      List [1 items] : [Point]
+        Struct Point : Point
+          x:
+            Int(1) : int
+          y:
+            Int(2) : int
+    Assign : ()
+      AssignTarget : ()
+        Ident(ps) : [Point]
+        Int(0) : int
+        .x
+      Int(9) : int
+=== END Typed IR ===

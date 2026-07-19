@@ -1,0 +1,4 @@
+@main () -> int = {
+    let nums = for i in [10, 20, 30] yield i * 2;
+    if nums.length() == 3 then 0 else 1
+}

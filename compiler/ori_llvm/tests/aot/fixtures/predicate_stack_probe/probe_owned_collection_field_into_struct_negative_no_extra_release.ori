@@ -1,0 +1,10 @@
+type Bag = { items: [int], n: int }
+
+@main () -> int = {
+    let total = 0;
+    for i in 0..3 do {
+        let b = Bag { items: [i, i + 1, i + 2], n: i };
+        total = total + b.items.length() + b.n;
+    };
+    if total == 12 then 0 else 1
+}

@@ -620,6 +620,7 @@ fn collect_deduplicates_types() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
@@ -679,6 +680,7 @@ fn collect_multiple_types() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
@@ -734,6 +736,7 @@ fn collect_skips_scalar_rc_dec() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
         burden_emitted: Vec::new(),
@@ -799,20 +802,13 @@ fn iterator_compute_drop_info_returns_none() {
     let iter = pool.iterator(Idx::INT);
     let c = cls(&pool);
 
-    // semantic pin: Iterator<int> is non-trivial (needs
-    // `ori_iter_drop` at scope exit), BUT `compute_drop_info` must
-    // return `None` so that `collect_drop_infos` does not ask the
-    // codegen layer to generate a per-type `_ori_drop$Iterator<int>`
-    // function. The ARC emitter dispatches iterator drops inline via
-    // `RcStrategy::Iterator` (top-level) and the `Tag::Iterator` arm
-    // of `dec_value_rc_inner` (compound traversal); both emit
-    // `ori_iter_drop(ptr)` directly. Generating a drop function would
-    // call `ori_rc_free` on a Box-allocated pointer and corrupt
-    // memory.
+    // Iterator<int> uses the registry-owned iterator-drop identity, not a
+    // structural per-type plan. Treating its Box-managed state as an ordinary
+    // RC allocation would select the wrong release adapter.
     let info = compute_drop_info(iter, &c, &pool);
     assert!(
         info.is_none(),
-        "Iterator<int> must not produce a per-type drop function — ori_iter_drop is emitted inline"
+        "Iterator<int> must not produce a structural per-type drop plan"
     );
 }
 
@@ -827,11 +823,11 @@ fn double_ended_iterator_compute_drop_info_returns_none() {
     let info = compute_drop_info(deiter, &c, &pool);
     assert!(
         info.is_none(),
-        "DoubleEndedIterator<int> must not produce a per-type drop function — ori_iter_drop is emitted inline"
+        "DoubleEndedIterator<int> must not produce a structural per-type drop plan"
     );
 }
 
-//.A structural-equivalence pin
+// structural-equivalence pin
 //
 // For every concrete type currently exercised by the surrounding tests,
 // the BurdenSpec-lifted wrapper at `compute_drop_info` MUST produce the
@@ -971,7 +967,7 @@ fn drop_info_via_burden_matches_legacy() {
     assert_eq!(env_trivial, DropKind::Trivial);
 }
 
-//.A positive pin — `Option<str>` regression
+// positive pin — `Option<str>` regression
 //
 // The same observation as `option_str_is_enum_drop` above, but written
 // against the BurdenSpec-lifted wrapper specifically. Co-existing with
@@ -1001,7 +997,7 @@ fn drop_info_via_burden_for_option_str() {
     );
 }
 
-//.A negative pin — newly-monomorphized generic
+// negative pin — newly-monomorphized generic
 //
 // Engineered fixture: intern a fresh `Result<List<str>, str>` AFTER the
 // pool already contains an unrelated `Result` cell, then call the
@@ -1055,8 +1051,8 @@ fn drop_info_via_burden_for_newly_monomorphized_generic() {
 //
 // The local "@drop" fact is parameterized via `has_user_drop`, so the drop-tree
 // recursion + cycle-soundness are exercised white-box here, independent of the
-// codegen `method_functions` map (the real local-check SSOT on the codegen
-// path). `drop_types` is the set of Idxs that carry a user `@drop`.
+// current LLVM `method_functions` adapter. `drop_types` is the set of Idxs
+// that carry a user `@drop`.
 //
 // KNOWN LIMITATION (consistent with Step-0 emission, NOT a new unsoundness):
 // `compute_drop_info` is RC-filtered — an all-scalar-field Drop struct reports
@@ -1064,9 +1060,9 @@ fn drop_info_via_burden_for_newly_monomorphized_generic() {
 // Drop type is not reached through the structure walk. The top-level local
 // check still catches an all-scalar Drop type directly. Realistic Drop types
 // own heap/str fields (RC'd) and are fully covered. The nested-all-scalar gap
-// is a facet of the burden-registry-not-threaded condition owned by the
-// aims-burden-tracking plan; Step-0 `@drop` emission shares the same
-// RC-filtered structure, so the predicate matches emission reality.
+// is a facet of the burden-registry-not-threaded condition; Step-0 `@drop`
+// emission shares the same RC-filtered structure, so the predicate matches
+// emission reality.
 
 fn may_unwind(ty: Idx, pool: &Pool, drop_types: &[Idx]) -> bool {
     let c = cls(pool);
@@ -1163,4 +1159,91 @@ fn may_unwind_negative_pin_plain_str_struct_does_not_unwind() {
         ],
     );
     assert!(!may_unwind(s, &pool, &[]));
+}
+
+// Consumer attribution: read-only logical drop-plan -> Idx-chain attribution
+// for the provenance DAG. Physical symbol or table identities are projections.
+
+#[test]
+fn consumer_attribution_scalar_root_yields_no_edges() {
+    // A scalar root has no structural per-type drop plan.
+    let pool = Pool::new();
+    let c = cls(&pool);
+    let edges = compute_consumer_attribution(Idx::INT, &c, &pool, ori_types::PROVENANCE_MAX_DEPTH);
+    assert!(
+        edges.is_empty(),
+        "a scalar root generates no structural drop plan"
+    );
+}
+
+#[test]
+fn consumer_attribution_nested_struct_descends_with_chain() {
+    // Outer { inner: Inner }, Inner { s: str } — each level has a drop plan.
+    let mut pool = Pool::new();
+    let inner = pool.struct_type(Name::from_raw(50), &[(Name::from_raw(51), Idx::STR)]);
+    let outer = pool.struct_type(Name::from_raw(52), &[(Name::from_raw(53), inner)]);
+    let c = cls(&pool);
+
+    let edges = compute_consumer_attribution(outer, &c, &pool, ori_types::PROVENANCE_MAX_DEPTH);
+
+    // Root + Inner + str, each attributed once, chain root-first.
+    let by_type = |t: Idx| edges.iter().find(|e| e.type_idx == t);
+
+    let root_edge = by_type(outer).unwrap_or_else(|| panic!("missing root edge:\n{edges:?}"));
+    assert_eq!(root_edge.walked_chain, vec![outer]);
+
+    let inner_edge = by_type(inner).unwrap_or_else(|| panic!("missing Inner edge:\n{edges:?}"));
+    assert_eq!(inner_edge.walked_chain, vec![outer, inner]);
+
+    let str_edge = by_type(Idx::STR).unwrap_or_else(|| panic!("missing str edge:\n{edges:?}"));
+    assert_eq!(str_edge.walked_chain, vec![outer, inner, Idx::STR]);
+}
+
+#[test]
+fn consumer_attribution_skips_iterator_child_no_phantom_edge() {
+    // A struct field of iterator type is `needs_rc` (NonTrivial), so it lands in
+    // the parent's `DropKind::Fields` children, but iterator cleanup uses a
+    // runtime identity and has no structural per-type plan. The descent must not
+    // invent one. The drop-bearing `str` sibling remains the positive pair.
+    let mut pool = Pool::new();
+    let iter = pool.iterator(Idx::INT);
+    let outer = pool.struct_type(
+        Name::from_raw(80),
+        &[(Name::from_raw(81), iter), (Name::from_raw(82), Idx::STR)],
+    );
+    let c = cls(&pool);
+
+    let edges = compute_consumer_attribution(outer, &c, &pool, ori_types::PROVENANCE_MAX_DEPTH);
+
+    assert!(
+        edges.iter().any(|e| e.type_idx == outer),
+        "the root drop plan must be attributed:\n{edges:?}"
+    );
+    assert!(
+        edges.iter().any(|e| e.type_idx == Idx::STR),
+        "the str child drop plan must still be attributed:\n{edges:?}"
+    );
+    assert!(
+        edges.iter().all(|e| e.type_idx != iter),
+        "the iterator child has no structural drop plan:\n{edges:?}"
+    );
+}
+
+#[test]
+fn consumer_attribution_dedups_diamond_to_one_edge_per_plan() {
+    // Root { a: Shared, b: Shared }, Shared { s: str } has one shared plan.
+    let mut pool = Pool::new();
+    let shared = pool.struct_type(Name::from_raw(60), &[(Name::from_raw(61), Idx::STR)]);
+    let root = pool.struct_type(
+        Name::from_raw(62),
+        &[(Name::from_raw(63), shared), (Name::from_raw(64), shared)],
+    );
+    let c = cls(&pool);
+
+    let edges = compute_consumer_attribution(root, &c, &pool, ori_types::PROVENANCE_MAX_DEPTH);
+    let shared_edges = edges.iter().filter(|e| e.type_idx == shared).count();
+    assert_eq!(
+        shared_edges, 1,
+        "a logical drop plan is attributed exactly once"
+    );
 }

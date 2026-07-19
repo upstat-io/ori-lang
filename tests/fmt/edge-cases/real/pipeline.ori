@@ -1,7 +1,3 @@
-// Golden test: Data processing pipeline
-// Spec: 10-patterns.md § Pattern Expressions
-// Design: tooling/formatter/design/appendices/A-edge-cases.md
-
 use std.testing { assert_eq }
 
 type DataRecord = { id: int, value: int, category: str, valid: bool }
@@ -10,70 +6,46 @@ type ProcessedRecord = { id: int, transformed_value: int, category: str }
 
 type PipelineStats = { total: int, processed: int, filtered: int, errors: int }
 
-// TODO: LLVM backend doesn't support struct field access
-// @validate_record (record: DataRecord) -> bool = {
-//     let has_id = record.id > 0,
-//     let has_value = record.value >= 0,
-//     let is_valid = record.valid,
-//     has_id && has_value && is_valid,
-// }
-@validate_record (record: DataRecord) -> bool = true;
+@validate_record (record: DataRecord) -> bool = {
+    let has_id = record.id > 0;
+    let has_value = record.value >= 0;
+    let is_valid = record.valid;
 
-// TODO: LLVM backend doesn't support struct field access
-// @transform_record (record: DataRecord) -> ProcessedRecord = ProcessedRecord {
-//     id: record.id,
-//     transformed_value: record.value * 2,
-//     category: record.category,
-// }
-@transform_record (record: DataRecord) -> ProcessedRecord = ProcessedRecord {
-    id: 0,
-    transformed_value: 0,
-    category: "",
+    has_id && has_value && is_valid
 }
 
-// TODO: LLVM backend doesn't support struct field access in for-loop iteration
-// @filter_by_category (records: [DataRecord], category: str) -> [DataRecord] = {
-//     let result = for record in records yield
-//         {
-//             if record.category == category then record else record,
-//         },
-//     result,
-// }
-@filter_by_category (records: [DataRecord], category: str) -> [DataRecord] = [];
+@transform_record (record: DataRecord) -> ProcessedRecord = ProcessedRecord {
+    id: record.id,
+    transformed_value: record.value * 2,
+    category: record.category,
+}
 
-// TODO: LLVM backend doesn't support struct field access in for-loop iteration
-// @process_pipeline (records: [DataRecord]) -> [ProcessedRecord] = {
-//     let validated = for record in records yield
-//         {
-//             if validate_record(record: record) then record else record,
-//         },
-//     let transformed = for record in validated yield transform_record(record: record),
-//     transformed,
-// }
-@process_pipeline (records: [DataRecord]) -> [ProcessedRecord] = [];
+@filter_by_category (records: [DataRecord], category: str) -> [DataRecord] =
+    for record in records if record.category == category yield
+        record;
+
+@process_pipeline (records: [DataRecord]) -> [ProcessedRecord] =
+    for r in records if validate_record(record: r) yield
+        transform_record(record: r);
 
 @compute_stats (input: [DataRecord], output: [ProcessedRecord]) -> PipelineStats = {
-    let total = 0;
-    let processed = 0;
+    let total = input.length();
+    let processed = output.length();
 
     PipelineStats { total: total, processed: processed, filtered: total - processed, errors: 0 }
 }
 
-// TODO: LLVM backend doesn't support struct field access in for-loop iteration
-// @aggregate_by_category (records: [ProcessedRecord]) -> {str: int} = {
-//     let result = {},
-//     for record in records do
-//         {
-//             let current = 0,
-//             let new_value = current + record.transformed_value,
-//             result,
-//         },
-//     result,
-// }
-@aggregate_by_category (records: [ProcessedRecord]) -> {str: int} = {}
+@aggregate_by_category (records: [ProcessedRecord]) -> {str: int} = {
+    let totals = {};
+    for record in records do
+        {
+            let current = totals.get(key: record.category).unwrap_or(default: 0);
+            totals = totals.updated(key: record.category, value: current + record.transformed_value)
+        };
 
-// TODO: LLVM backend doesn't support struct field access
-#skip("BUG-07-038: LLVM backend — struct field access not supported")
+    totals
+}
+
 @test_validate tests @validate_record () -> void = {
     let valid = DataRecord { id: 1, value: 100, category: "A", valid: true };
     let invalid = DataRecord { id: 0, value: 100, category: "A", valid: true };
@@ -82,10 +54,63 @@ type PipelineStats = { total: int, processed: int, filtered: int, errors: int }
     assert_eq(actual: validate_record(record: invalid), expected: false)
 }
 
-#skip("BUG-07-038: LLVM backend — struct field access not supported")
 @test_transform tests @transform_record () -> void = {
     let input = DataRecord { id: 1, value: 50, category: "B", valid: true };
     let output = transform_record(record: input);
+    assert_eq(actual: output.id, expected: 1);
+    assert_eq(actual: output.transformed_value, expected: 100);
 
-    assert_eq(actual: output.transformed_value, expected: 100)
+    assert_eq(actual: output.category, expected: "B")
+}
+
+@test_filter_by_category tests @filter_by_category () -> void = {
+    let records = [
+        DataRecord { id: 1, value: 10, category: "A", valid: true },
+        DataRecord { id: 2, value: 20, category: "B", valid: true },
+        DataRecord { id: 3, value: 30, category: "A", valid: true },
+    ];
+    let filtered = filter_by_category(records: records, category: "A");
+    assert_eq(actual: filtered.length(), expected: 2);
+    assert_eq(actual: filtered[0].id, expected: 1);
+
+    assert_eq(actual: filtered[1].id, expected: 3)
+}
+
+@test_process_pipeline tests @process_pipeline () -> void = {
+    let records = [
+        DataRecord { id: 1, value: 10, category: "A", valid: true },
+        DataRecord { id: 0, value: 20, category: "B", valid: true },
+    ];
+    let processed = process_pipeline(records: records);
+    assert_eq(actual: processed.length(), expected: 1);
+    assert_eq(actual: processed[0].id, expected: 1);
+
+    assert_eq(actual: processed[0].transformed_value, expected: 20)
+}
+
+@test_compute_stats tests @compute_stats () -> void = {
+    let input = [
+        DataRecord { id: 1, value: 10, category: "A", valid: true },
+        DataRecord { id: 0, value: 20, category: "B", valid: false },
+    ];
+    let output = process_pipeline(records: input);
+    let stats = compute_stats(input: input, output: output);
+    assert_eq(actual: stats.total, expected: 2);
+    assert_eq(actual: stats.processed, expected: 1);
+    assert_eq(actual: stats.filtered, expected: 1);
+
+    assert_eq(actual: stats.errors, expected: 0)
+}
+
+@test_aggregate_by_category tests @aggregate_by_category () -> void = {
+    let records = [
+        ProcessedRecord { id: 1, transformed_value: 10, category: "A" },
+        ProcessedRecord { id: 2, transformed_value: 20, category: "A" },
+        ProcessedRecord { id: 3, transformed_value: 7, category: "B" },
+    ];
+    let totals = aggregate_by_category(records: records);
+    assert_eq(actual: totals.get(key: "A"), expected: Some(30));
+    assert_eq(actual: totals.get(key: "B"), expected: Some(7));
+
+    assert_eq(actual: totals.get(key: "missing"), expected: None)
 }

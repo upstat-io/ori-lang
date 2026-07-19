@@ -5,28 +5,20 @@
 //! live in the consuming crates where the dependency exists.
 
 use crate::defs::*;
-use crate::{MemoryStrategy, OpStrategy, Ownership, ReturnTag, TypeParamArity, TypeTag};
+use crate::{
+    MemoryStrategy, MethodRuntime, OpStrategy, RuntimeOperator, StrRuntime, TypeParamArity, TypeTag,
+};
 
 // Primitive type constants used across tests.
 const PRIMITIVE_TYPES: &[&crate::TypeDef] = &[&INT, &FLOAT, &BOOL, &BYTE, &CHAR];
 
 // Registry-internal tests
-
-#[test]
-fn no_duplicate_methods() {
-    for type_def in BUILTIN_TYPES {
-        let methods = type_def.methods;
-        for (i, m) in methods.iter().enumerate() {
-            for other in &methods[i + 1..] {
-                assert_ne!(
-                    m.name, other.name,
-                    "duplicate method `{}` on type `{}`",
-                    m.name, type_def.name
-                );
-            }
-        }
-    }
-}
+//
+// Registry-WIDE integrity invariants (no_duplicate_methods, no_empty_types,
+// all_method_bearing_type_tags_present, methods sorted, all_receivers_documented,
+// no_unsupported_eq, operator_consistency, self_type_returns_valid) are owned by
+// the crate-root `tests.rs` integrity suite. This module holds defs-specific
+// per-type assertions only.
 
 #[test]
 fn all_primitives_are_copy() {
@@ -65,75 +57,59 @@ fn all_methods_have_names() {
     }
 }
 
-#[test]
-fn methods_alphabetically_sorted() {
-    for type_def in BUILTIN_TYPES {
-        let methods = type_def.methods;
-        for pair in methods.windows(2) {
-            assert!(
-                pair[0].name <= pair[1].name,
-                "methods on `{}` not sorted: `{}` should come after `{}`",
-                type_def.name,
-                pair[0].name,
-                pair[1].name
-            );
-        }
-    }
-}
-
 // Operator strategy correctness tests
 
 #[test]
 fn int_comparison_is_signed() {
-    assert_eq!(INT.operators.lt, OpStrategy::IntInstr);
-    assert_eq!(INT.operators.gt, OpStrategy::IntInstr);
-    assert_eq!(INT.operators.lt_eq, OpStrategy::IntInstr);
-    assert_eq!(INT.operators.gt_eq, OpStrategy::IntInstr);
+    assert_eq!(INT.operators.lt, OpStrategy::SignedInteger);
+    assert_eq!(INT.operators.gt, OpStrategy::SignedInteger);
+    assert_eq!(INT.operators.lt_eq, OpStrategy::SignedInteger);
+    assert_eq!(INT.operators.gt_eq, OpStrategy::SignedInteger);
 }
 
 #[test]
 fn byte_comparison_is_unsigned() {
-    assert_eq!(BYTE.operators.lt, OpStrategy::UnsignedCmp);
-    assert_eq!(BYTE.operators.gt, OpStrategy::UnsignedCmp);
-    assert_eq!(BYTE.operators.lt_eq, OpStrategy::UnsignedCmp);
-    assert_eq!(BYTE.operators.gt_eq, OpStrategy::UnsignedCmp);
+    assert_eq!(BYTE.operators.lt, OpStrategy::UnsignedComparison);
+    assert_eq!(BYTE.operators.gt, OpStrategy::UnsignedComparison);
+    assert_eq!(BYTE.operators.lt_eq, OpStrategy::UnsignedComparison);
+    assert_eq!(BYTE.operators.gt_eq, OpStrategy::UnsignedComparison);
 }
 
 #[test]
 fn char_comparison_is_unsigned() {
-    assert_eq!(CHAR.operators.lt, OpStrategy::UnsignedCmp);
-    assert_eq!(CHAR.operators.gt, OpStrategy::UnsignedCmp);
-    assert_eq!(CHAR.operators.lt_eq, OpStrategy::UnsignedCmp);
-    assert_eq!(CHAR.operators.gt_eq, OpStrategy::UnsignedCmp);
+    assert_eq!(CHAR.operators.lt, OpStrategy::UnsignedComparison);
+    assert_eq!(CHAR.operators.gt, OpStrategy::UnsignedComparison);
+    assert_eq!(CHAR.operators.lt_eq, OpStrategy::UnsignedComparison);
+    assert_eq!(CHAR.operators.gt_eq, OpStrategy::UnsignedComparison);
 }
 
 #[test]
 fn bool_comparison_is_unsigned() {
-    assert_eq!(BOOL.operators.lt, OpStrategy::UnsignedCmp);
-    assert_eq!(BOOL.operators.gt, OpStrategy::UnsignedCmp);
-    assert_eq!(BOOL.operators.lt_eq, OpStrategy::UnsignedCmp);
-    assert_eq!(BOOL.operators.gt_eq, OpStrategy::UnsignedCmp);
+    assert_eq!(BOOL.operators.lt, OpStrategy::UnsignedComparison);
+    assert_eq!(BOOL.operators.gt, OpStrategy::UnsignedComparison);
+    assert_eq!(BOOL.operators.lt_eq, OpStrategy::UnsignedComparison);
+    assert_eq!(BOOL.operators.gt_eq, OpStrategy::UnsignedComparison);
 }
 
 #[test]
 fn bool_equality_is_bool_logic() {
-    assert_eq!(BOOL.operators.eq, OpStrategy::BoolLogic);
-    assert_eq!(BOOL.operators.neq, OpStrategy::BoolLogic);
+    assert_eq!(BOOL.operators.eq, OpStrategy::BooleanLogic);
+    assert_eq!(BOOL.operators.neq, OpStrategy::BooleanLogic);
 }
 
 #[test]
 fn float_comparison_is_float_instr() {
-    assert_eq!(FLOAT.operators.lt, OpStrategy::FloatInstr);
-    assert_eq!(FLOAT.operators.gt, OpStrategy::FloatInstr);
-    assert_eq!(FLOAT.operators.lt_eq, OpStrategy::FloatInstr);
-    assert_eq!(FLOAT.operators.gt_eq, OpStrategy::FloatInstr);
-    assert_eq!(FLOAT.operators.eq, OpStrategy::FloatInstr);
-    assert_eq!(FLOAT.operators.neq, OpStrategy::FloatInstr);
+    assert_eq!(FLOAT.operators.lt, OpStrategy::FloatingPoint);
+    assert_eq!(FLOAT.operators.gt, OpStrategy::FloatingPoint);
+    assert_eq!(FLOAT.operators.lt_eq, OpStrategy::FloatingPoint);
+    assert_eq!(FLOAT.operators.gt_eq, OpStrategy::FloatingPoint);
+    assert_eq!(FLOAT.operators.eq, OpStrategy::FloatingPoint);
+    assert_eq!(FLOAT.operators.neq, OpStrategy::FloatingPoint);
 }
 
 #[test]
 fn bool_not_is_bool_logic() {
-    assert_eq!(BOOL.operators.not, OpStrategy::BoolLogic);
+    assert_eq!(BOOL.operators.not, OpStrategy::BooleanLogic);
 }
 
 #[test]
@@ -156,10 +132,10 @@ fn float_has_no_bitwise_ops() {
 
 #[test]
 fn float_has_no_floor_div() {
-    // float.rem = FloatInstr (proactive addition — LLVM handles `frem`).
+    // float.rem = FloatingPoint (proactive addition — LLVM handles `frem`).
     // float.floor_div = Unsupported (floor division is integer-only).
     assert_eq!(FLOAT.operators.floor_div, OpStrategy::Unsupported);
-    assert_eq!(FLOAT.operators.rem, OpStrategy::FloatInstr);
+    assert_eq!(FLOAT.operators.rem, OpStrategy::FloatingPoint);
 }
 
 #[test]
@@ -327,14 +303,14 @@ fn str_operators_all_runtime_call_or_unsupported() {
     ];
     for (name, op) in all {
         assert!(
-            matches!(op, OpStrategy::RuntimeCall { .. } | OpStrategy::Unsupported),
+            matches!(op, OpStrategy::RuntimeCall(_) | OpStrategy::Unsupported),
             "str operator `{name}` must be RuntimeCall or Unsupported, got {op:?}"
         );
     }
 }
 
 #[test]
-fn str_runtime_call_names_are_valid() {
+fn str_runtime_call_identities_are_string_operations() {
     let ops = &STR.operators;
     let all = [
         ops.add,
@@ -359,11 +335,14 @@ fn str_runtime_call_names_are_valid() {
         ops.shr,
     ];
     for op in all {
-        if let OpStrategy::RuntimeCall { fn_name, .. } = op {
-            assert!(
-                fn_name.starts_with("ori_str_"),
-                "RuntimeCall fn_name `{fn_name}` must start with `ori_str_`"
-            );
+        if let OpStrategy::RuntimeCall(runtime) = op {
+            assert!(matches!(
+                runtime,
+                RuntimeOperator::StringConcat
+                    | RuntimeOperator::StringEqual
+                    | RuntimeOperator::StringNotEqual
+                    | RuntimeOperator::StringCompare
+            ));
         }
     }
 }
@@ -461,15 +440,16 @@ fn str_comparison_operators_use_ori_str_compare() {
         ("gt_eq", ops.gt_eq),
     ] {
         match op {
-            OpStrategy::RuntimeCall {
-                fn_name,
-                returns_bool,
-            } => {
+            OpStrategy::RuntimeCall(runtime) => {
                 assert_eq!(
-                    fn_name, "ori_str_compare",
+                    runtime,
+                    RuntimeOperator::StringCompare,
                     "str.{name} should use ori_str_compare"
                 );
-                assert!(returns_bool, "str.{name} comparison should return bool");
+                assert!(
+                    runtime.returns_bool(),
+                    "str.{name} comparison should return bool"
+                );
             }
             _ => panic!("str.{name} should be RuntimeCall, got {op:?}"),
         }
@@ -479,205 +459,15 @@ fn str_comparison_operators_use_ori_str_compare() {
 #[test]
 fn str_neq_uses_ori_str_ne() {
     match STR.operators.neq {
-        OpStrategy::RuntimeCall {
-            fn_name,
-            returns_bool,
-        } => {
+        OpStrategy::RuntimeCall(runtime) => {
             assert_eq!(
-                fn_name, "ori_str_ne",
+                runtime,
+                RuntimeOperator::StringNotEqual,
                 "str.neq should use ori_str_ne (not ori_str_neq)"
             );
-            assert!(returns_bool);
+            assert!(runtime.returns_bool());
         }
         _ => panic!("str.neq should be RuntimeCall"),
-    }
-}
-
-// Registry-level integrity tests
-
-/// Every `TypeDef` must have at least one method.
-/// A type with zero methods provides no behavioral specification
-/// and should not be in the registry.
-#[test]
-fn no_empty_types() {
-    for type_def in BUILTIN_TYPES {
-        assert!(
-            !type_def.methods.is_empty(),
-            "TypeDef `{}` has zero methods -- every registered type must \
-             have at least one method (minimally: clone, equals, to_str)",
-            type_def.name,
-        );
-    }
-}
-
-/// Every `TypeTag` variant that carries methods must have a corresponding
-/// `TypeDef` in `BUILTIN_TYPES`. Variants without methods (`Unit`, `Never`,
-/// `Function`) and the DEI alias (`DoubleEndedIterator` → `Iterator`) are
-/// intentionally excluded.
-#[test]
-fn all_method_bearing_type_tags_present() {
-    use std::collections::HashSet;
-
-    // TypeTag variants that intentionally have no TypeDef:
-    // - Unit, Never: no methods, no operators
-    // - Function: no methods (memory classification only)
-    // - DoubleEndedIterator: aliases to Iterator via base_type()
-    const EXCLUDED: &[TypeTag] = &[
-        TypeTag::Unit,
-        TypeTag::Never,
-        TypeTag::Function,
-        TypeTag::DoubleEndedIterator,
-    ];
-
-    let registered_tags: HashSet<TypeTag> = BUILTIN_TYPES.iter().map(|td| td.tag).collect();
-
-    for &tag in TypeTag::all() {
-        if EXCLUDED.contains(&tag) {
-            continue;
-        }
-        assert!(
-            registered_tags.contains(&tag),
-            "TypeTag::{tag:?} has no TypeDef in BUILTIN_TYPES. \
-             Add a const TypeDef in ori_registry/src/defs/ and include \
-             it in BUILTIN_TYPES.",
-        );
-    }
-}
-
-/// Every `MethodDef` on a `Copy` type must use `Ownership::Borrow`.
-/// Copy types are trivially borrowed (borrow == copy), but the annotation
-/// documents the intent. Arc types may use Owned for consuming methods.
-#[test]
-fn all_receivers_documented() {
-    for type_def in BUILTIN_TYPES {
-        for method in type_def.methods {
-            if type_def.memory == MemoryStrategy::Copy {
-                assert_eq!(
-                    method.receiver,
-                    Ownership::Borrow,
-                    "Method `{}.{}` on a Copy type should use Ownership::Borrow \
-                     (Copy types are trivially borrowed)",
-                    type_def.name,
-                    method.name,
-                );
-            }
-            // Arc types: most methods borrow, but consuming methods (into)
-            // may use Owned. Field access proves the value is explicitly set.
-            let _ = method.receiver;
-        }
-    }
-}
-
-/// Every Ori builtin type supports `==` (equality). This is a language invariant.
-/// Equality is provided either via operator strategy (primitives) or via the
-/// `equals` method from the Eq trait (collections, wrappers).
-///
-/// Exempt types:
-/// - Error: non-deterministic trace data makes structural equality misleading
-/// - Channel: identity-based handle, not structural value
-/// - Iterator: stateful/consumed on use, equality is nonsensical
-/// - Range: TODO — should have `equals` method but missing from registry
-///   (equality works in eval/typeck via structural comparison, but the
-///   registry `TypeDef` doesn't declare it yet)
-#[test]
-fn no_unsupported_eq() {
-    const EQ_EXEMPT: &[TypeTag] = &[
-        TypeTag::Error,
-        TypeTag::Channel,
-        TypeTag::Iterator,
-        TypeTag::DoubleEndedIterator,
-        TypeTag::Range, // TODO: add `equals` method to Range TypeDef
-    ];
-
-    for type_def in BUILTIN_TYPES {
-        if EQ_EXEMPT.contains(&type_def.tag) {
-            continue;
-        }
-        let has_operator_eq = type_def.operators.eq != OpStrategy::Unsupported;
-        let has_equals_method = type_def.methods.iter().any(|m| m.name == "equals");
-        assert!(
-            has_operator_eq || has_equals_method,
-            "Type `{}` has neither an eq operator strategy nor an `equals` method. \
-             All Ori types must support equality (or be in EQ_EXEMPT with justification).",
-            type_def.name,
-        );
-    }
-}
-
-/// If a type supports comparison operators (`lt`, `gt`, `lt_eq`, `gt_eq`), it must
-/// also support equality (`eq`, `neq`). Comparison without equality is nonsensical.
-/// Additionally, all supported comparison operators must use the same strategy.
-#[test]
-fn operator_consistency() {
-    for type_def in BUILTIN_TYPES {
-        let ops = &type_def.operators;
-
-        let has_any_cmp = ops.lt != OpStrategy::Unsupported
-            || ops.gt != OpStrategy::Unsupported
-            || ops.lt_eq != OpStrategy::Unsupported
-            || ops.gt_eq != OpStrategy::Unsupported;
-
-        if has_any_cmp {
-            assert!(
-                ops.eq != OpStrategy::Unsupported,
-                "Type `{}` supports comparison but not equality. \
-                 If lt/gt/le/ge are supported, eq must be too.",
-                type_def.name,
-            );
-            assert!(
-                ops.neq != OpStrategy::Unsupported,
-                "Type `{}` supports comparison but not not-equal. \
-                 If lt/gt/le/ge are supported, neq must be too.",
-                type_def.name,
-            );
-        }
-
-        // All supported comparison operators should use the same strategy
-        let cmp_ops = [ops.lt, ops.gt, ops.lt_eq, ops.gt_eq];
-        let supported_cmp: Vec<_> = cmp_ops
-            .iter()
-            .filter(|s| **s != OpStrategy::Unsupported)
-            .collect();
-        if supported_cmp.len() > 1 {
-            let first = supported_cmp[0];
-            for s in &supported_cmp[1..] {
-                assert_eq!(
-                    *s, first,
-                    "Type `{}` uses mixed comparison strategies: {:?} vs {:?}. \
-                     All comparison operators should use the same strategy.",
-                    type_def.name, first, s,
-                );
-            }
-        }
-    }
-}
-
-/// Methods returning `SelfType` must be semantically valid — `to_*` conversion
-/// methods should return concrete `TypeTag`s, not `SelfType` (except identity
-/// conversions like `str.to_str`).
-#[test]
-fn self_type_returns_valid() {
-    for type_def in BUILTIN_TYPES {
-        for method in type_def.methods {
-            if method.returns == ReturnTag::SelfType
-                && method.name.starts_with("to_")
-                && method.name != "to_uppercase"
-                && method.name != "to_lowercase"
-                && method.name != "to_ascii_uppercase"
-                && method.name != "to_ascii_lowercase"
-            {
-                // to_str, to_int, to_float, etc. should use concrete return types.
-                // EXCEPTION: `to_str` on str returns SelfType (identity).
-                let is_identity = type_def.tag == TypeTag::Str && method.name == "to_str";
-                assert!(
-                    is_identity,
-                    "Method `{}.{}` returns SelfType but is a conversion \
-                     method (`to_*`). Conversion methods should return \
-                     a concrete TypeTag, not SelfType.",
-                    type_def.name, method.name,
-                );
-            }
-        }
     }
 }
 
@@ -711,6 +501,60 @@ fn trait_methods_have_correct_trait_name() {
                 }
             }
         }
+    }
+}
+
+#[test]
+fn len_trait_and_runtime_identity_cannot_drift() {
+    for type_def in BUILTIN_TYPES {
+        for method in type_def.methods {
+            if method.trait_name == Some("Len") {
+                assert!(
+                    method.params.is_empty(),
+                    "{}.{}, Len arity",
+                    type_def.name,
+                    method.name
+                );
+                assert_eq!(
+                    method.runtime,
+                    Some(MethodRuntime::Length),
+                    "{}.{} runtime identity",
+                    type_def.name,
+                    method.name,
+                );
+            }
+            if method.runtime == Some(MethodRuntime::Length) {
+                assert_eq!(
+                    method.trait_name,
+                    Some("Len"),
+                    "{}.{} trait identity",
+                    type_def.name,
+                    method.name,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn string_runtime_identity_is_registry_owned() {
+    let expected = [
+        ("concat", StrRuntime::Concat),
+        ("contains", StrRuntime::Contains),
+        ("starts_with", StrRuntime::StartsWith),
+        ("ends_with", StrRuntime::EndsWith),
+        ("is_empty", StrRuntime::IsEmpty),
+        ("trim", StrRuntime::Trim),
+        ("to_uppercase", StrRuntime::Uppercase),
+        ("to_lowercase", StrRuntime::Lowercase),
+        ("split", StrRuntime::Split),
+    ];
+
+    for (name, operation) in expected {
+        let method = crate::find_method(TypeTag::Str, name)
+            .unwrap_or_else(|| panic!("str.{name} must remain registered"));
+        assert_eq!(method.runtime, Some(MethodRuntime::Str(operation)));
+        assert_eq!(operation.arity(), method.params.len() + 1);
     }
 }
 

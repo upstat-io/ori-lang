@@ -8,8 +8,8 @@
 //! `KeyType` and `ValueType` projections.
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, Ownership, ParamDef, ReturnTag, TypeDef, TypeParamArity,
-    TypeProjection, TypeTag, ONE_SELF_BORROW,
+    BackendRequirement, MemoryStrategy, MethodDef, MethodRuntime, OpDefs, Ownership, ParamDef,
+    ReturnTag, TypeDef, TypeParamArity, TypeProjection, TypeTag, ONE_SELF_BORROW,
 };
 
 // Parameter arrays
@@ -55,16 +55,23 @@ const INT: ReturnTag = ReturnTag::Concrete(TypeTag::Int);
 const STR: ReturnTag = ReturnTag::Concrete(TypeTag::Str);
 const SELF: ReturnTag = ReturnTag::SelfType;
 
-// All 19 methods alphabetically sorted.
+// All methods alphabetically sorted.
 static MAP_METHODS: &[MethodDef] = &[
-    MethodDef::compound("clone", &[], SELF, Some("Clone"), Ownership::Borrow, false),
+    MethodDef::compound(
+        "clone",
+        &[],
+        SELF,
+        Some("Clone"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    ),
     MethodDef::compound(
         "contains",
         &KEY_BORROW_PARAM,
         BOOL,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "contains_key",
@@ -72,16 +79,23 @@ static MAP_METHODS: &[MethodDef] = &[
         BOOL,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
-    MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, false),
+    MethodDef::compound(
+        "debug",
+        &[],
+        STR,
+        Some("Debug"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    ),
     MethodDef::compound(
         "entries",
         &[],
         ReturnTag::ListKeyValue,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "equals",
@@ -89,7 +103,7 @@ static MAP_METHODS: &[MethodDef] = &[
         BOOL,
         Some("Eq"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "get",
@@ -97,16 +111,23 @@ static MAP_METHODS: &[MethodDef] = &[
         ReturnTag::OptionOf(TypeProjection::Value),
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
-    MethodDef::compound("hash", &[], INT, Some("Hashable"), Ownership::Borrow, false),
+    MethodDef::compound(
+        "hash",
+        &[],
+        INT,
+        Some("Hashable"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    ),
     MethodDef::compound(
         "insert",
         &INSERT_PARAMS,
         SELF,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "is_empty",
@@ -114,7 +135,7 @@ static MAP_METHODS: &[MethodDef] = &[
         BOOL,
         Some("IsEmpty"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "iter",
@@ -122,7 +143,7 @@ static MAP_METHODS: &[MethodDef] = &[
         ReturnTag::MapIterator,
         Some("Iterable"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "keys",
@@ -130,17 +151,33 @@ static MAP_METHODS: &[MethodDef] = &[
         ReturnTag::ListOf(TypeProjection::Key),
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
-    MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false),
-    MethodDef::compound("length", &[], INT, Some("Len"), Ownership::Borrow, false),
+    MethodDef::compound(
+        "len",
+        &[],
+        INT,
+        Some("Len"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    )
+    .with_runtime(MethodRuntime::Length),
+    MethodDef::compound(
+        "length",
+        &[],
+        INT,
+        Some("Len"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    )
+    .with_runtime(MethodRuntime::Length),
     MethodDef::compound(
         "merge",
         &ONE_SELF_BORROW,
         SELF,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "remove",
@@ -148,7 +185,7 @@ static MAP_METHODS: &[MethodDef] = &[
         SELF,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "to_str",
@@ -156,7 +193,7 @@ static MAP_METHODS: &[MethodDef] = &[
         STR,
         Some("Printable"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "update",
@@ -164,7 +201,7 @@ static MAP_METHODS: &[MethodDef] = &[
         SELF,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "updated",
@@ -172,7 +209,7 @@ static MAP_METHODS: &[MethodDef] = &[
         SELF,
         Some("IndexSet"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "values",
@@ -180,7 +217,7 @@ static MAP_METHODS: &[MethodDef] = &[
         ReturnTag::ListOf(TypeProjection::Value),
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
 ];
 

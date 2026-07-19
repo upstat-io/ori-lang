@@ -79,8 +79,8 @@ impl CommentIndex {
     ///
     /// Note: This only takes comments that are directly associated with `pos`, not all
     /// comments before it. This is important because the formatter may process items
-    /// out of source order (e.g., all functions before all tests), and we don't want
-    /// to steal comments that belong to items that appear earlier in source.
+    /// out of source order (e.g., all functions before all tests); comments belonging
+    /// to items appearing earlier in source must not be stolen.
     pub fn take_comments_before(&mut self, pos: u32) -> Vec<usize> {
         let mut result = Vec::new();
 
@@ -123,51 +123,11 @@ impl CommentIndex {
     pub fn take_comments_before_function<I: StringLookup>(
         &mut self,
         pos: u32,
-        param_names: &[&str],
+        param_names: &[impl AsRef<str>],
         comments: &CommentList,
         interner: &I,
     ) -> Vec<usize> {
-        let mut result = Vec::new();
-
-        // Only take comments associated with this exact position
-        if let Some(refs) = self.comments_by_position.remove(&pos) {
-            // Sort doc comments by kind
-            let sorted = sort_comments_by_kind(refs);
-
-            // Separate param comments from others for reordering
-            let mut param_indices = Vec::new();
-            let mut other_indices = Vec::new();
-
-            for comment_ref in sorted {
-                if self.consumed[comment_ref.index] {
-                    continue;
-                }
-                self.consumed[comment_ref.index] = true;
-
-                if comment_ref.kind == CommentKind::DocMember {
-                    param_indices.push(comment_ref.index);
-                } else {
-                    other_indices.push((comment_ref.kind.sort_order(), comment_ref.index));
-                }
-            }
-
-            // Reorder member comments by function signature order
-            let reordered_params =
-                reorder_param_comments(&param_indices, comments, param_names, interner);
-
-            // Merge: collect by sort order, insert members at their position (sort_order=1)
-            let mut all_by_order: Vec<(u8, usize)> = other_indices;
-            for idx in reordered_params {
-                all_by_order.push((1, idx)); // DocMember has sort_order 1
-            }
-            all_by_order.sort_by_key(|(order, _)| *order);
-
-            for (_, idx) in all_by_order {
-                result.push(idx);
-            }
-        }
-
-        result
+        self.take_comments_before_with_members(pos, param_names, comments, interner)
     }
 
     /// Get comments that should appear before a type, with @field reordering.
@@ -179,7 +139,22 @@ impl CommentIndex {
     pub fn take_comments_before_type<I: StringLookup>(
         &mut self,
         pos: u32,
-        field_names: &[&str],
+        field_names: &[impl AsRef<str>],
+        comments: &CommentList,
+        interner: &I,
+    ) -> Vec<usize> {
+        self.take_comments_before_with_members(pos, field_names, comments, interner)
+    }
+
+    /// Take comments before `pos`, reordering `DocMember` comments to match `member_names`.
+    ///
+    /// Shared skeleton for [`Self::take_comments_before_function`] (params) and
+    /// [`Self::take_comments_before_type`] (fields): the two differ only in which
+    /// member-name list drives the reorder.
+    fn take_comments_before_with_members<I: StringLookup>(
+        &mut self,
+        pos: u32,
+        member_names: &[impl AsRef<str>],
         comments: &CommentList,
         interner: &I,
     ) -> Vec<usize> {
@@ -190,8 +165,8 @@ impl CommentIndex {
             // Sort doc comments by kind
             let sorted = sort_comments_by_kind(refs);
 
-            // Separate field comments from others for reordering
-            let mut field_indices = Vec::new();
+            // Separate member comments from others for reordering
+            let mut member_indices = Vec::new();
             let mut other_indices = Vec::new();
 
             for comment_ref in sorted {
@@ -201,19 +176,19 @@ impl CommentIndex {
                 self.consumed[comment_ref.index] = true;
 
                 if comment_ref.kind == CommentKind::DocMember {
-                    field_indices.push(comment_ref.index);
+                    member_indices.push(comment_ref.index);
                 } else {
                     other_indices.push((comment_ref.kind.sort_order(), comment_ref.index));
                 }
             }
 
-            // Reorder member comments by struct field order
-            let reordered_fields =
-                reorder_field_comments(&field_indices, comments, field_names, interner);
+            // Reorder member comments by declaration order
+            let reordered_members =
+                reorder_member_comments(&member_indices, comments, member_names, interner);
 
             // Merge: collect by sort order, insert members at their position (sort_order=1)
             let mut all_by_order: Vec<(u8, usize)> = other_indices;
-            for idx in reordered_fields {
+            for idx in reordered_members {
                 all_by_order.push((1, idx)); // DocMember has sort_order 1
             }
             all_by_order.sort_by_key(|(order, _)| *order);
@@ -260,7 +235,7 @@ pub fn format_comment<I: StringLookup>(comment: &Comment, interner: &I) -> Strin
 pub fn reorder_param_comments<I: StringLookup>(
     param_indices: &[usize],
     comments: &CommentList,
-    param_names: &[&str],
+    param_names: &[impl AsRef<str>],
     interner: &I,
 ) -> Vec<usize> {
     reorder_member_comments(param_indices, comments, param_names, interner)
@@ -272,7 +247,7 @@ pub fn reorder_param_comments<I: StringLookup>(
 pub fn reorder_field_comments<I: StringLookup>(
     field_indices: &[usize],
     comments: &CommentList,
-    field_names: &[&str],
+    field_names: &[impl AsRef<str>],
     interner: &I,
 ) -> Vec<usize> {
     reorder_member_comments(field_indices, comments, field_names, interner)
@@ -285,7 +260,7 @@ pub fn reorder_field_comments<I: StringLookup>(
 fn reorder_member_comments<I: StringLookup>(
     indices: &[usize],
     comments: &CommentList,
-    names: &[&str],
+    names: &[impl AsRef<str>],
     interner: &I,
 ) -> Vec<usize> {
     if indices.is_empty() || names.is_empty() {
@@ -296,7 +271,7 @@ fn reorder_member_comments<I: StringLookup>(
     let name_to_order: HashMap<&str, usize> = names
         .iter()
         .enumerate()
-        .map(|(i, &name)| (name, i))
+        .map(|(i, name)| (name.as_ref(), i))
         .collect();
 
     let mut ordered: Vec<(Option<usize>, usize)> = indices

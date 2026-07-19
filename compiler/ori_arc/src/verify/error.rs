@@ -7,7 +7,7 @@
 
 use ori_ir::Span;
 
-use crate::ir::{ArcBlockId, ArcVarId};
+use crate::ir::{ArcBlockId, ArcVarId, RcStrategy, ValueRepr};
 
 /// A verification error found in the ARC IR.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,6 +54,36 @@ pub enum VerifyError {
         actual: usize,
     },
 
+    /// The realization pipeline did not mark derived variable metadata ready.
+    VariableMetadataUnrealized,
+
+    /// A realized variable metadata table is not parallel to `var_types`.
+    VariableMetadataLength {
+        table: &'static str,
+        variables: usize,
+        entries: usize,
+    },
+
+    /// A lifecycle state requires a derived table to be absent.
+    VariableMetadataUnexpectedEntries { table: &'static str, entries: usize },
+
+    /// A cached representation disagrees with canonical type classification.
+    VariableRepresentationMismatch {
+        var: ArcVarId,
+        expected: ValueRepr,
+        found: ValueRepr,
+    },
+
+    /// A cached RC strategy disagrees with canonical type and representation data.
+    VariableRcStrategyMismatch {
+        var: ArcVarId,
+        expected: Option<RcStrategy>,
+        found: Option<RcStrategy>,
+    },
+
+    /// A typed primitive site is missing, stale, malformed, or unsupported.
+    PrimitiveFactInvalid { dst: ArcVarId, reason: &'static str },
+
     /// FIP structural violation detected during pipeline verification.
     ///
     /// Wraps FIP verification errors (`CertifiedButUnboundedStack`,
@@ -71,6 +101,17 @@ pub enum VerifyError {
     /// monomorphization-resolution invariant violation (sibling to PC-2).
     /// Wraps [`crate::ir::validate::UnresolvedBoundVar`].
     UnresolvedBoundVar(crate::ir::validate::UnresolvedBoundVar),
+
+    /// Shared pre-AIMS lambda specialization could not eliminate every bound
+    /// type variable from a parent/lambda batch.
+    LambdaSpecialization(crate::LambdaSpecializationError),
+
+    /// Exact semantic callable-boundary facts are missing, contradictory, or
+    /// disagree with the realized body signature.
+    CallableBoundary(crate::CallableBoundaryError),
+
+    /// The shared closure ABI freezer could not build a total adapter plan.
+    ClosureAbi(crate::ClosureAbiError),
 
     /// Function-exit burden-balance violation: the algebraic sum
     /// `Σ BurdenInc(v) - Σ BurdenDec*(v)` along some reachable path from
@@ -128,6 +169,18 @@ impl From<crate::ir::validate::UnresolvedTypeVar> for VerifyError {
 impl From<crate::ir::validate::UnresolvedBoundVar> for VerifyError {
     fn from(violation: crate::ir::validate::UnresolvedBoundVar) -> Self {
         VerifyError::UnresolvedBoundVar(violation)
+    }
+}
+
+impl From<crate::LambdaSpecializationError> for VerifyError {
+    fn from(error: crate::LambdaSpecializationError) -> Self {
+        VerifyError::LambdaSpecialization(error)
+    }
+}
+
+impl From<crate::CallableBoundaryError> for VerifyError {
+    fn from(error: crate::CallableBoundaryError) -> Self {
+        VerifyError::CallableBoundary(error)
     }
 }
 
@@ -192,6 +245,14 @@ impl std::fmt::Display for VerifyError {
                     actual,
                 )
             }
+            error @ (VerifyError::VariableMetadataUnrealized
+            | VerifyError::VariableMetadataLength { .. }
+            | VerifyError::VariableMetadataUnexpectedEntries { .. }
+            | VerifyError::VariableRepresentationMismatch { .. }
+            | VerifyError::VariableRcStrategyMismatch { .. }) => fmt_variable_metadata(f, error),
+            VerifyError::PrimitiveFactInvalid { dst, reason } => {
+                write!(f, "invalid primitive fact for v{}: {reason}", dst.raw())
+            }
             VerifyError::FipStructural { message } => {
                 write!(f, "FIP structural violation: {message}")
             }
@@ -216,9 +277,56 @@ impl std::fmt::Display for VerifyError {
                     violation.idx,
                 )
             }
+            VerifyError::LambdaSpecialization(error) => std::fmt::Display::fmt(error, f),
+            VerifyError::CallableBoundary(error) => std::fmt::Display::fmt(error, f),
+            VerifyError::ClosureAbi(error) => std::fmt::Display::fmt(error, f),
             VerifyError::BurdenImbalance(e) => fmt_burden_imbalance(f, e),
         }
     }
+}
+
+fn fmt_variable_metadata(f: &mut std::fmt::Formatter<'_>, error: &VerifyError) -> std::fmt::Result {
+    match error {
+        VerifyError::VariableMetadataUnrealized => {
+            write!(f, "realization did not freeze variable metadata")?;
+        }
+        VerifyError::VariableMetadataLength {
+            table,
+            variables,
+            entries,
+        } => write!(
+            f,
+            "realized variable metadata is incomplete: {variables} variables but {entries} {table} entries"
+        )?,
+        VerifyError::VariableMetadataUnexpectedEntries { table, entries } => write!(
+            f,
+            "realized variable metadata requires {table} to be absent, but found {entries} entries"
+        )?,
+        VerifyError::VariableRepresentationMismatch {
+            var,
+            expected,
+            found,
+        } => write!(
+            f,
+            "physical representation metadata for v{} is inconsistent with its canonical type classification: expected {expected:?}, found {found:?}",
+            var.raw()
+        )?,
+        VerifyError::VariableRcStrategyMismatch {
+            var,
+            expected,
+            found,
+        } => write!(
+            f,
+            "physical ownership-strategy metadata for v{} is inconsistent with its canonical type and representation: expected {expected:?}, found {found:?}",
+            var.raw()
+        )?,
+        _ => unreachable!("metadata formatter received a non-metadata verification error"),
+    }
+
+    write!(
+        f,
+        "; rerun the same command with ORI_VERIFY_ARC=1 and report this compiler bug (Annex E, AIMS §8.11)"
+    )
 }
 
 fn fmt_span(f: &mut std::fmt::Formatter<'_>, span: Option<Span>) -> std::fmt::Result {

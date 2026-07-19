@@ -62,7 +62,7 @@ Theorem DP-3: is_rc_inc_elidable truth table — Once AND (Linear OR Affine)
       false. The single-use (Once) gate is the load-bearing conjunct.
 
     DP-3 vs former DP-10 distinction:
-      DP-10 (REMOVED) claimed `O AND L AND 1 ==> RC = 1` unsound:
+      DP-10 (REMOVED) claimed `O AND L AND 1 ==> one logical owner`, unsound:
       backward analysis proves no future duplication but NOT no existing
       aliases. DP-3 is the SOUND inc-elision predicate: a value with
       Cardinality = Once has no future duplication at its single use; the

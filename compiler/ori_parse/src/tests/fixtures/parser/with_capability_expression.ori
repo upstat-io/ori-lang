@@ -1,0 +1,4 @@
+
+@example () -> int =
+    with Http = MockHttp in
+        42;

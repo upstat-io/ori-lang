@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "compiler/ori_ir",
+    "compiler/ori_format",
     "compiler/ori_registry",
     "compiler/ori_diagnostic",
     "compiler/ori_lexer_core",
@@ -13,6 +14,7 @@ members = [
     "compiler/ori_fmt",
     "compiler/ori_arc",
     "compiler/ori_repr",
+    "compiler/ori_vm",
     "compiler/ori_canon",
     "compiler/ori_compiler",
     "compiler/ori_stack",
@@ -24,6 +26,7 @@ members = [
 # All crates including ori_llvm are in default-members; LLVM 21 is required for oric builds.
 default-members = [
     "compiler/ori_ir",
+    "compiler/ori_format",
     "compiler/ori_registry",
     "compiler/ori_diagnostic",
     "compiler/ori_lexer_core",
@@ -35,6 +38,7 @@ default-members = [
     "compiler/ori_fmt",
     "compiler/ori_arc",
     "compiler/ori_repr",
+    "compiler/ori_vm",
     "compiler/ori_canon",
     "compiler/ori_compiler",
     "compiler/ori_stack",
@@ -50,7 +54,7 @@ exclude = ["fuzz",
 ]
 
 [workspace.package]
-version = "2026.4.26-alpha.1"
+version = "2026.7.19-alpha.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/upstat-io/ori-lang"
@@ -78,6 +82,7 @@ bincode = "1"
 
 # Internal crates (workspace members only; excluded crates use path deps directly)
 ori_ir = { path = "compiler/ori_ir" }
+ori_format = { path = "compiler/ori_format" }
 ori_registry = { path = "compiler/ori_registry" }
 ori_diagnostic = { path = "compiler/ori_diagnostic" }
 ori_lexer_core = { path = "compiler/ori_lexer_core" }
@@ -89,6 +94,7 @@ ori_eval = { path = "compiler/ori_eval" }
 ori_fmt = { path = "compiler/ori_fmt" }
 ori_arc = { path = "compiler/ori_arc" }
 ori_repr = { path = "compiler/ori_repr" }
+ori_vm = { path = "compiler/ori_vm" }
 ori_canon = { path = "compiler/ori_canon" }
 ori_compiler = { path = "compiler/ori_compiler" }
 ori_stack = { path = "compiler/ori_stack" }
@@ -137,8 +143,10 @@ similar_names = "allow"
 # oric before flipping to `warn`.
 undocumented_unsafe_blocks = "allow"
 
-# Additional cleanliness lints. ENABLED: no pre-existing hits.
+# Additional cleanliness lints. ENABLED: hits cleared by a cleanup pass.
 fallible_impl_from = "warn"            # panic/unwrap in `impl From` -> use TryFrom
+redundant_clone = "deny"               # CL-1; nursery; hits cleared (borrow / restructure)
+needless_collect = "deny"              # CL-2; nursery; hits cleared (borrow-break FPs carry #[expect])
 # STAGED (allow now -> warn/deny after a cleanup pass; re-probe for current hit
 # counts). Several do not yet exempt tests. Staged-promotion pattern mirrors
 # missing_docs / undocumented_unsafe_blocks above.
@@ -149,8 +157,6 @@ arithmetic_side_effects = "allow"      # also needs clippy.toml scoping
 let_underscore_must_use = "allow"
 assertions_on_result_states = "allow"  # test weak-assertion lint
 allow_attributes = "allow"             # prefer #[expect] over #[allow]
-redundant_clone = "allow"              # nursery
-needless_collect = "allow"             # nursery
 map_err_ignore = "allow"               # error source discarded
 
 # Optimized release profile for final/published builds.

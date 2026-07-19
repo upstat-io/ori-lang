@@ -6,11 +6,11 @@
 //! - The replaced element's RC is released on the unique fast path via `dec_fn`
 //!   (the new element is moved in; ownership transfers from the caller).
 
-use crate::io::ori_panic_cstr;
-use crate::rc::ori_rc_is_unique;
-use crate::slice_encoding::is_slice_cap;
+use crate::io::panic_index_out_of_bounds;
+use crate::rc::ori_buffer_rc_dec;
 
 use super::cow::slow_copy_replace_element;
+use super::cow_context::{CowMode, ElementOps, ListBuffer};
 
 /// COW-aware element replacement with consuming semantics (`IndexSet.updated`).
 ///
@@ -20,8 +20,10 @@ use super::cow::slow_copy_replace_element;
 ///
 /// # Panics
 ///
-/// Panics if `index < 0 || index >= len` (via `ori_panic_cstr`, which unwinds)
-/// — same bounds contract as `ori_list_get` (`list[index]`).
+/// Panics if `index < 0 || index >= len` — same bounds contract as
+/// `ori_list_get` (`list[index]`). Because ownership transfers at call entry,
+/// the panicking path releases both the consumed receiver and moved-in value
+/// before unwinding.
 ///
 /// # Element RC
 ///
@@ -53,25 +55,24 @@ pub extern "C-unwind" fn ori_list_updated_cow(
         return;
     }
 
-    // Bounds check — panics like `list[index]` (a null buffer is the empty
-    // sentinel, so every index is out of bounds for it).
     if data.is_null() || index < 0 || index >= len {
-        ori_panic_cstr(c"index out of bounds".as_ptr());
+        if let Some(dec) = dec_fn {
+            dec(elem_ptr.cast_mut());
+        }
+        ori_buffer_rc_dec(data, len, cap, elem_size, dec_fn);
+        panic_index_out_of_bounds(index, len.max(0));
     }
 
     let es = elem_size.max(1) as usize;
     let ea = elem_align.max(1) as usize;
     let idx = index as usize;
 
-    // FAST PATH: unique owner, non-slice — overwrite in place.
-    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
-    let is_unique =
-        !is_slice_cap(cap) && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data)));
+    let is_unique = CowMode::from_abi(cow_mode).allows_in_place(data, cap);
     if is_unique {
         // SAFETY: Uniqueness verified; idx < len so idx * es is within the buffer.
         unsafe {
             let dst = data.add(idx * es);
-            // Release the replaced element's RC children before overwriting.
+            // Why: Overwriting the unique slot otherwise leaks its owned children.
             if let Some(dec) = dec_fn {
                 dec(dst);
             }
@@ -83,8 +84,12 @@ pub extern "C-unwind" fn ori_list_updated_cow(
         return;
     }
 
-    // SLOW PATH: shared — copy entire list, overwrite in copy. The old
-    // buffer keeps its reference to the replaced element; the moved-in
-    // element carries the caller's reference (no inc).
-    slow_copy_replace_element(data, len, cap, idx, elem_ptr, es, ea, inc_fn, out_ptr);
+    // Why: The old buffer retains the replaced value; the moved replacement owns its credit.
+    slow_copy_replace_element(
+        ListBuffer::new(data, len, cap),
+        idx,
+        elem_ptr,
+        ElementOps::new(es, ea, inc_fn),
+        out_ptr,
+    );
 }

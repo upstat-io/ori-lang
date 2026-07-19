@@ -1,0 +1,3 @@
+#derive(Value)
+         type Point = { x: float, y: float }
+         @main () -> int = 0;

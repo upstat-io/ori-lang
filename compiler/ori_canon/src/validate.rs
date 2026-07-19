@@ -1,4 +1,4 @@
-//! Debug-mode validation of canonical IR invariants.
+//! Validation of canonical IR invariants.
 //!
 //! Walks the canonical arena and asserts that all invariants hold:
 //! - No sugar variants present in `CanExpr`
@@ -9,49 +9,66 @@
 //! - All `DecisionTreeId` references resolve to valid trees
 //! - All `ConstantId` references resolve to valid constants
 //!
-//! These checks are enabled only in debug builds (`debug_assert!`).
-//! They catch bugs in the lowering pass early, before backends consume
-//! invalid canonical IR.
+//! These release-active checks catch bugs in the lowering pass before backends
+//! consume invalid canonical IR.
 
 use ori_ir::canon::{CanArena, CanExpr, CanonResult};
 use ori_ir::TypeId;
 
 /// Validate that a `CanonResult` satisfies all canonical invariants.
 ///
-/// This function is called after lowering in debug builds. It panics
-/// with a descriptive message if any invariant is violated.
+/// This function is called after lowering. It panics with a descriptive message
+/// if any invariant is violated.
 ///
 /// # What's Checked
 ///
 /// 1. All `CanId` references point to valid arena nodes
 /// 2. All range references are within their storage bounds
-/// 3. No `CanExpr` variant is a sugar variant (type-level guarantee
-///    already prevents this, but we verify ranges and IDs)
+/// 3. Every `CanExpr` range and ID satisfies the sugar-free type guarantee
 /// 4. Every node has a resolved type (not INFER)
-/// 5. The root expression is valid
+/// 5. The root expression is in bounds when present
 pub fn validate(result: &CanonResult) {
-    if !result.root.is_valid() {
-        // Empty/error result — nothing to validate.
-        return;
-    }
-
     let arena = &result.arena;
 
-    // Validate root is within bounds.
-    debug_assert!(
-        result.root.index() < arena.len(),
-        "root CanId({}) out of bounds (arena has {} nodes)",
-        result.root.raw(),
-        arena.len(),
-    );
+    // A module containing only constants or methods legitimately has no
+    // primary expression root. Its arena is still canonical output and must
+    // pass the same node-level validation as every rooted result.
+    if result.root.is_valid() {
+        validate_result_id(arena, result.root, "root");
+    }
+    for (root_index, root) in result.roots.iter().enumerate() {
+        validate_result_id(arena, root.body, &format!("roots[{root_index}].body"));
+        for (default_index, default) in root.defaults.iter().enumerate() {
+            if let Some(default) = default {
+                validate_result_id(
+                    arena,
+                    *default,
+                    &format!("roots[{root_index}].defaults[{default_index}]"),
+                );
+            }
+        }
+    }
+    for (root_index, root) in result.method_roots.iter().enumerate() {
+        validate_result_id(
+            arena,
+            root.body,
+            &format!("method_roots[{root_index}].body"),
+        );
+    }
+    for (site_index, (site, _)) in result.mono_dispatch_map_can.iter().enumerate() {
+        validate_result_id(
+            arena,
+            *site,
+            &format!("mono_dispatch_map_can[{site_index}].site"),
+        );
+    }
 
     // Walk all nodes and validate references.
     for i in 0..arena.len() {
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "arena indices always fit u32"
-        )]
-        let id = ori_ir::canon::CanId::new(i as u32);
+        let Ok(raw_id) = u32::try_from(i) else {
+            panic!("canonical arena index {i} exceeds the CanId range");
+        };
+        let id = ori_ir::canon::CanId::new(raw_id);
         let kind = arena.kind(id);
         let ty = arena.ty(id);
 
@@ -60,9 +77,18 @@ pub fn validate(result: &CanonResult) {
     }
 }
 
+fn validate_result_id(arena: &CanArena, id: ori_ir::canon::CanId, field_name: &str) {
+    assert!(
+        id.is_valid() && id.index() < arena.len(),
+        "CanonResult.{field_name} references CanId({}) out of bounds; arena has {} nodes",
+        id.raw(),
+        arena.len(),
+    );
+}
+
 /// Validate that a node's type is resolved (not INFER).
 fn validate_type(id: ori_ir::canon::CanId, ty: TypeId) {
-    debug_assert!(
+    assert!(
         ty != TypeId::INFER,
         "CanNode({}) has unresolved type INFER",
         id.raw(),
@@ -70,10 +96,6 @@ fn validate_type(id: ori_ir::canon::CanId, ty: TypeId) {
 }
 
 /// Validate all child references in a `CanExpr`.
-#[expect(
-    clippy::too_many_lines,
-    reason = "exhaustive CanExpr child-reference validation"
-)]
 fn validate_expr(arena: &CanArena, result: &CanonResult, id: ori_ir::canon::CanId, kind: &CanExpr) {
     match kind {
         // Leaf nodes — no child references to validate.
@@ -96,15 +118,7 @@ fn validate_expr(arena: &CanArena, result: &CanonResult, id: ori_ir::canon::CanI
         | CanExpr::Error => {}
 
         // Constant — validate pool reference.
-        CanExpr::Constant(const_id) => {
-            debug_assert!(
-                const_id.index() < result.constants.len(),
-                "CanNode({}) references ConstantId({}) but pool has {} entries",
-                id.raw(),
-                const_id.raw(),
-                result.constants.len(),
-            );
-        }
+        CanExpr::Constant(const_id) => validate_constant_ref(result, id, *const_id),
 
         // Unary nodes — validate single child.
         CanExpr::Unary { operand, .. } => validate_can_id(arena, id, *operand, "operand"),
@@ -116,14 +130,60 @@ fn validate_expr(arena: &CanArena, result: &CanonResult, id: ori_ir::canon::CanI
         | CanExpr::Err(child)
         | CanExpr::Loop { body: child, .. }
         | CanExpr::Break { value: child, .. }
-        | CanExpr::Continue { value: child, .. } => {
-            // INVALID is allowed for Ok(()), Err(()), Break, Continue with no value.
-            if child.is_valid() {
-                validate_can_id(arena, id, *child, "child");
-            }
-        }
+        | CanExpr::Continue { value: child, .. } => validate_optional_child(arena, id, *child),
 
-        // Binary nodes.
+        CanExpr::Binary { .. }
+        | CanExpr::Cast { .. }
+        | CanExpr::FormatWith { .. }
+        | CanExpr::Field { .. }
+        | CanExpr::Index { .. }
+        | CanExpr::Assign { .. } => validate_simple_expr(arena, id, kind),
+
+        CanExpr::If { .. }
+        | CanExpr::For { .. }
+        | CanExpr::WithCapability { .. }
+        | CanExpr::Match { .. } => validate_control_expr(arena, result, id, kind),
+
+        CanExpr::Block { .. }
+        | CanExpr::Let { .. }
+        | CanExpr::Lambda { .. }
+        | CanExpr::Call { .. }
+        | CanExpr::MethodCall { .. }
+        | CanExpr::List(_)
+        | CanExpr::Tuple(_)
+        | CanExpr::Map(_)
+        | CanExpr::Struct { .. }
+        | CanExpr::Range { .. } => validate_container_expr(arena, id, kind),
+    }
+}
+
+fn validate_constant_ref(
+    result: &CanonResult,
+    id: ori_ir::canon::CanId,
+    const_id: ori_ir::canon::ConstantId,
+) {
+    assert!(
+        const_id.index() < result.constants.len(),
+        "CanNode({}) references ConstantId({}) but pool has {} entries",
+        id.raw(),
+        const_id.raw(),
+        result.constants.len(),
+    );
+}
+
+fn validate_optional_child(
+    arena: &CanArena,
+    id: ori_ir::canon::CanId,
+    child: ori_ir::canon::CanId,
+) {
+    // INVALID is allowed for Ok(()), Err(()), Break, Continue with no value.
+    if child.is_valid() {
+        validate_can_id(arena, id, child, "child");
+    }
+}
+
+fn validate_simple_expr(arena: &CanArena, id: ori_ir::canon::CanId, kind: &CanExpr) {
+    match kind {
         CanExpr::Binary { left, right, .. } => {
             validate_can_id(arena, id, *left, "left");
             validate_can_id(arena, id, *right, "right");
@@ -132,7 +192,9 @@ fn validate_expr(arena: &CanArena, result: &CanonResult, id: ori_ir::canon::CanI
             validate_can_id(arena, id, *expr, "expr");
         }
         CanExpr::Field { receiver, .. } => validate_can_id(arena, id, *receiver, "receiver"),
-        CanExpr::Index { receiver, index } => {
+        CanExpr::Index {
+            receiver, index, ..
+        } => {
             validate_can_id(arena, id, *receiver, "receiver");
             validate_can_id(arena, id, *index, "index");
         }
@@ -140,8 +202,17 @@ fn validate_expr(arena: &CanArena, result: &CanonResult, id: ori_ir::canon::CanI
             validate_can_id(arena, id, *target, "target");
             validate_can_id(arena, id, *value, "value");
         }
+        _ => unreachable!("validate_simple_expr called with non-simple expression"),
+    }
+}
 
-        // Ternary+ nodes.
+fn validate_control_expr(
+    arena: &CanArena,
+    result: &CanonResult,
+    id: ori_ir::canon::CanId,
+    kind: &CanExpr,
+) {
+    match kind {
         CanExpr::If {
             cond,
             then_branch,
@@ -149,32 +220,26 @@ fn validate_expr(arena: &CanArena, result: &CanonResult, id: ori_ir::canon::CanI
         } => {
             validate_can_id(arena, id, *cond, "cond");
             validate_can_id(arena, id, *then_branch, "then_branch");
-            if else_branch.is_valid() {
-                validate_can_id(arena, id, *else_branch, "else_branch");
-            }
+            validate_optional_can_id(arena, id, *else_branch, "else_branch");
         }
         CanExpr::For {
             iter, guard, body, ..
         } => {
             validate_can_id(arena, id, *iter, "iter");
-            if guard.is_valid() {
-                validate_can_id(arena, id, *guard, "guard");
-            }
+            validate_optional_can_id(arena, id, *guard, "guard");
             validate_can_id(arena, id, *body, "body");
         }
         CanExpr::WithCapability { provider, body, .. } => {
             validate_can_id(arena, id, *provider, "provider");
             validate_can_id(arena, id, *body, "body");
         }
-
-        // Match — validate decision tree reference.
         CanExpr::Match {
             scrutinee,
             decision_tree,
             arms,
         } => {
             validate_can_id(arena, id, *scrutinee, "scrutinee");
-            debug_assert!(
+            assert!(
                 decision_tree.index() < result.decision_trees.len(),
                 "CanNode({}) references DecisionTreeId({}) but pool has {} trees",
                 id.raw(),
@@ -183,22 +248,18 @@ fn validate_expr(arena: &CanArena, result: &CanonResult, id: ori_ir::canon::CanI
             );
             validate_can_range(arena, id, *arms, "arms");
         }
+        _ => unreachable!("validate_control_expr called with non-control expression"),
+    }
+}
 
-        // Block.
-        CanExpr::Block { stmts, result: res } => {
+fn validate_container_expr(arena: &CanArena, id: ori_ir::canon::CanId, kind: &CanExpr) {
+    match kind {
+        CanExpr::Block { stmts, result } => {
             validate_can_range(arena, id, *stmts, "stmts");
-            if res.is_valid() {
-                validate_can_id(arena, id, *res, "result");
-            }
+            validate_optional_can_id(arena, id, *result, "result");
         }
-
-        // Let.
         CanExpr::Let { init, .. } => validate_can_id(arena, id, *init, "init"),
-
-        // Lambda.
         CanExpr::Lambda { body, .. } => validate_can_id(arena, id, *body, "body"),
-
-        // Calls.
         CanExpr::Call { func, args } => {
             validate_can_id(arena, id, *func, "func");
             validate_can_range(arena, id, *args, "args");
@@ -207,43 +268,51 @@ fn validate_expr(arena: &CanArena, result: &CanonResult, id: ori_ir::canon::CanI
             validate_can_id(arena, id, *receiver, "receiver");
             validate_can_range(arena, id, *args, "args");
         }
-
-        // Collections.
         CanExpr::List(range) | CanExpr::Tuple(range) => {
             validate_can_range(arena, id, *range, "elements");
         }
-        CanExpr::Map(range) => {
-            if !range.is_empty() {
-                // Validate each map entry's key and value references.
-                let entries = arena.get_map_entries(*range);
-                for (i, entry) in entries.iter().enumerate() {
-                    validate_can_id(arena, id, entry.key, &format!("map[{i}].key"));
-                    validate_can_id(arena, id, entry.value, &format!("map[{i}].value"));
-                }
-            }
-        }
-        CanExpr::Struct { fields, .. } => {
-            if !fields.is_empty() {
-                // Validate each field's value reference.
-                let field_list = arena.get_fields(*fields);
-                for (i, field) in field_list.iter().enumerate() {
-                    validate_can_id(arena, id, field.value, &format!("field[{i}].value"));
-                }
-            }
-        }
+        CanExpr::Map(range) => validate_map_entries(arena, id, *range),
+        CanExpr::Struct { fields, .. } => validate_struct_fields(arena, id, *fields),
         CanExpr::Range {
             start, end, step, ..
         } => {
-            if start.is_valid() {
-                validate_can_id(arena, id, *start, "start");
-            }
-            if end.is_valid() {
-                validate_can_id(arena, id, *end, "end");
-            }
-            if step.is_valid() {
-                validate_can_id(arena, id, *step, "step");
-            }
+            validate_optional_can_id(arena, id, *start, "start");
+            validate_optional_can_id(arena, id, *end, "end");
+            validate_optional_can_id(arena, id, *step, "step");
         }
+        _ => unreachable!("validate_container_expr called with non-container expression"),
+    }
+}
+
+fn validate_optional_can_id(
+    arena: &CanArena,
+    parent: ori_ir::canon::CanId,
+    child: ori_ir::canon::CanId,
+    field_name: &str,
+) {
+    if child.is_valid() {
+        validate_can_id(arena, parent, child, field_name);
+    }
+}
+
+fn validate_map_entries(
+    arena: &CanArena,
+    id: ori_ir::canon::CanId,
+    range: ori_ir::canon::CanMapEntryRange,
+) {
+    for (index, entry) in arena.get_map_entries(range).iter().enumerate() {
+        validate_can_id(arena, id, entry.key, &format!("map[{index}].key"));
+        validate_can_id(arena, id, entry.value, &format!("map[{index}].value"));
+    }
+}
+
+fn validate_struct_fields(
+    arena: &CanArena,
+    id: ori_ir::canon::CanId,
+    fields: ori_ir::canon::CanFieldRange,
+) {
+    for (index, field) in arena.get_fields(fields).iter().enumerate() {
+        validate_can_id(arena, id, field.value, &format!("field[{index}].value"));
     }
 }
 
@@ -254,7 +323,7 @@ fn validate_can_id(
     child: ori_ir::canon::CanId,
     field_name: &str,
 ) {
-    debug_assert!(
+    assert!(
         child.index() < arena.len(),
         "CanNode({}).{field_name} references CanId({}) but arena has {} nodes",
         parent.raw(),
@@ -276,7 +345,7 @@ fn validate_can_range(
     // Verify each ID in the range is valid.
     let ids = arena.get_expr_list(range);
     for (i, &child_id) in ids.iter().enumerate() {
-        debug_assert!(
+        assert!(
             child_id.index() < arena.len(),
             "CanNode({}).{field_name}[{i}] references CanId({}) but arena has {} nodes",
             parent.raw(),
@@ -285,3 +354,6 @@ fn validate_can_range(
         );
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -71,12 +71,12 @@ fn nonexistent_method_is_not_dispatchable() {
     ));
 }
 
-// Sanity: types without Value return false for non-collection methods
+// Sanity: the zero-information Unit value still has registered methods.
 
 #[test]
-fn unit_has_no_dispatch() {
+fn unit_clone_is_dispatchable() {
     let interner = test_interner();
-    assert!(!can_dispatch_builtin(TypeTag::Unit, "clone", &interner));
+    assert!(can_dispatch_builtin(TypeTag::Unit, "clone", &interner));
 }
 
 // is_collection_dispatched covers both resolver paths
@@ -137,6 +137,7 @@ fn minimal_value_covers_all_dispatchable_types() {
         TypeTag::Str,
         TypeTag::Char,
         TypeTag::Byte,
+        TypeTag::Unit,
         TypeTag::Duration,
         TypeTag::Size,
         TypeTag::Ordering,
@@ -160,7 +161,6 @@ fn minimal_value_covers_all_dispatchable_types() {
 #[test]
 fn minimal_value_returns_none_for_non_value_types() {
     let non_value = [
-        TypeTag::Unit,
         TypeTag::Never,
         TypeTag::Iterator,
         TypeTag::DoubleEndedIterator,

@@ -3,6 +3,7 @@
 //! This module provides loop action types used by the canonical evaluation
 //! path (`eval_can`) for break/continue/error handling in loops.
 
+use ori_ir::Name;
 use ori_patterns::{ControlAction, Value};
 
 /// Result of a for loop iteration.
@@ -18,16 +19,28 @@ pub enum LoopAction {
     Error(ControlAction),
 }
 
-/// Convert a `ControlAction` to a `LoopAction`.
+/// Convert a `ControlAction` to a `LoopAction` for the loop labeled `loop_label`.
 ///
-/// Control flow signals (break/continue) become the corresponding `LoopAction`
-/// variants. Errors and propagation signals are wrapped in `LoopAction::Error`
-/// for re-raising after the loop.
-pub fn to_loop_action(action: ControlAction) -> LoopAction {
+/// Spec: Clause 16.3.3 — labels scope through arbitrary nesting. A break/continue
+/// is consumed by THIS loop only when its target label is empty (innermost) or
+/// matches `loop_label`; a non-matching labeled signal re-propagates outward
+/// (`LoopAction::Error`) so the enclosing loop with the matching label consumes
+/// it. Errors and `?`-propagation ALWAYS re-propagate, regardless of labels.
+pub fn to_loop_action(action: ControlAction, loop_label: Name) -> LoopAction {
     match action {
-        ControlAction::Continue(v) if !matches!(v, Value::Void) => LoopAction::ContinueWith(v),
-        ControlAction::Continue(_) => LoopAction::Continue,
-        ControlAction::Break(v) => LoopAction::Break(v),
-        other => LoopAction::Error(other),
+        // Error / Propagate short-circuit ALL loops regardless of label — checked
+        // FIRST so a runtime error or `?` never participates in label matching.
+        ControlAction::Error(_) | ControlAction::Propagate(_) => LoopAction::Error(action),
+        // A labeled signal whose target is neither empty nor this loop's label
+        // belongs to an enclosing loop — re-propagate it unchanged.
+        ControlAction::Break(_, label) | ControlAction::Continue(_, label)
+            if label != Name::EMPTY && label != loop_label =>
+        {
+            LoopAction::Error(action)
+        }
+        // Targets this loop (empty = innermost, or label matches).
+        ControlAction::Continue(v, _) if !matches!(v, Value::Void) => LoopAction::ContinueWith(v),
+        ControlAction::Continue(_, _) => LoopAction::Continue,
+        ControlAction::Break(v, _) => LoopAction::Break(v),
     }
 }

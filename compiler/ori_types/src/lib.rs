@@ -1,28 +1,25 @@
 #![deny(unsafe_code)]
 //! Type system for Ori.
 //!
-//! Provides the unified type system based on:
-//! - [`Idx`]: 32-bit type index (THE canonical type handle)
-//! - [`Tag`]: Type kind discriminant
-//! - [`Item`]: Compact type storage (tag + data)
-//! - [`TypeFlags`]: Pre-computed metadata for O(1) queries
-//! - [`Pool`]: Unified type pool with interning
-//!
-//! Per design spec 02-design-principles.md:
-//! - All types have Clone, Eq, Hash for Salsa compatibility
-//! - Interned type representations for efficiency
-//! - Flat structures for cache locality
+//! [`Idx`] is the canonical 32-bit type handle into the interned [`Pool`].
+//! Compact [`Item`] storage pairs a [`Tag`] with precomputed [`TypeFlags`] for
+//! constant-time category queries, cache-local traversal, and Salsa-compatible
+//! equality and hashing.
 
 mod check;
+mod const_eval;
 mod flags;
 mod idx;
 mod infer;
 mod item;
 mod lifetime;
+mod operator;
 mod output;
 mod pool;
+pub mod provenance;
 mod registry;
 pub mod reporting;
+mod salsa_assertions;
 mod tag;
 pub mod triviality;
 mod type_error;
@@ -34,22 +31,44 @@ pub use check::{
     check_module, check_module_with_imports, check_module_with_pool, check_module_with_registries,
     ModuleChecker,
 };
+pub use const_eval::GenericConstExpr;
 pub use flags::{TypeCategory, TypeFlags};
 pub use idx::Idx;
-pub use infer::{check_expr, infer_expr, resolve_parsed_type, ExprIndex, InferEngine, TypeEnv};
+pub(crate) use infer::infer_expr;
+pub use infer::{check_expr, resolve_parsed_type, ExprIndex, InferEngine, TypeEnv};
+pub use infer::{compose_burden_for_idx, register_resolved_collection_burdens};
 pub use item::Item;
 pub use lifetime::LifetimeId;
+pub use operator::{
+    primitive_binary_strategy, primitive_unary_strategy, registry_binary_strategy,
+    registry_unary_strategy, user_structural_binary_strategy,
+};
 pub use ori_ir::{PatternKey, PatternResolution};
 pub use output::{
-    AssignDesugar, ConstParamInfo, ConstValue, DeferredMonoCall, DeferredVarBinding, EffectClass,
-    ExportedTypeMetadata, FnWhereClause, FormatSpecTypes, FunctionSig, GenericArg, MonoInstance,
-    MonoInstanceId, TypeCheckResult, TypedModule,
+    imported_method_producer, imported_method_signature_hash, is_marker_capability,
+    AcceptedDerivedImpl, AssignDesugar, AssignStepRoute, CapabilityCallSite, CapabilityParam,
+    CapabilityProvider, CapabilityProviderSource, ConcreteMethodMono, ConstGenericTerm,
+    ConstParamInfo, ConstValue, DeferredMonoCall, DeferredMonoCaller, DeferredVarBinding,
+    DerivedCallPlan, DerivedCallPosition, DerivedCallSelection, DerivedDirectCallSelection,
+    EffectClass, ExportedTypeMetadata, FnWhereClause, FormatSpecTypes, FunctionSig, GenericArg,
+    ImplMethodId, ImplMethodRole, ImplSig, ImportedImplSig, IterMethodRoute, MethodProducer,
+    MethodProducerId, MonoConstBinding, MonoInstance, MonoInstanceId, RegistryMethodIdentity,
+    RegistryPreludeIdentity, TypeCheckResult, TypedModule, IMPORTED_METHOD_PRODUCER_SCHEMA,
+    REGISTRY_PRODUCER_SCHEMA,
 };
+
+pub(crate) use output::IndexDispatchSelection;
 pub use pool::{
-    build_mono_body_type_map, extend_var_subst_with_roots, extract_var_from_types, re_intern_sig,
-    re_intern_sig_with_var_remap, re_intern_type, re_intern_type_with_var_remap,
-    substitute_in_pool, walk_collection_types, BodyTypeMapSink, EnumVariant, Pool, TypeDescriptor,
-    VarState, VariantDescriptor, DEFAULT_RANK,
+    build_finalized_body_type_map, build_impl_mono_body_type_map, build_mono_body_type_map,
+    collect_public_collection_types, extend_var_subst_with_roots, extract_var_from_types,
+    re_intern_sig, re_intern_sig_with_var_remap, re_intern_type, re_intern_type_with_var_remap,
+    register_concrete_applied_resolutions, substitute_in_existing_pool, substitute_in_pool,
+    walk_collection_types, BodyTypeMapSink, EnumVariant, GeneralizedVarState, MissingSubstitution,
+    Pool, TypeDescriptor, UnboundVarState, VarState, VariantDescriptor, DEFAULT_RANK,
+};
+pub use provenance::{
+    ConsumerEdge, GenericLeafDivergence, MonoEdge, ProvenanceDag, ResolutionEdge, StructureEdge,
+    MAX_DEPTH as PROVENANCE_MAX_DEPTH,
 };
 pub use registry::burden;
 pub use registry::burden_compose;
@@ -86,60 +105,9 @@ pub use triviality::{classify_triviality, Triviality};
 pub use type_error::{
     diff_types, edit_distance, find_closest_field, suggest_field_typo, AmbiguousTypeSite,
     ArityMismatchKind, ContextKind, ErrorContext, Expected, ExpectedOrigin, ImportErrorKind,
-    NonCollectingLoopKind, SequenceKind, Severity, TypeCheckError, TypeCheckWarning,
-    TypeCheckWarningKind, TypeErrorKind, TypeProblem, VoidLoopKind,
+    InvalidFixedListCapacityReason, NonCollectingLoopKind, OrBindingMismatchReason, SequenceKind,
+    Severity, TypeCheckError, TypeCheckWarning, TypeCheckWarningKind, TypeErrorKind, TypeProblem,
+    VoidLoopKind,
 };
 pub use unify::{ArityKind, Rank, UnifyContext, UnifyEngine, UnifyError};
 pub use value_category::ValueCategory;
-
-// Compile-time Salsa compatibility assertions
-//
-// Salsa query results must implement Clone + Eq + PartialEq + Hash + Debug.
-// These static assertions catch missing derives at compile time rather than
-// runtime. If a type stops deriving a required trait, the build fails here
-// with a clear error.
-
-/// Compile-time assertion that `T` implements all Salsa-required traits.
-///
-/// Evaluates to 0 if the bounds are satisfied. Produces a compile error otherwise.
-/// The type parameter is intentionally unused in the body — only the bounds matter.
-#[allow(
-    clippy::extra_unused_type_parameters,
-    reason = "type param exists only for trait bound checking"
-)]
-const fn assert_salsa_compatible<T: Clone + Eq + std::hash::Hash + std::fmt::Debug>() -> usize {
-    0
-}
-
-// Core type handles
-const _: usize = assert_salsa_compatible::<Idx>();
-const _: usize = assert_salsa_compatible::<Tag>();
-const _: usize = assert_salsa_compatible::<TypeFlags>();
-const _: usize = assert_salsa_compatible::<Rank>();
-const _: usize = assert_salsa_compatible::<LifetimeId>();
-const _: usize = assert_salsa_compatible::<ValueCategory>();
-
-// Output types (Salsa query results)
-const _: usize = assert_salsa_compatible::<TypeCheckResult>();
-const _: usize = assert_salsa_compatible::<TypedModule>();
-const _: usize = assert_salsa_compatible::<FunctionSig>();
-const _: usize = assert_salsa_compatible::<FnWhereClause>();
-const _: usize = assert_salsa_compatible::<ConstParamInfo>();
-const _: usize = assert_salsa_compatible::<TypeEntry>();
-
-// Error types (embedded in query results)
-const _: usize = assert_salsa_compatible::<TypeCheckError>();
-const _: usize = assert_salsa_compatible::<TypeCheckWarning>();
-const _: usize = assert_salsa_compatible::<TypeErrorKind>();
-const _: usize = assert_salsa_compatible::<ErrorContext>();
-const _: usize = assert_salsa_compatible::<ArityMismatchKind>();
-const _: usize = assert_salsa_compatible::<TypeProblem>();
-const _: usize = assert_salsa_compatible::<ContextKind>();
-const _: usize = assert_salsa_compatible::<Expected>();
-const _: usize = assert_salsa_compatible::<ExpectedOrigin>();
-const _: usize = assert_salsa_compatible::<SequenceKind>();
-
-// Unification types (used in error reporting)
-const _: usize = assert_salsa_compatible::<UnifyError>();
-const _: usize = assert_salsa_compatible::<UnifyContext>();
-const _: usize = assert_salsa_compatible::<ArityKind>();

@@ -29,7 +29,8 @@ Rule index (per §AIMS §7):
   IC-3  ParamContract join = componentwise max + may_share OR. Proven
         commutative / associative / idempotent / monotone.
   IC-4  ReturnContract join = uniqueness(join) + preserves_freshness(AND) +
-        locality(join) + shape(join). Proven monotone + AND-fold over paths.
+        returns_fresh_self_alloc(AND) + locality(join) + shape(join). Proven
+        monotone + AND-fold over paths.
   IC-5  EffectSummary join = componentwise OR over the effect flags. Proven
         monotone + idempotent + commutative + associative.
   IC-7  Convergence: finite domain ⟹ termination. The SCC fixpoint iteration
@@ -213,9 +214,9 @@ theorem IC2_optimistic_is_bottom (p : ParamContract) :
     IC-8a spec rule (annex-e §AIMS §7 IC-8a + the IC-8a proof artifact (P3)):
     CONSERVATIVE deliberately uses `uniqueness = MaybeShared`, NOT the strict
     uniqueness TOP `Shared`. `Shared` is the stronger "definitely shared" claim;
-    MaybeShared is the weakest sound assumption (it still triggers the DP-4
-    runtime IsShared check while leaving the unique-reference fast path
-    reachable). A call-site arg that is provably `Shared` widens PAST
+    MaybeShared is the weakest sound assumption: it retains DP-4's neutral
+    sharing-observation obligation while keeping the one-owner admissible
+    outcome reachable. A call-site arg that is provably `Shared` widens PAST
     CONSERVATIVE to `Shared` via IC-3 max-join (artifact (P3)(c)) — so
     CONSERVATIVE is the upper bound of the reachable lattice REGION, not the
     absolute uniqueness top. Discharged by per-dimension `cases` + `decide`
@@ -426,32 +427,34 @@ theorem IC7_fixpoint_converges_uniform_bound
 
 /-! ## §IC-4 — ReturnContract per-dim join over return paths (annex-e §AIMS §7 IC-4)
 
-    A ReturnContract is `(uniqueness, preserves_freshness, locality, shape)`.
-    The join is uniqueness(max) + preserves_freshness(AND) + locality(max) +
-    shape(join). Freshness requires ALL paths preserve, so the boolean is joined
-    by AND (conjunction monoid; identity `true`). -/
+    A ReturnContract carries uniqueness, freshness preservation, the stronger
+    fresh-self-allocation provenance fact, locality, and shape. Both boolean
+    facts require every return path, so they join by AND. -/
 
-/-- §IC-4 IcReturnContract: the 4 return-provenance dimensions. -/
+/-- §IC-4 IcReturnContract: return-semantics and provenance dimensions. -/
 structure IcReturnContract where
   uniqueness : Uniqueness
   preserves_freshness : Bool
+  returns_fresh_self_alloc : Bool
   locality : Locality
   shape : Shape
 deriving Repr, DecidableEq
 
-/-- §IC-4 IcReturnContract join: uniqueness(max) + preserves_freshness(AND) +
-    locality(max) + shape(join). -/
+/-- §IC-4 IcReturnContract join: lattice joins plus path-universal AND facts. -/
 def IcReturnContract.join (a b : IcReturnContract) : IcReturnContract :=
   { uniqueness := a.uniqueness.join b.uniqueness
   , preserves_freshness := a.preserves_freshness && b.preserves_freshness
+  , returns_fresh_self_alloc :=
+      a.returns_fresh_self_alloc && b.returns_fresh_self_alloc
   , locality := a.locality.join b.locality
   , shape := a.shape.join b.shape }
 
 /-- §IC-4 CONSERVATIVE seed = the empty-fold identity for non-returning
-    functions `(MaybeShared, preserves_freshness=false, Unknown, NonReusable)`. -/
+    functions. Neither freshness nor fresh-self-allocation is claimed. -/
 def IcReturnContract.CONSERVATIVE : IcReturnContract :=
   { uniqueness := .MaybeShared
   , preserves_freshness := false
+  , returns_fresh_self_alloc := false
   , locality := .Unknown
   , shape := .NonReusable }
 
@@ -507,8 +510,8 @@ theorem IC4_freshness_all_paths (paths : List Bool) :
 /-- §IC-4 a single non-fresh path sticky-clears the function-level freshness
     (the AND-monoid sticky-false transition). If any path has
     `preserves_freshness = false`, the fold is false. The negative pin: OR-fold
-    would let a fresh path mask a non-fresh one — unsound for the RL-29 noalias
-    gate. -/
+    would let a fresh path mask a non-fresh one. This older freshness field is
+    still weaker than RL-29's `returns_fresh_self_alloc` authority. -/
 theorem IC4_freshness_sticky_false (paths : List Bool) (hmem : false ∈ paths) :
     IcReturnContract.freshnessFold paths = false := by
   -- If the fold were `true`, IC4_freshness_all_paths forces every member to be
@@ -518,6 +521,27 @@ theorem IC4_freshness_sticky_false (paths : List Bool) (hmem : false ∈ paths) 
   | true =>
       rw [IC4_freshness_all_paths] at hfold
       exact absurd (hfold false hmem) (by decide)
+
+/-! ### §IC-4 returns_fresh_self_alloc AND-fold over return paths -/
+
+/-- §IC-4 path-universal fresh-allocation proof. A result is proven only when
+    every return path yields fresh storage with no upstream alias, directly or
+    through a callee carrying the same proof. -/
+def IcReturnContract.freshSelfAllocationFold (paths : List Bool) : Bool :=
+  paths.foldr (· && ·) true
+
+theorem IC4_fresh_self_allocation_all_paths (paths : List Bool) :
+    IcReturnContract.freshSelfAllocationFold paths = true ↔
+      ∀ b ∈ paths, b = true := by
+  simpa [IcReturnContract.freshSelfAllocationFold,
+    IcReturnContract.freshnessFold] using IC4_freshness_all_paths paths
+
+/-- §IC-4 consumed or forwarded storage on one path rejects the stronger fact. -/
+theorem IC4_fresh_self_allocation_sticky_false
+    (paths : List Bool) (hmem : false ∈ paths) :
+    IcReturnContract.freshSelfAllocationFold paths = false := by
+  simpa [IcReturnContract.freshSelfAllocationFold,
+    IcReturnContract.freshnessFold] using IC4_freshness_sticky_false paths hmem
 
 /-! ## §IC-5 — EffectSummary join (componentwise OR over effect flags)
 
@@ -811,11 +835,13 @@ theorem IC6_fold_never_absorbs (claims : List FipContract)
     This is UNSOUND for the same root cause as DP-10 (`Decision.lean` §DP-10):
     `(Owned, Linear, Once)` at the call site is a BACKWARD-DEMAND property
     ("this caller will not duplicate the argument beyond this single linear
-    use"). The conclusion `Uniqueness = Unique` is a PAST-RC property requiring
-    proof that the argument's runtime reference count is 1 at the call site.
+    use"). The conclusion `Uniqueness = Unique` is a past logical-ownership
+    property requiring proof that the argument has exactly one owner credit at
+    the call site.
     Backward demand says NOTHING about upstream aliases: a caller holding a
-    `MaybeShared` argument used linearly may still hold RC > 1 from an upstream
-    alias. The derivation jump-NARROWS to `Unique` without monotone lattice
+    `MaybeShared` argument used linearly may still carry multiple owner credits
+    through an upstream alias. The derivation jump-NARROWS to `Unique` without
+    monotone lattice
     justification (it would violate IC-3 monotonicity, which only WIDENS Unique →
     MaybeShared → Shared, never narrows).
 

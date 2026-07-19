@@ -131,24 +131,12 @@ type DerivedOption = DSome(value: int) | DNone;
 @_use_derived_option (o: DerivedOption) -> int = match o { DSome(v) -> v, DNone -> 0}
 
 // =============================================================================
-// #skip Attribute
-// =============================================================================
-
-#skip("BUG-07-055: placeholder attribute demonstration in attributes.ori")
-@test_skipped_test tests @_dummy () -> void = {
-    // This test is skipped
-    assert(cond: false)
-}
-
-@_dummy () -> bool = true;
-
-// =============================================================================
 // #fail Attribute
 // =============================================================================
 // Per spec: "Asserts that a test panics with the expected message"
 
-// Actual message is "index 0 out of bounds" - match more specifically
-#fail("index 0 out of bounds")
+// Require the normative index and length plus an actionable recovery boundary.
+#fail("index out of bounds: index 0, length 0; use 0 <= index < length (Spec: Clause 14.1.2)")
 @test_expected_panic tests @_trigger_panic () -> void = {
     let list: [int] = [];
     let _ = list[0];  // Should panic with index out of bounds

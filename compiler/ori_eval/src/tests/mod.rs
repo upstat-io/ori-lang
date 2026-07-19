@@ -1,7 +1,4 @@
-//! Test modules relocated from implementation files.
-//!
-//! Per coding guidelines, inline test modules exceeding 200 lines are
-//! moved to separate files in this directory for better maintainability.
+//! Test modules for control flow, operators, methods, and function-value conversions.
 
 mod control_tests;
 mod function_val_tests;

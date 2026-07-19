@@ -8,8 +8,9 @@
 // The `str` param is reference-class. RL-31 `noalias` (Spec: Annex E §AIMS
 // RL-31 (P2)) requires BOTH the type-level facet (b) AND the per-call-site
 // provenance facet (a); facet (a) is unshipped, so `noalias` is OMITTED on the
-// pointer param — it keeps nonnull/dereferenceable only.
-// CHECK: define fastcc void @_ori_mixed(i64 noundef %0, ptr noundef nonnull dereferenceable(24) %1, i1 noundef %2)
+// pointer param. The body only reads the borrowed string, so it keeps
+// readonly/nonnull/dereferenceable without acquiring noalias.
+// CHECK: define fastcc void @_ori_mixed(i64 noundef %0, ptr noundef nonnull readonly dereferenceable(24) %1, i1 noundef %2)
 
 @mixed (n: int, s: str, b: bool) -> void = {
     if b then print(msg: s) else print(msg: n.to_str())

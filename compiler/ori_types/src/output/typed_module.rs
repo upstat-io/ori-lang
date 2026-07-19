@@ -4,7 +4,16 @@
 //! signatures, resolved patterns, monomorphization instances, and the
 //! cross-module export sidecars (type descriptors, repr metadata).
 
-use ori_ir::{ExprId, Name, PatternKey, PatternResolution, ReprAttrKind};
+mod impl_methods;
+mod sidecars;
+
+pub use impl_methods::{ImplMethodId, ImplMethodRole, ImplSig, ImportedImplSig};
+pub use sidecars::{
+    AssignDesugar, AssignStepRoute, CapabilityCallSite, CapabilityProvider,
+    CapabilityProviderSource, ExportedTypeMetadata, FormatSpecTypes, IterMethodRoute,
+};
+
+use ori_ir::{ExprId, Name, PatternKey, PatternResolution, SparseSideTable};
 
 use crate::pool::TypeDescriptor;
 use crate::registry::burden::UserBurdenSpec;
@@ -13,89 +22,6 @@ use crate::{Idx, TypeCheckError, TypeCheckWarning};
 
 use super::mono::{MonoInstance, MonoInstanceId};
 use super::sig::FunctionSig;
-
-/// Per-type metadata exported for cross-module repr plan construction.
-///
-/// Carries `#repr` attributes and visibility information alongside the
-/// Merkle hash that identifies the type in the Pool. This metadata is
-/// NOT part of the type's structural identity (hash) — it is source-level
-/// information needed by `ori_repr` to correctly exempt imported types
-/// from integer narrowing.
-///
-/// Without this sidecar, imported `pub` or `#repr("c")` types lose their
-/// protection when an importing module builds its `ReprPlan`, allowing
-/// their field layouts to be narrowed in violation of ABI guarantees.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ExportedTypeMetadata {
-    /// Merkle hash of the type's Pool representation.
-    ///
-    /// Used to map back to a local `Idx` in the importing module's pool
-    /// via `Pool::lookup_by_hash()`.
-    pub merkle_hash: u64,
-
-    /// Representation attribute (`#repr("c")`, `#repr("packed")`, etc.).
-    ///
-    /// `None` means default layout (all optimizations permitted).
-    pub repr: Option<ReprAttrKind>,
-
-    /// Whether this type is `pub` in its defining module.
-    ///
-    /// Public types have ABI contracts that narrowing must not violate.
-    pub is_public: bool,
-}
-
-/// Type-directed desugar plan for one `ExprKind::AssignTarget` chain.
-///
-/// `ori_types` resolves the type produced at each level of the chain
-/// (`root`, `root` + step 0, `root` + steps 0..1, ...) during
-/// `infer_assign_target`; `ori_canon` consumes the plan to synthesize the
-/// pure-reassignment form (`root = root.updated(...)` / `{ ...root, f: v }`)
-/// in its own `CanArena`. The arena is borrowed immutably during type
-/// checking, so the synthesized nodes are minted in `ori_canon`, where the
-/// mutable arena lives — `ori_types` records only the resolved types the
-/// synthesis needs, keeping the type-direction decision in the type checker
-/// while AIMS sees only the pure reassignment.
-///
-/// `level_types[k]` is the resolved type of the receiver-read after applying
-/// the first `k` access steps: `level_types[0]` is `root`'s type,
-/// `level_types[k]` is the type of reading `root.step0...step(k-1)`. The
-/// vector has `steps.len() + 1` entries.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct AssignDesugar {
-    /// Resolved receiver-read type at each chain level (length `steps + 1`).
-    pub level_types: Vec<Idx>,
-}
-
-/// Pool `Idx` values for the builtin `FormatSpec` struct and its `Option<_>`
-/// field types, captured at type-check time.
-///
-/// `ori_canon` consumes these to type the synthesized `FormatSpec` struct
-/// node + its field-value nodes when desugaring a non-primitive `{expr:spec}`
-/// interpolation that dispatches a user `Formattable.format(self:, spec:)`.
-/// Without precise field types the LLVM backend cannot compute the struct
-/// layout. `register_format_spec_type` registers these in every module's pool,
-/// so this is always populated after a successful check.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct FormatSpecTypes {
-    /// The `FormatSpec` struct type.
-    pub spec: Idx,
-    /// `Option<char>` — the `fill` field type.
-    pub opt_char: Idx,
-    /// `Option<Alignment>` — the `align` field type.
-    pub opt_alignment: Idx,
-    /// `Option<Sign>` — the `sign` field type.
-    pub opt_sign: Idx,
-    /// `Option<int>` — the `width` and `precision` field types.
-    pub opt_int: Idx,
-    /// `Option<FormatType>` — the `format_type` field type.
-    pub opt_format_type: Idx,
-    /// The `Alignment` enum type (variant-`Ident` node type).
-    pub alignment: Idx,
-    /// The `Sign` enum type (variant-`Ident` node type).
-    pub sign: Idx,
-    /// The `FormatType` enum type (variant-`Ident` node type).
-    pub format_type: Idx,
-}
 
 /// Type-checked module.
 ///
@@ -108,15 +34,14 @@ pub struct FormatSpecTypes {
 ///
 /// # Example
 ///
-/// ```ignore
-/// let result = type_check_module(db, file);
-/// if result.has_errors() {
-///     for err in &result.typed.errors {
-///         // report error
-///     }
-/// }
-/// // Get type of expression 42
-/// let ty = result.typed.expr_type(42);
+/// ```rust
+/// use ori_types::{Idx, TypedModule};
+///
+/// let mut typed = TypedModule::new();
+/// typed.expr_types.push(Idx::INT);
+/// assert_eq!(typed.expr_type(0), Some(Idx::INT));
+/// assert_eq!(typed.expr_count(), 1);
+/// assert!(!typed.has_errors());
 /// ```
 #[derive(Clone, Eq, PartialEq, Hash, Debug, Default)]
 pub struct TypedModule {
@@ -151,7 +76,7 @@ pub struct TypedModule {
     /// Sorted by `PatternKey` for O(log n) binary search via `resolve_pattern()`.
     /// Only patterns that were resolved are stored — unresolved bindings are
     /// normal variable bindings and have no entry.
-    pub pattern_resolutions: Vec<(PatternKey, PatternResolution)>,
+    pub pattern_resolutions: SparseSideTable<PatternKey, PatternResolution>,
 
     /// Impl method signatures for codegen.
     ///
@@ -160,7 +85,25 @@ pub struct TypedModule {
     /// convention, sret, parameter passing) for impl methods (compiled
     /// separately from top-level functions) AND to key mono-collection dispatch
     /// on the owning receiver rather than the first value param.
-    pub impl_sigs: Vec<(Idx, Name, FunctionSig)>,
+    pub impl_sigs: Vec<ImplSig>,
+
+    /// Imported impl templates reachable through this module's imports.
+    ///
+    /// These are semantic lookup/codegen inputs, not locally-owned bodies.
+    pub imported_impl_sigs: Vec<ImportedImplSig>,
+
+    /// Derived implementations accepted by validation and coherence.
+    ///
+    /// This is the sole authority for compiler-generated derive
+    /// bodies. Raw source attributes are not an executable inventory.
+    pub accepted_derives: Vec<super::AcceptedDerivedImpl>,
+
+    /// Concrete nested-call selections for accepted generated bodies.
+    ///
+    /// Each plan is frozen while trait coherence and concrete substitutions
+    /// coexist. Realization consumes these facts without redispatching by
+    /// receiver shape or method spelling.
+    pub derived_call_plans: Vec<super::DerivedCallPlan>,
 
     /// Trait impl method identities: `(self_type_idx, method_name)`.
     ///
@@ -176,9 +119,10 @@ pub struct TypedModule {
 
     /// Monomorphization instances discovered during type checking.
     ///
-    /// Each entry represents a unique `(fn_name, generic_args)` combination
-    /// found at a call site. The LLVM backend uses these to stamp out
-    /// concrete specializations of generic functions.
+    /// Each entry represents one unique concrete generic callable identity.
+    /// Most originate at call sites; operator-selected generic methods also
+    /// appear in this list without a corresponding `mono_dispatch_map` entry. Physical
+    /// backends use the inventory to stamp out concrete specializations.
     pub mono_instances: Vec<MonoInstance>,
 
     /// Map from AST `ExprId` of a generic call site to its resolved
@@ -198,15 +142,36 @@ pub struct TypedModule {
     /// [`Self::mono_instances`].
     ///
     /// Stored as `Vec<(ExprId, MonoInstanceId)>` sorted by `ExprId` (NOT
-    /// `FxHashMap`) for Salsa compatibility per `types.md §SL-3` — the
+    /// `FxHashMap`) for Salsa compatibility — the
     /// `TypedModule` struct derives `Eq + Hash` and `FxHashMap` cannot
-    /// satisfy them. Mirrors the shape of `pattern_resolutions:
-    /// Vec<(PatternKey, PatternResolution)>`. Lookup is binary search via
+    /// satisfy them. Lookup is binary search via
     /// `dispatch_map_lookup()`.
     ///
     /// Empty for non-generic call sites — only populated when a generic
     /// callee is instantiated with concrete arguments at the call site.
-    pub mono_dispatch_map: Vec<(ExprId, MonoInstanceId)>,
+    pub mono_dispatch_map: SparseSideTable<ExprId, MonoInstanceId>,
+
+    /// Exact semantic method producers selected at source call sites.
+    ///
+    /// Canonical IR carries only a [`crate::MethodProducerId`] into this dense
+    /// table, keeping the leaf `ori_ir` crate independent of type checking.
+    /// Realization resolves the handle before generic/local/imported callable
+    /// target closure; no backend reconstructs a producer from method spelling.
+    pub method_producers: Vec<crate::MethodProducer>,
+
+    /// Exact dispatch route selected for every index expression.
+    ///
+    /// Selected routes index [`Self::method_producers`]; builtin, deferred, and
+    /// invalid routes remain explicit through canonical and ARC lowering.
+    pub index_dispatch_map: SparseSideTable<ExprId, ori_ir::canon::IndexDispatch>,
+
+    /// Ordered provider selections for capability-bearing free calls.
+    ///
+    /// Canon consumes this sidecar to append source-erased implicit provider
+    /// arguments. The call's matching `mono_dispatch_map` entry selects code
+    /// specialized by provider type, while this table preserves the lexical
+    /// provider value passed by that particular call site.
+    pub capability_call_map: SparseSideTable<ExprId, CapabilityCallSite>,
 
     /// Type-directed desugar plans for `ExprKind::AssignTarget` chains.
     ///
@@ -218,15 +183,39 @@ pub struct TypedModule {
     /// sees a `CanExpr::Assign { target: Index/Field }`.
     ///
     /// Stored as `Vec<(ExprId, AssignDesugar)>` sorted by `ExprId` (NOT
-    /// `FxHashMap`) for Salsa compatibility per `types.md §SL-3` — the
+    /// `FxHashMap`) for Salsa compatibility — the
     /// `TypedModule` struct derives `Eq + Hash` and `FxHashMap` cannot satisfy
-    /// them. Mirrors `pattern_resolutions` / `mono_dispatch_map`. Lookup is
+    /// them. Lookup is
     /// binary search via [`Self::resolve_assign_desugar`]. Keys are
     /// module-wide AST `ExprId`s (the arena is one-per-module), so body-pass
     /// accumulation extends without re-anchoring.
     ///
     /// Empty when no index/field assignment appears in the module.
-    pub assign_desugar_map: Vec<(ExprId, AssignDesugar)>,
+    pub assign_desugar_map: SparseSideTable<ExprId, AssignDesugar>,
+
+    /// Module-alias qualified-call rewrite targets, keyed by call `ExprId`.
+    ///
+    /// Each entry maps the AST `ExprId` of a `MethodCall` / `MethodCallNamed`
+    /// that resolved to a module-alias qualified call (`alias.func(args)`) to
+    /// the qualified imported-function `Name` (`"alias.func"`). `ori_canon`
+    /// reads this side-table at both `lower_method_call` (positional) and
+    /// `desugar_method_call_named` (named) and rewrites the namespace
+    /// `CanExpr::MethodCall` into a free `CanExpr::Call { func: FunctionRef }`
+    /// so both backends see one shape and the receiver namespace is never
+    /// threaded as a `self` argument. Sorted `Vec<(ExprId, Name)>` like
+    /// `assign_desugar_map` (Salsa `Eq + Hash`). Lookup via
+    /// [`Self::resolve_module_alias_call`]. Empty when no alias-qualified call
+    /// appears in the module.
+    pub module_alias_call_map: SparseSideTable<ExprId, Name>,
+
+    /// Iterable->Iterator routed method calls, keyed by the exact source call
+    /// `ExprId`. `ori_canon` reads each type-directed route at
+    /// `lower_method_call` / `desugar_method_call_named` and rewrites
+    /// `recv.method(args)` through a materialized `recv.iter()` node. An eager
+    /// adapter route additionally synthesizes the terminal `.collect()` used by
+    /// Annex C's direct `Range.map` / `Range.filter` list semantics. Lookup via
+    /// [`Self::resolve_iter_route`].
+    pub iter_route_map: SparseSideTable<ExprId, IterMethodRoute>,
 
     /// Portable type descriptors for all types referenced in exported signatures.
     ///
@@ -257,11 +246,10 @@ pub struct TypedModule {
     /// instances (`[T]`, `{K: V}`, `Set<T>`, `Option<T>`, `Result<T, E>`,
     /// `Range<T>`) that carry no nominal `TypeEntry`.
     ///
-    /// These instances live in the in-memory `TypeRegistry`'s
-    /// `collection_burdens` side-table, which `types` (sourced from
-    /// `TypeRegistry::into_entries`) excludes by construction. Exporting them
-    /// here lets the ARC codegen pipeline reconstruct the side-table so
-    /// collection-instance burden reaches Phase 5 emission. Sorted ascending
+    /// The in-memory `TypeRegistry` stores these instances in its
+    /// `collection_burdens` side-table, which `types` excludes because
+    /// `TypeRegistry::into_entries` contains only nominal entries. Storing these
+    /// specs preserves collection-instance burden for ARC emission. Sorted ascending
     /// by `Idx` for Salsa-deterministic output.
     /// Spec: Annex E §AIMS.
     pub collection_burdens: Vec<(Idx, UserBurdenSpec)>,
@@ -275,7 +263,7 @@ pub struct TypedModule {
     /// `Formattable.format(self:, spec:)` `MethodCall` (explicit impl present)
     /// and a `to_str()` + `FormatWith` re-route (Printable-only).
     /// Sorted ascending for binary-search lookup.
-    /// Spec: 14-expressions.md:1262 + 09-properties-of-types.md:231.
+    /// Spec: Clause 14 (string interpolation) + Clause 9 (Printable/Formattable).
     pub formattable_impl_types: Vec<Idx>,
 
     /// Pool idxs for the builtin `FormatSpec` struct + its `Option<_>` field
@@ -287,11 +275,13 @@ pub struct TypedModule {
 
 impl TypedModule {
     /// Create a new empty typed module.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Create a typed module with pre-allocated capacity.
+    #[must_use]
     pub fn with_capacity(expr_count: usize, function_count: usize) -> Self {
         Self {
             expr_types: Vec::with_capacity(expr_count),
@@ -299,12 +289,20 @@ impl TypedModule {
             types: Vec::new(),
             errors: Vec::new(),
             warnings: Vec::new(),
-            pattern_resolutions: Vec::new(),
+            pattern_resolutions: SparseSideTable::new(),
             impl_sigs: Vec::new(),
+            imported_impl_sigs: Vec::new(),
+            accepted_derives: Vec::new(),
+            derived_call_plans: Vec::new(),
             trait_impl_fn_names: Vec::new(),
             mono_instances: Vec::new(),
-            mono_dispatch_map: Vec::new(),
-            assign_desugar_map: Vec::new(),
+            mono_dispatch_map: SparseSideTable::new(),
+            method_producers: Vec::new(),
+            index_dispatch_map: SparseSideTable::new(),
+            capability_call_map: SparseSideTable::new(),
+            assign_desugar_map: SparseSideTable::new(),
+            module_alias_call_map: SparseSideTable::new(),
+            iter_route_map: SparseSideTable::new(),
             type_descriptors: Vec::new(),
             exported_type_metadata: Vec::new(),
             exported_collection_surfaces: Vec::new(),
@@ -322,16 +320,19 @@ impl TypedModule {
     /// Get the type of an expression by index.
     ///
     /// Returns `None` if the expression index is out of bounds.
+    #[must_use = "the absence of a value must be handled"]
     pub fn expr_type(&self, expr_index: usize) -> Option<Idx> {
         self.expr_types.get(expr_index).copied()
     }
 
     /// Get a function signature by name.
+    #[must_use = "the absence of a value must be handled"]
     pub fn function(&self, name: Name) -> Option<&FunctionSig> {
         self.functions.iter().find(|f| f.name == name)
     }
 
     /// Get a type definition by name.
+    #[must_use = "the absence of a value must be handled"]
     pub fn type_def(&self, name: Name) -> Option<&TypeEntry> {
         self.types.iter().find(|t| t.name == name)
     }
@@ -356,12 +357,10 @@ impl TypedModule {
     /// Returns `Some(&PatternResolution)` if the pattern was resolved to a
     /// unit variant, `None` if it's a normal variable binding.
     ///
-    /// Uses O(log n) binary search on the sorted `pattern_resolutions` vec.
+    /// Uses O(log n) binary search on the sorted `pattern_resolutions` table.
+    #[must_use = "the absence of a value must be handled"]
     pub fn resolve_pattern(&self, key: PatternKey) -> Option<&PatternResolution> {
-        self.pattern_resolutions
-            .binary_search_by_key(&key, |(k, _)| *k)
-            .ok()
-            .map(|idx| &self.pattern_resolutions[idx].1)
+        self.pattern_resolutions.get(key)
     }
 
     /// Look up the type-directed desugar plan for an `AssignTarget` `ExprId`.
@@ -369,11 +368,37 @@ impl TypedModule {
     /// Returns `Some(&AssignDesugar)` if the type checker recorded a plan for
     /// this `AssignTarget` node, `None` otherwise. Uses O(log n) binary search
     /// on the sorted `assign_desugar_map`.
+    #[must_use = "the absence of a value must be handled"]
     pub fn resolve_assign_desugar(&self, key: ExprId) -> Option<&AssignDesugar> {
-        self.assign_desugar_map
-            .binary_search_by_key(&key.raw(), |(eid, _)| eid.raw())
-            .ok()
-            .map(|idx| &self.assign_desugar_map[idx].1)
+        self.assign_desugar_map.get(key)
+    }
+
+    /// Look up the type-directed Iterable->Iterator route for a method call,
+    /// keyed by the exact source call `ExprId`.
+    ///
+    /// Returns the materialized iterator type and, for eager Range adapters,
+    /// the intermediate adapter type that must be collected.
+    #[must_use = "the absence of a value must be handled"]
+    pub fn resolve_iter_route(&self, key: ExprId) -> Option<IterMethodRoute> {
+        self.iter_route_map.get(key).copied()
+    }
+
+    /// Resolve the frozen capability-provider selection for one source call.
+    #[must_use = "the absence of a value must be handled"]
+    pub fn resolve_capability_call(&self, key: ExprId) -> Option<&CapabilityCallSite> {
+        self.capability_call_map.get(key)
+    }
+
+    /// Look up the qualified imported-function `Name` a module-alias qualified
+    /// call (`alias.func(args)`) at this call `ExprId` rewrites to.
+    ///
+    /// Returns `Some(name)` when the type checker recorded this call as an
+    /// alias-qualified call, `None` otherwise. `ori_canon` rewrites the
+    /// namespace `MethodCall` to a free `CanExpr::Call { func: FunctionRef(name) }`
+    /// on a hit. O(log n) binary search on `module_alias_call_map`.
+    #[must_use = "the absence of a value must be handled"]
+    pub fn resolve_module_alias_call(&self, key: ExprId) -> Option<Name> {
+        self.module_alias_call_map.get(key).copied()
     }
 
     /// Whether `ty` carries an explicit `impl T: Formattable`.

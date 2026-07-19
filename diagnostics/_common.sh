@@ -135,3 +135,17 @@ find_any_ori_bin() {
     echo "Rebuild with: cargo build" >&2
     exit 2
 }
+
+# Print a captured command stream without truncation.
+# Usage: render_captured_stream <label> <path>
+render_captured_stream() {
+    local label="$1"
+    local path="$2"
+
+    echo "  ${label}:"
+    if [[ -s "$path" ]]; then
+        sed 's/^/  │ /' "$path"
+    else
+        echo "  │ (empty)"
+    fi
+}

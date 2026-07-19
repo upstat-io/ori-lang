@@ -1,0 +1,5 @@
+type Counter = { value: int }
+
+impl Counter {
+    @add (self, amount: int) -> bool = self.value + amount;
+}

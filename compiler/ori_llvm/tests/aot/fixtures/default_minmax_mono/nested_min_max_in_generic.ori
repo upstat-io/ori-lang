@@ -1,0 +1,10 @@
+@nested_minmax <T> (marker: T, a: int, b: int, c: int) -> int = {
+    let lo = min(left: min(left: a, right: b), right: c);
+    let hi = max(left: max(left: a, right: b), right: c);
+    hi - lo
+}
+
+@main () -> int = {
+    let spread = nested_minmax(marker: "x", a: 9, b: 3, c: 7);
+    if spread == 6 then 0 else 1
+}

@@ -1,0 +1,8 @@
+@count_keys (m: {str: int}) -> int = m.length();
+
+@main () -> int = {
+    let m = {"a": 1, "b": 2, "c": 3};
+    let n = count_keys(m: m);
+    print(msg: `{n}`);
+    0
+}

@@ -1,0 +1,7 @@
+@main () -> int = {
+    let first = (a, b) -> a;
+    let result1 = first(a: [1, 2], b: "ignored");
+    let result2 = first(a: "kept", b: [3, 4]);
+
+    if result1 == [1, 2] && result2 == "kept" then 0 else 1
+}

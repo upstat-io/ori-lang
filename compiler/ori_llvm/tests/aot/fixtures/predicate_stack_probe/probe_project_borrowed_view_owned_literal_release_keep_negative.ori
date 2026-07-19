@@ -1,0 +1,4 @@
+@main () -> int = {
+    let a = "abcdefghijklmnopqrstuvwxyz1234";
+    if a.length() == 30 then 0 else 1
+}

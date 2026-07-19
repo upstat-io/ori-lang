@@ -1,0 +1,7 @@
+type Counter = { value: int }
+
+impl Counter {
+    @increment (self) -> int = self.value + 1;
+    @decrement (self) -> int = self.value - 1;
+    @reset (self) -> int = 0;
+}

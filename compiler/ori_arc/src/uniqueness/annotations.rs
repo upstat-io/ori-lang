@@ -1,9 +1,8 @@
-//! Per-instruction COW mode annotations for LLVM codegen.
+//! Backend-neutral per-instruction COW mode facts.
 //!
 //! Maps each COW operation in a function to a [`CowMode`] determined by
-//! static uniqueness analysis. Consumed by the LLVM arc emitter to decide
-//! whether to emit the runtime uniqueness check, the fast path only, or
-//! the slow path only.
+//! AIMS uniqueness analysis. Physical consumers use the fact to select the
+//! runtime uniqueness check, the fast path only, or the slow path only.
 
 use std::hash::{Hash, Hasher};
 
@@ -11,11 +10,13 @@ use rustc_hash::FxHashMap;
 
 use super::CowMode;
 
-/// Per-instruction COW mode annotations for LLVM codegen.
+/// Per-instruction COW mode facts for physical consumers.
 ///
 /// Maps `(block_index, instruction_index)` to [`CowMode`] for each
 /// COW operation in a function. Produced by the AIMS pipeline during
-/// Phase 2 realization and consumed by the LLVM arc emitter.
+/// Phase 2 realization and available to the VM, LLVM, native, WASM, and JIT
+/// projections. A consumer that specializes the operation uses this verdict
+/// rather than re-deriving uniqueness policy.
 ///
 /// Instructions not present in the map default to [`CowMode::Dynamic`]
 /// (runtime uniqueness check needed).

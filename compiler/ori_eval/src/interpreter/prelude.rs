@@ -1,7 +1,4 @@
 //! Prelude registration — built-in functions, type constructors, and enum variants.
-//!
-//! Extracted from `interpreter/mod.rs` to keep the main module focused on
-//! interpreter structure and core dispatch.
 
 use crate::Value;
 
@@ -27,8 +24,9 @@ impl Interpreter<'_> {
     /// - Built-in enum variants like Less, Equal, Greater (Ordering type)
     pub fn register_prelude(&mut self) {
         use crate::{
-            function_val_byte, function_val_error, function_val_float, function_val_hash_combine,
-            function_val_int, function_val_repeat, function_val_str, function_val_thread_id,
+            function_val_byte, function_val_drop_early, function_val_error, function_val_float,
+            function_val_hash_combine, function_val_int, function_val_repeat, function_val_str,
+            function_val_thread_id,
         };
         tracing::debug!("registering prelude");
 
@@ -40,6 +38,9 @@ impl Interpreter<'_> {
 
         // Error constructor (Traceable errors with trace storage)
         self.register_function_val("Error", function_val_error, "Error");
+
+        // Early-drop function (deallocates/consumes heap values)
+        self.register_function_val("drop_early", function_val_drop_early, "drop_early");
 
         // Iterator constructors
         self.register_function_val("repeat", function_val_repeat, "repeat");

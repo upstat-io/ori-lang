@@ -1,7 +1,4 @@
 //! Operator dispatch helpers — primitivity checks and op→method name mapping.
-//!
-//! Extracted from `interpreter/mod.rs` to keep the main module focused on
-//! interpreter structure and core dispatch.
 
 use ori_ir::{BinaryOp, Name, UnaryOp};
 use ori_patterns::Value;

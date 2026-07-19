@@ -1,0 +1,20 @@
+type MaybeIter = Empty | Holds(it: Iterator<int>);
+
+@main () -> int = {
+    let x: MaybeIter = Holds(it: [1, 2, 3].iter());
+    let do_take = false;
+    let iters = 0;
+    loop {
+        iters = iters + 1;
+        if iters >= 1 then
+            break
+    };
+    let count = if do_take then
+        match x {
+            Empty -> 0,
+            Holds(it) -> it.count()
+        }
+    else
+        0;
+    count + iters - 1
+}

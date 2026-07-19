@@ -16,12 +16,12 @@
 //! - CTFE (compile-time function evaluation)
 //! - Algebraic simplification
 //! - Function call memoization
-//!
-//! See `eval_v2` Section 04 for the full constant folding specification.
 
 mod arithmetic;
 
-use ori_ir::canon::{CanArena, CanExpr, CanId, CanNode, ConstValue, ConstantPool};
+use ori_ir::canon::{
+    CanArena, CanExpr, CanId, CanNode, ConstEvalProblemKind, ConstValue, ConstantPool,
+};
 use ori_ir::{BinaryOp, UnaryOp};
 
 use self::arithmetic::{fold_binary, fold_unary};
@@ -45,9 +45,10 @@ fn classify(arena: &CanArena, id: CanId) -> Constness {
 
     match arena.kind(id) {
         // Literals and already-folded constants are compile-time.
-        // Note: `CanExpr::Const(_)` (named `$` constants like `$PI`) is NOT
-        // included — their values aren't resolved at the canon level, so
-        // `extract_const_value()` can't extract them. They stay Runtime.
+        // Successful module constants are frozen to `CanExpr::Constant`
+        // before executable roots are lowered. A surviving `CanExpr::Const`
+        // is either a generic const awaiting an exact mono binding or an
+        // error-recovery reference, so it remains runtime here.
         CanExpr::Int(_)
         | CanExpr::Float(_)
         | CanExpr::Bool(_)
@@ -222,6 +223,137 @@ fn extract_const_value(
         }),
         CanExpr::Constant(cid) => Some(constants.get(*cid).clone()),
         _ => None,
+    }
+}
+
+/// Evaluate one canonical subtree within the representable [`ConstValue`]
+/// domain.
+///
+/// Normal opportunistic folding returns `None` for arithmetic traps so runtime
+/// expressions can keep their original behavior. Module constant initializers
+/// are different: they are required to finish at compile time, so this entry
+/// point preserves the reason evaluation failed.
+pub(crate) fn evaluate_constant(
+    arena: &CanArena,
+    constants: &ConstantPool,
+    id: CanId,
+) -> Result<ConstValue, ConstEvalProblemKind> {
+    if !id.is_valid() {
+        return Ok(ConstValue::Unit);
+    }
+    if let Some(value) = extract_const_value(arena, constants, id) {
+        return Ok(value);
+    }
+
+    match *arena.kind(id) {
+        CanExpr::Binary { op, left, right } => {
+            let left = evaluate_constant(arena, constants, left)?;
+
+            // Preserve short-circuit semantics in constant contexts. An
+            // unreachable RHS must not manufacture a division-by-zero error.
+            match (op, &left) {
+                (BinaryOp::And, ConstValue::Bool(false)) => {
+                    return Ok(ConstValue::Bool(false));
+                }
+                (BinaryOp::Or, ConstValue::Bool(true)) => {
+                    return Ok(ConstValue::Bool(true));
+                }
+                _ => {}
+            }
+
+            let right = evaluate_constant(arena, constants, right)?;
+            fold_binary(op, &left, &right).ok_or_else(|| binary_failure(op, &left, &right))
+        }
+        CanExpr::Unary { op, operand } => {
+            let value = evaluate_constant(arena, constants, operand)?;
+            fold_unary(op, &value).ok_or_else(|| unary_failure(op, &value))
+        }
+        CanExpr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => match evaluate_constant(arena, constants, cond)? {
+            ConstValue::Bool(true) => evaluate_constant(arena, constants, then_branch),
+            ConstValue::Bool(false) => evaluate_constant(arena, constants, else_branch),
+            _ => Err(ConstEvalProblemKind::UnsupportedExpression {
+                form: "conditional with a non-boolean condition",
+            }),
+        },
+        CanExpr::Const(reference) => Err(ConstEvalProblemKind::UnresolvedReference { reference }),
+        ref expression => Err(ConstEvalProblemKind::UnsupportedExpression {
+            form: unsupported_form(expression),
+        }),
+    }
+}
+
+fn binary_failure(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> ConstEvalProblemKind {
+    if matches!(op, BinaryOp::Div | BinaryOp::Mod | BinaryOp::FloorDiv) && is_zero(right) {
+        return ConstEvalProblemKind::DivisionByZero;
+    }
+
+    if arithmetic_operands(left, right) {
+        ConstEvalProblemKind::Overflow
+    } else {
+        ConstEvalProblemKind::UnsupportedExpression {
+            form: "operator outside the primitive constant-value domain",
+        }
+    }
+}
+
+fn unary_failure(_op: UnaryOp, value: &ConstValue) -> ConstEvalProblemKind {
+    if matches!(
+        value,
+        ConstValue::Int(_) | ConstValue::Duration { .. } | ConstValue::Size { .. }
+    ) {
+        ConstEvalProblemKind::Overflow
+    } else {
+        ConstEvalProblemKind::UnsupportedExpression {
+            form: "unary operator outside the primitive constant-value domain",
+        }
+    }
+}
+
+fn arithmetic_operands(left: &ConstValue, right: &ConstValue) -> bool {
+    matches!(
+        left,
+        ConstValue::Int(_)
+            | ConstValue::Float(_)
+            | ConstValue::Duration { .. }
+            | ConstValue::Size { .. }
+    ) && matches!(
+        right,
+        ConstValue::Int(_)
+            | ConstValue::Float(_)
+            | ConstValue::Duration { .. }
+            | ConstValue::Size { .. }
+    )
+}
+
+fn is_zero(value: &ConstValue) -> bool {
+    match value {
+        ConstValue::Int(value) => *value == 0,
+        ConstValue::Float(bits) => f64::from_bits(*bits) == 0.0,
+        ConstValue::Duration { value, .. } | ConstValue::Size { value, .. } => *value == 0,
+        _ => false,
+    }
+}
+
+fn unsupported_form(expression: &CanExpr) -> &'static str {
+    match expression {
+        CanExpr::Ident(_) | CanExpr::SelfRef | CanExpr::HashLength => "runtime reference",
+        CanExpr::FunctionRef(_) | CanExpr::TypeRef(_) | CanExpr::Call { .. } => "function call",
+        CanExpr::MethodCall { .. } => "method call",
+        CanExpr::List(_) | CanExpr::Tuple(_) | CanExpr::Map(_) | CanExpr::Struct { .. } => {
+            "composite value"
+        }
+        CanExpr::Field { .. } | CanExpr::Index { .. } => "runtime projection",
+        CanExpr::Block { .. } | CanExpr::Let { .. } | CanExpr::Assign { .. } => {
+            "binding or mutation"
+        }
+        CanExpr::Match { .. } | CanExpr::For { .. } | CanExpr::Loop { .. } => "control flow",
+        CanExpr::WithCapability { .. } => "capability use",
+        CanExpr::Try(_) | CanExpr::Await(_) => "effectful error or async operation",
+        _ => "expression outside the primitive constant-value domain",
     }
 }
 

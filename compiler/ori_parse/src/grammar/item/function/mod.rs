@@ -1,17 +1,12 @@
 //! Function and test definition parsing.
 
+mod contracts;
+
 use crate::context::ParseContext;
 use crate::{committed, require, FunctionOrTest, ParseError, ParseOutcome, ParsedAttrs, Parser};
 use ori_ir::{
-    Function, GenericParamRange, Name, Param, ParamRange, PostContract, PreContract, Span, TestDef,
-    TokenKind, Visibility,
+    Function, GenericParamRange, Name, Param, ParamRange, Span, TestDef, TokenKind, Visibility,
 };
-
-/// Whether a contextual contract identifier is `pre` or `post`.
-enum ContractKind {
-    Pre,
-    Post,
-}
 
 impl Parser<'_> {
     /// Parse a function or test definition.
@@ -21,6 +16,7 @@ impl Parser<'_> {
     /// Floating test: @name tests _ (params) -> void = body
     ///
     /// Returns `EmptyErr` if no `@` is present.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_function_or_test(
         &mut self,
         attrs: ParsedAttrs,
@@ -51,10 +47,7 @@ impl Parser<'_> {
         // name
         let name = committed!(self.cursor.expect_ident());
 
-        // Check if this is a test (has `tests` keyword)
-        // Grammar: test = "@" identifier "tests" test_targets "()" "->" "void" "=" expression
-        //          test_targets = "_" | test_target { "tests" test_target }
-        //          test_target  = "@" identifier
+        // Spec: grammar.ebnf `test`/`test_targets`/`test_target` productions.
         if self.cursor.check(&TokenKind::Tests) {
             self.cursor.advance(); // consume initial `tests`
 
@@ -81,6 +74,23 @@ impl Parser<'_> {
             self.parse_test_body(name, targets, attrs, start_span)
                 .with_error_context(crate::ErrorContext::TestDef)
         } else {
+            // Why: a plain function has no field to hold test-only attributes
+            // (#compile_fail/#fail/#skip); reject rather than silently drop them.
+            // Spec: Clause 19.8.
+            if attrs.has_test_only_attrs() {
+                return ParseOutcome::consumed_err(
+                    ParseError::new(
+                        ori_diagnostic::ErrorCode::E1006,
+                        format!(
+                            "{} not supported on a plain function; a test attribute requires a `tests _` / `tests @target` declaration",
+                            attrs.test_only_attr_names()
+                        ),
+                        start_span,
+                    ),
+                    start_span,
+                );
+            }
+
             // Regular function
             // Optional generic parameters: <T, U: Bound>
             let generics = if self.cursor.check(&TokenKind::Lt) {
@@ -198,197 +208,39 @@ impl Parser<'_> {
         self.eat_optional_item_semicolon();
 
         ParseOutcome::consumed_ok(FunctionOrTest::Test(TestDef {
+            id: ori_ir::TestId::INVALID,
             name,
+            display_name: name,
             targets,
             params,
             return_ty,
             body,
             span,
             skip_reason: attrs.skip_reason,
+            skip_backends: attrs.skip_backends,
             expected_errors: attrs.expected_errors,
             fail_expected: attrs.fail_expected,
         }))
-    }
-
-    // Contract Parsing
-
-    /// Parse zero or more function contracts.
-    ///
-    /// Grammar: `{ contract }` where `contract = pre_contract | post_contract`
-    ///
-    /// `pre` and `post` are contextual identifiers — only recognized in this
-    /// specific position between guard clause and `=` in function declarations.
-    fn parse_contracts(&mut self) -> Result<(Vec<PreContract>, Vec<PostContract>), ParseError> {
-        let mut pre_contracts = Vec::new();
-        let mut post_contracts = Vec::new();
-
-        loop {
-            self.cursor.skip_newlines();
-            match self.check_contract_ident() {
-                Some(ContractKind::Pre) => {
-                    let contract = self
-                        .parse_pre_contract()
-                        .map_err(|e| e.with_context("while parsing a pre-condition contract"))?;
-                    pre_contracts.push(contract);
-                }
-                Some(ContractKind::Post) => {
-                    let contract = self
-                        .parse_post_contract()
-                        .map_err(|e| e.with_context("while parsing a post-condition contract"))?;
-                    post_contracts.push(contract);
-                }
-                None => break,
-            }
-        }
-
-        Ok((pre_contracts, post_contracts))
-    }
-
-    /// Check if the current token is a contextual contract keyword (`pre` or `post`).
-    fn check_contract_ident(&self) -> Option<ContractKind> {
-        if let TokenKind::Ident(name) = self.cursor.current_kind() {
-            match self.cursor.interner().lookup(*name) {
-                "pre" => Some(ContractKind::Pre),
-                "post" => Some(ContractKind::Post),
-                _ => None,
-            }
-        } else {
-            None
-        }
-    }
-
-    /// Parse a pre-condition contract.
-    ///
-    /// Grammar: `pre_contract = "pre" "(" check_expr ")" .`
-    /// where `check_expr = expression [ "|" string_literal ] .`
-    fn parse_pre_contract(&mut self) -> Result<PreContract, ParseError> {
-        let start = self.cursor.current_span();
-        self.cursor.advance(); // consume `pre` identifier
-
-        self.cursor.expect(&TokenKind::LParen)?;
-
-        // Parse condition with PIPE_IS_SEPARATOR so `|` stops the expression
-        let condition = self
-            .with_context(ParseContext::PIPE_IS_SEPARATOR, Self::parse_expr)
-            .into_result()?;
-
-        // Optional message: `| "message"`
-        let message = self.parse_contract_message()?;
-
-        let end = self.cursor.current_span();
-        self.cursor.expect(&TokenKind::RParen)?;
-
-        Ok(PreContract {
-            condition,
-            message,
-            span: start.merge(end),
-        })
-    }
-
-    /// Parse a post-condition contract.
-    ///
-    /// Grammar: `post_contract = "post" "(" postcheck_expr ")" .`
-    /// where `postcheck_expr = lambda_params "->" check_expr .`
-    fn parse_post_contract(&mut self) -> Result<PostContract, ParseError> {
-        let start = self.cursor.current_span();
-        self.cursor.advance(); // consume `post` identifier
-
-        self.cursor.expect(&TokenKind::LParen)?;
-
-        // Parse lambda parameters: `r ->` or `(a, b) ->`
-        let params = self.parse_post_contract_params()?;
-
-        self.cursor.expect(&TokenKind::Arrow)?;
-
-        // Parse condition with PIPE_IS_SEPARATOR so `|` stops the expression
-        let condition = self
-            .with_context(ParseContext::PIPE_IS_SEPARATOR, Self::parse_expr)
-            .into_result()?;
-
-        // Optional message: `| "message"`
-        let message = self.parse_contract_message()?;
-
-        let end = self.cursor.current_span();
-        self.cursor.expect(&TokenKind::RParen)?;
-
-        Ok(PostContract {
-            params,
-            condition,
-            message,
-            span: start.merge(end),
-        })
-    }
-
-    /// Parse post-condition lambda parameters: `r` or `(a, b)`.
-    fn parse_post_contract_params(&mut self) -> Result<Vec<Name>, ParseError> {
-        if self.cursor.check(&TokenKind::LParen) {
-            // Tuple destructure: `(a, b)`
-            self.cursor.advance(); // consume `(`
-            let mut params = Vec::new();
-
-            let first = self.cursor.expect_ident()?;
-            params.push(first);
-
-            while self.cursor.check(&TokenKind::Comma) {
-                self.cursor.advance(); // consume `,`
-                if self.cursor.check(&TokenKind::RParen) {
-                    break; // trailing comma
-                }
-                let name = self.cursor.expect_ident()?;
-                params.push(name);
-            }
-
-            self.cursor.expect(&TokenKind::RParen)?;
-            Ok(params)
-        } else {
-            // Single parameter: `r`
-            let name = self.cursor.expect_ident()?;
-            Ok(vec![name])
-        }
-    }
-
-    /// Parse optional contract message: `| "message"`.
-    fn parse_contract_message(&mut self) -> Result<Option<Name>, ParseError> {
-        if self.cursor.check(&TokenKind::Pipe) {
-            self.cursor.advance(); // consume `|`
-            match self.cursor.current_kind().clone() {
-                TokenKind::String(name) => {
-                    self.cursor.advance(); // consume string
-                    Ok(Some(name))
-                }
-                _ => Err(ParseError::new(
-                    ori_diagnostic::ErrorCode::E1002,
-                    format!(
-                        "expected string literal for contract message, found {}",
-                        self.cursor.current_kind().display_name()
-                    ),
-                    self.cursor.current_span(),
-                )),
-            }
-        } else {
-            Ok(None)
-        }
     }
 
     /// Parse parameter list with support for clause parameters.
     ///
     /// Grammar: `clause_param = match_pattern [ ":" type ] [ "=" expression ]`
     ///
-    /// Supports:
+    /// # Supports
     /// - Simple names: `(x: int)`
     /// - `self` for methods: `(self)`
     /// - Literal patterns: `(0: int)` — clause-based functions
     /// - List patterns: `([]: [T])`, `([_, ..tail]: [T])` — clause-based functions
     /// - Default values: `(x: int = 42)`
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive parameter parsing covering patterns, self, literals, defaults, and type annotations"
-    )]
     pub(crate) fn parse_params(&mut self) -> Result<ParamRange, ParseError> {
         use crate::series::SeriesConfig;
 
         let start = self.arena.start_params();
-        self.series_direct(&SeriesConfig::comma(TokenKind::RParen).no_newlines(), |p| {
+        // params are newline-silent per grammar.ebnf `params` — a
+        // multi-line param list (the formatter's stacked shape) must parse, so
+        // the series skips newlines like every other comma-series.
+        self.series_direct(&SeriesConfig::comma(TokenKind::RParen), |p| {
             if p.cursor.check(&TokenKind::RParen) {
                 return Ok(false);
             }
@@ -432,44 +284,12 @@ impl Parser<'_> {
                     (gen_name, Some(pat))
                 }
 
-                // Simple identifier (most common case)
-                TokenKind::Ident(name) => {
-                    p.cursor.advance();
+                // Why: delegates to `expect_ident()` (the canonical soft-keyword
+                // classification, `cursor::identifiers::soft_keyword_str`) so every
+                // soft keyword usable as an identifier elsewhere is a valid param name too.
+                _ if p.cursor.check_ident() || p.cursor.soft_keyword_to_name().is_some() => {
+                    let name = p.cursor.expect_ident()?;
                     (name, None)
-                }
-
-                // Context-sensitive keywords usable as parameter names
-                TokenKind::Timeout => {
-                    p.cursor.advance();
-                    (p.cursor.interner().intern("timeout"), None)
-                }
-                TokenKind::Parallel => {
-                    p.cursor.advance();
-                    (p.cursor.interner().intern("parallel"), None)
-                }
-                TokenKind::Cache => {
-                    p.cursor.advance();
-                    (p.cursor.interner().intern("cache"), None)
-                }
-                TokenKind::Catch => {
-                    p.cursor.advance();
-                    (p.cursor.interner().intern("catch"), None)
-                }
-                TokenKind::Spawn => {
-                    p.cursor.advance();
-                    (p.cursor.interner().intern("spawn"), None)
-                }
-                TokenKind::Recurse => {
-                    p.cursor.advance();
-                    (p.cursor.interner().intern("recurse"), None)
-                }
-                TokenKind::Run => {
-                    p.cursor.advance();
-                    (p.cursor.interner().intern("run"), None)
-                }
-                TokenKind::Try => {
-                    p.cursor.advance();
-                    (p.cursor.interner().intern("try"), None)
                 }
 
                 _ => {

@@ -2,9 +2,10 @@
 
 use ori_ir::{ExprArena, ExprId, Span};
 
+use crate::{ContextKind, Expected, ExpectedOrigin, Idx, SequenceKind, Tag};
+
 use super::super::super::InferEngine;
 use super::super::infer_expr;
-use crate::{ContextKind, Expected, ExpectedOrigin, Idx, SequenceKind, Tag};
 
 /// Infer the type of an if expression.
 pub(crate) fn infer_if(

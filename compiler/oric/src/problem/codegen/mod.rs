@@ -78,6 +78,9 @@ pub enum CodegenProblem {
         stderr: String,
     },
 
+    /// An executable build has no Ori entry point.
+    MissingEntryPoint { path: String },
+
     // ── Debug Info (E5007) ──────────────────────────────────────────
     /// Debug info creation failed.
     DebugInfoFailed { message: String },
@@ -169,6 +172,13 @@ impl CodegenProblem {
                 diag = diag.with_note(format!("command: {command}"));
                 diag
             }
+
+            Self::MissingEntryPoint { path } => Diagnostic::error(ErrorCode::E5006)
+                .with_message(format!(
+                    "cannot build executable '{path}': no @main function was declared"
+                ))
+                .with_note("executable builds require one Ori @main entry point")
+                .with_suggestion("add an @main function, or pass --lib/--dylib to build a library"),
 
             // ── Debug Info (E5007) ───────────────────────────────
             Self::DebugInfoFailed { message } => Diagnostic::error(ErrorCode::E5007)

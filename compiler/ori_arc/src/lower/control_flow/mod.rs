@@ -6,25 +6,28 @@
 //! are reassigned in divergent branches (if/else, match, loop), block
 //! parameters serve as phi nodes at the merge point.
 //!
-//! Loop constructs (`loop`, `for`) live in the [`loops`] submodule.
+//! The [`loops`] submodule implements `loop` and `for` constructs.
+
+mod for_loops;
+mod for_yield;
+mod for_yield_option;
+mod iterator_flow;
+mod loop_transfer;
+mod loops;
+mod reassign_scan;
+mod type_layout;
 
 use ori_ir::canon::{CanExpr, CanId, CanRange, DecisionTreeId};
 use ori_ir::{Name, Span};
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
 
-mod for_loops;
-mod for_yield;
-mod for_yield_option;
-mod loops;
-mod reassign_scan;
-mod type_layout;
-pub use type_layout::pool_type_store_size;
-
 use crate::ir::{ArcValue, ArcVarId};
 
 use super::expr::ArcLowerer;
 use super::scope::merge_mutable_vars;
+
+pub use type_layout::pool_type_store_size;
 
 impl ArcLowerer<'_> {
     // Block
@@ -47,8 +50,7 @@ impl ArcLowerer<'_> {
             "block: enter"
         );
 
-        // Save and reset block_let_names for this block's scope.
-        // bind_pattern will populate it with names introduced by `let`.
+        // Each block owns the names introduced by its `let` patterns.
         let parent_let_names = std::mem::take(&mut self.block_let_names);
 
         for &stmt_id in &stmt_ids {
@@ -66,11 +68,8 @@ impl ArcLowerer<'_> {
             ArcVarId::new(0)
         };
 
-        // Carry forward mutable var reassignments from the inner scope.
-        // Local `let` bindings (shadows) die with the block, but `x = expr`
-        // on an outer mutable variable must propagate so loop headers see
-        // updates. Skip names that were freshly `let`-bound in this block —
-        // those are shadows, not reassignments.
+        // Propagate outer mutable reassignments so loop headers see updates,
+        // while fresh local shadows die with the block.
         let inner_scope = self.scope.clone();
         self.scope = parent_scope;
         let mut propagated = 0u32;
@@ -146,10 +145,8 @@ impl ArcLowerer<'_> {
     ) -> ArcVarId {
         let cond_var = self.lower_expr(cond);
 
-        // A divergent condition (`break` / `continue` in condition position)
-        // terminates the current block before the branch can be emitted; the
-        // if's then/else arms are unreachable. Return the (unit) cond var
-        // without emitting a second terminator.
+        // A divergent condition has already terminated the block; return its
+        // unit value without emitting an unreachable branch.
         if self.builder.is_terminated() {
             return cond_var;
         }
@@ -171,10 +168,9 @@ impl ArcLowerer<'_> {
 
         let mut mutable_var_types = FxHashMap::default();
         for (name, var) in pre_scope.mutable_bindings() {
-            mutable_var_types.insert(name, self.builder.var_type_or_unit(var));
+            mutable_var_types.insert(name, self.builder.var_type(var));
         }
 
-        // Then branch.
         self.builder.position_at(then_block);
         self.scope = pre_scope.clone();
         let then_val = self.lower_expr(then_branch);
@@ -182,7 +178,6 @@ impl ArcLowerer<'_> {
         let then_terminated = self.builder.is_terminated();
         let then_exit = self.builder.current_block();
 
-        // Else branch.
         self.builder.position_at(else_block);
         self.scope = pre_scope.clone();
         let else_val = if else_branch.is_valid() {
@@ -247,138 +242,6 @@ impl ArcLowerer<'_> {
         result_param
     }
 
-    // Break / Continue
-
-    /// Lower a `break` expression to ARC IR.
-    ///
-    /// For-do: exit block expects `[break_value, mut_var_0, mut_var_1, ...]`.
-    /// For-yield: optionally pushes break value to list, then jumps to exit
-    /// with `[mut_var_0, mut_var_1, ...]`.
-    pub(crate) fn lower_break(&mut self, value: CanId) -> ArcVarId {
-        // Extract for-yield info before mutable borrows (lower_expr needs &mut self).
-        let yield_info = self
-            .loop_ctx
-            .as_ref()
-            .and_then(|ctx| ctx.yield_ctx.as_ref())
-            .map(|yc| (yc.list_ptr, yc.elem_size, yc.list_push_name));
-
-        if let Some((list_ptr, elem_size, push_name)) = yield_info {
-            // For-yield break: optionally push value, then jump to exit.
-            if value.is_valid() {
-                let val = self.lower_expr(value);
-                self.builder.emit_apply(
-                    Idx::UNIT,
-                    push_name,
-                    vec![list_ptr, val, elem_size],
-                    None,
-                    None,
-                );
-            }
-            // Re-borrow loop_ctx for jump args (mutable borrows are done).
-            if let Some(ref ctx) = self.loop_ctx {
-                let exit_block = ctx.exit_block;
-                let mut args: Vec<ArcVarId> = Vec::new();
-                for &(name, fallback) in &ctx.mutable_vars {
-                    args.push(self.scope.lookup(name).unwrap_or(fallback));
-                }
-                tracing::debug!(
-                    exit_bb = exit_block.index(),
-                    has_value = value.is_valid(),
-                    mutable_args = ctx.mutable_vars.len(),
-                    "for-yield break: jump to exit"
-                );
-                self.builder.terminate_jump(exit_block, args);
-            }
-        } else {
-            // For-do break: send break value + mutable vars to exit.
-            let break_val = if value.is_valid() {
-                self.lower_expr(value)
-            } else {
-                self.emit_unit()
-            };
-
-            if let Some(ref ctx) = self.loop_ctx {
-                let exit_block = ctx.exit_block;
-                let mut args = vec![break_val];
-                for &(name, fallback) in &ctx.mutable_vars {
-                    args.push(self.scope.lookup(name).unwrap_or(fallback));
-                }
-                tracing::debug!(
-                    exit_bb = exit_block.index(),
-                    break_val = break_val.raw(),
-                    mutable_args = args.len() - 1,
-                    "break: jump to exit"
-                );
-                self.builder.terminate_jump(exit_block, args);
-            } else {
-                tracing::warn!("break outside of loop in ARC IR lowering");
-            }
-        }
-
-        self.emit_unit()
-    }
-
-    /// Lower a `continue` expression to ARC IR.
-    ///
-    /// For-do: jumps to header with `[mut_var_0, mut_var_1, ...]`.
-    /// For-yield: optionally pushes value to list, then jumps to header
-    /// with `[mut_var_0, mut_var_1, ...]`.
-    pub(crate) fn lower_continue(&mut self, value: CanId) -> ArcVarId {
-        // Extract for-yield info before mutable borrows (lower_expr needs &mut self).
-        let yield_info = self
-            .loop_ctx
-            .as_ref()
-            .and_then(|ctx| ctx.yield_ctx.as_ref())
-            .map(|yc| (yc.list_ptr, yc.elem_size, yc.list_push_name));
-
-        if let Some((list_ptr, elem_size, push_name)) = yield_info {
-            // For-yield continue: optionally push value, then jump to header.
-            if value.is_valid() {
-                let val = self.lower_expr(value);
-                self.builder.emit_apply(
-                    Idx::UNIT,
-                    push_name,
-                    vec![list_ptr, val, elem_size],
-                    None,
-                    None,
-                );
-            }
-            // Re-borrow loop_ctx for jump args (mutable borrows are done).
-            if let Some(ref ctx) = self.loop_ctx {
-                let continue_block = ctx.continue_block;
-                let mut args: Vec<ArcVarId> = Vec::new();
-                for &(name, fallback) in &ctx.mutable_vars {
-                    args.push(self.scope.lookup(name).unwrap_or(fallback));
-                }
-                tracing::debug!(
-                    continue_bb = continue_block.index(),
-                    has_value = value.is_valid(),
-                    mutable_args = ctx.mutable_vars.len(),
-                    "for-yield continue: jump to header"
-                );
-                self.builder.terminate_jump(continue_block, args);
-            }
-        } else if let Some(ref ctx) = self.loop_ctx {
-            // For-do continue: jump to header with mutable vars only.
-            let continue_block = ctx.continue_block;
-            let args: Vec<_> = ctx
-                .mutable_vars
-                .iter()
-                .map(|&(name, fallback)| self.scope.lookup(name).unwrap_or(fallback))
-                .collect();
-            tracing::debug!(
-                continue_bb = continue_block.index(),
-                mutable_args = args.len(),
-                "continue: jump to header"
-            );
-            self.builder.terminate_jump(continue_block, args);
-        } else {
-            tracing::warn!("continue outside of loop in ARC IR lowering");
-        }
-
-        self.emit_unit()
-    }
-
     // Assign
 
     /// Lower `Assign { target, value }` — SSA rebinding for mutable variables.
@@ -398,14 +261,7 @@ impl ArcLowerer<'_> {
                         new_var = new_var.raw(),
                         "assign: rebind mutable"
                     );
-                    // Record the binding's scope-rebind death point. `old_var`
-                    // is the prior value the rebind orphans; `new_var` is the
-                    // value the binding now holds. The burden Phase-5
-                    // reassign-release scan emits the gated `BurdenDec(old_var)`
-                    // at this rebind (Spec: Annex E §AIMS RL-2). When `old_var`
-                    // equals the RHS value (a self-move with no new SSA), the
-                    // pair is `(rhs, new_var)`; the scan's gate suppresses the
-                    // release for genuinely-transferred values.
+                    // INVARIANT: The pair identifies the orphaned binding and its replacement.
                     if let Some(old) = old_var {
                         self.builder.reassign_deaths.push((old, new_var));
                     }
@@ -470,21 +326,17 @@ impl ArcLowerer<'_> {
 
         // O(1) Arc clone instead of deep-cloning the recursive tree structure.
         let tree = self.canon.decision_trees.get_shared(tree_id);
+        let leaf_discard_paths = self
+            .canon
+            .decision_trees
+            .leaf_discard_paths(tree_id)
+            .to_vec();
 
         let merge_block = self.builder.new_block();
         let result_param = self.builder.add_block_param(merge_block, ty);
 
-        // Save pre-match scope and add merge block params for mutable
-        // variables an arm could REASSIGN. Each arm resets to this scope
-        // before lowering, and passes its final mutable variable values as
-        // jump arguments — same SSA merge pattern that `lower_if` uses.
-        // Unlike `lower_if` (which filters post-hoc via `merge_mutable_vars`),
-        // the merge signature is needed BEFORE arms lower, so the divergence
-        // filter runs as a pre-traversal of the arm bodies + tree guards:
-        // bindings no `Assign` could rebind are pruned (an unchanged binding
-        // threaded into the merge becomes a DEAD param whose Jump-transferred
-        // reference leaks per RL-4/RL-5). Toggle
-        // `ORI_DISABLE_MATCH_PARAM_PRUNING=1` restores unconditional threading.
+        // INVARIANT: Only bindings an arm can reassign become match merge params;
+        // threading unchanged owners would create unreleased dead params.
         let pre_scope = self.scope.clone();
         let reassigned = if reassign_scan::match_param_pruning_disabled() {
             None
@@ -500,7 +352,7 @@ impl ArcLowerer<'_> {
                     continue;
                 }
             }
-            let var_ty = self.builder.var_type_or_unit(var);
+            let var_ty = self.builder.var_type(var);
             let merge_var = self.builder.add_block_param(merge_block, var_ty);
             mutable_var_merge.push((name, merge_var));
         }
@@ -513,13 +365,16 @@ impl ArcLowerer<'_> {
 
         let scrut_ty = self.builder.var_type(scrut_var);
         let mut ctx = crate::decision_tree::emit::EmitContext::new(
-            scrut_var,
-            scrut_ty,
-            merge_block,
-            arm_ids,
-            span,
-            pre_scope.clone(),
-            mutable_var_names,
+            crate::decision_tree::emit::EmitContextInit {
+                root_scrutinee: scrut_var,
+                root_scrutinee_ty: scrut_ty,
+                merge_block,
+                arm_bodies: arm_ids,
+                span,
+                pre_scope: pre_scope.clone(),
+                mutable_var_names,
+                leaf_discard_paths,
+            },
         );
 
         crate::decision_tree::emit::emit_tree(self, &tree, &mut ctx);

@@ -1,0 +1,10 @@
+extend str {
+    @shout (self) -> str = self + "!";
+}
+
+extend [T] {
+    @item_tally (self) -> int = self.len();
+}
+
+@call_shout (text: str) -> str = text.shout();
+@call_tally (items: [int]) -> int = items.item_tally();

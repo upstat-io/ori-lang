@@ -149,11 +149,11 @@ theorem CN_canonicalize_idempotent (s : AimsState) :
 
 /-! ## §CN-7 — REMOVED (annex-e §AIMS §5)
 
-    Former CN-7 (Shared + CollectionBuffer COW-mode assignment) was REMOVED
-    because `cow_mode` is a DECISION-PREDICATE result (a §4 decision-predicate
-    query), NOT a lattice-dimension mutation — canonicalization shall mutate
-    lattice dimensions only, never decision predicates. There is no CN-7 rule
-    in `canonicalize`, and `AimsState` carries no `cow_mode` dimension to
+    Former CN-7 (Shared + CollectionBuffer mutation-obligation assignment)
+    was REMOVED because `mutation_obligation` is a decision-predicate result,
+    NOT a lattice-dimension mutation — canonicalization shall mutate lattice
+    dimensions only, never decision predicates. There is no CN-7 rule in
+    `canonicalize`, and `AimsState` carries no `mutation_obligation` dimension to
     mutate. The Shared + CollectionBuffer case is handled by the decision
     layer, not by a CN rule. No theorem is authored for a removed rule; this
     doc-comment records the removal per the §AIMS §5 rule table (CN-7 =

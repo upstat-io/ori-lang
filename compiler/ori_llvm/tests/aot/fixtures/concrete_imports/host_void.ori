@@ -1,0 +1,3 @@
+use "./mathlib" { announce }
+
+@main () -> void = announce(msg: "hello-from-import");

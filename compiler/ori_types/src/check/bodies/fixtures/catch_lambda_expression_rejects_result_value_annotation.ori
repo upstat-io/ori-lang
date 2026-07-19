@@ -1,0 +1,1 @@
+@f () -> Result<int, str> = catch(expr: () -> { 7 });

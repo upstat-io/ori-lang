@@ -12,9 +12,6 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-#[cfg(test)]
-mod tests;
-
 // Types
 
 /// A parsed directive from a test file.
@@ -70,7 +67,6 @@ const FORBIDDEN_REVISION_NAMES: &[&str] = &[
 
 /// Matches `// @[revision] key: value` or `// @key: value`
 static RE_AT_DIRECTIVE: LazyLock<Regex> = LazyLock::new(|| {
-    // SAFETY: regex is a compile-time constant; panic is a programming error
     #[expect(clippy::expect_used, reason = "compile-time constant regex")]
     Regex::new(r"^\s*//\s*@(?:\[([^\]]+)\]\s*)?(\S+?):\s*(.*)$").expect("directive regex")
 });
@@ -262,3 +258,6 @@ fn validate_revision_name(name: &str, line_number: usize) -> Option<ParseError> 
         None
     }
 }
+
+#[cfg(test)]
+mod tests;

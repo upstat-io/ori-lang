@@ -1,0 +1,32 @@
+// Spec: 06-types.md § Derive — nested-generic struct derive, bool hash/clone/debug cells
+
+use std.testing { assert }
+
+#[derive(Eq, Hashable, Comparable, Clone)]
+#[derive(Debug, Printable, Default)]
+type Wrap<T> = { inner: T }
+
+@test_nested_bool_hash tests @nested_bool_hash () -> void = {
+    let a = Wrap { inner: Wrap { inner: true } };
+    let b = Wrap { inner: Wrap { inner: true } };
+    assert(cond: a.hash() == b.hash())
+}
+@nested_bool_hash () -> bool = {
+    Wrap { inner: Wrap { inner: true } }.hash() == Wrap { inner: Wrap { inner: true } }.hash()
+}
+
+@test_nested_bool_clone tests @nested_bool_clone () -> void = {
+    let a = Wrap { inner: Wrap { inner: true } };
+    assert(cond: a.clone() == a)
+}
+@nested_bool_clone () -> bool = {
+    let a = Wrap { inner: Wrap { inner: true } };
+    a.clone() == a
+}
+
+@test_nested_bool_debug tests @nested_bool_debug () -> void = {
+    assert(cond: Wrap { inner: Wrap { inner: true } }.debug() != "")
+}
+@nested_bool_debug () -> str = {
+    Wrap { inner: Wrap { inner: true } }.debug()
+}

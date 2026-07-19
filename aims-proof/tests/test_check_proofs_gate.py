@@ -87,12 +87,6 @@ def test_gate_catches_broken_proof(workspace_root: Path, gate_scratch) -> None:
     _valid_rel, broken_rel = gate_scratch
     result = _run_check_proofs(workspace_root, broken_rel)
 
-    if result.returncode == 3:
-        pytest.skip(
-            "checker build failed (exit 3); cannot exercise the gate: "
-            f"stderr={result.stderr!r}"
-        )
-
     combined = result.stdout + result.stderr
     assert result.returncode == 1, (
         f"expected exit 1 (regression caught), got {result.returncode}; "
@@ -108,12 +102,6 @@ def test_gate_passes_valid_proof(workspace_root: Path, gate_scratch) -> None:
     """POSITIVE pin: a valid proof passes the same path with exit 0."""
     valid_rel, _broken_rel = gate_scratch
     result = _run_check_proofs(workspace_root, valid_rel)
-
-    if result.returncode == 3:
-        pytest.skip(
-            "checker build failed (exit 3); cannot exercise the gate: "
-            f"stderr={result.stderr!r}"
-        )
 
     combined = result.stdout + result.stderr
     assert result.returncode == 0, (

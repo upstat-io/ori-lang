@@ -1,0 +1,34 @@
+// Negative pins for the Result closure-method BD-2 propagation fix: a closure
+// whose result is unannotated leaves the transformed slot a fresh var, so
+// `.into()`'s target is genuinely unconstrained. The fix must NOT over-accept
+// ANY of the four methods — each stays E2005 (cannot infer). The fix resolves
+// the into target ONLY when an outer Result annotation constrains the slot.
+// One pin per method clamps the fix from below across the whole family.
+
+#[compile_fail(code: "E2005")]
+@result_map_err_ambiguous_into tests _ () -> void = {
+    let r: Result<int, int> = Err(2);
+    let amb = r.map_err(e -> e.into());
+    ()
+}
+
+#[compile_fail(code: "E2005")]
+@result_map_ambiguous_into tests _ () -> void = {
+    let r: Result<int, int> = Ok(2);
+    let amb = r.map(x -> x.into());
+    ()
+}
+
+#[compile_fail(code: "E2005")]
+@result_and_then_ambiguous_into tests _ () -> void = {
+    let r: Result<int, int> = Ok(2);
+    let amb = r.and_then(x -> Ok(x.into()));
+    ()
+}
+
+#[compile_fail(code: "E2005")]
+@result_or_else_ambiguous_into tests _ () -> void = {
+    let r: Result<int, int> = Err(2);
+    let amb = r.or_else(e -> Err(e.into()));
+    ()
+}

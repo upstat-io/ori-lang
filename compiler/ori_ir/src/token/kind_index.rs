@@ -6,22 +6,9 @@
 use super::kind::TokenKind;
 use super::tag::TokenTag;
 
-impl TokenKind {
-    /// Get a unique index for this token's discriminant (0-139).
-    ///
-    /// This is used for O(1) bitset membership testing in `TokenSet`.
-    /// The index is stable across calls but may change between compiler versions.
-    ///
-    /// # Performance
-    /// This is a simple match that compiles to a discriminant extraction,
-    /// which is typically a single memory load on the tag field.
-    #[inline]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive TokenKind → discriminant index mapping"
-    )]
-    pub const fn discriminant_index(&self) -> u8 {
-        match self {
+macro_rules! token_discriminant_index {
+    ($kind:expr) => {
+        match $kind {
             // Literals (0-10)
             Self::Ident(_) => TokenTag::Ident as u8,
             Self::Int(_) => TokenTag::Int as u8,
@@ -176,5 +163,16 @@ impl TokenKind {
             Self::AmpAmpEq => TokenTag::AmpAmpEq as u8,
             Self::PipePipeEq => TokenTag::PipePipeEq as u8,
         }
+    };
+}
+
+impl TokenKind {
+    /// Get a unique index for this token's discriminant (0-139).
+    ///
+    /// This is used for O(1) bitset membership testing in `TokenSet`.
+    /// The index is stable across calls but may change between compiler versions.
+    #[inline]
+    pub const fn discriminant_index(&self) -> u8 {
+        token_discriminant_index!(self)
     }
 }

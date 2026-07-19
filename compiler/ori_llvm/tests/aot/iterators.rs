@@ -5,12 +5,7 @@
 //! `enumerate`, `zip`, `chain`), consumers (`collect`, `count`, `any`, `all`,
 //! `find`, `for_each`, `fold`), and for-loop over Iterator.
 
-#![allow(
-    clippy::needless_raw_string_hashes,
-    reason = "readability in test program literals"
-)]
-
-use crate::util::{assert_aot_success, compile_and_run_capture};
+use crate::util::{assert_aot_success, assert_cell_output, compile_and_run_capture};
 
 // List.iter() — construct from list
 
@@ -48,6 +43,14 @@ fn test_range_iter_collect() {
     );
 }
 
+#[test]
+fn test_range_direct_eager_methods() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/range_direct_eager_methods.ori"),
+        "range_direct_eager_methods",
+    );
+}
+
 // map adapter
 
 #[test]
@@ -65,15 +68,15 @@ fn test_iter_filter() {
     );
 }
 
-// AOT regression coverage for flatten with non-int inner awaits the separate
-// typeck → codegen-type-info handoff gap — the assert in flatten_inner_elem_size
-// correctly catches Tag::Var reaching codegen. The flatten codegen fix itself
-// is verified by:
-// (a) helper boundary discipline (production assert on non-iterator outer),
-// (b) spec tests at compiler_repo/tests/spec/traits/iterator/methods.ori under
-//     interpreter (semantic pin: bool/char/tuple inner produce correct values),
-// (c) zero regression in the AOT suite (2160 passing tests).
-// AOT fixture for the bool-inner case to be added when that gap closes.
+// flatten adapter
+
+#[test]
+fn test_iter_flatten_closure_collection_ownership() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/iter_flatten_closure_collection_ownership.ori"),
+        "iter_flatten_closure_collection_ownership",
+    );
+}
 
 // take adapter
 
@@ -294,8 +297,7 @@ fn test_iter_join_char() {
     );
 }
 
-/// Long float join exercises heap-backed `OriStr` path (>23 bytes SSO).
-/// Regression guard for BUG-05-002 (`OriStr` temporary leak).
+/// Pins explicit RC decrement for heap-backed `OriStr` join temporaries.
 #[test]
 fn test_iter_join_long_float() {
     assert_aot_success(
@@ -304,32 +306,41 @@ fn test_iter_join_long_float() {
     );
 }
 
-/// Negative pin: unsupported element types (Duration) must be rejected at
-/// compile time — the codegen error guard rejects them with E5001.
+/// Positive pin: join over Printable `Duration` elements compiles, runs, and
+/// emits the `to_str`-converted elements ("1s, 2s"). Duration is Printable, so
+/// `emit_iter_join`'s `ln_to_str_trampoline` path converts each element.
 #[test]
-fn test_iter_join_unsupported_type_rejected() {
-    let source = r#"
-@main () -> int = {
-    let result = [1s, 2s].iter().join(separator: ", ");
-    if result == "1s, 2s" then 0 else 1
+fn test_iter_join_duration_supported() {
+    assert_cell_output(
+        include_str!("fixtures/iterators/iter_join_duration_supported.ori"),
+        "iter_join_duration_supported",
+        "1s, 2s",
+    );
 }
-"#;
-    let (exit_code, _, stderr) = compile_and_run_capture(source);
-    // Must fail at compile time (-1), not crash at runtime or silently succeed
+
+/// Negative pin: join over a genuinely non-Printable element type (a struct
+/// with no Printable / `to_str` impl) has no `to_str` trampoline, so
+/// `emit_iter_join`'s codegen guard rejects it at compile time (E5001). Pins
+/// the reject-genuinely-unsupported-join invariant.
+#[test]
+fn test_iter_join_nonprintable_rejected() {
+    let (exit_code, _, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/iterators/iter_join_nonprintable_rejected.ori"
+    ));
+    // Must fail at compile time (-1), not crash at runtime or silently succeed.
     assert_eq!(
         exit_code, -1,
-        "Duration join should be rejected at compile time, got exit code {exit_code}"
+        "non-Printable struct join should be rejected at compile time, got exit code {exit_code}"
     );
     assert!(
         stderr.contains("not yet supported in LLVM backend"),
-        "Expected codegen error for unsupported join type, got:\n{stderr}"
+        "Expected codegen error for unsupported join element type, got:\n{stderr}"
     );
 }
 
 // zip adapter
 
 #[test]
-#[ignore = "BUG-07-038: codegen gap — zip + count hits unresolved type variable"]
 fn test_iter_zip_count() {
     assert_aot_success(
         include_str!("fixtures/iterators/iter_zip_count.ori"),
@@ -338,7 +349,6 @@ fn test_iter_zip_count() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: codegen gap — zip with unequal lengths hits unresolved type variable"]
 fn test_iter_zip_unequal() {
     assert_aot_success(
         include_str!("fixtures/iterators/iter_zip_unequal.ori"),
@@ -361,5 +371,25 @@ fn test_iter_chain_collect() {
     assert_aot_success(
         include_str!("fixtures/iterators/iter_chain_collect.ori"),
         "iter_chain_collect",
+    );
+}
+
+// repeat() — prelude builtin generic, infinite iterator source.
+
+#[test]
+fn test_repeat_int_take_sum() {
+    assert_aot_success(
+        include_str!("fixtures/iterators/repeat_int_take_sum.ori"),
+        "repeat_int_take_sum",
+    );
+}
+
+#[test]
+fn test_repeat_str_take_collect() {
+    // Heap element: pins per-yield RC clone + master release (leak-checked).
+    assert_cell_output(
+        include_str!("fixtures/iterators/repeat_str_take_collect.ori"),
+        "repeat_str_take_collect",
+        "hi,hi,hi",
     );
 }

@@ -5,7 +5,7 @@
 // declare without requiring full handler scaffolding.
 @with_suspend <T> (x: T) -> T uses Suspend = x;
 
-@main () -> int = {
+@main () -> int uses Suspend = {
     let xs = with_suspend(x: [55, 66, 77]);
     if xs.len() == 3 && xs[1] == 66 then 0 else 1
 }

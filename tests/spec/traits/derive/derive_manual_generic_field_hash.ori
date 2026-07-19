@@ -1,0 +1,26 @@
+// Spec: 09-properties-of-types.md § Hashable
+// A non-generic derived body must close a generated call to a generic manual impl.
+
+use std.testing { assert }
+
+#derive(Eq)
+type Manual<T> = { value: T }
+
+impl<T: Hashable> Manual<T>: Hashable {
+    @hash (self) -> int = self.value.hash();
+}
+
+#derive(Eq, Hashable)
+type Holder = { inner: Manual<int> }
+
+@test_generated_manual_generic_hash tests @generated_manual_generic_hash () -> void = {
+    let left = Holder { inner: Manual { value: 7 } };
+    let right = Holder { inner: Manual { value: 7 } };
+    assert(cond: left.hash() == right.hash())
+}
+
+@generated_manual_generic_hash () -> bool = {
+    let left = Holder { inner: Manual { value: 7 } };
+    let right = Holder { inner: Manual { value: 7 } };
+    left.hash() == right.hash()
+}

@@ -74,7 +74,7 @@ Several properties of Ori's testing system, taken together, distinguish it from 
 
 **Runtime failure testing.** The `#fail("message")` attribute marks a test that should panic at runtime with a message containing the specified substring. A test that completes without panicking, or panics with the wrong message, fails. This provides a clean way to verify that invariant violations, assertion failures, and intentional panics produce the expected diagnostics.
 
-**Dual-backend execution.** The same tests can run on both the tree-walking interpreter and the LLVM JIT backend. This provides a powerful cross-validation mechanism: any discrepancy between the two backends reveals a bug in one of them. The interpreter provides fast feedback during development; the LLVM backend verifies that codegen produces correct results.
+**Cross-executor execution.** The evaluator is the representation-abstract semantic oracle. The same tests must also run through the bytecode VM and LLVM/AOT paths. A discrepancy among evaluator, VM, and compiled output reveals either a semantic lowering bug or an unfaithful physical encoding; agreement between only two paths is insufficient once a third executor is admitted.
 
 **Shared interner architecture.** All test files processed in a single run share one `SharedInterner` (an `Arc`-wrapped string interner). This ensures that `Name` values --- interned identifiers used throughout the compiler --- are comparable across file boundaries. Without this sharing, a test in one file could not reliably reference a function defined in another file, because the same identifier string would produce different `Name` values in different interners.
 
@@ -352,7 +352,7 @@ Test files can import private items from their source files using the `::` prefi
 
 **Skip requiring type-check vs. unconditional skip.** Ori requires `#skip` tests to type-check cleanly. An unconditional skip would be simpler and would allow developers to skip tests with type errors. Ori chose the stricter option because unconditional skips enable test rot: a skipped test with type errors will silently remain broken as the codebase evolves, and the developer will not learn about the breakage until they remove the skip. The type-check requirement ensures that skipped tests remain compilable.
 
-**Dual-backend execution vs. single-backend.** Running tests on both the interpreter and LLVM JIT doubles the verification surface: a bug that exists only in codegen (or only in the interpreter) will be caught by the other backend. The cost is additional execution time and the complexity of maintaining two backends. Ori mitigates the cost by making LLVM testing opt-in (`--backend=llvm`) and by using the "compile once, run many" strategy to amortize LLVM compilation costs. The diagnostic script `dual-exec-verify.sh` automates batch comparison between the two backends, flagging any discrepancies.
+**Cross-executor execution vs. one physical path.** Evaluator-versus-LLVM comparison remains useful, and `dual-exec-verify.sh` automates that shipped pair. It does not cover the bytecode VM. The production matrix must compare evaluator, VM, LLVM debug/release, and AOT outcomes while separately checking each physical executor's cleanup and resource invariants. Shared AIMS input reduces duplicated policy; it does not remove the need to prove every encoding faithful.
 
 ## Related Documents
 

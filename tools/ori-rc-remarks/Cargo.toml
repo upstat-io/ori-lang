@@ -1,0 +1,29 @@
+# Standalone layer-2 analyzer for the AIMS RC-survivor remark stream.
+# Own [workspace] table => independent of the parent compiler workspace
+# (no compiler_repo/Cargo.toml edit needed; mirrors tools/ori-lsp).
+# Build/test: cargo test --manifest-path tools/ori-rc-remarks/Cargo.toml
+[workspace]
+
+[package]
+name = "ori-rc-remarks"
+version = "2026.4.26-alpha.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/upstat-io/ori-lang"
+description = "Layer-2 analyzer for the Ori AIMS RC-survivor remark stream (opt-tooling analogs)"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints.rust]
+unsafe_code = "deny"
+unused = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"

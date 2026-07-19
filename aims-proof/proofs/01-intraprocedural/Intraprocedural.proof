@@ -56,8 +56,9 @@ Theorem IA-1: Intraprocedural analysis rule signatures — IA-1 through IA-9
 
     IA-8 (immortal-variable exclusion):
       type : Function -> Set ArcVarId
-      immortal vars (heap-allocated constants with MAX_REFCOUNT detected
-      by aims/immortal/ pre-pass) excluded from worklist; treated as scalars.
+      vars carrying the logical Immortal classification are excluded from
+      the worklist and treated as scalars. Any target-specific encoding of
+      immortality is outside this rule.
 
     IA-9 (N-ary join permutation invariance):
       type : List AimsState -> AimsState

@@ -9,7 +9,7 @@ fn test_db_creation() {
 #[test]
 fn test_db_clone() {
     let db1 = CompilerDb::new();
-    let _db2 = db1.clone();
+    let _db2 = db1;
     // Clone must work for Salsa
 }
 

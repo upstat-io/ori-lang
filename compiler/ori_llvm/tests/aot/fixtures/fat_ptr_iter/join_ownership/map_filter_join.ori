@@ -1,0 +1,10 @@
+// Fresh element from map passed through filter into join: pass-through
+// adapters must not change the owned element's single-release obligation.
+@main () -> void = {
+    let $joined = ["delta-delta-delta-delta-delta", "epsilon-epsilon-epsilon-epsilon"]
+        .iter()
+        .map(transform: (s: str) -> str = s + "-suffix-suffix-suffix-suffix")
+        .filter(predicate: (s: str) -> bool = s.len() > 0)
+        .join(separator: "|");
+    print(msg: joined)
+}

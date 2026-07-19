@@ -1,0 +1,11 @@
+#derive(Eq)
+type Bag = { items: [int] }
+
+@main () -> int = {
+    let a = Bag { items: [1, 2, 3, 4, 5] };
+    let b = Bag { items: [1, 2, 3, 4, 5] };
+    let c = Bag { items: [9, 9, 9] };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}

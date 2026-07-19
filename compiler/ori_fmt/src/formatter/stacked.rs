@@ -18,10 +18,6 @@ impl<I: StringLookup> Formatter<'_, I> {
     /// - **Custom stacked**: Block, Match, `FunctionSeq`, `FunctionExp` — multi-line rendering
     /// - **Custom broken**: Compound expressions → `emit_broken()` for line-breaking logic
     /// - **Leaf/atom + simple compound**: → `emit_inline()` (no structure to stack)
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive ExprKind stacked formatting dispatch"
-    )]
     pub(super) fn emit_stacked(&mut self, expr_id: ExprId) {
         let expr = self.arena.get_expr(expr_id);
 
@@ -36,49 +32,11 @@ impl<I: StringLookup> Formatter<'_, I> {
             }
 
             ExprKind::FunctionExp(exp_id) => {
-                let exp = self.arena.get_function_exp(*exp_id);
-                self.ctx.emit(exp.kind.name());
-                self.ctx.emit("(");
-                let props = self.arena.get_named_exprs(exp.props);
-                if !props.is_empty() {
-                    self.ctx.emit_newline();
-                    self.ctx.indent();
-                    for (i, prop) in props.iter().enumerate() {
-                        self.ctx.emit_indent();
-                        self.ctx.emit(self.interner.lookup(prop.name));
-                        self.ctx.emit(": ");
-                        self.format(prop.value);
-                        self.ctx.emit(",");
-                        if i < props.len() - 1 {
-                            self.ctx.emit_newline();
-                        }
-                    }
-                    self.ctx.dedent();
-                    self.ctx.emit_newline_indent();
-                }
-                self.ctx.emit(")");
+                self.emit_stacked_function_exp(*exp_id);
             }
 
             ExprKind::Block { stmts, result } => {
-                let stmts_list = self.arena.get_stmt_range(*stmts);
-                self.ctx.emit("{");
-                self.ctx.indent();
-                for stmt in stmts_list {
-                    self.ctx.emit_newline_indent();
-                    self.emit_stmt(stmt);
-                    self.ctx.emit(";");
-                }
-                if result.is_present() {
-                    // Blank line before result when 2+ statements precede it
-                    if stmts_list.len() >= 2 {
-                        self.ctx.emit_newline();
-                    }
-                    self.ctx.emit_newline_indent();
-                    self.format(*result);
-                }
-                self.ctx.dedent();
-                self.ctx.emit_newline_indent();
-                self.ctx.emit("}");
+                self.emit_stacked_block(*stmts, *result);
             }
 
             // Compound expressions with custom broken rendering
@@ -139,6 +97,51 @@ impl<I: StringLookup> Formatter<'_, I> {
             | ExprKind::Range { .. }
             | ExprKind::TemplateLiteral { .. } => self.emit_inline(expr_id),
         }
+    }
+
+    fn emit_stacked_function_exp(&mut self, exp_id: ori_ir::FunctionExpId) {
+        let exp = self.arena.get_function_exp(exp_id);
+        self.ctx.emit(exp.kind.name());
+        self.ctx.emit("(");
+        let props = self.arena.get_named_exprs(exp.props);
+        if !props.is_empty() {
+            self.ctx.emit_newline();
+            self.ctx.indent();
+            for (index, prop) in props.iter().enumerate() {
+                self.ctx.emit_indent();
+                self.ctx.emit(self.interner.lookup(prop.name));
+                self.ctx.emit(": ");
+                self.format(prop.value);
+                self.ctx.emit(",");
+                if index < props.len() - 1 {
+                    self.ctx.emit_newline();
+                }
+            }
+            self.ctx.dedent();
+            self.ctx.emit_newline_indent();
+        }
+        self.ctx.emit(")");
+    }
+
+    fn emit_stacked_block(&mut self, stmts: StmtRange, result: ExprId) {
+        let stmts_list = self.arena.get_stmt_range(stmts);
+        self.ctx.emit("{");
+        self.ctx.indent();
+        for stmt in stmts_list {
+            self.ctx.emit_newline_indent();
+            self.emit_stmt(stmt);
+            self.ctx.emit(";");
+        }
+        if result.is_present() {
+            if stmts_list.len() >= 2 {
+                self.ctx.emit_newline();
+            }
+            self.ctx.emit_newline_indent();
+            self.format(result);
+        }
+        self.ctx.dedent();
+        self.ctx.emit_newline_indent();
+        self.ctx.emit("}");
     }
 
     /// Emit a `function_seq` pattern (try, match, etc.).
@@ -270,13 +273,17 @@ impl<I: StringLookup> Formatter<'_, I> {
             // The $ prefix is emitted by emit_binding_pattern(), not here
             ori_ir::StmtKind::Let {
                 pattern,
-                ty: _,
+                ty,
                 init,
                 mutable: _,
             } => {
                 self.ctx.emit("let ");
                 let pat = self.arena.get_binding_pattern(*pattern);
                 self.emit_binding_pattern(pat);
+                if ty.is_valid() {
+                    self.ctx.emit(": ");
+                    self.emit_type(self.arena.get_parsed_type(*ty));
+                }
                 self.ctx.emit(" = ");
                 self.format(*init);
             }

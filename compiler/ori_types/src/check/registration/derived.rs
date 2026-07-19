@@ -5,11 +5,14 @@
 //! restrictions, field trait satisfaction) and generates method signatures
 //! so the type checker can resolve derived method calls.
 
-use ori_ir::{DerivedMethodShape, DerivedTrait, ExprId, Name, Span};
+use ori_ir::{DerivedImplId, DerivedMethodShape, DerivedTrait, ExprId, Name, Span};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::type_resolution::{collect_generic_params, resolve_parsed_type_simple};
-use crate::{Idx, ImplEntry, ImplMethodDef, ImplSpecificity, ModuleChecker, Tag, TypeCheckError};
+use crate::{
+    AcceptedDerivedImpl, FunctionSig, Idx, ImplEntry, ImplMethodDef, ImplSpecificity,
+    ModuleChecker, Tag, TypeCheckError,
+};
 
 /// Register derived trait implementations.
 pub fn register_derived_impls(checker: &mut ModuleChecker<'_>, module: &ori_ir::Module) {
@@ -55,6 +58,17 @@ pub(super) fn register_derived_impl(
         return;
     }
 
+    let type_params = collect_generic_params(checker.arena(), type_decl.generics);
+    let self_type = if type_params.is_empty() {
+        checker.pool_mut().named(type_decl.name)
+    } else {
+        let type_args: Vec<Idx> = type_params
+            .iter()
+            .map(|&param| checker.pool_mut().named(param))
+            .collect();
+        checker.pool_mut().applied(type_decl.name, &type_args)
+    };
+
     // 0b. Reject derives when the required supertrait is missing (E2029)
     if let Some(required) = trait_kind.requires_supertrait() {
         let required_name = checker.interner().intern(required.trait_name());
@@ -62,7 +76,6 @@ pub(super) fn register_derived_impl(
         if !has_derive {
             // Also check if an explicit impl exists in the trait registry
             let required_idx = checker.pool_mut().named(required_name);
-            let self_type = checker.pool_mut().named(type_decl.name);
             let has_impl = checker.trait_registry().has_impl(required_idx, self_type);
             if !has_impl {
                 checker.push_error(TypeCheckError::cannot_derive_without_supertrait(
@@ -79,27 +92,28 @@ pub(super) fn register_derived_impl(
     // 1. Get the trait index
     let trait_idx = checker.pool_mut().named(trait_name);
 
-    // 2. Get the self type
-    let self_type = checker.pool_mut().named(type_decl.name);
-
-    // 3. Collect type parameters from the type declaration
-    let type_params = collect_generic_params(checker.arena(), type_decl.generics);
-
-    // 4. Check if this impl already exists (coherence check)
+    // 2. Check if this impl already exists (coherence check)
     if checker.trait_registry().has_impl(trait_idx, self_type) {
         // Already have an impl for this trait+type combination
         return;
     }
 
-    // 5. Validate field types implement the derived trait (E2032)
+    // 3. Validate field types implement the derived trait (E2032)
     if !validate_derive_field_constraints(checker, type_decl, trait_name, trait_idx) {
         return;
     }
 
-    // 6. Build method signatures for the derived trait
-    let methods = build_derived_methods(checker, trait_kind, self_type, type_decl.span);
+    // 4. Build method signatures for the derived trait
+    let (methods, signature) = build_derived_methods(
+        checker,
+        trait_kind,
+        self_type,
+        &type_params,
+        trait_name,
+        type_decl.span,
+    );
 
-    // 7. Create and register the impl entry. A generic `#derive(Eq) type Pair<T>`
+    // 5. Create and register the impl entry. A generic `#derive(Eq) type Pair<T>`
     //    is conditional: it implements the trait only when each type argument
     //    satisfies the same trait (derive-implied `impl<T: Eq> Pair<T>: Eq`).
     //    Record that bound per type parameter so the operator-presence gate
@@ -116,6 +130,7 @@ pub(super) fn register_derived_impl(
     } else {
         ImplSpecificity::Constrained
     };
+    let id = next_derived_impl_id(checker.accepted_derives.len());
     let entry = ImplEntry {
         trait_idx: Some(trait_idx),
         trait_type_args: Vec::new(),
@@ -129,7 +144,28 @@ pub(super) fn register_derived_impl(
         span: type_decl.span,
     };
 
-    checker.trait_registry_mut().register_impl(entry);
+    // Keep the trait and lowering registries coherent when the ID domain is exhausted.
+    checker.trait_registry_mut().register_impl_with_origin(
+        entry,
+        Some(crate::registry::RegisteredImplOrigin::Derived(id)),
+    );
+    checker.accepted_derives.push(AcceptedDerivedImpl {
+        id,
+        owner_name: type_decl.name,
+        owner_type: self_type,
+        trait_type: trait_idx,
+        trait_kind,
+        method_name: checker.interner().intern(trait_kind.method_name()),
+        signature,
+        span: type_decl.span,
+    });
+}
+
+fn next_derived_impl_id(accepted_count: usize) -> DerivedImplId {
+    let Ok(raw_id) = u32::try_from(accepted_count) else {
+        panic!("a module cannot contain more than u32::MAX accepted derives");
+    };
+    DerivedImplId::new(raw_id)
 }
 
 /// Validate that all field types implement the derived trait (E2032).
@@ -202,8 +238,25 @@ fn validate_derive_field_constraints(
                 }
             }
         }
-        ori_ir::TypeDeclKind::Newtype(_) => {
-            // Newtypes don't have fields to validate
+        ori_ir::TypeDeclKind::Newtype(underlying) => {
+            let underlying_type = resolve_parsed_type_simple(checker, underlying, arena);
+            if !field_type_satisfies_trait(
+                checker,
+                underlying_type,
+                trait_name,
+                trait_idx,
+                self_name,
+                &generic_params,
+            ) {
+                checker.push_error(TypeCheckError::field_missing_trait_in_derive(
+                    type_decl.span,
+                    type_decl.name,
+                    trait_name,
+                    type_decl.name,
+                    underlying_type,
+                ));
+                all_valid = false;
+            }
         }
     }
 
@@ -277,29 +330,37 @@ pub(super) fn build_derived_methods(
     checker: &mut ModuleChecker<'_>,
     trait_kind: DerivedTrait,
     self_type: Idx,
+    type_params: &[Name],
+    trait_name: Name,
     span: Span,
-) -> FxHashMap<Name, ImplMethodDef> {
+) -> (FxHashMap<Name, ImplMethodDef>, FunctionSig) {
     let method_str = trait_kind.method_name();
     let method_name = checker.interner().intern(method_str);
 
-    // Build function type from shape metadata — adding a new trait with an
-    // existing shape requires zero changes here.
-    let signature = match trait_kind.shape() {
-        DerivedMethodShape::BinaryPredicate => {
-            checker
-                .pool_mut()
-                .function2(self_type, self_type, Idx::BOOL)
-        }
-        DerivedMethodShape::UnaryIdentity => checker.pool_mut().function1(self_type, self_type),
-        DerivedMethodShape::UnaryToInt => checker.pool_mut().function1(self_type, Idx::INT),
-        DerivedMethodShape::UnaryToStr => checker.pool_mut().function1(self_type, Idx::STR),
-        DerivedMethodShape::Nullary => checker.pool_mut().function0(self_type),
-        DerivedMethodShape::BinaryToOrdering => {
-            checker
-                .pool_mut()
-                .function2(self_type, self_type, Idx::ORDERING)
-        }
+    let self_name = checker.interner().intern("self");
+    let other_name = checker.interner().intern("other");
+    let (param_names, param_types, return_type) = match trait_kind.shape() {
+        DerivedMethodShape::BinaryPredicate => (
+            vec![self_name, other_name],
+            vec![self_type, self_type],
+            Idx::BOOL,
+        ),
+        DerivedMethodShape::UnaryIdentity => (vec![self_name], vec![self_type], self_type),
+        DerivedMethodShape::UnaryToInt => (vec![self_name], vec![self_type], Idx::INT),
+        DerivedMethodShape::UnaryToStr => (vec![self_name], vec![self_type], Idx::STR),
+        DerivedMethodShape::Nullary => (Vec::new(), Vec::new(), self_type),
+        DerivedMethodShape::BinaryToOrdering => (
+            vec![self_name, other_name],
+            vec![self_type, self_type],
+            Idx::ORDERING,
+        ),
     };
+    let mut signature = FunctionSig::synthetic(method_name, param_names, param_types, return_type);
+    signature.type_params = type_params.to_vec();
+    signature.type_param_bounds = type_params.iter().map(|_| vec![trait_name]).collect();
+    signature.generic_param_mapping = vec![None; type_params.len()];
+    signature.populate_hashes(checker.pool());
+    let signature_type = signature.to_function_type(checker.pool_mut());
 
     let has_self = trait_kind.shape().has_self();
 
@@ -308,7 +369,7 @@ pub(super) fn build_derived_methods(
         method_name,
         ImplMethodDef {
             name: method_name,
-            signature,
+            signature: signature_type,
             has_self,
             body: ExprId::INVALID,
             // Derived methods have no method-level binders by construction
@@ -316,10 +377,11 @@ pub(super) fn build_derived_methods(
             scheme_var_ids: Vec::new(),
             generic_param_metadata: Vec::new(),
             where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
             // Derived methods have no defaulted params → strict arity.
             optional_param_count: 0,
             span,
         },
     );
-    methods
+    (methods, signature)
 }

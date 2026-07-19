@@ -1,12 +1,9 @@
-//! Shared ARC processing helpers — the primary seam between the codegen
-//! orchestrator and the ARC/AIMS pipeline.
+//! Shared executable-artifact projection helpers.
 //!
 //! Both the immediate-emit path ([`FunctionCompiler::emit_arc_function`] in
 //! [`super::define_phase`]) and the two-pass prepare path
 //! ([`FunctionCompiler::prepare_arc_function`] in [`super::nounwind::prepare`])
-//! route through these helpers. Factored out of `define_phase.rs` as part
-//! of the hygiene sweep so `define_phase.rs` stays under the 500-line
-//! cap while keeping the shared-seam surface in one place.
+//! route through these helpers, keeping the shared-seam surface in one place.
 //!
 //! Callers (grep-verifiable):
 //! - `define_phase.rs`: `emit_arc_function_inner` → `process_arc_function`;
@@ -26,8 +23,7 @@ use crate::codegen::abi::{select_call_conv, CallConvSite, FunctionAbi};
 use crate::codegen::value_id::FunctionId;
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
-    /// Apply borrow annotations, annotate arg ownership, and run the ARC
-    /// pipeline on a function.
+    /// Replace a lowering shape-driver with its closed realized body.
     ///
     /// Shared by both the immediate-emit path ([`Self::emit_arc_function`]) and
     /// the two-pass prepare path ([`Self::prepare_arc_function`]).
@@ -42,9 +38,34 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         name: Name,
         arc_func: &mut ori_arc::ArcFunction,
     ) -> Result<(), VerifyError> {
-        // PC-2 contract check. Runs BEFORE run_arc_pipeline because the
-        // pipeline mutates `arc_func` in place; assertion on post-pipeline
-        // IR would validate the wrong structure.
+        if let Some(program) = self.executable_program {
+            let Some(function) = program.function_id(name) else {
+                self.builder.record_codegen_error_with_msg(format!(
+                    "validated executable has no realized body for {}",
+                    self.interner.lookup(name)
+                ));
+                return Ok(());
+            };
+            *arc_func = program.functions()[function.index()].clone();
+        } else {
+            #[cfg(not(test))]
+            {
+                self.builder.record_codegen_error_with_msg(format!(
+                    "physical LLVM projection requires a closed executable artifact for {}",
+                    self.interner.lookup(name)
+                ));
+                return Err(VerifyError::VariableMetadataUnrealized);
+            }
+            #[cfg(test)]
+            debug!(
+                name = %self.interner.lookup(name),
+                "projecting an explicitly supplied low-level test fixture"
+            );
+        }
+
+        // PC-2 contract check guards the exact body consumed by physical
+        // projection. Checking a caller-supplied lowering shape instead would
+        // validate the wrong structure.
         //
         // Empty exempt set: generic bodies reach this seam only post-
         // monomorphization; non-generic bodies have no scheme_var_ids.
@@ -56,52 +77,11 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 .report_primary_seam_violation(err, "Tag::Var in ARC IR violates PC-2 contract"));
         }
 
-        // Apply AIMS param ownership from pre-computed contracts.
-        // Lowering defaults all params to Ownership::Owned (lower/mod.rs).
-        // AIMS contracts (from compute_aims_contracts) provide the correct
-        // Owned/Borrowed per param.
-        debug!(name = %self.interner.lookup(name), "processing ARC function");
-        self.apply_aims_param_ownership(arc_func);
-
-        // AIMS pipeline handles arg_ownership internally (Step 4: emit_arg_ownership).
-        // The reconstructed TypeRegistry surfaces collection / closure
-        // UserBurdenSpec to the Phase-5 burden walker (type_registry.burden(idx)).
-        // Receiver-resolved impl-method contracts bind per function so the
-        // Phase-5 lookups (keyed by bare callee name) see them.
-        let augmented = ori_arc::augment_contracts_with_impl_callees(
-            arc_func,
-            &self.aims_contracts,
-            &self.impl_method_contracts,
-            self.pool,
-        );
-        let contracts = augmented.as_ref().unwrap_or(&self.aims_contracts);
-        let arc_problems = ori_arc::run_arc_pipeline(
-            arc_func,
-            self.arc_classifier,
-            self.annotated_sigs,
-            self.pool,
-            self.interner,
-            &self.uniqueness_summaries,
-            contracts,
-            self.type_registry,
-            self.verify_arc,
-        );
-        match arc_problems {
-            Ok(problems) => {
-                for problem in &problems {
-                    debug!(?problem, "ARC pipeline problem");
-                }
-            }
-            Err(verify_errors) => {
-                let func_name = self.interner.lookup(name);
-                for e in &verify_errors {
-                    tracing::error!(function = func_name, "ARC IR verification ICE: {e}");
-                }
-                self.builder.record_codegen_error_with_msg(format!(
-                    "ARC IR verification failed for function '{func_name}' ({} errors)",
-                    verify_errors.len()
-                ));
-            }
+        if self.executable_program.is_some() {
+            debug!(
+                name = %self.interner.lookup(name),
+                "consuming closed post-AIMS function body"
+            );
         }
 
         Ok(())
@@ -136,26 +116,6 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         err.into()
     }
 
-    /// Translate AIMS `ParamContract` → `Ownership` for every param on `func`.
-    ///
-    /// Lowering defaults all params to `Ownership::Owned` (see
-    /// `ori_arc/src/lower/mod.rs`); AIMS contracts (from `compute_aims_contracts`)
-    /// carry the correct Owned/Borrowed classification per param. This helper
-    /// consumes the interprocedural contract for `func.name` (when present) and
-    /// writes the per-param ownership in-place. Callers: `process_arc_function`
-    /// (top-level) + `declare_and_process_lambda` (lambdas); both forms share
-    /// identical translation logic.
-    pub(super) fn apply_aims_param_ownership(&self, func: &mut ori_arc::ArcFunction) {
-        if let Some(contract) = self.aims_contracts.get(&func.name) {
-            for (param, pc) in func.params.iter_mut().zip(&contract.params) {
-                param.ownership = match pc.access {
-                    ori_arc::aims::lattice::AccessClass::Borrowed => ori_arc::Ownership::Borrowed,
-                    ori_arc::aims::lattice::AccessClass::Owned => ori_arc::Ownership::Owned,
-                };
-            }
-        }
-    }
-
     /// Declare a lambda LLVM function, register it in `codegen_ctx`, and run
     /// the ARC pipeline.
     ///
@@ -175,10 +135,34 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         &mut self,
         lambda: &mut ori_arc::ArcFunction,
     ) -> Result<(Name, FunctionId, FunctionAbi), VerifyError> {
-        // PC-2 contract check. Runs BEFORE run_arc_pipeline below because
-        // the pipeline mutates `lambda` in place; assertion on post-pipeline
-        // IR would validate the wrong structure. Mirrors the sibling check
-        // in `process_arc_function`.
+        if let Some(program) = self.executable_program {
+            let Some(function) = program.function_id(lambda.name) else {
+                self.builder.record_codegen_error_with_msg(format!(
+                    "validated executable has no realized lambda body for {}",
+                    self.interner.lookup(lambda.name)
+                ));
+                return Err(VerifyError::VariableMetadataUnrealized);
+            };
+            *lambda = program.functions()[function.index()].clone();
+        } else {
+            #[cfg(not(test))]
+            {
+                self.builder.record_codegen_error_with_msg(format!(
+                    "physical LLVM projection requires a closed executable artifact for lambda {}",
+                    self.interner.lookup(lambda.name)
+                ));
+                return Err(VerifyError::VariableMetadataUnrealized);
+            }
+            #[cfg(test)]
+            debug!(
+                name = %self.interner.lookup(lambda.name),
+                "projecting an explicitly supplied low-level lambda fixture"
+            );
+        }
+
+        // PC-2 contract check guards the exact realized lambda body consumed
+        // by physical projection. Mirrors the sibling check in
+        // `process_arc_function`.
         let exempt: FxHashSet<u32> = FxHashSet::default();
         if let Err(err) =
             ori_arc::assert_no_unresolved_type_vars(self.pool, lambda, self.interner, &exempt)
@@ -189,33 +173,23 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             ));
         }
 
-        // Monomorphization-resolution sibling invariant. Runs at the same
+        // Shared specialization sibling invariant. Runs at the same
         // seam as the PC-2 check so BOTH the immediate-emit path
         // (`compile_lambda_arc`) and the two-pass prepare path
-        // (`prepare_lambda`) are covered. `resolve_all_lambda_bound_vars`
+        // (`prepare_lambda`) are covered. `specialize_polymorphic_lambdas`
         // must have substituted every `Tag::BoundVar` before this point;
         // survivors mean monomorphization did not finish. Always-on (no `debug_assert!` fail-open);
         // routes through `report_primary_seam_violation` so AOT callers see
         // the BoundVar failure through the same `codegen_errors` counter
         // they rely on for PC-2 failures.
-        if let Err(err) = ori_arc::assert_no_unresolved_bound_vars_in_params(self.pool, lambda) {
+        if let Err(err) = ori_arc::assert_no_unresolved_bound_vars(self.pool, lambda) {
             return Err(self.report_primary_seam_violation(
                 err,
-                "Tag::BoundVar in lambda params violates monomorphization-resolution invariant",
+                "Tag::BoundVar in shared lambda ARC violates specialization invariant",
             ));
         }
 
         let is_non_capturing = lambda.num_captures == 0;
-
-        // Apply AIMS param ownership from pre-computed contracts BEFORE the
-        // name change below. The contracts map uses the original lambda name
-        // (e.g., `__lambda_0` from lowering). Lambdas need correct
-        // Owned/Borrowed annotations so that collect_all_borrowed_defs
-        // correctly identifies borrowed params and their Let aliases.
-        // Without this, edge cleanup emits spurious RcDec for
-        // borrowed-param aliases (double-free on captured non-scalar
-        // values like str, [T]).
-        self.apply_aims_param_ownership(lambda);
 
         let mut abi = self.compute_arc_function_abi(lambda);
 
@@ -260,46 +234,6 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         self.codegen_ctx
             .functions
             .insert(unique_name, (func_id, abi.clone()));
-
-        // ARC processing — AIMS pipeline handles arg_ownership internally.
-        // Lambda path mirrors the parent path: the reconstructed TypeRegistry
-        // surfaces closure-env / collection UserBurdenSpec to the Phase-5
-        // burden walker, and receiver-resolved impl-method contracts bind
-        // per function.
-        let augmented = ori_arc::augment_contracts_with_impl_callees(
-            lambda,
-            &self.aims_contracts,
-            &self.impl_method_contracts,
-            self.pool,
-        );
-        let contracts = augmented.as_ref().unwrap_or(&self.aims_contracts);
-        let arc_problems = ori_arc::run_arc_pipeline(
-            lambda,
-            self.arc_classifier,
-            self.annotated_sigs,
-            self.pool,
-            self.interner,
-            &self.uniqueness_summaries,
-            contracts,
-            self.type_registry,
-            self.verify_arc,
-        );
-        match arc_problems {
-            Ok(problems) => {
-                for problem in &problems {
-                    debug!(?problem, "ARC pipeline problem (lambda)");
-                }
-            }
-            Err(verify_errors) => {
-                for e in &verify_errors {
-                    tracing::error!("ARC IR verification ICE (lambda): {e}");
-                }
-                self.builder.record_codegen_error_with_msg(format!(
-                    "ARC IR verification failed for lambda ({} errors)",
-                    verify_errors.len()
-                ));
-            }
-        }
 
         // Store capture param ownership so emit_partial_apply can generate
         // correct wrapper functions: borrowed captures skip RcInc (body borrows

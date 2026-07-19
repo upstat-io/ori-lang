@@ -1,7 +1,6 @@
 use "../001_100_doors" { open_doors, simulate }
 use std.testing { assert_eq }
 
-#skip("BUG-04-192: by-value list return leaks 1 allocation on LLVM/AOT (AIMS burden floor); passes on eval, leaks under --backend=llvm")
 @test_open_doors_returns_perfect_squares tests _ () -> void = {
     assert_eq(
         actual: open_doors(),
@@ -9,7 +8,6 @@ use std.testing { assert_eq }
     )
 }
 
-#skip("BUG-04-192: by-value list return leaks 2 allocations on LLVM/AOT (AIMS burden floor); passes on eval, leaks under --backend=llvm")
 @test_simulate_returns_perfect_squares tests _ () -> void = {
     assert_eq(
         actual: simulate(),
@@ -17,7 +15,6 @@ use std.testing { assert_eq }
     )
 }
 
-#skip("BUG-04-192: by-value list returns leak 3 allocations on LLVM/AOT (AIMS burden floor); passes on eval, leaks under --backend=llvm")
 @test_both_approaches_agree tests _ () -> void = {
     assert_eq(actual: open_doors(), expected: simulate())
 }
@@ -36,7 +33,6 @@ use std.testing { assert_eq }
     assert_eq(actual: doors[9], expected: 100)
 }
 
-#skip("BUG-04-192: simulate() by-value list return leaks 1 allocation on LLVM/AOT (AIMS burden floor); passes on eval, leaks under --backend=llvm")
 @test_non_square_doors_are_closed tests _ () -> void = {
     let $doors = simulate();
     assert_eq(actual: doors.contains(value: 2), expected: false);

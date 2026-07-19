@@ -1,0 +1,20 @@
+@wrap (value: int) -> ((int, int), int) = ((value, value + 1), value + 2);
+
+@main () -> int = {
+    let values = for value in 0..3 yield wrap(value: value);
+    let first = values[0];
+    let first_inner = first.0;
+    let second = values[1];
+    let second_inner = second.0;
+    let third = values[2];
+    let third_inner = third.0;
+
+    if first_inner.0 == 0 && first_inner.1 == 1 && first.1 == 2 && second_inner.0 == 1
+    && second_inner.1 == 2
+    && second.1 == 3
+    && third_inner.0 == 2
+    && third_inner.1 == 3
+    && third.1 == 4 then
+        73
+    else 99
+}

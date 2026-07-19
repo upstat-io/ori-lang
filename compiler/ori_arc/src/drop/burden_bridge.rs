@@ -1,12 +1,10 @@
 //! Bridge between [`UserBurdenSpec`] (the AIMS pre-pass typed input) and the
-//! shipped [`DropInfo`] enum consumed by per-type drop-function codegen.
+//! shared [`DropInfo`] shape consumed by physical cleanup projections.
 //!
 //! Spec: Annex E §AIMS — [`UserBurdenSpec`] is the canonical drop-walk /
 //! reuse pre-pass input. This module owns the *forward* conversion from
-//! [`UserBurdenSpec`] to the legacy [`DropInfo`] shape so consumers
-//! ([`super::collect_drop_infos`] + the cross-crate
-//! `ori_llvm::codegen::arc_emitter::element_fn_gen`) keep the existing
-//! surface during the burden-pre-pass migration window.
+//! [`UserBurdenSpec`] to the transitional [`DropInfo`] shape so shared
+//! executable lowering can close one backend-neutral descriptor table.
 //!
 //! Inverse direction (synthesizing a [`UserBurdenSpec`] from the pool / tag
 //! walk that the legacy [`super::compute_drop_info`] performed) lives in
@@ -14,12 +12,12 @@
 //! lossless on every type the 25 existing tests exercise.
 //!
 //! Mapping rules:
-//! - `self_heap_alloc=false` + empty `owned_fields` + empty
+//! - `self_owned_identity=false` + empty `owned_fields` + empty
 //!   `variant_burdens` + no `element_burden` ⟹ [`DropKind::Trivial`].
 //! - aggregate struct / tuple `OwnedField[]` ⟹ [`DropKind::Fields`].
 //! - `VariantBurden[]` ⟹ [`DropKind::Enum`].
 //! - `Shape::CollectionBuffer` over `T` (encoded as
-//!   `element_burden = Some(T)` with `self_heap_alloc = true` and no
+//!   `element_burden = Some(T)` with `self_owned_identity = true` and no
 //!   `owned_fields`) ⟹ [`DropKind::Collection`].
 //! - Map-shaped burden (encoded by [`synthesize_burden_from_pool`] with a
 //!   sentinel two-element `owned_fields` carrying `(key_path=[0], K)` and
@@ -71,9 +69,8 @@ pub(super) enum SynthesizedShape {
         dec_keys: bool,
         dec_values: bool,
     },
-    /// Closure environment — same field-list layout as `Fields` but
-    /// emitted as `DropKind::ClosureEnv` so codegen names the function
-    /// `_ori_drop$__lambda_N_env`.
+    /// Closure environment — same field-list layout as `Fields`, but keyed by
+    /// callable identity in each physical projection.
     ClosureEnv,
 }
 
@@ -90,8 +87,7 @@ pub(super) struct SynthesizedBurden {
 /// Convert a `SynthesizedBurden` into a `DropInfo` describing the same
 /// drop-walk shape. Returns `None` when the spec is fully trivial (no
 /// owned fields, no variants, no element, no map halves) — the caller
-/// (legacy `compute_drop_info`) then returns `None` and codegen emits
-/// no per-type drop function.
+/// (`compute_drop_info`) then returns `None`; no structural plan is needed.
 ///
 /// The `ty` parameter is the pool index the drop info describes; it
 /// becomes `DropInfo.ty` verbatim and is not consulted otherwise.
@@ -120,10 +116,9 @@ fn burden_to_drop_kind(synthesized: &SynthesizedBurden) -> Option<DropKind> {
         }),
         SynthesizedShape::Fields => {
             let fields = owned_fields_to_pairs(&synthesized.spec.owned_fields);
-            // Always Some when user_drop is set — the user @drop body
-            // needs an entry point invoked at refcount-zero even when
-            // there are no RC'd fields to walk. Without this, a Drop
-            // type with all-scalar fields would silently bypass @drop.
+            // Always Some when user_drop is set: the user @drop body must run
+            // at final logical cleanup even when no child fields carry managed
+            // ownership. Without this, an all-scalar Drop type would bypass it.
             if fields.is_empty() && synthesized.spec.user_drop.is_none() {
                 None
             } else {
@@ -151,9 +146,8 @@ fn burden_to_drop_kind(synthesized: &SynthesizedBurden) -> Option<DropKind> {
                 .iter()
                 .map(|v| owned_fields_to_pairs(&v.retained_owned))
                 .collect();
-            // Same Drop-aware emit rule as Fields: emit Enum even when
-            // every variant is empty when user_drop is set so codegen
-            // materializes the AUGMENT body.
+            // Keep Enum even when every variant is empty if user_drop is set,
+            // so every projection preserves the AUGMENT order.
             if variants.iter().all(Vec::is_empty) && synthesized.spec.user_drop.is_none() {
                 None
             } else {
@@ -176,9 +170,8 @@ fn owned_fields_to_pairs(fields: &[UserOwnedField]) -> Vec<(u32, Idx)> {
 /// Synthesize a `UserBurdenSpec` (plus its `SynthesizedShape` discriminator)
 /// from the pool / tag walk a caller would otherwise perform inline.
 ///
-/// Returns `None` for types whose drop is trivial OR genuinely empty —
-/// scalars, all-scalar aggregates, iterators (handled inline by the ARC
-/// emitter via `RcStrategy::Iterator`, never by per-type drop functions).
+/// Returns `None` for types whose structural drop is empty: scalars,
+/// all-scalar aggregates, and iterators handled by a registry runtime identity.
 ///
 /// Mirrors the pre-migration `compute_drop_kind`'s tag dispatch exactly so
 /// the burden-bridge lift preserves the 25 existing tests' observable shapes.
@@ -235,7 +228,7 @@ fn synthesize_collection(
     elem: Idx,
     classifier: &dyn ArcClassification,
 ) -> Option<SynthesizedBurden> {
-    if classifier.needs_rc(elem) {
+    if classifier.has_managed_ownership_obligation(elem) {
         Some(make_collection(elem))
     } else {
         None
@@ -247,8 +240,8 @@ fn synthesize_map(
     value: Idx,
     classifier: &dyn ArcClassification,
 ) -> Option<SynthesizedBurden> {
-    let dk = classifier.needs_rc(key);
-    let dv = classifier.needs_rc(value);
+    let dk = classifier.has_managed_ownership_obligation(key);
+    let dv = classifier.has_managed_ownership_obligation(value);
     if dk || dv {
         Some(make_map(key, value, dk, dv))
     } else {
@@ -257,7 +250,7 @@ fn synthesize_map(
 }
 
 fn synthesize_option(inner: Idx, classifier: &dyn ArcClassification) -> Option<SynthesizedBurden> {
-    if !classifier.needs_rc(inner) {
+    if !classifier.has_managed_ownership_obligation(inner) {
         return None;
     }
     let variants = vec![
@@ -280,8 +273,8 @@ fn synthesize_result(
     err_ty: Idx,
     classifier: &dyn ArcClassification,
 ) -> Option<SynthesizedBurden> {
-    let ok_rc = classifier.needs_rc(ok_ty);
-    let err_rc = classifier.needs_rc(err_ty);
+    let ok_rc = classifier.has_managed_ownership_obligation(ok_ty);
+    let err_rc = classifier.has_managed_ownership_obligation(err_ty);
     if !ok_rc && !err_rc {
         return None;
     }
@@ -309,7 +302,7 @@ fn variant_for_arm(ord: usize, ty: Idx, needs_rc: bool) -> UserVariantBurden {
 }
 
 fn synthesize_range(elem: Idx, classifier: &dyn ArcClassification) -> Option<SynthesizedBurden> {
-    if !classifier.needs_rc(elem) {
+    if !classifier.has_managed_ownership_obligation(elem) {
         return None;
     }
     // Range has start and end fields of the same type — mirror the
@@ -317,12 +310,12 @@ fn synthesize_range(elem: Idx, classifier: &dyn ArcClassification) -> Option<Syn
     let owned_fields = vec![owned_field_at(0, elem), owned_field_at(1, elem)];
     Some(SynthesizedBurden {
         spec: UserBurdenSpec {
-            self_heap_alloc: false,
+            self_owned_identity: false,
             owned_fields,
             borrowed_fields: Vec::new(),
             variant_burdens: Vec::new(),
             element_burden: None,
-            compiled_drop: None,
+            drop_operation: None,
             user_drop: None,
         },
         shape: SynthesizedShape::Fields,
@@ -340,7 +333,7 @@ fn synthesize_fields(
     let owned_fields: Vec<UserOwnedField> = field_types
         .enumerate()
         .filter_map(|(i, field_ty)| {
-            if classifier.needs_rc(field_ty) {
+            if classifier.has_managed_ownership_obligation(field_ty) {
                 #[expect(
                     clippy::cast_possible_truncation,
                     reason = "field indices are bounded by struct layout, never exceed u32"
@@ -357,12 +350,12 @@ fn synthesize_fields(
     } else {
         Some(SynthesizedBurden {
             spec: UserBurdenSpec {
-                self_heap_alloc: false,
+                self_owned_identity: false,
                 owned_fields,
                 borrowed_fields: Vec::new(),
                 variant_burdens: Vec::new(),
                 element_burden: None,
-                compiled_drop: None,
+                drop_operation: None,
                 user_drop: None,
             },
             shape,
@@ -380,7 +373,7 @@ fn synthesize_enum(
             let mut owned = Vec::new();
             let mut transfers = Vec::new();
             for (i, field_ty) in field_types.into_iter().enumerate() {
-                if classifier.needs_rc(field_ty) {
+                if classifier.has_managed_ownership_obligation(field_ty) {
                     #[expect(
                         clippy::cast_possible_truncation,
                         reason = "field indices are bounded by variant layout, never exceed u32"
@@ -408,12 +401,12 @@ fn synthesize_enum(
 fn make_collection(element_type: Idx) -> SynthesizedBurden {
     SynthesizedBurden {
         spec: UserBurdenSpec {
-            self_heap_alloc: true,
+            self_owned_identity: true,
             owned_fields: Vec::new(),
             borrowed_fields: Vec::new(),
             variant_burdens: Vec::new(),
             element_burden: Some(element_type),
-            compiled_drop: None,
+            drop_operation: None,
             user_drop: None,
         },
         shape: SynthesizedShape::Collection { element_type },
@@ -436,12 +429,12 @@ fn make_map(key_type: Idx, value_type: Idx, dec_keys: bool, dec_values: bool) ->
     }
     SynthesizedBurden {
         spec: UserBurdenSpec {
-            self_heap_alloc: true,
+            self_owned_identity: true,
             owned_fields,
             borrowed_fields: Vec::new(),
             variant_burdens: Vec::new(),
             element_burden: None,
-            compiled_drop: None,
+            drop_operation: None,
             user_drop: None,
         },
         shape: SynthesizedShape::Map {
@@ -456,12 +449,12 @@ fn make_map(key_type: Idx, value_type: Idx, dec_keys: bool, dec_values: bool) ->
 fn make_enum(variants: Vec<UserVariantBurden>) -> SynthesizedBurden {
     SynthesizedBurden {
         spec: UserBurdenSpec {
-            self_heap_alloc: false,
+            self_owned_identity: false,
             owned_fields: Vec::new(),
             borrowed_fields: Vec::new(),
             variant_burdens: variants,
             element_burden: None,
-            compiled_drop: None,
+            drop_operation: None,
             user_drop: None,
         },
         shape: SynthesizedShape::Enum,

@@ -1,0 +1,16 @@
+// Spec: 18-modules.md § Imports
+// Design: (modules not yet in design docs)
+//
+// Same-module PRIVATE (non-exported) helper chain, two levels deep.
+// Supports the scope-boundary pin in
+// _test/transitive_import_chain.test.ori: a private sibling reached
+// transitively through ANOTHER private sibling's captures is a distinct,
+// deeper defect than cross-module transitive import resolution — it stays
+// unresolved until the interpreter's function-value representation gains a
+// live/mutable scope for a module's own function map.
+
+@private_chain_h2 (x: int) -> int = x + 2;
+
+@private_chain_h1 (x: int) -> int = private_chain_h2(x: x) * 2;
+
+pub @private_chain_exported (x: int) -> int = private_chain_h1(x: x);

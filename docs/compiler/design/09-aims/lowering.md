@@ -184,8 +184,17 @@ Function calls are classified into three categories:
 
 When the callee is a known function, the lowerer checks if it is a variant constructor (emits `Construct` instead) or a regular function. Regular functions are further classified by whether they can unwind:
 
-- **Nounwind**: runtime functions (`ori_*`) and compiler helpers (`__*`) are known to never panic. These emit `Apply` instructions (no unwind handling needed).
-- **May-unwind**: user-defined functions may panic. These emit `Invoke` terminators with normal and unwind continuation blocks. The unwind block is terminated with `Resume` (or `Jump` to a catch handler inside `catch(expr:)` blocks).
+- **Nounwind**: a bound typed runtime/callable effect descriptor proves that
+  the callee cannot unwind. These calls emit `Apply` instructions.
+- **May-unwind or unknown**: the descriptor permits unwind, is incomplete, or
+  is missing. These calls fail closed to `Invoke` with normal and unwind
+  continuations; spelling prefixes such as `ori_*` and `__*` are never
+  evidence. The unwind block ends in `Resume` or jumps to a `catch(expr:)`
+  handler.
+
+> **Current migration gap.** The shipped lowerer still recognizes some
+> `ori_*` and `__*` names as nounwind. That prefix classifier does not satisfy
+> the typed-effect contract and must be replaced rather than extended.
 
 ### Indirect Calls (ApplyIndirect)
 
@@ -233,7 +242,7 @@ Match pattern compilation uses the separate decision tree pipeline, not the bind
 
 3. **Value representations populated after lowering** — both the main function and all lambda bodies get `var_reprs` computed via `compute_var_reprs` at the end of `lower_function_can()`.
 
-4. **Lambda bodies returned separately** — the caller receives the flat list and runs the AIMS pipeline on each independently.
+4. **Lambda bodies join one closed realization batch** — lowering returns a flat list, but production whole-program realization closes the top-level function and every reachable lambda into the same post-AIMS artifact. The current per-function adapter is transitional; backend callers must never run AIMS independently for each lambda.
 
 5. **Block-parameter order is deterministic** — mutable variable merge uses `Vec` (not `HashMap`) for ordering, ensuring `Jump` arguments match `add_block_param` order.
 
@@ -259,4 +268,4 @@ Match pattern compilation uses the separate decision tree pipeline, not the bind
 
 **Flat lambda list vs hierarchical.** Nested lambdas are accumulated into a single flat list rather than a tree reflecting the nesting structure. This simplifies the caller (no recursive traversal needed) at the cost of losing nesting information. In practice, the nesting information is not needed after lowering — each `ArcFunction` is self-contained with its captures as explicit parameters.
 
-**Invoke vs Apply split.** The distinction between `Apply` (nounwind) and `Invoke` (may-unwind) could be deferred to the LLVM backend (all calls become `invoke`, and LLVM optimizes away unnecessary landing pads). Making the distinction during lowering allows the AIMS pipeline to generate cleaner code for nounwind calls (no unwind edges, no cleanup blocks) at the cost of a classification decision during lowering.
+**Invoke vs Apply split.** The distinction between `Apply` (nounwind) and `Invoke` (may-unwind) belongs in shared lowering because it controls ownership cleanup on normal and exceptional edges. Deferring it to LLVM, the VM, or a JIT tier would let physical executors derive different unwind policy. A backend may optimize the faithful encoding — LLVM can remove unnecessary landing pads — but the shared AIMS artifact decides which edges and cleanup obligations exist.

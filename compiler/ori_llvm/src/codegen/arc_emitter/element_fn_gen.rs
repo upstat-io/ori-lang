@@ -18,24 +18,40 @@ use crate::codegen::value_id::{FunctionId, ValueId};
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Look up the user `@drop` method for a type when it implements `Drop`.
     ///
-    /// Consults the canonical method map: `type_idx_to_name` resolves the
-    /// type's `Name`, then `method_functions[(type_name, "drop")]` resolves
-    /// the compiled `_ori_<Type>$drop` method. Returns `None` when the type
-    /// does not implement `Drop`. This is the codegen-side SSOT for "does
-    /// this type have a user `@drop`" — independent of the upstream burden
-    /// registry, which is not threaded onto the codegen path.
+    /// A bound production emitter consumes only the executable artifact's exact
+    /// user-drop table. Unbound codegen fixtures retain the general method-map
+    /// lookup so low-level emitter tests can be constructed in isolation.
     pub(super) fn user_drop_method(&self, ty: Idx) -> Option<FunctionId> {
+        self.user_drop_callable(ty).map(|(function, _)| function)
+    }
+
+    /// Resolve the exact physical callable selected for a user-drop operation.
+    fn user_drop_callable(
+        &self,
+        ty: Idx,
+    ) -> Option<(FunctionId, crate::codegen::abi::FunctionAbi)> {
+        if self.ctx.executable_facts_bound {
+            return self
+                .ctx
+                .user_drop_functions
+                .get(&ty)
+                .or_else(|| {
+                    self.ctx
+                        .user_drop_functions
+                        .get(&self.pool.resolve_fully(ty))
+                })
+                .cloned();
+        }
+
         let drop_name = self.interner.intern("drop");
         self.user_method(ty, drop_name)
-            .map(|(func_id, _abi)| func_id)
     }
 
     /// Resolve a user trait-method impl for `ty` by interned method `Name`.
     ///
     /// Codegen SSOT for "does this type have a user `@<method>` impl + what is
     /// its ABI". Consulted by `user_drop_method` (`"drop"`) and the map/set
-    /// `key_hash` / `key_eq` thunk generators (`"hash"` / `"eq"` — user-Hashable
-    /// / user-Eq collection keys). Returns the `FunctionAbi` so callers read
+    /// hash/equality thunk generators. Returns the `FunctionAbi` so callers read
     /// per-param `passing` to thread self/operands by-value (`Direct`) vs
     /// by-pointer (`Indirect` / `Reference`). Manual `impl T: Trait` and
     /// `#derive(Trait)` both register in `method_functions`, so one lookup
@@ -45,18 +61,47 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ty: Idx,
         method_name: ori_ir::Name,
     ) -> Option<(FunctionId, crate::codegen::abi::FunctionAbi)> {
+        if self.ctx.executable_facts_bound {
+            return self.lookup_exact_method_target(ty, method_name).cloned();
+        }
+        // A multi-instantiation generic-composite map/set key
+        // dispatches the per-instantiation derived `hash`/`eq` keyed on the
+        // materialized concrete Idx before the last-instantiation-wins type-name
+        // map. A user `@drop` (the other consumer) is not a derived method, so it
+        // never hits `mono_derive_functions` and falls through unchanged.
+        let resolved = self.pool.resolve_fully(ty);
+        if let Some((func_id, abi)) = self.ctx.mono_derive_functions.get(&(resolved, method_name)) {
+            return Some((*func_id, abi.clone()));
+        }
         let type_name = self.drop_type_name(ty)?;
         let (func_id, abi) = self.ctx.method_functions.get(&(type_name, method_name))?;
         Some((*func_id, abi.clone()))
+    }
+
+    /// Resolve the exact callable implementing `Eq` for a collection element.
+    ///
+    /// Source impls register the Spec method `equals`; generated derives use
+    /// [`ori_ir::DerivedTrait::Eq`]'s internal `eq` identity. Both identities
+    /// are canonical at their producer, and lookup remains receiver-qualified.
+    pub(super) fn user_eq_callable(
+        &self,
+        ty: Idx,
+    ) -> Option<(FunctionId, crate::codegen::abi::FunctionAbi)> {
+        let surface_name = self.interner.intern("equals");
+        if let Some(callable) = self.user_method(ty, surface_name) {
+            return Some(callable);
+        }
+
+        let derived_name = self.interner.intern(ori_ir::DerivedTrait::Eq.method_name());
+        self.user_method(ty, derived_name)
     }
 
     /// Does refcount-zero teardown of `ty` transitively run a user `@drop`
     /// (which may raise a foreign Ori exception)?
     ///
     /// Codegen-side consumer of `ori_arc::type_drop_may_unwind`: supplies the
-    /// `method_functions`-based local `@drop` check ([`Self::user_drop_method`]
-    /// — the codegen SSOT, since the burden-registry `user_drop` is hardcoded
-    /// `None` on this path) + the per-type memo on `CodegenContext`. Gates the
+    /// artifact-bound local `@drop` check ([`Self::user_drop_method`]) + the
+    /// per-type memo on `CodegenContext`. Gates the
     /// may-unwind drop-fn shape (skip `nounwind` + set personality + `invoke`
     /// the user `@drop`) and the may-unwind `RcDec` routing (`ori_rc_dec_unwind`
     /// via `invoke` + cleanup pad).
@@ -143,17 +188,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// value is loaded from `data_ptr` first. Borrows `self`; the drop
     /// function still owns the field walk that follows.
     pub(super) fn emit_user_drop_via_pointer(&mut self, ty: Idx, data_ptr: ValueId) {
-        let Some(type_name) = self.drop_type_name(ty) else {
+        let resolved = self.pool.resolve_fully(ty);
+        let Some((func_id, abi)) = self.user_drop_callable(ty) else {
             return;
         };
-        let resolved = self.pool.resolve_fully(ty);
-        let drop_name = self.interner.intern("drop");
-        let Some((func_id, passing)) = self
-            .ctx
-            .method_functions
-            .get(&(type_name, drop_name))
-            .and_then(|(fid, abi)| abi.params.first().map(|p| (*fid, p.passing)))
-        else {
+        let Some(passing) = abi.params.first().map(|parameter| parameter.passing) else {
             return;
         };
         let arg = match passing {
@@ -210,17 +249,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         normal_bb: crate::codegen::value_id::BlockId,
         cleanup_bb: crate::codegen::value_id::BlockId,
     ) -> bool {
-        let Some(type_name) = self.drop_type_name(ty) else {
+        let resolved = self.pool.resolve_fully(ty);
+        let Some((func_id, abi)) = self.user_drop_callable(ty) else {
             return false;
         };
-        let resolved = self.pool.resolve_fully(ty);
-        let drop_name = self.interner.intern("drop");
-        let Some((func_id, passing)) = self
-            .ctx
-            .method_functions
-            .get(&(type_name, drop_name))
-            .and_then(|(fid, abi)| abi.params.first().map(|p| (*fid, p.passing)))
-        else {
+        let Some(passing) = abi.params.first().map(|parameter| parameter.passing) else {
             return false;
         };
         let arg = match passing {
@@ -260,7 +293,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
         let saved_emitter_func = self.current_function;
-        let saved_funclet_pad = self.current_funclet_pad.take();
+        let saved_cleanup_pad = self.current_cleanup_pad.take();
 
         // Generate the drop function (handles declaration, caching, and body).
         // Stack guard: drop generation recurses through nested type fields.
@@ -269,7 +302,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         });
 
         // Restore builder position, emitter's current function, and funclet pad
-        self.current_funclet_pad = saved_funclet_pad;
+        self.current_cleanup_pad = saved_cleanup_pad;
         self.current_function = saved_emitter_func;
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
@@ -301,7 +334,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
         let saved_emitter_func = self.current_function;
-        let saved_funclet_pad = self.current_funclet_pad.take();
+        let saved_cleanup_pad = self.current_cleanup_pad.take();
 
         let func_id = self.generate_elem_dec_fn_body(element_type);
 
@@ -315,7 +348,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         // Restore builder state, emitter's current function, and funclet pad
-        self.current_funclet_pad = saved_funclet_pad;
+        self.current_cleanup_pad = saved_cleanup_pad;
         self.current_function = saved_emitter_func;
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
@@ -341,7 +374,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return func_id;
         }
 
-        self.builder.set_ccc(func_id);
+        self.builder.set_module_local(func_id);
         // May-unwind element teardown: when the element type's drop tree reaches
         // a user `@drop` (foreign Ori exception), the element-dec thunk is NOT
         // `nounwind` — it threads the exception out so the codegen-emitted buffer
@@ -487,7 +520,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
         let saved_emitter_func = self.current_function;
-        let saved_funclet_pad = self.current_funclet_pad.take();
+        let saved_cleanup_pad = self.current_cleanup_pad.take();
 
         let func_id = self.generate_elem_inc_fn_body(element_type);
 
@@ -501,7 +534,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         // Restore builder state, emitter's current function, and funclet pad
-        self.current_funclet_pad = saved_funclet_pad;
+        self.current_cleanup_pad = saved_cleanup_pad;
         self.current_function = saved_emitter_func;
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
@@ -527,7 +560,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return func_id;
         }
 
-        self.builder.set_ccc(func_id);
+        self.builder.set_module_local(func_id);
         self.builder.add_nounwind_attribute(func_id);
         self.builder.add_cold_attribute(func_id);
         self.builder.add_uwtable_attribute(func_id);

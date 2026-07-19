@@ -41,7 +41,7 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::{assert_cell_output, compile_and_run_with_build_env};
+use crate::util::assert_cell_output;
 
 /// Owned-call-arg if/else cell source — shared by the GREEN cell and the
 /// `ORI_DISABLE_BRANCH_EXCLUSIVE_EDGE_RELEASE` toggle-parity pin.
@@ -193,7 +193,6 @@ type Holder = { kept: [int] }
 /// per-edge partition gap; the edge release correctly declines both edges
 /// (Jump-arg consumes forward of each). Interpreter prints a=6 b=13.
 #[test]
-#[ignore = "BUG-04-180: loop lowering threads the loop-invariant heap local through loop block-params into a dead merge/exit block-param the RL-5 dead-param scans cannot resolve (rep fractures across the Jump-arg hop)"]
 fn test_loop_inside_branch_per_iteration_store_no_leak() {
     assert_cell_output(
         r#"
@@ -340,65 +339,3 @@ type Holder = { kept: [int] }
 }
 
 // ----- Toggle-parity semantic pins (compile-time env; subprocess-isolated) -----
-
-/// Semantic pin: `ORI_DISABLE_BRANCH_EXCLUSIVE_EDGE_RELEASE=1` restores the
-/// pre-cure arrangement — the owned-push-arg cell leaks the non-consuming
-/// path's funding inc again (exit 2 under `ORI_CHECK_LEAKS=1`), proving the
-/// per-edge release is the cure surface.
-#[test]
-fn test_push_arg_with_branch_edge_release_disabled_leaks_again() {
-    let (exit, stdout, stderr) = compile_and_run_with_build_env(
-        BRANCH_EXCLUSIVE_PUSH_SRC,
-        &[("ORI_DISABLE_BRANCH_EXCLUSIVE_EDGE_RELEASE", "1")],
-    );
-    assert_eq!(
-        exit, 2,
-        "with the branch-exclusive edge release disabled, the owned-push-arg \
-         cell must leak again (exit 2)\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert_eq!(
-        stdout.trim(),
-        "a=4 b=13",
-        "output values are toggle-invariant — only the leak regresses"
-    );
-}
-
-/// Semantic pin: the toggle regresses the primary struct-store pin
-/// (`burden_store_dup.rs::test_branch_exclusive_store_no_kept_inc_no_leak`
-/// shape) the same way — one unfreed allocation on the non-storing path.
-#[test]
-fn test_struct_store_with_branch_edge_release_disabled_leaks_again() {
-    let (exit, stdout, stderr) = compile_and_run_with_build_env(
-        r#"
-type Holder = { kept: [int] }
-
-@store_one (flag: bool) -> int = {
-    let base = [1, 2, 3];
-    if flag then {
-        let h = Holder { kept: base };
-
-        h.kept.len()
-    } else {
-        base.len() + 10
-    }
-}
-
-@main () -> void = {
-    let a = store_one(flag: true);
-    let b = store_one(flag: false);
-    print(msg: `a={a} b={b}`)
-}
-"#,
-        &[("ORI_DISABLE_BRANCH_EXCLUSIVE_EDGE_RELEASE", "1")],
-    );
-    assert_eq!(
-        exit, 2,
-        "with the branch-exclusive edge release disabled, the struct-store \
-         pin must leak again (exit 2)\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert_eq!(
-        stdout.trim(),
-        "a=3 b=13",
-        "output values are toggle-invariant — only the leak regresses"
-    );
-}

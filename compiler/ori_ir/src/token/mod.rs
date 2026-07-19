@@ -18,7 +18,7 @@ mod tag_constants;
 mod units;
 
 pub use capture::TokenCapture;
-pub use index::{TokenFlags, TokenIdx};
+pub use index::TokenFlags;
 pub use kind::TokenKind;
 pub use list::TokenList;
 pub use tag::TokenTag;

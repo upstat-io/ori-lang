@@ -1,0 +1,1 @@
+@len (s: str) -> int = 5;

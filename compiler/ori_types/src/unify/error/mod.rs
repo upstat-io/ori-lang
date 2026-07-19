@@ -1,6 +1,6 @@
 //! Unification error types.
 //!
-//! Provides comprehensive error information for type mismatches,
+//! Provides error information for type mismatches,
 //! infinite types, and rigid variable violations.
 
 use crate::Idx;

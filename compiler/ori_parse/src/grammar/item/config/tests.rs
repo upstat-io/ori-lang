@@ -72,7 +72,7 @@ fn test_pub_const_with_type() {
     assert!(output.module.consts[0].ty.is_some());
 }
 
-// ─── Computed constant expression tests ───
+// Computed constant expression tests
 
 #[test]
 fn test_const_arithmetic_add() {

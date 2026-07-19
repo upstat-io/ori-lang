@@ -9,7 +9,7 @@ use ori_ir::{ExprId, StringLookup, Visibility};
 use super::parsed_types::{
     calculate_type_width, const_expr_render_width, format_const_expr, format_parsed_type,
 };
-use super::ModuleFormatter;
+use super::{BodyBreakPolicy, ModuleFormatter};
 
 impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// Format a function declaration including signature and body.
@@ -68,10 +68,10 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
 
     /// Format a function body. Delegates the inline-vs-newline-vs-internal-break
     /// decision to the shared `emit_expr_body` (SSOT in `function_body`).
-    /// `allow_force_newline = true`: function bodies use `should_break_body_to_newline`
+    /// Function bodies use `should_break_body_to_newline`
     /// (if/for control flow + atomic-that-fits) ahead of the over-width-head guard.
     pub(super) fn format_function_body(&mut self, body: ExprId) {
-        self.emit_expr_body(body, true);
+        self.emit_expr_body(body, BodyBreakPolicy::AllowStructuralNewline);
     }
 
     /// Whether an over-width expression body breaks to its own line.

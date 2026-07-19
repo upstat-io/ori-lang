@@ -7,7 +7,7 @@ use ori_ir::ast::items::ImplDef;
 use ori_ir::{CommentList, StringLookup};
 
 use super::parsed_types::format_parsed_type;
-use super::ModuleFormatter;
+use super::{BodyBreakPolicy, ModuleFormatter};
 
 impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// Format an impl block (trait impl or inherent impl).
@@ -26,10 +26,10 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
     }
 
     /// Emit the impl header: item attributes, `impl`, generics, and the
-    /// subject-first colon form `impl Type: Trait[<args>]` (grammar.ebnf:312)
+    /// subject-first colon form `impl Type: Trait[<args>]` (grammar.ebnf `trait_impl`)
     /// followed by any where-clauses. Shared by both formatting paths.
     fn format_impl_header(&mut self, impl_def: &ImplDef) {
-        // Item-level conditional attributes (Spec §25.4)
+        // Spec: Clause 25.4.
         if let Some(ref target) = impl_def.target_attr {
             self.emit_item_target_attr(target);
         }
@@ -109,10 +109,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         }
 
         // Methods
-        for (i, method) in impl_def.methods.iter().enumerate() {
-            if i > 0 {
-                self.ctx.emit_newline();
-            }
+        for method in &impl_def.methods {
             if let (Some(comments), Some(comment_index)) = (comments, comment_index.as_deref_mut())
             {
                 self.emit_comments_before_indented(method.span.start, comments, comment_index);
@@ -124,7 +121,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             self.format_params(method.params);
             self.ctx.emit(" -> ");
             format_parsed_type(&method.return_ty, self.arena, self.interner, &mut self.ctx);
-            self.emit_expr_body(method.body, false);
+            self.emit_expr_body(method.body, BodyBreakPolicy::OverflowOnly);
             self.ctx.emit_newline();
         }
 

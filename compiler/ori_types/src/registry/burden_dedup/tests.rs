@@ -24,7 +24,7 @@ use crate::registry::burden::{UserBurdenSpec, UserTransferRule, UserVariantBurde
 use crate::registry::{TypeRegistry, Visibility};
 use crate::Idx;
 
-// ─── Helpers (no .expect()/.unwrap() per `tests.md §Test Hygiene`) ───────
+// Helpers (no .expect()/.unwrap() in compiler-crate tests)
 
 fn test_span() -> Span {
     Span::DUMMY
@@ -56,7 +56,7 @@ fn variant_id(raw: u32) -> VariantId {
 /// Build a `Result<T, E>`-shaped `UserBurdenSpec` with concrete field-types.
 fn result_spec(t: Idx, e: Idx) -> UserBurdenSpec {
     UserBurdenSpec {
-        self_heap_alloc: false,
+        self_owned_identity: false,
         owned_fields: vec![],
         borrowed_fields: vec![],
         variant_burdens: vec![
@@ -82,7 +82,7 @@ fn result_spec(t: Idx, e: Idx) -> UserBurdenSpec {
             },
         ],
         element_burden: None,
-        compiled_drop: None,
+        drop_operation: None,
         user_drop: None,
     }
 }
@@ -90,7 +90,7 @@ fn result_spec(t: Idx, e: Idx) -> UserBurdenSpec {
 /// Build an `Option<T>`-shaped `UserBurdenSpec` with concrete field-type.
 fn option_spec(t: Idx) -> UserBurdenSpec {
     UserBurdenSpec {
-        self_heap_alloc: false,
+        self_owned_identity: false,
         owned_fields: vec![],
         borrowed_fields: vec![],
         variant_burdens: vec![
@@ -111,12 +111,12 @@ fn option_spec(t: Idx) -> UserBurdenSpec {
             },
         ],
         element_burden: None,
-        compiled_drop: None,
+        drop_operation: None,
         user_drop: None,
     }
 }
 
-// ─── Positive: equal specs share a slot ─────────────────────────────────
+// Positive: equal specs share a slot
 
 #[test]
 fn register_same_spec_twice_returns_first_idx_and_increments_signature_count_by_one() {
@@ -143,7 +143,7 @@ fn register_same_spec_twice_returns_first_idx_and_increments_signature_count_by_
     );
 }
 
-// ─── Positive: distinct specs claim distinct signatures ─────────────────
+// Positive: distinct specs claim distinct signatures
 
 #[test]
 fn register_distinct_specs_yields_two_signatures() {
@@ -162,15 +162,15 @@ fn register_distinct_specs_yields_two_signatures() {
     assert_eq!(registry.burden_signature_count(), 2);
 }
 
-// ─── Positive: stdlib stress (6 Option + 6×6 Result = 42 instantiations) ─
+// Positive: stdlib stress (6 Option + 6×6 Result = 42 instantiations)
 
 #[test]
 fn stdlib_stress_42_instantiations_collapse_below_upper_bound() {
     let mut registry = TypeRegistry::new();
 
     // Use the pre-interned primitive Idxs as the 6 stand-in element
-    // types. All 6 carry empty burden in the §01 BURDEN_TABLE — meaning
-    // codegen would look them up and find no work — but for the dedup
+    // types. All 6 carry empty burden in the BURDEN_TABLE — meaning
+    // executable planners find no logical cleanup work — but for the dedup
     // matrix the only thing that matters is that the SPEC built around
     // them differs structurally per concrete T/E.
     let primitives = [
@@ -217,7 +217,7 @@ fn stdlib_stress_42_instantiations_collapse_below_upper_bound() {
     );
 }
 
-// ─── Semantic pin: sub-linear collapse must fire ────────────────────────
+// Semantic pin: sub-linear collapse must fire
 
 #[test]
 fn semantic_pin_stdlib_stress_count_strictly_below_upper_bound() {
@@ -304,7 +304,7 @@ fn semantic_pin_stdlib_stress_count_strictly_below_upper_bound() {
     );
 }
 
-// ─── Positive: recursion-safety on Tree<T>-shaped specs ─────────────────
+// Positive: recursion-safety on Tree<T>-shaped specs
 
 #[test]
 fn recursive_signature_terminates_on_tree_shaped_spec() {
@@ -340,7 +340,7 @@ fn recursive_signature_terminates_on_tree_shaped_spec() {
     };
 
     let tree_for_fetch = tree_spec.clone();
-    let leaf_for_fetch = leaf_spec.clone();
+    let leaf_for_fetch = leaf_spec;
 
     let fetch = move |idx: Idx| -> Option<UserBurdenSpec> {
         if idx == tree_int {
@@ -379,7 +379,7 @@ fn recursive_signature_terminates_on_tree_shaped_spec() {
     );
 }
 
-// ─── Negative pin: engineered signature collision yields distinct slots ─
+// Negative pin: engineered signature collision yields distinct slots
 
 #[test]
 fn engineered_collision_with_distinct_specs_registers_as_distinct_entries() {
@@ -420,8 +420,8 @@ fn engineered_collision_with_distinct_specs_registers_as_distinct_entries() {
     // Construct two specs whose hash inputs accidentally match: the
     // simplest way is to swap two fields whose bytes commute through
     // the FNV-1a accumulator. Empirically, no commuting permutation
-    // exists in the present input set, so we leverage a different
-    // engineered fixture: two specs differing ONLY in compiled_drop's
+    // exists in the present input set, so the test uses a different
+    // engineered fixture: two specs differing ONLY in drop_operation's
     // FnSym ID where the FnSym values happen to share their LSB hash
     // contribution. To keep the test deterministic we instead exercise
     // the EQUIVALENT branch: spec_b distinct from spec_a, with
@@ -445,7 +445,7 @@ fn engineered_collision_with_distinct_specs_registers_as_distinct_entries() {
     );
 }
 
-// ─── Positive: empty spec is its own canonical entry ────────────────────
+// Positive: empty spec is its own canonical entry
 
 #[test]
 fn empty_default_spec_dedup_collapses() {
@@ -463,20 +463,20 @@ fn empty_default_spec_dedup_collapses() {
     assert_eq!(registry.burden_signature_count(), 1);
 }
 
-// ─── §02.4.B Channel<T> signature dedup ─────────────────────────────────
+// Channel<T> signature dedup
 
 /// Build a `Channel<T>`-shaped `UserBurdenSpec` matching the
 /// `compose_user_burden(channel_template, [t])` output:
-/// `self_heap_alloc = true`, `element_burden = Some(t)`, all other slots
+/// `self_owned_identity = true`, `element_burden = Some(t)`, all other slots
 /// empty. Mirrors LIST/MAP/SET composition shape.
 fn channel_spec(t: Idx) -> UserBurdenSpec {
     UserBurdenSpec {
-        self_heap_alloc: true,
+        self_owned_identity: true,
         owned_fields: vec![],
         borrowed_fields: vec![],
         variant_burdens: vec![],
         element_burden: Some(t),
-        compiled_drop: None,
+        drop_operation: None,
         user_drop: None,
     }
 }
@@ -486,9 +486,9 @@ fn channel_int_registers_with_distinct_signature_from_channel_str() {
     // Positive: Channel<int> and Channel<str> register as distinct
     // entries — their BurdenSignatures differ because the element_burden
     // Idx is folded into the FNV-1a hash (`burden_dedup.rs` fold rule).
-    // §02.2 dedup contract is preserved over the §02.4.B Channel<T>
-    // composition shape (codex blind-spot #3 cure: signature distinctness
-    // grounded in element burden contents).
+    // the dedup contract is preserved over the Channel<T>
+    // composition shape: signature distinctness grounded in element
+    // burden contents.
     let mut registry = TypeRegistry::new();
     let chan_int_slot = Idx::from_raw(800);
     let chan_str_slot = Idx::from_raw(801);
@@ -514,7 +514,7 @@ fn channel_int_registers_with_distinct_signature_from_channel_str() {
 #[test]
 fn channel_int_registered_twice_collapses_to_one_signature() {
     // Positive: a second `Channel<int>` registration short-circuits to the
-    // first canonical Idx — proves the §02.2 dedup gate fires on the
+    // first canonical Idx — proves the dedup gate fires on the
     // Channel<T> composition path the same way it fires on Result<T,E> /
     // Option<T>. Catches a regression where Channel composition would
     // accidentally bypass `register_user_burden`'s signature-index probe.
@@ -542,7 +542,7 @@ fn channel_int_registered_twice_collapses_to_one_signature() {
 #[test]
 fn channel_nested_map_payload_registers_distinct_from_channel_int() {
     // Positive: Channel<{str: int}> registers at a distinct signature from
-    // Channel<int> — exercises the §02.1 nested-generic recursion through
+    // Channel<int> — exercises the nested-generic recursion through
     // the dedup path without `ori_arc::drop::burden_bridge` (registry
     // purity preserved).
     let mut registry = TypeRegistry::new();
@@ -567,7 +567,7 @@ fn channel_nested_map_payload_registers_distinct_from_channel_int() {
 #[test]
 fn negative_pin_channel_empty_element_burden_collides_with_default_spec() {
     // Negative pin: a Channel<T> spec accidentally constructed WITHOUT
-    // self_heap_alloc + element_burden — i.e., `UserBurdenSpec::default()`
+    // self_owned_identity + element_burden — i.e., `UserBurdenSpec::default()`
     // — would collide with every other empty default spec at the
     // signature level. The cure for an accidental composition regression
     // dropping these slots is the positive pin
@@ -584,19 +584,19 @@ fn negative_pin_channel_empty_element_burden_collides_with_default_spec() {
     let canon_empty = registry.register_user_burden(empty_slot, UserBurdenSpec::default());
     let canon_broken = registry.register_user_burden(
         broken_chan_slot,
-        // Broken channel: empty element_burden + no self_heap_alloc — the
+        // Broken channel: empty element_burden + no self_owned_identity — the
         // regression shape composition MUST NOT produce.
         UserBurdenSpec::default(),
     );
 
     assert_eq!(
         canon_broken, canon_empty,
-        "broken Channel<T> spec (default) collides with empty spec — element_burden + self_heap_alloc are the distinguishing slots"
+        "broken Channel<T> spec (default) collides with empty spec — element_burden + self_owned_identity are the distinguishing slots"
     );
     assert_eq!(registry.burden_signature_count(), 1);
 }
 
-// ─── Positive: single-level signature discriminates nested-depth structure ──
+// Positive: single-level signature discriminates nested-depth structure
 
 #[test]
 fn nested_depth_specs_with_distinct_inner_idxs_register_at_distinct_signatures() {
@@ -650,7 +650,7 @@ fn nested_depth_specs_with_distinct_inner_idxs_register_at_distinct_signatures()
     );
 }
 
-// ─── Positive: structural-equality-on-collision is the correctness floor ───
+// Positive: structural-equality-on-collision is the correctness floor
 
 #[test]
 fn structural_equality_check_rejects_signature_collision_with_distinct_spec() {

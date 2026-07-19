@@ -1,0 +1,8 @@
+// Positive pin: join over Printable Duration elements compiles, runs, and
+// emits the to_str-converted elements. Duration is Printable (to_str -> "1s"),
+// so emit_iter_join's ln_to_str_trampoline path covers it. Leak-checked by the
+// AOT harness; pins exact "1s, 2s" output.
+@main () -> void = {
+    let result = [1s, 2s].iter().join(separator: ", ");
+    print(msg: result)
+}

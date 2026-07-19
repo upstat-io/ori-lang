@@ -3,11 +3,11 @@
 //! Formatting for test function declarations.
 
 use crate::formatter::emit_escaped_str;
-use ori_ir::ast::items::{ExpectedError, TestDef};
+use ori_ir::ast::items::{ExpectedError, TestBackend, TestDef};
 use ori_ir::{ExprId, StringLookup};
 
 use super::parsed_types::format_parsed_type;
-use super::ModuleFormatter;
+use super::{BodyBreakPolicy, ModuleFormatter};
 
 impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// Format a test definition including attributes and body.
@@ -21,8 +21,21 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             self.ctx.emit_newline();
         }
 
-        // Compile-fail attributes — one per ExpectedError, faithfully
-        // round-tripping the keyed fields (each entry parsed one attribute).
+        // One #skip(backend: ..., reason: ...) attribute per backend-conditional skip.
+        for skip in &test.skip_backends {
+            self.ctx.emit("#skip(backend: \"");
+            self.ctx.emit(match skip.backend {
+                TestBackend::Interpreter => "interpreter",
+                TestBackend::Llvm => "llvm",
+            });
+            self.ctx.emit("\", reason: ");
+            let s = self.interner.lookup(skip.reason);
+            emit_escaped_str(&mut self.ctx, s);
+            self.ctx.emit(")");
+            self.ctx.emit_newline();
+        }
+
+        // One #compile_fail attribute per ExpectedError (each entry parsed one).
         for err in &test.expected_errors {
             self.emit_compile_fail_attr(err);
             self.ctx.emit_newline();
@@ -37,9 +50,9 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             self.ctx.emit_newline();
         }
 
-        // Test name
+        // Source-authored test name
         self.ctx.emit("@");
-        self.ctx.emit(self.interner.lookup(test.name));
+        self.ctx.emit(self.interner.lookup(test.display_name));
 
         // Targets: attached tests list specific targets, floating tests use `_`
         if test.targets.is_empty() {
@@ -70,47 +83,33 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// only when `message` is the sole set field; otherwise the keyed form in the
     /// canonical order `code, message, line, column` (only set fields emitted).
     fn emit_compile_fail_attr(&mut self, err: &ExpectedError) {
-        let message_only = err.message.is_some()
-            && err.code.is_none()
-            && err.line.is_none()
-            && err.column.is_none();
         self.ctx.emit("#compile_fail(");
-        if message_only {
-            if let Some(msg) = err.message {
-                let s = self.interner.lookup(msg);
-                emit_escaped_str(&mut self.ctx, s);
-            }
+        if let (Some(msg), None, None, None) = (err.message, err.code, err.line, err.column) {
+            let s = self.interner.lookup(msg);
+            emit_escaped_str(&mut self.ctx, s);
             self.ctx.emit(")");
             return;
         }
         let mut first = true;
         if let Some(code) = err.code {
+            self.emit_join_sep(&mut first);
             self.ctx.emit("code: ");
             let s = self.interner.lookup(code);
             emit_escaped_str(&mut self.ctx, s);
-            first = false;
         }
         if let Some(msg) = err.message {
-            if !first {
-                self.ctx.emit(", ");
-            }
+            self.emit_join_sep(&mut first);
             self.ctx.emit("message: ");
             let s = self.interner.lookup(msg);
             emit_escaped_str(&mut self.ctx, s);
-            first = false;
         }
         if let Some(line) = err.line {
-            if !first {
-                self.ctx.emit(", ");
-            }
-            self.ctx.emit(&format!("line: {line}"));
-            first = false;
+            self.emit_join_sep(&mut first);
+            self.ctx.emit(format!("line: {line}"));
         }
         if let Some(column) = err.column {
-            if !first {
-                self.ctx.emit(", ");
-            }
-            self.ctx.emit(&format!("column: {column}"));
+            self.emit_join_sep(&mut first);
+            self.ctx.emit(format!("column: {column}"));
         }
         self.ctx.emit(")");
     }
@@ -120,6 +119,6 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// `allow_force_newline = false`: test bodies keep their existing layout
     /// (no if/for force-newline) and gain ONLY the over-width-head break.
     fn format_test_body(&mut self, body: ExprId) {
-        self.emit_expr_body(body, false);
+        self.emit_expr_body(body, BodyBreakPolicy::OverflowOnly);
     }
 }

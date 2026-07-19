@@ -11,6 +11,8 @@ cache = ["ori_ir/cache", "serde"]
 
 [dependencies]
 ori_ir.workspace = true
+# Shared scalar format-spec types (std-only leaf SSOT; format-spec parse happens here)
+ori_format.workspace = true
 ori_registry.workspace = true
 ori_diagnostic.workspace = true
 ori_stack.workspace = true

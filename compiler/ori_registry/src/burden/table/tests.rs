@@ -9,9 +9,8 @@ use core::num::NonZeroU32;
 use super::*;
 use crate::TypeTag;
 
-// Helper: looks up a TypeId we know is in the table, with a useful panic
-// message when missing. Used in place of `.expect()` (clippy::expect_used
-// is workspace-denied).
+// Why: stands in for `.expect()` (clippy::expect_used is workspace-denied);
+// panics naming the missing TypeId when a required table entry is absent.
 fn lookup_required(id: TypeId) -> &'static BuiltinBurdenSpec {
     match BurdenRegistry::lookup_builtin(id) {
         Some(spec) => spec,
@@ -48,8 +47,8 @@ fn primitives_and_range_have_empty_burden() {
     ] {
         let spec = lookup_required(id);
         assert!(
-            !spec.self_heap_alloc,
-            "{id:?}: self_heap_alloc must be false"
+            !spec.self_owned_identity,
+            "{id:?}: self_owned_identity must be false"
         );
         assert!(
             spec.owned_fields.is_empty(),
@@ -68,17 +67,17 @@ fn primitives_and_range_have_empty_burden() {
             "{id:?}: element_burden must be None"
         );
         assert!(
-            spec.compiled_drop.is_none(),
-            "{id:?}: compiled_drop must be None"
+            spec.drop_operation.is_none(),
+            "{id:?}: drop_operation must be None"
         );
         assert!(spec.user_drop.is_none(), "{id:?}: user_drop must be None");
     }
 }
 
 #[test]
-fn str_is_heap_with_no_element_burden() {
+fn str_has_self_owned_identity_without_element_burden() {
     let spec = lookup_required(TYPE_ID_STR);
-    assert!(spec.self_heap_alloc);
+    assert!(spec.self_owned_identity);
     assert_eq!(spec.element_burden, None);
     assert!(spec.owned_fields.is_empty());
     assert!(spec.variant_burdens.is_empty());
@@ -88,7 +87,7 @@ fn str_is_heap_with_no_element_burden() {
 fn collections_carry_type_param_placeholder() {
     for id in [TYPE_ID_LIST, TYPE_ID_MAP, TYPE_ID_SET] {
         let spec = lookup_required(id);
-        assert!(spec.self_heap_alloc, "{id:?}: must self_heap_alloc");
+        assert!(spec.self_owned_identity, "{id:?}: must self_owned_identity");
         assert_eq!(
             spec.element_burden,
             Some(TYPE_PARAM_T),
@@ -105,7 +104,7 @@ fn collections_carry_type_param_placeholder() {
 #[test]
 fn option_variants_have_correct_transfers() {
     let spec = lookup_required(TYPE_ID_OPTION);
-    assert!(!spec.self_heap_alloc);
+    assert!(!spec.self_owned_identity);
     assert!(spec.element_burden.is_none());
     assert_eq!(spec.variant_burdens.len(), 2);
 

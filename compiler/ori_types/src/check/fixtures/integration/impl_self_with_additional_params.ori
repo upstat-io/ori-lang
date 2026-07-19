@@ -1,0 +1,6 @@
+type Counter = { value: int }
+
+impl Counter {
+    @add (self, amount: int) -> int = self.value + amount;
+    @add_scaled (self, amount: int, scale: int) -> int = self.value + amount * scale;
+}

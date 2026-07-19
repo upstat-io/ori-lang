@@ -86,8 +86,8 @@ impl BurdenSignature {
     /// references through any registry — child types contribute only
     /// their raw `Idx`. This is the path used by
     /// `TypeRegistry::register_user_burden` because composition produces
-    /// flat specs (each child carries its own `Idx`, and codegen looks
-    /// each one up separately at the consumption site).
+    /// flat specs (each child carries its own `Idx`, and executable
+    /// construction looks each one up separately at the consumption site).
     ///
     /// Single-level hashing is sound for dedup because:
     ///
@@ -115,7 +115,7 @@ impl BurdenSignature {
     }
 }
 
-// ─── Hash folding ───────────────────────────────────────────────────────
+// Hash folding
 
 fn fold_spec<F>(
     h: &mut FnvHasher,
@@ -125,7 +125,7 @@ fn fold_spec<F>(
 ) where
     F: Fn(Idx) -> Option<UserBurdenSpec>,
 {
-    h.write_u8(u8::from(spec.self_heap_alloc));
+    h.write_u8(u8::from(spec.self_owned_identity));
 
     h.write_usize(spec.owned_fields.len());
     for f in &spec.owned_fields {
@@ -150,10 +150,10 @@ fn fold_spec<F>(
         None => h.write_u8(0),
     }
 
-    // compiled_drop / user_drop — folded as 0/1 presence markers plus
+    // drop_operation / user_drop — folded as 0/1 presence markers plus
     // the raw FnSym value. FnSym wraps NonZeroU32, so 0 unambiguously
     // means "absent".
-    match spec.compiled_drop {
+    match spec.drop_operation {
         Some(sym) => {
             h.write_u8(1);
             h.write_u32(sym.get().get());
@@ -259,7 +259,7 @@ where
     // signature contribution at this position.
 }
 
-// ─── FNV-1a 64-bit hasher ───────────────────────────────────────────────
+// FNV-1a 64-bit hasher
 //
 // The compiler crate's workspace lints deny `unwrap_used` / `expect_used`,
 // so we avoid relying on `std::hash::Hasher` blanket methods that may

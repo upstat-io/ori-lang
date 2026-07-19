@@ -9,7 +9,7 @@ fn test_store() -> (&'static Pool, TypeInfoStore<'static>) {
     (pool, store)
 }
 
-// -- abi_size tests --
+// abi_size tests
 
 #[test]
 fn primitive_abi_sizes() {
@@ -94,7 +94,7 @@ fn mixed_alignment_tuple_includes_padding() {
 
     // 24 > 16 — classified Indirect, matching the LLVM layout the
     // callee actually sees. A padding-unaware Direct here misaligns
-    // registers (the BUG-04-071 misclassification class).
+    // registers (the size-misclassification class).
     assert_eq!(
         compute_param_passing(tup, &store, None),
         ParamPassing::Indirect { alignment: 8 },
@@ -131,7 +131,7 @@ fn uniform_small_alignment_tuple_stays_compact() {
     );
 }
 
-// -- Enum abi_size tests --
+// Enum abi_size tests
 
 #[test]
 fn all_unit_enum_abi_size_is_tag_size() {
@@ -217,7 +217,7 @@ fn enum_with_mixed_payload_abi_size() {
     );
 }
 
-// -- Param passing tests --
+// Param passing tests
 
 #[test]
 fn param_passing_direct_for_small_types() {
@@ -260,7 +260,7 @@ fn param_passing_indirect_for_large_types() {
     );
 }
 
-// -- Return passing tests --
+// Return passing tests
 
 #[test]
 fn return_passing_direct_for_small_types() {
@@ -311,7 +311,7 @@ fn return_passing_sret_for_map() {
     );
 }
 
-// -- Calling convention tests --
+// Calling convention tests
 
 #[test]
 fn call_conv_fast_for_ordinary_functions() {
@@ -336,7 +336,7 @@ fn call_conv_c_for_test_wrapper() {
     assert_eq!(select_call_conv(CallConvSite::TestWrapper), CallConv::C);
 }
 
-// -- compute_function_abi e2e --
+// compute_function_abi e2e
 
 #[test]
 fn compute_abi_simple_function() {
@@ -351,6 +351,7 @@ fn compute_abi_simple_function() {
         param_types: vec![Idx::INT, Idx::INT],
         return_type: Idx::INT,
         capabilities: vec![],
+        capability_params: vec![],
         is_public: false,
         is_test: false,
         is_main: false,
@@ -363,6 +364,7 @@ fn compute_abi_simple_function() {
         param_defaults: vec![],
         param_hashes: vec![0; 2],
         return_hash: 0,
+        return_projection: None,
     };
 
     let abi = compute_function_abi(&sig, &store, None);
@@ -387,6 +389,7 @@ fn compute_abi_void_return() {
         param_types: vec![],
         return_type: Idx::UNIT,
         capabilities: vec![],
+        capability_params: vec![],
         is_public: false,
         is_test: false,
         is_main: false,
@@ -399,6 +402,7 @@ fn compute_abi_void_return() {
         param_defaults: vec![],
         param_hashes: vec![],
         return_hash: 0,
+        return_projection: None,
     };
 
     let abi = compute_function_abi(&sig, &store, None);
@@ -420,6 +424,7 @@ fn compute_abi_main_uses_c_convention() {
         param_types: vec![],
         return_type: Idx::UNIT,
         capabilities: vec![],
+        capability_params: vec![],
         is_public: false,
         is_test: false,
         is_main: true,
@@ -432,13 +437,14 @@ fn compute_abi_main_uses_c_convention() {
         param_defaults: vec![],
         param_hashes: vec![],
         return_hash: 0,
+        return_projection: None,
     };
 
     let abi = compute_function_abi(&sig, &store, None);
     assert_eq!(abi.call_conv, CallConv::C);
 }
 
-// -- Borrow-aware param passing tests --
+// Borrow-aware param passing tests
 
 #[test]
 fn borrowed_definiteref_becomes_reference() {
@@ -580,7 +586,37 @@ fn borrowed_large_type_becomes_reference() {
     );
 }
 
-// -- compute_function_abi_with_ownership e2e --
+#[test]
+fn closure_arguments_use_uniform_borrowed_passing() {
+    let mut pool = Pool::new();
+    let closure = pool.function(&[Idx::INT, Idx::INT], Idx::INT);
+    let list_int = pool.list(Idx::INT);
+    let store = TypeInfoStore::new(&pool);
+    let classifier = ArcClassifier::new(&pool);
+
+    assert_eq!(abi_size(closure, &store, None), 16);
+    assert_eq!(
+        compute_closure_param_passing(closure, &store, None, &classifier),
+        ParamPassing::Reference,
+        "a two-word managed closure argument is borrowed by reference"
+    );
+    assert_eq!(
+        compute_closure_param_passing(Idx::INT, &store, None, &classifier),
+        ParamPassing::Direct,
+        "borrowed scalars retain their size-based direct ABI"
+    );
+    assert_eq!(
+        compute_closure_param_passing(list_int, &store, None, &classifier),
+        ParamPassing::Reference,
+        "fat managed arguments use Reference rather than owned Indirect"
+    );
+    assert_eq!(
+        compute_closure_param_passing(Idx::UNIT, &store, None, &classifier),
+        ParamPassing::Void
+    );
+}
+
+// compute_function_abi_with_ownership e2e
 
 #[test]
 fn abi_with_ownership_uses_reference_for_borrowed_params() {
@@ -596,6 +632,7 @@ fn abi_with_ownership_uses_reference_for_borrowed_params() {
         param_types: vec![Idx::STR, Idx::INT],
         return_type: Idx::INT,
         capabilities: vec![],
+        capability_params: vec![],
         is_public: false,
         is_test: false,
         is_main: false,
@@ -608,6 +645,7 @@ fn abi_with_ownership_uses_reference_for_borrowed_params() {
         param_defaults: vec![],
         param_hashes: vec![0; 2],
         return_hash: 0,
+        return_projection: None,
     };
 
     let annotated = AnnotatedSig {
@@ -650,6 +688,7 @@ fn abi_with_ownership_none_falls_through() {
         param_types: vec![Idx::STR],
         return_type: Idx::STR,
         capabilities: vec![],
+        capability_params: vec![],
         is_public: false,
         is_test: false,
         is_main: false,
@@ -662,6 +701,7 @@ fn abi_with_ownership_none_falls_through() {
         param_defaults: vec![],
         param_hashes: vec![0; 1],
         return_hash: 0,
+        return_projection: None,
     };
 
     // No borrow info → falls through to standard compute_function_abi
@@ -673,13 +713,13 @@ fn abi_with_ownership_none_falls_through() {
     );
 }
 
-// -- abi_size / abi_alignment ↔ LLVM layout sync tests --
+// abi_size / abi_alignment ↔ LLVM layout sync tests
 //
 // The abi walkers in `size.rs` mirror `TypeLayoutResolver`'s lowered LLVM
 // layouts. These tests enforce the mirror mechanically: for a representative
 // type corpus, the abi-side size/alignment MUST equal the store size /
 // alignment of the LLVM type the resolver actually produces. A divergence
-// flips AB-1 Direct/Indirect classification (register-misalignment SIGSEGV
+// flips the Direct/Indirect ABI classification (register-misalignment SIGSEGV
 // class).
 
 use inkwell::context::Context;

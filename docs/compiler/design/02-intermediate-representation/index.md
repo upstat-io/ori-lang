@@ -107,9 +107,15 @@ The number of IR levels reflects a tradeoff. Too few, and individual phases beco
 
 Ori combines flat arena storage, interned type pools, SoA layout, and multi-level lowering into a design with three distinctive properties.
 
-### Three IRs Serving Two Backends
+### Layered IRs Serving Semantic and Physical Consumers
 
-Most compilers have one backend. Ori has two — a tree-walking interpreter (`ori_eval`) for rapid development and testing, and an LLVM-based native code generator (`ori_llvm`) for production binaries. The three-IR design exists to serve both backends efficiently from a single frontend pipeline:
+Ori separates a tree-walking semantic oracle (`ori_eval`) from physical
+execution. The evaluator reads canonical IR directly. AIMS lowers canonical IR
+once into a frozen logical ownership plan. The current carrier is historically
+named ARC IR; VM bytecode and compiled targets consume its stable facts without
+inheriting its transitional `Rc*` mechanism vocabulary. The layered IR design
+keeps one frontend and one ownership calculus while allowing each physical
+executor to choose its own instruction and storage encoding:
 
 ```mermaid
 flowchart TB
@@ -121,8 +127,12 @@ flowchart TB
     (interpreter)"]
     canon --> arc["ARC IR
     (ArcFunction + ArcInstr)"]
-    arc --> llvm["ori_llvm
-    (native binary)"]
+    arc --> exec["Shared Executable Carrier
+    (logical AIMS facts + neutral repr evidence)"]
+    exec --> vm["ori_vm
+    (bytecode)"]
+    exec --> llvm["ori_llvm / native / WASM
+    (compiled output)"]
 
     classDef frontend fill:#1e3a5f,stroke:#60a5fa,color:#dbeafe
     classDef canon fill:#3b1f6e,stroke:#a78bfa,color:#e9d5ff
@@ -132,12 +142,17 @@ flowchart TB
     class source,ast frontend
     class canon canon
     class interp interpreter
-    class arc,llvm native
+    class arc,exec,vm,llvm native
 ```
 
-The **canonical IR** is the bridge. It eliminates all syntactic sugar, compiles pattern matches to decision trees, and folds constants — work that neither backend needs to repeat. The interpreter evaluates canonical IR directly. The native path lowers it further to ARC IR, which adds explicit reference counting operations and basic-block control flow that the LLVM backend translates to machine code.
+The **canonical IR** is the semantic bridge. It eliminates all syntactic sugar, compiles pattern matches to decision trees, and folds constants — work no downstream consumer repeats.
 
-This fork-point design means that adding new syntactic sugar requires changes only in the parser and canonicalizer — neither backend changes. Conversely, optimizing the native backend (adding ARC elimination passes, improving borrow inference) doesn't affect the interpreter at all.
+The evaluator executes it directly. AIMS lowers the physical branch into the
+historically named ARC IR, which freezes logical ownership, observation,
+cleanup, unwind, and basic-block control flow once for every physical executor
+without selecting a counter mechanism.
+
+This split means that adding new syntactic sugar requires changes only in the parser and canonicalizer. Changing ownership policy belongs in AIMS and reaches every physical executor through the shared realized plan; an executor may not reproduce that analysis locally. Such changes do not affect the evaluator's representation-abstract value model.
 
 ### Everything Is an Index
 
@@ -187,10 +202,10 @@ See [Flat AST](flat-ast.md) and [Arena Allocation](arena-allocation.md) for the 
 
 ### Canonical IR (`CanArena` + `CanId`)
 
-The canonical IR is the sugar-free, type-annotated representation that both backends consume. Canonicalization transforms the raw AST in three ways:
+The canonical IR is the sugar-free, type-annotated representation consumed by the evaluator and ARC lowering. Canonicalization transforms the raw AST in three ways:
 
 1. **Desugaring** — Named calls become positional. Template literals become string concatenation. Spreads become method calls. Seven sugar forms are eliminated entirely.
-2. **Pattern compilation** — Match expressions compile to decision trees via [Maranget's algorithm](http://moscova.inria.fr/~maranget/papers/ml05e-maranget.pdf) (2008). The interpreter walks the tree; LLVM emits `switch` terminators from it.
+2. **Pattern compilation** — Match expressions compile to decision trees via [Maranget's algorithm](http://moscova.inria.fr/~maranget/papers/ml05e-maranget.pdf) (2008). The evaluator walks the tree; ARC lowering turns it into shared control flow for VM and compiled consumers.
 3. **Constant folding** — Compile-time expressions are pre-evaluated into a `ConstantPool`.
 
 ```rust
@@ -203,27 +218,31 @@ struct CanonResult {
 }
 ```
 
-Every `CanNode` carries its resolved type, so neither backend needs to re-infer. And because `CanExpr` is a separate Rust type from `ExprKind`, sugar variants physically cannot appear in canonical IR — a backend that tries to match on `CallNamed` gets a compile error, not a runtime panic.
+Every `CanNode` carries its resolved type, so downstream consumers do not re-infer it. And because `CanExpr` is a separate Rust type from `ExprKind`, sugar variants physically cannot appear in canonical IR — a consumer that tries to match on `CallNamed` gets a compile error, not a runtime panic.
 
-`SharedCanonResult(Arc<CanonResult>)` wraps the result for zero-copy sharing across all consumers: the evaluator, test runner, `check` command, and LLVM backend all read from the same cached instance.
+`SharedCanonResult(Arc<CanonResult>)` wraps the result for zero-copy sharing across its direct consumers: the evaluator, test runner, `check` command, and ARC lowering all read from the same cached instance. The VM and compiled backends receive the realized downstream artifact rather than reading canonical IR directly.
 
 See [Desugaring](../07-canonicalization/desugaring.md) for the full treatment of how sugar is eliminated.
 
 ### ARC IR (`ArcFunction` + `ArcInstr`)
 
-The ARC IR is a basic-block representation with explicit reference counting operations, consumed only by the LLVM backend. It exists because the interpreter doesn't need reference counting (it uses Rust's own reference counting via `Arc<Value>`), but the native backend must manage memory explicitly.
+The ARC IR is a basic-block representation with explicit logical ownership operations. It is the shared realization input from which the executable carrier and its VM or compiled physical projections are produced. Some current fields retain compiled-shaped compatibility vocabulary; those fields are transitional and are not AIMS facts. The representation-abstract evaluator branches earlier because its host values already manage their own lifetimes.
 
-The ARC pipeline uses the **AIMS unified lattice** — a single backward dataflow analysis over a 7-dimensional product lattice (`AimsState`: AccessClass × Consumption × Cardinality × Uniqueness × Locality × ShapeClass × EffectClass) that converges on all memory decisions simultaneously. RC operations, allocation reuse, COW annotations, and drop hints are then emitted in two phases from the converged state map: Phase 1 (pre-merge) handles RC and reuse, Phase 2 (post-merge) handles COW and drop hints. This pipeline is inspired by [Lean 4](https://github.com/leanprover/lean4)'s LCNF IR and [Koka](https://github.com/koka-lang/koka)'s FBIP analysis.
+The ARC pipeline uses the **AIMS unified lattice** — a single backward dataflow analysis over a 7-dimensional product lattice (`AimsState`: AccessClass × Consumption × Cardinality × Uniqueness × Locality × ShapeClass × EffectClass) that converges on all memory decisions simultaneously. Logical owner-credit events, reuse/COW eligibility, cleanup, and drop facts are realized from the converged state map.
 
-A three-way type classification drives all RC decisions:
+Current `RcInc`/`RcDec`, strategy, and atomicity fields are transitional carrier vocabulary; VM and compiled planners choose physical mechanisms after the shared facts freeze.
 
-| Class | Meaning | RC Behavior |
-|-------|---------|-------------|
-| `Scalar` | Never heap-allocated (`int`, `bool`, `Option<int>`) | No RC operations emitted |
-| `DefiniteRef` | Always heap-allocated (`str`, `[T]`, `{K: V}`) | Full RC tracking |
-| `PossibleRef` | Unknown at analysis time (unresolved generics) | Conservative RC |
+A three-way type classification supplies logical ownership-event evidence;
+physical layout and cleanup mechanisms are selected by the later VM or compiled
+layout plan:
 
-The ARC crate has no LLVM dependency — it produces `ArcFunction` values that the `arc_emitter` in `ori_llvm` translates to LLVM IR. This separation means ARC analysis can be tested and evolved without an LLVM installation.
+| Class | Logical meaning | AIMS behavior |
+|-------|-----------------|---------------|
+| `Scalar` | Carries no shared-identity owner credit (`int`, `bool`, `Option<int>`) | No retain/release events; exactly-once user drop remains independent |
+| `DefiniteRef` | Carries managed logical identity (`str`, `[T]`, `{K: V}`) | Track ownership, cleanup, COW, and reuse events |
+| `PossibleRef` | Identity is unknown at analysis time (unresolved generics) | Conservative logical ownership events |
+
+The ARC crate has no VM or LLVM dependency. It produces `ArcFunction` values whose realized policy feeds the shared executable carrier; `ori_vm` and the `arc_emitter` in `ori_llvm` then encode that policy for their respective machines. This separation lets ARC analysis be tested and evolved without either physical backend.
 
 ## Cross-Cutting Concerns
 

@@ -1,0 +1,3 @@
+@foo () -> int = 42;
+
+@bar () -> int = foo();

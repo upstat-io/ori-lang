@@ -1,0 +1,6 @@
+type Inner = { value: int }
+type Outer = { inner: Inner }
+@main () -> int = {
+    let o = Outer { inner: Inner { value: 42 } };
+    o.inner.value
+}

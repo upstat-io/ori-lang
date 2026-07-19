@@ -5,6 +5,7 @@
 // Spec: 16-control-flow.md:508 (try type = Result<T,E>, T = block value type);
 //       11-blocks-and-scope.md:302 (all-`;` block produces void).
 #compile_fail(code: "E2001")
+@try_tailless_type_mismatch tests _ () -> void = { () }
 
 @try_tailless_void_ok_rejects_int () -> Result<int, str> =
     try { let $x = 1; };

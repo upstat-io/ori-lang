@@ -4,7 +4,7 @@ use crate::{Name, Span, TypeId};
 
 use super::*;
 
-// ── Size Assertions ─────────────────────────────────────────
+// Size Assertions
 
 #[test]
 fn can_expr_size() {
@@ -41,7 +41,7 @@ fn decision_tree_id_size() {
     assert_eq!(mem::size_of::<DecisionTreeId>(), 4);
 }
 
-// ── CanId ───────────────────────────────────────────────────
+// CanId
 
 #[test]
 fn can_id_invalid() {
@@ -62,7 +62,7 @@ fn can_id_debug() {
     assert_eq!(format!("{:?}", CanId::new(5)), "CanId(5)");
 }
 
-// ── CanRange ────────────────────────────────────────────────
+// CanRange
 
 #[test]
 fn can_range_empty() {
@@ -84,7 +84,7 @@ fn can_range_debug() {
     assert_eq!(format!("{r:?}"), "CanRange(5..8)");
 }
 
-// ── CanArena ────────────────────────────────────────────────
+// CanArena
 
 #[test]
 fn arena_push_and_get() {
@@ -186,7 +186,7 @@ fn arena_fields() {
     assert_eq!(fields[0].value, v);
 }
 
-// ── ConstantPool ────────────────────────────────────────────
+// ConstantPool
 
 #[test]
 fn constant_pool_sentinels() {
@@ -226,7 +226,7 @@ fn constant_pool_sentinel_dedup() {
     assert_eq!(id, ConstantPool::TRUE);
 }
 
-// ── DecisionTreePool ────────────────────────────────────────
+// DecisionTreePool
 
 #[test]
 fn decision_tree_pool_push_and_get() {
@@ -237,10 +237,62 @@ fn decision_tree_pool_push_and_get() {
     };
     let id = pool.push(tree.clone());
     assert_eq!(*pool.get(id), tree);
+    let carriers = pool.leaf_discard_paths(id);
+    assert_eq!(carriers.len(), 1);
+    assert!(carriers[0].is_empty());
     assert_eq!(pool.len(), 1);
 }
 
-// ── CanonResult ─────────────────────────────────────────────
+#[test]
+#[should_panic(expected = "1 success nodes but 0 cleanup carriers")]
+fn decision_tree_pool_rejects_misaligned_cleanup_carriers() {
+    let mut pool = DecisionTreePool::new();
+    let tree = DecisionTree::Leaf {
+        arm_index: 0,
+        bindings: vec![],
+    };
+
+    let _ = pool.push_with_leaf_discards(tree, Vec::new());
+}
+
+#[test]
+fn decision_tree_pool_composite_tree_creates_carrier_per_success() {
+    let mut pool = DecisionTreePool::new();
+    let tree = DecisionTree::Switch {
+        path: Vec::new(),
+        test_kind: TestKind::IntEq,
+        edges: vec![
+            (
+                TestValue::Int(0),
+                DecisionTree::Leaf {
+                    arm_index: 0,
+                    bindings: Vec::new(),
+                },
+            ),
+            (
+                TestValue::Int(1),
+                DecisionTree::Guard {
+                    arm_index: 1,
+                    bindings: Vec::new(),
+                    guard: CanId::new(0),
+                    on_fail: Box::new(DecisionTree::Leaf {
+                        arm_index: 2,
+                        bindings: Vec::new(),
+                    }),
+                },
+            ),
+        ],
+        default: Some(Box::new(DecisionTree::Fail)),
+    };
+
+    let id = pool.push(tree);
+    let carriers = pool.leaf_discard_paths(id);
+
+    assert_eq!(carriers.len(), 3);
+    assert!(carriers.iter().all(Vec::is_empty));
+}
+
+// CanonResult
 
 #[test]
 fn canon_result_empty() {
@@ -249,7 +301,7 @@ fn canon_result_empty() {
     assert!(result.arena.is_empty());
 }
 
-// ── CanExpr equality / hashing ──────────────────────────────
+// CanExpr equality / hashing
 
 #[test]
 fn can_expr_eq() {
@@ -268,7 +320,7 @@ fn can_expr_hash_consistency() {
     assert_eq!(set.len(), 2);
 }
 
-// ── remap_types ─────────────────────────────────────────────
+// remap_types
 
 #[test]
 fn remap_types_updates_all_entries() {

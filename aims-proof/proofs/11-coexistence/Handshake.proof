@@ -25,9 +25,10 @@ Definition: Coexistence Handshake — burden-prototype minimal-lattice-consumer 
       consumed by `class_covered` membership
     - Annex E §AIMS IC-3 (ParamContract dimensions) — class identification per
       callee-parameter contract dimensions
-    - Annex E §AIMS RL-2 (RC dec at last use / scope exit), RL-7 (dynamic COW for
-      MaybeShared), RL-14 (headerless stack promotion under Locality <= FunctionLocal
-      and Uniqueness = Unique) — the realization rules per AIMS class
+    - Annex E §AIMS RL-2 (logical release at last use / scope exit), RL-7
+      (dynamic COW for MaybeShared), RL-14a (exact cleanup-event identity),
+      and RL-18 (target capability satisfaction). Lifetime and representation
+      extent are orthogonal to the ownership-class partition
     - aims-proof/proofs/04-transfers/TF-3.proof (Construct FRESH initialization),
       TF-4.proof (Project borrow propagation), TF-6.proof / TF-6a.proof
       (Apply/Invoke refine contract), TF-8.proof (Select scalar-exclusion join),
@@ -211,7 +212,7 @@ Definition: Coexistence Handshake — burden-prototype minimal-lattice-consumer 
       predicate-stack-derived ops; discharges single-elimination invariant
       (no double-counting) per Predicate 2's class_covered membership.
     - CH-3.proof — Per-class coexistence three sub-classes (OwnedxLinearxOnce
-      xUnique RL-2+RL-14, BorrowedxLinearxOncexUnique RL-14 headerless,
+      xUnique RL-2 logical release, BorrowedxLinearxOncexUnique caller-owned,
       MaybeSharedxMany RL-7 dynamic COW); discharges the partition's
       totality + disjointness invariant.
     - CH-4.proof — AimsStateMap immutability under burden-registry mutation;

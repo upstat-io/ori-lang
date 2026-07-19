@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Detect and optionally clean untracked temp/scratch files from the worktree.
 #
-# Designed to run as a subsection close-out step in /continue-roadmap and
-# /tpr-review workflows. Catches debug dumps, one-off test scripts, editor
-# backups, and other detritus that accumulates during development.
+# Catches debug dumps, one-off test scripts, editor backups, and other
+# worktree detritus.
 #
 # Usage:
 #   diagnostics/repo-hygiene.sh              # List detected temp files (default)
@@ -34,7 +33,7 @@ Detect and optionally clean untracked temp/scratch files from the worktree.
 
 Modes:
   (default)     List detected temp files with categories
-  --check       Exit 0 if clean, exit 1 if temp files found (CI/skill gate)
+  --check       Exit 0 if clean, exit 1 if temp files found
   --clean       Remove detected temp files (prints what it removes)
   --gitignore   Suggest .gitignore patterns for detected files
   --check-root  Exit 0 if root matches .root-inventory, 1 otherwise (CI gate)
@@ -50,7 +49,6 @@ Categories detected:
   BACKUP    Editor backup files (*.orig, *.bak, *.rej, *~ anywhere)
   ARTIFACT  Build artifacts outside target/ (*.o, *.a, *.so, *.dylib at root)
   STALE     Stale temp files that .gitignore should catch but didn't
-  TPR_STALE Stale TPR run dirs in /tmp/{ori-tpr,tpr-round}-* older than 72 hours
 
 Exit codes:
   0   Clean (no temp files) or successful --clean
@@ -181,33 +179,7 @@ for f in "${UNTRACKED[@]}"; do
     esac
 done
 
-# ── TPR_STALE: tpr-review scratch dirs older than 72 hours ──
-# Matches both patterns used over the skill's lifetime:
-#   /tmp/ori-tpr-*/      — legacy (pre-f386c7cd refactor)
-#   /tmp/tpr-round-*/    — current (mktemp -d -t "tpr-round-${repo}-XXXXXXXX")
-# Both prefixes are specific enough that no other tool creates them.
-# Contents are reviewer-produced ephemera (prompt.md, *-stdout/stderr/report.txt)
-# — no user data, no source files. The 72h age gate prevents touching live runs.
-declare -a TPR_STALE_DIRS=()
-TPR_STALE_BYTES=0
-NOW=$(date +%s)
-TPR_MAX_AGE=259200  # 72 hours in seconds
-for tpr_glob in "/tmp/ori-tpr-*/" "/tmp/tpr-round-*/"; do
-    if compgen -G "$tpr_glob" > /dev/null 2>&1; then
-        for tpr_dir in $tpr_glob; do
-            [[ -d "$tpr_dir" ]] || continue
-            dir_mtime=$(stat -c '%Y' "$tpr_dir" 2>/dev/null || echo "$NOW")
-            age=$(( NOW - dir_mtime ))
-            if [[ $age -ge $TPR_MAX_AGE ]]; then
-                TPR_STALE_DIRS+=("$tpr_dir")
-                dir_bytes=$(du -sb "$tpr_dir" 2>/dev/null | awk '{print $1}')
-                TPR_STALE_BYTES=$(( TPR_STALE_BYTES + dir_bytes ))
-            fi
-        done
-    fi
-done
-
-TOTAL=$(( ${#DUMP_FILES[@]} + ${#SCRATCH_FILES[@]} + ${#BACKUP_FILES[@]} + ${#ARTIFACT_FILES[@]} + ${#STALE_FILES[@]} + ${#TPR_STALE_DIRS[@]} ))
+TOTAL=$(( ${#DUMP_FILES[@]} + ${#SCRATCH_FILES[@]} + ${#BACKUP_FILES[@]} + ${#ARTIFACT_FILES[@]} + ${#STALE_FILES[@]} ))
 
 # ── Output ────────────────────────────────────────────────────────────────
 
@@ -244,16 +216,6 @@ case "$MODE" in
         print_category "ARTIFACT — build artifacts"      "$RED"    "${ARTIFACT_FILES[@]}"
         print_category "STALE — should be in .gitignore" "$YELLOW" "${STALE_FILES[@]}"
 
-        if [[ ${#TPR_STALE_DIRS[@]} -gt 0 ]]; then
-            local mb=$(( TPR_STALE_BYTES / 1048576 ))
-            printf "\n${YELLOW}${BOLD}TPR_STALE — /tmp/{ori-tpr,tpr-round}-* dirs >72h old${RESET} ${DIM}(%d dir%s, ~%d MB)${RESET}\n" \
-                "${#TPR_STALE_DIRS[@]}" "$( [[ ${#TPR_STALE_DIRS[@]} -ne 1 ]] && echo 's' || echo '' )" "$mb"
-            for d in "${TPR_STALE_DIRS[@]}"; do
-                local age_h=$(( (NOW - $(stat -c '%Y' "$d" 2>/dev/null || echo "$NOW")) / 3600 ))
-                printf "  %s ${DIM}(%dh old)${RESET}\n" "$d" "$age_h"
-            done
-        fi
-
         printf "\n${DIM}Run with --clean to remove, or --check for CI gating.${RESET}\n"
         ;;
 
@@ -270,10 +232,6 @@ case "$MODE" in
         for f in "${DUMP_FILES[@]}" "${SCRATCH_FILES[@]}" "${BACKUP_FILES[@]}" "${ARTIFACT_FILES[@]}" "${STALE_FILES[@]}"; do
             printf "  %s\n" "$f"
         done
-        for d in "${TPR_STALE_DIRS[@]}"; do
-            printf "  %s (stale TPR run)\n" "$d"
-        done
-
         printf "\nRun ${BOLD}diagnostics/repo-hygiene.sh --clean${RESET} to remove.\n"
         exit 1
         ;;
@@ -291,13 +249,6 @@ case "$MODE" in
         for f in "${ALL_FILES[@]}"; do
             printf "  ${RED}rm${RESET} %s\n" "$f"
             rm -f "$ROOT_DIR/$f"
-        done
-
-        # Clean stale TPR run directories (these are in /tmp, not the worktree)
-        for d in "${TPR_STALE_DIRS[@]}"; do
-            age_h=$(( (NOW - $(stat -c '%Y' "$d" 2>/dev/null || echo "$NOW")) / 3600 ))
-            printf "  ${RED}rm -rf${RESET} %s ${DIM}(%dh old)${RESET}\n" "$d" "$age_h"
-            rm -rf "$d"
         done
 
         printf "\n${GREEN}Done.${RESET} Removed %d item%s.\n" \

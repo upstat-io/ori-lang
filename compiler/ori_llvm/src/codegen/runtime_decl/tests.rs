@@ -1,8 +1,10 @@
 use std::collections::BTreeSet;
 
 use super::*;
+use crate::aot::TargetConfig;
 use crate::context::SimpleCx;
 use inkwell::context::Context;
+use inkwell::targets::{TargetData, TargetTriple};
 
 #[test]
 fn runtime_functions_declared() {
@@ -53,6 +55,97 @@ fn lazy_declares_only_requested_function() {
     assert_eq!(n, 1, "should have exactly 1 declaration, got {n}");
     assert!(scx.llmod.get_function("ori_print").is_some());
     assert!(scx.llmod.get_function("ori_rc_alloc").is_none());
+}
+
+#[test]
+fn iter_map_declaration_includes_output_release_thunk() {
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "test_iter_map_abi");
+    let mut builder = IrBuilder::new(&scx);
+
+    builder.runtime_fn("ori_iter_map");
+
+    let map = scx.llmod.get_function("ori_iter_map").unwrap();
+    assert_eq!(map.count_params(), 7);
+    for hook_index in [3, 4] {
+        assert!(
+            matches!(map.get_nth_param(hook_index), Some(param) if param.is_pointer_value()),
+            "ori_iter_map's callback-environment hooks must be pointers"
+        );
+    }
+    assert!(
+        matches!(map.get_nth_param(6), Some(param) if param.is_pointer_value()),
+        "ori_iter_map's seventh ABI slot must carry the output release thunk"
+    );
+}
+
+#[test]
+fn iterator_callback_abi_is_stable_on_non_host_targets() {
+    for triple in ["aarch64-apple-darwin", "wasm32-unknown-unknown"] {
+        let target = TargetConfig::from_triple(triple)
+            .unwrap_or_else(|error| panic!("{triple} must be an initialized LLVM target: {error}"));
+        let layout = target
+            .data_layout()
+            .unwrap_or_else(|error| panic!("{triple} must expose a data layout: {error}"));
+
+        let ctx = Context::create();
+        let scx = SimpleCx::new(&ctx, "test_iterator_callback_cross_target_abi");
+        scx.llmod.set_triple(&TargetTriple::create(target.triple()));
+        let target_data = TargetData::create(&layout);
+        scx.llmod.set_data_layout(&target_data.get_data_layout());
+        let mut builder = IrBuilder::new(&scx);
+
+        for name in [
+            "ori_iter_map",
+            "ori_iter_filter",
+            "ori_iter_collect",
+            "ori_iter_collect_set",
+            "ori_iter_find",
+            "ori_iter_last",
+            "ori_iter_rfind",
+            "ori_iter_join",
+        ] {
+            builder.runtime_fn(name);
+        }
+
+        let ir = scx.llmod.print_to_string().to_string();
+        assert!(
+            ir.contains("declare ptr @ori_iter_map(ptr, ptr, ptr, ptr, ptr, i64, ptr)"),
+            "{triple} must preserve map callback ownership and output cleanup:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare ptr @ori_iter_filter(ptr, ptr, ptr, ptr, ptr, i64)"),
+            "{triple} must preserve filter callback-environment ownership:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare void @ori_iter_collect(ptr, i64, ptr, ptr, ptr)"),
+            "{triple} must preserve the collect element-release-thunk slot:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare void @ori_iter_collect_set(ptr, i64, ptr, ptr, ptr, ptr, ptr)"),
+            "{triple} must preserve the set-collect element-release-thunk slot:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare void @ori_iter_find(ptr, ptr, ptr, i64, ptr, ptr)"),
+            "{triple} must preserve find's retain-before-output ABI:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare void @ori_iter_last(ptr, i64, ptr, ptr)"),
+            "{triple} must preserve last's retain-before-output ABI:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare void @ori_iter_rfind(ptr, ptr, ptr, i64, ptr, ptr)"),
+            "{triple} must preserve rfind's retain-before-output ABI:\n{ir}"
+        );
+        assert!(
+            ir.contains("declare void @ori_iter_join(ptr, i64, i64, ptr, ptr, ptr, i64, ptr)"),
+            "{triple} join ABI must leave yield provenance inside IterState:\n{ir}"
+        );
+        assert!(
+            scx.llmod.verify().is_ok(),
+            "iterator callback declarations must verify for {triple}:\n{ir}"
+        );
+    }
 }
 
 #[test]
@@ -201,9 +294,7 @@ fn rc_functions_have_arc_safe_attributes() {
         "ori_rc_dec should be declared in IR"
     );
 
-    // Verify nounwind appears on RC functions
-    // The IR prints function attributes as attribute groups (#N)
-    // Check that nounwind is present in the module
+    // INVARIANT: RC declarations carry `nounwind` through an LLVM attribute group.
     assert!(
         ir.contains("nounwind"),
         "RC functions should have nounwind attribute in IR:\n{ir}"
@@ -282,9 +373,7 @@ fn panic_functions_noreturn_not_nounwind() {
 /// Verifies that every function in `RT_FUNCTIONS` has a `jit_allowed` classification
 /// and that JIT + AOT-only partitions cover all entries exactly.
 ///
-/// Since `jit_allowed` is now a field on `RtFn`, every entry is inherently
-/// covered. This test validates that the partition counts match expectations
-/// and no entry is accidentally miscategorized.
+/// The `jit_allowed` field places every entry in exactly one partition.
 #[test]
 fn declared_functions_all_have_jit_classification() {
     let total = all_names().count();
@@ -332,7 +421,7 @@ fn jit_symbol_mappings_match_jit_allowed() {
 
 /// Verifies that `elem_dec`/`elem_count` buffer helpers are registered
 /// as JIT-allowed symbols, so MCJIT can resolve them when compiling list/set
-/// literals. Regression guard for RC header V5 JIT availability.
+/// literals.
 #[test]
 fn jit_symbols_include_elem_header_helpers() {
     use crate::evaluator::jit_symbol_mappings;
@@ -356,9 +445,9 @@ fn jit_symbols_include_elem_header_helpers() {
 /// Validates that every runtime function has either `Nounwind` or documented
 /// justification for omitting it.
 ///
-/// After the audit, only `extern "C-unwind"` functions (assertions,
-/// `list_get`, and panic functions) should lack `Nounwind`. All `extern "C"`
-/// functions cannot unwind by ABI contract and must have `Nounwind`.
+/// After the audit, only `extern "C-unwind"` functions should lack
+/// `Nounwind`. All `extern "C"` functions cannot unwind by ABI contract and
+/// must have `Nounwind`.
 #[test]
 fn all_non_unwinding_functions_have_nounwind() {
     // These functions are extern "C-unwind" and intentionally lack nounwind
@@ -374,11 +463,30 @@ fn all_non_unwinding_functions_have_nounwind() {
         // extern "C-unwind": panics on out-of-bounds keys (IndexSet.updated,
         // matching ori_list_get's list[key] contract).
         "ori_list_updated_cow",
+        // extern "C-unwind": panics on out-of-bounds codepoint index
+        // (str[i], matching ori_list_get's list[key] contract).
+        "ori_str_index",
         "ori_panic",
         "ori_panic_cstr",
         // extern "C-unwind": drop fn called directly so a user-@drop foreign
         // exception unwinds through to the caller's cleanup pad.
         "ori_rc_dec_unwind",
+        // INVARIANT: Eager iteration may cross callbacks stored in its source adapter.
+        "ori_iter_next",
+        "ori_iter_next_back",
+        "ori_iter_rev",
+        "ori_iter_collect",
+        "ori_iter_collect_set",
+        "ori_iter_count",
+        "ori_iter_any",
+        "ori_iter_all",
+        "ori_iter_find",
+        "ori_iter_for_each",
+        "ori_iter_fold",
+        "ori_iter_last",
+        "ori_iter_rfind",
+        "ori_iter_rfold",
+        "ori_iter_join",
     ];
 
     let mut missing_nounwind = Vec::new();
@@ -409,8 +517,7 @@ fn all_non_unwinding_functions_have_nounwind() {
 /// Ensures no production code uses raw `get_function("ori_*")` to look up
 /// runtime functions. All call sites should use `runtime_fn` instead,
 /// which lazily declares + caches. Raw `get_function` bypasses the cache,
-/// creates duplicate `FunctionId`s, and will break when AOT migrates to
-/// lazy declaration.
+/// creating duplicate `FunctionId`s that violate lazy declaration.
 ///
 /// Test files are excluded — they legitimately use `get_function` to
 /// verify declarations exist.
@@ -489,4 +596,30 @@ fn cow_entries_declare_noalias_last_param_in_table() {
             );
         }
     }
+}
+
+/// `Ty::needs_sret()` gates the x86-64 `SysV` ABI's 16-byte direct-passing
+/// threshold on RETURN types (`Str`/`List`/`Map` at 24 bytes get sret + a
+/// prepended out-pointer). No analogous gate exists for PARAMS: a
+/// `Str`/`List`/`Map` param declared by value silently mis-classifies the
+/// `SysV` eightbytes and shifts every following argument.
+///
+/// Regression: a runtime function declaring a >16-byte type (`Str`/`List`/
+/// `Map`) by value in a params slot instead of `Ty::Ptr` corrupts the calling
+/// convention (SIGABRT on a heap-message trace injection). Pin every table
+/// entry's params against the same `needs_sret()` predicate the return side
+/// already enforces.
+#[test]
+fn no_rtfn_param_uses_a_needs_sret_type_directly() {
+    let offenders: Vec<&str> = RT_FUNCTIONS
+        .iter()
+        .filter(|spec| spec.params.iter().any(|ty| ty.needs_sret()))
+        .map(|spec| spec.name)
+        .collect();
+
+    assert!(
+        offenders.is_empty(),
+        "runtime fns passing a >16-byte type (Str/List/Map) by value in params \
+         (declare as Ty::Ptr instead): {offenders:?}"
+    );
 }

@@ -1,0 +1,348 @@
+// Spec: 09-properties-of-types.md § Comparable + Hashable derive
+// Derived Comparable/Hashable on a Result or tuple field must NOT treat the
+// field as always-Equal (compare) or always-0 (hash). The sharp pins differ
+// ONLY in the wrapper field, so a field that fails to participate collapses the
+// struct compare to Equal and the struct hash to a constant. Each golden hash
+// value follows the specification's canonical field-hash algorithms; the same
+// assert runs interp + LLVM, forcing both executors to the identical value.
+
+use std.testing { assert }
+
+#[derive(Eq, Comparable, Hashable)]
+type ResHolder = { tag: int, r: Result<int, int> }
+
+#[derive(Eq, Comparable, Hashable)]
+type TupHolder = { tag: int, t: (int, str) }
+
+// Result field — Compare (the field is the ONLY differing component)
+
+// Ok(1) < Ok(2): same variant, recurse on payload. Stub => Equal => fails.
+@test_result_field_ok_payload_orders tests @res_ok_payload () -> void = {
+    let a = ResHolder { tag: 0, r: Ok(1) };
+    let b = ResHolder { tag: 0, r: Ok(2) };
+    assert(cond: a.compare(other: b).is_less())
+}
+@res_ok_payload () -> Ordering = {
+    let a = ResHolder { tag: 0, r: Ok(1) };
+    let b = ResHolder { tag: 0, r: Ok(2) };
+    a.compare(other: b)
+}
+
+// Ok(_) < Err(_): tag ordering (spec Ok < Err). Stub => Equal => fails.
+@test_result_field_ok_before_err tests @res_ok_err () -> void = {
+    let a = ResHolder { tag: 0, r: Ok(99) };
+    let b = ResHolder { tag: 0, r: Err(0) };
+    assert(cond: a.compare(other: b).is_less())
+}
+@res_ok_err () -> Ordering = {
+    let a = ResHolder { tag: 0, r: Ok(99) };
+    let b = ResHolder { tag: 0, r: Err(0) };
+    a.compare(other: b)
+}
+
+@test_result_field_err_after_ok tests @res_err_ok () -> void = {
+    let a = ResHolder { tag: 0, r: Err(0) };
+    let b = ResHolder { tag: 0, r: Ok(99) };
+    assert(cond: a.compare(other: b).is_greater())
+}
+
+@res_err_ok () -> Ordering = {
+    let a = ResHolder { tag: 0, r: Err(0) };
+    let b = ResHolder { tag: 0, r: Ok(99) };
+    a.compare(other: b)
+}
+
+// Err(1) < Err(2): same-variant Err payload recursion.
+@test_result_field_err_payload_orders tests @res_err_payload () -> void = {
+    let a = ResHolder { tag: 0, r: Err(1) };
+    let b = ResHolder { tag: 0, r: Err(2) };
+    assert(cond: a.compare(other: b).is_less())
+}
+@res_err_payload () -> Ordering = {
+    let a = ResHolder { tag: 0, r: Err(1) };
+    let b = ResHolder { tag: 0, r: Err(2) };
+    a.compare(other: b)
+}
+
+// Equal when identical (positive sanity; passes on stub too — calibration).
+@test_result_field_equal tests @res_equal () -> void = {
+    let a = ResHolder { tag: 7, r: Ok(5) };
+    assert(cond: a.compare(other: a).is_equal())
+}
+@res_equal () -> Ordering = {
+    let a = ResHolder { tag: 7, r: Ok(5) };
+    a.compare(other: a)
+}
+
+// Result field — Hash (distinct values must hash distinctly; stub => 0 == 0)
+
+@test_result_field_hash_payload_differs tests @res_hash_payload () -> void = {
+    let a = ResHolder { tag: 0, r: Ok(1) };
+    let b = ResHolder { tag: 0, r: Ok(2) };
+    assert(cond: a.hash() != b.hash())
+}
+@res_hash_payload () -> bool = {
+    let a = ResHolder { tag: 0, r: Ok(1) };
+    let b = ResHolder { tag: 0, r: Ok(2) };
+    a.hash() != b.hash()
+}
+
+// Ok(0) and Err(0): variant discriminant must distinguish the hash.
+@test_result_field_hash_variant_differs tests @res_hash_variant () -> void = {
+    let a = ResHolder { tag: 0, r: Ok(0) };
+    let b = ResHolder { tag: 0, r: Err(0) };
+    assert(cond: a.hash() != b.hash())
+}
+@res_hash_variant () -> bool = {
+    let a = ResHolder { tag: 0, r: Ok(0) };
+    let b = ResHolder { tag: 0, r: Err(0) };
+    a.hash() != b.hash()
+}
+
+// Determinism: equal values hash equally.
+@test_result_field_hash_stable tests @res_hash_stable () -> void = {
+    let a = ResHolder { tag: 3, r: Ok(9) };
+    let b = ResHolder { tag: 3, r: Ok(9) };
+    assert(cond: a.hash() == b.hash())
+}
+@res_hash_stable () -> bool = {
+    let a = ResHolder { tag: 3, r: Ok(9) };
+    let b = ResHolder { tag: 3, r: Ok(9) };
+    a.hash() == b.hash()
+}
+
+@test_result_field_typed_payload_hash_stable tests @res_typed_hash_stable () -> void = {
+    assert(cond: res_typed_hash_stable())
+}
+
+@res_typed_hash_stable () -> bool = {
+    let left: Result<int, int> = Ok(4);
+    let right: Result<int, int> = Ok(4);
+    let oracle: Result<int, int> = Ok(4);
+    let a = ResHolder { tag: 6, r: left };
+    let b = ResHolder { tag: 6, r: right };
+    let c = ResHolder { tag: 6, r: oracle };
+    a.hash() == b.hash() && b.hash() == c.hash()
+}
+
+@test_result_field_tag_breaks_payload_tie tests @res_tag_tie () -> void = {
+    assert(cond: res_tag_tie())
+}
+
+@res_tag_tie () -> bool = {
+    let a = ResHolder { tag: 1, r: Ok(4) };
+    let b = ResHolder { tag: 2, r: Ok(4) };
+    a.compare(other: b).is_less() && a.hash() != b.hash()
+}
+
+// Tuple field — Compare (lexicographic; field is the ONLY differing component)
+
+// First element differs.
+@test_tuple_field_first_orders tests @tup_first () -> void = {
+    let a = TupHolder { tag: 0, t: (1, "x") };
+    let b = TupHolder { tag: 0, t: (2, "x") };
+    assert(cond: a.compare(other: b).is_less())
+}
+@tup_first () -> Ordering = {
+    let a = TupHolder { tag: 0, t: (1, "x") };
+    let b = TupHolder { tag: 0, t: (2, "x") };
+    a.compare(other: b)
+}
+
+// Second element breaks the tie (lexicographic short-circuit).
+@test_tuple_field_second_orders tests @tup_second () -> void = {
+    let a = TupHolder { tag: 0, t: (5, "a") };
+    let b = TupHolder { tag: 0, t: (5, "b") };
+    assert(cond: a.compare(other: b).is_less())
+}
+@tup_second () -> Ordering = {
+    let a = TupHolder { tag: 0, t: (5, "a") };
+    let b = TupHolder { tag: 0, t: (5, "b") };
+    a.compare(other: b)
+}
+
+@test_tuple_field_equal tests @tup_equal () -> void = {
+    let a = TupHolder { tag: 1, t: (5, "x") };
+    assert(cond: a.compare(other: a).is_equal())
+}
+@tup_equal () -> Ordering = {
+    let a = TupHolder { tag: 1, t: (5, "x") };
+    a.compare(other: a)
+}
+
+// Tuple field — Hash
+
+@test_tuple_field_hash_differs tests @tup_hash_differs () -> void = {
+    let a = TupHolder { tag: 0, t: (1, "x") };
+    let b = TupHolder { tag: 0, t: (2, "x") };
+    assert(cond: a.hash() != b.hash())
+}
+@tup_hash_differs () -> bool = {
+    let a = TupHolder { tag: 0, t: (1, "x") };
+    let b = TupHolder { tag: 0, t: (2, "x") };
+    a.hash() != b.hash()
+}
+
+@test_tuple_field_hash_second_differs tests @tup_hash_second () -> void = {
+    let a = TupHolder { tag: 0, t: (5, "a") };
+    let b = TupHolder { tag: 0, t: (5, "b") };
+    assert(cond: a.hash() != b.hash())
+}
+@tup_hash_second () -> bool = {
+    let a = TupHolder { tag: 0, t: (5, "a") };
+    let b = TupHolder { tag: 0, t: (5, "b") };
+    a.hash() != b.hash()
+}
+
+@test_tuple_field_hash_stable tests @tup_hash_stable () -> void = {
+    let a = TupHolder { tag: 2, t: (8, "z") };
+    let b = TupHolder { tag: 2, t: (8, "z") };
+    assert(cond: a.hash() == b.hash())
+}
+@tup_hash_stable () -> bool = {
+    let a = TupHolder { tag: 2, t: (8, "z") };
+    let b = TupHolder { tag: 2, t: (8, "z") };
+    a.hash() == b.hash()
+}
+
+// Exact-value parity oracle (L9) — golden hash values derived from the
+// shared semantic algorithms. The SAME assert runs on interp + LLVM via
+// dual-exec. Behavioral "distinct/equal" checks can be satisfied by a
+// self-consistent-but-wrong LLVM hash (XOR vs hash_combine, discriminant 0/1
+// vs 2/3); these golden pins cannot. Re-bless only if the derive hash
+// algorithm changes for BOTH backends together.
+
+@test_result_field_hash_exact_ok tests @res_hash_exact_ok () -> void = {
+    let a = ResHolder { tag: 0, r: Ok(1) };
+    assert(cond: a.hash() == 173676443942)
+}
+@res_hash_exact_ok () -> int = {
+    let a = ResHolder { tag: 0, r: Ok(1) };
+    a.hash()
+}
+
+@test_result_field_hash_exact_err tests @res_hash_exact_err () -> void = {
+    let b = ResHolder { tag: 0, r: Err(0) };
+    assert(cond: b.hash() == 173676443992)
+}
+@res_hash_exact_err () -> int = {
+    let b = ResHolder { tag: 0, r: Err(0) };
+    b.hash()
+}
+
+@test_tuple_field_hash_exact tests @tup_hash_exact () -> void = {
+    let t = TupHolder { tag: 0, t: (5, "a") };
+    assert(cond: t.hash() == -5808556531720787384)
+}
+@tup_hash_exact () -> int = {
+    let t = TupHolder { tag: 0, t: (5, "a") };
+    t.hash()
+}
+
+// Empty-tuple field cell — the () field is correctly always-Equal (no content);
+// the tag must still break the tie. Golden hash pins exact value.
+
+#[derive(Eq, Comparable, Hashable)]
+type EmptyTupHolder = { tag: int, e: () }
+
+@test_empty_tuple_field_tag_orders tests @empty_tag () -> void = {
+    let a = EmptyTupHolder { tag: 0, e: () };
+    let b = EmptyTupHolder { tag: 1, e: () };
+    assert(cond: a.compare(other: b).is_less())
+}
+@empty_tag () -> Ordering = {
+    let a = EmptyTupHolder { tag: 0, e: () };
+    let b = EmptyTupHolder { tag: 1, e: () };
+    a.compare(other: b)
+}
+
+@test_empty_tuple_field_hash_exact tests @empty_hash_exact () -> void = {
+    let a = EmptyTupHolder { tag: 0, e: () };
+    assert(cond: a.hash() == 2654435769)
+}
+@empty_hash_exact () -> int = {
+    let a = EmptyTupHolder { tag: 0, e: () };
+    a.hash()
+}
+
+// Nested-tuple field cell — inner tuple recursion; innermost element breaks tie.
+
+#[derive(Eq, Comparable, Hashable)]
+type NestHolder = { tag: int, n: (int, (int, int)) }
+
+@test_nested_tuple_field_inner_orders tests @nest_inner () -> void = {
+    let a = NestHolder { tag: 0, n: (1, (2, 2)) };
+    let b = NestHolder { tag: 0, n: (1, (2, 3)) };
+    assert(cond: a.compare(other: b).is_less())
+}
+@nest_inner () -> Ordering = {
+    let a = NestHolder { tag: 0, n: (1, (2, 2)) };
+    let b = NestHolder { tag: 0, n: (1, (2, 3)) };
+    a.compare(other: b)
+}
+
+@test_nested_tuple_field_hash_exact tests @nest_hash_exact () -> void = {
+    let n = NestHolder { tag: 0, n: (1, (2, 3)) };
+    assert(cond: n.hash() == 526343518992)
+}
+@nest_hash_exact () -> int = {
+    let n = NestHolder { tag: 0, n: (1, (2, 3)) };
+    n.hash()
+}
+
+// Option field compare and hash use `hash_combine(1, h(x))` for `Some(x)` and
+// zero for `None`, matching the interpreter oracle exactly.
+
+#[derive(Eq, Comparable, Hashable)]
+type OptHolder = { tag: int, o: Option<int> }
+
+@test_option_field_some_payload_orders tests @opt_ord () -> void = {
+    let a = OptHolder { tag: 0, o: Some(1) };
+    let b = OptHolder { tag: 0, o: Some(2) };
+    assert(cond: a.compare(other: b).is_less())
+}
+@opt_ord () -> Ordering = {
+    let a = OptHolder { tag: 0, o: Some(1) };
+    let b = OptHolder { tag: 0, o: Some(2) };
+    a.compare(other: b)
+}
+
+@test_option_field_none_before_some tests @opt_none_some () -> void = {
+    let a = OptHolder { tag: 0, o: None };
+    let b = OptHolder { tag: 0, o: Some(0) };
+    assert(cond: a.compare(other: b).is_less())
+}
+@opt_none_some () -> Ordering = {
+    let a = OptHolder { tag: 0, o: None };
+    let b = OptHolder { tag: 0, o: Some(0) };
+    a.compare(other: b)
+}
+
+@test_option_field_hash_differs tests @opt_hash_ne () -> void = {
+    let a = OptHolder { tag: 0, o: Some(1) };
+    let b = OptHolder { tag: 0, o: None };
+    assert(cond: a.hash() != b.hash())
+}
+@opt_hash_ne () -> bool = {
+    let a = OptHolder { tag: 0, o: Some(1) };
+    let b = OptHolder { tag: 0, o: None };
+    a.hash() != b.hash()
+}
+
+@test_option_field_hash_exact_some tests @opt_hash_exact_some () -> void = {
+    let a = OptHolder { tag: 0, o: Some(1) };
+    assert(cond: a.hash() == 173676444123)
+}
+@opt_hash_exact_some () -> int = {
+    let a = OptHolder { tag: 0, o: Some(1) };
+    a.hash()
+}
+
+@test_option_field_hash_exact_none tests @opt_hash_exact_none () -> void = {
+    let a = OptHolder { tag: 0, o: None };
+    assert(cond: a.hash() == 175247769566)
+}
+@opt_hash_exact_none () -> int = {
+    let a = OptHolder { tag: 0, o: None };
+    a.hash()
+}

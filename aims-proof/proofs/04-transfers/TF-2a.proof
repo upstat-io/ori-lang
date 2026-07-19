@@ -1,21 +1,23 @@
-Theorem TF-2a: PrimOp transfer produces SCALAR sentinel
+Theorem TF-2a: Scalar PrimOp transfer produces SCALAR sentinel
 
   Preconditions:
     - Instruction is `Let { PrimOp(op, args) }` per Annex E §AIMS TF-2a
-    - `op` ranges over the primitive operations enumerated in §3 TF-2a
-      + Appendix A row 3: integer arithmetic / float arithmetic / boolean /
-      bitwise / comparison / shift kinds
-    - PrimOp results are scalar values — output of pure arithmetic over
-      scalar inputs; no heap, no RC
+    - The typed primitive descriptor classifies `result = Scalar`
+    - Descriptor arity equals `args.len`; every operand has an explicit
+      Borrow or Consume use
+    - `op` ranges over the scalar primitive operations enumerated in §3
+      TF-2a + Appendix A row 3: integer arithmetic / float arithmetic /
+      boolean / bitwise / comparison / shift kinds
 
   Soundness property:
-    Forall PrimOp kinds op. transfer_tf2a(Let { PrimOp(op, _) }) = SCALAR
+    Forall typed PrimOp kinds op whose descriptor result is Scalar.
+      transfer_tf2a(Let { PrimOp(op, _) }) = SCALAR
     AND L-6 layer (b) monotonicity holds for the constant function
     f(_) = SCALAR.
 
   Proof obligation:
     Two-part discharge:
-      (a) Output enumeration — for each PrimOp kind, the forward transfer
+      (a) Output enumeration — for each scalar PrimOp kind, the forward transfer
           rule per Appendix A row 3 emits `dst.state := SCALAR` on every
           per-dimension column (same shape as TF-1 row 1).
       (b) L-6 layer (b) monotonicity — TF-2a is a constant function:
@@ -31,9 +33,10 @@ Theorem TF-2a: PrimOp transfer produces SCALAR sentinel
       Bitwise: BitAnd / BitOr / BitXor / BitNot / Shl / Shr
       Comparison: IntEq / IntLt / FloatEq
       All 19 representative PrimOp kinds produce SCALAR per Appendix A row 3.
-      Per Annex E §AIMS TF-2a + §1.8 L-9: PrimOp outputs are scalar
-      primitives outside the carrier-product domain; SCALAR sentinel applies
-      uniformly regardless of operator arity or signedness.
+      Per Annex E §AIMS TF-2a + §1.8 L-9: these descriptor-classified
+      outputs are scalar primitives outside the carrier-product domain;
+      SCALAR applies regardless of arity or signedness. Heap-producing typed
+      primitives are outside this quantifier and are governed by TF-2b.
 
     Part (b) — constant-function monotonicity:
       Identical argument to TF-1 Part (b): f(_) = SCALAR is constant;
@@ -50,4 +53,4 @@ Theorem TF-2a: PrimOp transfer produces SCALAR sentinel
 
   Expected:
     status: valid
-    reason: section_04 monotonicity + case_analysis engines discharge TF-2a via 19-PrimOp-kind enumeration + constant-function monotonicity check
+    reason: section_04 monotonicity + case_analysis engines discharge TF-2a via 19 descriptor-classified scalar PrimOp kinds + constant-function monotonicity check

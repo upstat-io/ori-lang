@@ -14,8 +14,8 @@
 //! rather than through the general trait machinery.
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, Ownership, ReturnTag, TypeDef, TypeParamArity, TypeTag,
-    ONE_SELF_OWNED,
+    BackendRequirement, MemoryStrategy, MethodDef, MethodRuntime, OpDefs, Ownership, ReturnTag,
+    TypeDef, TypeParamArity, TypeTag, ONE_SELF_OWNED,
 };
 
 // Helper aliases
@@ -24,7 +24,7 @@ const INT: ReturnTag = ReturnTag::Concrete(TypeTag::Int);
 const STR: ReturnTag = ReturnTag::Concrete(TypeTag::Str);
 const ORD: ReturnTag = ReturnTag::Concrete(TypeTag::Ordering);
 
-// All 6 methods alphabetically sorted.
+// All methods alphabetically sorted.
 static TUPLE_METHODS: &[MethodDef] = &[
     MethodDef::compound(
         "clone",
@@ -32,7 +32,7 @@ static TUPLE_METHODS: &[MethodDef] = &[
         ReturnTag::SelfType,
         Some("Clone"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "compare",
@@ -40,26 +40,48 @@ static TUPLE_METHODS: &[MethodDef] = &[
         ORD,
         Some("Comparable"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
-    MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, false),
+    MethodDef::compound(
+        "debug",
+        &[],
+        STR,
+        Some("Debug"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    ),
     MethodDef::compound(
         "equals",
         &ONE_SELF_OWNED,
         BOOL,
         Some("Eq"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
-    MethodDef::compound("hash", &[], INT, Some("Hashable"), Ownership::Borrow, false),
-    MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false),
+    MethodDef::compound(
+        "hash",
+        &[],
+        INT,
+        Some("Hashable"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    ),
+    MethodDef::compound(
+        "len",
+        &[],
+        INT,
+        Some("Len"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    )
+    .with_runtime(MethodRuntime::Length),
     MethodDef::compound(
         "to_str",
         &[],
         STR,
         Some("Printable"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
 ];
 

@@ -24,7 +24,10 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::{compile_and_run, compile_and_run_capture, compile_and_run_valgrind_with_args};
+use crate::util::{
+    compile_and_run, compile_and_run_capture, compile_and_run_valgrind_with_args,
+    compile_and_run_with_build_env,
+};
 
 /// User `@drop` runs first, then the compiler walks owned fields in reverse
 /// declaration order, then the allocation is freed. The captured stdout order
@@ -311,7 +314,6 @@ impl Logged: Drop {
 
 /// Set element type with `@drop` — element @drop fires on set teardown.
 #[test]
-#[ignore = "BUG-05-006: Set<T> element @drop teardown segfaults (set-buffer hash-table runtime layout) — orthogonal to @drop emission"]
 fn drop_set_element_type_runs_user_drop_on_teardown() {
     let source = r#"
 type Logged = { tag: str }
@@ -340,8 +342,119 @@ impl Logged: Hashable {
     );
 }
 
-/// A `@drop`-typed value created inside a `for ... do` body drops at each loop
-/// iteration's scope exit.
+// A `@drop`-typed value created inside a `for ... do` body drops at each loop
+// iteration's scope exit.
+// BUG-05-006 regression matrix — `.iter().collect()` result + element
+// ownership. The gated burden probe (`ORI_DISABLE_PREDICATE_STACK_RC=1`) is the
+// RC/AOT verdict surface for both cleanup admission and transfer accounting.
+
+const BUG_05_006_GATED: &[(&str, &str)] = &[
+    ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+    ("ORI_VERIFY_ARC", "1"),
+];
+
+/// P2 — USED set-collect with an `@drop` element: the element `@drop` must fire
+/// EXACTLY ONCE (set teardown), not twice (source-list + set). Pre-fix: `drop`
+/// prints twice (collect copies the element; source buffer re-drops its copy).
+#[test]
+fn drop_set_collect_element_drops_exactly_once_when_used() {
+    let source = r#"
+type Logged = { tag: str }
+impl Logged: Drop     { @drop (self) -> void = print(msg: `drop-elem-{self.tag}`); }
+impl Logged: Eq       { @equals (self, other: Logged) -> bool = self.tag == other.tag; }
+impl Logged: Hashable { @hash (self) -> int = self.tag.length(); }
+
+@main () -> void = {
+    let s: Set<Logged> = [Logged { tag: "e1" }].iter().collect();
+    print(msg: `size={s.len()}`)
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, BUG_05_006_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    let drops = stdout.lines().filter(|l| *l == "drop-elem-e1").count();
+    assert_eq!(
+        drops, 1,
+        "collected set element @drop must fire exactly once (one logical value), \
+         not once-per-buffer; stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("size=1"),
+        "set must contain the collected element; stdout:\n{stdout}"
+    );
+}
+
+/// P3 — UNUSED list-collect leaks its buffer (NOT set-specific). Pre-fix: the
+/// `ori_iter_collect` result is mis-classified non-fresh -> no scope-exit dec
+/// -> exit 2 (leak). Post-fix: exit 0, `@drop` once.
+#[test]
+fn drop_list_collect_unused_result_is_freed() {
+    let source = r#"
+type Logged = { tag: str }
+impl Logged: Drop { @drop (self) -> void = print(msg: `drop-elem-{self.tag}`); }
+
+@main () -> void = {
+    let l: [Logged] = [Logged { tag: "e1" }].iter().collect()
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, BUG_05_006_GATED);
+    assert_eq!(
+        exit_code, 0,
+        "unused list-collect result must be freed (no leak, exit 0); \
+         stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let drops = stdout.lines().filter(|l| *l == "drop-elem-e1").count();
+    assert_eq!(
+        drops, 1,
+        "element @drop fires exactly once; stdout:\n{stdout}"
+    );
+}
+
+/// P5 — heap-element (non-SSO str) USED set-collect: no double-FREE (RC of the
+/// shared heap str must balance) AND `@drop` exactly once. Pre-fix: `@drop` 2x
+/// (RC balanced, no double-free) — the count is the regression, not memory.
+#[test]
+fn drop_set_collect_heap_element_drops_once_no_double_free() {
+    let source = r#"
+type Logged = { tag: str }
+impl Logged: Drop     { @drop (self) -> void = print(msg: "drop"); }
+impl Logged: Eq       { @equals (self, other: Logged) -> bool = self.tag == other.tag; }
+impl Logged: Hashable { @hash (self) -> int = self.tag.length(); }
+
+@main () -> void = {
+    let s: Set<Logged> = [Logged { tag: "this-string-is-longer-than-twenty-three-bytes-heap" }].iter().collect();
+    print(msg: `size={s.len()}`)
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, BUG_05_006_GATED);
+    assert_eq!(exit_code, 0, "no leak / no double-free; stderr:\n{stderr}");
+    let drops = stdout.lines().filter(|l| *l == "drop").count();
+    assert_eq!(
+        drops, 1,
+        "heap-element @drop fires exactly once; stdout:\n{stdout}"
+    );
+}
+
+/// P6 — scalar-element collect (no `@drop`, no RC children): positive pin that
+/// MUST stay green across the fix (no regression on the scalar path).
+#[test]
+fn drop_set_collect_scalar_element_no_leak() {
+    let source = r#"
+@main () -> void = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    print(msg: `n={s.len()}`)
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, BUG_05_006_GATED);
+    assert_eq!(
+        exit_code, 0,
+        "scalar set-collect must not leak; stderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("n=3"),
+        "set has 3 elements; stdout:\n{stdout}"
+    );
+}
+
 #[test]
 fn drop_value_inside_for_do_drops_at_each_iteration() {
     let source = r#"
@@ -532,7 +645,7 @@ type Wrapper = Solo(only: Loud) | Pair(quiet: Quiet, loud: Loud);
 /// child (the inner `str`) and NEVER ran the inline struct payload's user
 /// `@drop` — so the inner node's `quiet-inner-*` sentinels silently vanished.
 /// Each node has TWO Drop-impl payload fields so the per-node multi-field walk
-/// (the IH-06-001 surface) is exercised: both fields' `@drop` must run.
+/// is exercised: both fields' `@drop` must run.
 #[test]
 fn drop_boxed_recursive_enum_runs_every_node_payload_drop_in_reverse_order() {
     let source = r#"
@@ -560,7 +673,7 @@ type Chain = Nil | Link(a: Logged, b: Logged, next: Chain);
     assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
     // Both payload fields of BOTH nodes (outer + boxed inner) must run their
     // user @drop — the heap drop-fn path previously skipped inline-payload @drop
-    // entirely. Each node walks its payload in reverse decl order (b before a).
+    // entirely.
     for tag in [
         "drop-outer-a",
         "drop-outer-b",
@@ -572,10 +685,30 @@ type Chain = Nil | Link(a: Logged, b: Logged, next: Chain);
             "every node payload field @drop must run via the heap drop-fn path; missing {tag}; stdout:\n{stdout}"
         );
     }
+    // ORDER pin (the name's actual claim): the recursive `next` field is
+    // declared LAST in `Link(a, b, next)`, so reverse-decl-order walks `next`
+    // FIRST — the whole boxed inner node (itself reverse-decl: b then a) drops
+    // in full before the outer node's own b/a fields.
+    let idx = |tag: &str| {
+        stdout
+            .find(tag)
+            .unwrap_or_else(|| panic!("missing {tag} in stdout:\n{stdout}"))
+    };
+    let (inner_b, inner_a, outer_b, outer_a) = (
+        idx("drop-inner-b"),
+        idx("drop-inner-a"),
+        idx("drop-outer-b"),
+        idx("drop-outer-a"),
+    );
+    assert!(
+        inner_b < inner_a && inner_a < outer_b && outer_b < outer_a,
+        "reverse-decl order across the recursive chain must be \
+         inner-b, inner-a, outer-b, outer-a; stdout:\n{stdout}"
+    );
 }
 
 /// Recoverable boxed-recursive enum `@drop` panic, reached through
-/// `emit_drop_enum` (the F1 surface). A `next: EventLog` field forces the
+/// `emit_drop_enum`. A `next: EventLog` field forces the
 /// genuinely boxed-recursive heap drop-fn path: the OUTER `Entry` node is dec'd
 /// through `_ori_drop$<EventLog>` (`emit_drop_enum`), which runs the node's own
 /// `@drop` then walks the variant payload — including the boxed `next` child,
@@ -636,25 +769,15 @@ impl EventLog: Drop {
     );
 }
 
-/// NICHE enum payload field-drop panic → later-walked sibling payload field
-/// still dropped via the per-field cleanup pad. A 2-variant niche-encoded enum
-/// (`Option<Pair>` with `Pair` carrying a niche-bearing field) routes its data
-/// variant teardown through `emit_drop_enum_niche` (heap) / `emit_niche_enum_rc`
-/// (inline) — the F2 surface. Both now route through the canonical
-/// `dec_fields_may_unwind` SSOT, so a panicking payload field's `@drop` frees
-/// the later-walked sibling instead of leaking it.
-///
-/// IGNORED: niche-encoded codegen is feature-gated OFF
-/// (`NICHE_CODEGEN_READY = false` in `ori_repr/src/canonical/type_repr.rs`), so
-/// no user program reaches the niche dec paths today — a behavioral AOT cell
-/// cannot exercise them. The F2 cure (SSOT routing) is verified at the IR level
-/// (per-field `invoke @drop → fld.cont/fld.cleanup` + `landingpad` + `resume`,
-/// confirmed with the gate temporarily flipped). This cell activates when niche
-/// codegen ships under BUG-04-122 (the `emit_drop_enum_niche` niche-path bug),
-/// at which point it must pass without modification.
+/// Option payload field-drop panic → later-walked sibling payload field still
+/// drops via the per-field cleanup pad. This behavioral contract is independent
+/// of the enum tag encoding: the current explicit-tag path and the gated niche
+/// path both route payload teardown through the canonical
+/// `dec_fields_may_unwind` SSOT. The niche-specific routing remains pinned at
+/// the IR level while `NICHE_CODEGEN_READY` is false; this AOT cell exercises
+/// the reachable explicit-tag path without pretending the gated encoding ran.
 #[test]
-#[ignore = "BUG-04-122: niche-encoded codegen gated off (NICHE_CODEGEN_READY=false); F2 niche dec SSOT routing verified at IR level, this behavioral cell activates when niche codegen ships"]
-fn drop_niche_enum_payload_panic_cleans_remaining_sibling() {
+fn drop_option_payload_panic_cleans_remaining_sibling() {
     let source = r#"
 type Loud = { tag: str }
 
@@ -683,15 +806,15 @@ type Pair = { first: Quiet, second: Loud }
     let (exit_code, stdout, stderr) = compile_and_run_capture(source);
     assert!(
         stdout.contains("loud-L"),
-        "panicking niche-payload field-drop must run; stdout:\n{stdout}"
+        "panicking option-payload field-drop must run; stdout:\n{stdout}"
     );
     assert!(
         stdout.contains("quiet-Q"),
-        "later-walked niche-payload sibling must still drop via the per-field cleanup pad; stdout:\n{stdout}"
+        "later-walked option-payload sibling must still drop via the per-field cleanup pad; stdout:\n{stdout}"
     );
     assert_eq!(
         exit_code, 1,
-        "niche-payload field-drop panic must unwind (1), not abort or leak (2); stderr:\n{stderr}"
+        "option-payload field-drop panic must unwind (1), not abort or leak (2); stderr:\n{stderr}"
     );
 }
 
@@ -900,5 +1023,483 @@ impl Resource: Drop {
     assert!(
         stdout.contains("drop-a"),
         "the owned field must still drop on the unwind path; stdout:\n{stdout}"
+    );
+}
+
+// Scalar-repr struct with a user `@drop`.
+//
+// A struct whose monomorphized repr is provably `Scalar` (all-scalar fields, no
+// heap field, no RC header) carrying a user `@drop`. Two pre-fix failure modes:
+//   * READ local (`let r = Guard{7}; print(r.id)`): the surviving scope-exit
+//     whole-var `RcDec` on a Scalar repr tripped VF-1 `RcOnScalar` -> compile
+//     ICE under `ORI_VERIFY_ARC=1`.
+//   * DEAD local (`let r = Guard{7}` never read): no last-use anchor + the
+//     predicate stack skips scalars -> the `@drop` was silently elided.
+// The fix routes a scalar+`@drop` scope-exit op through `RcStrategy::UserDrop`
+// (the `@drop` CALL alone, balance-neutral, exempt from VF-1) and emits a
+// completeness dec for the never-used case. Spec: Annex E §AIMS RL-DROP
+// (`RLDROP_scalar_lifecycle_sound` / `RLDROP_exactly_once_on_glue`).
+//
+// Gated burden probe (`ORI_DISABLE_PREDICATE_STACK_RC=1` + `ORI_VERIFY_ARC=1`)
+// is the RC/AOT verdict surface; these pins are non-ignored (the
+// bug is fixed) and revert-detecting (revert -> DEAD loses its drop, READ ICEs).
+
+const SCALAR_DROP_GATED: &[(&str, &str)] = &[
+    ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+    ("ORI_VERIFY_ARC", "1"),
+];
+
+/// Semantic pin (filed bug): a DEAD scalar-repr struct local's `@drop` runs at
+/// scope exit. Pre-fix: nothing prints (the `@drop` was elided).
+#[test]
+fn drop_dead_scalar_struct_local_runs_user_drop_at_scope_exit() {
+    let source = r#"
+type Guard = { id: int }
+impl Guard: Drop { @drop (self) -> void = print(msg: `dropped-{self.id}`); }
+
+@main () -> void = {
+    let r = Guard { id: 7 };
+    print(msg: "body")
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    assert!(
+        stdout.contains("dropped-7"),
+        "the dead scalar-struct local's @drop must run at scope exit; stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("body"),
+        "the body must execute before the scope-exit drop; stdout:\n{stdout}"
+    );
+}
+
+/// Semantic pin (ICE case): a READ scalar-repr struct local compiles clean
+/// under `ORI_VERIFY_ARC=1` (no `RcDec on scalar` VF-1 ICE) AND runs its
+/// `@drop`. Pre-fix: compilation failed with the VF-1 `RcOnScalar` ICE.
+#[test]
+fn drop_read_scalar_struct_local_compiles_clean_and_runs_user_drop() {
+    let source = r#"
+type Guard = { id: int }
+impl Guard: Drop { @drop (self) -> void = print(msg: `dropped-{self.id}`); }
+
+@main () -> void = {
+    let r = Guard { id: 7 };
+    print(msg: `read-{r.id}`)
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(
+        exit_code, 0,
+        "scalar-struct read must compile clean (no RcOnScalar ICE) + run; stderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("read-7"),
+        "the field read must execute; stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("dropped-7"),
+        "the read scalar-struct local's @drop must run at scope exit; stdout:\n{stdout}"
+    );
+}
+
+#[test]
+fn drop_target_ignores_preceding_inherent_same_named_method() {
+    let source = r#"
+type Guard = { id: int }
+
+impl Guard {
+    @drop (self) -> void = print(msg: `wrong-inherent-{self.id}`);
+}
+
+impl Guard: Drop {
+    @drop (self) -> void = print(msg: `right-drop-{self.id}`);
+}
+
+@main () -> void = {
+    let guard = Guard { id: 7 };
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    assert_eq!(stdout.trim(), "right-drop-7", "stdout:\n{stdout}");
+}
+
+#[test]
+fn drop_target_ignores_following_inherent_same_named_method() {
+    let source = r#"
+type Guard = { id: int }
+
+impl Guard: Drop {
+    @drop (self) -> void = print(msg: `right-drop-{self.id}`);
+}
+
+impl Guard {
+    @drop (self) -> void = print(msg: `wrong-inherent-{self.id}`);
+}
+
+@main () -> void = {
+    let guard = Guard { id: 7 };
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    assert_eq!(stdout.trim(), "right-drop-7", "stdout:\n{stdout}");
+}
+
+#[test]
+fn drop_target_ignores_same_named_other_trait_method() {
+    let source = r#"
+trait DecoyDrop {
+    @drop (self) -> void
+}
+
+type Guard = { id: int }
+
+impl Guard: DecoyDrop {
+    @drop (self) -> void = print(msg: `wrong-decoy-{self.id}`);
+}
+
+impl Guard: Drop {
+    @drop (self) -> void = print(msg: `right-drop-{self.id}`);
+}
+
+@main () -> void = {
+    let guard = Guard { id: 7 };
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    assert_eq!(stdout.trim(), "right-drop-7", "stdout:\n{stdout}");
+}
+
+#[test]
+fn same_named_other_trait_method_does_not_create_drop_obligation() {
+    let source = r#"
+trait DecoyDrop {
+    @drop (self) -> void
+}
+
+type Guard = { id: int }
+
+impl Guard: DecoyDrop {
+    @drop (self) -> void = print(msg: "must-not-run");
+}
+
+@main () -> void = {
+    let guard = Guard { id: 7 };
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    assert!(stdout.trim().is_empty(), "stdout:\n{stdout}");
+}
+
+#[test]
+fn same_named_inherent_method_does_not_create_drop_obligation() {
+    let source = r#"
+type Guard = { id: int }
+
+impl Guard {
+    @drop (self) -> void = print(msg: "must-not-run");
+}
+
+@main () -> void = {
+    let guard = Guard { id: 7 };
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    assert!(stdout.trim().is_empty(), "stdout:\n{stdout}");
+}
+
+/// Type-dimension clamp: a multi-field scalar-repr struct (still all-scalar, no
+/// heap field) drops exactly once. Guards against the repr-`Scalar` gate keying
+/// on field count rather than repr.
+#[test]
+fn drop_dead_multi_field_scalar_struct_runs_user_drop_once() {
+    let source = r#"
+type Pair = { a: int, b: bool }
+impl Pair: Drop { @drop (self) -> void = print(msg: "dropped-pair"); }
+
+@main () -> void = {
+    let p = Pair { a: 1, b: true };
+    print(msg: "body")
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    let drops = stdout.lines().filter(|l| *l == "dropped-pair").count();
+    assert_eq!(
+        drops, 1,
+        "the multi-field scalar struct @drop fires exactly once; stdout:\n{stdout}"
+    );
+}
+
+/// Multiplicity clamp (double-emit guard): two distinct DEAD scalar-struct
+/// locals each drop EXACTLY once. A completeness pass that over-emitted would
+/// drop one of them twice; one that under-emitted would miss one.
+#[test]
+fn drop_two_dead_scalar_structs_each_drop_exactly_once() {
+    let source = r#"
+type Guard = { id: int }
+impl Guard: Drop { @drop (self) -> void = print(msg: `dropped-{self.id}`); }
+
+@main () -> void = {
+    let a = Guard { id: 1 };
+    let b = Guard { id: 2 };
+    print(msg: "body")
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    let d1 = stdout.lines().filter(|l| *l == "dropped-1").count();
+    let d2 = stdout.lines().filter(|l| *l == "dropped-2").count();
+    assert_eq!(
+        d1, 1,
+        "first scalar struct drops exactly once; stdout:\n{stdout}"
+    );
+    assert_eq!(
+        d2, 1,
+        "second scalar struct drops exactly once; stdout:\n{stdout}"
+    );
+}
+
+/// Negative pin: a scalar-repr struct with NO `Drop` impl emits NO drop op (no
+/// spurious output, no ICE). Clamps that the completeness pass fires ONLY for a
+/// type carrying a user `@drop`.
+#[test]
+fn dead_scalar_struct_without_drop_emits_no_drop_op() {
+    let source = r#"
+type Plain = { id: int }
+
+@main () -> void = {
+    let r = Plain { id: 7 };
+    print(msg: "only-body")
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    assert_eq!(
+        stdout.trim(),
+        "only-body",
+        "a no-Drop scalar struct must emit no drop output; stdout:\n{stdout}"
+    );
+}
+
+/// Regression clamp: the existing heap-field-struct dead-value drop path is NOT
+/// disturbed by the scalar fix (the `@drop` still runs at scope exit for a
+/// never-used heap-bearing struct).
+#[test]
+fn drop_dead_heap_field_struct_still_runs_user_drop() {
+    let source = r#"
+type Logged = { tag: str }
+impl Logged: Drop { @drop (self) -> void = print(msg: `dropped-{self.tag}`); }
+
+@main () -> void = {
+    let r = Logged { tag: "x" };
+    print(msg: "body")
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_with_build_env(source, SCALAR_DROP_GATED);
+    assert_eq!(exit_code, 0, "expected clean exit (0); stderr:\n{stderr}");
+    let drops = stdout.lines().filter(|l| *l == "dropped-x").count();
+    assert_eq!(
+        drops, 1,
+        "the dead heap-field struct @drop must still fire exactly once; stdout:\n{stdout}"
+    );
+}
+
+/// Matrix cell: a LET-BOUND user-drop struct VALUE borrowed by the map-insert
+/// Invoke terminator. The value's release must land AFTER the call — the
+/// "inserted" marker must print BEFORE the teardown-time drop panic (a
+/// pre-call drop would print boom first and never reach the insert).
+#[test]
+fn drop_map_value_let_bound_released_after_insert() {
+    let source = r#"
+type Boom = { tag: str }
+
+impl Boom: Drop {
+    @drop (self) -> void = {
+        print(msg: `boom-val-{self.tag}`);
+        panic(msg: "boom-val")
+    }
+}
+
+@main () -> void = {
+    let v = Boom { tag: "v" };
+    let m: {str: Boom} = {};
+    let m2 = m.insert(key: "k", value: v);
+    print(msg: "inserted");
+
+    let w = [m2]
+}
+"#;
+    let (_exit_code, stdout, _stderr) = compile_and_run_capture(source);
+    let inserted = stdout.find("inserted");
+    let boom = stdout.find("boom-val-v");
+    assert!(
+        inserted.is_some() && boom.is_some(),
+        "both the post-insert marker and the teardown drop must run; stdout:\n{stdout}"
+    );
+    assert!(
+        inserted < boom,
+        "the value's drop must fire at teardown, AFTER the insert consumed it; stdout:\n{stdout}"
+    );
+}
+
+/// Matrix cell: a LET-BOUND struct key with NO user drop (heap str field only)
+/// borrowed by the map-insert Invoke terminator. A pre-call release of the key
+/// frees its field payload before the insert elem-incs it — double-free at
+/// teardown (SIGABRT). Must run clean and leak-free.
+#[test]
+fn map_insert_let_bound_struct_key_no_user_drop_clean() {
+    let source = r#"
+type Key = { tag: str }
+
+impl Key: Eq {
+    @eq (self, other: Key) -> bool = self.tag == other.tag;
+}
+
+impl Key: Hashable {
+    @hash (self) -> int = self.tag.length();
+}
+
+@main () -> void = {
+    let k = Key { tag: "some heap allocated key tag string long" };
+    let m: {Key: int} = {};
+    let m2 = m.insert(key: k, value: 7);
+    print(msg: `{m2.len()}`)
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_capture(source);
+    assert_eq!(
+        exit_code, 0,
+        "let-bound struct-key insert must not double-free; stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains('1'),
+        "the inserted map must report len 1; stdout:\n{stdout}"
+    );
+}
+
+/// Over-fire guard cell (consensus requirement): a struct key with a LIVE field
+/// extract crossing the borrowing call — the extracted str is read AFTER the
+/// insert. The Struct-root death-point relocation must not double-free the
+/// extracted view's backing. Clean exit + leak-free is the pin either way the
+/// scan disposes the root (admit-with-guard or decline).
+#[test]
+fn map_insert_struct_key_live_field_extract_no_double_free() {
+    let source = r#"
+type Key = { tag: str }
+
+impl Key: Eq {
+    @eq (self, other: Key) -> bool = self.tag == other.tag;
+}
+
+impl Key: Hashable {
+    @hash (self) -> int = self.tag.length();
+}
+
+@main () -> void = {
+    let k = Key { tag: "live extract survives the borrowing insert" };
+    let t = k.tag;
+    let m: {Key: int} = {};
+    let m2 = m.insert(key: k, value: 7);
+    print(msg: `{m2.len()} {t.length()}`)
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_capture(source);
+    assert_eq!(
+        exit_code, 0,
+        "live field extract across the borrowing insert must stay valid; stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("1 42"),
+        "map len 1 + extracted tag length 42 expected; stdout:\n{stdout}"
+    );
+}
+
+/// Matrix cell: a LET-BOUND struct VALUE with NO user drop (heap str field
+/// only) borrowed by the map-insert Invoke terminator — value-position analog
+/// of the no-user-drop key cell. Must run clean.
+#[test]
+fn map_insert_let_bound_struct_value_no_user_drop_clean() {
+    let source = r#"
+type Val = { tag: str }
+
+@main () -> void = {
+    let v = Val { tag: "some heap allocated value tag string long" };
+    let m: {str: Val} = {};
+    let m2 = m.insert(key: "k", value: v);
+    print(msg: `{m2.len()}`)
+}
+"#;
+    let (exit_code, stdout, stderr) = compile_and_run_capture(source);
+    assert_eq!(
+        exit_code, 0,
+        "let-bound struct-value insert must not double-free or leak; stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains('1'),
+        "the inserted map must report len 1; stdout:\n{stdout}"
+    );
+}
+
+/// Matrix cell: BOTH channels let-bound user-drop structs — two admitted
+/// lineages borrowed by one insert call. Both drops must fire at teardown
+/// (after the insert), key channel first panicking, value channel still
+/// dropping via the two-channel cleanup.
+#[test]
+fn drop_map_both_channels_let_bound_structs() {
+    let source = r#"
+type BoomKey = { tag: str }
+
+impl BoomKey: Drop {
+    @drop (self) -> void = {
+        print(msg: `boom-key-{self.tag}`);
+        panic(msg: "boom-key")
+    }
+}
+
+impl BoomKey: Eq {
+    @eq (self, other: BoomKey) -> bool = self.tag == other.tag;
+}
+
+impl BoomKey: Hashable {
+    @hash (self) -> int = self.tag.length();
+}
+
+type Val = { tag: str }
+
+impl Val: Drop {
+    @drop (self) -> void = print(msg: `val-{self.tag}`);
+}
+
+@main () -> void = {
+    let k = BoomKey { tag: "k" };
+    let v = Val { tag: "v" };
+    let m: {BoomKey: Val} = {};
+    let m2 = m.insert(key: k, value: v);
+    print(msg: "inserted");
+
+    let w = [m2]
+}
+"#;
+    let (_exit_code, stdout, _stderr) = compile_and_run_capture(source);
+    let inserted = stdout.find("inserted");
+    let boom = stdout.find("boom-key-k");
+    let val = stdout.find("val-v");
+    assert!(
+        inserted.is_some() && boom.is_some() && val.is_some(),
+        "insert marker + both channel drops must all run; stdout:\n{stdout}"
+    );
+    assert!(
+        inserted < boom,
+        "the key drop must fire at teardown, AFTER the insert; stdout:\n{stdout}"
+    );
+    assert!(
+        inserted < val,
+        "the value drop must fire at teardown, AFTER the insert; stdout:\n{stdout}"
     );
 }

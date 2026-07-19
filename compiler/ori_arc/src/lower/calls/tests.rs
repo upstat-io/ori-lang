@@ -34,29 +34,23 @@ fn lower_call_expr(
         TypeId::from_raw(Idx::INT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: call,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = CanonResult::new(arena, call);
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::INT,
-        call,
-        &canon,
-        interner,
-        &pool,
+        super::super::super::ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body: call,
+            canon: &canon,
+            interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
     assert!(problems.is_empty());
     func
@@ -192,29 +186,23 @@ fn lower_method_call_user_defined() {
         TypeId::from_raw(Idx::STR.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: method_call,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
-    };
+    let canon = CanonResult::new(arena, method_call);
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::STR,
-        method_call,
-        &canon,
-        &interner,
-        &pool,
+        super::super::super::ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::STR,
+            body: method_call,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty());

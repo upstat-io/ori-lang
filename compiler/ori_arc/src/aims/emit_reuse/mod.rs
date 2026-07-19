@@ -1,10 +1,11 @@
 //! Reuse emission from converged AIMS state map.
 //!
-//! Detects reuse opportunities where a dying unique value can be recycled
-//! for a subsequent same-type allocation, then emits in-place `Set`
-//! instructions (static-unique path) or expanded `IsShared`+`Branch` CFG
-//! (dynamic path). Replaces `reset_reuse` + `expand_reuse` from the old
-//! pipeline.
+//! Detects logical reuse eligibility where a dying single-owner value can fund
+//! a subsequent compatible construction. The current transitional carrier
+//! materializes that fact as in-place `Set` instructions or an
+//! `IsShared`+`Branch` CFG. Production AIMS freezes only the eligibility and
+//! sharing-observation obligation; VM and compiled physical planners choose
+//! and validate the storage-recycling mechanism.
 //!
 //! # Algorithm
 //!
@@ -36,7 +37,7 @@ use crate::aims::contract::{ContractMapExt, FipContract, MemoryContract};
 
 pub use fip::{FipGateDecision, FipGateRecord};
 
-use crate::aims::lattice::{Cardinality, ShapeClass, SizeClass, Uniqueness};
+use crate::aims::lattice::{Cardinality, ShapeClass, Uniqueness};
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId};
 
 use set_ops::{build_proj_map, build_set_instructions, extract_construct_info, substitute_var_all};
@@ -44,7 +45,7 @@ use set_ops::{build_proj_map, build_set_instructions, extract_construct_info, su
 /// A matched reuse opportunity: a dying value paired with a compatible allocation.
 #[derive(Clone, Debug)]
 pub struct ReuseOpportunity {
-    /// The variable being consumed (source of the reuse token).
+    /// The variable being consumed (source of the logical reuse witness).
     pub source_var: ArcVarId,
     /// The block where the source dies.
     pub source_block: ArcBlockId,
@@ -52,7 +53,8 @@ pub struct ReuseOpportunity {
     pub source_instr: usize,
     /// The block and instruction index of the target `Construct`.
     pub target_instr: (ArcBlockId, usize),
-    /// Whether the source is provably unique (skip `IsShared` check).
+    /// Whether the source has one logical owner, so no sharing observation is
+    /// required.
     pub is_static_unique: bool,
 }
 
@@ -75,8 +77,6 @@ pub struct DeathEvent {
     pub ty: Idx,
     /// Shape classification (from per-variable shape map, not block state).
     pub shape: ShapeClass,
-    /// Allocation size class (Stage 2+ cross-type matching).
-    pub size_class: SizeClass,
 }
 
 /// An allocation event: a `Construct` instruction creating a new value.
@@ -92,8 +92,6 @@ pub struct AllocEvent {
     pub ty: Idx,
     /// Shape classification.
     pub shape: ShapeClass,
-    /// Allocation size class (Stage 2+ cross-type matching).
-    pub size_class: SizeClass,
 }
 
 /// Result of reuse emission.
@@ -229,7 +227,7 @@ fn emit_reuse_from_raw(
 
 /// Apply same-block static-unique reuse with self-set elimination.
 ///
-/// For the static-unique path (source is provably RC == 1):
+/// For the static-unique path (source has exactly one logical owner):
 /// 1. Build projection map from `Project` instructions before the death site
 /// 2. For each `Construct` arg, skip `Set` if it's a self-set (unchanged field)
 /// 3. Emit `Set` only for changed fields, `SetTag` for enum variant changes

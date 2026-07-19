@@ -121,7 +121,7 @@ pub unsafe fn jit_setjmp(buf: *mut JmpBuf) -> i32 {
     c_setjmp(buf)
 }
 
-// ── JIT panic recovery (platform-abstracted) ─────────────────────────────
+// JIT panic recovery (platform-abstracted)
 
 /// Run a JIT-compiled function with panic recovery.
 ///

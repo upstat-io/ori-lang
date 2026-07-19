@@ -11,7 +11,7 @@
 //! ```
 //!
 //! Spec: Annex E §FFI — `#free(fn)` declares the user-supplied
-//! deallocation function for opaque extern types per proposal:643-645.
+//! deallocation function for opaque extern types.
 
 use crate::{committed, ParseError, ParseOutcome, ParseWarning, Parser};
 use ori_ir::{ExternBlock, ExternItem, ExternParam, Name, TokenKind, Visibility};
@@ -97,7 +97,7 @@ impl Parser<'_> {
 
         // Optional: #free(symbol)
         // Names the user-supplied deallocation function for opaque types
-        // declared by this block. See Spec: Annex E §FFI (proposal:643-645).
+        // declared by this block. See Spec: Annex E §FFI.
         let free_fn = match self.parse_extern_free_attr() {
             Ok(value) => value,
             Err(error) => {
@@ -146,7 +146,7 @@ impl Parser<'_> {
     /// Returns `Ok(Some(name))` on a well-formed `#free(symbol)`,
     /// `Ok(None)` when the attribute is absent, or `Err` for malformed
     /// shapes (`#free` without parens, empty parens, non-identifier arg).
-    /// Spec: Annex E §FFI (proposal:643-645).
+    /// Spec: Annex E §FFI.
     fn parse_extern_free_attr(&mut self) -> Result<Option<Name>, ParseError> {
         if !self.cursor.check(&TokenKind::Hash) {
             return Ok(None);

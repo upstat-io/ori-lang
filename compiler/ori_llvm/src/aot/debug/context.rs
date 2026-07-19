@@ -5,7 +5,8 @@ use std::path::Path;
 use inkwell::basic_block::BasicBlock;
 use inkwell::context::Context;
 use inkwell::debug_info::{
-    AsDIScope, DILexicalBlock, DIScope, DISubprogram, DISubroutineType, DIType,
+    AsDIScope, DILexicalBlock, DILocalVariable, DILocation, DIScope, DISubprogram,
+    DISubroutineType, DIType,
 };
 use inkwell::module::Module;
 use inkwell::values::{BasicValueEnum, InstructionValue, PointerValue};
@@ -24,6 +25,8 @@ pub struct DebugContext<'ctx> {
     pub builder: DebugInfoBuilder<'ctx>,
     /// Line map for span-to-location conversion.
     pub line_map: LineMap,
+    /// Absolute or relative path to the source file.
+    pub source_path: String,
 }
 
 impl<'ctx> DebugContext<'ctx> {
@@ -50,7 +53,11 @@ impl<'ctx> DebugContext<'ctx> {
     ) -> Option<Self> {
         let builder = DebugInfoBuilder::from_path(module, context, config, source_path)?;
         let line_map = LineMap::new(source_text);
-        Some(Self { builder, line_map })
+        Some(Self {
+            builder,
+            line_map,
+            source_path: source_path.to_string_lossy().into_owned(),
+        })
     }
 
     /// Set debug location from a span's start offset.
@@ -148,7 +155,23 @@ impl<'ctx> DebugContext<'ctx> {
         self.builder.level()
     }
 
-    // -- Variable Debug Info Convenience --
+    // Variable Debug Info Convenience
+
+    /// Create the `DILocalVariable` + `DILocation` pair shared by every
+    /// binding-debug-info emitter below (auto variable at the current scope,
+    /// location derived from `span_start`).
+    fn create_var_and_loc(
+        &self,
+        name: &str,
+        ty: DIType<'ctx>,
+        span_start: u32,
+    ) -> (DILocalVariable<'ctx>, DILocation<'ctx>) {
+        let (line, col) = self.line_map.offset_to_line_col(span_start);
+        let scope = self.builder.current_scope();
+        let var = self.builder.create_auto_variable(scope, name, line, ty);
+        let loc = self.builder.create_debug_location(line, col, scope);
+        (var, loc)
+    }
 
     /// Emit `llvm.dbg.declare` for a mutable binding (alloca).
     ///
@@ -162,10 +185,7 @@ impl<'ctx> DebugContext<'ctx> {
         span_start: u32,
         block: BasicBlock<'ctx>,
     ) {
-        let (line, col) = self.line_map.offset_to_line_col(span_start);
-        let scope = self.builder.current_scope();
-        let var = self.builder.create_auto_variable(scope, name, line, ty);
-        let loc = self.builder.create_debug_location(line, col, scope);
+        let (var, loc) = self.create_var_and_loc(name, ty, span_start);
         self.builder.emit_dbg_declare(alloca, var, loc, block);
     }
 
@@ -183,16 +203,13 @@ impl<'ctx> DebugContext<'ctx> {
         span_start: u32,
         insert_before: InstructionValue<'ctx>,
     ) {
-        let (line, col) = self.line_map.offset_to_line_col(span_start);
-        let scope = self.builder.current_scope();
-        let var = self.builder.create_auto_variable(scope, name, line, ty);
-        let loc = self.builder.create_debug_location(line, col, scope);
+        let (var, loc) = self.create_var_and_loc(name, ty, span_start);
         self.builder.emit_dbg_value(value, var, loc, insert_before);
     }
 
     /// Emit `llvm.dbg.value` for an immutable binding at the end of a block.
     ///
-    /// Like [`emit_value_for_binding`], but appends to the block instead
+    /// Like [`Self::emit_value_for_binding`], but appends to the block instead
     /// of requiring an `insert_before` instruction. Useful when emitting
     /// debug info at binding time before any subsequent instructions exist.
     pub fn emit_value_for_binding_at_end(
@@ -203,10 +220,7 @@ impl<'ctx> DebugContext<'ctx> {
         span_start: u32,
         block: BasicBlock<'ctx>,
     ) {
-        let (line, col) = self.line_map.offset_to_line_col(span_start);
-        let scope = self.builder.current_scope();
-        let var = self.builder.create_auto_variable(scope, name, line, ty);
-        let loc = self.builder.create_debug_location(line, col, scope);
+        let (var, loc) = self.create_var_and_loc(name, ty, span_start);
         self.builder.emit_dbg_value_at_end(value, var, loc, block);
     }
 

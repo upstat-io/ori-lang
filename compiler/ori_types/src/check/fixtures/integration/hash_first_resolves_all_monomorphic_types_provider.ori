@@ -1,0 +1,4 @@
+@add (a: int, b: int) -> int = a + b;
+@concat (a: str, b: str) -> str = a;
+@not (b: bool) -> bool = b;
+@unit_fn () -> void = ();

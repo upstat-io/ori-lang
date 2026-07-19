@@ -8,6 +8,27 @@ Theorem TF-14: Project backward demand propagation (well-definedness + QTT-consi
         src.locality := max(src.locality, dst.locality)
         src.cardinality := seq_add(src.cardinality, dst.cardinality)
         src.consumption := seq_add(src.consumption, Affine)
+    - L-9 excludes a scalar Project destination from AimsState. Its source-side
+      RawDemand is therefore selected by scalarProjectContribution(live):
+        live = false -> (Absent, Affine), the existing deadProjection
+        live = true  -> (Once, Affine), one scalar copy-out occurrence
+      The live contribution is capped at Once regardless of downstream scalar
+      reuse or copy count; those scalar operations do not multiply the Project
+      instruction's one copy-out from its managed source.
+    - Scalar liveness is a separate two-point producer domain, not an AimsState
+      dimension: dead < live, join = Boolean OR, and sparse-set absence = dead.
+      Reverse alias transfer joins destination liveness into the source before
+      killing the destination definition. A Jump edge performs the same
+      substitution positionally from each target parameter to its argument,
+      then kills the target parameter.
+    - The scalar producer is monotone. Its carrier has height one (no two
+      consecutive strict rises), so every monotone coordinate transfer seeded
+      at dead reaches a fixed point after its only possible rise and remains
+      stable on every later iteration.
+    - The sole producer-to-demand seam is exact:
+        ScalarLiveness.projectContribution(state)
+          = RawDemand.scalarProjectContribution(state.toBool)
+      No scalar value enters RawDemand or AimsState before that observation.
     - `seq_add` (not `max`) on Cardinality is QTT-consistent — a use through
       a projection counts as a use on the source, not a max-merged use.
       Using `max` would undercount when source and dst both have cardinality
@@ -35,10 +56,19 @@ Theorem TF-14: Project backward demand propagation (well-definedness + QTT-consi
         out_with(dst1).cardinality <=_K out_with(dst2).cardinality
     AND out.access = src.access (no promotion)
     AND src.consumption increments by seq_add with Affine (NOT propagated
-        from dst — independent of dst.consumption).
+        from dst — independent of dst.consumption)
+    AND ScalarLiveness.ProducerDomainLaws holds: join is Bool OR;
+        transfer-before-kill and Jump-param substitution are monotone and
+        identical pointwise; the height-one fixed point converges; and the
+        producer-to-RawDemand seam is exact
+    AND scalarProjectContribution(false) = deadProjection
+    AND forall dst with dst.cardinality = Once,
+        scalarProjectContribution(true) = projectContribution(dst)
+    AND forall downstream scalar demand, scalarProjectContribution(true)
+        remains (Once, Affine), independent of downstream copy count.
 
   Proof obligation:
-    Four-part discharge:
+    Six-part discharge:
       (a) Spec compliance — verify the three mutations exactly per §3 TF-14
           over a representative enumeration of (src, dst) pairs.
       (b) QTT-consistency — verify `seq_add` (not `max`) on Cardinality
@@ -48,6 +78,12 @@ Theorem TF-14: Project backward demand propagation (well-definedness + QTT-consi
           of dst.access or src.access.
       (d) Monotonicity — enumerate the L-6 layer (b) check on dst.locality
           and dst.cardinality over their carriers.
+      (e) Scalar producer — prove the dead/live order, Bool-OR join,
+          transfer-before-kill, positional Jump-param substitution,
+          monotonicity, height-one convergence, and exact RawDemand seam.
+      (f) Scalar copy-out — prove live/dead liveness selection, equality with
+          a managed Once destination, and the Once copy-out cap after replacing
+          any downstream cardinality with the one-copy witness.
 
     Part (a) — spec compliance:
       Pick representative (src, dst) pairs over Locality x Cardinality x
@@ -89,6 +125,34 @@ Theorem TF-14: Project backward demand propagation (well-definedness + QTT-consi
       cases for locality monotonicity; 3 x 3 = 9 cardinality pairs x 3
       src.cardinality values = 27 cases for cardinality monotonicity.
 
+    Part (e) — scalar-liveness producer domain:
+      ScalarLiveness.toBool/ofBool are inverse, so the formal dead/live carrier
+      is exactly the sparse side table's Boolean membership coordinate.
+      join_is_bool_or proves alternative-path union pointwise; join_comm,
+      join_assoc, join_idem, join_dead_left, and below_iff_join_eq_right prove
+      the bounded join-semilattice laws and its induced dead < live order.
+      reverseTransfer joins destination into source before kill; its dead/live
+      witnesses and reverseTransfer_monotone prove the reverse walk.
+      jumpParamSubstitution applies the same operation to one zipped
+      argument/target-param pair, kills the parameter, and is monotone.
+      strictBelow_iff_dead_live and no_two_strict_rises prove carrier height
+      one. monotone_from_dead_reaches_fixed_point and height_one_convergence
+      prove every positive iteration is the same fixed point.
+      projectContribution_exact_seam proves the only output consumed by TF-14
+      is RawDemand.scalarProjectContribution(liveness.toBool).
+      producer_domain_sound packages these obligations as ProducerDomainLaws.
+
+    Part (f) — scalar Project copy-out:
+      scalarProjectContribution(false) is definitionally deadProjection.
+      For every managed destination with cardinality Once,
+      scalarProjectContribution(true) equals projectContribution(destination).
+      For an arbitrary downstream destination, replacing only its cardinality
+      with Once yields the same live scalar contribution. This is the copy-out
+      cap: downstream scalar reuse cannot promote the source Project to Many.
+      TF14_scalar_project_copy_out_sound discharges all three clauses, and
+      TF14_project_demand_sound composes them with ProducerDomainLaws and
+      managed propagation.
+
     Engines dispatched:
       monotonicity (PRIMARY — L-6 layer (b) on dst.locality + dst.cardinality
         per section_04::verify_tf14_project_propagation)
@@ -101,4 +165,4 @@ Theorem TF-14: Project backward demand propagation (well-definedness + QTT-consi
 
   Expected:
     status: valid
-    reason: section_04 monotonicity + case_analysis engines discharge TF-14 via spec-compliance + QTT-consistency + no-Access-promotion + L-6 monotonicity enumeration on dst.locality + dst.cardinality
+    reason: section_04 monotonicity + case_analysis engines discharge TF-14 via the scalar dead/live Bool-OR producer, transfer-before-kill, Jump-param substitution, height-one convergence, exact RawDemand seam, managed spec-compliance, scalar live/dead copy-out cap, QTT-consistency, no-Access-promotion, and L-6 monotonicity enumeration on dst.locality + dst.cardinality

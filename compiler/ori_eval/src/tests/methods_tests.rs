@@ -1,6 +1,4 @@
 //! Tests for method implementations.
-//!
-//! Relocated from `methods.rs` per coding guidelines (>200 lines).
 
 use crate::methods::dispatch_builtin_method_str as dispatch_builtin_method;
 use ori_ir::StringInterner;

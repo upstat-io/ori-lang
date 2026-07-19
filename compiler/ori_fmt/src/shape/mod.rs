@@ -16,11 +16,7 @@
 //! A function call that fits on one line stays inline even if it's
 //! inside a larger construct that needs to break.
 //!
-//! # Spec Reference
-//!
-//! - Lines 14, 19: Max width (100 chars)
-//! - Lines 18: Indent size (4 spaces)
-//! - Lines 93-95: Independent breaking
+//! Spec: Annex D §General Rules (max width 100, indent 4) and §Independent Breaking.
 
 mod core;
 

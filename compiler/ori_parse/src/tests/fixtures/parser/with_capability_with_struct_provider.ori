@@ -1,0 +1,4 @@
+
+@example () -> int =
+    with Http = RealHttp { base_url: "https://api.example.com" } in
+        fetch(url: "/data");

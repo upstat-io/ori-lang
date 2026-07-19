@@ -6,6 +6,8 @@
 use ori_ir::FieldOp;
 use ori_types::VariantDef;
 
+use crate::codegen::ir_builder::IntegerSignedness;
+
 use super::super::super::function_compiler::FunctionCompiler;
 use super::super::super::type_info::TypeLayoutResolver;
 use super::super::super::value_id::ValueId;
@@ -41,9 +43,9 @@ pub(super) fn emit_enum_lexicographic<'a>(
     };
 
     // Compare tags as unsigned (variant declaration order)
-    let tag_ord = fc
-        .builder_mut()
-        .emit_icmp_ordering(ts, to, "cmp.tags", false);
+    let tag_ord =
+        fc.builder_mut()
+            .emit_icmp_ordering(ts, to, "cmp.tags", IntegerSignedness::Unsigned);
 
     // check for non-void payload fields, not just non-unit variants.
     let has_payload = variants
@@ -73,10 +75,6 @@ pub(super) fn emit_enum_lexicographic<'a>(
 }
 
 /// Emit per-variant lexicographic comparison via switch on tag.
-#[expect(
-    clippy::too_many_lines,
-    reason = "enum payload comparison emits per-variant switch + field ops"
-)]
 fn emit_enum_payload_cmp<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     setup: &DeriveSetup,
@@ -102,6 +100,7 @@ fn emit_enum_payload_cmp<'a>(
     let self_payload = fc
         .builder_mut()
         .struct_gep(enum_ty_id, self_alloca, 1, "cmp.self.payload");
+
     let other_payload =
         fc.builder_mut()
             .struct_gep(enum_ty_id, other_alloca, 1, "cmp.other.payload");
@@ -114,6 +113,7 @@ fn emit_enum_payload_cmp<'a>(
         let bb = fc
             .builder_mut()
             .append_block(func_id, &format!("cmp.v.{variant_name}"));
+
         let tag_val = fc
             .builder_mut()
             .const_int_matching(tag_self, tag_idx as u64);
@@ -135,33 +135,27 @@ fn emit_enum_payload_cmp<'a>(
             continue;
         }
 
+        // Comparable payloads retain declaration order because lexicographic
+        // field order is observable and cannot be cost-sorted like Eq.
         let mut i64_offset: u64 = 0;
         for (fi, &field_type) in field_types.iter().enumerate() {
-            let slot_idx = fc.builder_mut().const_i64(i64_offset as i64);
-            let self_slot = fc.builder_mut().gep(
+            let (self_field, field_llvm_ty) = super::load_payload_slot_field(
+                fc,
                 i64_ty,
                 self_payload,
-                &[slot_idx],
+                i64_offset,
+                field_type,
                 &format!("cmp.v{tag_idx}.self.f{fi}"),
-            );
-            let other_slot = fc.builder_mut().gep(
-                i64_ty,
-                other_payload,
-                &[slot_idx],
-                &format!("cmp.v{tag_idx}.other.f{fi}"),
-            );
-
-            let field_llvm_ty = fc.resolve_type(field_type);
-            let field_ty_id = fc.builder_mut().register_type(field_llvm_ty);
-
-            let self_field = fc.builder_mut().load(
-                field_ty_id,
-                self_slot,
                 &format!("cmp.v{tag_idx}.self.f{fi}.val"),
             );
-            let other_field = fc.builder_mut().load(
-                field_ty_id,
-                other_slot,
+
+            let (other_field, _) = super::load_payload_slot_field(
+                fc,
+                i64_ty,
+                other_payload,
+                i64_offset,
+                field_type,
+                &format!("cmp.v{tag_idx}.other.f{fi}"),
                 &format!("cmp.v{tag_idx}.other.f{fi}.val"),
             );
 
@@ -184,6 +178,7 @@ fn emit_enum_payload_cmp<'a>(
                 let ret_bb = fc
                     .builder_mut()
                     .append_block(func_id, &format!("cmp.v{tag_idx}.ret.f{fi}"));
+
                 let next_bb = fc
                     .builder_mut()
                     .append_block(func_id, &format!("cmp.v{tag_idx}.f{}", fi + 1));

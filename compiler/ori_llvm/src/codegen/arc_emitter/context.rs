@@ -5,10 +5,11 @@
 //! - [`InvokeMode`] — call vs invoke dispatch control
 //! - [`CodegenContext`] — shared function-resolution lookup tables
 //! - [`is_boxed_enum_field`] — recursive enum field detection
-//! - [`is_callee_intercepted`] — callee interception check shared by nounwind analysis and emission
+//! - [`is_callee_intercepted`] — callee interception shared by analysis and emission
 
 use ori_arc::ir::ValueRepr;
 use ori_arc::ownership::Ownership;
+use ori_arc::{ClosureAdapterPlan, RetainPlanTable};
 use ori_ir::canon::MonoInstanceId;
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
@@ -21,46 +22,68 @@ use crate::codegen::type_info::TypeInfoStore;
 
 // Recursive field / payload detection
 
-/// Whether the field/payload position holding `field_type` inside `owner_type`
-/// is heap-boxed as an 8-byte RC pointer. Thin wrapper over the boxing SSOT
-/// `repr_box_oracle::position_is_rc_boxed`, which the layout resolver also
-/// consumes so box-vs-inline LLVM layout and Construct/Project/drop never
-/// disagree. The name is retained for the enum call sites; the predicate
-/// applies equally to struct fields and tuple elements.
+/// Returns whether an aggregate position is heap-boxed as an RC pointer.
+///
+/// Delegates to the representation boxing oracle used by layout resolution.
 pub(super) fn is_boxed_enum_field(pool: &Pool, owner_type: Idx, field_type: Idx) -> bool {
     crate::codegen::type_info::repr_box_oracle::position_is_rc_boxed(pool, owner_type, field_type)
 }
 
 // Callee interception detection
 
-/// Builtin method names whose intercepted emission may call `ori_panic`
-/// (e.g., `Option.expect`, `Result.unwrap`). These emit an inline
-/// `call ori_panic` on the failing variant and therefore may unwind
-/// through the caller — they are NOT nounwind even though they are
-/// intercepted. Used by the nounwind analyzer to avoid marking callers
-/// of these methods as nounwind.
+/// Builtin callee names whose intercepted emission may unwind for at least
+/// one concrete input/result type pair.
 ///
-/// The emission sites live in
-/// `codegen/arc_emitter/builtins/option_result_helpers.rs`
-/// (`emit_expect_branch`, `emit_unwrap_branch`). Keep this list in sync
-/// with the dispatch table in `option_result.rs`.
-///
-/// `updated` (`IndexSet`) is included because the list lowering calls
-/// `ori_list_updated_cow`, which panics on out-of-bounds keys (matching
-/// `list[key]`). `__index` is included because the list lowering calls
-/// `ori_list_get`, which panics on out-of-bounds access. Matching is by
-/// unqualified method name, so map `updated` / map `__index` (never
-/// panic) are conservatively included too.
+/// The set includes inline panic paths, scaled unit factories, and iterator
+/// operations that may execute a stored user closure. Names are unqualified;
+/// [`intercepted_emission_invokes_unwind`] supplies the type-directed verdict.
 pub(crate) const MAY_UNWIND_INTERCEPTED_METHODS: &[&str] = &[
+    "__cast",
+    "abs",
+    "byte",
+    "int",
+    "to_int",
     "unwrap",
     "unwrap_err",
     "expect",
     "expect_err",
     "updated",
     "__index",
+    "from_microseconds",
+    "from_micros",
+    "from_milliseconds",
+    "from_millis",
+    "from_seconds",
+    "from_minutes",
+    "from_hours",
+    "from_bytes",
+    "from_kilobytes",
+    "from_kb",
+    "from_megabytes",
+    "from_mb",
+    "from_gigabytes",
+    "from_gb",
+    "from_terabytes",
+    "from_tb",
+    "__iter_next",
+    "__collect_set",
+    "next",
+    "next_back",
+    "rev",
+    "collect",
+    "count",
+    "any",
+    "all",
+    "find",
+    "for_each",
+    "fold",
+    "last",
+    "rfind",
+    "rfold",
+    "join",
 ];
 
-/// Check if a callee will be intercepted by builtin handlers during emission.
+/// Determine whether builtin handlers intercept a callee during emission.
 ///
 /// Intercepted calls always emit `call` (never `invoke`), so they skip the
 /// ARC-IR `Invoke` path. Most intercepts are nounwind — but a small set of
@@ -71,14 +94,9 @@ pub(crate) const MAY_UNWIND_INTERCEPTED_METHODS: &[&str] = &[
 /// [`FunctionCompiler::is_arc_function_nounwind`] (nounwind analysis) and
 /// [`ArcIrEmitter::callee_will_be_intercepted`] (emission).
 ///
-/// The six checks, in order:
-/// 1. Format call interceptor (`ori_format_*` prefix)
-/// 2. Prelude function interceptor (exact name match)
-/// 3. Protocol builtins (`__iter_next`, `__collect_set`, `__index`)
-/// 4. Declared user functions — NOT intercepted (normal dispatch)
-/// 5. Runtime functions (`ori_*`, `__*`) — NOT intercepted
-/// 6. Builtin method heuristic: receiver is a builtin type and callee is not
-///    in the method dispatch chain
+/// Declared user functions, monomorphized functions, and runtime functions
+/// remain on normal dispatch. Other builtin receivers use interception when
+/// no type-qualified method target exists.
 pub(crate) fn is_callee_intercepted(
     callee_name: &str,
     callee: Name,
@@ -89,39 +107,26 @@ pub(crate) fn is_callee_intercepted(
 ) -> bool {
     use super::builtins::prelude::HANDLED_PRELUDE_NAMES;
 
-    // Format call interceptor
     if callee_name.starts_with("ori_format_") {
         return true;
     }
-    // Prelude function interceptor
     if HANDLED_PRELUDE_NAMES.contains(&callee_name) {
         return true;
     }
-    // All protocol builtins are nounwind (iterator creation/cleanup don't
-    // panic), so they're always safe to emit as `call` rather than `invoke`.
-    // Some (Index, IterNext, CollectSet, Cast) are also intercepted by
-    // try_emit_protocol(); others (Iter, IterDrop) go through normal
-    // function dispatch but are still nounwind.
+    // INVARIANT: Intercepted protocols derive unwind behavior from stored-callback risk.
     if ori_ir::builtin_constants::protocol::ProtocolBuiltin::from_name(callee_name).is_some() {
         return true;
     }
-    // Declared user functions use normal dispatch — NOT intercepted
     if ctx.functions.contains_key(&callee) {
         return false;
     }
-    // Runtime functions have their own emission paths — NOT intercepted
     if callee_name.starts_with("ori_") || callee_name.starts_with("__") {
         return false;
     }
-    // Monomorphized generic dispatch: callee name resolves to a generic
-    // function via lookup_mono_dispatch() during emission — NOT intercepted.
-    // Without this check, a generic call like `identity(s)` where `s: str`
-    // would fall through to the builtin method heuristic (str receiver →
-    // true), incorrectly treating a may-unwind user function as intercepted.
+    // INVARIANT: Generic dispatch precedes builtin receiver heuristics.
     if ctx.mono_dispatch.contains_key(&callee) {
         return false;
     }
-    // Builtin method: receiver is a builtin type and not in method_functions
     if let Some(&first_arg) = args.first() {
         let receiver_ty = func.var_type(first_arg);
         let info = type_info.get(receiver_ty);
@@ -131,8 +136,7 @@ pub(crate) fn is_callee_intercepted(
                     return true;
                 }
             } else {
-                // Builtin type but no type_idx_to_name entry — method
-                // dispatch chain can't resolve it, will be intercepted.
+                // A missing builtin type name routes the call to its handler.
                 return true;
             }
         }
@@ -146,43 +150,51 @@ pub(crate) fn is_callee_intercepted(
 /// enclosing `catch(expr:)` handler (Spec: Clause 17.4 — implicit panics
 /// are catchable).
 ///
-/// Keep in sync with the emission sites; the predicate MUST be true only
-/// when the emission is guaranteed to emit at least one call to a
-/// non-nounwind runtime function — listing a never-panicking emission
-/// would create an orphan landingpad (no `invoke` ever targets it):
-/// - list `updated` (`emit_list_updated_cow`) calls `ori_list_updated_cow`,
-///   which panics on out-of-bounds keys. Map `updated` never panics
-///   (`ori_map_updated_cow` carries `Nounwind`).
-/// - Option/Result `unwrap` / `expect` (+ Result `unwrap_err` /
-///   `expect_err`) always emit a panic branch calling `ori_panic` /
-///   `ori_panic_cstr` (`emit_unwrap_branch` / `emit_expect_branch`).
-/// - list `__index` (`emit_list_index`) calls `ori_list_get`, which panics
-///   on out-of-bounds access. Map `__index` returns Option (never panics).
-///
-/// Consumed by `detect_dead_unwind_blocks` (keep the unwind block live) and
-/// `emit_invoke` (arm `intercepted_unwind` around the protocol + builtin
-/// dispatch) — both sites MUST agree or the landingpad is orphaned / the
-/// invoke targets a dead block.
+/// The result is true only when the selected receiver-specific emission
+/// necessarily calls an unwind-capable runtime function. This prevents both
+/// orphan landing pads and invokes targeting omitted cleanup blocks.
 pub(crate) fn intercepted_emission_invokes_unwind(
     method_name: &str,
-    receiver_tag: ori_types::Tag,
+    receiver_tag: Option<ori_types::Tag>,
+    result_tag: Option<ori_types::Tag>,
 ) -> bool {
     use ori_types::Tag;
+    if !MAY_UNWIND_INTERCEPTED_METHODS.contains(&method_name) {
+        return false;
+    }
     match method_name {
-        "updated" | "__index" => matches!(receiver_tag, Tag::List),
-        "unwrap" | "expect" => matches!(receiver_tag, Tag::Option | Tag::Result),
-        "unwrap_err" | "expect_err" => matches!(receiver_tag, Tag::Result),
-        _ => false,
+        // Inline checked conversions call `ori_panic_cstr` only for these
+        // concrete source/result pairs. Keeping the effect type-directed
+        // avoids pessimizing lossless scalar conversions.
+        "__cast" => {
+            matches!(receiver_tag, Some(Tag::Int))
+                && matches!(result_tag, Some(Tag::Byte | Tag::Char))
+        }
+        "int" | "to_int" => matches!(receiver_tag, Some(Tag::Float)),
+        "byte" => matches!(receiver_tag, Some(Tag::Int | Tag::Char)),
+        "abs" => matches!(receiver_tag, Some(Tag::Int)),
+        "updated" => matches!(receiver_tag, Some(Tag::List)),
+        "__index" => matches!(receiver_tag, Some(Tag::List | Tag::Str)),
+        "unwrap" | "expect" => matches!(receiver_tag, Some(Tag::Option | Tag::Result)),
+        "unwrap_err" | "expect_err" => matches!(receiver_tag, Some(Tag::Result)),
+        "__iter_next" | "__collect_set" | "next" | "next_back" | "rev" | "collect" | "count"
+        | "any" | "all" | "find" | "for_each" | "fold" | "last" | "rfind" | "rfold" | "join" => {
+            matches!(receiver_tag, Some(Tag::Iterator | Tag::DoubleEndedIterator))
+        }
+        // New inventory entries fail closed until they receive a narrower
+        // type-directed arm above.
+        _ => true,
     }
 }
 
-/// Check whether an intercepted callee is guaranteed to be nounwind.
+/// Check whether an intercepted callee is guaranteed to be nounwind for the
+/// concrete receiver/result types at this call site.
 ///
 /// Called by the nounwind analyzer when [`is_callee_intercepted`] returned
 /// `true` to decide whether the intercept may unwind. The default is
-/// `true` (nounwind) — the exceptional cases in
-/// [`MAY_UNWIND_INTERCEPTED_METHODS`] return `false` because they emit
-/// an inline `call ori_panic` on a failing variant.
+/// `true` (nounwind). Candidate names in
+/// [`MAY_UNWIND_INTERCEPTED_METHODS`] are then classified by the same
+/// type-directed predicate used to retain their LLVM unwind edges.
 ///
 /// Matching is by unqualified method name (the callee `Name` already
 /// strips the type prefix, e.g., `expect` not `Option.expect`), because
@@ -190,8 +202,12 @@ pub(crate) fn intercepted_emission_invokes_unwind(
 /// type — `Option.expect` and `Result.expect` both panic via the same
 /// emission helper.
 #[must_use]
-pub(crate) fn intercepted_is_nounwind(callee_name: &str) -> bool {
-    !MAY_UNWIND_INTERCEPTED_METHODS.contains(&callee_name)
+pub(crate) fn intercepted_is_nounwind(
+    callee_name: &str,
+    receiver_tag: Option<ori_types::Tag>,
+    result_tag: Option<ori_types::Tag>,
+) -> bool {
+    !intercepted_emission_invokes_unwind(callee_name, receiver_tag, result_tag)
 }
 
 /// Tagged LLVM value carrying its memory representation.
@@ -208,64 +224,20 @@ pub(super) enum EmittedValue {
     RcPointer(ValueId),
     /// Stack aggregate: struct, tuple, enum by value, fat value (str, closure).
     Aggregate(ValueId),
-    /// Two-word split: {first, second} — str={len,ptr}, closure={fn,env}.
-    /// The `second` component is typically the RC-managed pointer.
-    /// Used when RC operations need direct component access.
-    #[expect(dead_code, reason = "reserved for the RcStrategy split")]
-    Pair { first: ValueId, second: ValueId },
-    /// No runtime representation (unit, never).
-    /// Used when ZST values are tracked through the pipeline.
-    #[cfg_attr(not(test), expect(dead_code, reason = "reserved for ZST propagation"))]
-    ZeroSized,
 }
 
 impl EmittedValue {
     /// Extract the single underlying [`ValueId`].
     ///
-    /// # Panics
-    /// Panics on `Pair` (two values) and `ZeroSized` (no value).
-    /// For those variants, destructure the enum directly.
     pub(super) fn into_raw(self) -> ValueId {
         match self {
             Self::Immediate(v) | Self::RcPointer(v) | Self::Aggregate(v) => v,
-            Self::Pair { .. } => {
-                panic!("EmittedValue::Pair has no single ValueId — destructure instead")
-            }
-            Self::ZeroSized => panic!("EmittedValue::ZeroSized has no ValueId"),
         }
-    }
-
-    /// Get the RC-trackable data pointer, if this value is reference-counted.
-    ///
-    /// - `RcPointer` → the pointer itself
-    /// - `Pair` → the second component (typically the RC-managed pointer)
-    /// - Others → `None`
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "reserved for RC strategy dispatch")
-    )]
-    pub(super) fn rc_data_ptr(self) -> Option<ValueId> {
-        match self {
-            Self::RcPointer(v) => Some(v),
-            Self::Pair { second, .. } => Some(second),
-            _ => None,
-        }
-    }
-
-    /// True if this value contains a reference-counted component.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "reserved for RC strategy dispatch")
-    )]
-    pub(super) fn is_rc_managed(self) -> bool {
-        matches!(self, Self::RcPointer(_) | Self::Pair { .. })
     }
 
     /// Bridge from an ARC IR [`ValueRepr`] to an emitted value.
     ///
-    /// Maps single-valued representations directly. `FatValue` is stored
-    /// as `Aggregate` (the two components remain packed in a single LLVM
-    /// struct value); use `Pair` only when the components are split.
+    /// Maps scalar and aggregate representations to their emitted form.
     pub(super) fn from_repr(repr: ValueRepr, value: ValueId) -> Self {
         match repr {
             ValueRepr::Scalar => Self::Immediate(value),
@@ -300,33 +272,58 @@ impl InvokeMode {
 /// Shared lookup tables for function resolution during ARC IR → LLVM IR emission.
 ///
 /// Bundles the five name-resolution maps that travel together from
-/// [`FunctionCompiler`] to [`ArcIrEmitter`]. Extracting these reduces the
+/// [`FunctionCompiler`](crate::codegen::function_compiler::FunctionCompiler) to
+/// [`ArcIrEmitter`]. Extracting these reduces the
 /// emitter constructor from 12 parameters to 7 semantically distinct ones.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct CodegenContext {
     /// Declared functions: `Name` → (`FunctionId`, ABI).
     pub functions: FxHashMap<Name, (FunctionId, FunctionAbi)>,
+    /// Exact post-AIMS direct-call targets keyed by artifact function name and
+    /// stable result register. Populated only from `ExecutableProgram`.
+    pub executable_call_targets:
+        FxHashMap<(Name, ori_arc::ArcVarId), ori_repr::executable::CallableTarget>,
+    /// Artifact function names in stable `FunctionId` order.
+    pub executable_function_names: Vec<Name>,
+    /// Import-local names in stable artifact `ExternalFunctionId` order.
+    pub executable_external_names: Vec<Name>,
     /// Type-qualified method lookup: `(type_name, method_name)` → (`FunctionId`, ABI).
     pub method_functions: FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
+    /// Closed semantic receiver/method lookup projected from `ExecutableProgram`.
+    ///
+    /// This table is authoritative whenever executable facts are bound. It also
+    /// covers backend-synthesized calls inside compound builtins, which have no
+    /// ARC result register through which to consult `executable_call_targets`.
+    pub exact_method_functions: FxHashMap<(Idx, Name), (FunctionId, FunctionAbi)>,
+    /// Artifact-bound user-drop operations keyed by their exact semantic type.
+    /// Production drop emission and nounwind analysis consult only this table;
+    /// the general method map is retained for unbound unit-test fixtures.
+    pub user_drop_functions: FxHashMap<Idx, (FunctionId, FunctionAbi)>,
     /// Maps receiver type `Idx` → type `Name` for operator trait dispatch.
     pub type_idx_to_name: FxHashMap<Idx, Name>,
+    /// Per-instantiation derived-method dispatch: `(concrete_resolved_idx, method_name)` →
+    /// (`FunctionId`, ABI). A generic composite (`P3Pair<int,str>`, `Box<Box<int>>`)
+    /// emits one derived method per concrete instantiation, each keyed here by the
+    /// materialized concrete `Struct`/`Enum` `Idx` (`pool.resolve_fully(Applied)`), so
+    /// nested and multi-instantiation dispatch resolves the layout-correct body.
+    /// Resolution prefers this map; non-generic types fall back to the
+    /// type-name-keyed `method_functions`.
+    pub mono_derive_functions: FxHashMap<(Idx, Name), (FunctionId, FunctionAbi)>,
     /// Monomorphized generic dispatch: original name → `[(concrete_param_types, mangled_name)]`.
     ///
     /// When a non-generic function calls a generic one (e.g., `identity(42)`), the ARC IR
-    /// uses the original name (`"identity"`), but the LLVM function is declared under the
-    /// mangled name (`"identity$m$int"`). This index resolves the call by matching arg types
-    /// — the legacy fallback used when the call site does not carry a `MonoInstanceId`
-    /// (e.g., deferred-resolution mono instances awaiting sub-step 1b-deferred wiring).
+    /// Call sites without a `MonoInstanceId` use this index to match argument
+    /// types against the mangled LLVM declaration.
     pub mono_dispatch: FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
     /// Monomorphized generic dispatch keyed by abstract instance id.
     ///
-    /// Populated alongside `mono_dispatch` from each `MonoFunction.instance_ids`
-    /// in `declare_mono_functions`. When an `ArcInstr::Apply` /
+    /// Populated alongside `mono_dispatch` from each mono function identity in
+    /// `declare_mono_functions`. When an `ArcInstr::Apply` /
     /// `ArcTerminator::Invoke` carries `mono_instance_id: Some(id)`,
     /// `lookup_mono_dispatch` resolves the call directly via this map — no
     /// argument-type matching, no generic-name lookup. The mangled string
     /// remains owned exclusively by `ori_llvm` (computed in
-    /// `mangle_mono_name`); upstream phases only ever produce the abstract
+    /// `mangle_mono_name`); frontend phases produce only the abstract
     /// index, satisfying the phase-purity contract for LLVM-specific names.
     pub mono_dispatch_by_id: FxHashMap<MonoInstanceId, Name>,
     /// Known-nounwind user function names: `Invoke` terminators calling these
@@ -344,12 +341,15 @@ pub struct CodegenContext {
     /// Maps lambda `Name` → ownership of each capture param (indexed by
     /// position in the `PartialApply` args list).
     pub lambda_capture_ownership: FxHashMap<Name, Vec<Ownership>>,
-    /// Known-pure function names (no memory effects). These get the LLVM
-    /// `memory(none)` attribute, enabling aggressive optimization.
-    pub pure_functions: FxHashSet<Name>,
-    /// Known read-only function names (reads memory, no writes). These get
-    /// the LLVM `memory(read)` attribute. Strictly weaker than `pure_functions`.
-    pub readonly_functions: FxHashSet<Name>,
+    /// Frozen closure-call adapters keyed by their concrete target.
+    /// Populated only from the validated executable artifact.
+    pub closure_adapters: FxHashMap<Name, ClosureAdapterPlan>,
+    /// Closed backend-neutral ownership topology used by frozen adapter actions.
+    pub retain_plans: RetainPlanTable,
+    /// Whether this context is bound to a closed executable artifact.
+    /// A bound context fails closed on missing closure facts; it never consults
+    /// the per-lambda ownership fallback.
+    pub executable_facts_bound: bool,
     /// Memoized `ori_arc::type_drop_may_unwind` results keyed by type `Idx`.
     ///
     /// Interior-mutable so the nounwind analysis (`is_arc_function_nounwind`,
@@ -372,47 +372,5 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{intercepted_is_nounwind, MAY_UNWIND_INTERCEPTED_METHODS};
-
-    #[test]
-    fn intercepted_is_nounwind_defaults_true_for_unknown_methods() {
-        // A random builtin method name not in the may-unwind list should
-        // be treated as nounwind (the default behavior for intercepted
-        // methods like `map`, `filter`, `len`, `is_empty`).
-        assert!(intercepted_is_nounwind("map"));
-        assert!(intercepted_is_nounwind("filter"));
-        assert!(intercepted_is_nounwind("len"));
-        assert!(intercepted_is_nounwind("is_empty"));
-        assert!(intercepted_is_nounwind(""));
-    }
-
-    #[test]
-    fn intercepted_is_nounwind_rejects_may_unwind_methods() {
-        // Each entry in MAY_UNWIND_INTERCEPTED_METHODS must be recognized
-        // as may-unwind — their builtin emission includes `call ori_panic`
-        // on the failing variant, so callers must keep their invoke edges
-        // and not be marked nounwind.
-        for &name in MAY_UNWIND_INTERCEPTED_METHODS {
-            assert!(
-                !intercepted_is_nounwind(name),
-                "method {name:?} must be classified may-unwind"
-            );
-        }
-    }
-
-    #[test]
-    fn may_unwind_list_covers_option_result_panic_methods() {
-        // Regression pin: these are the exact method names that the
-        // builtins in `option_result_helpers.rs` route through
-        // `emit_expect_branch` / `emit_unwrap_branch`. If a new method
-        // is added to the dispatch in `option_result.rs`, it must also
-        // be added to `MAY_UNWIND_INTERCEPTED_METHODS`.
-        for expected in ["unwrap", "unwrap_err", "expect", "expect_err"] {
-            assert!(
-                MAY_UNWIND_INTERCEPTED_METHODS.contains(&expected),
-                "expected method {expected:?} missing from may-unwind list"
-            );
-        }
-    }
-}
+#[path = "context_tests.rs"]
+mod tests;

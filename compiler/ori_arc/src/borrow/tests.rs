@@ -824,7 +824,7 @@ fn derived_projection_chain() {
     assert_eq!(ownership[2], DerivedOwnership::BorrowedFrom(v(0)));
 }
 
-/// Construct produces Fresh (refcount = 1).
+/// Construct produces Fresh (one logical owner credit).
 #[test]
 fn derived_construct_is_fresh() {
     // fn f() -> str

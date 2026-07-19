@@ -1,0 +1,30 @@
+// Spec: 06-types.md § Derive — Debug on a distinct-outer-generic receiver
+// Formal semantics: a derived `debug` must be emitted for every concrete instantiation
+// a call site can demand, including an inner instantiation reachable ONLY through a
+// distinct outer generic's field (`Outer<Inner<int>>` -> inner `Inner<int>`). The
+// inner-only `Inner<int>` instantiation STARVES on the AOT (LLVM) backend with
+// "unresolved function `debug` in apply — missing mono instance?", while the
+// interpreter (the parity oracle) produces the structural string correctly.
+//
+// TDD-first: this cell FAILS pre-fix on the LLVM backend (missing mono
+// instance) and PASSES on the interpreter. ISOLATION + SHAPE: the non-emptiness gate
+// `a.debug() != ""` HARD-FAILS pre-fix; an exact-string `assert_eq` would mask it (see
+// derive_nested_generic_debug.ori). The exact-string parity pin (`Outer { y: Inner {
+// x: 3 } }`) is the post-fix verification.
+
+use std.testing { assert }
+
+#[derive(Eq, Hashable, Debug)]
+type Inner<T> = { x: T }
+
+#[derive(Eq, Hashable, Debug)]
+type Outer<T> = { y: Inner<T> }
+
+@test_two_generic_debug tests @two_debug () -> void = {
+    let a = Outer { y: Inner { x: 3 } };
+    assert(cond: a.debug() != "")
+}
+@two_debug () -> str = {
+    let a = Outer { y: Inner { x: 3 } };
+    a.debug()
+}

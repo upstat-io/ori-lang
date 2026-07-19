@@ -38,6 +38,174 @@ fn test_hof_apply_lambda() {
 }
 
 #[test]
+fn test_hof_borrows_closure_typed_residual_argument() {
+    assert_aot_success(
+        r#"
+@apply_consumer (consumer: ((int) -> int) -> int, f: (int) -> int) -> int = consumer(f);
+
+@main () -> int = {
+    let base = "a captured heap string longer than the inline string threshold";
+    let f = (x: int) -> int = x + base.len();
+    let consumer = (g: (int) -> int) -> int = g(3);
+    let first = apply_consumer(consumer: consumer, f: f);
+    let second = f(4);
+    if first > 3 && second > 4 then 0 else 1
+}
+"#,
+        "hof_borrowed_closure_residual",
+    );
+}
+
+#[test]
+fn test_option_map_borrows_closure_payload() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let base = "an option payload closure capture longer than the inline threshold";
+    let f = (x: int) -> int = x + base.len();
+    let opt: Option<(int) -> int> = Some(f);
+    let mapped: Option<int> = opt.map((g: (int) -> int) -> int = g(5));
+    if mapped.unwrap() > 5 then 0 else 1
+}
+"#,
+        "option_map_borrowed_closure_payload",
+    );
+}
+
+#[test]
+fn test_result_map_borrows_closure_payload() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let base = "a result payload closure capture longer than the inline threshold";
+    let f = (x: int) -> int = x + base.len();
+    let result: Result<(int) -> int, str> = Ok(f);
+    let mapped: Result<int, str> = result.map((g: (int) -> int) -> int = g(6));
+    if mapped.unwrap() > 6 then 0 else 1
+}
+"#,
+        "result_map_borrowed_closure_payload",
+    );
+}
+
+#[test]
+fn test_catch_invoke_indirect_borrows_closure_residual() {
+    let source = r#"
+@main () -> int = {
+    let target_base = "a target closure capture longer than the inline string threshold";
+    let target = (x: int) -> int = x + target_base.len();
+    let consumer_base = "a consumer closure capture that forces real unwind cleanup";
+    let consumer = (g: (int) -> int) -> int = g(3) + consumer_base.len();
+    let result = catch(expr: consumer(target));
+    match result {
+        Ok(value) -> if value > 3 then 0 else 1,
+        Err(_) -> 1,
+    }
+}
+"#;
+
+    let ir = compile_and_capture_ir(source);
+    assert!(
+        ir.lines()
+            .any(|line| line.contains(" invoke ") && line.contains("%icall.fn_ptr")),
+        "catch must preserve a real indirect LLVM invoke for the closure call.\nIR:\n{ir}"
+    );
+    assert_aot_success(source, "catch_invoke_indirect_borrowed_closure_residual");
+}
+
+#[test]
+fn test_iter_map_borrows_closure_element() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let base = "a map-element closure capture longer than the inline string threshold";
+    let f = (x: int) -> int = x + base.len();
+    let functions: [(int) -> int] = [f];
+    let values: [int] = functions
+        .iter()
+        .map(transform: (g: (int) -> int) -> int = g(3))
+        .collect();
+    if values.len() == 1 && values[0] > 3 then 0 else 1
+}
+"#,
+        "iter_map_borrowed_closure_element",
+    );
+}
+
+#[test]
+fn test_iter_predicate_borrows_closure_element() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let base = "a predicate-element closure capture longer than the inline string threshold";
+    let f = (x: int) -> int = x + base.len();
+    let functions: [(int) -> int] = [f];
+    let accepted = functions
+        .iter()
+        .all(predicate: (g: (int) -> int) -> bool = g(4) > 4);
+    if accepted then 0 else 1
+}
+"#,
+        "iter_predicate_borrowed_closure_element",
+    );
+}
+
+#[test]
+fn test_iter_for_each_borrows_closure_element() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let base = "a for-each-element closure capture longer than the inline string threshold";
+    let f = (x: int) -> int = x + base.len();
+    let functions: [(int) -> int] = [f];
+    functions.iter().for_each(action: (g: (int) -> int) -> void = {
+        if g(5) <= 5 then panic(msg: "closure element was not invoked correctly");
+    });
+    0
+}
+"#,
+        "iter_for_each_borrowed_closure_element",
+    );
+}
+
+#[test]
+fn test_iter_for_each_discards_capturing_closure_result() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let base = "a discarded closure capture longer than the inline string threshold";
+    [1, 2].iter().for_each(action: (n: int) -> (int) -> int = {
+        let local = base + "-owned-by-the-returned-closure";
+        (x: int) -> int = x + n + local.len()
+    });
+    0
+}
+"#,
+        "iter_for_each_discarded_capturing_closure_result",
+    );
+}
+
+#[test]
+fn test_iter_fold_borrows_closure_accumulator() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let base = "a fold-accumulator closure capture longer than the inline string threshold";
+    let seed = (x: int) -> int = x + base.len();
+    let result: (int) -> int = [1]
+        .iter()
+        .fold(
+            initial: seed,
+            op: (acc: (int) -> int, _n: int) -> (int) -> int = acc,
+        );
+    if result(6) > 6 then 0 else 1
+}
+"#,
+        "iter_fold_borrowed_closure_accumulator",
+    );
+}
+
+#[test]
 fn test_hof_two_function_args() {
     assert_aot_success(
         include_str!("fixtures/higher_order/hof_two_function_args.ori"),

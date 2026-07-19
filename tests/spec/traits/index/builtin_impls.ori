@@ -1,7 +1,7 @@
 // Spec: 09-expressions.md § Index Trait — Built-in implementations
 // Verifies that built-in types support indexing correctly
 
-use std.testing { assert_eq }
+use std.testing { assert_eq, assert_panics }
 
 // List indexing: [T] implements Index<int, T>
 @list_index_first () -> int = [10, 20, 30][0];
@@ -17,8 +17,8 @@ use std.testing { assert_eq }
 // Negative indexing
 @list_negative_index () -> int = [10, 20, 30][-1];
 
-@test_list_negative_index tests @list_negative_index () -> void =
-    assert_eq(actual: list_negative_index(), expected: 30);
+@test_list_negative_index tests _ () -> void =
+    assert_panics(f: () -> list_negative_index());
 
 // Hash length shorthand
 @list_hash_index () -> int = [10, 20, 30][# - 1];
@@ -46,8 +46,8 @@ use std.testing { assert_eq }
 // String negative indexing
 @str_negative_index () -> str = "hello"[-1];
 
-@test_str_negative_index tests @str_negative_index () -> void =
-    assert_eq(actual: str_negative_index(), expected: "o");
+@test_str_negative_index tests _ () -> void =
+    assert_panics(f: () -> str_negative_index());
 
 // String hash length shorthand
 @str_hash_index () -> str = "hello"[# - 1];

@@ -4,6 +4,7 @@
 # Root inventory — permitted top-level entries for this repository.
 # To add: append the entry, keep the file sorted. To remove: delete the line.
 .cargo
+.config
 .editorconfig
 .github
 .gitignore

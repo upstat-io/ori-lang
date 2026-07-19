@@ -2,12 +2,15 @@
     let a = (1, 2, 3);
     let b = (1, 2, 3);
     let c = (3, 2, 1);
+    let nested = (1, (2, 3));
     let h1 = a.hash();
     let h2 = b.hash();
     let h3 = c.hash();
-    // Same tuple → same hash
     let r1 = h1 == h2;
     // Different tuple → different hash
     let r2 = h1 != h3;
-    if r1 && r2 then 0 else 1
+    // Spec 9.13: tuple hashing folds every field from seed zero.
+    let r3 = h1 == 11093822460243;
+    let r4 = nested.hash() == 351097846850;
+    if r1 && r2 && r3 && r4 then 0 else 1
 }

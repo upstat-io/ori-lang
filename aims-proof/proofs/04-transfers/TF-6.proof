@@ -49,7 +49,8 @@ Theorem TF-6: Apply (with contract) transfer = refine(CONSERVATIVE, contract)
           downstream RL-22 KnownSafe + RL-29 noalias.
       contract_2 = { uniqueness: Unique, locality: FunctionLocal,
                      shape: CollectionBuffer }
-        — Fresh collection return; enables RL-15 bump allocator.
+        — Fresh collection return; supplies precise locality and shape to
+          backend-neutral fact freezing and representation projection.
       contract_3 = { uniqueness: MaybeShared, locality: Unknown,
                      shape: NonReusable }
         — Conservative-equivalent contract (degenerate refine no-op).

@@ -14,6 +14,7 @@ impl Parser<'_> {
     /// Syntax: impl [<T>] Type { methods } (inherent) or impl [<T>] Type: Trait { methods } (trait impl)
     ///
     /// Returns `EmptyErr` if no `impl` keyword is present.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_impl(&mut self, attrs: ParsedAttrs) -> ParseOutcome<ImplDef> {
         if !self.cursor.check(&TokenKind::Impl) {
             return ParseOutcome::empty_err_expected(
@@ -138,7 +139,7 @@ impl Parser<'_> {
 
     /// Parse a method in an impl block.
     ///
-    /// Grammar (per `compiler_repo/docs/ori_lang/v2026/spec/grammar.ebnf`):
+    /// Grammar (per `docs/ori_lang/v2026/spec/grammar.ebnf`):
     /// ```text
     /// method          = "@" identifier [ generics ] params "->" type [ uses_clause ] [ where_clause ] "=" expression [ ";" ] .
     /// def_impl_method = "@" identifier [ generics ] params "->" type [ where_clause ] "=" expression [ ";" ] .  /* no self, no uses */
@@ -254,6 +255,7 @@ impl Parser<'_> {
     /// - No type parameters (no generics)
     /// - No `for Type` clause (anonymous implementation)
     /// - Methods must not have `self` parameter (stateless)
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_def_impl(&mut self, visibility: Visibility) -> ParseOutcome<DefImplDef> {
         if !self.cursor.check(&TokenKind::Def) {
             return ParseOutcome::empty_err_expected(

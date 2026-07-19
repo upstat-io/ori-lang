@@ -14,14 +14,8 @@ use crate::aims::lattice::{
     AccessClass, AimsState, Cardinality, Consumption, EffectClass, Locality, ReuseCtorKind,
     ShapeClass, Uniqueness,
 };
-use crate::aims::realize::decide::{decide_cow, AnnotationSiteContext};
-use crate::ir::ArcVarId;
+use crate::aims::realize::decide::{decide_cow, CowBorrowFacts, CowSiteContext};
 use crate::uniqueness::CowMode;
-use rustc_hash::FxHashSet;
-
-fn v(n: u32) -> ArcVarId {
-    ArcVarId::new(n)
-}
 
 /// Build an `AimsState` with the given dimensions; the rest default to a
 /// plausible owned-value shape. Each pin overrides only the dimension(s) under
@@ -45,27 +39,12 @@ fn state(
     }
 }
 
-/// Build an `AnnotationSiteContext` for `decide_cow` with the given uniqueness.
-/// `is_borrow_disjoint` / `has_active_borrows` default to the no-borrow case so
-/// the Uniqueness dimension alone drives the DP-9 `cow_mode` routing. The
-/// borrowed `rc_incremented_set` is empty (no physical-refcount confound).
-fn cow_ctx(uniqueness: Uniqueness, empty: &FxHashSet<ArcVarId>) -> AnnotationSiteContext<'_> {
-    AnnotationSiteContext {
-        var: v(0),
+fn cow_ctx(uniqueness: Uniqueness) -> CowSiteContext {
+    CowSiteContext {
         uniqueness,
         rc_incremented: false,
-        is_param: false,
-        is_param_borrowed: false,
-        is_borrowed_call_arg: false,
-        rc_incremented_set: empty,
         is_excluded: false,
-        access: AccessClass::Owned,
-        consumption: Consumption::Linear,
-        cardinality: Cardinality::Once,
-        shape: ShapeClass::NonReusable,
-        is_borrow_disjoint: false,
-        has_active_borrows: false,
-        is_collection: false,
+        borrows: CowBorrowFacts::default(),
     }
 }
 
@@ -80,10 +59,9 @@ fn cow_ctx(uniqueness: Uniqueness, empty: &FxHashSet<ArcVarId>) -> AnnotationSit
 /// the in-place fast path with no runtime `IsShared` check.
 #[test]
 fn uniqueness_unique_decides_static_unique_cow() {
-    let empty = FxHashSet::default();
-    let ctx = cow_ctx(Uniqueness::Unique, &empty);
+    let ctx = cow_ctx(Uniqueness::Unique);
     assert_eq!(
-        decide_cow(&ctx),
+        decide_cow(ctx),
         CowMode::StaticUnique,
         "Uniqueness=Unique with no active borrow must drive StaticUnique COW"
     );
@@ -93,10 +71,9 @@ fn uniqueness_unique_decides_static_unique_cow() {
 /// copy path.
 #[test]
 fn uniqueness_shared_decides_static_shared_cow() {
-    let empty = FxHashSet::default();
-    let ctx = cow_ctx(Uniqueness::Shared, &empty);
+    let ctx = cow_ctx(Uniqueness::Shared);
     assert_eq!(
-        decide_cow(&ctx),
+        decide_cow(ctx),
         CowMode::StaticShared,
         "Uniqueness=Shared must drive StaticShared COW (always copy)"
     );
@@ -108,9 +85,8 @@ fn uniqueness_shared_decides_static_shared_cow() {
 /// mutation on a possibly-aliased value (UAF). This pin rejects that.
 #[test]
 fn uniqueness_maybe_shared_does_not_decide_static_unique_cow() {
-    let empty = FxHashSet::default();
-    let ctx = cow_ctx(Uniqueness::MaybeShared, &empty);
-    let mode = decide_cow(&ctx);
+    let ctx = cow_ctx(Uniqueness::MaybeShared);
+    let mode = decide_cow(ctx);
     assert_ne!(
         mode,
         CowMode::StaticUnique,
@@ -205,13 +181,13 @@ fn shape_nonreusable_owned_unique_is_not_reuse_candidate() {
     );
 }
 
-// Locality → DP-7 `is_rc_skip_eligible` + DP-8 `is_local`.
+// Locality → DP-7 `is_event_pair_elision_eligible` + DP-8 `is_local`.
 //
-// Plan matrix row: positive — `Locality ≤ FunctionLocal ∧ Unique` → headerless
-// stack alloca, zero RC ops; order-based predicate holds across all shipped
-// Locality variants. negative — `Locality ≥ HeapEscaping` → heap alloc with
-// full RC header; NOT stack-promoted (promoting an escaping value = dangling
-// pointer pin).
+// Plan matrix row: positive — `Locality ≤ FunctionLocal ∧ Unique` can prove
+// that logical retain/release operations are unnecessary. Negative —
+// `Locality ≥ HeapEscaping` cannot use that proof. These predicates freeze
+// logical AIMS facts; they do not select stack/heap placement, object headers,
+// or any other target mechanism.
 //
 // "Unchanged = the dimension's ROLE": RL-14/RL-17/RL-18 + DP-7/DP-8 consume
 // Locality by ORDER (`≤ FunctionLocal` / `≥ HeapEscaping`), so the role is
@@ -219,7 +195,7 @@ fn shape_nonreusable_owned_unique_is_not_reuse_candidate() {
 // target 5-variant lattice identically. The 5th variant (`ArgEscaping`) is
 // target-only per the ArgEscaping carve-out.
 
-/// DP-8 positive pin: `BlockLocal` is local — eligible for stack promotion.
+/// DP-8 positive pin: `BlockLocal` satisfies the logical local predicate.
 #[test]
 fn locality_block_local_is_local() {
     let s = state(
@@ -264,14 +240,13 @@ fn locality_function_local_unique_is_rc_skip_eligible() {
         Cardinality::Once,
     );
     assert!(
-        s.is_rc_skip_eligible(),
+        s.is_event_pair_elision_eligible(),
         "FunctionLocal + Owned + Linear + Once + Unique must be RC-skip eligible (DP-7)"
     );
 }
 
-/// DP-8 negative pin: `HeapEscaping` is NOT local — promoting it to a stack
-/// alloca would leave a dangling pointer when the value escapes. This pin
-/// rejects stack promotion of an escaping value.
+/// DP-8 negative pin: `HeapEscaping` is not logically local. Physical
+/// placement remains a target projection constrained by this lifetime fact.
 #[test]
 fn locality_heap_escaping_is_not_local() {
     let s = state(
@@ -284,13 +259,14 @@ fn locality_heap_escaping_is_not_local() {
     );
     assert!(
         !s.is_local(),
-        "HeapEscaping must NOT be local (stack-promoting an escaping value = dangling pointer)"
+        "HeapEscaping must NOT satisfy the logical local predicate"
     );
 }
 
 /// DP-7 negative pin: `HeapEscaping` is NOT RC-skip eligible even when
 /// Owned + Linear + Once + Unique — the Locality dimension gates the skip, so
-/// an escaping value keeps its full RC header (RL-16).
+/// an escaping value retains its logical ownership-observation obligations
+/// (RL-16).
 #[test]
 fn locality_heap_escaping_is_not_rc_skip_eligible() {
     let s = state(
@@ -302,8 +278,8 @@ fn locality_heap_escaping_is_not_rc_skip_eligible() {
         Cardinality::Once,
     );
     assert!(
-        !s.is_rc_skip_eligible(),
-        "HeapEscaping must NOT be RC-skip eligible (escaping value keeps full RC header per RL-16)"
+        !s.is_event_pair_elision_eligible(),
+        "HeapEscaping must NOT elide logical ownership-observation obligations under RL-16"
     );
 }
 
@@ -321,7 +297,7 @@ fn locality_unknown_is_not_rc_skip_eligible() {
         Cardinality::Once,
     );
     assert!(
-        !s.is_rc_skip_eligible(),
+        !s.is_event_pair_elision_eligible(),
         "Unknown locality must NOT be RC-skip eligible (conservative default)"
     );
 }

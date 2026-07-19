@@ -484,6 +484,31 @@ fn test_coll_list_insert_end() {
 }
 
 #[test]
+fn test_coll_list_prepend_uses_index_zero_insert_cow() {
+    let source = include_str!("fixtures/collections_ext/coll_list_prepend.ori");
+    assert_aot_success(source, "coll_list_prepend");
+
+    let ir = compile_and_capture_ir(source);
+    assert!(
+        ir.contains("call void @ori_list_insert_cow"),
+        "List.prepend must reuse the canonical List.insert COW runtime:\n{ir}",
+    );
+}
+
+#[test]
+fn test_combined_list_mutation_backend_parity_fixture() {
+    let source = include_str!("../../../oric/tests/fixtures/vm_list_runtime.ori");
+    let (exit_code, stdout, stderr) = compile_and_run_capture(source);
+
+    assert_eq!(
+        exit_code, 121,
+        "combined List fixture must return the evaluator/VM value; stdout:\n{stdout}\nstderr:\n{stderr}",
+    );
+    assert!(stdout.is_empty(), "unexpected stdout: {stdout}");
+    assert!(stderr.is_empty(), "unexpected stderr: {stderr}");
+}
+
+#[test]
 fn test_coll_list_remove_first() {
     assert_aot_success(
         include_str!("fixtures/collections_ext/coll_list_remove_first.ori"),
@@ -701,6 +726,22 @@ fn test_coll_list_index_oob_panics() {
         "fixtures/collections_ext/coll_list_index_oob_panics.ori"
     ));
     assert_ne!(exit_code, 0, "OOB index should panic (non-zero exit)");
+}
+
+#[test]
+fn test_coll_list_negative_index_panics() {
+    let (exit_code, _, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/collections_ext/coll_list_negative_index_panics.ori"
+    ));
+    assert_ne!(
+        exit_code, -1,
+        "negative list index fixture must compile before its runtime panic:\n{stderr}"
+    );
+    assert_ne!(exit_code, 0, "negative list index must panic");
+    assert!(
+        stderr.contains("index out of bounds"),
+        "negative list index must report the bounds failure:\n{stderr}"
+    );
 }
 
 #[test]

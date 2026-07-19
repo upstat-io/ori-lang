@@ -1,15 +1,17 @@
 //! Context inspection for error message generation.
 //!
-//! Historical influence: the Elm `whatIsNext` SHAPE — inspect what character or
-//! sequence the lexer got stuck on to produce tailored error messages.
+//! Inspect what character or sequence the lexer got stuck on to produce
+//! tailored error messages.
+
+use crate::lex_error::UnsupportedOperator;
 
 /// What was found at the position where the lexer got stuck.
 ///
 /// Used to generate context-aware error messages.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum NextContext {
-    /// An operator-like sequence (e.g., `===`, `++`).
-    Operator(&'static str),
+    /// A recognized cross-language operator sequence (e.g., `===`, `++`).
+    UnsupportedOperator(UnsupportedOperator),
     /// A single punctuation character.
     Punctuation(char),
     /// A non-ASCII character (with confusable info if available).
@@ -52,15 +54,16 @@ pub(crate) fn what_is_next(source: &[u8], pos: u32) -> NextContext {
         b'=' if matches!(peek(source, pos + 1), Some(b'='))
             && matches!(peek(source, pos + 2), Some(b'=')) =>
         {
-            NextContext::Operator("===")
+            NextContext::UnsupportedOperator(UnsupportedOperator::StrictEqual)
         }
         b'!' if matches!(peek(source, pos + 1), Some(b'='))
             && matches!(peek(source, pos + 2), Some(b'=')) =>
         {
-            NextContext::Operator("!==")
+            NextContext::UnsupportedOperator(UnsupportedOperator::StrictNotEqual)
         }
-        b'+' if matches!(peek(source, pos + 1), Some(b'+')) => NextContext::Operator("++"),
-        b'-' if matches!(peek(source, pos + 1), Some(b'-')) => NextContext::Operator("--"),
+        b'+' if matches!(peek(source, pos + 1), Some(b'+')) => {
+            NextContext::UnsupportedOperator(UnsupportedOperator::Increment)
+        }
         // Single punctuation
         b';' | b'(' | b')' | b'{' | b'}' | b'[' | b']' | b',' | b'.' | b':' | b'@' | b'#'
         | b'\\' | b'\'' | b'"' | b'`' | b'?' | b'!' | b'~' | b'^' | b'&' | b'|' | b'+' | b'-'

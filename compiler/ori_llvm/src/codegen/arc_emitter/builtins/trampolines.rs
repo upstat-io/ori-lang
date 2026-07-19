@@ -1,32 +1,23 @@
-//! Closure-to-C-ABI trampoline generation for iterator adapters.
+//! Closure-to-C-ABI trampolines for iterator operations.
 //!
-//! Iterator adapters like `map(f)` and `filter(f)` receive Ori closures
-//! `{fn_ptr, env_ptr}` but the runtime expects C-ABI function pointers.
-//! A trampoline bridges them:
-//!
-//! ```text
-//! trampoline(env_ptr: ptr, in_ptr: ptr, out_ptr: ptr) -> void:
-//!   // env_ptr IS the Ori closure {fn_ptr, env_ptr}
-//!   ori_fn  = load ptr from env_ptr[0]
-//!   ori_env = load ptr from env_ptr[1]
-//!   elem    = load T from in_ptr
-//!   result  = call ori_fn(ori_env, elem)
-//!   store result to out_ptr
-//! ```
+//! Each trampoline unpacks an Ori `{fn_ptr, env_ptr}` closure, loads pointer-based
+//! inputs, invokes the Ori function, and writes or returns the C-ABI result.
 
-// No method registrations — trampolines are helper functions, not method handlers.
-declare_builtins! { _emitter, _ctx; }
+#[cfg(any(test, doc))]
+pub(super) const REGISTERED: &[super::BuiltinRegistration] = &[];
 
 use ori_ir::{CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN};
 use ori_types::Idx;
 
-use crate::codegen::abi::abi_size;
-use crate::codegen::value_id::{FunctionId, ValueId};
+use crate::codegen::abi::{
+    compute_closure_param_passing, compute_return_passing, ParamPassing, ReturnPassing,
+};
+use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
 
 use super::super::ArcIrEmitter;
 
 /// Trampoline variant for different iterator adapter calling conventions.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum TrampolineKind {
     /// `map`: `(env, in_ptr, out_ptr) -> void`
     /// Reads input element, calls closure, writes output element.
@@ -42,20 +33,19 @@ pub(crate) enum TrampolineKind {
     Fold,
 }
 
+struct TrampolineBody {
+    func_id: FunctionId,
+    ptr_ty: LLVMTypeId,
+    i8_ty: LLVMTypeId,
+    ori_fn: ValueId,
+    ori_env: ValueId,
+    elem_llvm_ty: LLVMTypeId,
+    elem_passing: ParamPassing,
+}
+
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Build a trampoline function and return `(trampoline_fn_ptr, closure_as_env_ptr)`.
-    ///
-    /// The closure struct `{fn_ptr, env_ptr}` is stored to an alloca and
-    /// passed as the `env` argument to the runtime. The trampoline unpacks it.
-    ///
-    /// PC-2 upstream guarantor: `elem_ty` and `result_ty` originate from
-    /// `TypeInfo::Iterator { element }` extracted at iterator-emission sites
-    /// (e.g. `arc_emitter/builtins/iterator.rs::emit_iter_map`) based on the
-    /// receiver's parent `ArcFunction` type indices — they are NOT
-    /// independent `ArcInstr` operands. Coverage is provided by the
-    /// `assert_no_unresolved_type_vars` walker on the parent function's
-    /// `var_types` / `params` / `return_type` / block-params. No additional
-    /// `assert_no_unresolved_idx` guard is needed here.
+    /// Build a trampoline and return its function pointer plus closure environment.
+    /// Element and result types come from the validated parent ARC function.
     pub(crate) fn build_trampoline(
         &mut self,
         closure_val: ValueId,
@@ -63,14 +53,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         kind: TrampolineKind,
         result_ty: Option<Idx>,
     ) -> (ValueId, ValueId) {
-        // Store the closure to an alloca so we can pass its pointer as env
         let closure_ty = self.builder.closure_type();
         let closure_alloca =
             self.builder
                 .create_entry_alloca(self.current_function, "tramp.closure", closure_ty);
         self.builder.store(closure_val, closure_alloca);
 
-        // Generate the trampoline function
         let tramp_fn_id = self.generate_trampoline_fn(elem_ty, kind, result_ty);
         let tramp_fn_ptr = self.builder.get_function_ptr(tramp_fn_id);
 
@@ -78,10 +66,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Generate a trampoline function.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "trampoline emits sequential LLVM IR for runtime builtins"
-    )]
     fn generate_trampoline_fn(
         &mut self,
         elem_ty: Idx,
@@ -90,274 +74,320 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> FunctionId {
         let tramp_id = self.partial_apply_counter;
         self.partial_apply_counter += 1;
-        let tramp_name = format!("_ori_tramp_{tramp_id}");
-
-        // Save builder position
-        let saved_pos = self.builder.save_position();
-        let saved_func = self.builder.current_function();
-
+        let name = format!("_ori_tramp_{tramp_id}");
+        let saved_position = self.builder.save_position();
+        let saved_function = self.builder.current_function();
+        let saved_emitter_function = self.current_function;
         let ptr_ty = self.builder.ptr_type();
         let i8_ty = self.builder.i8_type();
+        let func_id = self.declare_trampoline(&name, kind, ptr_ty, i8_ty);
 
-        // Declare trampoline based on kind
-        let func_id = match kind {
-            TrampolineKind::Map => {
-                // (env: ptr, in_ptr: ptr, out_ptr: ptr) -> void
-                self.builder
-                    .declare_void_function(&tramp_name, &[ptr_ty, ptr_ty, ptr_ty])
-            }
-            TrampolineKind::Predicate => {
-                // (env: ptr, elem_ptr: ptr) -> i8
-                self.builder
-                    .declare_function(&tramp_name, &[ptr_ty, ptr_ty], i8_ty)
-            }
-            TrampolineKind::ForEach => {
-                // (env: ptr, elem_ptr: ptr) -> void
-                self.builder
-                    .declare_void_function(&tramp_name, &[ptr_ty, ptr_ty])
-            }
-            TrampolineKind::Fold => {
-                // (env: ptr, acc_ptr: ptr, elem_ptr: ptr, out_ptr: ptr) -> void
-                self.builder
-                    .declare_void_function(&tramp_name, &[ptr_ty, ptr_ty, ptr_ty, ptr_ty])
-            }
+        let entry = self.builder.append_block(func_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(func_id);
+        self.current_function = func_id;
+        let (ori_fn, ori_env) = self.unpack_trampoline_closure(func_id, ptr_ty);
+        let elem_llvm_ty = self.resolve_type(elem_ty);
+        let elem_passing =
+            compute_closure_param_passing(elem_ty, self.type_info, self.repr_plan, self.classifier);
+        let body = TrampolineBody {
+            func_id,
+            ptr_ty,
+            i8_ty,
+            ori_fn,
+            ori_env,
+            elem_llvm_ty,
+            elem_passing,
         };
-        self.builder.set_ccc(func_id);
-        self.builder.add_nounwind_attribute(func_id);
+
+        match kind {
+            TrampolineKind::Map => self.emit_map_trampoline(&body, elem_ty, result_ty),
+            TrampolineKind::Predicate => self.emit_predicate_trampoline(&body),
+            TrampolineKind::ForEach => self.emit_for_each_trampoline(&body, result_ty),
+            TrampolineKind::Fold => self.emit_fold_trampoline(&body, elem_ty, result_ty),
+        }
+
+        self.verify_trampoline(func_id, &name);
+        self.current_function = saved_emitter_function;
+        self.builder.restore_position(saved_position);
+        if let Some(function) = saved_function {
+            self.builder.set_current_function(function);
+        }
+        func_id
+    }
+
+    fn declare_trampoline(
+        &mut self,
+        name: &str,
+        kind: TrampolineKind,
+        ptr_ty: LLVMTypeId,
+        i8_ty: LLVMTypeId,
+    ) -> FunctionId {
+        let func_id = match kind {
+            TrampolineKind::Map => self
+                .builder
+                .declare_void_function(name, &[ptr_ty, ptr_ty, ptr_ty]),
+            TrampolineKind::Predicate => {
+                self.builder
+                    .declare_function(name, &[ptr_ty, ptr_ty], i8_ty)
+            }
+            TrampolineKind::ForEach => self.builder.declare_void_function(name, &[ptr_ty, ptr_ty]),
+            TrampolineKind::Fold => self
+                .builder
+                .declare_void_function(name, &[ptr_ty, ptr_ty, ptr_ty, ptr_ty]),
+        };
+        self.builder.set_module_local(func_id);
         self.builder.add_uwtable_attribute(func_id);
-        // All trampoline params are pointers passed by the runtime — always
-        // valid, defined addresses (never undef/poison).
+
         let param_count = match kind {
             TrampolineKind::Map => 3,
             TrampolineKind::Predicate | TrampolineKind::ForEach => 2,
             TrampolineKind::Fold => 4,
         };
-        for i in 0..param_count {
-            self.builder.add_noundef_param_attribute(func_id, i);
+        for index in 0..param_count {
+            self.builder.add_noundef_param_attribute(func_id, index);
         }
-
-        // Generate body
-        let entry = self.builder.append_block(func_id, "entry");
-        self.builder.position_at_end(entry);
-        self.builder.set_current_function(func_id);
-
-        let env_ptr = self.builder.get_param(func_id, 0);
-
-        // Unpack the Ori closure from env_ptr: { fn_ptr: ptr, env_ptr: ptr }
-        let closure_struct_ty = self.builder.closure_type();
-        let fn_ptr_gep = self.builder.struct_gep(
-            closure_struct_ty,
-            env_ptr,
-            CLOSURE_FIELD_FN,
-            "tramp.fn_ptr.gep",
-        );
-        let ori_fn = self.builder.load(ptr_ty, fn_ptr_gep, "tramp.fn_ptr");
-        let env_gep = self.builder.struct_gep(
-            closure_struct_ty,
-            env_ptr,
-            CLOSURE_FIELD_ENV,
-            "tramp.env.gep",
-        );
-        let ori_env = self.builder.load(ptr_ty, env_gep, "tramp.env");
-
-        // Resolve element LLVM type and determine ABI passing mode.
-        // Types > 16 bytes (e.g. str = 24 bytes) use indirect parameter
-        // passing and sret return in Ori's fastcc ABI.
-        //
-        // Use canonical types for all iterator trampoline loads. Narrowing is
-        // handled at the iter() boundary (emit_list_iter injects a sext widening
-        // trampoline), so by the time elements reach user trampolines, they are
-        // always canonical.
-        let elem_llvm_ty = self.resolve_type(elem_ty);
-        let elem_is_indirect = abi_size(elem_ty, self.type_info, self.repr_plan) > 16;
-
-        match kind {
-            TrampolineKind::Map => {
-                let in_ptr = self.builder.get_param(func_id, 1);
-                let out_ptr = self.builder.get_param(func_id, 2);
-
-                let result_idx = result_ty.unwrap_or(elem_ty);
-                let result_llvm_ty = result_ty.map_or(elem_llvm_ty, |ty| self.resolve_type(ty));
-                let result_is_indirect = abi_size(result_idx, self.type_info, self.repr_plan) > 16;
-
-                // Determine how element is passed and how result is returned.
-                // When result_is_indirect, the closure function (lambda or wrapper)
-                // uses sret — the first parameter is a `ptr sret` output pointer.
-                // On ARM64, sret uses X8 (not a regular parameter register), so we
-                // MUST use call_indirect_with_sret to emit the sret attribute on
-                // the call instruction. Without it, LLVM places out_ptr in X0
-                // instead of X8, causing register misalignment and SIGSEGV.
-                let elem_arg_ty = if elem_is_indirect {
-                    ptr_ty
-                } else {
-                    elem_llvm_ty
-                };
-                let elem_arg = if elem_is_indirect {
-                    in_ptr
-                } else {
-                    // Load canonical element from buffer pointer.
-                    self.builder.load(elem_llvm_ty, in_ptr, "tramp.elem")
-                };
-
-                if result_is_indirect {
-                    self.builder.call_indirect_with_sret(
-                        result_llvm_ty,
-                        &[ptr_ty, elem_arg_ty],
-                        ori_fn,
-                        out_ptr,
-                        &[ori_env, elem_arg],
-                    );
-                } else {
-                    let result = self.builder.call_indirect(
-                        result_llvm_ty,
-                        &[ptr_ty, elem_arg_ty],
-                        ori_fn,
-                        &[ori_env, elem_arg],
-                        "tramp.result",
-                    );
-                    if let Some(result_val) = result {
-                        self.builder.store(result_val, out_ptr);
-                    }
-                }
-                self.builder.ret_void();
-            }
-
-            TrampolineKind::Predicate => {
-                let elem_ptr = self.builder.get_param(func_id, 1);
-
-                // Predicate always returns i1 (direct). Only elem may be indirect.
-                let bool_ty = self.builder.bool_type();
-                let result = if elem_is_indirect {
-                    // Pass pointer directly — closure expects indirect param.
-                    self.builder.call_indirect(
-                        bool_ty,
-                        &[ptr_ty, ptr_ty],
-                        ori_fn,
-                        &[ori_env, elem_ptr],
-                        "tramp.pred",
-                    )
-                } else {
-                    // Load canonical element from buffer pointer.
-                    let elem = self.builder.load(elem_llvm_ty, elem_ptr, "tramp.elem");
-                    self.builder.call_indirect(
-                        bool_ty,
-                        &[ptr_ty, elem_llvm_ty],
-                        ori_fn,
-                        &[ori_env, elem],
-                        "tramp.pred",
-                    )
-                };
-
-                // Convert i1 -> i8 for C ABI
-                if let Some(pred_val) = result {
-                    let result_i8 = self.builder.zext(pred_val, i8_ty, "tramp.pred.i8");
-                    self.builder.ret(result_i8);
-                } else {
-                    let zero = self.builder.const_i64(0);
-                    let zero_i8 = self.builder.trunc(zero, i8_ty, "zero");
-                    self.builder.ret(zero_i8);
-                }
-            }
-
-            TrampolineKind::ForEach => {
-                let elem_ptr = self.builder.get_param(func_id, 1);
-
-                if elem_is_indirect {
-                    // Pass pointer directly — closure expects indirect param.
-                    // ForEach discards result; closure returns void for unit.
-                    self.builder.call_indirect_void(
-                        &[ptr_ty, ptr_ty],
-                        ori_fn,
-                        &[ori_env, elem_ptr],
-                    );
-                } else {
-                    // Load canonical element from buffer pointer.
-                    let elem = self.builder.load(elem_llvm_ty, elem_ptr, "tramp.elem");
-                    let unit_ty = self.builder.i64_type(); // Unit = i64
-                    self.builder.call_indirect(
-                        unit_ty,
-                        &[ptr_ty, elem_llvm_ty],
-                        ori_fn,
-                        &[ori_env, elem],
-                        "tramp.foreach",
-                    );
-                }
-                self.builder.ret_void();
-            }
-
-            TrampolineKind::Fold => {
-                let acc_ptr = self.builder.get_param(func_id, 1);
-                let elem_ptr = self.builder.get_param(func_id, 2);
-                let out_ptr = self.builder.get_param(func_id, 3);
-
-                let acc_idx = result_ty.unwrap_or(elem_ty);
-                let acc_llvm_ty = result_ty.map_or(elem_llvm_ty, |ty| self.resolve_type(ty));
-                let acc_is_indirect = abi_size(acc_idx, self.type_info, self.repr_plan) > 16;
-
-                // Load/pass accumulator and element based on ABI
-                let acc_arg = if acc_is_indirect {
-                    acc_ptr
-                } else {
-                    self.builder.load(acc_llvm_ty, acc_ptr, "tramp.acc")
-                };
-                let elem_arg = if elem_is_indirect {
-                    elem_ptr
-                } else {
-                    // Load canonical element from buffer pointer.
-                    self.builder.load(elem_llvm_ty, elem_ptr, "tramp.elem")
-                };
-
-                let acc_arg_ty = if acc_is_indirect { ptr_ty } else { acc_llvm_ty };
-                let elem_arg_ty = if elem_is_indirect {
-                    ptr_ty
-                } else {
-                    elem_llvm_ty
-                };
-
-                // Same sret handling as Map (see ARM64 rationale above).
-                if acc_is_indirect {
-                    self.builder.call_indirect_with_sret(
-                        acc_llvm_ty,
-                        &[ptr_ty, acc_arg_ty, elem_arg_ty],
-                        ori_fn,
-                        out_ptr,
-                        &[ori_env, acc_arg, elem_arg],
-                    );
-                } else {
-                    let result = self.builder.call_indirect(
-                        acc_llvm_ty,
-                        &[ptr_ty, acc_arg_ty, elem_arg_ty],
-                        ori_fn,
-                        &[ori_env, acc_arg, elem_arg],
-                        "tramp.fold",
-                    );
-                    if let Some(result_val) = result {
-                        self.builder.store(result_val, out_ptr);
-                    }
-                }
-                self.builder.ret_void();
-            }
-        }
-
-        // Function-level LLVM IR verification.
-        if self.verify_arc {
-            let fn_val = self.builder.get_function_value(func_id);
-            if !fn_val.verify(true) {
-                tracing::error!(
-                    name = tramp_name,
-                    "LLVM IR verification failed (generate_trampoline_fn)"
-                );
-                self.builder.record_codegen_error();
-            }
-        }
-
-        // Restore builder position
-        self.builder.restore_position(saved_pos);
-        if let Some(f) = saved_func {
-            self.builder.set_current_function(f);
-        }
-
         func_id
+    }
+
+    fn unpack_trampoline_closure(
+        &mut self,
+        func_id: FunctionId,
+        ptr_ty: LLVMTypeId,
+    ) -> (ValueId, ValueId) {
+        let env_ptr = self.builder.get_param(func_id, 0);
+        let closure_ty = self.builder.closure_type();
+        let fn_ptr =
+            self.builder
+                .struct_gep(closure_ty, env_ptr, CLOSURE_FIELD_FN, "tramp.fn_ptr.gep");
+        let ori_fn = self.builder.load(ptr_ty, fn_ptr, "tramp.fn_ptr");
+        let env = self
+            .builder
+            .struct_gep(closure_ty, env_ptr, CLOSURE_FIELD_ENV, "tramp.env.gep");
+        let ori_env = self.builder.load(ptr_ty, env, "tramp.env");
+        (ori_fn, ori_env)
+    }
+
+    fn append_trampoline_argument(
+        &mut self,
+        body: &TrampolineBody,
+        passing: ParamPassing,
+        source_ptr: ValueId,
+        llvm_ty: LLVMTypeId,
+        label: &str,
+        param_types: &mut Vec<LLVMTypeId>,
+        args: &mut Vec<ValueId>,
+    ) {
+        match passing {
+            ParamPassing::Direct => {
+                param_types.push(llvm_ty);
+                args.push(self.builder.load(llvm_ty, source_ptr, label));
+            }
+            ParamPassing::Indirect { .. } | ParamPassing::Reference => {
+                param_types.push(body.ptr_ty);
+                args.push(source_ptr);
+            }
+            ParamPassing::Void => {}
+        }
+    }
+
+    fn emit_map_trampoline(&mut self, body: &TrampolineBody, elem_ty: Idx, result_ty: Option<Idx>) {
+        let input_ptr = self.builder.get_param(body.func_id, 1);
+        let output_ptr = self.builder.get_param(body.func_id, 2);
+        let result_idx = result_ty.unwrap_or(elem_ty);
+        let result_llvm_ty = result_ty.map_or(body.elem_llvm_ty, |ty| self.resolve_type(ty));
+        let mut param_types = vec![body.ptr_ty];
+        let mut args = vec![body.ori_env];
+        self.append_trampoline_argument(
+            body,
+            body.elem_passing,
+            input_ptr,
+            body.elem_llvm_ty,
+            "tramp.elem",
+            &mut param_types,
+            &mut args,
+        );
+
+        match compute_return_passing(result_idx, self.type_info, self.repr_plan) {
+            ReturnPassing::Direct => {
+                let result = self.builder.call_indirect(
+                    result_llvm_ty,
+                    &param_types,
+                    body.ori_fn,
+                    &args,
+                    "tramp.result",
+                );
+                if let Some(value) = result {
+                    self.builder.store(value, output_ptr);
+                }
+            }
+            ReturnPassing::Sret { .. } => {
+                self.builder.call_indirect_with_sret(
+                    result_llvm_ty,
+                    &param_types,
+                    body.ori_fn,
+                    output_ptr,
+                    &args,
+                );
+            }
+            ReturnPassing::Void => {
+                self.builder
+                    .call_indirect_void(&param_types, body.ori_fn, &args);
+            }
+        }
+        self.builder.ret_void();
+    }
+
+    fn emit_predicate_trampoline(&mut self, body: &TrampolineBody) {
+        let elem_ptr = self.builder.get_param(body.func_id, 1);
+        let bool_ty = self.builder.bool_type();
+        let mut param_types = vec![body.ptr_ty];
+        let mut args = vec![body.ori_env];
+        self.append_trampoline_argument(
+            body,
+            body.elem_passing,
+            elem_ptr,
+            body.elem_llvm_ty,
+            "tramp.elem",
+            &mut param_types,
+            &mut args,
+        );
+        let result =
+            self.builder
+                .call_indirect(bool_ty, &param_types, body.ori_fn, &args, "tramp.pred");
+
+        if let Some(predicate) = result {
+            let result_i8 = self.builder.zext(predicate, body.i8_ty, "tramp.pred.i8");
+            self.builder.ret(result_i8);
+        } else {
+            let zero = self.builder.const_i64(0);
+            let zero_i8 = self.builder.trunc(zero, body.i8_ty, "zero");
+            self.builder.ret(zero_i8);
+        }
+    }
+
+    fn emit_for_each_trampoline(&mut self, body: &TrampolineBody, result_ty: Option<Idx>) {
+        let elem_ptr = self.builder.get_param(body.func_id, 1);
+        let mut param_types = vec![body.ptr_ty];
+        let mut args = vec![body.ori_env];
+        self.append_trampoline_argument(
+            body,
+            body.elem_passing,
+            elem_ptr,
+            body.elem_llvm_ty,
+            "tramp.elem",
+            &mut param_types,
+            &mut args,
+        );
+        let result_idx = result_ty.unwrap_or(Idx::UNIT);
+        let result_llvm_ty = self.resolve_type(result_idx);
+        match compute_return_passing(result_idx, self.type_info, self.repr_plan) {
+            ReturnPassing::Direct => {
+                if let Some(result) = self.builder.call_indirect(
+                    result_llvm_ty,
+                    &param_types,
+                    body.ori_fn,
+                    &args,
+                    "tramp.foreach",
+                ) {
+                    self.dec_value_rc(result, result_idx);
+                }
+            }
+            ReturnPassing::Sret { .. } => {
+                let result = self.builder.alloca(result_llvm_ty, "tramp.foreach.sret");
+                self.builder.call_indirect_with_sret(
+                    result_llvm_ty,
+                    &param_types,
+                    body.ori_fn,
+                    result,
+                    &args,
+                );
+                let value = self
+                    .builder
+                    .load(result_llvm_ty, result, "tramp.foreach.result");
+                self.dec_value_rc(value, result_idx);
+            }
+            ReturnPassing::Void => {
+                self.builder
+                    .call_indirect_void(&param_types, body.ori_fn, &args);
+            }
+        }
+        self.builder.ret_void();
+    }
+
+    fn emit_fold_trampoline(
+        &mut self,
+        body: &TrampolineBody,
+        elem_ty: Idx,
+        result_ty: Option<Idx>,
+    ) {
+        let acc_ptr = self.builder.get_param(body.func_id, 1);
+        let elem_ptr = self.builder.get_param(body.func_id, 2);
+        let output_ptr = self.builder.get_param(body.func_id, 3);
+        let acc_idx = result_ty.unwrap_or(elem_ty);
+        let acc_llvm_ty = result_ty.map_or(body.elem_llvm_ty, |ty| self.resolve_type(ty));
+        let acc_passing =
+            compute_closure_param_passing(acc_idx, self.type_info, self.repr_plan, self.classifier);
+        let mut param_types = vec![body.ptr_ty];
+        let mut args = vec![body.ori_env];
+        self.append_trampoline_argument(
+            body,
+            acc_passing,
+            acc_ptr,
+            acc_llvm_ty,
+            "tramp.acc",
+            &mut param_types,
+            &mut args,
+        );
+        self.append_trampoline_argument(
+            body,
+            body.elem_passing,
+            elem_ptr,
+            body.elem_llvm_ty,
+            "tramp.elem",
+            &mut param_types,
+            &mut args,
+        );
+
+        match compute_return_passing(acc_idx, self.type_info, self.repr_plan) {
+            ReturnPassing::Direct => {
+                let result = self.builder.call_indirect(
+                    acc_llvm_ty,
+                    &param_types,
+                    body.ori_fn,
+                    &args,
+                    "tramp.fold",
+                );
+                if let Some(value) = result {
+                    self.builder.store(value, output_ptr);
+                }
+            }
+            ReturnPassing::Sret { .. } => {
+                self.builder.call_indirect_with_sret(
+                    acc_llvm_ty,
+                    &param_types,
+                    body.ori_fn,
+                    output_ptr,
+                    &args,
+                );
+            }
+            ReturnPassing::Void => {
+                self.builder
+                    .call_indirect_void(&param_types, body.ori_fn, &args);
+            }
+        }
+        self.builder.ret_void();
+    }
+
+    fn verify_trampoline(&mut self, func_id: FunctionId, name: &str) {
+        if !self.verify_arc {
+            return;
+        }
+        let function = self.builder.get_function_value(func_id);
+        if !function.verify(true) {
+            tracing::error!(name, "LLVM IR verification failed (generate_trampoline_fn)");
+            self.builder.record_codegen_error();
+        }
     }
 
     /// Generate a sign-extension widening trampoline for narrowed list iterators.
@@ -386,7 +416,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self
             .builder
             .declare_void_function(&tramp_name, &[ptr_ty, ptr_ty, ptr_ty]);
-        self.builder.set_ccc(func_id);
+        self.builder.set_module_local(func_id);
         self.builder.add_nounwind_attribute(func_id);
         self.builder.add_uwtable_attribute(func_id);
         for i in 0..3 {
@@ -404,15 +434,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let narrowed_llvm_ty = self.llvm_type_for_int_width(narrowed_width);
         let raw = self.builder.load(narrowed_llvm_ty, in_ptr, "sext.raw");
 
-        // Sign-extend to canonical i64
         let i64_ty = self.builder.i64_type();
         let widened = self.builder.sext(raw, i64_ty, "sext.wide");
 
-        // Store canonical i64 to out_ptr
         self.builder.store(widened, out_ptr);
         self.builder.ret_void();
 
-        // Verify
         if self.verify_arc {
             let fn_val = self.builder.get_function_value(func_id);
             if !fn_val.verify(true) {

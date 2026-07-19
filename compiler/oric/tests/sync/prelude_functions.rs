@@ -47,8 +47,7 @@ fn evaluator_conversion_functions_in_registry() {
 
     // Known evaluator-only registrations that are NOT prelude conversion functions:
     // - "Error" is a type constructor, not a conversion function
-    // - "thread_id" is a runtime function, not a prelude conversion
-    let evaluator_only = ["Error", "thread_id"];
+    let evaluator_only = ["Error"];
 
     // Extract all register_function_val("name", ...) names from source
     let mut eval_names: Vec<&str> = Vec::new();

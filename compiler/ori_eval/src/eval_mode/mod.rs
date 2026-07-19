@@ -25,7 +25,8 @@ pub enum EvalMode {
         /// Maximum number of function calls before aborting.
         budget: u32,
     },
-    /// Test execution — captures output, collects results.
+    /// Test execution — collects test results (output capture is the
+    /// caller's print-handler choice).
     TestRun {
         /// When true, only run tests attached to functions (not floating tests).
         only_attached: bool,
@@ -35,8 +36,7 @@ pub enum EvalMode {
 impl EvalMode {
     /// Whether this mode allows I/O operations (print, file, network).
     ///
-    /// Only `Interpret` mode has unrestricted I/O. `ConstEval` must be pure,
-    /// and `TestRun` captures output via a buffer handler instead.
+    /// Only `Interpret` mode has unrestricted I/O.
     #[inline]
     pub fn allows_io(&self) -> bool {
         matches!(self, Self::Interpret)

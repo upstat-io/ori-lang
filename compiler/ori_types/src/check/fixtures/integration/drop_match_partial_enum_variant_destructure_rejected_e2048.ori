@@ -1,0 +1,4 @@
+trait Drop { @drop (self) -> void; }
+         type Ev = Pair(x: int, y: int) | Solo(z: int);
+         impl Ev: Drop { @drop (self) -> void = (); }
+         @bad (e: Ev) -> int = match e { Pair(x) -> x, Solo(z) -> z, };

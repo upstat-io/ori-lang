@@ -1,0 +1,21 @@
+@iterate_words (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        total = total + w.len();
+    };
+    total
+}
+
+@wrapper (words: [str]) -> int = {
+    iterate_words(words: words)
+}
+
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold",
+        "another very long string that also exceeds the threshold"
+    ];
+    let a = wrapper(words: words);
+    let b = wrapper(words: words);
+    if a == 109 && b == 109 then 0 else 1
+}

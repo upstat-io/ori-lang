@@ -10,8 +10,11 @@ fn format_primitives() {
     assert_eq!(pool.format_type(Idx::STR), "str");
     assert_eq!(pool.format_type(Idx::CHAR), "char");
     assert_eq!(pool.format_type(Idx::UNIT), "()");
-    assert_eq!(pool.format_type(Idx::NEVER), "never");
+    assert_eq!(pool.format_type(Idx::NEVER), "Never");
     assert_eq!(pool.format_type(Idx::ERROR), "<error>");
+    assert_eq!(pool.format_type(Idx::DURATION), "Duration");
+    assert_eq!(pool.format_type(Idx::SIZE), "Size");
+    assert_eq!(pool.format_type(Idx::ORDERING), "Ordering");
 }
 
 #[test]
@@ -118,7 +121,7 @@ fn format_named_without_interner_shows_raw() {
     assert!(pool.format_type(named).starts_with("Named#"));
 }
 
-// === Merkle Hash Debug Tooling Tests ===
+// Merkle Hash Debug Tooling Tests
 
 #[test]
 fn format_hash_primitive() {

@@ -1,19 +1,20 @@
 //! `TypeLayoutResolver` — recursive LLVM type resolution with cycle detection.
 //!
 //! Resolves `Idx` → `BasicTypeEnum` with two-phase struct creation for
-//! recursive types. Extracted from `type_info/mod.rs` for file size hygiene.
+//! recursive types.
 
 use std::cell::{Cell, RefCell};
 
 use inkwell::types::{BasicTypeEnum, StructType};
-use rustc_hash::{FxHashMap, FxHashSet};
-
 use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Tag};
+use rustc_hash::{FxHashMap, FxHashSet};
+
+use crate::context::SimpleCx;
 
 use super::store::TypeInfoStore;
+use super::type_size::{select_shared_payload_arm, SharedPayloadArm};
 use super::TypeInfo;
-use crate::context::SimpleCx;
 
 /// Resolves `Idx` → `BasicTypeEnum` with cycle-safe two-phase struct creation.
 ///
@@ -23,10 +24,7 @@ use crate::context::SimpleCx;
 /// 2. Recursively resolve field types (which may reference `%Tree`)
 /// 3. Fill the struct body (`%Tree = type { i8, [2 x i64] }`)
 ///
-/// This follows the same pattern used by:
-/// - Rust's `rustc_codegen_llvm` (`declare_type` → `define_type`)
-/// - Zig's `codegen/llvm.zig` (`lowerType` with `TypeMap`)
-/// - Roc's `gen_llvm/src/llvm/convert.rs` (`basic_type_from_layout`)
+#[derive(Debug)]
 pub struct TypeLayoutResolver<'a, 'll, 'tcx> {
     /// Type info store for looking up `TypeInfo` by `Idx`.
     pub(super) store: &'a TypeInfoStore<'tcx>,
@@ -37,17 +35,17 @@ pub struct TypeLayoutResolver<'a, 'll, 'tcx> {
     /// When present, struct/enum types get meaningful LLVM names like `%ori.Point`.
     /// When absent (e.g., in unit tests), falls back to numeric IDs like `%ori.3`.
     interner: Option<&'a StringInterner>,
-    /// Representation plan from `ori_repr` (Phase A migration).
+    /// Representation plan from `ori_repr`.
     ///
     /// When present, type lookups consult the `ReprPlan` first for non-recursive
     /// types (primitives, fat pointers, opaque pointers). When absent (or when
     /// the plan has no entry for a type, or the type requires recursive
     /// resolution), falls back to `TypeInfoStore`.
     pub(super) repr_plan: Option<&'a ori_repr::ReprPlan>,
-    /// Types currently being resolved (cycle detection).
+    /// Active type-resolution stack for cycle detection.
     ///
-    /// When we encounter an `Idx` already in this set, we've found a cycle
-    /// and return the previously created opaque struct instead of recursing.
+    /// A repeated `Idx` denotes a cycle and resolves to its opaque struct
+    /// rather than recurring.
     pub(super) resolving: RefCell<FxHashSet<Idx>>,
     /// Resolved LLVM types cache.
     cache: RefCell<FxHashMap<Idx, BasicTypeEnum<'ll>>>,
@@ -63,18 +61,17 @@ pub struct TypeLayoutResolver<'a, 'll, 'tcx> {
 }
 
 impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
+    /// Maximum recursion depth for type resolution.
+    ///
+    /// Catches indirect cycles (different Idx values for the same conceptual
+    /// type) and prevents stack overflow from deeply nested types.
+    const MAX_RESOLVE_DEPTH: u32 = 32;
+
     /// Create a new resolver.
     ///
     /// Pass an `interner` to get human-readable LLVM type names (e.g., `%ori.Point`).
     /// Without it, types get numeric names (e.g., `%ori.3`).
-    /// Access the representation plan (if available).
-    ///
-    /// Used by `ArcIrEmitter` (Phase B) to query per-variable ranges for
-    /// local variable narrowing.
-    pub fn repr_plan(&self) -> Option<&'a ori_repr::ReprPlan> {
-        self.repr_plan
-    }
-
+    #[must_use]
     pub fn new(
         store: &'a TypeInfoStore<'tcx>,
         scx: &'a SimpleCx<'ll>,
@@ -93,16 +90,47 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         }
     }
 
+    /// Access the representation plan, when one was supplied.
+    #[must_use = "the absence of a value must be handled"]
+    pub fn repr_plan(&self) -> Option<&'a ori_repr::ReprPlan> {
+        self.repr_plan
+    }
+
+    /// Access the underlying `TypeInfoStore`.
+    pub fn store(&self) -> &'a TypeInfoStore<'tcx> {
+        self.store
+    }
+
+    /// Look up a resolved named struct for a given `Idx`.
+    #[must_use = "the absence of a value must be handled"]
+    pub fn get_named_struct(&self, idx: Idx) -> Option<StructType<'ll>> {
+        self.named_structs.borrow().get(&idx).copied()
+    }
+
+    /// Whether the position inside `owner_idx` is an RC-boxed recursive edge.
+    pub(super) fn position_is_rc_boxed(&self, owner_idx: Idx, field_ty: Idx) -> bool {
+        super::repr_box_oracle::position_is_rc_boxed(self.store.pool(), owner_idx, field_ty)
+    }
+
+    /// Whether the `Option` payload is an RC-boxed recursive edge.
+    pub(super) fn option_payload_is_rc_boxed(&self, idx: Idx) -> bool {
+        super::repr_box_oracle::option_payload_is_rc_boxed(self.store.pool(), idx)
+    }
+
+    /// Whether the `Result` success payload is an RC-boxed recursive edge.
+    pub(super) fn result_ok_is_rc_boxed(&self, idx: Idx) -> bool {
+        super::repr_box_oracle::result_ok_is_rc_boxed(self.store.pool(), idx)
+    }
+
+    /// Whether the `Result` error payload is an RC-boxed recursive edge.
+    pub(super) fn result_err_is_rc_boxed(&self, idx: Idx) -> bool {
+        super::repr_box_oracle::result_err_is_rc_boxed(self.store.pool(), idx)
+    }
+
     /// Resolve an `Idx` to its LLVM type, handling recursive types correctly.
     ///
     /// For non-recursive types this delegates to `TypeInfo::storage_type`.
     /// For structs and enums it uses two-phase creation with cycle detection.
-    /// Maximum recursion depth for type resolution.
-    ///
-    /// Catches indirect cycles (different Idx values for the same conceptual
-    /// type) and prevents stack overflow from deeply nested types.
-    const MAX_RESOLVE_DEPTH: u32 = 32;
-
     pub fn resolve(&self, idx: Idx) -> BasicTypeEnum<'ll> {
         // Sentinel
         if idx == Idx::NONE {
@@ -136,50 +164,21 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         resolved
     }
 
-    // `try_repr_to_llvm_type` and `try_lower_narrowed_aggregate` are defined in
-    // `type_info/repr_lowering.rs` (same `impl TypeLayoutResolver` block).
-    // Enum resolution methods (resolve_enum, resolve_enum_explicit,
-    // resolve_enum_tagless, resolve_enum_niche, is_non_void_field)
-    // live in `type_info/enum_layout.rs`.
+    /// Approximate store size of an LLVM type in bytes.
+    ///
+    /// Delegates to [`super::type_size::type_store_size`].
+    pub(crate) fn type_store_size(ty: BasicTypeEnum<'ll>) -> u64 {
+        super::type_size::type_store_size(ty)
+    }
 
     /// Inner resolve implementation, separated for depth guard.
-    #[expect(
-        clippy::too_many_lines,
-        reason = " niche checks on Option/Result add 30 lines to dispatch"
-    )]
     fn resolve_inner(&self, idx: Idx) -> BasicTypeEnum<'ll> {
-        // Cycle detection: if we're already resolving this type, we've
-        // found a recursive reference. For Struct/Enum this is handled by
-        // the two-phase named struct pattern. For other types (Option,
-        // Result, Tuple), fall back to i64 to break the cycle.
-        if self.resolving.borrow().contains(&idx) {
-            // Recursive back-edge to a Struct/Enum: the cycle is always
-            // heap-boxed (canonical_inner marks recursive positions
-            // RcPointer), so the field lowers to `ptr`, not the named
-            // struct by-value — a by-value self-reference is infinitely
-            // sized. The named_structs guard distinguishes the Struct/Enum
-            // back-edge (ptr) from the non-Struct/Enum cycle (i64 sentinel).
-            if self.named_structs.borrow().contains_key(&idx) {
-                return self.scx.type_ptr().into();
-            }
-            // For non-Struct/Enum cycles, fall back to i64
-            return self.scx.type_i64().into();
+        if let Some(cycle_break) = self.resolve_cycle_back_edge(idx) {
+            return cycle_break;
         }
 
-        // Phase A: consult ReprPlan first for non-recursive types.
-        // When the plan has a decision and the type can be converted without
-        // recursive resolution, use the ReprPlan path directly.
-        if let Some(repr) = self.repr_plan.and_then(|p| p.get_repr(idx)) {
-            if let Some(llvm_ty) = self.try_repr_to_llvm_type(repr) {
-                return llvm_ty;
-            }
-            // If this is a narrowed Struct/Tuple (has int fields with width < I64
-            // from integer narrowing), resolve directly using the narrowed FieldRepr
-            // widths. Non-narrowed structs fall through to TypeInfoStore's named
-            // struct path below.
-            if let Some(llvm_ty) = self.try_lower_narrowed_aggregate(repr) {
-                return llvm_ty;
-            }
+        if let Some(repr_type) = self.resolve_from_repr_plan(idx) {
+            return repr_type;
         }
 
         let info = self.store.get(idx);
@@ -207,121 +206,15 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             | TypeInfo::Error => info.storage_type(self.scx),
 
             // Tagged unions with possible recursive payloads.
-            TypeInfo::Option { inner } => {
-                // Check ReprPlan for niche encoding via the SSOT ladder.
-                let resolved_idx = self.store.pool().resolve_fully(idx);
-                let repr_entry = self
-                    .repr_plan
-                    .and_then(|p| p.enum_repr_with_fallback(self.store.pool(), idx));
-                if let Some(enum_repr) = repr_entry {
-                    if enum_repr.tag.is_niche() {
-                        // Niche layout: use the inner type directly (no tag, no wrapper).
-                        // The niche field index from MachineRepr maps directly to LLVM
-                        // struct field indices — no wrapping needed.
-                        self.resolving.borrow_mut().insert(idx);
-                        let payload = self.resolve(*inner);
-                        self.resolving.borrow_mut().remove(&idx);
-                        return payload;
-                    }
-                }
-                // Explicit tag: { i64, T }. The Some payload is a boxed `ptr`
-                // when it is a recursive back-edge — decided order-independently
-                // by the boxing SSOT (the resolving-stack cycle-break only
-                // approximated it, and the per-Idx ReprPlan marker is unreliable
-                // across structurally-equal Option<T> pool entries).
-                self.resolving.borrow_mut().insert(idx);
-                let payload = if self.option_payload_is_rc_boxed(resolved_idx) {
-                    self.scx.type_ptr().into()
-                } else {
-                    self.resolve(*inner)
-                };
-                self.resolving.borrow_mut().remove(&idx);
-                self.scx
-                    .type_struct(&[self.scx.type_i64().into(), payload], false)
-                    .into()
-            }
-            TypeInfo::Result { ok, err } => {
-                // Check ReprPlan for niche encoding via the SSOT ladder.
-                let resolved_idx = self.store.pool().resolve_fully(idx);
-                if let Some(enum_repr) = self
-                    .repr_plan
-                    .and_then(|p| p.enum_repr_with_fallback(self.store.pool(), idx))
-                {
-                    if enum_repr.tag.is_niche() {
-                        // Niche layout: use the data variant's payload type directly.
-                        // BUG-05-010: picking the larger-SIZE arm can under-align
-                        // the storage vs the repr plan's max(ok, err) alignment
-                        // when size and alignment invert.
-                        self.resolving.borrow_mut().insert(idx);
-                        let ok_ty = self.resolve(*ok);
-                        let err_ty = self.resolve(*err);
-                        self.resolving.borrow_mut().remove(&idx);
-                        let ok_size = Self::type_store_size(ok_ty);
-                        let err_size = Self::type_store_size(err_ty);
-                        let payload = if ok_size >= err_size { ok_ty } else { err_ty };
-                        return payload;
-                    }
-                }
-                // Explicit tag: { i64, payload }. Box whichever arm is a
-                // recursive back-edge (boxing SSOT) so the larger-payload
-                // comparison sees the boxed `ptr` width — same order-independent
-                // decision as the Option arm.
-                self.resolving.borrow_mut().insert(idx);
-                let ok_ty = if self.result_ok_is_rc_boxed(resolved_idx) {
-                    self.scx.type_ptr().into()
-                } else {
-                    self.resolve(*ok)
-                };
-                let err_ty = if self.result_err_is_rc_boxed(resolved_idx) {
-                    self.scx.type_ptr().into()
-                } else {
-                    self.resolve(*err)
-                };
-                self.resolving.borrow_mut().remove(&idx);
-                let ok_size = Self::type_store_size(ok_ty);
-                let err_size = Self::type_store_size(err_ty);
-                let payload = if ok_size >= err_size { ok_ty } else { err_ty };
-                self.scx
-                    .type_struct(&[self.scx.type_i64().into(), payload], false)
-                    .into()
-            }
+            TypeInfo::Option { inner } => self.resolve_option(idx, *inner),
+            TypeInfo::Result { ok, err } => self.resolve_result(idx, *ok, *err),
 
             // Tuple: struct of recursively-resolved element types.
             // If the tuple is reordered, use memory-order from TupleRepr.
             // An element the ReprPlan marks RcPointer is a boxed `ptr`
             // (recursive back-edge), decided order-independently from the
             // marker rather than the resolving-stack.
-            TypeInfo::Tuple { elements } => {
-                self.resolving.borrow_mut().insert(idx);
-                let field_types: Vec<BasicTypeEnum<'ll>> =
-                    if let Some(ori_repr::MachineRepr::Tuple(t)) =
-                        self.repr_plan.and_then(|p| p.get_repr(idx))
-                    {
-                        if t.is_reordered() {
-                            t.elements
-                                .iter()
-                                .map(|f| {
-                                    self.resolve_tuple_element(
-                                        idx,
-                                        elements[f.original_index as usize],
-                                    )
-                                })
-                                .collect()
-                        } else {
-                            elements
-                                .iter()
-                                .map(|&e| self.resolve_tuple_element(idx, e))
-                                .collect()
-                        }
-                    } else {
-                        elements
-                            .iter()
-                            .map(|&e| self.resolve_tuple_element(idx, e))
-                            .collect()
-                    };
-                self.resolving.borrow_mut().remove(&idx);
-                self.scx.type_struct(&field_types, false).into()
-            }
+            TypeInfo::Tuple { elements } => self.resolve_tuple(idx, elements),
 
             // User-defined struct: two-phase creation.
             TypeInfo::Struct { fields } => self.resolve_struct(idx, fields),
@@ -332,6 +225,114 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
 
         self.cache.borrow_mut().insert(idx, result);
         result
+    }
+
+    fn resolve_cycle_back_edge(&self, idx: Idx) -> Option<BasicTypeEnum<'ll>> {
+        if !self.resolving.borrow().contains(&idx) {
+            return None;
+        }
+
+        // Struct/Enum cycles are heap-boxed; other recursive aggregates use
+        // the i64 sentinel to terminate resolution.
+        Some(if self.named_structs.borrow().contains_key(&idx) {
+            self.scx.type_ptr().into()
+        } else {
+            self.scx.type_i64().into()
+        })
+    }
+
+    fn resolve_from_repr_plan(&self, idx: Idx) -> Option<BasicTypeEnum<'ll>> {
+        let repr = self.repr_plan.and_then(|plan| plan.get_repr(idx))?;
+        self.try_repr_to_llvm_type(repr)
+            .or_else(|| self.try_lower_narrowed_aggregate(repr))
+    }
+
+    fn resolve_option(&self, idx: Idx, inner: Idx) -> BasicTypeEnum<'ll> {
+        let resolved_idx = self.store.pool().resolve_fully(idx);
+        let uses_niche = self
+            .repr_plan
+            .and_then(|plan| plan.enum_repr_with_fallback(self.store.pool(), idx))
+            .is_some_and(|repr| repr.tag.is_niche());
+
+        self.resolving.borrow_mut().insert(idx);
+        let payload = if uses_niche {
+            self.resolve(inner)
+        } else if self.option_payload_is_rc_boxed(resolved_idx) {
+            self.scx.type_ptr().into()
+        } else {
+            self.resolve(inner)
+        };
+        self.resolving.borrow_mut().remove(&idx);
+
+        if uses_niche {
+            payload
+        } else {
+            self.scx
+                .type_struct(&[self.scx.type_i64().into(), payload], false)
+                .into()
+        }
+    }
+
+    fn resolve_result(&self, idx: Idx, ok: Idx, err: Idx) -> BasicTypeEnum<'ll> {
+        let resolved_idx = self.store.pool().resolve_fully(idx);
+        let uses_niche = self
+            .repr_plan
+            .and_then(|plan| plan.enum_repr_with_fallback(self.store.pool(), idx))
+            .is_some_and(|repr| repr.tag.is_niche());
+
+        self.resolving.borrow_mut().insert(idx);
+        let ok_type = if !uses_niche && self.result_ok_is_rc_boxed(resolved_idx) {
+            self.scx.type_ptr().into()
+        } else {
+            self.resolve(ok)
+        };
+        let err_type = if !uses_niche && self.result_err_is_rc_boxed(resolved_idx) {
+            self.scx.type_ptr().into()
+        } else {
+            self.resolve(err)
+        };
+        self.resolving.borrow_mut().remove(&idx);
+
+        let payload = match select_shared_payload_arm(ok_type, err_type) {
+            SharedPayloadArm::First => ok_type,
+            SharedPayloadArm::Second => err_type,
+        };
+        if uses_niche {
+            payload
+        } else {
+            self.scx
+                .type_struct(&[self.scx.type_i64().into(), payload], false)
+                .into()
+        }
+    }
+
+    fn resolve_tuple(&self, idx: Idx, elements: &[Idx]) -> BasicTypeEnum<'ll> {
+        self.resolving.borrow_mut().insert(idx);
+        let field_types: Vec<BasicTypeEnum<'ll>> =
+            if let Some(ori_repr::MachineRepr::Tuple(tuple_repr)) =
+                self.repr_plan.and_then(|plan| plan.get_repr(idx))
+            {
+                let ordered_elements: Vec<Idx> = if tuple_repr.is_reordered() {
+                    tuple_repr
+                        .elements
+                        .iter()
+                        .map(|field| elements[field.original_index as usize])
+                        .collect()
+                } else {
+                    elements.to_vec()
+                };
+                ordered_elements
+                    .into_iter()
+                    .map(|element| self.resolve_tuple_element(idx, element))
+                    .collect()
+            } else {
+                elements
+                    .iter()
+                    .map(|&element| self.resolve_tuple_element(idx, element))
+                    .collect()
+            };
+        self.resolving.borrow_mut().remove(&idx);
+        self.scx.type_struct(&field_types, false).into()
     }
 
     /// Resolve a struct type with two-phase creation for cycle safety.
@@ -365,7 +366,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                 s.fields
                     .iter()
                     .map(|f| {
-                        // Match by field name for robustness across Pool entries.
+                        // Why: Pool entries may store the same fields in different orders.
                         let ty = fields
                             .iter()
                             .find(|(n, _)| *n == f.name)
@@ -410,31 +411,6 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         self.resolve(element_ty)
     }
 
-    /// Boxing SSOT: whether the position inside `owner_idx` holding `field_ty`
-    /// is a boxed recursive back-edge (lowers to `ptr`).
-    pub(super) fn position_is_rc_boxed(&self, owner_idx: Idx, field_ty: Idx) -> bool {
-        super::repr_box_oracle::position_is_rc_boxed(self.store.pool(), owner_idx, field_ty)
-    }
-
-    /// Whether the `Option` Some payload at `idx` is a boxed recursive back-edge.
-    pub(super) fn option_payload_is_rc_boxed(&self, idx: Idx) -> bool {
-        super::repr_box_oracle::option_payload_is_rc_boxed(self.store.pool(), idx)
-    }
-
-    /// Whether the `Result` Ok payload at `idx` is a boxed recursive back-edge.
-    pub(super) fn result_ok_is_rc_boxed(&self, idx: Idx) -> bool {
-        super::repr_box_oracle::result_ok_is_rc_boxed(self.store.pool(), idx)
-    }
-
-    /// Whether the `Result` Err payload at `idx` is a boxed recursive back-edge.
-    pub(super) fn result_err_is_rc_boxed(&self, idx: Idx) -> bool {
-        super::repr_box_oracle::result_err_is_rc_boxed(self.store.pool(), idx)
-    }
-
-    // Enum resolution methods (resolve_enum, resolve_enum_explicit,
-    // resolve_enum_tagless, resolve_enum_niche, is_non_void_field)
-    // live in enum_layout.rs.
-
     /// Get a human-readable name for an LLVM named struct.
     pub(super) fn type_name(&self, idx: Idx, fallback: &str) -> String {
         let pool = self.store.pool();
@@ -464,22 +440,5 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             }
         }
         name.raw().to_string()
-    }
-
-    /// Approximate store size of an LLVM type in bytes.
-    ///
-    /// Delegates to [`super::type_size::type_store_size`].
-    pub(crate) fn type_store_size(ty: BasicTypeEnum<'ll>) -> u64 {
-        super::type_size::type_store_size(ty)
-    }
-
-    /// Access the underlying `TypeInfoStore`.
-    pub fn store(&self) -> &'a TypeInfoStore<'tcx> {
-        self.store
-    }
-
-    /// Look up a resolved named struct for a given `Idx`.
-    pub fn get_named_struct(&self, idx: Idx) -> Option<StructType<'ll>> {
-        self.named_structs.borrow().get(&idx).copied()
     }
 }

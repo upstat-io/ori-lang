@@ -12,14 +12,14 @@
 //! Matrix: exact failing case, both-inline, negation, empty payload; cross-type
 //! (list / str / map / Result / user sum-type with heap field); cross-pattern
 //! (LHS inline, comparison operators via `Comparable::compare`, cross-block);
-//! cross-feature (`map.updated` assertion site, nested aggregate); dual
-//! emission-path (predicate-stack baseline, burden-only, default); negative
-//! pins (bound-var alias clean, scalar payload clean, multi-consumer retains
-//! inc, fresh value duplicated into one call retains inc).
+//! cross-feature (`map.updated` assertion site, nested aggregate); sole-emitter
+//! paths (burden-only, default) plus the fail-loud burden-disabled negative pin;
+//! negative pins (bound-var alias clean, scalar payload clean, multi-consumer
+//! retains inc, fresh value duplicated into one call retains inc).
 //!
 //! Default-path cells use `assert_aot_success` (`ORI_CHECK_LEAKS=1`, panics on
-//! exit 2). Dual-path cells use `compile_and_run_with_build_env` to gate the
-//! compile-time `ORI_DISABLE_*` flags. Subprocess-isolated — parallel-safe.
+//! exit 2). Environment-gated cells use `compile_and_run_with_build_env` for
+//! the compile-time `ORI_DISABLE_*` probes. Subprocess-isolated — parallel-safe.
 
 #![allow(
     clippy::needless_raw_string_hashes,
@@ -41,6 +41,24 @@ fn assert_leak_free_under(source: &str, build_env: &[(&str, &str)], label: &str)
             && !stderr.contains("already-freed")
             && !stderr.to_lowercase().contains("leak"),
         "[{label}] reported a leak / double-free\nstderr:\n{stderr}"
+    );
+}
+
+/// Disabling class-ledger burden emission removes the current compiled-counter
+/// adapter's sole ownership-event input. Compilation must abort at the
+/// migration gate rather than emit a silently unmanaged binary.
+fn assert_burden_ops_disabled_fails_loud(source: &str, label: &str) {
+    let (exit, _stdout, stderr) =
+        compile_and_run_with_build_env(source, &[("ORI_DISABLE_BURDEN_OPS", "1")]);
+    assert_ne!(
+        exit, 0,
+        "[{label}] disabling class-ledger burden emission must fail compilation; \
+         stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("non-class-ledger function"),
+        "[{label}] expected the fail-loud class-ledger migration gate, not an \
+         unrelated failure; stderr:\n{stderr}"
     );
 }
 
@@ -262,30 +280,28 @@ fn inline_nested_option_list_eq_no_leak() {
     );
 }
 
-// ----- Dual emission-path coverage (leak reproduces on BOTH paths) -----
+// ----- Sole-emitter coverage -----
 
-/// Predicate-stack baseline: `ORI_DISABLE_BURDEN_OPS=1` runs the pre-burden
-/// path. The heap-bearing compare-operand dec is burden-emitted by design (the
-/// M3/M4 fresh-self-alloc/lineage-net cure counts BurdenInc/BurdenDec); with
-/// burden disabled the pre-burden path emits no balancing dec. Owned by the
-/// predicate-stack retirement, which makes `ORI_DISABLE_BURDEN_OPS` moot.
+/// Negative ablation pin: `ORI_DISABLE_BURDEN_OPS=1` removes the sole
+/// ownership-event input from the current compiled-counter adapter. The old
+/// predicate-stack baseline no longer exists, so this must fail compilation
+/// loudly rather than pretend to be a leak-free execution mode.
 #[test]
-#[ignore = "BUG-04-148: predicate-stack baseline (ORI_DISABLE_BURDEN_OPS=1) compare-operand dec is burden-emitted by design; predicate-stack retirement (aims-burden-tracking section-09) makes ORI_DISABLE_BURDEN_OPS moot"]
-fn inline_option_list_eq_predicate_stack_baseline_no_leak() {
-    assert_leak_free_under(
+fn inline_option_list_eq_burden_ops_disabled_fails_loud() {
+    assert_burden_ops_disabled_fails_loud(
         r#"
 @main () -> int = {
     let x = Some([7, 8, 9]);
     if x == Some([7, 8, 9]) then 0 else 1
 }
 "#,
-        &[("ORI_DISABLE_BURDEN_OPS", "1")],
-        "inline_option_list_eq_predicate_stack_baseline_no_leak",
+        "inline_option_list_eq_burden_ops_disabled_fails_loud",
     );
 }
 
 /// Burden-only: `ORI_DISABLE_PREDICATE_STACK_RC=1` leaves the burden path as
-/// the sole real-RC emitter; the Phase-6 eliminator fix must clear the leak.
+/// the current compiled-counter adapter's sole real-RC emitter; the Phase-6
+/// eliminator fix must clear the leak.
 #[test]
 fn inline_option_list_eq_burden_only_no_leak() {
     assert_leak_free_under(

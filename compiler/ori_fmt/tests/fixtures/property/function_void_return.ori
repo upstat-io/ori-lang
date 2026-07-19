@@ -1,0 +1,1 @@
+@log (msg: str) -> void = print(msg: msg);

@@ -146,15 +146,23 @@ impl Parser<'_> {
             "parse_ident_primary"
         );
 
-        // Map token to (intern_str, should_advance_first) — all follow the same pattern:
-        // intern the name, advance, return Ident expression.
+        // Non-Ident arms yield the canonical name to intern; the shared tail
+        // interns it and advances. The Ident arm advances + returns early.
         let name = match *self.cursor.current_kind() {
             TokenKind::Ident(name) => {
                 self.cursor.advance();
-                return ParseOutcome::consumed_ok(
-                    self.arena
-                        .alloc_expr(Expr::new(ExprKind::Ident(name), span)),
-                );
+                let id = self
+                    .arena
+                    .alloc_expr(Expr::new(ExprKind::Ident(name), span));
+                // Primary-position type-path turbofish `Type<args>.method(...)`
+                // (e.g. `Box<int>.new(v: 5)`): speculatively parse `<type_args>` and
+                // commit ONLY when immediately followed by `.` (the associated-function
+                // call form), restoring otherwise so a bare `<` stays the comparison
+                // operator. Stored in the receiver side-table so the type checker
+                // instantiates the generic type before resolving the method.
+                let recv_type_args = self.try_parse_type_args(&TokenKind::Dot);
+                self.arena.set_receiver_type_args(id, recv_type_args);
+                return ParseOutcome::consumed_ok(id);
             }
             TokenKind::Print => "print",
             TokenKind::Panic => "panic",

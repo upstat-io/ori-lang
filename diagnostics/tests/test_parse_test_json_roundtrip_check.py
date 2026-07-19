@@ -1,11 +1,10 @@
 """Tests for diagnostics/parse_test_json_roundtrip_check.py — the adversarial
-failure-message round-trip-equality check (w-38896e3b).
+failure-message round-trip-equality check.
 
 The semantic pin: an adversarial message (tab/newline/quote/unicode) survives
 json.dumps -> file -> json.load byte-for-byte. The negative pins: a non-matching
 expected message reports MISMATCH (exit 4), and invalid JSON reports parse-error
-(exit 3) rather than silent default-pass. Positive + negative pairing per
-tests.md §Matrix Clamping.
+(exit 3) rather than silent default-pass.
 """
 
 import json

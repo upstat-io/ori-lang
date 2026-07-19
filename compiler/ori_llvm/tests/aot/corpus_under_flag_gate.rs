@@ -1,47 +1,21 @@
-//! Predicate-stack-retirement readiness gate: the corpus IS the probe.
+//! Predicate-stack-retirement certificate: the ordinary AOT corpus is the gate.
 //!
-//! The narrow per-shape `predicate_stack_probe` suite certifies self-sufficiency
-//! on a fixed subset of value shapes; certifying a subset while the corpus
-//! regresses on the complement is the recurring under-coverage failure mode. The
-//! readiness signal is therefore the FULL AOT corpus under
-//! `ORI_DISABLE_PREDICATE_STACK_RC=1`, asserted as a failing-test-ID-SET subset:
+//! The predicate-stack RC emitter has been retired from production realization;
+//! `ORI_DISABLE_PREDICATE_STACK_RC` remains only as legacy diagnostic metadata.
+//! Therefore the normal AOT run under test-all's verification environment is
+//! already the full burden-path gate. Re-executing this test binary from inside
+//! itself would merely duplicate the same corpus and obscure its real counts.
 //!
-//!     failing_ids_under_flag  is a SUBSET of  baseline_failing_ids
-//!
-//! `baseline_failing_ids` is the checked-in fixture
-//! `fixtures/corpus_under_flag_gate/baseline_failing_ids.txt` -- the set of test
-//! IDs that fail on the burden-default path under the test-all.sh verification
-//! environment. The gate forbids ADDITIONS to that set; the terminal target is
-//! the EMPTY set (Spec: Annex E §AIMS).
-//!
-//! METRIC CONTRACT: the baseline capture and the live gate run BOTH set
-//! `ORI_VERIFY_ARC=1` + `ORI_VERIFY_EACH=1` -- the same gates test-all.sh and
-//! CI export. A run without them counts only behavioral failures (leaks,
-//! double-frees, wrong output) and silently excludes every VF-1
-//! burden-imbalance verification failure, so its failing set is an under-count
-//! that MUST NOT be compared against this gate's operands.
+//! The checked-in historical failing-ID set is retained as a retirement
+//! certificate and must stay drained. Its set-comparison helpers remain pinned
+//! so a future cohort gate cannot regress to a count-only comparison that masks
+//! swapped failures.
 //!
 //! A SET-subset, NOT an equal-or-lower count: a count-only check masks a
 //! regression when a pre-existing baseline failure is incidentally fixed and a
 //! NEW failure swaps in at the same count.
 //!
-//! Two test surfaces:
-//! - The fixture-load + subset-comparison HELPERS are unit-tested now
-//!   (non-ignored) on synthetic inputs, so the harness logic itself is green.
-//! - The live-corpus RUN is `#[ignore]`-gated: the under-flag failing set is not
-//!   yet a subset of the baseline (the burden path is not yet the sole RC
-//!   emitter corpus-wide), so the gate's PASS VERDICT lands when predicate-stack
-//!   retirement + the `BurdenInc -> RcInc` activation dissolve the residual
-//!   (Spec: Annex E §AIMS RL-2 / RL-4 / RL-5). The ignore reason carries that
-//!   anchor so the disposition is tracked, not red-by-default.
-//!
-//! On-demand stale-baseline audit (this gate is subset-only — it forbids
-//! ADDITIONS but does not flag a baseline cell that is now PASSING): run
-//! `compiler_repo/diagnostics/aot-guardrail.sh --floor`. It re-runs the corpus
-//! under the gated env (`ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1
-//! ORI_VERIFY_EACH=1`) vs this baseline and lists STALE entries (now-passing ->
-//! prune) plus NEW regressions. Validate a baseline cell there before treating it
-//! as live floor; a plain default-path run is a false-green, never a floor verdict.
+//! Spec: Annex E §AIMS RL-2 / RL-4 / RL-5.
 
 #![allow(
     clippy::needless_raw_string_hashes,
@@ -74,37 +48,22 @@ fn new_ids_over_baseline(
     failing.difference(baseline).cloned().collect()
 }
 
-/// Parse libtest's human-readable output, returning the set of `FAILED` test
-/// IDs. Matches lines of the form `test <id> ... FAILED`. Used by the live gate
-/// to collect the under-flag failing set from a re-run of the aot binary.
-fn parse_failed_ids_from_libtest_output(output: &str) -> BTreeSet<String> {
-    output
-        .lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            let rest = line.strip_prefix("test ")?;
-            let id = rest.strip_suffix(" ... FAILED")?;
-            Some(id.trim().to_owned())
-        })
-        .collect()
-}
-
 #[test]
-fn baseline_fixture_loads_and_is_nonempty() {
+fn baseline_fixture_loads_and_entries_are_well_formed() {
+    // A drained baseline is the retirement certificate. Any reintroduced ID
+    // would recreate a tolerated failure floor instead of failing the ordinary
+    // AOT suite where the regression occurs.
     let baseline = parse_failing_id_set(BASELINE_FIXTURE);
     assert!(
-        !baseline.is_empty(),
-        "baseline failing-ID fixture must enumerate the predicate-stack-coupled cohort; \
-         parsed an empty set from the checked-in fixture"
+        baseline.is_empty(),
+        "retired predicate-stack baseline must remain drained; found {baseline:?}"
     );
-    // Every entry is a `<module>::<test>` ID -- no stray comment / blank leaked
-    // through the parser.
-    for id in &baseline {
-        assert!(
-            id.contains("::") && !id.starts_with('#'),
-            "baseline entry `{id}` is not a `<module>::<test>` ID"
-        );
-    }
+    // The fixture file itself is non-empty (the doc header survives even at a
+    // drained entry set).
+    assert!(
+        !BASELINE_FIXTURE.trim().is_empty(),
+        "baseline fixture file is empty — the doc header must survive draining"
+    );
 }
 
 #[test]
@@ -138,97 +97,5 @@ fn subset_helper_flags_a_swapped_in_failure_at_equal_count() {
         new_ids,
         BTreeSet::from(["mod_z::test_new".to_owned()]),
         "the swapped-in failure must surface as a new ID over the baseline"
-    );
-}
-
-#[test]
-fn failed_id_parser_extracts_ids_from_libtest_output() {
-    let output = "\
-running 3 tests
-test mod_a::test_one ... ok
-test mod_b::test_two ... FAILED
-test mod_c::test_three ... FAILED
-
-failures:
-    mod_b::test_two
-    mod_c::test_three
-
-test result: FAILED. 1 passed; 2 failed; 0 ignored
-";
-    let failed = parse_failed_ids_from_libtest_output(output);
-    assert_eq!(
-        failed,
-        BTreeSet::from(["mod_b::test_two".to_owned(), "mod_c::test_three".to_owned(),]),
-        "the parser must extract exactly the `... FAILED` test IDs"
-    );
-}
-
-// Live-corpus readiness gate. IGNORED until the burden path is the sole RC
-// emitter corpus-wide: the under-flag failing set is not yet a subset of the
-// baseline, so this would be red-by-default. It runs on demand after predicate-
-// stack retirement + the `BurdenInc -> RcInc` activation dissolve the residual
-// (the predicate-stack-coupled cohort dissolving at the activation flip, plus the
-// remaining joint shapes dissolving via the broad-shape burden-emission
-// completion). The PASS VERDICT is the readiness signal for predicate-stack
-// retirement.
-//
-// Mechanism: re-exec THIS aot test binary as a subprocess with
-// `ORI_DISABLE_PREDICATE_STACK_RC=1` plus the test-all.sh verification gates,
-// excluding this gate test itself (it would recurse), parse the `... FAILED`
-// IDs from libtest output, and assert that set adds no ID outside the
-// checked-in baseline. Re-capture the baseline under the same gated
-// environment per the fixture's re-capture protocol before trusting this
-// verdict.
-#[test]
-#[ignore = "BUG-04-121: burden-path emission fidelity gap. Spec: Annex E §AIMS -- corpus-under-flag SET-subset readiness gate. \
-            PASS after predicate-stack retirement + BurdenInc->RcInc activation \
-            (RL-2/RL-4/RL-5) make the burden path the sole RC emitter corpus-wide; \
-            under-flag failing set is not yet a subset of the baseline until then. \
-            Re-capture the baseline under the gated environment (ORI_VERIFY_ARC=1 \
-            ORI_VERIFY_EACH=1) per the fixture protocol before trusting the \
-            subset verdict."]
-fn corpus_under_flag_failing_set_is_subset_of_baseline() {
-    let baseline = parse_failing_id_set(BASELINE_FIXTURE);
-    assert!(
-        !baseline.is_empty(),
-        "baseline fixture must be populated before the gate can run"
-    );
-
-    let test_bin = std::env::current_exe().expect("aot test binary path");
-
-    // Re-run the whole aot corpus under the flag, but exclude this gate test so
-    // the subprocess does not recurse into itself.
-    let output = std::process::Command::new(&test_bin)
-        .env("ORI_DISABLE_PREDICATE_STACK_RC", "1")
-        // METRIC CONTRACT: match the test-all.sh verification environment, or
-        // the failing set under-counts (VF-1 imbalances become invisible) and
-        // the subset verdict is meaningless against the gated baseline.
-        .env("ORI_VERIFY_ARC", "1")
-        .env("ORI_VERIFY_EACH", "1")
-        .args([
-            "--skip",
-            "corpus_under_flag_gate::corpus_under_flag_failing_set_is_subset_of_baseline",
-        ])
-        .output()
-        .expect("failed to re-exec the aot test binary under the flag");
-
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr),
-    );
-    let failing_under_flag = parse_failed_ids_from_libtest_output(&combined);
-
-    let new_ids = new_ids_over_baseline(&failing_under_flag, &baseline);
-    assert!(
-        new_ids.is_empty(),
-        "predicate-stack-retirement readiness gate FAILED: the under-flag corpus added \
-         {} failing ID(s) outside the baseline set:\n{}",
-        new_ids.len(),
-        new_ids
-            .iter()
-            .map(|id| format!("  + {id}"))
-            .collect::<Vec<_>>()
-            .join("\n"),
     );
 }

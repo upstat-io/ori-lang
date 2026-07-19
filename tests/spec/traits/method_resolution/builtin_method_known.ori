@@ -1,0 +1,83 @@
+// Spec: typeck §RG-3/§RG-4 — registry-covered builtin methods and struct
+// field-callables must continue to typecheck and run when concrete-receiver
+// unknown-method diagnostics are active. These cases guard against false
+// positives in struct-field-callable detection.
+
+use std.testing { assert_eq }
+
+type Handler = { cb: (int) -> int }
+
+@field_callable_invokes () -> int = {
+    let h = Handler { cb: x -> x + 1 };
+    h.cb(5)
+}
+
+@test_field_callable_still_resolves tests @field_callable_invokes () -> void =
+    assert_eq(actual: field_callable_invokes(), expected: 6);
+
+@registry_method_resolves () -> int = {
+    let xs: [int] = [3, 1, 2].reverse();
+    xs.length()
+}
+
+@test_registry_method_still_resolves tests @registry_method_resolves () -> void =
+    assert_eq(actual: registry_method_resolves(), expected: 3);
+
+// The concrete-receiver path is shared, so every legitimate non-list method
+// class must keep resolving: map, str, and char builtins plus derived-trait
+// dispatch on a concrete receiver.
+
+#[derive(Clone)]
+type Box = { v: int }
+
+@map_method_resolves () -> int = {
+    let m: {int: int} = {1: 2, 3: 4};
+    m.length()
+}
+
+@test_map_method_still_resolves tests @map_method_resolves () -> void =
+    assert_eq(actual: map_method_resolves(), expected: 2);
+
+@str_method_resolves () -> int = "abc".to_uppercase().length();
+
+@test_str_method_still_resolves tests @str_method_resolves () -> void =
+    assert_eq(actual: str_method_resolves(), expected: 3);
+
+@char_method_resolves () -> bool = 'a'.is_alpha();
+
+@test_char_method_still_resolves tests @char_method_resolves () -> void =
+    assert_eq(actual: char_method_resolves(), expected: true);
+
+@trait_method_on_concrete_resolves () -> int = {
+    let b = Box { v: 7 };
+    let c = b.clone();
+    c.v
+}
+
+@test_trait_method_dispatch_survives tests @trait_method_on_concrete_resolves () -> void =
+    assert_eq(actual: trait_method_on_concrete_resolves(), expected: 7);
+
+// Range methods resolve through the builtin registry. Annex C also declares
+// direct map/filter/fold; their executable behavior is pinned in the range and
+// iterator method suites.
+
+@range_count_resolves () -> int = { let r = (0..5); r.count() }
+
+@test_range_count_still_resolves tests @range_count_resolves () -> void =
+    assert_eq(actual: range_count_resolves(), expected: 5);
+
+@range_collect_resolves () -> int = {
+    let xs: [int] = (0..5).collect();
+    xs.length()
+}
+
+@test_range_collect_still_resolves tests @range_collect_resolves () -> void =
+    assert_eq(actual: range_collect_resolves(), expected: 5);
+
+@range_contains_resolves () -> bool = {
+    let r = (0..5);
+    r.contains(value: 3)
+}
+
+@test_range_contains_still_resolves tests @range_contains_resolves () -> void =
+    assert_eq(actual: range_contains_resolves(), expected: true);

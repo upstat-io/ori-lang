@@ -22,6 +22,7 @@ pub(super) use crate::commands::ImportedMonoFn;
 pub(super) fn build_imported_mono_functions(
     type_result: &TypeCheckResult,
     imported_generic_sigs: &FxHashMap<ori_ir::Name, (FunctionSig, usize, ori_ir::Name)>,
+    imported_impl_templates: &[crate::commands::ImportedImplTemplate],
     per_module_caches: &[FxHashMap<Idx, Idx>],
     merged_pool: &mut Pool,
     interner: &crate::ir::StringInterner,
@@ -29,8 +30,26 @@ pub(super) fn build_imported_mono_functions(
     crate::commands::build_imported_mono_functions_for_test_runner(
         type_result,
         imported_generic_sigs,
+        imported_impl_templates,
         per_module_caches,
         merged_pool,
         interner,
     )
+}
+
+/// Register the prelude's `pub` generic free functions into
+/// `imported_generic_sigs` for the LLVM JIT backend.
+///
+/// Forwards to the production `register_prelude_generic_sigs` via the
+/// `crate::commands` re-export.
+pub(super) fn register_prelude_generic_sigs(
+    imported_generic_sigs: &mut FxHashMap<ori_ir::Name, (FunctionSig, usize, ori_ir::Name)>,
+    source: crate::commands::ImportedPreludeSource<'_>,
+    state: crate::commands::PoolReinternState<'_>,
+) {
+    crate::commands::register_prelude_generic_sigs_for_test_runner(
+        imported_generic_sigs,
+        source,
+        state,
+    );
 }

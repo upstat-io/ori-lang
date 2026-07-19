@@ -1,0 +1,16 @@
+// NEGATIVE PIN — struct-spread field-override type soundness (infer_struct_spread Field arm).
+// A spread-form field OVERRIDE (`{ ...base, x: <wrong> }`) whose value type
+// conflicts with the declared field type MUST be rejected with E2001, never
+// silently accepted.
+// Spec: 14-expressions.md § Struct literals + spread; typeck E2001 (Mismatch).
+
+type Point = { x: int, y: int }
+
+#compile_fail(code: "E2001")
+@test_struct_spread_field_override_mismatch tests @_anchor_spread_field () -> void = {
+    let $base = Point { x: 1, y: 2 };
+    let $p = Point { ...base, x: "not an int" };
+    ()
+}
+
+@_anchor_spread_field () -> bool = true;

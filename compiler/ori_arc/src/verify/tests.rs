@@ -61,6 +61,76 @@ fn use_before_def_detected() {
 }
 
 #[test]
+fn instruction_cannot_use_its_own_destination() {
+    let func = make_func(
+        vec![],
+        Idx::NONE,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Let {
+                dst: v(0),
+                ty: Idx::NONE,
+                value: ArcValue::Var(v(0)),
+            }],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![Idx::NONE],
+    );
+
+    let errors = check_function(&func);
+    assert!(errors.iter().any(|error| {
+        matches!(
+            error,
+            VerifyError::UseBeforeDef { var, block, .. }
+                if *var == v(0) && *block == b(0)
+        )
+    }));
+}
+
+#[test]
+fn invoke_cannot_use_its_own_destination_as_argument() {
+    let func = make_func(
+        vec![],
+        Idx::NONE,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(0),
+                    ty: Idx::NONE,
+                    func: ori_ir::Name::from_raw(1),
+                    args: vec![v(0)],
+                    arg_ownership: vec![],
+                    mono_instance_id: None,
+                    normal: b(1),
+                    unwind: b(2),
+                },
+            },
+            simple_return_block(1, v(0)),
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        vec![Idx::NONE],
+    );
+
+    let errors = check_function(&func);
+    assert!(errors.iter().any(|error| {
+        matches!(
+            error,
+            VerifyError::UseBeforeDef { var, block, .. }
+                if *var == v(0) && *block == b(0)
+        )
+    }));
+}
+
+#[test]
 fn block_param_counts_as_def() {
     // Block 1 has param v(2), uses it in return.
     let func = make_func(
@@ -246,7 +316,7 @@ fn rc_on_scalar_detected() {
         vec![Idx::NONE; 1],
     );
     // Mark v(0) as Scalar.
-    func.var_reprs = vec![ValueRepr::Scalar];
+    func.replace_variable_representations(vec![ValueRepr::Scalar]);
 
     let errors = check_function(&func);
     assert_eq!(
@@ -287,7 +357,7 @@ fn rc_on_non_scalar_ok() {
         }],
         vec![Idx::NONE; 1],
     );
-    func.var_reprs = vec![ValueRepr::RcPointer];
+    func.replace_variable_representations(vec![ValueRepr::RcPointer]);
 
     let errors = check_function(&func);
     assert!(
@@ -480,6 +550,7 @@ fn make_contract(params: Vec<ParamContract>) -> MemoryContract {
             locality: Locality::Unknown,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         },
         effects: EffectSummary::default(),
         context_behavior: ContextBehavior::default(),
@@ -500,11 +571,11 @@ fn absent_param() -> ParamContract {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
-        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
-        capture_variant_return_project: None,
+        borrowed_cow_mutated: false,
+        iter_consumes_projected_field: None,
     }
 }
 
@@ -520,11 +591,11 @@ fn used_param() -> ParamContract {
         transfers_through_return: false,
         return_alias: None,
         return_payload_contains_param: false,
-        return_payload_contains_param_all_paths: false,
         iter_consumes: false,
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
-        capture_variant_return_project: None,
+        borrowed_cow_mutated: false,
+        iter_consumes_projected_field: None,
     }
 }
 

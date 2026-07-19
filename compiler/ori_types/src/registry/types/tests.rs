@@ -43,7 +43,7 @@ fn register_and_lookup_struct() {
         Visibility::Public,
         0,
         None,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
 
     // Lookup by name
@@ -93,7 +93,7 @@ fn register_and_lookup_enum() {
         Visibility::Public,
         0,
         None,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
 
     // Lookup by name
@@ -136,7 +136,7 @@ fn register_newtype() {
         Visibility::Public,
         0,
         None,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
 
     let entry = registry.get_by_name(name).expect("should find");
@@ -156,25 +156,25 @@ fn register_alias() {
 
     let name = test_name("IntList");
     let idx = Idx::from_raw(103);
-    let target = Idx::from_raw(200); // Some list type
+    let list_type = Idx::from_raw(200);
 
     registry.register_alias(
         name,
         idx,
         vec![],
-        target,
+        list_type,
         test_span(),
         Visibility::Public,
         0,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
 
     let entry = registry.get_by_name(name).expect("should find");
     assert!(entry.kind.is_alias());
 
     match &entry.kind {
-        TypeKind::Alias { target: t } => {
-            assert_eq!(*t, target);
+        TypeKind::Alias { target } => {
+            assert_eq!(*target, list_type);
         }
         _ => panic!("expected alias"),
     }
@@ -220,7 +220,7 @@ fn iteration_is_sorted() {
         Visibility::Public,
         0,
         None,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
     registry.register_struct(
         name_a,
@@ -231,7 +231,7 @@ fn iteration_is_sorted() {
         Visibility::Public,
         0,
         None,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
     registry.register_struct(
         name_m,
@@ -242,7 +242,7 @@ fn iteration_is_sorted() {
         Visibility::Public,
         0,
         None,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
 
     // Iteration should be in sorted order (by Name's Ord impl)
@@ -266,7 +266,7 @@ fn generic_type_params() {
         vec![t_param],
         vec![FieldDef {
             name: test_name("value"),
-            ty: Idx::from_raw(500), // Would be a type variable in real code
+            ty: Idx::from_raw(500),
             span: test_span(),
             visibility: Visibility::Public,
         }],
@@ -274,7 +274,7 @@ fn generic_type_params() {
         Visibility::Public,
         0,
         None,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
 
     let entry = registry.get_by_name(name).expect("should find");
@@ -313,7 +313,7 @@ fn struct_field_lookup() {
         Visibility::Public,
         0,
         None,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
 
     // Find field x
@@ -402,7 +402,7 @@ fn burden_struct_heap_str_plus_scalar_int_has_one_owned_zero_borrowed() {
     );
     assert_eq!(spec.owned_fields[0].field_type, Idx::STR);
     assert_eq!(spec.owned_fields[0].field_path, vec![0]);
-    assert!(spec.self_heap_alloc);
+    assert!(spec.self_owned_identity);
 }
 
 #[test]
@@ -620,7 +620,6 @@ fn burden_newtype_around_registered_user_struct_inherits_burden() {
         struct_burden,
     );
 
-    // Now compute burden for a newtype wrapping the user struct.
     let newtype_burden = compute_newtype_burden(struct_idx, &pool, &registry);
     let spec = newtype_burden.expect("newtype around heap-bearing user type inherits");
     assert_eq!(
@@ -630,11 +629,8 @@ fn burden_newtype_around_registered_user_struct_inherits_burden() {
     );
 }
 
-// Phase-boundary regression: ori_types is Phase 2/3 (parse/typeck) — ori_arc
-// is Phase 5+ (lowering). burden computation MUST classify fields via
-// `Triviality` + `Tag` (both ori_types-native), NOT `ArcClass` (ori_arc).
-// Structural regression on Cargo.toml guards against future drift that
-// cargo c cannot catch on silent omissions.
+// Burden computation classifies fields with ori_types-native `Triviality` and
+// `Tag`; the manifest must not introduce an ori_arc dependency.
 const ORI_TYPES_CARGO_TOML: &str = include_str!("../../../Cargo.toml");
 
 #[test]
@@ -709,7 +705,7 @@ fn burden_list_instance_without_type_entry_resolves_via_side_table() {
         .burden(list_idx)
         .expect("registered [str] instance must resolve via side-table");
     assert!(
-        resolved.self_heap_alloc,
+        resolved.self_owned_identity,
         "[str] backing buffer is always heap-allocated"
     );
 }
@@ -725,7 +721,7 @@ fn burden_list_scalar_element_is_buffer_only() {
         .burden(list_idx)
         .expect("[int] instance resolves via side-table");
     assert!(
-        resolved.self_heap_alloc,
+        resolved.self_owned_identity,
         "[int] backing buffer is heap (buffer-only free)"
     );
     assert!(
@@ -744,7 +740,10 @@ fn burden_list_heap_element_carries_element_burden() {
     let resolved = registry
         .burden(list_idx)
         .expect("[str] instance resolves via side-table");
-    assert!(resolved.self_heap_alloc, "buffer is heap");
+    assert!(
+        resolved.self_owned_identity,
+        "list owns a distinct identity"
+    );
     assert_eq!(
         resolved.element_burden,
         Some(Idx::STR),
@@ -762,7 +761,7 @@ fn burden_map_instance_resolves_via_side_table() {
     let resolved = registry
         .burden(map_idx)
         .expect("{int: str} instance resolves via side-table");
-    assert!(resolved.self_heap_alloc, "map backing buffer is heap");
+    assert!(resolved.self_owned_identity, "map owns a distinct identity");
 }
 
 #[test]
@@ -775,7 +774,7 @@ fn burden_set_instance_resolves_via_side_table() {
     let resolved = registry
         .burden(set_idx)
         .expect("Set<str> instance resolves via side-table");
-    assert!(resolved.self_heap_alloc, "set backing buffer is heap");
+    assert!(resolved.self_owned_identity, "set owns a distinct identity");
     assert_eq!(
         resolved.element_burden,
         Some(Idx::STR),
@@ -821,6 +820,54 @@ fn burden_side_table_does_not_shadow_nominal_type_entry() {
 // resolve via burden(idx) (the side-table case exercising the .or_else fallback).
 
 #[test]
+fn recomposed_burden_preserves_drop_impl_overlay() {
+    // The Drop-impl overlay (`user_drop`/`drop_operation`) is populated once
+    // at impl registration; a later field-derived recomposition (the mono
+    // sweep's flush) must never clear it.
+    let pool = Pool::new();
+    let mut registry = TypeRegistry::new();
+    let name = test_name("Boomed");
+    let idx = Idx::from_raw(401);
+    let fields = vec![heap_str_field("tag")];
+    let burden = compute_struct_burden(&fields, &pool);
+    registry.register_struct(
+        name,
+        idx,
+        vec![],
+        fields,
+        test_span(),
+        Visibility::Public,
+        0,
+        None,
+        burden.clone(),
+    );
+    // Drop-impl overlay (the populate_drop_burden_if_applicable shape).
+    let fn_sym = match core::num::NonZeroU32::new(idx.raw()) {
+        Some(nz) => ori_registry::burden::FnSym::new(nz),
+        None => unreachable!(),
+    };
+    let overlaid = UserBurdenSpec {
+        user_drop: Some(fn_sym),
+        drop_operation: Some(fn_sym),
+        ..burden.clone().unwrap_or_default()
+    };
+    let _ = registry.register_user_burden(idx, overlaid);
+    assert!(registry.burden(idx).is_some_and(|b| b.user_drop.is_some()));
+
+    // Field-derived recomposition (user_drop-less) flushed over the same idx.
+    let recomposed = burden.unwrap_or_default();
+    assert!(recomposed.user_drop.is_none());
+    let _ = registry.register_user_burden(idx, recomposed);
+
+    let spec = registry.burden(idx).expect("burden survives");
+    assert!(
+        spec.user_drop.is_some(),
+        "a recomposed burden must preserve the Drop-impl overlay"
+    );
+    assert!(spec.drop_operation.is_some());
+}
+
+#[test]
 fn from_typed_exports_round_trips_nominal_type_entry_burden() {
     let pool = Pool::new();
     let mut source = TypeRegistry::new();
@@ -853,10 +900,10 @@ fn from_typed_exports_round_trips_nominal_type_entry_burden() {
         "str field round-trips as owned-heap"
     );
     assert_eq!(spec.owned_fields[0].field_type, Idx::STR);
-    assert!(spec.self_heap_alloc);
+    assert!(spec.self_owned_identity);
 
     // Genuine-pin clamp: a reconstruction NOT given the nominal entry resolves
-    // None — the positive assertion above is driven by the `entries` argument, so
+    // None — the positive assertion is driven by the `entries` argument, so
     // it FAILS if from_typed_exports dropped that argument.
     let empty = TypeRegistry::from_typed_exports(vec![], vec![]);
     assert!(
@@ -887,7 +934,10 @@ fn from_typed_exports_round_trips_collection_burden_side_table() {
     let resolved = rebuilt
         .burden(list_idx)
         .expect("collection-burden side-table entry must survive from_typed_exports round-trip");
-    assert!(resolved.self_heap_alloc, "[str] buffer is heap-allocated");
+    assert!(
+        resolved.self_owned_identity,
+        "[str] owns a distinct identity"
+    );
     assert_eq!(
         resolved.element_burden,
         Some(Idx::STR),
@@ -895,11 +945,72 @@ fn from_typed_exports_round_trips_collection_burden_side_table() {
     );
 
     // Genuine-pin clamp: a reconstruction NOT given the side-table resolves None —
-    // the positive resolution above exercises the .or_else(collection_burdens)
+    // the positive resolution exercises the `.or_else(collection_burdens)`
     // path, so it FAILS if from_typed_exports dropped that argument.
     let empty = TypeRegistry::from_typed_exports(vec![], vec![]);
     assert!(
         empty.burden(list_idx).is_none(),
         "side-table resolution must be fed by the collection_burdens argument"
+    );
+}
+
+/// Regression: an imported function's body resolves its internal collection types
+/// (e.g. a dead `for…yield` `[bool]` local) into the merged pool, but
+/// `register_imported_function` composes burdens for signature types only — so the
+/// codegen registry (rebuilt via `from_typed_exports` with signature-reachable
+/// burdens only) has no burden for the imported body's `[bool]`. Class-ledger
+/// Step-4b emission needs that metadata to resolve the collection's RC-bearing
+/// shape. `register_resolved_collection_burdens` walks the pool and fills the gap.
+#[test]
+fn register_resolved_collection_burdens_fills_pool_collection_gap() {
+    let mut pool = Pool::new();
+    // The imported body's internal `[bool]` — interned in the merged pool but
+    // never composed (it is not a signature type).
+    let bool_list = pool.list(Idx::BOOL);
+    // The codegen registry as rebuilt by from_typed_exports carries no burden for
+    // this internal collection (signature-only export).
+    let mut registry = TypeRegistry::from_typed_exports(vec![], vec![]);
+    assert!(
+        registry.burden(bool_list).is_none(),
+        "pre-condition: the imported-body [bool] has no burden in the rebuilt registry",
+    );
+
+    crate::register_resolved_collection_burdens(&pool, &mut registry);
+
+    let filled = registry
+        .burden(bool_list)
+        .expect("the pool-walk must compose + register the [bool] collection burden");
+    assert!(
+        filled.self_owned_identity,
+        "[bool] is heap-allocated, so class-ledger emission must see an RC-bearing burden",
+    );
+
+    // Negative clamp: a scalar primitive (int) is never registered — the walk
+    // touches only resolved collection / composite Idxs.
+    assert!(
+        registry.burden(Idx::INT).is_none(),
+        "the pool-walk must NOT register a burden for a scalar primitive",
+    );
+}
+
+#[test]
+fn resolved_tuple_with_iterator_registers_positional_owned_field() {
+    let mut pool = Pool::new();
+    let option = pool.option(Idx::INT);
+    let iterator = pool.iterator(Idx::INT);
+    let tuple = pool.tuple(&[option, iterator]);
+    let mut registry = TypeRegistry::from_typed_exports(vec![], vec![]);
+
+    crate::register_resolved_collection_burdens(&pool, &mut registry);
+
+    let burden = registry
+        .burden(tuple)
+        .expect("the final-pool tuple sweep must retain iterator field ownership");
+    assert_eq!(burden.owned_fields.len(), 1);
+    assert_eq!(burden.owned_fields[0].field_path, vec![1]);
+    assert_eq!(burden.owned_fields[0].field_type, iterator);
+    assert!(
+        registry.burden(iterator).is_none(),
+        "the destructor-freed iterator handle itself is not a refcount burden"
     );
 }

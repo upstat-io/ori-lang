@@ -10,6 +10,9 @@
 
 use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
 
+#[cfg(test)]
+mod tests;
+
 /// Whole-var burden-dec variant target, or `None` for a non-dec instruction
 /// or the field-grain `BurdenDecField`.
 ///
@@ -38,6 +41,10 @@ pub(crate) struct BurdenEntryNets {
     /// Merge points where predecessors exit with divergent nets, paired with
     /// one observed divergent exit value (for imbalance reporting).
     pub disagree_blocks: Vec<(usize, i64)>,
+    /// `true` iff the dataflow reached a fixed point (`!changed`); `false` iff
+    /// it exited via the iteration cap. The imbalance verdict (`disagree_blocks`)
+    /// is sound only on a converged result.
+    pub converged: bool,
 }
 
 /// Worklist forward dataflow over per-block burden `delta` (from
@@ -64,7 +71,7 @@ pub(crate) fn compute_burden_entry_nets(
     let mut iterations: usize = 0;
     while changed && iterations < iter_cap {
         // Loop exit is either convergence (`!changed`) or cap exhaustion —
-        // cap exhaustion is surfaced loud below (IC-7 convergence
+        // cap exhaustion is surfaced loud below (the convergence
         // discipline: a verifier silently under-verifying on stale entry
         // nets is a false-negative vector).
         changed = false;
@@ -90,7 +97,15 @@ pub(crate) fn compute_burden_entry_nets(
                 }
             }
             if let Some(c) = chosen {
-                if entry_net[b] != Some(c) {
+                // Freeze-on-disagree: once a merge block holds a defined net AND
+                // has been recorded as a disagreement, its entry net is final.
+                // Without the freeze, a back-edge predecessor's per-iteration
+                // growing net keeps re-selecting `chosen`, so the block never
+                // stabilizes and the loop oscillates to the iteration cap
+                // regardless of predecessor order.
+                let frozen =
+                    entry_net[b].is_some() && disagree_blocks.iter().any(|(db, _)| *db == b);
+                if !frozen && entry_net[b] != Some(c) {
                     entry_net[b] = Some(c);
                     changed = true;
                 }
@@ -119,6 +134,7 @@ pub(crate) fn compute_burden_entry_nets(
     BurdenEntryNets {
         entry_net,
         disagree_blocks,
+        converged: !changed,
     }
 }
 
@@ -153,6 +169,12 @@ pub(crate) enum BalanceViolationKind {
     /// A reachable terminal block (`Return` / `Resume` / `Unreachable`)
     /// nets nonzero — function-exit imbalance on a straight-line path.
     TerminalNonZero,
+    /// The forward dataflow exited via the iteration cap without converging
+    /// (`!converged`) AND recorded no merge disagreement — the nets are stale
+    /// and no path-imbalance verdict can be derived from them. Reported as a
+    /// HARD verification failure (abort at 100% of the iteration cap), never
+    /// silently passed (the fail-closed posture; Spec: Annex E §AIMS).
+    ConvergenceExhausted,
 }
 
 /// First per-var burden-balance violation, with the per-block delta the
@@ -187,13 +209,48 @@ pub(crate) fn balance_verdict(
 ) -> BalanceVerdict {
     let delta = compute_var_block_deltas(func, var);
     let nets = compute_burden_entry_nets(func, preds, &delta);
+    balance_verdict_from_nets(func, delta, &nets)
+}
 
+/// Verdict extraction from a precomputed `(delta, nets)` pair — the pure
+/// classification core (merge-disagree first, then convergence-exhausted
+/// fail-closed, then first nonzero terminal). Split from `balance_verdict`
+/// so the `ConvergenceExhausted` branch is directly pinnable: freeze-on-disagree
+/// makes a non-converged-without-disagree state unreachable through any real
+/// CFG (a cyclic non-zero-delta merge freezes and converges to `MergeDisagree`),
+/// so the fail-closed branch is verified against a hand-constructed non-converged
+/// `BurdenEntryNets`. The production path always threads through here.
+pub(crate) fn balance_verdict_from_nets(
+    func: &ArcFunction,
+    delta: Vec<i64>,
+    nets: &BurdenEntryNets,
+) -> BalanceVerdict {
     if let Some(&(block_idx, observed_net)) = nets.disagree_blocks.first() {
         return BalanceVerdict {
             violation: Some(BalanceViolation {
                 kind: BalanceViolationKind::MergeDisagree,
                 block_idx,
                 observed_net,
+            }),
+            delta,
+        };
+    }
+
+    // The terminal-net check trusts the converged entry nets. When the dataflow
+    // exited via the iteration cap (`!converged`) without a recorded disagree,
+    // the nets are stale — a `TerminalNonZero` verdict derived from them would be
+    // a false positive, but silently passing (`violation: None`) reinstates the
+    // under-verification this verifier exists to prevent. Report a HARD
+    // `ConvergenceExhausted` violation instead (fail-closed; Spec: Annex E §AIMS,
+    // abort at 100% of the iteration cap). The merge-disagree check above
+    // already handled the converged-with-disagree case (frozen, not oscillated),
+    // so this path is the defensive fail-closed for genuine non-convergence.
+    if !nets.converged {
+        return BalanceVerdict {
+            violation: Some(BalanceViolation {
+                kind: BalanceViolationKind::ConvergenceExhausted,
+                block_idx: func.entry.index(),
+                observed_net: 0,
             }),
             delta,
         };

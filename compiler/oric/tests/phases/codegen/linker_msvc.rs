@@ -58,8 +58,10 @@ mod tests {
         let cmd = linker.finalize();
         assert_eq!(cmd.get_program().to_string_lossy(), "lld-link");
 
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
-        assert!(args.contains(&"/nologo".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "/nologo"));
     }
 
     #[test]
@@ -70,9 +72,11 @@ mod tests {
         linker.strip_symbols(true);
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-        assert!(args.contains(&"/DEBUG:NONE".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "/DEBUG:NONE"));
     }
 
     #[test]
@@ -83,9 +87,11 @@ mod tests {
         linker.set_output_kind(LinkOutput::SharedLibrary);
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-        assert!(args.contains(&"/DLL".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "/DLL"));
     }
 
     #[test]
@@ -109,9 +115,11 @@ mod tests {
         linker.link_arg("/VERBOSE");
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-        assert!(args.contains(&"/VERBOSE".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "/VERBOSE"));
     }
 
     #[test]
@@ -131,9 +139,11 @@ mod tests {
         linker.set_output_kind(LinkOutput::PositionIndependentExecutable);
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-        assert!(args.contains(&"/SUBSYSTEM:CONSOLE".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "/SUBSYSTEM:CONSOLE"));
     }
 
     #[test]
@@ -144,8 +154,10 @@ mod tests {
         linker.export_symbols(&["foo".to_string()]);
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-        assert!(args.contains(&"/EXPORT:foo".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "/EXPORT:foo"));
     }
 }

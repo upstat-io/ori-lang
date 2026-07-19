@@ -30,8 +30,43 @@ use crate::codegen::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
 ///
 /// Consolidating the order decision here means a change to the teardown order
 /// is made in ONE place; the walks cannot drift on the LIFO invariant.
-pub(crate) fn field_rc_walk_order<T: Copy>(decl_order: &[T], is_teardown: bool) -> Vec<T> {
-    if is_teardown {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FieldRcWalkOrder {
+    Forward,
+    Teardown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RcOperation {
+    Retain { count: u32 },
+    Release,
+}
+
+impl RcOperation {
+    pub(crate) const fn prefix(self) -> &'static str {
+        match self {
+            Self::Retain { .. } => "rc_inc",
+            Self::Release => "rc_dec",
+        }
+    }
+
+    pub(crate) const fn retain_count(self) -> Option<u32> {
+        match self {
+            Self::Retain { count } => Some(count),
+            Self::Release => None,
+        }
+    }
+
+    pub(crate) const fn field_walk_order(self) -> FieldRcWalkOrder {
+        match self {
+            Self::Retain { .. } => FieldRcWalkOrder::Forward,
+            Self::Release => FieldRcWalkOrder::Teardown,
+        }
+    }
+}
+
+pub(crate) fn field_rc_walk_order<T: Copy>(decl_order: &[T], order: FieldRcWalkOrder) -> Vec<T> {
+    if order == FieldRcWalkOrder::Teardown {
         decl_order.iter().rev().copied().collect()
     } else {
         decl_order.to_vec()
@@ -82,20 +117,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.register_type(llvm_ty)
     }
 
-    /// Emit a runtime call, automatically adding a `"funclet"` operand bundle
-    /// when inside a SEH pad (`current_funclet_pad` is `Some`).
+    /// Emit a runtime call with the active SEH cleanup-pad bundle.
     ///
-    /// On Itanium (non-MSVC) targets, `current_funclet_pad` is always `None`
-    /// so this is a plain `self.builder.call()`. On SEH targets, cleanup and
-    /// catch pads set `current_funclet_pad` before emitting body instructions,
-    /// and this method transparently attaches the required bundle.
+    /// Itanium targets have no cleanup token and emit a plain call.
     pub(super) fn emit_rt_call(
         &mut self,
         callee: FunctionId,
         args: &[ValueId],
         name: &str,
     ) -> Option<ValueId> {
-        if let Some((pad, _kind)) = self.current_funclet_pad {
+        if let Some(pad) = self.current_cleanup_pad {
             return self.builder.call_with_funclet(callee, args, pad, name);
         }
         // Intercepted may-unwind builtin emission: route calls to
@@ -115,31 +146,41 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.call(callee, args, name)
     }
 
-    /// Branch to `target`, exiting the current catchpad via `catchret` trampoline.
+    /// Build an invoke-aware call to an sret-returning runtime function.
     ///
-    /// Emits `catchret pad → trampoline → br target`. Only valid for catchpads;
-    /// cleanup pads exit via `cleanupret` (handled by the Resume terminator).
-    ///
-    /// No-op + plain `br` when `current_funclet_pad` is `None`.
-    pub(super) fn br_exiting_catchpad(&mut self, target: BlockId) {
-        if let Some((pad, kind)) = self.current_funclet_pad.take() {
-            match kind {
-                super::FuncletPadKind::Catch => {
-                    let trampoline = self
-                        .builder
-                        .append_block(self.current_function, "seh.continue");
-                    self.builder.catchret(pad, trampoline);
-                    self.builder.position_at_end(trampoline);
-                }
-                super::FuncletPadKind::Cleanup => {
-                    self.builder.record_codegen_error_with_msg(
-                        "br_exiting_catchpad called from cleanuppad — \
-                         cleanup pads must exit via cleanupret (Resume terminator)",
-                    );
-                    self.builder.unreachable();
-                    return; // block is terminated; skip the br below
-                }
-            }
+    /// The sret twin of [`Self::emit_rt_call`] — mirrors
+    /// [`crate::codegen::ir_builder::IrBuilder::call_with_sret`]'s alloca +
+    /// prepend + call + load bookkeeping, but routes the underlying call
+    /// through `emit_rt_call` so a may-unwind sret callee (e.g.
+    /// `ori_str_index`) correctly emits `invoke` when `intercepted_unwind`
+    /// is armed, instead of always emitting a plain `call`.
+    pub(super) fn emit_rt_call_with_sret(
+        &mut self,
+        callee: crate::codegen::value_id::FunctionId,
+        args: &[crate::codegen::value_id::ValueId],
+        sret_type: crate::codegen::value_id::LLVMTypeId,
+        name: &str,
+    ) -> Option<crate::codegen::value_id::ValueId> {
+        let sret_ptr = self.builder.create_entry_alloca(
+            self.current_function,
+            &format!("{name}.sret"),
+            sret_type,
+        );
+        let mut full_args = Vec::with_capacity(args.len() + 1);
+        full_args.push(sret_ptr);
+        full_args.extend_from_slice(args);
+        self.emit_rt_call(callee, &full_args, name);
+        Some(self.builder.load(sret_type, sret_ptr, name))
+    }
+
+    /// Branch to `target` only when no SEH cleanup pad is active.
+    pub(super) fn br_outside_cleanup_pad(&mut self, target: BlockId) {
+        if self.current_cleanup_pad.take().is_some() {
+            self.builder.record_codegen_error_with_msg(
+                "normal branch inside cleanuppad; cleanup pads must exit with Resume",
+            );
+            self.builder.unreachable();
+            return;
         }
         self.builder.br(target);
     }
@@ -200,9 +241,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// need representation info. For typed access, use [`var_emitted`](Self::var_emitted).
     ///
     /// # Panics
-    /// Panics if the stored value is `Pair` or `ZeroSized`. Use `var_emitted()`
-    /// for variables that may hold those variants.
-    ///
     /// Returns `ValueId::NONE` and logs an error if the variable is not yet defined.
     pub(super) fn var(&self, v: ArcVarId) -> ValueId {
         self.var_emitted(v).into_raw()

@@ -1,7 +1,7 @@
 //! Shipped-lattice probe for the locality shipped-conformance cross-walk.
 //!
 //! Parses compiler/ori_arc/src/aims/lattice/dimensions.rs and
-//! compiler/ori_arc/src/aims/contract/mod.rs at build time via
+//! compiler/ori_arc/src/aims/contract/param.rs at build time via
 //! syn AST traversal; emits two pub const declarations into
 //! $OUT_DIR/shipped_lattice_probe.rs the checker's `shipped_lattice_probe`
 //! module includes:
@@ -25,15 +25,15 @@ fn main() {
     let compiler_root = locate_compiler_root();
     let dimensions_path = compiler_root
         .join("compiler/ori_arc/src/aims/lattice/dimensions.rs");
-    let contract_path = compiler_root
-        .join("compiler/ori_arc/src/aims/contract/mod.rs");
+    let param_contract_path = compiler_root
+        .join("compiler/ori_arc/src/aims/contract/param.rs");
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={}", dimensions_path.display());
-    println!("cargo:rerun-if-changed={}", contract_path.display());
+    println!("cargo:rerun-if-changed={}", param_contract_path.display());
 
     let variant_count = probe_locality_variant_count(&dimensions_path);
-    let may_escape_stored = probe_may_escape_is_stored(&contract_path);
+    let may_escape_stored = probe_may_escape_is_stored(&param_contract_path);
 
     let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR not set");
     let out_path = Path::new(&out_dir).join("shipped_lattice_probe.rs");
@@ -43,7 +43,7 @@ fn main() {
          // DO NOT EDIT. Per the locality cross-walk SC4.\n\
          /// Number of variants in the shipped `Locality` enum (probed from `dimensions.rs` AST).\n\
          pub const LATTICE_VARIANT_COUNT: usize = {variant_count};\n\
-         /// Whether `ParamContract.may_escape` is a stored field (probed from `contract/mod.rs` AST).\n\
+         /// Whether `ParamContract.may_escape` is a stored field (probed from `contract/param.rs` AST).\n\
          pub const MAY_ESCAPE_IS_STORED: bool = {may_escape_stored};\n"
     );
 
@@ -93,7 +93,7 @@ fn probe_locality_variant_count(path: &Path) -> usize {
     );
 }
 
-/// Parse `contract/mod.rs` and detect whether `struct ParamContract`
+/// Parse `contract/param.rs` and detect whether `struct ParamContract`
 /// carries `may_escape` as a stored field. Returns `true` if a field named
 /// `may_escape` exists on the struct; `false` otherwise (e.g., only
 /// `fn may_escape(&self) -> _` impl remains after the locality work).

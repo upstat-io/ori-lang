@@ -1,64 +1,41 @@
-Theorem RL-comp: whole-suite composition — RL-1..RL-34 realization equals plain ARC
+Theorem RL-comp: whole-suite evaluator behavior, exact trace, and projection satisfaction
 
   Preconditions:
-    - This is the §08.12 composition theorem per the sec-08
-      success_criteria: RL-1..RL-34 applied to a realized ArcFunction produce
-      observably equivalent behavior to plain ARC on the same function.
-    - Signature ArcFunction x AimsStateMap -> ArcFunction per
-      the canonical proof notation:264; discharged against the sec-01
-      Realization.proof sorry obligation.
-    - Each constituent RL-N is proved by its own theorem (RL-1.proof ..
-      RL-34.proof + RL-11a / RL-14a / RL-15a / RL-18a + the RL-13 removal
-      confirmation); RL-comp composes them into the joined claim.
-    - depends-on every RL-N (the constituent realization rules) + the
-      RL-1/RL-2 multi-use Let Var composition.
+    - Every active RL constituent discharges, including RL-11a/14a/15a/18a,
+      the RL-13 removal confirmation, and RL-1/RL-2 multi-use composition.
+    - Canonical evaluator behavior is the semantic oracle.
+    - AllocationFacts freezes an exact AIMS logical trace.
+    - A physical plan is admitted only through the separate Satisfies relation.
 
   Soundness property:
-    Forall realized ArcFunction F:
-
-      (P1) Joined equivalence: applying the full realization rule set
-           (RL-1..RL-34, with the RL-13 removal and the RL-11a/14a/15a/18a
-           sub-rules) to F produces an ArcFunction whose observable behavior
-           equals plain ARC on F. Each constituent rule is a refinement of
-           plain ARC (RC-count preserving, value-semantics preserving, or
-           layout/escape preserving); their composition preserves the
-           conjunction of those properties.
-
-      (P2) Conjunction strength: RL-comp is EXACTLY as strong as the
-           conjunction of its constituents — it holds iff every constituent
-           RL-N discharges. It never gracious-accepts over a failing or
-           missing premise. A dropped constituent leaves a realization rule
-           unproven (a false-valid risk), so the coverage gate asserts the
-           full active-rule count.
-
-    RL-comp is the capstone of the sec-08 substantive contribution: the proof
-    that AIMS realization, rule by rule and composed, is a sound refinement of
-    plain ARC — every RC operation in the emitted IR corresponds to a specific
-    proof step, and their composition does not introduce a leak, double-free,
-    or observable divergence.
+    Forall realized function F and admitted projection P:
+      (P1) evaluator_behavior(realize(F)) = evaluator_behavior(F).
+      (P2) projection_trace(P) = aimsTrace(facts(F)) exactly, including
+           OwnershipObservationFacts and CleanupObligation identities.
+      (P3) Satisfies(facts(F), extent(F), capabilities(P)).
+      (P4) RL-comp is exactly as strong as the conjunction of all constituents.
+    Behavior parity, trace equality, and Satisfies are independent obligations;
+    no physical ARC/reference-counter baseline is used as a semantic oracle.
 
   Proof obligation:
-    Constructive discharge by the rc_counting engine via composition of all
-    discharged RL constituents (mirrors section_07::verify_pl_composition).
+    - Re-run all 38 active RL constituent verifiers and require Valid.
+    - Re-run the RL-1/RL-2 combined multi-use obligation.
+    - Compare canonical and realized evaluator behavior on aliased and
+      unaliased mutation cases.
+    - Compare the capability trace directly with the exact AIMS trace.
+    - Check Satisfies separately even when trace equality holds.
+    - Coverage gate: exactly 38 constituents; none may be dropped.
 
-    Part (P1/P2) — constituent composition:
-      The verifier re-runs each of the 38 RL constituent verifiers (RL-1..5,
-      RL-6..10, RL-11/11a/12/13, RL-14/14a/15/15a/16, RL-17/18, RL-18a,
-      RL-19..21, RL-22..26, RL-27/28, RL-29/30/31, RL-32/33/34), asserts each
-      returns Valid, AND re-runs the RL-1/RL-2 multi-use Let Var composition.
-      Coverage gate: exactly 38 RL constituents discharged. A failing or
-      missing constituent fails RL-comp (the joined claim is no stronger than
-      its weakest premise).
+    Negative-direction witnesses:
+      A shared same-identity mutation changes an alias view and fails behavior
+      parity. A changed observation identity fails exact trace equality. A plan
+      with insufficient owner capacity fails Satisfies.
 
     Engines dispatched:
-      rc_counting (PRIMARY — section_08::verify_rl_composition; constituent
-        re-run + Valid-assertion + 38-count coverage gate; emits Fail on any
-        non-discharging constituent or a count mismatch)
-      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
-      case_analysis (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
+      rc_counting (PRIMARY — section_08::verify_rl_composition)
+      refinement (SECONDARY — gracious-accept)
+      case_analysis (SECONDARY — gracious-accept)
 
   Expected:
     status: valid
-    reason: section_08 rc_counting engine discharges the whole-suite composition theorem RL-comp by composing all 38 discharged RL constituents (each re-run and asserted Valid) plus the RL-1/RL-2 multi-use Let Var composition, with a 38-count coverage gate ensuring no constituent is dropped — the joined proof that RL-1..RL-34 realization is observably equivalent to plain ARC
+    reason: RL-comp composes 38 constituents with independent canonical evaluator behavior, exact AIMS logical trace equality, and Satisfies obligations

@@ -1,20 +1,141 @@
 //! Method call type inference: `receiver.method(args)`.
 
-use ori_diagnostic::Suggestion;
+mod support;
+
 use ori_ir::{ExprArena, ExprId, Name, Span};
 
+use crate::{Expected, Idx};
+
 use super::super::super::InferEngine;
-use super::super::{infer_expr, range_method_requires_iteration, resolve_builtin_method};
+use super::super::infer_expr;
 use super::closure_unify::unify_higher_order_constraints;
 use super::constraints::{check_method_inline_bounds, check_method_where_clauses};
 use super::impl_lookup::{lookup_impl_method, ImplMethodSig, LookupOutcome};
 use super::impl_signature::resolve_impl_signature;
-use super::infinite_iterator::check_infinite_iterator_consumed;
-use super::method_diagnostics::{
-    emit_into_not_implemented, emit_unknown_method, is_named_generic_var,
+use super::method_diagnostics::{emit_into_not_implemented, emit_unknown_method};
+use super::method_receiver::{resolve_receiver_and_builtin, ReceiverDispatch};
+use super::module_alias_call;
+use super::monomorphization::{
+    maybe_record_method_mono_instance, resolve_method_call_generic_args,
 };
-use super::monomorphization::maybe_record_method_mono_instance;
-use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
+use support::{
+    apply_receiver_type_args, callable_field_fn_ty, check_callable_field_positional,
+    check_named_args, check_positional_args,
+};
+
+pub(crate) use support::suggest_iterator_fix;
+
+#[derive(Clone, Copy, Debug)]
+pub(in crate::infer::expr) struct MethodCallSite<'a> {
+    call_expr_id: ExprId,
+    receiver: ExprId,
+    method: Name,
+    span: Span,
+    expected: Option<&'a Expected>,
+}
+
+impl<'a> MethodCallSite<'a> {
+    pub(in crate::infer::expr) const fn new(
+        call_expr_id: ExprId,
+        receiver: ExprId,
+        method: Name,
+        span: Span,
+        expected: Option<&'a Expected>,
+    ) -> Self {
+        Self {
+            call_expr_id,
+            receiver,
+            method,
+            span,
+            expected,
+        }
+    }
+}
+
+/// The builtin-dispatch call site fed to [`finish_builtin_return`] — the
+/// resolved builtin's return/receiver types, the caller's arg types/spans,
+/// and the call's span + outer expected type, bundled to keep the recording
+/// call under the workspace argument-count lint.
+#[derive(Clone, Copy)]
+struct BuiltinReturnSite<'a> {
+    method: Name,
+    ret_ty: Idx,
+    receiver_ty: Idx,
+    arg_types: &'a [Idx],
+    arg_spans: &'a [Span],
+    span: Span,
+    expected: Option<&'a Expected>,
+}
+
+/// Unify a builtin method's higher-order constraints against its resolved
+/// arg types, then (BD-2) propagate the call site's outer `expected` into the
+/// builtin's return type before returning it. Shared tail of the
+/// `ReceiverDispatch::Return` branch in both positional and named-arg method
+/// call inference.
+fn finish_builtin_return(engine: &mut InferEngine<'_>, site: BuiltinReturnSite<'_>) -> Idx {
+    let BuiltinReturnSite {
+        method,
+        ret_ty,
+        receiver_ty,
+        arg_types,
+        arg_spans,
+        span,
+        expected,
+    } = site;
+    unify_higher_order_constraints(
+        engine,
+        method,
+        ret_ty,
+        receiver_ty,
+        arg_types,
+        arg_spans,
+        span,
+    );
+    // BD-2: propagate outer expected into builtin ret_ty so a
+    // generic-return builtin (e.g. collect's default [T]) unifies
+    // with the LHS annotation at the call site.
+    if let Some(exp) = expected {
+        let _ = engine.check_type(ret_ty, exp, span);
+    }
+    ret_ty
+}
+
+/// After BD-2 propagation + arg-checking for a resolved impl-method call,
+/// enforce the method's where-clauses and inline generic bounds, then record
+/// a receiver-bearing `MonoInstance` for an inherent generic-impl method.
+/// Shared tail of the resolved-signature branch in both positional and
+/// named-arg method call inference; inert for every other dispatch kind.
+fn finish_resolved_method_call(
+    engine: &mut InferEngine<'_>,
+    call_expr_id: ExprId,
+    method: Name,
+    resolved: Idx,
+    sig: &ImplMethodSig,
+    const_bindings: &[crate::MonoConstBinding],
+    span: Span,
+) {
+    check_method_where_clauses(
+        engine,
+        &sig.where_clause_metadata,
+        &sig.instantiation_subst,
+        span,
+    );
+    check_method_inline_bounds(
+        engine,
+        &sig.generic_param_metadata,
+        &sig.scheme_var_ids,
+        &sig.instantiation_subst,
+        span,
+    );
+    maybe_record_method_mono_instance(
+        engine,
+        Some(call_expr_id),
+        method,
+        resolved,
+        sig,
+        const_bindings,
+    );
+}
 
 /// Infer the type of a method call expression: `receiver.method(args)`.
 ///
@@ -24,86 +145,106 @@ use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 /// 3. User-defined trait methods (from `impl Type: Trait { ... }`)
 ///
 /// For unresolved type variables, returns a fresh variable to defer resolution.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "mirrors ExprKind::MethodCall fields"
-)]
-pub(crate) fn infer_method_call(
+pub(in crate::infer::expr) fn infer_method_call(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
-    call_expr_id: ExprId,
-    receiver: ExprId,
-    method: Name,
+    site: MethodCallSite<'_>,
     args: ori_ir::ExprRange,
-    span: Span,
-    expected: Option<&Expected>,
 ) -> Idx {
-    let resolved = match resolve_receiver_and_builtin(engine, arena, receiver, method, span) {
-        ReceiverDispatch::Return {
-            ret_ty,
-            receiver_ty,
-        } => {
-            let arg_ids: Vec<ExprId> = arena.get_expr_list(args).to_vec();
-            let arg_types: Vec<Idx> = arg_ids
-                .iter()
-                .map(|&arg_id| infer_expr(engine, arena, arg_id))
-                .collect();
-            let arg_spans: Vec<Span> = arg_ids
-                .iter()
-                .map(|&arg_id| arena.get_expr(arg_id).span)
-                .collect();
-            unify_higher_order_constraints(
-                engine,
-                method,
+    let MethodCallSite {
+        call_expr_id,
+        receiver,
+        method,
+        span,
+        expected,
+    } = site;
+
+    // Module-alias qualified call `alias.func(args)` (Spec: Clause 18.3.4). Resolved
+    // against the aliased module's signature BEFORE ordinary method dispatch so
+    // the namespace receiver does not poison to `Idx::ERROR`.
+    {
+        let arg_ids = arena.get_expr_list(args).to_vec();
+        if let Some(ret) = module_alias_call::try_infer_module_alias_call(
+            engine,
+            arena,
+            call_expr_id,
+            receiver,
+            method,
+            &arg_ids,
+            span,
+        ) {
+            if let Some(exp) = expected {
+                let _ = engine.check_type(ret, exp, span);
+            }
+            return ret;
+        }
+    }
+
+    let resolved =
+        match resolve_receiver_and_builtin(engine, arena, call_expr_id, receiver, method, span) {
+            ReceiverDispatch::Return {
                 ret_ty,
                 receiver_ty,
-                &arg_types,
-                &arg_spans,
-                span,
-            );
-            // §09.5 BD-2: propagate outer expected into builtin ret_ty so a
-            // generic-return builtin (e.g. collect's default [T]) unifies
-            // with the LHS annotation at the call site.
-            if let Some(exp) = expected {
-                let _ = engine.check_type(ret_ty, exp, span);
+            } => {
+                let arg_ids = arena.get_expr_list(args);
+                let arg_types: Vec<Idx> = arg_ids
+                    .iter()
+                    .map(|&arg_id| infer_expr(engine, arena, arg_id))
+                    .collect();
+                let arg_spans: Vec<Span> = arg_ids
+                    .iter()
+                    .map(|&arg_id| arena.get_expr(arg_id).span)
+                    .collect();
+                return finish_builtin_return(
+                    engine,
+                    BuiltinReturnSite {
+                        method,
+                        ret_ty,
+                        receiver_ty,
+                        arg_types: &arg_types,
+                        arg_spans: &arg_spans,
+                        span,
+                        expected,
+                    },
+                );
             }
-            return ret_ty;
-        }
-        ReceiverDispatch::Continue { resolved } => resolved,
-    };
+            ReceiverDispatch::Continue { resolved } => {
+                apply_receiver_type_args(engine, arena, resolved, receiver, span)
+            }
+        };
 
     let arg_ids = arena.get_expr_list(args);
     let outcome = lookup_impl_method(engine, resolved, method);
-    // §06.5: a genuine `NotFound` (NOT `Ambiguous`, which already pushed E2023)
+    // A genuine `NotFound` (NOT `Ambiguous`, which already pushed E2023)
     // must surface a diagnostic, not silently poison via `Idx::ERROR`.
     let was_not_found = matches!(outcome, LookupOutcome::NotFound);
     if let Some(Ok(sig)) = resolve_impl_signature(engine, outcome, method, arg_ids.len(), span) {
-        // §09.5 BD-2: propagate outer expected into sig.ret BEFORE arg-checking
-        // so the generic return slot is constrained by the LHS annotation.
-        // Closes the `let e: Error = msg.into()` gap where the generic T in
-        // `into<T>(self) -> T` previously stayed an unresolved fresh var.
+        let const_bindings =
+            resolve_method_call_generic_args(engine, arena, call_expr_id, &sig, expected, span);
+        // INVARIANT: constrain generic returns from the outer expectation before arguments.
         if let Some(exp) = expected {
             let _ = engine.check_type(sig.ret, exp, span);
         }
         let ret_ty = check_positional_args(engine, arena, arg_ids, &sig, span);
-        check_method_where_clauses(
-            engine,
-            &sig.where_clause_metadata,
-            &sig.instantiation_subst,
-            span,
-        );
-        check_method_inline_bounds(
-            engine,
-            &sig.generic_param_metadata,
-            &sig.scheme_var_ids,
-            &sig.instantiation_subst,
-            span,
-        );
         // Record a receiver-bearing MonoInstance for an inherent generic-impl
         // method (`Box<int>.unwrap()`). Runs AFTER arg-checking so the method's
         // instantiation vars are unified; inert for every other dispatch kind.
-        maybe_record_method_mono_instance(engine, call_expr_id, method, resolved, &sig);
+        finish_resolved_method_call(
+            engine,
+            call_expr_id,
+            method,
+            resolved,
+            &sig,
+            &const_bindings,
+            span,
+        );
         return ret_ty;
+    }
+
+    // Callable struct field: `s.transform(21)` where `transform: (int) -> int`
+    // is a field, not a method. `callable_field_fn_ty` handles this receiver form.
+    if let Some(fn_ty) = callable_field_fn_ty(engine, resolved, method) {
+        return check_callable_field_positional(engine, arena, fn_ty, arg_ids, span, expected);
     }
 
     // Error or not found -- infer all args for side effects
@@ -111,12 +252,8 @@ pub(crate) fn infer_method_call(
         infer_expr(engine, arena, arg_id);
     }
 
-    // Emit E2036 for unresolved `.into()` calls
     emit_into_not_implemented(engine, resolved, method, span);
-    // §06.5: surface a method-not-found diagnostic for a genuine NotFound on a
-    // diagnosable receiver (concrete / RigidVar) — closes the silent-poison
-    // class (BUG-02-044 + §10.1 rigid-receiver negative case). Skipped for
-    // Ambiguous (already emitted) + unresolved Var (deferred) + into.
+    // INVARIANT: only genuine `NotFound` outcomes emit an unknown-method diagnostic.
     if was_not_found {
         emit_unknown_method(engine, resolved, method, span);
     }
@@ -125,96 +262,105 @@ pub(crate) fn infer_method_call(
 }
 
 /// Infer the type of a named-argument method call: `receiver.method(name: value)`.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "mirrors ExprKind::MethodCallNamed fields"
-)]
-pub(crate) fn infer_method_call_named(
+pub(in crate::infer::expr) fn infer_method_call_named(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
-    call_expr_id: ExprId,
-    receiver: ExprId,
-    method: Name,
+    site: MethodCallSite<'_>,
     args: ori_ir::CallArgRange,
-    span: Span,
-    expected: Option<&Expected>,
 ) -> Idx {
-    let resolved = match resolve_receiver_and_builtin(engine, arena, receiver, method, span) {
-        ReceiverDispatch::Return {
-            ret_ty,
-            receiver_ty,
-        } => {
-            let call_args = arena.get_call_args(args);
-            let arg_types: Vec<Idx> = call_args
-                .iter()
-                .map(|arg| infer_expr(engine, arena, arg.value))
-                .collect();
-            // Per Plan TPR finding A4: use arena.get_expr(arg.value).span
-            // (value-only span) instead of arg.span (whole `name: value` range)
-            // so diagnostics anchor at the closure body, not the keyword.
-            let arg_spans: Vec<Span> = call_args
-                .iter()
-                .map(|arg| arena.get_expr(arg.value).span)
-                .collect();
-            unify_higher_order_constraints(
-                engine,
-                method,
+    let MethodCallSite {
+        call_expr_id,
+        receiver,
+        method,
+        span,
+        expected,
+    } = site;
+
+    // Module-alias qualified call `alias.func(name: value, ...)` (Spec: Clause 18.3.4).
+    {
+        let call_args = arena.get_call_args(args).to_vec();
+        if let Some(ret) = module_alias_call::try_infer_module_alias_call_named(
+            engine,
+            arena,
+            call_expr_id,
+            receiver,
+            method,
+            &call_args,
+            span,
+        ) {
+            if let Some(exp) = expected {
+                let _ = engine.check_type(ret, exp, span);
+            }
+            return ret;
+        }
+    }
+
+    let resolved =
+        match resolve_receiver_and_builtin(engine, arena, call_expr_id, receiver, method, span) {
+            ReceiverDispatch::Return {
                 ret_ty,
                 receiver_ty,
-                &arg_types,
-                &arg_spans,
-                span,
-            );
-            // §09.5 BD-2: propagate outer expected into builtin ret_ty
-            // (mirrors infer_method_call positional path).
-            if let Some(exp) = expected {
-                let _ = engine.check_type(ret_ty, exp, span);
+            } => {
+                let call_args = arena.get_call_args(args);
+                let arg_types: Vec<Idx> = call_args
+                    .iter()
+                    .map(|arg| infer_expr(engine, arena, arg.value))
+                    .collect();
+                // Use arena.get_expr(arg.value).span (value-only span) instead of
+                // arg.span (whole `name: value` range) so diagnostics anchor at the
+                // closure body, not the keyword.
+                let arg_spans: Vec<Span> = call_args
+                    .iter()
+                    .map(|arg| arena.get_expr(arg.value).span)
+                    .collect();
+                // (mirrors infer_method_call positional path).
+                return finish_builtin_return(
+                    engine,
+                    BuiltinReturnSite {
+                        method,
+                        ret_ty,
+                        receiver_ty,
+                        arg_types: &arg_types,
+                        arg_spans: &arg_spans,
+                        span,
+                        expected,
+                    },
+                );
             }
-            return ret_ty;
-        }
-        ReceiverDispatch::Continue { resolved } => resolved,
-    };
+            ReceiverDispatch::Continue { resolved } => {
+                apply_receiver_type_args(engine, arena, resolved, receiver, span)
+            }
+        };
 
     let call_args = arena.get_call_args(args);
     let outcome = lookup_impl_method(engine, resolved, method);
     let was_not_found = matches!(outcome, LookupOutcome::NotFound);
     if let Some(Ok(sig)) = resolve_impl_signature(engine, outcome, method, call_args.len(), span) {
-        // §09.5 BD-2: propagate outer expected into sig.ret BEFORE arg-checking.
+        let const_bindings =
+            resolve_method_call_generic_args(engine, arena, call_expr_id, &sig, expected, span);
+        // BD-2: propagate outer expected into sig.ret BEFORE arg-checking.
         if let Some(exp) = expected {
             let _ = engine.check_type(sig.ret, exp, span);
         }
-        for (i, (arg, &param_ty)) in call_args.iter().zip(sig.params.iter()).enumerate() {
-            let expected = Expected {
-                ty: param_ty,
-                origin: ExpectedOrigin::Context {
-                    span,
-                    kind: ContextKind::FunctionArgument {
-                        func_name: None,
-                        arg_index: i,
-                        param_name: arg.name,
-                    },
-                },
-            };
-            let arg_ty = infer_expr(engine, arena, arg.value);
-            let _ = engine.check_type(arg_ty, &expected, arg.span);
-        }
-        check_method_where_clauses(
-            engine,
-            &sig.where_clause_metadata,
-            &sig.instantiation_subst,
-            span,
-        );
-        check_method_inline_bounds(
-            engine,
-            &sig.generic_param_metadata,
-            &sig.scheme_var_ids,
-            &sig.instantiation_subst,
-            span,
-        );
+        check_named_args(engine, arena, args, &sig, span);
         // Mirror the positional path: record a receiver-bearing MonoInstance for
         // an inherent generic-impl method after named-arg checking.
-        maybe_record_method_mono_instance(engine, call_expr_id, method, resolved, &sig);
+        finish_resolved_method_call(
+            engine,
+            call_expr_id,
+            method,
+            resolved,
+            &sig,
+            &const_bindings,
+            span,
+        );
         return sig.ret;
+    }
+
+    // Why: closure fields lack parameter names, so named values check positionally.
+    if let Some(fn_ty) = callable_field_fn_ty(engine, resolved, method) {
+        let value_ids: Vec<ExprId> = call_args.iter().map(|arg| arg.value).collect();
+        return check_callable_field_positional(engine, arena, fn_ty, &value_ids, span, expected);
     }
 
     // Error or not found -- infer all args for side effects
@@ -222,224 +368,11 @@ pub(crate) fn infer_method_call_named(
         infer_expr(engine, arena, arg.value);
     }
 
-    // Emit E2036 for unresolved `.into()` calls
     emit_into_not_implemented(engine, resolved, method, span);
-    // §06.5: surface a method-not-found diagnostic for a genuine NotFound on a
-    // diagnosable receiver (concrete / RigidVar) — closes the silent-poison
-    // class (BUG-02-044 + §10.1 rigid-receiver negative case). Skipped for
-    // Ambiguous (already emitted) + unresolved Var (deferred) + into.
+    // INVARIANT: only genuine `NotFound` outcomes emit an unknown-method diagnostic.
     if was_not_found {
         emit_unknown_method(engine, resolved, method, span);
     }
 
     Idx::ERROR
-}
-
-/// Result of resolving a method receiver and checking builtin dispatch.
-enum ReceiverDispatch {
-    /// Return this type. Caller must infer all args first.
-    /// `receiver_ty` is the resolved receiver, needed for higher-order constraint propagation.
-    Return { ret_ty: Idx, receiver_ty: Idx },
-    /// No builtin found. Proceed to impl lookup with this resolved receiver.
-    Continue { resolved: Idx },
-}
-
-/// Type-check positional method call arguments against resolved param types.
-fn check_positional_args(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    arg_ids: &[ExprId],
-    sig: &ImplMethodSig,
-    span: Span,
-) -> Idx {
-    for (i, (&arg_id, &param_ty)) in arg_ids.iter().zip(sig.params.iter()).enumerate() {
-        let expected = Expected {
-            ty: param_ty,
-            origin: ExpectedOrigin::Context {
-                span,
-                kind: ContextKind::FunctionArgument {
-                    func_name: None,
-                    arg_index: i,
-                    param_name: None,
-                },
-            },
-        };
-        let arg_ty = infer_expr(engine, arena, arg_id);
-        let _ = engine.check_type(arg_ty, &expected, arena.get_expr(arg_id).span);
-    }
-    sig.ret
-}
-
-/// Resolve the receiver type and try builtin method dispatch.
-///
-/// Handles: receiver inference, error propagation, scheme instantiation,
-/// type-variable deferral, builtin method lookup, `DoubleEndedIterator`
-/// gating, and `Range<float>` iteration rejection.
-///
-/// Returns `Return(ty)` for early results (caller should infer all args
-/// and return the type). Returns `Continue { resolved }` to proceed
-/// with impl method lookup.
-fn resolve_receiver_and_builtin(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    receiver: ExprId,
-    method: Name,
-    span: Span,
-) -> ReceiverDispatch {
-    let receiver_ty = infer_expr(engine, arena, receiver);
-    let resolved = engine.resolve(receiver_ty);
-
-    // Propagate errors silently
-    if resolved == Idx::ERROR {
-        return ReceiverDispatch::Return {
-            ret_ty: Idx::ERROR,
-            receiver_ty: Idx::ERROR,
-        };
-    }
-
-    // If receiver is a scheme, instantiate it to get the concrete type
-    let resolved = if engine.pool().tag(resolved) == Tag::Scheme {
-        engine.instantiate(resolved)
-    } else {
-        resolved
-    };
-
-    // For unresolved type variables, defer resolution UNLESS the var has
-    // registered trait bounds (§10.1 bound-chain dispatch on top-level
-    // function type-params, which use `pool.fresh_named_var` and surface
-    // as `Tag::Var` rather than `Tag::RigidVar`). Bounded vars must
-    // continue through `lookup_impl_method` so the bound chain runs;
-    // otherwise the early-return masks the dispatch.
-    let tag = engine.pool().tag(resolved);
-    if tag == Tag::Var {
-        let has_bounds = engine.rigid_var_bounds(resolved).is_some();
-        if !has_bounds {
-            // A NAMED unbound var that is a generic type parameter (`@f<T>(x: T)`,
-            // surfaced via `fresh_named_var`, name not a registered trait) has no
-            // methods statically, so `x.m()` MUST surface a diagnostic via the
-            // NotFound path (§06.5), NOT defer. An ANONYMOUS unbound var (genuine
-            // inference var) and a capability/trait-namespace named var (`Http`,
-            // name IS a registered trait) defer — see `is_named_generic_var`.
-            if !is_named_generic_var(engine, resolved) {
-                return ReceiverDispatch::Return {
-                    ret_ty: engine.pool_mut().fresh_var(),
-                    receiver_ty: resolved,
-                };
-            }
-            // Named generic with no bound: fall through to `lookup_impl_method`,
-            // which returns NotFound → `emit_unknown_method` reports the error.
-        }
-    }
-
-    let method_str = engine.lookup_name(method);
-
-    // 1. Try built-in method resolution
-    if let Some(name_str) = method_str {
-        if let Some(ret) = resolve_builtin_method(engine, resolved, tag, name_str) {
-            // 1a. Before returning, check for infinite iterator consumption
-            if matches!(tag, Tag::Iterator | Tag::DoubleEndedIterator) {
-                check_infinite_iterator_consumed(engine, arena, receiver, name_str, span);
-            }
-            return ReceiverDispatch::Return {
-                ret_ty: ret,
-                receiver_ty: resolved,
-            };
-        }
-    }
-
-    // 1b. Reject DoubleEndedIterator methods on plain Iterator receivers
-    if tag == Tag::Iterator {
-        if let Some(name_str) = method_str {
-            if ori_registry::is_dei_only(name_str) {
-                engine.push_error(TypeCheckError::unsatisfied_bound(
-                    span,
-                    format!(
-                        "`{name_str}` requires a DoubleEndedIterator, \
-                         but this is an Iterator (use .iter() on a list, range, \
-                         or string to get a DoubleEndedIterator)"
-                    ),
-                ));
-                return ReceiverDispatch::Return {
-                    ret_ty: Idx::ERROR,
-                    receiver_ty: Idx::ERROR,
-                };
-            }
-        }
-    }
-
-    // 1c. Reject ALL methods on Range<float> — ranges are int-only per spec.
-    // Float range construction is now rejected in infer_range(), but this guard
-    // is defense-in-depth in case Range<float> is constructed through other means.
-    // Iteration methods get a specific diagnostic; other methods get a generic
-    // "Range<float> not supported" error with a diagnostic (not silent).
-    if tag == Tag::Range && engine.pool().range_elem(resolved) == Idx::FLOAT {
-        if let Some(err) = check_range_float_iteration(engine, resolved, tag, method_str, span) {
-            return ReceiverDispatch::Return {
-                ret_ty: err,
-                receiver_ty: resolved,
-            };
-        }
-        // Non-iteration methods: emit diagnostic, then return error
-        engine.push_error(TypeCheckError::range_float_not_constructible(span));
-        return ReceiverDispatch::Return {
-            ret_ty: Idx::ERROR,
-            receiver_ty: resolved,
-        };
-    }
-
-    ReceiverDispatch::Continue { resolved }
-}
-
-/// Check if a method call on a `Range<float>` is attempting iteration.
-///
-/// Returns `Some(Idx::ERROR)` with a diagnostic pushed if the method
-/// is an iteration method and the range element type is `float`.
-/// Returns `None` if the check doesn't apply.
-fn check_range_float_iteration(
-    engine: &mut InferEngine<'_>,
-    resolved: Idx,
-    tag: Tag,
-    method_str: Option<&str>,
-    span: Span,
-) -> Option<Idx> {
-    if tag != Tag::Range {
-        return None;
-    }
-    let name_str = method_str?;
-    if !range_method_requires_iteration(name_str) {
-        return None;
-    }
-    let elem = engine.pool().range_elem(resolved);
-    if elem != Idx::FLOAT {
-        return None;
-    }
-    engine.push_error(TypeCheckError::range_float_not_iterable(
-        span,
-        "(0..10).iter().map((i) -> i.to_float() / 10.0)",
-    ));
-    Some(Idx::ERROR)
-}
-
-/// Tag-specialized fix suggestion for the `flat_map` closure-return diagnostic.
-///
-/// Queries `ori_registry` to determine whether the actual closure-return
-/// tag has a callable `.iter()` method that yields `Iterator<U>`. When yes,
-/// the suggestion points users straight at that fix. When no (or when the
-/// tag has no registry mapping — type variables, named types, projections,
-/// etc.), the suggestion falls back to the generic "wrap in iterator" message.
-///
-/// Replaces the hardcoded tag set (`List | Set | Map | Str | Range | Option`)
-/// flagged by Phase 5 Code TPR Round 0 (codex F4 + gemini F2 + opencode F3 —
-/// LEAK:scattered-knowledge violation duplicating registry method knowledge).
-pub(crate) fn suggest_iterator_fix(inner_tag: Tag) -> Suggestion {
-    use super::super::registry_bridge::tag_to_type_tag;
-    let has_iter = tag_to_type_tag(inner_tag)
-        .and_then(|tt| ori_registry::find_method(tt, "iter"))
-        .is_some();
-    let text = if has_iter {
-        "this type is not an Iterator; call `.iter()` on it (e.g., `[x, x * 10].iter()`)"
-    } else {
-        "this type is not an Iterator; `flat_map` requires the closure to return an iterator type"
-    };
-    Suggestion::text(text, 1)
 }

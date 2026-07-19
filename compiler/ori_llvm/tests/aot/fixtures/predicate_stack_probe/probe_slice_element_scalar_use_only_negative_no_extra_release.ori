@@ -1,0 +1,9 @@
+@main () -> int = {
+    let text = "this is a long string exceeding SSO by a large amount,and this second part also exceeds it";
+    let parts = text.split(sep: ",");
+    let total = 0;
+    for p in parts do {
+        total = total + p.len();
+    };
+    if total == 89 then 0 else 1
+}

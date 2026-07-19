@@ -1,23 +1,10 @@
 //! Shared `#[cfg(test)]` fixtures for `lower/` submodules.
 //!
-//! Lifts `test_name` and `registered_struct_with_burden` out of
-//! `burden_lookup/tests.rs` so `burden_lower/tests.rs` can consume the same
-//! user-defined-type fixture for full-move-suppression pins.
-//!
-//! adds `entry_block` / `project_first` / `set_first` constructors
-//! that hide canonical zero defaults (`params: Vec::new`, `field: 0`) used
-//! by every `ArcBlock` / `ArcInstr::Project` / `ArcInstr::Set` fixture in
-//! `burden_lower/tests.rs`. Per `_SPRAWL cure 4 —
-//! side-table by existing key`: the literal defaults move out of construction
-//! sites into named helpers.
-//!
 //! Single source of truth; never duplicate.
 
 use ori_ir::{Name, Span};
-use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+use ori_types::burden::{UserBurdenSpec, UserOwnedField, UserTransferRule, UserVariantBurden};
 use ori_types::{FieldDef, Idx, TypeRegistry, Visibility};
-
-use crate::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcTerminator, ArcVarId};
 
 /// Construct a `Name` from a literal string via a deterministic byte-sum hash.
 ///
@@ -63,8 +50,94 @@ pub(crate) fn registered_struct_with_burden(
     );
 }
 
+/// Register a user ENUM burden whose single payload-carrying variant is
+/// `variant` (0-based ordinal; payload at variant-local field 0, typed
+/// `payload_ty`) — the explicit-slot sum shape the field-decomposition sum
+/// admission requires.
+pub(crate) fn registered_enum_with_single_payload_variant(
+    registry: &mut TypeRegistry,
+    name: &str,
+    idx: Idx,
+    variant: u32,
+    payload_ty: Idx,
+) {
+    let nz = match core::num::NonZeroU32::new(variant.saturating_add(1)) {
+        Some(n) => n,
+        None => core::num::NonZeroU32::MIN,
+    };
+    let burden = UserBurdenSpec {
+        variant_burdens: vec![UserVariantBurden {
+            variant_id: ori_registry::burden::VariantId::new(nz),
+            transfers_on_match: vec![UserTransferRule {
+                source_field_path: vec![0],
+                binding_index: 0,
+                field_type: payload_ty,
+                transfer_kind: ori_registry::burden::TransferKind::Move,
+            }],
+            retained_owned: vec![],
+        }],
+        ..UserBurdenSpec::default()
+    };
+    registry.register_enum(
+        test_name(name),
+        idx,
+        vec![],
+        vec![],
+        Span::DUMMY,
+        Visibility::Public,
+        0,
+        None,
+        Some(burden),
+    );
+}
+
+/// Register a user ENUM burden in the COMPUTE shape (`build_enum_burden`
+/// parity): `self_owned_identity: true`, the unique payload-bearing variant
+/// carrying BOTH a transfer-on-match rule AND a retained owned field —
+/// the shape the constructless type-derived variant skip requires.
+pub(crate) fn registered_tagged_enum_with_unique_payload_variant(
+    registry: &mut TypeRegistry,
+    name: &str,
+    idx: Idx,
+    variant: u32,
+    payload_ty: Idx,
+) {
+    let nz = match core::num::NonZeroU32::new(variant.saturating_add(1)) {
+        Some(n) => n,
+        None => core::num::NonZeroU32::MIN,
+    };
+    let burden = UserBurdenSpec {
+        self_owned_identity: true,
+        variant_burdens: vec![UserVariantBurden {
+            variant_id: ori_registry::burden::VariantId::new(nz),
+            transfers_on_match: vec![UserTransferRule {
+                source_field_path: vec![0],
+                binding_index: 0,
+                field_type: payload_ty,
+                transfer_kind: ori_registry::burden::TransferKind::Move,
+            }],
+            retained_owned: vec![UserOwnedField {
+                field_path: vec![0],
+                field_type: payload_ty,
+            }],
+        }],
+        ..UserBurdenSpec::default()
+    };
+    registry.register_enum(
+        test_name(name),
+        idx,
+        vec![],
+        vec![],
+        Span::DUMMY,
+        Visibility::Public,
+        0,
+        None,
+        Some(burden),
+    );
+}
+
 /// Register a 2-field user-defined struct (`{ data: str, name: str }`) with
-/// BOTH fields heap-burden-typed and a `UserBurdenSpec` naming BOTH as owned.
+/// BOTH fields ownership-bearing and a `UserBurdenSpec` naming BOTH as owned.
 ///
 /// Sibling to `registered_struct_with_burden` (preserved single-field variant
 /// for `burden_lookup/tests.rs`); introduces this multi-field shape so
@@ -98,7 +171,7 @@ pub(crate) fn registered_struct_with_two_owned_str_fields(
         },
     ];
     let burden = UserBurdenSpec {
-        self_heap_alloc: false,
+        self_owned_identity: false,
         owned_fields: vec![
             UserOwnedField {
                 field_path: vec![0],
@@ -124,18 +197,18 @@ pub(crate) fn registered_struct_with_two_owned_str_fields(
     );
 }
 
-/// Register a 2-field Value/HeapType-mixed struct (`{ tag: int, payload: str }`)
-/// whose `UserBurdenSpec.owned_fields` names ONLY the heap field (`payload`,
+/// Register a 2-field scalar/ownership-bearing struct (`{ tag: int, payload: str }`)
+/// whose `UserBurdenSpec.owned_fields` names ONLY the ownership-bearing field (`payload`,
 /// `field_path: vec![1]`, `Idx::STR`); the `Value` field (`tag`, `Idx::INT`,
 /// field 0) is OMITTED from `owned_fields`.
 ///
 /// `burden_carries_rc` returns true via the non-empty `owned_fields`, so the
 /// struct's SSA value enters the owned-burden walk, but the whole-var
-/// `BurdenDec` covers only the `str` field through drop-glue — the `Value`
+/// `BurdenDec` covers only the `str` field through logical cleanup — the scalar
 /// field drives no burden op (no per-field inc, no `BurdenDecField`). A mixed
-/// fixture is the only shape that distinguishes "only the `HeapType` field is
+/// fixture is the only shape that distinguishes "only the ownership-bearing field is
 /// burden-tracked" from "every field is owned".
-pub(crate) fn registered_struct_value_heap_mixed(
+pub(crate) fn registered_struct_scalar_owned_mixed(
     registry: &mut TypeRegistry,
     name: &str,
     idx: Idx,
@@ -155,7 +228,7 @@ pub(crate) fn registered_struct_value_heap_mixed(
         },
     ];
     let burden = UserBurdenSpec {
-        self_heap_alloc: false,
+        self_owned_identity: false,
         owned_fields: vec![UserOwnedField {
             field_path: vec![1],
             field_type: Idx::STR,
@@ -173,40 +246,4 @@ pub(crate) fn registered_struct_value_heap_mixed(
         None,
         Some(burden),
     );
-}
-
-/// Canonical `ArcBlock` constructor for single-entry-block fixtures: hides the
-/// `id: ArcBlockId::new(0)` and `params: Vec::new` literals every fixture
-/// repeats..
-pub(crate) fn entry_block(body: Vec<ArcInstr>, terminator: ArcTerminator) -> ArcBlock {
-    ArcBlock {
-        id: ArcBlockId::new(0),
-        params: Vec::new(),
-        body,
-        terminator,
-    }
-}
-
-/// Canonical `ArcInstr::Project` for the first-field projection used by every
-/// two-stage / TF-4 pin: hides the `field: 0` literal. Tests projecting a
-/// non-zero field MUST construct `ArcInstr::Project` inline (helper is scoped
-/// to the canonical first-field case).
-pub(crate) fn project_first(dst: ArcVarId, ty: Idx, value: ArcVarId) -> ArcInstr {
-    ArcInstr::Project {
-        dst,
-        ty,
-        value,
-        field: 0,
-    }
-}
-
-/// Canonical `ArcInstr::Set` for first-field in-place mutation: hides the
-/// `field: 0` literal. Tests mutating a non-zero field MUST construct
-/// `ArcInstr::Set` inline (helper is scoped to the canonical first-field case).
-pub(crate) fn set_first(base: ArcVarId, value: ArcVarId) -> ArcInstr {
-    ArcInstr::Set {
-        base,
-        field: 0,
-        value,
-    }
 }

@@ -1,0 +1,1 @@
+@f () -> void = for:outer x in [1] do for:inner y in [2] do {if y == 2 then continue:outer;if x == 1 then break:inner }

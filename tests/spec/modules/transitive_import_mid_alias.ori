@@ -1,0 +1,12 @@
+// Spec: 18-modules.md Module Alias
+// Design: (modules not yet in design docs)
+//
+// Module-alias variant of transitive_import_mid.ori: imports the leaf via
+// `as` alias + qualified access instead of a plain item-import — pins that
+// module-alias imports resolve transitively the same way plain item-imports
+// do.
+
+use "./transitive_import_leaf" as leaf
+
+pub @mid_alias_quadruple (x: int) -> int =
+    leaf.leaf_double(x: leaf.leaf_double(x: x));

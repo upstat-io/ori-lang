@@ -1,10 +1,10 @@
-//! RL-31 type-level disjointness proof — burden-aware `noalias` eligibility.
+//! RL-31 backend-neutral parameter-disjointness facts.
 //!
 //! Spec: Annex E §AIMS RL-31. Proves two parameters are guaranteed
 //! non-aliasing via the 8-clause SUFFICIENT condition over their
-//! post-monomorphization transitive reachable-memory closures, so codegen may
-//! attach LLVM `noalias` (+ the `!alias.scope` / `!noalias` metadata pair) to
-//! each provably-disjoint pointer parameter.
+//! post-monomorphization transitive reachable-memory closures. LLVM `noalias`
+//! is one downstream projection of the resulting neutral fact; AIMS does not
+//! select or encode backend attributes.
 //!
 //! Producer/consumer contract: realizes the 8-clause SUFFICIENT condition.
 //! Spec: Annex E §AIMS RL-31. The clauses below are that rule realized; ANY
@@ -12,25 +12,17 @@
 //!
 //! Soundness direction: the rule is SUFFICIENT, not IFF. A `true` verdict
 //! MUST mean the parameters cannot alias at runtime; conservative `false`
-//! (omit `noalias`) is always safe. When a clause cannot be proven (unresolved
-//! type, opaque FFI, user-type whose burden is not reachable at this phase),
-//! the proof FAILS CLOSED — omit `noalias`, never emit an unsound claim.
+//! is always safe. When a clause cannot be proven (unresolved type, opaque FFI,
+//! user-type whose burden is not reachable at this phase), the proof FAILS
+//! CLOSED and never publishes an unsound disjointness claim.
 //!
-//! Dual-facet soundness (Spec: Annex E §AIMS RL-31 (P2)). RL-31 `noalias` is
-//! sound ONLY when BOTH facets hold: (a) the per-call-site provenance facet —
-//! at EVERY call site the actual args to distinct Borrowed params trace to
-//! disjoint source aggregates (the 8-clause procedure over callers'
-//! `borrow_sources` / `project_alias_sources`), AND (b) the type-level facet —
-//! the reachable-memory type closures are disjoint. The proof's (P2) negative
-//! witness `RL31_type_facet_alone_insufficient` rejects facet (b) ALONE:
-//! distinct reachable-type closures do NOT imply distinct runtime memory
-//! (`TypeId` disjointness ≠ allocation disjointness), so a function-attribute
-//! `noalias` (D01 Option-A: "no caller can EVER pass aliasing args") is unsound
-//! on the type facet alone. This module computes facet (b) — the type-level
-//! disjointness verdict — and reports facet (a) as UNPROVEN until the
-//! per-call-site provenance analysis ships (rules 5 + 7
-//! unshipped; the contract-layer per-call-site path is target-only). Per the
-//! SUFFICIENT direction, an unproven facet (a) means `noalias` is omitted.
+//! Dual-facet soundness (Spec: Annex E §AIMS RL-31 (P2)) requires BOTH:
+//! (a) every call site's actual arguments trace to disjoint source aggregates,
+//! and (b) the parameters' reachable-memory type closures are disjoint. The
+//! proof's negative witness `RL31_type_facet_alone_insufficient` rejects facet
+//! (b) alone because type disjointness does not imply allocation disjointness.
+//! This module computes facet (b) and reports facet (a) as unproven until the
+//! per-call-site provenance analysis ships.
 
 #[cfg(test)]
 use ori_registry::burden::table::{burden_type_id, BurdenRegistry};
@@ -39,41 +31,59 @@ use ori_registry::TypeTag;
 use ori_types::{Idx, Pool, Tag};
 use rustc_hash::FxHashSet;
 
-/// Outcome of the per-parameter disjointness proof.
+/// Frozen backend-neutral RL-31 facts for one function's parameters.
 ///
-/// `eligible[i] == true` ⟺ parameter `i` satisfies the type-level disjointness
-/// facet (b): its reachable-memory closure is provably disjoint from EVERY
-/// other reference-class parameter's under the 8-clause rule. Length equals the
-/// input parameter slice.
+/// `type_disjointness[i] == true` means parameter `i` satisfies the type-level
+/// facet: its reachable-memory closure is provably disjoint from every other
+/// reference-class parameter under the 8-clause rule.
 ///
-/// `call_site_provenance_proven` is the facet (a) verdict (Spec: Annex E §AIMS
-/// RL-31 (P2)): `true` only when per-call-site provenance has proven, at EVERY
-/// call site, that the actual args to distinct Borrowed params trace to
-/// disjoint source aggregates. The per-call-site provenance path
-/// (rules 5 + 7) is unshipped, so this is `false` today.
-/// Codegen MUST gate `add_noalias_attribute` on
-/// `eligible[i] && call_site_provenance_proven`; emitting on facet (b) alone is
-/// the (P2)-rejected unsound verdict (`RL31_type_facet_alone_insufficient`).
+/// `call_site_provenance_disjoint` is true only when provenance proves that
+/// condition at every call site. Consumers must use [`Self::proves_disjoint`],
+/// which conjoins both facets and fails closed for an invalid parameter index.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct NoaliasProof {
-    pub eligible: Vec<bool>,
-    pub call_site_provenance_proven: bool,
+pub struct ParamDisjointnessFacts {
+    type_disjointness: Vec<bool>,
+    call_site_provenance_disjoint: bool,
 }
 
-/// Prove per-parameter `noalias` eligibility for a function signature.
+impl ParamDisjointnessFacts {
+    /// Return the type-level disjointness facet in declaration order.
+    #[must_use]
+    pub fn type_disjointness(&self) -> &[bool] {
+        &self.type_disjointness
+    }
+
+    /// Return whether provenance proves disjointness at every call site.
+    #[must_use]
+    pub const fn call_site_provenance_disjoint(&self) -> bool {
+        self.call_site_provenance_disjoint
+    }
+
+    /// Return true only when both RL-31 facets prove this parameter disjoint.
+    #[must_use]
+    pub fn proves_disjoint(&self, parameter: usize) -> bool {
+        self.call_site_provenance_disjoint
+            && self
+                .type_disjointness
+                .get(parameter)
+                .copied()
+                .unwrap_or(false)
+    }
+}
+
+/// Prove backend-neutral parameter disjointness for a function signature.
 ///
 /// `param_types` is the resolved `Idx` of each parameter in declaration order.
-/// A parameter is eligible ⟺ it is reference-class (carries reachable heap
+/// The type facet holds when a parameter is reference-class (carries reachable heap
 /// memory) AND its 8-clause SUFFICIENT-condition closure is disjoint from
 /// every OTHER reference-class parameter's closure.
 ///
-/// Scalar / `Value` / opaque parameters are never eligible (they carry no
-/// aliasable reachable memory — `noalias` on them is meaningless, not unsound,
-/// but we omit it to keep emission tied to the proof).
+/// Scalar, `Value`, and opaque parameters never satisfy the type facet because
+/// they carry no aliasable reachable memory represented by this proof.
 #[must_use]
-pub fn prove_param_noalias(param_types: &[Idx], pool: &Pool) -> NoaliasProof {
+pub fn prove_param_disjointness(param_types: &[Idx], pool: &Pool) -> ParamDisjointnessFacts {
     let n = param_types.len();
-    let mut eligible = vec![false; n];
+    let mut type_disjointness = vec![false; n];
 
     // Pre-compute each parameter's closure + clause-5/8 disqualifiers once.
     let analyses: Vec<ParamAnalysis> = param_types
@@ -84,8 +94,8 @@ pub fn prove_param_noalias(param_types: &[Idx], pool: &Pool) -> NoaliasProof {
     for i in 0..n {
         let a = &analyses[i];
         // Reference-class precondition: the closure must contain at least one
-        // heap TypeId, else the parameter is scalar/Value/opaque — no aliasable
-        // memory to claim `noalias` over.
+        // heap TypeId, else the parameter is scalar/Value/opaque and has no
+        // aliasable memory represented by this fact.
         if a.closure.is_empty() || a.fails_closed {
             continue;
         }
@@ -104,17 +114,18 @@ pub fn prove_param_noalias(param_types: &[Idx], pool: &Pool) -> NoaliasProof {
                 break;
             }
         }
-        eligible[i] = disjoint_from_all_others;
+        type_disjointness[i] = disjoint_from_all_others;
     }
 
     // Facet (b) — the type-level closures — is computed above. Facet (a) —
     // per-call-site provenance proven at EVERY call site — is NOT shipped
     // (rules 5 + 7 unshipped), so it is UNPROVEN here.
-    // Per RL-31 (P2), the function-attribute `noalias` requires BOTH facets;
-    // an unproven facet (a) forces conservative omission downstream.
-    NoaliasProof {
-        eligible,
-        call_site_provenance_proven: false,
+    // The neutral fact remains false until the provenance pass covers every
+    // call site. `proves_disjoint` keeps the two facets indivisible for every
+    // downstream consumer.
+    ParamDisjointnessFacts {
+        type_disjointness,
+        call_site_provenance_disjoint: false,
     }
 }
 
@@ -159,14 +170,15 @@ fn analyze_param(ty: Idx, pool: &Pool) -> ParamAnalysis {
 fn deref_borrowed(ty: Idx, pool: &Pool) -> Idx {
     let resolved = pool.resolve_fully(ty);
     if pool.tag(resolved) == Tag::Borrowed {
-        // Borrowed stores the pointee as its single child Idx.
+        // Borrowed stores the pointee in the extra array (extra[0]), not as a
+        // child Idx in the item's `data` field; `borrowed_inner` reads it.
         pool.borrowed_inner(resolved)
     } else {
         resolved
     }
 }
 
-/// Fixed-point reachable-heap closure walk (Invariant 6) with cycle-safe
+/// Fixed-point reachable-reference-graph walk (Invariant 6) with cycle-safe
 /// visited set. Bundling the four walk arguments into one borrow keeps the
 /// recursive calls to a single `self.visit(child)` shape.
 struct ClosureWalk<'a> {
@@ -208,7 +220,7 @@ impl ClosureWalk<'_> {
             | Tag::Size
             | Tag::Error => {}
 
-            // Heap-allocated single-element collections: the type IS reachable
+            // Indirect single-element collections: the element type IS reachable
             // heap memory; recurse into the element for the transitive closure.
             tag @ (Tag::List
             | Tag::Set

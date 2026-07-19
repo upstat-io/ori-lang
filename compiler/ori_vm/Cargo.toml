@@ -1,0 +1,22 @@
+[package]
+name = "ori_vm"
+description = "Verified bytecode compiler and interpreter for realized Ori programs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ori_arc.workspace = true
+ori_ir.workspace = true
+ori_registry.workspace = true
+ori_repr.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+ori_types.workspace = true
+pretty_assertions.workspace = true
+rustc-hash.workspace = true
+
+[lints]
+workspace = true

@@ -62,6 +62,8 @@ related_journeys:
 
 # Journey 11: "I am a derived trait"
 
+> **Historical architecture note (2026-07-14):** This journey preserves the LLVM IR and scores observed on 2026-03-20. Attribute presence records what the shipped LLVM-local scans emitted; it is not independent proof of purity, unwind safety, or pointer validity. The production architecture freezes backend-neutral AIMS facts and an `ExecutableDropPlan` once, then lets VM, LLVM/native, compiled-WASM, and JIT project them. This journey's direct LLVM derive synthesis is also a known seam gap until derived behavior enters the shared executable artifact.
+
 ## Source
 
 ```ori
@@ -1142,7 +1144,7 @@ The compiler uses a consistent tagged-union representation:
 ### NOTE-6: Pure functions marked memory(none)
 
 **Location**: `@_ori_check_struct_eq`, `@_ori_check_sum_eq`, `@_ori_check_nested`
-**Impact**: Positive -- the nounwind + memory analysis pass correctly identifies these functions as having no memory side effects. All three construct values inline (no heap), call pure `$eq` methods, and do overflow-checked arithmetic. The `memory(none)` attribute enables LLVM to freely reorder, CSE, or eliminate these calls.
+**Impact**: Historical positive observation -- the LLVM path emitted `nounwind memory(none)` for these functions. Under the production seam, that attribute is valid only as a fail-closed projection of exact AIMS control facts and proof of no accessible or inaccessible reads or writes. Because these derived bodies were synthesized directly in LLVM, the journey does not by itself establish that proof.
 **Found in**: Attributes & Calling Convention (Category 3)
 
 ### NOTE-7: Shape$eq codegen improvement (direct load)
@@ -1167,7 +1169,13 @@ The compiler uses a consistent tagged-union representation:
 
 ## Verdict
 
-Journey 11's derived trait codegen achieves a perfect score. All three Eq patterns -- struct field-by-field, unit-variant tag comparison, and payload sum type discriminant dispatch -- generate optimal IR with zero unnecessary instructions. The short-circuit evaluation in Point$eq and Shape$eq avoids wasted work, and the `!=` operator desugars cleanly to `xor i1 %result, true` without a separate method. Attribute compliance is 100%: Shape$eq ptr parameters carry full `noundef nonnull dereferenceable(24)` safety attributes, and the three check functions are correctly marked `memory(none)` by the purity analysis pass. ARC is perfectly irrelevant -- all types are pure value types with no heap allocations. Since the prior run, Shape$eq improved from 33 to 23 instructions thanks to direct `load %ori.Shape` replacing per-field GEP reconstruction.
+Journey 11's dated LLVM codegen measurement achieved a perfect score. All three Eq patterns -- struct field-by-field, unit-variant tag comparison, and payload sum type discriminant dispatch -- generated optimal IR with zero unnecessary instructions.
+
+The short-circuit evaluation in Point$eq and Shape$eq avoided wasted work, and the `!=` operator desugared cleanly to `xor i1 %result, true` without a separate method. The captured IR included full pointer attributes and `memory(none)` on the three check functions.
+
+Those attributes are historical outputs, not current semantic authorities; production validity requires exact AIMS facts plus compiled-layout projection. ARC was irrelevant for these value-only types.
+
+Since the prior run, Shape$eq improved from 33 to 23 instructions thanks to direct `load %ori.Shape` replacing per-field GEP reconstruction.
 
 ## Cross-Journey Observations
 
@@ -1182,4 +1190,6 @@ Journey 11's derived trait codegen achieves a perfect score. All three Eq patter
 | Struct field access | J4 | J11 | CONFIRMED (extractvalue pattern) |
 | Sum type tag dispatch | J6 | J11 | CONFIRMED (switch on discriminant) |
 
-The AIMS purity analysis correctly identifies `check_struct_eq`, `check_sum_eq`, and `check_nested` as having no memory effects, marking them `memory(none)`. The codegen for `Shape$eq` has improved since the prior run, now using direct aggregate loads instead of per-field GEP reconstruction.
+The historical LLVM path marked `check_struct_eq`, `check_sum_eq`, and `check_nested` as `memory(none)`. The production model instead requires complete AIMS effect facts in the bound artifact and treats the attribute as an LLVM-only projection.
+
+The codegen for `Shape$eq` improved since the prior run, using direct aggregate loads instead of per-field GEP reconstruction.

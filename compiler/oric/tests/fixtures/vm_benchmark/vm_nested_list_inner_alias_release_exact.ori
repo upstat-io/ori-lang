@@ -1,0 +1,6 @@
+@retain_first_inner (outer: [[int]]) -> [int] = outer[0];
+
+@main () -> int = {
+    let inner = retain_first_inner(outer: [[11, 13, 17], [19, 23, 29]]);
+    if inner.len() == 3 && inner[0] == 11 && inner[1] == 13 && inner[2] == 17 then 61 else 101
+}

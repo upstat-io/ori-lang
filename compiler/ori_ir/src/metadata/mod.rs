@@ -28,9 +28,14 @@ use super::{Comment, CommentKind, CommentList, Span};
 /// # Usage
 ///
 /// Created during parsing and returned alongside the AST:
-/// ```ignore
-/// let output = parse(source);
-/// let comments_above = output.metadata.doc_comments_for(fn_start);
+/// ```
+/// use ori_ir::ModuleExtra;
+///
+/// let mut metadata = ModuleExtra::new();
+/// metadata.add_newline(12);
+/// metadata.add_blank_line(13);
+/// assert_eq!(metadata.line_number(14), 2);
+/// assert!(metadata.has_blank_line_between(0, 14));
 /// ```
 #[derive(Clone, Eq, PartialEq, Default)]
 pub struct ModuleExtra {

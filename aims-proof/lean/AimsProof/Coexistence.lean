@@ -151,8 +151,8 @@ theorem CH1_borrowed_not_burden_owned (con : Consumption) (u : Uniqueness)
   cases con <;> cases u <;> cases car <;> rfl
 
 /-- §CH-1 (P2) no double-counting NEGATIVE witness: a MaybeShared state is NOT
-    burden-owned — burden elimination would race-invalidate the RL-7 dynamic
-    COW runtime IsShared check. The third conjunct (Unique) excludes it. -/
+    burden-owned — burden elimination would invalidate RL-7's unresolved
+    sharing-observation obligation. The third conjunct (Unique) excludes it. -/
 theorem CH1_maybeshared_not_burden_owned (acc : AccessClass) (con : Consumption)
     (car : Cardinality) (rest : AimsState) :
     burden_owned
@@ -245,9 +245,11 @@ theorem CH2_borrowed_not_eliminated (con : Consumption) (u : Uniqueness)
 
     The burden-relevant lattice subspace partitions into three named sub-classes
     over the Access × Uniqueness × Cardinality × Consumption sub-product:
-      Class A: Owned × Unique × Once × Linear (RL-2 + RL-14, burden-eligible)
-      Class B: Borrowed × Unique × Once × Linear (RL-14 headerless, RC-free)
+      Class A: Owned × Unique × Once × Linear (RL-2 logical release, burden-eligible)
+      Class B: Borrowed × Unique × Once × Linear (caller-owned, no callee release)
       Class C: MaybeShared × Many (RL-7 dynamic COW)
+    Allocation LifetimeBound and representation ExtentClass are orthogonal to
+    this ownership partition; physical mechanisms are admitted by Satisfies.
     The classification is TOTAL over the named subset and the three are
     pairwise DISJOINT; only Class A is burden-eligible. Variables outside the
     three named cells are Uncovered (non-burden-eligible by construction). -/

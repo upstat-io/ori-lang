@@ -4,23 +4,23 @@
 //! [`AimsStateMap`] via union-find over Let-Var alias edges, Jump-arg →
 //! block-param edges, and apply-result alias edges of `Direct` and
 //! `Conditional` shape. Class membership encodes "these SSA names refer to the
-//! same RC slot" — orthogonal to `borrow_sources` (per-Project borrow facts)
+//! same logical ownership identity" — orthogonal to `borrow_sources` (per-Project borrow facts)
 //! and to `project_alias_sources` (per-Project transitive alias chains).
 //!
 //! In-class membership: Let-Var aliases (transitively chained), Jump-arg →
 //! block-param pairs, and apply-result aliases whose `ApplyAliasSource` is
 //! `Direct(arg)` or `Conditional { candidates }`. NOT in-class:
-//! - Project field borrows — different RC slot from the source's root; the
+//! - Project field borrows — a different ownership identity from the source's root; the
 //!   `borrow_sources` side table covers DP-5 disjointness for them.
 //! - Select operands — `Select(cond, true_val, false_val)` operands refer to
-//!   different runtime RC slots; only one is selected at runtime, the
+//!   different logical ownership identities; only one is selected at runtime, the
 //!   unselected one needs an independent `RcDec`. Existing compensating `RcInc`
-//!   at `walk.rs:141-195` handles Select correctly through per-source dec
+//!   in `walk.rs` handles Select correctly through per-source dec
 //!   independence (PIN-2).
 //! - `ApplyAliasSource::Project { arg, field }` — the apply returned `arg.field`
-//!   (a different RC slot than `arg`'s root). Same "different RC slot"
+//!   (a different ownership identity than `arg`'s root). The same identity-separation
 //!   architectural concern as Select; unioning would conflate two distinct
-//!   RC slots and reproduce the same double-dec / under-dec failure mode
+//!   logical owners and reproduce the same double-release / under-release failure mode
 //!   PIN-2 was created to prevent. The directional metadata is still recorded
 //!   in `class_apply_alias_source_candidates` (PIN-3) so caller-side
 //!   `should_suppress_apply_aliased_dec` continues to suppress the apply-source
@@ -56,9 +56,7 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::aims::contract::MemoryContract;
 use crate::ir::{ArcFunction, ArcTerminator, ArcVarId};
-use ori_ir::Name;
 
 use super::apply_aliases::build_let_alias_map;
 use super::state_map::ApplyAliasSource;
@@ -72,24 +70,18 @@ pub(crate) struct SsaAliasClassesOutput {
     pub class_table: FxHashMap<ArcVarId, u32>,
     pub class_members: FxHashMap<u32, FxHashSet<ArcVarId>>,
     pub class_apply_alias_source_candidates: FxHashMap<u32, FxHashSet<ArcVarId>>,
-    /// PIN-6 inter-class payload-of : class A id → set of
-    /// class B ids whose drop transitively covers class A's RC slot.
-    pub class_payload_of: FxHashMap<u32, FxHashSet<u32>>,
 }
 
 /// Compute SSA-alias equivalence classes via union-find over Let-Var aliases,
 /// Jump-arg → block-param pairs, and apply-result aliases of `Direct` and
-/// `Conditional` shape, AND the PIN-6 inter-class payload-of relation
-/// .
+/// `Conditional` shape.
 ///
-/// Returns the four-field `SsaAliasClassesOutput` consumed by
+/// Returns the three-field `SsaAliasClassesOutput` consumed by
 /// `walk_dec.rs::emit_last_use_decs` (class-liveness check + same-instruction
-/// batching), `should_suppress_apply_aliased_dec` (directional metadata),
-/// and the PIN-6 ancestor-chain BFS in `walk_dec.rs` /
-/// `edge_cleanup.rs` / `dead_cleanup`.
+/// batching) and `should_suppress_apply_aliased_dec` (directional metadata).
 ///
 /// Complexity: O(N · α(N) + I) where N = total SSA vars and I = total
-/// instructions+terminators (PIN-6 population pass walks each once).
+/// instructions+terminators.
 #[expect(
     clippy::match_same_arms,
     reason = "pre-existing; explicit arms document the intent"
@@ -97,7 +89,6 @@ pub(crate) struct SsaAliasClassesOutput {
 pub(crate) fn compute_ssa_alias_classes(
     func: &ArcFunction,
     apply_result_aliases: &FxHashMap<ArcVarId, ApplyAliasSource>,
-    sigs: &FxHashMap<Name, MemoryContract>,
 ) -> SsaAliasClassesOutput {
     let Ok(var_count) = u32::try_from(func.var_types.len()) else {
         unreachable!("ArcFunction var count exceeds u32::MAX");
@@ -191,25 +182,13 @@ pub(crate) fn compute_ssa_alias_classes(
         }
     }
 
-    // `class_payload_of` is populated post-convergence
-    // by `populate_class_payload_of_with_liveness` using path-sensitive
-    // liveness from the converged AimsStateMap. The initial empty map here
-    // is overwritten via `set_class_payload_of` at step 4.5 in
-    // `analyze_function`. Singleton class materialization is ALSO moved
-    // there (via `AimsStateMap::ensure_singleton_class`).
-    let class_payload_of: FxHashMap<u32, FxHashSet<u32>> = FxHashMap::default();
-    let _ = sigs;
-
     SsaAliasClassesOutput {
         class_table,
         class_members,
         class_apply_alias_source_candidates,
-        class_payload_of,
     }
 }
 
-/// Return `Some(RcStrategy)` for non-scalar `dst`, `None` for scalar or when
-/// `var_rc_strategies` has not been populated yet (test fixtures that
 /// Rank-based union-find with path compression and class-size tracking.
 ///
 /// Operations are amortized O(α(N)) per union/find; `class_size(root)` is O(1).

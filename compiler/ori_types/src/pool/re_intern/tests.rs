@@ -5,15 +5,14 @@ use rustc_hash::FxHashMap;
 use crate::pool::re_intern::{
     re_intern_sig, re_intern_sig_with_var_remap, re_intern_type, re_intern_type_with_var_remap,
 };
-use crate::{FunctionSig, Idx, Pool, Tag, VarState};
+use crate::{FunctionSig, GeneralizedVarState, Idx, Pool, Tag, VarState};
 
 // `re_intern_type_with_var_remap` and `re_intern_sig_with_var_remap` in
 // `pool/re_intern/mod.rs` are the remap-aware re-intern entry points; the
 // positive pins below pin their behavior, and the legacy-path negative pins
 // document the var-id collision the remap exists to prevent.
 
-// === Primitive Types ===
-
+// Primitive Types
 #[test]
 fn primitives_are_identity() {
     let source = Pool::new();
@@ -39,8 +38,7 @@ fn primitives_are_identity() {
     }
 }
 
-// === Simple Container Types ===
-
+// Simple Container Types
 #[test]
 fn list_type_re_interned() {
     let mut source = Pool::new();
@@ -67,8 +65,7 @@ fn option_type_re_interned() {
     assert_eq!(target.hash(result), source.hash(opt_str));
 }
 
-// === Two-Child Container Types ===
-
+// Two-Child Container Types
 #[test]
 fn map_type_re_interned() {
     let mut source = Pool::new();
@@ -97,8 +94,7 @@ fn result_type_re_interned() {
     assert_eq!(target.result_err(result), Idx::STR);
 }
 
-// === Complex Types ===
-
+// Complex Types
 #[test]
 fn function_type_re_interned() {
     let mut source = Pool::new();
@@ -129,8 +125,7 @@ fn tuple_type_re_interned() {
     );
 }
 
-// === Nested Types ===
-
+// Nested Types
 #[test]
 fn nested_list_of_tuples_re_interned() {
     let mut source = Pool::new();
@@ -160,8 +155,7 @@ fn deeply_nested_type_re_interned() {
     assert_eq!(target.hash(result), source.hash(opt));
 }
 
-// === Cache Behavior ===
-
+// Cache Behavior
 #[test]
 fn cache_prevents_redundant_interning() {
     let mut source = Pool::new();
@@ -181,8 +175,7 @@ fn cache_prevents_redundant_interning() {
     assert_eq!(cache.get(&list_int), Some(&result1));
 }
 
-// === Cross-Pool Stability ===
-
+// Cross-Pool Stability
 #[test]
 fn re_interned_types_have_stable_hashes() {
     let mut source = Pool::new();
@@ -228,8 +221,7 @@ fn fast_path_hits_for_existing_types() {
     assert_eq!(result, target_list, "Should reuse existing Idx via hash");
 }
 
-// === FunctionSig Re-interning ===
-
+// FunctionSig Re-interning
 #[test]
 fn sig_primitive_params_re_interned() {
     let source = Pool::new();
@@ -271,8 +263,7 @@ fn sig_compound_params_re_interned() {
     assert_eq!(result.param_hashes[0], target.hash(target_list_int));
 }
 
-// === Struct/Enum Types ===
-
+// Struct/Enum Types
 #[test]
 fn struct_type_re_interned() {
     let mut source = Pool::new();
@@ -333,8 +324,7 @@ fn enum_type_re_interned() {
     assert_eq!(variants[1].1, vec![Idx::FLOAT, Idx::FLOAT]);
 }
 
-// === Named/Applied Types ===
-
+// Named/Applied Types
 #[test]
 fn applied_type_re_interned() {
     let mut source = Pool::new();
@@ -352,8 +342,7 @@ fn applied_type_re_interned() {
     assert_eq!(target.applied_args(result), vec![Idx::INT, Idx::STR]);
 }
 
-// === Scheme Types ===
-
+// Scheme Types
 #[test]
 fn scheme_type_re_interned() {
     let mut source = Pool::new();
@@ -378,18 +367,17 @@ fn scheme_type_re_interned() {
 // - Positive pins (`_with_var_remap` suffix): pin the required behavior
 //   of the remap-aware path.
 
-// --- (e1) Leaf var remap across pools — Tag::Var / BoundVar / RigidVar ------
-
+// (e1) Leaf var remap across pools — Tag::Var / BoundVar / RigidVar
 /// Helper: construct a target pool whose `var_state(var_id)` is
 /// `Generalized { id: var_id, name: None }` — the "host-file poly-lambda
 /// residue" shape from the cross-module pool-merge collision.
 fn target_with_generalized_slot(var_id: u32) -> Pool {
     let mut target = Pool::new();
     target.ensure_var_capacity(var_id + 1);
-    *target.var_state_mut(var_id) = VarState::Generalized {
+    *target.var_state_mut(var_id) = VarState::Generalized(GeneralizedVarState {
         id: var_id,
         name: None,
-    };
+    });
     target
 }
 
@@ -419,7 +407,7 @@ fn re_intern_type_var_leaf_via_legacy_api_allocates_fresh_dst_id_and_does_not_al
          fresh dst_id must not alias host slot 0"
     );
     assert!(
-        matches!(target.var_state(0), VarState::Generalized { .. }),
+        matches!(target.var_state(0), VarState::Generalized(_)),
         "host-owned slot 0 must be untouched by the imported leaf"
     );
 }
@@ -441,7 +429,7 @@ fn re_intern_type_bound_var_leaf_via_legacy_api_allocates_fresh_dst_id() {
         0,
         "fresh dst_id must not alias host slot 0"
     );
-    assert!(matches!(target.var_state(0), VarState::Generalized { .. }));
+    assert!(matches!(target.var_state(0), VarState::Generalized(_)));
 }
 
 /// Regression guard — backward-compat `re_intern_type` delegation for `Tag::RigidVar`.
@@ -461,7 +449,7 @@ fn re_intern_type_rigid_var_leaf_via_legacy_api_allocates_fresh_dst_id() {
         0,
         "fresh dst_id must not alias host slot 0"
     );
-    assert!(matches!(target.var_state(0), VarState::Generalized { .. }));
+    assert!(matches!(target.var_state(0), VarState::Generalized(_)));
 }
 
 /// Matrix cell (e1, positive pin) — `Tag::Var` under remap-aware re-intern.
@@ -491,13 +479,13 @@ fn remap_aware_re_intern_var_leaf_allocates_fresh_dst_id_and_rebuilds_var_state(
     assert_eq!(var_remap.get(&0), Some(&dst_id));
 
     match target.var_state(dst_id) {
-        VarState::Unbound { id, .. } => {
-            assert_eq!(*id, dst_id, "VarState.id must be pool-local dst_id");
+        VarState::Unbound(state) => {
+            assert_eq!(state.id, dst_id, "VarState.id must be pool-local dst_id");
         }
         other => panic!("expected variant-aware Unbound rebuild, got {other:?}"),
     }
     assert!(
-        matches!(target.var_state(0), VarState::Generalized { .. }),
+        matches!(target.var_state(0), VarState::Generalized(_)),
         "host-owned slot 0 must be untouched"
     );
 }
@@ -553,8 +541,7 @@ fn remap_aware_re_intern_rigid_var_leaf_allocates_fresh_dst_id_and_preserves_rig
     }
 }
 
-// --- (e2) Scheme binder list remaps together with body leaves ---------------
-
+// (e2) Scheme binder list remaps together with body leaves
 /// Regression guard — backward-compat `re_intern_type` on `Tag::Scheme`
 /// delegates to the remap-aware path.
 ///
@@ -637,8 +624,7 @@ fn remap_aware_re_intern_scheme_remaps_binders_and_body_leaves_coherently() {
     );
 }
 
-// --- (e3) FunctionSig.scheme_var_ids coherence with remapped type tree ------
-
+// (e3) FunctionSig.scheme_var_ids coherence with remapped type tree
 /// Regression guard — backward-compat `re_intern_sig` delegates to the
 /// remap-aware path.
 ///
@@ -719,8 +705,7 @@ fn remap_aware_re_intern_sig_remaps_scheme_var_ids_coherently_with_leaves() {
     );
 }
 
-// --- (e4) VarState variant-aware rebuild ------------------------------------
-
+// (e4) VarState variant-aware rebuild
 /// Matrix cell (e4, positive pin) — `Unbound` variant.
 ///
 /// Rebuild preserves `rank` and `name` verbatim; `id` is
@@ -743,9 +728,12 @@ fn remap_aware_re_intern_rebuilds_unbound_with_fresh_id_and_preserved_rank_name(
     let dst_id = target.data(result);
     assert_ne!(dst_id, 0);
     match target.var_state(dst_id) {
-        VarState::Unbound { id, name, .. } => {
-            assert_eq!(*id, dst_id, "pool-local id must be dst_id, NOT source's 0");
-            assert_eq!(*name, Some(src_name), "name clones verbatim");
+        VarState::Unbound(state) => {
+            assert_eq!(
+                state.id, dst_id,
+                "pool-local id must be dst_id, NOT source's 0"
+            );
+            assert_eq!(state.name, Some(src_name), "name clones verbatim");
         }
         other => panic!("expected Unbound rebuild, got {other:?}"),
     }
@@ -757,10 +745,10 @@ fn remap_aware_re_intern_rebuilds_generalized_with_fresh_id_and_preserved_name()
     let mut source = Pool::new();
     source.ensure_var_capacity(1);
     let src_name = ori_ir::Name::from_raw(11);
-    *source.var_state_mut(0) = VarState::Generalized {
+    *source.var_state_mut(0) = VarState::Generalized(GeneralizedVarState {
         id: 0,
         name: Some(src_name),
-    };
+    });
     let source_var = source.intern(Tag::Var, 0);
 
     let mut target = target_with_generalized_slot(0);
@@ -773,9 +761,9 @@ fn remap_aware_re_intern_rebuilds_generalized_with_fresh_id_and_preserved_name()
     let dst_id = target.data(result);
     assert_ne!(dst_id, 0);
     match target.var_state(dst_id) {
-        VarState::Generalized { id, name } => {
-            assert_eq!(*id, dst_id, "pool-local id must be dst_id");
-            assert_eq!(*name, Some(src_name));
+        VarState::Generalized(state) => {
+            assert_eq!(state.id, dst_id, "pool-local id must be dst_id");
+            assert_eq!(state.name, Some(src_name));
         }
         other => panic!(
             "expected Generalized rebuild (NOT Unbound — blank-init would flip the \
@@ -822,8 +810,7 @@ fn remap_aware_re_intern_rebuilds_link_with_recursively_reinterned_target() {
     let mut source = Pool::new();
     // Source has a list<int> reachable ONLY via VarState::Link (not traversed
     // by any other branch of the type being re-interned), exercising the
-    // "cache is not yet populated with source.target" case from the Round 2
-    // F1 fix.
+    // "cache is not yet populated with source.target" case.
     let source_list = source.list(Idx::INT);
     source.ensure_var_capacity(1);
     *source.var_state_mut(0) = VarState::Link {
@@ -850,7 +837,7 @@ fn remap_aware_re_intern_rebuilds_link_with_recursively_reinterned_target() {
     );
 }
 
-// --- (e5) Scheme with var-bearing binders AND var-free body -----------------
+// (e5) Scheme with var-bearing binders AND var-free body
 //
 // Per, scheme flags propagate from the BODY
 // only — a scheme's raw binder list in `extra` is NOT a propagation source.
@@ -940,4 +927,72 @@ fn remap_aware_re_intern_scheme_with_var_free_body_remaps_binder_and_changes_has
         source_hash,
         "extra-backed scheme hash must differ when binder list is remapped"
     );
+}
+
+// FFI C-ABI kind carrier (cross-pool re-intern must not drop it)
+#[test]
+fn named_ffi_type_carries_cabi_kind_and_resolution() {
+    use ori_ir::{CAbiKind, StringInterner};
+    let interner = StringInterner::new();
+    let mut source = Pool::new();
+    let mut target = Pool::new();
+    let mut cache = FxHashMap::default();
+
+    // A c_int-like FFI Named Idx in source: distinct Named + resolution to the
+    // primitive Idx::INT + the CAbiKind carrier.
+    let name = interner.intern("c_int");
+    let named = source.named(name);
+    source.set_resolution(named, Idx::INT);
+    source.set_cabi_kind(named, CAbiKind::CInt);
+
+    let result = re_intern_type(&source, named, &mut target, &mut cache);
+
+    // The carrier + the primitive resolution survive the cross-pool re-intern.
+    assert_eq!(target.cabi_kind(result), Some(CAbiKind::CInt));
+    assert_eq!(target.resolve(result), Some(Idx::INT));
+}
+
+#[test]
+fn re_intern_non_ffi_named_has_no_cabi_kind() {
+    use ori_ir::StringInterner;
+    let interner = StringInterner::new();
+    let mut source = Pool::new();
+    let mut target = Pool::new();
+    let mut cache = FxHashMap::default();
+
+    // A plain (non-FFI) Named carries no kind — the carry is FFI-scoped.
+    let name = interner.intern("MyStruct");
+    let named = source.named(name);
+    let result = re_intern_type(&source, named, &mut target, &mut cache);
+    assert_eq!(target.cabi_kind(result), None);
+}
+
+#[test]
+fn re_intern_named_carries_recursive_struct_resolution_on_fast_path() {
+    use ori_ir::StringInterner;
+    let interner = StringInterner::new();
+    let mut source = Pool::new();
+    let mut target = Pool::new();
+    let mut cache = FxHashMap::default();
+
+    let node_name = interner.intern("Node");
+    let next_name = interner.intern("next");
+    let source_named = source.named(node_name);
+    let source_next = source.option(source_named);
+    let source_struct = source.struct_type(node_name, &[(next_name, source_next)]);
+    source.set_resolution(source_named, source_struct);
+
+    // Seed the structurally identical wrapper to exercise the hash fast path
+    // used when a consumer pool already mentions an imported nominal type.
+    let target_named = target.named(node_name);
+    let result = re_intern_type(&source, source_named, &mut target, &mut cache);
+
+    assert_eq!(result, target_named);
+    let target_struct = target
+        .resolve(result)
+        .unwrap_or_else(|| panic!("re-interned Named type must retain its concrete body"));
+    assert_eq!(target.tag(target_struct), Tag::Struct);
+    let (field_name, field_type) = target.struct_field(target_struct, 0);
+    assert_eq!(field_name, next_name);
+    assert_eq!(target.option_inner(field_type), target_named);
 }

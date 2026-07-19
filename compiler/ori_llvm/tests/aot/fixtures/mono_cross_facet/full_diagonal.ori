@@ -1,0 +1,22 @@
+// Diagonal 5 (full diagonal): trait-impl method on a generic receiver +
+// complex-generic arg (Box<Option<int>>, nested generic) + builtin Apply/cast
+// (`as int`) in one mono lowering. `box_opt_measure` boxes a nested generic,
+// dispatches the trait-impl `get()` on the (concrete) generic receiver,
+// unwraps the Option, and casts — three regrounded paths crossing in a single
+// specialization. Scalar payload throughout, so leak-clean.
+
+type Box<T> = { value: T }
+
+trait Get<T> {
+    @get (self) -> T
+}
+
+impl<T> Box<T>: Get<T> {
+    @get (self) -> T = self.value;
+}
+
+@box_opt_measure (v: int) -> int = Box { value: Some(v) }.get().unwrap() as int;
+
+@main () -> void = {
+    print(msg: `{box_opt_measure(v: 41)}`);
+}

@@ -1,14 +1,16 @@
-// Matrix §05.2 item 16a NEGATIVE PIN: unannotated empty list passed to a
-// generic function with a trait bound (`T: Printable`) leaves `T` unbound
-// at the call site. The trait-bound check cannot proceed without a
-// resolved `T`; empty-literal propagation does not reach the bounded
-// signature position, so the bodies-pass validator fires E2005 on the
-// ambiguous signature hole BEFORE bound-check can run. Companion to the
-// positive §05.2 item 16 pin — together they clamp the bound-check×
-// empty-literal boundary.
+// Matrix item 16a POSITIVE PIN: unannotated empty list passed to a generic
+// function with a trait bound (`T: Printable`). The end-of-body defaulting
+// (Rust !-fallback analog) defaults the call-site instantiation var to Never,
+// and Never (the uninhabited bottom type) vacuously satisfies any trait bound,
+// so `T: Printable` holds, the generic call type-checks cleanly, and `.len()`
+// returns the expected zero. Companion to the positive item 16 pin — together
+// they pin the bound-check × empty-literal boundary. The genuine E2005
+// signature-hole negatives live in the unannotated-signature-param cells.
 
-#compile_fail(code: "E2005")
+use std.testing { assert_eq }
 
 @print_all<T: Printable> (xs: [T]) -> int = xs.len();
 
-@main () -> int = print_all(xs: []);
+@test_trait_bound_empty tests _ () -> void = {
+    assert_eq(actual: print_all(xs: []), expected: 0)
+}

@@ -387,7 +387,7 @@ pub fn fmt_terminator(
     }
 }
 
-// ── Formatting helpers ──
+// Formatting helpers
 
 /// Format a literal or variable value (rhs of a Let instruction).
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]

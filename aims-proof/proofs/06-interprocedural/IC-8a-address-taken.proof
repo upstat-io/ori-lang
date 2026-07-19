@@ -13,8 +13,8 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
     - IC-8 (REMOVED per sec-5 IC-8 removal note 
       §Interprocedural Contract Layer): former rule derived
       parameter uniqueness from caller consumption patterns
-      was unsound (caller with MaybeShared arg used linearly
-      may still hold RC > 1 from upstream aliases). The
+      was unsound (a caller using a MaybeShared argument linearly
+      may still carry multiple logical owner credits from upstream aliases). The
       SUBSUMED-BY pointer in the IC-8 removal note routes to
       IC-2 + IC-3 SCC fixpoint natural convergence for the
       standard enumerable-call-site case; IC-8a is the SISTER
@@ -92,13 +92,14 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
       Note: uniqueness = MaybeShared (NOT Shared) per the IC-8a
       spec rule line — MaybeShared is the conservative "may be
       shared" claim; Shared is the stronger "definitely shared"
-      claim requiring proof of multiple references. For
+      claim requiring proof of multiple logical owner credits. For
       non-enumerable callers, MaybeShared is the soundness
-      floor: we don't know whether the caller holds the only
-      reference, so we MUST assume sharing is possible. Per
-      DP-4 (`needs_cow_check(s) ⟺ s.uniqueness = MaybeShared`),
-      MaybeShared correctly triggers runtime IsShared checks
-      vs Shared which would force unconditional copy.
+      floor: we cannot prove the caller holds the sole logical
+      owner credit, so we MUST assume sharing is possible. Per
+      DP-4 (`needs_sharing_observation(s) ⟺ s.uniqueness = MaybeShared`),
+      MaybeShared preserves a dynamic-sharing obligation; Shared instead
+      selects the StaticShared isolation obligation. Both are backend-neutral AIMS
+      facts whose physical mechanisms are chosen by each target projection.
     - Shipped engine: address-taken / closure classification
       computed at compiler/ori_arc/src/aims/
       interprocedural/mod.rs (function-value-flow analysis +
@@ -140,7 +141,7 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
     `[p_1, p_2, ..., p_n]` of length n.
       Let `contracts := init_paramcontract_conservative(f)` =
       `[ParamContract::CONSERVATIVE; n]` be the emitted list.
-      Five conjuncts SHALL hold per spec Annex E §AIMS
+      Six conjuncts SHALL hold per spec Annex E §AIMS
       IC-8a + §AIMS §3 lattice properties:
 
       (P1) Per-parameter CONSERVATIVE initialization:
@@ -180,13 +181,13 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
         Per spec sec-5 IC-8a + §AIMS §3.4: the IC-8a CONSERVATIVE
         seed uses uniqueness = MaybeShared rather than the
         strict lattice TOP (Shared) because:
-          (a) MaybeShared correctly triggers DP-4
-              (`needs_cow_check(s) ⟺ s.uniqueness =
-              MaybeShared`) → runtime IsShared check; Shared
-              would force unconditional copy via DP-9
-              (`Shared ⟹ StaticShared`), losing optimization
-              opportunity when callers actually hold unique
-              references.
+          (a) MaybeShared makes DP-4 true
+              (`needs_sharing_observation(s) ⟺ s.uniqueness =
+              MaybeShared`) and selects DP-9 Dynamic for the
+              IC-8a contract; Shared instead selects StaticShared.
+              These are logical realization decisions, not a prescribed
+              counter test or backend instruction. Dynamic preserves the
+              opportunity for a target to exploit a sole-owner observation.
           (b) Non-enumerable does NOT mean "definitely shared"
               — it means "we don't know whether shared or
               unique"; MaybeShared correctly encodes this
@@ -199,9 +200,9 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
               narrowing to MORE conservative (Shared) when
               evidence demands.
         The MaybeShared choice is the "weakest sound assumption"
-        — strong enough to trigger runtime checks (DP-4), weak
-        enough to permit unique-reference optimization when
-        callers prove uniqueness.
+        — strong enough to retain a dynamic-sharing obligation
+        (DP-4), weak enough to permit the sole-owner fast path
+        when the target's projection establishes it.
 
       (P4) Monotone preservation through SCC fixpoint:
         For each observed call-site argument state `arg_state`
@@ -233,16 +234,41 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
         precise contracts; CONSERVATIVE initialization would
         lose precision without soundness gain.
 
+      (P6) Borrowed indirect-call adapter consequence:
+        The shared indirect-call logical contract presents every explicit
+        operand as a caller-retained borrow; each backend projects it into its
+        own calling convention. The closed target identity freezes each target
+        parameter's exact inward-owner demand from the full final contract.
+        Owned, borrowed iter-consume without return transfer, and borrowed
+        COW-consume require a whole-value owner; projected-field iter-consume
+        requires only that field; plain Borrow requires none. Whole-value plus
+        projected-field demand is contradictory and fails closed. IC-8a
+        CONSERVATIVE freezes WholeValue, so a non-enumerable target requires
+        exactly one logical adapter CREDIT for the operand and target discharge
+        consumes it on both normal and unwind. Target facts are keyed by
+        (function, parameter); result facts by (function, normal-return-site).
+        Independent fresh results require no synthetic entry fact. Related
+        results require the same function/parameter; EntryCredit additionally
+        requires exact WholeValue->Direct/Contained or same-field Projected
+        topology, while complete TargetFunded evidence may reshape. The verified
+        CFG exit inventory computes every normal requirement; unwind carries no
+        result requirement. Plan freezing requires exact coverage, a stable
+        ownerless proof identity/reason or a recomputed exclusive owned source,
+        and rejects forged sources, identity replay, duplicates, and category
+        swaps. This PV-4 boundary fact chooses no physical retain, counter,
+        layout, ABI, or discharge mechanism.
+
   Proof obligation:
-    Five-part discharge corresponding to (P1)..(P5); per-parameter
+    Six-part discharge corresponding to (P1)..(P6); per-parameter
     initialization (P1) grounds in the shipped Rust constant
     assignment; lattice TOP property (P2) grounds in sec-1
     dimension chain definitions; uniqueness rationale (P3)
     grounds in DP-4 + DP-9 + L-6 monotonicity; monotone
     preservation (P4) grounds in IC-3's max-join operator +
     L-6; closure carve-out (P5) grounds in the address-taken
-    classification + IC-2's standard seeding for the
-    complementary case.
+    classification + IC-2's standard seeding for the complementary case;
+    borrowed-indirect adaptation (P6) grounds in PV-4's exact adapter rows and
+    target-body composition through the frozen owner-demand fact.
 
     Part (P1) — Per-parameter CONSERVATIVE initialization:
 
@@ -324,39 +350,40 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
       The uniqueness lattice has 3 values forming the chain:
         Unique < MaybeShared < Shared
       with semantic meanings:
-        - Unique: provably RC == 1 (compiler proof of unique
-          ownership)
+        - Unique: provably exactly one logical owner credit
         - MaybeShared: epistemic uncertainty (could be unique
           or shared)
-        - Shared: provably RC > 1 (compiler proof of sharing)
+        - Shared: provably multiple logical owner credits
 
-      For non-enumerable callers, the function cannot observe
-      whether the caller holds unique or shared references.
+      For non-enumerable callers, the analysis cannot prove whether
+      the incoming value carries one or multiple logical owner credits.
       The compiler can only conclude "uncertainty" — the
       MaybeShared lattice value correctly encodes this
       epistemic state.
 
-      Per DP-4 (`needs_cow_check(s) ⟺ s.uniqueness =
-      MaybeShared`):
-        - MaybeShared → emit runtime IsShared check; branch to
-          in-place fast path (RC == 1) or copy slow path (RC > 1).
-        - Shared → emit unconditional copy (no runtime check;
-          known shared).
-        - Unique → emit in-place mutation (no runtime check;
-          known unique).
+      Per DP-4 (`needs_sharing_observation(s) ⟺ s.uniqueness =
+      MaybeShared`) and DP-9:
+        - MaybeShared under the IC-8a contract → Dynamic; each target
+          projects the required sharing observation and the one-owner /
+          multiple-owner branches using its own physical mechanism.
+        - Shared → StaticShared; the logical decision requires isolation
+          without another sharing observation.
+        - Unique → StaticUnique only when DP-5 also proves mutation is
+          safe; otherwise StaticShared. Uniqueness alone never authorizes
+          in-place mutation.
 
       Choosing MaybeShared (not Shared) for IC-8a's CONSERVATIVE
-      seed preserves the runtime-check optimization opportunity:
-      when callers actually hold unique references at runtime,
-      the IsShared check succeeds and the fast path executes.
-      Choosing Shared would force unconditional copy, losing
+      seed preserves the dynamic-observation optimization opportunity:
+      when the target establishes one logical owner at execution,
+      its sharing projection selects the fast path.
+      Choosing Shared would force unconditional isolation, losing
       this optimization without soundness benefit (Shared is
       not "more sound" than MaybeShared — both are sound for
       non-enumerable callers; MaybeShared is more precise).
 
       Per L-6 (monotonicity) + IC-3 join rule
       (`uniqueness(max)`): if observed call sites later prove
-      Shared (e.g., a caller passes an argument with RC > 1),
+      Shared (e.g., a caller passes an argument with multiple logical owners),
       the IC-3 join advances MaybeShared → Shared. The
       CONSERVATIVE seed does NOT block subsequent widening to
       Shared when evidence demands. Conversely, the seed
@@ -418,10 +445,8 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
       Per Annex E §AIMS §2 invariant 1 ("contracts and
       realization must agree"), the CONSERVATIVE-seed
       preservation is the soundness floor: downstream
-      consumers (Step 5 emission, RL-29 / RL-30 LLVM fact-
-      export gates) consume CONSERVATIVE contracts and emit
-      conservative code (Owned ABI, no `noalias` annotations,
-      runtime IsShared checks). The realized IR therefore
+      consumers (Step 5 emission and RL-29 / RL-30 neutral fact derivation)
+      consume CONSERVATIVE contracts and retain conservative semantics. The realized IR therefore
       matches the contract without optimization assumptions
       that non-enumerable callers cannot satisfy.
 
@@ -497,9 +522,8 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
       Negative-direction witness — applying CONSERVATIVE seed
       to enumerable closure rejected:
 
-      Take an immediately-invoked closure:
-        let f = |x| x + 1;
-        f(42)
+      Take an immediately-invoked closure with one visible call whose managed
+      argument is proven Borrowed, Once, FunctionLocal, and Unique.
 
       Suppose hypothetical implementer applies IC-8a's
       CONSERVATIVE seed to the immediately-invoked closure
@@ -509,14 +533,11 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
         // may_share=true)
 
       Then `f`'s parameter `x` would receive CONSERVATIVE
-      contract despite the single visible call site passing
-      `42` (an int scalar with no RC concern). Downstream
-      consumers (Step 5 emission) would emit Owned ABI for
-      `x` (per Access = Owned), expect Many uses (per
-      Cardinality = Many), runtime IsShared checks (per
-      Uniqueness = MaybeShared) — all unnecessary for an
-      immediately-invoked closure with a single scalar
-      argument.
+      contract despite the complete visible-call proof. Downstream AIMS
+      consumers would retain WholeValue owner demand (per Access = Owned),
+      Many-use demand (per Cardinality = Many), and a dynamic-sharing
+      obligation (per Uniqueness = MaybeShared). A target projection could
+      therefore require work that the exact Borrowed/Once/Unique facts avoid.
 
       Per Annex E §AIMS §1 ("RC rare, not RC fast"):
       this is a precision regression. The enumerable closure's
@@ -531,8 +552,8 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
       Negative-direction witness — applying OPTIMISTIC seed to
       non-enumerable function rejected:
 
-      Take a public-API function:
-        pub @f(x: int) -> int = x + 1;
+      Take a public-API function with a managed parameter whose external call
+      sites cannot be enumerated.
 
       Suppose hypothetical implementer applies IC-2's
       OPTIMISTIC seed to the public-API function `f`:
@@ -544,25 +565,64 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
       contract despite non-enumerable external callers.
       Without any call sites visible to the compiler, the
       SCC fixpoint would converge to OPTIMISTIC (the seed)
-      — no joins applied. Downstream consumers (Step 5
-      emission) would emit Borrowed ABI for `x` (per Access =
-      Borrowed), assume Absent cardinality (no uses) — both
-      WRONG for an externally-called function. External
-      callers may pass owned values with multiple uses; the
-      contract under-approximates observable demands.
+      — no joins applied. Downstream AIMS consumers would freeze Borrowed
+      access and Absent cardinality for `x`, both wrong for an externally
+      called function. External callers may pass owned values with multiple
+      uses; the contract under-approximates observable demands.
 
       Per Annex E §AIMS §2 invariant 1 ("contracts and
       realization must agree"), this is a soundness failure:
       external callers passing Owned arguments with Many
-      cardinality would mismatch the function's Borrowed +
-      Absent contract, leading to RC imbalance (caller incs
-      not balanced by callee decs) or incorrect ABI
-      (caller-side `move` for Owned, callee-side `&borrow`
-      for Borrowed). The IC-8a CONSERVATIVE seed is therefore
+      cardinality would mismatch the function's Borrowed + Absent contract,
+      violating the logical ownership ledger or causing a conforming target
+      projection to reject the artifact. The IC-8a CONSERVATIVE seed is therefore
       load-bearing for non-enumerable cases; OPTIMISTIC seed
       is unsound.
 
-    Coherence side-conditions for (P1)..(P5):
+    Part (P6) — Borrowed indirect-call adapter consequence:
+
+      `FrozenTargetOwnershipFact.ofParamContract` freezes the full inward-owner
+      demand without later reanalysis. Therefore IC-8a CONSERVATIVE projects a
+      WholeValue target fact. The PV-4 adapter table is exact per partition:
+        caller-Borrowed / target-WholeValue = [READ, CREDIT, CONSUME]
+        caller-Borrowed / target-ProjectedField(f) = [READ, CREDIT_f, CONSUME_f]
+        caller-Borrowed / target-Borrow = [READ]
+      on normal and unwind. The compiled table also pins Borrowed iter-consume
+      and borrowed COW-consume to WholeValue, iter-through-return to Borrow,
+      and whole-plus-projected conflict to fail-closed. Every admitted row nets
+      zero from the caller-retained entry count and preserves every floor. For
+      an arbitrary realized target body, `calleeConforms_interface` proves
+      owner-demand body net -1 / Borrow body net 0;
+      `T4_PV4_borrowed_indirect_adapter_composition_sound` supplies exactly the
+      complementary credit and proves the composed segment. Separate normal
+      and unwind hypotheses prevent a normal-only discharge from satisfying the
+      theorem. Missing an owner-demand credit nets -1; missing unwind discharge
+      nets +1.
+
+      `FrozenResultOwnerFact.freeze` consumes an optional target fact, a stable
+      (function, return-site) identity, relation, and exact funding evidence.
+      IndependentTargetBirth requires no entry, admitting zero-parameter fresh
+      returns; related results require an entry with the same function/parameter.
+      EntryCredit is admitted only when WholeValue maps to Direct/Contained or
+      ProjectedField(f) maps to the same f. Complete TargetFunded evidence may
+      reshape, and NeedsResultCredit remains the Direct/Projected Borrow fallback.
+      The function-plan freezer derives requirements from the verified CFG exit
+      inventory, recomputes every owned candidate through the per-site freezer,
+      and matches the claimed fact exactly. Ownerless sites carry a nonzero proof
+      identity/reason tied by proposition to the CFG-owned requirement. Missing,
+      extra, duplicate, wrong-function/site, wrong-kind, forged-source, invalid
+      ownerless, and unwind evidence reject. The callable row theorem proves an
+      Ownerless normal result preserves net zero, an Owned row yields net +1,
+      both preserve floors, and neither exports a result on unwind.
+      (P6) discharged in compiled Lean
+      `AimsProof.ContractBoundary` by
+      `IC8a_borrowed_indirect_adapter_uses_whole_value_target_fact`,
+      `T4_PV4_result_relation_topology_and_identity_are_exact`,
+      `T4_PV4_function_result_plan_is_total_and_exact`,
+      `FrozenFunctionResultPlan.freeze_preserves_inventory`, and
+      `T4_PV4_normal_return_row_callable_composition_sound`.
+
+    Coherence side-conditions for (P1)..(P6):
 
       - Classification soundness (Preconditions): the
         "address-taken / non-enumerable" classification at
@@ -613,10 +673,10 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
       - Per-dimension MaybeShared rationale (P3): the
         uniqueness dimension deviation from lattice TOP is
         explicit in the spec rule line. The choice is
-        SOUNDNESS-PRESERVING (MaybeShared is sound for all
-        non-enumerable cases per DP-4 runtime check) and
-        PRECISION-PRESERVING (avoids the unconditional copy
-        forced by Shared per DP-9 `Shared ⟹ StaticShared`).
+        SOUNDNESS-PRESERVING (MaybeShared retains the required
+        dynamic-sharing obligation for every non-enumerable case)
+        and PRECISION-PRESERVING (avoids prematurely selecting
+        StaticShared per DP-9 `Shared ⟹ StaticShared`).
         No other dimension has a similar lattice-TOP
         deviation — IC-8a's seed is the maximally-precise
         sound seed per dim.
@@ -683,8 +743,8 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
                 pin
         Row A6: uniqueness_maybeshared_not_shared —
                 non-enumerable function; uniqueness = MaybeShared
-                (NOT Shared); DP-4 runtime IsShared check
-                emitted (NOT DP-9 unconditional copy); (P2) +
+                (NOT Shared); DP-4 dynamic-sharing obligation
+                retained (NOT DP-9 StaticShared); (P2) +
                 (P3) MaybeShared-rationale pin
         Row A7: access_owned_top_of_chain —
                 non-enumerable function; access = Owned (TOP of
@@ -785,11 +845,10 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
 
       Then non-enumerable function parameters would receive
       Shared uniqueness. Per DP-9 (`Shared ⟹ StaticShared`),
-      downstream consumers would emit unconditional copy for
+      downstream consumers would select the copy decision for
       all mutations on the parameter — losing the
-      optimization opportunity when callers actually hold
-      unique references (which the runtime IsShared check
-      would have detected under MaybeShared).
+      optimization opportunity when the target could establish
+      a sole logical owner through its Dynamic projection.
 
       Per Annex E §AIMS §1 ("RC rare, not RC fast"):
       this is a precision regression. The MaybeShared seed
@@ -831,16 +890,11 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
                                                           under
                                                           max-
                                                           join)
-        IC-8a --> Step 5 emission (consumes CONSERVATIVE
-                                     contracts to emit
-                                     conservative ABI + runtime
-                                     checks)
-        IC-8a --> RL-29 / RL-30 (LLVM fact-export gates
-                                   consume CONSERVATIVE
-                                   contracts to suppress
-                                   `noalias` annotations +
-                                   emit conservative `memory`
-                                   attributes)
+        IC-8a --> Step 5 realization (consumes CONSERVATIVE contracts to
+                                      freeze backend-neutral ownership and
+                                      dynamic-sharing obligations)
+        IC-8a --> RL-29 / RL-30 (neutral fact derivation consumes
+                                   CONSERVATIVE contracts and remains unproven)
         IC-8a --> VF-6 (contract-realization agreement
                           verification at sec-9 VF-6)
 
@@ -958,7 +1012,7 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
         for non-enumerable functions + IC-2 OPTIMISTIC seed
         initialization for enumerable functions, both feeding
         IC-3 SCC fixpoint via max-join + OR-monoid; verifier
-        checks the five conjuncts (P1)..(P5) plus side-
+        checks the six conjuncts (P1)..(P6) plus side-
         conditions:
           - (P1) per-parameter uniform CONSERVATIVE tuple at
             ParamContract::CONSERVATIVE constant for all
@@ -968,8 +1022,8 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
             locality, may_share at exact TOP per sec-1
             dimension chains)
           - (P3) uniqueness = MaybeShared (NOT Shared)
-            rationale via DP-4 runtime IsShared check + DP-9
-            unconditional-copy avoidance + L-6 monotone
+            rationale via DP-4's dynamic-sharing obligation +
+            DP-9 StaticShared avoidance + L-6 monotone
             advance to Shared on observed evidence
           - (P4) monotone preservation through SCC fixpoint
             via L-6 `a ⊔ TOP = TOP` for all IC-3 join
@@ -978,13 +1032,27 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
             binary address-taken classification + IC-2
             OPTIMISTIC seeding for enumerable case +
             mutual-exclusion invariant between seed types
+          - (P6) CONSERVATIVE access freezes WholeValue demand for the
+            caller-borrowed indirect adapter, requiring exactly one logical
+            credit and target discharge on normal and unwind; both paths
+            independently net zero; borrowed iterator/COW and projected-field
+            transfer rows are exact; missing, malformed, or contradictory
+            target facts fail closed; missing credit nets -1, and missing
+            unwind discharge nets +1; function/parameter/return-site identities
+            are stable; EntryCredit topology is exact while TargetFunded may
+            reshape; Independent requires no entry and related results require
+            one; the CFG-derived function plan covers every normal site exactly
+            with either a proposition-bound Ownerless proof or a recomputed
+            exclusive IndependentTargetBirth/EntryCredit/TargetFunded/
+            NeedsResultCredit source; cross-function/site replay, duplicate,
+            missing, extra, wrong-kind, forged-source, invalid-ownerless, double-
+            funding, unfunded-containment, and unwind-result rows reject
         emits Fail on any divergence)
       interprocedural_summary (per-function CONSERVATIVE
         ParamContract export within SCC fixpoint loop;
-        consumed by Step 5 emission for conservative ABI +
-        runtime checks; consumed by RL-29 / RL-30 LLVM
-        fact-export gates to suppress optimization
-        annotations when contracts are CONSERVATIVE; consumed
+        consumed by Step 5 realization for conservative ownership and
+        dynamic-sharing facts; consumed by RL-29 / RL-30 neutral
+        fact derivation when contracts are CONSERVATIVE; consumed
         by VF-6 contract-realization agreement verification
         per Annex E §AIMS)
       case_analysis (address-taken classification table:
@@ -1000,4 +1068,4 @@ Theorem IC-8a: Address-taken / closure CONSERVATIVE initialization soundness
 
   Expected:
     status: valid
-    reason: section_06 fixpoint engine discharges IC-8a via five-conjunct verification ((P1) per-parameter CONSERVATIVE initialization for non-enumerable functions + (P2) lattice TOP correspondence across 5 of 6 dimensions (access, consumption, cardinality, locality, may_share at exact TOP per sec-1 chains; uniqueness deviation per P3) + (P3) uniqueness = MaybeShared (NOT Shared) rationale via DP-4 runtime IsShared check + DP-9 unconditional-copy avoidance + L-6 monotone advance to Shared on observed evidence + (P4) monotone preservation through SCC fixpoint via L-6 `a ⊔ TOP = TOP` idempotence + (P5) closure / enumerable carve-out via binary address-taken classification + IC-2 OPTIMISTIC seeding for enumerable case) over an 18-test corpus covering capture / higher-order-arg / public-API / trait-object classification triggers / per-parameter uniformity / per-dimension TOP correspondence / MaybeShared-rationale / TOP-preservation under join / zero-call-site preservation / closure carve-out / single-use carve-out / mixed-SCC handling cases; conservative-seeding soundness inherited from Cousot/Cousot 1977 (interprocedural summary with context-insensitive widening at non-enumerable boundaries) + Reynolds 1998 (function-value-flow analysis for higher-order programs) + Tarski 1955 (least-fixpoint theorem with lattice-TOP starting point) + FP² (Lorenzen et al. ICFP 2023 Section 6 Theorem 5); shipped engine `is_address_taken` classification + `ParamContract::CONSERVATIVE` constant + IC-8a seeding applied at SCC fixpoint initialization in compiler/ori_arc/src/aims/interprocedural/mod.rs implement the binary classification + CONSERVATIVE seed initialization in O(N) per classification + O(n) per seed initialization, deterministically across all targets (deterministic query contract); uniqueness = MaybeShared (NOT Shared) deviation from strict lattice TOP is intentional per spec sec-5 IC-8a rule line — preserves DP-4 runtime IsShared optimization opportunity while remaining sound for all non-enumerable cases; closure carve-out preserves precision for immediately-invoked / single-use closures via IC-2 OPTIMISTIC seeding; binary classification (enumerable XOR non-enumerable) enforces mutual exclusion between IC-2 and IC-8a seed application sites; per Annex E §AIMS §2 invariant 5 ("the unified model must stay unified") the address-taken classification feeds the lattice-driven analysis as a typed pre-pass input on AimsStateMap, NOT a separate shadow analysis
+    reason: section_06 fixpoint engine discharges IC-8a via six-conjunct verification ((P1) per-parameter CONSERVATIVE initialization for non-enumerable functions + (P2) lattice TOP correspondence across 5 of 6 dimensions (access, consumption, cardinality, locality, may_share at exact TOP per sec-1 chains; uniqueness deviation per P3) + (P3) uniqueness = MaybeShared (NOT Shared) rationale via DP-4's dynamic-sharing obligation + DP-9 StaticShared avoidance + L-6 monotone advance to Shared on observed evidence + (P4) monotone preservation through SCC fixpoint via L-6 `a ⊔ TOP = TOP` idempotence + (P5) closure / enumerable carve-out via binary address-taken classification + IC-2 OPTIMISTIC seeding for enumerable case + (P6) PV-4 caller-borrowed indirect adaptation from the frozen full-contract owner demand, exact Borrow / WholeValue / ProjectedField rows, target discharge on normal and unwind, source-sensitive EntryCredit topology, and a CFG-total normal-result plan with proposition-bound Ownerless or recomputed exclusive IndependentTargetBirth / EntryCredit / TargetFunded / NeedsResultCredit rows) over an 18-test corpus covering capture / higher-order-arg / public-API / trait-object classification triggers / per-parameter uniformity / per-dimension TOP correspondence / MaybeShared-rationale / TOP-preservation under join / zero-call-site preservation / closure carve-out / single-use carve-out / mixed-SCC handling cases; the checker additionally pins 14 topology/source rows and 15 function-plan ingress rows covering stable function/parameter/site identities, zero-parameter independent results, complete root/payload funding, target-funded reshaping, exact CFG coverage, no double funding, no unwind result action, exact entry unwind discharge, invalid ownerless evidence, and forged-source rejection; conservative-seeding soundness inherited from Cousot/Cousot 1977 (interprocedural summary with context-insensitive widening at non-enumerable boundaries) + Reynolds 1998 (function-value-flow analysis for higher-order programs) + Tarski 1955 (least-fixpoint theorem with lattice-TOP starting point) + FP² (Lorenzen et al. ICFP 2023 Section 6 Theorem 5); shipped engine `is_address_taken` classification + `ParamContract::CONSERVATIVE` constant + IC-8a seeding applied at SCC fixpoint initialization in compiler/ori_arc/src/aims/interprocedural/mod.rs implement the binary classification + CONSERVATIVE seed initialization in O(N) per classification + O(n) per seed initialization, deterministically across all targets (deterministic query contract); uniqueness = MaybeShared (NOT Shared) deviation from strict lattice TOP is intentional per spec sec-5 IC-8a rule line — preserves DP-4's target-neutral Dynamic realization opportunity while remaining sound for all non-enumerable cases; closure carve-out preserves precision for immediately-invoked / single-use closures via IC-2 OPTIMISTIC seeding; binary classification (enumerable XOR non-enumerable) enforces mutual exclusion between IC-2 and IC-8a seed application sites; per Annex E §AIMS §2 invariant 5 ("the unified model must stay unified") the address-taken classification feeds the lattice-driven analysis as a typed pre-pass input on AimsStateMap, NOT a separate shadow analysis

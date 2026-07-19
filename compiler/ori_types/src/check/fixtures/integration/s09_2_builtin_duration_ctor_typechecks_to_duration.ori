@@ -1,0 +1,3 @@
+
+@p4_mk () -> Duration = Duration.from_seconds(s: 5);
+@test_p4 tests @p4_mk () -> void = ();

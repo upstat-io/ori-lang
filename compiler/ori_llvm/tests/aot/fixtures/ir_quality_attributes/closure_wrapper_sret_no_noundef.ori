@@ -1,0 +1,12 @@
+
+@apply_transform (items: [str], transform: (str) -> str) -> [str] =
+    for item in items yield transform(item);
+
+@main () -> void = {
+    let $prefix = "hello-prefix-over-twenty-three!";
+    let $result = apply_transform(
+        items: ["world"],
+        transform: (s: str) -> str = `{prefix}: {s}`,
+    );
+    print(msg: result[0])
+}

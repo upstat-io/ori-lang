@@ -70,7 +70,7 @@ pub enum Applicability {
 }
 ```
 
-`Applicability::is_machine_applicable()` is the single predicate used by `ori fix` and the LSP to gate automatic application.
+Matching on the `MachineApplicable` variant is how `ori fix` and the LSP will gate automatic application.
 
 ### `Substitution`
 

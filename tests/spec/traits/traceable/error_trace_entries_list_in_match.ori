@@ -1,0 +1,47 @@
+// Spec: 07-properties-of-types.md § Traceable
+// Regression: a non-scalar Traceable accessor (`trace_entries() -> [TraceEntry]`)
+// on the `Error` payload `e`, as the TAIL value of a `match` arm, emitted
+// malformed LLVM IR (E5001) — the poisoned scalar was fed into the aggregate
+// {i64, i64, ptr} match phi. Interp succeeded; LLVM build failed (L9 parity).
+
+use std.testing { assert_eq }
+
+@fail () -> Result<int, Error> = Err(Error("fail"));
+
+@one_hop () -> Result<int, Error> = {
+    let x = fail()?;
+    Ok(x)
+}
+
+// Variant 1: the non-scalar accessor is the arm's tail value; the arm result
+// type is the aggregate list `[TraceEntry]`.
+@entries_via_match () -> [TraceEntry] = {
+    match one_hop() {
+        Ok(_) -> [],
+        Err(e) -> e.trace_entries(),
+    }
+}
+
+@test_entries_list tests @entries_via_match () -> void = {
+    assert_eq(
+        actual: entries_via_match().len(),
+        expected: 1,
+    )
+}
+
+// Additional scalar-returning coverage for the same Error method, exercised
+// through both interpreter and LLVM backends without hitting BUG-04-277's
+// aggregate-returning-match-consumed-inline trigger shape.
+@entries_count_via_match () -> int = {
+    match one_hop() {
+        Ok(_) -> 0,
+        Err(e) -> e.trace_entries().len(),
+    }
+}
+
+@test_entries_count_via_match tests @entries_count_via_match () -> void = {
+    assert_eq(
+        actual: entries_count_via_match(),
+        expected: 1,
+    )
+}

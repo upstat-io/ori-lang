@@ -32,12 +32,12 @@ fn transfer_kind_has_two_distinct_variants() {
 #[test]
 fn empty_builtin_burden_spec_is_const_constructible() {
     const EMPTY: BuiltinBurdenSpec = BuiltinBurdenSpec::EMPTY;
-    const { assert!(!EMPTY.self_heap_alloc) };
+    const { assert!(!EMPTY.self_owned_identity) };
     const { assert!(EMPTY.owned_fields.is_empty()) };
     const { assert!(EMPTY.borrowed_fields.is_empty()) };
     const { assert!(EMPTY.variant_burdens.is_empty()) };
     const { assert!(EMPTY.element_burden.is_none()) };
-    const { assert!(EMPTY.compiled_drop.is_none()) };
+    const { assert!(EMPTY.drop_operation.is_none()) };
     const { assert!(EMPTY.user_drop.is_none()) };
 }
 
@@ -63,16 +63,16 @@ fn builtin_burden_spec_const_construction_with_non_empty_data() {
         field_type: TypeId::new(FORTY_TWO),
     }];
     const SPEC: BuiltinBurdenSpec = BuiltinBurdenSpec {
-        self_heap_alloc: true,
+        self_owned_identity: true,
         owned_fields: OWNED,
         element_burden: Some(TypeId::new(SEVEN)),
-        compiled_drop: Some(FnSym::new(NINETY_NINE)),
+        drop_operation: Some(FnSym::new(NINETY_NINE)),
         ..BuiltinBurdenSpec::EMPTY
     };
-    const { assert!(SPEC.self_heap_alloc) };
+    const { assert!(SPEC.self_owned_identity) };
     assert_eq!(SPEC.owned_fields.len(), 1);
     assert_eq!(SPEC.owned_fields[0].field_path, &[0, 1]);
     assert_eq!(SPEC.owned_fields[0].field_type, TypeId::new(FORTY_TWO));
     assert_eq!(SPEC.element_burden, Some(TypeId::new(SEVEN)));
-    assert_eq!(SPEC.compiled_drop, Some(FnSym::new(NINETY_NINE)));
+    assert_eq!(SPEC.drop_operation, Some(FnSym::new(NINETY_NINE)));
 }

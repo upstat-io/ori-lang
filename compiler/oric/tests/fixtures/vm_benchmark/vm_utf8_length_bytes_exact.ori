@@ -1,0 +1,5 @@
+@main () -> int = {
+    let constant = "café";
+    let heap = constant.to_uppercase();
+    if constant.length() == 5 && heap.len() == 5 then 37 else 99
+}

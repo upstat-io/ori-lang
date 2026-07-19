@@ -1,0 +1,9 @@
+@choose (b: bool) -> str = {
+    let name = "a heap string well past the SSO inline threshold of 23!";
+    if b then name else "other"
+}
+
+@main () -> int = {
+    let s = choose(b: true);
+    if s.length() == 55 then 0 else 1
+}

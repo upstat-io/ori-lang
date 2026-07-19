@@ -441,7 +441,7 @@ fn self_in_receiver_position_is_allowed() {
     );
 }
 
-// ── Super-trait inheritance (Phase B.1 — register_object_safety_violations) ──
+// Super-trait inheritance (Phase B.1 — register_object_safety_violations)
 
 /// Helper: build a `TraitDef` with one generic method `@<method_name><T> (self) -> T`.
 /// The trait's direct items therefore violate object-safety Rule 3 (`GenericMethod`).
@@ -705,7 +705,7 @@ fn no_super_trait_means_no_inheritance() {
     );
 }
 
-// ── E2029: Derive Hashable without Eq ────────────────────────────────
+// E2029: Derive Hashable without Eq
 
 #[test]
 fn derive_hashable_without_eq_emits_error() {
@@ -734,6 +734,10 @@ fn derive_hashable_without_eq_emits_error() {
     let errors = checker.errors();
     assert_eq!(errors.len(), 1, "expected exactly one error");
     assert_eq!(errors[0].code(), ori_diagnostic::ErrorCode::E2029);
+    assert!(
+        checker.accepted_derives.is_empty(),
+        "a rejected derive must not publish an executable fact"
+    );
 }
 
 #[test]
@@ -766,6 +770,74 @@ fn derive_eq_and_hashable_succeeds() {
 
     let errors = checker.errors();
     assert!(errors.is_empty(), "expected no errors, got: {errors:?}");
+    assert_eq!(checker.accepted_derives.len(), 2);
+    assert_eq!(checker.accepted_derives[0].id.raw(), 0);
+    assert_eq!(checker.accepted_derives[1].id.raw(), 1);
+    assert_eq!(checker.accepted_derives[0].owner_name, type_name);
+    assert_eq!(
+        checker.accepted_derives[0].method_name,
+        interner.intern("eq")
+    );
+    assert_eq!(checker.accepted_derives[0].signature.param_types.len(), 2);
+    assert_eq!(checker.accepted_derives[0].signature.return_type, Idx::BOOL);
+}
+
+#[test]
+fn duplicate_accepted_derive_publishes_one_fact() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+
+    let eq = interner.intern("Eq");
+    let type_decl = ori_ir::TypeDecl {
+        name: interner.intern("Point"),
+        kind: ori_ir::TypeDeclKind::Struct(vec![]),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        where_clauses: vec![],
+        span: Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+        derives: vec![eq],
+        repr_attrs: vec![],
+        target_attr: None,
+        cfg_attr: None,
+    };
+
+    register_derived_impl(&mut checker, &type_decl, eq);
+    register_derived_impl(&mut checker, &type_decl, eq);
+
+    assert_eq!(checker.accepted_derives.len(), 1);
+}
+
+#[test]
+fn newtype_derive_requires_underlying_trait() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+
+    let eq = interner.intern("Eq");
+    let type_decl = ori_ir::TypeDecl {
+        name: interner.intern("Opaque"),
+        kind: ori_ir::TypeDeclKind::Newtype(ParsedType::Named {
+            name: interner.intern("NoEq"),
+            type_args: ori_ir::ParsedTypeRange::EMPTY,
+        }),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        where_clauses: vec![],
+        span: Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+        derives: vec![eq],
+        repr_attrs: vec![],
+        target_attr: None,
+        cfg_attr: None,
+    };
+
+    register_derived_impl(&mut checker, &type_decl, eq);
+
+    assert_eq!(checker.errors().len(), 1);
+    assert_eq!(checker.errors()[0].code(), ori_diagnostic::ErrorCode::E2032);
+    assert!(checker.accepted_derives.is_empty());
 }
 
 // resolve_type_with_params — compound Self recursion tests
@@ -974,7 +1046,7 @@ fn resolve_type_with_params_nested_self_in_list_of_tuples() {
     assert_eq!(checker.pool().tag(first), crate::Tag::Named);
 }
 
-// --- Cross-crate sync enforcement ---
+// Cross-crate sync enforcement
 
 #[test]
 fn all_derived_traits_have_type_signatures() {
@@ -990,7 +1062,15 @@ fn all_derived_traits_have_type_signatures() {
         let type_name = interner.intern("TestType");
         let self_type = checker.pool_mut().named(type_name);
 
-        let methods = build_derived_methods(&mut checker, trait_kind, self_type, Span::DUMMY);
+        let trait_name = interner.intern(trait_kind.trait_name());
+        let (methods, signature) = build_derived_methods(
+            &mut checker,
+            trait_kind,
+            self_type,
+            &[],
+            trait_name,
+            Span::DUMMY,
+        );
 
         assert!(
             !methods.is_empty(),
@@ -1004,6 +1084,11 @@ fn all_derived_traits_have_type_signatures() {
         assert!(
             methods.contains_key(&method_name),
             "DerivedTrait::{trait_kind:?} registered method name doesn't match method_name()",
+        );
+        assert_eq!(signature.name, method_name);
+        assert_eq!(
+            signature.param_types.len(),
+            trait_kind.shape().param_count()
         );
     }
 }
@@ -1171,7 +1256,7 @@ fn repr_c_plus_aligned_still_valid() {
     );
 }
 
-// ── E2049: Value + Drop mutual exclusion ───────────────────────────────
+// E2049: Value + Drop mutual exclusion
 
 /// Helper: build a minimal `impl Point: Drop { @drop (self) -> void = ... }`
 /// `ImplDef` over a struct named `Point`. The body `ExprId` is `INVALID`
@@ -1186,7 +1271,7 @@ fn make_drop_impl_for(
     let drop_method = interner.intern("drop");
     let self_name = interner.intern("self");
     let params = arena.alloc_params(vec![make_param(self_name, None)]);
-    // Idx::UNIT corresponds to TypeId::from_raw(6) per §TY-5.
+    // TY-5: Idx::UNIT corresponds to TypeId::from_raw(6) (pre-interned primitive index).
     let unit_primitive = ParsedType::Primitive(ori_ir::TypeId::from_raw(6));
     ori_ir::ImplDef {
         generics: ori_ir::GenericParamRange::EMPTY,
@@ -1395,8 +1480,8 @@ fn value_type_without_drop_impl_registers_empty_user_burden_spec() {
     );
     let burden = burden.unwrap();
     assert!(
-        !burden.self_heap_alloc,
-        "Value spec self_heap_alloc must be false"
+        !burden.self_owned_identity,
+        "Value spec self_owned_identity must be false"
     );
     assert!(
         burden.owned_fields.is_empty(),
@@ -1415,8 +1500,8 @@ fn value_type_without_drop_impl_registers_empty_user_burden_spec() {
         "Value spec element_burden must be None"
     );
     assert!(
-        burden.compiled_drop.is_none(),
-        "Value spec compiled_drop must be None"
+        burden.drop_operation.is_none(),
+        "Value spec drop_operation must be None"
     );
     assert!(
         burden.user_drop.is_none(),
@@ -1515,8 +1600,8 @@ fn value_type_all_value_fields_registers_empty_burden() {
         "all-Value-fields type must register the empty UserBurdenSpec"
     );
     assert!(
-        !burden.unwrap().self_heap_alloc,
-        "all-Value-fields Value spec self_heap_alloc must be false"
+        !burden.unwrap().self_owned_identity,
+        "all-Value-fields Value spec self_owned_identity must be false"
     );
 }
 
@@ -1723,5 +1808,66 @@ fn drop_impl_for_non_value_type_registers_user_drop_no_e2049() {
     assert!(
         burden.user_drop.is_some(),
         "Drop type's user_drop must be set by populate_drop_burden_if_applicable"
+    );
+}
+
+#[test]
+fn error_struct_registers_heap_field_burden() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    register_builtin_types(&mut checker);
+
+    let error_idx = checker
+        .pool()
+        .error_struct_idx()
+        .unwrap_or_else(|| panic!("Error struct idx must be recorded"));
+    let burden = checker
+        .type_registry()
+        .burden(error_idx)
+        .unwrap_or_else(|| {
+            panic!("Error owns message: str + trace: [TraceEntry] — burden required")
+        });
+    let mut paths: Vec<u32> = burden
+        .owned_fields
+        .iter()
+        .map(|f| f.field_path[0])
+        .collect();
+    paths.sort_unstable();
+    assert_eq!(
+        paths,
+        vec![0, 1],
+        "Error burden must own both message (field 0) and trace (field 1)"
+    );
+}
+
+#[test]
+fn trace_entry_registers_heap_field_burden() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    register_builtin_types(&mut checker);
+
+    let te_name = interner.intern("TraceEntry");
+    let entry = checker
+        .type_registry()
+        .get_by_name(te_name)
+        .unwrap_or_else(|| panic!("TraceEntry must be registered"));
+    let burden = checker
+        .type_registry()
+        .burden(entry.idx)
+        .unwrap_or_else(|| panic!("TraceEntry owns function: str + file: str — burden required"));
+    let mut paths: Vec<u32> = burden
+        .owned_fields
+        .iter()
+        .map(|f| f.field_path[0])
+        .collect();
+    paths.sort_unstable();
+    assert_eq!(
+        paths,
+        vec![0, 1],
+        "TraceEntry burden must own function (field 0) and file (field 1)"
     );
 }

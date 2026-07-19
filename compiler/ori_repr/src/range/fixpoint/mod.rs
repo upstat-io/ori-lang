@@ -18,7 +18,7 @@
 //! Runs after ARC lowering, before LLVM codegen.
 //! Results stored in `ReprPlan` via `set_var_ranges()` and `flush_to_repr_plan()`.
 
-mod helpers;
+mod iteration;
 mod narrowing;
 mod terminator;
 mod widen;
@@ -35,7 +35,7 @@ use super::field_summary::{
 };
 use super::transfer::{transfer, TransferContext};
 use super::{RangeAnalysisConfig, ValueRange};
-use helpers::{
+use iteration::{
     collect_comparison_thresholds, merge_block_params, propagate_refinements_through_jump_chains,
 };
 use narrowing::{
@@ -75,7 +75,7 @@ pub struct RangeFixpointResult {
 /// but non-parameter variables that are live across the branch also need
 /// refinement during body processing. Since non-param variables share a
 /// single global range entry, we apply the refinement temporarily and restore
-/// afterward. See
+/// afterward.
 pub(super) fn apply_block_refinements(
     block: &ArcBlock,
     ranges: &mut FxHashMap<ArcVarId, ValueRange>,
@@ -213,8 +213,8 @@ fn run_forward_iteration(
             if let Some(var) = instr.defined_var() {
                 // Apply callee return-range narrowing to call-result
                 // variables. The transfer function for Apply/Invoke returns Top
-                // (unknown function), but we have the callee's return range from
-                // interprocedural analysis. Applying `meet` here lets the narrowed
+                // (unknown function), but the callee's return range is available
+                // from interprocedural analysis. Applying `meet` here lets the narrowed
                 // value propagate to derived locals through subsequent iterations.
                 if let Some(&narrowing) = call_result_narrowings.get(&var) {
                     new_range = new_range.meet(narrowing);

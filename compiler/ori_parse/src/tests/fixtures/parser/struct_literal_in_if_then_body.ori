@@ -1,0 +1,4 @@
+
+type Point = { x: int, y: int }
+
+@test () -> int = if true then Point { x: 1, y: 2 }.x else 0;

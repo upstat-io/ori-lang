@@ -99,10 +99,7 @@ jobs:
   # Main test suite - PR-only (skipped on dev push; the nightly dev->master PR
   # runs it before release).
   #
-  # Runs ./test-all.sh — the SAME script developers run locally — so CI and
-  # local runs execute identical suites with identical parsing and report
-  # identical failure counts. Do NOT hand-roll cargo test invocations here;
-  # a parallel pipeline is how local and CI failure counts diverged.
+  # Runs ./test-all.sh - the same script developers run locally.
   test:
     name: Test
     needs: setup
@@ -130,7 +127,7 @@ jobs:
         with:
           key: test
 
-      - name: Full test suite (test-all.sh — SSOT shared with local runs)
+      - name: Full test suite
         run: ./test-all.sh --json=test-results.json
         env:
           LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
@@ -140,11 +137,12 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: test-results
-          path: test-results.json
+          path: |
+            test-results.json
+            test-all.log
           retention-days: 90
 
-
-  # Cross-platform — full test suite including AOT. PR-only (skipped on dev push).
+  # Cross-platform - full test suite including AOT. PR-only.
   cross-platform:
     name: ${{ matrix.os }}
     needs: setup

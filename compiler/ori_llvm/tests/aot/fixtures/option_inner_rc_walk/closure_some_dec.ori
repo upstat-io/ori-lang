@@ -1,0 +1,9 @@
+type Holder = { f: Option<(int) -> int> }
+@mk (b: bool, cap: str) -> Option<(int) -> int> = if b then Some((x) -> x + cap.len()) else None;
+@consume (h: Holder) -> void = {
+    print(msg: "c")
+}
+@main () -> void = {
+    let h = Holder { f: mk(b: true, cap: "abc") };
+    consume(h: h)
+}

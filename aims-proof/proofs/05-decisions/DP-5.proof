@@ -72,7 +72,7 @@ Theorem DP-5: can_mutate_in_place — alias-safety with SetTag invalidation + pr
       Row 1: Access != O, any Uniqueness, any borrow state, any alias
         state -> false
         Soundness: predicate false (first conjunct s.access = O fails).
-        Borrowed values never own their RC; in-place mutation would
+        Borrowed values carry no owner credit; in-place mutation would
         violate the borrowed alias contract.
 
       Row 2: Access = O, Uniqueness != u (MaybeShared OR Shared), any
@@ -81,14 +81,15 @@ Theorem DP-5: can_mutate_in_place — alias-safety with SetTag invalidation + pr
         fails). DP-9 distinguishes the MaybeShared and Shared sub-cases
         via cow_mode (Dynamic / StaticShared respectively); DP-5
         returns false uniformly. This is the negative-direction witness
-        for the Uniqueness gate — RC > 1 risk forbids unconditional
+        for the Uniqueness gate — multiple-owner risk forbids unconditional
         in-place mutation.
 
       Row 3: Access = O, Uniqueness = u, direct borrow overlaps field
         at point (instruction_kind respected for SetTag whole-payload
         semantics), any alias state -> false
         Soundness: predicate false (third conjunct
-        no_active_overlapping_borrows fails via Step 1). RC = 1 but
+        no_active_overlapping_borrows fails via Step 1). Exactly one owner
+        credit exists, but
         mutation would corrupt the borrowed view; disjoint-field RL-10
         exemption does NOT apply when the borrow path overlaps the
         mutation field (neither is prefix of the other excludes the
@@ -102,7 +103,8 @@ Theorem DP-5: can_mutate_in_place — alias-safety with SetTag invalidation + pr
 
       Row 5: Access = O, Uniqueness = u, no direct overlap, no live
         transitive alias -> true
-        Soundness: predicate true (all three conjuncts hold). RC = 1 +
+        Soundness: predicate true (all three conjuncts hold). Exactly one
+        logical owner credit +
         no active borrow conflict -> in-place mutation safe.
 
     Part (a.1) — SetTag invalidation clause (per Annex E §AIMS
@@ -200,7 +202,8 @@ Theorem DP-5: can_mutate_in_place — alias-safety with SetTag invalidation + pr
       Consider s = (O, L, 1, ms, bl, R-S, NONE); no direct borrow on
       var; no transitive alias live. Per the predicate s.uniqueness =
       ms violates second conjunct -> DP-5 = false. Per Appendix C
-      Row 2 the same case yields false. Sound: RC may be > 1; DP-9
+      Row 2 the same case yields false. Sound: multiple logical owners may
+      exist; DP-9
       routes the same configuration to Dynamic (runtime IsShared check)
       per row (d) — DP-5 alone cannot license in-place mutation.
 
@@ -210,7 +213,8 @@ Theorem DP-5: can_mutate_in_place — alias-safety with SetTag invalidation + pr
       overlapping the mutation field; b live at point. Per the
       predicate Step 1 sets overlap = true ->
       no_active_overlapping_borrows = false -> DP-5 = false. Per
-      Appendix C Row 3 the same case yields false. Sound: RC = 1 but
+      Appendix C Row 3 the same case yields false. Sound: exactly one owner
+      credit exists, but
       borrowed view would observe corrupt state post-mutation.
 
     Negative-direction witness — Unique + SetTag + any-live-direct-borrow:
@@ -241,7 +245,8 @@ Theorem DP-5: can_mutate_in_place — alias-safety with SetTag invalidation + pr
       (neither prefix of the other) -> overlap = false. No live
       transitive alias on src -> alias_block = false ->
       no_active_overlapping_borrows = true. Per predicate DP-5 = true.
-      Sound: borrowed view of x unaffected by mutation of y; RC = 1.
+      Sound: borrowed view of x is unaffected by mutation of y; exactly one
+      logical owner credit exists.
 
     project_alias_sources envelope declaration:
       shipped: R1, R2, R3, R4, R6

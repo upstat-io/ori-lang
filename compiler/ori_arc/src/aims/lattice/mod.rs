@@ -18,9 +18,9 @@
 //! Lean 4 borrow inference (IFL 2019), Linearity ≠ Uniqueness (ESOP 2022),
 //! `OxCaml` (ICFP 2024).
 
-// Exposed for dead-code lint satisfaction — the glob re-export below
-// is the intended public API surface.
+mod borrow_source;
 pub mod dimensions;
+pub mod prelude;
 #[cfg(test)]
 mod prop_tests;
 #[cfg(test)]
@@ -30,8 +30,9 @@ mod prop_tests;
 )]
 mod tests;
 
-pub use dimensions::*;
+pub use prelude::*;
 
+#[cfg(test)]
 use crate::ir::ArcVarId;
 use crate::ArcClass;
 
@@ -68,37 +69,6 @@ impl CanonicalizeFeedback {
     }
 }
 
-// SizeClass (for cross-type reuse in Stage 2+)
-
-/// Allocation size class for reuse compatibility.
-///
-/// Two allocations are reuse-compatible when they have the same `SizeClass`.
-/// In v1 (same-type matching), size compatibility is implied by type
-/// equality. Future versions may enable cross-type reuse when allocations
-/// have the same rounded size.
-///
-/// Derived from Pool type size queries, rounded to allocation granularity.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SizeClass(u32);
-
-impl SizeClass {
-    /// Unknown size — used when Pool-based size queries are unavailable
-    /// or when size classification is not yet available.
-    pub const UNKNOWN: Self = Self(0);
-
-    /// Create a size class from a byte count.
-    #[must_use]
-    pub fn from_bytes(bytes: u32) -> Self {
-        Self(bytes)
-    }
-
-    /// The byte count for this size class.
-    #[must_use]
-    pub fn bytes(self) -> u32 {
-        self.0
-    }
-}
-
 // AimsState — the product lattice
 
 /// Unified ownership state for a variable at a program point.
@@ -108,13 +78,13 @@ impl SizeClass {
 /// Auxiliary (conservative in v1): locality, shape, effect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct AimsState {
-    /// Aliasing: owned allocation vs borrowed view.
+    /// Aliasing: owned logical identity vs borrowed view.
     pub access: AccessClass,
     /// Substructural: how the value is consumed.
     pub consumption: Consumption,
     /// Forward usage count.
     pub cardinality: Cardinality,
-    /// Runtime reference count knowledge.
+    /// Logical owner multiplicity, independent of physical counting strategy.
     pub uniqueness: Uniqueness,
     /// Escape analysis (auxiliary, conservative in v1).
     pub locality: Locality,
@@ -156,8 +126,8 @@ impl AimsState {
     /// Scalar variable — excluded from analysis entirely.
     ///
     /// This is NOT a lattice element. It is a sentinel that short-circuits
-    /// the analysis for non-RC types. Scalar variables never need RC
-    /// operations, COW checks, or reuse.
+    /// the analysis for types without managed ownership. Scalar variables
+    /// require no ownership events, sharing observations, or reuse facts.
     ///
     /// Uses an infeasible combination (`Unrestricted` + `Absent`) as a
     /// sentinel. This pair cannot survive [`canonicalize`](Self::canonicalize)
@@ -281,12 +251,11 @@ impl AimsState {
     /// 1. `Dead` ↔ `Absent`: dead means zero future uses, and vice versa
     /// 2. `Linear` + `Absent` is infeasible → collapse to `Dead`
     /// 3. `Shared` + reusable shape → collapse shape to `NonReusable`
-    /// 4. REMOVED — was anti-monotone, broke join associativity
+    /// 4. `MaybeShared` is never auto-promoted to `Unique` (auto-promotion
+    ///    would break join associativity)
     /// 5. `Unique` + `Dead` → preserve `ReusableCtor` shape (implicit — no
     ///    rule collapses shape here; documented for clarity)
-    /// 6. `HeapEscaping` or `Unknown` → uniqueness ceiling `MaybeShared`
-    ///    (widened from `== HeapEscaping` to `>= HeapEscaping`
-    ///    by Rule 6 widening fix)
+    /// 6. `HeapEscaping` or higher locality → uniqueness ceiling `MaybeShared`
     /// 7. `Shared` + `CollectionBuffer` → force Dynamic COW
     ///    (enforced at query sites via `needs_cow_check()`)
     /// 8. `Borrowed` → locality ceiling `FunctionLocal`
@@ -320,75 +289,44 @@ impl AimsState {
             self.consumption = Consumption::Dead;
         }
 
-        // Rule 3 (CN-3): Shared values cannot be reused via constructor reset.
-        // Per §2 CN-3: applies to ALL reusable shapes —
-        // `ReusableCtor(Struct)`, `ReusableCtor(EnumVariant)`, `CollectionBuffer`,
-        // and `ContextHole`. A Shared value has RC > 1; resetting any reusable
-        // allocation type would corrupt other references regardless of which
-        // reusable shape it carries. The check `!= NonReusable` covers all
-        // reusable variants in one branch; equivalent to the explicit
-        // `ReusableCtor(_) | CollectionBuffer | ContextHole` enumeration but
-        // resilient to future shape additions.
+        // CN-3 forbids resetting every reusable shape when multiple owners may
+        // observe the allocation; comparing with `NonReusable` covers future
+        // reusable variants as well.
         if self.uniqueness == Uniqueness::Shared && self.shape != ShapeClass::NonReusable {
             self.shape = ShapeClass::NonReusable;
         }
 
-        // Rule 8: Borrowed → locality <= FunctionLocal.
-        // A borrowed reference cannot escape its defining function — it is a
-        // temporary view. HeapEscaping locality is contradictory for Borrowed
-        // values. Tightens locality down (toward bottom).
-        // Spec: OxCaml §01.2 K4, I2 — borrows are function-scoped by definition.
-        // Placed before Rules 4 and 6 so that locality is precise when those
-        // rules check it.
+        // Rule 8 makes borrowed values function-local before later rules inspect
+        // locality; a temporary view cannot escape its defining function.
         if self.access == AccessClass::Borrowed && self.locality > Locality::FunctionLocal {
             self.locality = Locality::FunctionLocal;
             cross_fires += 1; // Rule 8: Access → Locality (2 dimensions)
         }
 
-        // Rule 6: HeapEscaping or Unknown → uniqueness >= MaybeShared.
-        // A value whose locality is HeapEscaping or Unknown may be reachable
-        // from the heap. Unless the containing structure is provably Unique
-        // (checked in transfer, not canonicalize), the value cannot be assumed
-        // Unique. Uses `>=` because Unknown subsumes HeapEscaping in the
-        // locality lattice — if HeapEscaping forces MaybeShared, then Unknown
-        // (which is more conservative) must also force MaybeShared.
-        // Only weakens Unique → MaybeShared. Does NOT affect MaybeShared or
-        // Shared (already at or above the ceiling).
-        // Spec: OxCaml §01.2 K1 — `global` modality forces `aliased`.
-        // Note: Rule 8 prevents Borrowed+HeapEscaping/Unknown from reaching
-        // here, so this only fires on Owned states with wide locality.
+        // Rule 6 weakens heap-reachable or unknown owned values from Unique to
+        // MaybeShared. Rule 8 has already removed borrowed values from this
+        // wide-locality state.
         if self.locality >= Locality::HeapEscaping && self.uniqueness == Uniqueness::Unique {
             self.uniqueness = Uniqueness::MaybeShared;
             cross_fires += 1; // Rule 6: Locality → Uniqueness (2 dimensions)
         }
 
-        // Rule 4: REMOVED.
-        //
-        // The former Rule 4 promoted MaybeShared → Unique when
-        // BlockLocal+Owned+≤Once. This was anti-monotone: it injected
-        // optimistic information at join points, breaking associativity
-        // (join(join(a,b),c) ≠ join(a,join(b,c))) and transitivity of the
-        // join-based partial order. Fresh allocations already start as
-        // Unique via AimsState::FRESH; no transfer function requires
-        // canonicalize to synthesize Unique from MaybeShared. Uniqueness
-        // is now established only by transfer functions and preserved
-        // (or lost) through joins — never re-derived in canonicalize.
+        // Rule 4 never reconstructs uniqueness: transfer establishes it and
+        // joins may only preserve or lose it. Promotion during canonicalization
+        // would be anti-monotone and break join associativity.
 
-        // Rule 5: Unique + Dead → preserve ReusableCtor.
-        // A unique dead value's memory IS reusable — don't collapse shape.
-        // This is implicit: no active rule collapses shape for Unique+Dead.
-        // Rule 3 only fires for Shared. This comment documents the invariant
-        // explicitly so future rules don't accidentally break it.
+        // Rule 5 implicitly preserves reusable shape for unique dead values;
+        // only Rule 3 collapses shape, and only for shared values.
 
         cross_fires
     }
 
-    /// Whether this variable needs RC operations.
+    /// Whether this variable requires logical ownership events.
     ///
     /// False for: dead variables, scalar variables, and borrowed views.
-    /// Only owned, live variables carry RC obligations.
+    /// Only owned, live variables carry owner-credit/release obligations.
     #[must_use]
-    pub fn is_rc_needed(&self) -> bool {
+    pub fn needs_ownership_events(&self) -> bool {
         self.access == AccessClass::Owned
             && self.consumption != Consumption::Dead
             && !self.is_scalar()
@@ -416,18 +354,18 @@ impl AimsState {
             && !matches!(self.shape, ShapeClass::NonReusable)
     }
 
-    /// Whether this variable is eligible for RC-skip optimization.
+    /// Whether this variable is eligible to elide a balanced ownership-event
+    /// pair.
     ///
-    /// A function-local value that is owned and consumed linearly has a
-    /// refcount of 1 (unique due to linearity) and its lifetime is bounded
-    /// by the function. The `RcDec` at last use would free it (rc goes 1→0),
-    /// and the `RcInc` at entry is matched 1:1. Skip both — the value's
-    /// lifetime is precisely the function's lifetime.
+    /// A function-local value that is owned and consumed linearly has one
+    /// logical ownership credit and a function-bounded lifetime. Its entry
+    /// credit and last-use discharge form one balanced pair, so both logical
+    /// events can be eliminated without selecting any counter mechanism.
     ///
     /// Requires precise locality. `Unknown` locality never
     /// qualifies.
     #[must_use]
-    pub fn is_rc_skip_eligible(&self) -> bool {
+    pub fn is_event_pair_elision_eligible(&self) -> bool {
         // DP-7: Uniqueness = Unique is load-bearing — a Shared value's
         // +1 inc from the caller is never balanced without it → leak.
         self.is_local()
@@ -486,77 +424,5 @@ impl AimsState {
         Self::CHAIN_HEIGHT
             .saturating_mul(num_variables)
             .saturating_mul(num_blocks)
-    }
-}
-
-// Borrow provenance (sparse side table, not in the finite lattice)
-
-/// Tracks where a borrowed value comes from.
-///
-/// Stored in a sparse side table keyed by [`ArcVarId`], NOT in the finite
-/// lattice. Only relevant for variables with [`AccessClass::Borrowed`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum BorrowSource {
-    /// Known exact source variable, optionally with the projected field index.
-    ///
-    /// `field` is `Some(idx)` when the borrow comes from a `Project` instruction,
-    /// identifying which field of the source struct/enum was extracted. Used by
-    /// the disjoint-field COW optimization to prove that a COW
-    /// mutation on a different field doesn't conflict with this borrow.
-    Exact {
-        source: ArcVarId,
-        field: Option<u32>,
-    },
-    /// Multiple sources or unknown origin.
-    Unknown,
-}
-
-impl BorrowSource {
-    /// Create an `Exact` borrow source without field info.
-    #[must_use]
-    pub fn exact(source: ArcVarId) -> Self {
-        Self::Exact {
-            source,
-            field: None,
-        }
-    }
-
-    /// Create an `Exact` borrow source with field info from a `Project`.
-    #[must_use]
-    pub fn exact_field(source: ArcVarId, field: u32) -> Self {
-        Self::Exact {
-            source,
-            field: Some(field),
-        }
-    }
-
-    /// Get the source variable, if this is an `Exact` borrow.
-    #[must_use]
-    pub fn source_var(&self) -> Option<ArcVarId> {
-        match self {
-            Self::Exact { source, .. } => Some(*source),
-            Self::Unknown => None,
-        }
-    }
-
-    /// Join two borrow sources: same source+field → keep; different → `Unknown`.
-    #[must_use]
-    pub fn join(self, other: Self) -> Self {
-        match (self, other) {
-            (
-                Self::Exact {
-                    source: a,
-                    field: fa,
-                },
-                Self::Exact {
-                    source: b,
-                    field: fb,
-                },
-            ) if a == b && fa == fb => Self::Exact {
-                source: a,
-                field: fa,
-            },
-            _ => Self::Unknown,
-        }
     }
 }

@@ -16,10 +16,11 @@ Theorem TF-13: capture_state_update monotonicity (OxCaml LAM pattern, both branc
     - Access promotion clause (cross-cuts both branches):
         closure_state.locality >= HeapEscaping implies access := Owned
       Rationale (per Annex E §AIMS TF-13 + CN-8 interaction): Borrowed
-      captures escaping via heap closure would be dangling — CN-8 clamps
-      Borrowed locality to FunctionLocal while heap closure escapes;
-      promoting Access to Owned ensures RC extension is emitted at the
-      capture site.
+      captures whose closure lifetime escapes the defining scope would
+      outlive their source — CN-8 clamps Borrowed locality to FunctionLocal
+      while the closure escapes; promoting Access to Owned establishes the
+      logical ownership extension at the capture site. A physical executor
+      chooses how to realize that extension.
     - L-6 monotonicity: capture_state_update SHALL be monotone in
       closure_state for fixed current (per Annex E §AIMS TF-13 statement
       "SHALL be monotone per L-6")
@@ -84,9 +85,9 @@ Theorem TF-13: capture_state_update monotonicity (OxCaml LAM pattern, both branc
           output.access := Owned (promoted)
       Negative witness: if Access promotion did NOT fire on HeapEscaping,
       Borrowed-locality clamping by CN-8 (clamps to FunctionLocal) would
-      cause the captured variable to be dropped when its FunctionLocal
-      scope ends — but the heap closure still references it. Owned forces
-      RC extension to the heap-closure lifetime.
+      end the captured variable's lifetime with its FunctionLocal source
+      even though the escaping closure still references it. Owned extends
+      the logical ownership lifetime to the escaping closure lifetime.
 
     Engines dispatched:
       monotonicity (PRIMARY — L-6 layer (b) over closure_state per

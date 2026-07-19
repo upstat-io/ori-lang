@@ -12,19 +12,25 @@ use ori_ir::{Mutability, Name};
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
-use crate::Idx;
+use crate::{ConstValue, Idx};
 
 /// A single binding entry in the type environment.
 ///
 /// Combines the type scheme and optional mutability info into one struct,
 /// eliminating the need for parallel `bindings`/`mutability` maps.
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 struct Binding {
     /// The type (or type scheme) for this name.
     ty: Idx,
     /// Mutability from `let` bindings. `None` for prelude/param bindings
     /// that don't carry explicit mutability.
     mutable: Option<Mutability>,
+    /// Compile-time value for an immutable local const binding.
+    ///
+    /// This stays beside the type binding so ordinary lexical shadowing also
+    /// shadows const evidence. Only the const-generic `int | bool` domain is
+    /// admitted; mutable locals and non-value bindings carry `None`.
+    const_value: Option<ConstValue>,
 }
 
 /// Internal storage for `TypeEnv`.
@@ -48,7 +54,13 @@ struct TypeEnvInner {
 ///
 /// # Usage
 ///
-/// ```ignore
+/// ```rust
+/// use ori_ir::StringInterner;
+/// use ori_types::{Idx, TypeEnv};
+///
+/// let interner = StringInterner::new();
+/// let name = interner.intern("global");
+/// let local_name = interner.intern("local");
 /// let mut env = TypeEnv::new();
 ///
 /// // Bind a monomorphic type
@@ -56,7 +68,7 @@ struct TypeEnvInner {
 ///
 /// // Create child scope for let binding
 /// let mut child = env.child();
-/// child.bind(local_name, local_ty);
+/// child.bind(local_name, Idx::BOOL);
 ///
 /// // Lookup searches parent chain
 /// assert_eq!(child.lookup(name), Some(Idx::INT));
@@ -94,9 +106,14 @@ impl TypeEnv {
     /// For monomorphic types, pass the type directly.
     /// For polymorphic types, pass a Scheme `Idx`.
     pub fn bind(&mut self, name: Name, ty: Idx) {
-        Rc::make_mut(&mut self.0)
-            .bindings
-            .insert(name, Binding { ty, mutable: None });
+        Rc::make_mut(&mut self.0).bindings.insert(
+            name,
+            Binding {
+                ty,
+                mutable: None,
+                const_value: None,
+            },
+        );
     }
 
     /// Bind a name to a type and record its mutability.
@@ -109,8 +126,40 @@ impl TypeEnv {
             Binding {
                 ty,
                 mutable: Some(mutable),
+                const_value: None,
             },
         );
+    }
+
+    /// Record the compile-time value of an immutable binding in this scope.
+    ///
+    /// Returns `false` when `name` is absent locally or is mutable. Callers use
+    /// this after the ordinary pattern binder has installed a simple `$name`
+    /// binding, keeping const evidence subordinate to the lexical binding.
+    pub(crate) fn record_local_const_value(&mut self, name: Name, value: ConstValue) -> bool {
+        let Some(binding) = Rc::make_mut(&mut self.0).bindings.get_mut(&name) else {
+            return false;
+        };
+        if binding.mutable != Some(Mutability::Immutable) {
+            return false;
+        }
+        binding.const_value = Some(value);
+        true
+    }
+
+    /// Look up an immutable local const value through lexical parent scopes.
+    ///
+    /// A same-named child binding without const evidence stops the search: it
+    /// shadows the parent value exactly as it shadows the parent's type.
+    pub(crate) fn lookup_const_value(&self, name: Name) -> Option<ConstValue> {
+        match self.0.bindings.get(&name) {
+            Some(binding) => binding.const_value.clone(),
+            None => self
+                .0
+                .parent
+                .as_ref()
+                .and_then(|parent| parent.lookup_const_value(name)),
+        }
     }
 
     /// Check if a binding is mutable, searching parent scopes.
@@ -161,10 +210,16 @@ impl TypeEnv {
         self.0.bindings.contains_key(&name)
     }
 
-    /// Iterate over all bound names in this environment.
+    /// Iterate `(name, type)` bound in THIS scope only (excludes the parent chain).
     ///
-    /// Includes names from parent scopes. Names may be duplicated
-    /// if shadowed.
+    /// Snapshots the bindings one or-pattern alternative produced in an isolated
+    /// child scope, for cross-alternative reconciliation: or-pattern
+    /// alternatives must bind a consistent name-set (Spec: Clause 15 patterns).
+    pub fn local_bindings(&self) -> impl Iterator<Item = (Name, Idx)> + '_ {
+        self.0.bindings.iter().map(|(name, b)| (*name, b.ty))
+    }
+
+    /// Iterate names through parent scopes, retaining shadowed duplicates.
     pub fn names(&self) -> impl Iterator<Item = Name> + '_ {
         NamesIterator {
             current: Some(self),
@@ -183,9 +238,17 @@ impl TypeEnv {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// let similar = env.find_similar(misspelled, 3, |n| interner.lookup(n));
-    /// // Returns up to 3 names sorted by closeness
+    /// ```rust
+    /// use ori_ir::StringInterner;
+    /// use ori_types::{Idx, TypeEnv};
+    ///
+    /// let interner = StringInterner::new();
+    /// let intended = interner.intern("value");
+    /// let misspelled = interner.intern("vale");
+    /// let mut env = TypeEnv::new();
+    /// env.bind(intended, Idx::INT);
+    /// let similar = env.find_similar(misspelled, 3, |name| Some(interner.lookup(name)));
+    /// assert!(similar.contains(&intended));
     /// ```
     pub fn find_similar<'r>(
         &self,
@@ -203,7 +266,6 @@ impl TypeEnv {
 
         let threshold = default_threshold(target_str.len());
 
-        // Collect (name, distance) pairs, deduplicating by name
         let mut seen = rustc_hash::FxHashSet::default();
         let mut matches: Vec<(Name, usize)> = self
             .names()

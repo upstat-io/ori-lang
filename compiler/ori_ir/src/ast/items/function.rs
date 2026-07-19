@@ -208,18 +208,65 @@ impl ExpectedError {
     }
 }
 
+/// Test-execution backend, as a test may name in a backend-conditional skip.
+///
+/// An open set: a backend a `TestBackend` does not yet enumerate (e.g. a future
+/// native backend) lands as one new variant plus one runner mapping arm, never a
+/// re-cut of the attribute grammar. `ori_ir` owns this enum so it never depends
+/// on the runner's own backend type.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub enum TestBackend {
+    Interpreter,
+    Llvm,
+}
+
+/// A `#skip(backend: "<name>", reason: "<why>")` disposition: the named backend
+/// skips this test (the other backend still runs it); the reason is mandatory.
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct BackendSkip {
+    pub backend: TestBackend,
+    pub reason: Name,
+}
+
+/// Test definition.
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+pub struct TestId(u32);
+
+impl TestId {
+    pub const INVALID: Self = Self(u32::MAX);
+
+    #[inline]
+    pub const fn new(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    #[inline]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+}
+
 /// Test definition.
 #[derive(Clone, Eq, PartialEq, Hash)]
 pub struct TestDef {
+    /// Stable source-order identity within the parsed module.
+    pub id: TestId,
+    /// Executable/report identity. Repeated display names are deterministically
+    /// qualified with `id` so the artifact and worker protocol remain total.
     pub name: Name,
+    /// Source-authored presentation name before identity qualification.
+    pub display_name: Name,
     pub targets: Vec<Name>,
     pub params: ParamRange,
     /// The parsed return type. None if no return type annotation.
     pub return_ty: Option<ParsedType>,
     pub body: ExprId,
     pub span: Span,
-    /// If set, this test is skipped with the given reason.
+    /// If set, this test is skipped (BOTH backends) with the given reason.
     pub skip_reason: Option<Name>,
+    /// Per-backend skips: each named backend skips this test while the other
+    /// still runs it. Empty for a test with no backend-conditional skip.
+    pub skip_backends: Vec<BackendSkip>,
     /// If set, this test expects runtime failure with an error
     /// containing this substring.
     pub fail_expected: Option<Name>,
@@ -239,8 +286,10 @@ impl fmt::Debug for TestDef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "TestDef {{ name: {:?}, targets: {:?}, skip: {:?}, expected_errors: {}, fail: {:?} }}",
+            "TestDef {{ id: {:?}, name: {:?}, display_name: {:?}, targets: {:?}, skip: {:?}, expected_errors: {}, fail: {:?} }}",
+            self.id,
             self.name,
+            self.display_name,
             self.targets,
             self.skip_reason,
             self.expected_errors.len(),

@@ -1,6 +1,5 @@
 //! `InferEngine` state accessors — registry/context setters, getters, and
-//! method-level rigid-bound + const helpers. Split from `infer/mod.rs` to keep
-//! the core engine file under the 500-line limit (per compiler-ops.md File size).
+//! method-level rigid-bound + const helpers.
 
 use ori_ir::{Name, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -70,14 +69,53 @@ impl<'pool> InferEngine<'pool> {
         self.signatures = Some(sigs);
     }
 
+    /// Set the module-alias namespaces for qualified-call resolution.
+    pub fn set_module_aliases(&mut self, aliases: &'pool FxHashMap<Name, Vec<FunctionSig>>) {
+        self.module_aliases = Some(aliases);
+    }
+
+    /// Look up the aliased module's public function signatures for an alias
+    /// name. Returns `None` when the name is not a registered module alias.
+    pub fn module_alias_sigs(&self, alias: Name) -> Option<&'pool [FunctionSig]> {
+        self.module_aliases
+            .and_then(|m| m.get(&alias))
+            .map(Vec::as_slice)
+    }
+
     /// Set the type registry for struct/enum/newtype lookup.
     pub fn set_type_registry(&mut self, registry: &'pool TypeRegistry) {
         self.type_registry = Some(registry);
     }
 
+    /// Install the builtin-type extension-method index (from `module.extends`).
+    pub fn set_builtin_extensions(
+        &mut self,
+        ext: FxHashMap<ori_registry::TypeTag, FxHashSet<Name>>,
+    ) {
+        self.builtin_extensions = ext;
+    }
+
+    /// True iff an `extend <builtin> { @method }` provides `method` on the builtin
+    /// `type_tag` receiver. Lets `emit_unknown_method` avoid false-rejecting an
+    /// extension-provided method (the evaluator owns the actual dispatch).
+    pub fn builtin_extension_provides(
+        &self,
+        type_tag: ori_registry::TypeTag,
+        method: Name,
+    ) -> bool {
+        self.builtin_extensions
+            .get(&type_tag)
+            .is_some_and(|methods| methods.contains(&method))
+    }
+
     /// Set module-level constant types for `$name` reference resolution.
     pub fn set_const_types(&mut self, consts: &'pool FxHashMap<Name, Idx>) {
         self.const_types = Some(consts);
+    }
+
+    /// Set concrete module-constant value evidence.
+    pub fn set_const_values(&mut self, consts: &'pool FxHashMap<Name, crate::ConstValue>) {
+        self.const_values = Some(consts);
     }
 
     /// Mark body inference complete. Called at the end of body inference in
@@ -92,24 +130,50 @@ impl<'pool> InferEngine<'pool> {
 
     /// Look up a constant's type by name.
     ///
-    /// Checks module-level constants first, then method-level const generics
-    /// (Phase B-Residual-2 (a)). Method-level const generics shadow module-
-    /// level constants of the same name only inside their owning method body.
+    /// Checks the lexical const parameter before the module-level constant.
     pub fn const_type(&self, name: Name) -> Option<Idx> {
-        if let Some(ty) = self.const_types.and_then(|m| m.get(&name).copied()) {
+        if let Some(ty) = self.const_param_types.get(&name).copied() {
             return Some(ty);
         }
-        self.method_const_types.get(&name).copied()
+        self.const_types.and_then(|types| types.get(&name).copied())
     }
 
-    /// Bind a method-level const generic in scope for the body being checked.
+    /// Look up a module constant's declared type without const-parameter fallback.
+    pub fn module_const_type(&self, name: Name) -> Option<Idx> {
+        self.const_types.and_then(|types| types.get(&name).copied())
+    }
+
+    /// Look up a body-local const parameter's declared type.
+    pub fn const_param_type(&self, name: Name) -> Option<Idx> {
+        self.const_param_types.get(&name).copied()
+    }
+
+    /// Whether a runtime or local binding occupies this name in the visible
+    /// lexical environment. Capacity lookup uses this as a shadow barrier so
+    /// a hidden module constant cannot reappear through the module registry.
+    pub fn has_lexical_binding(&self, name: Name) -> bool {
+        self.env().lookup(name).is_some()
+    }
+
+    /// Look up concrete const evidence, honoring a local immutable binding
+    /// before the module-level constant of the same name.
+    pub fn const_value(&self, name: Name) -> Option<crate::ConstValue> {
+        if let Some(value) = self.env().lookup_const_value(name) {
+            return Some(value);
+        }
+        if self.const_param_types.contains_key(&name) || self.has_lexical_binding(name) {
+            return None;
+        }
+        self.const_values
+            .and_then(|values| values.get(&name).cloned())
+    }
+
+    /// Bind a const generic in scope for the body being checked.
     ///
-    /// Called by `check_impl_method` / `check_def_impl_method` at body-check
-    /// entry, mirroring the `param_env.bind` for identifier-position lookups.
-    /// This binding makes `$name` references inside the body's type-arg
-    /// positions (e.g., `to_fixed<$N>()`) resolve correctly.
-    pub fn bind_method_const(&mut self, name: Name, ty: Idx) {
-        self.method_const_types.insert(name, ty);
+    /// Mirrors the `TypeEnv` binding used for identifier-position lookup while
+    /// preserving the stronger fact that this name is a compile-time const.
+    pub fn bind_const_param(&mut self, name: Name, ty: Idx) {
+        self.const_param_types.insert(name, ty);
     }
 
     /// Register a trait-bound assumption on a method-level `RigidVar`.
@@ -138,7 +202,7 @@ impl<'pool> InferEngine<'pool> {
     /// `RigidVar` AND the declared bounds set for that `RigidVar` contains
     /// `trait_name`.
     ///
-    /// Supertrait transitivity is NOT applied here — a binder declared
+    /// This lookup does NOT apply supertrait transitivity — a binder declared
     /// `T: Hashable` does not implicitly satisfy `Eq` via Hashable's
     /// supertrait chain at this query layer. Callers requiring supertrait
     /// transitivity should expand the bound list at registration time.
@@ -158,7 +222,7 @@ impl<'pool> InferEngine<'pool> {
     /// Accepts both `Tag::RigidVar` (impl/def-impl method-level binders
     /// created via `pool.rigid_var`) and `Tag::Var` (top-level function
     /// type-param binders created via `pool.fresh_named_var` per
-    /// `check/signatures/mod.rs:159`). Returns `None` for non-variable
+    /// `check/signatures/mod.rs`). Returns `None` for non-variable
     /// types or for variables with no registered bounds. Consumed by
     /// bound-chain method dispatch.
     pub fn rigid_var_bounds(&self, ty: Idx) -> Option<&[Name]> {
@@ -222,9 +286,9 @@ impl<'pool> InferEngine<'pool> {
 
     /// Resolve a `Name` to its string representation, if the interner is available.
     ///
-    /// The returned `&str` has the interner's lifetime (`'pool`), not the engine
-    /// borrow lifetime. This allows holding the result while mutably borrowing
-    /// the engine for other operations.
+    /// The returned `&str` has process lifetime, not the engine borrow lifetime.
+    /// This allows holding the result while mutably borrowing the engine for
+    /// other operations.
     pub fn lookup_name(&self, name: Name) -> Option<&'pool str> {
         self.interner.map(|i| i.lookup(name))
     }

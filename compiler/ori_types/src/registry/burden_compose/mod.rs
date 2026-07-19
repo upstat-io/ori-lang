@@ -1,15 +1,15 @@
 //! Generic burden composition at monomorphization.
 //!
-//! Composes a heap-backed `UserBurdenSpec` (in `ori_types`) from a pure-const
+//! Composes an owned-vector `UserBurdenSpec` (in `ori_types`) from a pure-const
 //! `BuiltinBurdenSpec` template (in `ori_registry::burden::table::BURDEN_TABLE`)
 //! plus a vector of concrete type arguments. One call per first-instantiation
-//! of a fully-resolved generic `Idx`; downstream codegen reads the registered
+//! of a fully-resolved generic `Idx`; shared realization reads the registered
 //! spec via `TypeRegistry::burden(idx)` without re-deriving.
 //!
 //! Spec: Annex E §AIMS — burden specs are typed pre-pass input feeding the
 //! lattice-driven analysis. Composition runs at type-instantiation time so
 //! Phase 5 trivial-emission consumes ready burden specs without dispatching on
-//! type parameters at codegen time.
+//! type parameters in a physical executor.
 //!
 //! Placeholder substitution:
 //! - `TYPE_PARAM_T` (`u32::MAX`) → `type_args[0]`
@@ -21,11 +21,11 @@
 //! preserves unknown placeholders as `Idx::ERROR` to surface the gap loudly.
 //!
 //! Soundness gate: composition runs at type-instantiation time only — never
-//! lazily at codegen. Lazy composition would force Phase 5 to emit indirect
+//! lazily in a backend. Lazy composition would force Phase 5 to emit indirect
 //! dispatch on each burden walk. The `debug_assert!` in
-//! `ori_arc::lower::burden_lookup` (§03 hook) is the contractual end of this
+//! `ori_arc::lower::burden_lookup` (the lookup hook) is the contractual end of this
 //! invariant: when the lookup site exists, it consumes the registered spec
-//! and asserts presence per the §03 schema.
+//! and asserts presence per the burden schema.
 
 pub mod closure;
 pub mod scc;
@@ -46,20 +46,20 @@ use crate::Idx;
 /// `template` is a pure-const builtin template from `BURDEN_TABLE`
 /// (e.g., the Option<T>, Result<T, E>, [T] entries). `type_args` are the
 /// concrete `Idx` values supplied at monomorphization. The returned
-/// `UserBurdenSpec` is heap-backed (`Vec`-backed) and carries concrete `Idx`
+/// `UserBurdenSpec` owns its vectors and carries concrete `Idx`
 /// values throughout — no placeholders remain.
 ///
 /// Recursive composition is implicit, not explicit: each substituted
 /// `field_type: Idx` references a concrete pool entry whose burden spec is
-/// looked up SEPARATELY by codegen at consumption time via
+/// looked up separately during shared realization via
 /// `TypeRegistry::burden(field_type)`. The composition does not in-line-expand
 /// nested generics; it produces a flat spec keyed on the OUTER monomorphized
-/// type, and the type graph is walked at codegen.
+/// type, and the logical type graph is frozen before backend selection.
 ///
 /// Nested-generic shapes (e.g. `Option<Result<int, str>>`) are fully supported
 /// through this pattern — the outer `Option`'s composed spec carries the inner
 /// `Result<int, str>`'s monomorphized `Idx` at its `Some` arm's `field_type`
-/// slot, and codegen resolves the inner burden via a SEPARATE
+/// slot, and shared realization resolves the inner burden via a separate
 /// `TypeRegistry::burden(inner_idx)` lookup. Pool interning (`TYPES:TI-2`)
 /// guarantees the inner `Idx` distinguishes one nested shape from another;
 /// see the `compose_option_with_result_payload_carries_inner_result_idx`
@@ -79,7 +79,7 @@ pub fn compose_user_burden(
     _registry: &crate::TypeRegistry,
 ) -> UserBurdenSpec {
     UserBurdenSpec {
-        self_heap_alloc: template.self_heap_alloc,
+        self_owned_identity: template.self_owned_identity,
         owned_fields: template
             .owned_fields
             .iter()
@@ -97,7 +97,7 @@ pub fn compose_user_burden(
         element_burden: template
             .element_burden
             .map(|placeholder| substitute_type_id(placeholder, type_args)),
-        compiled_drop: template.compiled_drop,
+        drop_operation: template.drop_operation,
         user_drop: template.user_drop,
     }
 }
@@ -106,7 +106,7 @@ pub fn compose_user_burden(
 /// supplied at monomorphization. Non-placeholder ids reaching this function
 /// indicate a template that mixes concrete `BurdenTypeId`s with placeholders
 /// — not a shape the shipped templates use — and we surface them as
-/// `Idx::ERROR` so the §03 lookup-site `debug_assert!` fires loudly.
+/// `Idx::ERROR` so the lookup-site `debug_assert!` fires loudly.
 fn substitute_type_id(placeholder: BurdenTypeId, type_args: &[Idx]) -> Idx {
     if placeholder == TYPE_PARAM_T {
         // First type param. Missing arg → ERROR (composition site bug).
@@ -115,8 +115,8 @@ fn substitute_type_id(placeholder: BurdenTypeId, type_args: &[Idx]) -> Idx {
         // Second type param. Missing arg → ERROR.
         type_args.get(1).copied().unwrap_or(Idx::ERROR)
     } else {
-        // Concrete BurdenTypeId reaching composition is out of scope for §02.1
-        // shipped templates. Surface as ERROR so the §03 lookup-site assertion
+        // Concrete BurdenTypeId reaching composition is out of scope for the
+        // shipped templates. Surface as ERROR so the lookup-site assertion
         // catches it instead of silently miscompiling.
         Idx::ERROR
     }

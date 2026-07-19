@@ -1,0 +1,13 @@
+type Content = Title(text: str) | Items(list: [int]) | Nothing;
+
+@get_size (c: Content) -> int =
+    match c {
+        Title(text) -> text.length(),
+        Items(list) -> list.length(),
+        Nothing -> 0,
+    };
+
+@main () -> int = {
+    let b = get_size(c: Items(list: [10, 20, 30]));
+    if b == 3 then 0 else 1
+}

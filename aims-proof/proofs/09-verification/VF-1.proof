@@ -13,8 +13,8 @@ Theorem VF-1: Layer 1 structural ARC IR well-formedness — 5 checks map 1:1 to 
       discharged here against the sec-01 Verification.proof sorry obligation.
     - DecOnBorrowed is restricted to function parameters: check_no_dec_on_borrowed
       checks func.params for Borrowed receiving RcDec, NOT all borrowed in the
-      body. Field-drop Project+RcDec from RL-14 / RL-14a / RL-15 / RL-15a scope
-      cleanup is EXEMPT (no marker mechanism needed).
+      body. A field-drop Project+RcDec that discharges RL-14a's exact
+      CleanupObligation is EXEMPT (no marker mechanism needed).
     - Three checkpoints: (1) after AIMS emission (Step 6), (2) after the full
       pipeline (Step 11), (3) after post-pipeline passes (sec-8 RL-22 through
       RL-26).
@@ -45,7 +45,7 @@ Theorem VF-1: Layer 1 structural ARC IR well-formedness — 5 checks map 1:1 to 
 
       (P2) Detection has teeth: a malformed F exhibiting any failure class is
            REJECTED (the corresponding check fires), and a well-formed F —
-           INCLUDING the RL-14 field-drop EXEMPTION (a Project+RcDec at scope
+           INCLUDING the exact cleanup field-drop EXEMPTION (a Project+RcDec at scope
            cleanup, which is param-unrestricted and thus not a DecOnBorrowed
            violation) — is ACCEPTED.
 
@@ -72,7 +72,7 @@ Theorem VF-1: Layer 1 structural ARC IR well-formedness — 5 checks map 1:1 to 
 
       The verifier enumerates a fixture grid: one malformed ArcFunction per
       failure class (each MUST be rejected), one well-formed ArcFunction (MUST
-      be accepted), and one RL-14 field-drop exemption fixture (a Project+RcDec
+      be accepted), and one exact cleanup field-drop exemption fixture (a Project+RcDec
       at scope cleanup, which MUST be accepted because check_no_dec_on_borrowed
       is param-restricted). Coverage gate: 7 fixtures.
 
@@ -96,4 +96,4 @@ Theorem VF-1: Layer 1 structural ARC IR well-formedness — 5 checks map 1:1 to 
 
   Expected:
     status: valid
-    reason: section_09 structural_induction engine discharges VF-1 via (P1) the 5-check-to-5-VerifyError bijection (distinct + exactly 5) and (P2) the detection-coverage fixture grid (5 malformed classes rejected + 1 well-formed accepted + 1 RL-14 field-drop exemption accepted, plus a negative-direction witness rejecting a parameter DecOnBorrowed), grounded in the shipped compiler/ori_arc/src/verify/mod.rs check_function structural verifier
+    reason: section_09 structural_induction engine discharges VF-1 via (P1) the 5-check-to-5-VerifyError bijection (distinct + exactly 5) and (P2) the detection-coverage fixture grid (5 malformed classes rejected + 1 well-formed accepted + 1 exact cleanup field-drop exemption accepted, plus a negative-direction witness rejecting a parameter DecOnBorrowed), grounded in the shipped compiler/ori_arc/src/verify/mod.rs check_function structural verifier

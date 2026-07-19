@@ -19,8 +19,12 @@ use crate::graph::successor_block_ids;
 use crate::ir::{ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
 
 use super::super::contract::{EffectSummary, FipContract, MemoryContract};
+use super::super::demand::RawDemand;
 use super::super::lattice::{AccessClass, AimsState, Cardinality, Locality, Uniqueness};
-use super::super::transfer::{backward_demands, backward_terminator_demands, transfer_def};
+use super::super::transfer::{
+    backward_demands, backward_terminator_demands, transfer_def_resolved, BackwardDemand,
+};
+use super::block_state::BlockState;
 use super::effects::{accumulate_instr_effects, accumulate_terminator_effects};
 use super::project_aliases::propagate_project_source_demand;
 use super::state_map::AimsStateMap;
@@ -46,12 +50,22 @@ pub(crate) struct BlockAnalysisResult {
     pub invoke_def_demand: FxHashMap<ArcVarId, AimsState>,
     /// Pre-strip demand for intra-block instruction-defined dsts (e.g. a fresh
     /// `Construct` consumed within this block). Captured BEFORE
-    /// `apply_instr_forward_transfer` strips the dst, so a downstream
+    /// IA-5 step (3) strips the dst, so a downstream
     /// `var_state_at_definition` query recovers the converged backward-demand
     /// (`seqAdd`-accumulated cardinality) the strip erases from `entry_state`.
     /// Maps `dst → AimsState`. Keyed into `AimsStateMap.def_demand` by the
     /// caller as `(this_block, dst)`.
     pub def_demand: FxHashMap<ArcVarId, AimsState>,
+    /// L-9-excluded scalar values live at block entry. This binary sidecar
+    /// participates in the same backward fixed point without creating scalar
+    /// product-lattice states.
+    pub scalar_live_at_entry: FxHashSet<ArcVarId>,
+}
+
+/// Managed demand and scalar liveness at one block exit.
+pub(crate) struct BlockExitState {
+    pub demands: FxHashMap<ArcVarId, AimsState>,
+    pub live_scalars: FxHashSet<ArcVarId>,
 }
 
 /// Compute the EXIT state of a block from its successors' ENTRY states.
@@ -79,23 +93,29 @@ pub(crate) fn compute_block_exit_state(
     func: &ArcFunction,
     block_id: ArcBlockId,
     state_map: &AimsStateMap,
-) -> FxHashMap<ArcVarId, AimsState> {
+) -> BlockExitState {
     let block = &func.blocks[block_id.index()];
     let successors = successor_block_ids(&block.terminator);
 
     if successors.is_empty() {
         // Terminal block (Return, Resume, Unreachable) — no successor demand.
-        // For Return, the return value's demand is added by the terminator
+        // On Return, the return value's demand is added by the terminator
         // transfer function during entry state computation.
-        return FxHashMap::default();
+        return BlockExitState {
+            demands: FxHashMap::default(),
+            live_scalars: FxHashSet::default(),
+        };
     }
 
     let mut exit_state: FxHashMap<ArcVarId, AimsState> = FxHashMap::default();
+    let mut live_scalars = FxHashSet::default();
 
     for succ_id in successors {
         if let Some(succ_entry) = state_map.block_entry_states(succ_id) {
             for (&var, &succ_state) in succ_entry {
-                if state_map.is_excluded(var) {
+                // BOTTOM keys retain block-local occurrence evidence for edge
+                // verification, but carry no demand into a predecessor.
+                if state_map.is_excluded(var) || succ_state == AimsState::BOTTOM {
                     continue;
                 }
                 let joined = exit_state
@@ -104,35 +124,49 @@ pub(crate) fn compute_block_exit_state(
                 exit_state.insert(var, joined);
             }
         }
+        if let Some(succ_live_scalars) = state_map.scalar_live_at_entry(succ_id) {
+            let mut edge_live_scalars = succ_live_scalars.clone();
+            let successor = &func.blocks[succ_id.index()];
+            if let ArcTerminator::Jump { target, args } = &block.terminator {
+                if *target == succ_id {
+                    for (&arg, &(param, _)) in args.iter().zip(&successor.params) {
+                        if edge_live_scalars.remove(&param) {
+                            edge_live_scalars.insert(arg);
+                        }
+                    }
+                }
+            }
+            for &(param, _) in &successor.params {
+                edge_live_scalars.remove(&param);
+            }
+            live_scalars.extend(edge_live_scalars);
+        }
     }
 
-    // Cross-block locality widening (effect computation): variables demanded by
-    // successor blocks have crossed a block boundary, so their locality
-    // must be at least `FunctionLocal`. This converts `BlockLocal` values
-    // that flow to other blocks into `FunctionLocal`.
+    // Cross-block locality widening: variables demanded by successor blocks
+    // have crossed a block boundary, so locality widens to at least
+    // `FunctionLocal` (converts `BlockLocal` to `FunctionLocal`).
     for state in exit_state.values_mut() {
         if state.locality < Locality::FunctionLocal {
             state.locality = Locality::FunctionLocal;
         }
     }
 
-    exit_state
+    BlockExitState {
+        demands: exit_state,
+        live_scalars,
+    }
 }
 
 /// Compute the ENTRY state of a block by walking backward through its body.
 ///
-/// Starts from the block's exit state (demand from successors), applies
-/// terminator transfer, then walks instructions in reverse order applying
-/// transfer functions. Each instruction:
-/// 1. Adds backward demand on operands via `seq_add`
-/// 2. Sets forward state for defined variables via `transfer_def`
+/// Starts from the block's exit state, applies terminator transfer, then
+/// walks instructions in reverse: each instruction adds backward demand via
+/// `seq_add` and sets forward state via `transfer_def`. Also accumulates a
+/// block-level [`EffectSummary`] from instruction types.
 ///
-/// Also accumulates a block-level [`EffectSummary`] from instruction types
-/// (Effect computation: precise effect computation during analysis, not post-hoc).
-///
-/// `invoke_defs` maps block IDs to variables defined by Invoke terminators
-/// in predecessor blocks. These are defined at this block's entry (normal
-/// successor only) and are removed from the entry state, like block params.
+/// `invoke_defs` maps block IDs to variables defined by predecessor Invoke
+/// terminators; they are removed from the entry state, like block params.
 pub(crate) fn compute_block_entry_state(
     func: &ArcFunction,
     block_id: ArcBlockId,
@@ -147,17 +181,21 @@ pub(crate) fn compute_block_entry_state(
     // Start from exit state (demand from successors).
     // INVARIANT: AimsStateMap pre-sizes block_exit_states to the function's
     // block count at construction, so every in-range block has an entry.
-    let mut current = state_map
+    let current = state_map
         .block_exit_states(block_id)
         .cloned()
         .unwrap_or_else(|| {
             unreachable!("block {block_id:?} out of range for pre-sized AimsStateMap")
         });
+    let live_scalars = state_map
+        .scalar_live_at_exit(block_id)
+        .cloned()
+        .unwrap_or_default();
+    let mut current = BlockState::from_observed(current, live_scalars);
 
-    // Block-level effect accumulator (Effect computation: precise effect computation).
-    // Effects are forward-aggregated during the backward walk — monotonically
-    // accumulated (OR) from instruction types and callee contracts. There is no
-    // "backward direction" for effects.
+    // Block-level effect accumulator: effects are forward-aggregated during
+    // the backward walk, monotonically accumulated (OR) from instruction
+    // types and callee contracts — there is no "backward direction" for effects.
     let mut block_effects = EffectSummary::default();
 
     // Apply terminator backward demands.
@@ -171,13 +209,7 @@ pub(crate) fn compute_block_entry_state(
     // (the function transfers ownership to the caller).
     if let ArcTerminator::Return { value } = &block.terminator {
         if !state_map.is_excluded(*value) {
-            let entry = current.entry(*value).or_insert(AimsState::BOTTOM);
-            // Returned values are owned — the function transfers ownership.
-            entry.access = AccessClass::Owned;
-            if entry.locality < Locality::HeapEscaping {
-                entry.locality = Locality::HeapEscaping;
-            }
-            entry.canonicalize();
+            current.mark_returned(*value);
         }
     }
 
@@ -191,43 +223,61 @@ pub(crate) fn compute_block_entry_state(
         // Forward transfer: compute the state for the defined variable.
         // Create the closure inside a limited scope to avoid borrowing
         // `current` across mutation points.
-        let def_transfer = {
+        let defines_value = {
             let get_state = |v: ArcVarId| -> AimsState {
                 if state_map.is_excluded(v) {
                     return AimsState::SCALAR;
                 }
-                current.get(&v).copied().unwrap_or(AimsState::BOTTOM)
+                current.observe_or_bottom(v)
             };
-            transfer_def(instr, &get_state)
+            transfer_def_resolved(func, instr, &get_state).is_some()
         };
 
-        if def_transfer.is_some() {
+        if defines_value {
             // Capture the converged demand on the defined var BEFORE
-            // `apply_instr_forward_transfer` strips it. This is the
-            // `seqAdd`-accumulated cardinality (TF-11) from all uses below the
-            // def — `Once`/`Linear` for a single-use fresh value, `Many` for a
-            // multi-use one — exactly DP-3's proven input.
+            // IA-5 step (3) strips it — the `seqAdd`-accumulated
+            // cardinality (TF-11) that is DP-3's proven input.
             if let Some(dst) = instr.defined_var() {
                 if !state_map.is_excluded(dst) {
-                    if let Some(state) = current.get(&dst).copied() {
+                    if let Some(state) = current.observe(dst) {
                         def_demand.insert(dst, state);
                     }
                 }
             }
-            apply_instr_forward_transfer(instr, &mut current, state_map, sigs, &mut block_effects);
         }
+
+        apply_instr_step_one(
+            func,
+            instr,
+            &mut current,
+            state_map,
+            sigs,
+            &mut block_effects,
+        );
 
         // Backward demands: add demand on operands.
         let demands = backward_demands(instr);
-        for (var, card) in demands {
-            if state_map.is_excluded(var) {
+        for demand in demands {
+            if state_map.is_scalar(demand.var) {
+                current.mark_scalar_live(demand.var);
                 continue;
             }
-            add_backward_demand(&mut current, var, card);
+            if state_map.is_immortal(demand.var) {
+                continue;
+            }
+            add_backward_demand(&mut current, demand);
+        }
+
+        // IA-5 step (3): the destination is defined here, so predecessor
+        // demand stops only after alias transfer and direct TF-11 demand.
+        if defines_value {
+            if let Some(dst) = instr.defined_var() {
+                current.remove(dst);
+            }
         }
     }
 
-    // Block params are definitions (like phi nodes) — remove from entry state.
+    // Exclude block params (which are definitions like phi nodes) from entry state.
     propagate_project_source_demand(
         &mut current,
         state_map,
@@ -236,98 +286,175 @@ pub(crate) fn compute_block_entry_state(
         &block.params,
     );
 
+    let mut scalar_definition_demand = FxHashSet::default();
     for &(param_var, _ty) in &block.params {
-        current.remove(&param_var);
+        if state_map.is_scalar(param_var) && current.is_scalar_live(param_var) {
+            scalar_definition_demand.insert(param_var);
+        }
+        current.remove(param_var);
     }
 
-    // Invoke defs: Invoke { dst, normal, .. } defines `dst` at the entry
-    // of the `normal` successor only. These act like block params and must
-    // be removed from the entry state so demand doesn't propagate backward
-    // past the definition point.
-    //
-    // BUT: the predecessor (the Invoke block) needs the post-def demand on
-    // `dst` for `var_state_at_block_exit(invoke_block, dst)` queries from
-    // FIP balance + LocalAllocCandidate emission. Without capture, those
-    // queries return BOTTOM and miss Return-widened locality / consumed
-    // demand from the normal successor's body. Capture here BEFORE removing.
+    // INVARIANT: Invoke-defined dsts act like block params (removed from
+    // entry state so demand stops at the def point), but captured FIRST —
+    // predecessor FIP queries need the post-def demand this removal erases.
     let mut invoke_def_demand: FxHashMap<ArcVarId, AimsState> = FxHashMap::default();
     if let Some(vars) = invoke_defs.get(&block_id) {
         for &var in vars {
-            if let Some(state) = current.get(&var).copied() {
+            if state_map.is_scalar(var) && current.is_scalar_live(var) {
+                scalar_definition_demand.insert(var);
+            }
+            if let Some(state) = current.observe(var) {
                 invoke_def_demand.insert(var, state);
             }
-            current.remove(&var);
+            current.remove(var);
         }
     }
 
+    let (entry_state, mut scalar_live_at_entry) = current.into_observed();
+    scalar_live_at_entry.extend(scalar_definition_demand);
     BlockAnalysisResult {
-        entry_state: current,
+        entry_state,
         effects: block_effects,
         invoke_def_demand,
         def_demand,
+        scalar_live_at_entry,
     }
 }
 
-/// Apply the forward (definition-time) transfer for one instruction during
-/// the backward walk: accumulate effects, run the transparent-alias transfer,
-/// remove the defined variable, and apply contract-aware / closure-capture
-/// state updates. Called only when the instruction defines a variable.
-fn apply_instr_forward_transfer(
+/// Apply IA-5 step (1) and update call/capture state.
+///
+/// Side-effecting instructions also pass through this function because `Set`
+/// has an IA-5 value-promotion obligation despite defining no destination.
+fn apply_instr_step_one(
+    func: &ArcFunction,
     instr: &crate::ir::ArcInstr,
-    current: &mut FxHashMap<ArcVarId, AimsState>,
+    current: &mut BlockState,
     state_map: &AimsStateMap,
     sigs: &FxHashMap<Name, MemoryContract>,
     block_effects: &mut EffectSummary,
 ) {
+    let scalar_destination_live = instr
+        .defined_var()
+        .is_some_and(|dst| state_map.is_scalar(dst) && current.is_scalar_live(dst));
     // Capture destination demand BEFORE removing dst, used for:
     // - Closure-capture-aware locality
     // - Effect accumulation (HeapEscaping → may_share)
     let dst_demand = instr
         .defined_var()
-        .map(|dst| current.get(&dst).copied().unwrap_or(AimsState::BOTTOM));
-
+        .map(|dst| current.observe_or_bottom(dst));
     // Capture the closure's downstream demand BEFORE removing dst.
     let closure_demand = if let crate::ir::ArcInstr::PartialApply { dst, .. } = instr {
-        Some(current.get(dst).copied().unwrap_or(AimsState::BOTTOM))
+        Some(current.observe_or_bottom(*dst))
     } else {
         None
     };
 
     // Effect computation: accumulate per-instruction effects.
-    accumulate_instr_effects(instr, dst_demand, state_map, sigs, block_effects);
+    accumulate_instr_effects(func, instr, dst_demand, state_map, sigs, block_effects);
 
-    // Transparent-alias transfer: for Let { Var(v) }, dst's accumulated
-    // demand transfers to v via seq_add (cardinality + consumption)
-    // and max (locality) BEFORE dst's state is consumed by the remove
-    // below. Without this, accumulated Many cardinality on the alias
-    // vanishes when dst is removed, leaving the source under-demanded
-    // and a missing RcDec at the alias chain's natural-death site.
-    if let crate::ir::ArcInstr::Let {
-        value: crate::ir::ArcValue::Var(v),
-        ..
-    } = instr
-    {
-        if !state_map.is_excluded(*v) {
-            if let Some(dst_state) = dst_demand {
-                let entry = current.entry(*v).or_insert(AimsState::BOTTOM);
-                entry.cardinality = entry.cardinality.seq_add(dst_state.cardinality);
-                entry.consumption = entry.consumption.seq_add(dst_state.consumption);
-                if entry.locality < dst_state.locality {
-                    entry.locality = dst_state.locality;
-                }
-                entry.canonicalize();
+    transfer_instruction_value_flow(
+        instr,
+        current,
+        state_map,
+        dst_demand,
+        scalar_destination_live,
+        block_effects,
+    );
+    apply_call_and_capture_state(instr, current, state_map, sigs, closure_demand);
+}
+
+/// Transfer destination demand through aliases and ownership-taking edges.
+fn transfer_instruction_value_flow(
+    instr: &crate::ir::ArcInstr,
+    current: &mut BlockState,
+    state_map: &AimsStateMap,
+    dst_demand: Option<AimsState>,
+    scalar_destination_live: bool,
+    block_effects: &mut EffectSummary,
+) {
+    match instr {
+        crate::ir::ArcInstr::Let {
+            value: crate::ir::ArcValue::Var(source),
+            ..
+        } if state_map.is_scalar(*source) => {
+            if scalar_destination_live {
+                current.mark_scalar_live(*source);
             }
         }
+        crate::ir::ArcInstr::Let {
+            value: crate::ir::ArcValue::Var(source),
+            ..
+        } if !state_map.is_excluded(*source) => {
+            if let Some(dst_state) = dst_demand {
+                let source_remains_live = current.has_raw_demand(*source);
+                if source_remains_live && dst_state.cardinality != Cardinality::Absent {
+                    block_effects.may_share = true;
+                }
+                transfer_full_alias_demand(current, *source, dst_state);
+            }
+        }
+        crate::ir::ArcInstr::Project {
+            dst, value: source, ..
+        } => {
+            if state_map.is_scalar(*dst) {
+                if state_map.is_scalar(*source) {
+                    if scalar_destination_live {
+                        current.mark_scalar_live(*source);
+                    }
+                } else if !state_map.is_excluded(*source) {
+                    current.transfer_scalar_project(*source, scalar_destination_live);
+                }
+            } else if !state_map.is_excluded(*source) {
+                if let Some(dst_state) = dst_demand {
+                    transfer_project_demand(current, *source, dst_state);
+                }
+            }
+        }
+        crate::ir::ArcInstr::Select {
+            true_val,
+            false_val,
+            ..
+        } => {
+            if let Some(dst_state) = dst_demand {
+                for source in [*true_val, *false_val] {
+                    if state_map.is_scalar(source) {
+                        if scalar_destination_live {
+                            current.mark_scalar_live(source);
+                        }
+                    } else if !state_map.is_excluded(source) {
+                        transfer_full_alias_demand(current, source, dst_state);
+                    }
+                }
+            }
+        }
+        crate::ir::ArcInstr::Construct { args, .. }
+        | crate::ir::ArcInstr::Reuse { args, .. }
+        | crate::ir::ArcInstr::CollectionReuse { args, .. } => {
+            let locality = dst_demand.unwrap_or(AimsState::BOTTOM).locality;
+            for &arg in args {
+                if !state_map.is_excluded(arg) {
+                    promote_owned_with_locality(current, arg, locality);
+                }
+            }
+        }
+        crate::ir::ArcInstr::Set { base, value, .. } => {
+            if !state_map.is_excluded(*value) {
+                let base_locality = current.observe_or_bottom(*base).locality;
+                promote_owned_with_locality(current, *value, base_locality);
+            }
+        }
+        _ => {}
     }
+}
 
-    // If the instruction defines a variable, the defined variable's
-    // demand is consumed here (it's defined at this point, so
-    // predecessors don't need to provide it). Remove from current state.
-    if let Some(dst) = instr.defined_var() {
-        current.remove(&dst);
-    }
-
-    // Use contract-aware state for Apply/Invoke if available.
+/// Apply exact callee contracts and closure-capture demand.
+fn apply_call_and_capture_state(
+    instr: &crate::ir::ArcInstr,
+    current: &mut BlockState,
+    state_map: &AimsStateMap,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    closure_demand: Option<AimsState>,
+) {
     if let crate::ir::ArcInstr::Apply {
         dst,
         func: callee,
@@ -335,18 +462,16 @@ fn apply_instr_forward_transfer(
         ..
     } = instr
     {
-        apply_callee_contract(*dst, *callee, args, sigs, current);
-        // backward_demands still runs below to add operand demand.
+        apply_callee_contract(*dst, *callee, args, sigs, current, state_map);
     }
 
-    // For PartialApply: update captured variables' states.
-    // Uses closure-aware locality (effect computation): the closure's own
-    // demand state determines captured variable locality.
     if let crate::ir::ArcInstr::PartialApply { args, .. } = instr {
         let closure_state = closure_demand.unwrap_or(AimsState::BOTTOM);
         for &arg in args {
-            if !state_map.is_excluded(arg) {
-                let arg_state = current.get(&arg).copied().unwrap_or(AimsState::BOTTOM);
+            if state_map.is_scalar(arg) {
+                current.mark_scalar_live(arg);
+            } else if !state_map.is_excluded(arg) {
+                let arg_state = current.observe_or_bottom(arg);
                 let updated =
                     super::super::transfer::capture_state_update(&arg_state, &closure_state);
                 merge_demand(current, arg, updated);
@@ -363,16 +488,29 @@ fn apply_instr_forward_transfer(
 ///   uniqueness demand (same rule as Apply in `apply_callee_contract`)
 fn apply_terminator_demands(
     term: &ArcTerminator,
-    current: &mut FxHashMap<ArcVarId, AimsState>,
+    current: &mut BlockState,
     state_map: &AimsStateMap,
     sigs: &FxHashMap<Name, MemoryContract>,
 ) {
     let demands = backward_terminator_demands(term);
-    for (var, card) in demands {
-        if state_map.is_excluded(var) {
+    let jump_uses_edge_mapping = matches!(term, ArcTerminator::Jump { .. });
+    for demand in demands {
+        if state_map.is_scalar(demand.var) {
+            if !jump_uses_edge_mapping {
+                current.mark_scalar_live(demand.var);
+            }
             continue;
         }
-        add_backward_demand(current, var, card);
+        if state_map.is_immortal(demand.var) {
+            continue;
+        }
+        add_backward_demand(current, demand);
+    }
+
+    if let ArcTerminator::Invoke { dst, .. } | ArcTerminator::InvokeIndirect { dst, .. } = term {
+        if state_map.is_scalar(*dst) {
+            current.remove(*dst);
+        }
     }
 
     // Cross-block locality widening for terminator arguments.
@@ -414,32 +552,31 @@ fn apply_terminator_demands(
 ///
 /// Uses `seq_add` for sequential composition: within a block, each
 /// instruction adds demand on its operands sequentially.
-fn add_backward_demand(
-    current: &mut FxHashMap<ArcVarId, AimsState>,
-    var: ArcVarId,
-    demand: Cardinality,
-) {
-    let entry = current.entry(var).or_insert(AimsState::BOTTOM);
-    // Bump cardinality via seq_add (sequential within block).
-    entry.cardinality = entry.cardinality.seq_add(demand);
-    // A variable with demand is at least Affine (may need drop if not used).
-    if entry.consumption < crate::aims::lattice::Consumption::Affine {
-        entry.consumption = crate::aims::lattice::Consumption::Affine;
-    }
-    entry.canonicalize();
+fn add_backward_demand(current: &mut BlockState, demand: BackwardDemand) {
+    current.seq_add(
+        demand.var,
+        RawDemand::new(demand.cardinality, demand.consumption),
+    );
+}
+
+/// IA-5 transparent or conditional alias transfer.
+fn transfer_full_alias_demand(current: &mut BlockState, source: ArcVarId, destination: AimsState) {
+    current.transfer_alias(source, destination);
+}
+
+/// TF-14 borrowed projection transfer.
+fn transfer_project_demand(current: &mut BlockState, source: ArcVarId, destination: AimsState) {
+    current.transfer_project(source, destination);
+}
+
+/// IA-5 ownership-taking aggregate-edge transfer.
+fn promote_owned_with_locality(current: &mut BlockState, value: ArcVarId, locality: Locality) {
+    current.promote_owned(value, locality);
 }
 
 /// Widen a variable's locality to at least `min_locality`.
-fn widen_locality(
-    current: &mut FxHashMap<ArcVarId, AimsState>,
-    var: ArcVarId,
-    min_locality: Locality,
-) {
-    let entry = current.entry(var).or_insert(AimsState::BOTTOM);
-    if entry.locality < min_locality {
-        entry.locality = min_locality;
-    }
-    entry.canonicalize();
+fn widen_locality(current: &mut BlockState, var: ArcVarId, min_locality: Locality) {
+    current.widen_locality(var, min_locality);
 }
 
 /// Widen a variable's uniqueness to at least `min_uniqueness`.
@@ -447,22 +584,13 @@ fn widen_locality(
 /// Used by the transfer fusion rule: when a callee's
 /// `EffectSummary.may_share == true`, borrowed arguments' uniqueness
 /// is widened to `MaybeShared` (the callee might create new references).
-fn widen_uniqueness(
-    current: &mut FxHashMap<ArcVarId, AimsState>,
-    var: ArcVarId,
-    min_uniqueness: Uniqueness,
-) {
-    let entry = current.entry(var).or_insert(AimsState::BOTTOM);
-    if entry.uniqueness < min_uniqueness {
-        entry.uniqueness = min_uniqueness;
-    }
-    entry.canonicalize();
+fn widen_uniqueness(current: &mut BlockState, var: ArcVarId, min_uniqueness: Uniqueness) {
+    current.widen_uniqueness(var, min_uniqueness);
 }
 
 /// Merge a demand state into the current map for a variable.
-fn merge_demand(current: &mut FxHashMap<ArcVarId, AimsState>, var: ArcVarId, state: AimsState) {
-    let entry = current.entry(var).or_insert(AimsState::BOTTOM);
-    *entry = entry.join(&state);
+fn merge_demand(current: &mut BlockState, var: ArcVarId, state: AimsState) {
+    current.alt_join_state(var, state);
 }
 
 /// Compute effective `may_share` for a call site, accounting for FIP Conditional.
@@ -476,7 +604,7 @@ fn merge_demand(current: &mut FxHashMap<ArcVarId, AimsState>, var: ArcVarId, sta
 fn compute_effective_may_share(
     contract: &MemoryContract,
     args: &[ArcVarId],
-    current: &FxHashMap<ArcVarId, AimsState>,
+    current: &BlockState,
 ) -> bool {
     if !contract.effects.may_share {
         return false;
@@ -493,7 +621,7 @@ fn compute_effective_may_share(
                     if !required {
                         return true;
                     }
-                    let state = current.get(arg).copied().unwrap_or(AimsState::BOTTOM);
+                    let state = current.observe_or_bottom(*arg);
                     state.uniqueness == Uniqueness::Unique
                 });
         if preconditions_met {
@@ -512,9 +640,9 @@ fn compute_effective_may_share(
 /// # Uniqueness handling (transfer fusion)
 ///
 /// When the callee's effective `may_share` is true (accounting for FIP
-/// Conditional specialization), borrowed arguments might have their refcount
-/// incremented by the callee. In the backward direction, this widens the
-/// argument's uniqueness to `MaybeShared`.
+/// Conditional specialization), a callee may mint a sharing credit for a
+/// borrowed argument's storage identity. In the backward direction, this
+/// widens the argument's uniqueness to `MaybeShared`.
 ///
 /// When effective `may_share == false` (pure callee, or FIP Conditional with
 /// all preconditions met), borrowed arguments preserve uniqueness through the
@@ -529,7 +657,8 @@ fn apply_callee_contract(
     callee: Name,
     args: &[ArcVarId],
     sigs: &FxHashMap<Name, MemoryContract>,
-    current: &mut FxHashMap<ArcVarId, AimsState>,
+    current: &mut BlockState,
+    state_map: &AimsStateMap,
 ) {
     if let Some(contract) = sigs.get(&callee) {
         // Effect computation: FIP call-site specialization. If the callee is
@@ -541,10 +670,12 @@ fn apply_callee_contract(
         // Includes locality_bound (effect computation): if the callee may store
         // a parameter into a heap structure, the arg gets HeapEscaping locality.
         for (arg, param_contract) in args.iter().zip(contract.params.iter()) {
-            // Contract-aware: uniqueness demand based on callee effects.
-            // If effective may_share AND this param is borrowed,
-            // the callee might RcInc the argument → widen to MaybeShared.
-            // If pure / FIP Conditional met, borrowed args preserve uniqueness.
+            if state_map.is_excluded(*arg) {
+                continue;
+            }
+            // Contract-aware: uniqueness demand from callee effects — if
+            // effective may_share AND borrowed, the callee might RcInc the
+            // arg (widen to MaybeShared); else borrowed args preserve uniqueness.
             let uniqueness_demand =
                 if effective_may_share && param_contract.access == AccessClass::Borrowed {
                     Uniqueness::MaybeShared
@@ -562,7 +693,5 @@ fn apply_callee_contract(
             merge_demand(current, *arg, demand);
         }
     }
-    // If no contract found, backward_demands (called after this) already
-    // adds Once demand per arg. The conservative Apply transfer function
-    // handles the dst state.
+    // If no contract is found, backward_demands will add Once demand per arg.
 }

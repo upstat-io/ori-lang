@@ -1,0 +1,46 @@
+// Spec: prelude min(left:, right:) / max(left:, right:) free functions.
+// min/max monomorphized inside a generic <T> body on int, float, str, plus a
+// nested min(min(..)) / max(max(..)) chain. Dual-execution mirror of the AOT
+// pins in ori_llvm/tests/aot/default_minmax_mono_in_generic.rs.
+
+use std.testing { assert_eq }
+
+@minmax_int <T> (marker: T, a: int, b: int) -> int = {
+    let lo = min(left: a, right: b);
+    let hi = max(left: a, right: b);
+    hi - lo
+}
+
+@test_minmax_int_in_generic_spread tests @minmax_int () -> void = {
+    assert_eq(actual: minmax_int(marker: "g", a: 3, b: 7), expected: 4)
+}
+
+@minmax_float <T> (marker: T, a: float, b: float) -> float = {
+    let lo = min(left: a, right: b);
+    let hi = max(left: a, right: b);
+    hi - lo
+}
+
+@test_minmax_float_in_generic_spread tests @minmax_float () -> void = {
+    assert_eq(actual: minmax_float(marker: 0, a: 2.5, b: 4.0), expected: 1.5)
+}
+
+@minmax_str <T> (marker: T, a: str, b: str) -> str = {
+    min(left: a, right: b)
+}
+
+@test_minmax_str_in_generic_picks_lesser tests @minmax_str () -> void = {
+    assert_eq(actual: minmax_str(marker: 0, a: "banana", b: "apple"), expected: "apple")
+}
+
+@nested_minmax <T> (marker: T, a: int, b: int, c: int) -> int = {
+    let lo = min(left: min(left: a, right: b), right: c);
+    let hi = max(left: max(left: a, right: b), right: c);
+    hi - lo
+}
+
+@test_nested_minmax_in_generic_spread tests @nested_minmax () -> void = {
+    assert_eq(actual: nested_minmax(marker: "x", a: 9, b: 3, c: 7), expected: 6)
+}
+
+@main () -> void = print(msg: "min/max-in-generic dual-exec mirror");

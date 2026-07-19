@@ -51,9 +51,9 @@ fn test_eval_error_new() {
 
 #[test]
 fn test_control_action_break() {
-    let action = ControlAction::Break(Value::int(42));
+    let action = ControlAction::Break(Value::int(42), ori_ir::Name::EMPTY);
     assert!(!action.is_error());
-    if let ControlAction::Break(v) = action {
+    if let ControlAction::Break(v, _) = action {
         assert_eq!(v, Value::int(42));
     } else {
         panic!("expected ControlAction::Break");
@@ -62,9 +62,9 @@ fn test_control_action_break() {
 
 #[test]
 fn test_control_action_continue() {
-    let action = ControlAction::Continue(Value::Void);
+    let action = ControlAction::Continue(Value::Void, ori_ir::Name::EMPTY);
     assert!(!action.is_error());
-    if let ControlAction::Continue(v) = action {
+    if let ControlAction::Continue(v, _) = action {
         assert!(matches!(v, Value::Void));
     } else {
         panic!("expected ControlAction::Continue");
@@ -211,9 +211,12 @@ fn test_wrong_function_args() {
 
 #[test]
 fn test_index_out_of_bounds() {
-    let err = index_out_of_bounds(10);
-    assert!(err.message.contains("10"));
-    assert!(err.message.contains("bounds"));
+    let err = index_out_of_bounds(10, 3);
+    assert!(err
+        .message
+        .contains("index out of bounds: index 10, length 3"));
+    assert!(err.message.contains("use 0 <= index < length"));
+    assert!(err.message.contains("Spec: Clause 14.1.2"));
 }
 
 #[test]
@@ -250,8 +253,9 @@ fn test_invalid_tuple_field() {
 
 #[test]
 fn test_tuple_index_out_of_bounds() {
-    let err = tuple_index_out_of_bounds(5);
+    let err = tuple_index_out_of_bounds(5, 2);
     assert!(err.message.contains("5"));
+    assert!(err.message.contains("length 2"));
 }
 
 #[test]

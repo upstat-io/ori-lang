@@ -85,6 +85,13 @@ fn code_for_unknown_ident() {
 }
 
 #[test]
+fn code_for_missing_assoc_type_uses_specific_code() {
+    let error =
+        TypeCheckError::missing_assoc_type(Span::new(0, 5), Name::from_raw(30), Name::from_raw(31));
+    assert_eq!(error.code(), ori_diagnostic::ErrorCode::E2018);
+}
+
+#[test]
 fn span_method_matches_field() {
     let error = TypeCheckError::mismatch(
         Span::new(10, 20),
@@ -290,7 +297,7 @@ fn refutable_pattern_message_nested_struct_field() {
     let msg = error.format_message_rich(&identity_type, &test_name_resolver);
     // RefutablePattern has no pool-dependent rich formatting, so the rich path
     // delegates to the SSOT `message()` renderer — yielding the spec-conformant
-    // generic "struct field" prefix (Spec 15-patterns.md), not the field name.
+    // generic "struct field" prefix (Spec: Clause 15), not the field name.
     assert!(msg.contains("at struct field"), "got: {msg}");
     assert!(msg.contains("requires"), "got: {msg}");
     assert!(msg.contains("element"), "got: {msg}");

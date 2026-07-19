@@ -1,26 +1,18 @@
-//! Map operations for AOT-compiled Ori programs.
+//! C ABI hash-map runtime for AOT-compiled programs.
 //!
-//! Ori maps use a hash table with open addressing and linear probing.
-//! Buffer layout: `[metadata | keys | values]` where metadata is 1 byte
-//! per bucket (EMPTY/OCCUPIED/TOMBSTONE), keys and values are indexed by
-//! bucket number. Single RC header enables one uniqueness check for COW.
-//!
-//! All key lookups use `key_hash` + `key_eq` callbacks for type-agnostic
-//! hashing and comparison. The codegen generates type-specific thunks.
-//!
-//! # Submodules
-//!
-//! - `cow` — COW mutation functions (`ori_map_insert_cow`, etc.) with consuming
-//!   semantics: fast path mutates in place when RC==1, slow path copies.
-//! - `cow_updated` — `ori_map_updated_cow` (`IndexSet.updated`): insert-or-replace
-//!   with consuming (moved) value semantics.
-//! - `hash_table` — Core hash table logic (layout, probing, rehashing).
+//! Open addressing uses `[metadata | keys | values]` buffers with one metadata
+//! byte per bucket and a shared RC header for COW uniqueness. Type-specific
+//! hash and equality thunks drive lookup. Consuming mutations update unique
+//! buffers in place and copy shared buffers before insertion or replacement.
 
 pub mod cow;
 pub mod cow_updated;
 pub(crate) mod hash_table;
+mod structural;
 
-use crate::list::write_array_to_list;
+pub use structural::{ori_map_eq, ori_map_hash};
+
+use crate::list::{write_array_to_list, write_list_output};
 use crate::{OPTION_TAG_NONE, OPTION_TAG_SOME};
 pub(crate) use hash_table::{
     get_meta, needs_rehash, next_hash_capacity, probe_find, probe_find_slot, rehash_map, set_meta,
@@ -33,6 +25,7 @@ pub(crate) use hash_table::{
 /// `cap` = number of buckets (power-of-two). `len` = number of entries.
 /// Single RC header enables one uniqueness check for COW.
 #[repr(C)]
+#[derive(Debug)]
 pub struct OriMap {
     pub len: i64,
     pub cap: i64,
@@ -158,7 +151,11 @@ pub extern "C" fn ori_map_keys_to_list(
 
     // SAFETY: list_data was returned by ori_rc_alloc.
     unsafe { crate::rc::store_elem_count(list_data, write_pos as i64) };
-    write_array_to_list_from_data(list_data, write_pos as i64, out_ptr);
+    // SAFETY: `out_ptr` is a live sret slot and `list_data` transfers the
+    // initialized `write_pos`-element allocation to the result.
+    unsafe {
+        write_list_output(out_ptr, write_pos as i64, write_pos as i64, list_data);
+    }
 }
 
 /// Extract map values as a new list.
@@ -222,7 +219,11 @@ pub extern "C" fn ori_map_values_to_list(
 
     // SAFETY: list_data was returned by ori_rc_alloc.
     unsafe { crate::rc::store_elem_count(list_data, write_pos as i64) };
-    write_array_to_list_from_data(list_data, write_pos as i64, out_ptr);
+    // SAFETY: `out_ptr` is a live sret slot and `list_data` transfers the
+    // initialized `write_pos`-element allocation to the result.
+    unsafe {
+        write_list_output(out_ptr, write_pos as i64, write_pos as i64, list_data);
+    }
 }
 
 /// Look up a key in a map and return `Option<V>` via sret.
@@ -247,7 +248,7 @@ pub extern "C" fn ori_map_get(
     let vs = val_size.max(1) as usize;
 
     if data.is_null() || len <= 0 {
-        // SAFETY: out_ptr validated non-null above; writing i64 tag at aligned offset.
+        // SAFETY: `out_ptr` is non-null, and the ABI supplies i64-aligned output storage.
         unsafe { out_ptr.cast::<i64>().write(OPTION_TAG_NONE) };
         return;
     }
@@ -256,10 +257,11 @@ pub extern "C" fn ori_map_get(
     let layout = HashTableLayout::for_map(c, ks, vs);
     let hash = key_hash(needle);
 
-    // SAFETY: data/cap validated non-null and positive; layout offsets derived from cap/sizes.
-    if let Some(bucket) =
+    let bucket = {
+        // SAFETY: `data` is a live map allocation, and layout offsets derive from `c`, `ks`, and `vs`.
         unsafe { probe_find(data, c, layout.keys_offset, needle, hash, ks, key_eq) }
-    {
+    };
+    if let Some(bucket) = bucket {
         // SAFETY: bucket is a valid index within the hash table; out_ptr is non-null.
         unsafe {
             out_ptr.cast::<i64>().write(OPTION_TAG_SOME);
@@ -267,7 +269,7 @@ pub extern "C" fn ori_map_get(
             std::ptr::copy_nonoverlapping(val_src, out_ptr.add(8), vs);
         }
     } else {
-        // SAFETY: out_ptr validated non-null at function entry.
+        // SAFETY: `out_ptr` is non-null, and the ABI supplies i64-aligned output storage.
         unsafe { out_ptr.cast::<i64>().write(OPTION_TAG_NONE) };
     }
 }
@@ -290,7 +292,7 @@ pub extern "C" fn ori_map_literal_alloc(
 ) -> *mut u8 {
     if count <= 0 {
         if !out_cap.is_null() {
-            // SAFETY: out_cap validated non-null by enclosing check.
+            // SAFETY: `out_cap` is non-null and writable for one i64.
             unsafe { out_cap.write(0) };
         }
         return std::ptr::null_mut();
@@ -300,7 +302,7 @@ pub extern "C" fn ori_map_literal_alloc(
     let cap = next_hash_capacity(count as usize);
     let data = OriMap::alloc_hash_buffer(cap, ks, vs);
     if !out_cap.is_null() {
-        // SAFETY: out_cap validated non-null by enclosing check.
+        // SAFETY: `out_cap` is non-null and writable for one i64.
         unsafe { out_cap.write(cap as i64) };
     }
     data
@@ -308,14 +310,15 @@ pub extern "C" fn ori_map_literal_alloc(
 
 /// Insert a key-value pair into a hash table during literal construction.
 ///
-/// Hashes the key, finds an empty slot via linear probing, copies the key
-/// and value into the slot, and marks it OCCUPIED.
+/// Hashes the key and probes for an equal entry before selecting an empty slot.
+/// Equal keys replace the earlier owned key and value, so later literal entries
+/// win. Returns 1 for a new entry and 0 for a replacement.
 ///
 /// # Safety
 /// - `data` must point to a valid hash table buffer allocated by `ori_map_literal_alloc`.
-/// - Caller must ensure no duplicate keys (guaranteed for map literals).
 /// - Caller must ensure load factor is not exceeded (guaranteed when `count`
 ///   passed to `ori_map_literal_alloc` matches the number of inserts).
+/// - `key` and `val` must point to initialized values that do not overlap `data`.
 #[no_mangle]
 pub extern "C" fn ori_map_literal_put(
     data: *mut u8,
@@ -324,10 +327,13 @@ pub extern "C" fn ori_map_literal_put(
     val: *const u8,
     key_size: i64,
     val_size: i64,
+    key_eq: extern "C" fn(*const u8, *const u8) -> bool,
     key_hash: extern "C" fn(*const u8) -> i64,
-) {
+    key_dec: Option<extern "C" fn(*mut u8)>,
+    val_dec: Option<extern "C" fn(*mut u8)>,
+) -> i64 {
     if data.is_null() || cap <= 0 {
-        return;
+        return 0;
     }
     let ks = key_size.max(1) as usize;
     let vs = val_size.max(1) as usize;
@@ -335,17 +341,36 @@ pub extern "C" fn ori_map_literal_put(
     let layout = HashTableLayout::for_map(c, ks, vs);
 
     let hash = key_hash(key);
-    // SAFETY: data is a valid hash table buffer; cap > 0; probe finds an EMPTY slot.
-    let bucket = unsafe { probe_find_slot(data, c, hash) };
+    // SAFETY: data is a valid hash table buffer and cap is positive.
+    let existing = unsafe { probe_find(data, c, layout.keys_offset, key, hash, ks, key_eq) };
+    let (bucket, inserted) = if let Some(bucket) = existing {
+        (bucket, false)
+    } else {
+        // SAFETY: allocation capacity is based on the total number of source
+        // entries, so a new distinct key always has an available slot.
+        (unsafe { probe_find_slot(data, c, hash) }, true)
+    };
 
     // SAFETY: bucket is within [0, c); key/val regions are non-overlapping within the buffer.
     unsafe {
         let dst_key = data.add(layout.keys_offset + bucket * ks);
-        std::ptr::copy_nonoverlapping(key, dst_key, ks);
         let dst_val = data.add(layout.vals_offset + bucket * vs);
+        if !inserted {
+            if let Some(dec) = key_dec {
+                dec(dst_key);
+            }
+            if let Some(dec) = val_dec {
+                dec(dst_val);
+            }
+        }
+        std::ptr::copy_nonoverlapping(key, dst_key, ks);
         std::ptr::copy_nonoverlapping(val, dst_val, vs);
-        set_meta(data, bucket, META_OCCUPIED);
+        if inserted {
+            set_meta(data, bucket, META_OCCUPIED);
+        }
     }
+
+    i64::from(inserted)
 }
 
 /// Write a map struct `{i64 len, i64 cap, ptr data}` to `out_ptr`.
@@ -356,112 +381,4 @@ pub(crate) fn write_map_struct(out_ptr: *mut u8, len: i64, cap: i64, data: *mut 
         out_ptr.cast::<i64>().add(1).write(cap);
         out_ptr.add(16).cast::<*mut u8>().write(data);
     }
-}
-
-/// Write a list struct from an already-allocated data buffer.
-///
-/// Unlike `write_array_to_list` which allocates and copies, this takes
-/// ownership of an existing RC-allocated buffer.
-fn write_array_to_list_from_data(data: *mut u8, len: i64, out_ptr: *mut u8) {
-    if out_ptr.is_null() {
-        return;
-    }
-    if len <= 0 || data.is_null() {
-        // SAFETY: out_ptr validated non-null above; writing empty list triple.
-        unsafe {
-            out_ptr.cast::<i64>().write(0);
-            out_ptr.cast::<i64>().add(1).write(0);
-            out_ptr
-                .add(16)
-                .cast::<*mut u8>()
-                .write(std::ptr::null_mut());
-        }
-        return;
-    }
-    // SAFETY: out_ptr validated non-null above; writing {len, cap, data} triple.
-    unsafe {
-        out_ptr.cast::<i64>().write(len);
-        out_ptr.cast::<i64>().add(1).write(len); // cap = len
-        out_ptr.add(16).cast::<*mut u8>().write(data);
-    }
-}
-
-/// Compare two maps for equality.
-///
-/// Two maps are equal when they have the same length and every key in map A
-/// exists in map B with an equal value. Uses `key_eq`/`key_hash` for key
-/// lookup and `val_eq` for value comparison.
-#[no_mangle]
-pub extern "C" fn ori_map_eq(
-    a: *const OriMap,
-    b: *const OriMap,
-    key_size: i64,
-    val_size: i64,
-    key_eq: extern "C" fn(*const u8, *const u8) -> bool,
-    key_hash: extern "C" fn(*const u8) -> i64,
-    val_eq: extern "C" fn(*const u8, *const u8) -> bool,
-) -> bool {
-    // SAFETY: After null checks, a and b are valid OriMap pointers per C-ABI contract.
-    let (a_map, b_map) = unsafe {
-        if a.is_null() || b.is_null() {
-            return a.is_null() && b.is_null();
-        }
-        (&*a, &*b)
-    };
-
-    // Quick checks: lengths must match
-    if a_map.len != b_map.len {
-        return false;
-    }
-    // Both empty
-    if a_map.len == 0 {
-        return true;
-    }
-    // Same data pointer → identical
-    if a_map.data == b_map.data && a_map.cap == b_map.cap {
-        return true;
-    }
-
-    let ks = key_size.max(1) as usize;
-    let vs = val_size.max(1) as usize;
-    let a_cap = a_map.cap as usize;
-    let b_cap = b_map.cap as usize;
-    let a_layout = HashTableLayout::for_map(a_cap, ks, vs);
-    let b_layout = HashTableLayout::for_map(b_cap, ks, vs);
-
-    // For each occupied entry in A, look it up in B and compare values
-    let a_data = a_map.data.cast_const();
-    let b_data = b_map.data.cast_const();
-    let mut checked = 0usize;
-    let n = a_map.len as usize;
-
-    for bucket in 0..a_cap {
-        // SAFETY: bucket < a_cap; metadata region is within a_data buffer.
-        if unsafe { get_meta(a_data, bucket) } != META_OCCUPIED {
-            continue;
-        }
-        // SAFETY: bucket is OCCUPIED, so key and value slots are initialized.
-        let a_key = unsafe { a_data.add(a_layout.keys_offset + bucket * ks) };
-        let a_val = unsafe { a_data.add(a_layout.vals_offset + bucket * vs) };
-        let hash = key_hash(a_key);
-
-        // Find the same key in B
-        // SAFETY: b_data/b_cap are valid; layout offsets derived from b_cap/sizes.
-        let b_bucket =
-            unsafe { probe_find(b_data, b_cap, b_layout.keys_offset, a_key, hash, ks, key_eq) };
-        let Some(b_idx) = b_bucket else {
-            return false; // key not in B
-        };
-        // SAFETY: b_idx is a valid OCCUPIED bucket index within b_data.
-        let b_val = unsafe { b_data.add(b_layout.vals_offset + b_idx * vs) };
-        if !val_eq(a_val, b_val) {
-            return false; // values differ
-        }
-        checked += 1;
-        if checked >= n {
-            break;
-        }
-    }
-
-    true
 }

@@ -18,8 +18,8 @@ pub enum FunctionSeq {
     /// `try { let x = fallible()?; Ok(x) }`
     ///
     /// Uses the same `StmtRange` as block expressions. The try-specific
-    /// semantics (auto-unwrap Result/Option in let bindings) are handled
-    /// by the type checker, not by a separate AST type.
+    /// semantics (capturing explicit `?` propagation at this boundary) are
+    /// handled by the type checker, not by a separate AST type.
     Try {
         stmts: StmtRange,
         result: ExprId,

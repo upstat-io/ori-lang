@@ -8,6 +8,64 @@ use ori_ir::{ExprId, Name, Span};
 
 use crate::Idx;
 
+/// Whether a capability name denotes one of the spec-defined effect-only
+/// markers rather than a provider-backed capability.
+#[must_use]
+pub fn is_marker_capability(name: Name, interner: &ori_ir::StringInterner) -> bool {
+    matches!(interner.lookup(name), "Suspend" | "Unsafe")
+}
+
+/// Signature-time classification of one declared capability requirement.
+///
+/// Value capabilities become source-erased implicit parameters during
+/// realization. Marker capabilities remain effect requirements only: they
+/// participate in propagation and discharge, but never add a value to the
+/// callable ABI.
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
+pub enum CapabilityParam {
+    /// A provider-backed capability whose schema type is retained in the
+    /// signature until a call site selects a concrete provider type.
+    Value {
+        /// Capability/trait namespace bound in the callee body.
+        capability: Name,
+        /// Signature-owned provider schema type.
+        provider_type: Idx,
+        /// Pool variable identity for deterministic body substitution.
+        provider_var_id: u32,
+    },
+    /// An effect-only capability with no provider value (`Suspend`, `Unsafe`).
+    Marker { capability: Name },
+}
+
+impl CapabilityParam {
+    /// Capability namespace required by this parameter.
+    #[must_use]
+    pub const fn capability(self) -> Name {
+        match self {
+            Self::Value { capability, .. } | Self::Marker { capability } => capability,
+        }
+    }
+
+    /// Provider schema for value capabilities; absent for marker effects.
+    #[must_use]
+    pub const fn provider(self) -> Option<(Idx, u32)> {
+        match self {
+            Self::Value {
+                provider_type,
+                provider_var_id,
+                ..
+            } => Some((provider_type, provider_var_id)),
+            Self::Marker { .. } => None,
+        }
+    }
+
+    /// Whether this requirement carries a runtime provider value.
+    #[must_use]
+    pub const fn is_value(self) -> bool {
+        matches!(self, Self::Value { .. })
+    }
+}
+
 /// Info about a const generic parameter (e.g., `$N: int`).
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct ConstParamInfo {
@@ -29,7 +87,7 @@ pub struct ConstParamInfo {
 /// Generics are represented as type variables in the `type_params` field.
 /// When calling a generic function, fresh variables are instantiated for
 /// each type parameter.
-#[allow(
+#[expect(
     clippy::struct_excessive_bools,
     reason = "flags represent independent orthogonal properties"
 )]
@@ -56,6 +114,14 @@ pub struct FunctionSig {
 
     /// Capabilities required by this function (`uses` clause).
     pub capabilities: Vec<Name>,
+
+    /// Ordered retained capability parameter schema.
+    ///
+    /// This is parallel to the source `uses` order. Marker entries preserve
+    /// effect identity without adding an ABI value; value entries own the
+    /// provider type variable later substituted by a concrete call-site
+    /// provider type.
+    pub capability_params: Vec<CapabilityParam>,
 
     /// Whether this function is public.
     pub is_public: bool,
@@ -119,6 +185,18 @@ pub struct FunctionSig {
     ///
     /// Zero when constructed without pool access.
     pub return_hash: u64,
+
+    /// Associated-type projection in the return position over a generic
+    /// type-param: `(base_param, assoc_name)` for `-> C.Item` where `C` is a
+    /// bound type-param (e.g. `@get_via_generic<C: Container> -> C.Item`).
+    ///
+    /// The resolved `return_type` is `Idx::ERROR` (symbolic poison) at
+    /// signature time because the projection cannot resolve until `C` is bound
+    /// to a concrete receiver at a call site. The call-site inference path reads
+    /// this to project the concrete result type once `base_param` is unified
+    /// with a concrete type that has a `type <assoc_name> = …` impl binding
+    /// `None` when the return is not such a projection.
+    pub return_projection: Option<(Name, Name)>,
 }
 
 /// A where-clause constraint on a function.
@@ -152,6 +230,7 @@ impl FunctionSig {
             param_types,
             return_type,
             capabilities: Vec::new(),
+            capability_params: Vec::new(),
             is_public: false,
             is_test: false,
             is_main: false,
@@ -164,6 +243,7 @@ impl FunctionSig {
             param_defaults: Vec::new(),
             param_hashes,
             return_hash: 0,
+            return_projection: None,
         }
     }
 
@@ -191,6 +271,7 @@ impl FunctionSig {
             param_types,
             return_type,
             capabilities: Vec::new(),
+            capability_params: Vec::new(),
             is_public: false,
             is_test: false,
             is_main: false,
@@ -203,6 +284,7 @@ impl FunctionSig {
             param_defaults: Vec::new(),
             param_hashes,
             return_hash: 0,
+            return_projection: None,
         }
     }
 
@@ -240,6 +322,22 @@ impl FunctionSig {
     /// Check if this function uses capabilities.
     pub fn has_capabilities(&self) -> bool {
         !self.capabilities.is_empty()
+    }
+
+    /// Whether realization must materialize a provider-specialized callable.
+    #[must_use]
+    pub fn has_value_capabilities(&self) -> bool {
+        self.capability_params
+            .iter()
+            .copied()
+            .any(CapabilityParam::is_value)
+    }
+
+    /// Whether this declaration is a source template rather than a directly
+    /// executable body.
+    #[must_use]
+    pub fn requires_specialization(&self) -> bool {
+        self.is_generic() || self.has_value_capabilities()
     }
 
     /// Classify this function's effect level based on its declared capabilities.

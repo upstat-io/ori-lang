@@ -10,64 +10,16 @@
     reason = "Arc required for SharedInterner thread-safety"
 )]
 
+mod shard;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use rustc_hash::FxHashMap;
 
 use super::Name;
-
-/// Per-shard storage for interned strings.
-struct InternShard {
-    /// Map from string content to local index.
-    map: FxHashMap<&'static str, u32>,
-    /// Storage for string contents.
-    strings: Vec<&'static str>,
-}
-
-/// Error when interning a string fails.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InternError {
-    /// Shard exceeded capacity (over 4 billion strings).
-    ShardOverflow { shard_idx: usize, count: usize },
-}
-
-impl std::fmt::Display for InternError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            InternError::ShardOverflow { shard_idx, count } => write!(
-                f,
-                "interner shard {} exceeded capacity: {} strings (0x{:X}), max is {} (0x{:X})",
-                shard_idx,
-                count,
-                count,
-                u32::MAX,
-                u32::MAX
-            ),
-        }
-    }
-}
-
-impl std::error::Error for InternError {}
-
-impl InternShard {
-    fn new() -> Self {
-        Self {
-            map: FxHashMap::default(),
-            strings: Vec::with_capacity(256),
-        }
-    }
-
-    fn with_empty() -> Self {
-        let mut shard = Self::new();
-        // Pre-intern empty string at index 0
-        let empty: &'static str = "";
-        shard.map.insert(empty, 0);
-        shard.strings.push(empty);
-        shard
-    }
-}
+pub use shard::InternError;
+use shard::InternShard;
 
 /// Sharded string interner for concurrent access.
 ///
@@ -76,6 +28,7 @@ impl InternShard {
 /// # Thread Safety
 /// Uses `RwLock` per shard for concurrent read/write access.
 /// Can be wrapped in Arc for sharing across threads.
+#[derive(Debug)]
 pub struct StringInterner {
     shards: [RwLock<InternShard>; Name::NUM_SHARDS],
     /// Total count of interned strings across all shards (O(1) `len()`).
@@ -120,7 +73,7 @@ impl StringInterner {
         // Fast path: check if already interned
         {
             let guard = shard.read();
-            if let Some(&local) = guard.map.get(s) {
+            if let Some(local) = guard.local_for(s) {
                 return Ok(Name::new(shard_idx_u32, local));
             }
         }
@@ -129,22 +82,13 @@ impl StringInterner {
         let mut guard = shard.write();
 
         // Double-check after acquiring write lock
-        if let Some(&local) = guard.map.get(s) {
+        if let Some(local) = guard.local_for(s) {
             return Ok(Name::new(shard_idx_u32, local));
         }
 
-        // Leak the string to get 'static lifetime
-        let owned: String = s.to_owned();
-        let leaked: &'static str = Box::leak(owned.into_boxed_str());
+        let local = guard.insert_new(shard_idx, s)?;
 
-        let local = u32::try_from(guard.strings.len()).map_err(|_| InternError::ShardOverflow {
-            shard_idx,
-            count: guard.strings.len(),
-        })?;
-        guard.strings.push(leaked);
-        guard.map.insert(leaked, local);
-
-        // Increment total count (Relaxed is fine - we don't need ordering guarantees)
+        // Why: Relaxed suffices; the count is a statistic, not a synchronization point.
         self.total_count.fetch_add(1, Ordering::Relaxed);
 
         Ok(Name::new(shard_idx_u32, local))
@@ -162,9 +106,12 @@ impl StringInterner {
 
     /// Try to intern an owned String, returning its Name or an error on overflow.
     ///
-    /// This is more efficient than `try_intern()` when you already have an owned String
-    /// (e.g., from `unescape_string`), as it avoids the extra allocation that
-    /// `try_intern(&s)` would perform.
+    /// Use this when the caller already owns a String and wants the owned-string
+    /// API path; storage still copies the bytes into the interner's chunk pool.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "public API consumes caller-owned strings even though flat storage copies bytes"
+    )]
     pub fn try_intern_owned(&self, s: String) -> Result<Name, InternError> {
         let shard_idx = Self::shard_for(&s);
         #[expect(
@@ -177,7 +124,7 @@ impl StringInterner {
         // Fast path: check if already interned
         {
             let guard = shard.read();
-            if let Some(&local) = guard.map.get(s.as_str()) {
+            if let Some(local) = guard.local_for(s.as_str()) {
                 return Ok(Name::new(shard_idx_u32, local));
             }
         }
@@ -186,30 +133,21 @@ impl StringInterner {
         let mut guard = shard.write();
 
         // Double-check after acquiring write lock
-        if let Some(&local) = guard.map.get(s.as_str()) {
+        if let Some(local) = guard.local_for(s.as_str()) {
             return Ok(Name::new(shard_idx_u32, local));
         }
 
-        // Leak the owned string directly (no extra allocation)
-        let leaked: &'static str = Box::leak(s.into_boxed_str());
-
-        let local = u32::try_from(guard.strings.len()).map_err(|_| InternError::ShardOverflow {
-            shard_idx,
-            count: guard.strings.len(),
-        })?;
-        guard.strings.push(leaked);
-        guard.map.insert(leaked, local);
+        let local = guard.insert_new(shard_idx, s.as_str())?;
 
         self.total_count.fetch_add(1, Ordering::Relaxed);
 
         Ok(Name::new(shard_idx_u32, local))
     }
 
-    /// Intern an owned String, avoiding double allocation.
+    /// Intern an owned String.
     ///
-    /// This is more efficient than `intern()` when you already have an owned String
-    /// (e.g., from `unescape_string`), as it avoids the extra allocation that
-    /// `intern(&s)` would perform.
+    /// Use this when the caller already owns a String and wants the owned-string
+    /// API path; storage still copies the bytes into the interner's chunk pool.
     ///
     /// # Panics
     /// Panics if the interner exceeds capacity (over 4 billion strings per shard).
@@ -222,7 +160,10 @@ impl StringInterner {
     pub fn lookup(&self, name: Name) -> &str {
         let shard = &self.shards[name.shard()];
         let guard = shard.read();
-        guard.strings[name.local()]
+        match guard.span_str(name.local()) {
+            Some(value) => value,
+            None => panic!("Name local index is not interned in this shard"),
+        }
     }
 
     /// Try to look up the string for a Name, returning `None` if the name
@@ -234,18 +175,21 @@ impl StringInterner {
         }
         let shard = &self.shards[shard_idx];
         let guard = shard.read();
-        guard.strings.get(name.local()).copied()
+        guard.span_str(name.local())
     }
 
     /// Look up the string for a Name, returning a `'static` reference.
     ///
-    /// This is safe because all interned strings are leaked (never deallocated).
+    /// This is safe because interned strings live in process-lifetime chunks.
     /// Use this when you need to store the string reference without lifetime concerns,
     /// such as in `Cow<'static, str>` for zero-copy string values.
     pub fn lookup_static(&self, name: Name) -> &'static str {
         let shard = &self.shards[name.shard()];
         let guard = shard.read();
-        guard.strings[name.local()]
+        match guard.span_str(name.local()) {
+            Some(value) => value,
+            None => panic!("Name local index is not interned in this shard"),
+        }
     }
 
     /// Pre-intern all Ori keywords and common identifiers.
@@ -393,19 +337,20 @@ impl StringLookup for StringInterner {
 /// - Lifetime is well-defined (codegen borrows from earlier phase output)
 /// - Zero runtime cost is required (no atomic ref counting)
 ///
-/// **Example - Correct patterns:**
-/// ```ignore
-/// // Salsa database owns the interner
-/// let db = CompilerDb::new(); // contains SharedInterner internally
+/// **Example - Shared ownership:**
+/// ```
+/// use ori_ir::SharedInterner;
 ///
-/// // Codegen borrows - does NOT need Arc
-/// fn compile(cx: &CodegenCx, interner: &StringInterner) { ... }
+/// let coordinator = SharedInterner::new();
+/// let name = coordinator.intern("main");
+/// let worker = coordinator.clone();
+/// assert_eq!(worker.lookup(name), "main");
 /// ```
 ///
 /// # Thread Safety
 /// Uses `Arc` internally for thread-safe reference counting. The underlying
 /// `StringInterner` uses per-shard `RwLocks` for concurrent access.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SharedInterner(Arc<StringInterner>);
 
 impl SharedInterner {

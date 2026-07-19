@@ -273,10 +273,13 @@ Refutable patterns:
 - Lists with length (`[a, b]`)
 - Guards (`x if x > 0`)
 
+NOTE  A guard is an arm-level construct of `match`, not a pattern form; guards are not admitted in binding positions (`let`, `let?`, function parameters, `for` variables).
+
 | Context | Requirement |
 |---------|-------------|
 | `match` arm | Any pattern (refutable OK) |
 | `let` binding | Must be irrefutable |
+| `let?` binding | Any pattern (refutable OK); mismatch propagates per [16.5.3](16-control-flow.md) |
 | Function parameter | Must be irrefutable |
 | `for` loop variable | Must be irrefutable |
 

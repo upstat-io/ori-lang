@@ -1,9 +1,5 @@
 //! AOT PC-2 hook helper.
 //!
-//! Extracted from `run_borrow_inference` so the inline PC-2 invariant-check
-//! loops do not push the host function past the 100-line and the host file
-//! past the 500-line structural limits.
-//!
 //! The hook walks a pre-mono or mono `arc_fn` plus every lambda extracted with
 //! it, invoking `ori_arc::assert_no_unresolved_type_vars` at each. Violations
 //! are logged via `tracing::error!` tagged with a site discriminator
@@ -11,11 +7,8 @@
 //! The helper is the sole PC-2 walker at AOT secondary sites; primary seam
 //! enforcement is in `ori_llvm::codegen::function_compiler::shared_seam`.
 
-#[cfg(feature = "llvm")]
 use ori_ir::StringInterner;
-#[cfg(feature = "llvm")]
 use ori_types::Pool;
-#[cfg(feature = "llvm")]
 use rustc_hash::FxHashSet;
 
 /// Run the PC-2 `Tag::Var` walker on one `arc_fn` + each of its lambdas.
@@ -28,7 +21,6 @@ use rustc_hash::FxHashSet;
 /// Emits `tracing::error!` on each violation but does not propagate — the
 /// primary seam in `ori_llvm::codegen::function_compiler::shared_seam` is
 /// the load-bearing gate; secondary sites are diagnostic localization only.
-#[cfg(feature = "llvm")]
 pub(super) fn run_pc2_hook_aot(
     pool: &Pool,
     arc_fn: &ori_arc::ArcFunction,

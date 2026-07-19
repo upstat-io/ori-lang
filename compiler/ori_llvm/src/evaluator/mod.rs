@@ -5,9 +5,9 @@
 //!
 //! # V2 Architecture
 //!
-//! The evaluator is a pure codegen component — it receives pre-computed
-//! borrow inference results and pre-lowered ARC functions from the caller
-//! (`oric`). It does NOT perform ARC lowering or borrow inference itself.
+//! The evaluator is a pure physical projection component. It receives one
+//! closed executable artifact from `oric` and does not lower canonical IR or
+//! run ownership analysis.
 //!
 //! Pipeline:
 //! 1. `TypeInfoStore` + `TypeLayoutResolver` for LLVM type computation
@@ -28,12 +28,12 @@ use rustc_hash::FxHashMap;
 use ori_ir::ast::Function;
 use ori_ir::canon::CanonResult;
 use ori_ir::Name;
-use ori_types::{FunctionSig, Pool};
+use ori_types::FunctionSig;
 
-/// Check if LLVM IR dumping is requested (new or legacy env var).
+/// Env: `ORI_DUMP_AFTER_LLVM` — dumps LLVM IR after code generation, debug-only.
+/// Env: `ORI_DEBUG_LLVM` — also requests an LLVM IR dump, debug-only.
 ///
 /// Cannot use `oric::dbg_do!` here because `ori_llvm` doesn't depend on `oric`.
-/// This is a raw env var check — the `oric` macros do the same thing.
 fn llvm_dump_requested() -> bool {
     std::env::var("ORI_DUMP_AFTER_LLVM").is_ok_and(|v| v != "0")
         || std::env::var("ORI_DEBUG_LLVM").is_ok_and(|v| v != "0")
@@ -44,7 +44,7 @@ fn llvm_dump_requested() -> bool {
 /// Pairs a function AST with its type-checked signature and the canonical IR
 /// from its source module. All `Idx` values in `sig` and `canon` have been
 /// re-interned into the main compilation pool before construction — the caller
-/// uses [`ori_types::re_intern_type`] and [`CanArena::remap_types`] to ensure
+/// uses [`ori_types::re_intern_type`] and [`ori_ir::canon::CanArena::remap_types`] to ensure
 /// single-pool consistency.
 pub struct ImportedFunctionForCodegen<'a> {
     /// The function AST from the imported module.
@@ -106,8 +106,7 @@ impl std::error::Error for LLVMEvalError {}
 /// The `'ll` lifetime ties to the LLVM `Context` (owned by `OwnedLLVMEvaluator`).
 /// The `ExecutionEngine` takes C-level ownership of the module via
 /// `LLVMCreateJITCompilerForModule`, so the Rust `Module` wrapper can be safely
-/// dropped after engine creation (it becomes a shell — see inkwell's
-/// `Module::owned_by_ee` field).
+/// dropped after engine creation because it becomes a non-owning shell.
 pub struct CompiledTestModule<'ll> {
     /// The JIT execution engine (owns the compiled machine code).
     engine: ExecutionEngine<'ll>,
@@ -125,48 +124,43 @@ impl CompiledTestModule<'_> {
     /// the wrapper boundary (test failure) vs normal completion (test pass).
     ///
     /// On Windows, LLVM's JIT cannot compile Itanium-style `landingpad` for
-    /// MSVC targets, so the wrapper is a plain function and we use
+    /// MSVC targets, so the wrapper is a plain function and uses
     /// `jit_run_protected` (C++ try/catch) for panic recovery.
     ///
     /// # Safety
     ///
     /// The test function must exist in the compiled module and have signature `() -> void`.
-    #[allow(
+    #[expect(
         unsafe_code,
-        reason = "JIT execution requires unsafe FFI: get_function and call"
+        reason = "LLVM JIT symbol lookup and invocation cross the FFI boundary after validating the generated wrapper signature"
     )]
     pub fn run_test(&self, test_name: Name) -> LLVMEvalResult {
-        // Snapshot live RC count before test for leak detection
         let live_before = runtime::ori_rc_live_count();
 
-        // Look up the wrapper function name
         let wrapper_name = self.test_wrappers.get(&test_name).ok_or_else(|| {
             LLVMEvalError::new(format!("Test wrapper not found for test: {test_name:?}"))
         })?;
 
-        // Get function pointer
-        // SAFETY: We compiled this test wrapper with signature () -> void
+        // SAFETY: Generated test wrappers have the validated `() -> void` signature.
         let test_fn = unsafe {
             self.engine
                 .get_function::<unsafe extern "C" fn()>(wrapper_name)
                 .map_err(|e| LLVMEvalError::new(format!("Test function not found: {e}")))?
         };
 
-        // Run the test with platform-appropriate panic recovery
         #[cfg(target_os = "windows")]
         {
-            // Windows: no landingpad wrapper — use jit_run_protected
             let raw_fn: unsafe extern "C" fn() = unsafe { test_fn.as_raw() };
             if let Err(msg) = unsafe { runtime::jit_run_protected(raw_fn) } {
+                runtime::ori_report_uncaught_panic();
                 return Err(LLVMEvalError::new(msg));
             }
         }
 
         #[cfg(not(target_os = "windows"))]
         {
-            // Linux/macOS: wrapper has invoke/landingpad catch-all
             runtime::reset_panic_state();
-            // SAFETY: test_fn has signature () -> void, compiled by us
+            // SAFETY: Generated test wrappers have the validated `() -> void` signature.
             unsafe { test_fn.call() };
 
             if runtime::did_panic() {
@@ -176,7 +170,6 @@ impl CompiledTestModule<'_> {
             }
         }
 
-        // Check for ARC leaks: compare live count after test to snapshot before
         let live_after = runtime::ori_rc_live_count();
         let leaked = live_after - live_before;
         if leaked > 0 {
@@ -192,19 +185,59 @@ impl CompiledTestModule<'_> {
 /// LLVM-based evaluator that owns its context.
 ///
 /// Uses the V2 codegen pipeline (`TypeInfoStore` → `IrBuilder` → `FunctionCompiler`).
-pub struct OwnedLLVMEvaluator<'tcx> {
+pub struct OwnedLLVMEvaluator {
     context: Context,
-    /// Type pool for resolving compound types (List, Map, etc.)
-    pool: &'tcx Pool,
 }
 
-impl<'tcx> OwnedLLVMEvaluator<'tcx> {
-    /// Create an evaluator with a type pool for compound type resolution.
+impl OwnedLLVMEvaluator {
+    /// Create an evaluator. The bound executable artifact owns all semantic
+    /// type identities used during physical projection.
     #[must_use]
-    pub fn with_pool(pool: &'tcx Pool) -> Self {
+    pub fn new() -> Self {
         OwnedLLVMEvaluator {
             context: Context::create(),
-            pool,
+        }
+    }
+}
+
+impl Default for OwnedLLVMEvaluator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::llvm_dump_requested;
+
+    #[test]
+    fn llvm_dump_environment_variables_enable_dumping() {
+        const CHILD: &str = "LLVM_DUMP_ENV_TEST_CHILD";
+        if let Some(variable) = std::env::var_os(CHILD) {
+            assert!(
+                llvm_dump_requested(),
+                "{} must request an LLVM dump",
+                variable.to_string_lossy()
+            );
+            return;
+        }
+
+        for variable in ["ORI_DUMP_AFTER_LLVM", "ORI_DEBUG_LLVM"] {
+            let output = std::process::Command::new(
+                std::env::current_exe().expect("test executable path must be available"),
+            )
+            .arg("llvm_dump_environment_variables_enable_dumping")
+            .arg("--nocapture")
+            .env(CHILD, variable)
+            .env(variable, "1")
+            .output()
+            .expect("LLVM dump behavior child must start");
+            assert!(
+                output.status.success(),
+                "LLVM dump behavior child for {variable} failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
         }
     }
 }

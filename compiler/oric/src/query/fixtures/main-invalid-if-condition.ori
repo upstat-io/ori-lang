@@ -1,0 +1,1 @@
+@main () -> int = if 42 then 1 else 2;

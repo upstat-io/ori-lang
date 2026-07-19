@@ -145,7 +145,7 @@ use std.testing { assert_eq }
 // shape. Diagnostic triangulation:
 // - If this cell passes today while the `std.testing.assert_eq` cells fail,
 //   the bug is specifically in the IMPORTED-mono path (body_type_map at
-//   `compiler/oric/src/test/runner/llvm_backend.rs:317-355`).
+//   `compiler/oric/src/test/runner/llvm_backend.rs::body_type_map`).
 // - If both cells fail, the bug lives in shared lambda_mono / TypeInfoStore
 //   infrastructure consumed by both local and imported mono.
 // ============================================================================
@@ -185,7 +185,7 @@ use std.testing { assert_eq }
 
 // ============================================================================
 // Nested-container substitution pin — guards `apply_bound_var_map` at
-// `compiler/ori_llvm/src/codegen/function_compiler/lambda_mono/type_resolve.rs:142-175`.
+// `compiler/ori_llvm/src/codegen/function_compiler/lambda_mono/type_resolve.rs::apply_bound_var_map`.
 // ----------------------------------------------------------------------------
 // Per the §08 Reviewer-surfaced reconnaissance block, that helper only
 // fixes top-level vars; nested generics inside containers (`[T]`,

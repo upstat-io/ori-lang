@@ -5,7 +5,7 @@
 
 use rustc_hash::FxHashSet;
 
-use ori_ir::Name;
+use ori_ir::{Name, Span};
 
 use crate::Idx;
 
@@ -15,7 +15,7 @@ use super::InferEngine;
 ///
 /// Records the break-value-type unification target plus whether `break value`
 /// and `continue value` are permitted in this loop form. Per spec
-/// (`14-expressions.md` / `16-control-flow.md`):
+/// (Spec: Clause 14 / Clause 16):
 /// - `loop { }` permits `break value`, forbids `continue value`.
 /// - `for...yield` permits both.
 /// - `while...do` / `for...do` forbid both (the loop has type `void`).
@@ -36,6 +36,15 @@ pub struct LoopContext {
     pub form: LoopForm,
 }
 
+/// Carrier observed at one explicit `?` expression inside the active try
+/// boundary. Result observations retain the propagated error type so all
+/// operations in the boundary can be reconciled.
+#[derive(Copy, Clone, Debug)]
+pub(crate) enum TryPropagation {
+    Option { span: Span },
+    Result { error_ty: Idx, span: Span },
+}
+
 /// The surface loop form that introduced a [`LoopContext`].
 ///
 /// Used only to name the offending construct in E0860 / E0861 diagnostics.
@@ -52,6 +61,47 @@ pub enum LoopForm {
 }
 
 impl InferEngine<'_> {
+    /// Enter a `try {}` propagation boundary.
+    pub(crate) fn push_try_boundary(&mut self) {
+        self.try_boundaries.push(Some(Vec::new()));
+    }
+
+    /// Leave a `try {}` propagation boundary and return only the explicit
+    /// `?` operations inferred directly inside it.
+    pub(crate) fn pop_try_boundary(&mut self) -> Vec<TryPropagation> {
+        match self.try_boundaries.pop() {
+            Some(Some(propagations)) => propagations,
+            Some(None) => {
+                unreachable!("expected try propagation boundary, found function barrier")
+            }
+            None => unreachable!("try propagation boundary stack is empty"),
+        }
+    }
+
+    /// Prevent `?` inside a nested function body from attaching to an
+    /// enclosing try block. A nested try boundary outside this barrier
+    /// remains independently active.
+    pub(crate) fn push_try_boundary_barrier(&mut self) {
+        self.try_boundaries.push(None);
+    }
+
+    /// Leave a nested-function propagation barrier.
+    pub(crate) fn pop_try_boundary_barrier(&mut self) {
+        let popped = self.try_boundaries.pop();
+        assert!(
+            matches!(popped, Some(None)),
+            "try propagation function barrier stack is unbalanced"
+        );
+    }
+
+    /// Attach an explicit `?` operation to the innermost active try boundary.
+    /// An absent boundary propagates to the current function instead.
+    pub(crate) fn record_try_propagation(&mut self, propagation: TryPropagation) {
+        if let Some(Some(propagations)) = self.try_boundaries.last_mut() {
+            propagations.push(propagation);
+        }
+    }
+
     /// Push a loop context onto the stack.
     /// Called when entering any loop form.
     pub fn push_loop_context(&mut self, ctx: LoopContext) {
@@ -73,8 +123,8 @@ impl InferEngine<'_> {
     ///
     /// `label == Name::EMPTY` (unlabeled) → innermost loop. A non-empty label
     /// → the nearest enclosing loop whose `label` matches; `None` when no
-    /// enclosing loop carries that label (the label-resolution error path,
-    /// owned elsewhere, handles that case).
+    /// enclosing loop carries that label; the caller handles label-resolution
+    /// errors.
     pub fn resolve_loop_context(&self, label: Name) -> Option<LoopContext> {
         if label == Name::EMPTY {
             return self.current_loop_context();
@@ -102,6 +152,30 @@ impl InferEngine<'_> {
         self.provided_capabilities = provided;
     }
 
+    /// Install the current function's retained value-capability parameters as
+    /// the outermost lexical provider frame.
+    pub fn set_capability_parameters(&mut self, params: &[crate::CapabilityParam]) {
+        self.capability_providers.clear();
+        for param in params {
+            let crate::CapabilityParam::Value {
+                capability,
+                provider_type,
+                provider_var_id,
+            } = *param
+            else {
+                continue;
+            };
+            self.capability_providers
+                .entry(capability)
+                .or_default()
+                .push(crate::CapabilityProvider {
+                    capability,
+                    provider_type,
+                    source: crate::CapabilityProviderSource::Parameter { provider_var_id },
+                });
+        }
+    }
+
     /// Check if a capability is available (declared or provided).
     pub fn has_capability(&self, cap: Name) -> bool {
         self.current_capabilities.contains(&cap) || self.provided_capabilities.contains(&cap)
@@ -120,12 +194,12 @@ impl InferEngine<'_> {
         self.provided_capabilities.insert(cap);
     }
 
-    /// Remove a provided capability.
+    /// Discard a capability when its `with` scope ends.
     pub fn remove_provided_capability(&mut self, cap: Name) {
         self.provided_capabilities.remove(&cap);
     }
 
-    /// Execute a closure with a temporarily provided capability.
+    /// Execute a closure while a capability is provided.
     ///
     /// The capability is added before executing `f` and removed after.
     /// This implements the scoped semantics of `with...in`.
@@ -139,5 +213,43 @@ impl InferEngine<'_> {
             self.provided_capabilities.remove(&cap);
         }
         result
+    }
+
+    /// Execute a closure under one exact provider value, preserving nested
+    /// shadowing for the same capability namespace.
+    pub fn with_capability_provider<T, F>(&mut self, provider: crate::CapabilityProvider, f: F) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        let cap = provider.capability;
+        let was_present = self.provided_capabilities.insert(cap);
+        self.capability_providers
+            .entry(cap)
+            .or_default()
+            .push(provider);
+        let result = f(self);
+        let remove_stack = self
+            .capability_providers
+            .get_mut(&cap)
+            .is_some_and(|stack| {
+                stack.pop();
+                stack.is_empty()
+            });
+        if remove_stack {
+            self.capability_providers.remove(&cap);
+        }
+        if !was_present {
+            self.provided_capabilities.remove(&cap);
+        }
+        result
+    }
+
+    /// Innermost provider selected for a value capability.
+    #[must_use]
+    pub fn capability_provider(&self, cap: Name) -> Option<crate::CapabilityProvider> {
+        self.capability_providers
+            .get(&cap)
+            .and_then(|providers| providers.last())
+            .copied()
     }
 }

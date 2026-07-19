@@ -22,6 +22,9 @@ pub(crate) fn infer_assign(
     // recorded here to synthesize the pure-reassignment form.
     if let ExprKind::AssignTarget { root, steps } = arena.get_expr(target).kind {
         let elem_ty = infer_assign_target(engine, arena, target, root, steps);
+        // This direct helper path bypasses `infer_expr`, so store the node's
+        // semantic type explicitly while retaining `elem_ty` for RHS checking.
+        engine.store_type(target.raw() as usize, Idx::UNIT);
         let value_ty = infer_expr(engine, arena, value);
         // The assigned value must be assignable to the value-position element
         // type of the chain (`xs[i] = v` requires `v: elem(xs)`). An `Idx::ERROR`
@@ -109,6 +112,7 @@ pub(crate) fn infer_assign_target(
     let step_list: Vec<AccessStep> = arena.get_access_steps(steps).to_vec();
 
     let mut level_types = Vec::with_capacity(step_list.len() + 1);
+    let mut step_routes = Vec::with_capacity(step_list.len());
     level_types.push(engine.resolve(root_ty));
 
     let mut receiver_ty = root_ty;
@@ -117,10 +121,13 @@ pub(crate) fn infer_assign_target(
             AccessStep::Index(index) => {
                 let index_ty = infer_expr(engine, arena, index);
                 let span = arena.get_expr(index).span;
-                step_index_read_type(engine, receiver_ty, index_ty, span)
+                let (next_ty, dispatch) = step_index_read_type(engine, receiver_ty, index_ty, span);
+                step_routes.push(crate::AssignStepRoute::Index(dispatch));
+                next_ty
             }
             AccessStep::Field(field) => {
                 let span = arena.get_expr(root).span;
+                step_routes.push(crate::AssignStepRoute::Field);
                 step_field_read_type(engine, receiver_ty, field, span)
             }
         };
@@ -133,7 +140,7 @@ pub(crate) fn infer_assign_target(
     // `value` parameter / `{ ...s, f: v }`'s field type) the assigned value is
     // checked against by `infer_assign`.
     let elem_ty = level_types.last().copied().unwrap_or(Idx::UNIT);
-    engine.record_assign_desugar(target, level_types);
+    engine.record_assign_desugar(target, level_types, step_routes);
     elem_ty
 }
 
@@ -150,28 +157,28 @@ fn step_index_read_type(
     receiver_ty: Idx,
     index_ty: Idx,
     span: Span,
-) -> Idx {
+) -> (Idx, ori_ir::canon::IndexDispatch) {
     let resolved = engine.resolve(receiver_ty);
     match engine.pool().tag(resolved) {
         Tag::List => {
             let elem_ty = engine.pool().list_elem(resolved);
             check_index_key(engine, index_ty, Idx::INT, span);
-            elem_ty
+            (elem_ty, ori_ir::canon::IndexDispatch::Builtin)
         }
         Tag::Map => {
             let key_ty = engine.pool().map_key(resolved);
             let value_ty = engine.pool().map_value(resolved);
             check_index_key(engine, index_ty, key_ty, span);
-            value_ty
+            (value_ty, ori_ir::canon::IndexDispatch::Builtin)
         }
         // `str` supports index reads (`s[i]` → single-codepoint `str`) but NOT
         // index assignment — it is immutable through indexing (no `IndexSet`).
         Tag::Str => {
             engine.push_error(TypeCheckError::index_assign_not_supported(span, resolved));
-            Idx::ERROR
+            (Idx::ERROR, ori_ir::canon::IndexDispatch::Error)
         }
-        Tag::Var => engine.fresh_var(),
-        _ => Idx::ERROR,
+        Tag::Var => (engine.fresh_var(), ori_ir::canon::IndexDispatch::Deferred),
+        _ => (Idx::ERROR, ori_ir::canon::IndexDispatch::Error),
     }
 }
 

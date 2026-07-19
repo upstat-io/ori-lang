@@ -1,0 +1,10 @@
+@pick (s: str) -> int = {
+    let n = s.len();
+    if n > 100 then n else 0
+}
+
+@main () -> int = {
+    let s = "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD_heap_string";
+    let r = pick(s: s);
+    if r == 0 then 0 else 1
+}

@@ -25,13 +25,55 @@ impl MockCounter: Counter {
 
 // A function that uses the capability
 @use_counter () -> int uses Counter = {
-    let c = MockCounter { value: 0 };
-    c.increment()
+    Counter.increment()
 }
 
-// SKIP: Capability provision to called functions not yet implemented.
-// The `with Counter = mock` binding doesn't propagate to use_counter().
-#skip("BUG-07-038: capability provision to called functions not implemented")
+// Provider forwarding stays implicit across capability-bearing callees. Two
+// values of the same provider type share code but must retain their own value.
+@forward_counter () -> int uses Counter = use_counter();
+
+@test_transitive_provider_shadowing tests @transitive_provider_shadowing () -> void = {
+    let outer = MockCounter { value: 10 };
+    let inner = MockCounter { value: 40 };
+    let result = with Counter = outer in {
+        let outer_result = forward_counter();
+        let inner_result = with Counter = inner in forward_counter();
+        outer_result + inner_result
+    };
+    assert_eq(actual: result, expected: 52)
+}
+
+@transitive_provider_shadowing () -> int = {
+    let outer = MockCounter { value: 10 };
+    let inner = MockCounter { value: 40 };
+    with Counter = outer in {
+        let outer_result = forward_counter();
+        let inner_result = with Counter = inner in forward_counter();
+        outer_result + inner_result
+    }
+}
+
+// Ordinary generic binders and implicit provider binders are resolved as one
+// deferred source-body specialization when a generic forwards to a generic.
+@generic_cap_identity<T> (value: T) -> T uses Counter = {
+    Counter.increment();
+    value
+}
+
+@generic_cap_forward<T> (value: T) -> T uses Counter =
+    generic_cap_identity(value: value);
+
+@test_generic_capability_forwarding tests @generic_capability_forwarding () -> void = {
+    let mock = MockCounter { value: 7 };
+    let result = with Counter = mock in generic_cap_forward(value: "kept");
+    assert_eq(actual: result, expected: "kept")
+}
+
+@generic_capability_forwarding () -> str = {
+    let mock = MockCounter { value: 7 };
+    with Counter = mock in generic_cap_forward(value: "kept")
+}
+
 @test_basic_with tests @basic_with () -> void = {
     let mock = MockCounter { value: 10 };
     let result = with Counter = mock in use_counter();
@@ -58,26 +100,21 @@ impl MockCounter: Counter {
     with Counter = mock in mock.get()
 }
 
-// This test requires stateful handlers to accumulate state across calls.
-// See proposals/approved/stateful-mock-testing-proposal.md for the approved mechanism.
-// Once handler(state: expr) { ... } is implemented, rewrite using:
-//   with Counter = handler(state: 0) { increment: (s) -> (s+1, s+1), get: (s) -> (s, s) }
-#skip("BUG-07-038: requires stateful handlers — see stateful-mock-testing-proposal")
 @test_with_expression_body tests @with_expression_body () -> void = {
-    let mock = MockCounter { value: 0 };
+    let mock = MockCounter { value: 10 };
     let result = with Counter = mock in {
-        let a = mock.increment();
-        let b = mock.increment();
+        let a = use_counter();
+        let b = use_counter();
         a + b
     };
-    assert_eq(actual: result, expected: 3) // 1 + 2
+    assert_eq(actual: result, expected: 22)
 }
 
 @with_expression_body () -> int = {
-    let mock = MockCounter { value: 0 };
+    let mock = MockCounter { value: 10 };
     with Counter = mock in {
-        let a = mock.increment();
-        let b = mock.increment();
+        let a = use_counter();
+        let b = use_counter();
         a + b
     }
 }
@@ -97,12 +134,10 @@ impl MockLogger: Logger {
 }
 
 @use_both () -> int uses Counter, Logger = {
-    let c = MockCounter { value: 0 };
-    c.increment()
+    Logger.log(msg: "increment");
+    Counter.increment()
 }
 
-// SKIP: Same issue as test_basic_with - capability provision to called functions not implemented.
-#skip("BUG-07-038: capability provision to called functions not implemented")
 @test_multiple_capabilities tests @multiple_capabilities () -> void = {
     let counter = MockCounter { value: 10 };
     let logger = MockLogger { messages: [] };

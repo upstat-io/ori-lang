@@ -13,6 +13,7 @@ mod byte;
 mod char;
 mod float;
 mod int;
+mod unit;
 
 // String
 mod str;
@@ -54,6 +55,7 @@ pub use self::set::SET;
 pub use self::size::SIZE;
 pub use self::str::STR;
 pub use self::tuple::TUPLE;
+pub use self::unit::UNIT;
 
 pub use self::iterator::ITERATOR;
 
@@ -64,7 +66,8 @@ pub use self::iterator::ITERATOR;
 ///
 /// Order matches `TypeTag` declaration order for predictable iteration.
 ///
-// TODO: Enforce completeness at compile time via exhaustive match in a const fn.
+/// Completeness — every non-excluded `TypeTag` has an entry here — is
+/// enforced at test time by `all_type_tags_present` (iterates `TypeTag::all()`).
 pub static BUILTIN_TYPES: &[&crate::TypeDef] = &[
     // Sorted by TypeTag discriminant value (repr(u8))
     &INT,   // 0
@@ -72,7 +75,8 @@ pub static BUILTIN_TYPES: &[&crate::TypeDef] = &[
     &BOOL,  // 2
     &CHAR,  // 3
     &BYTE,  // 4
-    // Unit (5), Never (6) excluded — no methods
+    &UNIT,  // 5
+    // Never (6) excluded — no values or methods
     &DURATION, // 7
     &SIZE,     // 8
     &ORDERING, // 9

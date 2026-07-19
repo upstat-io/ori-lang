@@ -1,0 +1,14 @@
+// FileCheck test: scalar map-terminal join uses the same provenance-free ABI.
+// Runtime state makes scalar release a no-op while join still runs the
+// int-to-str trampoline.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ptr null, i64 8, ptr %join.out)
+
+@main () -> void = {
+    let $joined = [1, 2, 3]
+        .iter()
+        .map(transform: (n: int) -> int = n + 1)
+        .join(separator: ", ");
+    print(msg: joined)
+}

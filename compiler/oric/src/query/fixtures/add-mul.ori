@@ -1,0 +1,2 @@
+@add (x: int, y: int) -> int = x + y;
+@mul (a: int, b: int) -> int = a * b;

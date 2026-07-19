@@ -1,0 +1,9 @@
+@main () -> int = {
+    let xs = [0];
+    let n = 0;
+    while n < 20 do {
+        xs = xs.push(n);
+        n = n + 1;
+    };
+    if xs.len() == 21 then 0 else 1
+}

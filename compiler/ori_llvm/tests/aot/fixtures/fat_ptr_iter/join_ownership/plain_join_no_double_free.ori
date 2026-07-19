@@ -1,0 +1,8 @@
+// Source-borrowed elements through join: the source list owns these heap
+// strings; join must NOT release them (double-free) — the list drop does.
+@main () -> void = {
+    let $joined = ["lambda-lambda-lambda-lambda-lambda", "mu-mu-mu-mu-mu-mu-mu-mu-mu"]
+        .iter()
+        .join(separator: ", ");
+    print(msg: joined)
+}

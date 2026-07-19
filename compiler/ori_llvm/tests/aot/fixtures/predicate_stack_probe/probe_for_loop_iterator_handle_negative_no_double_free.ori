@@ -1,0 +1,8 @@
+@main () -> int = {
+    let nums = [1, 2, 3, 4, 5];
+    let total = 0;
+    for n in nums do {
+        total = total + n
+    };
+    if total == 15 then 0 else 1
+}

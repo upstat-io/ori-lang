@@ -1,0 +1,18 @@
+// Cell 1 — generic struct with scalar fields, instantiated by struct literal.
+// The canonical repro shape: `Box { val: 7 }` infers Applied(Box,[Var->int]).
+// Pre-fix: AOT E5001 — RcDec on a scalar where ori_rc_dec expects a ptr.
+use std.testing { assert_eq }
+
+type Box<T> = { val: T }
+
+@main () -> int = {
+    let $bi = Box { val: 7 };
+    let $bf = Box { val: 3.5 };
+    let $bb = Box { val: true };
+    let $bc = Box { val: 'z' };
+    assert_eq(actual: bi.val, expected: 7);
+    assert_eq(actual: bf.val, expected: 3.5);
+    assert_eq(actual: bb.val, expected: true);
+    assert_eq(actual: bc.val, expected: 'z');
+    0
+}

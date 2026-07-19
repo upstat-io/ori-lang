@@ -1,0 +1,6 @@
+@first_int <T> (marker: T, xs: [int]) -> int = xs[0];
+
+@main () -> int = {
+    let v = first_int(marker: "z", xs: [10, 20, 30]);
+    if v == 10 then 0 else 1
+}

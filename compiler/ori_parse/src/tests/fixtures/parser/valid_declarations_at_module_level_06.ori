@@ -1,0 +1,4 @@
+type Foo = { x: int }
+impl Foo {
+    @get_x (self) -> int = self.x;
+}

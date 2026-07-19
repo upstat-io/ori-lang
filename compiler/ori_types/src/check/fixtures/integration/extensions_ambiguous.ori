@@ -1,0 +1,9 @@
+extend str {
+    @clash (self) -> int = 1;
+}
+
+extend str {
+    @clash (self) -> int = 2;
+}
+
+@ambiguous (text: str) -> int = text.clash();

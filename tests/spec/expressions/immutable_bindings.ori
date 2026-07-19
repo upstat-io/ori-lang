@@ -62,7 +62,7 @@ type Point = { x: int, y: int }
 // =============================================================================
 // List destructuring — refutable `let` rejected (CF-3)
 //
-// Spec 15.4 + 15-patterns.md:276-281: the irrefutability-context table marks
+// Spec 15.4 + 15-patterns.md § Pattern Refutability: the irrefutability-context table marks
 // `let` and `for` binders as MUST-be-irrefutable. A multi-element list pattern
 // against `[T]` (dynamic length) is refutable and produces E2001.
 //

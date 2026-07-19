@@ -1,8 +1,4 @@
-// Golden test: HTTP client with capabilities
-// Spec: 09-capabilities.md § Capability System
-// Design: tooling/formatter/design/appendices/A-edge-cases.md
-
-use std.testing { assert_eq }
+use std.testing { assert, assert_eq }
 
 type Method = Get | Post | Put;
 
@@ -12,6 +8,15 @@ type Response = { status: int, body: str }
 
 type ApiError = Network(msg: str) | Timeout | NotFound;
 
+type MockHttp = { enabled: bool }
+
+impl MockHttp: Http {
+    @get (self, url: str) -> Result<str, Error> = Ok(url);
+    @post (self, url: str, body: str) -> Result<str, Error> = Ok(body);
+    @put (self, url: str, body: str) -> Result<str, Error> = Ok(body);
+    @delete (self, url: str) -> Result<str, Error> = Ok(url);
+}
+
 @build_request (method: Method, url: str, body: str) -> Request = Request {
     method: method,
     url: url,
@@ -20,36 +25,86 @@ type ApiError = Network(msg: str) | Timeout | NotFound;
 
 @get (url: str) -> Result<Response, ApiError> uses Http = {
     let request = build_request(method: Get, url: url, body: "");
-    send_request(request: request)
+    mock_send_request(req: request)
 }
 
 @post (url: str, body: str) -> Result<Response, ApiError> uses Http = {
     let request = build_request(method: Post, url: url, body: body);
-    send_request(request: request)
+    mock_send_request(req: request)
 }
 
-@send_request (request: Request) -> Result<Response, ApiError> uses Http = {
-    let response = Response { status: 200, body: "OK" };
-    Ok(response)
+@mock_send_request (req: Request) -> Result<Response, ApiError> = {
+    let body = "GET " + req.url;
+    if req.url == "" then Err(Network(msg: "empty URL"))
+    else match req.method {
+        Get -> Ok(Response { status: 200, body: body }),
+        Post -> Ok(Response { status: 201, body: req.body }),
+        Put -> Ok(Response { status: 200, body: req.body }),
+    }
 }
 
-// TODO: LLVM backend doesn't support struct field access on function return values
-// @fetch_user (id: int) -> Result<str, ApiError> uses Http, Logger = try {
-//     let response = get(url: "/api/users"),
-//     if response.status == 200 then Ok(response.body) else Err(NotFound),
-// }
-@fetch_user (id: int) -> Result<str, ApiError> uses Http, Logger = Ok("placeholder");
+@mock_fetch_user (id: int) -> Result<str, ApiError> =
+    if id > 0 then Ok("GET /api/users/" + str(id))
+    else Err(NotFound);
 
-// TODO: LLVM backend doesn't support struct field access on function return values
-// @create_user (name: str) -> Result<int, ApiError> uses Http, Logger = try {
-//     let response = post(url: "/api/users", body: name),
-//     if response.status == 201 then Ok(1) else Err(NotFound),
-// }
-@create_user (name: str) -> Result<int, ApiError> uses Http, Logger = Ok(1);
-
-// TODO: LLVM backend doesn't support struct field access
-#skip("BUG-07-038: LLVM backend — struct field access not supported")
 @test_build_request tests @build_request () -> void = {
     let req = build_request(method: Get, url: "/test", body: "");
-    assert_eq(actual: req.url, expected: "/test")
+    assert(
+        cond: match req.method {
+            Get -> true,
+            _ -> false,
+        },
+    );
+    assert_eq(actual: req.url, expected: "/test");
+
+    assert_eq(actual: req.body, expected: "")
+}
+
+@test_get tests @get () -> void = {
+    let result = with Http = MockHttp { enabled: true } in get(url: "/health");
+    assert(
+        cond: match result {
+            Ok(response) -> response.status == 200 && response.body == "GET /health",
+            Err(_) -> false,
+        },
+    )
+}
+
+@test_post tests @post () -> void = {
+    let result = with Http = MockHttp { enabled: true } in post(url: "/users", body: "Ada");
+    assert(
+        cond: match result {
+            Ok(response) -> response.status == 201 && response.body == "Ada",
+            Err(_) -> false,
+        },
+    )
+}
+
+@test_mock_send_request tests @mock_send_request () -> void = {
+    let request = build_request(method: Get, url: "", body: "");
+    let result = mock_send_request(req: request);
+
+    assert(
+        cond: match result {
+            Err(Network(msg)) -> msg == "empty URL",
+            _ -> false,
+        },
+    )
+}
+
+@test_mock_fetch_user tests @mock_fetch_user () -> void = {
+    let result = mock_fetch_user(id: 7);
+    assert(
+        cond: match result {
+            Ok(body) -> body == "GET /api/users/7",
+            Err(_) -> false,
+        },
+    );
+
+    assert(
+        cond: match mock_fetch_user(id: 0) {
+            Err(NotFound) -> true,
+            _ -> false,
+        },
+    )
 }

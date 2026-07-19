@@ -1,0 +1,25 @@
+// Spec: 09-properties-of-types.md § Hashable
+// A consumer-derived body must close through an imported generic manual impl.
+
+use std.testing { assert }
+use "./imported_manual_hash_provider" { make_imported_manual }
+
+#derive(Hashable)
+type ImportedHolder = { inner: ImportedManual<int> }
+
+impl ImportedHolder: Eq {
+    @eq (self, other: ImportedHolder) -> bool = self.inner == other.inner;
+}
+
+@imported_manual_generic_hash_is_value_sensitive () -> bool = {
+    let left = ImportedHolder { inner: make_imported_manual(value: 7) };
+    let equal = ImportedHolder { inner: make_imported_manual(value: 7) };
+    let different = ImportedHolder { inner: make_imported_manual(value: 8) };
+    left.hash() == equal.hash() && left.hash() != different.hash()
+}
+
+@test_imported_manual_generic_hash_is_value_sensitive tests _ () -> void = {
+    assert(cond: imported_manual_generic_hash_is_value_sensitive())
+}
+
+@main () -> int = if imported_manual_generic_hash_is_value_sensitive() then 0 else 1;

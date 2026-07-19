@@ -1,60 +1,78 @@
-Theorem RL-30: LLVM memory(...) attribute derivation from IC-3 + IC-5
+Theorem RL-30: backend-neutral whole-function memory-access fact derivation
 
   Preconditions:
-    - RL-30 governs memory(...) export per Annex E §AIMS AIMS -> LLVM
-      Fact Export: effect-based call annotations derived from IC-3
-      ParamContract.access / .may_share + IC-5 EffectSummary. The rule's table
-      maps (may_allocate, may_deallocate, may_share, may_read_inaccessible,
-      param access) to an LLVM memory(...) attribute.
-    - Signature ArcFunction x AimsStateMap -> ArcFunction per
-      the canonical proof notation:264; discharged against the sec-01
-      Realization.proof sorry obligation.
-    - Key cases (Annex E §AIMS RL-30): pure (all memory-relevant IC-5
-      false AND all params Cardinality = Absent) -> memory(none); pure
-      read-only (all non-dead params Borrowed + no may_share, no inaccessible
-      read) -> memory(argmem: read); allocating + arg access ->
-      memory(argmem: readwrite, inaccessiblemem: readwrite); pure allocator
-      (no arg access) -> memory(inaccessiblemem: readwrite); deallocating ->
-      memory(inaccessiblemem: readwrite); fallback -> argmem rw +
-      inaccessiblemem rw.
+    - RL-30 governs a backend-neutral AIMS fact. The final realization owner
+      combines IC-3 ParamContract facts, the final IC-5 EffectSummary, and
+      realized-operation effects exactly once. VM, native, compiled WASM, JIT,
+      and LLVM consume the frozen result without re-running AIMS analysis.
+    - MemoryEffectInputs includes may_throw and may_write_inaccessible independently of
+      may_read_inaccessible. Untyped calls, I/O, panic/TLS state, allocators,
+      and other unclassified non-argument writes set this input conservatively.
+    - The neutral MemoryAccessFact vocabulary is readOnly / readWrite.
+      readOnly permits reads from both argument and inaccessible memory and
+      proves only absence of writes; it is not a memory(none) claim.
+    - LLVM's spelling is a separate projection corollary: readOnly projects to
+      generic memory(read), while readWrite omits a restrictive attribute.
+      The shipped subset never projects memory(none) or memory(argmem: read).
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per the canonical
+      proof notation:264; discharged against the sec-01 Realization.proof
+      obligation.
     - depends-on sec-06: IC-3 ParamContract + IC-5 EffectSummary; VF-2 (d)
-      validates the memory attributes against IC-5 + parameter contracts.
+      validates the neutral fact derivation. Backend spelling fidelity belongs
+      to the backend verifier, not the AIMS fact definition.
 
   Soundness property:
-    Forall function f with IC-5 EffectSummary + IC-3 ParamContracts:
+    Forall final realized functions f with IC-5 EffectSummary, IC-3
+    ParamContracts, and realized-operation effects:
 
-      (P1) Attribute derivation: RL-30 selects the memory(...) attribute per
-           the IC-5 + IC-3 case table.
+      (P1) Neutral derivation: MemoryAccessFact(f) = readWrite IFF any proven
+           write source is present (may_allocate OR may_deallocate OR may_share
+           OR may_throw OR may_write_inaccessible OR any_arg_written);
+           otherwise readOnly. `may_throw` fails closed because the current
+           panic/unwind runtime may write TLS or diagnostic state.
 
-      (P2) Soundness (over-approximation): each emitted memory attribute is an
-           OVER-approximation of f's actual memory effects — it never claims
-           FEWER effects than the contract proves (a pure function gets
-           memory(none) only when IC-5 proves no alloc/dealloc/share/
-           inaccessible-read and no arg access; an allocating function always
-           includes inaccessiblemem: readwrite). LLVM's alias analysis stays
-           sound because the attribute bounds the real effects from above.
+      (P2) Fail-closed inaccessible effects: may_write_inaccessible implies
+           readWrite. Therefore an untyped call, I/O write, or panic/TLS write
+           cannot receive a read-only fact.
 
-    RL-30 refines plain ARC (no memory attributes) by exporting the IC-5
-    effect proof to LLVM, enabling standard LLVM passes to exploit purity.
+      (P3) Projection separation: LLVM's projection is a fidelity corollary
+           over the frozen neutral fact. readOnly maps to generic memory(read);
+           readWrite maps to omitted. No target spelling participates in P1.
+
+      (P4) Restrictive-attribute negative witness: may_write_inaccessible
+           forbids memory(none), memory(argmem: read), and generic
+           memory(read).
+
+    RL-30 exports a common neutral fact that every executable backend may
+    project subject to its own ABI and lowering constraints.
 
   Proof obligation:
     Constructive discharge by the refinement engine via definitional rewriting
-    of the IC-5 + IC-3 inputs to the memory(...) attribute.
+    of the neutral write-source disjunction, followed by a separate LLVM
+    projection-fidelity check.
 
-    Part (P1/P2) — attribute-derivation grid:
-      pure_no_access_none -> memory(none)
-      pure_readonly_argmem_read -> memory(argmem: read)
-      allocating_arg_access_rw -> memory(argmem: rw, inaccessible: rw)
-      pure_allocator_inaccessible_rw -> memory(inaccessible: rw)
-      deallocating_inaccessible_rw -> memory(inaccessible: rw)
-      Coverage gate: 5 derivations. Negative-direction witness: an allocating
-      function must NOT be marked memory(none) (it accesses inaccessible
-      memory via the allocator) — asserted.
+    Part (P1/P2) — neutral-fact grid:
+      call_free_no_write_readonly -> readOnly
+      inaccessible_read_stays_generic_readonly -> readOnly
+      allocation_is_readwrite -> readWrite
+      deallocation_is_readwrite -> readWrite
+      sharing_is_readwrite -> readWrite
+      argument_write_is_readwrite -> readWrite
+      untyped_call_inaccessible_write_is_readwrite -> readWrite
+      throwing_runtime_state_is_readwrite -> readWrite
+      Coverage gate: 8 derivations.
+
+    Part (P3/P4) — target corollary:
+      readOnly -> LLVM generic memory(read)
+      readWrite -> LLVM attribute omitted
+      Negative-direction witness: may_write_inaccessible must produce
+      readWrite + omitted, never a restrictive read/no-access spelling.
 
     Engines dispatched:
       refinement (PRIMARY —
-        section_08::verify_rl30_memory_attribute_derivation; IC-5 + IC-3
-        attribute refinement; emits Fail on an under-approximating attribute)
+        section_08::verify_rl30_neutral_memory_fact; neutral IC-5 + IC-3 +
+        realized-operation refinement followed by separate LLVM fidelity;
+        emits Fail on an under-approximating fact or projection)
       rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
         row)
       case_analysis (SECONDARY — gracious-accept per the coverage-manifest RL
@@ -62,4 +80,4 @@ Theorem RL-30: LLVM memory(...) attribute derivation from IC-3 + IC-5
 
   Expected:
     status: valid
-    reason: section_08 refinement engine discharges RL-30 via the memory(...) derivation grid (none / argmem:read / argmem+inaccessible rw / inaccessible rw) refined from IC-5 EffectSummary + IC-3 ParamContract as an over-approximation of actual effects, with a negative-direction witness rejecting memory(none) on an allocating function
+    reason: section_08 refinement engine discharges RL-30 via an 8-row backend-neutral memory-access grid over IC-5, IC-3, and realized-operation inaccessible writes, with may_throw and may_write_inaccessible forcing readWrite, then checks the separate LLVM fidelity corollary (readOnly -> generic memory(read), readWrite -> omitted) and rejects every restrictive attribute on an inaccessible writer

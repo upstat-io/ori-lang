@@ -1,4 +1,4 @@
-//! Apply-result allocation-identity analysis (BUG-04-090).
+//! Apply-result allocation-identity analysis.
 //!
 //! Pre-walk pass that computes the `apply_result_aliases` side-table on
 //! [`AimsStateMap`] from converged callee `MemoryContract`s. The table records,
@@ -22,7 +22,7 @@
 //!
 //! Caller-side dec suppression fires based on the CALLER's local Access of
 //! the arg (Owned → suppress; Borrowed → no-op), evaluated in
-//! `should_suppress_apply_aliased_dec` at File 13 (`realize/walk.rs`). The
+//! `should_suppress_apply_aliased_dec` in `realize/walk.rs`. The
 //! callee's contract Access governs only the callee's own RC accounting
 //! (the callee-side compensating Inc on Project'd dst is gated on
 //! Owned-callee in `build_return_project_inc_targets`).
@@ -57,15 +57,16 @@ use super::state_map::ApplyAliasSource;
 /// demand to `src` (transparent alias). The
 /// alias HAS NO INDEPENDENT RC slot at the IR level — `src`'s RC ops cover
 /// the shared allocation. Recording an `apply_result_aliases` entry keyed off
-/// a Let Var alias would mislead downstream consumers (BUG-04-090 session
-/// D regression on `arc::test_rc_alias_owned_call_then_root_use`).
+/// a Let Var alias would mislead downstream consumers (as pinned by
+/// `arc::test_rc_alias_owned_call_then_root_use`).
 ///
 /// Indirect Let aliases (`%c = Var(%b)` where `%b = Var(%a)`) need full chain
 /// tracing — see [`is_let_var_alias`].
 ///
-/// Crate-visible: shared with `realize::emit_unified::build_return_project_inc_targets`
-/// (BUG-04-090 F-prj fix) per `LEAK:algorithmic-duplication` — both consumers
-/// answer the same "let-alias chain root" question.
+/// Crate-visible: shared with
+/// `realize::emit_unified::build_return_project_inc_targets` — both consumers
+/// answer the same "let-alias chain root" question, so the resolution has one
+/// canonical home here.
 pub(crate) fn build_let_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
     let mut result = FxHashMap::default();
     for block in &func.blocks {
@@ -187,12 +188,12 @@ pub(crate) fn populate_apply_result_aliases(
 ///
 /// Let Var aliases of a consumed arg are admitted into the
 /// `ApplyAliasSource` map and deduplicated at realize-walk emission time via
-/// the SSA alias class table (`class_payload_of` + `class_members`). The
+/// the SSA alias class table (`class_members`). The
 /// downstream `should_suppress_apply_aliased_dec` consumer fires dec
 /// suppression based on the CALLER'S local Access of the arg (Owned →
 /// suppress; Borrowed → no-op), and class membership prevents double-suppression
-/// across alias siblings. The earlier BUG-04-090 SKIP-rule
-/// was superseded by the class-aware emission path; the regression
+/// across alias siblings. The earlier skip rule was superseded by the
+/// class-aware emission path; the regression
 /// `arc::test_rc_alias_owned_call_then_root_use` is now guarded by the
 /// class-membership check at the realize walk rather than by skipping at install
 /// time.
@@ -215,7 +216,7 @@ fn install_alias_entry(
     // - Identity (return_alias = Some): callee returns the param itself
     //   (Direct) or a single-field projection (Project). `uf.union` fires
     //   in ssa_alias_classes for Direct (caller-arg and result are the
-    //   SAME RC slot). BUG-04-090 shape.
+    //   SAME RC slot).
     // - Containment (return_alias = None ∧ return_payload_contains_param =
     //   true): callee constructs a transitive-drop variant containing an
     //   alias of the param (`wrap_ok(m) = Ok(m)`). PIN-2 analogous: NO
@@ -228,10 +229,9 @@ fn install_alias_entry(
     //   arm) stay in their own classes and keep their canonical decs.
     //
     // Multi-param Wrapped (e.g. `pair(a, b) = (a, b)` returning a tuple)
-    // is NOT currently producible by `find_payload_containment_params`
+    // is NOT producible by `find_payload_containment_params`
     // (which only marks EnumVariant Construct + PartialApply per
-    // `extract.rs`). When future shapes surface, extend Wrapped to
-    // `Wrapped { args: Vec<ArcVarId> }`. YAGNI for now.
+    // `extract.rs`).
     let aliasing_params: Vec<usize> = contract
         .params
         .iter()
@@ -298,14 +298,11 @@ fn install_alias_entry_inner(
                 // occur post type-check; skip defensively.
                 return;
             };
-            // Phase 4 #6: the is_let_var_alias
-            // filter was REMOVED. Let aliases are now in the union-find
-            // directly via build_let_alias_map, so class structure subsumes
-            // the protection this filter previously provided. Removing the
-            // filter unites caller-arg and result classes for identity
-            // functions (e.g., id<T>(x: T) -> T), preventing PIN-6 from
-            // spuriously recording a payload-of edge and then over-
-            // suppressing the child class's dec.
+            // Let aliases live in the union-find directly via
+            // build_let_alias_map, so class structure unites caller-arg and
+            // result classes for identity functions (e.g., id<T>(x: T) -> T),
+            // preventing PIN-6 from spuriously recording a payload-of edge and
+            // then over-suppressing the child class's dec.
             let alias_shape_opt = contract.params[param_idx].return_alias;
             let contains = contract.params[param_idx].return_payload_contains_param;
             let entry = if force_wrapped {
@@ -336,7 +333,7 @@ fn install_alias_entry_inner(
         }
         _ => {
             // Conditional case (E-mat): 2+ Owned params alias the return at
-            // runtime. Suppress all candidates' scope-exit decs at File 13;
+            // runtime. Suppress all candidates' scope-exit decs in `realize/walk.rs`;
             // dst's RC ops are retained as the canonical owner.
             //
             // Phase 4 #6: is_let_var_alias

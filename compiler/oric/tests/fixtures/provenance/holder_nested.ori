@@ -1,0 +1,9 @@
+type Holder<T> = Empty | Full(inner: T);
+
+@main () -> int = {
+    let a = Full(inner: Full(inner: 7));
+    match a {
+        Full(_) -> 1,
+        Empty -> 0,
+    }
+}

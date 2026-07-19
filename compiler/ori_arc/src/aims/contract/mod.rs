@@ -19,15 +19,16 @@
 //! - `is_fbip` is `!effects.may_allocate` (inferred metadata)
 
 mod context;
+mod param;
 #[cfg(test)]
 mod tests;
 
 pub use context::{ContextBehavior, ContextRegion};
+pub use param::{CalleeOwnerDemand, CalleeOwnerDemandConflict, ParamContract, ReturnAliasShape};
 
 use super::lattice::{AccessClass, Cardinality, Consumption, Locality, ShapeClass, Uniqueness};
-use crate::ir::ArcParam;
+use crate::ir::{ArcFunction, ArcInstr, ArcParam, ArcTerminator};
 use crate::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
-use crate::uniqueness::UniquenessSummary;
 
 use std::collections::HashMap;
 use std::hash::BuildHasher;
@@ -104,7 +105,7 @@ impl MemoryContract {
     /// contract has converged.
     #[must_use]
     pub fn join(&self, other: &Self) -> Self {
-        debug_assert_eq!(
+        assert_eq!(
             self.params.len(),
             other.params.len(),
             "cannot join contracts with different parameter counts"
@@ -126,6 +127,81 @@ impl MemoryContract {
         }
     }
 
+    /// Realize the backend-neutral memory-access classification for RL-30.
+    ///
+    /// This consumes the final post-AIMS body as well as its final contract.
+    /// `EffectSummary` describes ownership/FIP effects, not arbitrary runtime
+    /// or I/O writes, so a contract alone cannot prove a whole-function memory
+    /// attribute. Until IC-5 carries typed inaccessible-memory effects, every
+    /// call is untyped and therefore fails closed. This includes apparently
+    /// known calls and runtime I/O, panic, and thread-local-state operations;
+    /// their names never substitute for typed write effects.
+    #[must_use]
+    pub fn function_effect_facts(&self, function: &ArcFunction) -> FunctionEffectFacts {
+        let may_write_inaccessible = function.blocks.iter().any(|block| {
+            block.body.iter().any(|instruction| {
+                matches!(
+                    instruction,
+                    ArcInstr::Apply { .. } | ArcInstr::ApplyIndirect { .. }
+                )
+            }) || matches!(
+                block.terminator,
+                ArcTerminator::Invoke { .. }
+                    | ArcTerminator::InvokeIndirect { .. }
+                    | ArcTerminator::Resume
+            )
+        });
+        let structurally_read_only = function.blocks.iter().all(|block| {
+            block.body.iter().all(|instruction| {
+                matches!(
+                    instruction,
+                    ArcInstr::Let { .. }
+                        | ArcInstr::Project { .. }
+                        | ArcInstr::Construct { .. }
+                        | ArcInstr::Select { .. }
+                )
+            }) && matches!(
+                block.terminator,
+                ArcTerminator::Return { .. }
+                    | ArcTerminator::Jump { .. }
+                    | ArcTerminator::Branch { .. }
+                    | ArcTerminator::Switch { .. }
+                    | ArcTerminator::Unreachable
+            )
+        });
+        let no_writes = !self.effects.may_allocate
+            && !self.effects.may_deallocate
+            && !self.effects.may_share
+            && !self.effects.may_throw
+            && !may_write_inaccessible
+            && structurally_read_only
+            && self.params.iter().all(|param| {
+                param.cardinality == Cardinality::Absent
+                    || (param.access == AccessClass::Borrowed && !param.may_share)
+            });
+        FunctionEffectFacts {
+            effects: self.effects,
+            may_write_inaccessible,
+            memory_access: if no_writes {
+                MemoryAccessClass::ReadOnly
+            } else {
+                MemoryAccessClass::ReadWrite
+            },
+        }
+    }
+
+    /// Freeze the backend-neutral RL-29 return-allocation fact.
+    ///
+    /// `preserves_freshness` is deliberately insufficient: a result may remain
+    /// unique while forwarding caller-owned or consumed storage. Only the
+    /// stronger path-universal self-allocation proof excludes upstream aliases.
+    #[must_use]
+    pub const fn fresh_self_allocation_facts(&self) -> FreshSelfAllocationFacts {
+        FreshSelfAllocationFacts {
+            returns_fresh_self_alloc: self.return_info.returns_fresh_self_alloc,
+        }
+    }
+
     /// Convert to [`AnnotatedSig`] for compatibility during migration.
     ///
     /// Requires the function's parameter definitions (for names and types)
@@ -136,7 +212,7 @@ impl MemoryContract {
     /// - `ParamContract.access == Borrowed` → `Ownership::Borrowed`
     /// - `ParamContract.access == Owned` → `Ownership::Owned`
     pub fn to_annotated_sig(&self, func_params: &[ArcParam], return_type: Idx) -> AnnotatedSig {
-        debug_assert_eq!(
+        assert_eq!(
             self.params.len(),
             func_params.len(),
             "MemoryContract params must match function params"
@@ -167,449 +243,6 @@ impl MemoryContract {
             return_type,
         }
     }
-
-    /// Convert to [`UniquenessSummary`] for compatibility during migration.
-    ///
-    /// Per-parameter uniqueness is always `MaybeShared` (the current system
-    /// doesn't track per-param uniqueness from callers).
-    pub fn to_uniqueness_summary(&self) -> UniquenessSummary {
-        let legacy_uniqueness = aims_to_legacy_uniqueness(self.return_info.uniqueness);
-        UniquenessSummary {
-            params: self
-                .params
-                .iter()
-                .map(|_| crate::uniqueness::Uniqueness::MaybeShared)
-                .collect(),
-            return_val: legacy_uniqueness,
-            preserves_freshness: self.return_info.preserves_freshness,
-        }
-    }
-}
-
-/// Shape of how a parameter aliases the callee's return value.
-///
-/// Caller-side carrier for BUG-04-090's `apply_result_aliases` side-table
-/// population. Distinct in role from `transfers_through_return: bool`:
-/// `transfers_through_return` is the callee-side gate (suppress callee's
-/// scope-exit dec when the param flows to Return); `return_alias` is the
-/// caller-side shape carrier (record what the callee's return aliases so
-/// the caller's Apply site can populate the `apply_result_aliases` map).
-///
-/// Invariant: `transfers_through_return == true` IFF `return_alias ==
-/// Some(ReturnAliasShape::Direct)`. The bool is a derived special case of
-/// the enum, kept as a separate field to avoid breaking the existing
-/// callee-side consumers (`helpers.rs::should_suppress_return_transfer_dec`,
-/// `walk.rs:108`, `walk_dec.rs:219`, `dead_cleanup/mod.rs:152/211`,
-/// `forward_walk.rs:193`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReturnAliasShape {
-    /// Callee returns the parameter unchanged (e.g., `@id<T>(x: T) -> T = x`).
-    /// At the caller, `Apply dst = @callee(arg)` makes `dst` the same
-    /// allocation as `arg`.
-    Direct,
-    /// Callee returns a field projection of the parameter
-    /// (e.g., `@unwrap<T>(b: Box<T>) -> T = b.inner`). At the caller,
-    /// `Apply dst = @callee(arg)` makes `dst` the same allocation as
-    /// `arg.field`. Single field index — nested projections not yet
-    /// supported (matches the existing `BorrowSource::Exact { field:
-    /// Option<u32> }` precedent).
-    Project { field: u32 },
-}
-
-impl ReturnAliasShape {
-    /// IC-3 join for `Option<ReturnAliasShape>`.
-    ///
-    /// Lattice chain: `None < Some(Project) < Some(Direct)` (height 2).
-    /// `Direct` is TOP — absorbs `Project` (lattice monotonicity requires
-    /// `join(TOP, x) = TOP`). When one path returns the whole param
-    /// (Direct) and another returns a field projection (Project), the safe
-    /// caller-side contract is Direct: the caller cannot rely on
-    /// field-level alias info when one path skips the projection.
-    /// Incomparable Project paths (different field indices) join to Direct
-    /// per the same rationale.
-    #[must_use]
-    pub fn join(a: Option<Self>, b: Option<Self>) -> Option<Self> {
-        match (a, b) {
-            (None, None) => None,
-            (Some(s), None) | (None, Some(s)) => Some(s),
-            // Same Project field on both paths: preserve the field-level shape.
-            (Some(Self::Project { field: f1 }), Some(Self::Project { field: f2 })) if f1 == f2 => {
-                Some(Self::Project { field: f1 })
-            }
-            // Direct is TOP (absorbs Project); incomparable Project paths
-            // (different field indices) also widen to Direct. Both cases
-            // resolve to `Some(Direct)` per the lattice-monotonicity rule
-            // `join(TOP, x) = TOP`.
-            (Some(Self::Direct), _)
-            | (_, Some(Self::Direct))
-            | (Some(Self::Project { .. }), Some(Self::Project { .. })) => Some(Self::Direct),
-        }
-    }
-}
-
-/// Per-parameter memory contract.
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "Each bool encodes a distinct AIMS facet not derivable from \
-        the others: `may_escape` (legacy escape flag retained until \
-        Locality SSOT migration), `may_share` (per-param sharing flag), \
-        `transfers_through_return` (Return-flow alias), \
-        `return_payload_contains_param` (transitive-drop containment), \
-        `return_payload_contains_param_all_paths` (per-path wrap proof), \
-        `iter_consumes` (iter-consume inward-transfer, RL-2). \
-        Bundling would obscure the analysis surface."
-)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ParamContract {
-    /// Whether the parameter is owned or borrowed.
-    pub access: AccessClass,
-    /// How the parameter is consumed.
-    pub consumption: Consumption,
-    /// How many times the parameter is used.
-    pub cardinality: Cardinality,
-    /// May this parameter's value escape the callee (stored, returned, shared)?
-    pub may_escape: bool,
-    /// May this parameter's value be shared (refcount > 1) by the callee?
-    pub may_share: bool,
-    /// Locality lower bound: the callee guarantees this parameter stays at
-    /// least this local (v1: always `Unknown`).
-    pub locality_bound: Locality,
-    /// Caller-guaranteed uniqueness at entry.
-    ///
-    /// When ALL call sites pass this parameter with `Owned + Linear + Once`,
-    /// the interprocedural analysis tightens this to `Unique` — the callee
-    /// can trust that the argument's runtime RC == 1 at entry. This is the
-    /// callee-side dual of COW-aware borrowing (07.3.1).
-    ///
-    /// Default: `MaybeShared` (no caller guarantee).
-    pub uniqueness: Uniqueness,
-    /// Whether this parameter flows directly to a `Return { value }`
-    /// terminator (BUG-04-090 fix).
-    ///
-    /// When `true`, ownership of the parameter transfers through the return
-    /// to the caller — the callee MUST NOT emit a scope-exit `RcDec` on the
-    /// parameter, because the caller will dec the bound result variable
-    /// when ITS scope exits. Computed from the structural Return-flow alias
-    /// fact in `detect_consumed_params` (NOT from `preserves_freshness`,
-    /// which is currently spec-inverted).
-    ///
-    /// Completes the Lean 4 `ownParamsUsingArgs` pattern: inc/dec
-    /// elimination on owned-arg → owned-callee-param transfer applies to
-    /// BOTH the caller's inc AND the callee's dec.
-    ///
-    /// Default: `false` (conservative — emit dec).
-    pub transfers_through_return: bool,
-    /// Shape of how this parameter aliases the callee's return value
-    /// (BUG-04-090 fix — caller-side carrier for `apply_result_aliases`).
-    ///
-    /// Direct case: callee returns the param unchanged (`@id<T>(x: T) -> T
-    /// = x`). Project case: callee returns a field projection
-    /// (`@unwrap<T>(b: Box<T>) -> T = b.inner`).
-    ///
-    /// Consumed by File 12's `apply_result_aliases` population at the
-    /// caller's Apply site. Invariant: `transfers_through_return == true`
-    /// IFF `return_alias == Some(ReturnAliasShape::Direct)`. Both fields
-    /// are derived together in `extract_contract`; downstream callers read
-    /// whichever fits their question.
-    ///
-    /// Default: `None` (conservative — no aliasing claim).
-    pub return_alias: Option<ReturnAliasShape>,
-    /// Whether the parameter is structurally contained in the function's
-    /// returned value as a transitive-drop variant payload.
-    ///
-    /// Distinct from `return_alias`: `return_alias` covers cases where the
-    /// callee returns the param directly (`Direct`) or a field projection
-    /// of the param (`Project`). This field covers cases where the callee
-    /// constructs a transitive-drop variant containing an alias of the
-    /// param and returns that — e.g., `@wrap_ok (m: T) -> Result<T, E> =
-    /// Ok(m)`. Here `m` is contained in the returned `Result.payload[0]`
-    /// but neither `Direct` nor `Project` matches.
-    ///
-    /// Consumed by `populate_class_payload_of_with_liveness` in
-    /// `intraprocedural/post_convergence.rs`: the Apply/Invoke
-    /// edge-recording gate uses `owned || return_payload_contains_param`
-    /// so `class_payload_of` edges are recorded for caller-side
-    /// transitive-drop containment relationships even when the callee's
-    /// param contract has `access: Borrowed`.
-    ///
-    /// Default: `false` (conservative — no containment claim).
-    pub return_payload_contains_param: bool,
-    /// Whether the parameter is structurally contained in the returned
-    /// transitive-drop variant payload on EVERY `Return` path (the per-path
-    /// strengthening of `return_payload_contains_param`, whose OR-join only
-    /// proves containment on SOME path).
-    ///
-    /// `true` when every `Return { value }` in the callee traces (through
-    /// Let-Var aliases) to an `EnumVariant` `Construct` whose direct args
-    /// contain an alias of this parameter — e.g., `@wrap_ok (m: T) ->
-    /// Result<T, E> = Ok(m)` (single return, always wraps). A callee that
-    /// wraps on one path but not another (`if c then Ok(m) else Err(e)`)
-    /// keeps `false`: the returned wrapper's payload reference on `m`'s
-    /// allocation is path-dependent there, so no caller-side static credit
-    /// is provable.
-    ///
-    /// Consumed by the Phase-6.99 WRAPPED transfer-anchor admission
-    /// (`realize::transfer_anchor_net`): the caller models the returned
-    /// wrapper as carrying exactly one reference on the payload's
-    /// allocation (RL-1 mint for a Borrowed param; RL-2 transfer-through
-    /// for an Owned param) ONLY when this proves the wrap fires on all
-    /// paths.
-    ///
-    /// IC-3 join: AND (the all-paths guarantee holds only if it holds on
-    /// every joined path).
-    ///
-    /// Default: `false` (conservative — no all-paths claim).
-    pub return_payload_contains_param_all_paths: bool,
-    /// Whether the callee iter-consumes this borrowed parameter and frees it
-    /// via the iterator drop (RL-2 iter-consume transfer).
-    ///
-    /// `true` when the parameter (through Let-Var aliases) flows into an
-    /// `@iter` / `Iter`-protocol owned-position consume whose resulting
-    /// iterator handle is `ori_iter_drop`'d in the callee body — the `for x in
-    /// coll` lowering frees the collection INSIDE the callee. The parameter
-    /// keeps `access: Borrowed` (the callee neither stores nor returns it), so
-    /// neither `transfers_through_return` nor an Owned-access upgrade fires; the
-    /// inward-transfer-into-iter-and-drop is a distinct fact this field is the
-    /// sole carrier of.
-    ///
-    /// Consumed on the CALLER side by
-    /// `realize::emit_unified::borrowed_arg_release_verdict`: a collection at a
-    /// borrowed terminator-`Invoke` arg whose callee param `iter_consumes` is
-    /// `true` is classified `ApplyToIterConsumingParam` (RL-2 TRANSFER) and its
-    /// caller burden dec is SUPPRESSED — the callee's `ori_iter_drop` is the
-    /// single release. Soundness:
-    /// `AimsProof.Realization::RL2_iter_consuming_caller_dec_splits`.
-    ///
-    /// IC-3 join: OR (once `true` on any path, stays `true`).
-    ///
-    /// Default: `false` (conservative — caller keeps its dec).
-    pub iter_consumes: bool,
-    /// Whether this borrowed parameter flows ONLY to borrowed positions in the
-    /// callee body — no owned-position consumer (no COW-mutation, no transfer).
-    ///
-    /// `true` when the parameter (through Let-Var / Jump-arg / Select aliases)
-    /// appears only at Borrowed arg positions of `Apply`/`Invoke` (a pure
-    /// borrow-read such as `xs.length()` / `xs[idx]`), never at an OWNED position
-    /// (a COW-mutator like `xs.push(v)` consumes the receiver `[own]`, an iter
-    /// consume routes through `@iter [own]`, a transfer hands it inward). Borrow
-    /// inference leaves a COW-mutated receiver param `access: Borrowed` (the
-    /// runtime manages the COW receiver's RC internally), so `access == Borrowed`
-    /// alone does NOT prove non-COW — this is the distinct per-param fact that
-    /// does, the affirmative read-only complement of `iter_consumes`.
-    ///
-    /// Consumed on the CALLER side by
-    /// `realize::emit_unified::compute_user_call_arg_lineages`: a fresh-local
-    /// COLLECTION at a Borrowed user-call arg whose callee param
-    /// `borrowed_read_only` is `true` SURVIVES the call and the caller retains
-    /// ownership — it stays ELIGIBLE for the dead-owned alloc-aware net, which
-    /// fires ONE RL-2 scope-exit release iff net +1 (the collection analogue of
-    /// the borrowed-`str` carve-out). A COW-mutating callee
-    /// (`borrowed_read_only == false`) stays EXCLUDED (a caller release would
-    /// double-free the COW-shared buffer).
-    ///
-    /// Soundness: a pure borrow-read of a surviving Borrowed collection is
-    /// `ApplyToBorrowedParam` (RL-2 NON-transfer → caller decs)
-    /// — `AimsProof.Realization::RL2_borrowed_param_emits_caller_dec` +
-    /// `RL2_release_exactly_once`. A COW-mutated / iter-consumed param is a
-    /// transfer (NO caller dec) — `RL2_transfer_kinds_no_dec`.
-    ///
-    /// IC-3 join: AND (the read-only guarantee holds only if it holds on EVERY
-    /// path — any owned-position use on any path clears it).
-    ///
-    /// Scalar params: `false` (no RC, never a release target — the gate also
-    /// requires a non-scalar collection arg so the value is irrelevant for them).
-    ///
-    /// Default: `false` (conservative — caller keeps its exclusion, no release).
-    pub borrowed_read_only: bool,
-
-    /// RL-1 + RL-2 borrowed-COW-consume fact: the Borrowed param's lineage is
-    /// consumed at a COW-MUTATOR owned position (builtin consuming receiver /
-    /// consuming second arg, or transitively a callee param carrying this
-    /// fact) AS the lineage's LAST use in the body. The callee's COW-inc edge
-    /// release then nets -1 on the caller's allocation (the realization
-    /// convention treats the call as an effective consume), so the CALLER
-    /// funds one reference per call site — the owned-call-arg duplication-inc
-    /// admission (`compute_genuine_dup_call_arg_aliases`) consumes this fact.
-    /// An aggregate-STORE of the borrowed param (`Inner { items: xs }`) does
-    /// NOT set it (the borrowed-store dup inc + container drop net 0); a
-    /// live-past COW consume does NOT set it (the callee's edge release
-    /// declines, net 0).
-    ///
-    /// IC-3 join: OR (a consuming path obligates the caller's funding).
-    ///
-    /// Default: `false` (conservative — no funding obligation claimed).
-    pub borrowed_cow_consumed: bool,
-
-    /// Capture-variant-deadness Project record (RL-2 closure-extract borrow-view,
-    /// the per-variant refinement of `return_alias`).
-    ///
-    /// `Some((variant_tag, field))` when the param is a SUM whose discriminant is
-    /// `Switch`ed and the arm matching `variant_tag` returns `Project param.field`
-    /// (a borrow-view of that variant's payload), while EVERY OTHER reachable arm
-    /// returns a fresh / non-aliasing value (which makes the joined `return_alias`
-    /// poison to `None`). The whole-param `return_alias` cannot carry this because
-    /// the Project holds only on the matching arm; the fresh-return arms are dead
-    /// ONLY when the CALLER proves the captured value is `variant_tag`.
-    ///
-    /// Consumed on the CALLER side by
-    /// `lower::burden_lower::ownership_scans::closure_extract_borrow_view`: at an
-    /// `ApplyIndirect` whose capture arg is a single-variant `Construct
-    /// Variant(T.variant_tag)(payload)`, the non-matching arms are provably DEAD
-    /// (the Switch scrutinee is the static tag), so the LIVE return resolves to
-    /// `Project { field }` and the result is admitted as a same-allocation
-    /// borrow-view of the captured payload. The scan's joint-release suppression
-    /// (`RL2_release_exactly_once`, the closure env as canonical owner) then
-    /// applies unchanged. Soundness of the variant-deadness narrowing:
-    /// the live return-leaf set under a statically-known capture variant is the
-    /// matching arm's leaf alone (the unreachable fresh-return arm never executes,
-    /// so admitting Project over the reachable arm set over-releases no program
-    /// where the capture is that variant).
-    ///
-    /// IC-3 join: equal `Some` survives; disagreement (different tag/field, or
-    /// `Some` vs the whole-param shape having promoted) poisons to `None`. A
-    /// single callee computes this once intraprocedurally, so the join is
-    /// idempotent for its own return shape.
-    ///
-    /// Default: `None` (conservative — no per-variant Project claim).
-    pub capture_variant_return_project: Option<(u64, u32)>,
-}
-
-impl ParamContract {
-    /// Conservative: owned, unrestricted, many uses, may escape/share, unknown locality,
-    /// no caller uniqueness guarantee, no return-flow transfer, no return alias.
-    pub const CONSERVATIVE: Self = Self {
-        access: AccessClass::Owned,
-        consumption: Consumption::Unrestricted,
-        cardinality: Cardinality::Many,
-        may_escape: true,
-        may_share: true,
-        locality_bound: Locality::Unknown,
-        uniqueness: Uniqueness::MaybeShared,
-        // Conservative default: emit scope-exit dec. The fixpoint
-        // promotes to `true` only when extract_contract proves the
-        // param flows to Return.
-        transfers_through_return: false,
-        // Conservative default: no aliasing claim — caller's Apply dst is
-        // treated as a fresh allocation, not aliased to any consumed arg.
-        // Promoted by extract_contract when the param flows to Return
-        // (Direct) or to a Project that flows to Return (Project).
-        return_alias: None,
-        // Conservative default: no containment claim. Promoted by
-        // extract_contract when the param flows into a transitive-drop
-        // variant payload that is returned.
-        return_payload_contains_param: false,
-        // Conservative default: no all-paths wrap claim — the Phase-6.99
-        // wrapped-anchor credit never fires on an unknown callee.
-        return_payload_contains_param_all_paths: false,
-        // Conservative default: caller keeps its dec. Promoted by
-        // extract_contract when the borrowed param iter-consumes-and-frees.
-        iter_consumes: false,
-        // Conservative default: caller keeps its exclusion (no read-only claim).
-        // AND-join bottom is `false` for the conservative contract — an unknown
-        // callee is assumed to consume the param, so the carve-out never fires.
-        borrowed_read_only: false,
-        // Conservative default: no funding obligation claimed — the
-        // owned-call-arg duplication admission never fires on an unknown
-        // callee.
-        borrowed_cow_consumed: false,
-        // Conservative default: no per-variant Project claim — an unknown
-        // callee never feeds the caller-side capture-variant-deadness scan.
-        capture_variant_return_project: None,
-    };
-
-    /// Most-optimistic: borrowed, dead, absent, no escape/share, block-local, unique,
-    /// no return-flow transfer, no return alias.
-    ///
-    /// Used as starting point for fixed-point iteration. All dimensions
-    /// are at their bottom (most optimistic) values.
-    pub const OPTIMISTIC: Self = Self {
-        access: AccessClass::Borrowed,
-        consumption: Consumption::Dead,
-        cardinality: Cardinality::Absent,
-        may_escape: false,
-        may_share: false,
-        locality_bound: Locality::BlockLocal,
-        uniqueness: Uniqueness::Unique,
-        // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
-        // any path's structural Return-flow alias fact fires.
-        transfers_through_return: false,
-        // IC-2 starts most-optimistic at the BOTTOM of the chain
-        // `None < Some(Project) < Some(Direct)`. Join promotes upward as
-        // structural Return-aliasing facts fire across paths.
-        return_alias: None,
-        // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
-        // any path's structural payload-containment fact fires.
-        return_payload_contains_param: false,
-        // IC-2 starts most-optimistic at the AND-join TOP (`true` — assume
-        // all paths wrap). Join (AND) demotes to `false` when any joined
-        // path lacks the wrap. `extract_contract` overrides per-param from
-        // the body scan; OPTIMISTIC is the fixpoint seed only.
-        return_payload_contains_param_all_paths: true,
-        // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
-        // any path's iter-consume-and-free fact fires.
-        iter_consumes: false,
-        // IC-2 starts most-optimistic at the AND-join TOP (`true` — assume
-        // read-only). Join (AND) demotes to `false` when any path uses the param
-        // at an owned position. `extract_contract` overrides per-param from the
-        // body scan; OPTIMISTIC is the fixpoint seed only.
-        borrowed_read_only: true,
-        // IC-2 starts most-optimistic at the OR-join bottom (`false`). Join
-        // (OR) promotes when a path's COW-consume-at-death fact fires.
-        borrowed_cow_consumed: false,
-        // IC-2 seed: no claim. `extract_contract` overrides per-param from the
-        // body's Switch-arm scan; a single callee computes it once.
-        capture_variant_return_project: None,
-    };
-
-    /// Componentwise join toward conservative.
-    #[must_use]
-    pub fn join(&self, other: &Self) -> Self {
-        Self {
-            access: self.access.join(other.access),
-            consumption: self.consumption.join(other.consumption),
-            cardinality: self.cardinality.join(other.cardinality),
-            may_escape: self.may_escape || other.may_escape,
-            may_share: self.may_share || other.may_share,
-            locality_bound: self.locality_bound.join(other.locality_bound),
-            uniqueness: self.uniqueness.join(other.uniqueness),
-            // OR (conservative direction): once true on any path, stays true.
-            // Matches IC-3 componentwise-max semantics for boolean dimensions.
-            transfers_through_return: self.transfers_through_return
-                || other.transfers_through_return,
-            // Lattice chain `None < Some(Project) < Some(Direct)` (height 2).
-            // Direct is TOP — absorbs Project. Incomparable Project paths
-            // join to Direct. Per `ReturnAliasShape::join`.
-            return_alias: ReturnAliasShape::join(self.return_alias, other.return_alias),
-            // OR (conservative direction): once true on any path, stays true.
-            // Matches IC-3 componentwise-max semantics for boolean dimensions.
-            return_payload_contains_param: self.return_payload_contains_param
-                || other.return_payload_contains_param,
-            // AND (conservative direction): the all-paths wrap guarantee
-            // holds only if it holds on EVERY joined path.
-            return_payload_contains_param_all_paths: self.return_payload_contains_param_all_paths
-                && other.return_payload_contains_param_all_paths,
-            // OR (conservative direction): once true on any path, stays true.
-            // Matches IC-3 componentwise-max semantics for boolean dimensions.
-            iter_consumes: self.iter_consumes || other.iter_consumes,
-            // AND (conservative direction): the read-only guarantee holds only if
-            // it holds on EVERY joined path — any owned-position use clears it.
-            borrowed_read_only: self.borrowed_read_only && other.borrowed_read_only,
-            // OR (conservative direction): a consuming path obligates the
-            // caller's funding.
-            borrowed_cow_consumed: self.borrowed_cow_consumed || other.borrowed_cow_consumed,
-            // Equal `Some` survives; disagreement poisons to `None`. A single
-            // callee computes its own return shape once, so the join over its
-            // own call sites is idempotent.
-            capture_variant_return_project: match (
-                self.capture_variant_return_project,
-                other.capture_variant_return_project,
-            ) {
-                (None, x) | (x, None) => x,
-                (Some(a), Some(b)) if a == b => Some(a),
-                (Some(_), Some(_)) => None,
-            },
-        }
-    }
 }
 
 /// Return value information in a memory contract.
@@ -620,24 +253,35 @@ pub struct ReturnContract {
     /// Whether the function preserves freshness: if all RC'd inputs are
     /// `Unique`, the output is guaranteed `Unique`.
     pub preserves_freshness: bool,
-    /// Locality of the returned value (v1: `HeapEscaping` for most).
+    /// Logical lifetime bound of the returned value. The shipped carrier uses
+    /// the legacy `HeapEscaping` label for most escaping results; it does not
+    /// select heap placement.
     pub locality: Locality,
     /// Shape class of the return value.
     pub shape: ShapeClass,
-    /// Whether the function returns a FRESH self-allocated rc=1 buffer on every
-    /// path — a buffer allocated INSIDE this function (a `Construct`/`Reuse`/
-    /// `CollectionReuse` collection, or the `for_yield` `@ori_list_take`
-    /// finalizer that moves a fresh scratch buffer out), distinct from any
-    /// caller-visible value. Stronger than `preserves_freshness ∧ uniqueness`:
-    /// it certifies the returned allocation is a fresh self-alloc the caller
-    /// receives at rc=1 (no upstream alias), which licenses the caller-side
-    /// burden walk to admit the Invoke/Apply result as a fresh collection root
-    /// (per `ownership_scans/iter_consume_dead_thread.rs`). Orthogonal to
+    /// Whether every path returns a fresh, independently owned buffer identity
+    /// with no upstream alias.
+    /// The buffer may be produced directly by this body (`Construct`/`Reuse`/
+    /// `CollectionReuse` or `@ori_list_take`) or by a callee carrying the same
+    /// path-universal proof; it is never caller-provided or consumed-input
+    /// storage. Stronger than `preserves_freshness ∧ uniqueness`, this licenses
+    /// caller-side analyses to admit the Invoke/Apply result as a fresh collection
+    /// root. Orthogonal to
     /// `uniqueness`/`preserves_freshness` — set independently, consumed only by
     /// the fresh-collection-root admission, so it never perturbs the
     /// uniqueness/freshness-driven store-dup accounting.
     /// Spec: Annex E §AIMS RL-1 + RL-29 (fresh + Unique non-aliasing).
     pub returns_fresh_self_alloc: bool,
+    /// Whether the return value is a sharing view of a borrowed input's
+    /// backing identity on every path — a seamless-slice co-reference
+    /// (`slice`/`substring`/`take`/`drop`) whose producer creates the view's
+    /// independent logical owner. The typed provenance CREDIT fact classifies
+    /// that result on the source's identity class in addition to the source
+    /// borrow-read, never as a fresh birth. Orthogonal to `uniqueness` /
+    /// `returns_fresh_self_alloc` (a view is NEVER a fresh self-alloc);
+    /// carried for the provenance-ledger emitter, consumed by no emission
+    /// path here. Spec: Annex E §AIMS §12 (sharing-view producer = CREDIT).
+    pub returns_sharing_view: bool,
 }
 
 impl ReturnContract {
@@ -648,6 +292,7 @@ impl ReturnContract {
         locality: Locality::Unknown,
         shape: ShapeClass::NonReusable,
         returns_fresh_self_alloc: false,
+        returns_sharing_view: false,
     };
 
     /// Most-optimistic: unique return, freshness preserved.
@@ -663,6 +308,9 @@ impl ReturnContract {
         // value from the body each pass; `true ∧ extractor` lets a consistently
         // fresh-self-alloc return survive, `true ∧ false` clears a non-fresh one.
         returns_fresh_self_alloc: true,
+        // Same monotone AND-join shape as `returns_fresh_self_alloc`: the
+        // extractor's per-pass value is authoritative; `true ∧ false` clears.
+        returns_sharing_view: true,
     };
 
     /// Componentwise join toward conservative.
@@ -675,6 +323,7 @@ impl ReturnContract {
             shape: self.shape.join(other.shape),
             returns_fresh_self_alloc: self.returns_fresh_self_alloc
                 && other.returns_fresh_self_alloc,
+            returns_sharing_view: self.returns_sharing_view && other.returns_sharing_view,
         }
     }
 }
@@ -769,6 +418,67 @@ impl EffectSummary {
     }
 }
 
+/// Backend-neutral whole-function memory-access class derived by AIMS.
+///
+/// The shipped calculus does not carry `may_read_inaccessible`, so it cannot
+/// distinguish no access from reads of non-argument memory. `ReadOnly` permits
+/// reads from any memory and proves only the absence of writes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MemoryAccessClass {
+    /// The function may read any memory but does not write memory.
+    ReadOnly,
+    /// The function may write memory or lacks a no-write proof.
+    ReadWrite,
+}
+
+/// Final backend-neutral proof that a function returns its own fresh allocation.
+///
+/// This fact is semantic: it does not prescribe a target attribute or physical
+/// return convention. Backend projections must additionally honor their ABI.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FreshSelfAllocationFacts {
+    returns_fresh_self_alloc: bool,
+}
+
+impl FreshSelfAllocationFacts {
+    /// Return whether every path yields fresh storage with no upstream alias.
+    #[must_use]
+    pub const fn is_proven(self) -> bool {
+        self.returns_fresh_self_alloc
+    }
+}
+
+/// Final backend-neutral effect facts for one realized function.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FunctionEffectFacts {
+    effects: EffectSummary,
+    may_write_inaccessible: bool,
+    memory_access: MemoryAccessClass,
+}
+
+impl FunctionEffectFacts {
+    /// Return the final IC-5 effect summary.
+    #[must_use]
+    pub const fn effects(self) -> EffectSummary {
+        self.effects
+    }
+
+    /// Return whether an untyped operation may write non-argument memory.
+    ///
+    /// Calls fail closed here until IC-5 supplies typed inaccessible-memory
+    /// effects that can be propagated interprocedurally.
+    #[must_use]
+    pub const fn may_write_inaccessible(self) -> bool {
+        self.may_write_inaccessible
+    }
+
+    /// Return the final RL-30 memory-access classification.
+    #[must_use]
+    pub const fn memory_access(self) -> MemoryAccessClass {
+        self.memory_access
+    }
+}
+
 /// FIP certification status.
 ///
 /// Based on FP² (Lorenzen et al., ICFP 2023): a function is FIP when
@@ -824,7 +534,7 @@ impl FipContract {
                     requires_unique_params: b,
                 },
             ) => {
-                debug_assert_eq!(a.len(), b.len(), "FipContract param counts must match");
+                assert_eq!(a.len(), b.len(), "FipContract param counts must match");
                 Self::Conditional {
                     requires_unique_params: a.iter().zip(b.iter()).map(|(x, y)| *x || *y).collect(),
                 }
@@ -845,19 +555,6 @@ impl FipContract {
     }
 }
 
-/// Convert AIMS [`Uniqueness`] to the legacy [`crate::uniqueness::Uniqueness`].
-///
-/// Both enums have identical variants. This bridge exists because the AIMS
-/// lattice defines its own `Uniqueness` (with `PartialOrd`/`Ord`) while the
-/// legacy uniqueness analysis has a separate type.
-fn aims_to_legacy_uniqueness(u: Uniqueness) -> crate::uniqueness::Uniqueness {
-    match u {
-        Uniqueness::Unique => crate::uniqueness::Uniqueness::Unique,
-        Uniqueness::MaybeShared => crate::uniqueness::Uniqueness::MaybeShared,
-        Uniqueness::Shared => crate::uniqueness::Uniqueness::Shared,
-    }
-}
-
 /// Extension trait asserting the AIMS Invariant IC-1 required-lookup contract
 /// on the interprocedural contract map (`HashMap<Name, MemoryContract, S>` for
 /// any `S: BuildHasher`).
@@ -869,11 +566,11 @@ fn aims_to_legacy_uniqueness(u: Uniqueness) -> crate::uniqueness::Uniqueness {
 /// is an internal pipeline-ordering invariant violation, never a recoverable
 /// runtime condition.
 ///
-/// Call sites that previously fell back silently to `MemoryContract::default`
-/// produce unsound results: the optimistic default (all-`Borrowed` /
-/// `Dead` / `Absent` params, no effects) inflates safety claims through every
-/// downstream `refine` call (TF-6) and `EffectSummary` join (IC-5),
-/// producing miscompilation rather than a clean panic.
+/// A silent fallback to `MemoryContract::default` would produce unsound
+/// results: the optimistic default (all-`Borrowed` / `Dead` / `Absent`
+/// params, no effects) inflates safety claims through every downstream
+/// `refine` call (TF-6) and `EffectSummary` join (IC-5), producing
+/// miscompilation rather than a clean panic.
 pub trait ContractMapExt {
     /// Look up the contract for `name`, panicking with an attributed
     /// IC-1-violation message when absent. `site` identifies the lookup site

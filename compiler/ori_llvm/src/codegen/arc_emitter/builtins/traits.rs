@@ -80,6 +80,10 @@ declare_builtins! { emitter, ctx;
     ("Size", "is_greater") => emitter.emit_trait_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("Size", "is_less_or_equal") => emitter.emit_trait_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("Size", "is_greater_or_equal") => emitter.emit_trait_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    // Unit trait methods
+    ("void", "equals") => emitter.emit_trait_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("void", "compare") => emitter.emit_trait_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("void", "hash") => emitter.emit_trait_method(ctx.method, ctx.arg_vals, ctx.type_info),
     // String trait methods (equals, compare, hash, comparison predicates)
     ("str", "equals") => emitter.emit_str_trait_method(ctx.method, ctx.arg_vals),
     ("str", "is_equal") => emitter.emit_str_trait_method(ctx.method, ctx.arg_vals),
@@ -101,10 +105,11 @@ declare_builtins! { emitter, ctx;
     ("Ordering", "reverse") => emitter.emit_ordering_method(ctx.method, ctx.arg_vals),
 }
 
+use crate::codegen::ir_builder::IntegerSignedness;
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
 
-use super::super::ArcIrEmitter;
+use super::super::{ArcIrEmitter, StringRuntimeReturnAbi};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a trait method (equals, compare, hash, `is_less`, etc.) for primitive types.
@@ -146,12 +151,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         match method {
             // Binary: Ordering.equals(other) / Ordering.compare(other)
             "equals" if has_other => Some(self.builder.icmp_eq(receiver, arg_vals[1], "ord_eq")),
-            "compare" if has_other => {
-                Some(
-                    self.builder
-                        .emit_icmp_ordering(receiver, arg_vals[1], "ord_cmp", false),
-                )
-            }
+            "compare" if has_other => Some(self.builder.emit_icmp_ordering(
+                receiver,
+                arg_vals[1],
+                "ord_cmp",
+                IntegerSignedness::Unsigned,
+            )),
 
             // Unary predicates on the Ordering value itself
             "is_less" => {
@@ -201,6 +206,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let rhs = arg_vals[1];
 
         match type_info {
+            TypeInfo::Unit => Some(self.builder.const_bool(true)),
             TypeInfo::Int
             | TypeInfo::Bool
             | TypeInfo::Char
@@ -223,14 +229,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let rhs = arg_vals[1];
 
         match type_info {
-            TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
-                Some(self.builder.emit_icmp_ordering(lhs, rhs, "cmp", true))
-            }
+            TypeInfo::Unit => Some(self.builder.const_i8(1)),
+            TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => Some(
+                self.builder
+                    .emit_icmp_ordering(lhs, rhs, "cmp", IntegerSignedness::Signed),
+            ),
             TypeInfo::Float => Some(self.builder.emit_fcmp_ordering(lhs, rhs, "cmp")),
             // Bool/Char/Byte use unsigned comparison (0 < 1 for bool, Unicode for char)
-            TypeInfo::Bool | TypeInfo::Char | TypeInfo::Byte => {
-                Some(self.builder.emit_icmp_ordering(lhs, rhs, "cmp", false))
-            }
+            TypeInfo::Bool | TypeInfo::Char | TypeInfo::Byte => Some(
+                self.builder
+                    .emit_icmp_ordering(lhs, rhs, "cmp", IntegerSignedness::Unsigned),
+            ),
             _ => None,
         }
     }
@@ -243,6 +252,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let i64_ty = self.builder.i64_type();
 
         match type_info {
+            TypeInfo::Unit => Some(self.builder.const_i64(0)),
             // int.hash() = identity (already i64)
             TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => Some(receiver),
             // float.hash(): normalize ±0 to +0, then bitcast to i64
@@ -356,11 +366,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         arg_vals: &[ValueId],
     ) -> Option<ValueId> {
         match method {
-            "equals" | "is_equal" if arg_vals.len() >= 2 => {
-                Some(self.emit_str_runtime_call("ori_str_eq", arg_vals[0], arg_vals[1], false))
+            "equals" | "is_equal" if arg_vals.len() >= 2 => Some(self.emit_str_runtime_call(
+                "ori_str_eq",
+                arg_vals[0],
+                arg_vals[1],
+                StringRuntimeReturnAbi::BoolDirect,
+            )),
+            "compare" if arg_vals.len() >= 2 => {
+                self.emit_str_compare_call(arg_vals[0], arg_vals[1])
             }
-            "compare" if arg_vals.len() >= 2 => self.emit_str_compare(arg_vals[0], arg_vals[1]),
-            "hash" => self.emit_str_hash(arg_vals[0]),
+            "hash" => self.emit_str_hash_call(arg_vals[0]),
             "is_less" if arg_vals.len() >= 2 => {
                 self.emit_str_cmp_predicate(arg_vals[0], arg_vals[1], CmpPredicate::Less)
             }
@@ -377,38 +392,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Emit `str.compare(other)` via `ori_str_compare`.
-    ///
-    /// `ori_str_compare(ptr, ptr) -> i8` returns the Ordering directly.
-    fn emit_str_compare(&mut self, lhs: ValueId, rhs: ValueId) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_str_compare");
-
-        let str_ty = self.resolve_type(ori_types::Idx::STR);
-        let lhs_ptr =
-            self.builder
-                .create_entry_alloca(self.current_function, "str_cmp.lhs", str_ty);
-        self.builder.store(lhs, lhs_ptr);
-        let rhs_ptr =
-            self.builder
-                .create_entry_alloca(self.current_function, "str_cmp.rhs", str_ty);
-        self.builder.store(rhs, rhs_ptr);
-
-        self.emit_rt_call(func_id, &[lhs_ptr, rhs_ptr], "str_cmp")
-    }
-
-    /// Emit `str.hash()` via `ori_str_hash`.
-    fn emit_str_hash(&mut self, receiver: ValueId) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_str_hash");
-
-        let str_ty = self.resolve_type(ori_types::Idx::STR);
-        let ptr = self
-            .builder
-            .create_entry_alloca(self.current_function, "str_hash.arg", str_ty);
-        self.builder.store(receiver, ptr);
-
-        self.emit_rt_call(func_id, &[ptr], "str_hash")
-    }
-
     /// Emit string comparison predicate via compare-then-check.
     ///
     /// Calls `ori_str_compare` then checks the i8 result against the
@@ -419,7 +402,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         rhs: ValueId,
         predicate: CmpPredicate,
     ) -> Option<ValueId> {
-        let cmp_result = self.emit_str_compare(lhs, rhs)?;
+        let cmp_result = self.emit_str_compare_call(lhs, rhs)?;
         Some(match predicate {
             CmpPredicate::Less => {
                 let zero = self.builder.const_i8(0);

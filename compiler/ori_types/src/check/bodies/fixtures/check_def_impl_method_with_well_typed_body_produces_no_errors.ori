@@ -1,0 +1,2 @@
+trait Greetable { @greet () -> str; }
+pub def impl Greetable { @greet () -> str = { "hi" } }

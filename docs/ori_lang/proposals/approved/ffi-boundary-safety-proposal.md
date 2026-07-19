@@ -10,6 +10,12 @@
 **Amends:** `deep-ffi-proposal.md` §"Why not auto-import C headers (like Zig's @cImport)?" — see §Alternatives Considered below
 **Supersedes:** `c-header-import-proposal.md` (draft) — the `#header(...)` design in §2 strictly dominates `@cImport(...)` by preserving boundary visibility AND eliminating signature boilerplate
 
+> **Backend-neutrality clarification (2026-07-15):** RC-operation wording below
+> describes the current compiled-counter adapter. AIMS itself freezes logical
+> ownership, lifetime, transfer, cleanup, effect, unwind, and provenance facts
+> across FFI. VM, LLVM/native, compiled-WebAssembly, and JIT projections choose
+> and validate their own physical mechanisms against those same facts.
+
 ---
 
 ## Summary
@@ -24,7 +30,7 @@ Ori's approved Deep FFI proposal established declarative marshalling, ownership 
 
 Ori's mission states that memory safety extends across the entire program surface, including FFI (`missions.md §Ori`, §AIMS). The approved Deep FFI proposal is a major step toward that claim — ownership annotations, `#free`, and automatic Drop implementations eliminate most FFI-induced leaks. But several gaps remain where the safety story stops at the boundary rather than crossing it:
 
-1. **AIMS does not see the boundary.** The AIMS lattice analysis (`aims-rules.md §§1–7`) computes per-SSA ownership, consumption, cardinality, uniqueness, locality, shape, and effect dimensions. When an FFI call consumes an `owned CPtr`, AIMS has no fact that says "this ownership transferred out of Ori-managed memory" — it treats the value as having an unknown fate. This produces conservative (pessimistic) decisions: retained RC operations that the lattice could eliminate if it knew the FFI contract. The mission claim "make RC rare in emitted code" weakens in proportion to FFI usage.
+1. **AIMS does not see the boundary.** The AIMS lattice analysis (`aims-rules.md §§1–7`) computes per-SSA ownership, consumption, cardinality, uniqueness, locality, shape, and effect dimensions. When an FFI call consumes an `owned CPtr`, AIMS has no fact that says "this ownership transferred out of Ori-managed memory" — it treats the value as having an unknown fate. This produces conservative logical owner-credit and release events; the current counter adapter consequently retains physical RC operations that an exact FFI contract would avoid.
 
 2. **Borrow relationships at the boundary are not expressible.** An `owned CPtr` is clearly tracked; a `borrowed` str is copied immediately. But there is no way to express "this returned pointer borrows from THIS specific parameter and must not outlive it." Consider `sqlite3_column_text(stmt) -> const unsigned char*` — the returned pointer is valid only until the next call on `stmt`. Today, Ori either copies immediately (safe but slow) or treats the pointer as untracked (fast but dangerous). Neither is correct.
 
@@ -50,19 +56,34 @@ This proposal adds seven additions to the approved Deep FFI surface. Each is ind
 
 ### 1. AIMS Lattice Extension Across the FFI Boundary
 
-**Problem.** AIMS (`aims-rules.md`) computes seven lattice dimensions per SSA value. When an Ori function calls an extern function, the AIMS analysis today treats the boundary as opaque: the call's effect on ownership, consumption, and uniqueness is conservative (assume-the-worst). This produces retained RC operations on arguments that the declared ownership contract would otherwise eliminate.
+**Problem.** AIMS (`aims-rules.md`) computes seven lattice dimensions per SSA value. When an Ori function calls an extern function, the AIMS analysis today treats the boundary as opaque: the call's effect on ownership, consumption, and uniqueness is conservative (assume-the-worst). This produces extra logical ownership events on arguments; a counter-selecting adapter realizes them as retained RC operations that the declared ownership contract would otherwise avoid.
 
 **Solution.** Each extern declaration with ownership annotations produces a `MemoryContract` fragment that AIMS consumes like any other `MemoryContract` (see `aims-rules.md §5 — Interprocedural Contracts`). Specifically:
 
 - `owned` parameters generate `ParamContract::Consumed` — AIMS treats the argument as consumed at the call site; subsequent uses require a prior clone.
-- `borrowed` parameters generate `ParamContract::Borrowed` — AIMS treats the argument as borrowed for the call's duration; no RC operations needed, reuse permitted.
-- `owned` returns generate `ReturnContract::Owned { free_fn }` — AIMS treats the return as `Uniqueness::Unique` at point of use, enabling reuse/FBIP analysis on FFI returns exactly like native returns.
-- `borrowed` returns (the default for `str`/`[byte]`) remain as today: copied into Ori-managed memory at the marshal boundary, so AIMS sees a native value with native lattice state.
+- `borrowed` parameters generate `ParamContract::Borrowed` — AIMS freezes no transferred owner credit or matching release for the call; a counter-selecting adapter therefore needs no RC pair, and reuse remains subject to the shared facts.
+- `owned` returns generate `ReturnContract::Owned { release:
+  ForeignReleaseId }`. AIMS treats the return as a unique logical ownership
+  obligation and carries the typed foreign-release identity into the executable
+  artifact. The selected FFI adapter resolves that identity to a concrete
+  symbol, ABI, helper call, or inline sequence; `free_fn` is not AIMS
+  vocabulary.
+- `borrowed` returns (the default for `str`/`[byte]`) carry an explicit source
+  lifetime and independent-result contract. The selected marshal adapter may
+  copy into Ori-managed storage, but AIMS sees only the resulting logical
+  freshness/ownership/lifetime facts, not a required heap representation.
 - `#error(...)` protocols produce `EffectSummary` entries that mark the FFI call as potentially-returning (error) and potentially-terminating (success) — AIMS schedules cleanup operations accordingly.
 
-**Effect.** An `owned CPtr` returned from C that is consumed by another FFI call (the common pattern: `rsa = RSA_new(); sign(rsa, ...); RSA_free(rsa);`) generates zero RC operations — AIMS sees a single-owner unique value flowing through a call chain. Today the same pattern forces conservative RC retention.
+**Effect.** An `owned CPtr` returned from C that is consumed by another FFI call
+(the common pattern: `rsa = RSA_new(); sign(rsa, ...); RSA_free(rsa);`) needs no
+Ori internal count events: AIMS sees one unique foreign ownership obligation
+flowing through the chain, followed by its exact typed release. Today the same
+pattern forces conservative RC retention.
 
-**Verification.** The FIP certification pass (`aims-rules.md §VF-6`) extends to verify that functions whose body is entirely FFI calls with `owned`/`borrowed` contracts satisfy `FipContract::Certified` — zero unmatched alloc/dealloc in realized IR.
+**Verification.** The FIP certification pass (`aims-rules.md §VF-6`) extends to
+verify that functions whose body is entirely FFI calls with `owned`/`borrowed`
+contracts satisfy `FipContract::Certified`: zero unmatched logical
+allocation/deallocation or foreign-release obligations in realized IR.
 
 ### 2. Header-Assisted Extern Blocks — `#header("file.h")`
 
@@ -200,7 +221,7 @@ use(text);  // OK — stmt still in scope
 
     Borrowing from a struct-field or array-element of a parameter (`#borrow_from(vec.data)`) is NOT supported in this revision; only top-level parameters may be named. That restriction may be lifted by a future proposal if a concrete use case demands it.
 4. Implicit copy-to-owned is available at call sites: `sqlite3_column_text(stmt).to_owned()` extends the returned value's lifetime at the cost of a copy.
-5. AIMS uses `#borrow_from` to eliminate RC operations on the returned borrowed value — it knows the value is bound to the parameter's lifetime.
+5. AIMS uses `#borrow_from` to freeze the returned value's lifetime relation without an independent owner credit; a counter-selecting adapter consequently emits no retain/release pair for that borrowed result.
 
 ### 5. Callback Capability Propagation
 
@@ -353,7 +374,7 @@ All additions use existing Ori language features. No new stdlib-level syntax.
 
 ### Alternative 1: Keep FFI Opaque to AIMS
 
-**Rejected.** AIMS invariants (`canon.md §7.1`, CLAUDE.md §AIMS) require that every RC operation in emitted IR correspond to a specific proof failure. FFI calls with declared ownership contracts have explicit ownership proofs already — ignoring them forces AIMS into conservative retention that contradicts the "make RC rare" mission. Extending the lattice across the boundary is the architecturally-correct path.
+**Rejected.** AIMS requires every surviving logical ownership event to carry its exact fact and proof-obligation identity. A counter-selecting adapter must additionally trace each physical RC operation to its validated plan choice. FFI calls with declared ownership contracts already provide explicit ownership evidence; ignoring it would force conservative logical owner credits and releases into every physical projection. Extending the lattice across the boundary is the architecturally correct path.
 
 ### Alternative 2: Full Zig-Style `@cImport`
 

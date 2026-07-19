@@ -1,12 +1,46 @@
 use super::*;
 
+#[test]
+#[should_panic(expected = "splits a UTF-8 codepoint")]
+fn slice_source_non_codepoint_start_panics() {
+    let _ = slice_source("é", 1, 1);
+}
+
+#[test]
+fn slice_source_unicode_range_returns_complete_codepoint() {
+    assert_eq!(slice_source("aéz", 1, 2), "é");
+}
+
+#[test]
+fn slice_source_empty_range_at_end_returns_empty() {
+    assert_eq!(slice_source("a", 1, 0), "");
+}
+
+#[test]
+#[should_panic(expected = "token start 2 exceeds source length 1")]
+fn slice_source_start_past_end_panics() {
+    let _ = slice_source("a", 2, 0);
+}
+
+#[test]
+#[should_panic(expected = "token length 2 at 1 exceeds source length 2")]
+fn slice_source_length_past_end_panics() {
+    let _ = slice_source("ab", 1, 2);
+}
+
+#[test]
+#[should_panic(expected = "splits a UTF-8 codepoint")]
+fn slice_source_non_codepoint_end_panics() {
+    let _ = slice_source("é", 0, 1);
+}
+
 // Operator mapping
 
 #[test]
 fn direct_map_operators() {
     let source = "+-*/%^&|~!=<>.?";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
 
     assert_eq!(cooker.cook(RawTag::Plus, 0, 1).kind, TokenKind::Plus);
     assert_eq!(cooker.cook(RawTag::Minus, 1, 1).kind, TokenKind::Minus);
@@ -33,7 +67,7 @@ fn direct_map_operators() {
 fn compound_operators() {
     let source = "== != <= && || -> => .. ..= ... :: << ??";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
 
     assert_eq!(cooker.cook(RawTag::EqualEqual, 0, 2).kind, TokenKind::EqEq);
     assert_eq!(cooker.cook(RawTag::BangEqual, 3, 2).kind, TokenKind::NotEq);
@@ -77,7 +111,7 @@ fn compound_operators() {
 fn identifier_interning() {
     let source = "foo";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::Ident, 0, 3);
     match result.kind {
         TokenKind::Ident(name) => assert_eq!(interner.lookup(name), "foo"),
@@ -89,7 +123,7 @@ fn identifier_interning() {
 fn keyword_resolution() {
     let source = "if";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(cooker.cook(RawTag::Ident, 0, 2).kind, TokenKind::If);
 }
 
@@ -97,7 +131,7 @@ fn keyword_resolution() {
 fn str_type_keyword() {
     let source = "str";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(cooker.cook(RawTag::Ident, 0, 3).kind, TokenKind::StrType);
 }
 
@@ -107,7 +141,7 @@ fn str_type_keyword() {
 fn integer_literal() {
     let source = "42";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(cooker.cook(RawTag::Int, 0, 2).kind, TokenKind::Int(42));
 }
 
@@ -115,7 +149,7 @@ fn integer_literal() {
 fn integer_with_underscores() {
     let source = "1_000_000";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(
         cooker.cook(RawTag::Int, 0, 9).kind,
         TokenKind::Int(1_000_000)
@@ -126,7 +160,7 @@ fn integer_with_underscores() {
 fn hex_integer() {
     let source = "0xFF";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(cooker.cook(RawTag::HexInt, 0, 4).kind, TokenKind::Int(255));
 }
 
@@ -134,7 +168,7 @@ fn hex_integer() {
 fn binary_integer() {
     let source = "0b1010";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(cooker.cook(RawTag::BinInt, 0, 6).kind, TokenKind::Int(10));
 }
 
@@ -142,7 +176,7 @@ fn binary_integer() {
 fn binary_integer_with_underscores() {
     let source = "0b1111_0000";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(cooker.cook(RawTag::BinInt, 0, 11).kind, TokenKind::Int(240));
 }
 
@@ -151,7 +185,7 @@ fn binary_integer_with_underscores() {
 fn float_literal() {
     let source = "3.14";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(
         cooker.cook(RawTag::Float, 0, 4).kind,
         TokenKind::Float(3.14f64.to_bits())
@@ -162,24 +196,24 @@ fn float_literal() {
 fn integer_overflow() {
     let source = "99999999999999999999999";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::Int, 0, source.len() as u32);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
     assert_eq!(cooker.errors().len(), 1);
 }
 
-// Float overflow (Finding 2)
+// Float overflow
 
 #[test]
 fn float_overflow_is_error() {
     // 1e999 overflows to infinity → error per spec 7.7.2
     let source = "1e999";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::Float, 0, source.len() as u32);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 #[test]
@@ -187,23 +221,23 @@ fn float_max_finite_is_valid() {
     // Regression guard: max finite f64 must still parse
     let source = "1.7976931348623157e308";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::Float, 0, source.len() as u32);
     assert!(matches!(result.kind, TokenKind::Float(_)));
-    assert!(!result.had_error);
+    assert!(!result.had_error());
 }
 
-// Malformed numeric literals (Finding 1)
+// Malformed numeric literals
 
 #[test]
 fn hex_int_no_digits_is_error() {
     // 0x with no hex digits → error, not Int(0)
     let source = "0x";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::HexInt, 0, 2);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 #[test]
@@ -211,10 +245,10 @@ fn bin_int_only_underscores_is_error() {
     // 0b_ with only underscores after prefix → error
     let source = "0b_";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::BinInt, 0, 3);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 #[test]
@@ -222,7 +256,7 @@ fn hex_int_zero_is_valid() {
     // Regression guard: 0x0 must still produce Int(0)
     let source = "0x0";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(cooker.cook(RawTag::HexInt, 0, 3).kind, TokenKind::Int(0));
 }
 
@@ -232,7 +266,7 @@ fn hex_int_zero_is_valid() {
 fn duration_milliseconds() {
     let source = "100ms";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(
         cooker.cook(RawTag::Duration, 0, 5).kind,
         TokenKind::Duration(100, DurationUnit::Milliseconds)
@@ -243,7 +277,7 @@ fn duration_milliseconds() {
 fn duration_seconds() {
     let source = "5s";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(
         cooker.cook(RawTag::Duration, 0, 2).kind,
         TokenKind::Duration(5, DurationUnit::Seconds)
@@ -254,7 +288,7 @@ fn duration_seconds() {
 fn duration_hours() {
     let source = "2h";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(
         cooker.cook(RawTag::Duration, 0, 2).kind,
         TokenKind::Duration(2, DurationUnit::Hours)
@@ -265,7 +299,7 @@ fn duration_hours() {
 fn size_kilobytes() {
     let source = "4kb";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(
         cooker.cook(RawTag::Size, 0, 3).kind,
         TokenKind::Size(4, SizeUnit::Kilobytes)
@@ -276,7 +310,7 @@ fn size_kilobytes() {
 fn size_bytes() {
     let source = "100b";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(
         cooker.cook(RawTag::Size, 0, 4).kind,
         TokenKind::Size(100, SizeUnit::Bytes)
@@ -290,7 +324,7 @@ fn decimal_duration_seconds() {
     // 1.5s = 1,500,000,000 nanoseconds
     let source = "1.5s";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(
         cooker.cook(RawTag::Duration, 0, 4).kind,
         TokenKind::Duration(1_500_000_000, DurationUnit::Nanoseconds)
@@ -303,7 +337,7 @@ fn decimal_duration_milliseconds() {
     // 2.5ms = 2,500,000 nanoseconds
     let source = "2.5ms";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(
         cooker.cook(RawTag::Duration, 0, 5).kind,
         TokenKind::Duration(2_500_000, DurationUnit::Nanoseconds)
@@ -316,7 +350,7 @@ fn decimal_duration_hours() {
     // 2.25h = 8,100,000,000,000 nanoseconds (2h 15m)
     let source = "2.25h";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(
         cooker.cook(RawTag::Duration, 0, 5).kind,
         TokenKind::Duration(8_100_000_000_000, DurationUnit::Nanoseconds)
@@ -329,7 +363,7 @@ fn decimal_duration_half_second() {
     // 0.5s = 500,000,000 nanoseconds
     let source = "0.5s";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(
         cooker.cook(RawTag::Duration, 0, 4).kind,
         TokenKind::Duration(500_000_000, DurationUnit::Nanoseconds)
@@ -341,7 +375,7 @@ fn decimal_duration_many_digits() {
     // 1.123456789s = 1,123,456,789 nanoseconds (9 decimal places, still whole)
     let source = "1.123456789s";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(
         cooker.cook(RawTag::Duration, 0, source.len() as u32).kind,
         TokenKind::Duration(1_123_456_789, DurationUnit::Nanoseconds)
@@ -353,10 +387,10 @@ fn decimal_duration_nanoseconds_error() {
     // 1.5ns = 1.5 nanoseconds — not a whole number → error
     let source = "1.5ns";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::Duration, 0, 5);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
     assert_eq!(cooker.errors().len(), 1);
 }
 
@@ -365,7 +399,7 @@ fn decimal_size_kilobytes() {
     // 1.5kb = 1,500 bytes
     let source = "1.5kb";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(
         cooker.cook(RawTag::Size, 0, 5).kind,
         TokenKind::Size(1_500, SizeUnit::Bytes)
@@ -378,7 +412,7 @@ fn decimal_size_megabytes() {
     // 0.25mb = 250,000 bytes
     let source = "0.25mb";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(
         cooker.cook(RawTag::Size, 0, 6).kind,
         TokenKind::Size(250_000, SizeUnit::Bytes)
@@ -390,10 +424,10 @@ fn decimal_size_bytes_error() {
     // 0.5b = 0.5 bytes — not a whole number → error
     let source = "0.5b";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::Size, 0, 4);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
     assert_eq!(cooker.errors().len(), 1);
 }
 
@@ -403,7 +437,7 @@ fn decimal_size_bytes_error() {
 fn string_simple() {
     let source = r#""hello""#;
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::String, 0, source.len() as u32);
     match result.kind {
         TokenKind::String(name) => assert_eq!(interner.lookup(name), "hello"),
@@ -415,7 +449,7 @@ fn string_simple() {
 fn string_with_escapes() {
     let source = r#""hello\nworld""#;
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::String, 0, source.len() as u32);
     match result.kind {
         TokenKind::String(name) => assert_eq!(interner.lookup(name), "hello\nworld"),
@@ -429,7 +463,7 @@ fn string_with_escapes() {
 fn char_simple() {
     let source = "'a'";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(
         cooker.cook(RawTag::Char, 0, source.len() as u32).kind,
         TokenKind::Char('a')
@@ -440,7 +474,7 @@ fn char_simple() {
 fn char_escape() {
     let source = r"'\n'";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(
         cooker.cook(RawTag::Char, 0, source.len() as u32).kind,
         TokenKind::Char('\n')
@@ -453,11 +487,11 @@ fn char_escape() {
 fn error_tags_produce_error_kind() {
     let source = "\x01";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
 
     let result = cooker.cook(RawTag::InvalidByte, 0, 1);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
     assert_eq!(cooker.errors().len(), 1);
 }
 
@@ -467,7 +501,7 @@ fn error_tags_produce_error_kind() {
 fn delimiters() {
     let source = "()[]{},:;@#_$#[";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
 
     assert_eq!(cooker.cook(RawTag::LeftParen, 0, 1).kind, TokenKind::LParen);
     assert_eq!(
@@ -510,7 +544,7 @@ fn delimiters() {
 fn hashbang_mapping() {
     let source = "#!foo";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     assert_eq!(
         cooker.cook(RawTag::HashBang, 0, 2).kind,
         TokenKind::HashBang
@@ -518,17 +552,17 @@ fn hashbang_mapping() {
     assert!(cooker.errors().is_empty());
 }
 
-// Duration/Size overflow (Finding 3)
+// Duration/Size overflow
 
 #[test]
 fn duration_integer_overflow_is_error() {
     // 3000000h overflows i64 nanoseconds (~292yr limit)
     let source = "3000000h";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::Duration, 0, source.len() as u32);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 #[test]
@@ -536,13 +570,13 @@ fn duration_max_valid_hours() {
     // ~2562047h is near the i64 nanosecond limit but valid
     let source = "2562047h";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::Duration, 0, source.len() as u32);
     assert_eq!(
         result.kind,
         TokenKind::Duration(2_562_047, DurationUnit::Hours)
     );
-    assert!(!result.had_error);
+    assert!(!result.had_error());
 }
 
 #[test]
@@ -550,10 +584,10 @@ fn duration_seconds_overflow_is_error() {
     // 10000000000s overflows i64 nanoseconds
     let source = "10000000000s";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::Duration, 0, source.len() as u32);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 #[test]
@@ -561,10 +595,10 @@ fn size_terabytes_overflow_is_error() {
     // 18446745tb overflows u64
     let source = "18446745tb";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::Size, 0, source.len() as u32);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 #[test]
@@ -572,10 +606,10 @@ fn size_bytes_exceeding_i64_is_error() {
     // 9223372036854775808b fits u64 but exceeds i64::MAX
     let source = "9223372036854775808b";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::Size, 0, source.len() as u32);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 #[test]
@@ -583,10 +617,10 @@ fn decimal_duration_overflow_is_error() {
     // Decimal path: result nanos exceed i64
     let source = "99999999999.0s";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::Duration, 0, source.len() as u32);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 #[test]
@@ -594,10 +628,10 @@ fn decimal_size_overflow_is_error() {
     // Decimal path: result bytes exceed i64
     let source = "9999999999999999.0tb";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::Size, 0, source.len() as u32);
     assert_eq!(result.kind, TokenKind::Error);
-    assert!(result.had_error);
+    assert!(result.had_error());
 }
 
 // Suffix detection
@@ -610,14 +644,16 @@ fn decimal_size_overflow_is_error() {
 fn all_duration_units_detected_by_suffix() {
     for unit in DurationUnit::all() {
         let input = format!("1{}", unit.suffix());
-        let (suffix_len, detected) = detect_duration_suffix(&input);
+        let detected = detect_duration_suffix(&input);
+        let detected_unit = match detected {
+            DetectedUnit::OneByte(unit) | DetectedUnit::TwoBytes(unit) => unit,
+            DetectedUnit::Missing => {
+                panic!("detect_duration_suffix({input:?}) did not recognize suffix for {unit:?}")
+            }
+        };
         assert_eq!(
-            detected, unit,
-            "detect_duration_suffix({input:?}) returned {detected:?}, expected {unit:?}"
-        );
-        assert!(
-            suffix_len > 0,
-            "detect_duration_suffix({input:?}) returned suffix_len=0 for {unit:?}"
+            detected_unit, unit,
+            "detect_duration_suffix({input:?}) returned {detected_unit:?}, expected {unit:?}"
         );
     }
 }
@@ -627,14 +663,16 @@ fn all_duration_units_detected_by_suffix() {
 fn all_size_units_detected_by_suffix() {
     for unit in SizeUnit::all() {
         let input = format!("1{}", unit.suffix());
-        let (suffix_len, detected) = detect_size_suffix(&input);
+        let detected = detect_size_suffix(&input);
+        let detected_unit = match detected {
+            DetectedUnit::OneByte(unit) | DetectedUnit::TwoBytes(unit) => unit,
+            DetectedUnit::Missing => {
+                panic!("detect_size_suffix({input:?}) did not recognize suffix for {unit:?}")
+            }
+        };
         assert_eq!(
-            detected, unit,
-            "detect_size_suffix({input:?}) returned {detected:?}, expected {unit:?}"
-        );
-        assert!(
-            suffix_len > 0,
-            "detect_size_suffix({input:?}) returned suffix_len=0 for {unit:?}"
+            detected_unit, unit,
+            "detect_size_suffix({input:?}) returned {detected_unit:?}, expected {unit:?}"
         );
     }
 }
@@ -643,34 +681,60 @@ fn all_size_units_detected_by_suffix() {
 fn duration_suffix_detection() {
     assert_eq!(
         detect_duration_suffix("100ns"),
-        (2, DurationUnit::Nanoseconds)
+        DetectedUnit::TwoBytes(DurationUnit::Nanoseconds)
     );
     assert_eq!(
         detect_duration_suffix("50us"),
-        (2, DurationUnit::Microseconds)
+        DetectedUnit::TwoBytes(DurationUnit::Microseconds)
     );
     assert_eq!(
         detect_duration_suffix("100ms"),
-        (2, DurationUnit::Milliseconds)
+        DetectedUnit::TwoBytes(DurationUnit::Milliseconds)
     );
-    assert_eq!(detect_duration_suffix("5s"), (1, DurationUnit::Seconds));
-    assert_eq!(detect_duration_suffix("10m"), (1, DurationUnit::Minutes));
-    assert_eq!(detect_duration_suffix("2h"), (1, DurationUnit::Hours));
+    assert_eq!(
+        detect_duration_suffix("5s"),
+        DetectedUnit::OneByte(DurationUnit::Seconds)
+    );
+    assert_eq!(
+        detect_duration_suffix("10m"),
+        DetectedUnit::OneByte(DurationUnit::Minutes)
+    );
+    assert_eq!(
+        detect_duration_suffix("2h"),
+        DetectedUnit::OneByte(DurationUnit::Hours)
+    );
+    assert_eq!(detect_duration_suffix("10"), DetectedUnit::Missing);
 }
 
 #[test]
 fn size_suffix_detection() {
-    assert_eq!(detect_size_suffix("100b"), (1, SizeUnit::Bytes));
-    assert_eq!(detect_size_suffix("4kb"), (2, SizeUnit::Kilobytes));
-    assert_eq!(detect_size_suffix("10mb"), (2, SizeUnit::Megabytes));
-    assert_eq!(detect_size_suffix("1gb"), (2, SizeUnit::Gigabytes));
-    assert_eq!(detect_size_suffix("1tb"), (2, SizeUnit::Terabytes));
+    assert_eq!(
+        detect_size_suffix("100b"),
+        DetectedUnit::OneByte(SizeUnit::Bytes)
+    );
+    assert_eq!(
+        detect_size_suffix("4kb"),
+        DetectedUnit::TwoBytes(SizeUnit::Kilobytes)
+    );
+    assert_eq!(
+        detect_size_suffix("10mb"),
+        DetectedUnit::TwoBytes(SizeUnit::Megabytes)
+    );
+    assert_eq!(
+        detect_size_suffix("1gb"),
+        DetectedUnit::TwoBytes(SizeUnit::Gigabytes)
+    );
+    assert_eq!(
+        detect_size_suffix("1tb"),
+        DetectedUnit::TwoBytes(SizeUnit::Terabytes)
+    );
+    assert_eq!(detect_size_suffix("10"), DetectedUnit::Missing);
 }
 
 // Decimal unit value parsing
 
 #[test]
-fn parse_decimal_unit_value_basic() {
+fn decimal_unit_suffix_preserves_integral_literal_value() {
     // 1.5 * 1_000_000_000 (seconds→ns) = 1,500,000,000
     assert_eq!(
         parse_decimal_unit_value("1.5", 1_000_000_000),
@@ -714,12 +778,8 @@ fn parse_decimal_unit_value_with_underscores() {
     assert_eq!(parse_decimal_unit_value("1_000.5", 1_000), Some(1_000_500));
 }
 
-// Soft keyword cache contamination regression tests.
-//
-// The IdentCache caches cook_ident() results. When soft keyword text (e.g., "cache")
-// first appears as a regular identifier (no `(` following), it gets cached as Ident.
-// On subsequent occurrences — even in keyword context — the cache hit returns Ident
-// immediately, bypassing soft_keyword_lookup(). These tests verify the fix.
+// Soft keywords must not enter IdentCache: an identifier-context occurrence
+// cannot make a later keyword-context occurrence bypass contextual lookup.
 
 fn soft_keyword_test_cases() -> Vec<(&'static str, TokenKind)> {
     vec![
@@ -744,7 +804,7 @@ fn soft_keyword_ident_then_keyword_all() {
         // Source: "<kw> = 1; <kw>(" — first is ident context, second is keyword context
         let source = format!("{text} = 1; {text}(");
         let interner = StringInterner::new();
-        let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+        let mut cooker = TokenCooker::new(&source, &interner);
 
         let len = text.len() as u32;
 
@@ -780,7 +840,7 @@ fn soft_keyword_keyword_then_ident_all() {
         // Source: "<kw>(x); <kw> = 2" — first is keyword, second is ident
         let source = format!("{text}(x); {text} = 2");
         let interner = StringInterner::new();
-        let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+        let mut cooker = TokenCooker::new(&source, &interner);
 
         let len = text.len() as u32;
 
@@ -813,7 +873,7 @@ fn soft_keyword_keyword_only_all() {
     for (text, expected_kw) in &cases {
         let source = format!("{text}(");
         let interner = StringInterner::new();
-        let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+        let mut cooker = TokenCooker::new(&source, &interner);
 
         let first = cooker.cook(RawTag::Ident, 0, text.len() as u32);
         assert_eq!(
@@ -834,7 +894,7 @@ fn soft_keyword_ident_only_all() {
     for (text, _) in &cases {
         let source = format!("{text} = 42");
         let interner = StringInterner::new();
-        let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+        let mut cooker = TokenCooker::new(&source, &interner);
 
         let first = cooker.cook(RawTag::Ident, 0, text.len() as u32);
         assert!(
@@ -854,7 +914,7 @@ fn soft_keyword_ident_only_all() {
 fn hard_keyword_caching_unaffected_by_soft_keyword_fix() {
     let source = "let x = 1; let y = 2";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
 
     let first = cooker.cook(RawTag::Ident, 0, 3);
     assert_eq!(
@@ -876,7 +936,7 @@ fn hard_keyword_caching_unaffected_by_soft_keyword_fix() {
 fn regular_ident_caching_unaffected_by_soft_keyword_fix() {
     let source = "foo bar foo";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
 
     let first = cooker.cook(RawTag::Ident, 0, 3);
     let first_name = match first.kind {
@@ -903,13 +963,13 @@ fn cook_template_head_strips_delimiters_and_interns() {
     // Template head: `hello { — strip leading ` and trailing {
     let source = "`hello {";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::TemplateHead, 0, 8);
     match result.kind {
         TokenKind::TemplateHead(name) => assert_eq!(interner.lookup(name), "hello "),
         other => panic!("expected TemplateHead, got {other:?}"),
     }
-    assert!(!result.had_error);
+    assert!(!result.had_error());
     assert!(cooker.errors().is_empty());
 }
 
@@ -918,13 +978,13 @@ fn cook_template_middle_strips_delimiters_and_interns() {
     // Template middle: } world { — strip leading } and trailing {
     let source = "} world {";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::TemplateMiddle, 0, 9);
     match result.kind {
         TokenKind::TemplateMiddle(name) => assert_eq!(interner.lookup(name), " world "),
         other => panic!("expected TemplateMiddle, got {other:?}"),
     }
-    assert!(!result.had_error);
+    assert!(!result.had_error());
 }
 
 #[test]
@@ -932,13 +992,13 @@ fn cook_template_tail_strips_delimiters_and_interns() {
     // Template tail: } end` — strip leading } and trailing `
     let source = "} end`";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::TemplateTail, 0, 6);
     match result.kind {
         TokenKind::TemplateTail(name) => assert_eq!(interner.lookup(name), " end"),
         other => panic!("expected TemplateTail, got {other:?}"),
     }
-    assert!(!result.had_error);
+    assert!(!result.had_error());
 }
 
 #[test]
@@ -946,13 +1006,13 @@ fn cook_template_complete_strips_backticks_and_interns() {
     // Complete template: `no interp` — strip both backticks
     let source = "`no interp`";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::TemplateComplete, 0, 11);
     match result.kind {
         TokenKind::TemplateFull(name) => assert_eq!(interner.lookup(name), "no interp"),
         other => panic!("expected TemplateFull, got {other:?}"),
     }
-    assert!(!result.had_error);
+    assert!(!result.had_error());
 }
 
 #[test]
@@ -960,13 +1020,13 @@ fn cook_template_segment_with_escape() {
     // Template head with escape: `hello\n{ — should unescape
     let source = "`hello\\n{";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::TemplateHead, 0, 9);
     match result.kind {
         TokenKind::TemplateHead(name) => assert_eq!(interner.lookup(name), "hello\n"),
         other => panic!("expected TemplateHead, got {other:?}"),
     }
-    assert!(!result.had_error);
+    assert!(!result.had_error());
 }
 
 #[test]
@@ -974,13 +1034,13 @@ fn cook_format_spec_strips_colon_prefix() {
     // Format spec: :>10.2f — strip leading :
     let source = ":>10.2f";
     let interner = StringInterner::new();
-    let cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook_format_spec(0, 7);
     match result.kind {
         TokenKind::FormatSpec(name) => assert_eq!(interner.lookup(name), ">10.2f"),
         other => panic!("expected FormatSpec, got {other:?}"),
     }
-    assert!(!result.had_error);
+    assert!(!result.had_error());
 }
 
 // Template segment error propagation — negative regression tests for 02.1
@@ -990,7 +1050,7 @@ fn cook_template_head_with_invalid_escape_sets_had_error() {
     // Template head with invalid escape: `hello\q{ — should set had_error
     let source = "`hello\\q{";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::TemplateHead, 0, 9);
     // Still produces TemplateHead with replacement char
     match result.kind {
@@ -999,7 +1059,7 @@ fn cook_template_head_with_invalid_escape_sets_had_error() {
         }
         other => panic!("expected TemplateHead, got {other:?}"),
     }
-    assert!(result.had_error, "invalid escape must set had_error");
+    assert!(result.had_error(), "invalid escape must set had_error");
     assert_eq!(cooker.errors().len(), 1);
     assert!(matches!(
         cooker.errors()[0].kind,
@@ -1012,7 +1072,7 @@ fn cook_template_middle_with_invalid_escape_sets_had_error() {
     // Template middle with invalid escape: }\a{ — should set had_error
     let source = "}\\a{";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::TemplateMiddle, 0, 4);
     match result.kind {
         TokenKind::TemplateMiddle(name) => {
@@ -1020,7 +1080,7 @@ fn cook_template_middle_with_invalid_escape_sets_had_error() {
         }
         other => panic!("expected TemplateMiddle, got {other:?}"),
     }
-    assert!(result.had_error, "invalid escape must set had_error");
+    assert!(result.had_error(), "invalid escape must set had_error");
     assert_eq!(cooker.errors().len(), 1);
 }
 
@@ -1029,7 +1089,7 @@ fn cook_template_tail_with_invalid_escape_sets_had_error() {
     // Template tail with invalid escape: }\z` — should set had_error
     let source = "}\\z`";
     let interner = StringInterner::new();
-    let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
+    let mut cooker = TokenCooker::new(source, &interner);
     let result = cooker.cook(RawTag::TemplateTail, 0, 4);
     match result.kind {
         TokenKind::TemplateTail(name) => {
@@ -1037,6 +1097,6 @@ fn cook_template_tail_with_invalid_escape_sets_had_error() {
         }
         other => panic!("expected TemplateTail, got {other:?}"),
     }
-    assert!(result.had_error, "invalid escape must set had_error");
+    assert!(result.had_error(), "invalid escape must set had_error");
     assert_eq!(cooker.errors().len(), 1);
 }

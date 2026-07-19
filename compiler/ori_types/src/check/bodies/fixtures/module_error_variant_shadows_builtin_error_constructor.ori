@@ -1,0 +1,2 @@
+type LogLevel = Info(msg: str) | Error(msg: str);
+@make () -> LogLevel = Error(msg: "boom");

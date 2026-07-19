@@ -19,9 +19,9 @@ use crate::ownership::{AnnotatedSig, DerivedOwnership, Ownership};
 /// is defined exactly once).
 ///
 /// The result is a `Vec<DerivedOwnership>` indexed by `ArcVarId::raw`,
-/// enabling RC insertion to skip `RcInc`/`RcDec` for:
+/// enabling realization to avoid redundant owner-credit events for:
 /// - Variables borrowed from a still-live owner (`BorrowedFrom`)
-/// - Freshly constructed values with refcount = 1 (`Fresh`)
+/// - Freshly constructed values with exactly one logical owner (`Fresh`)
 ///
 /// # Arguments
 ///
@@ -108,7 +108,7 @@ pub fn infer_derived_ownership(
                 }
 
                 ArcInstr::Construct { dst, .. } => {
-                    // A newly constructed value has refcount = 1.
+                    // A newly constructed value has one logical owner and no prior alias.
                     let dst_idx = dst.index();
                     if dst_idx < num_vars {
                         ownership[dst_idx] = DerivedOwnership::Fresh;
@@ -116,7 +116,7 @@ pub fn infer_derived_ownership(
                 }
 
                 ArcInstr::PartialApply { dst, .. } => {
-                    // A new closure has refcount = 1.
+                    // A new closure has one logical owner and no prior alias.
                     let dst_idx = dst.index();
                     if dst_idx < num_vars {
                         ownership[dst_idx] = DerivedOwnership::Fresh;
@@ -140,7 +140,7 @@ pub fn infer_derived_ownership(
                     }
                 }
 
-                // CollectionReuse recycles a buffer — result is fresh (RC = 1, same as Construct).
+                // CollectionReuse recycles storage; the result is logically fresh.
                 ArcInstr::CollectionReuse { dst, .. } => {
                     let dst_idx = dst.index();
                     if dst_idx < num_vars {

@@ -71,21 +71,21 @@ fn iterator_methods_match_registry() {
 
 // Format spec variant registration consistency
 //
-// The `FormatType`, `Alignment`, and `Sign` enums appear as string arrays in
-// 4 independent locations:
-//   1. `ori_ir/src/format_spec.rs` — enum definition (source of truth)
-//   2. `ori_types/src/check/registration/mod.rs` — type registration
-//   3. `ori_eval/src/interpreter/mod.rs` — `register_format_variants()` globals
-//   4. `ori_rt/src/format/mod.rs` — runtime enum + parse (guarded by ori_rt tests)
+// `FormatType`, `Alignment`, and `Sign` are defined once in the `ori_format`
+// leaf crate (the source of truth). Two consumers mirror the variant names as
+// string literals:
+//   1. `ori_types/src/check/registration/builtin_types.rs` — type registration
+//   2. `ori_eval/src/interpreter/prelude.rs` — prelude format-variant globals
 //
-// ori_rt <-> ori_ir sync is guarded by `format_type_variant_count()` in ori_rt.
-// These tests guard ori_types <-> ori_ir and ori_eval <-> ori_ir sync.
+// These tests guard ori_types <-> ori_format and ori_eval <-> ori_format sync.
+// The AOT runtime backend (`ori_rt/src/format/mod.rs`) calls `ori_format`
+// directly and keeps no local copy, so it needs no sync guard.
 
-/// Source-of-truth variant names for `ori_ir::FormatType`.
+/// Source-of-truth variant names for `ori_format::FormatType`.
 ///
-/// Exhaustive match ensures compile failure if a variant is added to `ori_ir`.
-fn ir_format_type_names() -> Vec<&'static str> {
-    use ori_ir::format_spec::FormatType;
+/// Exhaustive match ensures compile failure if a variant is added to `ori_format`.
+fn format_type_names() -> Vec<&'static str> {
+    use ori_format::FormatType;
     [
         FormatType::Binary,
         FormatType::Octal,
@@ -110,9 +110,9 @@ fn ir_format_type_names() -> Vec<&'static str> {
     .collect()
 }
 
-/// Source-of-truth variant names for `ori_ir::Align`.
-fn ir_align_names() -> Vec<&'static str> {
-    use ori_ir::format_spec::Align;
+/// Source-of-truth variant names for `ori_format::Align`.
+fn align_names() -> Vec<&'static str> {
+    use ori_format::Align;
     [Align::Left, Align::Center, Align::Right]
         .iter()
         .map(|a| match a {
@@ -123,9 +123,9 @@ fn ir_align_names() -> Vec<&'static str> {
         .collect()
 }
 
-/// Source-of-truth variant names for `ori_ir::Sign`.
-fn ir_sign_names() -> Vec<&'static str> {
-    use ori_ir::format_spec::Sign;
+/// Source-of-truth variant names for `ori_format::Sign`.
+fn sign_names() -> Vec<&'static str> {
+    use ori_format::Sign;
     [Sign::Plus, Sign::Minus, Sign::Space]
         .iter()
         .map(|s| match s {
@@ -149,7 +149,7 @@ fn read_workspace_file(rel_path: &str) -> String {
 #[test]
 fn format_type_variants_synced_with_types_registration() {
     let src = read_workspace_file("ori_types/src/check/registration/builtin_types.rs");
-    for name in ir_format_type_names() {
+    for name in format_type_names() {
         let pattern = format!("\"{name}\"");
         assert!(
             src.contains(&pattern),
@@ -162,7 +162,7 @@ fn format_type_variants_synced_with_types_registration() {
 #[test]
 fn format_type_variants_synced_with_eval_registration() {
     let src = read_workspace_file("ori_eval/src/interpreter/prelude.rs");
-    for name in ir_format_type_names() {
+    for name in format_type_names() {
         let pattern = format!("\"{name}\"");
         assert!(
             src.contains(&pattern),
@@ -175,7 +175,7 @@ fn format_type_variants_synced_with_eval_registration() {
 #[test]
 fn alignment_variants_synced_with_types_registration() {
     let src = read_workspace_file("ori_types/src/check/registration/builtin_types.rs");
-    for name in ir_align_names() {
+    for name in align_names() {
         let pattern = format!("\"{name}\"");
         assert!(
             src.contains(&pattern),
@@ -188,7 +188,7 @@ fn alignment_variants_synced_with_types_registration() {
 #[test]
 fn alignment_variants_synced_with_eval_registration() {
     let src = read_workspace_file("ori_eval/src/interpreter/prelude.rs");
-    for name in ir_align_names() {
+    for name in align_names() {
         let pattern = format!("\"{name}\"");
         assert!(
             src.contains(&pattern),
@@ -201,7 +201,7 @@ fn alignment_variants_synced_with_eval_registration() {
 #[test]
 fn sign_variants_synced_with_types_registration() {
     let src = read_workspace_file("ori_types/src/check/registration/builtin_types.rs");
-    for name in ir_sign_names() {
+    for name in sign_names() {
         let pattern = format!("\"{name}\"");
         assert!(
             src.contains(&pattern),
@@ -214,7 +214,7 @@ fn sign_variants_synced_with_types_registration() {
 #[test]
 fn sign_variants_synced_with_eval_registration() {
     let src = read_workspace_file("ori_eval/src/interpreter/prelude.rs");
-    for name in ir_sign_names() {
+    for name in sign_names() {
         let pattern = format!("\"{name}\"");
         assert!(
             src.contains(&pattern),
@@ -224,7 +224,7 @@ fn sign_variants_synced_with_eval_registration() {
     }
 }
 
-// Cross-phase enforcement tests (Section 14.2)
+// Cross-phase enforcement tests
 //
 // These tests verify that every compiler phase faithfully implements all
 // methods declared in `ori_registry`. No manual lists. No allowlists.
@@ -232,11 +232,8 @@ fn sign_variants_synced_with_eval_registration() {
 
 /// For each type in `BUILTIN_TYPES`, for each method, verify that the
 /// registry resolves it. Since the type checker uses
-/// `ori_registry::find_method()` directly (Section 09 wiring), method
-/// existence in the registry IS type checker recognition.
-///
-/// Replaces: `typeck_method_list_is_sorted`, `typeck_primitive_methods_in_ir`,
-/// `eval_methods_recognized_by_typeck`.
+/// `ori_registry::find_method()` directly, method existence in the registry
+/// IS type checker recognition.
 #[test]
 fn every_registry_method_has_typeck_handler() {
     use ori_registry::{find_method, BUILTIN_TYPES};
@@ -273,9 +270,9 @@ fn every_registry_method_has_typeck_handler() {
 /// For each method in `ori_registry::borrowing_method_names()`, verify
 /// that `ori_arc::borrowing_builtin_names()` includes it.
 ///
-/// After Section 11, `ori_arc` reads ownership directly from the registry
-/// via `ori_registry::borrowing_method_names()`. This test verifies the
-/// interned ARC set matches the registry-derived source set.
+/// `ori_arc` reads ownership directly from the registry via
+/// `ori_registry::borrowing_method_names()`. This test verifies the interned
+/// ARC set matches the registry-derived source set.
 #[cfg(feature = "llvm")]
 #[test]
 fn every_registry_borrowing_method_in_arc_set() {
@@ -374,18 +371,19 @@ fn backend_required_methods_in_eval() {
     );
 }
 
-/// Methods marked `pure: true` should not consume their receiver
-/// (`Ownership::Owned` implies mutation/consumption, contradicting purity).
+/// Pure methods should normally borrow their receiver. This guard catches
+/// accidental consuming entries while admitting methods whose value semantics
+/// require ownership transfer.
 ///
-/// **Exception: iterator methods.** Every method on `Iterator` and
-/// `DoubleEndedIterator` is pure (same inputs → same outputs, no
-/// observable side effects) but also **consumes** the receiver via
-/// `Box::from_raw(iter.cast::<IterState>())`. Purity (referential
-/// transparency) and linear consumption (move-only ownership) are
-/// independent concepts — iterators are both. The iterator method
-/// receiver was previously marked `Borrow` as a workaround, which
-/// caused memory leaks. The SSOT is now honest: these
-/// methods are `Owned + pure`.
+/// Spec Clause 20.12 defines purity only in terms of observable effects and
+/// suspension; Clause 21.2 independently permits argument ownership transfer.
+/// The exception set below therefore records the intentional intersection of
+/// those two properties rather than weakening either invariant.
+///
+/// **Exceptions: consuming pure methods.** Iterator methods consume their
+/// move-only state, while the fixed-capacity list conversions transfer the
+/// receiver's allocation identity. Neither operation has observable side
+/// effects, so purity and linear receiver consumption remain independent.
 ///
 /// Also verifies that at least 30% of methods are marked pure (catches
 /// the failure mode of someone defaulting everything to `pure: false`).
@@ -397,11 +395,7 @@ fn pure_method_sanity() {
     let mut pure_count = 0;
 
     for type_def in BUILTIN_TYPES {
-        // Iterator methods are pure + Owned (see doc comment above).
-        // previously `Borrow` as a workaround for the ARC
-        // pipeline treating iterators as trivial; that workaround
-        // leaked memory and is now fixed at the SSOT.
-        let is_iterator = matches!(
+        let has_consuming_pure_methods = matches!(
             type_def.tag,
             TypeTag::Iterator | TypeTag::DoubleEndedIterator
         );
@@ -409,12 +403,15 @@ fn pure_method_sanity() {
             total_methods += 1;
             if method.pure {
                 pure_count += 1;
-                if !is_iterator {
+                let transfers_list_allocation = type_def.tag == TypeTag::List
+                    && matches!(method.name, "to_dynamic" | "to_fixed");
+                if !has_consuming_pure_methods && !transfers_list_allocation {
                     assert_ne!(
                         method.receiver,
                         Ownership::Owned,
                         "Method `{}.{}` is marked pure but has Ownership::Owned receiver. \
-                         Pure methods should borrow, not consume (except iterator methods).",
+                         Pure methods should borrow unless receiver consumption is part of their \
+                         value semantics.",
                         type_def.name,
                         method.name,
                     );
@@ -435,7 +432,7 @@ fn pure_method_sanity() {
 
 /// Generate the testing matrix coverage counts.
 ///
-/// Since the type checker reads directly from `ori_registry` (Section 09),
+/// Since the type checker reads directly from `ori_registry`,
 /// typeck coverage is 100% by construction. Eval coverage uses
 /// `dispatch_builtin_method_str`. LLVM coverage must be checked in `ori_llvm`.
 /// ARC borrow coverage uses `ori_registry::borrowing_method_names()`.
@@ -602,7 +599,7 @@ fn well_known_generic_types_consistent() {
             "registration",
             "ori_types/src/check/registration/type_resolution.rs",
         ),
-        ("signatures", "ori_types/src/check/signatures/mod.rs"),
+        ("signatures", "ori_types/src/check/signatures/resolution.rs"),
         (
             "type_resolution",
             "ori_types/src/infer/expr/type_resolution.rs",

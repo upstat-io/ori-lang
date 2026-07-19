@@ -1,4 +1,4 @@
-//! SEH main wrapper: `ori_try_call` thunk for `@main(args: [str])` on MSVC.
+//! SEH main wrapper: `ori_try_call` thunks for `@main` on MSVC.
 //!
 //! On MSVC, Ori panics use `RaiseException` with a custom exception code
 //! (`ORI_SEH_EXCEPTION_CODE`). LLVM's `catchpad`/`__CxxFrameHandler3` does NOT
@@ -11,9 +11,63 @@
 use super::entry_point::MainArgsCleanup;
 use super::FunctionCompiler;
 use crate::codegen::abi::{ParamPassing, ReturnPassing};
-use crate::codegen::value_id::FunctionId;
+use crate::codegen::value_id::{FunctionId, LLVMTypeId};
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
+    /// Emit a no-argument `_ori_main` call via `ori_try_call` (SEH/MSVC).
+    ///
+    /// Even without an args buffer to clean up, an unwinding `@main` needs a
+    /// true process boundary so uncaught panics are reported and converted to
+    /// exit code 1. A direct call would let `RaiseException` escape the C main
+    /// wrapper and would bypass the deferred panic diagnostic.
+    pub(super) fn emit_main_call_no_args_with_seh_try(
+        &mut self,
+        c_main_id: FunctionId,
+        ori_main_id: FunctionId,
+        return_passing: ReturnPassing,
+        returns_int: bool,
+        i32_ty: LLVMTypeId,
+    ) {
+        let i64_ty = self.builder.i64_type();
+        let thunk_id =
+            self.generate_main_no_args_seh_thunk(ori_main_id, return_passing, returns_int);
+
+        let ctx = if returns_int {
+            self.builder
+                .create_entry_alloca(c_main_id, "main.seh.result", i64_ty)
+        } else {
+            self.builder.const_null_ptr()
+        };
+
+        let try_call_fn = self.builder.runtime_fn("ori_try_call");
+        let thunk_ptr = self.builder.get_function_ptr(thunk_id);
+        let result = self
+            .builder
+            .call(try_call_fn, &[thunk_ptr, ctx], "try.result")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+
+        let one = self.builder.const_i64(1);
+        let is_ok = self.builder.icmp_eq(result, one, "try.ok");
+        let success_bb = self.builder.append_block(c_main_id, "seh.success");
+        let caught_bb = self.builder.append_block(c_main_id, "seh.caught");
+        self.builder.cond_br(is_ok, success_bb, caught_bb);
+
+        self.builder.position_at_end(success_bb);
+        let main_exit_code = if returns_int {
+            let result_val = self.builder.load(i64_ty, ctx, "main.result");
+            self.builder.trunc(result_val, i32_ty, "exit_code")
+        } else {
+            self.builder.const_i32(0)
+        };
+        self.emit_leak_check_and_ret(main_exit_code);
+
+        self.builder.position_at_end(caught_bb);
+        let report_panic = self.builder.runtime_fn("ori_report_uncaught_panic");
+        self.builder.call(report_panic, &[], "");
+        let panic_exit = self.builder.const_i32(1);
+        self.builder.ret(panic_exit);
+    }
+
     /// Emit `_ori_main` call via `ori_try_call` thunk (SEH/MSVC).
     ///
     /// Wraps `_ori_main` in a thunk callable by `ori_try_call`, which uses
@@ -110,6 +164,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
         // Caught: always cleanup args + return exit code 1
         self.builder.position_at_end(caught_bb);
+        let report_panic = self.builder.runtime_fn("ori_report_uncaught_panic");
+        self.builder.call(report_panic, &[], "");
         self.builder.call(cleanup_fn, &[data, len], "");
         let panic_exit = self.builder.const_i32(1);
         self.builder.ret(panic_exit);
@@ -194,6 +250,61 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
             self.builder.set_current_function(f);
+        }
+
+        thunk_id
+    }
+
+    /// Generate `void @_ori_main_no_args_seh_thunk(ptr %ctx)` for
+    /// `ori_try_call`. The context is null for a void main and points to an
+    /// `i64` result slot for an integer-returning main.
+    fn generate_main_no_args_seh_thunk(
+        &mut self,
+        ori_main_id: FunctionId,
+        return_passing: ReturnPassing,
+        returns_int: bool,
+    ) -> FunctionId {
+        let ptr_ty = self.builder.ptr_type();
+        let thunk_id = self
+            .builder
+            .declare_void_function("_ori_main_no_args_seh_thunk", &[ptr_ty]);
+        self.builder.set_ccc(thunk_id);
+        self.builder.add_uwtable_attribute(thunk_id);
+
+        let saved_pos = self.builder.save_position();
+        let saved_func = self.builder.current_function();
+
+        let entry = self.builder.append_block(thunk_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(thunk_id);
+
+        let result = match &return_passing {
+            ReturnPassing::Direct => self.builder.call(ori_main_id, &[], "thunk.result"),
+            ReturnPassing::Void | ReturnPassing::Sret { .. } => {
+                self.builder.call(ori_main_id, &[], "");
+                None
+            }
+        };
+
+        if returns_int {
+            if let Some(value) = result {
+                let ctx = self.builder.get_param(thunk_id, 0);
+                self.builder.store(value, ctx);
+            }
+        }
+        self.builder.ret_void();
+
+        if self.verify_arc {
+            let fn_val = self.builder.get_function_value(thunk_id);
+            if !fn_val.verify(true) {
+                tracing::error!("LLVM IR verification failed (generate_main_no_args_seh_thunk)");
+                self.builder.record_codegen_error();
+            }
+        }
+
+        self.builder.restore_position(saved_pos);
+        if let Some(function) = saved_func {
+            self.builder.set_current_function(function);
         }
 
         thunk_id

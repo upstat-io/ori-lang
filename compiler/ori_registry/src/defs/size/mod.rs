@@ -1,13 +1,13 @@
 //! `Size` type definition.
 //!
 //! Size is stored as `i64` bytes (non-negative). Copy type with arithmetic operator support
-//! via `IntInstr`. Has heterogeneous `mul`/`div` operators (take `int`, not
+//! via `SignedInteger`. Has heterogeneous `mul`/`div` operators (take `int`, not
 //! `Self`). No `neg` operator — Size is semantically non-negative.
 //! Includes `format` (explicit Formattable entry). SI units (1000-based).
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ParamDef, ReturnTag, TypeDef,
-    TypeParamArity, TypeTag, ONE_SELF_COPY,
+    BackendRequirement, MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ParamDef,
+    ReturnTag, TypeDef, TypeParamArity, TypeTag, ONE_SELF_COPY,
 };
 
 // Shared parameter arrays
@@ -33,11 +33,10 @@ const STR: ReturnTag = ReturnTag::Concrete(TypeTag::Str);
 const ORD: ReturnTag = ReturnTag::Concrete(TypeTag::Ordering);
 const SELF: ReturnTag = ReturnTag::SelfType;
 
-// b = backend_required
-const B: bool = true;
-const NB: bool = false;
+const BACKEND_REQUIRED: BackendRequirement = BackendRequirement::Required;
+const BACKEND_NOT_REQUIRED: BackendRequirement = BackendRequirement::NotRequired;
 
-// All 34 methods alphabetically sorted.
+// All methods alphabetically sorted.
 static SIZE_METHODS: &[MethodDef] = &[
     MethodDef::compound(
         "add",
@@ -45,27 +44,51 @@ static SIZE_METHODS: &[MethodDef] = &[
         SELF,
         Some("Add"),
         Ownership::Borrow,
-        B,
+        BACKEND_REQUIRED,
     ),
-    MethodDef::compound("as_bytes", &[], INT, None, Ownership::Borrow, NB),
-    MethodDef::compound("bytes", &[], INT, None, Ownership::Borrow, B),
-    MethodDef::compound("clone", &[], SELF, Some("Clone"), Ownership::Borrow, B),
+    MethodDef::compound(
+        "as_bytes",
+        &[],
+        INT,
+        None,
+        Ownership::Borrow,
+        BACKEND_NOT_REQUIRED,
+    ),
+    MethodDef::compound("bytes", &[], INT, None, Ownership::Borrow, BACKEND_REQUIRED),
+    MethodDef::compound(
+        "clone",
+        &[],
+        SELF,
+        Some("Clone"),
+        Ownership::Borrow,
+        BACKEND_REQUIRED,
+    ),
     MethodDef::compound(
         "compare",
         &ONE_SELF_COPY,
         ORD,
         Some("Comparable"),
         Ownership::Borrow,
-        B,
+        BACKEND_REQUIRED,
     ),
-    MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, B),
+    MethodDef::compound(
+        "debug",
+        &[],
+        STR,
+        Some("Debug"),
+        Ownership::Borrow,
+        BACKEND_REQUIRED,
+    ),
+    // Default::default() -> Self (0b). Associated (no receiver); the Default
+    // trait it satisfies is also listed in TypeDef.traits.
+    MethodDef::associated("default", &[], SELF),
     MethodDef::compound(
         "div",
         &SCALAR_PARAM,
         SELF,
         Some("Div"),
         Ownership::Borrow,
-        B,
+        BACKEND_REQUIRED,
     ),
     MethodDef::compound(
         "equals",
@@ -73,7 +96,7 @@ static SIZE_METHODS: &[MethodDef] = &[
         BOOL,
         Some("Eq"),
         Ownership::Borrow,
-        B,
+        BACKEND_REQUIRED,
     ),
     MethodDef::compound(
         "format",
@@ -81,7 +104,7 @@ static SIZE_METHODS: &[MethodDef] = &[
         STR,
         Some("Formattable"),
         Ownership::Borrow,
-        NB,
+        BACKEND_NOT_REQUIRED,
     ),
     MethodDef::associated("from_bytes", &INT_PARAM, SELF),
     MethodDef::associated("from_gb", &INT_PARAM, SELF),
@@ -92,18 +115,53 @@ static SIZE_METHODS: &[MethodDef] = &[
     MethodDef::associated("from_megabytes", &INT_PARAM, SELF),
     MethodDef::associated("from_tb", &INT_PARAM, SELF),
     MethodDef::associated("from_terabytes", &INT_PARAM, SELF),
-    MethodDef::compound("gigabytes", &[], INT, None, Ownership::Borrow, B),
-    MethodDef::compound("hash", &[], INT, Some("Hashable"), Ownership::Borrow, B),
-    MethodDef::compound("is_zero", &[], BOOL, None, Ownership::Borrow, NB),
-    MethodDef::compound("kilobytes", &[], INT, None, Ownership::Borrow, B),
-    MethodDef::compound("megabytes", &[], INT, None, Ownership::Borrow, B),
+    MethodDef::compound(
+        "gigabytes",
+        &[],
+        INT,
+        None,
+        Ownership::Borrow,
+        BACKEND_REQUIRED,
+    ),
+    MethodDef::compound(
+        "hash",
+        &[],
+        INT,
+        Some("Hashable"),
+        Ownership::Borrow,
+        BACKEND_REQUIRED,
+    ),
+    MethodDef::compound(
+        "is_zero",
+        &[],
+        BOOL,
+        None,
+        Ownership::Borrow,
+        BACKEND_NOT_REQUIRED,
+    ),
+    MethodDef::compound(
+        "kilobytes",
+        &[],
+        INT,
+        None,
+        Ownership::Borrow,
+        BACKEND_REQUIRED,
+    ),
+    MethodDef::compound(
+        "megabytes",
+        &[],
+        INT,
+        None,
+        Ownership::Borrow,
+        BACKEND_REQUIRED,
+    ),
     MethodDef::compound(
         "mul",
         &SCALAR_PARAM,
         SELF,
         Some("Mul"),
         Ownership::Borrow,
-        B,
+        BACKEND_REQUIRED,
     ),
     MethodDef::compound(
         "rem",
@@ -111,7 +169,7 @@ static SIZE_METHODS: &[MethodDef] = &[
         SELF,
         Some("Rem"),
         Ownership::Borrow,
-        B,
+        BACKEND_REQUIRED,
     ),
     MethodDef::compound(
         "sub",
@@ -119,15 +177,64 @@ static SIZE_METHODS: &[MethodDef] = &[
         SELF,
         Some("Sub"),
         Ownership::Borrow,
-        B,
+        BACKEND_REQUIRED,
     ),
-    MethodDef::compound("terabytes", &[], INT, None, Ownership::Borrow, B),
-    MethodDef::compound("to_bytes", &[], INT, None, Ownership::Borrow, NB),
-    MethodDef::compound("to_gb", &[], INT, None, Ownership::Borrow, NB),
-    MethodDef::compound("to_kb", &[], INT, None, Ownership::Borrow, NB),
-    MethodDef::compound("to_mb", &[], INT, None, Ownership::Borrow, NB),
-    MethodDef::compound("to_str", &[], STR, Some("Printable"), Ownership::Borrow, B),
-    MethodDef::compound("to_tb", &[], INT, None, Ownership::Borrow, NB),
+    MethodDef::compound(
+        "terabytes",
+        &[],
+        INT,
+        None,
+        Ownership::Borrow,
+        BACKEND_REQUIRED,
+    ),
+    MethodDef::compound(
+        "to_bytes",
+        &[],
+        INT,
+        None,
+        Ownership::Borrow,
+        BACKEND_NOT_REQUIRED,
+    ),
+    MethodDef::compound(
+        "to_gb",
+        &[],
+        INT,
+        None,
+        Ownership::Borrow,
+        BACKEND_NOT_REQUIRED,
+    ),
+    MethodDef::compound(
+        "to_kb",
+        &[],
+        INT,
+        None,
+        Ownership::Borrow,
+        BACKEND_NOT_REQUIRED,
+    ),
+    MethodDef::compound(
+        "to_mb",
+        &[],
+        INT,
+        None,
+        Ownership::Borrow,
+        BACKEND_NOT_REQUIRED,
+    ),
+    MethodDef::compound(
+        "to_str",
+        &[],
+        STR,
+        Some("Printable"),
+        Ownership::Borrow,
+        BACKEND_REQUIRED,
+    ),
+    MethodDef::compound(
+        "to_tb",
+        &[],
+        INT,
+        None,
+        Ownership::Borrow,
+        BACKEND_NOT_REQUIRED,
+    ),
     MethodDef::associated("zero", &[], SELF),
 ];
 
@@ -138,18 +245,18 @@ pub static SIZE: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(0),
     methods: SIZE_METHODS,
     operators: OpDefs {
-        add: OpStrategy::IntInstr,
-        sub: OpStrategy::IntInstr,
-        mul: OpStrategy::IntInstr,
-        div: OpStrategy::IntInstr,
-        rem: OpStrategy::IntInstr,
+        add: OpStrategy::SignedInteger,
+        sub: OpStrategy::SignedInteger,
+        mul: OpStrategy::SignedInteger,
+        div: OpStrategy::SignedInteger,
+        rem: OpStrategy::SignedInteger,
         floor_div: OpStrategy::Unsupported,
-        eq: OpStrategy::IntInstr,
-        neq: OpStrategy::IntInstr,
-        lt: OpStrategy::IntInstr,
-        gt: OpStrategy::IntInstr,
-        lt_eq: OpStrategy::IntInstr,
-        gt_eq: OpStrategy::IntInstr,
+        eq: OpStrategy::SignedInteger,
+        neq: OpStrategy::SignedInteger,
+        lt: OpStrategy::SignedInteger,
+        gt: OpStrategy::SignedInteger,
+        lt_eq: OpStrategy::SignedInteger,
+        gt_eq: OpStrategy::SignedInteger,
         neg: OpStrategy::Unsupported,
         not: OpStrategy::Unsupported,
         bit_and: OpStrategy::Unsupported,

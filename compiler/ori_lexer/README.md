@@ -39,4 +39,4 @@ Benchmark harness lives in `compiler/oric/benches/lexer.rs` and `compiler/oric/b
 
 ## References
 
-- MEMORY `§Parser Performance` — throughput benchmarks
+- `compiler/oric/benches/lexer.rs` / `lexer_core.rs` — throughput benchmarks (cooked/raw tiers)

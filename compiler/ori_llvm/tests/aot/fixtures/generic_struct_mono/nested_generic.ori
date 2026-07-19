@@ -1,0 +1,13 @@
+// Cell 4 — nested generic: a generic struct field that is itself a generic
+// instantiation. The deep link-follow must resolve the nested Applied field.
+use std.testing { assert_eq }
+
+type Box<T> = { val: T }
+
+@main () -> int = {
+    let $bb = Box { val: Box { val: 9 } };
+    let $bl = Box { val: [10, 20] };
+    assert_eq(actual: bb.val.val, expected: 9);
+    assert_eq(actual: bl.val.len(), expected: 2);
+    0
+}

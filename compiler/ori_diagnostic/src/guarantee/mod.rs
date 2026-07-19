@@ -79,5 +79,5 @@ impl fmt::Display for ErrorGuaranteed {
 impl std::error::Error for ErrorGuaranteed {}
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, reason = "test assertions use unwrap for clarity")]
+#[expect(clippy::unwrap_used, reason = "test assertions use unwrap for clarity")]
 mod tests;

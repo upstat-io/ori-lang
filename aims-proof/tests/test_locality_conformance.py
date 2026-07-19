@@ -61,6 +61,8 @@ def test_manifest_authored_with_expected_rule_set(workspace_root: Path) -> None:
     assert rule_ids == MANIFEST_RULE_IDS, (
         f"manifest rule set drift: expected {MANIFEST_RULE_IDS}, got {rule_ids}"
     )
+    rl18a = next(row for row in manifest["rules"] if row["id"] == "RL-18a")
+    assert rl18a["proof_artifact"].endswith("/RL-18a.proof"), rl18a
 
 
 def test_manifest_validates_against_schema(workspace_root: Path) -> None:

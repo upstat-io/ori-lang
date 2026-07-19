@@ -2,7 +2,7 @@
 
 use super::*;
 
-// ─── widen ────────────────────────────────────────────────────
+// widen
 
 #[test]
 fn widen_bottom_identity() {
@@ -79,7 +79,7 @@ fn widen_terminates_in_two_steps() {
     assert_eq!(w1, ValueRange::Top);
 }
 
-// ─── narrow ──────────────────────────────────────────────────
+// narrow
 
 #[test]
 fn narrow_tightens() {
@@ -106,7 +106,7 @@ fn narrow_bottom_stays_bottom() {
     );
 }
 
-// ─── range_fixpoint ──────────────────────────────────────────
+// range_fixpoint
 
 /// Budget exceeded: function with too many blocks returns all-Top.
 #[test]
@@ -143,6 +143,7 @@ fn fixpoint_budget_exceeded() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -189,6 +190,7 @@ fn fixpoint_constant_let() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -282,6 +284,7 @@ fn fixpoint_return_range_join() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -384,6 +387,7 @@ fn fixpoint_block_param_merging() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -403,7 +407,7 @@ fn fixpoint_block_param_merging() {
     );
 }
 
-// ─── block-entry refinements for non-param vars ─────
+// block-entry refinements for non-param vars
 
 /// Semantic pin: non-parameter variable refined via Branch.
 /// Block 0: let x = constant [0, 200], let cond = x < 100, Branch(cond, b1, b2)
@@ -486,6 +490,7 @@ fn fixpoint_branch_refines_non_param_variable() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -569,6 +574,7 @@ fn fixpoint_switch_refines_non_param_variable() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -590,7 +596,7 @@ fn fixpoint_switch_refines_non_param_variable() {
     );
 }
 
-// ─── field summary recompute after narrowing ────────
+// field summary recompute after narrowing
 
 /// Field summary reflects post-narrowing ranges, not pre-narrowing widened ranges.
 /// Construct a function with a Construct that uses a variable. After analysis,
@@ -642,6 +648,7 @@ fn fixpoint_field_summary_uses_final_ranges() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -662,7 +669,7 @@ fn fixpoint_field_summary_uses_final_ranges() {
     );
 }
 
-// ─── Switch multi-case same-block must join, not overwrite ───
+// Switch multi-case same-block must join, not overwrite
 
 /// When multiple Switch cases target the same successor block, the scrutinee
 /// refinement should be the JOIN of all case values, not just the last one.
@@ -743,6 +750,7 @@ fn fixpoint_switch_multi_case_same_block_joins() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -763,7 +771,7 @@ fn fixpoint_switch_multi_case_same_block_joins() {
     );
 }
 
-// ─── Switch default block gets complement refinement ─────
+// Switch default block gets complement refinement
 
 /// The default successor of a Switch should receive a complement refinement
 /// that excludes contiguous case values from the scrutinee's edges.
@@ -853,6 +861,7 @@ fn fixpoint_switch_default_gets_complement() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -875,7 +884,7 @@ fn fixpoint_switch_default_gets_complement() {
     );
 }
 
-// ─── multi-predecessor switch default must join, not meet ─
+// multi-predecessor switch default must join, not meet
 
 /// Build a diamond CFG where two switch blocks target the same default.
 /// entry: x ∈ [0,10]; branch → left, right
@@ -972,6 +981,7 @@ fn build_multi_pred_switch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -1000,7 +1010,7 @@ fn fixpoint_switch_default_multi_predecessor_joins() {
     );
 }
 
-// ─── Narrowing pass recovers loop-bound block parameters ─
+// Narrowing pass recovers loop-bound block parameters
 
 /// Build a simple bounded loop: `for i in 0..<limit` with increment 1.
 /// Returns `(function, loop_var)` for assertion.
@@ -1096,6 +1106,7 @@ fn build_bounded_loop_func(limit: i64) -> (ori_arc::ir::ArcFunction, ArcVarId) {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -1132,7 +1143,7 @@ fn fixpoint_narrowing_recovers_loop_bound() {
     );
 }
 
-// ─── Branch refinement overwrite + stale iterations ──
+// Branch refinement overwrite + stale iterations
 
 /// Build a multi-predecessor Branch refinement CFG. Returns `(func, v_y)`.
 #[expect(
@@ -1239,6 +1250,7 @@ fn build_multi_pred_branch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -1277,7 +1289,7 @@ fn fixpoint_branch_multi_predecessor_refinement_joins() {
     );
 }
 
-// ─── return_range must be recomputed after narrowing ──────
+// return_range must be recomputed after narrowing
 
 /// Semantic pin: a bounded loop function's `return_range` should narrow along
 /// with the loop variable. The loop returns `v_i` which narrows to [0, 10].
@@ -1301,7 +1313,7 @@ fn fixpoint_return_range_recomputed_after_narrowing() {
     );
 }
 
-// ─── projection refresh after field-summary recompute ──────
+// projection refresh after field-summary recompute
 
 /// Build a bounded loop where the exit block constructs a struct from the
 /// loop variable, projects field 0, and returns the projection.
@@ -1397,7 +1409,7 @@ fn fixpoint_projection_refreshed_after_field_summary_recompute() {
     );
 }
 
-// ─── return_range must not include unreachable blocks ──────
+// return_range must not include unreachable blocks
 
 /// Semantic pin: a function with an unreachable return block must NOT have
 /// its `return_range` polluted by the dead block's return variable.
@@ -1466,6 +1478,7 @@ fn fixpoint_return_range_excludes_unreachable_blocks() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -1562,6 +1575,7 @@ fn fixpoint_return_range_includes_all_reachable_returns() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -1582,7 +1596,7 @@ fn fixpoint_return_range_includes_all_reachable_returns() {
     );
 }
 
-// ─── Invoke terminator must define dst variable range ──────
+// Invoke terminator must define dst variable range
 
 /// Semantic pin: an Invoke terminator defines a `dst` variable and its
 /// range must appear in the fixpoint result. For an unknown function,
@@ -1649,6 +1663,7 @@ fn fixpoint_invoke_defines_dst_variable() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],
@@ -1681,7 +1696,7 @@ fn fixpoint_invoke_defines_dst_variable() {
     );
 }
 
-// ─── Loop convergence: SSA body vars must not be widened ──────────
+// Loop convergence: SSA body vars must not be widened
 
 /// Build a loop that matches real ARC IR structure: copy variables in body.
 ///
@@ -1869,6 +1884,7 @@ fn build_real_loop_func(
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
         burden_emitted: vec![],

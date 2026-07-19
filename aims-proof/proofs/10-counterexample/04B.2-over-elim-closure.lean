@@ -20,8 +20,8 @@ inductive ProgramPoint
 deriving Repr, DecidableEq
 
 -- The RC-ledger invariant exported by RL-1-RL-2 composition (P2):
--- at scope exit the cumulative inc - cumulative dec on the heap-allocated
--- owned non-scalar nets to 0.
+-- at scope exit the cumulative logical credit - debit on the owned
+-- non-scalar allocation identity nets to 0.
 def rc_balance_invariant (rc_balance : ProgramPoint → Int) : Prop :=
   rc_balance ProgramPoint.PP_scope_exit = 0
 

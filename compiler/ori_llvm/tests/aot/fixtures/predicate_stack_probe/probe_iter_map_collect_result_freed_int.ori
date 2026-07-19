@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = [1, 2, 3];
+    let doubled = xs.iter().map(x -> x * 2).collect();
+    if doubled.length() == 3 then 0 else 1
+}

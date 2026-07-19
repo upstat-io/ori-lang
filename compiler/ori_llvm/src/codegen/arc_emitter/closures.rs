@@ -6,13 +6,13 @@
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_arc::ownership::Ownership;
-use ori_arc::DropKind;
+use ori_arc::{ClosureAdapterPlan, ClosureAdapterSource, DropKind};
 use ori_ir::Name;
 use ori_types::Idx;
 
 use super::context::EmittedValue;
 use super::ArcIrEmitter;
-use crate::codegen::abi::ParamAbi;
+use crate::codegen::abi::{compute_closure_param_passing, FunctionAbi, ParamAbi};
 use crate::codegen::type_info::TypeLayoutResolver;
 use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
 
@@ -47,24 +47,51 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "ArcIrEmitter: PartialApply — closure creation"
         );
 
-        // Look up the callee (lambda function), already compiled and registered
-        let Some(&(callee_func_id, ref callee_abi)) = self.ctx.functions.get(&callee) else {
-            tracing::warn!(
-                name = callee_name_str,
-                "emit_partial_apply: callee not found"
-            );
-            let closure_ty = self.builder.closure_type();
-            let null_ptr = self.builder.const_null_ptr();
-            let closure =
-                self.builder
-                    .build_struct(closure_ty, &[null_ptr, null_ptr], "partial_apply");
-            self.def_var(dst, EmittedValue::Aggregate(closure));
+        let Some((callee_func_id, callee_abi, frozen_adapter)) =
+            self.resolve_partial_apply_target(dst, callee, args.len())
+        else {
             return;
         };
 
-        // Non-capturing fast path: lambda already has closure-compatible ABI,
-        // so use its function pointer directly — no wrapper needed.
-        if is_non_capturing && args.is_empty() {
+        let num_captures = args.len();
+        let remaining_params: Vec<ParamAbi> = callee_abi.params[num_captures..]
+            .iter()
+            .enumerate()
+            .map(|(residual_index, target)| {
+                let ty = frozen_adapter.as_ref().map_or(target.ty, |adapter| {
+                    adapter.slots()[num_captures + residual_index].ty
+                });
+                ParamAbi {
+                    name: target.name,
+                    ty,
+                    passing: compute_closure_param_passing(
+                        ty,
+                        self.type_info,
+                        self.repr_plan,
+                        self.classifier,
+                    ),
+                    readonly: true,
+                }
+            })
+            .collect();
+
+        // Non-capturing fast path: use the target function pointer directly
+        // only when both its logical adapter and physical residual ABI already
+        // match the target-independent closure convention.
+        let residual_abi_matches_target =
+            remaining_params
+                .iter()
+                .map(|param| param.passing)
+                .eq(callee_abi.params[num_captures..]
+                    .iter()
+                    .map(|param| param.passing));
+        if is_non_capturing
+            && args.is_empty()
+            && frozen_adapter
+                .as_ref()
+                .is_none_or(|adapter| !adapter.requires_retain())
+            && residual_abi_matches_target
+        {
             let fn_ptr = self.builder.get_function_ptr(callee_func_id);
             let null_env = self.builder.const_null_ptr();
             let closure_ty = self.builder.closure_type();
@@ -75,53 +102,129 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        let callee_abi = callee_abi.clone();
-        let num_captures = args.len();
-
         // Capture types (from ARC IR variable types)
         let capture_types: Vec<Idx> = args.iter().map(|&v| func.var_type(v)).collect();
 
-        // Remaining user params (the closure awaits these)
-        let remaining_params: Vec<ParamAbi> = callee_abi.params[num_captures..].to_vec();
-
         // Capture ownership: which captures are borrowed (skip RcInc in wrapper — body borrows from env).
-        let capture_ownership: Vec<Ownership> = self
-            .ctx
-            .lambda_capture_ownership
-            .get(&callee)
-            .cloned()
-            .unwrap_or_else(|| {
-                tracing::warn!(
-                    name = callee_name_str,
-                    captures = num_captures,
-                    "lambda_capture_ownership missing — defaulting to all-Owned (conservative)"
-                );
-                vec![Ownership::Owned; num_captures]
-            });
+        let capture_ownership: Vec<Ownership> = if frozen_adapter.is_some() {
+            Vec::new()
+        } else {
+            self.ctx
+                .lambda_capture_ownership
+                .get(&callee)
+                .cloned()
+                .unwrap_or_else(|| {
+                    tracing::warn!(
+                        name = callee_name_str,
+                        captures = num_captures,
+                        "unbound LLVM entry is missing transitional capture ownership"
+                    );
+                    vec![Ownership::Owned; num_captures]
+                })
+        };
 
-        // == Allocate and pack the environment ==
+        // Allocate and pack the environment
         let env_ptr = if capture_types.is_empty() {
             self.builder.const_null_ptr()
         } else {
             self.build_closure_env(args, &capture_types)
         };
 
-        // == Generate wrapper function ==
+        // Generate wrapper function
         let target_is_nounwind = self.ctx.nounwind_functions.contains(&callee);
         let wrapper_fn_ptr = self.generate_closure_wrapper(
             callee_func_id,
             &callee_abi,
             &capture_types,
+            frozen_adapter.as_ref(),
             &capture_ownership,
             &remaining_params,
+            is_non_capturing,
             target_is_nounwind,
         );
 
-        // == Build fat-pointer closure { wrapper_fn_ptr, env_ptr } ==
+        // Build fat-pointer closure { wrapper_fn_ptr, env_ptr }
         let closure_ty = self.builder.closure_type();
         let closure =
             self.builder
                 .build_struct(closure_ty, &[wrapper_fn_ptr, env_ptr], "partial_apply");
+        self.def_var(dst, EmittedValue::Aggregate(closure));
+    }
+
+    /// Resolve and validate the closed target facts required for closure emission.
+    fn resolve_partial_apply_target(
+        &mut self,
+        dst: ArcVarId,
+        callee: Name,
+        capture_count: usize,
+    ) -> Option<(FunctionId, FunctionAbi, Option<ClosureAdapterPlan>)> {
+        let callee_name = self.interner.lookup(callee);
+        let Some(&(callee_func_id, ref callee_abi)) = self.ctx.functions.get(&callee) else {
+            tracing::warn!(name = callee_name, "emit_partial_apply: callee not found");
+            self.emit_invalid_partial_apply(dst, "partial_apply");
+            return None;
+        };
+
+        let frozen_adapter = self.ctx.closure_adapters.get(&callee).cloned();
+        if self.ctx.executable_facts_bound && frozen_adapter.is_none() {
+            self.builder.record_codegen_error_with_msg(format!(
+                "validated executable has no closure adapter for target {callee_name}"
+            ));
+            self.emit_invalid_partial_apply(dst, "partial_apply.invalid");
+            return None;
+        }
+
+        if frozen_adapter.as_ref().is_some_and(|adapter| {
+            adapter.capture_count() != capture_count
+                || adapter.slots().len() != callee_abi.params.len()
+                || adapter
+                    .slots()
+                    .iter()
+                    .zip(&callee_abi.params)
+                    .enumerate()
+                    .any(|(index, (slot, param))| {
+                        slot.ty != param.ty
+                            || if index < capture_count {
+                                slot.source != ClosureAdapterSource::EnvironmentCapture
+                            } else {
+                                slot.source != ClosureAdapterSource::BorrowedCallArgument
+                            }
+                    })
+        }) {
+            self.builder.record_codegen_error_with_msg(format!(
+                "closure adapter for {callee_name} disagrees with its emitted target signature"
+            ));
+            self.emit_invalid_partial_apply(dst, "partial_apply.invalid");
+            return None;
+        }
+
+        if frozen_adapter.is_none()
+            && callee_abi.params[capture_count..].iter().any(|param| {
+                compute_closure_param_passing(
+                    param.ty,
+                    self.type_info,
+                    self.repr_plan,
+                    self.classifier,
+                ) != param.passing
+            })
+        {
+            self.builder.record_codegen_error_with_msg(format!(
+                "closure target {callee_name} needs an ownership adapter for its residual signature"
+            ));
+            self.emit_invalid_partial_apply(dst, "partial_apply.invalid");
+            return None;
+        }
+
+        Some((callee_func_id, callee_abi.clone(), frozen_adapter))
+    }
+
+    /// Bind a null closure after a target-validation failure.
+    fn emit_invalid_partial_apply(&mut self, dst: ArcVarId, label: &str) {
+        let closure_ty = self.builder.closure_type();
+        let null_ptr = self.builder.const_null_ptr();
+        let closure = self
+            .builder
+            .build_struct(closure_ty, &[null_ptr, null_ptr], label);
         self.def_var(dst, EmittedValue::Aggregate(closure));
     }
 
@@ -220,7 +323,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Declare: void @_ori_partial_N_drop(ptr %data)
         let ptr_ty = self.builder.ptr_type();
         let func_id = self.builder.declare_void_function(&func_name, &[ptr_ty]);
-        self.builder.set_ccc(func_id);
+        self.builder.set_module_local(func_id);
         self.builder.add_nounwind_attribute(func_id);
         self.builder.add_cold_attribute(func_id);
         self.builder.add_uwtable_attribute(func_id);

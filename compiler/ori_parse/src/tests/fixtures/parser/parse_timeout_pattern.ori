@@ -1,0 +1,4 @@
+@main () -> void = timeout(
+        operation: print(msg: "hello"),
+        after: 5s
+    );

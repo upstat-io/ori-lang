@@ -1,0 +1,25 @@
+// A protocol-builtin `__iter_next` / `__collect_set` Apply emitted inside a
+// generic-`<T>`-bodied function resolves its mono via codegen interception
+// (no E5001). Dual-backend (interpreter + LLVM).
+
+use std.testing { assert_eq };
+
+@sum_all <T> (marker: T, xs: [int]) -> int =
+    xs.iter().fold(initial: 0, op: (acc, x) -> acc + x);
+
+@test_iter_next_in_generic_body tests _ () -> void = {
+    let total = sum_all(marker: 0, xs: [1, 2, 3, 4]);
+
+    assert_eq(actual: total, expected: 10)
+}
+
+@to_set <T> (marker: T, ys: [int]) -> int = {
+    let s: Set<int> = ys.iter().collect();
+    s.len()
+}
+
+@test_collect_set_in_generic_body tests _ () -> void = {
+    let n = to_set(marker: "x", ys: [5, 5, 6, 7]);
+
+    assert_eq(actual: n, expected: 3)
+}

@@ -173,7 +173,7 @@ fn test_cursor_stats() {
 }
 
 #[test]
-fn test_parse_incremental_basic() {
+fn test_parse_incremental_literal_edit_preserves_function_count() {
     use crate::{parse, parse_incremental};
     use ori_ir::StringInterner;
 

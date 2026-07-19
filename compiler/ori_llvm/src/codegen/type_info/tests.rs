@@ -1,8 +1,3 @@
-#![allow(
-    clippy::too_many_lines,
-    reason = "test setup for LLVM IR requires many sequential steps"
-)]
-
 use super::*;
 use inkwell::context::Context;
 use inkwell::types::BasicTypeEnum;
@@ -16,7 +11,7 @@ fn test_pool() -> Pool {
     Pool::new()
 }
 
-// -- TypeInfo classification tests --
+// TypeInfo classification tests
 
 #[test]
 fn primitive_triviality() {
@@ -52,14 +47,9 @@ fn heap_types_not_trivial() {
     .is_trivial());
 }
 
-/// Iterator/DoubleEndedIterator are Box-allocated but
-/// non-trivial — they need `ori_iter_drop` at scope exit to free the
-/// Box-allocated state. Previously this helper reported
-/// iterators as trivial, which caused memory leaks for iterators
-/// stored in enum/struct/tuple/bare let. The SSOT in
-/// `ori_types::triviality::classify_triviality` and
-/// `ori_repr::layout::is_trivial_repr(UnmanagedPtr)` now agree that
-/// iterators are non-trivial, and `TypeInfo::is_trivial` must match.
+/// Iterator types require `ori_iter_drop` at scope exit to free their
+/// box-allocated state. `TypeInfo` must agree with the canonical triviality
+/// classifiers that these types are non-trivial.
 #[test]
 fn iterator_types_are_non_trivial() {
     assert!(
@@ -78,7 +68,7 @@ fn tagged_unions_not_trivial() {
     .is_trivial());
 }
 
-// -- Size tests --
+// Size tests
 
 #[test]
 fn primitive_sizes() {
@@ -140,7 +130,7 @@ fn dynamic_sizes_are_none() {
     assert_eq!(TypeInfo::Enum { variants: vec![] }.size(), None);
 }
 
-// -- Alignment tests --
+// Alignment tests
 
 #[test]
 fn alignment_values() {
@@ -153,7 +143,7 @@ fn alignment_values() {
     assert_eq!(TypeInfo::Str.alignment(), 8);
 }
 
-// -- Loadability tests --
+// Loadability tests
 
 #[test]
 fn loadable_types() {
@@ -162,16 +152,16 @@ fn loadable_types() {
 
 #[test]
 fn non_loadable_types() {
-    assert!(!TypeInfo::Str.is_loadable()); // 24 bytes (SSO layout)
-    assert!(!TypeInfo::List { element: Idx::INT }.is_loadable()); // 24 bytes
+    assert!(!TypeInfo::Str.is_loadable());
+    assert!(!TypeInfo::List { element: Idx::INT }.is_loadable());
     assert!(!TypeInfo::Map {
         key: Idx::STR,
         value: Idx::INT
     }
-    .is_loadable()); // 24 bytes
+    .is_loadable());
 }
 
-// -- Storage type tests --
+// Storage type tests
 
 #[test]
 fn primitive_storage_types() {
@@ -233,7 +223,7 @@ fn function_type_is_fat_pointer() {
     }
 }
 
-// -- TypeInfoStore tests --
+// TypeInfoStore tests
 
 #[test]
 fn store_primitive_lookup() {
@@ -507,7 +497,7 @@ fn store_named_unresolved_is_error() {
     assert!(matches!(info, TypeInfo::Error));
 }
 
-// -- Transitive triviality tests --
+// Transitive triviality tests
 
 #[test]
 fn trivial_primitives() {
@@ -731,7 +721,38 @@ fn triviality_caching() {
     assert!(store.is_trivial(opt_int));
 }
 
-// -- TypeLayoutResolver tests --
+// TypeLayoutResolver tests
+
+fn assert_result_payload_is_i8(ok: Idx, err: Idx) {
+    let mut pool = Pool::new();
+    let result = pool.result(ok, err);
+
+    let store = TypeInfoStore::new(&pool);
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "test");
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
+
+    let BasicTypeEnum::StructType(result_type) = resolver.resolve(result) else {
+        panic!("expected Result to resolve to an LLVM struct");
+    };
+    let Some(payload) = result_type.get_field_type_at_index(1) else {
+        panic!("expected Result struct to contain a payload field");
+    };
+
+    assert_eq!(payload, scx.type_i8().into());
+}
+
+/// Regression: Equal-byte payload arms retain the widest integer value range.
+#[test]
+fn resolver_result_bool_ordering_equal_store_size_uses_i8_payload() {
+    assert_result_payload_is_i8(Idx::BOOL, Idx::ORDERING);
+}
+
+/// Regression: Payload selection is independent of Result arm order.
+#[test]
+fn resolver_result_ordering_bool_equal_store_size_uses_i8_payload() {
+    assert_result_payload_is_i8(Idx::ORDERING, Idx::BOOL);
+}
 
 #[test]
 fn resolver_primitive_types() {
@@ -949,25 +970,16 @@ fn resolver_caches_results() {
     assert_eq!(ty1, ty2);
 }
 
-// -- Benchmark: TypeInfoStore lookup performance --
+// Benchmark: TypeInfoStore lookup performance
 
 /// Benchmark TypeInfoStore lookup on a representative type workload.
 ///
 /// Constructs a Pool with primitives, collections, composites, and
 /// user-defined types, then measures lookup latency across all of them.
 /// Reports per-lookup timing for cached (hot) and first-access (cold) paths.
-#[test]
-fn benchmark_type_info_store_lookup() {
-    use ori_types::EnumVariant;
-    use std::hint::black_box;
-    use std::time::Instant;
-
-    // Build a representative type workload
+fn benchmark_type_workload() -> (Pool, Vec<Idx>) {
     let mut pool = Pool::new();
-    let mut all_indices: Vec<Idx> = Vec::new();
-
-    // 1. Primitives (pre-interned, indices 0-11)
-    let primitives = [
+    let mut indices = vec![
         Idx::INT,
         Idx::FLOAT,
         Idx::BOOL,
@@ -980,9 +992,7 @@ fn benchmark_type_info_store_lookup() {
         Idx::SIZE,
         Idx::ORDERING,
     ];
-    all_indices.extend_from_slice(&primitives);
 
-    // 2. Simple collections
     let list_int = pool.list(Idx::INT);
     let list_str = pool.list(Idx::STR);
     let map_str_int = pool.map(Idx::STR, Idx::INT);
@@ -990,9 +1000,9 @@ fn benchmark_type_info_store_lookup() {
     let range_int = pool.range(Idx::INT);
     let opt_int = pool.option(Idx::INT);
     let opt_str = pool.option(Idx::STR);
-    let res_int_str = pool.result(Idx::INT, Idx::STR);
-    let chan_int = pool.channel(Idx::INT);
-    all_indices.extend_from_slice(&[
+    let result_int_str = pool.result(Idx::INT, Idx::STR);
+    let channel_int = pool.channel(Idx::INT);
+    indices.extend([
         list_int,
         list_str,
         map_str_int,
@@ -1000,79 +1010,79 @@ fn benchmark_type_info_store_lookup() {
         range_int,
         opt_int,
         opt_str,
-        res_int_str,
-        chan_int,
+        result_int_str,
+        channel_int,
     ]);
 
-    // 3. Tuples and functions
-    let tup2 = pool.tuple(&[Idx::INT, Idx::FLOAT]);
-    let tup3 = pool.tuple(&[Idx::INT, Idx::STR, Idx::BOOL]);
-    let func_simple = pool.function(&[Idx::INT], Idx::INT);
-    let func_multi = pool.function(&[Idx::INT, Idx::STR, Idx::BOOL], Idx::FLOAT);
-    all_indices.extend_from_slice(&[tup2, tup3, func_simple, func_multi]);
+    let tuple_pair = pool.tuple(&[Idx::INT, Idx::FLOAT]);
+    let tuple_triple = pool.tuple(&[Idx::INT, Idx::STR, Idx::BOOL]);
+    let function_simple = pool.function(&[Idx::INT], Idx::INT);
+    let function_multi = pool.function(&[Idx::INT, Idx::STR, Idx::BOOL], Idx::FLOAT);
+    indices.extend([tuple_pair, tuple_triple, function_simple, function_multi]);
 
-    // 4. User-defined structs
-    let point_name = Name::from_raw(100);
-    let x_name = Name::from_raw(101);
-    let y_name = Name::from_raw(102);
-    let point = pool.struct_type(point_name, &[(x_name, Idx::INT), (y_name, Idx::INT)]);
+    let (point, person) = add_benchmark_user_types(&mut pool, &mut indices);
+    let list_of_tuple = pool.list(tuple_pair);
+    let option_point = pool.option(point);
+    let result_person_str = pool.result(person, Idx::STR);
+    indices.extend([list_of_tuple, option_point, result_person_str]);
+    (pool, indices)
+}
 
-    let person_name = Name::from_raw(110);
-    let name_field = Name::from_raw(111);
-    let age_field = Name::from_raw(112);
-    let person = pool.struct_type(
-        person_name,
-        &[(name_field, Idx::STR), (age_field, Idx::INT)],
-    );
-    all_indices.extend_from_slice(&[point, person]);
-
-    // 5. User-defined enums
-    let color_name = Name::from_raw(120);
-    let red = Name::from_raw(121);
-    let green = Name::from_raw(122);
-    let blue = Name::from_raw(123);
-    let color = pool.enum_type(
-        color_name,
+fn add_benchmark_user_types(pool: &mut Pool, indices: &mut Vec<Idx>) -> (Idx, Idx) {
+    let point = pool.struct_type(
+        Name::from_raw(100),
         &[
-            EnumVariant {
-                name: red,
+            (Name::from_raw(101), Idx::INT),
+            (Name::from_raw(102), Idx::INT),
+        ],
+    );
+    let person = pool.struct_type(
+        Name::from_raw(110),
+        &[
+            (Name::from_raw(111), Idx::STR),
+            (Name::from_raw(112), Idx::INT),
+        ],
+    );
+    let color = pool.enum_type(
+        Name::from_raw(120),
+        &[
+            ori_types::EnumVariant {
+                name: Name::from_raw(121),
                 field_types: vec![],
             },
-            EnumVariant {
-                name: green,
+            ori_types::EnumVariant {
+                name: Name::from_raw(122),
                 field_types: vec![],
             },
-            EnumVariant {
-                name: blue,
+            ori_types::EnumVariant {
+                name: Name::from_raw(123),
                 field_types: vec![],
             },
         ],
     );
-
-    let shape_name = Name::from_raw(130);
-    let circle = Name::from_raw(131);
-    let rect = Name::from_raw(132);
     let shape = pool.enum_type(
-        shape_name,
+        Name::from_raw(130),
         &[
-            EnumVariant {
-                name: circle,
+            ori_types::EnumVariant {
+                name: Name::from_raw(131),
                 field_types: vec![Idx::FLOAT],
             },
-            EnumVariant {
-                name: rect,
+            ori_types::EnumVariant {
+                name: Name::from_raw(132),
                 field_types: vec![Idx::FLOAT, Idx::FLOAT],
             },
         ],
     );
-    all_indices.extend_from_slice(&[color, shape]);
+    indices.extend([point, person, color, shape]);
+    (point, person)
+}
 
-    // 6. Nested collections (list of tuples, option of struct, etc.)
-    let list_of_tup = pool.list(tup2);
-    let opt_point = pool.option(point);
-    let res_person_str = pool.result(person, Idx::STR);
-    all_indices.extend_from_slice(&[list_of_tup, opt_point, res_person_str]);
+#[test]
+fn benchmark_type_info_store_lookup() {
+    use std::hint::black_box;
+    use std::time::Instant;
 
+    let (pool, all_indices) = benchmark_type_workload();
     let type_count = all_indices.len();
 
     // Cold lookups: first access (compute + cache)
@@ -1135,7 +1145,7 @@ fn benchmark_type_info_store_lookup() {
     );
 }
 
-// -- Integration test: compile through new type system --
+// Integration test: compile through new type system
 
 /// End-to-end integration test: constructs a Pool with a variety of
 /// types (primitives, collections, structs, enums, recursive types),
@@ -1144,116 +1154,35 @@ fn benchmark_type_info_store_lookup() {
 ///
 /// This validates the full TypeInfo pipeline:
 /// Pool → TypeInfoStore → TypeLayoutResolver → LLVM BasicTypeEnum
-#[test]
-fn integration_compile_through_type_system() {
-    use ori_types::EnumVariant;
-    use std::hint::black_box;
+struct IntegrationTypeFixture {
+    all_types: Vec<Idx>,
+    point: Idx,
+    color: Idx,
+    shape: Idx,
+    tree: Idx,
+    my_point: Idx,
+    option_int: Idx,
+    option_str: Idx,
+}
 
+fn integration_type_fixture() -> (Pool, IntegrationTypeFixture) {
     let mut pool = Pool::new();
-
-    // Primitives
-    // Already interned; just verify they resolve.
-
-    // Collections
     let list_int = pool.list(Idx::INT);
     let map_str_int = pool.map(Idx::STR, Idx::INT);
     let set_float = pool.set(Idx::FLOAT);
     let range_int = pool.range(Idx::INT);
-    let opt_int = pool.option(Idx::INT);
-    let opt_str = pool.option(Idx::STR);
-    let res_int_str = pool.result(Idx::INT, Idx::STR);
-    let chan_byte = pool.channel(Idx::BYTE);
+    let option_int = pool.option(Idx::INT);
+    let option_str = pool.option(Idx::STR);
+    let result_int_str = pool.result(Idx::INT, Idx::STR);
+    let channel_byte = pool.channel(Idx::BYTE);
+    let tuple = pool.tuple(&[Idx::INT, Idx::FLOAT]);
+    let function = pool.function(&[Idx::INT], Idx::INT);
 
-    // Composites
-    let tup_if = pool.tuple(&[Idx::INT, Idx::FLOAT]);
-    let func_ii = pool.function(&[Idx::INT], Idx::INT);
-
-    // User-defined struct: Point { x: int, y: int }
-    let point_name = Name::from_raw(500);
-    let x_name = Name::from_raw(501);
-    let y_name = Name::from_raw(502);
-    let point = pool.struct_type(point_name, &[(x_name, Idx::INT), (y_name, Idx::INT)]);
-
-    // User-defined enum: Color = Red | Green | Blue
-    let color_name = Name::from_raw(510);
-    let red = Name::from_raw(511);
-    let green = Name::from_raw(512);
-    let blue = Name::from_raw(513);
-    let color = pool.enum_type(
-        color_name,
-        &[
-            EnumVariant {
-                name: red,
-                field_types: vec![],
-            },
-            EnumVariant {
-                name: green,
-                field_types: vec![],
-            },
-            EnumVariant {
-                name: blue,
-                field_types: vec![],
-            },
-        ],
-    );
-
-    // Enum with payloads: Shape = Circle(float) | Rect(float, float)
-    let shape_name = Name::from_raw(520);
-    let circle = Name::from_raw(521);
-    let rect = Name::from_raw(522);
-    let shape = pool.enum_type(
-        shape_name,
-        &[
-            EnumVariant {
-                name: circle,
-                field_types: vec![Idx::FLOAT],
-            },
-            EnumVariant {
-                name: rect,
-                field_types: vec![Idx::FLOAT, Idx::FLOAT],
-            },
-        ],
-    );
-
-    // Recursive enum: Tree = Leaf(int) | Node(Tree, Tree)
-    let tree_name = Name::from_raw(530);
-    let leaf = Name::from_raw(531);
-    let node = Name::from_raw(532);
-    let tree_named = pool.named(tree_name);
-    let tree_enum = pool.enum_type(
-        tree_name,
-        &[
-            EnumVariant {
-                name: leaf,
-                field_types: vec![Idx::INT],
-            },
-            EnumVariant {
-                name: node,
-                field_types: vec![tree_named, tree_named],
-            },
-        ],
-    );
-    pool.set_resolution(tree_named, tree_enum);
-
-    // Named type alias: MyPoint -> Point
-    let my_point_name = Name::from_raw(540);
-    let my_point = pool.named(my_point_name);
-    pool.set_resolution(my_point, point);
-
-    // Nested: option[Point], [Shape], result[Tree, str]
-    let opt_point = pool.option(point);
+    let (point, color, shape, tree, tree_named, my_point) = add_integration_user_types(&mut pool);
+    let option_point = pool.option(point);
     let list_shape = pool.list(shape);
-    let res_tree_str = pool.result(tree_named, Idx::STR);
-
-    // Build TypeInfoStore and TypeLayoutResolver
-    let store = TypeInfoStore::new(&pool);
-    let ctx = Context::create();
-    let scx = SimpleCx::new(&ctx, "integration_test");
-    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
-
-    // Verify all types resolve without panic
-    let all_types = [
-        // Primitives
+    let result_tree_str = pool.result(tree_named, Idx::STR);
+    let all_types = vec![
         Idx::INT,
         Idx::FLOAT,
         Idx::BOOL,
@@ -1265,34 +1194,106 @@ fn integration_compile_through_type_system() {
         Idx::DURATION,
         Idx::SIZE,
         Idx::ORDERING,
-        // Collections
         list_int,
         map_str_int,
         set_float,
         range_int,
-        opt_int,
-        opt_str,
-        res_int_str,
-        chan_byte,
-        // Composites
-        tup_if,
-        func_ii,
-        // User-defined
+        option_int,
+        option_str,
+        result_int_str,
+        channel_byte,
+        tuple,
+        function,
         point,
         color,
         shape,
-        tree_enum,
-        // Named/alias
+        tree,
         my_point,
         tree_named,
-        // Nested
-        opt_point,
+        option_point,
         list_shape,
-        res_tree_str,
+        result_tree_str,
     ];
+    (
+        pool,
+        IntegrationTypeFixture {
+            all_types,
+            point,
+            color,
+            shape,
+            tree,
+            my_point,
+            option_int,
+            option_str,
+        },
+    )
+}
 
-    for &idx in &all_types {
-        // TypeInfoStore: get must succeed
+fn add_integration_user_types(pool: &mut Pool) -> (Idx, Idx, Idx, Idx, Idx, Idx) {
+    let point = pool.struct_type(
+        Name::from_raw(500),
+        &[
+            (Name::from_raw(501), Idx::INT),
+            (Name::from_raw(502), Idx::INT),
+        ],
+    );
+    let color = pool.enum_type(
+        Name::from_raw(510),
+        &[
+            ori_types::EnumVariant {
+                name: Name::from_raw(511),
+                field_types: vec![],
+            },
+            ori_types::EnumVariant {
+                name: Name::from_raw(512),
+                field_types: vec![],
+            },
+            ori_types::EnumVariant {
+                name: Name::from_raw(513),
+                field_types: vec![],
+            },
+        ],
+    );
+    let shape = pool.enum_type(
+        Name::from_raw(520),
+        &[
+            ori_types::EnumVariant {
+                name: Name::from_raw(521),
+                field_types: vec![Idx::FLOAT],
+            },
+            ori_types::EnumVariant {
+                name: Name::from_raw(522),
+                field_types: vec![Idx::FLOAT, Idx::FLOAT],
+            },
+        ],
+    );
+    let tree_named = pool.named(Name::from_raw(530));
+    let tree = pool.enum_type(
+        Name::from_raw(530),
+        &[
+            ori_types::EnumVariant {
+                name: Name::from_raw(531),
+                field_types: vec![Idx::INT],
+            },
+            ori_types::EnumVariant {
+                name: Name::from_raw(532),
+                field_types: vec![tree_named, tree_named],
+            },
+        ],
+    );
+    pool.set_resolution(tree_named, tree);
+    let my_point = pool.named(Name::from_raw(540));
+    pool.set_resolution(my_point, point);
+    (point, color, shape, tree, tree_named, my_point)
+}
+
+fn assert_integration_types_resolve(
+    pool: &Pool,
+    fixture: &IntegrationTypeFixture,
+    store: &TypeInfoStore<'_>,
+    resolver: &TypeLayoutResolver<'_, '_, '_>,
+) {
+    for &idx in &fixture.all_types {
         let info = store.get(idx);
         assert!(
             !matches!(info, TypeInfo::Error),
@@ -1300,23 +1301,21 @@ fn integration_compile_through_type_system() {
             idx.raw(),
             pool.tag(idx)
         );
-
-        // TypeLayoutResolver: resolve must produce a valid LLVM type
-        let llvm_ty = resolver.resolve(idx);
-        // All types should produce a non-void BasicTypeEnum
-        let _ = black_box(llvm_ty);
+        std::hint::black_box(resolver.resolve(idx));
     }
+}
 
-    // Verify specific type properties
-
-    // Primitives: correct storage types
+fn assert_integration_layouts(
+    fixture: &IntegrationTypeFixture,
+    resolver: &TypeLayoutResolver<'_, '_, '_>,
+    scx: &SimpleCx<'_>,
+) {
     assert_eq!(resolver.resolve(Idx::INT), scx.type_i64().into());
     assert_eq!(resolver.resolve(Idx::FLOAT), scx.type_f64().into());
     assert_eq!(resolver.resolve(Idx::BOOL), scx.type_i1().into());
     assert_eq!(resolver.resolve(Idx::CHAR), scx.type_i32().into());
 
-    // Point struct: 2 fields (both i64)
-    match resolver.resolve(point) {
+    match resolver.resolve(fixture.point) {
         BasicTypeEnum::StructType(st) => {
             assert_eq!(st.count_fields(), 2, "Point should have 2 fields");
             assert!(st.get_name().is_some(), "Point should be a named struct");
@@ -1324,8 +1323,7 @@ fn integration_compile_through_type_system() {
         other => panic!("Point should be StructType, got {other:?}"),
     }
 
-    // Color enum: all-unit → just {i8 tag}
-    match resolver.resolve(color) {
+    match resolver.resolve(fixture.color) {
         BasicTypeEnum::StructType(st) => {
             assert_eq!(
                 st.count_fields(),
@@ -1336,25 +1334,21 @@ fn integration_compile_through_type_system() {
         other => panic!("Color should be StructType, got {other:?}"),
     }
 
-    // Shape enum: {i8 tag, payload}
-    match resolver.resolve(shape) {
+    match resolver.resolve(fixture.shape) {
         BasicTypeEnum::StructType(st) => {
             assert_eq!(st.count_fields(), 2, "Shape enum should have tag + payload");
         }
         other => panic!("Shape should be StructType, got {other:?}"),
     }
 
-    // Tree (recursive): should resolve without infinite loop, be a named struct
-    match resolver.resolve(tree_enum) {
+    match resolver.resolve(fixture.tree) {
         BasicTypeEnum::StructType(st) => {
             assert!(st.get_name().is_some(), "Tree should be a named struct");
         }
         other => panic!("Tree should be StructType, got {other:?}"),
     }
 
-    // Named alias: MyPoint should resolve to same shape as Point
-    let my_point_ty = resolver.resolve(my_point);
-    match my_point_ty {
+    match resolver.resolve(fixture.my_point) {
         BasicTypeEnum::StructType(st) => {
             assert_eq!(
                 st.count_fields(),
@@ -1364,37 +1358,51 @@ fn integration_compile_through_type_system() {
         }
         other => panic!("MyPoint alias should resolve to StructType, got {other:?}"),
     }
+}
 
-    // Verify triviality classification
+fn assert_integration_triviality(fixture: &IntegrationTypeFixture, store: &TypeInfoStore<'_>) {
     assert!(store.is_trivial(Idx::INT), "int should be trivial");
     assert!(!store.is_trivial(Idx::STR), "str should NOT be trivial");
     assert!(
-        store.is_trivial(point),
+        store.is_trivial(fixture.point),
         "Point{{int,int}} should be trivial"
     );
     assert!(
-        !store.is_trivial(tree_enum),
+        !store.is_trivial(fixture.tree),
         "Recursive Tree should NOT be trivial"
     );
     assert!(
-        store.is_trivial(color),
+        store.is_trivial(fixture.color),
         "All-unit Color enum should be trivial"
     );
-    assert!(store.is_trivial(opt_int), "option[int] should be trivial");
     assert!(
-        !store.is_trivial(opt_str),
+        store.is_trivial(fixture.option_int),
+        "option[int] should be trivial"
+    );
+    assert!(
+        !store.is_trivial(fixture.option_str),
         "option[str] should NOT be trivial"
     );
+}
 
-    // Sentinel handling
+#[test]
+fn integration_compile_through_type_system() {
+    let (pool, fixture) = integration_type_fixture();
+    let store = TypeInfoStore::new(&pool);
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "integration_test");
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
+
+    assert_integration_types_resolve(&pool, &fixture, &store, &resolver);
+    assert_integration_layouts(&fixture, &resolver, &scx);
+    assert_integration_triviality(&fixture, &store);
     assert!(matches!(store.get(Idx::NONE), TypeInfo::Error));
     assert_eq!(resolver.resolve(Idx::NONE), scx.type_i64().into());
 }
 
-// -- Phase A: ReprPlan integration tests --
+// ReprPlan integration tests.
 
-/// Phase A fallback for 12 primitives: empty ReprPlan produces the same
-/// LLVM types as TypeInfoStore alone.
+/// An empty `ReprPlan` produces the same 12 primitive LLVM types as the store.
 #[test]
 fn store_fallback_resolves_primitives() {
     let pool = test_pool();
@@ -1402,10 +1410,8 @@ fn store_fallback_resolves_primitives() {
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test_phase_a");
 
-    // Baseline: no ReprPlan (None).
     let no_plan = TypeLayoutResolver::new(&store, &scx, None, None);
 
-    // Phase A: empty ReprPlan (no decisions recorded).
     let empty_plan = ori_repr::ReprPlan::new(ori_repr::NarrowingPolicy::Disabled);
     let with_plan = TypeLayoutResolver::new(&store, &scx, None, Some(&empty_plan));
 
@@ -1434,13 +1440,13 @@ fn store_fallback_resolves_primitives() {
     }
 }
 
-/// Phase A fallback for composite types: empty ReprPlan produces the same
+/// Composite fallback: an empty `ReprPlan` produces the same
 /// LLVM type structure as TypeInfoStore alone for Option, Result, Tuple,
 /// Struct, Enum.
 ///
 /// Named structs in the same LLVM context get uniquified names (`%ori.400`
-/// vs `%ori.400.0`), so we compare field counts and field types instead
-/// of pointer identity.
+/// vs `%ori.400.0`), so the assertion compares field counts and field types
+/// instead of pointer identity.
 #[test]
 fn store_fallback_resolves_composites() {
     use inkwell::types::BasicTypeEnum::StructType as ST;
@@ -1518,8 +1524,7 @@ fn store_fallback_resolves_composites() {
     }
 }
 
-/// Phase A override: populate ReprPlan with a narrowed decision for Int,
-/// verify the ReprPlan path is used (produces i32 instead of i64).
+/// A narrowed `ReprPlan` decision takes precedence over the store's Int layout.
 #[test]
 fn repr_plan_override_takes_precedence_over_store() {
     let pool = test_pool();
@@ -1527,7 +1532,6 @@ fn repr_plan_override_takes_precedence_over_store() {
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test_phase_a_override");
 
-    // Create a plan with a narrowed Int representation (i32 instead of i64).
     let mut plan = ori_repr::ReprPlan::new(ori_repr::NarrowingPolicy::Conservative);
     plan.set_repr(
         Idx::INT,
@@ -1547,7 +1551,7 @@ fn repr_plan_override_takes_precedence_over_store() {
 
     let resolver = TypeLayoutResolver::new(&store, &scx, None, Some(&plan));
 
-    // ReprPlan path: Int should produce i32 (narrowed), not i64 (canonical).
+    // The explicit representation decision overrides canonical i64 storage.
     assert_eq!(
         resolver.resolve(Idx::INT),
         scx.type_i32().into(),
@@ -1563,8 +1567,7 @@ fn repr_plan_override_takes_precedence_over_store() {
     );
 }
 
-/// Phase A with None ReprPlan: backward-compatibility test — all lookups
-/// go through TypeInfoStore exclusively.
+/// A missing `ReprPlan` resolves every type through `TypeInfoStore`.
 #[test]
 fn none_repr_plan_resolves_via_store() {
     let pool = test_pool();
@@ -1587,9 +1590,7 @@ fn none_repr_plan_resolves_via_store() {
     assert_eq!(resolver.resolve(Idx::ORDERING), scx.type_i8().into());
 }
 
-/// Semantic pin: empty ReprPlan must produce IDENTICAL output to no
-/// ReprPlan for all resolvable primitive types. This test guards against
-/// Phase A introducing any behavioral change.
+/// An empty `ReprPlan` is identical to no plan for every resolvable type.
 #[test]
 fn semantic_pin_empty_plan_equals_no_plan() {
     let mut pool = Pool::new();
@@ -1638,47 +1639,46 @@ fn semantic_pin_empty_plan_equals_no_plan() {
     }
 }
 
-/// Cross-crate parity: `compute_repr_plan` canonical representations
-/// must produce the same LLVM types as the legacy TypeInfoStore path
-/// for all codegen-reachable types in the 29-type matrix.
-///
-/// This is the live verification for the `ori_repr` ↔ `ori_llvm` contract.
-/// Unlike the empty-plan semantic pins above, this test exercises the
-/// *populated* ReprPlan (canonical decisions from `populate_canonical`)
-/// and verifies parity against TypeInfoStore for every type that reaches
-/// LLVM codegen.
+/// Canonical `ReprPlan` decisions and `TypeInfoStore` produce identical LLVM
+/// types for every codegen-reachable entry in the matrix.
 ///
 /// Covers: 12 primitives, 7 simple containers (Option, List, Set, Channel,
 /// Range, Iterator, DoubleEndedIterator), 2 two-child (Map, Result),
 /// 3 complex (Function, Tuple, Struct, Enum).
-#[test]
-fn repr_plan_canonical_parity_full_matrix() {
-    use inkwell::types::BasicTypeEnum::StructType as ST;
+struct ReprParityFixture {
+    containers: [(Idx, &'static str); 7],
+    option_int: Idx,
+    map_str_int: Idx,
+    result_int_str: Idx,
+    function: Idx,
+    tuple: Idx,
+    structure: Idx,
+    enumeration: Idx,
+}
 
+fn repr_parity_fixture() -> (Pool, ReprParityFixture) {
     let mut pool = Pool::new();
-    let name = Name::from_raw(500);
-    let x_name = Name::from_raw(501);
-    let y_name = Name::from_raw(502);
-
-    // Simple containers (7)
-    let opt_int = pool.option(Idx::INT);
+    let option_int = pool.option(Idx::INT);
     let list_str = pool.list(Idx::STR);
     let set_int = pool.set(Idx::INT);
-    let chan_int = pool.channel(Idx::INT);
+    let channel_int = pool.channel(Idx::INT);
     let range_int = pool.range(Idx::INT);
-    let iter_int = pool.iterator(Idx::INT);
-    let de_iter_int = pool.double_ended_iterator(Idx::INT);
-
-    // Two-child (2)
+    let iterator_int = pool.iterator(Idx::INT);
+    let double_ended_iterator_int = pool.double_ended_iterator(Idx::INT);
     let map_str_int = pool.map(Idx::STR, Idx::INT);
-    let res_int_str = pool.result(Idx::INT, Idx::STR);
-
-    // Complex (4)
-    let fn_idx = pool.function(&[Idx::INT, Idx::FLOAT], Idx::BOOL);
-    let tup_idx = pool.tuple(&[Idx::INT, Idx::FLOAT, Idx::BOOL]);
-    let struct_idx = pool.struct_type(name, &[(x_name, Idx::INT), (y_name, Idx::FLOAT)]);
-    let enum_idx = pool.enum_type(
-        name,
+    let result_int_str = pool.result(Idx::INT, Idx::STR);
+    let function = pool.function(&[Idx::INT, Idx::FLOAT], Idx::BOOL);
+    let tuple = pool.tuple(&[Idx::INT, Idx::FLOAT, Idx::BOOL]);
+    let type_name = Name::from_raw(500);
+    let structure = pool.struct_type(
+        type_name,
+        &[
+            (Name::from_raw(501), Idx::INT),
+            (Name::from_raw(502), Idx::FLOAT),
+        ],
+    );
+    let enumeration = pool.enum_type(
+        type_name,
         &[
             ori_types::EnumVariant {
                 name: Name::from_raw(503),
@@ -1690,26 +1690,35 @@ fn repr_plan_canonical_parity_full_matrix() {
             },
         ],
     );
+    let containers = [
+        (option_int, "Option<int>"),
+        (list_str, "List<str>"),
+        (set_int, "Set<int>"),
+        (channel_int, "Channel<int>"),
+        (range_int, "Range<int>"),
+        (iterator_int, "Iterator<int>"),
+        (double_ended_iterator_int, "DoubleEndedIterator<int>"),
+    ];
+    (
+        pool,
+        ReprParityFixture {
+            containers,
+            option_int,
+            map_str_int,
+            result_int_str,
+            function,
+            tuple,
+            structure,
+            enumeration,
+        },
+    )
+}
 
-    // Populate a ReprPlan via the real compute_repr_plan pipeline.
-    let plan = ori_repr::compute_repr_plan(
-        &pool,
-        &[], // no arc_functions for canonical-only
-        ori_repr::NarrowingPolicy::Disabled,
-        &[], // no repr_attrs
-    );
-
-    let store = TypeInfoStore::new(&pool);
-    let ctx = Context::create();
-    let scx = SimpleCx::new(&ctx, "test_parity_matrix");
-
-    // Baseline: TypeInfoStore only (no ReprPlan).
-    let no_plan = TypeLayoutResolver::new(&store, &scx, None, None);
-
-    // Under test: populated ReprPlan from compute_repr_plan.
-    let with_plan = TypeLayoutResolver::new(&store, &scx, None, Some(&plan));
-
-    // Primitives (12) — direct LLVM type comparison.
+fn assert_direct_repr_parity(
+    fixture: &ReprParityFixture,
+    no_plan: &TypeLayoutResolver<'_, '_, '_>,
+    with_plan: &TypeLayoutResolver<'_, '_, '_>,
+) {
     let primitives = [
         (Idx::INT, "Int"),
         (Idx::FLOAT, "Float"),
@@ -1724,7 +1733,6 @@ fn repr_plan_canonical_parity_full_matrix() {
         (Idx::ORDERING, "Ordering"),
         (Idx::ERROR, "Error"),
     ];
-
     for (idx, name) in primitives {
         assert_eq!(
             with_plan.resolve(idx),
@@ -1732,125 +1740,106 @@ fn repr_plan_canonical_parity_full_matrix() {
             "Canonical parity failed for primitive {name} (idx {idx:?})"
         );
     }
-
-    // Simple containers — direct comparison (all are anonymous struct types or ptr).
-    let containers = [
-        (opt_int, "Option<int>"),
-        (list_str, "List<str>"),
-        (set_int, "Set<int>"),
-        (chan_int, "Channel<int>"),
-        (range_int, "Range<int>"),
-        (iter_int, "Iterator<int>"),
-        (de_iter_int, "DoubleEndedIterator<int>"),
-    ];
-
-    for (idx, name) in containers {
+    for &(idx, name) in &fixture.containers {
         assert_eq!(
             with_plan.resolve(idx),
             no_plan.resolve(idx),
             "Canonical parity failed for container {name} (idx {idx:?})"
         );
     }
-
-    // Two-child types (Map only — Result may use niche encoding).
-    assert_eq!(
-        with_plan.resolve(map_str_int),
-        no_plan.resolve(map_str_int),
-        "Canonical parity failed for Map<str, int>"
-    );
-
-    // When NICHE_CODEGEN_READY is enabled, Result<int, str> will use
-    // niche encoding — the payload type directly (no tag, no wrapper).
-    assert_eq!(
-        with_plan.resolve(res_int_str),
-        no_plan.resolve(res_int_str),
-        "Canonical parity failed for Result<int, str>"
-    );
-
-    // Function and tuple — direct comparison.
-    assert_eq!(
-        with_plan.resolve(fn_idx),
-        no_plan.resolve(fn_idx),
-        "Canonical parity failed for Function"
-    );
-    assert_eq!(
-        with_plan.resolve(tup_idx),
-        no_plan.resolve(tup_idx),
-        "Canonical parity failed for Tuple"
-    );
-
-    // Named struct/enum — compare field counts (uniquified names prevent pointer equality).
-    let (np_struct, wp_struct) = (no_plan.resolve(struct_idx), with_plan.resolve(struct_idx));
-    if let (ST(a), ST(b)) = (np_struct, wp_struct) {
+    for (idx, name) in [
+        (fixture.map_str_int, "Map<str, int>"),
+        (fixture.result_int_str, "Result<int, str>"),
+        (fixture.function, "Function"),
+        (fixture.tuple, "Tuple"),
+    ] {
         assert_eq!(
-            a.count_fields(),
-            b.count_fields(),
-            "Canonical parity: struct field count mismatch"
+            with_plan.resolve(idx),
+            no_plan.resolve(idx),
+            "Canonical parity failed for {name}"
         );
-        for i in 0..a.count_fields() {
-            assert_eq!(
-                a.get_field_type_at_index(i),
-                b.get_field_type_at_index(i),
-                "Canonical parity: struct field {i} type mismatch"
-            );
-        }
-    } else {
-        panic!("Struct should resolve to StructType, got {np_struct:?} / {wp_struct:?}");
     }
-
-    let (np_enum, wp_enum) = (no_plan.resolve(enum_idx), with_plan.resolve(enum_idx));
-    if let (ST(a), ST(b)) = (np_enum, wp_enum) {
-        assert_eq!(
-            a.count_fields(),
-            b.count_fields(),
-            "Canonical parity: enum field count mismatch"
-        );
-        for i in 0..a.count_fields() {
-            assert_eq!(
-                a.get_field_type_at_index(i),
-                b.get_field_type_at_index(i),
-                "Canonical parity: enum field {i} type mismatch"
-            );
-        }
-    } else {
-        panic!("Enum should resolve to StructType, got {np_enum:?} / {wp_enum:?}");
-    }
-
-    // Verify the ReprPlan actually has decisions for the key types.
-    // This guards against the test passing vacuously because
-    // populate_canonical silently skipped all types.
-    assert!(
-        plan.get_repr(Idx::INT).is_some(),
-        "ReprPlan should have a canonical decision for Int"
-    );
-    assert!(
-        plan.get_repr(Idx::STR).is_some(),
-        "ReprPlan should have a canonical decision for Str"
-    );
-    assert!(
-        plan.get_repr(opt_int).is_some(),
-        "ReprPlan should have a canonical decision for Option<int>"
-    );
-    assert!(
-        plan.get_repr(struct_idx).is_some(),
-        "ReprPlan should have a canonical decision for struct"
-    );
-    assert!(
-        plan.get_repr(enum_idx).is_some(),
-        "ReprPlan should have a canonical decision for enum"
-    );
 }
 
-// -- Iterator triviality convergence tests --
+fn assert_named_repr_parity(
+    label: &str,
+    idx: Idx,
+    no_plan: &TypeLayoutResolver<'_, '_, '_>,
+    with_plan: &TypeLayoutResolver<'_, '_, '_>,
+) {
+    use inkwell::types::BasicTypeEnum::StructType;
+
+    let (baseline, planned) = (no_plan.resolve(idx), with_plan.resolve(idx));
+    let (StructType(baseline), StructType(planned)) = (baseline, planned) else {
+        panic!("{label} should resolve to StructType, got {baseline:?} / {planned:?}");
+    };
+    assert_eq!(
+        baseline.count_fields(),
+        planned.count_fields(),
+        "Canonical parity: {label} field count mismatch"
+    );
+    for index in 0..baseline.count_fields() {
+        assert_eq!(
+            baseline.get_field_type_at_index(index),
+            planned.get_field_type_at_index(index),
+            "Canonical parity: {label} field {index} type mismatch"
+        );
+    }
+}
+
+fn assert_repr_plan_populated(plan: &ori_repr::ReprPlan, fixture: &ReprParityFixture) {
+    for (idx, label) in [
+        (Idx::INT, "Int"),
+        (Idx::STR, "Str"),
+        (fixture.option_int, "Option<int>"),
+        (fixture.structure, "struct"),
+        (fixture.enumeration, "enum"),
+    ] {
+        assert!(
+            plan.get_repr(idx).is_some(),
+            "ReprPlan should have a canonical decision for {label}"
+        );
+    }
+}
+
+#[test]
+fn repr_plan_canonical_parity_full_matrix() {
+    let (pool, fixture) = repr_parity_fixture();
+
+    // Populate a ReprPlan via the real compute_repr_plan pipeline.
+    let plan = ori_repr::compute_repr_plan(
+        &pool,
+        // Canonical-only planning has no ARC functions.
+        &[],
+        ori_repr::NarrowingPolicy::Disabled,
+        // The fixture declares no representation attributes.
+        &[],
+    );
+
+    let store = TypeInfoStore::new(&pool);
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "test_parity_matrix");
+
+    // Baseline: TypeInfoStore only (no ReprPlan).
+    let no_plan = TypeLayoutResolver::new(&store, &scx, None, None);
+
+    // Under test: populated ReprPlan from compute_repr_plan.
+    let with_plan = TypeLayoutResolver::new(&store, &scx, None, Some(&plan));
+    assert_direct_repr_parity(&fixture, &no_plan, &with_plan);
+
+    assert_named_repr_parity("struct", fixture.structure, &no_plan, &with_plan);
+    assert_named_repr_parity("enum", fixture.enumeration, &no_plan, &with_plan);
+    assert_repr_plan_populated(&plan, &fixture);
+}
+
+// Iterator triviality convergence tests
 
 /// classify_trivial fallback (via TypeInfoStore::new)
 /// must classify Iterator/DoubleEndedIterator as NON-trivial — matching
 /// the production path through ReprPlan.
 ///
-/// Previously these were classified as trivial on the
-/// grounds that iterators are "Box-allocated with no RC header." That
-/// reasoning was incomplete: iterators still need `ori_iter_drop` at
-/// scope exit to free the Box, so ARC must see them as non-trivial.
+/// Box allocation has no RC header, but iterator values still require
+/// `ori_iter_drop` at scope exit and therefore remain non-trivial to ARC.
 #[test]
 fn iterator_non_trivial_via_fallback_path() {
     let mut pool = Pool::new();
@@ -1870,7 +1859,7 @@ fn iterator_non_trivial_via_fallback_path() {
 
 /// Production path (via TypeInfoStore::new_with_plan) must
 /// classify Iterator/DoubleEndedIterator as NON-trivial through ReprPlan.
-/// See the fallback-path test above for rationale.
+/// The fallback contract requires the same recursive boxing decision.
 #[test]
 fn iterator_non_trivial_via_production_path() {
     let mut pool = Pool::new();
@@ -1924,13 +1913,8 @@ fn iterator_triviality_paths_agree() {
     );
 }
 
-// -- pool_type_store_size <-> type_store_size cross-crate sync pin --
-
-/// Tag-matrix cross-check: `ori_arc::lower::pool_type_store_size` (Pool
-/// level) and `type_size::type_store_size` (LLVM level) compute the same
-/// store size for every representable shape. The two are a manual sync
-/// contract (lowering bakes elem sizes before the ReprPlan exists); this
-/// pin makes drift loud instead of silently miscompiling buffer strides.
+/// Semantic pool sizes and LLVM store sizes agree for every representable
+/// shape in the tag matrix, preventing buffer-stride mismatches.
 #[test]
 fn pool_store_size_matches_llvm_store_size_across_tag_matrix() {
     use super::type_size::type_store_size;

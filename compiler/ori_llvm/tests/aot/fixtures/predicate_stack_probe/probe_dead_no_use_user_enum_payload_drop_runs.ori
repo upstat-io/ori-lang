@@ -1,0 +1,19 @@
+type Logged = { tag: str }
+
+impl Logged: Drop {
+    @drop (self) -> void = print(msg: `drop-{self.tag}`);
+}
+
+type Chain = Nil | Link(a: Logged, b: Logged, next: Chain);
+
+@main () -> void = {
+    let c = Link(
+        a: Logged { tag: "outer-a" },
+        b: Logged { tag: "outer-b" },
+        next: Link(
+            a: Logged { tag: "inner-a" },
+            b: Logged { tag: "inner-b" },
+            next: Nil,
+        ),
+    )
+}

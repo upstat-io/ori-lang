@@ -35,24 +35,24 @@ const BUILTIN_OWNED: &[OwnedField] = &[OwnedField {
 const BUILTIN_BORROWED: &[BorrowedField] = &[];
 const BUILTIN_VARIANTS: &[VariantBurden] = &[];
 const BUILTIN_SPEC: BuiltinBurdenSpec = BuiltinBurdenSpec {
-    self_heap_alloc: true,
+    self_owned_identity: true,
     owned_fields: BUILTIN_OWNED,
     borrowed_fields: BUILTIN_BORROWED,
     variant_burdens: BUILTIN_VARIANTS,
     element_burden: Some(TID_42),
-    compiled_drop: Some(FN_3),
+    drop_operation: Some(FN_3),
     ..BuiltinBurdenSpec::EMPTY
 };
 
 fn make_user_spec() -> UserBurdenSpec {
     UserBurdenSpec {
-        self_heap_alloc: true,
+        self_owned_identity: true,
         owned_fields: vec![UserOwnedField {
             field_path: vec![0],
             field_type: Idx::STR,
         }],
         element_burden: Some(Idx::INT),
-        compiled_drop: Some(FN_3),
+        drop_operation: Some(FN_3),
         ..UserBurdenSpec::default()
     }
 }
@@ -75,7 +75,7 @@ fn test_type_ref_variants() {
 #[test]
 fn test_burden_ref_builtin_dispatches_to_static() {
     let r = BurdenRef::Builtin(&BUILTIN_SPEC);
-    assert!(r.self_heap_alloc());
+    assert!(r.self_owned_identity());
     let owned: Vec<_> = r.owned_fields().collect();
     assert_eq!(owned.len(), 1);
     assert_eq!(owned[0].field_path.as_ref(), &[0u32]);
@@ -83,10 +83,10 @@ fn test_burden_ref_builtin_dispatches_to_static() {
 }
 
 #[test]
-fn test_burden_ref_user_dispatches_to_heap() {
+fn test_burden_ref_user_dispatches_to_user_spec() {
     let spec = make_user_spec();
     let r = BurdenRef::User(&spec);
-    assert!(r.self_heap_alloc());
+    assert!(r.self_owned_identity());
     let owned: Vec<_> = r.owned_fields().collect();
     assert_eq!(owned.len(), 1);
     assert_eq!(owned[0].field_path.as_ref(), &[0u32]);
@@ -94,16 +94,19 @@ fn test_burden_ref_user_dispatches_to_heap() {
 }
 
 #[test]
-fn test_burden_ref_self_heap_alloc_dispatch() {
+fn test_burden_ref_self_owned_identity_dispatch() {
     static EMPTY_BUILTIN: BuiltinBurdenSpec = BuiltinBurdenSpec::EMPTY;
     let user_spec = make_user_spec();
     let builtin_ref = BurdenRef::Builtin(&BUILTIN_SPEC);
     let user_ref = BurdenRef::User(&user_spec);
-    assert_eq!(builtin_ref.self_heap_alloc(), user_ref.self_heap_alloc());
+    assert_eq!(
+        builtin_ref.self_owned_identity(),
+        user_ref.self_owned_identity()
+    );
 
     let r = BurdenRef::Builtin(&EMPTY_BUILTIN);
     // EMPTY constant in static; trait method delegates to wrapped spec.
-    assert!(!r.self_heap_alloc());
+    assert!(!r.self_owned_identity());
 }
 
 #[test]
@@ -125,8 +128,8 @@ fn test_burden_ref_dispatch_parity() {
     assert!(builtin_ref.element_burden().is_some());
     assert!(user_ref.element_burden().is_some());
 
-    // compiled_drop is shared FnSym type (re-exported from ori_registry).
-    assert_eq!(builtin_ref.compiled_drop(), user_ref.compiled_drop());
+    // drop_operation is shared FnSym type (re-exported from ori_registry).
+    assert_eq!(builtin_ref.drop_operation(), user_ref.drop_operation());
     assert_eq!(builtin_ref.user_drop(), user_ref.user_drop());
     assert!(builtin_ref.user_drop().is_none());
 }
@@ -231,12 +234,12 @@ fn test_burden_ref_multi_field_parity() {
         },
     ];
     static BUILTIN_MULTI: BuiltinBurdenSpec = BuiltinBurdenSpec {
-        self_heap_alloc: true,
+        self_owned_identity: true,
         owned_fields: OWNED_MULTI,
         ..BuiltinBurdenSpec::EMPTY
     };
     let user_multi = UserBurdenSpec {
-        self_heap_alloc: true,
+        self_owned_identity: true,
         owned_fields: vec![
             UserOwnedField {
                 field_path: vec![0],

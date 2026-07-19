@@ -23,11 +23,11 @@
 use std::sync::LazyLock;
 
 use crate::defs::BUILTIN_TYPES;
-use crate::{MethodDef, TypeDef, TypeTag};
+use crate::{MethodDef, RegisteredMethodId, TypeDef, TypeTag};
 
 /// Finds the [`TypeDef`] for a given [`TypeTag`].
 ///
-/// Returns `None` for tags not in the registry (e.g., `Unit`, `Never`,
+/// Returns `None` for tags not in the registry (e.g., `Never`,
 /// `Function`, user-defined types).
 ///
 /// Note: `TypeTag::DoubleEndedIterator` returns `None` because no
@@ -42,7 +42,7 @@ use crate::{MethodDef, TypeDef, TypeTag};
 /// let int_def = find_type(TypeTag::Int).unwrap();
 /// assert_eq!(int_def.name, "int");
 ///
-/// assert!(find_type(TypeTag::Unit).is_none());
+/// assert_eq!(find_type(TypeTag::Unit).unwrap().name, "void");
 /// ```
 #[must_use]
 pub const fn find_type(tag: TypeTag) -> Option<&'static TypeDef> {
@@ -84,6 +84,21 @@ pub fn find_method(tag: TypeTag, name: &str) -> Option<&'static MethodDef> {
         .find(|m| m.name == name && (tag != TypeTag::Iterator || !m.dei_only))
 }
 
+/// Resolve a method name once into its exact versioned registry identity.
+///
+/// Downstream artifacts carry this identity rather than repeating textual
+/// dispatch. The ID preserves the original receiver tag while indexing the
+/// receiver's base method table.
+#[must_use]
+pub fn find_method_id(tag: TypeTag, name: &str) -> Option<RegisteredMethodId> {
+    let method = find_method(tag, name)?;
+    let index = methods_for(tag)
+        .iter()
+        .position(|candidate| core::ptr::eq(candidate, method))?;
+    let receiver_arity = usize::from(method.kind == crate::MethodKind::Instance);
+    RegisteredMethodId::new(tag, index, method.params.len() + receiver_arity)
+}
+
 /// Returns `true` if the given type has a method with the specified name.
 ///
 /// Convenience wrapper around `find_method(...).is_some()`.
@@ -119,7 +134,9 @@ pub fn has_method(tag: TypeTag, name: &str) -> bool {
 /// let int_methods = methods_for(TypeTag::Int);
 /// assert!(int_methods.iter().any(|m| m.name == "abs"));
 ///
-/// assert!(methods_for(TypeTag::Unit).is_empty());
+/// assert!(methods_for(TypeTag::Unit)
+///     .iter()
+///     .any(|method| method.name == "equals"));
 /// ```
 #[must_use]
 pub fn methods_for(tag: TypeTag) -> &'static [MethodDef] {
@@ -146,12 +163,7 @@ pub fn methods_for(tag: TypeTag) -> &'static [MethodDef] {
 /// assert!(names.contains(&"to_str"));
 /// ```
 pub fn method_names_for(tag: TypeTag) -> impl Iterator<Item = &'static str> {
-    let base = tag.base_type();
-    let methods = match find_type(base) {
-        Some(td) => td.methods,
-        None => &[],
-    };
-    methods
+    methods_for(tag)
         .iter()
         .filter(move |m| tag != TypeTag::Iterator || !m.dei_only)
         .map(|m| m.name)
@@ -175,12 +187,7 @@ pub fn method_names_for(tag: TypeTag) -> impl Iterator<Item = &'static str> {
 /// }
 /// ```
 pub fn borrowing_methods(tag: TypeTag) -> impl Iterator<Item = &'static MethodDef> {
-    let base = tag.base_type();
-    let methods = match find_type(base) {
-        Some(td) => td.methods,
-        None => &[],
-    };
-    methods.iter().filter(move |m| {
+    methods_for(tag).iter().filter(move |m| {
         m.receiver == crate::Ownership::Borrow && (tag != TypeTag::Iterator || !m.dei_only)
     })
 }
@@ -208,15 +215,18 @@ pub fn borrowing_methods(tag: TypeTag) -> impl Iterator<Item = &'static MethodDe
 ///
 /// # Example
 ///
-/// ```ignore
-/// let set: FxHashSet<Name> = ori_registry::borrowing_method_names()
-///     .iter()
-///     .map(|name| interner.intern(name))
-///     .collect();
+/// ```
+/// use ori_registry::borrowing_method_names;
+///
+/// let names = borrowing_method_names();
+/// assert!(names.windows(2).all(|pair| pair[0] < pair[1]));
+/// assert!(names.contains(&"len"));
+/// assert!(!names.contains(&"iter"));
 /// ```
 pub fn borrowing_method_names() -> &'static [&'static str] {
-    // Buffer holds pre-dedup entries (~412 as of 2026-03). Deduped result
-    // is ~232 unique names. 480 provides ~16% headroom for new methods.
+    // Buffer holds pre-dedup borrowing-method names across all BUILTIN_TYPES;
+    // capacity 480 provides headroom over the current method set. The overflow
+    // assert below fires if a future method set exceeds it.
     static NAMES: LazyLock<([&'static str; 480], usize)> = LazyLock::new(|| {
         let mut buf = [""; 480];
         let mut len = 0;
@@ -273,7 +283,7 @@ pub fn find_type_by_name(name: &str) -> Option<&'static TypeDef> {
 
 /// Returns the names of methods only available on `DoubleEndedIterator`.
 ///
-/// These are the 5 methods with `dei_only: true`: `last`, `next_back`,
+/// These are the methods with `dei_only: true`: `last`, `next_back`,
 /// `rev`, `rfind`, `rfold`.
 pub fn dei_only_methods() -> impl Iterator<Item = &'static str> {
     methods_for(TypeTag::Iterator)
@@ -285,7 +295,7 @@ pub fn dei_only_methods() -> impl Iterator<Item = &'static str> {
 /// Returns all iterator method names (both Iterator and DEI methods).
 ///
 /// Unlike `method_names_for(TypeTag::Iterator)` which excludes DEI-only
-/// methods, this returns all 24 method names.
+/// methods, this returns every method name including the DEI-only ones.
 pub fn iterator_method_names() -> impl Iterator<Item = &'static str> {
     methods_for(TypeTag::Iterator).iter().map(|m| m.name)
 }
@@ -314,7 +324,7 @@ pub fn is_dei_only(method: &str) -> bool {
 ///
 /// Only types with case differences are mapped; others pass through unchanged.
 #[must_use]
-pub fn legacy_type_name(registry_name: &str) -> &str {
+pub fn lowercase_type_name(registry_name: &str) -> &str {
     match registry_name {
         "Error" => "error",
         "List" => "list",

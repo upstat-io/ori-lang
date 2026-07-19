@@ -1,5 +1,5 @@
 use super::*;
-use crate::tags::OpStrategy;
+use crate::tags::{OpStrategy, RuntimeOperator};
 
 #[test]
 fn op_defs_unsupported_has_all_fields_unsupported() {
@@ -29,74 +29,53 @@ fn op_defs_unsupported_has_all_fields_unsupported() {
 #[test]
 fn op_defs_const_constructible_with_mixed_strategies() {
     const INT_OPS: OpDefs = OpDefs {
-        add: OpStrategy::IntInstr,
-        sub: OpStrategy::IntInstr,
-        mul: OpStrategy::IntInstr,
-        div: OpStrategy::IntInstr,
-        rem: OpStrategy::IntInstr,
-        floor_div: OpStrategy::IntInstr,
-        eq: OpStrategy::IntInstr,
-        neq: OpStrategy::IntInstr,
-        lt: OpStrategy::IntInstr,
-        gt: OpStrategy::IntInstr,
-        lt_eq: OpStrategy::IntInstr,
-        gt_eq: OpStrategy::IntInstr,
-        neg: OpStrategy::IntInstr,
+        add: OpStrategy::SignedInteger,
+        sub: OpStrategy::SignedInteger,
+        mul: OpStrategy::SignedInteger,
+        div: OpStrategy::SignedInteger,
+        rem: OpStrategy::SignedInteger,
+        floor_div: OpStrategy::SignedInteger,
+        eq: OpStrategy::SignedInteger,
+        neq: OpStrategy::SignedInteger,
+        lt: OpStrategy::SignedInteger,
+        gt: OpStrategy::SignedInteger,
+        lt_eq: OpStrategy::SignedInteger,
+        gt_eq: OpStrategy::SignedInteger,
+        neg: OpStrategy::SignedInteger,
         not: OpStrategy::Unsupported,
-        bit_and: OpStrategy::IntInstr,
-        bit_or: OpStrategy::IntInstr,
-        bit_xor: OpStrategy::IntInstr,
-        bit_not: OpStrategy::IntInstr,
-        shl: OpStrategy::IntInstr,
-        shr: OpStrategy::IntInstr,
+        bit_and: OpStrategy::SignedInteger,
+        bit_or: OpStrategy::SignedInteger,
+        bit_xor: OpStrategy::SignedInteger,
+        bit_not: OpStrategy::SignedInteger,
+        shl: OpStrategy::SignedInteger,
+        shr: OpStrategy::SignedInteger,
     };
 
-    assert_eq!(INT_OPS.add, OpStrategy::IntInstr);
+    assert_eq!(INT_OPS.add, OpStrategy::SignedInteger);
     assert_eq!(INT_OPS.not, OpStrategy::Unsupported);
-    assert_eq!(INT_OPS.bit_and, OpStrategy::IntInstr);
+    assert_eq!(INT_OPS.bit_and, OpStrategy::SignedInteger);
 }
 
 #[test]
-fn op_defs_size_matches_pointer_width() {
-    let expected = if cfg!(target_pointer_width = "64") {
-        480 // 20 x 24
-    } else {
-        240 // 20 x 12
-    };
-    assert_eq!(
-        std::mem::size_of::<OpDefs>(),
-        expected,
-        "OpDefs should be 20 fields x sizeof(OpStrategy)"
-    );
+fn op_defs_size_is_compact() {
+    assert_eq!(std::mem::size_of::<OpDefs>(), 20);
 }
 
 #[test]
 fn op_defs_field_access_works() {
     let ops = OpDefs {
-        add: OpStrategy::RuntimeCall {
-            fn_name: "ori_str_concat",
-            returns_bool: false,
-        },
-        eq: OpStrategy::RuntimeCall {
-            fn_name: "ori_str_eq",
-            returns_bool: true,
-        },
+        add: OpStrategy::RuntimeCall(RuntimeOperator::StringConcat),
+        eq: OpStrategy::RuntimeCall(RuntimeOperator::StringEqual),
         ..OpDefs::UNSUPPORTED
     };
 
     assert_eq!(
         ops.add,
-        OpStrategy::RuntimeCall {
-            fn_name: "ori_str_concat",
-            returns_bool: false
-        }
+        OpStrategy::RuntimeCall(RuntimeOperator::StringConcat)
     );
     assert_eq!(
         ops.eq,
-        OpStrategy::RuntimeCall {
-            fn_name: "ori_str_eq",
-            returns_bool: true
-        }
+        OpStrategy::RuntimeCall(RuntimeOperator::StringEqual)
     );
     assert_eq!(ops.sub, OpStrategy::Unsupported);
 }

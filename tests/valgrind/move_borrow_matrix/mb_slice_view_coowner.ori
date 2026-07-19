@@ -1,0 +1,13 @@
+// Move/borrow matrix: MB13 — seamless-slice view co-owning a fresh source list.
+// A fresh owned list of heap strs takes a slice view; BOTH the view and the source
+// are read, then both die. Verifies the view co-owns the buffer with no surplus inc
+// and the slice-aware release path frees buffer + elements exactly once.
+
+@main () -> int = {
+    let src = ["abcdefghijklmnopqrstuvwxyz1234", "another_long_heap_string_content", "third_long_heap_string_payload_x"];
+    let part = src.slice(start: 1, end: 3);
+    let first = part[0];
+    let ok = part.length() == 2 && src.length() == 3 && first.length() == 32;
+
+    if ok then 0 else 1
+}

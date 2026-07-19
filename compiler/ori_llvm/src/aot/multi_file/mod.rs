@@ -411,7 +411,7 @@ pub fn resolve_relative_import(current_file: &Path, import_path: &str) -> Result
     let candidates = if base_path.extension().is_none() {
         vec![base_path.with_extension("ori"), base_path.join("mod.ori")]
     } else {
-        vec![base_path.clone()]
+        vec![base_path]
     };
 
     // Try each candidate

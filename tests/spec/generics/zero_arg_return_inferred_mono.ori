@@ -1,0 +1,45 @@
+// Regression: AOT monomorphization of a ZERO-ARGUMENT generic free function
+// whose type param is fixed only by the call's expected/return-type binding,
+// never by an argument. `empty_box<T> () -> Box<T>` called as
+// `let b: Box<int> = empty_box()` binds `T = int` through the `let` annotation,
+// not through any argument. The mono recorder drove `T` from argument types
+// only, so a zero-arg call recorded NO instance — `empty_box$int` was never
+// collected and LLVM/AOT codegen aborted with
+// `unresolved function 'empty_box' in apply -- missing mono instance?`.
+//
+// Pre-fix: interp PASS (dynamic dispatch resolves at runtime); LLVM/AOT compile
+// FAIL (missing mono instance). The dual-exec divergence IS the regression
+// guard. The fix extracts the return-type-determined scheme var from the
+// generic-vs-instantiated return type and routes it through the deferred-mono
+// path, which the body-final seed pass resolves to the concrete `int` once the
+// `let`-annotation unification links the fresh var.
+//
+// Dual-backend (interpreter + LLVM): the spec corpus pins the construct, and
+// `ori test` drives it end-to-end with construction + collection access + assert.
+
+use std.testing { assert_eq }
+
+type Box<T> = { items: [T] }
+
+@empty_box<T> () -> Box<T> = Box { items: [] };
+
+// --- Cell 1: int instantiation via let-annotation ---
+@test_empty_box_int tests @empty_box () -> void = {
+    let b: Box<int> = empty_box();
+    assert_eq(actual: b.items.len(), expected: 0)
+}
+
+// --- Cell 2: str instantiation via let-annotation (distinct mono instance) ---
+@test_empty_box_str tests @empty_box () -> void = {
+    let b: Box<str> = empty_box();
+    assert_eq(actual: b.items.len(), expected: 0)
+}
+
+// --- Cell 3: return-type-determined via outer function return annotation,
+// no intermediate let with an explicit type. ---
+@make_int_box () -> Box<int> = empty_box();
+
+@test_empty_box_return_inferred tests @make_int_box () -> void = {
+    let b = make_int_box();
+    assert_eq(actual: b.items.len(), expected: 0)
+}

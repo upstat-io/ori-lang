@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn ordering_method_count() {
-    assert_eq!(ORDERING.methods.len(), 14);
+    assert_eq!(ORDERING.methods.len(), 15);
 }
 
 #[test]
@@ -44,10 +44,10 @@ fn ordering_all_methods_are_instance() {
 }
 
 #[test]
-fn ordering_to_int_not_in_methods() {
+fn ordering_to_int_is_in_methods() {
     assert!(
-        ORDERING.methods.iter().all(|m| m.name != "to_int"),
-        "to_int is LLVM-only — should not be in ORDERING_METHODS"
+        ORDERING.methods.iter().any(|m| m.name == "to_int"),
+        "to_int should be in ORDERING_METHODS"
     );
 }
 
@@ -69,8 +69,8 @@ fn ordering_no_comparison_operators() {
 
 #[test]
 fn ordering_eq_neq_use_int_instr() {
-    assert_eq!(ORDERING.operators.eq, OpStrategy::IntInstr);
-    assert_eq!(ORDERING.operators.neq, OpStrategy::IntInstr);
+    assert_eq!(ORDERING.operators.eq, OpStrategy::SignedInteger);
+    assert_eq!(ORDERING.operators.neq, OpStrategy::SignedInteger);
 }
 
 #[test]
@@ -89,13 +89,16 @@ fn ordering_variant_tags() {
 }
 
 #[test]
-fn ordering_then_with_not_backend_required() {
+fn ordering_then_with_backend_required() {
     let m = ORDERING
         .methods
         .iter()
         .find(|m| m.name == "then_with")
         .unwrap_or_else(|| panic!("then_with method should exist"));
-    assert!(!m.backend_required, "then_with is typeck-only");
+    assert!(
+        m.backend_required,
+        "then_with requires coverage in every admitted executor"
+    );
 }
 
 #[test]

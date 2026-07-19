@@ -17,7 +17,6 @@ use ori_test_harness::bless;
 use ori_test_harness::directive::{Directive, DirectiveLine};
 use ori_test_harness::revision::RevisionConfig;
 use ori_test_harness::runner::{TestOutput, TestStrategy};
-use rustc_hash::FxHashMap;
 
 /// Strategy for AIMS pass-level snapshot tests.
 #[derive(Default)]
@@ -88,88 +87,76 @@ impl TestStrategy for AimsSnapshotStrategy {
         let interner = compile_result.interner();
         let classifier = ArcClassifier::new(pool);
 
-        // Compute AIMS interprocedural contracts and apply param ownership.
-        // This matches the production pipeline (codegen_pipeline.rs:361-366):
-        //   1. Flatten all functions from the cache
-        //   2. Run analyze_program() → MemoryContracts
-        //   3. Apply ownership annotations to parameters (Owned/Borrowed)
-        // The mutated functions in `all_funcs` now carry production-accurate
-        // param ownership — we iterate THESE, not fresh clones from arc_cache.
+        // Sort the complete function set before one closed realization so both
+        // checkpoint delivery and artifact output remain deterministic.
         let mut all_funcs = compile_result.all_arc_functions();
-        let aims_contracts = ori_arc::compute_aims_contracts(
-            &mut all_funcs,
-            &classifier,
-            interner,
-            &ori_arc::BuiltinOwnershipSets::new(interner),
-        );
-
-        // Sort functions by name for deterministic output order.
         all_funcs.sort_by_key(|f| interner.lookup(f.name).to_owned());
 
         let mut all_artifacts = Vec::new();
+        let snapshots: RefCell<BTreeMap<(String, String), String>> = RefCell::new(BTreeMap::new());
+        {
+            let pass_names_ref = &pass_names;
+            let observer: Box<CheckpointObserver<'_>> =
+                Box::new(|function: &ArcFunction, phase: &str| {
+                    if phase == "ownership_applied" || pass_names_ref.iter().any(|p| p == phase) {
+                        let function_name = interner.lookup(function.name).to_owned();
+                        let content = format_function(function, pool, interner);
+                        snapshots
+                            .borrow_mut()
+                            .insert((function_name, phase.to_owned()), content);
+                    }
+                });
+            let builtins = ori_arc::BuiltinOwnershipSets::new(interner);
+            let type_registry = ori_types::TypeRegistry::default();
+            let external_contracts = rustc_hash::FxHashMap::default();
+            let callable_boundaries = ori_arc::CallableBoundaryFacts::default();
+            let context = ori_arc::ArcPipelineContext {
+                classifier: &classifier,
+                interner,
+                pool,
+                builtins: &builtins,
+                type_registry: &type_registry,
+                callable_boundaries: &callable_boundaries,
+                verify_arc: true,
+                external_contracts: &external_contracts,
+            };
+            if let Err(verify_errors) =
+                ori_arc::realize_closed_program_with_observer(&mut all_funcs, &context, &*observer)
+            {
+                let messages: Vec<String> = verify_errors
+                    .iter()
+                    .map(|error| format!("  {error}"))
+                    .collect();
+                return Err(SnapshotError(format!(
+                    "{}: closed AIMS realization failed:\n{}",
+                    test_path.display(),
+                    messages.join("\n"),
+                )));
+            }
+        }
 
-        for func in &mut all_funcs {
-            let func_name_str = interner.lookup(func.name).to_owned();
-
-            // Capture lowered.arc baseline BEFORE AIMS pipeline.
-            // This captures the function WITH contract-applied ownership,
-            // matching the state production codegen sees before per-function
-            // pipeline execution (define_phase.rs:315-328).
-            let lowered_content = format_function(func, pool, interner);
+        let captured = snapshots.into_inner();
+        for function in &all_funcs {
+            let func_name_str = interner.lookup(function.name).to_owned();
+            let baseline_key = (func_name_str.clone(), "ownership_applied".to_owned());
+            let lowered_content = captured.get(&baseline_key).ok_or_else(|| {
+                SnapshotError(format!(
+                    "{}: ownership-applied baseline was not captured for function '{}'",
+                    test_path.display(),
+                    func_name_str,
+                ))
+            })?;
             let lowered_suffix = format!("{func_name_str}.lowered.arc");
             write_artifact(
                 test_path,
                 &lowered_suffix,
-                &lowered_content,
+                lowered_content,
                 &mut all_artifacts,
             )?;
 
-            // Capture per-pass snapshots via observer.
-            // Scoped block ensures the observer (which borrows `snapshots`)
-            // is dropped before we read `snapshots.into_inner()`.
-            let snapshots: RefCell<BTreeMap<String, String>> = RefCell::new(BTreeMap::new());
-            {
-                let pass_names_ref = &pass_names;
-                let observer: Box<CheckpointObserver<'_>> =
-                    Box::new(|f: &ArcFunction, phase: &str| {
-                        if pass_names_ref.iter().any(|p| p == phase) {
-                            let content = format_function(f, pool, interner);
-                            snapshots.borrow_mut().insert(phase.to_owned(), content);
-                        }
-                    });
-
-                // Run AIMS pipeline with observer and real contracts.
-                let uniqueness = FxHashMap::default();
-                let sigs = FxHashMap::default();
-                let type_registry = ori_types::TypeRegistry::default();
-                let pipeline_result = ori_arc::run_arc_pipeline_with_observer(
-                    func,
-                    &classifier,
-                    &sigs,
-                    pool,
-                    interner,
-                    &uniqueness,
-                    &aims_contracts,
-                    &type_registry,
-                    true, // verify_arc — snapshot tests verify pipeline output
-                    &*observer,
-                );
-                if let Err(verify_errors) = pipeline_result {
-                    let msgs: Vec<String> =
-                        verify_errors.iter().map(|e| format!("  {e}")).collect();
-                    return Err(SnapshotError(format!(
-                        "{}: ARC pipeline verification failed for '{}':\n{}",
-                        test_path.display(),
-                        func_name_str,
-                        msgs.join("\n"),
-                    )));
-                }
-            } // observer dropped here — snapshots no longer borrowed
-
-            // Write per-pass snapshots and assert all requested passes were captured.
-            let captured = snapshots.into_inner();
             for pass_name in &pass_names {
-                let content = captured.get(pass_name).ok_or_else(|| {
+                let key = (func_name_str.clone(), pass_name.clone());
+                let content = captured.get(&key).ok_or_else(|| {
                     SnapshotError(format!(
                         "{}: pass '{}' was requested but never captured for function '{}'. \
                          The AIMS pipeline did not invoke the observer for this phase — \

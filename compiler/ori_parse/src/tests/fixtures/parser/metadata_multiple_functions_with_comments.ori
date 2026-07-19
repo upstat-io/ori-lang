@@ -1,0 +1,5 @@
+// #Function 1
+@foo () -> int = 1;
+
+// #Function 2
+@bar () -> int = 2;

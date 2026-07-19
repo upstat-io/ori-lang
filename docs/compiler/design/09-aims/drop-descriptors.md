@@ -7,17 +7,19 @@ section: "AIMS"
 
 # Drop Descriptors
 
-## What Happens When a Refcount Reaches Zero?
+## What Happens at Final Logical Ownership Discharge?
 
-When a reference count drops to zero, the value is unreachable and must be cleaned up. But "cleanup" is type-dependent — freeing a struct requires decrementing each of its reference-counted fields before freeing the struct itself, freeing an enum requires checking the tag to determine which variant's fields to decrement, and freeing a collection requires iterating its buffer to decrement each element.
+When the final logical owner or cleanup obligation ends, the value must be cleaned up exactly once. Cleanup is type-dependent: a struct follows each ownership-bearing field, a sum selects the active logical variant, and a collection follows each ownership-bearing element.
+
+A physical plan then chooses how to release storage and realize child obligations.
 
 There are two approaches to this problem:
 
-**Inline drop logic.** At every `RcDec` site, the compiler emits the full cleanup sequence inline — the tag check, the field traversal, the child decrements, and the free call. This is what a naive implementation would do. The problem is code bloat: a struct type used in 50 places generates 50 copies of the same cleanup code.
+**Inline physical drop logic.** A compiled adapter could expand the full cleanup sequence at every final-release site. That repeats variant selection, child traversal, user drop, and storage release, causing code bloat.
 
-**Drop functions.** The compiler generates a single drop function per type, and every `RcDec` for that type passes the drop function's address to the runtime. The runtime's `ori_rc_dec` decrements the refcount and, if it reaches zero, calls the drop function. This is the approach used by Ori, Rust, Swift, and Lean 4.
+**Shared drop plans.** The compiler freezes one logical cleanup plan per type. The VM interprets that plan; a compiled projection may generate one specialized drop function per type and pass its address to the runtime.
 
-Drop descriptors are the bridge between these two worlds: they are computed in `ori_arc` (which knows the type structure) and consumed by the LLVM backend's `DropFunctionGenerator` (which generates the actual LLVM IR for each drop function).
+Drop descriptors bridge ownership policy and physical cleanup: `ori_arc` computes logical field, variant, element, user-drop, and ordering obligations once. VM, LLVM, native, compiled-WebAssembly, and JIT projections consume that plan without re-deriving traversal.
 
 ## DropKind Variants
 
@@ -25,49 +27,64 @@ Each type that requires cleanup gets a `DropInfo` containing a `DropKind` that d
 
 ### Trivial
 
-Applies to `str`, `[int]`, bare function pointers — types with no reference-counted children. The drop function simply frees the allocation without visiting any fields. Strings contain bytes, not pointers; lists of primitives contain inline data. No child decrements needed.
+Applies to `str`, `[int]`, and bare function pointers: types with no ownership-bearing child cleanup. The logical plan has no child traversal; a physical projection satisfies the owner's final cleanup through its selected storage/runtime adapter.
 
 ### Fields
 
-Applies to structs and tuples. The drop function decrements each reference-counted field (by index) and then frees the allocation. Fields that are scalars (int, float, bool) are skipped — they have no refcount to decrement.
+For structs and tuples, the plan follows and releases each ownership-bearing
+logical field before releasing the owner. Scalar fields are absent because they
+have no ownership obligation.
 
-The descriptor stores `Vec<(u32, Idx)>` — pairs of field index (for GEP offset calculation) and type pool index (to look up the child's drop function).
+The descriptor stores `Vec<(u32, Idx)>`: declaration-order field identities paired with child-plan type identities. VM and compiled layout plans map those identities to their own slots or offsets.
 
 ### Enum
 
-Applies to sum types. The drop function switches on the tag discriminant, and each case handles the fields specific to that variant. Variants with no RC fields (e.g., containing only integers) have an empty field list and skip straight to freeing.
+For sum types, the plan selects the active logical variant before following its child obligations; a physical tag encoding never feeds back into this decision.
 
-The descriptor stores `Vec<Vec<(u32, Idx)>>` — an outer vector indexed by variant tag, each containing the RC field list for that variant.
+The descriptor stores `Vec<Vec<(u32, Idx)>>` — an outer vector indexed by the
+stable logical variant identity, each containing the ownership-bearing field
+list for that variant. A physical tag value is supplied by the representation
+plan and is not an AIMS fact.
 
 ### Collection
 
-Applies to `[T]` and `Set<T>`. The drop function iterates over the buffer, decrementing each element's refcount, then frees both the buffer allocation and the container struct. The descriptor stores the `element_type` so the element's drop function can be looked up.
+For `[T]` and `Set<T>`, the plan visits owned elements, follows each element plan, and releases container storage. The descriptor stores `element_type`; physical buffer iteration belongs to the layout/runtime adapter.
 
 ### Map
 
-Applies to `{K: V}`. Like collections, but with two element types. The descriptor stores `key_type`, `value_type`, and two booleans: `dec_keys` and `dec_values`. A `{str: int}` map has `dec_keys: true, dec_values: false` — only string keys need decrementing; integer values are scalars.
+For `{K: V}`, the current descriptor stores `key_type`, `value_type`, `dec_keys`, and `dec_values`; the `dec_*` field names are transitional carrier vocabulary for logical child-cleanup obligations. A `{str: int}` map sets only `dec_keys` because string keys carry cleanup obligations and integer values are scalar.
 
 ### ClosureEnv
 
-Applies to closure environments — heap-allocated structs containing captured variables. Only captures whose types are reference-counted appear in the field list. Primitive captures (integers, booleans) are skipped. The descriptor is structurally identical to `Fields` but is separated because closure environments have a different allocation layout than user structs.
+Closure-environment plans list only ownership-bearing captures and omit trivial
+captures. Their descriptor is structurally identical to `Fields`, while
+remaining distinct because physical closure and user-struct layouts differ.
 
 ## API
 
 ### compute_drop_info
 
-Computes the drop descriptor for a single type. Returns `None` if the type is stack-only (no heap allocation, no RC). The classifier determines whether each field needs RC.
+Computes one type's descriptor and returns `None` when the type has no logical
+cleanup obligation; classification determines which fields carry owned
+children.
 
 ### compute_closure_env_drop
 
-Builds a `ClosureEnv` drop kind from the list of capture types in a `PartialApply` instruction. Filters to only RC-needing captures and records their indices.
+Builds a `ClosureEnv` drop kind from the list of capture types in a
+`PartialApply` instruction. It filters to ownership-bearing captures and records
+their stable identities.
 
 ### collect_drop_infos
 
-Scans all functions in a compilation unit, collects every type appearing in an `RcDec` or `Construct` instruction, computes drop info for each, and returns a deduplicated list. This is the main entry point used by the LLVM backend to gather all needed drop functions before code generation.
+In the transitional carrier, scans all functions in a compilation unit,
+collects every type appearing in an `RcDec` or `Construct` instruction, computes
+drop info for each, and returns a deduplicated list. Production shared
+realization instead closes the transitive logical cleanup table before backend
+selection; emitter-time lazy lookup is a current LLVM integration gap.
 
 ## LLVM Drop Function Generation
 
-The LLVM backend's `DropFunctionGenerator` reads each `DropInfo` and generates a corresponding LLVM function.
+The current LLVM projection reads each `DropInfo` and generates a corresponding LLVM function. Symbol naming, caching, LLVM fields, and forward declarations belong to that projection rather than AIMS.
 
 ### Naming and Caching
 
@@ -75,7 +92,7 @@ Drop functions are named `_ori_drop$<idx_raw>` where `idx_raw` is the raw type p
 
 ### Recursive Types
 
-Recursive types (e.g., a linked list node containing `Option<Node>`) require special handling. The function ID is inserted into the cache **before** the function body is generated. This breaks the recursion: when generating the body of `_ori_drop$Node`, the `RcDec` for the `next` field looks up `_ori_drop$Node` and finds the already-registered (but not yet complete) function. LLVM handles forward references to functions natively, so this produces correct code.
+Recursive types insert the function ID into the cache **before** generating the body, so `_ori_drop$Node` can resolve its own incomplete declaration while handling `Option<Node>`. LLVM supports the resulting forward function reference directly.
 
 ### Drop Function Structure
 
@@ -130,8 +147,13 @@ flowchart TB
 
 ## Design Tradeoffs
 
-**Per-type functions vs inline logic.** Drop functions are generated once per type and shared across all `RcDec` sites. Inline logic would avoid the function call overhead (one indirect call per drop) but would bloat code size for types used in many places. The function call overhead is negligible compared to the memory operations inside the drop, and the code size reduction improves instruction cache behavior.
+**Per-type functions vs inline logic in the current compiled counter plan.**
+LLVM drop functions are generated once per type and shared across all `RcDec`
+sites. Inline logic would avoid one indirect call per drop but would bloat code
+size for types used in many places. This is a target-plan tradeoff; it neither
+defines the shared cleanup descriptor nor constrains the VM, native, JIT, or
+compiled-WebAssembly realization.
 
-**Descriptor-based vs direct emission.** Drop descriptors are computed in `ori_arc` and consumed by `ori_llvm`, maintaining the backend-independence boundary. The alternative — having `ori_arc` generate LLVM IR directly — would eliminate the descriptor intermediate but would couple AIMS to LLVM. The descriptor approach allows a future WASM or cranelift backend to generate its own drop functions from the same descriptors.
+**Descriptor-based vs direct emission.** Drop descriptors are computed in `ori_arc` and consumed as part of the shared post-AIMS plan, maintaining the backend-independence boundary. LLVM generates type-specialized drop functions; the VM realizes the same traversal through its object/runtime adapter. Native, compiled-WebAssembly, and JIT backends may choose different physical mechanisms, but none may re-derive which fields are dropped or when. Having `ori_arc` emit target instructions directly would couple the calculus to one backend.
 
 **Forward-reference caching for recursion.** Inserting the function ID into the cache before generating the body is a standard technique (used by LLVM itself for recursive types). The alternative — detecting cycles and generating trampolines — would be more complex for no benefit, since LLVM natively supports forward function references.

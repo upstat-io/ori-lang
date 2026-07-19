@@ -1,0 +1,29 @@
+@fail () -> Result<int, Error> = Err(Error("fail"));
+
+@one_hop () -> Result<int, Error> = {
+    let value = fail()?;
+    Ok(value)
+}
+
+@entries_via_match () -> [TraceEntry] = {
+    match one_hop() {
+        Ok(_) -> [],
+        Err(error) -> error.trace_entries(),
+    }
+}
+
+@with_trace_via_match () -> Error = {
+    match one_hop() {
+        Ok(_) -> Error("unreachable"),
+        Err(error) -> {
+            let entry = error.trace_entries()[0];
+            error.with_trace(entry: entry)
+        },
+    }
+}
+
+@main () -> int = {
+    let entries_count = entries_via_match().len();
+    let traced_count = with_trace_via_match().trace_entries().len();
+    if entries_count == 1 && traced_count == 2 then 0 else 1
+}

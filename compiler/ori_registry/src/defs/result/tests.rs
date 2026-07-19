@@ -61,6 +61,34 @@ fn result_unwrap_returns_ok_type() {
 }
 
 #[test]
+fn result_unwrap_or_has_closed_runtime_identity() {
+    let method = RESULT
+        .methods
+        .iter()
+        .find(|method| method.name == "unwrap_or")
+        .unwrap_or_else(|| panic!("unwrap_or method should exist"));
+    assert_eq!(
+        method.runtime,
+        Some(MethodRuntime::Result(ResultRuntime::UnwrapOr))
+    );
+}
+
+#[test]
+fn every_result_method_has_exact_runtime_arity() {
+    for method in RESULT.methods {
+        let runtime = method
+            .runtime
+            .unwrap_or_else(|| panic!("Result.{} lacks a runtime identity", method.name));
+        assert_eq!(
+            runtime.arity(),
+            method.params.len() + 1,
+            "Result.{} runtime arity",
+            method.name
+        );
+    }
+}
+
+#[test]
 fn result_unwrap_err_returns_err_type() {
     for name in ["unwrap_err", "expect_err"] {
         let m = RESULT

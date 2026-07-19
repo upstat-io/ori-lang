@@ -7,6 +7,12 @@ section: "Runtime"
 
 # Reference Counting
 
+> **Scope.** Unless a section explicitly says otherwise, every counter,
+> header, atomic ordering, helper symbol, and callback below documents the
+> current compiled `ori_rt` projection. These are not AIMS invariants. A VM,
+> native, compiled-WASM, or JIT layout plan may use a different mechanism while
+> satisfying the same backend-neutral logical ownership and cleanup facts.
+
 ## What Is Runtime Reference Counting?
 
 Reference counting is a memory management strategy where each heap allocation carries a counter tracking how many references point to it. When a new reference is created, the counter increments. When a reference is destroyed, the counter decrements. When the counter reaches zero, no references remain, and the allocation can be freed.
@@ -15,17 +21,30 @@ The idea dates to George Collins' 1960 paper on list processing, making referenc
 
 Reference counting has a fundamental advantage over tracing garbage collection: **deterministic destruction**. When the last reference to an object disappears, the object is freed immediately — not at some later point when a garbage collector decides to run. This determinism makes resource management predictable (file handles close when expected, network connections release promptly) and eliminates the pause-time problem that plagues tracing collectors.
 
-The tradeoff is overhead: every copy increments, every scope exit decrements, and in a multithreaded program, these operations must be atomic. The [AIMS analysis pass](../09-aims/index.md) exists to minimize this overhead through static analysis — eliminating redundant operations, inferring borrowed parameters, and enabling in-place mutation through uniqueness detection. But the operations that survive static optimization must actually execute at runtime, and this chapter describes the implementation of those operations.
+- A counter-based projection pays for increments, decrements, and a race-safe
+  mechanism when values are concurrently reachable.
+- The [AIMS analysis pass](../09-aims/index.md) instead freezes logical
+  ownership, release, uniqueness, and cleanup facts.
+- This chapter describes how the current compiled `ori_rt` projection realizes
+  the subset that remains dynamic.
 
 ### Atomic vs Non-Atomic
 
-In a single-threaded program, reference count operations are simple integer arithmetic. In a multithreaded program, they must be atomic — two threads decrementing the same counter simultaneously must not lose an update, or the allocation will either leak (missed decrement) or be freed while still in use (double decrement).
+In the current compiled projection, a thread-confined count uses plain integer
+arithmetic and a concurrently reachable count uses atomics. Two threads must
+not lose a decrement update or the allocation can leak or be released early.
 
-The standard approach, used by Rust's `Arc`, Swift's `swift_retain`/`swift_release`, and C++'s `shared_ptr`, is to use atomic read-modify-write instructions with carefully chosen memory orderings. Ori follows this approach. The `single-threaded` feature flag substitutes plain integer operations for programs that do not need thread safety.
+- The current compiled `ori_rt` projection follows the atomic read-modify-write
+  approach used by Rust's `Arc`, Swift's `swift_retain`/`swift_release`, and
+  C++'s `shared_ptr`.
+- Its `single-threaded` feature substitutes plain integer operations.
+- Other validated physical plans may use counters, ownership tags, actor
+  confinement, side tables, constants, or no count at all.
 
-## RC Header Layout
+## Current Compiled RC Header Layout
 
-Every RC-managed allocation uses a 32-byte header placed immediately before the user data:
+Every allocation admitted to the current compiled `ori_rt` RC representation
+uses a 32-byte header immediately before the user data:
 
 ```mermaid
 flowchart LR
@@ -142,7 +161,7 @@ This Release-decrement / Acquire-fence-before-drop protocol is the standard sync
 - C++'s `shared_ptr` (both libstdc++ and libc++)
 - Lean 4's `lean_dec_ref` ([Lean runtime](https://github.com/leanprover/lean4/blob/master/src/runtime/object.h))
 
-**Drop callback.** If `drop_fn` is `Some`, it is called with the data pointer before deallocation. This handles recursive RC decrements for nested heap-allocated values. For example, a list of strings needs to decrement each string's RC before freeing the list buffer — the drop function walks the elements and calls `ori_rc_dec` on each one. The LLVM backend generates type-specialized drop functions for each concrete type (see [Drop Descriptors](../09-aims/drop-descriptors.md)).
+**Drop callback.** If `drop_fn` is `Some`, it is called with the data pointer before deallocation. This handles recursive RC decrements for nested heap-allocated values. For example, a list of strings needs to decrement each string's RC before freeing the list buffer. The backend-neutral `ExecutableDropPlan` owns that logical walk. A compiled adapter projects the plan to a type-specialized callback; the VM executes the same plan through its drop dispatcher (see [Drop Descriptors](../09-aims/drop-descriptors.md)).
 
 **Null safety.** `ori_rc_dec(null, _)` is a no-op, matching `ori_rc_inc`.
 
@@ -287,24 +306,33 @@ Setting `ORI_TRACE_RC=verbose` adds stack backtraces to each event, enabling pre
 
 The tracing check uses `OnceLock` to read the environment variable once and cache the result. The cost when tracing is disabled is a single always-not-taken branch per RC operation — negligible in practice, since branch predictors handle never-taken branches with near-perfect accuracy.
 
-## Interaction with ARC Analysis
+## Interaction with AIMS and Physical Executors
 
-The AIMS analysis pass determines statically where `ori_rc_inc` and `ori_rc_dec` calls belong. The runtime provides the actual implementations. The contract between them:
+The AIMS analysis pass determines statically where logical retain and release operations belong. It freezes those operations and the `ExecutableDropPlan` in the executable artifact.
 
-1. Every value produced by `ori_rc_alloc` starts with count 1
-2. Every additional use requires an `ori_rc_inc`
-3. Every end-of-use requires an `ori_rc_dec`
-4. The ARC pass guarantees that the net count reaches zero exactly when the value is no longer reachable
+Physical executors implement the same contract: LLVM/native/compiled-WASM/JIT may project operations to `ori_rc_inc` and `ori_rc_dec`, while the VM dispatches their typed identities directly.
 
-The runtime performs no reachability analysis or cycle detection. Cycles are prevented by Ori's value semantics — there are no shared mutable references, so circular reference structures cannot be constructed. This is the same guarantee that makes Swift's ARC safe in practice (with the caveat that Swift allows reference cycles through `class` types, which Ori does not have).
+1. Every newly allocated owner starts with one ownership credit.
+2. Every additional owner is funded by a logical retain.
+3. Every ownership obligation ends with a logical release.
+4. The AIMS plan guarantees that the net credit reaches zero exactly when the value is no longer reachable.
+5. Each executor preserves the operation order and drop identity while selecting its own physical mechanism.
+
+The runtime performs no reachability analysis or cycle detection. It also cannot repair or reinterpret the AIMS plan.
+
+Cycles are prevented by Ori's value semantics — there are no shared mutable references, so circular reference structures cannot be constructed. This is the same guarantee that makes Swift's ARC safe in practice (with the caveat that Swift allows reference cycles through `class` types, which Ori does not have).
 
 ## Prior Art
 
-**Rust's [`Arc`](https://doc.rust-lang.org/std/sync/struct.Arc.html)** uses the same Release/Acquire synchronization protocol. The key difference is that `Arc` is a library type with inline operations — there is no runtime function to call. Each `Arc::clone()` and `Arc::drop()` inlines the atomic operation at the call site. Ori uses runtime functions instead because the AIMS analysis pass needs a single call target for each operation, and the LLVM backend generates calls to these targets.
+**Rust's [`Arc`](https://doc.rust-lang.org/std/sync/struct.Arc.html)** uses the same Release/Acquire synchronization protocol. The key difference is that `Arc` is a library type with inline operations — there is no runtime function to call.
+
+Each `Arc::clone()` and `Arc::drop()` inlines the atomic operation at the call site. Ori's executable artifact carries an AIMS-authored logical owner-credit event identity; the current compiled ARC adapter maps that event to the physical operation.
+
+LLVM projects it to runtime calls; the VM implements the same identity in its runtime adapter. The physical mechanism differs, but the ownership decision does not.
 
 **Swift's [`swift_retain`/`swift_release`](https://github.com/swiftlang/swift/blob/main/stdlib/public/runtime/HeapObject.cpp)** are the closest analogs to `ori_rc_inc`/`ori_rc_dec`. Swift's refcount word packs additional information — a pinned flag, unowned reference count, and weak reference count — into the same 64-bit word using bit fields. Ori's simpler single-counter design reflects the absence of weak references and pinning in Ori's memory model.
 
-**Lean 4's [`lean_inc_ref`/`lean_dec_ref`](https://github.com/leanprover/lean4/blob/master/src/runtime/object.h)** follow the same protocol. Lean's header includes a tag byte for runtime type discrimination (distinguishing constructors, closures, arrays, etc.), which Ori does not need because the LLVM backend generates type-specialized drop functions instead.
+**Lean 4's [`lean_inc_ref`/`lean_dec_ref`](https://github.com/leanprover/lean4/blob/master/src/runtime/object.h)** follow the same protocol. Lean's header includes a tag byte for runtime type discrimination (distinguishing constructors, closures, arrays, etc.). Ori instead freezes type-specific cleanup in `ExecutableDropPlan`; compiled adapters may generate specialized callbacks, while the VM uses the same plan identity in its dispatcher.
 
 **CPython's [`Py_INCREF`/`Py_DECREF`](https://github.com/python/cpython/blob/main/Include/object.h)** use non-atomic operations protected by the Global Interpreter Lock (GIL). The refcount is the first field of `PyObject`, followed by a type pointer. CPython also implements a cycle detector for reference cycles in arbitrary object graphs — something Ori does not need because value semantics prevent cycles.
 

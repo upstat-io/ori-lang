@@ -1,0 +1,15 @@
+// Move/borrow matrix: MB12 — niche-family sum payload extracted past the sum's death.
+// An Option<str> with a heap payload (>23 bytes) is match-extracted; the payload is
+// read AFTER the sum value is dead. Verifies the extraction transfers the payload
+// obligation out of the dying sum — payload freed exactly once, no use-after-free.
+
+@main () -> int = {
+    let o = Some("abcdefghijklmnopqrstuvwxyz1234");
+    let payload = match o {
+        Some(s) -> s,
+        None -> "",
+    };
+    let ok = payload.length() == 30;
+
+    if ok then 0 else 1
+}

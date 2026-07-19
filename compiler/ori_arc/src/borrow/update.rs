@@ -9,8 +9,9 @@ use rustc_hash::FxHashMap;
 use ori_ir::builtin_constants::protocol::ProtocolArgOwnership;
 use ori_ir::Name;
 
+use crate::aims::intraprocedural::apply_aliases::build_let_alias_map;
 use crate::borrow::BuiltinOwnershipSets;
-use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership};
+use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership};
 use crate::ownership::{AnnotatedSig, Ownership};
 
 /// Context for callee argument ownership promotion.
@@ -84,28 +85,6 @@ fn try_mark_param_owned(
     }
 }
 
-/// Build a mapping from alias variables to their source.
-///
-/// For each `Let { dst, value: Var(src) }`, records `dst → src`. This allows
-/// ownership promotion to trace through alias chains like `v1 = v0` where `v0`
-/// is a parameter and `v1` is consumed by a Construct or returned.
-fn build_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
-    let mut aliases = FxHashMap::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Let {
-                dst,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                aliases.insert(*dst, *src);
-            }
-        }
-    }
-    aliases
-}
-
 /// Resolve an alias chain to the root variable.
 ///
 /// Follows `Let { value: Var(x) }` chains: `v2 → v1 → v0 (param)`.
@@ -114,7 +93,7 @@ fn build_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
 /// The 64-step limit is purely defensive: in practice, alias chains are 1–3
 /// deep (one `Let { value: Var(x) }` per level). The limit guards against
 /// pathological or cyclic alias maps — if hit, it indicates a bug in
-/// `build_alias_map` or upstream lowering, not normal program structure.
+/// `build_let_alias_map` or upstream lowering, not normal program structure.
 fn resolve_alias(var: ArcVarId, aliases: &FxHashMap<ArcVarId, ArcVarId>) -> ArcVarId {
     let mut current = var;
     let mut steps = 0u32;
@@ -189,7 +168,7 @@ pub(super) fn update_ownership_inner(
     builtins: &BuiltinOwnershipSets,
 ) -> bool {
     let mut changed = false;
-    let aliases = build_alias_map(func);
+    let aliases = build_let_alias_map(func);
 
     let mut ctx = PromoteCtx {
         func,

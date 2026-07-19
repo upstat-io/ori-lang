@@ -1,0 +1,10 @@
+@combine (a: Set<int>, b: Set<int>) -> Set<int> = {
+    a.union(b)
+}
+
+@main () -> int = {
+    let x: Set<int> = [1, 2].iter().collect();
+    let y: Set<int> = [2, 3].iter().collect();
+    let z = combine(a: x, b: y);
+    if z.len() == 3 then 0 else 1
+}

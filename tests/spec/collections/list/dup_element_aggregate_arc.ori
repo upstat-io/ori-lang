@@ -1,0 +1,137 @@
+// Duplicate-element collection literal holding the same owned
+// struct-with-heap-field variable at N>=2 positions.
+//
+// `let held = [a, a]` reads `a` (a fresh owned aggregate carrying a heap field)
+// at two ListLiteral Construct-arg positions, `a` dead after. Per AIMS RL-1
+// `RL1_duplication_balanced`, N consuming uses = (N-1) duplications + 1 transfer
+// (the last-use read MOVES `a`'s ref into the Nth slot). The unfixed burden
+// emission instead emits a spurious SOURCE keep-alive `burden_inc` on top of the
+// (N-1) duplication incs, never releasing `a`'s original heap-field ref -> the
+// heap field LEAKS (rc never reaches 0).
+//
+// dual-exec parity: interp and LLVM produce identical results.
+// leak-free: zero RC leaks under ORI_CHECK_LEAKS=1 on BOTH the default and
+//   the gated burden probe (ORI_DISABLE_PREDICATE_STACK_RC=1) paths.
+// These cells PASS their value assertions even on the unfixed code (the leak does
+// not corrupt values) — the leak-check is the failing-on-unfixed pin.
+//
+// Matrix dimensions:
+//   heap field type:  str (>23 bytes, defeats SSO) | [int] (heap list field)
+//   collection kind:  list literal | map literal (duplicate value)
+//   duplication count: N=2 | N=3
+//   liveness CLAMP:   source dead-after (leak case) | source LIVE-after (must keep its ref)
+
+use std.testing { assert_eq }
+
+type Doc = { content: str }
+type Bag = { items: [int] }
+
+// =============================================================================
+// list, str field, N=2, source dead-after — the canonical repro
+// =============================================================================
+
+@dup_list_str_n2 () -> int = {
+    let a = Doc { content: "abcdefghijklmnopqrstuvwxyz1234" };
+    let held = [a, a];
+    held.length()
+}
+
+@test_dup_list_str_n2 tests @dup_list_str_n2 () -> void = {
+    assert_eq(actual: dup_list_str_n2(), expected: 2)
+}
+
+// =============================================================================
+// list, str field, N=3 — (N-1)=2 duplications + 1 move
+// =============================================================================
+
+@dup_list_str_n3 () -> int = {
+    let a = Doc { content: "abcdefghijklmnopqrstuvwxyz1234" };
+    let held = [a, a, a];
+    held.length()
+}
+
+@test_dup_list_str_n3 tests @dup_list_str_n3 () -> void = {
+    assert_eq(actual: dup_list_str_n3(), expected: 3)
+}
+
+// =============================================================================
+// list, heap [int] field, N=2 — heap-list-field aggregate
+// =============================================================================
+
+@dup_list_intlist_n2 () -> int = {
+    let b = Bag { items: [10, 20, 30] };
+    let held = [b, b];
+    held.length() + held[0].items.length()
+}
+
+@test_dup_list_intlist_n2 tests @dup_list_intlist_n2 () -> void = {
+    // length 2 + items length 3 = 5
+    assert_eq(actual: dup_list_intlist_n2(), expected: 5)
+}
+
+// =============================================================================
+// map literal, str-field value duplicated under two keys, N=2
+// =============================================================================
+
+@dup_map_str_n2 () -> int = {
+    let a = Doc { content: "abcdefghijklmnopqrstuvwxyz1234" };
+    let held = {1: a, 2: a};
+    held.length()
+}
+
+@test_dup_map_str_n2 tests @dup_map_str_n2 () -> void = {
+    assert_eq(actual: dup_map_str_n2(), expected: 2)
+}
+
+// =============================================================================
+// CLAMP (map): source LIVE-after a map literal. The dead-after gating is
+// CtorKind-agnostic (keyed on the source aggregate's liveness, not the
+// collection kind), so the over-suppression clamp must hold for the map path
+// too — a wrong "always-suppress" fix double-frees `a`'s field on the later read.
+// =============================================================================
+
+@dup_map_str_source_live () -> int = {
+    let a = Doc { content: "abcdefghijklmnopqrstuvwxyz1234" };
+    let held = {1: a, 2: a};
+    held.length() + a.content.length()
+}
+
+@test_dup_map_str_source_live tests @dup_map_str_source_live () -> void = {
+    // length 2 + content length 30 = 32
+    assert_eq(actual: dup_map_str_source_live(), expected: 32)
+}
+
+// =============================================================================
+// CLAMP: source LIVE-after the literal — `a` is read again, so `a` keeps its
+// OWN ref (it is NOT fully consumed by the literal). The fix must suppress the
+// source keep-alive inc ONLY when the source is dead-after; here it must NOT.
+// A wrong "always suppress source inc" fix double-frees `a`'s field on the
+// later read. This cell distinguishes the correct dead-after-gated fix.
+// =============================================================================
+
+@dup_list_str_source_live () -> int = {
+    let a = Doc { content: "abcdefghijklmnopqrstuvwxyz1234" };
+    let held = [a, a];
+    // `a` read AGAIN after the literal -> a stays live, needs its own ref
+    held.length() + a.content.length()
+}
+
+@test_dup_list_str_source_live tests @dup_list_str_source_live () -> void = {
+    // length 2 + content length 30 = 32
+    assert_eq(actual: dup_list_str_source_live(), expected: 32)
+}
+
+// =============================================================================
+// SANITY: single-element literal `[a]` — no duplication, `a` moves into the one
+// slot (no inc). The fix must not regress the N=1 move case.
+// =============================================================================
+
+@single_list_str () -> int = {
+    let a = Doc { content: "abcdefghijklmnopqrstuvwxyz1234" };
+    let held = [a];
+    held.length()
+}
+
+@test_single_list_str tests @single_list_str () -> void = {
+    assert_eq(actual: single_list_str(), expected: 1)
+}

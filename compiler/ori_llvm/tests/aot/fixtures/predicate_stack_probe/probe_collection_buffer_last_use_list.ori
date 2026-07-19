@@ -1,0 +1,11 @@
+@sum_list (xs: [int]) -> int = {
+    let total = xs.fold(initial: 0, op: (acc, x) -> acc + x);
+    total
+}
+
+@main () -> int = {
+    let xs = [1, 2, 3, 4, 5];
+    let s = sum_list(xs: xs);
+    print(msg: `{s}`);
+    0
+}

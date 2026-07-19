@@ -6,7 +6,10 @@
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_types::Idx;
 
-use crate::codegen::type_info::TypeInfo;
+use crate::codegen::type_info::{
+    type_size::{select_shared_payload_arm, SharedPayloadArm},
+    TypeInfo,
+};
 use crate::codegen::value_id::ValueId;
 
 use super::super::ArcIrEmitter;
@@ -14,6 +17,7 @@ use super::super::ArcIrEmitter;
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `Result.map(transform:)`, `.map_err(transform:)`,
     /// `.and_then(then:)`, `.or_else(f:)`.
+    #[must_use = "the absence of a value must be handled"]
     pub(crate) fn emit_result_monadic(
         &mut self,
         method: &str,
@@ -114,7 +118,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .append_block(self.current_function, "rmap.merge");
         self.builder.cond_br(is_ok, ok_bb, err_bb);
 
-        // Ok: call closure, build Ok(mapped) in Result<U, E> layout
         self.builder.position_at_end(ok_bb);
         let ok_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
         let mapped = self.call_closure_single_arg(closure, ok_payload, ok_ty, mapped_ok_ty)?;
@@ -129,7 +132,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let ok_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // Err: repackage err payload into Result<U, E>
         self.builder.position_at_end(err_bb);
         let err_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
         let err_result = self.build_result_struct(
@@ -176,7 +178,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .append_block(self.current_function, "rme.merge");
         self.builder.cond_br(is_ok, ok_bb, err_bb);
 
-        // Ok: repackage ok payload into Result<T, F>
         self.builder.position_at_end(ok_bb);
         let ok_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
         let ok_result = self.build_result_struct(
@@ -190,7 +191,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let ok_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // Err: call closure, build Err(mapped) in Result<T, F> layout
         self.builder.position_at_end(err_bb);
         let err_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
         let mapped = self.call_closure_single_arg(closure, err_payload, err_ty, mapped_err_ty)?;
@@ -238,14 +238,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .append_block(self.current_function, "rat.merge");
         self.builder.cond_br(is_ok, ok_bb, err_bb);
 
-        // Ok: call closure (returns Result directly)
         self.builder.position_at_end(ok_bb);
         let ok_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
         let ok_result = self.call_closure_single_arg(closure, ok_payload, ok_ty, return_ty)?;
         let ok_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // Err: build Err in the return type's layout
         self.builder.position_at_end(err_bb);
         let err_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
         let result_llvm_ty = self.resolve_type(return_ty);
@@ -294,7 +292,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .append_block(self.current_function, "roe.merge");
         self.builder.cond_br(is_ok, ok_bb, err_bb);
 
-        // Ok: repackage ok payload into the return type layout
         self.builder.position_at_end(ok_bb);
         let ok_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
         let result_llvm_ty = self.resolve_type(return_ty);
@@ -311,7 +308,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let ok_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // Err: call closure with err payload
         self.builder.position_at_end(err_bb);
         let err_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
         let err_result = self.call_closure_single_arg(closure, err_payload, err_ty, return_ty)?;
@@ -325,9 +321,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(phi)
     }
 
-    // Helpers
-
-    /// Build a Result struct `{i64, max(ok, err)}` with correct padding.
+    /// Zero-fill shared `Result` storage before writing the active payload.
+    #[must_use = "the absence of a value must be handled"]
     pub(super) fn build_result_struct(
         &mut self,
         tag_val: i64,
@@ -337,12 +332,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         err_ty: Idx,
         label: &str,
     ) -> Option<ValueId> {
-        let ok_size = crate::codegen::abi::abi_size(ok_ty, self.type_info, self.repr_plan);
-        let err_size = crate::codegen::abi::abi_size(err_ty, self.type_info, self.repr_plan);
-        let slot_ty_idx = if ok_size >= err_size { ok_ty } else { err_ty };
-
         let payload_llvm = self.resolve_type(payload_ty);
-        let slot_llvm = self.resolve_type(slot_ty_idx);
+        let slot_llvm = self.resolve_result_payload_type(ok_ty, err_ty);
 
         let scx = self.builder.scx();
         let i64_ty = scx.type_i64();
@@ -365,16 +356,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Resolve the LLVM type for `Result<T, E>` = `{i64, max(T, E)}`.
+    /// Use the larger payload arm for the shared tagged-union slot.
+    #[must_use]
     pub(super) fn resolve_type_for_result(
         &mut self,
         ok_ty: Idx,
         err_ty: Idx,
     ) -> crate::codegen::value_id::LLVMTypeId {
-        let ok_size = crate::codegen::abi::abi_size(ok_ty, self.type_info, self.repr_plan);
-        let err_size = crate::codegen::abi::abi_size(err_ty, self.type_info, self.repr_plan);
-        let slot_ty = if ok_size >= err_size { ok_ty } else { err_ty };
-        let slot_llvm = self.resolve_type(slot_ty);
+        let slot_llvm = self.resolve_result_payload_type(ok_ty, err_ty);
         let scx = self.builder.scx();
         let i64_ty = scx.type_i64();
         let slot_raw = self.builder.raw_type(slot_llvm);
@@ -382,11 +371,26 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.register_type(res.into())
     }
 
-    // Niche-encoded stub
+    fn resolve_result_payload_type(
+        &mut self,
+        ok_ty: Idx,
+        err_ty: Idx,
+    ) -> crate::codegen::value_id::LLVMTypeId {
+        let ok_llvm = self.resolve_type(ok_ty);
+        let err_llvm = self.resolve_type(err_ty);
+
+        match select_shared_payload_arm(
+            self.builder.raw_type(ok_llvm),
+            self.builder.raw_type(err_llvm),
+        ) {
+            SharedPayloadArm::First => ok_llvm,
+            SharedPayloadArm::Second => err_llvm,
+        }
+    }
 
     #[expect(
         clippy::unused_self,
-        reason = "stub — will gain niche implementation later"
+        reason = "dispatch compatibility requires an emitter method, but fallback delegation reads no emitter state"
     )]
     fn emit_result_monadic_niche(
         &mut self,

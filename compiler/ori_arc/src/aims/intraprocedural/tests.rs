@@ -99,7 +99,7 @@ fn single_block_literal_return() {
     // Literal returns SCALAR. But the classifier says it's a ref type.
     // The analyzer marks scalars based on the classifier, not the literal.
     //
-    // Since ty(0) is DefiniteRef in our classifier, v0 is NOT scalar.
+    // Since ty(0) is DefiniteRef per the classifier, v0 is NOT scalar.
     // But Let { Literal } transfer function gives it SCALAR state.
     // The backward demand from Return adds Once.
     let entry = state_map.var_state_at_block_entry(block_id(0), var(0));
@@ -216,25 +216,26 @@ fn branch_value_used_in_both_arms_is_once() {
         Cardinality::Once,
         "alt_join(Once, Once) should be Once, not Many"
     );
+    assert_eq!(
+        b0_exit_v0.consumption,
+        Consumption::Linear,
+        "alternative Linear demands must remain Linear"
+    );
 }
 
 // Sequential uses in same block → Many (seq_add)
 
 #[test]
 fn sequential_uses_in_same_block_are_many() {
-    // Block 0: let v0 = construct; let v1 = project(v0, f1); let v2 = project(v0, f2); return v1
+    // Block 0: project two fields from parameter v0, reconstruct them, and
+    // return the result. Both projections execute on the same path.
     let func = ArcFunction {
-        var_types: vec![ty(0), ty(0), ty(0)],
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
         blocks: vec![ArcBlock {
             id: block_id(0),
             params: vec![],
             body: vec![
-                ArcInstr::Construct {
-                    dst: var(0),
-                    ty: ty(0),
-                    ctor: CtorKind::Struct(Name::from_raw(10)),
-                    args: vec![],
-                },
                 ArcInstr::Project {
                     dst: var(1),
                     ty: ty(0),
@@ -247,8 +248,14 @@ fn sequential_uses_in_same_block_are_many() {
                     value: var(0),
                     field: 1,
                 },
+                ArcInstr::Construct {
+                    dst: var(3),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(10)),
+                    args: vec![var(1), var(2)],
+                },
             ],
-            terminator: ArcTerminator::Return { value: var(1) },
+            terminator: ArcTerminator::Return { value: var(3) },
         }],
         ..Default::default()
     };
@@ -256,15 +263,773 @@ fn sequential_uses_in_same_block_are_many() {
     let classifier = TestClassifier::all_ref(1);
     let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
-    // v0 is used by two Project instructions in the same block.
-    // seq_add(Once, Once) = Many — sequential composition.
-    // But v0 is defined in this block (Construct), so its entry state is BOTTOM.
-    // The exit state captures the demand before the block's instructions run.
-    // We need to check the exit state to see the accumulated demand.
+    // Each live Project transfers one Affine borrow demand to its source.
+    // TF-14 composes the two distinct projection instructions sequentially.
+    let entry = state_map.var_state_at_block_entry(block_id(0), var(0));
+    assert_eq!(
+        entry.cardinality,
+        Cardinality::Many,
+        "two sequential uses must have Many cardinality"
+    );
+    assert_eq!(
+        entry.consumption,
+        Consumption::Unrestricted,
+        "two sequential Affine projection demands must compose to Unrestricted consumption"
+    );
+}
 
-    // v0 is defined in this block, so entry has no demand for v0 (it's produced here).
+#[test]
+fn one_projected_result_used_multiple_times_is_many_affine_at_source() {
+    // The Project executes once, but its borrowed destination is read twice.
+    // TF-14 transfers the destination cardinality while contributing one
+    // Affine consumption demand for the single borrow operation.
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: var(0),
+                    field: 0,
+                },
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Tuple,
+                    args: vec![var(1), var(1)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    let source = state_map.var_state_at_block_entry(block_id(0), var(0));
+
+    assert_eq!(source.cardinality, Cardinality::Many);
+    assert_eq!(source.consumption, Consumption::Affine);
+}
+
+#[test]
+fn live_scalar_project_is_one_affine_at_source() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(1), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(1),
+                    value: var(0),
+                    field: 0,
+                },
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Tuple,
+                    args: vec![var(1)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2).with_scalar(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    let source = state_map.var_state_at_block_entry(block_id(0), var(0));
+
+    assert_eq!(source.cardinality, Cardinality::Once);
+    assert_eq!(source.consumption, Consumption::Affine);
+}
+
+#[test]
+fn repeated_scalar_uses_do_not_repeat_the_project_source_read() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(1), ty(1), ty(1)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(1),
+                    value: var(0),
+                    field: 0,
+                },
+                ArcInstr::Apply {
+                    dst: var(2),
+                    ty: ty(1),
+                    func: Name::from_raw(100),
+                    args: vec![var(1)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Apply {
+                    dst: var(3),
+                    ty: ty(1),
+                    func: Name::from_raw(101),
+                    args: vec![var(1)],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(3) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2).with_scalar(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    let source = state_map.var_state_at_block_entry(block_id(0), var(0));
+
+    assert_eq!(source.cardinality, Cardinality::Once);
+    assert_eq!(source.consumption, Consumption::Affine);
+}
+
+#[test]
+fn dead_scalar_project_observes_dead_at_source() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(1)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Project {
+                dst: var(1),
+                ty: ty(1),
+                value: var(0),
+                field: 0,
+            }],
+            terminator: ArcTerminator::Unreachable,
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2).with_scalar(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    let source = state_map.var_state_at_block_entry(block_id(0), var(0));
+
+    assert_eq!(source.cardinality, Cardinality::Absent);
+    assert_eq!(source.consumption, Consumption::Dead);
+}
+
+#[test]
+fn scalar_project_liveness_flows_from_a_successor_block() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(1)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(1),
+                    value: var(0),
+                    field: 0,
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![],
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(1) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2).with_scalar(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    let source = state_map.var_state_at_block_entry(block_id(0), var(0));
+
+    assert_eq!(source.cardinality, Cardinality::Once);
+    assert_eq!(source.consumption, Consumption::Affine);
+}
+
+#[test]
+fn scalar_project_liveness_maps_successor_param_to_jump_arg() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(1), ty(1)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(1),
+                    value: var(0),
+                    field: 0,
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![var(1)],
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![(var(2), ty(1))],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: var(2) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2).with_scalar(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    let source = state_map.var_state_at_block_entry(block_id(0), var(0));
+
+    assert_eq!(source.cardinality, Cardinality::Once);
+    assert_eq!(source.consumption, Consumption::Affine);
+}
+
+#[test]
+fn unused_scalar_successor_param_does_not_keep_jump_arg_live() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(1), ty(1)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(1),
+                    value: var(0),
+                    field: 0,
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![var(1)],
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![(var(2), ty(1))],
+                body: vec![],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2).with_scalar(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    let source = state_map.var_state_at_block_entry(block_id(0), var(0));
+
+    assert_eq!(source.cardinality, Cardinality::Absent);
+    assert_eq!(source.consumption, Consumption::Dead);
+}
+
+#[test]
+fn scalar_partial_apply_capture_is_live_even_when_closure_is_dead() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(1), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(1),
+                    value: var(0),
+                    field: 0,
+                },
+                ArcInstr::PartialApply {
+                    dst: var(2),
+                    ty: ty(0),
+                    func: Name::from_raw(100),
+                    args: vec![var(1)],
+                },
+            ],
+            terminator: ArcTerminator::Unreachable,
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2).with_scalar(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    let source = state_map.var_state_at_block_entry(block_id(0), var(0));
+
+    assert_eq!(source.cardinality, Cardinality::Once);
+    assert_eq!(source.consumption, Consumption::Affine);
+}
+
+#[test]
+fn scalar_project_copy_out_has_no_borrow_or_allocation_alias_provenance() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(1)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Project {
+                dst: var(1),
+                ty: ty(1),
+                value: var(0),
+                field: 0,
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2).with_scalar(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    let aliases = super::project_aliases::compute_project_alias_table_for_state(
+        &func,
+        state_map.apply_result_aliases(),
+        &state_map,
+    );
+
+    assert!(state_map.borrow_source(var(1)).is_none());
+    assert!(!crate::aims::emit_rc::has_borrows_from_aggregate(
+        &state_map,
+        var(0)
+    ));
+    assert!(!aliases.sources.contains_key(&var(1)));
+    assert!(!aliases.demand_sources.contains_key(&var(1)));
+}
+
+#[test]
+fn nested_scalar_project_propagates_liveness_to_managed_root() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(1), ty(1)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(1),
+                    value: var(0),
+                    field: 0,
+                },
+                ArcInstr::Project {
+                    dst: var(2),
+                    ty: ty(1),
+                    value: var(1),
+                    field: 0,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2).with_scalar(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    let source = state_map.var_state_at_block_entry(block_id(0), var(0));
+
+    assert_eq!(source.cardinality, Cardinality::Once);
+    assert_eq!(source.consumption, Consumption::Affine);
+}
+
+#[test]
+fn nested_scalar_project_liveness_crosses_jump_parameter() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(1), ty(1), ty(1)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(1),
+                    value: var(0),
+                    field: 0,
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![var(1)],
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![(var(2), ty(1))],
+                body: vec![ArcInstr::Project {
+                    dst: var(3),
+                    ty: ty(1),
+                    value: var(2),
+                    field: 0,
+                }],
+                terminator: ArcTerminator::Return { value: var(3) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2).with_scalar(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    let source = state_map.var_state_at_block_entry(block_id(0), var(0));
+
+    assert_eq!(source.cardinality, Cardinality::Once);
+    assert_eq!(source.consumption, Consumption::Affine);
+}
+
+#[test]
+fn dead_scalar_project_occurrence_does_not_cross_cfg_edge() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(1)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![],
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(1),
+                    value: var(0),
+                    field: 0,
+                }],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2).with_scalar(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
     assert_eq!(
         state_map.var_state_at_block_entry(block_id(0), var(0)),
+        AimsState::BOTTOM
+    );
+    assert_eq!(
+        state_map
+            .block_entry_states(block_id(1))
+            .and_then(|states| states.get(&var(0))),
+        Some(&AimsState::BOTTOM),
+        "the successor retains local occurrence evidence"
+    );
+    assert!(
+        !state_map
+            .block_exit_states(block_id(0))
+            .is_some_and(|states| states.contains_key(&var(0))),
+        "zero demand must not propagate across a CFG edge or acquire locality"
+    );
+}
+
+#[test]
+fn dead_project_composes_fixed_affine_with_live_source_demand() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: var(0),
+                    field: 0,
+                },
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Tuple,
+                    args: vec![var(0)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(3);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    let source = state_map.var_state_at_block_entry(block_id(0), var(0));
+
+    assert_eq!(source.cardinality, Cardinality::Once);
+    assert_eq!(source.consumption, Consumption::Unrestricted);
+}
+
+#[test]
+fn dead_project_composition_is_source_order_independent() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: var(2),
+                    ty: ty(0),
+                    ctor: CtorKind::Tuple,
+                    args: vec![var(0)],
+                },
+                ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: var(0),
+                    field: 0,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(3);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    let source = state_map.var_state_at_block_entry(block_id(0), var(0));
+
+    assert_eq!(source.cardinality, Cardinality::Once);
+    assert_eq!(source.consumption, Consumption::Unrestricted);
+}
+
+#[test]
+fn select_transfers_full_destination_demand_to_both_operands() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(1), ty(0)],
+        params: vec![
+            crate::test_helpers::owned_param(0, ty(0)),
+            crate::test_helpers::owned_param(1, ty(0)),
+            crate::test_helpers::owned_param(2, ty(1)),
+        ],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Select {
+                dst: var(3),
+                ty: ty(0),
+                cond: var(2),
+                true_val: var(0),
+                false_val: var(1),
+            }],
+            terminator: ArcTerminator::Return { value: var(3) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2).with_scalar(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    for operand in [var(0), var(1)] {
+        let state = state_map.var_state_at_block_entry(block_id(0), operand);
+        assert_eq!(state.cardinality, Cardinality::Once);
+        assert_eq!(state.consumption, Consumption::Linear);
+    }
+}
+
+#[test]
+fn select_same_operand_twice_composes_both_alias_transfers() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(1), ty(0)],
+        params: vec![
+            crate::test_helpers::owned_param(0, ty(0)),
+            crate::test_helpers::owned_param(1, ty(1)),
+        ],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Select {
+                dst: var(2),
+                ty: ty(0),
+                cond: var(1),
+                true_val: var(0),
+                false_val: var(0),
+            }],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2).with_scalar(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    let operand = state_map.var_state_at_block_entry(block_id(0), var(0));
+
+    assert_eq!(operand.cardinality, Cardinality::Many);
+    assert_eq!(operand.consumption, Consumption::Unrestricted);
+}
+
+#[test]
+fn aggregate_builders_promote_arguments_and_transfer_destination_locality() {
+    let builders = [
+        ArcInstr::Construct {
+            dst: var(2),
+            ty: ty(0),
+            ctor: CtorKind::Struct(Name::from_raw(10)),
+            args: vec![var(1)],
+        },
+        ArcInstr::Reuse {
+            token: var(0),
+            dst: var(2),
+            ty: ty(0),
+            ctor: CtorKind::Struct(Name::from_raw(10)),
+            args: vec![var(1)],
+        },
+        ArcInstr::CollectionReuse {
+            old_var: var(0),
+            dst: var(2),
+            ty: ty(0),
+            ctor: CtorKind::ListLiteral,
+            args: vec![var(1)],
+        },
+    ];
+
+    for builder in builders {
+        let func = ArcFunction {
+            var_types: vec![ty(0), ty(0), ty(0)],
+            params: vec![
+                crate::test_helpers::owned_param(0, ty(0)),
+                crate::test_helpers::owned_param(1, ty(0)),
+            ],
+            blocks: vec![ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![builder],
+                terminator: ArcTerminator::Return { value: var(2) },
+            }],
+            ..Default::default()
+        };
+
+        let classifier = TestClassifier::all_ref(3);
+        let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+        let argument = state_map.var_state_at_block_entry(block_id(0), var(1));
+
+        assert_eq!(argument.access, AccessClass::Owned);
+        assert_eq!(argument.locality, Locality::HeapEscaping);
+        assert_eq!(argument.cardinality, Cardinality::Once);
+        assert_eq!(argument.consumption, Consumption::Linear);
+    }
+}
+
+#[test]
+fn reuse_carriers_do_not_receive_destination_locality_or_access() {
+    let builders = [
+        ArcInstr::Reuse {
+            token: var(0),
+            dst: var(2),
+            ty: ty(0),
+            ctor: CtorKind::Struct(Name::from_raw(10)),
+            args: vec![var(1)],
+        },
+        ArcInstr::CollectionReuse {
+            old_var: var(0),
+            dst: var(2),
+            ty: ty(0),
+            ctor: CtorKind::ListLiteral,
+            args: vec![var(1)],
+        },
+    ];
+
+    for builder in builders {
+        let func = ArcFunction {
+            var_types: vec![ty(0), ty(0), ty(0)],
+            params: vec![
+                crate::test_helpers::borrowed_param(0, ty(0)),
+                crate::test_helpers::owned_param(1, ty(0)),
+            ],
+            blocks: vec![ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![builder],
+                terminator: ArcTerminator::Return { value: var(2) },
+            }],
+            ..Default::default()
+        };
+
+        let classifier = TestClassifier::all_ref(3);
+        let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+        let carrier = state_map.var_state_at_block_entry(block_id(0), var(0));
+
+        assert_eq!(carrier.access, AccessClass::Borrowed);
+        assert!(carrier.locality < Locality::HeapEscaping);
+        assert_eq!(carrier.cardinality, Cardinality::Once);
+        assert_eq!(carrier.consumption, Consumption::Linear);
+    }
+}
+
+#[test]
+fn set_promotes_value_and_transfers_base_locality() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        params: vec![
+            crate::test_helpers::owned_param(0, ty(0)),
+            crate::test_helpers::owned_param(1, ty(0)),
+        ],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Set {
+                base: var(0),
+                field: 0,
+                value: var(1),
+            }],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    let value = state_map.var_state_at_block_entry(block_id(0), var(1));
+
+    assert_eq!(value.access, AccessClass::Owned);
+    assert_eq!(value.locality, Locality::HeapEscaping);
+    assert_eq!(value.cardinality, Cardinality::Once);
+    assert_eq!(value.consumption, Consumption::Linear);
+}
+
+#[test]
+fn set_tag_adds_only_base_demand() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        params: vec![
+            crate::test_helpers::borrowed_param(0, ty(0)),
+            crate::test_helpers::borrowed_param(1, ty(0)),
+        ],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::SetTag {
+                base: var(0),
+                tag: 1,
+            }],
+            terminator: ArcTerminator::Unreachable,
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    let base = state_map.var_state_at_block_entry(block_id(0), var(0));
+    assert_eq!(base.cardinality, Cardinality::Once);
+    assert_eq!(base.consumption, Consumption::Linear);
+    assert_eq!(
+        state_map.var_state_at_block_entry(block_id(0), var(1)),
         AimsState::BOTTOM
     );
 }
@@ -1081,12 +1846,11 @@ fn sparse_events_reusable_allocation_for_enum_construct() {
     let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     let events = state_map.events_in_block(block_id(0));
-    let reusable: Vec<_> = events
-        .iter()
-        .filter(|e| matches!(e, super::state_map::AimsEvent::ReusableAllocation { .. }))
-        .collect();
     assert_eq!(
-        reusable.len(),
+        events
+            .iter()
+            .filter(|e| matches!(e, super::state_map::AimsEvent::ReusableAllocation { .. }))
+            .count(),
         1,
         "EnumVariant Construct should record ReusableAllocation"
     );
@@ -1115,12 +1879,10 @@ fn sparse_events_no_reusable_allocation_for_list_literal() {
     let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     let events = state_map.events_in_block(block_id(0));
-    let reusable: Vec<_> = events
-        .iter()
-        .filter(|e| matches!(e, super::state_map::AimsEvent::ReusableAllocation { .. }))
-        .collect();
     assert!(
-        reusable.is_empty(),
+        !events
+            .iter()
+            .any(|e| matches!(e, super::state_map::AimsEvent::ReusableAllocation { .. })),
         "ListLiteral should NOT record ReusableAllocation"
     );
 }
@@ -1187,25 +1949,24 @@ fn sparse_events_multiple_constructs_in_block() {
     let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
     let events = state_map.events_in_block(block_id(0));
-    let reusable: Vec<_> = events
-        .iter()
-        .filter(|e| matches!(e, super::state_map::AimsEvent::ReusableAllocation { .. }))
-        .collect();
     assert_eq!(
-        reusable.len(),
+        events
+            .iter()
+            .filter(|e| matches!(e, super::state_map::AimsEvent::ReusableAllocation { .. }))
+            .count(),
         2,
         "Both Constructs should record ReusableAllocation"
     );
 }
 
-// Sparse event table: local-allocation eligibility
+// Sparse event table: placement eligibility from bounded lifetime
 
 #[test]
 fn sparse_events_local_alloc_for_function_local_variable() {
     // v0 = Construct(Struct); v1 = Project(v0, 0); return v1
     // v0 is defined and consumed locally (only projected, never returned).
     // Its converged exit state should have local Locality, producing a
-    // LocalAllocCandidate event.
+    // PlacementEligibilityCandidate event.
     //
     // Note: whether Locality is FunctionLocal/BlockLocal depends on the
     // transfer functions. This test verifies the event is recorded when
@@ -1244,10 +2005,15 @@ fn sparse_events_local_alloc_for_function_local_variable() {
     let events = state_map.events_in_block(block_id(0));
     let local_alloc: Vec<_> = events
         .iter()
-        .filter(|e| matches!(e, super::state_map::AimsEvent::LocalAllocCandidate { .. }))
+        .filter(|e| {
+            matches!(
+                e,
+                super::state_map::AimsEvent::PlacementEligibilityCandidate { .. }
+            )
+        })
         .collect();
 
-    // If locality is FunctionLocal or BlockLocal, we should have an event.
+    // If locality is FunctionLocal or BlockLocal, an event should be recorded.
     // If locality is Unknown/HeapEscaping (conservative default), no event.
     if matches!(
         exit_v0.locality,
@@ -1256,14 +2022,14 @@ fn sparse_events_local_alloc_for_function_local_variable() {
     ) {
         assert!(
             !local_alloc.is_empty(),
-            "FunctionLocal/BlockLocal variable should record LocalAllocCandidate"
+            "FunctionLocal/BlockLocal variable should record PlacementEligibilityCandidate"
         );
     } else {
         // Conservative default: no local-alloc events produced when
         // locality defaults to Unknown.
         assert!(
             local_alloc.is_empty(),
-            "Unknown/HeapEscaping locality should NOT record LocalAllocCandidate"
+            "Unknown/HeapEscaping locality should NOT record PlacementEligibilityCandidate"
         );
     }
 }
@@ -1350,23 +2116,19 @@ fn block_local_construct_stays_block_local() {
     //
     // The key test: v0 does NOT appear in the exit state (no successors
     // demand it), confirming it stays block-local. Verify via the sparse
-    // event table: v0 should be a LocalAllocCandidate.
+    // event table: v0 should be a PlacementEligibilityCandidate.
     let events = state_map.events_in_block(block_id(0));
-    let local_alloc: Vec<_> = events
-        .iter()
-        .filter(|e| {
+    assert!(
+        events.iter().any(|e| {
             matches!(
                 e,
-                super::AimsEvent::LocalAllocCandidate {
+                super::AimsEvent::PlacementEligibilityCandidate {
                     var: v,
                     ..
                 } if *v == var(0)
             )
-        })
-        .collect();
-    assert!(
-        !local_alloc.is_empty(),
-        "block-local construct should be a LocalAllocCandidate"
+        }),
+        "block-local construct should be a PlacementEligibilityCandidate"
     );
 }
 
@@ -1506,11 +2268,11 @@ fn callee_contract_locality_widens_arg() {
                 transfers_through_return: false,
                 return_alias: None,
                 return_payload_contains_param: false,
-                return_payload_contains_param_all_paths: false,
                 iter_consumes: false,
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
-                capture_variant_return_project: None,
+                borrowed_cow_mutated: false,
+                iter_consumes_projected_field: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1525,9 +2287,9 @@ fn callee_contract_locality_widens_arg() {
 
     // Key verification: analysis converges successfully with contract locality.
     // The contract-aware demand influences the entry state of the function
-    // (for parameters), which we test via interprocedural tests.
-    // v0 is defined in this block (removed from entry), so we verify via
-    // event table: v0 should NOT be a LocalAllocCandidate because the
+    // (for parameters), covered separately by interprocedural tests.
+    // v0 is defined in this block (removed from entry), so this is verified via
+    // event table: v0 should NOT be a PlacementEligibilityCandidate because the
     // callee escapes it.
     let events = state_map.events_in_block(block_id(0));
     let local_alloc_v0: Vec<_> = events
@@ -1535,16 +2297,105 @@ fn callee_contract_locality_widens_arg() {
         .filter(|e| {
             matches!(
                 e,
-                super::AimsEvent::LocalAllocCandidate { var: v, .. } if v == &var(0)
+                super::AimsEvent::PlacementEligibilityCandidate { var: v, .. }
+                    if v == &var(0)
             )
         })
         .collect();
-    // LocalAllocCandidate checks exit state locality. For a single-block
-    // function with Return (no successors), exit state is empty → BOTTOM
-    // which has BlockLocal. So the event fires based on exit state, not
-    // the backward demand within the block. The contract effect is visible
-    // in contract extraction for function parameters.
+    // `local_alloc_v0` rides on EXIT-state locality, which is BOTTOM
+    // (BlockLocal) for a single-block Return function, so it cannot observe the
+    // contract-driven widening (the event still fires off the exit state). The
+    // widening is recorded as backward demand at v0's DEFINITION (the same
+    // `var_state_at_definition` surface class-ledger Step-4b emission
+    // consumes) — per TF-11 Apply, an Owned arg to a callee whose
+    // `ParamContract.locality_bound = HeapEscaping` widens
+    // `arg.locality := max(arg.locality, HeapEscaping)`.
     let _ = local_alloc_v0;
+    let def_v0 = state_map.var_state_at_definition(block_id(0), var(0));
+    assert_eq!(
+        def_v0.locality,
+        Locality::HeapEscaping,
+        "callee HeapEscaping contract must widen v0's definition-site locality"
+    );
+}
+
+/// Negative clamp for `callee_contract_locality_widens_arg`: a callee whose
+/// `ParamContract.locality_bound = FunctionLocal` does NOT widen the Owned
+/// arg's locality to `HeapEscaping` — the arg stays a local-allocation
+/// candidate. Pairs with the positive test to pin that the widening is driven
+/// by the contract's locality value, not unconditional on every Owned call arg.
+#[test]
+fn callee_contract_local_locality_does_not_escape_arg() {
+    use super::super::contract::{ContextBehavior, EffectSummary, ParamContract, ReturnContract};
+    use super::super::lattice::{AccessClass, Consumption, Uniqueness};
+
+    let callee_name = Name::from_raw(100);
+
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: var(0),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(10)),
+                    args: vec![],
+                },
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: callee_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    // Callee contract: param 0 stays FunctionLocal (does not escape).
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        MemoryContract {
+            params: vec![ParamContract {
+                access: AccessClass::Owned,
+                consumption: Consumption::Linear,
+                cardinality: Cardinality::Once,
+                may_escape: false,
+                may_share: false,
+                locality_bound: Locality::FunctionLocal,
+                uniqueness: Uniqueness::MaybeShared,
+                transfers_through_return: false,
+                return_alias: None,
+                return_payload_contains_param: false,
+                iter_consumes: false,
+                borrowed_read_only: false,
+                borrowed_cow_consumed: false,
+                borrowed_cow_mutated: false,
+                iter_consumes_projected_field: None,
+            }],
+            return_info: ReturnContract::CONSERVATIVE,
+            effects: EffectSummary::default(),
+            context_behavior: ContextBehavior::default(),
+            fip: super::super::contract::FipContract::Never,
+            is_fbip: false,
+        },
+    );
+
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    let def_v0 = state_map.var_state_at_definition(block_id(0), var(0));
+    assert_ne!(
+        def_v0.locality,
+        Locality::HeapEscaping,
+        "FunctionLocal callee contract must NOT widen v0 to HeapEscaping"
+    );
 }
 
 /// Contrast: callee with `FunctionLocal` locality preserves arg locality.
@@ -1592,11 +2443,11 @@ fn callee_contract_function_local_preserves_arg() {
                 transfers_through_return: false,
                 return_alias: None,
                 return_payload_contains_param: false,
-                return_payload_contains_param_all_paths: false,
                 iter_consumes: false,
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
-                capture_variant_return_project: None,
+                borrowed_cow_mutated: false,
+                iter_consumes_projected_field: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1622,7 +2473,7 @@ fn callee_contract_function_local_preserves_arg() {
 /// Block-local construct starts `Unique` via TF-3 (fresh allocation).
 ///
 /// A value constructed within a block starts with `Uniqueness::Unique`
-/// because `Construct` produces a fresh allocation with RC == 1 (TF-3).
+/// because `Construct` produces one fresh logical owner (TF-3).
 /// Uniqueness is preserved through the block because no sharing occurs.
 #[test]
 fn block_local_value_gets_unique_without_runtime_check() {
@@ -1676,33 +2527,34 @@ fn block_local_value_gets_unique_without_runtime_check() {
         }
     }
 
-    // The real verification: the LocalAllocCandidate event confirms block-local
-    // treatment (no runtime uniqueness check needed).
+    // The real verification: the PlacementEligibilityCandidate event confirms
+    // a function-bounded lifetime without selecting storage.
     let events = state_map.events_in_block(block_id(0));
     let is_local_alloc = events.iter().any(|e| {
         matches!(
             e,
-            super::AimsEvent::LocalAllocCandidate { var: v, .. } if *v == var(0)
+            super::AimsEvent::PlacementEligibilityCandidate { var: v, .. }
+                if *v == var(0)
         )
     });
     assert!(
         is_local_alloc,
-        "block-local construct should be LocalAllocCandidate (no runtime uniqueness check)"
+        "block-local construct should be PlacementEligibilityCandidate"
     );
 }
 
-/// Function-local linear value is RC-skip eligible.
+/// A borrowed affine projection source needs no ownership events.
 ///
-/// A function parameter that is used linearly (consumed once) and stays
-/// function-local should be marked as RC-skip eligible — no need for
-/// `RcInc` at entry or `RcDec` at last use.
+/// A function parameter used only as a projection source is inferred Borrowed.
+/// TF-14 transfers the live destination's cardinality and records one Affine
+/// borrow demand, while DP-1 excludes the source from ownership-event placement
+/// because it carries no independent credit.
 #[test]
-fn function_local_linear_value_skips_rc() {
+fn borrowed_affine_projection_source_needs_no_ownership_events() {
     // func(p0):
     //   block 0: v1 = Project(p0, 0); return v1
-    // p0 is a function param, used once (Project), stays function-local
-    // (doesn't cross block boundaries, but is a function param so at
-    // least FunctionLocal).
+    // p0 is a function parameter used once as a projection source. The
+    // returned view widens its source lifetime through TF-14.
     let func = ArcFunction {
         var_types: vec![ty(0), ty(0)],
         params: vec![crate::test_helpers::owned_param(0, ty(0))],
@@ -1723,14 +2575,9 @@ fn function_local_linear_value_skips_rc() {
     let classifier = TestClassifier::all_ref(2);
     let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
 
-    // p0 is returned indirectly (through Project → v1 → Return).
-    // But p0 itself is used once (by Project) and not returned.
-    // However, v1 (the projected value) IS returned, so v1 gets HeapEscaping.
-    //
-    // For p0: used once (Once cardinality) but it's a function param
-    // that could have any upstream locality. The backward analysis
-    // sees Return(v1) → HeapEscaping on v1, then Project adds demand
-    // on v0=p0 with Once cardinality.
+    // Return widens the projected view to HeapEscaping. TF-14 transfers that
+    // demand to p0 with Affine consumption, then CN-8 clamps the unchanged
+    // Borrowed source to FunctionLocal.
     let entry_p0 = state_map.var_state_at_block_entry(block_id(0), var(0));
 
     // p0 should have Once cardinality (used once by Project).
@@ -1740,16 +2587,13 @@ fn function_local_linear_value_skips_rc() {
         "p0 used once by Project"
     );
 
-    // For a function-local linear value, is_rc_skip_eligible should be true
-    // when locality is FunctionLocal and consumption is Linear.
-    // Note: the backward analysis may give p0 Affine consumption (may need
-    // drop). Check the actual state for RC-skip eligibility.
-    if entry_p0.is_local() && entry_p0.consumption <= super::super::lattice::Consumption::Linear {
-        assert!(
-            entry_p0.is_rc_skip_eligible(),
-            "function-local linear param should be RC-skip eligible: {entry_p0:?}"
-        );
-    }
+    assert_eq!(entry_p0.consumption, Consumption::Affine);
+    assert_eq!(entry_p0.access, AccessClass::Borrowed);
+    assert_eq!(entry_p0.locality, Locality::FunctionLocal);
+    assert!(
+        !entry_p0.needs_ownership_events(),
+        "borrowed projection source must carry no independent ownership event: {entry_p0:?}"
+    );
 }
 
 /// Contract with locality bounds enables RC-free call pattern.
@@ -1801,11 +2645,11 @@ fn contract_with_locality_bounds_enables_rc_free_call() {
                 transfers_through_return: false,
                 return_alias: None,
                 return_payload_contains_param: false,
-                return_payload_contains_param_all_paths: false,
                 iter_consumes: false,
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
-                capture_variant_return_project: None,
+                borrowed_cow_mutated: false,
+                iter_consumes_projected_field: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -1889,11 +2733,11 @@ fn pure_callee_preserves_borrowed_arg_uniqueness() {
                 transfers_through_return: false,
                 return_alias: None,
                 return_payload_contains_param: false,
-                return_payload_contains_param_all_paths: false,
                 iter_consumes: false,
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
-                capture_variant_return_project: None,
+                borrowed_cow_mutated: false,
+                iter_consumes_projected_field: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -1972,11 +2816,11 @@ fn sharing_callee_widens_borrowed_arg_uniqueness() {
                 transfers_through_return: false,
                 return_alias: None,
                 return_payload_contains_param: false,
-                return_payload_contains_param_all_paths: false,
                 iter_consumes: false,
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
-                capture_variant_return_project: None,
+                borrowed_cow_mutated: false,
+                iter_consumes_projected_field: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2055,11 +2899,11 @@ fn owned_param_ignores_callee_may_share() {
                 transfers_through_return: false,
                 return_alias: None,
                 return_payload_contains_param: false,
-                return_payload_contains_param_all_paths: false,
                 iter_consumes: false,
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
-                capture_variant_return_project: None,
+                borrowed_cow_mutated: false,
+                iter_consumes_projected_field: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2119,6 +2963,148 @@ fn effect_summary_construct_sets_may_allocate() {
         "empty Construct (no args) should not set may_share"
     );
     assert!(!effects.may_throw, "Construct should not set may_throw");
+}
+
+#[test]
+fn effect_summary_live_source_and_alias_sets_may_share() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: var(0),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(1)),
+                    args: vec![],
+                },
+                ArcInstr::Let {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: ArcValue::Var(var(0)),
+                },
+                ArcInstr::Project {
+                    dst: var(2),
+                    ty: ty(0),
+                    value: var(0),
+                    field: 0,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    assert!(
+        state_map.effect_summary().may_share,
+        "a live RC source and its live alias require a sharing effect"
+    );
+}
+
+#[test]
+fn effect_summary_moved_alias_does_not_set_may_share() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: var(0),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(Name::from_raw(1)),
+                    args: vec![],
+                },
+                ArcInstr::Let {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: ArcValue::Var(var(0)),
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    assert!(
+        !state_map.effect_summary().may_share,
+        "a moved alias with no surviving source use must not claim sharing"
+    );
+}
+
+/// Returning a managed projection creates a logical owner credit for the
+/// projected value so it can outlive the borrowed aggregate.
+#[test]
+fn effect_summary_projection_escape_sets_may_share() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Project {
+                dst: var(1),
+                ty: ty(0),
+                value: var(0),
+                field: 0,
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    assert!(
+        state_map.effect_summary().may_share,
+        "an escaping managed projection requires an additional logical owner credit"
+    );
+}
+
+/// Reading through a block-local managed projection does not itself create a
+/// second logical owner.
+#[test]
+fn effect_summary_projection_block_local_stays_non_sharing() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(1), ty(2)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(1),
+                    value: var(0),
+                    field: 0,
+                },
+                ArcInstr::Project {
+                    dst: var(2),
+                    ty: ty(2),
+                    value: var(1),
+                    field: 0,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(3).with_scalar(2);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    assert!(
+        !state_map.effect_summary().may_share,
+        "a block-local projection read must preserve the non-sharing effect"
+    );
 }
 
 /// `Construct` storing an argument with non-`BlockLocal` locality sets
@@ -2294,11 +3280,11 @@ fn effect_summary_apply_unions_callee_effects() {
                 transfers_through_return: false,
                 return_alias: None,
                 return_payload_contains_param: false,
-                return_payload_contains_param_all_paths: false,
                 iter_consumes: false,
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
-                capture_variant_return_project: None,
+                borrowed_cow_mutated: false,
+                iter_consumes_projected_field: None,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2830,11 +3816,11 @@ fn conditional_fip_call_site_all_unique_no_widening() {
             transfers_through_return: false,
             return_alias: None,
             return_payload_contains_param: false,
-            return_payload_contains_param_all_paths: false,
             iter_consumes: false,
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
-            capture_variant_return_project: None,
+            borrowed_cow_mutated: false,
+            iter_consumes_projected_field: None,
         }],
         return_info: ReturnContract::CONSERVATIVE,
         effects: EffectSummary {
@@ -2911,11 +3897,11 @@ fn fip_test_contract(fip: FipContract) -> MemoryContract {
             transfers_through_return: false,
             return_alias: None,
             return_payload_contains_param: false,
-            return_payload_contains_param_all_paths: false,
             iter_consumes: false,
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
-            capture_variant_return_project: None,
+            borrowed_cow_mutated: false,
+            iter_consumes_projected_field: None,
         }],
         return_info: ReturnContract::CONSERVATIVE,
         effects: EffectSummary {
@@ -3180,17 +4166,13 @@ fn no_context_events_when_not_context_hole() {
 
     // No context events should be recorded.
     let events = state_map.events_in_block(block_id(0));
-    let context_events: Vec<_> = events
-        .iter()
-        .filter(|e| {
+    assert!(
+        !events.iter().any(|e| {
             matches!(
                 e,
                 AimsEvent::ContextOpen { .. } | AimsEvent::ContextClose { .. }
             )
-        })
-        .collect();
-    assert!(
-        context_events.is_empty(),
+        }),
         "no context events when shape is not ContextHole"
     );
 }
@@ -3242,17 +4224,13 @@ fn empty_context_regions_no_events() {
 
     // But no ContextOpen/ContextClose events — context_regions is empty.
     let events = state_map.events_in_block(block_id(0));
-    let context_events: Vec<_> = events
-        .iter()
-        .filter(|e| {
+    assert!(
+        !events.iter().any(|e| {
             matches!(
                 e,
                 AimsEvent::ContextOpen { .. } | AimsEvent::ContextClose { .. }
             )
-        })
-        .collect();
-    assert!(
-        context_events.is_empty(),
+        }),
         "empty context_regions → no context events"
     );
 }
@@ -3377,17 +4355,16 @@ fn context_events_recorded_despite_may_share_true() {
     assert!(state_map.effect_summary().may_share);
 
     let events = state_map.events_in_block(block_id(0));
-    let context_events: Vec<_> = events
-        .iter()
-        .filter(|e| {
-            matches!(
-                e,
-                AimsEvent::ContextOpen { .. } | AimsEvent::ContextClose { .. }
-            )
-        })
-        .collect();
     assert_eq!(
-        context_events.len(),
+        events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    AimsEvent::ContextOpen { .. } | AimsEvent::ContextClose { .. }
+                )
+            })
+            .count(),
         2,
         "context events should be recorded despite may_share=true (gate is logged, not enforced)"
     );
@@ -3904,11 +4881,16 @@ fn project_block_param_cross_block_propagates_source_demand() {
         .block_exit_states(block_id(0))
         .and_then(|s| s.get(&var(1)).copied())
         .unwrap_or(AimsState::BOTTOM);
-    assert_ne!(
+    assert_eq!(
         v1_at_b0_exit.cardinality,
-        Cardinality::Absent,
+        Cardinality::Once,
         "v1 (Project source) must have demand at Block 0 exit — \
          v3 (block param = Jump arg v2 = Project v1.0) is live in Block 1"
+    );
+    assert_eq!(
+        v1_at_b0_exit.consumption,
+        Consumption::Affine,
+        "cross-block TF-14 propagation contributes one non-consuming borrow"
     );
 
     // Also verify the access is Borrowed (Project source kept alive, not consumed).
@@ -3917,6 +4899,58 @@ fn project_block_param_cross_block_propagates_source_demand() {
         AccessClass::Borrowed,
         "Project source demand should be Borrowed"
     );
+}
+
+#[test]
+fn cross_block_project_uses_fixed_affine_not_destination_consumption() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(0),
+                    value: var(0),
+                    field: 0,
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![var(1)],
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![(var(2), ty(0))],
+                body: vec![ArcInstr::Construct {
+                    dst: var(3),
+                    ty: ty(0),
+                    ctor: CtorKind::Tuple,
+                    args: vec![var(2), var(2)],
+                }],
+                terminator: ArcTerminator::Return { value: var(3) },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(4);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    let source = state_map
+        .block_exit_states(block_id(0))
+        .and_then(|states| states.get(&var(0)))
+        .copied()
+        .unwrap_or(AimsState::BOTTOM);
+
+    assert_eq!(source.cardinality, Cardinality::Many);
+    assert_eq!(source.consumption, Consumption::Affine);
+    assert_eq!(source.access, AccessClass::Borrowed);
+    assert_eq!(source.uniqueness, Uniqueness::Unique);
+    assert_eq!(source.locality, Locality::FunctionLocal);
+    assert_eq!(source.shape, ShapeClass::NonReusable);
+    assert_eq!(source.effect, super::super::lattice::EffectClass::NONE);
 }
 
 // compute_project_alias_sources — multi-predecessor merge
@@ -4008,8 +5042,9 @@ fn project_block_param_multi_predecessor_merge_propagates_all_source_demand() {
     // The backward analysis propagates demand for BOTH v2 and v4 to Block 3's
     // entry (via project_alias_sources). This is correct: the demand
     // propagation keeps parent aggregates alive per-predecessor. The emission
-    // layer filters branch-local variables at merge blocks, routing them to
-    // per-predecessor trampolines via edge cleanup.
+    // layer filters branch-local variables at merge blocks, placing each
+    // predecessor's release via the class-ledger's per-edge placement instead
+    // of a shared merge-block release.
     let func = ArcFunction {
         var_types: vec![ty(0); 9],
         blocks: vec![
@@ -4119,7 +5154,7 @@ fn project_block_param_multi_predecessor_merge_propagates_all_source_demand() {
 // Pipeline order: position 1.5 (between `populate_borrow_sources` and
 // `populate_sparse_events`) — Side tables MUST be
 // populated BEFORE consumers read them; locality narrowing in the side
-// table MUST reach `populate_sparse_events` for `LocalAllocCandidate`
+// table MUST reach `populate_sparse_events` for `PlacementEligibilityCandidate`
 // emission.
 //
 // Sparse filter is BOTTOM-default per skip Unique /
@@ -4147,11 +5182,11 @@ fn contract_with_return(return_info: ReturnContract) -> MemoryContract {
             transfers_through_return: false,
             return_alias: None,
             return_payload_contains_param: false,
-            return_payload_contains_param_all_paths: false,
             iter_consumes: false,
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
-            capture_variant_return_project: None,
+            borrowed_cow_mutated: false,
+            iter_consumes_projected_field: None,
         }],
         return_info,
         effects: EffectSummary::default(),
@@ -4183,13 +5218,13 @@ fn func_with_apply_call(callee_name: Name) -> ArcFunction {
     }
 }
 
-/// PRIMARY BUG-04-086 LOAD-BEARING TEST.
+/// PRIMARY slice-rest uniqueness side-table LOAD-BEARING TEST.
 ///
 /// Apply call with contract `return_info.uniqueness = MaybeShared` populates
 /// the side table at `dst`. Without this, `effective_uniqueness_at_block_*`
 /// would fall through to lattice BOTTOM=Unique, `drop_hints` would classify the
 /// slice-rest as Unique, and codegen would route through
-/// `ori_buffer_drop_unique` → BUG-04-086 panic UNFIXED.
+/// `ori_buffer_drop_unique` → a slice-rest double-free panic.
 #[test]
 fn populate_call_result_states_apply_maybe_shared_contract_inserts_dst() {
     let callee_name = Name::from_raw(100);
@@ -4204,6 +5239,7 @@ fn populate_call_result_states_apply_maybe_shared_contract_inserts_dst() {
             locality: Locality::Unknown,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4214,7 +5250,7 @@ fn populate_call_result_states_apply_maybe_shared_contract_inserts_dst() {
         state_map.contract_uniqueness(var(1)),
         Some(Uniqueness::MaybeShared),
         "Apply with MaybeShared contract must populate side table — \
-         BUG-04-086 closure depends on this exact override of optimistic lattice BOTTOM=Unique"
+         the slice-rest drop_hints closure depends on this exact override of optimistic lattice BOTTOM=Unique"
     );
 }
 
@@ -4235,6 +5271,7 @@ fn populate_call_result_states_apply_unique_contract_filtered() {
             locality: Locality::BlockLocal,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4277,6 +5314,308 @@ fn populate_call_result_states_apply_no_contract_uses_conservative() {
         state_map.contract_locality(var(1)),
         Some(Locality::Unknown),
         "CONSERVATIVE.locality = Unknown — must override optimistic BOTTOM=BlockLocal"
+    );
+}
+
+/// Helper: `ArcFunction` doing `v1 = Apply(callee, [p0]); v2 = Let Var(v1); return v2`.
+/// The `Let { Var }` alias (`v2`) is the shape `propagate_alias_forward_state`
+/// must carry the call-result forward state onto (TF-2: a var-binding inherits
+/// its source's full lattice state).
+fn func_with_apply_then_let_alias(callee_name: Name) -> ArcFunction {
+    ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: callee_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Let {
+                    dst: var(2),
+                    ty: ty(0),
+                    value: ArcValue::Var(var(1)),
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    }
+}
+
+/// TF-2 alias-carrier slice-rest uniqueness LOAD-BEARING TEST.
+///
+/// A `Let { Var(src) }` alias of an `Apply` result whose contract is
+/// `MaybeShared` (the seamless-slice `..tail` pattern binding aliasing the
+/// `ori_list_slice_drop` result) MUST inherit `MaybeShared` via
+/// `propagate_alias_forward_state`. Without it the alias's `contract_uniqueness`
+/// is None, `effective_uniqueness_at_block_*` falls through to lattice
+/// BOTTOM=Unique, `decide_drop_hint` selects the unique-owner free path, and
+/// codegen emits `ori_buffer_drop_unique` on a slice cap → bound-slice drop
+/// SIGSEGV.
+#[test]
+fn propagate_alias_forward_state_let_alias_inherits_maybe_shared() {
+    let callee_name = Name::from_raw(100);
+    let func = func_with_apply_then_let_alias(callee_name);
+
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::MaybeShared,
+            preserves_freshness: false,
+            locality: Locality::Unknown,
+            shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
+        }),
+    );
+
+    let classifier = TestClassifier::all_ref(3);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    // The Apply dst (%1) carries the contract MaybeShared (populate_call_result_states).
+    assert_eq!(
+        state_map.contract_uniqueness(var(1)),
+        Some(Uniqueness::MaybeShared),
+        "Apply dst must carry the MaybeShared contract"
+    );
+    // The Let-alias (%2) MUST inherit it via propagate_alias_forward_state (TF-2).
+    assert_eq!(
+        state_map.contract_uniqueness(var(2)),
+        Some(Uniqueness::MaybeShared),
+        "Let{{Var}} alias of a MaybeShared call result MUST inherit MaybeShared — \
+         TF-2 carrier; the seamless-slice bound-pattern drop-selection depends on it"
+    );
+    // Locality also propagates (CONSERVATIVE Unknown from the call result).
+    assert_eq!(
+        state_map.contract_locality(var(2)),
+        Some(Locality::Unknown),
+        "Let{{Var}} alias must inherit the call result's locality too"
+    );
+}
+
+/// Negative clamp: a `Let { Var }` alias of a `Unique`-contract call result
+/// inherits NOTHING (BOTTOM-skip) — `contract_uniqueness` stays None and
+/// `effective_*` correctly falls through to the lattice. Proves the alias
+/// propagation copies only the source's stored (non-BOTTOM) dimensions and does
+/// NOT broaden the side table.
+#[test]
+fn propagate_alias_forward_state_unique_source_alias_stays_unset() {
+    let callee_name = Name::from_raw(100);
+    let func = func_with_apply_then_let_alias(callee_name);
+
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::Unique,
+            preserves_freshness: true,
+            locality: Locality::BlockLocal,
+            shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
+        }),
+    );
+
+    let classifier = TestClassifier::all_ref(3);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+
+    // Source %1: Unique is BOTTOM — not stored.
+    assert_eq!(state_map.contract_uniqueness(var(1)), None);
+    // Alias %2: nothing to inherit (source unset) — stays None.
+    assert_eq!(
+        state_map.contract_uniqueness(var(2)),
+        None,
+        "alias of a Unique (BOTTOM, unstored) source must stay unset — \
+         propagation copies only stored non-BOTTOM dimensions"
+    );
+}
+
+/// TF-4 Project forward View inherits the source's narrowed
+/// contract uniqueness. `v1 = Apply(callee)` carries a `MaybeShared` return
+/// contract; `v2 = Project v1.0` is a borrowed view of that result. The
+/// extended `propagate_alias_forward_state` (Project edge, `AliasKind::View`)
+/// copies `contract_uniqueness` source -> dst so downstream COW/drop-hint reads
+/// the narrowed fact on the projected alias, not the conservative lattice.
+/// Pre-fix (TF-2-only edge collector) left `v2` unset (None).
+#[test]
+fn propagate_alias_forward_state_project_view_inherits_maybe_shared() {
+    let callee_name = Name::from_raw(100);
+    // func(p0): v1 = Apply(callee, p0); v2 = Project v1.0; return v2
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: callee_name,
+                    args: vec![var(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Project {
+                    dst: var(2),
+                    ty: ty(0),
+                    value: var(1),
+                    field: 0,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        callee_name,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::MaybeShared,
+            preserves_freshness: false,
+            locality: Locality::Unknown,
+            shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
+        }),
+    );
+    let classifier = TestClassifier::all_ref(3);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    assert_eq!(
+        state_map.contract_uniqueness(var(1)),
+        Some(Uniqueness::MaybeShared),
+        "Apply dst carries the MaybeShared contract"
+    );
+    assert_eq!(
+        state_map.contract_uniqueness(var(2)),
+        Some(Uniqueness::MaybeShared),
+        "TF-4 Project View MUST inherit the source's MaybeShared contract \
+         uniqueness — the pre-fix TF-2-only collector left it unset"
+    );
+}
+
+/// TF-8 Select takes the lattice JOIN (LUB) over its operands,
+/// NOT a meet / first-write-wins. `v3 = Select(cond, v1, v2)` where `v1` is a
+/// `MaybeShared`-contract call result and `v2` a `Unique`-contract one: the
+/// stored side-table join is `MaybeShared` (the wider value; `Unique` is the
+/// unstored lattice BOTTOM so the join reduces to the `MaybeShared` source).
+/// Asserts the Select dst is `MaybeShared`, never the optimistic Unique a meet /
+/// first-write-wins would pick.
+#[test]
+fn propagate_alias_forward_state_select_joins_to_maybe_shared() {
+    let ms_callee = Name::from_raw(100);
+    let uniq_callee = Name::from_raw(101);
+    // func(p0): v1 = Apply(ms_callee)[MaybeShared]; v2 = Apply(uniq_callee)[Unique];
+    //           v3 = Select(p0, v1, v2); return v3
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Apply {
+                    dst: var(1),
+                    ty: ty(0),
+                    func: ms_callee,
+                    args: vec![],
+                    arg_ownership: vec![],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Apply {
+                    dst: var(2),
+                    ty: ty(0),
+                    func: uniq_callee,
+                    args: vec![],
+                    arg_ownership: vec![],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Select {
+                    dst: var(3),
+                    ty: ty(0),
+                    cond: var(0),
+                    true_val: var(1),
+                    false_val: var(2),
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(3) },
+        }],
+        ..Default::default()
+    };
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        ms_callee,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::MaybeShared,
+            preserves_freshness: false,
+            locality: Locality::Unknown,
+            shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
+        }),
+    );
+    sigs.insert(
+        uniq_callee,
+        contract_with_return(ReturnContract {
+            uniqueness: Uniqueness::Unique,
+            preserves_freshness: true,
+            locality: Locality::BlockLocal,
+            shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
+        }),
+    );
+    let classifier = TestClassifier::all_ref(4);
+    let state_map = super::analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    assert_eq!(
+        state_map.contract_uniqueness(var(3)),
+        Some(Uniqueness::MaybeShared),
+        "TF-8 Select MUST join (LUB) to MaybeShared (the wider value), never the \
+         optimistic Unique a meet/first-write-wins would pick"
+    );
+}
+
+/// TF-15/15a Set/SetTag are EXCLUDED from forward propagation.
+/// A `Set { base, field, value }` is an in-place mutation with no `dst`; the
+/// extended pass MUST NOT manufacture a forward contract fact for the base from
+/// it. `v0` is only ever a Set base here (no contract-defining instruction), so
+/// its side-table uniqueness stays unset.
+#[test]
+fn propagate_alias_forward_state_set_base_inherits_no_forward_fact() {
+    // func(p0, p1): Set p0.0 = p1; return p0   (p0 is only a Set base)
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        params: vec![
+            crate::test_helpers::owned_param(0, ty(0)),
+            crate::test_helpers::owned_param(1, ty(0)),
+        ],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Set {
+                base: var(0),
+                field: 0,
+                value: var(1),
+            }],
+            terminator: ArcTerminator::Return { value: var(0) },
+        }],
+        ..Default::default()
+    };
+    let classifier = TestClassifier::all_ref(2);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+    assert_eq!(
+        state_map.contract_uniqueness(var(0)),
+        None,
+        "TF-15 Set base MUST NOT inherit a forward contract fact — Set/SetTag are \
+         excluded from forward propagation"
     );
 }
 
@@ -4377,6 +5716,7 @@ fn populate_call_result_states_invoke_with_contract_inserts_dst() {
             locality: Locality::HeapEscaping,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4416,6 +5756,7 @@ fn populate_call_result_states_canonicalizes_cn3() {
             locality: Locality::BlockLocal,
             shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4454,6 +5795,7 @@ fn populate_call_result_states_canonicalizes_cn6() {
             locality: Locality::HeapEscaping,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4465,7 +5807,7 @@ fn populate_call_result_states_canonicalizes_cn6() {
         Some(Uniqueness::MaybeShared),
         "CN-6 must demote Unique→MaybeShared when locality is HeapEscaping — \
          a raw write would have stored Unique here, falsely claiming a \
-         heap-escaping value is RC==1"
+         long-lived value has exactly one logical owner"
     );
     assert_eq!(
         state_map.contract_locality(var(1)),
@@ -4475,7 +5817,7 @@ fn populate_call_result_states_canonicalizes_cn6() {
 }
 
 /// Excluded variables (scalar / immortal) MUST NOT receive side-table entries.
-/// Mirrors the `is_excluded` guard in `populate_var_shapes` (`post_convergence.rs:131`).
+/// Mirrors the `is_excluded` guard in `populate_var_shapes` (`post_convergence.rs`).
 #[test]
 fn populate_call_result_states_skips_scalar_dst() {
     let callee_name = Name::from_raw(100);
@@ -4490,6 +5832,7 @@ fn populate_call_result_states_skips_scalar_dst() {
             locality: Locality::HeapEscaping,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4506,7 +5849,7 @@ fn populate_call_result_states_skips_scalar_dst() {
 
 /// Pipeline ordering: `populate_call_result_states` runs BEFORE
 /// `populate_sparse_events`.
-/// `FunctionLocal` contract locality must reach `LocalAllocCandidate` event
+/// `FunctionLocal` contract locality must reach `PlacementEligibilityCandidate` event
 /// emission. `BlockLocal` alternative would be tautological under
 /// BOTTOM-default filter (F1) — using `FunctionLocal` restores
 /// discriminating power.
@@ -4524,6 +5867,7 @@ fn populate_sparse_events_sees_function_local_contract_locality() {
             locality: Locality::FunctionLocal,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4534,13 +5878,14 @@ fn populate_sparse_events_sees_function_local_contract_locality() {
     let local_alloc_v1 = events.iter().any(|e| {
         matches!(
             e,
-            super::AimsEvent::LocalAllocCandidate { var: v, .. } if v == &var(1)
+            super::AimsEvent::PlacementEligibilityCandidate { var: v, .. }
+                if v == &var(1)
         )
     });
     assert!(
         local_alloc_v1,
         "populate_sparse_events MUST see contract-derived FunctionLocal via the \
-         side-table (effective_locality_at_block_exit) and emit LocalAllocCandidate. \
+         side-table (effective_locality_at_block_exit) and emit PlacementEligibilityCandidate. \
          Without correct ordering (or without effective_* migration), no event fires."
     );
 }
@@ -4562,6 +5907,7 @@ fn populate_call_result_states_block_local_filtered_no_event() {
             locality: Locality::BlockLocal,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4579,8 +5925,10 @@ fn populate_call_result_states_block_local_filtered_no_event() {
 /// Negative pin: an Invoke result that the normal successor RETURNS escapes
 /// the function (per spec IA-6 Return widening: returned values are widened
 /// to `HeapEscaping` locality + `Owned` access). Such an escaping value
-/// MUST NOT be a `LocalAllocCandidate` — stack-promoting it would create a
-/// dangling stack-to-heap pointer.
+/// MUST NOT be a `PlacementEligibilityCandidate`: AIMS may publish placement
+/// eligibility, but it cannot prove that storage bounded by this function
+/// satisfies the result's lifetime. The eventual VM or compiled layout remains
+/// free to choose any physical placement that satisfies the frozen lifetime.
 ///
 /// Pre-fix bug (+ verification): `var_state_at_block_exit(invoke_block, dst)`
 /// returned `BOTTOM` because the normal successor's strip
@@ -4588,13 +5936,13 @@ fn populate_call_result_states_block_local_filtered_no_event() {
 /// dst from its entry state before the predecessor's exit JOIN read it.
 /// `effective_locality_at_block_exit` then joined BOTTOM (`BlockLocal`) with
 /// the side-table contract value (`FunctionLocal`) → `FunctionLocal` → fired
-/// `LocalAllocCandidate` incorrectly.
+/// `PlacementEligibilityCandidate` incorrectly.
 ///
 /// Fix: `AimsStateMap::invoke_def_demand` captures pre-strip demand keyed
 /// by the predecessor Invoke block. `var_state_at_block_exit` consults
 /// it FIRST. Now the captured demand reflects Return-widening
 /// (`HeapEscaping`), JOIN with side-table `FunctionLocal` still gives
-/// `HeapEscaping` (max), and the `LocalAllocCandidate` filter (`FunctionLocal`
+/// `HeapEscaping` (max), and the `PlacementEligibilityCandidate` filter (`FunctionLocal`
 /// or `BlockLocal`) correctly rejects.
 #[test]
 fn populate_sparse_events_invoke_terminator_returned_dst_no_local_alloc_candidate() {
@@ -4646,6 +5994,7 @@ fn populate_sparse_events_invoke_terminator_returned_dst_no_local_alloc_candidat
             locality: Locality::FunctionLocal,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4655,19 +6004,20 @@ fn populate_sparse_events_invoke_terminator_returned_dst_no_local_alloc_candidat
     // Block 0 is the Invoke block. v1 is returned from block 1 → Return
     // widening promotes locality to HeapEscaping. The
     // `populate_sparse_events` Invoke-terminator arm MUST NOT record
-    // LocalAllocCandidate for an escaping value.
+    // PlacementEligibilityCandidate for an escaping value.
     let events = state_map.events_in_block(block_id(0));
     let local_alloc_v1 = events.iter().any(|e| {
         matches!(
             e,
-            super::AimsEvent::LocalAllocCandidate { var: v, .. } if v == &var(1)
+            super::AimsEvent::PlacementEligibilityCandidate { var: v, .. }
+                if v == &var(1)
         )
     });
     assert!(
         !local_alloc_v1,
-        "populate_sparse_events MUST NOT record LocalAllocCandidate for an Invoke \
+        "populate_sparse_events MUST NOT record PlacementEligibilityCandidate for an Invoke \
          result that escapes via Return — IA-6 Return widening pushes locality \
-         to HeapEscaping; stack-promoting an escaping value would dangle. \
+         to HeapEscaping, so function-bounded placement is not eligible. \
          (Required: invoke_def_demand side table captures pre-strip Return-widened \
          demand so var_state_at_block_exit returns HeapEscaping.)"
     );
@@ -4675,9 +6025,9 @@ fn populate_sparse_events_invoke_terminator_returned_dst_no_local_alloc_candidat
 
 /// Positive pin: an Invoke result that does NOT escape the function (the
 /// normal successor terminates without returning the value, e.g. via
-/// `Unreachable`) is eligible for `LocalAllocCandidate` — its locality
+/// `Unreachable`) is eligible for `PlacementEligibilityCandidate` — its locality
 /// stays at the contract-narrowed value (`FunctionLocal` here), which
-/// matches the `LocalAllocCandidate` filter.
+/// matches the `PlacementEligibilityCandidate` filter.
 ///
 /// This pin demonstrates that `populate_sparse_events`' Invoke-terminator
 /// arm still emits events when the value is genuinely local — the fix
@@ -4734,6 +6084,7 @@ fn populate_sparse_events_invoke_terminator_local_dst_emits_local_alloc_candidat
             locality: Locality::FunctionLocal,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4743,17 +6094,18 @@ fn populate_sparse_events_invoke_terminator_local_dst_emits_local_alloc_candidat
     // v1 is unused by the normal successor (Unreachable) — pre-strip
     // demand is BOTTOM (no use), captured into invoke_def_demand. JOIN
     // with side-table contract (FunctionLocal) gives FunctionLocal, which
-    // matches the LocalAllocCandidate filter → event SHOULD fire.
+    // matches the PlacementEligibilityCandidate filter → event SHOULD fire.
     let events = state_map.events_in_block(block_id(0));
     let local_alloc_v1 = events.iter().any(|e| {
         matches!(
             e,
-            super::AimsEvent::LocalAllocCandidate { var: v, .. } if v == &var(1)
+            super::AimsEvent::PlacementEligibilityCandidate { var: v, .. }
+                if v == &var(1)
         )
     });
     assert!(
         local_alloc_v1,
-        "populate_sparse_events MUST record LocalAllocCandidate when an Invoke \
+        "populate_sparse_events MUST record PlacementEligibilityCandidate when an Invoke \
          result has FunctionLocal contract-narrowed locality AND does not escape \
          via the normal successor — the walks-Invoke-terminator \
          requirement (preserves the precision improvement, just routes through \
@@ -4763,7 +6115,7 @@ fn populate_sparse_events_invoke_terminator_local_dst_emits_local_alloc_candidat
 
 /// Consumer integration: Apply with `MaybeShared` contract → `effective_uniqueness`
 /// at block entry returns `MaybeShared` (load-bearing for COW emission at
-/// `emit_rc/cow.rs:67`). Pre-fix consumer reads `state.uniqueness` from
+/// `emit_rc/cow.rs`). Pre-fix consumer reads `state.uniqueness` from
 /// `var_state_at_block_entry` and gets BOTTOM=Unique, missing the `IsShared`
 /// runtime check.
 #[test]
@@ -4780,6 +6132,7 @@ fn effective_uniqueness_at_block_entry_reflects_apply_maybe_shared_contract() {
             locality: Locality::Unknown,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4797,8 +6150,8 @@ fn effective_uniqueness_at_block_entry_reflects_apply_maybe_shared_contract() {
 
 /// Consumer integration: Apply with `MaybeShared` contract → `effective_uniqueness`
 /// at block exit returns `MaybeShared` (load-bearing for DeathEvent.uniqueness
-/// at `realize/walk_dec.rs:250` and downstream `emit_reuse/detect.rs:86` +
-/// `emit_reuse/planner.rs:83`).
+/// at `realize/walk_dec.rs` and downstream `emit_reuse/detect.rs` +
+/// `emit_reuse/planner.rs`).
 #[test]
 fn effective_uniqueness_at_block_exit_reflects_apply_maybe_shared_contract() {
     let callee_name = Name::from_raw(100);
@@ -4813,6 +6166,7 @@ fn effective_uniqueness_at_block_exit_reflects_apply_maybe_shared_contract() {
             locality: Locality::Unknown,
             shape: ShapeClass::NonReusable,
             returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         }),
     );
 
@@ -4828,10 +6182,11 @@ fn effective_uniqueness_at_block_exit_reflects_apply_maybe_shared_contract() {
     );
 }
 
-/// TPR (critical INVERTED-TDD): the existing
+/// Negative pin (guards against INVERTED-TDD): the existing
 /// `populate_sparse_events_sees_function_local_contract_locality` test passes
 /// regardless of pipeline ordering because BOTH `BlockLocal` (lattice BOTTOM
-/// fallback) and `FunctionLocal` (contract-narrowed) emit `LocalAllocCandidate`.
+/// fallback) and `FunctionLocal` (contract-narrowed) emit
+/// `PlacementEligibilityCandidate`.
 ///
 /// This negative pin discriminates: with no contract registered, `populate_call_result_states`
 /// writes CONSERVATIVE (locality=`Unknown`), so `effective_locality = max(Unknown, BlockLocal)`
@@ -4854,20 +6209,21 @@ fn populate_sparse_events_no_event_for_no_contract_apply_pins_ordering() {
     let local_alloc_v1 = events.iter().any(|e| {
         matches!(
             e,
-            super::AimsEvent::LocalAllocCandidate { var: v, .. } if v == &var(1)
+            super::AimsEvent::PlacementEligibilityCandidate { var: v, .. }
+                if v == &var(1)
         )
     });
     assert!(
         !local_alloc_v1,
         "no-contract Apply: populate_call_result_states writes Unknown locality → \
          effective_locality_at_block_exit = max(Unknown, BlockLocal) = Unknown → \
-         LocalAllocCandidate MUST NOT fire. If this test fails, either pipeline \
+         PlacementEligibilityCandidate MUST NOT fire. If this test fails, either pipeline \
          ordering broke (sparse_events ran before call_result_states) or the \
          effective_locality migration was reverted."
     );
 }
 
-/// TPR + (AGREEMENT, GAP): `InvokeIndirect` terminator
+/// `InvokeIndirect` terminator
 /// CONSERVATIVE branch — symmetric to `ApplyIndirect` (F2) but tests the
 /// terminator-walking arm of `populate_call_result_states`.
 #[test]
@@ -5149,10 +6505,10 @@ fn apply_indirect_multi_call_promotes_captures_to_many() {
     );
 }
 
-// ───.A ContextHole shape inheritance ──────────────────────────────
+// Part A: ContextHole shape inheritance
 //
-// ContextHole-shaped variables (per `aims/lattice/dimensions.rs:213` +
-// `aims/intraprocedural/post_convergence.rs:445`) inherit their BurdenSpec
+// ContextHole-shaped variables (per `aims/lattice/dimensions.rs` +
+// `aims/intraprocedural/post_convergence.rs`) inherit their BurdenSpec
 // from their UNDERLYING TypeId — there is NO synthetic ContextHole TypeId
 // registered separately. The TRMC pipeline mints a new parameter whose type
 // is the constructor's argument type (an existing pool `Idx`); its
@@ -5205,7 +6561,7 @@ fn context_hole_shape_inherits_underlying_typeid_for_primitive() {
     // TypeId.
     let spec = BurdenRegistry::lookup_builtin(burden_type_id(TypeTag::Int))
         .expect("int has a registered empty BuiltinBurdenSpec in BURDEN_TABLE");
-    assert!(!spec.self_heap_alloc, "int has empty burden");
+    assert!(!spec.self_owned_identity, "int has empty burden");
     assert!(spec.owned_fields.is_empty());
     assert!(spec.variant_burdens.is_empty());
 }
@@ -5214,7 +6570,7 @@ fn context_hole_shape_inherits_underlying_typeid_for_primitive() {
 fn context_hole_shape_inherits_underlying_typeid_for_heap_type() {
     // Positive: a variable shape-annotated `ContextHole` whose underlying
     // TypeId is a heap-allocated type (`Idx::STR`) routes to the existing
-    // BuiltinBurdenSpec for `str` (self_heap_alloc = true). The
+    // BuiltinBurdenSpec for `str` (self_owned_identity = true). The
     // ContextHole shape inherits the same lookup, NOT a fresh registration.
     use ori_registry::burden::table::{burden_type_id, BurdenRegistry};
     use ori_registry::TypeTag;
@@ -5247,7 +6603,7 @@ fn context_hole_shape_inherits_underlying_typeid_for_heap_type() {
     let spec = BurdenRegistry::lookup_builtin(burden_type_id(TypeTag::Str))
         .expect("str has a registered BuiltinBurdenSpec in BURDEN_TABLE");
     assert!(
-        spec.self_heap_alloc,
+        spec.self_owned_identity,
         "str's burden survives unchanged through ContextHole shape annotation"
     );
 }
@@ -5259,8 +6615,8 @@ fn context_hole_shape_does_not_register_synthetic_typeid_in_type_registry() {
     // produce a fresh entry. A "register UserBurdenSpec on synthetic
     // ContextHole TypeId" path must NOT manifest.
     //
-    // We construct an empty TypeRegistry, run the lattice analysis with
-    // ContextHole annotation applied post-convergence, and verify:
+    // Constructs an empty TypeRegistry, runs the lattice analysis with
+    // ContextHole annotation applied post-convergence, and verifies:
     // (a) no burden_signature claim was made;
     // (b) `TypeRegistry::burden` lookup on the underlying TypeId returns
     //     None (the underlying type was never registered as a user type).
@@ -5359,8 +6715,8 @@ fn negative_pin_no_synthetic_context_hole_typeid_minting_pathway_exists() {
     // synthetic TypeId carrying a "ContextHole" tag. Such an API must NOT
     // exist; this test pins its absence.
     //
-    // The verification is structural: we exercise every shape-related
-    // surface on `AimsStateMap` and confirm none returns a synthetic Idx.
+    // The verification is structural: it exercises every shape-related
+    // surface on `AimsStateMap` and confirms none returns a synthetic Idx.
     let func = ArcFunction {
         var_types: vec![Idx::INT],
         blocks: vec![ArcBlock {
@@ -5428,6 +6784,46 @@ fn alias_table_r2gen_whole_var_identity_in_unified_not_demand() {
         !table.demand_sources.contains_key(&var(1)),
         "whole-var Let alias of a non-projected root must NOT enter backward demand"
     );
+}
+
+#[test]
+fn alias_table_apply_identity_never_enters_projection_demand() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0), ty(0), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+    let cases = [
+        (var(1), super::state_map::ApplyAliasSource::Direct(var(0))),
+        (
+            var(2),
+            super::state_map::ApplyAliasSource::Project {
+                arg: var(0),
+                field: 0,
+            },
+        ),
+        (
+            var(3),
+            super::state_map::ApplyAliasSource::Conditional {
+                candidates: vec![var(0)],
+            },
+        ),
+    ];
+
+    for (destination, alias) in cases {
+        let aliases = FxHashMap::from_iter([(destination, alias)]);
+        let table = super::project_aliases::compute_project_alias_table(&func, &aliases);
+        assert_single_source(&table.sources, destination, var(0), "Apply identity alias");
+        assert!(
+            !table.demand_sources.contains_key(&destination),
+            "allocation identity transfer is not a borrow and cannot trigger TF-14"
+        );
+    }
 }
 
 /// R5 Select: the dst joins the unified closure with both operands (plus their
@@ -5528,53 +6924,4 @@ fn alias_table_demand_matches_unified_on_projection_chains() {
             "projection-rooted chain entries identical across unified + demand tables"
         );
     }
-}
-
-/// Superset-parity: `compute_same_alloc_reps` is a thin projection of the
-/// table's genuine same-allocation builder — identical maps on a
-/// representative IR carrying Let aliases + a Jump-arg rename.
-#[test]
-fn same_alloc_reps_parity_with_genuine_table_builder() {
-    let func = ArcFunction {
-        var_types: vec![ty(0); 4],
-        blocks: vec![
-            ArcBlock {
-                id: block_id(0),
-                params: vec![],
-                body: vec![
-                    ArcInstr::Let {
-                        dst: var(1),
-                        ty: ty(0),
-                        value: ArcValue::Var(var(0)),
-                    },
-                    ArcInstr::Let {
-                        dst: var(2),
-                        ty: ty(0),
-                        value: ArcValue::Var(var(1)),
-                    },
-                ],
-                terminator: ArcTerminator::Jump {
-                    target: block_id(1),
-                    args: vec![var(2)],
-                },
-            },
-            ArcBlock {
-                id: block_id(1),
-                params: vec![(var(3), ty(0))],
-                body: vec![],
-                terminator: ArcTerminator::Return { value: var(3) },
-            },
-        ],
-        ..Default::default()
-    };
-    let from_projection =
-        crate::aims::emit_rc::compute_same_alloc_reps(&func, &FxHashMap::default());
-    let from_table =
-        super::project_aliases::compute_genuine_same_alloc_reps(&func, &FxHashMap::default());
-    assert_eq!(from_projection, from_table, "thin-projection parity");
-    // Jump-arg rename (edge type 2) stays EXCLUDED from genuine reps.
-    assert!(
-        !from_table.contains_key(&var(3)),
-        "block-param rename never joins the genuine same-allocation union-find"
-    );
 }

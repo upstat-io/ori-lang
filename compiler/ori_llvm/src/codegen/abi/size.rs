@@ -1,10 +1,7 @@
 //! ABI size and alignment computation.
 //!
-//! Walks `TypeInfo` (repr-aware via `ReprPlan`) to compute the byte size and
-//! alignment LLVM lays out for each type. Consumed by the passing-mode
-//! classification in [`super`] (`compute_param_passing` /
-//! `compute_return_passing`). The sync test in `super::tests` cross-checks
-//! these walkers against `TypeLayoutResolver`'s actual LLVM layouts.
+//! Computes the representation-aware byte size and alignment required for
+//! parameter and return passing-mode classification.
 
 use ori_repr::ReprPlan;
 use ori_types::Idx;
@@ -43,6 +40,16 @@ fn is_tagged_ptr_encoded(ty: Idx, store: &TypeInfoStore<'_>, repr_plan: Option<&
         .is_some_and(|e| e.tag.is_tagged_ptr())
 }
 
+/// Select the payload-bearing arm of a binary niche encoding.
+fn niche_payload_variant(variants: &[EnumVariantInfo], niche_variant_idx: u32) -> &EnumVariantInfo {
+    assert!(
+        variants.len() == 2,
+        "niche payload-variant selection assumes binary enums (got {} variants)",
+        variants.len()
+    );
+    &variants[usize::from(niche_variant_idx == 0)]
+}
+
 /// Check if an enum type (Option/Result/user-defined) has niche or tagless
 /// encoding in the `ReprPlan`. Returns `Some(size)` if an optimized layout applies,
 /// `None` to fall through to the explicit tag computation.
@@ -66,15 +73,7 @@ fn niche_enum_size(
         niche_variant_idx, ..
     } = &enum_repr.tag
     {
-        // INVARIANT: niche payload-variant selection assumes binary enums —
-        // index `usize::from(niche_variant_idx == 0)` picks "the other"
-        // variant only when exactly 2 variants exist.
-        debug_assert!(
-            variants.len() == 2,
-            "niche payload-variant selection assumes binary enums (got {} variants)",
-            variants.len()
-        );
-        variants.get(usize::from(*niche_variant_idx == 0))?
+        niche_payload_variant(variants, *niche_variant_idx)
     } else {
         return None;
     };
@@ -158,34 +157,25 @@ fn abi_size_inner(
                 return size;
             }
             // Enum layout: {tag, [M x i64] payload} — tag width varies
-            // per enum via min_tag_width.
-            // Each non-void variant field occupies at least one full i64 slot
-            // (8 bytes), matching resolve_enum_explicit in enum_layout.rs
-            // (which skips void fields so they don't inflate the payload).
+            // per enum via min_tag_width. `max_variant_payload_bytes` owns the
+            // non-void-field slot sum so the slot/round-up rule cannot diverge;
+            // the per-field sizer here is the
+            // ABI size (no boxing oracle — this walker treats recursive fields
+            // via the visiting set, not the box).
             let tag_size = u64::from(ori_repr::min_tag_width(variants.len()).size_bytes());
-            let max_payload: u64 = variants
-                .iter()
-                .map(|v| {
-                    v.fields
-                        .iter()
-                        .filter(|&&f| field_is_non_void(store.pool(), f))
-                        .map(|&f| {
-                            let size = abi_size_inner(f, store, repr_plan, visiting);
-                            // Round up to 8-byte i64 slot boundary
-                            size.div_ceil(8) * 8
-                        })
-                        .sum::<u64>()
-                })
-                .max()
-                .unwrap_or(0);
+            let max_payload = crate::codegen::type_info::type_size::max_variant_payload_bytes(
+                variants,
+                store.pool(),
+                |f| abi_size_inner(f, store, repr_plan, visiting),
+            );
             if max_payload == 0 {
-                tag_size // All-unit enum: { tag } = tag_size bytes
+                tag_size
             } else {
                 // Tag is padded to 8 due to [M x i64] payload alignment
                 8 + max_payload
             }
         }
-        _ => 8, // Fallback: pointer-sized
+        _ => 8,
     };
 
     visiting.remove(&ty);
@@ -194,7 +184,7 @@ fn abi_size_inner(
 
 /// Aggregate (struct/tuple) size with inter-field alignment padding plus
 /// trailing padding to the max field alignment — matches LLVM's struct
-/// layout so Direct/Indirect classification (AB-1) agrees with the size
+/// layout so the Direct/Indirect ABI classification agrees with the size
 /// LLVM lays out.
 fn aggregate_size_with_padding(
     fields: impl Iterator<Item = Idx>,
@@ -249,12 +239,8 @@ pub(crate) fn abi_alignment(
         TypeInfo::Option { inner } if is_niche_encoded(ty, store, repr_plan) => {
             abi_alignment(*inner, store, repr_plan, depth + 1)
         }
-        // Niche-encoded Result lowers to the larger payload arm; use that
-        // arm's alignment (ok wins ties, matching the layout resolver).
-        // BUG-05-010: the size-picked arm can be under-aligned vs the
-        // repr plan's max(ok, err) — this mirror follows the RESOLVER
-        // (actual storage) so attributes never over-claim alignment;
-        // the cure lands at the resolver first.
+        // Niche-encoded Result uses the selected payload arm's alignment.
+        // Equal-size integer arms have equal alignment, so Ok is a valid tie.
         TypeInfo::Result { ok, err } if is_niche_encoded(ty, store, repr_plan) => {
             let mut visiting = FxHashSet::default();
             let ok_size = abi_size_inner(*ok, store, repr_plan, &mut visiting);
@@ -291,14 +277,7 @@ fn enum_payload_alignment(
         niche_variant_idx, ..
     } = &enum_repr.tag
     {
-        // INVARIANT: niche payload-variant selection assumes binary enums
-        // (same invariant as niche_enum_size above).
-        debug_assert!(
-            variants.len() == 2,
-            "niche payload-variant selection assumes binary enums (got {} variants)",
-            variants.len()
-        );
-        variants.get(usize::from(*niche_variant_idx == 0))
+        Some(niche_payload_variant(variants, *niche_variant_idx))
     } else if enum_repr.tag.is_tagged_ptr() {
         return 8;
     } else {
@@ -336,6 +315,6 @@ pub(super) fn indirect_alignment(
     repr_plan: Option<&ReprPlan>,
 ) -> u32 {
     // ABI alignment is a max over primitive alignments (<= 8) — a value
-    // above u32::MAX is impossible; fail loud rather than fabricate 8.
+    // Type arity must fit u32; an oversized host slice cannot denote a type.
     u32::try_from(abi_alignment(ty, store, repr_plan, 0)).expect("ABI alignment fits u32")
 }

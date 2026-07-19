@@ -1,6 +1,6 @@
 //! Tests for `#free(symbol)` block attribute on extern blocks.
 //!
-//! Spec: Annex E §FFI (proposal:643-645). Verifies the parser accepts
+//! Spec: Annex E §FFI. Verifies the parser accepts
 //! well-formed `#free(fn)` annotations and rejects malformed shapes.
 
 use ori_ir::StringInterner;

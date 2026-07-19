@@ -6,8 +6,8 @@
 //! inherent ordering).
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, Ownership, ReturnTag, TypeDef, TypeParamArity,
-    TypeProjection, TypeTag, ONE_SELF_BORROW,
+    BackendRequirement, MemoryStrategy, MethodDef, MethodRuntime, OpDefs, Ownership, ReturnTag,
+    TypeDef, TypeParamArity, TypeProjection, TypeTag, ONE_SELF_BORROW,
 };
 
 use super::params::{CLOSURE_PARAM, ELEMENT_BORROW_PARAM, ELEMENT_OWNED_PARAM};
@@ -19,25 +19,39 @@ const INT: ReturnTag = ReturnTag::Concrete(TypeTag::Int);
 const STR: ReturnTag = ReturnTag::Concrete(TypeTag::Str);
 const SELF: ReturnTag = ReturnTag::SelfType;
 
-// All 17 methods alphabetically sorted.
+// All methods alphabetically sorted.
 static SET_METHODS: &[MethodDef] = &[
-    MethodDef::compound("clone", &[], SELF, Some("Clone"), Ownership::Borrow, false),
+    MethodDef::compound(
+        "clone",
+        &[],
+        SELF,
+        Some("Clone"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    ),
     MethodDef::compound(
         "contains",
         &ELEMENT_BORROW_PARAM,
         BOOL,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
-    MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, false),
+    MethodDef::compound(
+        "debug",
+        &[],
+        STR,
+        Some("Debug"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    ),
     MethodDef::compound(
         "difference",
         &ONE_SELF_BORROW,
         SELF,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "equals",
@@ -45,7 +59,7 @@ static SET_METHODS: &[MethodDef] = &[
         BOOL,
         Some("Eq"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "fold",
@@ -53,16 +67,23 @@ static SET_METHODS: &[MethodDef] = &[
         FRESH,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
-    MethodDef::compound("hash", &[], INT, Some("Hashable"), Ownership::Borrow, false),
+    MethodDef::compound(
+        "hash",
+        &[],
+        INT,
+        Some("Hashable"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    ),
     MethodDef::compound(
         "insert",
         &ELEMENT_OWNED_PARAM,
         SELF,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "intersection",
@@ -70,7 +91,7 @@ static SET_METHODS: &[MethodDef] = &[
         SELF,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "into",
@@ -78,7 +99,7 @@ static SET_METHODS: &[MethodDef] = &[
         ReturnTag::ListOf(TypeProjection::Element),
         Some("Into"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "is_empty",
@@ -86,7 +107,7 @@ static SET_METHODS: &[MethodDef] = &[
         BOOL,
         Some("IsEmpty"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "iter",
@@ -94,17 +115,33 @@ static SET_METHODS: &[MethodDef] = &[
         ReturnTag::IteratorOf(TypeProjection::Element),
         Some("Iterable"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
-    MethodDef::compound("len", &[], INT, Some("Len"), Ownership::Borrow, false),
-    MethodDef::compound("length", &[], INT, Some("Len"), Ownership::Borrow, false),
+    MethodDef::compound(
+        "len",
+        &[],
+        INT,
+        Some("Len"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    )
+    .with_runtime(MethodRuntime::Length),
+    MethodDef::compound(
+        "length",
+        &[],
+        INT,
+        Some("Len"),
+        Ownership::Borrow,
+        BackendRequirement::NotRequired,
+    )
+    .with_runtime(MethodRuntime::Length),
     MethodDef::compound(
         "remove",
         &ELEMENT_BORROW_PARAM,
         SELF,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "to_list",
@@ -112,7 +149,7 @@ static SET_METHODS: &[MethodDef] = &[
         ReturnTag::ListOf(TypeProjection::Element),
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "to_str",
@@ -120,7 +157,7 @@ static SET_METHODS: &[MethodDef] = &[
         STR,
         Some("Printable"),
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
     MethodDef::compound(
         "union",
@@ -128,7 +165,7 @@ static SET_METHODS: &[MethodDef] = &[
         SELF,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::NotRequired,
     ),
 ];
 

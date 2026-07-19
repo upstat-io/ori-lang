@@ -41,17 +41,31 @@ Each strategy has costs. Cross-compilation requires sysroots. Conditional compil
 
 ## What Makes Ori's Platform Support Distinctive
 
-Ori's platform model combines two modes that are usually found in different language ecosystems: **interpreter portability** for development and embedding, and **LLVM-based cross-compilation** for production deployment. Neither mode alone is unusual -- Python runs its interpreter on many platforms, and Rust cross-compiles via LLVM -- but supporting both from the same codebase, with the interpreter itself targeting WebAssembly, creates a design space worth examining.
+Ori's platform model separates semantic evaluation from physical execution. The evaluator remains portable for development and embedding.
 
-### Two Execution Paths, One Compiler
+The bytecode VM executes the shared post-AIMS plan; compiled backends project the same plan to native code or WebAssembly. LLVM is the shipped compiled projection, while the production architecture also provides the direct `ori_backend` projection as it passes per-target promotion gates.
 
-The Ori toolchain provides two ways to execute a program.
+### One Semantic Oracle, Multiple Physical Executors
 
-The **interpreter** (`ori_eval`) evaluates Ori's canonical IR directly. Because `ori_eval` is written in Rust and avoids platform-specific dependencies (no Salsa, no LLVM, no OS-level threading), it compiles cleanly to WebAssembly via Rust's standard `wasm32-unknown-unknown` target. This is what powers the browser-based Ori Playground: the entire front end (lexer, parser, type checker) and the evaluator run as a WASM module loaded by a web page. The same evaluator also runs natively for `ori run`, with the `ori_stack` crate handling the divergence in stack management.
+The Ori toolchain has a representation-abstract evaluator and multiple physical execution paths.
 
-The **LLVM backend** (`ori_llvm`) compiles Ori programs to native machine code or WebAssembly binaries. It supports 10 officially maintained targets spanning three operating system families and two architectures. Unlike the interpreter path, this mode requires LLVM libraries on the host machine and, for cross-compilation, a sysroot for the target platform.
+The **interpreter** (`ori_eval`) evaluates Ori's canonical IR directly. Because `ori_eval` is written in Rust and avoids platform-specific dependencies (no Salsa, no LLVM, no OS-level threading), the shipped browser playground can compile it to WebAssembly as a semantic-oracle compatibility surface.
 
-The two paths share the entire front end: lexing, parsing, type checking, and ARC analysis are identical regardless of whether the program will be interpreted or compiled. They diverge only at the execution boundary. This means a bug in the type checker affects both modes equally, and a type-checked program is guaranteed to be accepted by either execution path.
+That does not make interpreted WebAssembly a production target: deployed WASM programs use the compiled physical path below. The same evaluator also runs natively for semantic evaluation, with `ori_stack` handling platform stack differences.
+
+The **bytecode VM** (`ori_vm`) compiles the shared post-AIMS executable carrier to compact instructions and interprets them without LLVM. It is a physical executor, not the semantic oracle, so it must follow the same ownership and drop plan as compiled output.
+
+The **LLVM backend** (`ori_llvm`) compiles Ori programs to native machine code or WebAssembly binaries. It supports 10 officially maintained targets spanning three operating system families and two architectures.
+
+This mode requires LLVM libraries on the host machine and, for cross-compilation, a sysroot for the target platform.
+
+The direct backend (`ori_backend`) is the production target architecture's second compiled projection. It consumes the validated `ExecutableProgram`, `TargetSpec`, `CompiledLayoutPlan`, and typed AIMS facts, and emits native objects or a complete WebAssembly module without routing through LLVM.
+
+LLVM remains the production default until each direct-backend target earns promotion.
+
+All paths share lexing, parsing, type checking, and canonicalization. The evaluator branches there and intentionally does not consume AIMS representation mechanics.
+
+Physical execution continues through ARC lowering, AIMS analysis, and realization exactly once; the VM and compiled backends then encode the same validated plan. A backend-specific storage choice cannot change source behavior or ownership policy.
 
 ### TargetConfig and the Builder Pattern
 
@@ -153,7 +167,7 @@ For WASM targets, the sysroot is minimal (WASI targets look for [wasi-sdk](https
 
 ## Architecture
 
-The following diagram shows how source code flows through the Ori compiler and forks into the two execution paths. The shared front end produces a single typed representation that both the interpreter and the LLVM backend consume.
+The following diagram shows the semantic-oracle branch and the shared physical-execution branch. Canonical IR feeds the evaluator and AIMS; physical backends consume the post-AIMS carrier rather than canonical IR directly.
 
 ```mermaid
 flowchart TB
@@ -161,25 +175,31 @@ flowchart TB
     LEX["Lexer"]
     PARSE["Parser"]
     TYPECK["Type Checker"]
+    CANON["Canonicalizer"]
 
-    INTERP["Interpreter (ori_eval)"]
-    NATIVE_RUN["Native Execution"]
-    WASM_RUN["WASM Execution<br/>(Playground)"]
+    INTERP["Semantic Evaluator (ori_eval)"]
+    EVAL_RUN["Const / Diagnostic / Test Oracle"]
 
-    ARC["ARC Analysis"]
+    ARC["ARC Lower + AIMS Realize"]
+    EXEC["Shared Executable Carrier"]
+    VM["Bytecode VM"]
+    VM_RUN["Strict Interpreted Execution"]
     TSEL["Target Selection<br/>(TargetConfig)"]
-    LLVM["LLVM IR Generation"]
+    LLVM["LLVM IR Generation<br/>(shipped default)"]
+    DIRECT["ori_backend BIR + Direct Emit<br/>(promotion-gated)"]
     OPT["Optimization Passes"]
     LINK["Linker<br/>(GCC / MSVC / WASM-LD)"]
     OUT["Native Binary<br/>or .wasm Module"]
 
-    SRC --> LEX --> PARSE --> TYPECK
+    SRC --> LEX --> PARSE --> TYPECK --> CANON
 
-    TYPECK --> INTERP
-    INTERP --> NATIVE_RUN
-    INTERP --> WASM_RUN
+    CANON --> INTERP --> EVAL_RUN
 
-    TYPECK --> ARC --> TSEL --> LLVM --> OPT --> LINK --> OUT
+    CANON --> ARC --> EXEC
+    EXEC --> VM --> VM_RUN
+    EXEC --> TSEL
+    TSEL --> LLVM --> OPT --> LINK --> OUT
+    TSEL --> DIRECT --> LINK
 
     classDef frontend fill:#1e3a5f,stroke:#60a5fa,color:#dbeafe
     classDef canon fill:#3b1f6e,stroke:#a78bfa,color:#e9d5ff
@@ -187,8 +207,8 @@ flowchart TB
     classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
 
     class SRC,LEX,PARSE,TYPECK frontend
-    class ARC,TSEL,LLVM,OPT canon
-    class INTERP,NATIVE_RUN,WASM_RUN interp
+    class CANON,ARC,EXEC,TSEL,LLVM,DIRECT,OPT canon
+    class INTERP,EVAL_RUN,VM,VM_RUN interp
     class LINK,OUT native
 ```
 
@@ -212,7 +232,7 @@ The crate dependency graph is designed so that the interpreter and all crates it
 | `ori_types`, `ori_parse`, `ori_lexer` | `ori_llvm` (LLVM C++ bindings) |
 | `ori_fmt`, `ori_diagnostic` | |
 
-The key architectural invariant is that the front end is entirely target-independent. No information about the compilation target flows backward from the LLVM backend into the parser or type checker. Target-specific behavior in the language itself (the `#target()` and `#cfg()` attributes described below) is resolved by consulting the target configuration at compile time, not by changing how the front end operates.
+The key architectural invariant is that the front end is entirely target-independent. No information about the compilation target flows backward from a physical backend into the parser or type checker. Target-specific behavior in the language itself (the `#target()` and `#cfg()` attributes described below) is resolved by consulting the target configuration at compile time, not by changing how the front end operates.
 
 
 ## Build Configuration
@@ -303,7 +323,7 @@ The `#cfg()` attribute provides build-configuration conditions orthogonal to the
 
 ### How Values Flow from Compiler to Language
 
-The compile-time constant values originate in the compiler's `TargetConfig` and propagate into the language through the type checker. When the type checker encounters a reference to `$target_os`, it resolves the identifier to a constant string value derived from the `TargetTripleComponents` that the build command established. For the interpreter path (where no explicit target is selected), the values reflect the host machine's properties. For the LLVM backend path with `--target`, they reflect the cross-compilation target. This ensures that `$target_os` in a program compiled with `--target=aarch64-apple-darwin` evaluates to `"macos"` regardless of the host operating system.
+The compile-time constant values originate in the compiler's `TargetConfig` and propagate into the language through the type checker. When the type checker encounters a reference to `$target_os`, it resolves the identifier to a constant string value derived from the `TargetTripleComponents` that the build command established. For evaluator execution without an explicit target, the values reflect the host machine's properties. For compiled execution with `--target`, they reflect the cross-compilation target. This ensures that `$target_os` in a program compiled with `--target=aarch64-apple-darwin` evaluates to `"macos"` regardless of the host operating system.
 
 
 ## Prior Art
@@ -322,7 +342,7 @@ Ori's platform target system draws from well-established patterns in existing la
 
 The following table summarizes how each language's platform target approach compares to Ori's:
 
-| Language | Target Format | Conditional Compilation | Cross-Compilation | Interpreter-to-WASM |
+| Language | Target Format | Conditional Compilation | Cross-Compilation | Evaluator-to-WASM Tooling |
 |----------|---------------|------------------------|-------------------|---------------------|
 | **Ori** | LLVM triples | `#target()` / `#cfg()` | Via sysroots + `ori target add` | Yes (Playground) |
 | **Rust** | LLVM triples | `#[cfg()]` attributes | Via `rustup target add` | No (rustc is native-only) |
@@ -333,25 +353,31 @@ The following table summarizes how each language's platform target approach comp
 
 ## Design Tradeoffs
 
-### LLVM-Based Cross-Compilation vs Custom Backends
+### Shipped LLVM Cross-Compilation and the Direct Backend Target
 
-Ori delegates all native code generation to LLVM rather than implementing custom backends for each target architecture. This means Ori inherits LLVM's mature optimization passes, instruction selection, register allocation, and calling convention support for every target. The cost is a build-time dependency on LLVM libraries (approximately 200MB of build artifacts) and the constraint that Ori can only target architectures LLVM supports. In practice, LLVM covers every architecture Ori is likely to need, but the dependency does complicate the compiler's build process -- the interpreter-only build (`ori_eval` without LLVM) exists partly to provide a lightweight toolchain for platforms or use cases where the full LLVM dependency is prohibitive.
+Ori's shipped compiled path delegates target generation to LLVM and therefore inherits LLVM's mature optimization passes, instruction selection, register allocation, and calling-convention support. Its costs include a large build-time dependency and restriction to LLVM-supported targets.
+
+The production target architecture adds `ori_backend` as a sibling projection of the same AIMS facts and `CompiledLayoutPlan`; it directly emits native objects and complete WebAssembly modules and is promoted target by target. The evaluator and VM remain LLVM-free tools, but neither replaces a compiled deployment path.
 
 ### Platform-Family Abstraction vs Fine-Grained OS Detection
 
 The three-family classification (`unix` / `windows` / `wasm`) is intentionally coarse. Most platform-conditional logic in application code branches on "does this platform have Unix-style paths" or "does this platform have a file system at all," not on the specific flavor of Linux or the specific version of macOS. The family abstraction captures these common branching points without exposing the combinatorial complexity of every OS-architecture-ABI permutation. The tradeoff is that code needing finer distinctions (e.g., Linux-specific `epoll` vs macOS-specific `kqueue`) must use `#target(os: ...)` rather than the family shorthand. This is deliberate: most Ori code should not need to distinguish between Linux and macOS, and the family abstraction encourages writing code at the appropriate level of generality.
 
-### Interpreter Portability vs Native-Only Compilation
+### Evaluator Portability vs Compiled Deployment
 
-The decision to make the interpreter (`ori_eval`) compile to WebAssembly -- and therefore usable in browsers -- required keeping the interpreter's dependency graph free of platform-specific crates. Salsa, which the compiler uses for incremental computation caching, requires `Arc<Mutex<T>>` and is incompatible with single-threaded WASM runtimes. The consequence is that the WASM interpreter cannot use Salsa's caching infrastructure, which means repeated evaluations in the Playground do not benefit from incremental computation. The `oric` crate (the full compiler CLI) uses Salsa and cannot compile to WASM. This is an acceptable tradeoff because the Playground's use case (small programs, immediate feedback) does not benefit much from incremental caching, while the CLI's use case (large projects, edit-recompile cycles) benefits enormously.
+The shipped evaluator (`ori_eval`) can compile to WebAssembly for browser tooling because its dependency graph remains free of platform-specific crates. Salsa, which the compiler uses for incremental caching, requires synchronization facilities unavailable to the current single-threaded playground build, so repeated playground evaluation does not benefit from the CLI's query cache.
+
+This portability is useful for the compatibility oracle; it does not create a production interpreted-WASM commitment. Deployed programs follow the compiled path.
 
 ### Shared Front End vs Target-Aware Front End
 
-The entire front end -- lexer, parser, type checker, ARC analysis -- is target-independent. No front-end pass consults the `TargetConfig`. This simplifies the compiler's architecture and ensures that a program that type-checks for one target will type-check for all targets. The cost is that certain target-specific optimizations (e.g., choosing different data structure layouts based on pointer size, or selecting different algorithms based on SIMD availability) cannot be performed during type checking or ARC analysis. These optimizations are deferred to the LLVM backend, where target information is available. In practice, this has not been a limitation because LLVM's optimization passes handle the vast majority of target-specific transformations that affect performance.
+The semantic front end -- lexer, parser, type checker, and canonicalizer -- is target-independent. The AIMS logical ownership middle end is also target-independent, but it is not part of evaluator execution.
+
+Neither layer consults `TargetConfig`. Target-specific layout and instruction choices begin after the shared executable facts are fixed, so they can optimize an encoding without changing type acceptance or ownership policy.
 
 
 ## Related Documents
 
 - [Conditional Compilation](conditional-compilation.md) -- Platform-specific code patterns within the compiler, the `#[cfg]` usage conventions, and the `ori_stack` crate's dual-implementation design
-- [WASM Target](wasm-target.md) -- WebAssembly-specific concerns: interpreter-in-WASM embedding, LLVM-to-WASM compilation, `WasmConfig` and `WasiConfig`, WASM feature flags, and the Playground architecture
+- [WASM Target](wasm-target.md) -- compiled WebAssembly architecture, current evaluator-in-WASM playground compatibility, configuration, features, and constraints
 - [Recursion Limits](recursion-limits.md) -- Stack safety implementation: `CallStack` frame tracking, `EvalMode`-based depth limits, the `stacker` integration, backtrace capture, and the frame-count analysis that justifies the default WASM limit of 200

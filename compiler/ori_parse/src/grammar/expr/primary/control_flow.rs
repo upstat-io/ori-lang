@@ -238,10 +238,17 @@ impl Parser<'_> {
         // Parse iterator expression
         let iter = require!(self, self.parse_expr(), "iterator expression");
 
-        // Check for optional guard: `if condition`
+        // Check for optional guard: `if condition`. Parse with IN_LOOP — the
+        // for-desugar places the guard per-iteration inside the for's own loop,
+        // so a guard-position break/continue targets this for (valid even with
+        // no enclosing loop), mirroring the while condition.
         let guard = if self.cursor.check(&TokenKind::If) {
             self.cursor.advance();
-            require!(self, self.parse_expr(), "guard condition")
+            require!(
+                self,
+                self.with_context(ParseContext::IN_LOOP, Self::parse_expr),
+                "guard condition"
+            )
         } else {
             ExprId::INVALID
         };

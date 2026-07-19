@@ -50,7 +50,7 @@ pub fn function_val_int(args: &[Value]) -> Result<Value, EvalError> {
         Value::Str(s) => s
             .parse::<i64>()
             .map(Value::int)
-            .map_err(|_| EvalError::new(format!("cannot parse '{s}' as int"))),
+            .map_err(|source| EvalError::new(format!("cannot parse '{s}' as int: {source}"))),
         Value::Bool(b) => Ok(Value::int(i64::from(*b))),
         _ => Err(EvalError::new(format!(
             "cannot convert {} to int",
@@ -81,7 +81,7 @@ pub fn function_val_float(args: &[Value]) -> Result<Value, EvalError> {
         Value::Str(s) => s
             .parse::<f64>()
             .map(Value::Float)
-            .map_err(|_| EvalError::new(format!("cannot parse '{s}' as float"))),
+            .map_err(|source| EvalError::new(format!("cannot parse '{s}' as float: {source}"))),
         _ => Err(EvalError::new(format!(
             "cannot convert {} to float",
             args[0].type_name()
@@ -95,19 +95,35 @@ pub fn function_val_byte(args: &[Value]) -> Result<Value, EvalError> {
         return Err(EvalError::new("byte expects 1 argument"));
     }
     match &args[0] {
-        Value::Int(n) => u8::try_from(n.raw())
-            .map(Value::Byte)
-            .map_err(|_| EvalError::new(format!("byte value {} out of range (0-255)", n.raw()))),
-        Value::Byte(b) => Ok(Value::Byte(*b)),
-        Value::Char(c) => u8::try_from(u32::from(*c)).map(Value::Byte).map_err(|_| {
+        Value::Int(n) => u8::try_from(n.raw()).map(Value::Byte).map_err(|source| {
             EvalError::new(format!(
-                "cannot convert char '{c}' to byte: out of byte range (0-255)"
+                "byte value {} out of range (0-255): {source}",
+                n.raw()
             ))
         }),
+        Value::Byte(b) => Ok(Value::Byte(*b)),
+        Value::Char(c) => char_to_byte(*c).map(Value::Byte),
         _ => Err(EvalError::new(format!(
             "cannot convert {} to byte",
             args[0].type_name()
         ))),
+    }
+}
+
+pub(crate) fn char_to_byte(c: char) -> Result<u8, EvalError> {
+    let code = u32::from(c);
+    if c.is_ascii() {
+        // Why: `is_ascii` proves the code point is in U+0000..U+007F.
+        let Ok(byte) = u8::try_from(code) else {
+            unreachable!("an ASCII code point did not fit in a byte");
+        };
+        Ok(byte)
+    } else {
+        Err(EvalError::new(format!(
+            "char '{c}' (U+{code:04X}) cannot convert to byte because byte conversion \
+             accepts only ASCII (U+0000..U+007F); call `.to_int()` on the character \
+             to preserve its Unicode code point (Spec: Clause 8.11.3)"
+        )))
     }
 }
 
@@ -176,6 +192,14 @@ pub fn function_val_thread_id(args: &[Value]) -> Result<Value, EvalError> {
         .trim_start_matches("ThreadId(")
         .trim_end_matches(')')
         .parse::<i64>()
-        .map_err(|_| EvalError::new("failed to parse thread id"))?;
+        .map_err(|source| EvalError::new(format!("failed to parse thread id: {source}")))?;
     Ok(Value::int(id_num))
+}
+
+/// `drop_early(value)` — no-op consume in interpreter (returns void).
+pub fn function_val_drop_early(args: &[Value]) -> Result<Value, EvalError> {
+    if args.len() != 1 {
+        return Err(EvalError::new("drop_early expects 1 argument"));
+    }
+    Ok(Value::Void)
 }

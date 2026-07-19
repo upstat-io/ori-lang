@@ -4,6 +4,7 @@
 // a signature hole not reached by any empty literal still fires E2005.
 
 #compile_fail(code: "E2005")
+@empty_list_nested_let tests _ () -> void = { () }
 
 @nested_len (xs) -> int = {
     let $inner = xs;

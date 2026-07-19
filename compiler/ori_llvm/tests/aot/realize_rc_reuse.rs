@@ -155,21 +155,16 @@ fn compose_cell_source(
     };
 
     let ctors: Vec<String> = match n {
-        2 => vec![ctor_a.clone(), ctor_b.clone(), ctor_c.clone()],
-        3 => vec![
-            ctor_a.clone(),
-            ctor_b.clone(),
-            ctor_c.clone(),
-            ctor_d.clone(),
-        ],
+        2 => vec![ctor_a, ctor_b, ctor_c],
+        3 => vec![ctor_a, ctor_b, ctor_c, ctor_d],
         5 => vec![
             ctor_a.clone(),
-            ctor_b.clone(),
-            ctor_c.clone(),
-            ctor_d.clone(),
-            ctor_e.clone(),
+            ctor_b,
+            ctor_c,
+            ctor_d,
+            ctor_e,
             // 5th constructor — reuse pattern for the 5th alias use
-            ctor_a.clone(),
+            ctor_a,
         ],
         _ => unreachable!("N must be in N_VALUES"),
     };

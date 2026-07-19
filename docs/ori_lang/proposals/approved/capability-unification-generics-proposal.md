@@ -503,7 +503,7 @@ type User: Eq, Hashable, Comparable, Clone, Debug = {
 
 2. **Derivation**: The compiler generates method implementations for each listed trait using the same strategy-driven mechanism as the current `#derive` system:
    - `Eq` → field-wise equality (strategy: `ForEachField { Equals, AllTrue }`)
-   - `Hashable` → FNV-1a hash combine over fields (strategy: `ForEachField { Hash, HashCombine }`)
+   - `Hashable` → seed-zero `hash_combine` over non-`void` product fields; sum declaration ordinal before active payload; exact underlying delegation for newtypes (strategy: `ForEachField { Hash, HashCombine }`)
    - `Comparable` → lexicographic field comparison (strategy: `ForEachField { Compare, Lexicographic }`)
    - `Clone` → field-wise clone (strategy: `CloneFields`)
    - `Default` → field-wise default (strategy: `DefaultConstruct`)

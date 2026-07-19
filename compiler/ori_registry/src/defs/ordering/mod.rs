@@ -6,8 +6,8 @@
 //! returns Ordering).
 
 use crate::{
-    MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ParamDef, ReturnTag, TypeDef,
-    TypeParamArity, TypeTag, VariantSpec, ONE_SELF_COPY,
+    BackendRequirement, MemoryStrategy, MethodDef, OpDefs, OpStrategy, Ownership, ParamDef,
+    ReturnTag, TypeDef, TypeParamArity, TypeTag, VariantSpec, ONE_SELF_COPY,
 };
 
 // Shared parameter arrays
@@ -32,8 +32,8 @@ const INT: ReturnTag = ReturnTag::Concrete(TypeTag::Int);
 const STR: ReturnTag = ReturnTag::Concrete(TypeTag::Str);
 const ORD: ReturnTag = ReturnTag::Concrete(TypeTag::Ordering);
 
-// All methods alphabetically sorted. `backend_required` = true for methods
-// with eval+LLVM coverage, false for typeck-only methods.
+// All methods alphabetically sorted. `backend_required` is true for methods
+// that require executable behavior and false for typeck-only methods.
 static ORDERING_METHODS: &[MethodDef] = &[
     MethodDef::compound(
         "clone",
@@ -41,7 +41,7 @@ static ORDERING_METHODS: &[MethodDef] = &[
         ReturnTag::SelfType,
         Some("Clone"),
         Ownership::Borrow,
-        true,
+        BackendRequirement::Required,
     ),
     MethodDef::compound(
         "compare",
@@ -49,46 +49,103 @@ static ORDERING_METHODS: &[MethodDef] = &[
         ORD,
         Some("Comparable"),
         Ownership::Borrow,
-        true,
+        BackendRequirement::Required,
     ),
-    MethodDef::compound("debug", &[], STR, Some("Debug"), Ownership::Borrow, true),
+    MethodDef::compound(
+        "debug",
+        &[],
+        STR,
+        Some("Debug"),
+        Ownership::Borrow,
+        BackendRequirement::Required,
+    ),
     MethodDef::compound(
         "equals",
         &ONE_SELF_COPY,
         BOOL,
         Some("Eq"),
         Ownership::Borrow,
-        true,
+        BackendRequirement::Required,
     ),
-    MethodDef::compound("hash", &[], INT, Some("Hashable"), Ownership::Borrow, true),
-    MethodDef::compound("is_equal", &[], BOOL, None, Ownership::Borrow, true),
-    MethodDef::compound("is_greater", &[], BOOL, None, Ownership::Borrow, true),
+    MethodDef::compound(
+        "hash",
+        &[],
+        INT,
+        Some("Hashable"),
+        Ownership::Borrow,
+        BackendRequirement::Required,
+    ),
+    MethodDef::compound(
+        "is_equal",
+        &[],
+        BOOL,
+        None,
+        Ownership::Borrow,
+        BackendRequirement::Required,
+    ),
+    MethodDef::compound(
+        "is_greater",
+        &[],
+        BOOL,
+        None,
+        Ownership::Borrow,
+        BackendRequirement::Required,
+    ),
     MethodDef::compound(
         "is_greater_or_equal",
         &[],
         BOOL,
         None,
         Ownership::Borrow,
-        true,
+        BackendRequirement::Required,
     ),
-    MethodDef::compound("is_less", &[], BOOL, None, Ownership::Borrow, true),
-    MethodDef::compound("is_less_or_equal", &[], BOOL, None, Ownership::Borrow, true),
+    MethodDef::compound(
+        "is_less",
+        &[],
+        BOOL,
+        None,
+        Ownership::Borrow,
+        BackendRequirement::Required,
+    ),
+    MethodDef::compound(
+        "is_less_or_equal",
+        &[],
+        BOOL,
+        None,
+        Ownership::Borrow,
+        BackendRequirement::Required,
+    ),
     MethodDef::compound(
         "reverse",
         &[],
         ReturnTag::SelfType,
         None,
         Ownership::Borrow,
-        true,
+        BackendRequirement::Required,
     ),
-    MethodDef::compound("then", &ORDERING_PARAM, ORD, None, Ownership::Borrow, true),
+    MethodDef::compound(
+        "then",
+        &ORDERING_PARAM,
+        ORD,
+        None,
+        Ownership::Borrow,
+        BackendRequirement::Required,
+    ),
     MethodDef::compound(
         "then_with",
         &THEN_WITH_PARAM,
         ORD,
         None,
         Ownership::Borrow,
-        false,
+        BackendRequirement::Required,
+    ),
+    MethodDef::compound(
+        "to_int",
+        &[],
+        INT,
+        None,
+        Ownership::Borrow,
+        BackendRequirement::Required,
     ),
     MethodDef::compound(
         "to_str",
@@ -96,7 +153,7 @@ static ORDERING_METHODS: &[MethodDef] = &[
         STR,
         Some("Printable"),
         Ownership::Borrow,
-        true,
+        BackendRequirement::Required,
     ),
 ];
 
@@ -113,8 +170,8 @@ pub static ORDERING: TypeDef = TypeDef {
         div: OpStrategy::Unsupported,
         rem: OpStrategy::Unsupported,
         floor_div: OpStrategy::Unsupported,
-        eq: OpStrategy::IntInstr,
-        neq: OpStrategy::IntInstr,
+        eq: OpStrategy::SignedInteger,
+        neq: OpStrategy::SignedInteger,
         lt: OpStrategy::Unsupported,
         gt: OpStrategy::Unsupported,
         lt_eq: OpStrategy::Unsupported,

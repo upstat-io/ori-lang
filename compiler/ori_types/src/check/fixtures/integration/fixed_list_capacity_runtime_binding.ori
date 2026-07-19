@@ -1,0 +1,8 @@
+@runtime_parameter_capacity (capacity: int, items: [int]) -> void = {
+    let bounded: [int, max capacity] = items;
+}
+
+@mutable_local_capacity (items: [int]) -> void = {
+    let capacity = 2;
+    let bounded: [int, max capacity] = items;
+}

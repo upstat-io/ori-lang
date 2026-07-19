@@ -1,102 +1,126 @@
-//! `OpStrategy` dispatch helpers for binary and unary operator emission.
-//!
-//! Maps `(TypeTag, BinaryOp/UnaryOp)` to LLVM instruction families via the
-//! registry's [`OpStrategy`]. Each strategy variant delegates to a focused
-//! helper that contains the `match op` for that instruction family.
+//! LLVM instruction-family emitters for shared primitive strategies.
 
-use ori_ir::{BinaryOp, UnaryOp};
-use ori_registry::{find_type, OpStrategy, TypeTag};
+use ori_ir::BinaryOp;
+use ori_registry::RuntimeOperator;
 use ori_types::Idx;
 
 use super::super::builtins;
-use super::super::ArcIrEmitter;
+use super::super::{ArcIrEmitter, StringRuntimeReturnAbi};
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
 
-impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Look up the [`OpStrategy`] for a binary operation on a builtin type.
-    ///
-    /// Maps `(TypeTag, BinaryOp)` to the corresponding strategy field in the
-    /// registry's [`OpDefs`](ori_registry::OpDefs). `And`/`Or` bypass the
-    /// registry (they use integer instructions regardless of type).
-    /// `Coalesce` is always lowered to control flow by `ori_arc`.
-    pub(in crate::codegen::arc_emitter) fn op_strategy_for_binary(
-        type_tag: TypeTag,
-        op: BinaryOp,
-    ) -> OpStrategy {
-        match op {
-            // And/Or bypass registry — they use integer AND/OR regardless of type.
-            // User-written &&/|| are intercepted by ARC lowering for short-circuit
-            // semantics, but compiler-generated And/Or (e.g., range step conditions)
-            // reach here as eager PrimOps.
-            BinaryOp::And | BinaryOp::Or => return OpStrategy::IntInstr,
-            // Coalesce is always lowered to control flow by ori_arc.
-            BinaryOp::Coalesce => {
-                unreachable!(
-                    "Coalesce is lowered to control flow by ori_arc and should never reach op_strategy_for_binary"
-                )
-            }
-            BinaryOp::Range | BinaryOp::RangeInclusive | BinaryOp::MatMul => {
-                return OpStrategy::Unsupported;
-            }
-            _ => {}
-        }
+#[derive(Clone, Copy)]
+enum CheckedIntSemantics {
+    Int,
+    Duration,
+    Size,
+}
 
-        let Some(type_def) = find_type(type_tag) else {
-            return OpStrategy::Unsupported;
-        };
-        match op {
-            BinaryOp::Add => type_def.operators.add,
-            BinaryOp::Sub => type_def.operators.sub,
-            BinaryOp::Mul => type_def.operators.mul,
-            BinaryOp::Div => type_def.operators.div,
-            BinaryOp::Mod => type_def.operators.rem,
-            BinaryOp::FloorDiv => type_def.operators.floor_div,
-            BinaryOp::Eq => type_def.operators.eq,
-            BinaryOp::NotEq => type_def.operators.neq,
-            BinaryOp::Lt => type_def.operators.lt,
-            BinaryOp::Gt => type_def.operators.gt,
-            BinaryOp::LtEq => type_def.operators.lt_eq,
-            BinaryOp::GtEq => type_def.operators.gt_eq,
-            BinaryOp::BitAnd => type_def.operators.bit_and,
-            BinaryOp::BitOr => type_def.operators.bit_or,
-            BinaryOp::BitXor => type_def.operators.bit_xor,
-            BinaryOp::Shl => type_def.operators.shl,
-            BinaryOp::Shr => type_def.operators.shr,
-            // Already handled above
-            BinaryOp::And
-            | BinaryOp::Or
-            | BinaryOp::Coalesce
-            | BinaryOp::Range
-            | BinaryOp::RangeInclusive
-            | BinaryOp::MatMul => unreachable!(),
+impl CheckedIntSemantics {
+    const fn overflow_message(self, operation: BinaryOp) -> &'static str {
+        match (self, operation) {
+            (Self::Int, BinaryOp::Add) => "integer overflow in addition",
+            (Self::Int, BinaryOp::Sub) => "integer overflow in subtraction",
+            (Self::Int, BinaryOp::Mul) => "integer overflow in multiplication",
+            (Self::Int, BinaryOp::Div) => "integer overflow in division",
+            (Self::Int, BinaryOp::FloorDiv) => "integer overflow in floor division",
+            (Self::Duration, BinaryOp::Add) => "integer overflow in duration addition",
+            (Self::Duration, BinaryOp::Sub) => "integer overflow in duration subtraction",
+            (Self::Duration, BinaryOp::Mul) => "integer overflow in duration multiplication",
+            (Self::Duration, BinaryOp::Div | BinaryOp::FloorDiv) => {
+                "integer overflow in duration division"
+            }
+            (Self::Size, BinaryOp::Add) => "integer overflow in size addition",
+            (Self::Size, BinaryOp::Sub) => "integer overflow in size subtraction",
+            (Self::Size, BinaryOp::Mul) => "integer overflow in size multiplication",
+            (Self::Size, BinaryOp::Div | BinaryOp::FloorDiv) => "integer overflow in size division",
+            _ => "integer overflow",
         }
     }
+}
 
-    /// Look up the [`OpStrategy`] for a unary operation on a builtin type.
-    ///
-    /// Maps `(TypeTag, UnaryOp)` to the corresponding strategy field in the
-    /// registry's [`OpDefs`](ori_registry::OpDefs). `Try` is always
-    /// `Unsupported` because it is desugared before reaching ARC IR.
-    pub(in crate::codegen::arc_emitter) fn op_strategy_for_unary(
-        type_tag: TypeTag,
-        op: UnaryOp,
-    ) -> OpStrategy {
-        // Try is desugared before reaching ARC IR.
-        if matches!(op, UnaryOp::Try) {
-            return OpStrategy::Unsupported;
-        }
+const fn native_runtime_symbol(runtime: RuntimeOperator) -> Option<&'static str> {
+    match runtime {
+        RuntimeOperator::StringConcat => Some("ori_str_concat"),
+        RuntimeOperator::StringEqual => Some("ori_str_eq"),
+        RuntimeOperator::StringNotEqual => Some("ori_str_ne"),
+        RuntimeOperator::StringCompare => Some("ori_str_compare"),
+        RuntimeOperator::ListConcat => None,
+    }
+}
 
-        let Some(type_def) = find_type(type_tag) else {
-            return OpStrategy::Unsupported;
-        };
-        match op {
-            UnaryOp::Neg => type_def.operators.neg,
-            UnaryOp::Not => type_def.operators.not,
-            UnaryOp::BitNot => type_def.operators.bit_not,
-            // Already handled above
-            UnaryOp::Try => unreachable!(),
+impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
+    fn emit_checked_int_sub(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        semantics: CheckedIntSemantics,
+        op: BinaryOp,
+    ) -> ValueId {
+        if matches!(semantics, CheckedIntSemantics::Size) {
+            self.builder.panic_if_signed_less_than(
+                lhs,
+                rhs,
+                "size_sub.negative",
+                "size subtraction would result in negative value",
+            );
         }
+        self.builder
+            .checked_sub_msg(lhs, rhs, "sub", semantics.overflow_message(op))
+    }
+
+    fn emit_checked_int_mul(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        lhs_is_size: bool,
+        rhs_is_size: bool,
+        semantics: CheckedIntSemantics,
+        op: BinaryOp,
+    ) -> ValueId {
+        if matches!(semantics, CheckedIntSemantics::Size) {
+            let scalar = if lhs_is_size && !rhs_is_size {
+                Some(rhs)
+            } else if rhs_is_size && !lhs_is_size {
+                Some(lhs)
+            } else {
+                None
+            };
+            if let Some(scalar) = scalar {
+                self.builder.panic_if_negative(
+                    scalar,
+                    "size_mul.negative",
+                    "cannot multiply Size by negative integer",
+                );
+            }
+        }
+        self.builder
+            .checked_mul_msg(lhs, rhs, "mul", semantics.overflow_message(op))
+    }
+
+    fn emit_checked_int_div(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        lhs_is_size: bool,
+        rhs_is_size: bool,
+        semantics: CheckedIntSemantics,
+        op: BinaryOp,
+    ) -> ValueId {
+        if lhs_is_size && !rhs_is_size {
+            self.builder.panic_if_negative(
+                rhs,
+                "size_div.negative",
+                "cannot divide Size by negative integer",
+            );
+        }
+        self.builder.checked_div_msg(
+            lhs,
+            rhs,
+            "div",
+            "division by zero",
+            semantics.overflow_message(op),
+        )
     }
 
     /// Emit a binary op using signed integer LLVM instructions.
@@ -110,14 +134,46 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         op: BinaryOp,
         lhs: ValueId,
         rhs: ValueId,
+        lhs_ty: Idx,
+        rhs_ty: Idx,
+        result_ty: Idx,
     ) -> ValueId {
+        let lhs_is_size = matches!(self.type_info.get(lhs_ty), TypeInfo::Size);
+        let rhs_is_size = matches!(self.type_info.get(rhs_ty), TypeInfo::Size);
+        let result_is_size = matches!(self.type_info.get(result_ty), TypeInfo::Size);
+        let has_duration = matches!(self.type_info.get(lhs_ty), TypeInfo::Duration)
+            || matches!(self.type_info.get(rhs_ty), TypeInfo::Duration)
+            || matches!(self.type_info.get(result_ty), TypeInfo::Duration);
+        let semantics = if lhs_is_size || rhs_is_size || result_is_size {
+            CheckedIntSemantics::Size
+        } else if has_duration {
+            CheckedIntSemantics::Duration
+        } else {
+            CheckedIntSemantics::Int
+        };
+
         match op {
-            BinaryOp::Add => self.builder.checked_add(lhs, rhs, "add"),
-            BinaryOp::Sub => self.builder.checked_sub(lhs, rhs, "sub"),
-            BinaryOp::Mul => self.builder.checked_mul(lhs, rhs, "mul"),
-            BinaryOp::Div => self.builder.checked_div(lhs, rhs, "div"),
-            BinaryOp::Mod => self.builder.checked_rem(lhs, rhs, "rem"),
-            BinaryOp::FloorDiv => self.builder.checked_div(lhs, rhs, "floordiv"),
+            BinaryOp::Add => self.builder.checked_add_msg(
+                lhs,
+                rhs,
+                "add",
+                semantics.overflow_message(op),
+            ),
+            BinaryOp::Sub => self.emit_checked_int_sub(lhs, rhs, semantics, op),
+            BinaryOp::Mul => {
+                self.emit_checked_int_mul(lhs, rhs, lhs_is_size, rhs_is_size, semantics, op)
+            }
+            BinaryOp::Div => {
+                self.emit_checked_int_div(lhs, rhs, lhs_is_size, rhs_is_size, semantics, op)
+            }
+            BinaryOp::Mod => self.builder.checked_rem_msg(lhs, rhs, "rem", "modulo by zero"),
+            BinaryOp::FloorDiv => self.builder.checked_div_msg(
+                lhs,
+                rhs,
+                "floordiv",
+                "division by zero",
+                semantics.overflow_message(op),
+            ),
             BinaryOp::Eq => self.builder.icmp_eq(lhs, rhs, "eq"),
             BinaryOp::NotEq => self.builder.icmp_ne(lhs, rhs, "ne"),
             BinaryOp::Lt => self.builder.icmp_slt(lhs, rhs, "lt"),
@@ -160,7 +216,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::Gt => self.builder.fcmp_ogt(lhs, rhs, "gt"),
             BinaryOp::LtEq => self.builder.fcmp_ole(lhs, rhs, "le"),
             BinaryOp::GtEq => self.builder.fcmp_oge(lhs, rhs, "ge"),
-            // Registry assigns FloatInstr only to the arms above for float;
+            // Registry assigns FloatingPoint only to the arms above for float;
             // every other op is Unsupported or never reaches strategy lookup.
             BinaryOp::FloorDiv
             | BinaryOp::MatMul
@@ -196,8 +252,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::GtEq => self.builder.icmp_uge(lhs, rhs, "ge"),
             BinaryOp::And => self.builder.and(lhs, rhs, "and"),
             BinaryOp::Or => self.builder.or(lhs, rhs, "or"),
-            // UnsignedCmp covers byte/char/bool comparison plus And/Or only;
-            // arithmetic/bitwise on those types uses IntInstr or Unsupported.
+            // UnsignedComparison covers byte/char/bool comparison plus And/Or only;
+            // arithmetic/bitwise on those types uses SignedInteger or Unsupported.
             BinaryOp::Add
             | BinaryOp::Sub
             | BinaryOp::Mul
@@ -219,7 +275,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a binary op using boolean logic instructions.
     ///
     /// Handles `bool` equality and logical operators. Ordering on `bool`
-    /// uses [`OpStrategy::UnsignedCmp`] instead.
+    /// uses [`OpStrategy::UnsignedComparison`] instead.
     pub(in crate::codegen::arc_emitter) fn emit_bool_binary_op(
         &mut self,
         op: BinaryOp,
@@ -231,8 +287,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::NotEq => self.builder.icmp_ne(lhs, rhs, "ne"),
             BinaryOp::And => self.builder.and(lhs, rhs, "and"),
             BinaryOp::Or => self.builder.or(lhs, rhs, "or"),
-            // BoolLogic covers Eq/NotEq/And/Or only; bool ordering routes
-            // through UnsignedCmp and everything else is Unsupported.
+            // BooleanLogic covers Eq/NotEq/And/Or only; bool ordering routes
+            // through UnsignedComparison and everything else is Unsupported.
             BinaryOp::Add
             | BinaryOp::Sub
             | BinaryOp::Mul
@@ -257,112 +313,48 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit a binary op via runtime function call.
     ///
-    /// Currently handles string operations only (the sole [`OpStrategy::RuntimeCall`]
+    /// Handles string operations (the sole [`OpStrategy::RuntimeCall`]
     /// type in the registry). Comparison ops use `ori_str_compare` which returns
     /// `Ordering` (i8) and is post-processed into a bool predicate.
     pub(in crate::codegen::arc_emitter) fn emit_runtime_binary_op(
         &mut self,
+        runtime: RuntimeOperator,
         op: BinaryOp,
         lhs: ValueId,
         rhs: ValueId,
     ) -> ValueId {
-        match op {
-            BinaryOp::Add => self.emit_str_runtime_call("ori_str_concat", lhs, rhs, true),
-            BinaryOp::Eq => self.emit_str_runtime_call("ori_str_eq", lhs, rhs, false),
-            BinaryOp::NotEq => self.emit_str_runtime_call("ori_str_ne", lhs, rhs, false),
-            BinaryOp::Lt => self
+        match (runtime, op) {
+            (RuntimeOperator::StringConcat, BinaryOp::Add) => self.emit_str_runtime_call(
+                native_runtime_symbol(runtime)
+                    .expect("string runtime identity has a native ABI symbol"),
+                lhs,
+                rhs,
+                StringRuntimeReturnAbi::StringSret,
+            ),
+            (RuntimeOperator::StringEqual, BinaryOp::Eq)
+            | (RuntimeOperator::StringNotEqual, BinaryOp::NotEq) => self.emit_str_runtime_call(
+                native_runtime_symbol(runtime)
+                    .expect("string runtime identity has a native ABI symbol"),
+                lhs,
+                rhs,
+                StringRuntimeReturnAbi::BoolDirect,
+            ),
+            (RuntimeOperator::StringCompare, BinaryOp::Lt) => self
                 .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::Less)
                 .expect("str Lt comparison should always succeed"),
-            BinaryOp::Gt => self
+            (RuntimeOperator::StringCompare, BinaryOp::Gt) => self
                 .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::Greater)
                 .expect("str Gt comparison should always succeed"),
-            BinaryOp::LtEq => self
+            (RuntimeOperator::StringCompare, BinaryOp::LtEq) => self
                 .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::LessOrEqual)
                 .expect("str LtEq comparison should always succeed"),
-            BinaryOp::GtEq => self
+            (RuntimeOperator::StringCompare, BinaryOp::GtEq) => self
                 .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::GreaterOrEqual)
                 .expect("str GtEq comparison should always succeed"),
-            // RuntimeCall exists only for str concat/comparison in the
-            // registry; no other op carries a RuntimeCall strategy.
-            BinaryOp::Sub
-            | BinaryOp::Mul
-            | BinaryOp::Div
-            | BinaryOp::Mod
-            | BinaryOp::FloorDiv
-            | BinaryOp::MatMul
-            | BinaryOp::And
-            | BinaryOp::Or
-            | BinaryOp::BitAnd
-            | BinaryOp::BitOr
-            | BinaryOp::BitXor
-            | BinaryOp::Shl
-            | BinaryOp::Shr
-            | BinaryOp::Range
-            | BinaryOp::RangeInclusive
-            | BinaryOp::Coalesce => unreachable!("unsupported runtime binary op {op:?}"),
-        }
-    }
-
-    // Registry bridge
-
-    /// Map a type pool [`Idx`] to a registry [`TypeTag`] for `OpStrategy` lookup.
-    ///
-    /// This is the bridge between the type checker's pool-based type system
-    /// and the registry's static type tag system. For primitive types (Idx 0-11),
-    /// the mapping is a direct match on the well-known index constants.
-    /// For dynamic types, we consult the [`TypeInfo`] store.
-    ///
-    /// Returns `None` for user-defined structs/enums — these are handled by
-    /// trait dispatch before reaching `OpStrategy`, so `None` here indicates a
-    /// compiler bug if the caller expected a builtin type.
-    pub(in crate::codegen::arc_emitter) fn idx_to_type_tag(&self, idx: Idx) -> Option<TypeTag> {
-        // Fast path: well-known primitive indices (0-11).
-        // Idx::ERROR (index 8) intentionally excluded — error types should
-        // never reach codegen; if they do, returning None triggers an ICE
-        // at the call site.
-        let tag = match idx {
-            Idx::INT => TypeTag::Int,
-            Idx::FLOAT => TypeTag::Float,
-            Idx::BOOL => TypeTag::Bool,
-            Idx::STR => TypeTag::Str,
-            Idx::CHAR => TypeTag::Char,
-            Idx::BYTE => TypeTag::Byte,
-            Idx::UNIT => TypeTag::Unit,
-            Idx::NEVER => TypeTag::Never,
-            Idx::DURATION => TypeTag::Duration,
-            Idx::SIZE => TypeTag::Size,
-            Idx::ORDERING => TypeTag::Ordering,
-            _ => {
-                // Dynamic types: consult TypeInfoStore.
-                return match self.type_info.get(idx) {
-                    TypeInfo::Int => Some(TypeTag::Int),
-                    TypeInfo::Float => Some(TypeTag::Float),
-                    TypeInfo::Bool => Some(TypeTag::Bool),
-                    TypeInfo::Char => Some(TypeTag::Char),
-                    TypeInfo::Byte => Some(TypeTag::Byte),
-                    TypeInfo::Str => Some(TypeTag::Str),
-                    TypeInfo::Unit => Some(TypeTag::Unit),
-                    TypeInfo::Never => Some(TypeTag::Never),
-                    TypeInfo::Duration => Some(TypeTag::Duration),
-                    TypeInfo::Size => Some(TypeTag::Size),
-                    TypeInfo::Ordering => Some(TypeTag::Ordering),
-                    TypeInfo::Error => Some(TypeTag::Error),
-                    TypeInfo::List { .. } => Some(TypeTag::List),
-                    TypeInfo::Map { .. } => Some(TypeTag::Map),
-                    TypeInfo::Set { .. } => Some(TypeTag::Set),
-                    TypeInfo::Tuple { .. } => Some(TypeTag::Tuple),
-                    TypeInfo::Option { .. } => Some(TypeTag::Option),
-                    TypeInfo::Result { .. } => Some(TypeTag::Result),
-                    TypeInfo::Range => Some(TypeTag::Range),
-                    TypeInfo::Iterator { .. } => Some(TypeTag::Iterator),
-                    TypeInfo::Channel { .. } => Some(TypeTag::Channel),
-                    TypeInfo::Function { .. } => Some(TypeTag::Function),
-                    // Struct/Enum are handled by trait dispatch (non-primitives).
-                    // Returning None signals the caller to ICE.
-                    TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => None,
-                };
+            (RuntimeOperator::ListConcat, BinaryOp::Add) => {
+                unreachable!("list concat is emitted by the ownership-aware operator projection")
             }
-        };
-        Some(tag)
+            _ => unreachable!("runtime operation {runtime:?} does not implement {op:?}"),
+        }
     }
 }

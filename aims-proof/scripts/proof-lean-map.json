@@ -581,12 +581,26 @@
     {
       "proof_id": "IA-5-step-1",
       "proof_path": "proofs/04-transfers/IA-5-step-1.proof",
-      "kind": "composition_folded",
+      "kind": "theorem",
       "lean_module": "AimsProof.Transfer",
-      "lean_theorem": "TF14_propagation_spec",
+      "lean_theorem": "IA5_step1_and_raw_block_walk_sound",
       "parity_tokens": [
-        "cardinality",
-        "locality"
+        "IA5Step1Instr",
+        "ia5Step1Conforms",
+        "RawDemand",
+        "foldl"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "IA-MF1",
+      "proof_path": "proofs/04-transfers/IA-MF1-moved-fields-convergence.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.MovedFields",
+      "lean_theorem": "MF1_no_change_at_derived_cap",
+      "parity_tokens": [
+        "iterate",
+        "bound"
       ],
       "note": ""
     },
@@ -625,10 +639,12 @@
       "proof_path": "proofs/04-transfers/TF-11.proof",
       "kind": "theorem",
       "lean_module": "AimsProof.Transfer",
-      "lean_theorem": "TF11_seq_add_consumption_comm",
+      "lean_theorem": "TF11_raw_demand_timing_sound",
       "parity_tokens": [
-        "seq_add",
-        "Consumption"
+        "RawDemand",
+        "seqAdd",
+        "foldl",
+        "observe"
       ],
       "note": ""
     },
@@ -671,8 +687,12 @@
       "proof_path": "proofs/04-transfers/TF-14.proof",
       "kind": "theorem",
       "lean_module": "AimsProof.Transfer",
-      "lean_theorem": "TF14_propagation_spec",
+      "lean_theorem": "TF14_project_demand_sound",
       "parity_tokens": [
+        "ScalarLiveness",
+        "ProducerDomainLaws",
+        "RawDemand",
+        "scalarProjectContribution",
         "cardinality",
         "locality"
       ],
@@ -711,12 +731,28 @@
     {
       "proof_id": "TF-2a",
       "proof_path": "proofs/04-transfers/TF-2a.proof",
-      "kind": "doc_encoded",
+      "kind": "theorem",
       "lean_module": "AimsProof.Transfer",
-      "lean_theorem": null,
-      "parity_tokens": [],
-      "lean_encoding": "SCALAR-sentinel row (L-9 model exclusion); no AimsState forward image",
-      "note": "SCALAR/no-AimsState-image rule faithfully encoded as Lean doc-comment"
+      "lean_theorem": "TF2a_scalar_primitive_transfer",
+      "parity_tokens": [
+        "PrimitiveOperandUse",
+        "transferPrimitive",
+        "scalar"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-2b",
+      "proof_path": "proofs/04-transfers/TF-2b.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF2b_dual_consume_rows_preserve_one_result_owner",
+      "parity_tokens": [
+        "PrimitiveStrategy",
+        "consumedInputs",
+        "producedOwnerCount"
+      ],
+      "note": ""
     },
     {
       "proof_id": "TF-3",
@@ -1323,9 +1359,10 @@
       "proof_path": "proofs/08-realization/RL-14.proof",
       "kind": "theorem",
       "lean_module": "AimsProof.Realization",
-      "lean_theorem": "RL14_headerless_stack",
+      "lean_theorem": "lifetime_from_locality_sound",
       "parity_tokens": [
-        "stack"
+        "lifetimeFromLocality",
+        "LifetimeBound"
       ],
       "note": ""
     },
@@ -1334,10 +1371,10 @@
       "proof_path": "proofs/08-realization/RL-14a.proof",
       "kind": "theorem",
       "lean_module": "AimsProof.Realization",
-      "lean_theorem": "RL14a_immortal_header_stack",
+      "lean_theorem": "cleanup_complete_on_normal_and_unwind",
       "parity_tokens": [
-        "stack",
-        "header"
+        "cleanupCoversNormalAndUnwind",
+        "CleanupObligation"
       ],
       "note": ""
     },
@@ -1346,9 +1383,10 @@
       "proof_path": "proofs/08-realization/RL-15.proof",
       "kind": "theorem",
       "lean_module": "AimsProof.Realization",
-      "lean_theorem": "RL15_bump_alloc",
+      "lean_theorem": "extent_class_is_repr_owned",
       "parity_tokens": [
-        "alloc"
+        "ProjectionInput",
+        "ExtentClass"
       ],
       "note": ""
     },
@@ -1357,10 +1395,10 @@
       "proof_path": "proofs/08-realization/RL-15a.proof",
       "kind": "theorem",
       "lean_module": "AimsProof.Realization",
-      "lean_theorem": "RL15a_cat1_borrowed_unique_headerless",
+      "lean_theorem": "caller_extent_sites_complete",
       "parity_tokens": [
-        "Borrowed",
-        "Unique"
+        "CallerUse",
+        "callerExtent"
       ],
       "note": ""
     },
@@ -1369,10 +1407,10 @@
       "proof_path": "proofs/08-realization/RL-16.proof",
       "kind": "theorem",
       "lean_module": "AimsProof.Realization",
-      "lean_theorem": "RL16_heap_alloc",
+      "lean_theorem": "freeze_allocation_facts_total_conservative",
       "parity_tokens": [
-        "heap",
-        "alloc"
+        "freezeAllocationFacts",
+        "unknownAllocationFacts"
       ],
       "note": ""
     },
@@ -1381,9 +1419,10 @@
       "proof_path": "proofs/08-realization/RL-17.proof",
       "kind": "theorem",
       "lean_module": "AimsProof.Realization",
-      "lean_theorem": "RL17_local_unique_none",
+      "lean_theorem": "owner_bound_is_dynamic_upper_bound",
       "parity_tokens": [
-        "bound"
+        "ownerBound",
+        "ownerCapacity"
       ],
       "note": ""
     },
@@ -1392,10 +1431,10 @@
       "proof_path": "proofs/08-realization/RL-18.proof",
       "kind": "theorem",
       "lean_module": "AimsProof.Realization",
-      "lean_theorem": "RL18_width_holds_bound",
+      "lean_theorem": "validated_vm_plan_sound",
       "parity_tokens": [
-        "width",
-        "bound"
+        "Satisfies",
+        "ValidatedVmPlan"
       ],
       "note": ""
     },
@@ -1404,9 +1443,10 @@
       "proof_path": "proofs/08-realization/RL-18a.proof",
       "kind": "theorem",
       "lean_module": "AimsProof.Realization",
-      "lean_theorem": "RL18a_strategy_agrees_escape",
+      "lean_theorem": "vm_compiled_event_parity",
       "parity_tokens": [
-        "escape"
+        "vmPlanTrace",
+        "compiledPlanTrace"
       ],
       "note": ""
     },
@@ -1415,10 +1455,10 @@
       "proof_path": "proofs/08-realization/RL-19.proof",
       "kind": "theorem",
       "lean_module": "AimsProof.Realization",
-      "lean_theorem": "RL19_thread_local_non_atomic",
+      "lean_theorem": "thread_reachability_from_locality_callgraph",
       "parity_tokens": [
-        "thread",
-        "atomic"
+        "threadReachabilityFrom",
+        "ThreadReachability"
       ],
       "note": ""
     },
@@ -1438,10 +1478,10 @@
       "proof_path": "proofs/08-realization/RL-20.proof",
       "kind": "theorem",
       "lean_module": "AimsProof.Realization",
-      "lean_theorem": "RL20_thread_shared_atomic",
+      "lean_theorem": "potentially_shared_requires_safe_capability",
       "parity_tokens": [
-        "thread",
-        "atomic"
+        "potentiallyShared",
+        "sharedSafe"
       ],
       "note": ""
     },
@@ -1450,10 +1490,10 @@
       "proof_path": "proofs/08-realization/RL-21.proof",
       "kind": "theorem",
       "lean_module": "AimsProof.Realization",
-      "lean_theorem": "RL21_no_thread_boundary_all_non_atomic",
+      "lean_theorem": "no_thread_boundary_all_confined",
       "parity_tokens": [
-        "thread",
-        "atomic"
+        "programThreadReachability",
+        "confined"
       ],
       "note": ""
     },
@@ -1540,9 +1580,10 @@
       "proof_path": "proofs/08-realization/RL-29.proof",
       "kind": "theorem",
       "lean_module": "AimsProof.Realization",
-      "lean_theorem": "RL29_noalias_decision",
+      "lean_theorem": "RL29_neutral_fresh_self_allocation_decision",
       "parity_tokens": [
-        "noalias"
+        "FreshSelfAllocationFact",
+        "returnsFreshSelfAlloc"
       ],
       "note": ""
     },
@@ -1562,9 +1603,10 @@
       "proof_path": "proofs/08-realization/RL-30.proof",
       "kind": "theorem",
       "lean_module": "AimsProof.Realization",
-      "lean_theorem": "RL30_pure_no_access_none",
+      "lean_theorem": "RL30_neutral_memory_access_decision",
       "parity_tokens": [
-        "memory"
+        "MemoryAccessFact",
+        "mayWriteInaccessible"
       ],
       "note": ""
     },
@@ -1573,10 +1615,10 @@
       "proof_path": "proofs/08-realization/RL-31.proof",
       "kind": "theorem",
       "lean_module": "AimsProof.Realization",
-      "lean_theorem": "RL31_disjoint_borrowed_noalias",
+      "lean_theorem": "RL31_neutral_parameter_disjointness_sound",
       "parity_tokens": [
-        "Borrowed",
-        "noalias"
+        "ArgProvenance",
+        "rootSet"
       ],
       "note": ""
     },
@@ -1681,6 +1723,18 @@
       "note": ""
     },
     {
+      "proof_id": "RL-DROP",
+      "proof_path": "proofs/08-realization/RL-DROP.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RLDROP_scalar_lifecycle_sound",
+      "parity_tokens": [
+        "userDrop",
+        "scalar"
+      ],
+      "note": ""
+    },
+    {
       "proof_id": "RL-comp",
       "proof_path": "proofs/08-realization/RL-comp.proof",
       "kind": "composition_folded",
@@ -1717,10 +1771,13 @@
       "proof_id": "VF-3",
       "proof_path": "proofs/09-verification/VF-3.proof",
       "kind": "theorem",
-      "lean_module": "AimsProof.Verification",
-      "lean_theorem": "VF3_catches_oracle",
+      "lean_module": "AimsProof.Oracle",
+      "lean_theorem": "VF3_independent_oracle_acceptance_iff",
       "parity_tokens": [
-        "oracle"
+        "RealizedParamEvidence",
+        "oracleAccepts",
+        "iterTransferAgrees",
+        "vf3_safe"
       ],
       "note": ""
     },
@@ -1868,6 +1925,94 @@
       "lean_theorem": null,
       "parity_tokens": [],
       "note": "definition_only SSOT; check-proofs.sh skips; no Lean theorem"
+    },
+    {
+      "proof_id": "T1",
+      "proof_path": "proofs/12-provenance/T1-partition-soundness.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Partition",
+      "lean_theorem": "samerep_birthsite_sound",
+      "parity_tokens": [
+        "birthsite",
+        "samerep"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "T2",
+      "proof_path": "proofs/12-provenance/T2-compositional-placement.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Ledger",
+      "lean_theorem": "compositional_placement_sound",
+      "parity_tokens": [
+        "threeclauses",
+        "ledgersafe"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "T3",
+      "proof_path": "proofs/12-provenance/T3-keepalive-running-refcount.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.RunningCount",
+      "lean_theorem": "keep_alive_redundancy_sound_iff_whole_pair",
+      "parity_tokens": [
+        "runningrc",
+        "neverbelow"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "T4",
+      "proof_path": "proofs/12-provenance/T4-contract-boundary-composition.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.ContractBoundary",
+      "lean_theorem": "T4_contract_boundary_and_result_plan_sound",
+      "parity_tokens": [
+        "boundaryInstrs",
+        "calleeConforms",
+        "invokeBoundaryEvents",
+        "FunctionExitInventory",
+        "FrozenFunctionResultPlan",
+        "borrowedIndirectCallableRowEvents"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "T5",
+      "proof_path": "proofs/12-provenance/T5-frame-limited-robustness.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.ContractBoundary",
+      "lean_theorem": "T5_frame_untouched_class_ledger_verbatim",
+      "parity_tokens": [
+        "mergeclasses",
+        "deriveledger"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "T6",
+      "proof_path": "proofs/12-provenance/T6-per-field-decomposition.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.FieldDecomposition",
+      "lean_theorem": "FD_skipset_sound",
+      "parity_tokens": [
+        "payloadevents",
+        "threeclauses"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "CH-comp-PV",
+      "proof_path": "proofs/12-provenance/comp-partition-side-table.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.ProvenanceComposition",
+      "lean_theorem": "CHcomp_partition_side_table",
+      "parity_tokens": [
+        "eliminateatclass",
+        "handshakeaccepts"
+      ],
+      "note": ""
     }
   ]
 }

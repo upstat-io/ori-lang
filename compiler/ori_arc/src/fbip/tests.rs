@@ -285,7 +285,7 @@ fn enforcement_scalar_only_no_violation() {
     );
 }
 
-// -- is_auto_fbip tests --
+// is_auto_fbip tests
 
 #[test]
 fn auto_fbip_all_static_unique() {

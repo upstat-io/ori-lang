@@ -4,7 +4,7 @@
 //! side tables in the [`AimsStateMap`] using the converged state:
 //!
 //! - [`populate_borrow_sources`] — borrow source tracking for Project instructions
-//! - [`populate_sparse_events`] — reusable allocations + local-alloc candidates
+//! - [`populate_sparse_events`] — reusable logical shapes + placement-eligibility candidates
 //! - [`populate_var_shapes`] — per-variable shape from definitions
 //! - [`detect_trmc_candidates`] — TRMC `ContextHole` detection
 //! - [`populate_context_events`] — ContextOpen/ContextClose from normalize metadata
@@ -17,88 +17,16 @@ use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{
-    is_transitive_drop_strategy, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId,
-    ArgOwnership, CtorKind, RcStrategy, ValueRepr,
+    is_transitive_drop_strategy, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue,
+    ArcVarId, ArgOwnership, CtorKind, RcStrategy, ValueRepr,
 };
 
 use super::super::contract::{ContextRegion, MemoryContract, ReturnContract};
 use super::super::lattice::{
-    AccessClass, AimsState, Cardinality, Consumption, EffectClass, Locality, ReuseCtorKind,
-    ShapeClass, Uniqueness,
+    AccessClass, AimsState, Cardinality, Consumption, EffectClass, Locality, ShapeClass, Uniqueness,
 };
-use super::super::transfer::transfer_def;
+use super::super::transfer::transfer_def_resolved;
 use super::state_map::{AimsEvent, AimsStateMap};
-
-/// Populate `AimsStateMap::class_covered` for the coexistence handshake.
-///
-/// `class_covered[C] = true` iff:
-/// 1. Every var `v ∈ class_members[C]` has `func.burden_emitted[v.index()] = true`.
-/// 2. Every payload class `P` transitively reachable from `C` via
-///    `class_payload_of` is also in `class_covered`.
-///
-/// Fixed-point iteration over the finite class set — terminates per L-5
-/// (`class_members` is finite; `class_covered` only grows; iteration halts
-/// when one full pass adds zero classes).
-///
-/// AIMS Invariant #5(c) — derives purely from existing `class_members` +
-/// `class_payload_of` + `func.burden_emitted` side tables; no parallel
-/// uniqueness tracker.
-pub(crate) fn populate_class_covered(state_map: &mut AimsStateMap, func: &ArcFunction) {
-    // Empty burden_emitted means the burden walker never ran or emitted
-    // nothing — no class can be covered (DP-2/DP-3 elimination would still
-    // see zero burden ops). Short-circuit.
-    if func.burden_emitted.is_empty() || !func.burden_emitted.iter().any(|b| *b) {
-        return;
-    }
-
-    // Step 1: candidate set — classes whose every member has burden_emitted=true.
-    // Computed once; subsequent fixed-point passes only check transitive
-    // payload coverage, never re-check membership.
-    let candidate_classes: Vec<(u32, Vec<u32>)> = state_map
-        .class_members_iter()
-        .filter_map(|(class_id, members)| {
-            let all_emitted = members
-                .iter()
-                .all(|v| func.burden_emitted.get(v.index()).copied().unwrap_or(false));
-            if !all_emitted {
-                return None;
-            }
-            // Pre-collect transitive payload class ids per `class_payload_of`.
-            let payloads: Vec<u32> = state_map
-                .class_payload_of(class_id)
-                .map(|s| s.iter().copied().collect())
-                .unwrap_or_default();
-            Some((class_id, payloads))
-        })
-        .collect();
-
-    if candidate_classes.is_empty() {
-        return;
-    }
-
-    // Step 2: fixed-point iteration. A class is covered iff it is a candidate
-    // AND every payload class is covered. Terminates because `covered` only
-    // grows; bounded by `candidate_classes.len()`.
-    let mut covered: FxHashSet<u32> = FxHashSet::default();
-    loop {
-        let mut grew = false;
-        for (class_id, payloads) in &candidate_classes {
-            if covered.contains(class_id) {
-                continue;
-            }
-            let payloads_covered = payloads.iter().all(|p| covered.contains(p));
-            if payloads_covered {
-                covered.insert(*class_id);
-                grew = true;
-            }
-        }
-        if !grew {
-            break;
-        }
-    }
-
-    state_map.set_class_covered(covered);
-}
 
 /// Populate the borrow source side table after analysis converges.
 ///
@@ -110,6 +38,13 @@ pub(crate) fn populate_class_covered(state_map: &mut AimsStateMap, func: &ArcFun
 pub(crate) fn populate_borrow_sources(state_map: &mut AimsStateMap, func: &ArcFunction) {
     for block in &func.blocks {
         for instr in &block.body {
+            if instr
+                .defined_var()
+                .is_some_and(|dst| state_map.is_scalar(dst))
+            {
+                continue;
+            }
+
             // Use the converged state to compute the transfer result.
             let get_state = |v: ArcVarId| -> AimsState {
                 if state_map.is_scalar(v) {
@@ -118,7 +53,7 @@ pub(crate) fn populate_borrow_sources(state_map: &mut AimsStateMap, func: &ArcFu
                 state_map.var_state_at_block_entry(block.id, v)
             };
 
-            if let Some(def) = transfer_def(instr, &get_state) {
+            if let Some(def) = transfer_def_resolved(func, instr, &get_state) {
                 if let (Some(dst), Some(source)) = (instr.defined_var(), def.borrow_source) {
                     state_map.set_borrow_source(dst, source);
                 }
@@ -137,13 +72,13 @@ pub(crate) fn populate_borrow_sources(state_map: &mut AimsStateMap, func: &ArcFu
 ///    that the `ReusePlanner` can match against death events for cross-block
 ///    reuse.
 ///
-/// 2. **Local-allocation eligibility** (`AimsEvent::LocalAllocCandidate`):
+/// 2. **Placement eligibility** (`AimsEvent::PlacementEligibilityCandidate`):
 ///    Variables whose effective exit-locality (`effective_locality_at_block_exit`,
 ///    which JOINs the lattice value with the contract-narrowed value populated
 ///    by `populate_call_result_states`) shows `Locality::FunctionLocal` or
 ///    `BlockLocal`. The effective query is load-bearing for direct call results:
 ///    without it, a callee with `return_info.locality = FunctionLocal` would
-///    not surface as a `LocalAllocCandidate` because the lattice's BOTTOM
+///    not surface as a `PlacementEligibilityCandidate` because the lattice's BOTTOM
 ///    locality is `BlockLocal` (already FunctionLocal-eligible) but the
 ///    contract-derived narrowing is invisible.
 ///
@@ -151,7 +86,7 @@ pub(crate) fn populate_borrow_sources(state_map: &mut AimsStateMap, func: &ArcFu
 /// `block.terminator` (covers Invoke — the only terminator that defines
 /// a variable). The terminator walk is required because Invoke results
 /// would otherwise be silently skipped, leaving terminator-defined call
-/// results without `LocalAllocCandidate` events even when their contract
+/// results without `PlacementEligibilityCandidate` events even when their contract
 /// narrowed locality.
 pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFunction) {
     for (block_idx, block) in func.blocks.iter().enumerate() {
@@ -164,10 +99,10 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
         for (instr_idx, instr) in block.body.iter().enumerate() {
             // Reusable allocation candidates: Construct with reusable ctor.
             // Use `is_excluded` (skips both scalars AND immortals) —
-            // `is_scalar` alone leaks immortal
-            // heap-allocated constants into reuse candidates, where they
-            // cannot be reused because their MAX_REFCOUNT prevents the
-            // reset/reuse pipeline from acquiring the allocation.
+            // `is_scalar` alone leaks immortal identities into reuse
+            // candidates. Immortal identity and lifetime are stable
+            // contracts, so destructive reset/reuse cannot acquire them
+            // regardless of the target's physical encoding.
             if let ArcInstr::Construct { dst, ctor, .. } = instr {
                 if !state_map.is_excluded(*dst)
                     && matches!(ctor, CtorKind::Struct(_) | CtorKind::EnumVariant { .. })
@@ -180,11 +115,11 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
                 }
             }
 
-            // Local-allocation eligibility: variables with local exit state.
+            // Placement eligibility: variables with a bounded exit lifetime.
             // Uses `effective_locality_at_block_exit` (NOT raw lattice
             // locality) so contract-narrowed call results surface here.
             // `is_excluded` excludes both scalars and immortals from
-            // local-alloc candidacy.
+            // placement eligibility.
             if let Some(dst) = instr.defined_var() {
                 if state_map.is_excluded(dst) {
                     continue;
@@ -194,7 +129,7 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
                     effective_loc,
                     Locality::FunctionLocal | Locality::BlockLocal
                 ) {
-                    state_map.record_event(AimsEvent::LocalAllocCandidate {
+                    state_map.record_event(AimsEvent::PlacementEligibilityCandidate {
                         block: blk,
                         instr: instr_idx,
                         var: dst,
@@ -205,9 +140,9 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
 
         // Invoke terminator's dst is also a forward-defined call result;
         // treat symmetrically to body-Apply per `populate_call_result_states`.
-        // The body loop above never visits the terminator — Invoke results
-        // would otherwise be silently skipped. `is_excluded` matches the body
-        // loop's exclusion criteria (scalars + immortals).
+        // The body loop iterating `block.body` never visits the terminator —
+        // Invoke results would otherwise be silently skipped. `is_excluded`
+        // matches the body loop's exclusion criteria (scalars + immortals).
         if let ArcTerminator::Invoke { dst, .. } = &block.terminator {
             if !state_map.is_excluded(*dst) {
                 let effective_loc = state_map.effective_locality_at_block_exit(blk, *dst);
@@ -215,7 +150,7 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
                     effective_loc,
                     Locality::FunctionLocal | Locality::BlockLocal
                 ) {
-                    state_map.record_event(AimsEvent::LocalAllocCandidate {
+                    state_map.record_event(AimsEvent::PlacementEligibilityCandidate {
                         block: blk,
                         // Terminator instruction index = body length
                         // (terminators are notionally at body-end).
@@ -370,8 +305,6 @@ pub(crate) fn populate_call_result_states(
 /// - Cross-dimensional uniqueness proof (Once+ReusableCtor → static reuse)
 /// - COW annotation for `CollectionBuffer` non-parameters
 /// - TRMC candidate detection (`ContextHole`)
-///
-/// Shape Activation.
 pub(crate) fn populate_var_shapes(state_map: &mut AimsStateMap, func: &ArcFunction) {
     for block in &func.blocks {
         for instr in &block.body {
@@ -382,22 +315,209 @@ pub(crate) fn populate_var_shapes(state_map: &mut AimsStateMap, func: &ArcFuncti
                 continue;
             }
             let shape = match instr {
-                ArcInstr::Construct { ctor, .. } | ArcInstr::Reuse { ctor, .. } => match ctor {
-                    CtorKind::Struct(_) => ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
-                    CtorKind::EnumVariant { .. } => {
-                        ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant)
-                    }
-                    CtorKind::ListLiteral | CtorKind::SetLiteral | CtorKind::MapLiteral => {
-                        ShapeClass::CollectionBuffer
-                    }
-                    CtorKind::Tuple | CtorKind::Closure { .. } => ShapeClass::NonReusable,
-                },
+                ArcInstr::Construct { ctor, .. } | ArcInstr::Reuse { ctor, .. } => {
+                    crate::aims::transfer::shape_from_ctor(ctor)
+                }
                 ArcInstr::CollectionReuse { .. } => ShapeClass::CollectionBuffer,
                 _ => ShapeClass::NonReusable,
             };
             state_map.set_var_shape(dst, shape);
         }
     }
+}
+
+/// Propagate forward-state side-table entries (uniqueness, locality, shape)
+/// across `Let { dst, value: Var(src) }` aliases.
+///
+/// TF-2 (`Let { Var(v) }` -> `dst.state := state(v)`): a var-binding inherits
+/// its source's full lattice state. The side tables (`var_uniqueness`,
+/// `var_locality`, `var_shapes`) carry the FORWARD dimensions of call results
+/// because the backward dataflow re-initializes those dimensions from BOTTOM
+/// (per `populate_var_shapes` doc). `populate_call_result_states` writes those
+/// dimensions for `Apply`/`Invoke` dsts only; a `Let`-alias of such a result
+/// inherits none, so its `effective_uniqueness_at_block_*` query falls through
+/// to the BOTTOM lattice value (Unique). A seamless-slice result from
+/// `ori_list_slice_drop` (`MaybeShared` on the call dst) is then read as Unique
+/// at its alias's drop site, selecting the unique-owner free path on a shared
+/// allocation. Spec: Annex E §AIMS (TF-2 variable-binding transfer).
+///
+/// Runs AFTER `populate_call_result_states` + `populate_var_shapes` so every
+/// source side table is fully populated. Fixpoint over the alias edge set
+/// handles transitive chains and arbitrary block ordering; monotone (each dst
+/// dimension transitions unset -> set at most once) so it terminates.
+/// Per-dst forward-alias propagation kind (TF-2/4/8/11).
+///
+/// - `Full` (TF-2 `Let { Var }`): the dst inherits the source's FULL lattice
+///   state (uniqueness + locality + shape). Single source; first-write-wins.
+/// - `View` (TF-4 `Project`): a projected field is a borrowed `NonReusable`
+///   VIEW of the aggregate -- inherit uniqueness + locality ONLY (with a CN-6
+///   re-check: `Unique` at wide locality demotes to `MaybeShared`), NEVER the
+///   aggregate's shape. Single source; first-write-wins.
+/// - `Join` (TF-8 `Select` / TF-11 Jump-arg -> block-param phi): the dst is the
+///   lattice-JOIN (LUB) over ALL sources -- NEVER a meet, NEVER first-write-wins
+///   (`Select(Unique, MaybeShared) -> MaybeShared`, the wider value). Re-joined
+///   every fixpoint pass (monotone upward; terminates at finite lattice height),
+///   so a loop back-edge phi arg converges. Shape NOT propagated (a Select/phi
+///   merges DISTINCT allocations -- same-allocation reuse is the union-find's
+///   job in `project_aliases`, kept distinct from this fact-join).
+///
+/// TF-15/15a `Set` / `SetTag` are EXCLUDED -- in-place mutations with no `dst`,
+/// no forward transfer; mutation safety is TF-11-backward + DP-5 + RL-10.
+enum AliasKind {
+    Full,
+    View,
+    Join,
+}
+
+pub(crate) fn propagate_alias_forward_state(state_map: &mut AimsStateMap, func: &ArcFunction) {
+    let edges = collect_alias_forward_edges(func);
+    loop {
+        let mut changed = false;
+        for (dst, kind, sources) in &edges {
+            let dst = *dst;
+            if state_map.is_excluded(dst) {
+                continue;
+            }
+            let step_changed = match kind {
+                AliasKind::Full => step_full_alias(state_map, dst, sources[0]),
+                AliasKind::View => step_view_alias(state_map, dst, sources[0]),
+                AliasKind::Join => step_join_alias(state_map, dst, sources),
+            };
+            changed |= step_changed;
+        }
+        if !changed {
+            break;
+        }
+    }
+}
+
+/// Build the per-dst forward-alias edge model `(dst, kind, sources)`. Multi-source
+/// `Join` dsts LUB over all sources; single-source `Full`/`View` carry one src.
+fn collect_alias_forward_edges(func: &ArcFunction) -> Vec<(ArcVarId, AliasKind, Vec<ArcVarId>)> {
+    let mut edges: Vec<(ArcVarId, AliasKind, Vec<ArcVarId>)> = Vec::new();
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(src),
+                    ..
+                } => edges.push((*dst, AliasKind::Full, vec![*src])),
+                ArcInstr::Project { dst, value, .. } => {
+                    edges.push((*dst, AliasKind::View, vec![*value]));
+                }
+                ArcInstr::Select {
+                    dst,
+                    true_val,
+                    false_val,
+                    ..
+                } => edges.push((*dst, AliasKind::Join, vec![*true_val, *false_val])),
+                // TF-15/15a Set/SetTag (+ every other variant): no forward edge.
+                _ => {}
+            }
+        }
+    }
+    // TF-11 phi: each block-param joins the per-predecessor Jump arg at its
+    // index. Reuse the `project_aliases` edge attribution (handles back-edges)
+    // rather than re-deriving the predecessor scan; the same-allocation
+    // union-find there stays DISTINCT from this forward fact-join.
+    for (param, edge_args) in super::project_aliases::compute_param_edge_args(func) {
+        let sources: Vec<ArcVarId> = edge_args.iter().map(|e| e.arg).collect();
+        if !sources.is_empty() {
+            edges.push((param, AliasKind::Join, sources));
+        }
+    }
+    edges
+}
+
+/// TF-2 `Let { Var }`: dst inherits the source's FULL lattice state (uniqueness +
+/// locality + shape). First-write-wins per dimension. Returns whether any
+/// dimension changed.
+fn step_full_alias(state_map: &mut AimsStateMap, dst: ArcVarId, src: ArcVarId) -> bool {
+    let mut changed = false;
+    if state_map.contract_uniqueness(dst).is_none() {
+        if let Some(uniq) = state_map.contract_uniqueness(src) {
+            state_map.set_var_uniqueness(dst, uniq);
+            changed = true;
+        }
+    }
+    if state_map.contract_locality(dst).is_none() {
+        if let Some(loc) = state_map.contract_locality(src) {
+            state_map.set_var_locality(dst, loc);
+            changed = true;
+        }
+    }
+    if matches!(state_map.var_shape(dst), ShapeClass::NonReusable) {
+        let src_shape = state_map.var_shape(src);
+        if !matches!(src_shape, ShapeClass::NonReusable) {
+            state_map.set_var_shape(dst, src_shape);
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// TF-4 `Project`: dst inherits uniqueness + locality ONLY (NO shape), with the
+/// CN-6 re-check that demotes `Unique` to `MaybeShared` at wide locality.
+/// First-write-wins per dimension. Returns whether any dimension changed.
+fn step_view_alias(state_map: &mut AimsStateMap, dst: ArcVarId, src: ArcVarId) -> bool {
+    let mut changed = false;
+    if state_map.contract_uniqueness(dst).is_none() {
+        if let Some(mut uniq) = state_map.contract_uniqueness(src) {
+            // CN-6: Unique demotes to MaybeShared at wide locality.
+            if uniq == Uniqueness::Unique
+                && matches!(
+                    state_map.contract_locality(src),
+                    Some(Locality::HeapEscaping | Locality::Unknown)
+                )
+            {
+                uniq = Uniqueness::MaybeShared;
+            }
+            state_map.set_var_uniqueness(dst, uniq);
+            changed = true;
+        }
+    }
+    if state_map.contract_locality(dst).is_none() {
+        if let Some(loc) = state_map.contract_locality(src) {
+            state_map.set_var_locality(dst, loc);
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// TF-8 `Select` / TF-11 phi: LUB over all sources for uniqueness + locality,
+/// re-joined every pass (monotone upward, NOT first-write-wins). No shape.
+/// Returns whether any dimension changed.
+fn step_join_alias(state_map: &mut AimsStateMap, dst: ArcVarId, sources: &[ArcVarId]) -> bool {
+    let mut changed = false;
+    if let Some(joined) = sources
+        .iter()
+        .filter_map(|s| state_map.contract_uniqueness(*s))
+        .reduce(Uniqueness::join)
+    {
+        if state_map
+            .contract_uniqueness(dst)
+            .is_none_or(|cur| joined > cur)
+        {
+            state_map.set_var_uniqueness(dst, joined);
+            changed = true;
+        }
+    }
+    if let Some(joined) = sources
+        .iter()
+        .filter_map(|s| state_map.contract_locality(*s))
+        .reduce(Locality::join)
+    {
+        if state_map
+            .contract_locality(dst)
+            .is_none_or(|cur| joined > cur)
+        {
+            state_map.set_var_locality(dst, joined);
+            changed = true;
+        }
+    }
+    changed
 }
 
 /// Detect TRMC (Tail Recursive Modulo Constructor) candidates.
@@ -415,7 +535,8 @@ pub(crate) fn populate_var_shapes(state_map: &mut AimsStateMap, func: &ArcFuncti
 /// TRMC requires TWO soundness gates:
 ///
 /// 1. **Per-variable uniqueness (enforced):** The context variable must have
-///    `Uniqueness::Unique` at the mutation point. Checked below.
+///    `Uniqueness::Unique` at the mutation point (enforced by the
+///    `state.uniqueness != Uniqueness::Unique` guard in this scan).
 ///
 /// 2. **Effect purity (logged, not enforced):** In principle,
 ///    `may_resume_nonlinearly` (derived from `EffectSummary.may_share`)
@@ -434,8 +555,6 @@ pub(crate) fn populate_var_shapes(state_map: &mut AimsStateMap, func: &ArcFuncti
 /// When all conditions hold, the constructor's shape is upgraded to
 /// `ContextHole`, enabling Stage 3 TRMC normalization to rewrite the
 /// recursive call into an in-place fill of the constructor's hole.
-///
-/// Shape Activation — `ContextHole` detection.
 pub(crate) fn detect_trmc_candidates(
     state_map: &mut AimsStateMap,
     func: &ArcFunction,
@@ -504,7 +623,7 @@ pub(crate) fn detect_trmc_candidates(
             // Function-level may_share is NOT checked: it's too conservative
             // (any returned Construct triggers may_share via HeapEscaping → may_share
             // rule). The per-variable Unique guarantee is the actual soundness
-            // condition — refcount == 1 at the mutation point.
+            // condition — exactly one logical owner at the mutation point.
             let state = state_map.var_state_at_block_exit(blk, *dst);
             if state.uniqueness != Uniqueness::Unique {
                 continue;
@@ -615,26 +734,28 @@ pub(crate) fn populate_context_events(
     }
 }
 
-// Post-convergence class_payload_of population.
+// Post-convergence transitive-drop singleton-class materialization.
 //
-// INVARIANT: payload edges are populated from path-sensitive liveness in
-// the converged AimsStateMap — syntactic ordering proxies cannot model
-// path-sensitive lifetimes (AIMS Invariant #5, unified model).
+// INVARIANT: every transitive-drop payload edge (Construct/PartialApply/
+// Apply/Set/Invoke arg → dst) materializes a singleton `class_members` entry
+// for both endpoints so the `class_members(class_id)` lookups in
+// `realize/cleanup_redundant.rs` succeed for singleton classes (AIMS
+// Invariant #5, unified model).
 
-/// Centralized `class_payload_of` edge recording.
-fn record_payload_edge_lifetime(
+/// Materialize a singleton `class_members` entry for both endpoints of a
+/// transitive-drop payload edge.
+fn materialize_payload_edge_classes(
     arg: ArcVarId,
     dst: ArcVarId,
     func: &ArcFunction,
     state_map: &mut AimsStateMap,
-    class_payload_of: &mut FxHashMap<u32, FxHashSet<u32>>,
 ) {
     if matches!(func.var_reprs.get(arg.index()), Some(&ValueRepr::Scalar)) {
         tracing::trace!(
             func = ?func.name,
             arg_var = arg.raw(),
             dst_var = dst.raw(),
-            "record_payload_edge: skip — arg is scalar"
+            "materialize_payload_edge: skip — arg is scalar"
         );
         return;
     }
@@ -646,20 +767,12 @@ fn record_payload_edge_lifetime(
             arg_var = arg.raw(),
             dst_var = dst.raw(),
             class = arg_class,
-            "record_payload_edge: skip — self-loop"
+            "materialize_payload_edge: skip — self-loop"
         );
         return;
     }
     state_map.ensure_singleton_class(arg_class);
     state_map.ensure_singleton_class(dst_class);
-    // Path-sensitive predicate-stack-soundness patches (container-destructure
-    // skip + class-lifetime "outlives" skip) retired: the burden path is the
-    // sole RC emitter and the predicate-stack consumers of this edge map (PIN-6)
-    // are retired, so the plain payload-of edge is recorded unconditionally.
-    class_payload_of
-        .entry(arg_class)
-        .or_default()
-        .insert(dst_class);
 }
 
 /// Return `Some(RcStrategy)` for non-scalar `dst`, `None` for scalar.
@@ -667,26 +780,25 @@ fn dst_strategy_of(func: &ArcFunction, dst: ArcVarId) -> Option<RcStrategy> {
     *func.var_rc_strategies.get(dst.index())?
 }
 
-/// Post-convergence `class_payload_of` population.
+/// Materialize singleton `class_members` entries for transitive-drop edges.
 ///
 /// Walks the 5 edge-recording sites (Construct/PartialApply/Apply/Set/Invoke)
-/// AFTER `analyze_function`'s worklist returns the converged `AimsStateMap`.
-/// For each candidate edge, applies the path-sensitive lifetime check from
-/// `class_lifetime_extends_past_path_sensitive`; edges where A outlives B are
-/// skipped. After collecting edges, materializes singleton class entries
-/// so PIN-6's `class_members(parent)` lookup succeeds for
-/// singleton parents/children, then installs via `set_class_payload_of`.
+/// AFTER `analyze_function`'s worklist returns the converged `AimsStateMap`,
+/// using the same Path-c edge-eligibility as the union-find pass. For each
+/// eligible edge, materializes a singleton `class_members` entry for both the
+/// arg and dst classes so the `class_members(class_id)` consumers in the
+/// realize walk (`cleanup_redundant.rs`) succeed for singleton
+/// parents/children. Records no inter-class relation — singleton
+/// `class_members` entries only, no predicate-stack edge map.
 #[expect(
     clippy::too_many_lines,
     reason = "five edge-recording sites with structurally similar logic must be enumerated explicitly to preserve preconditions"
 )]
-pub(crate) fn populate_class_payload_of_with_liveness(
+pub(crate) fn materialize_transitive_drop_singleton_classes(
     func: &ArcFunction,
     sigs: &FxHashMap<Name, MemoryContract>,
     state_map: &mut AimsStateMap,
 ) {
-    let mut class_payload_of: FxHashMap<u32, FxHashSet<u32>> = FxHashMap::default();
-
     for block in &func.blocks {
         for instr in &block.body {
             match instr {
@@ -699,13 +811,7 @@ pub(crate) fn populate_class_payload_of_with_liveness(
                         continue;
                     }
                     for arg in args {
-                        record_payload_edge_lifetime(
-                            *arg,
-                            *dst,
-                            func,
-                            state_map,
-                            &mut class_payload_of,
-                        );
+                        materialize_payload_edge_classes(*arg, *dst, func, state_map);
                     }
                 }
                 ArcInstr::Apply {
@@ -746,13 +852,7 @@ pub(crate) fn populate_class_payload_of_with_liveness(
                         if !edge_eligible {
                             continue;
                         }
-                        record_payload_edge_lifetime(
-                            *arg,
-                            *dst,
-                            func,
-                            state_map,
-                            &mut class_payload_of,
-                        );
+                        materialize_payload_edge_classes(*arg, *dst, func, state_map);
                     }
                 }
                 ArcInstr::Set { base, value, .. } => {
@@ -762,13 +862,7 @@ pub(crate) fn populate_class_payload_of_with_liveness(
                     if !is_transitive_drop_strategy(strat) {
                         continue;
                     }
-                    record_payload_edge_lifetime(
-                        *value,
-                        *base,
-                        func,
-                        state_map,
-                        &mut class_payload_of,
-                    );
+                    materialize_payload_edge_classes(*value, *base, func, state_map);
                 }
                 _ => {}
             }
@@ -784,7 +878,8 @@ pub(crate) fn populate_class_payload_of_with_liveness(
             if let Some(strat) = dst_strategy_of(func, *dst) {
                 if is_transitive_drop_strategy(strat) {
                     for (i, arg) in args.iter().enumerate() {
-                        // Path-c: see Apply branch above.
+                        // Path-c: same edge-eligibility rule as the Apply arm
+                        // (Owned-access OR contract-claimed payload containment).
                         let edge_eligible = match sigs.get(callee) {
                             Some(contract) => contract.params.get(i).map_or_else(
                                 || {
@@ -804,34 +899,15 @@ pub(crate) fn populate_class_payload_of_with_liveness(
                         if !edge_eligible {
                             continue;
                         }
-                        record_payload_edge_lifetime(
-                            *arg,
-                            *dst,
-                            func,
-                            state_map,
-                            &mut class_payload_of,
-                        );
+                        materialize_payload_edge_classes(*arg, *dst, func, state_map);
                     }
                 }
             }
         }
     }
 
-    let class_ids_to_materialize: Vec<u32> = class_payload_of
-        .iter()
-        .flat_map(|(&child_class, parent_classes)| {
-            std::iter::once(child_class).chain(parent_classes.iter().copied())
-        })
-        .collect();
-    for class_id in class_ids_to_materialize {
-        state_map.ensure_singleton_class(class_id);
-    }
-
     tracing::debug!(
         func = ?func.name,
-        edges = class_payload_of.len(),
-        "populate_class_payload_of_with_liveness installed path-sensitive edge map"
+        "materialize_transitive_drop_singleton_classes materialized singleton classes"
     );
-
-    state_map.set_class_payload_of(class_payload_of);
 }

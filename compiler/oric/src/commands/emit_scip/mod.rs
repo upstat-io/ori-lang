@@ -10,7 +10,7 @@
 //! suppresses emission and exits non-zero (mirrors `check`).
 
 mod occurrence;
-mod symbol;
+pub(super) mod symbol;
 
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
 use ori_ir::{ImplMethod, Module, Span, StringInterner, TraitItem, TypeDeclKind, Variant};
@@ -160,7 +160,7 @@ fn push_sum_type_defs(
 /// absolute path outside the root falls back to its file name. The result is
 /// forward-slash normalized so the identity is stable across platforms and
 /// never embeds an absolute, machine-specific directory.
-fn project_relative_path(path: &str, project_root: &str) -> String {
+pub(super) fn project_relative_path(path: &str, project_root: &str) -> String {
     let p = Path::new(path);
     let rel = if p.is_absolute() {
         match p.strip_prefix(project_root) {
@@ -175,7 +175,7 @@ fn project_relative_path(path: &str, project_root: &str) -> String {
 
 /// The module identity injected into every minted symbol: the project-relative
 /// path with its `.ori` extension dropped. Deterministic + machine-independent.
-fn module_identity(relative_path: &str) -> String {
+pub(super) fn module_identity(relative_path: &str) -> String {
     relative_path
         .strip_suffix(".ori")
         .unwrap_or(relative_path)

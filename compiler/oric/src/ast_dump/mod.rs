@@ -17,13 +17,14 @@ use ori_parse::ParseOutput;
 
 use self::expr::{dump_expr, dump_expr_inline};
 use self::patterns::format_parsed_type;
+use crate::dump_common;
 
 /// Dump the parsed AST to stderr.
 ///
 /// Called when `ORI_DUMP_AFTER_PARSE=1` is set. Produces an indented tree
 /// showing module items, function signatures, and expression structure.
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]
-pub fn dump_ast(parse_result: &ParseOutput, interner: &StringInterner, path: &str) {
+pub(crate) fn dump_ast(parse_result: &ParseOutput, interner: &StringInterner, path: &str) {
     let arena = &*parse_result.arena;
     let module = &parse_result.module;
     let mut out = String::with_capacity(4096);
@@ -32,14 +33,7 @@ pub fn dump_ast(parse_result: &ParseOutput, interner: &StringInterner, path: &st
 
     // Imports
     for use_def in &module.imports {
-        let path_str = match &use_def.path {
-            ori_ir::ast::ImportPath::Relative(name) => interner.lookup(*name).to_string(),
-            ori_ir::ast::ImportPath::Module(parts) => parts
-                .iter()
-                .map(|n| interner.lookup(*n))
-                .collect::<Vec<_>>()
-                .join("."),
-        };
+        let path_str = dump_common::format_import_path(&use_def.path, interner);
         writeln!(out, "Use {path_str}").unwrap();
     }
 
@@ -65,17 +59,8 @@ pub fn dump_ast(parse_result: &ParseOutput, interner: &StringInterner, path: &st
 
     // Impl blocks
     for imp in &module.impls {
-        let trait_str = imp.trait_path.as_ref().map_or_else(
-            || "(inherent)".to_string(),
-            |path| {
-                path.iter()
-                    .map(|n| interner.lookup(*n))
-                    .collect::<Vec<_>>()
-                    .join(".")
-            },
-        );
-        let self_str: Vec<_> = imp.self_path.iter().map(|n| interner.lookup(*n)).collect();
-        writeln!(out, "Impl {trait_str} for {}", self_str.join(".")).unwrap();
+        let header = dump_common::format_impl_header(imp, interner);
+        writeln!(out, "Impl {header}").unwrap();
     }
 
     // Functions

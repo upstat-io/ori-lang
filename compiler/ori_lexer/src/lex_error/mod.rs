@@ -1,6 +1,6 @@
-//! Lexer error types for the V2 cooking layer.
+//! Lexer error types for the cooking layer.
 //!
-//! Errors follow the WHERE+WHAT+WHY+HOW shape (v2-conventions §5):
+//! Errors follow the WHERE+WHAT+WHY+HOW shape:
 //! - WHERE: `span` locating the error in source
 //! - WHAT: `kind` describing what went wrong
 //! - WHY: `context` explaining what the lexer was doing
@@ -31,9 +31,51 @@ pub enum UnicodeEscapeDetail {
     OutOfRange { codepoint: u32 },
 }
 
+/// Cross-language operator spellings recognized for targeted diagnostics.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum UnsupportedOperator {
+    StrictEqual,
+    StrictNotEqual,
+    Increment,
+}
+
+impl UnsupportedOperator {
+    /// The source spelling recognized by the scanner.
+    pub const fn spelling(self) -> &'static str {
+        match self {
+            Self::StrictEqual => "===",
+            Self::StrictNotEqual => "!==",
+            Self::Increment => "++",
+        }
+    }
+}
+
+/// Keywords reserved for future language features.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum FutureKeyword {
+    Asm,
+    Inline,
+    Static,
+    Union,
+    View,
+}
+
+impl FutureKeyword {
+    /// The source spelling reserved by the language.
+    pub const fn spelling(self) -> &'static str {
+        match self {
+            Self::Asm => "asm",
+            Self::Inline => "inline",
+            Self::Static => "static",
+            Self::Union => "union",
+            Self::View => "view",
+        }
+    }
+}
+
 /// A lexer error with full context for diagnostic rendering.
 ///
-/// Follows the cross-system error shape from `v2-conventions.md` §5.
+/// Follows the cross-system WHERE+WHAT+WHY+HOW error shape.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 #[must_use]
 pub struct LexError {
@@ -65,9 +107,9 @@ pub enum LexErrorKind {
     InvalidTemplateEscape { escape_char: char },
     /// Invalid Unicode escape sequence `\u{...}` in any literal context.
     InvalidUnicodeEscape { detail: UnicodeEscapeDetail },
-    /// `\'` used in a string literal — not valid per grammar line 102.
+    /// `\'` used in a string literal — not valid per grammar `escape_seq` production.
     SingleQuoteEscapeInString,
-    /// `\"` used in a char literal — not valid per grammar line 127.
+    /// `\"` used in a char literal — not valid per grammar `char_escape` production.
     DoubleQuoteEscapeInChar,
 
     // Numeric errors
@@ -83,6 +125,10 @@ pub enum LexErrorKind {
     // Character errors
     /// Non-printable or invalid byte in source.
     InvalidByte { byte: u8 },
+    /// A recognized cross-language operator is not Ori syntax.
+    UnsupportedOperator { operator: UnsupportedOperator },
+    /// A multi-character single-quoted literal looks like a string written with `'`.
+    SingleQuoteString,
     /// Standalone `\` outside of escape context.
     StandaloneBackslash,
     /// Unicode character visually similar to an ASCII character.
@@ -106,7 +152,7 @@ pub enum LexErrorKind {
 
     // Reserved-future keyword errors
     /// A keyword reserved for future use (`asm`, `inline`, `static`, `union`, `view`).
-    ReservedFutureKeyword { keyword: &'static str },
+    ReservedFutureKeyword { keyword: FutureKeyword },
 }
 
 impl LexErrorKind {
@@ -135,6 +181,11 @@ impl LexErrorKind {
             | Self::Utf8Bom
             | Self::Utf16LeBom
             | Self::Utf16BeBom => "E0002",
+            Self::UnsupportedOperator { operator } => match operator {
+                UnsupportedOperator::StrictEqual | UnsupportedOperator::StrictNotEqual => "E0008",
+                UnsupportedOperator::Increment => "E0010",
+            },
+            Self::SingleQuoteString => "E0009",
             Self::StandaloneBackslash => "E0013",
             Self::UnicodeConfusable { .. } => "E0011",
             Self::DecimalNotRepresentable => "E0014",
@@ -146,7 +197,7 @@ impl LexErrorKind {
 /// Lexing context at the point of error — the WHY.
 ///
 /// Describes what the lexer was doing when the error occurred,
-/// matching the `ErrorContext` pattern from types V2's `TypeCheckError`.
+/// matching the `ErrorContext` pattern from the type checker's `TypeCheckError`.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub enum LexErrorContext {
     /// Top-level scanning (not inside any literal).
@@ -248,5 +299,8 @@ impl LexSuggestion {
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used, reason = "test assertions")]
+#[expect(
+    clippy::unwrap_used,
+    reason = "diagnostic tests abort when a required rendered field is absent"
+)]
 mod tests;

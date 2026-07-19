@@ -1,0 +1,1 @@
+@first_keys (kvs: {str: int}) -> [str] = kvs.iter().map(kv -> kv.0).collect();

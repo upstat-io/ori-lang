@@ -9,6 +9,7 @@
 
 use ori_types::Idx;
 
+use crate::codegen::ir_builder::IntegerSignedness;
 use crate::codegen::value_id::ValueId;
 
 use super::super::super::ArcIrEmitter;
@@ -44,7 +45,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let rhs_tag = self.builder.extract_value(rhs, 0, "res.rhs.tag")?;
         let tags_eq = self.builder.icmp_eq(lhs_tag, rhs_tag, "tags_eq");
 
-        // Create all blocks upfront.
         let same_tag_bb = self
             .builder
             .append_block(self.current_function, "res_eq.same");
@@ -123,11 +123,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let rhs_tag = self.builder.extract_value(rhs, 0, "res.rhs.tag")?;
         let tags_eq = self.builder.icmp_eq(lhs_tag, rhs_tag, "tags_eq");
 
-        let tag_cmp = self
-            .builder
-            .emit_icmp_ordering(lhs_tag, rhs_tag, "tag_cmp", false);
+        let tag_cmp = self.builder.emit_icmp_ordering(
+            lhs_tag,
+            rhs_tag,
+            "tag_cmp",
+            IntegerSignedness::Unsigned,
+        );
 
-        // Create all blocks upfront.
         let same_tag_bb = self
             .builder
             .append_block(self.current_function, "res_cmp.same");
@@ -190,8 +192,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// `Result<Ok, Err>.hash() -> int`
     ///
-    /// `hash_combine(tag, payload.hash())` — branches on tag to select
-    /// `ok_ty` vs `err_ty` for the payload hash.
+    /// `Ok(x)` uses `hash_combine(2, x.hash())`; `Err(x)` uses
+    /// `hash_combine(3, x.hash())`. The runtime tag only selects the arm.
     pub(in super::super) fn emit_result_hash(
         &mut self,
         val: ValueId,
@@ -201,7 +203,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let tag = self.builder.extract_value(val, 0, "res.tag")?;
 
-        // Create blocks for tag-based dispatch.
         let ok_bb = self
             .builder
             .append_block(self.current_function, "res_hash.ok");
@@ -239,8 +240,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             &[(ok_hash, ok_exit_bb), (err_hash, err_exit_bb)],
         );
 
-        // Zero-extend narrowed tag to i64 for hash_combine which expects i64
-        let tag_i64 = self.builder.zext(tag, i64_ty, "res.tag.ext");
-        Some(self.emit_hash_combine(tag_i64, payload_hash))
+        let ok_salt = self.builder.const_i64(2);
+        let err_salt = self.builder.const_i64(3);
+        let salt = self
+            .builder
+            .select(is_ok, ok_salt, err_salt, "res.hash.salt");
+        Some(self.emit_hash_combine(salt, payload_hash))
     }
 }

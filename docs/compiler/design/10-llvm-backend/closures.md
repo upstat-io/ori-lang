@@ -29,9 +29,9 @@ The history of closure implementation is a history of different answers to this 
 
 **Fat pointers** (the Go / Swift tradition) represent closures as a two-word pair: a function pointer and a context pointer. The function always receives the context pointer as a hidden first argument. Non-capturing closures set the context to null. This provides a uniform calling convention — all closure calls look the same regardless of capture count — at the cost of one extra argument per call.
 
-### Where Ori Sits
+### Current LLVM Projection
 
-Ori uses the **fat pointer** approach: every closure is a `{ fn_ptr, env_ptr }` pair, where `fn_ptr` points to the lambda function and `env_ptr` points to a heap-allocated (RC-managed) environment struct. The lambda function always receives `env_ptr` as its hidden first parameter, whether or not it has captures. Non-capturing closures set `env_ptr` to null and ignore the parameter.
+The current LLVM projection uses the **fat pointer** approach: every closure is a `{ fn_ptr, env_ptr }` pair, where `fn_ptr` points to the lambda function and `env_ptr` points to a heap-allocated, counter-managed environment struct. The lambda function always receives `env_ptr` as its hidden first parameter, whether or not it has captures. Non-capturing closures set `env_ptr` to null and ignore the parameter. AIMS freezes the logical callable, capture, ownership, lifetime, and drop facts; it does not require this representation.
 
 This choice is driven by Ori's type system: closures are typed as `(P1, P2, ...) -> R`, and all closures with the same parameter and return types are interchangeable. A `[int].map(transform:)` call can receive *any* `(int) -> int` closure, regardless of what it captures. The fat pointer representation makes this possible without boxing or type erasure — every closure with the same functional type has the same LLVM representation.
 
@@ -41,25 +41,25 @@ This choice is driven by Ori's type system: closures are typed as `(P1, P2, ...)
 
 Many compilers use different calling conventions for capturing and non-capturing closures. A non-capturing `x -> x + 1` might compile to a bare function pointer, while a capturing `x -> x + offset` compiles to a fat pointer. This creates complexity at call sites: the caller must check which kind it received.
 
-Ori eliminates this by making the calling convention **uniform**. Every lambda function — with or without captures — takes `ptr %env` as its first parameter. Non-capturing lambdas simply ignore it. Call sites never check whether captures exist; they always extract `fn_ptr` and `env_ptr`, prepend the `env_ptr` to the argument list, and call through `fn_ptr`. This uniformity trades one unused argument (for non-capturing closures) for zero branching at call sites.
+The current LLVM projection eliminates this by making its calling convention **uniform**. Every lambda function — with or without captures — takes `ptr %env` as its first parameter. Non-capturing lambdas simply ignore it. Call sites never check whether captures exist; they always extract `fn_ptr` and `env_ptr`, prepend the `env_ptr` to the argument list, and call through `fn_ptr`. This uniformity trades one unused argument (for non-capturing closures) for zero branching at call sites.
 
 ### ARC-Managed Environments
 
-Closure environments are heap-allocated via `ori_rc_alloc` and participate in the reference counting system. When a closure is duplicated (passed to multiple functions, stored in a list), the environment's reference count increments. When a closure is destroyed, the reference count decrements. At refcount zero, a per-closure **drop function** decrements the reference counts of all RC-managed captures (strings, lists, other closures) before freeing the environment.
+In the current LLVM projection, closure environments are heap-allocated via `ori_rc_alloc` and use its reference-counting adapter. Logical closure duplication and release become counter increments and decrements. At the adapter's final-owner transition, a per-closure **drop function** releases all managed captures before freeing the environment. VM, native, direct-WebAssembly, and JIT planners may satisfy the same frozen AIMS facts differently.
 
 This means closures compose naturally with Ori's value semantics — copying a closure is cheap (one RC increment), and cleanup is automatic. There is no separate lifetime management for closure environments.
 
 ### Capture Analysis in ARC IR
 
-Capture analysis happens during AIMS lowering (in `ori_arc`), not during LLVM emission. The `ArcLowerer`'s `collect_captures` method walks the lambda body recursively, identifying free variables — identifiers that are used but not bound as lambda parameters. Each capture is recorded with its name, ARC variable ID, and type.
+Capture analysis happens during ARC lowering upstream of AIMS (in `ori_arc`), not during LLVM emission. The `ArcLowerer`'s `collect_captures` method walks the lambda body recursively, identifying free variables — identifiers that are used but not bound as lambda parameters. Each capture is recorded with its name, ARC variable ID, and type. AIMS then freezes the ownership and cleanup obligations for those captures.
 
-This early capture analysis means the AIMS pipeline can reason about closure captures the same way it reasons about any other value: a captured list that is only read can be borrowed, a captured string gets an `RcInc` when the closure is created and an `RcDec` when it is destroyed. The LLVM backend never performs its own capture analysis — it receives pre-analyzed `PartialApply` instructions from the ARC IR.
+This early capture analysis means the AIMS pipeline can reason about closure captures the same way it reasons about any other value: a captured list that is only read can be borrowed, while an owned captured string receives one logical owner credit at closure creation and discharges it at closure death. The LLVM backend never performs its own capture analysis — it receives pre-analyzed `PartialApply` instructions and frozen capture facts from the executable artifact.
 
 ## Representation
 
 ### The Fat Pointer
 
-All closures use the same LLVM type: a struct with two pointer fields.
+All closures in the current LLVM projection use the same LLVM type: a struct with two pointer fields.
 
 ```mermaid
 flowchart LR
@@ -83,7 +83,7 @@ For non-capturing closures, `env_ptr` is null. The lambda function still takes `
 
 ### Environment Struct Layout
 
-When a closure captures variables, a heap-allocated environment struct stores them. The first field is always a **drop function pointer** — a per-closure generated `extern "C" fn(*mut u8)` that handles cleanup when the environment's reference count reaches zero. Captured values follow at fields 1 through N:
+When a closure captures variables, the current LLVM projection stores them in a heap-allocated environment struct. The first field is a **drop function pointer** — a per-closure generated `extern "C" fn(*mut u8)` that handles the adapter's final-owner cleanup. Captured values follow at fields 1 through N:
 
 | Field | Content | Type |
 |-------|---------|------|
@@ -96,7 +96,7 @@ Each capture is stored at its **native LLVM type** — an `int` capture is `i64`
 
 ### Drop Functions for Environments
 
-The drop function at field 0 is generated specifically for each closure's capture set. It walks the environment struct, and for each capture whose type has `needs_rc == true` (strings, lists, closures, user types with RC fields), it emits an `RcDec` on the capture's value. Captures that are scalar types (int, float, bool, byte) are ignored — they need no cleanup.
+The current LLVM drop function at field 0 is generated specifically for each closure capture set. It walks the environment struct and projects the frozen logical cleanup plan into the counter-based adapter for each managed capture. Captures with no logical cleanup obligation are ignored.
 
 This per-closure drop function is what makes closure environments work with the RC system. When `ori_rc_dec` determines that the environment's refcount has reached zero, it calls the drop function (loaded from field 0 of the environment), which cleans up all captures, and then frees the environment allocation.
 
@@ -161,13 +161,13 @@ The analysis handles:
 - **Nested lambdas** — inner lambdas may capture the same outer variables
 - **Field access and indexing** — the receiver may be a captured value
 
-Captures become the first parameters of the lambda's `ArcFunction` in the ARC IR. The `PartialApply` instruction records which outer variables are captured and their values. The LLVM emitter then generates the environment struct from this information.
+Captures become the first parameters of the lambda's `ArcFunction` in the ARC IR. The `PartialApply` instruction records which outer variables are captured and their values. AIMS freezes their logical ownership, lifetime, and drop obligations. The current LLVM projection then generates an environment struct that satisfies those facts; other physical planners may choose different storage and cleanup mechanisms.
 
 ## Prior Art
 
 **[Go](https://github.com/golang/go)** — Go closures use the same fat pointer representation as Ori: a function pointer plus a context pointer passed as a hidden first argument. Go's closure variables are captured **by reference** (the closure and the enclosing scope share the same variable), while Ori captures **by value** (each closure gets its own copy). Go's reference capture is more flexible (mutations in the closure are visible outside) but introduces aliasing and lifetime complexity that Ori's value semantics avoid.
 
-**[Swift](https://github.com/apple/swift)** — Swift closures capture variables by reference by default, with `[capture]` syntax for explicit value capture. Swift's closure representation is more complex: closures can be `@escaping` (heap-allocated, reference-counted context) or non-escaping (stack-allocated, no overhead). This distinction enables significant optimizations for short-lived closures (like those passed to `map` and `filter`) but requires the type system to track escaping. Ori's simpler approach — always heap-allocate the environment — trades this optimization opportunity for uniformity.
+**[Swift](https://github.com/apple/swift)** — Swift closures capture variables by reference by default, with `[capture]` syntax for explicit value capture. Swift's closure representation is more complex: closures can be `@escaping` (heap-allocated, reference-counted context) or non-escaping (stack-allocated, no overhead). This distinction enables significant optimizations for short-lived closures (like those passed to `map` and `filter`) but requires the type system to track escaping. The current LLVM projection's simpler approach — always heap-allocate the environment — trades this optimization opportunity for uniformity.
 
 **[Rust](https://github.com/rust-lang/rust)** — Rust closures are monomorphized anonymous types. Each closure has a unique type that implements `Fn`, `FnMut`, or `FnOnce`. This means `|x| x + offset` and `|x| x + other_offset` have different types, even though both are `impl Fn(i32) -> i32`. Closures are stored inline (no heap allocation) unless explicitly boxed via `Box<dyn Fn()>`. This produces optimal code (no indirect calls, no heap allocation for non-escaping closures) but requires generics or trait objects for uniform storage. Ori's fat pointer approach is less efficient for non-escaping closures but simpler for uniform storage.
 
@@ -183,8 +183,8 @@ Captures become the first parameters of the lambda's `ArcFunction` in the ARC IR
 
 **Value capture vs. reference capture.** Ori captures by value — each closure gets its own copy of captured variables. Go and Swift default to reference capture — the closure and the outer scope share the variable. Reference capture is more flexible (the closure can observe later mutations to the captured variable) but introduces aliasing, lifetime issues, and potential race conditions. Value capture aligns with Ori's value semantics: there is no shared mutable state, closures are self-contained, and captured values cannot be invalidated by changes in the outer scope.
 
-**Always heap-allocate vs. escape analysis.** Ori heap-allocates every capturing closure's environment. Swift performs escape analysis to determine whether a closure can be stack-allocated (non-escaping closures avoid heap allocation entirely). Escape analysis would be a significant optimization for Ori — closures passed to `map`, `filter`, and `fold` are almost never escaping — but it adds complexity to the type system and AIMS pipeline. This is a future optimization opportunity.
+**Always heap-allocate vs. escape analysis.** The current LLVM projection heap-allocates every capturing closure environment. Swift performs escape analysis to determine whether a closure can be stack-allocated (non-escaping closures avoid heap allocation entirely). Ori's backend-neutral AIMS lifetime facts and target layout planners make stack, arena, region, or heap placement a projection choice rather than a source-language rule. Completing those facts and planners is the production optimization path.
 
-**Drop function per closure vs. type metadata.** Ori generates a unique drop function for each closure's capture set. An alternative — storing type metadata in the environment and using a generic drop routine — would reduce code size but add runtime interpretation overhead. The per-closure approach produces slightly larger binaries but keeps drop-time overhead at a minimum (a sequence of GEPs and RC decrements, no metadata interpretation).
+**Drop function per closure vs. type metadata.** The current LLVM projection generates a unique drop function for each closure capture set. AIMS owns the logical capture traversal and exactly-once drop obligations; the compiled layout plan selects and validates the cleanup adapter. A metadata-driven routine could reduce code size at some runtime interpretation cost, while a VM may use a stable drop-plan ID. The current LLVM per-closure mechanism produces slightly larger binaries but keeps its drop-time path direct.
 
 **Uniform calling convention vs. optimized dispatch.** Passing `env_ptr` to non-capturing closures wastes one argument register. An alternative — checking at the call site whether the closure captures anything and using a direct call for non-capturing ones — would save one register but add a branch at every call site. The uniform convention favors call-site simplicity (no branching, same code path for all closures) over marginal per-call overhead.

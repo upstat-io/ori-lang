@@ -167,6 +167,6 @@ fn test_snapshot_salsa_traits() {
     assert_eq!(snapshot, cloned);
 
     let mut set = HashSet::new();
-    set.insert(snapshot.clone());
+    set.insert(snapshot);
     assert!(set.contains(&cloned));
 }

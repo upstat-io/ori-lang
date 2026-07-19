@@ -48,11 +48,11 @@ const LIST_OPERATIONS: &str = r"
 /// Nested let bindings
 #[allow(dead_code, reason = "prepared helper for future let-chain benchmarks")]
 fn generate_let_chain(n: usize) -> String {
-    let lets: Vec<String> = (0..n).map(|i| format!("let x{i}: int = {i}")).collect();
     let final_expr = format!("x{}", n - 1);
     format!(
         "@chain () -> int = {{ {} }}",
-        lets.into_iter()
+        (0..n)
+            .map(|i| format!("let x{i}: int = {i}"))
             .chain(std::iter::once(final_expr))
             .collect::<Vec<_>>()
             .join("; ")
@@ -167,7 +167,7 @@ fn bench_typeck_incremental(c: &mut Criterion) {
     let source = generate_typed_functions(100);
 
     // First pass to warm up cache
-    let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), source.clone());
+    let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), source);
     let _ = typed(&db, file);
 
     c.bench_function("typeck/incremental_cached", |b| {

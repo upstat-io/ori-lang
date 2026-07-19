@@ -207,20 +207,13 @@ pub enum RawTag {
     /// Line comment (`//` to end of line).
     LineComment = 114,
 
-    // Errors (240-245)
+    // Errors (240-242, 244-245)
     /// Invalid byte (non-ASCII, control character).
     InvalidByte = 240,
     /// Unterminated string literal (missing closing `"`).
     UnterminatedString = 241,
     /// Unterminated character literal (missing closing `'`).
     UnterminatedChar = 242,
-    /// Invalid escape sequence.
-    ///
-    /// Currently unused by the raw scanner — escape validation is fully deferred
-    /// to the cooking layer's `unescape_*_v2()` functions. Reserved for potential
-    /// future scanner-level escape validation. The cooker has a defensive match
-    /// arm for this variant.
-    InvalidEscape = 243,
     /// Unterminated template literal (missing closing `` ` ``).
     UnterminatedTemplate = 244,
     /// Interior null byte (U+0000) in source content.
@@ -251,7 +244,7 @@ impl RawTag {
     /// Centralizes variant enumeration so downstream drift guards (e.g.,
     /// the `trivial_count` test in `ori_lexer`) can derive from this
     /// single source of truth rather than maintaining parallel lists.
-    pub const ALL: [RawTag; 80] = [
+    pub const ALL: [RawTag; 79] = [
         // Identifiers & Literals (0-15)
         Self::Ident,
         Self::Int,
@@ -332,11 +325,10 @@ impl RawTag {
         Self::Whitespace,
         Self::Newline,
         Self::LineComment,
-        // Errors (240-245)
+        // Errors (240-242, 244-245)
         Self::InvalidByte,
         Self::UnterminatedString,
         Self::UnterminatedChar,
-        Self::InvalidEscape,
         Self::UnterminatedTemplate,
         Self::InteriorNull,
         // Control (255)

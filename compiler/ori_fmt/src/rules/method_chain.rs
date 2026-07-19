@@ -5,9 +5,7 @@
 //! Strict all-or-nothing: all chain elements break together.
 //! The receiver stays on the current line, all methods break.
 //!
-//! # Spec Reference
-//!
-//! Lines 493-510
+//! Spec: Annex D §Method Chains.
 
 use ori_ir::{ExprArena, ExprId, ExprKind, Name};
 

@@ -4,13 +4,47 @@
 //! owned (RC == 1), mutation happens in-place; when shared, a copy is made
 //! first. Each method returns a `{i64 len, i64 cap, ptr data}` struct.
 
+use ori_ir::{FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
 
-use crate::codegen::value_id::ValueId;
+use crate::codegen::value_id::{FunctionId, ValueId};
 
 use super::super::super::ArcIrEmitter;
 
+/// Read and report the result-buffer metadata-store ablation toggle.
+fn push_result_elem_header_store_disabled() -> bool {
+    let disabled = std::env::var_os("ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE").is_some();
+    if disabled {
+        tracing::info!(
+            toggle = "ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE",
+            effect = "skip result-buffer element destructor metadata stores",
+            "ablation toggle fired"
+        );
+    }
+    disabled
+}
+
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
+    /// Shared out-param `sret`-style runtime-call tail for list COW mutation
+    /// methods: allocates the `{i64,i64,ptr}` out slot, calls `func_id` with
+    /// `args` followed by the out pointer, and loads the resulting list
+    /// value. Every COW list method in this file shares this exact tail —
+    /// only the runtime function and its argument list differ per method.
+    fn emit_list_cow_call(
+        &mut self,
+        func_id: FunctionId,
+        label: &str,
+        mut args: Vec<ValueId>,
+    ) -> Option<ValueId> {
+        let list_struct_ty = self.list_struct_type();
+        let out =
+            self.builder
+                .create_entry_alloca(self.current_function, "list.cow.out", list_struct_ty);
+        args.push(out);
+        self.emit_rt_call(func_id, &args, label);
+        Some(self.builder.load(list_struct_ty, out, "list.cow.val"))
+    }
+
     /// Emit `list.push(x)` — COW push returning the (possibly mutated) list.
     ///
     /// Fast path (unique + capacity): appends in place, O(1).
@@ -22,22 +56,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         elem_ty: Idx,
         cow_mode: ValueId,
         list_ty: Idx,
+        receiver_returned: bool,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_push_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "push.elem");
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
-        let list_struct_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "push.out", list_struct_ty);
-
-        self.emit_rt_call(
+        let result = self.emit_list_cow_call(
             func_id,
-            &[
+            "push",
+            vec![
                 data_ptr,
                 len,
                 cap,
@@ -46,53 +77,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_align_val,
                 inc_fn,
                 cow_mode,
-                out,
             ],
-            "push",
-        );
-
-        Some(self.builder.load(list_struct_ty, out, "push.val"))
-    }
-
-    /// Emit `list.pop()` — COW pop returning the list with last element removed.
-    ///
-    /// Fast path (unique): decrements len in place, O(1).
-    /// Slow path (shared): copies to new buffer with len-1 elements.
-    #[expect(dead_code, reason = "pop dispatch not yet wired — see task #3")]
-    pub(crate) fn emit_list_pop_cow(
-        &mut self,
-        receiver: ValueId,
-        elem_ty: Idx,
-        cow_mode: ValueId,
-        list_ty: Idx,
-    ) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_list_pop_cow");
-
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
-        let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
-        let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
-
-        let list_struct_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "pop.out", list_struct_ty);
-
-        self.emit_rt_call(
-            func_id,
-            &[
-                data_ptr,
-                len,
-                cap,
-                elem_size_val,
-                elem_align_val,
-                inc_fn,
-                cow_mode,
-                out,
-            ],
-            "pop",
-        );
-
-        Some(self.builder.load(list_struct_ty, out, "pop.val"))
+        )?;
+        // INVARIANT: only returned receivers own the element keep-alive credit.
+        let header_store_disabled = push_result_elem_header_store_disabled();
+        if !receiver_returned || header_store_disabled {
+            return Some(result);
+        }
+        let result_data = self
+            .builder
+            .extract_value(result, FIELD_DATA, "push.data")?;
+        let result_len = self.builder.extract_value(result, FIELD_LEN, "push.len")?;
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
+        let store_dec = self.builder.runtime_fn("ori_buffer_store_elem_dec");
+        self.builder
+            .call(store_dec, &[result_data, elem_dec_fn], "");
+        let store_count = self.builder.runtime_fn("ori_buffer_store_elem_count");
+        self.builder
+            .call(store_count, &[result_data, result_len], "");
+        Some(result)
     }
 
     /// Emit `list.set(index, value)` — COW index assignment returning modified list.
@@ -110,19 +113,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_set_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "set.elem");
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
-        let list_struct_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "set.out", list_struct_ty);
-
-        self.emit_rt_call(
+        self.emit_list_cow_call(
             func_id,
-            &[
+            "set",
+            vec![
                 data_ptr,
                 len,
                 cap,
@@ -132,12 +131,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_align_val,
                 inc_fn,
                 cow_mode,
-                out,
             ],
-            "set",
-        );
-
-        Some(self.builder.load(list_struct_ty, out, "set.val"))
+        )
     }
 
     /// Emit `list.updated(key, value)` — COW replacement returning modified list
@@ -160,20 +155,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_updated_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "updated.elem");
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
         let dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
 
-        let list_struct_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "updated.out", list_struct_ty);
-
-        self.emit_rt_call(
+        self.emit_list_cow_call(
             func_id,
-            &[
+            "updated",
+            vec![
                 data_ptr,
                 len,
                 cap,
@@ -184,12 +175,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 inc_fn,
                 dec_fn,
                 cow_mode,
-                out,
             ],
-            "updated",
-        );
-
-        Some(self.builder.load(list_struct_ty, out, "updated.val"))
+        )
     }
 
     /// Emit `list.insert(index, value)` — COW insert returning modified list.
@@ -207,19 +194,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_insert_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "insert.elem");
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
-        let list_struct_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "insert.out", list_struct_ty);
-
-        self.emit_rt_call(
+        self.emit_list_cow_call(
             func_id,
-            &[
+            "insert",
+            vec![
                 data_ptr,
                 len,
                 cap,
@@ -229,12 +212,21 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_align_val,
                 inc_fn,
                 cow_mode,
-                out,
             ],
-            "insert",
-        );
+        )
+    }
 
-        Some(self.builder.load(list_struct_ty, out, "insert.val"))
+    /// Emit `list.prepend(value)` through the canonical index-zero insert path.
+    pub(crate) fn emit_list_prepend_cow(
+        &mut self,
+        receiver: ValueId,
+        elem: ValueId,
+        elem_ty: Idx,
+        cow_mode: ValueId,
+        list_ty: Idx,
+    ) -> Option<ValueId> {
+        let index = self.builder.const_i64(0);
+        self.emit_list_insert_cow(receiver, index, elem, elem_ty, cow_mode, list_ty)
     }
 
     /// Emit `list.remove(index)` — COW remove returning modified list.
@@ -251,18 +243,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_remove_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
-        let list_struct_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "remove.out", list_struct_ty);
-
-        self.emit_rt_call(
+        self.emit_list_cow_call(
             func_id,
-            &[
+            "remove",
+            vec![
                 data_ptr,
                 len,
                 cap,
@@ -271,12 +259,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_align_val,
                 inc_fn,
                 cow_mode,
-                out,
             ],
-            "remove",
-        );
-
-        Some(self.builder.load(list_struct_ty, out, "remove.val"))
+        )
     }
 
     /// Emit `list.concat(other)` / `list.add(other)` — COW concatenation.
@@ -294,19 +278,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_concat_cow");
 
-        let (data1, len1, cap1) = self.extract_list_fields(receiver);
-        let (data2, len2, cap2) = self.extract_list_fields(other);
+        let (data1, len1, cap1) = self.extract_list_fields(receiver)?;
+        let (data2, len2, cap2) = self.extract_list_fields(other)?;
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
-        let list_struct_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "concat.out", list_struct_ty);
-
-        self.emit_rt_call(
+        self.emit_list_cow_call(
             func_id,
-            &[
+            "concat",
+            vec![
                 data1,
                 len1,
                 cap1,
@@ -317,12 +297,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_align_val,
                 inc_fn,
                 cow_mode,
-                out,
             ],
-            "concat",
-        );
-
-        Some(self.builder.load(list_struct_ty, out, "concat.val"))
+        )
     }
 
     /// Emit `list.reverse()` — COW reverse returning the reversed list.
@@ -338,18 +314,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_reverse_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
-        let list_struct_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "reverse.out", list_struct_ty);
-
-        self.emit_rt_call(
+        self.emit_list_cow_call(
             func_id,
-            &[
+            "reverse",
+            vec![
                 data_ptr,
                 len,
                 cap,
@@ -357,12 +329,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_align_val,
                 inc_fn,
                 cow_mode,
-                out,
             ],
-            "reverse",
-        );
-
-        Some(self.builder.load(list_struct_ty, out, "reverse.val"))
+        )
     }
 
     /// Emit `list.sort()` — COW sort returning the sorted list.
@@ -372,7 +340,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `fn(*const u8, *const u8) -> i32` and loads elements by type before
     /// comparing.
     ///
-    /// Currently supports primitive element types (int, float, bool, char, byte, str).
+    /// Supports primitive element types (int, float, bool, char, byte, str).
     pub(crate) fn emit_list_sort_cow(
         &mut self,
         receiver: ValueId,
@@ -387,18 +355,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let func_id = self.builder.runtime_fn("ori_list_sort_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
-        let list_struct_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "sort.out", list_struct_ty);
-
-        self.emit_rt_call(
+        self.emit_list_cow_call(
             func_id,
-            &[
+            "sort",
+            vec![
                 data_ptr,
                 len,
                 cap,
@@ -407,12 +371,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 compare_fn_ptr,
                 inc_fn,
                 cow_mode,
-                out,
             ],
-            "sort",
-        );
-
-        Some(self.builder.load(list_struct_ty, out, "sort.val"))
+        )
     }
 
     /// Emit a stable sort (`TimSort`) — preserves relative order of equal elements.
@@ -431,20 +391,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let func_id = self.builder.runtime_fn("ori_list_sort_stable_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
-        let list_struct_ty = self.list_struct_type();
-        let out = self.builder.create_entry_alloca(
-            self.current_function,
-            "sort_stable.out",
-            list_struct_ty,
-        );
-
-        self.emit_rt_call(
+        self.emit_list_cow_call(
             func_id,
-            &[
+            "sort_stable",
+            vec![
                 data_ptr,
                 len,
                 cap,
@@ -453,11 +407,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 compare_fn_ptr,
                 inc_fn,
                 cow_mode,
-                out,
             ],
-            "sort_stable",
-        );
-
-        Some(self.builder.load(list_struct_ty, out, "sort_stable.val"))
+        )
     }
 }

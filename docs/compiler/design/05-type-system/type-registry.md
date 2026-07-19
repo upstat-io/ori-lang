@@ -15,6 +15,8 @@ Beyond types, most languages have **traits** (or interfaces, typeclasses, protoc
 
 The **type registry** is the data structure that organizes all of this: type definitions, trait definitions, trait implementations, and method resolution. It is populated during Pass 0 of type checking and consulted throughout the remaining passes.
 
+Its logical identities and the built-in strategy registry also feed AIMS and executable construction; physical executors project them rather than inventing backend-specific type semantics.
+
 ### Nominal vs. Structural Typing
 
 A fundamental decision in type system design is whether type identity is determined by *name* or by *structure*.
@@ -181,7 +183,9 @@ impl TypeRegistry {
 }
 ```
 
-The variant lookup is critical for pattern matching. When the type checker processes `match value { Some(n) -> ..., None -> ... }`, it looks up each variant name to determine which enum it belongs to and what its discriminant index is (needed by LLVM codegen for `switch` instructions).
+The variant lookup is critical for pattern matching. When the type checker processes `match value { Some(n) -> ..., None -> ... }`, it looks up each variant name to determine which enum it belongs to and its logical variant position.
+
+The evaluator and AIMS consume that logical identity; `VmLayoutPlan` and `CompiledLayoutPlan` independently project it to physical tags, niches, bytecode operands, or compiled branch instructions. The registry does not prescribe an LLVM discriminant layout.
 
 ## Trait Definitions
 
@@ -301,7 +305,9 @@ pub static BUILTIN_TYPES: &[TypeDef] = &[
 ];
 ```
 
-This registry is the single source of truth for all built-in methods across the type checker, evaluator, and LLVM backend. Sync tests in each consumer verify coverage against it.
+This registry is the single source of truth for built-in signatures and typed strategy descriptors. Its consumer set includes the type checker, representation-abstract evaluator, AIMS, executable-artifact construction, bytecode VM, native projection, compiled-WASM projection, and JIT projection.
+
+A descriptor carries logical runtime-operation, ownership, operand-use, result-provenance, allocation, and effect facts; it does not carry an LLVM symbol or C ABI. Coverage tests require every consumer to handle the same closed descriptor set.
 
 2. **Inherent methods** — `impl Type { ... }` blocks. These are the type's "own" methods, not associated with any trait.
 
@@ -311,7 +317,9 @@ This ordering follows the principle that more specific bindings take priority. A
 
 ### Built-in Method Resolution
 
-Built-in method resolution uses `ori_registry::BUILTIN_TYPES` as the single source of truth. The type checker's `resolve_builtin_method()` function looks up `(TypeTag, method_name)` pairs in the registry to determine parameter types, return types, and generic instantiation. Per-type resolver functions (e.g., `resolve_str_method()`) were eliminated during the Type Strategy Registry migration — all built-in method metadata now lives in `ori_registry`.
+Built-in method resolution uses `ori_registry::BUILTIN_TYPES` as the single source of truth. The type checker's `resolve_builtin_method()` function looks up `(TypeTag, method_name)` pairs in the registry to determine parameter types, return types, and generic instantiation.
+
+Executable construction binds the same row's typed `RuntimeOperation` and AIMS facts by stable identity. Per-type resolver functions (e.g., `resolve_str_method()`) were eliminated during the Type Strategy Registry migration — all built-in method metadata now lives in `ori_registry`.
 
 ## Registration Order
 

@@ -1,891 +1,174 @@
 //! Tests for the unified realization module.
 
 use super::decide::{
-    decide, decide_annotations, decide_cow, decide_drop_hint, AnnotationSiteContext,
-    DecisionContext, DecisionSite, InstructionDecisions, RcDecision, ReuseContext, ReuseDecision,
-    UseSemantics,
+    decide_annotation, decide_cow, decide_drop_hint, AnnotationDecision, AnnotationSite,
+    CowBorrowFacts, CowSiteContext, DropBorrowFacts, DropSiteContext,
 };
-use crate::aims::lattice::{
-    AccessClass, Cardinality, Consumption, ReuseCtorKind, ShapeClass, Uniqueness,
-};
+use crate::aims::lattice::{AccessClass, Cardinality, Consumption, ShapeClass, Uniqueness};
 use crate::ir::ArcVarId;
 use crate::uniqueness::CowMode;
-use rustc_hash::FxHashSet;
 
-fn var(n: u32) -> ArcVarId {
-    ArcVarId::new(n)
-}
-
-/// Helper: create a default `AnnotationSiteContext` for COW tests.
-///
-/// Defaults: non-param, non-excluded, non-collection, no RC inc, no borrowed arg,
-/// Owned access, Linear consumption, Once cardinality, `NonReusable` shape,
-/// not borrow-disjoint.
-fn cow_ctx(var: ArcVarId, uniqueness: Uniqueness) -> AnnotationSiteContext<'static> {
-    // Leak a boxed empty set so we can return a static reference.
-    // Fine for tests — bounded number of calls.
-    let empty: &'static FxHashSet<ArcVarId> = Box::leak(Box::default());
-    AnnotationSiteContext {
-        var,
+fn cow_ctx(uniqueness: Uniqueness) -> CowSiteContext {
+    CowSiteContext {
         uniqueness,
         rc_incremented: false,
-        is_param: false,
-        is_param_borrowed: false,
-        is_borrowed_call_arg: false,
-        rc_incremented_set: empty,
         is_excluded: false,
-        access: AccessClass::Owned,
-        consumption: Consumption::Linear,
-        cardinality: Cardinality::Once,
-        shape: ShapeClass::NonReusable,
-        is_borrow_disjoint: false,
-        has_active_borrows: false,
-        is_collection: false,
+        borrows: CowBorrowFacts::default(),
     }
 }
 
-/// Helper: create an `AnnotationSiteContext` for drop hint tests.
-///
-/// Same as `cow_ctx` but with `is_collection: true` (required for drop hints).
-fn drop_ctx(var: ArcVarId, uniqueness: Uniqueness) -> AnnotationSiteContext<'static> {
-    let mut ctx = cow_ctx(var, uniqueness);
-    ctx.is_collection = true;
-    ctx
+fn drop_ctx(uniqueness: Uniqueness) -> DropSiteContext {
+    DropSiteContext {
+        uniqueness,
+        rc_incremented: false,
+        is_excluded: false,
+        is_collection: true,
+        borrows: DropBorrowFacts::default(),
+    }
 }
 
 // decide_cow tests
 
 #[test]
 fn cow_unique_no_rc_inc_is_static_unique() {
-    let ctx = cow_ctx(var(0), Uniqueness::Unique);
-    assert_eq!(decide_cow(&ctx), CowMode::StaticUnique);
+    let ctx = cow_ctx(Uniqueness::Unique);
+    assert_eq!(decide_cow(ctx), CowMode::StaticUnique);
 }
 
 #[test]
 fn cow_unique_with_rc_inc_is_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::Unique);
+    let mut ctx = cow_ctx(Uniqueness::Unique);
     ctx.rc_incremented = true;
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
+    assert_eq!(decide_cow(ctx), CowMode::Dynamic);
 }
 
 #[test]
 fn cow_maybe_shared_is_dynamic() {
-    let ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
+    let ctx = cow_ctx(Uniqueness::MaybeShared);
+    assert_eq!(decide_cow(ctx), CowMode::Dynamic);
 }
 
 #[test]
 fn cow_excluded_is_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::Unique);
+    let mut ctx = cow_ctx(Uniqueness::Unique);
     ctx.is_excluded = true;
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
+    assert_eq!(decide_cow(ctx), CowMode::Dynamic);
 }
 
 #[test]
 fn cow_shared_is_static_shared() {
-    let ctx = cow_ctx(var(0), Uniqueness::Shared);
-    assert_eq!(decide_cow(&ctx), CowMode::StaticShared);
+    let ctx = cow_ctx(Uniqueness::Shared);
+    assert_eq!(decide_cow(ctx), CowMode::StaticShared);
 }
 
-/// Regression: the former `is_cow_aware_unique` path promoted
-/// `MaybeShared + Owned + Linear + Once` params to `StaticUnique`. Removed
-/// as unsound per §DP-10 removal — backward
-/// analysis facts cannot prove PAST uniqueness.
-#[test]
-fn decide_cow_maybe_shared_param_owned_linear_once_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    ctx.is_param = true;
-    // Owned + Linear + Once on a param — previously StaticUnique, now Dynamic.
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
-}
-
-#[test]
-fn decide_cow_maybe_shared_param_many_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    ctx.is_param = true;
-    ctx.cardinality = Cardinality::Many;
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
-}
-
-/// Boundary cell: param + Owned + Affine + Once. `is_cow_aware_unique` was
-/// gated on Linear; Affine already bypassed. Preserve post-fix behavior.
-#[test]
-fn decide_cow_maybe_shared_param_owned_affine_once_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    ctx.is_param = true;
-    ctx.consumption = Consumption::Affine;
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
-}
-
-/// Boundary cell: non-param + Owned + Linear + Once. `is_cow_aware_unique`
-/// was gated on `is_param=true`; non-param already bypassed. Preserve.
-#[test]
-fn decide_cow_maybe_shared_nonparam_owned_linear_once_returns_dynamic() {
-    let ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    // Defaults: is_param=false, Owned+Linear+Once, NonReusable.
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
-}
-
-/// Regression: the former cross-dimensional `CollectionBuffer + Once → StaticUnique`
-/// path was removed as unsound per §DP-10 removal.
-#[test]
-fn decide_cow_maybe_shared_collection_buffer_once_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    ctx.shape = ShapeClass::CollectionBuffer;
-    // Previously StaticUnique via `!is_param && Once + CollectionBuffer`; now Dynamic.
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
-}
-
-/// Regression: the former cross-dimensional `ReusableCtor(Struct) + Once → StaticUnique`
-/// path was removed as unsound.
-#[test]
-fn decide_cow_maybe_shared_reusable_ctor_struct_once_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    ctx.shape = ShapeClass::ReusableCtor(ReuseCtorKind::Struct);
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
-}
-
-/// Regression: `ReusableCtor(EnumVariant) + Once` hit the removed path too —
-/// `matches!(shape, ShapeClass::ReusableCtor(_))` matches both `Struct` and
-/// `EnumVariant`.
-#[test]
-fn decide_cow_maybe_shared_reusable_ctor_enum_variant_once_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    ctx.shape = ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant);
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
-}
-
-/// Preservation cell: `ContextHole` is a distinct top-level `ShapeClass`
-/// variant (not nested in `ReusableCtor(_)`); already took Dynamic before
-/// the fix.
-#[test]
-fn decide_cow_maybe_shared_context_hole_once_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    ctx.shape = ShapeClass::ContextHole;
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
-}
-
-/// Integration preservation: when the upstream
-/// `is_borrow_disjoint_from_siblings()` helper has set `ctx.is_borrow_disjoint =
-/// true` (RL-31), `decide_cow()` correctly promotes `MaybeShared` receivers to
-/// `StaticUnique`. This is the spec-approved disjoint-borrow path.
 #[test]
 fn decide_cow_maybe_shared_with_unique_source_disjoint_borrow_stays_static_unique() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::MaybeShared);
-    ctx.is_borrow_disjoint = true;
-    assert_eq!(decide_cow(&ctx), CowMode::StaticUnique);
+    let mut ctx = cow_ctx(Uniqueness::MaybeShared);
+    ctx.borrows.is_disjoint_from_siblings = true;
+    assert_eq!(decide_cow(ctx), CowMode::StaticUnique);
 }
 
 // DP-5/DP-9 borrow overlap tests for Unique path
 
-/// Semantic pin: Unique aggregate with active borrows → `StaticShared` per DP-9.
-/// Spec: `Unique AND NOT (is_owned_and_unique + no_borrows) → StaticShared` because `IsShared`
-/// on a Unique value always returns false — runtime check cannot distinguish
-/// "unique but borrowed" from "unique and safe to mutate."
 #[test]
 fn decide_cow_unique_with_active_borrows_returns_static_shared() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::Unique);
-    ctx.has_active_borrows = true;
-    assert_eq!(decide_cow(&ctx), CowMode::StaticShared);
+    let mut ctx = cow_ctx(Uniqueness::Unique);
+    ctx.borrows.has_active_borrows = true;
+    assert_eq!(decide_cow(ctx), CowMode::StaticShared);
 }
 
-/// Negative pin: Unique aggregate with NO borrows → `StaticUnique` (preserved).
 #[test]
 fn decide_cow_unique_without_borrows_returns_static_unique() {
-    let ctx = cow_ctx(var(0), Uniqueness::Unique);
-    assert!(!ctx.has_active_borrows);
-    assert_eq!(decide_cow(&ctx), CowMode::StaticUnique);
+    let ctx = cow_ctx(Uniqueness::Unique);
+    assert_eq!(decide_cow(ctx), CowMode::StaticUnique);
 }
 
-/// Edge: RC-incremented Unique with no borrows → `Dynamic` (RC guard fires first).
 #[test]
 fn decide_cow_unique_rc_incremented_with_no_borrows_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::Unique);
+    let mut ctx = cow_ctx(Uniqueness::Unique);
     ctx.rc_incremented = true;
-    ctx.has_active_borrows = false;
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
+    assert_eq!(decide_cow(ctx), CowMode::Dynamic);
 }
 
-/// Edge: RC-incremented Unique WITH borrows → `Dynamic` (RC guard supersedes).
 #[test]
 fn decide_cow_unique_rc_incremented_with_borrows_returns_dynamic() {
-    let mut ctx = cow_ctx(var(0), Uniqueness::Unique);
+    let mut ctx = cow_ctx(Uniqueness::Unique);
     ctx.rc_incremented = true;
-    ctx.has_active_borrows = true;
-    assert_eq!(decide_cow(&ctx), CowMode::Dynamic);
+    ctx.borrows.has_active_borrows = true;
+    assert_eq!(decide_cow(ctx), CowMode::Dynamic);
 }
 
 // decide_drop_hint tests
 
 #[test]
 fn drop_hint_unique_collection_is_eligible() {
-    let ctx = drop_ctx(var(0), Uniqueness::Unique);
-    assert!(decide_drop_hint(&ctx));
+    let ctx = drop_ctx(Uniqueness::Unique);
+    assert!(decide_drop_hint(ctx));
 }
 
 #[test]
 fn drop_hint_unique_with_rc_inc_not_eligible() {
-    let mut ctx = drop_ctx(var(0), Uniqueness::Unique);
+    let mut ctx = drop_ctx(Uniqueness::Unique);
     ctx.rc_incremented = true;
-    assert!(!decide_drop_hint(&ctx));
+    assert!(!decide_drop_hint(ctx));
 }
 
 #[test]
 fn drop_hint_unique_borrowed_arg_not_eligible() {
-    let mut ctx = drop_ctx(var(0), Uniqueness::Unique);
-    ctx.is_borrowed_call_arg = true;
-    assert!(!decide_drop_hint(&ctx));
+    let mut ctx = drop_ctx(Uniqueness::Unique);
+    ctx.borrows.is_borrowed_call_arg = true;
+    assert!(!decide_drop_hint(ctx));
 }
 
 #[test]
 fn drop_hint_maybe_shared_not_eligible() {
-    let ctx = drop_ctx(var(0), Uniqueness::MaybeShared);
-    assert!(!decide_drop_hint(&ctx));
+    let ctx = drop_ctx(Uniqueness::MaybeShared);
+    assert!(!decide_drop_hint(ctx));
 }
 
 #[test]
 fn drop_hint_excluded_not_eligible() {
-    let mut ctx = drop_ctx(var(0), Uniqueness::Unique);
+    let mut ctx = drop_ctx(Uniqueness::Unique);
     ctx.is_excluded = true;
-    assert!(!decide_drop_hint(&ctx));
+    assert!(!decide_drop_hint(ctx));
 }
 
 #[test]
 fn drop_hint_non_collection_not_eligible() {
-    // Unique but not a collection → no drop hint.
-    let ctx = cow_ctx(var(0), Uniqueness::Unique);
-    assert!(!ctx.is_collection);
-    assert!(!decide_drop_hint(&ctx));
+    let mut ctx = drop_ctx(Uniqueness::Unique);
+    ctx.is_collection = false;
+    assert!(!decide_drop_hint(ctx));
 }
-
-// InstructionDecisions type tests
-
-#[test]
-fn instruction_decisions_default_none() {
-    let decisions = InstructionDecisions {
-        rc: RcDecision::None,
-        reuse: ReuseDecision::None,
-    };
-    assert_eq!(decisions.rc, RcDecision::None);
-    assert_eq!(decisions.reuse, ReuseDecision::None);
-}
-
-#[test]
-fn instruction_decisions_static_reuse_replaces_dec() {
-    // When reuse is StaticReuse, the RC Dec is absorbed into the Reset.
-    let decisions = InstructionDecisions {
-        rc: RcDecision::None, // Dec absorbed by reuse
-        reuse: ReuseDecision::StaticReuse,
-    };
-    assert_eq!(decisions.reuse, ReuseDecision::StaticReuse);
-    assert_eq!(decisions.rc, RcDecision::None);
-}
-
-// decide_annotations (unified Phase 2) tests
 
 #[test]
 fn annotations_cow_site_unique_clean() {
-    let ctx = cow_ctx(var(0), Uniqueness::Unique);
-    let result = decide_annotations(&ctx, true, false);
-    assert_eq!(result.cow, Some(CowMode::StaticUnique));
-    assert!(!result.drop_hint);
+    let site = AnnotationSite::Cow(cow_ctx(Uniqueness::Unique));
+    assert_eq!(
+        decide_annotation(site),
+        AnnotationDecision::Cow(CowMode::StaticUnique)
+    );
 }
 
 #[test]
 fn annotations_drop_site_unique_collection() {
-    let ctx = drop_ctx(var(0), Uniqueness::Unique);
-    let result = decide_annotations(&ctx, false, true);
-    assert_eq!(result.cow, None);
-    assert!(result.drop_hint);
-}
-
-#[test]
-fn annotations_both_cow_and_drop() {
-    let ctx = drop_ctx(var(0), Uniqueness::Unique);
-    let result = decide_annotations(&ctx, true, true);
-    assert_eq!(result.cow, Some(CowMode::StaticUnique));
-    assert!(result.drop_hint);
-}
-
-#[test]
-fn annotations_neither_cow_nor_drop() {
-    let ctx = cow_ctx(var(0), Uniqueness::Unique);
-    let result = decide_annotations(&ctx, false, false);
-    assert_eq!(result.cow, None);
-    assert!(!result.drop_hint);
+    let site = AnnotationSite::Drop(drop_ctx(Uniqueness::Unique));
+    assert_eq!(decide_annotation(site), AnnotationDecision::DropHint(true));
 }
 
 #[test]
 fn annotations_shared_cow_site() {
-    let ctx = cow_ctx(var(0), Uniqueness::Shared);
-    let result = decide_annotations(&ctx, true, false);
-    assert_eq!(result.cow, Some(CowMode::StaticShared));
-    assert!(!result.drop_hint);
+    let site = AnnotationSite::Cow(cow_ctx(Uniqueness::Shared));
+    assert_eq!(
+        decide_annotation(site),
+        AnnotationDecision::Cow(CowMode::StaticShared)
+    );
 }
 
 #[test]
 fn annotations_maybe_shared_drop_site_not_eligible() {
-    let ctx = drop_ctx(var(0), Uniqueness::MaybeShared);
-    let result = decide_annotations(&ctx, false, true);
-    assert_eq!(result.cow, None);
-    assert!(!result.drop_hint);
+    let site = AnnotationSite::Drop(drop_ctx(Uniqueness::MaybeShared));
+    assert_eq!(decide_annotation(site), AnnotationDecision::DropHint(false));
 }
-
-// Phase 1 decide() tests
-
-fn reuse_non_reusable() -> ReuseContext {
-    ReuseContext {
-        shape: ShapeClass::NonReusable,
-        uniqueness: Uniqueness::Unique,
-        cardinality: Cardinality::Once,
-    }
-}
-
-fn reuse_unique_struct() -> ReuseContext {
-    ReuseContext {
-        shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
-        uniqueness: Uniqueness::Unique,
-        cardinality: Cardinality::Once,
-    }
-}
-
-// Non-RC-managed variables
-
-#[test]
-fn decide_non_rc_managed_returns_none() {
-    let ctx = DecisionContext {
-        site: DecisionSite::Use {
-            has_future_use: true,
-            semantics: UseSemantics::Normal,
-        },
-        is_rc_managed: false,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::None);
-    assert_eq!(d.reuse, ReuseDecision::None);
-}
-
-// Use site decisions
-
-#[test]
-fn decide_use_with_future_use_returns_inc() {
-    let ctx = DecisionContext {
-        site: DecisionSite::Use {
-            has_future_use: true,
-            semantics: UseSemantics::Normal,
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::Inc);
-    assert_eq!(d.reuse, ReuseDecision::None);
-}
-
-#[test]
-fn decide_use_without_future_use_returns_none() {
-    let ctx = DecisionContext {
-        site: DecisionSite::Use {
-            has_future_use: false,
-            semantics: UseSemantics::Normal,
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::None);
-    assert_eq!(d.reuse, ReuseDecision::None);
-}
-
-// UseSemantics — Project source identity
-
-#[test]
-fn decide_use_borrowing_project_skips_inc() {
-    let ctx = DecisionContext {
-        site: DecisionSite::Use {
-            has_future_use: true,
-            semantics: UseSemantics::BorrowingProject,
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::None, "scalar Project borrows source");
-    assert_eq!(d.reuse, ReuseDecision::None);
-}
-
-#[test]
-fn decide_use_transfer_project_skips_inc() {
-    let ctx = DecisionContext {
-        site: DecisionSite::Use {
-            has_future_use: true,
-            semantics: UseSemantics::TransferProject,
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(
-        d.rc,
-        RcDecision::None,
-        "non-scalar Project transfers ownership"
-    );
-    assert_eq!(d.reuse, ReuseDecision::None);
-}
-
-#[test]
-fn decide_last_use_project_source_no_children_emits_dec() {
-    // With borrow semantics, a Project source whose borrowed children
-    // have already died gets a normal Dec (not suppressed). The parent's
-    // drop function handles freeing RC children.
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: false,
-            is_owned_call_position: false,
-            has_deferred_children: false,
-            reuse: reuse_unique_struct(),
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(
-        d.rc,
-        RcDecision::Dec,
-        "Project source with no live children gets Dec"
-    );
-}
-
-// DefinedDead site decisions
-
-#[test]
-fn decide_defined_dead_returns_dec() {
-    let ctx = DecisionContext {
-        site: DecisionSite::DefinedDead,
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::Dec);
-    assert_eq!(d.reuse, ReuseDecision::None);
-}
-
-// LastUse — suppression flags
-
-#[test]
-fn decide_last_use_consuming_primop_returns_none() {
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: true,
-            is_ownership_transfer: false,
-            is_owned_call_position: false,
-
-            has_deferred_children: false,
-            reuse: reuse_unique_struct(),
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::None);
-    assert_eq!(d.reuse, ReuseDecision::None);
-}
-
-#[test]
-fn decide_last_use_ownership_transfer_returns_none() {
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: true,
-            is_owned_call_position: false,
-
-            has_deferred_children: false,
-            reuse: reuse_unique_struct(),
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::None);
-    assert_eq!(d.reuse, ReuseDecision::None);
-}
-
-#[test]
-fn decide_last_use_owned_call_position_returns_none() {
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: false,
-            is_owned_call_position: true,
-
-            has_deferred_children: false,
-            reuse: reuse_unique_struct(),
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::None);
-    assert_eq!(d.reuse, ReuseDecision::None);
-}
-
-#[test]
-fn decide_last_use_deferred_children_returns_defer() {
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: false,
-            is_owned_call_position: false,
-
-            has_deferred_children: true,
-            reuse: reuse_unique_struct(),
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::Defer);
-    assert_eq!(d.reuse, ReuseDecision::None);
-}
-
-// LastUse — regular Dec with reuse
-
-#[test]
-fn decide_last_use_unique_struct_returns_dec_static_reuse() {
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: false,
-            is_owned_call_position: false,
-
-            has_deferred_children: false,
-            reuse: reuse_unique_struct(),
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::Dec);
-    assert_eq!(d.reuse, ReuseDecision::StaticReuse);
-}
-
-#[test]
-fn decide_last_use_non_reusable_shape_returns_dec_no_reuse() {
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: false,
-            is_owned_call_position: false,
-
-            has_deferred_children: false,
-            reuse: reuse_non_reusable(),
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::Dec);
-    assert_eq!(d.reuse, ReuseDecision::None);
-}
-
-#[test]
-fn decide_last_use_shared_returns_dec_no_reuse() {
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: false,
-            is_owned_call_position: false,
-
-            has_deferred_children: false,
-            reuse: ReuseContext {
-                shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
-                uniqueness: Uniqueness::Shared,
-                cardinality: Cardinality::Once,
-            },
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::Dec);
-    assert_eq!(d.reuse, ReuseDecision::None);
-}
-
-#[test]
-fn decide_last_use_maybe_shared_struct_returns_dynamic_reuse() {
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: false,
-            is_owned_call_position: false,
-
-            has_deferred_children: false,
-            reuse: ReuseContext {
-                shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
-                uniqueness: Uniqueness::MaybeShared,
-                cardinality: Cardinality::Many,
-            },
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::Dec);
-    assert_eq!(d.reuse, ReuseDecision::DynamicReuse);
-}
-
-// Regression: MaybeShared + Once + ReusableCtor → DynamicReuse
-//
-// The former cross-dimensional `StaticReuse` promotion was removed as
-// unsound per §RL-13 removal rationale.
-
-#[test]
-fn decide_reuse_maybe_shared_reusable_ctor_struct_once_returns_dynamic_reuse() {
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: false,
-            is_owned_call_position: false,
-            has_deferred_children: false,
-            reuse: ReuseContext {
-                shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
-                uniqueness: Uniqueness::MaybeShared,
-                cardinality: Cardinality::Once,
-            },
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::Dec);
-    assert_eq!(d.reuse, ReuseDecision::DynamicReuse);
-}
-
-/// Preservation: `ContextHole` is not nested in `ReusableCtor(_)`; the
-/// removed cross-dim path never matched it. Already returned `DynamicReuse`
-/// before the fix; assert it still does.
-#[test]
-fn decide_reuse_maybe_shared_context_hole_once_returns_dynamic_reuse() {
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: false,
-            is_owned_call_position: false,
-            has_deferred_children: false,
-            reuse: ReuseContext {
-                shape: ShapeClass::ContextHole,
-                uniqueness: Uniqueness::MaybeShared,
-                cardinality: Cardinality::Once,
-            },
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::Dec);
-    assert_eq!(d.reuse, ReuseDecision::DynamicReuse);
-}
-
-/// Negative pin:
-/// explicitly assert the removed `MaybeShared + Once + ReusableCtor → StaticReuse`
-/// branch is gone. Stronger than the corresponding semantic pin because it
-/// directly rejects the unsound output regardless of what other code path
-/// might produce it.
-#[test]
-fn decide_reuse_rejects_cross_dimensional_maybe_shared_once_static_reuse() {
-    for shape in [
-        ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
-        ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant),
-        ShapeClass::CollectionBuffer,
-    ] {
-        let ctx = DecisionContext {
-            site: DecisionSite::LastUse {
-                is_consuming_primop: false,
-                is_ownership_transfer: false,
-                is_owned_call_position: false,
-                has_deferred_children: false,
-                reuse: ReuseContext {
-                    shape,
-                    uniqueness: Uniqueness::MaybeShared,
-                    cardinality: Cardinality::Once,
-                },
-            },
-            is_rc_managed: true,
-            class_covered: false,
-        };
-        let d = decide(&ctx);
-        // Must NOT be StaticReuse — that was the unsound DP-10/RL-13 output.
-        assert_ne!(
-            d.reuse,
-            ReuseDecision::StaticReuse,
-            "MaybeShared+Once+{shape:?} must not promote to StaticReuse"
-        );
-    }
-}
-
-/// Negative pin: `decide_cow()` must NOT return `StaticUnique` for any
-/// `MaybeShared` input outside the spec-approved `is_borrow_disjoint=true`
-/// path. Explicitly rejects the four removed cross-dimensional promotion
-/// paths.
-#[test]
-fn decide_cow_rejects_cross_dimensional_maybe_shared_static_unique() {
-    let mut configs: Vec<AnnotationSiteContext<'static>> = Vec::new();
-    // Removed path 1: is_param + Owned + Linear + Once
-    let mut c1 = cow_ctx(var(0), Uniqueness::MaybeShared);
-    c1.is_param = true;
-    configs.push(c1);
-    // Removed path 2: !is_param + CollectionBuffer + Once
-    let mut c2 = cow_ctx(var(0), Uniqueness::MaybeShared);
-    c2.shape = ShapeClass::CollectionBuffer;
-    configs.push(c2);
-    // Removed path 3: !is_param + ReusableCtor(Struct) + Once
-    let mut c3 = cow_ctx(var(0), Uniqueness::MaybeShared);
-    c3.shape = ShapeClass::ReusableCtor(ReuseCtorKind::Struct);
-    configs.push(c3);
-    // Removed path 4: !is_param + ReusableCtor(EnumVariant) + Once
-    let mut c4 = cow_ctx(var(0), Uniqueness::MaybeShared);
-    c4.shape = ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant);
-    configs.push(c4);
-
-    for ctx in configs {
-        // is_borrow_disjoint=false (default), so the only StaticUnique source
-        // available is the spec-approved disjoint-borrow path — which this
-        // test does not enable. All four configurations must be Dynamic.
-        assert_ne!(
-            decide_cow(&ctx),
-            CowMode::StaticUnique,
-            "MaybeShared (var={:?}, shape={:?}, is_param={}) must not promote to StaticUnique",
-            ctx.var,
-            ctx.shape,
-            ctx.is_param
-        );
-    }
-}
-
-/// Regression: `EnumVariant` also hit the removed `matches!(shape,
-/// ShapeClass::ReusableCtor(_))` path; ensure it now returns `DynamicReuse`.
-#[test]
-fn decide_reuse_maybe_shared_reusable_ctor_enum_variant_once_returns_dynamic_reuse() {
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: false,
-            is_owned_call_position: false,
-            has_deferred_children: false,
-            reuse: ReuseContext {
-                shape: ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant),
-                uniqueness: Uniqueness::MaybeShared,
-                cardinality: Cardinality::Once,
-            },
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::Dec);
-    assert_eq!(d.reuse, ReuseDecision::DynamicReuse);
-}
-
-#[test]
-fn decide_cross_dimensional_maybe_shared_once_non_reusable_no_reuse() {
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: false,
-            is_owned_call_position: false,
-
-            has_deferred_children: false,
-            reuse: ReuseContext {
-                shape: ShapeClass::NonReusable,
-                uniqueness: Uniqueness::MaybeShared,
-                cardinality: Cardinality::Once,
-            },
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::Dec);
-    assert_eq!(d.reuse, ReuseDecision::None);
-}
-
-#[test]
-fn decide_cross_dimensional_maybe_shared_once_collection_is_dynamic_reuse() {
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: false,
-            is_owned_call_position: false,
-
-            has_deferred_children: false,
-            reuse: ReuseContext {
-                shape: ShapeClass::CollectionBuffer,
-                uniqueness: Uniqueness::MaybeShared,
-                cardinality: Cardinality::Once,
-            },
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::Dec);
-    // CollectionBuffer is not NonReusable, and MaybeShared + Once but NOT
-    // ReusableCtor → cross-dimensional proof doesn't apply → DynamicReuse.
-    assert_eq!(d.reuse, ReuseDecision::DynamicReuse);
-}
-
-// Enum variant reuse
-
-#[test]
-fn decide_unique_enum_variant_returns_static_reuse() {
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: false,
-            is_owned_call_position: false,
-
-            has_deferred_children: false,
-            reuse: ReuseContext {
-                shape: ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant),
-                uniqueness: Uniqueness::Unique,
-                cardinality: Cardinality::Many,
-            },
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::Dec);
-    assert_eq!(d.reuse, ReuseDecision::StaticReuse);
-}
-
-// Suppression priority: consuming primop takes precedence over all others
-
-#[test]
-fn decide_consuming_primop_suppresses_even_with_deferred_children() {
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: true,
-            is_ownership_transfer: false,
-            is_owned_call_position: false,
-
-            has_deferred_children: true,
-            reuse: reuse_unique_struct(),
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(d.rc, RcDecision::None);
-}
-
-// Cross-Dimension Synergy Tests
-//
-// Each test builds an ArcFunction modeling one of the synergy Ori programs,
-// runs the AIMS backward analysis, and asserts that cross-dimensional
-// reasoning produces the expected state.
 
 use crate::aims::contract::{FipContract, MemoryContract};
 use crate::aims::intraprocedural::analyze_function;
@@ -899,8 +182,6 @@ use crate::ArcClass;
 use ori_ir::Name;
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
-
-// Test helpers (synergy-specific)
 
 struct SynergyClassifier {
     scalars: Vec<bool>,
@@ -959,7 +240,7 @@ fn no_contracts() -> FxHashMap<Name, MemoryContract> {
 // Locality × Uniqueness: block_local_unique
 //
 // A freshly constructed value returned from a function is Unique because
-// the Construct creates a fresh allocation with RC=1. This is the
+// the Construct creates exactly one fresh logical owner. This is the
 // locality×uniqueness interaction: the value is function-local (never
 // shared) and Construct produces a unique reference.
 //
@@ -995,7 +276,7 @@ fn synergy_block_local_construct_is_unique() {
         crate::aims::interprocedural::analyze_program(&[func], &classifier, &builtins, &interner);
     let contract = &contracts[&syn_name(1)];
 
-    // Freshly constructed return → Unique (RC=1 at return point).
+    // Freshly constructed return → exactly one logical owner at the return.
     assert_eq!(
         contract.return_info.uniqueness,
         Uniqueness::Unique,
@@ -1236,7 +517,7 @@ fn synergy_reuse_during_analysis_shape() {
     // The state map records shape from backward demand. For params,
     // the shape may be NonReusable at the entry (params get shape
     // from their constructor kind which is unknown at the callee).
-    // What we CAN verify: v2 (the Construct result) gets shape via
+    // Verifiable here: v2 (the Construct result) gets shape via
     // fresh-construct transfer → it should have ReusableCtor in
     // its per-variable shape.
     let v2_shape = state_map.var_shape(syn_var(2));
@@ -1477,8 +758,6 @@ fn synergy_local_pure_chain_effects() {
 
 #[test]
 fn synergy_metrics_default_is_zero() {
-    // Trimmed per `cow_upgrades` and `cross_dim_reuse` fields
-    // removed together with the unsound paths they tracked.
     let m = super::metrics::SynergyMetrics::default();
     assert_eq!(m.total_rc_decisions, 0);
     assert_eq!(m.reuse_decisions, 0);
@@ -1489,7 +768,6 @@ fn synergy_metrics_default_is_zero() {
 
 #[test]
 fn synergy_metrics_merge_additive() {
-    // Trimmed per removed cow_upgrades / cross_dim_reuse assertions.
     let mut a = super::metrics::SynergyMetrics {
         reuse_decisions: 3,
         total_rc_decisions: 10,
@@ -1514,7 +792,6 @@ fn synergy_metrics_merge_additive() {
 
 #[test]
 fn synergy_metrics_reuse_percent() {
-    // Preserved unchanged — only uses surviving fields.
     let m = super::metrics::SynergyMetrics {
         reuse_decisions: 3,
         total_rc_decisions: 10,
@@ -1526,17 +803,13 @@ fn synergy_metrics_reuse_percent() {
 
 #[test]
 fn synergy_metrics_percent_zero_total() {
-    // Preserved unchanged.
     let m = super::metrics::SynergyMetrics::default();
     assert!((m.reuse_percent()).abs() < f64::EPSILON);
 }
 
 #[test]
 fn synergy_metrics_cross_dim_evidence() {
-    // Trimmed per `cross_dim_evidence_total()` was refactored
-    // to sum only `canonicalize_cross_fires` after `cow_upgrades` and
-    // `cross_dim_reuse` were removed. Test preserves coverage of the
-    // surviving helper on the surviving field.
+    // `cross_dim_evidence_total()` sums `canonicalize_cross_fires`.
     let m = super::metrics::SynergyMetrics {
         canonicalize_cross_fires: 100,
         ..Default::default()
@@ -1601,566 +874,4 @@ fn canonicalize_feedback_rule8_cross_dim_fire() {
         Locality::FunctionLocal,
         "Rule 8 should cap locality to FunctionLocal"
     );
-}
-
-#[test]
-fn canonicalize_feedback_no_fires_for_canonical_state() {
-    use crate::aims::lattice::AimsState;
-
-    // FRESH is already canonical — no rules should fire.
-    let mut state = AimsState::FRESH;
-    let feedback = state.canonicalize_with_feedback();
-    assert_eq!(
-        feedback.cross_dim_fires, 0,
-        "FRESH is already canonical — no cross-dim fires"
-    );
-    assert_eq!(feedback.rounds, 0);
-}
-
-// RC identity + projection regression matrices (Matrix A)
-//
-// Decision-level tests for scalar-Project, non-scalar-Project,
-// alias-split, and combined scenarios. These complement the transfer
-// function tests in transfer/tests.rs and the AOT behavioral tests
-// in ori_llvm/tests/aot/arc.rs.
-
-// A1: Scalar Project source — BorrowingProject suppresses Inc even with
-// future use, and the source's last-use Dec is NOT suppressed (scalar
-// Project borrows; source still needs cleanup).
-#[test]
-fn decide_alias_then_borrowing_project_no_inc() {
-    // Scenario: let alias = src; Project(alias, scalar_field)
-    // At the Project instruction, alias is a Use with BorrowingProject
-    // semantics — no Inc regardless of future use.
-    let ctx = DecisionContext {
-        site: DecisionSite::Use {
-            has_future_use: true,
-            semantics: UseSemantics::BorrowingProject,
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(
-        d.rc,
-        RcDecision::None,
-        "scalar Project borrows source — no Inc even with future use"
-    );
-}
-
-// A1 continued: Source last-use after a scalar Project — Dec IS emitted
-// (borrowing projection does NOT suppress source cleanup).
-#[test]
-fn decide_source_last_use_after_borrowing_project_emits_dec() {
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: false,
-            is_owned_call_position: false,
-            has_deferred_children: false,
-            reuse: reuse_non_reusable(),
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(
-        d.rc,
-        RcDecision::Dec,
-        "last use after scalar Project: source Dec NOT suppressed"
-    );
-}
-
-// A2: Non-scalar Project source — TransferProject suppresses Inc at use
-// site. At last-use site, borrow semantics apply: the parent gets Defer
-// if borrowed children are alive, or Dec if they're dead.
-#[test]
-fn decide_transfer_project_borrow_semantics() {
-    // At use site: no Inc (Project source doesn't get Inc'd)
-    let use_ctx = DecisionContext {
-        site: DecisionSite::Use {
-            has_future_use: true,
-            semantics: UseSemantics::TransferProject,
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    assert_eq!(
-        decide(&use_ctx).rc,
-        RcDecision::None,
-        "transfer Project: no Inc at use site"
-    );
-
-    // At last-use site with live borrowed children: Defer
-    let defer_ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: false,
-            is_owned_call_position: false,
-            has_deferred_children: true,
-            reuse: reuse_non_reusable(),
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    assert_eq!(
-        decide(&defer_ctx).rc,
-        RcDecision::Defer,
-        "transfer Project: source Dec deferred while children alive"
-    );
-
-    // At last-use site with no live children: Dec
-    let dec_ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: false,
-            is_owned_call_position: false,
-            has_deferred_children: false,
-            reuse: reuse_non_reusable(),
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    assert_eq!(
-        decide(&dec_ctx).rc,
-        RcDecision::Dec,
-        "transfer Project: source Dec emitted when children dead"
-    );
-}
-
-// A5: Alias consumed by owned call — Inc at alias split point.
-// When `let b = a; consume(b)` and `a` has future use, the alias
-// use site (before the call) needs an Inc to keep a alive.
-#[test]
-fn decide_alias_owned_call_with_future_root_use() {
-    // At the alias use (b is used as an owned call arg):
-    // has_future_use is true for source (a still lives), so Inc.
-    let ctx = DecisionContext {
-        site: DecisionSite::Use {
-            has_future_use: true,
-            semantics: UseSemantics::Normal,
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(
-        d.rc,
-        RcDecision::Inc,
-        "alias with future root use: Inc at split point"
-    );
-}
-
-// A5 continued: The owned call position suppresses the alias's Dec.
-#[test]
-fn decide_alias_at_owned_call_position_no_dec() {
-    let ctx = DecisionContext {
-        site: DecisionSite::LastUse {
-            is_consuming_primop: false,
-            is_ownership_transfer: false,
-            is_owned_call_position: true, // callee takes ownership
-
-            has_deferred_children: false,
-            reuse: reuse_non_reusable(),
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(
-        d.rc,
-        RcDecision::None,
-        "owned call position: callee takes ownership, no caller-side Dec"
-    );
-}
-
-// A6: Alias passed to borrowed call — no spurious Inc.
-// When `let b = a; borrow(b)` and b is the last use of b, and borrow
-// takes b as Borrowed, no Inc is needed (borrowed call doesn't consume).
-#[test]
-fn decide_alias_borrowed_call_no_future_use_no_inc() {
-    // b at the borrowed call site: no future use of b → no Inc.
-    let ctx = DecisionContext {
-        site: DecisionSite::Use {
-            has_future_use: false,
-            semantics: UseSemantics::Normal,
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let d = decide(&ctx);
-    assert_eq!(
-        d.rc,
-        RcDecision::None,
-        "alias at borrowed call with no future use: no Inc"
-    );
-}
-
-// A3: Borrowing projection on both branches — each branch independently
-// gets the same Dec decision for the source aggregate.
-#[test]
-fn decide_borrowing_project_independent_per_branch() {
-    // Both branches use the source via BorrowingProject — neither
-    // should get an Inc. The source's Dec happens at last use in
-    // each branch independently.
-    let branch_a = DecisionContext {
-        site: DecisionSite::Use {
-            has_future_use: false,
-            semantics: UseSemantics::BorrowingProject,
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    let branch_b = DecisionContext {
-        site: DecisionSite::Use {
-            has_future_use: false,
-            semantics: UseSemantics::BorrowingProject,
-        },
-        is_rc_managed: true,
-        class_covered: false,
-    };
-    assert_eq!(decide(&branch_a).rc, RcDecision::None);
-    assert_eq!(decide(&branch_b).rc, RcDecision::None);
-}
-
-// Store-family hand-off rep admission + forward-Jump export rep admission +
-// execution-final read-alias carrier
-// (`emit_unified::compute_store_handoff_reps` /
-// `emit_unified::compute_forward_jump_export_reps` /
-// `emit_unified::compute_store_family_final_read_carriers`)
-
-mod store_family {
-    use ori_ir::Name;
-    use ori_types::Idx;
-    use rustc_hash::{FxHashMap, FxHashSet};
-
-    use crate::ir::{
-        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind,
-        ValueRepr,
-    };
-
-    use super::super::emit_unified::{
-        compute_forward_jump_export_reps, compute_store_family_final_read_carriers,
-        compute_store_handoff_reps,
-    };
-
-    fn alias_of(dst: u32, src: u32) -> ArcInstr {
-        ArcInstr::Let {
-            dst: ArcVarId::new(dst),
-            ty: Idx::STR,
-            value: ArcValue::Var(ArcVarId::new(src)),
-        }
-    }
-
-    fn store_of(dst: u32, arg: u32) -> ArcInstr {
-        ArcInstr::Construct {
-            dst: ArcVarId::new(dst),
-            ty: Idx::STR,
-            ctor: CtorKind::Tuple,
-            args: vec![ArcVarId::new(arg)],
-        }
-    }
-
-    fn binc(var: u32) -> ArcInstr {
-        ArcInstr::BurdenInc {
-            var: ArcVarId::new(var),
-        }
-    }
-
-    fn bdec(var: u32) -> ArcInstr {
-        ArcInstr::BurdenDec {
-            var: ArcVarId::new(var),
-        }
-    }
-
-    /// Borrowed read of `var` (a protocol `Apply` with a borrowed arg).
-    fn borrow_read_of(dst: u32, var: u32) -> ArcInstr {
-        ArcInstr::Apply {
-            dst: ArcVarId::new(dst),
-            ty: Idx::INT,
-            func: Name::from_raw(9),
-            args: vec![ArcVarId::new(var)],
-            arg_ownership: vec![crate::ir::ArgOwnership::Borrowed],
-            mono_instance_id: None,
-        }
-    }
-
-    fn one_block_func(n_vars: u32, reprs: Vec<ValueRepr>, body: Vec<ArcInstr>) -> ArcFunction {
-        ArcFunction {
-            var_types: (0..n_vars).map(|i| Idx::from_raw(i + 1)).collect(),
-            var_reprs: reprs,
-            blocks: vec![ArcBlock {
-                id: ArcBlockId::new(0),
-                params: Vec::new(),
-                body,
-                terminator: ArcTerminator::Return {
-                    value: ArcVarId::new(0),
-                },
-            }],
-            entry: ArcBlockId::new(0),
-            name: Name::from_raw(0),
-            ..ArcFunction::default()
-        }
-    }
-
-    /// `same_alloc_reps` mapping each alias var to its lineage root.
-    fn reps_to_root(aliases: &[u32], root: u32) -> FxHashMap<ArcVarId, ArcVarId> {
-        aliases
-            .iter()
-            .map(|&a| (ArcVarId::new(a), ArcVarId::new(root)))
-            .collect()
-    }
-
-    #[test]
-    fn store_handoff_reps_admit_rc_pointer_store_arg() {
-        let func = one_block_func(
-            3,
-            vec![ValueRepr::RcPointer; 3],
-            vec![alias_of(1, 0), store_of(2, 1)],
-        );
-        let reps = compute_store_handoff_reps(&func, &reps_to_root(&[1], 0));
-        assert!(
-            reps.contains(&ArcVarId::new(0)),
-            "an RcPointer store arg admits its lineage rep; reps = {reps:?}"
-        );
-    }
-
-    #[test]
-    fn store_handoff_reps_decline_rc_free_store_arg() {
-        // The RC-free decline: a Scalar-repr store arg carries no refcount —
-        // funding/debiting it would model releases that never happen.
-        let func = one_block_func(
-            3,
-            vec![ValueRepr::Scalar; 3],
-            vec![alias_of(1, 0), store_of(2, 1)],
-        );
-        let reps = compute_store_handoff_reps(&func, &reps_to_root(&[1], 0));
-        assert!(
-            reps.is_empty(),
-            "a Scalar store arg never admits a rep: {reps:?}"
-        );
-    }
-
-    /// Two-block fixture: entry aliases the root and forward-Jumps the alias
-    /// to block 1 (which does NOT dominate the entry).
-    fn forward_jump_func(reprs: Vec<ValueRepr>) -> ArcFunction {
-        ArcFunction {
-            var_types: (0..3).map(|i| Idx::from_raw(i + 1)).collect(),
-            var_reprs: reprs,
-            blocks: vec![
-                ArcBlock {
-                    id: ArcBlockId::new(0),
-                    params: Vec::new(),
-                    body: vec![alias_of(1, 0)],
-                    terminator: ArcTerminator::Jump {
-                        target: ArcBlockId::new(1),
-                        args: vec![ArcVarId::new(1)],
-                    },
-                },
-                ArcBlock {
-                    id: ArcBlockId::new(1),
-                    params: vec![(ArcVarId::new(2), Idx::STR)],
-                    body: Vec::new(),
-                    terminator: ArcTerminator::Return {
-                        value: ArcVarId::new(2),
-                    },
-                },
-            ],
-            entry: ArcBlockId::new(0),
-            name: Name::from_raw(0),
-            ..ArcFunction::default()
-        }
-    }
-
-    #[test]
-    fn forward_jump_export_reps_admit_rc_pointer_forward_arg() {
-        let func = forward_jump_func(vec![ValueRepr::RcPointer; 3]);
-        let reps = compute_forward_jump_export_reps(&func, &reps_to_root(&[1], 0));
-        assert!(
-            reps.contains(&ArcVarId::new(0)),
-            "an RcPointer forward-Jump arg admits its lineage rep; reps = {reps:?}"
-        );
-    }
-
-    #[test]
-    fn forward_jump_export_reps_decline_rc_free_forward_arg() {
-        // The RC-free decline: a Scalar-repr Jump arg carries no refcount —
-        // its export funds no downstream release.
-        let func = forward_jump_func(vec![ValueRepr::Scalar; 3]);
-        let reps = compute_forward_jump_export_reps(&func, &reps_to_root(&[1], 0));
-        assert!(
-            reps.is_empty(),
-            "a Scalar Jump arg never admits a rep: {reps:?}"
-        );
-    }
-
-    #[test]
-    fn forward_jump_export_reps_decline_back_edge_arg() {
-        // Loop shape: 0 (entry) -> 1 (header) -> {2 (body), 3 (exit)};
-        // block 2 Jumps the RC alias BACK to the header it is dominated by —
-        // a back-edge arg is the loop's own param rename, not an export.
-        let func = ArcFunction {
-            var_types: (0..3).map(|i| Idx::from_raw(i + 1)).collect(),
-            var_reprs: vec![ValueRepr::RcPointer; 3],
-            blocks: vec![
-                ArcBlock {
-                    id: ArcBlockId::new(0),
-                    params: Vec::new(),
-                    body: vec![alias_of(2, 0)],
-                    terminator: ArcTerminator::Jump {
-                        target: ArcBlockId::new(1),
-                        args: Vec::new(),
-                    },
-                },
-                ArcBlock {
-                    id: ArcBlockId::new(1),
-                    params: Vec::new(),
-                    body: Vec::new(),
-                    terminator: ArcTerminator::Branch {
-                        cond: ArcVarId::new(1),
-                        then_block: ArcBlockId::new(2),
-                        else_block: ArcBlockId::new(3),
-                    },
-                },
-                ArcBlock {
-                    id: ArcBlockId::new(2),
-                    params: Vec::new(),
-                    body: Vec::new(),
-                    terminator: ArcTerminator::Jump {
-                        target: ArcBlockId::new(1),
-                        args: vec![ArcVarId::new(2)],
-                    },
-                },
-                ArcBlock {
-                    id: ArcBlockId::new(3),
-                    params: Vec::new(),
-                    body: Vec::new(),
-                    terminator: ArcTerminator::Return {
-                        value: ArcVarId::new(0),
-                    },
-                },
-            ],
-            entry: ArcBlockId::new(0),
-            name: Name::from_raw(0),
-            ..ArcFunction::default()
-        };
-        let reps = compute_forward_jump_export_reps(&func, &reps_to_root(&[2], 0));
-        assert!(
-            reps.is_empty(),
-            "a back-edge Jump arg never admits a rep: {reps:?}"
-        );
-    }
-
-    #[test]
-    fn final_read_carrier_designates_unique_execution_final_pair_alias() {
-        // The two-store shape's tail: store alias %1 (inc-only, funded) +
-        // execution-final read alias %3 carrying the keep-alive inc+dec pair.
-        let mut func = one_block_func(
-            5,
-            vec![ValueRepr::RcPointer; 5],
-            vec![
-                binc(0),
-                alias_of(1, 0),
-                binc(1),
-                store_of(2, 1),
-                alias_of(3, 0),
-                binc(3),
-                borrow_read_of(4, 3),
-                bdec(3),
-            ],
-        );
-        // Return the scalar read result — returning the root would be a
-        // lineage use AFTER the carrier's final read (a decline fence).
-        func.blocks[0].terminator = ArcTerminator::Return {
-            value: ArcVarId::new(4),
-        };
-        let reps: FxHashSet<ArcVarId> = [ArcVarId::new(0)].into_iter().collect();
-        let carriers =
-            compute_store_family_final_read_carriers(&func, &reps_to_root(&[1, 3], 0), &reps);
-        assert_eq!(
-            carriers.get(&ArcVarId::new(0)),
-            Some(&ArcVarId::new(3)),
-            "the execution-final pair alias is the lineage's release carrier; {carriers:?}"
-        );
-    }
-
-    #[test]
-    fn final_read_carrier_declines_moved_pair_alias() {
-        // A pair alias consumed at an OWNED position (a pre-consume terminator
-        // pair) is a transfer arrangement, never the keep-alive carrier —
-        // eliding its inc would under-fund the consume.
-        let func = one_block_func(
-            5,
-            vec![ValueRepr::RcPointer; 5],
-            vec![
-                binc(0),
-                alias_of(3, 0),
-                binc(3),
-                bdec(3),
-                ArcInstr::Apply {
-                    dst: ArcVarId::new(4),
-                    ty: Idx::INT,
-                    func: Name::from_raw(9),
-                    args: vec![ArcVarId::new(3)],
-                    arg_ownership: vec![crate::ir::ArgOwnership::Owned],
-                    mono_instance_id: None,
-                },
-            ],
-        );
-        let reps: FxHashSet<ArcVarId> = [ArcVarId::new(0)].into_iter().collect();
-        let carriers =
-            compute_store_family_final_read_carriers(&func, &reps_to_root(&[3], 0), &reps);
-        assert!(
-            carriers.is_empty(),
-            "an owned-consumed pair alias never carries the release: {carriers:?}"
-        );
-    }
-
-    #[test]
-    fn final_read_carrier_declines_multiple_per_arm_finals() {
-        // Two pair aliases whose last reads sit on mutually-exclusive branch
-        // arms — no UNIQUE execution-final carrier exists; decline.
-        let func = ArcFunction {
-            var_types: (0..7).map(|i| Idx::from_raw(i + 1)).collect(),
-            var_reprs: vec![ValueRepr::RcPointer; 7],
-            blocks: vec![
-                ArcBlock {
-                    id: ArcBlockId::new(0),
-                    params: Vec::new(),
-                    body: vec![binc(0), alias_of(2, 0), binc(2), alias_of(3, 0), binc(3)],
-                    terminator: ArcTerminator::Branch {
-                        cond: ArcVarId::new(1),
-                        then_block: ArcBlockId::new(1),
-                        else_block: ArcBlockId::new(2),
-                    },
-                },
-                ArcBlock {
-                    id: ArcBlockId::new(1),
-                    params: Vec::new(),
-                    body: vec![borrow_read_of(5, 2), bdec(2)],
-                    terminator: ArcTerminator::Return {
-                        value: ArcVarId::new(5),
-                    },
-                },
-                ArcBlock {
-                    id: ArcBlockId::new(2),
-                    params: Vec::new(),
-                    body: vec![borrow_read_of(6, 3), bdec(3)],
-                    terminator: ArcTerminator::Return {
-                        value: ArcVarId::new(6),
-                    },
-                },
-            ],
-            entry: ArcBlockId::new(0),
-            name: Name::from_raw(0),
-            ..ArcFunction::default()
-        };
-        let reps: FxHashSet<ArcVarId> = [ArcVarId::new(0)].into_iter().collect();
-        let carriers =
-            compute_store_family_final_read_carriers(&func, &reps_to_root(&[2, 3], 0), &reps);
-        assert!(
-            carriers.is_empty(),
-            "per-arm finals yield no unique carrier: {carriers:?}"
-        );
-    }
 }

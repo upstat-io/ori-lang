@@ -24,7 +24,7 @@ use ori_types::{Idx, Pool};
 ///
 /// Output goes to stderr (consistent with other phase dumps).
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]
-pub fn dump_llvm_ir(ir_text: &str, pool: &Pool, interner: &StringInterner, path: &str) {
+pub(crate) fn dump_llvm_ir(ir_text: &str, pool: &Pool, interner: &StringInterner, path: &str) {
     let mut out = String::with_capacity(ir_text.len() + 4096);
 
     writeln!(out, "=== LLVM IR after codegen: {path} ===").unwrap();
@@ -54,16 +54,7 @@ pub fn dump_llvm_ir(ir_text: &str, pool: &Pool, interner: &StringInterner, path:
     eprint!("{out}");
 }
 
-/// Check if LLVM IR dumping is requested (new or legacy flag).
-///
-/// Returns `true` if either `ORI_DUMP_AFTER_LLVM` or `ORI_DEBUG_LLVM` is set.
-/// Works in both debug and release builds.
-pub fn llvm_dump_requested() -> bool {
-    crate::dbg_set!(crate::debug_flags::ORI_DUMP_AFTER_LLVM)
-        || crate::dbg_set!(crate::debug_flags::ORI_DEBUG_LLVM)
-}
-
-// --- Annotation helpers ---
+// Annotation helpers
 
 /// Extract and demangle the function name from a `define` line.
 ///
@@ -84,8 +75,9 @@ fn demangle_define(line: &str, pool: &Pool, interner: &StringInterner) -> Option
         &after_at[..end]
     };
 
-    // Drop functions: resolve pool index to type name
-    if let Some(drop_idx) = name.strip_prefix("_ori_drop$") {
+    // Drop functions: resolve pool index to type name. The prefix belongs to
+    // the LLVM projection and is shared with its emitter.
+    if let Some(drop_idx) = name.strip_prefix(ori_llvm::DROP_GLUE_PREFIX) {
         let raw: u32 = drop_idx.parse().ok()?;
         let idx = Idx::from_raw(raw);
         if !idx.is_none() && !idx.is_error() {
@@ -128,7 +120,7 @@ fn annotate_rc_op(line: &str, pool: &Pool, interner: &StringInterner) -> Option<
 /// `<idx_raw>` is the raw Pool index. The function parses this index and
 /// resolves the type via `Pool::format_type_resolved`.
 fn extract_drop_type(line: &str, pool: &Pool, interner: &StringInterner) -> Option<String> {
-    let drop_marker = "_ori_drop$";
+    let drop_marker = ori_llvm::DROP_GLUE_PREFIX;
     let pos = line.find(drop_marker)?;
     let after = &line[pos + drop_marker.len()..];
 

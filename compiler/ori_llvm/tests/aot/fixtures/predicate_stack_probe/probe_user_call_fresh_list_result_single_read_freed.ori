@@ -1,0 +1,8 @@
+@build (n: int) -> [int] = {
+    if n <= 0 then [] else [n, ...build(n: n - 1)]
+};
+
+@main () -> int = {
+    let xs = build(n: 5);
+    if xs.len() == 5 then 0 else 1
+}

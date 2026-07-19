@@ -3,8 +3,8 @@
 use ori_ir::Name;
 use ori_patterns::{no_such_method, EvalError, EvalResult, OrderingValue, Value};
 
+use super::arguments::require_args;
 use super::compare::{extract_ordering, ordering_to_value};
-use super::helpers::require_args;
 use super::DispatchCtx;
 
 /// Dispatch methods on Ordering values.
@@ -58,6 +58,9 @@ pub fn dispatch_ordering_method(
     // Clone trait
     } else if method == n.clone_ {
         Ok(Value::Ordering(ord))
+    // Convert to raw tag integer
+    } else if method == n.to_int {
+        Ok(Value::Int(i64::from(ord.to_tag()).into()))
     // Printable and Debug traits (same representation for Ordering)
     } else if method == n.to_str || method == n.debug {
         Ok(Value::string(ord.name()))

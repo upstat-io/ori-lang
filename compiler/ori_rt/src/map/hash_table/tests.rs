@@ -1,6 +1,6 @@
 use super::*;
 
-// ── Layout Tests ────────────────────────────────────────────────────────
+// Layout Tests
 
 #[test]
 fn map_layout_basic() {
@@ -31,7 +31,7 @@ fn set_layout_basic() {
     assert_eq!(layout.total_size, 8 + 4 * 8); // 40
 }
 
-// ── Capacity Tests ──────────────────────────────────────────────────────
+// Capacity Tests
 
 #[test]
 fn next_hash_capacity_minimum() {
@@ -75,7 +75,7 @@ fn needs_rehash_larger() {
     assert!(needs_rehash(6, 8));
 }
 
-// ── Align Up Tests ──────────────────────────────────────────────────────
+// Align Up Tests
 
 #[test]
 fn align_up_basics() {
@@ -87,11 +87,11 @@ fn align_up_basics() {
     assert_eq!(align_up(16, 8), 16);
 }
 
-// ── Metadata Tests ──────────────────────────────────────────────────────
+// Metadata Tests
 
 #[test]
 fn metadata_read_write() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let mut buf = [META_EMPTY; 8];
     unsafe {
         set_meta(buf.as_mut_ptr(), 0, META_OCCUPIED);
@@ -102,7 +102,7 @@ fn metadata_read_write() {
     }
 }
 
-// ── Probing Tests ───────────────────────────────────────────────────────
+// Probing Tests
 
 extern "C" fn i64_eq(a: *const u8, b: *const u8) -> bool {
     unsafe { *a.cast::<i64>() == *b.cast::<i64>() }
@@ -134,7 +134,7 @@ unsafe fn make_test_map_table(entries: &[(i64, i64)]) -> (*mut u8, usize) {
 
 #[test]
 fn probe_find_existing_key() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     unsafe {
         let (data, cap) = make_test_map_table(&[(10, 100), (20, 200), (30, 300)]);
         let layout = HashTableLayout::for_map(cap, 8, 8);
@@ -159,7 +159,7 @@ fn probe_find_existing_key() {
 
 #[test]
 fn probe_find_missing_key() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     unsafe {
         let (data, cap) = make_test_map_table(&[(10, 100), (20, 200)]);
         let layout = HashTableLayout::for_map(cap, 8, 8);
@@ -182,7 +182,7 @@ fn probe_find_missing_key() {
 
 #[test]
 fn probe_find_slot_after_tombstone() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     unsafe {
         // Create table, insert key, tombstone it, verify new insert goes there
         let cap = 4;
@@ -208,7 +208,7 @@ fn probe_find_slot_after_tombstone() {
 
 #[test]
 fn probe_find_skips_tombstone() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     unsafe {
         // Insert keys 0 and 4 (both hash to bucket 0 with cap=4)
         // Tombstone key 0, verify key 4 is still found
@@ -260,11 +260,11 @@ fn probe_find_skips_tombstone() {
     }
 }
 
-// ── Rehash Tests ────────────────────────────────────────────────────────
+// Rehash Tests
 
 #[test]
 fn rehash_map_preserves_entries() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     unsafe {
         let entries = [(1, 10), (2, 20), (3, 30), (5, 50), (8, 80)];
         let (old_data, old_cap) = make_test_map_table(&entries);
@@ -300,7 +300,7 @@ fn rehash_map_preserves_entries() {
 
 #[test]
 fn rehash_set_preserves_entries() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     unsafe {
         let elems: Vec<i64> = vec![10, 20, 30, 40, 50];
         let old_cap = next_hash_capacity(elems.len());
@@ -340,7 +340,7 @@ fn rehash_set_preserves_entries() {
     }
 }
 
-// ── Count Occupied Test ─────────────────────────────────────────────────
+// Count Occupied Test
 
 #[test]
 fn count_occupied_mixed_metadata() {

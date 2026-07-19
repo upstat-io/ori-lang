@@ -2,7 +2,7 @@
 //!
 //! These functions emit LLVM IR that RC-increments heap-allocated fields
 //! during derived clone operations, handling str, list/set, map, closures,
-//! Result, and composite types (struct/tuple/option).
+//! struct/tuple, and the tag-aware sum clones (Option / Result).
 
 use ori_types::{Idx, Tag};
 
@@ -25,14 +25,47 @@ pub(super) fn emit_clone_field_rc_inc<'a>(
         Tag::List | Tag::Set => emit_clone_rc_inc_list(fc, field_val, field_idx),
         Tag::Map => emit_clone_rc_inc_data_ptr(fc, field_val, field_idx, "map"),
         Tag::Function => emit_clone_rc_inc_closure(fc, func_id, field_val, field_idx),
-        Tag::Struct | Tag::Tuple | Tag::Option => {
+        Tag::Struct | Tag::Tuple => {
             emit_clone_composite_rc_inc(fc, func_id, field_val, tag, resolved, field_idx);
+        }
+        Tag::Option => {
+            emit_clone_option_rc_inc(fc, func_id, field_val, resolved, field_idx);
         }
         Tag::Result => {
             emit_clone_result_rc_inc(fc, func_id, field_val, resolved, field_idx);
         }
         _ => {} // Scalars: no RC needed
     }
+}
+
+/// Shared body for the slice-aware `(data, cap)` RC-inc emitters — extracts
+/// the data pointer (field 2) and cap (field 1, defaulting to 0), then calls
+/// the given runtime function with both. `str` and `list`/`set` fields share
+/// this shape; only the runtime entry point and the label differ.
+fn emit_clone_rc_inc_data_and_cap<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    runtime_fn_name: &'static str,
+    label: &str,
+    field_val: ValueId,
+    field_idx: usize,
+) {
+    let Some(data_ptr) =
+        fc.builder_mut()
+            .extract_value(field_val, 2, &format!("clone.{label}.data.{field_idx}"))
+    else {
+        return;
+    };
+    let cap = fc
+        .builder_mut()
+        .extract_value(field_val, 1, &format!("clone.{label}.cap.{field_idx}"))
+        .unwrap_or_else(|| fc.builder_mut().const_i64(0));
+
+    let rc_inc_fn = fc.builder_mut().runtime_fn(runtime_fn_name);
+    fc.builder_mut().call(
+        rc_inc_fn,
+        &[data_ptr, cap],
+        &format!("clone.{label}.inc.{field_idx}"),
+    );
 }
 
 /// Emit slice-aware `ori_str_rc_inc(data, cap)` on a str field.
@@ -46,23 +79,7 @@ fn emit_clone_rc_inc_str<'a>(
     field_val: ValueId,
     field_idx: usize,
 ) {
-    let Some(data_ptr) =
-        fc.builder_mut()
-            .extract_value(field_val, 2, &format!("clone.str.data.{field_idx}"))
-    else {
-        return;
-    };
-    let cap = fc
-        .builder_mut()
-        .extract_value(field_val, 1, &format!("clone.str.cap.{field_idx}"))
-        .unwrap_or_else(|| fc.builder_mut().const_i64(0));
-
-    let str_rc_inc_fn = fc.builder_mut().runtime_fn("ori_str_rc_inc");
-    fc.builder_mut().call(
-        str_rc_inc_fn,
-        &[data_ptr, cap],
-        &format!("clone.str.inc.{field_idx}"),
-    );
+    emit_clone_rc_inc_data_and_cap(fc, "ori_str_rc_inc", "str", field_val, field_idx);
 }
 
 /// Emit `ori_list_rc_inc(data, cap)` for a list/set field.
@@ -71,22 +88,7 @@ fn emit_clone_rc_inc_list<'a>(
     field_val: ValueId,
     field_idx: usize,
 ) {
-    let Some(data_ptr) =
-        fc.builder_mut()
-            .extract_value(field_val, 2, &format!("clone.list.data.{field_idx}"))
-    else {
-        return;
-    };
-    let cap = fc
-        .builder_mut()
-        .extract_value(field_val, 1, &format!("clone.list.cap.{field_idx}"))
-        .unwrap_or_else(|| fc.builder_mut().const_i64(0));
-    let rc_inc_fn = fc.builder_mut().runtime_fn("ori_list_rc_inc");
-    fc.builder_mut().call(
-        rc_inc_fn,
-        &[data_ptr, cap],
-        &format!("clone.list.inc.{field_idx}"),
-    );
+    emit_clone_rc_inc_data_and_cap(fc, "ori_list_rc_inc", "list", field_val, field_idx);
 }
 
 /// Emit `ori_rc_inc` on a data pointer at field 2 (map or similar).
@@ -201,8 +203,9 @@ fn emit_clone_result_boxed_arm<'a>(
 /// Emit tag-conditional RC increment for a `Result<T, E>` field.
 ///
 /// Result has two variants (Ok/Err) with potentially different payload types.
-/// Unlike Option (one inner type, unconditional RC-inc), Result must branch
-/// on the tag to RC-inc the correct variant's payload.
+/// Like the Option clone (`emit_clone_option_rc_inc`), Result must branch on the
+/// tag to RC-inc only the live variant's payload — a tag-blind unconditional inc
+/// reads the inactive variant's uninitialized payload slot.
 ///
 /// Uses alloca + GEP to safely load the payload with each variant's LLVM type,
 /// since Ok and Err may have different struct layouts. When a payload type is a
@@ -334,7 +337,85 @@ fn emit_clone_result_rc_inc<'a>(
     fc.builder_mut().position_at_end(merge_block);
 }
 
-/// Recurse into composite types (struct/tuple/option) for clone RC increments.
+/// Emit tag-conditional RC increment for an `Option<T>` field.
+///
+/// A `None` carries no payload — its field-1 slot is uninitialized, so an
+/// unconditional RC-inc on the inner reads garbage (inc-on-garbage). Branch on
+/// the discriminant (Some=0 per the value-walk's `collect_variant_rc_fields`)
+/// and RC-inc the inner only on the Some path (mirrors `emit_clone_result_rc_inc`).
+fn emit_clone_option_rc_inc<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    func_id: FunctionId,
+    field_val: ValueId,
+    resolved: Idx,
+    field_idx: usize,
+) {
+    use crate::codegen::type_info::repr_box_oracle::position_is_rc_boxed;
+
+    let pool = fc.type_info().pool();
+    let inner = pool.option_inner(resolved);
+    let inner_resolved = pool.resolve_fully(inner);
+    let inner_tag = pool.tag(inner_resolved);
+
+    if !tag_needs_clone_rc(inner_tag) {
+        return; // Scalar inner — no RC needed
+    }
+
+    let boxed = position_is_rc_boxed(pool, resolved, inner);
+
+    // Extract tag (field 0). Some=0 has the payload; None=1 is empty.
+    let Some(tag_val) =
+        fc.builder_mut()
+            .extract_value(field_val, 0, &format!("clone.opt.tag.{field_idx}"))
+    else {
+        return;
+    };
+    let zero = fc.builder_mut().const_i64(0);
+    let is_some =
+        fc.builder_mut()
+            .icmp_eq(tag_val, zero, &format!("clone.opt.is_some.{field_idx}"));
+
+    let some_block = fc
+        .builder_mut()
+        .append_block(func_id, &format!("clone.opt.some.{field_idx}"));
+    let merge_block = fc
+        .builder_mut()
+        .append_block(func_id, &format!("clone.opt.merge.{field_idx}"));
+
+    fc.builder_mut().cond_br(is_some, some_block, merge_block);
+
+    // Some branch — RC-inc the inner payload (only here, so a None never reads
+    // the uninitialized field-1 slot).
+    fc.builder_mut().position_at_end(some_block);
+    if let Some(payload) =
+        fc.builder_mut()
+            .extract_value(field_val, 1, &format!("clone.opt.payload.{field_idx}"))
+    {
+        if boxed {
+            // Boxed recursive Some payload: the slot holds the RC box pointer.
+            let rc_inc_fn = fc.builder_mut().runtime_fn("ori_rc_inc");
+            fc.builder_mut().call(
+                rc_inc_fn,
+                &[payload],
+                &format!("clone.opt.box.inc.{field_idx}"),
+            );
+        } else {
+            emit_clone_field_rc_inc(
+                fc,
+                func_id,
+                payload,
+                inner_tag,
+                inner_resolved,
+                field_idx * 100 + 3000,
+            );
+        }
+    }
+    fc.builder_mut().br(merge_block);
+
+    fc.builder_mut().position_at_end(merge_block);
+}
+
+/// Recurse into composite types (struct/tuple) for clone RC increments.
 fn emit_clone_composite_rc_inc<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     func_id: FunctionId,
@@ -368,30 +449,6 @@ fn emit_clone_composite_rc_inc<'a>(
                 .enumerate()
                 .map(|(i, ty)| (i as u32, ty))
                 .collect()
-        }
-        Tag::Option => {
-            let inner = pool.option_inner(resolved);
-            // Boxed recursive Some payload: the slot at index 1 holds the RC
-            // box pointer. Clone shares the box (COW value semantics) — RC-inc
-            // the pointer directly; do NOT recurse into it as an inline struct.
-            if crate::codegen::type_info::repr_box_oracle::position_is_rc_boxed(
-                pool, resolved, inner,
-            ) {
-                if let Some(box_ptr) = fc.builder_mut().extract_value(
-                    field_val,
-                    1,
-                    &format!("clone.boxed.{field_idx}"),
-                ) {
-                    let rc_inc_fn = fc.builder_mut().runtime_fn("ori_rc_inc");
-                    fc.builder_mut().call(
-                        rc_inc_fn,
-                        &[box_ptr],
-                        &format!("clone.boxed.inc.{field_idx}"),
-                    );
-                }
-                return;
-            }
-            vec![(1, inner)]
         }
         _ => return,
     };

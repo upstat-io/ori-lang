@@ -61,8 +61,14 @@ flowchart TB
     Frontend["Frontend Pipeline
     Parse → TypeCheck → Canonicalize"]
 
-    Codegen["Code Generation
-    AIMS Pipeline → LLVM IR"]
+    Realize["Closed Realization
+    AIMS → ExecutableProgram"]
+
+    Layout["Compiled Physical Plan
+    TargetSpec → CompiledLayoutPlan"]
+
+    Codegen["LLVM Projection
+    ExecutableProgram + Plan → LLVM IR"]
 
     Verify["IR Verification
     LLVM verify + codegen audit"]
@@ -84,7 +90,9 @@ flowchart TB
     Executable / Library / WASM"]
 
     Source --> Frontend
-    Frontend --> Codegen
+    Frontend --> Realize
+    Realize --> Layout
+    Layout --> Codegen
     Codegen --> Verify
     Verify --> Optimize
     Optimize --> Debug
@@ -98,7 +106,9 @@ flowchart TB
 
     class Source frontend
     class Frontend frontend
-    class Codegen canon
+    class Realize canon
+    class Layout native
+    class Codegen native
     class Verify native
     class Optimize native
     class Debug native
@@ -107,7 +117,9 @@ flowchart TB
     class Output native
 ```
 
-The pipeline flows from left to right with no backtracking. Each stage produces a well-defined output that the next stage consumes. The `check_source()` function handles the front-end pipeline (parse through canonicalization), returning the typed and canonicalized program or `None` if errors occurred. The AOT-specific stages — optimization, debug info, object emission, and linking — only proceed if the front-end succeeds.
+The pipeline flows from left to right with no backtracking. Each stage produces a well-defined output that the next stage consumes.
+
+The `check_source()` function handles the front-end pipeline (parse through canonicalization), after which backend-neutral orchestration closes one post-AIMS `ExecutableProgram`. LLVM receives that exact artifact plus a validated `CompiledLayoutPlan(TargetSpec)`. The constructor no longer accepts an arbitrary AIMS contract map; any future LLVM-local AIMS invocation, ownership reconstruction, or layout derivation would violate this seam rather than provide a fallback.
 
 ## Target Configuration
 

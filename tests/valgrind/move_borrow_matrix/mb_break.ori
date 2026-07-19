@@ -1,0 +1,54 @@
+// Move/borrow matrix: MB02 — break mid-loop across all type rows.
+// Early exit abandons the live iterator; verifies iterator drop frees the
+// unconsumed tail (elements + buffer) exactly once on every row.
+
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    // Row 1: heap str elements, break after first
+    let count1 = 0;
+    for s in ["abcdefghijklmnopqrstuvwxyz1234", "another_long_heap_string_content", "third_long_heap_string_payload_x"] do {
+        if s.length() > 25 then break;
+        count1 = count1 + 1;
+    };
+    let ok1 = count1 == 0;
+
+    // Row 2: [int] elements, break mid-way
+    let total2 = 0;
+    for xs in [[1, 2], [3, 4, 5], [6]] do {
+        if xs.length() == 3 then break;
+        total2 = total2 + xs.length();
+    };
+    let ok2 = total2 == 2;
+
+    // Row 3: Option<str> elements, break on None
+    let total3 = 0;
+    for o in [Some("abcdefghijklmnopqrstuvwxyz1234"), None, Some("unreached_long_heap_payload_str")] do {
+        if is_none(option: o) then break;
+        total3 = total3 + match o {
+            Some(s) -> s.length(),
+            None -> 0,
+        };
+    };
+    let ok3 = total3 == 30;
+
+    // Row 4: closure with a heap capture, called once after a broken loop
+    let base = "abcdefghijklmnopqrstuvwxyz1234";
+    let f = (n: int) -> int = base.length() + n;
+    let total4 = 0;
+    for i in 0..5 do {
+        if i == 2 then break;
+        total4 = total4 + i;
+    };
+    let ok4 = f(total4) == 31;
+
+    // Row 5: struct elements with heap fields, break on id match
+    let total5 = 0;
+    for p in [Named { name: "abcdefghijklmnopqrstuvwxyz1234", id: 1 }, Named { name: "stop_here_long_heap_payload_str", id: 2 }, Named { name: "c", id: 3 }] do {
+        if p.id == 2 then break;
+        total5 = total5 + p.name.length();
+    };
+    let ok5 = total5 == 30;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 then 0 else 1
+}

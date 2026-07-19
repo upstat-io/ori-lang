@@ -347,7 +347,7 @@ fn test_target_triple_to_string() {
 #[test]
 fn test_target_config_from_components() {
     let components = TargetTripleComponents::parse("x86_64-unknown-linux-gnu").unwrap();
-    let config = TargetConfig::from_components(components.clone());
+    let config = TargetConfig::from_components(components);
 
     assert_eq!(config.components().arch, Arch::X86_64);
     assert!(config.is_linux());

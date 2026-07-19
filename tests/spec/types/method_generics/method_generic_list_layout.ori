@@ -1,7 +1,7 @@
 use std.testing { assert_eq }
 
-// BUG-04-146: method-level generic that USES T's layout (returns [T]). The live
-// hard-fail cell — needs a recorded MonoInstance so codegen substitutes T -> int.
+// Method-level generic that USES T's layout (returns [T]): codegen needs a
+// recorded MonoInstance so it substitutes T -> int for the returned list.
 type Boxer = { tag: int }
 
 impl Boxer {

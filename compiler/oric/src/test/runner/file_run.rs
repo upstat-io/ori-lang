@@ -11,19 +11,70 @@ use crate::query::{parsed, typed, typed_pool};
 
 use super::super::change_detection::{compute_skippable_and_update, TestRunCache};
 use super::super::result::{FileSummary, TestOutcome, TestResult};
-use super::{Backend, TestRunner, TestRunnerConfig};
+use super::{Backend, OutputFormat, TestRunner, TestRunnerConfig};
+
+struct CompileFailContext<'a> {
+    type_result: &'a ori_types::TypeCheckResult,
+    pattern_problems: &'a [ori_ir::canon::PatternProblem],
+    const_problems: &'a [ori_ir::canon::ConstEvalProblem],
+    source: &'a str,
+    interner: &'a crate::ir::StringInterner,
+    pool: &'a ori_types::Pool,
+    config: &'a TestRunnerConfig,
+}
+
+struct RegularRunContext<'a> {
+    db: &'a CompilerDb,
+    path: &'a Path,
+    parse: &'a ori_parse::ParseOutput,
+    typed: &'a ori_types::TypeCheckResult,
+    pool: &'a ori_types::Pool,
+    canon: &'a ori_ir::canon::SharedCanonResult,
+    skippable: &'a rustc_hash::FxHashSet<crate::ir::Name>,
+    config: &'a TestRunnerConfig,
+    interner: &'a crate::ir::StringInterner,
+}
 
 impl TestRunner {
+    /// Read `path`, create a fresh per-file `CompilerDb` sharing `interner`, and
+    /// parse it. Returns `None` (with the failure already recorded on
+    /// `summary`) when the file cannot be read, fails to parse, or has no
+    /// tests — in every such case the caller returns `summary` immediately.
+    fn read_and_parse_file(
+        path: &Path,
+        interner: &crate::ir::SharedInterner,
+        summary: &mut FileSummary,
+    ) -> Option<(CompilerDb, SourceFile, ori_parse::ParseOutput)> {
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) => {
+                summary.add_error(format!("Failed to read file: {e}"));
+                return None;
+            }
+        };
+        // Each file gets its own Salsa query cache, but all share the same
+        // interner so Name values are comparable across files.
+        let db = CompilerDb::with_interner(interner.clone());
+        let file = SourceFile::new(&db, path.to_path_buf(), content);
+        let parse_result = parsed(&db, file);
+        if parse_result.has_errors() {
+            for error in &parse_result.errors {
+                summary.add_error(format!("{}: {}", error.span(), error.message()));
+            }
+            return None;
+        }
+        if parse_result.module.tests.is_empty() {
+            return None;
+        }
+        Some((db, file, parse_result))
+    }
+
     /// Run all tests in a single file with a shared interner.
     ///
     /// This is the core implementation that creates a fresh `CompilerDb` per file
     /// while sharing the interner across all files. This allows parallel execution
     /// (each file gets its own Salsa query cache) while maintaining `Name` comparability
     /// (all `Name` values come from the same interner).
-    #[expect(
-        clippy::too_many_lines,
-        reason = "multi-phase test file execution pipeline"
-    )]
     pub(super) fn run_file_with_interner(
         path: &Path,
         interner: &crate::ir::SharedInterner,
@@ -32,39 +83,15 @@ impl TestRunner {
     ) -> FileSummary {
         let mut summary = FileSummary::new(path.to_path_buf());
 
-        // Read and parse the file
-        let content = match std::fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(e) => {
-                summary.add_error(format!("Failed to read file: {e}"));
-                return summary;
-            }
+        let Some((db, file, parse_result)) =
+            Self::read_and_parse_file(path, interner, &mut summary)
+        else {
+            return summary;
         };
-
-        // Create a fresh CompilerDb with the shared interner.
-        // Each file gets its own Salsa query cache, but all share the same interner
-        // so Name values are comparable across files.
-        let db = CompilerDb::with_interner(interner.clone());
-        let file = SourceFile::new(&db, path.to_path_buf(), content);
         // Retrieve source from SourceFile for error matching (borrows from Salsa).
         // No clone needed: all subsequent `db` usage is shared borrows, so the
         // `&String` returned by `file.text(&db)` remains valid.
         let source = file.text(&db);
-
-        // Parse the file
-        let parse_result = parsed(&db, file);
-        if parse_result.has_errors() {
-            for error in &parse_result.errors {
-                summary.add_error(format!("{}: {}", error.span(), error.message()));
-            }
-            return summary;
-        }
-
-        // Check if there are any tests
-        if parse_result.module.tests.is_empty() {
-            return summary;
-        }
-
         let interner = db.interner();
 
         // Type check via Salsa query — ensures PoolCache is populated and
@@ -75,17 +102,15 @@ impl TestRunner {
             return summary;
         };
 
-        // Canonicalize once for all tests (compile_fail and regular).
-        // Runs even with type errors — pattern problems are independent.
-        // Skip only if parse errors exist (AST may be malformed).
-        // Store in CanonCache so downstream consumers (evaluator, LLVM) can reuse.
+        // Canonicalize once for all tests (compile_fail and regular); runs
+        // even with type errors since pattern problems are independent, and
+        // skips only on parse errors. Cached for downstream reuse (eval, LLVM).
         let shared_canon =
             crate::query::canonicalize_cached(&db, file, &parse_result, &type_result, &pool);
 
-        // Incremental change detection. In worker mode the PARENT owns the
-        // incremental cache and passes its skip decisions via config — the
-        // worker never consults its own (always-fresh) cache. In-process runs
-        // compute skip decisions against the runner-owned cache.
+        // Incremental change detection. In worker mode the parent owns the
+        // cache and passes skip decisions via config (the worker's own cache
+        // is always-fresh and unused); in-process runs compute skips locally.
         let skippable: rustc_hash::FxHashSet<crate::ir::Name> = if config.worker_protocol {
             config
                 .skip_unchanged
@@ -99,7 +124,8 @@ impl TestRunner {
         };
 
         // Separate compile_fail tests from regular tests
-        // compile_fail tests don't need evaluation - they just check for type errors
+        // compile_fail tests don't need evaluation - they check type errors
+        // and pattern problems (exhaustiveness/redundancy) instead
         let (compile_fail_tests, mut regular_tests): (Vec<_>, Vec<_>) = parse_result
             .module
             .tests
@@ -115,39 +141,25 @@ impl TestRunner {
             interner,
         );
 
-        // Effect-driven prioritization: effectful tests first, pure tests last.
-        // Effectful tests are more likely to detect real regressions because they
-        // exercise I/O paths and external interactions. Pure tests are deterministic
-        // and cacheable, so running them last allows early failure detection.
+        // Why: effectful tests run first (more likely to surface real
+        // regressions); pure tests are cacheable and run last.
         if config.incremental {
             Self::prioritize_tests(&mut regular_tests, &type_result.typed, interner);
         }
 
-        // Run compile_fail tests first (they don't need load_module)
-        for test in &compile_fail_tests {
-            if !Self::test_passes_filter(test, config, interner) {
-                continue;
-            }
-            Self::protocol_start(test.name, config, interner);
-
-            let inner_result = Self::run_compile_fail_test(
-                test,
-                &type_result,
-                &shared_canon.problems,
+        Self::run_compile_fail_tests(
+            &mut summary,
+            &compile_fail_tests,
+            &CompileFailContext {
+                type_result: &type_result,
+                pattern_problems: &shared_canon.problems,
+                const_problems: &shared_canon.const_problems,
                 source,
                 interner,
-                &pool,
-            );
-
-            let result = if let Some(expected_failure) = test.fail_expected {
-                Self::apply_fail_wrapper(inner_result, expected_failure, interner)
-            } else {
-                inner_result
-            };
-
-            Self::protocol_result(&result, config, interner);
-            summary.add_result(result);
-        }
+                pool: &pool,
+                config,
+            },
+        );
 
         // Skip regular test execution if there are no regular tests
         if regular_tests.is_empty() {
@@ -160,92 +172,227 @@ impl TestRunner {
         let non_compile_fail_errors =
             non_compile_fail_type_errors(&type_result, &compile_fail_tests);
 
-        if !non_compile_fail_errors.is_empty() {
-            // Type errors outside compile_fail tests block all regular tests.
-            // For interpreter: these are real failures.
-            // For LLVM: these are LLVM compile failures (type errors the interpreter
-            // handles but LLVM can't codegen yet).
-            let is_llvm = matches!(config.backend, Backend::LLVM);
-
-            // Honor the name filter: blocked results are emitted only for
-            // tests that would have run (and, in worker mode, only for tests
-            // the plan records announced — an unfiltered emission here would
-            // surface as unplanned-result protocol anomalies at the parent).
-            for test in regular_tests
-                .iter()
-                .filter(|test| Self::test_passes_filter(test, config, interner))
-            {
-                let result = if is_llvm {
-                    TestResult {
-                        name: test.name,
-                        targets: test.targets.clone(),
-                        outcome: TestOutcome::LlvmCompileFail(
-                            "blocked by type errors in file".to_string(),
-                        ),
-                        duration: Duration::ZERO,
-                    }
-                } else {
-                    TestResult::failed(
-                        test.name,
-                        test.targets.clone(),
-                        "blocked by type errors in file".to_string(),
-                        Duration::ZERO,
-                    )
-                };
-                Self::protocol_result(&result, config, interner);
-                summary.add_result(result);
-            }
-            for error in non_compile_fail_errors {
-                summary.add_error(error.format_with(&pool, interner));
-            }
-            if is_llvm {
-                summary.llvm_compile_error = true;
-            }
+        if Self::record_blocked_regular_tests(
+            &mut summary,
+            &regular_tests,
+            &non_compile_fail_errors,
+            config,
+            interner,
+            &pool,
+        ) {
+            return summary;
+        }
+        if Self::record_blocked_constant_tests(
+            &mut summary,
+            &regular_tests,
+            &shared_canon.const_problems,
+            config,
+            interner,
+        ) {
             return summary;
         }
 
-        // Run regular tests based on backend
-        match config.backend {
-            Backend::Interpreter => {
-                Self::run_interpreter_tests(
-                    &mut summary,
-                    &db,
-                    path,
-                    &parse_result,
-                    &regular_tests,
-                    &shared_canon,
-                    &skippable,
-                    config,
-                    interner,
-                );
-            }
-            #[cfg(feature = "llvm")]
-            Backend::LLVM => {
-                // Use LLVM JIT backend — only pass regular_tests since
-                // compile_fail tests are already handled in the common path above.
-                Self::run_file_llvm(
-                    &mut summary,
-                    &db,
-                    path,
-                    &parse_result,
-                    &regular_tests,
-                    &type_result,
-                    &pool,
-                    &shared_canon,
-                    &skippable,
-                    interner,
-                    config,
-                );
-            }
-            #[cfg(not(feature = "llvm"))]
-            Backend::LLVM => {
-                summary.add_error(
-                    "LLVM backend not available (compile with --features llvm)".to_string(),
-                );
-            }
-        }
+        Self::run_regular_backend(
+            &mut summary,
+            &regular_tests,
+            &RegularRunContext {
+                db: &db,
+                path,
+                parse: &parse_result,
+                typed: &type_result,
+                pool: &pool,
+                canon: &shared_canon,
+                skippable: &skippable,
+                config,
+                interner,
+            },
+        );
 
         summary
+    }
+
+    fn run_compile_fail_tests(
+        summary: &mut FileSummary,
+        tests: &[&TestDef],
+        context: &CompileFailContext<'_>,
+    ) {
+        for test in tests {
+            if !Self::test_passes_filter(test, context.config, context.interner) {
+                continue;
+            }
+            if let Some(reason) = Self::backend_skip_reason(test, context.config.backend) {
+                let result = TestResult::skipped_for(test, reason, context.interner);
+                Self::protocol_result(&result, context.config, context.interner);
+                summary.add_result(result);
+                continue;
+            }
+            Self::protocol_start(test.name, context.config, context.interner);
+            let inner = Self::run_compile_fail_test(
+                test,
+                context.type_result,
+                context.pattern_problems,
+                context.const_problems,
+                context.source,
+                context.interner,
+                context.pool,
+            );
+            let result = match test.fail_expected {
+                Some(expected) => Self::apply_fail_wrapper(inner, expected, context.interner),
+                None => inner,
+            };
+            Self::protocol_result(&result, context.config, context.interner);
+            summary.add_result(result);
+        }
+    }
+
+    fn record_blocked_regular_tests(
+        summary: &mut FileSummary,
+        tests: &[&TestDef],
+        errors: &[&ori_types::TypeCheckError],
+        config: &TestRunnerConfig,
+        interner: &crate::ir::StringInterner,
+        pool: &ori_types::Pool,
+    ) -> bool {
+        if errors.is_empty() {
+            return false;
+        }
+        let is_llvm = matches!(config.backend, Backend::LLVM);
+        for test in tests
+            .iter()
+            .filter(|test| Self::test_passes_filter(test, config, interner))
+        {
+            let result = if is_llvm {
+                TestResult {
+                    name: test.name,
+                    targets: test.targets.clone(),
+                    outcome: TestOutcome::LlvmCompileFail(
+                        "blocked by type errors in file".to_string(),
+                    ),
+                    duration: Duration::ZERO,
+                }
+            } else {
+                TestResult::failed(
+                    test.name,
+                    test.targets.clone(),
+                    "blocked by type errors in file".to_string(),
+                    Duration::ZERO,
+                )
+            };
+            Self::protocol_result(&result, config, interner);
+            summary.add_result(result);
+        }
+        for error in errors {
+            summary.add_error(error.format_with(pool, interner));
+        }
+        summary.llvm_compile_error = is_llvm;
+        true
+    }
+
+    fn record_blocked_constant_tests(
+        summary: &mut FileSummary,
+        tests: &[&TestDef],
+        problems: &[ori_ir::canon::ConstEvalProblem],
+        config: &TestRunnerConfig,
+        interner: &crate::ir::StringInterner,
+    ) -> bool {
+        if problems.is_empty() {
+            return false;
+        }
+
+        let is_llvm = matches!(config.backend, Backend::LLVM);
+        for test in tests
+            .iter()
+            .filter(|test| Self::test_passes_filter(test, config, interner))
+        {
+            let result = if is_llvm {
+                TestResult {
+                    name: test.name,
+                    targets: test.targets.clone(),
+                    outcome: TestOutcome::LlvmCompileFail(
+                        "blocked by constant evaluation errors in file".to_string(),
+                    ),
+                    duration: Duration::ZERO,
+                }
+            } else {
+                TestResult::failed(
+                    test.name,
+                    test.targets.clone(),
+                    "blocked by constant evaluation errors in file".to_string(),
+                    Duration::ZERO,
+                )
+            };
+            Self::protocol_result(&result, config, interner);
+            summary.add_result(result);
+        }
+
+        for problem in problems {
+            let diagnostic =
+                crate::problem::semantic::const_eval_problem_to_diagnostic(problem, interner);
+            summary.add_error(format!(
+                "error[{}]: {}",
+                diagnostic.code.as_str(),
+                diagnostic.message
+            ));
+        }
+        summary.llvm_compile_error = is_llvm;
+        true
+    }
+
+    fn run_regular_backend(
+        summary: &mut FileSummary,
+        tests: &[&TestDef],
+        context: &RegularRunContext<'_>,
+    ) {
+        let selected: Vec<&TestDef> = tests
+            .iter()
+            .copied()
+            .filter(|test| {
+                if !Self::test_passes_filter(test, context.config, context.interner) {
+                    return true;
+                }
+                let Some(reason) = Self::backend_skip_reason(test, context.config.backend) else {
+                    return true;
+                };
+                let result = TestResult::skipped_for(test, reason, context.interner);
+                Self::protocol_result(&result, context.config, context.interner);
+                summary.add_result(result);
+                false
+            })
+            .collect();
+        match context.config.backend {
+            Backend::Interpreter => Self::run_interpreter_tests(
+                summary,
+                context.db,
+                context.path,
+                context.parse,
+                &selected,
+                context.canon,
+                context.skippable,
+                context.config,
+                context.interner,
+            ),
+            #[cfg(feature = "llvm")]
+            Backend::LLVM => Self::run_file_llvm(
+                summary,
+                super::llvm_backend::LlvmTestFile {
+                    db: context.db,
+                    path: context.path,
+                    parse: context.parse,
+                    typed: context.typed,
+                    pool: context.pool,
+                    canon: context.canon,
+                    interner: context.interner,
+                },
+                super::llvm_backend::LlvmTestSelection {
+                    tests: &selected,
+                    skippable: context.skippable,
+                    config: context.config,
+                },
+            ),
+            #[cfg(not(feature = "llvm"))]
+            Backend::LLVM => summary
+                .add_error("LLVM backend not available (compile with --features llvm)".to_string()),
+        }
     }
 
     /// Run regular tests on the interpreter backend.
@@ -272,12 +419,18 @@ impl TestRunner {
         // Create evaluator in TestRun mode with type information.
         // TestRun mode: 500-depth recursion limit, test result collection.
         let build_evaluator = || -> Result<Evaluator, Vec<String>> {
-            let mut evaluator = Evaluator::builder(interner, &parse_result.arena, db)
+            let mut builder = Evaluator::builder(interner, &parse_result.arena, db)
                 .mode(ori_eval::EvalMode::TestRun {
                     only_attached: false,
                 })
-                .canon(shared_canon.clone())
-                .build();
+                .canon(shared_canon.clone());
+            // In json mode stdout is the machine-readable summary channel:
+            // buffer print() output instead of contaminating it (drained to
+            // stderr after each test runs); text mode keeps output inline.
+            if config.format == OutputFormat::Json {
+                builder = builder.print_handler(ori_eval::buffer_handler());
+            }
+            let mut evaluator = builder.build();
             evaluator.register_prelude();
             match evaluator.load_module(parse_result, path, Some(shared_canon)) {
                 Ok(()) => Ok(evaluator),

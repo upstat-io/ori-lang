@@ -38,7 +38,7 @@ Theorem VF-1 + VF-4: Layered verifier composition
           RC on scalar: RcInc/RcDec at k+1 targets non-SCALAR var
             (per Annex E §AIMS §7 ArcClass).
           Dec on borrowed: RcDec at k+1 targets non-Borrowed var
-            (per VF-1 sec-9 + RL-14/RL-15a field-drop exemption).
+            (per VF-1 sec-9 + RL-14a exact cleanup field-drop exemption).
           Arg ownership length: Apply/Invoke at k+1 has args length
             matching callee param count.
         Per inductive hypothesis + per-instruction check, VF-1 holds
@@ -72,8 +72,7 @@ Theorem VF-1 + VF-4: Layered verifier composition
       Layer 1 (VF-1 structural) catches use-before-def, dangling
       refs, RC-on-scalar, dec-on-borrowed;
       Layer 2 (VF-2 AimsState consistency) catches
-      AbsentParamHasUses + (target-only) RL-29/RL-30/RL-31 metadata
-      consistency;
+      AbsentParamHasUses + RL-29/RL-30/RL-31 neutral fact consistency;
       Layer 3 (VF-3 Oracle) re-derives MemoryContract from realized
       IR and compares;
       Layer 4 (VF-4 FIP) proves alloc/dealloc balance;

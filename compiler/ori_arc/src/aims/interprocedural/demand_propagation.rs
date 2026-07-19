@@ -2,9 +2,9 @@
 //!
 //! After the SCC fixpoint converges, tighten a callee parameter's uniqueness
 //! to `Unique` when every call site passes a fresh, single-use `Construct`
-//! argument. BUG-04-069: the forwarded-`Owned`-param heuristic was removed as
-//! the DP-10 / IC-8 fallacy; only fresh `Construct` + `count_var_uses == 1`
-//! qualifies.
+//! argument — only fresh `Construct` + `count_var_uses == 1` qualifies (the
+//! DP-10 / IC-8 fallacy: a forwarded `Owned` parameter proves no future
+//! duplication, not no existing alias).
 
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -24,17 +24,17 @@ use super::use_count::count_var_uses;
 /// re-analyzes each function to collect call-site argument states. For a
 /// given (callee, `param_idx`), the callee's `ParamContract.uniqueness` is
 /// tightened to `Unique` only when EVERY call site passes an argument that
-/// is a fresh `Construct` value used exactly once in its function — RC == 1
-/// by construction per TF-3.
+/// is a fresh `Construct` value used exactly once in its function — exactly
+/// one logical owner by construction per TF-3.
 ///
 /// # Soundness
 ///
-/// A fresh `Construct` used exactly once has RC == 1 with no existing
-/// aliases — the sole sound basis for `Unique`. The forwarded-`Owned`
-/// parameter heuristic (`Owned + Linear + Once`) was removed: it proves
+/// A fresh `Construct` used exactly once has one logical owner with no existing
+/// aliases — the sole sound basis for `Unique`. A forwarded-`Owned`
+/// parameter (`Owned + Linear + Once`) does NOT qualify: it proves
 /// no-future-duplication, NOT no-existing-alias (the DP-10 / IC-8 fallacy).
 /// A fresh `Construct` reaching the same (callee, `param_idx`) at two or
-/// more sites is RC > 1 at the non-first use, so the single-use guard in
+/// more sites may have another outstanding owner at the non-first use, so the single-use guard in
 /// `arg_satisfies_uniqueness` is load-bearing.
 ///
 /// # Implementation
@@ -48,9 +48,10 @@ pub(super) fn tighten_uniqueness_from_callers(
     functions: &[ArcFunction],
     classifier: &dyn ArcClassification,
     sigs: &mut FxHashMap<Name, MemoryContract>,
+    immutable_callees: &FxHashSet<Name>,
 ) {
-    // Phase 1: Re-analyze each function with final contracts and collect
-    // call-site argument states.
+    // Re-analyze each function with final contracts and collect call-site
+    // argument states.
     //
     // For each (callee, param_idx), track whether ALL callers satisfy the
     // fresh-Construct + single-use condition. Start optimistically at `true`
@@ -101,10 +102,10 @@ pub(super) fn tighten_uniqueness_from_callers(
         }
     }
 
-    // Phase 2: Tighten uniqueness for parameters where ALL callers satisfy.
+    // Tighten uniqueness for parameters where ALL callers satisfy.
     let mut tightened = 0u32;
     for ((callee, param_idx), satisfies) in &all_satisfy {
-        if !satisfies {
+        if !satisfies || immutable_callees.contains(callee) {
             continue;
         }
         if let Some(contract) = sigs.get_mut(callee) {
@@ -128,7 +129,7 @@ pub(super) fn tighten_uniqueness_from_callers(
 /// Collect call-site argument uniqueness information for demand propagation.
 ///
 /// For each non-scalar argument, folds per `(callee, param_idx)` whether the
-/// argument is a fresh `Construct` used exactly once (RC==1 by TF-3) across all
+/// argument is a fresh `Construct` used exactly once (one owner by TF-3) across all
 /// call sites; the param tightens to `Unique` only when every site qualifies.
 /// Only non-scalar arguments in callee contracts are checked.
 fn collect_call_site_uniqueness(
@@ -163,12 +164,12 @@ fn collect_call_site_uniqueness(
     }
 }
 
-/// Check whether a call-site argument is guaranteed unique (RC==1).
+/// Check whether a call-site argument is guaranteed to have one logical owner.
 ///
-/// Only a fresh `Construct` value (RC==1 by TF-3) used EXACTLY ONCE qualifies.
+/// Only a fresh `Construct` value (one owner by TF-3) used EXACTLY ONCE qualifies.
 /// The single-use guard is load-bearing: callers fold this per
 /// `(callee, param_idx)` with logical AND, so a fresh value passed to the same
-/// parameter at multiple sites is RC>1 at the non-first use and must not tighten.
+/// parameter at multiple sites may have another owner at the non-first use and must not tighten.
 /// A forwarded `Owned` parameter does NOT qualify — `Owned+Linear+Once` proves
 /// no-future-duplication, NOT no-existing-alias (the removed IC-8 / DP-10 rule).
 fn arg_satisfies_uniqueness(
@@ -182,11 +183,11 @@ fn arg_satisfies_uniqueness(
 
 /// Pre-compute the set of variables defined by `Construct` instructions.
 ///
-/// A `Construct`-defined variable is a fresh allocation (RC == 1 at its
+/// A `Construct`-defined variable starts with one fresh logical owner at its
 /// definition). Set membership alone does NOT prove call-site uniqueness:
-/// a fresh value used more than once is RC > 1 at the non-first use. The
+/// a fresh value used more than once may have another outstanding owner. The
 /// caller-side `count_var_uses == 1` guard in `arg_satisfies_uniqueness` is
-/// what establishes RC == 1 at the call site. Computing this set once per
+/// what establishes one-owner status at the call site. Computing this set once per
 /// function (O(blocks × instrs)) then using O(1) lookups avoids a
 /// per-argument scan in `arg_satisfies_uniqueness`.
 fn build_construct_set(func: &ArcFunction) -> FxHashSet<ArcVarId> {

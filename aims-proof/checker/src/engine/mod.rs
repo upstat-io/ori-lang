@@ -10,8 +10,8 @@
 //! LEM-based case analysis.
 //! - `refinement` — refinement-argument engine (RL post-condition =>
 //! pre-condition implications).
-//! - `rc_counting` — RC-preservation engine (RL-1..RL-21 +
-//! RL-22..RL-26 RC-balance arguments).
+//! - `rc_counting` — RC-preservation engine (RL-1..RL-5 + RL-22..RL-26 +
+//! composition RC-balance arguments; secondary for neutral fact rules).
 //! - `lattice` — lattice-algebra engine (L-1..L-10 commutativity /
 //! associativity / idempotence / finite-height).
 //! - `monotonicity` — monotone-transfer-function engine (L-6 + TF rule

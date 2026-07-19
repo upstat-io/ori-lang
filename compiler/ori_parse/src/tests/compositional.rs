@@ -646,8 +646,9 @@ mod mixed_declarations {
             "#skip(\"not implemented\")\n@test_something tests @target () -> void = ();",
             // Multiple attributes
             "#derive(Eq)\n#derive(Clone)\ntype Data = { value: int }",
-            // Compile fail attribute
-            "#compile_fail(\"type error\")\n@bad () -> int = \"not an int\";",
+            // Compile fail attribute (test-only attr requires a `tests` host —
+            // a plain-function host is rejected at parse time)
+            "#compile_fail(\"type error\")\n@bad tests _ () -> void = { () }",
             // Fail attribute
             "#fail(\"expected panic\")\n@test_panic tests @target () -> void = panic(msg: \"oops\");",
         ];
@@ -1206,7 +1207,7 @@ mod mixed_expressions {
 
     #[test]
     fn test_unsafe_requires_block() {
-        // Parenthesized form is no longer valid
+        // Parenthesized form is rejected; `unsafe` requires a block body.
         let result = parse_source("@test () -> int = unsafe(42);");
         assert!(
             result.has_errors(),

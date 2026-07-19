@@ -30,6 +30,7 @@ The last expression in a block, if not terminated by `;`, is the _result express
 The following constructs always have type `void` and are used only as statements:
 
 - `let` bindings
+- `let?` fallible bindings (see [13.9](13-variables.md) and [16.5.3](#1653-propagation-from-fallible-bindings)); a `let?`-terminated block has value `void`
 - `use` imports
 - Assignments (`x = v`)
 - Compound assignments (`x += v`)
@@ -419,6 +420,33 @@ If the value is `None`, the enclosing function returns `None`:
 
 The function's return type shall be compatible with the propagated type.
 
+### 16.5.3 Propagation from fallible bindings
+
+A fallible binding `let? pattern = expression;` (see [13.9](13-variables.md)) propagates on pattern mismatch. `None` is the sole propagation carrier: mismatch propagates `None` to the enclosing function, whose return type shall be compatible per 16.5.2. Inside a `try` block, propagation targets the `try` boundary per [16.7.3](#1673-try-blocks); where a `None`-carrier propagation is ill-typed at a `Result`-typed `try` boundary for `expr?`, the same `let?` mismatch is equally ill-typed.
+
+_Error-preservation invariant_: no `let?` mismatch path shall silently discard a live `Err` value. The compiler shall determine, per pattern shape, whether a value containing an `Err` — at the scrutinee's top level or at any nested `Result`-typed position the pattern inspects with a refutable sub-pattern — can take the mismatch branch. Such a shape is a compile-time error whose diagnostic names the equivalent or decomposed form. For or-patterns and at-patterns, the invariant is evaluated over the whole pattern: the mismatch region is the complement of the union of all or-alternatives, and at-patterns are transparent.
+
+| Pattern over `Result<T, E>` scrutinee | Verdict |
+|---|---|
+| `Ok`-head, irrefutable interior (`Ok((a, b))`) | error — the equivalent `let (a, b) = expr?;` preserves the error |
+| `Ok`-head, refutable interior (`Ok(Some(x))`) | error — decompose (`let inner = expr?;` then `let? Some(x) = inner;`) or convert (`.ok()`) |
+| `Err`-head, refutable interior (`Err(Timeout)`) | error — a different live `Err` may take the mismatch branch; bind the whole error instead |
+| `Err`-head, irrefutable interior (`Err(e)`) | permitted — the mismatch region holds only `Ok` payloads; propagates `None` |
+| Nested `Result` position inspected refutably (`(Ok(cfg), rest)`, `Some(Ok(x))`) | error — decompose first |
+| Nested `Result` position bound whole by an irrefutable binding (`(Some(a), res)`) | permitted — binding a `Result` never discards it |
+
+NOTE  The division of labor is: `?` owns error propagation; `let?` owns refutable binding with `None` propagation; the invariant's errors are the seam between them.
+
+EXAMPLE
+
+```ori
+@first_pair (xs: [int]) -> Option<(int, int)> = {
+    let? [a, b, ..] = xs;      // mismatch (fewer than 2 elements) -> None
+
+    Some((a, b))
+}
+```
+
 ## 16.6 Terminating expressions
 
 A _terminating expression_ is an expression whose evaluation is guaranteed to not complete normally. Terminating expressions have type `Never`, which is compatible with any type (see [8.1.1](08-types.md)).
@@ -429,10 +457,11 @@ The following are terminating expressions:
 2. `break` and `break value` — exit the enclosing loop or labeled block
 3. `continue` and `continue value` — skip to the next iteration
 4. `expr?` when the Err/None branch is taken — returns from the enclosing function
-5. A block `{ ... e }` where the last expression `e` is terminating
-6. `if c then t else e` where both `t` and `e` are terminating
-7. `match expr { arms }` where every arm body is terminating
-8. `loop { body }` with no `break` — an infinite loop with type `Never`
+5. The mismatch arm of a `let?` fallible binding — propagates `None` per [16.5.3](#1653-propagation-from-fallible-bindings)
+6. A block `{ ... e }` where the last expression `e` is terminating
+7. `if c then t else e` where both `t` and `e` are terminating
+8. `match expr { arms }` where every arm body is terminating
+9. `loop { body }` with no `break` — an infinite loop with type `Never`
 
 ```ori
 let x: int = if condition then 42 else panic(msg: "unreachable");
@@ -471,7 +500,7 @@ else if x < 0 then "negative"
 else "zero"
 ```
 
-NOTE  There is no `if let` syntax. Use `match` for destructuring conditionals.
+NOTE  There is no `if let` syntax. Use `match` for destructuring conditionals, or the fallible binding `let?` ([13.9](13-variables.md)) for refutable bindings with early exit.
 
 ### 16.7.2 Match
 

@@ -2,36 +2,19 @@
 
 use ori_ir::{ExprArena, Name, ParsedType, ParsedTypeRange, Span, TypeId};
 
-use super::super::InferEngine;
 use crate::check::ObjectSafetyChecker;
 use crate::{Idx, ObjectSafetyViolation, Tag, TypeCheckError};
 
-/// Resolve a `ParsedType` from the AST into a pool `Idx`.
-///
-/// This converts parsed type annotations into the pool representation.
-/// The conversion is recursive for compound types (functions, containers, etc.).
-///
-/// # Type Mapping
-///
-/// | `ParsedType` | `Idx` |
-/// |--------------|-------|
-/// | `Primitive(TypeId::INT)` | `Idx::INT` |
-/// | `Primitive(TypeId::UNIT)` | `Idx::UNIT` |
-/// | `List(elem)` | `pool.list(resolve(elem))` |
-/// | `Function { params, ret }` | `pool.function(...)` |
-/// | `Named { name, args }` | lookup or fresh var |
-/// | `Infer` | fresh variable |
-/// | `SelfType` | fresh variable (TODO: context lookup) |
-///
-/// # Future Work
-///
-/// - Named type lookup requires `TypeRegistry` integration (section 07)
-/// - `SelfType` requires trait/impl context
-/// - `AssociatedType` requires projection support
-#[expect(
-    clippy::too_many_lines,
-    reason = "exhaustive ParsedType variant resolution covering all primitive, container, and user-defined types"
-)]
+use super::super::InferEngine;
+use super::fixed_list_capacity::validate_fixed_list_capacities;
+
+/// Resolve a `ParsedType` from the AST into a pool `Idx`, recursing for
+/// compound types (functions, containers, etc.). `Named` resolves via
+/// well-known generics, the `TypeRegistry`, the environment, then FFI
+/// carrier inference, falling back to a fresh named var; `SelfType`
+/// resolves via the current impl's `Self` binding, falling back to a
+/// fresh var; `AssociatedType` resolves via the base type's trait impls,
+/// falling back to a fresh var.
 pub fn resolve_parsed_type(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -49,8 +32,8 @@ pub fn resolve_parsed_type(
         }
 
         ParsedType::FixedList { elem, capacity: _ } => {
-            // Fixed lists are treated as regular lists for now
-            // TODO: Add fixed list support when needed
+            // Spec: Clause 8.2.2 - capacity-aware subtyping is target-only;
+            // erased to a plain list until capacity tracking ships.
             let elem_parsed = arena.get_parsed_type(*elem);
             let elem_ty = resolve_parsed_type(engine, arena, elem_parsed);
             engine.pool_mut().list(elem_ty)
@@ -84,96 +67,7 @@ pub fn resolve_parsed_type(
 
         // Named Types
         ParsedType::Named { name, type_args } => {
-            // Resolve type arguments if present
-            let resolved_args: Vec<Idx> = if type_args.is_empty() {
-                Vec::new()
-            } else {
-                resolve_parsed_type_list(engine, arena, *type_args)
-            };
-
-            // Well-known generic types must use their dedicated Pool constructors
-            // to match types created during inference.
-            if !resolved_args.is_empty() {
-                // Grab cache pointer before mutably borrowing pool
-                let wk = engine.well_known();
-                let resolved = if let Some(wk) = wk {
-                    wk.resolve_generic(engine.pool_mut(), *name, &resolved_args)
-                } else if let Some(name_str) = engine.lookup_name(*name) {
-                    crate::check::resolve_well_known_generic(
-                        engine.pool_mut(),
-                        name_str,
-                        &resolved_args,
-                    )
-                } else {
-                    None
-                };
-                if let Some(idx) = resolved {
-                    return idx;
-                }
-                return engine.pool_mut().applied(*name, &resolved_args);
-            }
-
-            // No type args — check for builtin primitive names via cache
-            if let Some(wk) = engine.well_known() {
-                if let Some(idx) = wk.resolve_primitive(*name) {
-                    return idx;
-                }
-            } else if let Some(name_str) = engine.lookup_name(*name) {
-                match name_str {
-                    "int" => return Idx::INT,
-                    "float" => return Idx::FLOAT,
-                    "bool" => return Idx::BOOL,
-                    "str" => return Idx::STR,
-                    "char" => return Idx::CHAR,
-                    "byte" => return Idx::BYTE,
-                    "void" | "()" => return Idx::UNIT,
-                    "never" | "Never" => return Idx::NEVER,
-                    "Duration" | "duration" => return Idx::DURATION,
-                    "Size" | "size" => return Idx::SIZE,
-                    "ordering" | "Ordering" => return Idx::ORDERING,
-                    "Error" => return Idx::ERROR,
-                    _ => {}
-                }
-            }
-
-            // Check if it's a known user-defined type in the TypeRegistry
-            if let Some(registry) = engine.type_registry() {
-                if registry.get_by_name(*name).is_some() {
-                    return engine.pool_mut().named(*name);
-                }
-            }
-
-            // Check if it's bound in the current environment (type parameter or local)
-            if let Some(ty) = engine.env().lookup(*name) {
-                return engine.instantiate(ty);
-            }
-
-            // FFI types (CPtr, c_int, etc.) are not in the TypeRegistry but are
-            // valid concrete types. Create a Named Pool entry with a resolution
-            // so downstream phases (ARC, LLVM) can classify them correctly.
-            // Without this, they become unbound type variables that crash codegen.
-            if let Some(wk) = engine.well_known() {
-                if let Some(concrete_idx) = wk.resolve_ffi_concrete(*name) {
-                    let named_idx = engine.pool_mut().named(*name);
-                    engine.pool_mut().set_resolution(named_idx, concrete_idx);
-                    return named_idx;
-                }
-            } else if let Some(name_str) = engine.lookup_name(*name) {
-                let concrete = match name_str {
-                    "CPtr" | "c_int" | "c_long" | "c_longlong" | "c_size" | "c_short"
-                    | "c_char" => Some(Idx::INT),
-                    "c_float" | "c_double" => Some(Idx::FLOAT),
-                    _ => None,
-                };
-                if let Some(concrete_idx) = concrete {
-                    let named_idx = engine.pool_mut().named(*name);
-                    engine.pool_mut().set_resolution(named_idx, concrete_idx);
-                    return named_idx;
-                }
-            }
-
-            // Unknown type — create a named var for inference
-            engine.fresh_named_var(*name)
+            resolve_named_type(engine, arena, *name, *type_args)
         }
 
         // Inference Markers
@@ -206,8 +100,8 @@ pub fn resolve_parsed_type(
 
         ParsedType::TraitBounds(bounds) => {
             // Bounded trait object: Printable + Hashable
-            // Resolve the first bound as the primary type for now;
-            // full trait object dispatch will refine this later.
+            // Spec: Clause 8.8 - dedicated trait-object encoding is
+            // target-only; the first bound stands in as the placeholder Idx.
             let bound_ids = arena.get_parsed_type_list(*bounds);
             if let Some(&first_id) = bound_ids.first() {
                 let first = arena.get_parsed_type(first_id);
@@ -219,8 +113,100 @@ pub fn resolve_parsed_type(
     }
 }
 
+fn resolve_named_type(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    name: Name,
+    type_args: ParsedTypeRange,
+) -> Idx {
+    let resolved_args = resolve_named_type_args(engine, arena, type_args);
+    if !resolved_args.is_empty() {
+        return resolve_applied_named_type(engine, name, &resolved_args);
+    }
+
+    if let Some(primitive) = resolve_named_primitive(engine, name) {
+        return primitive;
+    }
+    if engine
+        .type_registry()
+        .is_some_and(|registry| registry.get_by_name(name).is_some())
+    {
+        return engine.pool_mut().named(name);
+    }
+    if let Some(ty) = engine.env().lookup(name) {
+        return engine.instantiate(ty);
+    }
+    if let Some(ffi_type) = resolve_named_ffi_type(engine, name) {
+        return ffi_type;
+    }
+    engine.fresh_named_var(name)
+}
+
+fn resolve_named_type_args(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    type_args: ParsedTypeRange,
+) -> Vec<Idx> {
+    if type_args.is_empty() {
+        Vec::new()
+    } else {
+        resolve_parsed_type_list(engine, arena, type_args)
+    }
+}
+
+fn resolve_applied_named_type(engine: &mut InferEngine<'_>, name: Name, args: &[Idx]) -> Idx {
+    let resolved = if let Some(wk) = engine.well_known() {
+        wk.resolve_generic(engine.pool_mut(), name, args)
+    } else if let Some(name_str) = engine.lookup_name(name) {
+        crate::check::resolve_well_known_generic(engine.pool_mut(), name_str, args)
+    } else {
+        None
+    };
+    resolved.unwrap_or_else(|| engine.pool_mut().applied(name, args))
+}
+
+fn resolve_named_primitive(engine: &InferEngine<'_>, name: Name) -> Option<Idx> {
+    if let Some(wk) = engine.well_known() {
+        return wk.resolve_primitive(name);
+    }
+    match engine.lookup_name(name)? {
+        "int" => Some(Idx::INT),
+        "float" => Some(Idx::FLOAT),
+        "bool" => Some(Idx::BOOL),
+        "str" => Some(Idx::STR),
+        "char" => Some(Idx::CHAR),
+        "byte" => Some(Idx::BYTE),
+        "void" | "()" => Some(Idx::UNIT),
+        "never" | "Never" => Some(Idx::NEVER),
+        "Duration" | "duration" => Some(Idx::DURATION),
+        "Size" | "size" => Some(Idx::SIZE),
+        "ordering" | "Ordering" => Some(Idx::ORDERING),
+        _ => None,
+    }
+}
+
+fn resolve_named_ffi_type(engine: &mut InferEngine<'_>, name: Name) -> Option<Idx> {
+    let carrier = if let Some(wk) = engine.well_known() {
+        wk.resolve_ffi_concrete(name)
+            .zip(wk.resolve_ffi_cabi_kind(name))
+    } else {
+        let kind = ori_ir::CAbiKind::from_name(engine.lookup_name(name)?)?;
+        let concrete = if kind.is_float() {
+            Idx::FLOAT
+        } else {
+            Idx::INT
+        };
+        Some((concrete, kind))
+    }?;
+    let named_idx = engine.pool_mut().named(name);
+    engine
+        .pool_mut()
+        .attach_ffi_carrier(named_idx, carrier.0, carrier.1);
+    Some(named_idx)
+}
+
 /// Resolve a list of parsed types into a vector of pool indices.
-pub(crate) fn resolve_parsed_type_list(
+pub(super) fn resolve_parsed_type_list(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
     range: ParsedTypeRange,
@@ -243,7 +229,7 @@ pub(crate) fn resolve_parsed_type_list(
 /// `TypeId` and `Idx` now share the same index layout for primitives (0-11),
 /// so this is an identity mapping. INFER (12) and `SELF_TYPE` (13) are markers
 /// that become fresh inference variables.
-pub(crate) fn resolve_type_id(engine: &mut InferEngine<'_>, type_id: TypeId) -> Idx {
+fn resolve_type_id(engine: &mut InferEngine<'_>, type_id: TypeId) -> Idx {
     let raw = type_id.raw();
     if raw < TypeId::PRIMITIVE_COUNT {
         // Primitives 0-11 map by identity (TypeId and Idx share the same layout)
@@ -314,6 +300,7 @@ pub(crate) fn resolve_and_check_parsed_type(
     parsed: &ParsedType,
     span: Span,
 ) -> Idx {
+    validate_fixed_list_capacities(engine, arena, parsed);
     crate::check::check_parsed_type_object_safety(engine, parsed, span, arena);
     let resolved = resolve_parsed_type(engine, arena, parsed);
     check_map_key_hashable(engine, resolved, span);

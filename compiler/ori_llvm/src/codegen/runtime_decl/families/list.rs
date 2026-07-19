@@ -306,4 +306,12 @@ pub(in crate::codegen::runtime_decl) static LIST: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
+    RtFn {
+        name: "ori_list_flatten",
+        // outer_data, outer_len, inner_elem_size, inner_elem_align, inc_fn, out_ptr
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr, Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::Nounwind, Attr::NoaliasLastParam],
+        jit_allowed: true,
+    },
 ];

@@ -1,0 +1,12 @@
+type ConstVec<T> = { items: [T] }
+
+impl<T> ConstVec<T> {
+    @first_n<$N: int> (self) -> [T, max N] = self.items;
+}
+
+@const_let_capacity () -> void = {
+    let $K = 5;
+    let values = ConstVec { items: [11, 22, 33, 44, 55] };
+    let _: [int, max K] = values.first_n();
+    ()
+}

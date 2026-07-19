@@ -12,7 +12,7 @@
 
 use super::{Arch, HostOs, HostPlatform, TargetTripleComponents};
 
-// === Arch alias normalization ===
+// Arch alias normalization
 
 /// Matrix: every known alias spelling parses into the correct canonical `Arch`.
 #[test]
@@ -78,7 +78,7 @@ fn test_arch_parse_rejects_unknown_names() {
     assert_eq!(Arch::parse_llvm_name("ARM64"), None); // case-sensitive
 }
 
-// === Triple parse preserves vendor/os/env verbatim while canonicalizing arch ===
+// Triple parse preserves vendor/os/env verbatim while canonicalizing arch
 
 #[test]
 fn test_target_triple_parse_preserves_vendor_os_env_while_normalizing_arch_matrix() {
@@ -138,7 +138,7 @@ fn test_target_triple_parse_preserves_vendor_os_env_while_normalizing_arch_matri
     assert_eq!(visited, cases.len(), "matrix skipped cells");
 }
 
-// === Cross-host cross-compilation detection ===
+// Cross-host cross-compilation detection
 
 /// For every (host, target) combo, verify `is_cross_for` reports correctly.
 /// Self-verifying counter included.
@@ -206,7 +206,7 @@ fn test_is_cross_for_matrix_is_self_verifying() {
     );
 }
 
-// === Native round-trip for every supported host ===
+// Native round-trip for every supported host
 
 /// For each supported host (Linux `x86_64`, Linux `aarch64`, macOS `x86_64`,
 /// macOS `arm64`, Windows `x86_64`), the native triple must parse to
@@ -253,7 +253,7 @@ fn test_native_host_triple_round_trips_to_not_cross_compiling_matrix() {
     }
 }
 
-// === Semantic pin for ===
+// Semantic pin for
 
 /// Regression pin: this exact bug.
 ///
@@ -283,7 +283,7 @@ fn test_is_cross_for_regression_pin_arm64_native_host_is_not_cross() {
     );
 }
 
-// === Syslib sibling pin ===
+// Syslib sibling pin
 
 /// Sibling semantic pin for `syslib`'s native check. Exercises the same
 /// `is_native_for` query on each supported host.
@@ -317,7 +317,7 @@ fn test_syslib_is_native_for_simulated_host_matrix() {
     assert!(parsed.is_cross_for(host));
 }
 
-// === Type-level negative pin ===
+// Type-level negative pin
 
 /// Negative pin (type-level): if `TargetTripleComponents.arch` is ever reverted
 /// from `Arch` back to `String`, this test refuses to compile because:
@@ -344,7 +344,7 @@ fn test_target_triple_components_has_no_raw_arch_string_field() {
     assert_eq!(canonical.display_name(), "x86_64");
 }
 
-// === Arch query methods ===
+// Arch query methods
 
 #[test]
 fn test_arch_pointer_size_bytes_exhaustive() {
@@ -385,7 +385,7 @@ fn test_arch_display_formats_canonical() {
     assert_eq!(format!("{}", Arch::Wasm64), "wasm64");
 }
 
-// === support_key() — canonical lookup form for SUPPORTED_TARGETS ===
+// support_key() — canonical lookup form for SUPPORTED_TARGETS
 
 /// `support_key()` strips Darwin OS version suffixes so versioned and
 /// unversioned spellings both match the unversioned `SUPPORTED_TARGETS`

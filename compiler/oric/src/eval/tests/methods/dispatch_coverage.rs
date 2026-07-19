@@ -22,6 +22,7 @@ pub(super) fn minimal_value_for(tag: TypeTag) -> Option<Value> {
         TypeTag::Str => Some(Value::string("")),
         TypeTag::Char => Some(Value::Char(' ')),
         TypeTag::Byte => Some(Value::Byte(0)),
+        TypeTag::Unit => Some(Value::Void),
         TypeTag::Duration => Some(Value::Duration(0)),
         TypeTag::Size => Some(Value::Size(0)),
         TypeTag::Ordering => Some(Value::ordering_equal()),
@@ -34,8 +35,7 @@ pub(super) fn minimal_value_for(tag: TypeTag) -> Option<Value> {
         TypeTag::Tuple => Some(Value::tuple(vec![])),
         TypeTag::Error => Some(Value::error("test")),
         // Types without a direct Value representation or dispatched elsewhere.
-        TypeTag::Unit
-        | TypeTag::Never
+        TypeTag::Never
         | TypeTag::Iterator
         | TypeTag::DoubleEndedIterator
         | TypeTag::Channel

@@ -1,22 +1,19 @@
 #!/bin/bash
-# Run full clippy AND full tests: the complete pre-commit/pre-push check.
+# Fast pre-commit check: clippy + UB-coverage gate. Does NOT run test-all.
 # Usage: ./full-check.sh [-v|--verbose] [-s|--sequential] [--no-tee]
 #
 # Runs in order:
 # 1. clippy-all.sh (workspace + LLVM)
-# 2. test-all.sh (workspace + LLVM + WASM + Ori interpreter + Ori LLVM)
+# 2. UB coverage-matrix regression gate
 #
-# Clippy runs first for fast feedback — no point running tests if lint fails.
-# All non-recognized flags are forwarded to test-all.sh.
+# test-all is NOT a per-commit gate. It runs at bug/plan completion (the
+# /fix-bug + /continue-roadmap verdict surfaces) and in CI before merge to
+# main (ci.yml runs ./test-all.sh directly). Run it locally on demand with
+# `./test-all.sh`.
 #
 # Output is teed to /tmp/full-check-<timestamp>.log so progress is recoverable
-# even when invoked by lefthook (which buffers stdout/stderr) and the wrapping
-# session times out mid-run. Tail the log live with `tail -f` (path printed at
-# start). Pass --no-tee to disable (useful in CI where /tmp may not persist).
-#
-# Per-phase timestamps + duration are printed so you can see progress without
-# the log file. The "Phase 2: Tests" header includes a "5-10 min typical"
-# warning so observers don't assume the script has hung.
+# even when invoked by lefthook (which buffers stdout/stderr). Tail the log
+# live with `tail -f` (path printed at start). Pass --no-tee to disable.
 
 set -e
 
@@ -27,16 +24,13 @@ YELLOW='\033[1;33m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-# Parse our own flags (everything else forwards to test-all.sh).
+# Parse our own flags. Unrecognized flags (-v / -s / etc.) are ignored — they
+# were forwarded to test-all.sh, which this gate no longer runs.
 TEE_OUTPUT=1
-FORWARD_ARGS=()
 for arg in "$@"; do
     case $arg in
         --no-tee)
             TEE_OUTPUT=0
-            ;;
-        *)
-            FORWARD_ARGS+=("$arg")
             ;;
     esac
 done
@@ -71,7 +65,7 @@ trap print_hook_failure_directive EXIT
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 START_TS=$(date +%s)
 
-echo -e "${BOLD}=== Full Check: Clippy + Tests ===${NC}"
+echo -e "${BOLD}=== Full Check: Clippy + UB gate (test-all is NOT run here) ===${NC}"
 if [[ $TEE_OUTPUT -eq 1 ]]; then
     echo "  Output → $LOG_FILE (tail -f to watch progress live)"
 fi
@@ -134,28 +128,27 @@ echo ""
 echo -e "${GREEN}${BOLD}--- Phase 1 (Clippy) PASSED in $(($(date +%s) - PHASE1_START))s ---${NC}"
 echo ""
 
-# Phase 2: Tests (forward all flags)
-PHASE2_START=$(date +%s)
-# NON-BLOCKING during the active compiler rewrite — test-all.sh still runs
-# and its output is preserved, but a failure emits a warning instead of
-# failing the hook. Clippy + every other pre-commit gate (fmt, sprawl-lint,
-# test-weakening-lint, prose-lint, version-sync, spec-proposal-gate, aims-
-# spec-drift, root-inventory) still block. Re-enable test-blocking by
-# restoring: `"$SCRIPT_DIR/test-all.sh" "${FORWARD_ARGS[@]}"`.
-echo -e "${BOLD}--- Phase 2: Tests ($(date '+%H:%M:%S') — typically 5-10 min, NON-BLOCKING) ---${NC}"
+# Phase 1.5: UB coverage-matrix regression gate (ub-safety-threat-model).
+# Fast + deterministic: --strict asserts every canonical miri UB class is
+# dispositioned + pinned (39/39); --self-test asserts the checker's own
+# fail-closed invariants. Blocking — a foreclosure losing its pin, an
+# unresolvable pin, or a new undispositioned UB class fails the commit.
+echo -e "${BOLD}--- Phase 1.5: UB coverage gate ($(date '+%H:%M:%S')) ---${NC}"
 echo ""
-TEST_EXIT=0
-"$SCRIPT_DIR/test-all.sh" "${FORWARD_ARGS[@]}" || TEST_EXIT=$?
-echo ""
-if [[ $TEST_EXIT -eq 0 ]]; then
-    echo -e "${GREEN}${BOLD}--- Phase 2 (Tests) PASSED in $(($(date +%s) - PHASE2_START))s ---${NC}"
-else
-    echo -e "${YELLOW}${BOLD}--- Phase 2 (Tests) FAILED in $(($(date +%s) - PHASE2_START))s (exit $TEST_EXIT) — WARNING ONLY, commit NOT blocked ---${NC}" >&2
-    echo -e "${YELLOW}    Compiler is mid-rewrite; test-suite green is not gated. Fix tests as part of the active work.${NC}" >&2
+if ! python3 "$SCRIPT_DIR/scripts/ub-coverage-check.py" --strict --self-test; then
+    echo "" >&2
+    echo -e "${RED}${BOLD}=== UB coverage gate FAILED — the safety frontier regressed ===${NC}" >&2
+    echo "  A UB class lost its disposition/pin, a pin no longer resolves, or a" >&2
+    echo "  new class is undispositioned. See scripts/ub-safety/README.md." >&2
+    exit 1
 fi
-
 echo ""
-echo -e "${BOLD}=== Full Check Complete (total: $(($(date +%s) - START_TS))s) ===${NC}"
+echo -e "${GREEN}${BOLD}--- Phase 1.5 (UB coverage gate) PASSED ---${NC}"
+echo ""
+
+# test-all is intentionally NOT run here (it gates bug/plan completion + CI,
+# not individual commits). See the header comment.
+echo -e "${BOLD}=== Full Check Complete (total: $(($(date +%s) - START_TS))s) — test-all runs at bug/plan completion + in CI ===${NC}"
 if [[ $TEE_OUTPUT -eq 1 ]]; then
     echo "  Full log: $LOG_FILE"
 fi

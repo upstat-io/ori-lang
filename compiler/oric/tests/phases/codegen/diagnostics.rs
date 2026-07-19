@@ -255,6 +255,21 @@ fn from_linker_link_failed() {
 }
 
 #[test]
+fn missing_entry_point_names_ori_fix() {
+    let problem = CodegenProblem::MissingEntryPoint {
+        path: "app.ori".into(),
+    };
+    let diag = problem.into_diagnostic();
+
+    assert_eq!(diag.code, ErrorCode::E5006);
+    assert!(diag.message.contains("app.ori"));
+    assert!(diag.message.contains("no @main function was declared"));
+    assert!(diag.suggestions.iter().any(|suggestion| {
+        suggestion.contains("add an @main function") && suggestion.contains("--lib")
+    }));
+}
+
+#[test]
 fn from_linker_unsupported_target() {
     let err = ori_llvm::aot::LinkerError::UnsupportedTarget {
         triple: "riscv64-unknown-elf".into(),

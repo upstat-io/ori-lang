@@ -7,7 +7,7 @@ use ori_ir::ast::items::{TraitDef, TraitItem};
 use ori_ir::{CommentList, StringLookup, Visibility};
 
 use super::parsed_types::format_parsed_type;
-use super::ModuleFormatter;
+use super::{BodyBreakPolicy, ModuleFormatter};
 
 impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// Format a trait definition including super traits and items.
@@ -66,11 +66,15 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                 self.format_params(method.params);
                 self.ctx.emit(" -> ");
                 format_parsed_type(&method.return_ty, self.arena, self.interner, &mut self.ctx);
-                self.emit_expr_body(method.body, false);
+                self.emit_expr_body(method.body, BodyBreakPolicy::OverflowOnly);
             }
             TraitItem::AssocType(assoc) => {
                 self.ctx.emit("type ");
                 self.ctx.emit(self.interner.lookup(assoc.name));
+                if let Some(default_type) = &assoc.default_type {
+                    self.ctx.emit(" = ");
+                    format_parsed_type(default_type, self.arena, self.interner, &mut self.ctx);
+                }
             }
         }
     }

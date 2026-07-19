@@ -1,13 +1,15 @@
-//! Value representation and RC strategy for LLVM emission.
+//! Transitional executable value-shape and RC-adapter classifications.
 //!
-//! [`ValueRepr`] classifies how a value is laid out at the machine level,
-//! bridging the gap between ARC's three-way classification ([`ArcClass`])
-//! and LLVM's concrete type system. [`RcStrategy`] refines `ValueRepr`
-//! for RC operations, encoding exactly how to increment or decrement a
-//! value's reference count.
+//! [`ValueRepr`] refines ARC's three-way classification ([`ArcClass`]) into
+//! ownership-relevant shapes carried by the current executable plan.
+//! [`RcStrategy`] then selects the shipped compiled adapter behavior. Names
+//! such as pointer, fat value, and atomicity are migration-era physical
+//! vocabulary, not backend-neutral AIMS facts.
 //!
-//! Both are computed once and embedded in the ARC IR, eliminating the
-//! LLVM emitter's need to re-query the [`Pool`] at every use site.
+//! Both are computed once and embedded in ARC IR today, preventing repeated
+//! [`Pool`] queries during migration. Production replaces them with stable
+//! logical value/drop facts plus separate VM and compiled physical plans;
+//! no projection may re-derive AIMS policy from these transitional shapes.
 
 use ori_types::{Idx, Pool, Tag};
 
@@ -15,31 +17,34 @@ use crate::{ArcClass, ArcClassification};
 
 use super::ArcFunction;
 
-/// Machine-level value representation.
+/// Transitional ownership-relevant executable value shape.
 ///
-/// Determines how a value is passed, stored, and RC-managed in generated
-/// code. Each variant maps to a distinct LLVM lowering strategy:
+/// Records the compiled-shaped approximation currently embedded in ARC IR.
+/// It carries useful logical topology, but its pointer-oriented variants do
+/// not require every physical projection to use the same storage encoding.
+/// Production consumers use stable value/drop-plan identities instead.
 ///
-/// - [`Scalar`](Self::Scalar) — fits in a register, no RC.
-/// - [`RcPointer`](Self::RcPointer) — single heap pointer, RC via `ori_rc_inc`/`ori_rc_dec`.
-/// - [`Aggregate`](Self::Aggregate) — multi-field value (tuple, struct, enum, Result, Option).
-///   May be stack-allocated or heap-boxed depending on escape analysis.
-/// - [`FatValue`](Self::FatValue) — two-word value: `str` (ptr + len) or closure (`fn_ptr` + `env_ptr`).
-///   Needs RC on the pointer component but carries inline metadata.
+/// - [`Scalar`](Self::Scalar) — scalar semantics, no RC.
+/// - [`RcPointer`](Self::RcPointer) — one RC-managed reference.
+/// - [`Aggregate`](Self::Aggregate) — compound fields (tuple, struct, enum,
+///   `Result`, `Option`).
+/// - [`FatValue`](Self::FatValue) — an RC-managed reference plus inline
+///   metadata, such as a string length or closure entry point.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ValueRepr {
-    /// Register-width scalar: int, float, bool, char, byte, unit, etc.
+    /// Scalar with no RC burden: int, float, bool, char, byte, unit, etc.
     Scalar,
 
-    /// Single reference-counted heap pointer: list, map, set, channel, iterator.
+    /// Single reference-counted handle: list, map, set, channel, iterator.
     RcPointer,
 
     /// Multi-field aggregate: tuple, struct, enum, Result, Option.
     /// Fields may themselves be `Scalar`, `RcPointer`, `FatValue`, or nested `Aggregate`.
     Aggregate,
 
-    /// Two-word fat value: str (ptr + len) or closure (`fn_ptr` + `env_ptr`).
-    /// The pointer component is reference-counted.
+    /// Reference-bearing value with inline metadata: string or closure.
+    /// The reference component is reference-counted; each physical projection
+    /// chooses its concrete field and slot encoding.
     FatValue,
 }
 
@@ -49,7 +54,7 @@ impl ValueRepr {
     ///
     /// For `Scalar` classes, the result is always `Scalar`. For ref-containing
     /// classes (`DefiniteRef`/`PossibleRef`), the Pool tag disambiguates between
-    /// pointer, aggregate, and fat-value layouts.
+    /// reference, aggregate, and reference-plus-metadata shapes.
     pub fn from_arc_class(class: ArcClass, pool: &Pool, idx: Idx) -> Self {
         match class {
             ArcClass::Scalar => Self::Scalar,
@@ -68,11 +73,17 @@ impl ValueRepr {
         }
 
         match pool.tag(resolved) {
-            // Fat values: two-word layout (ptr + metadata).
+            // Reference-bearing values with inline metadata.
             Tag::Str | Tag::Function => Self::FatValue,
 
-            // Aggregates: multi-field compound types.
-            Tag::Tuple | Tag::Struct | Tag::Enum | Tag::Result | Tag::Option => Self::Aggregate,
+            // Aggregates: multi-field compound types. Range is a fixed
+            // 4-field scalar-only value (start, end, step, inclusive —
+            // `codegen-rules.md TR-1`), never a single heap pointer; its
+            // field traversal is handled by the `AggregateFields` strategy
+            // via `rc_value_traversal.rs`'s explicit `Tag::Range` no-op arm.
+            Tag::Tuple | Tag::Struct | Tag::Enum | Tag::Result | Tag::Option | Tag::Range => {
+                Self::Aggregate
+            }
 
             // Primitives: shouldn't reach here (ArcClass would be Scalar),
             // but handle gracefully.
@@ -96,7 +107,6 @@ impl ValueRepr {
             | Tag::Channel
             | Tag::Iterator
             | Tag::DoubleEndedIterator
-            | Tag::Range
             | Tag::Named
             | Tag::Applied
             | Tag::Alias
@@ -113,98 +123,87 @@ impl ValueRepr {
     }
 }
 
-/// How to perform an RC operation on a value.
+/// Transitional adapter classification for the shipped RC operation carriers.
 ///
-/// Computed during RC insertion from [`ValueRepr`] + [`Pool`] structure.
-/// Embedded in [`ArcInstr::RcInc`](super::ArcInstr::RcInc) and
-/// [`ArcInstr::RcDec`](super::ArcInstr::RcDec) instructions so the LLVM
-/// emitter can pattern-match directly — no Pool queries at emission time.
-///
-/// `ValueRepr` tells you *what* a value is. `RcStrategy` tells you *how*
-/// to manage its reference count. The distinction matters within `Aggregate`
-/// (struct vs enum) and `FatValue` (string vs closure).
+/// The current pipeline derives this value from [`ValueRepr`] and [`Pool`]
+/// structure, then embeds it in [`ArcInstr::RcInc`](super::ArcInstr::RcInc) and
+/// [`ArcInstr::RcDec`](super::ArcInstr::RcDec). That prevents downstream Pool
+/// queries today, but the enum's physical names are not AIMS facts. Production
+/// binds each logical event to stable value-semantics and cleanup-plan IDs;
+/// `VmLayoutPlan` and `CompiledLayoutPlan` then select a satisfying mechanism.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum RcStrategy {
-    /// Heap-allocated RC pointer (list, map, set, etc.).
-    /// Inc: `ori_rc_inc(data_ptr)`. Dec: `ori_rc_dec(data_ptr, drop_fn)`.
+    /// Legacy adapter name for one self-owned identity (list, map, set, etc.).
+    /// The shipped compiled runtime normally realizes that identity as a heap
+    /// reference handled by `ori_rc_inc` / `ori_rc_dec`.
     HeapPointer,
 
-    /// Fat value with RC pointer half (str = `{len, data_ptr}`).
-    /// Inc: extract field 1, `ori_rc_inc(data_ptr)`.
-    /// Dec: extract field 1, `ori_rc_dec(data_ptr, drop_fn)`.
+    /// Metadata-bearing value with one RC-managed reference (for example,
+    /// string data plus length). Inc/Dec target the reference component; its
+    /// physical field location belongs to the projection.
     FatPointer,
 
-    /// Closure (`{fn_ptr, env_ptr}`). Env may be null (zero captures).
-    /// Inc: extract `env_ptr`, null check, `ori_rc_inc(env_ptr)`.
-    /// Dec: extract `env_ptr`, null check, load `drop_fn`, `ori_rc_dec(env_ptr, drop_fn)`.
+    /// Closure with an optional captured environment. Inc/Dec target the
+    /// environment when present; the entry-point/environment encoding and
+    /// drop implementation belong to the physical projection.
     Closure,
 
-    /// Stack aggregate with RC-typed fields (struct, tuple).
-    /// Inc: traverse RC fields, Inc each recursively.
-    /// Dec: call generated drop function that traverses fields.
+    /// Product with ownership-bearing fields (struct, tuple). The transitional
+    /// adapter traverses those logical fields; inline storage is not an AIMS fact.
     AggregateFields,
 
-    /// Enum/Result/Option with potentially RC-typed variant payloads.
-    /// Inc: **no-op** (stack-allocated container; inner fields managed at Dec).
-    /// Dec: tag-switch, per-variant field Dec.
+    /// Sum with potentially ownership-bearing variant payloads. The
+    /// transitional adapter selects the active logical variant and processes
+    /// its fields; tag and payload layout remain projection-owned.
     InlineEnum,
 
     /// Iterator handle (`Tag::Iterator` / `Tag::DoubleEndedIterator`).
     ///
-    /// Box-allocated state with no RC header. Iterators are effectively
-    /// unique-owned (they are moved through `iter_next`, never copied),
-    /// so `Inc` is a no-op. `Dec` calls `ori_iter_drop(ptr)` directly,
-    /// bypassing the `ori_rc_dec` path which would dereference a
-    /// non-existent refcount header.
-    ///
-    /// Spec: previously iterators were classified as
-    /// `Scalar` (no cleanup emitted at all), leaking the Box-allocated
-    /// state in any container that held an unconsumed iterator.
+    /// Iterators are affine under the current semantic contract: they move
+    /// through `iter_next` and cannot acquire another owner. The shipped
+    /// compiled adapter uses boxed state without an RC header, so `Inc` is a
+    /// no-op and `Dec` calls `ori_iter_drop(ptr)` directly.
     Iterator,
+
+    /// Scalar-repr value whose type carries a user `@drop`.
+    ///
+    /// The type declares a `Drop` impl despite carrying no shared-identity
+    /// credit. Its logical cleanup invokes `@drop` exactly once without a
+    /// retain operation. The current compiled projection supplies any inline
+    /// passing and unwind mechanics.
+    /// Spec: Annex E §AIMS RL-DROP (`RLDROP_scalar_lifecycle_sound`).
+    UserDrop,
 }
 
-/// Whether an RC operation uses atomic or non-atomic reference-count
-/// arithmetic.
+/// Transitional physical arithmetic choice on the shipped RC carrier.
 ///
 /// Carried on [`ArcInstr::RcInc`](super::ArcInstr::RcInc) and
 /// [`ArcInstr::RcDec`](super::ArcInstr::RcDec) alongside [`RcStrategy`].
-/// `RcStrategy` tells the emitter *how* to reach the refcount field;
-/// `RcAtomicity` tells it *which arithmetic* to apply to that field.
-///
-/// The atomic-vs-non-atomic decision is made at Phase 7 realization
-/// (Spec: Annex E §AIMS RL-19/RL-20/RL-21); `BurdenInc`/`BurdenDec` are
-/// uniform at Phase 5 + 6. Thread-locality is derived from the `Locality`
-/// dimension + call-graph (`RL-18a` SSOT — no parallel per-variable escape
-/// enum); the deriving dispatch lands in the thread-local-ARC plan section
-/// that also ships the non-atomic runtime path it selects. Until that
-/// dispatch + runtime land, every construction site sets `Atomic` — the
-/// shipped runtime RC primitives (`ori_rc_inc`/`ori_rc_dec`) are
-/// unconditionally atomic, so `Atomic` reproduces today's behavior exactly.
+/// Every current construction site uses `Atomic` because the shipped compiled
+/// runtime primitives are unconditionally atomic. AIMS freezes neutral thread
+/// reachability; it does not choose this enum. Production moves the mechanism
+/// into the selected physical plan and removes `RcAtomicity` from shared ARC IR.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum RcAtomicity {
-    /// Atomic refcount arithmetic (`fetch_add`/`fetch_sub`). Required for
-    /// any value that may cross a thread boundary (`RL-20`). The shipped
-    /// runtime RC primitives are always atomic, so this is the only value
-    /// emitted until the thread-local-ARC dispatch + non-atomic runtime land.
+    /// Atomic refcount arithmetic (`fetch_add`/`fetch_sub`) in the shipped
+    /// compiled projection. This is the only value currently emitted.
     Atomic,
 
-    /// Non-atomic refcount arithmetic (plain load/store). Sound only for
-    /// values provably never shared across threads (`RL-19`/`RL-21`). Not
-    /// yet selected by any construction site — the deriving dispatch +
-    /// non-atomic runtime path are owned by the thread-local-ARC plan
-    /// section.
+    /// Non-atomic refcount arithmetic (plain load/store). Not selected by any
+    /// current construction site; a physical plan may admit it only when its
+    /// capability satisfies the frozen thread-reachability fact.
     NonAtomic,
 }
 
 impl RcAtomicity {
-    /// The construction-site default until the thread-locality dispatch lands.
+    /// The compatibility default for the shipped compiled runtime.
     ///
     /// Returns [`RcAtomicity::Atomic`] — every realization-emitted `RcInc`/
     /// `RcDec` is atomic, reproducing the shipped unconditionally-atomic
-    /// runtime RC primitives bit-for-bit. The thread-local-ARC plan section
-    /// replaces this default with the `RL-19/20/21` dispatch.
+    /// runtime RC primitives bit-for-bit. Production physical planners replace
+    /// this shared default with a validated mechanism choice.
     #[must_use]
     #[inline]
     pub const fn default_atomic() -> Self {
@@ -222,8 +221,8 @@ impl RcAtomicity {
 impl RcStrategy {
     /// Compute from a variable's [`ValueRepr`] and its [`Pool`] type.
     ///
-    /// Called once during RC insertion; the result is embedded in the
-    /// `RcInc`/`RcDec` instruction and never recomputed.
+    /// Called once by the transitional carrier builder; the result is embedded
+    /// in `RcInc`/`RcDec` and never recomputed by a physical consumer.
     ///
     /// # Panics
     ///
@@ -231,9 +230,7 @@ impl RcStrategy {
     pub fn from_repr(repr: ValueRepr, pool: &Pool, ty: Idx) -> Self {
         match repr {
             ValueRepr::Scalar => {
-                debug_assert!(false, "RcStrategy::from_repr called on Scalar repr");
-                // Fallback for release builds: treat as heap pointer (conservative).
-                Self::HeapPointer
+                panic!("RcStrategy::from_repr cannot classify a scalar representation")
             }
             ValueRepr::RcPointer => {
                 // iterators map to `ValueRepr::RcPointer` but
@@ -272,8 +269,9 @@ impl RcStrategy {
 /// (`Closure` walks captured env, `AggregateFields` walks RC fields, `InlineEnum`
 /// switches on tag and dec's variant payloads, `HeapPointer` runs `elem_dec_fn`
 /// over collection elements). Returns `false` for `FatPointer` (str — drop dec's
-/// the data buffer ONLY, the `FatPointer` IS the leaf payload) and `Iterator` (drop
-/// calls `ori_iter_drop` directly without payload-walk).
+/// the data buffer ONLY, the `FatPointer` IS the leaf payload), `Iterator` (drop
+/// calls `ori_iter_drop` directly without payload-walk), and `UserDrop` (scalar
+/// value — the `@drop` call manages no transitive RC payload).
 ///
 /// Pure function on the enum — no Pool query, no `AimsStateMap` query. The
 /// `RcStrategy` value already carries the answer.
@@ -326,28 +324,42 @@ pub fn compute_var_reprs(
 ///
 /// Called once at the start of the ARC pipeline, immediately after
 /// [`compute_var_reprs`] populates `func.var_reprs`. Caches the
-/// [`RcStrategy::from_repr`] result so downstream pre-walk passes (the AIMS
-/// PIN-6 `class_payload_of` population in
-/// `intraprocedural::ssa_alias_classes`) can classify a variable's strategy
-/// without holding a `&Pool` reference at analyze-time.
+/// [`RcStrategy::from_repr`] result so downstream pre-walk passes (the SSA
+/// alias-class computation in `intraprocedural::ssa_alias_classes` + the
+/// transitive-drop edge materialization in `intraprocedural::post_convergence`)
+/// can classify a variable's strategy without holding a `&Pool` reference at
+/// analyze-time.
 ///
 /// # Preconditions
 ///
-/// `func.var_reprs` MUST be populated (length equal to `func.var_types`).
-/// Calling this with empty `var_reprs` returns an empty vector.
+/// `func.var_reprs` MUST be ready (length equal to `func.var_types`). Calling
+/// this while metadata is explicitly unrealized returns an empty vector.
 #[must_use]
 pub fn compute_var_rc_strategies(func: &ArcFunction, pool: &Pool) -> Vec<Option<RcStrategy>> {
-    if func.var_reprs.is_empty() {
+    if func.var_metadata_state == super::VariableMetadataState::Unrealized {
         return Vec::new();
     }
-    debug_assert_eq!(
+    assert_eq!(
         func.var_reprs.len(),
         func.var_types.len(),
         "var_reprs and var_types length mismatch"
     );
-    func.var_reprs
+    derive_var_rc_strategies(&func.var_reprs, &func.var_types, pool)
+}
+
+pub(crate) fn derive_var_rc_strategies(
+    representations: &[ValueRepr],
+    types: &[Idx],
+    pool: &Pool,
+) -> Vec<Option<RcStrategy>> {
+    assert_eq!(
+        representations.len(),
+        types.len(),
+        "representation and type tables must have identical lengths"
+    );
+    representations
         .iter()
-        .zip(func.var_types.iter())
+        .zip(types)
         .map(|(&repr, &ty)| {
             if repr == ValueRepr::Scalar {
                 None

@@ -23,7 +23,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// native LLVM type before comparing.
     ///
     /// For strings, returns a pointer to `ori_str_eq` directly (same signature).
-    /// For primitives, generates an inline comparison function.
+    /// For primitives, generates an inline comparison function. Compound
+    /// builtin types get a callback wrapper around recursive structural
+    /// equality so they can be compared by map/set runtime operations.
     ///
     /// Returns a function pointer `ValueId`, or `None` if the element type
     /// is not yet supported for equality comparison.
@@ -46,13 +48,21 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         // User-defined Eq (manual `impl T: Eq` or `#derive(Eq)`): synthesize a
-        // thunk that calls the user `@eq` impl (method name is "eq", NOT
-        // "equals" — per ori_ir/derives/mod.rs + operators/mod.rs). Without this
-        // a user-Eq map/set key fell through to `_ => return None` → null key_eq
-        // → SIGSEGV.
-        let eq_name = self.interner.intern("eq");
-        if let Some((eq_fid, eq_abi)) = self.user_method(elem_ty, eq_name) {
+        // receiver-qualified thunk for the exact producer identity.
+        if let Some((eq_fid, eq_abi)) = self.user_eq_callable(elem_ty) {
             return self.gen_user_eq_thunk(elem_ty, eq_fid, &eq_abi);
+        }
+
+        if matches!(
+            &elem_info,
+            TypeInfo::Option { .. }
+                | TypeInfo::Result { .. }
+                | TypeInfo::Tuple { .. }
+                | TypeInfo::List { .. }
+                | TypeInfo::Map { .. }
+                | TypeInfo::Set { .. }
+        ) {
+            return self.gen_compound_eq_thunk(elem_ty);
         }
 
         let type_suffix = match &elem_info {
@@ -84,7 +94,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_func = self.builder.current_function();
 
         // Set up the function
-        self.builder.set_ccc(func_id);
+        self.builder.set_module_local(func_id);
         self.builder.add_nounwind_attribute(func_id);
 
         let entry = self.builder.append_block(func_id, "entry");
@@ -106,6 +116,63 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         self.eq_thunk_cache.insert(elem_ty, func_id);
+        Some(self.builder.get_function_ptr(func_id))
+    }
+
+    /// Generate the C callback required when a map/set element uses compound
+    /// structural equality.
+    ///
+    /// The runtime passes pointers to stored values. The thunk loads the native
+    /// aggregate values and reuses the regular recursive equality dispatcher.
+    /// Cache insertion precedes body emission so recursively nested collection
+    /// types can refer back to this callback without regenerating it.
+    fn gen_compound_eq_thunk(&mut self, elem_ty: Idx) -> Option<ValueId> {
+        let ptr_ty = self.builder.ptr_type();
+        let bool_ty = self.builder.bool_type();
+        let func_name = format!("_ori_eq_compound${}", elem_ty.raw());
+        let func_id = self
+            .builder
+            .get_or_declare_function(&func_name, &[ptr_ty, ptr_ty], bool_ty);
+
+        if self.builder.function_has_body(func_id) {
+            self.eq_thunk_cache.insert(elem_ty, func_id);
+            return Some(self.builder.get_function_ptr(func_id));
+        }
+
+        // Break recursive callback-generation cycles before emitting the body.
+        self.eq_thunk_cache.insert(elem_ty, func_id);
+
+        let saved_pos = self.builder.save_position();
+        let saved_func = self.builder.current_function();
+        let saved_emitter_func = self.current_function;
+        let saved_cleanup_pad = self.current_cleanup_pad.take();
+        let saved_intercepted_unwind = self.intercepted_unwind.take();
+
+        self.builder.set_module_local(func_id);
+        self.builder.add_nounwind_attribute(func_id);
+        let entry = self.builder.append_block(func_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(func_id);
+        self.current_function = func_id;
+
+        let a_ptr = self.builder.get_param(func_id, 0);
+        let b_ptr = self.builder.get_param(func_id, 1);
+        let elem_llvm_ty = self.resolve_type(elem_ty);
+        let a_val = self.builder.load(elem_llvm_ty, a_ptr, "eq.a");
+        let b_val = self.builder.load(elem_llvm_ty, b_ptr, "eq.b");
+        let result =
+            ori_stack::ensure_sufficient_stack(|| self.emit_element_equals(a_val, b_val, elem_ty))
+                .expect("compound Eq callback type has structural equality emission");
+        self.builder.ret(result);
+
+        self.intercepted_unwind = saved_intercepted_unwind;
+        self.current_cleanup_pad = saved_cleanup_pad;
+        self.current_function = saved_emitter_func;
+        self.builder.restore_position(saved_pos);
+        if let Some(f) = saved_func {
+            self.builder.set_current_function(f);
+        }
+
         Some(self.builder.get_function_ptr(func_id))
     }
 
@@ -163,7 +230,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
-        self.builder.set_ccc(func_id);
+        self.builder.set_module_local(func_id);
         self.builder.add_nounwind_attribute(func_id);
         let entry = self.builder.append_block(func_id, "entry");
         self.builder.position_at_end(entry);
@@ -186,10 +253,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ParamPassing::Direct => self.builder.load(self_ty, b_ptr, "eq.b"),
             _ => b_ptr,
         };
-        let result = self
-            .builder
-            .call(eq_fid, &[a_arg, b_arg], "eq.r")
-            .unwrap_or_else(|| self.builder.const_bool(false));
+        let Some(result) = self.builder.call(eq_fid, &[a_arg, b_arg], "eq.r") else {
+            panic!("Eq implementation must return bool");
+        };
         self.builder.ret(result);
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
@@ -266,7 +332,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_func = self.builder.current_function();
 
         // Set up the function
-        self.builder.set_ccc(func_id);
+        self.builder.set_module_local(func_id);
         self.builder.add_nounwind_attribute(func_id);
 
         let entry = self.builder.append_block(func_id, "entry");
@@ -344,7 +410,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
-        self.builder.set_ccc(func_id);
+        self.builder.set_module_local(func_id);
         self.builder.add_nounwind_attribute(func_id);
         let entry = self.builder.append_block(func_id, "entry");
         self.builder.position_at_end(entry);
@@ -360,10 +426,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ParamPassing::Direct => self.builder.load(self_ty, key_ptr, "hash.self"),
             _ => key_ptr,
         };
-        let result = self
-            .builder
-            .call(hash_fid, &[arg], "hash.r")
-            .unwrap_or_else(|| self.builder.const_i64(0));
+        let Some(result) = self.builder.call(hash_fid, &[arg], "hash.r") else {
+            panic!("Hashable implementation must return int");
+        };
         self.builder.ret(result);
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {

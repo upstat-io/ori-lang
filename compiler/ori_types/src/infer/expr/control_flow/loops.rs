@@ -14,7 +14,7 @@ use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 /// unknown iterator tag falls back to a fresh type variable so downstream
 /// unification can still catch concrete mismatches. `Range<float>` is rejected
 /// as non-iterable (spec 8.13).
-fn for_loop_elem_ty(engine: &mut InferEngine<'_>, iter_ty: Idx, span: Span) -> Idx {
+pub(crate) fn for_loop_elem_ty(engine: &mut InferEngine<'_>, iter_ty: Idx, span: Span) -> Idx {
     let resolved_iter = engine.resolve(iter_ty);
     match engine.pool().tag(resolved_iter) {
         Tag::List => engine.pool().list_elem(resolved_iter),
@@ -54,7 +54,6 @@ fn for_loop_elem_ty(engine: &mut InferEngine<'_>, iter_ty: Idx, span: Span) -> I
 ///
 /// The iterator must be iterable (list, range, etc.), and the binding
 /// receives each element type.
-// TODO(typeck): Refactor with a ForLoopParams struct when implementing
 #[expect(clippy::too_many_arguments, reason = "matches ExprKind::For structure")]
 pub(crate) fn infer_for(
     engine: &mut InferEngine<'_>,
@@ -88,21 +87,12 @@ pub(crate) fn infer_for(
     bind_pattern(engine, arena, pat, elem_ty);
     engine.pop_context();
 
-    // Check guard if present (must be bool)
-    if guard.is_present() {
-        let guard_ty = infer_expr(engine, arena, guard);
-        let expected = Expected {
-            ty: Idx::BOOL,
-            origin: ExpectedOrigin::Context {
-                span: arena.get_expr(guard).span,
-                kind: ContextKind::LoopCondition,
-            },
-        };
-        let _ = engine.check_type(guard_ty, &expected, arena.get_expr(guard).span);
-    }
-
-    // Push a loop context so `break` / `continue` inside the body resolve to
-    // this `for`. Value rules differ by form (spec: 16-control-flow.md):
+    // Push the loop context BEFORE inferring the guard: the for-desugar places
+    // the guard per-iteration INSIDE the for's own loop, so a guard-position
+    // `break` / `continue` targets this for, not an enclosing loop. (Same
+    // ordering as `infer_while` for the condition — Spec: Clause 16.) The
+    // iterator is evaluated once outside the loop, so its inference (above)
+    // stays outside the pushed context. Value rules differ by form:
     // - `for...yield` permits `break value` (adds a final element) and
     //   `continue value` (substitutes the element).
     // - `for...do` is void-typed: `break value` is E0860, `continue value`
@@ -119,6 +109,20 @@ pub(crate) fn infer_for(
             LoopForm::ForDo
         },
     });
+
+    // Check guard if present (must be bool). Inferred under this for's loop
+    // context so a guard-position `break` / `continue` resolves to the for.
+    if guard.is_present() {
+        let guard_ty = infer_expr(engine, arena, guard);
+        let expected = Expected {
+            ty: Idx::BOOL,
+            origin: ExpectedOrigin::Context {
+                span: arena.get_expr(guard).span,
+                kind: ContextKind::LoopCondition,
+            },
+        };
+        let _ = engine.check_type(guard_ty, &expected, arena.get_expr(guard).span);
+    }
 
     // Infer body type
     engine.push_context(ContextKind::LoopBody);
@@ -207,7 +211,7 @@ pub(crate) fn infer_while(
     _span: Span,
 ) -> Idx {
     // Push the loop context BEFORE inferring the condition: the spec desugar
-    // `loop { if !cond then break; body }` (16-control-flow.md §16.2.4) places the
+    // `loop { if !cond then break; body }` (Spec: Clause 16.2.4) places the
     // condition INSIDE the while's own loop, so condition-position `break` /
     // `continue` target this while, not the enclosing loop. `while...do` is
     // void-typed: `break value` is E0860 and `continue value` is E0861.
@@ -245,7 +249,7 @@ pub(crate) fn infer_while(
 /// Infer the type of a break expression.
 ///
 /// A labeled `break:name` resolves its value-permission and break-type
-/// unification against the LABELED target loop (per spec 16-control-flow.md),
+/// unification against the LABELED target loop (per Spec: Clause 16),
 /// not the innermost loop. An unlabeled `break` targets the innermost loop.
 pub(crate) fn infer_break(
     engine: &mut InferEngine<'_>,
@@ -308,7 +312,7 @@ pub(crate) fn infer_break(
 /// `for...do` it is E0861 — those loops do not accumulate values.
 ///
 /// A labeled `continue:name value` resolves against the LABELED target loop's
-/// form (per spec 16-control-flow.md), not the innermost loop. An unlabeled
+/// form (per Spec: Clause 16), not the innermost loop. An unlabeled
 /// `continue` targets the innermost loop.
 pub(crate) fn infer_continue(
     engine: &mut InferEngine<'_>,

@@ -1,20 +1,24 @@
 Theorem RL-4: edge-specific decs on CFG edges; Jump-argument ownership-transfer exemption
 
   Preconditions:
-    - RL-4 governs edge-specific RcDec emission per Annex E §AIMS RC
-      Emission: "An OWNED non-scalar variable alive at block exit but dead
-      at the successor entry SHALL receive a dec on that specific CFG edge.
+    - Edge decs are historical carrier names for logical releases; the proof's
+      integer ledger is backend-neutral, and a physical plan may realize it
+      without a reference counter
+    - RL-4 governs edge-specific logical release realization per Annex E
+      §AIMS: "An OWNED non-scalar variable alive at block exit but dead at the
+      successor entry SHALL receive a release on that specific CFG edge.
       Jump argument exemption: variables passed as Jump args transfer
       ownership to the successor block param — NOT dead at successor entry
       (the block param IS the successor's name). Borrowed variables do NOT
-      receive decs."
+      receive releases."
     - Signature ArcFunction x AimsStateMap -> ArcFunction per
       the canonical proof notation:264; discharged against the sec-01
       Realization.proof sorry obligation.
-    - Shipped site: emit_rc/edge_cleanup.rs::emit_edge_cleanup, called at
-      the end of realize/mod.rs::realize_rc_reuse Phase 1. Edge decs are
-      emitted pre-merge (Step 5) because they are position-keyed against the
-      pre-merge CFG (Annex E §AIMS PL-3).
+    - Shipped site: aims/class_ledger/emit/releases.rs::plan_releases, applied
+      via aims::class_ledger::apply_class_ledger_replacement at Step 4b,
+      before realize/mod.rs::realize_rc_reuse Phase 1 (Step 5) burden-op
+      emission runs. Edge decs are emitted pre-merge because they are
+      position-keyed against the pre-merge CFG (Annex E §AIMS PL-3).
     - The Jump-arg exemption pairs with RL-2: a value passed as a Jump arg
       is an ownership-transferring use (per emit_rc/helpers.rs
       is_ownership_transfer), so neither RL-2 nor RL-4 emits a dec; the
@@ -41,11 +45,8 @@ Theorem RL-4: edge-specific decs on CFG edges; Jump-argument ownership-transfer 
            block param (a handoff, no dec). The net reference count returns
            to 0 with no double-release on the transfer path.
 
-    RL-4 refines plain ARC's scope-based dec placement by emitting the dec
-    on the exact CFG edge where the value dies, and by exempting Jump args
-    (whose ownership transfers to the block param) — preserving the same
-    balance while avoiding both a leak (no dec on the dying edge) and a
-    double-free (dec on the transfer edge).
+    RL-4 freezes the exact edge release or Jump-argument handoff needed to
+    preserve evaluator behavior and logical event balance.
 
   Proof obligation:
     Constructive discharge by the rc_counting engine.

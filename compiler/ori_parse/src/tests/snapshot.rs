@@ -319,15 +319,30 @@ fn test_manual_snapshot_for_complex_decision() {
 fn test_snapshot_does_not_capture_arena() {
     let (mut parser, _) = create_parser("42");
 
-    // Allocations before snapshot would be tracked here if arena size was exposed
-
+    let arena_len_before = parser.arena.expr_count();
     let snapshot = parser.snapshot();
 
-    // Allocations during speculation would persist
-    // (In practice, avoid allocating during try_parse/look_ahead)
+    // Allocate during speculation: parsing the primary advances the cursor and
+    // pushes nodes into the arena.
+    let _ = parser.parse_expr();
+    let arena_len_after_alloc = parser.arena.expr_count();
+    assert!(
+        arena_len_after_alloc > arena_len_before,
+        "speculative parse must allocate into the arena"
+    );
 
     parser.restore(snapshot);
 
-    // Arena state unchanged by restore
-    // (Any allocations made between snapshot and restore persist)
+    // SN-1: restore rolls back cursor position but NOT arena state — the
+    // speculative allocations persist (they are unreferenced by the final AST).
+    assert_eq!(
+        parser.cursor.position(),
+        0,
+        "restore must roll back the cursor position"
+    );
+    assert_eq!(
+        parser.arena.expr_count(),
+        arena_len_after_alloc,
+        "restore must NOT roll back arena allocations"
+    );
 }

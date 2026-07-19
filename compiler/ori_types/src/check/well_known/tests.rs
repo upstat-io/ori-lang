@@ -6,8 +6,7 @@ use super::trait_bits;
 use super::{TraitSet, WellKnownNames};
 use crate::Idx;
 
-// ── TraitSet construction ───────────────────────────────────────────
-
+// TraitSet construction
 #[test]
 fn empty_set_contains_nothing() {
     for bit in 0..trait_bits::COUNT {
@@ -63,8 +62,7 @@ fn from_bits_duplicate_bits_are_idempotent() {
     assert_eq!(set.count(), 1);
 }
 
-// ── TraitSet operations ─────────────────────────────────────────────
-
+// TraitSet operations
 #[test]
 fn union_combines_bits() {
     let a = TraitSet::from_bits(&[trait_bits::EQ, trait_bits::CLONE]);
@@ -110,8 +108,7 @@ fn union_is_associative() {
     assert_eq!(a.union(b).union(c), a.union(b.union(c)));
 }
 
-// ── TraitSet::count ─────────────────────────────────────────────────
-
+// TraitSet::count
 #[test]
 fn count_empty() {
     assert_eq!(TraitSet::EMPTY.count(), 0);
@@ -134,8 +131,7 @@ fn count_multiple() {
     assert_eq!(set.count(), 5);
 }
 
-// ── TraitSet is Copy ────────────────────────────────────────────────
-
+// TraitSet is Copy
 #[test]
 fn trait_set_is_copy() {
     let a = TraitSet::from_bits(&[trait_bits::EQ]);
@@ -143,8 +139,7 @@ fn trait_set_is_copy() {
     assert_eq!(a, b); // both still usable
 }
 
-// ── trait_bits completeness ─────────────────────────────────────────
-
+// trait_bits completeness
 #[test]
 fn bit_positions_are_unique() {
     let all_bits = [
@@ -201,8 +196,7 @@ fn bit_positions_are_contiguous() {
     }
 }
 
-// ── TraitSet edge cases ─────────────────────────────────────────────
-
+// TraitSet edge cases
 #[test]
 fn contains_bit_beyond_count_is_false_for_empty() {
     assert!(!TraitSet::EMPTY.contains(63));
@@ -220,8 +214,7 @@ fn high_bit_positions_work() {
     assert!(!set.contains(62));
 }
 
-// ── Primitive satisfaction (bitfield vs string-based equivalence) ───
-
+// Primitive satisfaction (bitfield vs string-based equivalence)
 /// All well-known trait names in the satisfaction system.
 const ALL_TRAIT_NAMES: &[&str] = &[
     "Eq",
@@ -368,8 +361,7 @@ fn check_prim_traits(
     }
 }
 
-// ── Specific primitive satisfaction checks ──────────────────────────
-
+// Specific primitive satisfaction checks
 fn make_wk() -> (StringInterner, WellKnownNames) {
     let interner = StringInterner::new();
     let wk = WellKnownNames::new(&interner);
@@ -496,13 +488,8 @@ fn non_primitive_idx_returns_false() {
     assert!(!wk.primitive_satisfies_trait(dynamic, eq));
 }
 
-// ── Compound type satisfaction ──────────────────────────────────────
-
+// Compound type satisfaction
 #[test]
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "exhaustive compound type trait matrix"
-)]
 fn compound_type_satisfaction_via_pool() {
     use crate::Pool;
 
@@ -520,72 +507,79 @@ fn compound_type_satisfaction_via_pool() {
     let iter_int = pool.iterator(Idx::INT);
     let dei_int = pool.double_ended_iterator(Idx::INT);
 
-    // List: eq, comparable, clone, hashable, printable, debug, add, len, is_empty, iterable
-    let list_yes = [
-        "Eq",
-        "Comparable",
-        "Clone",
-        "Hashable",
-        "Printable",
-        "Debug",
-        "Add",
-        "Len",
-        "IsEmpty",
-        "Iterable",
+    let cases: &[(Idx, &str, &[&str], &[&str])] = &[
+        (
+            list_int,
+            "List<int>",
+            &[
+                "Eq",
+                "Comparable",
+                "Clone",
+                "Hashable",
+                "Printable",
+                "Debug",
+                "Add",
+                "Len",
+                "IsEmpty",
+                "Iterable",
+            ],
+            &["Default"],
+        ),
+        (
+            map_str_int,
+            "Map<str, int>",
+            &["Iterable", "Debug"],
+            &["Comparable"],
+        ),
+        (set_int, "Set<int>", &["Len", "Debug"], &["Comparable"]),
+        (
+            opt_int,
+            "Option<int>",
+            &["Default", "Debug", "Iterable"],
+            &["Len"],
+        ),
+        (
+            res_int_str,
+            "Result<int, str>",
+            &["Comparable", "Debug"],
+            &["Default"],
+        ),
+        (tuple, "(int, str)", &["Len", "Debug"], &["Iterable"]),
+        (range_int, "Range<int>", &["Iterable", "IsEmpty"], &["Eq"]),
+        (iter_int, "Iterator<int>", &["Iterator"], &["Eq"]),
+        (
+            dei_int,
+            "DoubleEndedIterator<int>",
+            &["Iterator", "DoubleEndedIterator"],
+            &["Eq"],
+        ),
     ];
-    let list_no = ["Default"];
-    for name in list_yes {
+    for &(ty, label, satisfied, rejected) in cases {
+        assert_trait_matrix(&wk, &interner, &pool, ty, label, satisfied, rejected);
+    }
+}
+
+fn assert_trait_matrix(
+    wk: &WellKnownNames,
+    interner: &StringInterner,
+    pool: &crate::Pool,
+    ty: Idx,
+    label: &str,
+    satisfied: &[&str],
+    rejected: &[&str],
+) {
+    for &name in satisfied {
         assert!(
-            wk.type_satisfies_trait(list_int, interner.intern(name), &pool),
-            "List<int> should satisfy {name}"
+            wk.type_satisfies_trait(ty, interner.intern(name), pool),
+            "{label} should satisfy {name}"
         );
     }
-    for name in list_no {
+    for &name in rejected {
         assert!(
-            !wk.type_satisfies_trait(list_int, interner.intern(name), &pool),
-            "List<int> should NOT satisfy {name}"
+            !wk.type_satisfies_trait(ty, interner.intern(name), pool),
+            "{label} should NOT satisfy {name}"
         );
     }
-
-    // Map: eq, clone, hashable, printable, debug, len, is_empty, iterable (no comparable)
-    assert!(wk.type_satisfies_trait(map_str_int, interner.intern("Iterable"), &pool));
-    assert!(wk.type_satisfies_trait(map_str_int, interner.intern("Debug"), &pool));
-    assert!(!wk.type_satisfies_trait(map_str_int, interner.intern("Comparable"), &pool));
-
-    // Set: same as Map
-    assert!(wk.type_satisfies_trait(set_int, interner.intern("Len"), &pool));
-    assert!(wk.type_satisfies_trait(set_int, interner.intern("Debug"), &pool));
-    assert!(!wk.type_satisfies_trait(set_int, interner.intern("Comparable"), &pool));
-
-    // Option: eq, comparable, clone, hashable, printable, default, debug, iterable
-    assert!(wk.type_satisfies_trait(opt_int, interner.intern("Default"), &pool));
-    assert!(wk.type_satisfies_trait(opt_int, interner.intern("Debug"), &pool));
-    assert!(wk.type_satisfies_trait(opt_int, interner.intern("Iterable"), &pool));
-    assert!(!wk.type_satisfies_trait(opt_int, interner.intern("Len"), &pool));
-
-    // Result: eq, comparable, clone, hashable, printable, debug (no default)
-    assert!(wk.type_satisfies_trait(res_int_str, interner.intern("Comparable"), &pool));
-    assert!(wk.type_satisfies_trait(res_int_str, interner.intern("Debug"), &pool));
-    assert!(!wk.type_satisfies_trait(res_int_str, interner.intern("Default"), &pool));
-
-    // Tuple: eq, comparable, clone, hashable, printable, debug, len
-    assert!(wk.type_satisfies_trait(tuple, interner.intern("Len"), &pool));
-    assert!(wk.type_satisfies_trait(tuple, interner.intern("Debug"), &pool));
-    assert!(!wk.type_satisfies_trait(tuple, interner.intern("Iterable"), &pool));
-
-    // Range: printable, len, is_empty, iterable
-    assert!(wk.type_satisfies_trait(range_int, interner.intern("Iterable"), &pool));
-    assert!(wk.type_satisfies_trait(range_int, interner.intern("IsEmpty"), &pool));
-    assert!(!wk.type_satisfies_trait(range_int, interner.intern("Eq"), &pool));
-
-    // Iterator: iterator trait only
-    assert!(wk.type_satisfies_trait(iter_int, interner.intern("Iterator"), &pool));
-    assert!(!wk.type_satisfies_trait(iter_int, interner.intern("Eq"), &pool));
-
-    // DoubleEndedIterator: iterator + double_ended_iterator
-    assert!(wk.type_satisfies_trait(dei_int, interner.intern("Iterator"), &pool));
-    assert!(wk.type_satisfies_trait(dei_int, interner.intern("DoubleEndedIterator"), &pool));
-    assert!(!wk.type_satisfies_trait(dei_int, interner.intern("Eq"), &pool));
 }
 
 #[test]
@@ -602,8 +596,7 @@ fn str_compound_iterable() {
     assert!(wk.type_satisfies_trait(Idx::STR, interner.intern("Eq"), &pool));
 }
 
-// ── trait_bit_map sync ──────────────────────────────────────────────
-
+// trait_bit_map sync
 #[test]
 fn trait_bit_map_covers_all_trait_names() {
     let (interner, wk) = make_wk();
@@ -642,5 +635,115 @@ fn trait_bit_map_has_no_duplicates() {
             "duplicate bit {bit} in trait_bit_map"
         );
         assert!(seen_names.insert(name), "duplicate Name in trait_bit_map");
+    }
+}
+
+// FFI C-ABI kind carrier
+#[test]
+fn resolve_ffi_cabi_kind_maps_full_c_star_matrix() {
+    use ori_ir::CAbiKind;
+    let interner = StringInterner::new();
+    let wk = WellKnownNames::new(&interner);
+    // Full c_* inventory (count=9 incl CPtr) — the FFI type dimension.
+    let cases = [
+        ("c_char", CAbiKind::CChar),
+        ("c_short", CAbiKind::CShort),
+        ("c_int", CAbiKind::CInt),
+        ("c_long", CAbiKind::CLong),
+        ("c_longlong", CAbiKind::CLongLong),
+        ("c_size", CAbiKind::CSize),
+        ("c_float", CAbiKind::CFloat),
+        ("c_double", CAbiKind::CDouble),
+        ("CPtr", CAbiKind::CPtr),
+    ];
+    let mut count = 0;
+    for (name, kind) in cases {
+        let n = interner.intern(name);
+        assert_eq!(wk.resolve_ffi_cabi_kind(n), Some(kind), "name {name}");
+        count += 1;
+    }
+    // Self-verifying matrix completeness — no c_* cell silently skipped.
+    assert_eq!(count, 9, "the full c_* inventory must be 9 entries");
+}
+
+#[test]
+fn resolve_ffi_cabi_kind_rejects_non_ffi_names() {
+    // Width-leakage guard at the resolver: non-FFI names carry no kind.
+    let interner = StringInterner::new();
+    let wk = WellKnownNames::new(&interner);
+    assert_eq!(wk.resolve_ffi_cabi_kind(interner.intern("int")), None);
+    assert_eq!(wk.resolve_ffi_cabi_kind(interner.intern("float")), None);
+    assert_eq!(wk.resolve_ffi_cabi_kind(interner.intern("MyStruct")), None);
+}
+
+#[test]
+fn resolve_ffi_cabi_kind_agrees_with_concrete_on_membership() {
+    // Both resolvers recognize EXACTLY the same FFI Name set — a kind iff a
+    // concrete Idx. Guards against the two SSOT lists drifting apart.
+    let interner = StringInterner::new();
+    let wk = WellKnownNames::new(&interner);
+    for name in [
+        "c_char",
+        "c_short",
+        "c_int",
+        "c_long",
+        "c_longlong",
+        "c_size",
+        "c_float",
+        "c_double",
+        "CPtr",
+        "int",
+        "float",
+        "NotAType",
+    ] {
+        let n = interner.intern(name);
+        let concrete = wk.resolve_ffi_concrete(n).is_some();
+        let kind = wk.resolve_ffi_cabi_kind(n).is_some();
+        // Guard ALL THREE c_* lists against drift: the two well_known Name
+        // resolvers AND the ori_ir `CAbiKind::from_name` str mapping the
+        // well_known-absent fallback path uses.
+        let from_name = ori_ir::CAbiKind::from_name(name).is_some();
+        assert_eq!(
+            concrete, kind,
+            "concrete/kind membership mismatch for {name}"
+        );
+        assert_eq!(
+            kind, from_name,
+            "resolve_ffi_cabi_kind/CAbiKind::from_name membership mismatch for {name}",
+        );
+    }
+}
+
+#[test]
+fn resolve_ffi_concrete_maps_floats_to_float_and_rest_to_int() {
+    // The membership-agreement test above only checks is_some(); this pins the
+    // actual concrete value the FFI float/integer split produces. Without it,
+    // is_float() could regress to always-false and every c_float/c_double would
+    // silently resolve to Idx::INT (i64) instead of Idx::FLOAT (f64).
+    let interner = StringInterner::new();
+    let wk = WellKnownNames::new(&interner);
+    let float_names = ["c_float", "c_double"];
+    let int_names = [
+        "c_char",
+        "c_short",
+        "c_int",
+        "c_long",
+        "c_longlong",
+        "c_size",
+        "CPtr",
+    ];
+    for name in float_names {
+        assert_eq!(
+            wk.resolve_ffi_concrete(interner.intern(name)),
+            Some(Idx::FLOAT),
+            "{name} must resolve to FLOAT"
+        );
+    }
+    for name in int_names {
+        assert_eq!(
+            wk.resolve_ffi_concrete(interner.intern(name)),
+            Some(Idx::INT),
+            "{name} must resolve to INT"
+        );
     }
 }

@@ -39,10 +39,9 @@ Theorem RL-10: disjoint field mutation (no COW) + SetTag exclusion
            borrow (even a field-disjoint one) would observe corrupted memory
            — the copy is mandatory.
 
-    RL-10 refines plain ARC's conservative whole-object COW by permitting
-    in-place mutation when field-level disjointness proves no aliasing, while
-    keeping the SetTag exclusion that makes the field-disjointness argument
-    unsound for variant-layout changes.
+    RL-10 preserves evaluator value semantics by admitting same-identity
+    mutation only when field-level disjointness proves no observation, while
+    retaining SetTag's whole-payload exclusion.
 
   Proof obligation:
     Constructive discharge by the case_analysis engine via finite

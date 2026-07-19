@@ -30,12 +30,15 @@
 // Const Expressions in Type Arguments
 // =============================================================================
 
-// Integer literal in type argument position
-#skip("BUG-07-038: const generics — Array type not yet implemented")
+// Integer literal / const-param in type-argument position: `Array<int, N>` is
+// NOT yet implemented and currently fails type-checking with E2001.
+// This negative pin asserts the current unimplemented state; it flips (module
+// compiles) when Array lands, prompting conversion to a positive test.
+#compile_fail(code: "E2001")
+@array_type_arg_unimplemented tests _ () -> void = { () }
+
 @int_type_arg () -> Array<int, 10> = [];
 
-// Const param reference in type argument position
-#skip("BUG-07-038: const generics — Array type not yet implemented")
 @const_type_arg<$N: int> () -> Array<int, $N> = [];
 
 // =============================================================================
@@ -43,11 +46,9 @@
 // =============================================================================
 
 // Fixed list with integer literal capacity (existing syntax)
-#skip("BUG-07-038: const generics — fixed-capacity lists not yet implemented (roadmap §18.2)")
 @fixed_list_literal () -> [int, max 10] = [];
 
 // Fixed list with const param capacity (new syntax)
-#skip("BUG-07-038: const generics — fixed-capacity lists not yet implemented (roadmap §18.2)")
 @fixed_list_const<$N: int> () -> [int, max $N] = [];
 
 // =============================================================================
@@ -55,9 +56,7 @@
 // =============================================================================
 
 // Const bound in where clause
-#skip("BUG-07-038: const generics — const bounds not yet implemented (roadmap §18.5)")
 @const_bound<$N: int> () -> int where N > 0 = N;
 
 // Mixed type and const bounds
-#skip("BUG-07-038: const generics — const bounds not yet implemented (roadmap §18.5)")
 @mixed_bounds<T, $N: int> (x: T) -> T where T: Clone, N > 0 = x;

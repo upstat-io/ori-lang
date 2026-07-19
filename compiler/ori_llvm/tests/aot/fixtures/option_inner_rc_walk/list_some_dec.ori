@@ -1,0 +1,9 @@
+type Holder = { f: Option<[int]> }
+@mk (b: bool) -> Option<[int]> = if b then Some([1, 2]) else None;
+@consume (h: Holder) -> void = {
+    print(msg: "c")
+}
+@main () -> void = {
+    let h = Holder { f: mk(b: true) };
+    consume(h: h)
+}

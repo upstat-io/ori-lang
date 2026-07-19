@@ -1,4 +1,4 @@
-// Regression: BUG-04-159 — same-frame catch of modulo-by-zero implicit panic.
+// Regression: same-frame catch of modulo-by-zero implicit panic.
 // The checked-op panic carrier emit_panic_block emitted call+unreachable
 // (no invoke), so the unwind escaped the in-frame catch landing pad.
 @main () -> int = {

@@ -141,8 +141,10 @@ fn case_analysis_engine_smoke() {
 #[test]
 fn refinement_engine_smoke() {
     let engine = RefinementEngine;
-    // Positive: refinement serves RL (RL-29..31 LLVM fact export via section_08
-    // PRIMARY verifiers; secondary gracious-accept on the other RL rules).
+    // Positive: refinement serves RL (RL-29..31 neutral AIMS facts plus target
+    // projection fidelity)
+    // via section_08 PRIMARY verifiers; secondary gracious-accept on the other
+    // RL rules).
     // Suffix "99" is outside the section_08 roster so the scaffold-time
     // contract still holds.
     assert_engine_accepts_category(&engine, Category::Realization, "99");

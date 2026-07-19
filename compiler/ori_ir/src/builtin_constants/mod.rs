@@ -9,14 +9,15 @@
 //!
 //! Each built-in type with associated constants gets its own submodule:
 //! - `duration`: Nanosecond conversion multipliers
-//! - `size`: Byte conversion multipliers (binary 1024-based)
+//! - `size`: Byte conversion multipliers (SI 1000-based)
 //! - `ordering`: Variant tag constants
 //! - `iterator`: Internal method names for type-directed specialization
 //!
 //! Using submodules allows for scoped imports like:
-//! ```ignore
+//! ```
 //! use ori_ir::builtin_constants::duration;
-//! let ms = duration::NS_PER_MS;
+//!
+//! assert_eq!(duration::NS_PER_MS, 1_000_000);
 //! ```
 
 /// Duration constants for nanosecond-based time representation.
@@ -52,10 +53,13 @@ pub mod duration {
 
 /// Size constants for byte-based storage representation.
 ///
-/// Size values are stored as `u64` bytes (semantically non-negative).
+/// Size values use a `u64` carrier constrained to the non-negative `i64`
+/// range required by the language specification.
 /// Uses SI units (1000-based): 1kb = 1000 bytes, 1mb = 1,000,000 bytes, etc.
 /// For exact powers of 1024, use explicit byte counts: `1024b`, `1048576b`.
 pub mod size {
+    /// Largest byte count representable by Ori's non-negative signed `Size`.
+    pub const MAX_BYTES: u64 = i64::MAX as u64;
     /// Bytes per kilobyte (1000, SI units).
     pub const BYTES_PER_KB: u64 = 1000;
     /// Bytes per megabyte (1000^2 = 1,000,000, SI units).

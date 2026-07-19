@@ -1,10 +1,11 @@
-//! Burden-path self-sufficiency probe for the canonical RC-emission path.
+//! Burden-path self-sufficiency probe for the compiled-counter adapter.
 //!
 //! Compiles real Ori programs with `ORI_DISABLE_PREDICATE_STACK_RC=1` — which
 //! suppresses the predicate-stack `RcInc`/`RcDec` emission and lowers surviving
-//! `BurdenInc → RcInc` / `BurdenDec → RcDec` mechanically (Phase 7) — then runs
-//! each under `ORI_CHECK_LEAKS=1`. A pass proves the burden path ALONE produces
-//! a VF-1-balanced, leak-free, double-free-free binary for the covered shape.
+//! `BurdenInc → RcInc` / `BurdenDec → RcDec` mechanically, then runs
+//! each under `ORI_CHECK_LEAKS=1`. A pass proves only that this adapter's burden
+//! path produces a VF-1-balanced, leak-free, double-free-free binary for the
+//! covered shape; it is not an AIMS-wide or cross-executor verdict.
 //!
 //! Matrix dimensions (burden-lowering completeness shapes): move-alias chain,
 //! duplication-alias with live source, collection-buffer last-use
@@ -14,16 +15,12 @@
 //! Build-step env (compile-time flag) via `compile_and_run_with_build_env`;
 //! run-step `ORI_CHECK_LEAKS=1` always-on. Subprocess-isolated — parallel-safe.
 
-#![allow(
-    clippy::needless_raw_string_hashes,
-    reason = "readability in test program literals"
-)]
-
 use crate::util::compile_and_run_with_build_env;
 
-/// Compile `source` with the predicate-stack RC emitter OFF (burden path is the
-/// sole real-RC emitter) and run under leak checking. Asserts the program exits
-/// 0 with no FATAL double-free / leak diagnostic on stderr.
+/// Compile `source` with the predicate-stack RC emitter OFF (the burden path is
+/// the current compiled-counter adapter's sole real-RC emitter) and run under
+/// leak checking. Asserts the program exits 0 with no FATAL double-free / leak
+/// diagnostic on stderr.
 fn assert_burden_path_self_sufficient(source: &str, label: &str) {
     let (exit, stdout, stderr) =
         compile_and_run_with_build_env(source, &[("ORI_DISABLE_PREDICATE_STACK_RC", "1")]);
@@ -46,20 +43,7 @@ fn probe_move_alias_chain_str() {
     // Move-alias chain: a heap str moved through Let-Var hops (FatVal lineage
     // %0 → %2 → %4) then returned — burden RL-2 move-alias transfer suppression
     // must keep the net at 0 with no orphan dec.
-    let src = r#"
-@id_chain (s: str) -> str = {
-    let a = s;
-    let b = a;
-    let c = b;
-    c
-}
-
-@main () -> int = {
-    let r = id_chain(s: "hello world");
-    print(msg: r);
-    0
-}
-"#;
+    let src = include_str!("fixtures/predicate_stack_probe/probe_move_alias_chain_str.ori");
     assert_burden_path_self_sufficient(src, "move_alias_chain_str");
 }
 
@@ -67,20 +51,7 @@ fn probe_move_alias_chain_str() {
 fn probe_dup_alias_live_source_str() {
     // Duplication: a Let-Var alias whose SOURCE stays live afterward — RL-1
     // duplication inc on the alias, balanced by its own last-use dec.
-    let src = r#"
-@use_twice (s: str) -> int = {
-    let a = s;
-    let len_a = a.length();
-    let len_s = s.length();
-    len_a + len_s
-}
-
-@main () -> int = {
-    let n = use_twice(s: "duplicate me");
-    print(msg: `{n}`);
-    0
-}
-"#;
+    let src = include_str!("fixtures/predicate_stack_probe/probe_dup_alias_live_source_str.ori");
     assert_burden_path_self_sufficient(src, "dup_alias_live_source_str");
 }
 
@@ -96,47 +67,22 @@ fn probe_collection_buffer_last_use_list() {
     // Collection-buffer last-use: a heap list built, consumed, dropped — the
     // burden CollectionBuffer dec at last use must release the buffer exactly
     // once.
-    let src = r#"
-@sum_list (xs: [int]) -> int = {
-    let total = xs.fold(initial: 0, op: (acc, x) -> acc + x);
-    total
-}
-
-@main () -> int = {
-    let xs = [1, 2, 3, 4, 5];
-    let s = sum_list(xs: xs);
-    print(msg: `{s}`);
-    0
-}
-"#;
+    let src =
+        include_str!("fixtures/predicate_stack_probe/probe_collection_buffer_last_use_list.ori");
     assert_burden_path_self_sufficient(src, "collection_buffer_last_use_list");
 }
 
 #[test]
 fn probe_collection_buffer_last_use_map() {
-    let src = r#"
-@count_keys (m: {str: int}) -> int = m.length();
-
-@main () -> int = {
-    let m = {"a": 1, "b": 2, "c": 3};
-    let n = count_keys(m: m);
-    print(msg: `{n}`);
-    0
-}
-"#;
+    let src =
+        include_str!("fixtures/predicate_stack_probe/probe_collection_buffer_last_use_map.ori");
     assert_burden_path_self_sufficient(src, "collection_buffer_last_use_map");
 }
 
 #[test]
 fn probe_collection_buffer_last_use_set() {
-    let src = r#"
-@main () -> int = {
-    let s: Set<int> = [1, 2, 3, 2, 1].iter().collect();
-    let n = s.len();
-    print(msg: `{n}`);
-    0
-}
-"#;
+    let src =
+        include_str!("fixtures/predicate_stack_probe/probe_collection_buffer_last_use_set.ori");
     assert_burden_path_self_sufficient(src, "collection_buffer_last_use_set");
 }
 
@@ -145,19 +91,8 @@ fn probe_borrow_chain_project_of_projection() {
     // Borrow-chain: a Project of a projection (nested field borrow). TF-4
     // Borrowed propagation must keep the nested borrow-view from emitting a
     // last-use dec (a borrow owns no allocation).
-    let src = r#"
-type Inner = { tag: str }
-type Outer = { inner: Inner, count: int }
-
-@read_tag (o: Outer) -> str = o.inner.tag;
-
-@main () -> int = {
-    let o = Outer { inner: Inner { tag: "nested" }, count: 7 };
-    let t = read_tag(o: o);
-    print(msg: t);
-    0
-}
-"#;
+    let src =
+        include_str!("fixtures/predicate_stack_probe/probe_borrow_chain_project_of_projection.ori");
     assert_burden_path_self_sufficient(src, "borrow_chain_project_of_projection");
 }
 
@@ -166,55 +101,72 @@ fn probe_closure_capture_last_use_str() {
     // Closure-capture last-use: a heap str captured by a closure; the closure's
     // env carries the capture's RC, released when the closure dies. PartialApply
     // FRESH + last-use dec must net 0.
-    let src = r#"
-@make_greeter (name: str) -> () -> str = {
-    let greet = () -> `hello {name}`;
-    greet
+    let src = include_str!("fixtures/predicate_stack_probe/probe_closure_capture_last_use_str.ori");
+    assert_burden_path_self_sufficient(src, "closure_capture_last_use_str");
 }
 
-@main () -> int = {
-    let g = make_greeter(name: "world");
-    let msg = g();
-    print(msg: msg);
-    0
-}
-"#;
-    assert_burden_path_self_sufficient(src, "closure_capture_last_use_str");
+/// With `ORI_DISABLE_BURDEN_OPS=1`, class-ledger Step-4b emission is disabled.
+/// Because the class ledger is the sole emitter,
+/// class-ledger Step-4b emission. Because the class ledger is the sole emitter,
+/// realization must fail loud instead of synthesizing a fallback or producing
+/// an under-released executable. Spec: Annex E §AIMS RL-2.
+#[test]
+fn probe_closure_capture_last_use_str_burden_ops_disabled_fails_loud() {
+    use crate::util::compile_and_run_with_build_env;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_closure_capture_last_use_str_burden_ops_disabled_fails_loud.ori"
+    );
+    let probe: &[(&str, &str)] = &[
+        ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
+        ("ORI_VERIFY_ARC", "1"),
+        ("ORI_VERIFY_EACH", "1"),
+    ];
+
+    // Control: burden-sole probe, Phase-5 emission intact.
+    let (control_exit, _stdout, control_stderr) = compile_and_run_with_build_env(src, probe);
+    assert_eq!(
+        control_exit, 0,
+        "burden-sole probe with Phase-5 burden-op emission intact must run \
+         clean (no leak, no double-free)\nstderr:\n{control_stderr}"
+    );
+
+    // Forced: burden-op emission disabled — sole-emitter realization must
+    // reject the unreplaced function before codegen.
+    let mut forced: Vec<(&str, &str)> = probe.to_vec();
+    forced.push(("ORI_DISABLE_BURDEN_OPS", "1"));
+    let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
+    assert_eq!(
+        forced_exit, -1,
+        "disabling the sole class-ledger emitter must fail during compilation\n\
+         stderr:\n{forced_stderr}"
+    );
+    assert!(
+        forced_stderr.contains("realize reached a non-class-ledger function")
+            && forced_stderr.contains("class-ledger plan admits only replaced functions"),
+        "the forced leg must reach the intentional sole-emitter fail-loud gate, \
+         not fail for an unrelated reason\nstderr:\n{forced_stderr}"
+    );
 }
 
 #[test]
 fn probe_result_str_partial_move_via_try_codegen_clean() {
-    // Enum partial-move codegen cure: `?` on a `Result<int, str>`
-    // projects the heap Err payload (str) OUT to the propagated value. The
+    // `?` on a `Result<int, str>` projects the heap Err payload into the
+    // propagated value. The
     // burden walk records that move and emits `burden_dec_partial %r skip=[1]`
     // for the Result var — a DropKind::Enum partial-move drop shape. Under the
     // probe (`ORI_DISABLE_PREDICATE_STACK_RC=1`) that op lowers to a real
-    // per-variant RcDec walk. Pre-fix the BurdenDecPartial codegen arm handled
-    // ONLY DropKind::Fields and hit `debug_assert!(false)` + silent return on
-    // DropKind::Enum — a codegen crash (`LLVM codegen had N error(s)`) corpus-
-    // wide under the probe. Post-fix the arm dispatches DropKind::Enum through
-    // `emit_variant_burden_walk`, skipping the moved-out source variant by
-    // ordinal (RL-2: the moved-out str must NOT be re-dropped). SSO strings —
-    // heap-free, so the cure is observable as codegen-clean + leak-free.
-    let src = r#"
-@fallible () -> Result<int, str> = Err("fail");
-
-@propagate () -> Result<int, str> = {
-    let v = fallible()?;
-    Ok(v + 1)
-}
-
-@main () -> int = {
-    let r = propagate();
-    if r.is_err() then 0 else 1
-}
-"#;
+    // per-variant `RcDec` walk. `DropKind::Enum` must dispatch through
+    // `emit_variant_burden_walk` and skip the moved-out source variant by
+    // ordinal (RL-2); SSO payloads keep the assertion allocation-independent.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_result_str_partial_move_via_try_codegen_clean.ori"
+    );
     assert_burden_path_self_sufficient(src, "result_str_partial_move_via_try");
 }
 
 #[test]
 fn probe_result_scalar_only_no_partial_move_codegen_clean() {
-    // Negative companion (the `moved_fields.rs` scalar-projection filter):
+    // Negative companion (the moved_fields cluster's scalar-projection filter):
     // `??` on a `Result<int, str>` where the Ok payload is a SCALAR int and the
     // Err is taken projects only the scalar int slot. A scalar projection
     // transfers NO RC ownership (L-9 / TF-4), so it must NOT seed `skip_fields`
@@ -223,16 +175,9 @@ fn probe_result_scalar_only_no_partial_move_codegen_clean() {
     // moved, suppressing the Err drop; the filter keeps the full dec. SSO Err
     // string keeps this pin heap-free (codegen-clean clamp; the separately
     // tracked heap-payload discard leak is out of scope for this pin).
-    let src = r#"
-@fallible (ok: bool) -> Result<int, str> =
-    if ok then Ok(7) else Err("e");
-
-@main () -> int = {
-    let r = fallible(ok: false);
-    let v = r ?? 42;
-    if v == 42 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_result_scalar_only_no_partial_move_codegen_clean.ori"
+    );
     assert_burden_path_self_sufficient(src, "result_scalar_only_no_partial_move");
 }
 
@@ -241,19 +186,13 @@ fn probe_coalesce_discards_heap_err_payload() {
     // RL-4 / RL-5: `a ?? default` on a `Result<int, str>` whose `a` is the
     // heap-Err variant discards the Result on the Err-taken edge. The Result's
     // heap str payload is live at the coalesce branch but dead in the default
-    // successor — its release belongs on that dying CFG edge. The predicate
-    // stack emits it via `emit_edge_cleanup`; under the probe that pass is off,
-    // so the burden path must emit the dying-edge `BurdenDec` itself (consuming
-    // the same `compute_branch_edge_dead_set` SSOT). The Err str is >23 bytes
-    // (defeats SSO) so the leak is observable. Fails before the burden-path
-    // edge-cleanup fix: `ORI_CHECK_LEAKS=1` reports `1 RC allocation not freed`.
-    let src = r#"
-@main () -> int = {
-    let a: Result<int, str> = Err("an allocated failure message well past sso");
-    let v = a ?? 42;
-    if v == 42 then 0 else 1
-}
-"#;
+    // successor — its release belongs on that dying CFG edge. The class-ledger
+    // per-edge placement emits the dying-edge `BurdenDec`, lowered to the real
+    // `RcDec` under the probe. The Err str is >23 bytes (defeats SSO) so the
+    // leak is observable. Fails before the class-ledger edge-release fix:
+    // `ORI_CHECK_LEAKS=1` reports `1 RC allocation not freed`.
+    let src =
+        include_str!("fixtures/predicate_stack_probe/probe_coalesce_discards_heap_err_payload.ori");
     assert_burden_path_self_sufficient(src, "coalesce_discards_heap_err_payload");
 }
 
@@ -262,16 +201,9 @@ fn probe_default_path_unaffected_str() {
     // Symmetry pin: with the probe UNSET (default), the SAME program runs
     // leak-free through the predicate stack — guards the default-path byte
     // identity claim is not vacuous (this test would still pass if the probe
-    // suppressed everything; the per-shape probe tests above pin the burden
+    // suppressed everything; separate per-shape probes pin that the burden
     // path actually fires).
-    let src = r#"
-@main () -> int = {
-    let s = "round trip";
-    let a = s;
-    print(msg: a);
-    0
-}
-"#;
+    let src = include_str!("fixtures/predicate_stack_probe/probe_default_path_unaffected_str.ori");
     let (exit, _stdout, stderr) = compile_and_run_with_build_env(src, &[]);
     assert!(
         exit == 0,
@@ -279,15 +211,9 @@ fn probe_default_path_unaffected_str() {
     );
 }
 
-// Per-shape default-path coverage for the residual-risk shapes.
-//
-// The codegen seam now threads a reconstructed (populated) `TypeRegistry` into
-// `run_arc_pipeline` so the burden walker resolves `[T]` / `{K:V}` / `Set<T>` /
-// closure-env specs. With the predicate-stack flag UNSET (default path) burden
-// ops are codegen no-ops, so the populated registry MUST NOT perturb default-path
-// emission: each shape that the collection / closure burden lookup now resolves
-// runs leak-free on the default path. Symmetry companion to
-// `probe_default_path_unaffected_str` (str) + the burden-path-only probes above.
+// A populated `TypeRegistry` must not perturb default-path emission while burden
+// operations are disabled; every resolvable collection and closure shape stays
+// leak-free.
 
 /// Compile `source` on the DEFAULT path (predicate-stack RC emitter ON; burden
 /// ops are codegen no-ops when the flag is unset) and run under leak checking.
@@ -312,19 +238,8 @@ fn assert_default_path_leak_free(source: &str, label: &str) {
 fn probe_default_path_unaffected_list_int() {
     // `[int]` collection buffer — burden lookup resolves the CollectionBuffer
     // spec; default-path emission must stay leak-free.
-    let src = r#"
-@sum_list (xs: [int]) -> int = {
-    let total = xs.fold(initial: 0, op: (acc, x) -> acc + x);
-    total
-}
-
-@main () -> int = {
-    let xs = [1, 2, 3, 4, 5];
-    let s = sum_list(xs: xs);
-    print(msg: `{s}`);
-    0
-}
-"#;
+    let src =
+        include_str!("fixtures/predicate_stack_probe/probe_default_path_unaffected_list_int.ori");
     assert_default_path_leak_free(src, "default_path_unaffected_list_int");
 }
 
@@ -332,16 +247,9 @@ fn probe_default_path_unaffected_list_int() {
 fn probe_default_path_unaffected_map_str_int() {
     // `{str: int}` collection buffer — burden lookup resolves the map spec
     // (heap-str keys + scalar values); default-path emission must stay leak-free.
-    let src = r#"
-@count_keys (m: {str: int}) -> int = m.length();
-
-@main () -> int = {
-    let m = {"a": 1, "b": 2, "c": 3};
-    let n = count_keys(m: m);
-    print(msg: `{n}`);
-    0
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_default_path_unaffected_map_str_int.ori"
+    );
     assert_default_path_leak_free(src, "default_path_unaffected_map_str_int");
 }
 
@@ -349,14 +257,8 @@ fn probe_default_path_unaffected_map_str_int() {
 fn probe_default_path_unaffected_set_int() {
     // `Set<int>` collection buffer — burden lookup resolves the set spec;
     // default-path emission must stay leak-free.
-    let src = r#"
-@main () -> int = {
-    let s: Set<int> = [1, 2, 3, 2, 1].iter().collect();
-    let n = s.len();
-    print(msg: `{n}`);
-    0
-}
-"#;
+    let src =
+        include_str!("fixtures/predicate_stack_probe/probe_default_path_unaffected_set_int.ori");
     assert_default_path_leak_free(src, "default_path_unaffected_set_int");
 }
 
@@ -364,19 +266,9 @@ fn probe_default_path_unaffected_set_int() {
 fn probe_default_path_unaffected_closure_env() {
     // Closure-env captured heap str — burden lookup resolves the capture spec via
     // the same registry path; default-path emission must stay leak-free.
-    let src = r#"
-@make_greeter (name: str) -> () -> str = {
-    let greet = () -> `hello {name}`;
-    greet
-}
-
-@main () -> int = {
-    let g = make_greeter(name: "world");
-    let msg = g();
-    print(msg: msg);
-    0
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_default_path_unaffected_closure_env.ori"
+    );
     assert_default_path_leak_free(src, "default_path_unaffected_closure_env");
 }
 
@@ -397,20 +289,9 @@ fn probe_map_keys_str_source_freed_with_elements() {
     // `m.keys()`: the map source is borrowed, the keys list iterated. The dead
     // map at the loop exit must be freed VIA `ori_buffer_rc_dec` so its two heap
     // key strings (the V5 `elem_dec_fn` walk) are freed too — 3 frees needed.
-    let src = r#"
-@main () -> int = {
-    let m = {
-        "this is a very long key exceeding SSO threshold here": 10,
-        "another very long key that also exceeds the SSO thresh": 20
-    };
-    let keys = m.keys();
-    let total = 0;
-    for k in keys do {
-        total = total + k.len();
-    };
-    if total == 106 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_map_keys_str_source_freed_with_elements.ori"
+    );
     assert_burden_path_self_sufficient(src, "map_keys_str_source_freed_with_elements");
 }
 
@@ -419,20 +300,9 @@ fn probe_set_to_list_str_source_freed_no_double_free() {
     // `set.to_list()`: the set source is borrowed, the list iterated. The dead
     // set at the loop exit must be freed exactly once (a second dec aborts) — its
     // element strings are slice/heap-aware via `elem_dec_fn`.
-    let src = r#"
-@main () -> int = {
-    let s: Set<str> = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold"
-    ].iter().collect();
-    let list = s.to_list();
-    let total = 0;
-    for item in list do {
-        total = total + item.len();
-    };
-    if total == 109 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_set_to_list_str_source_freed_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "set_to_list_str_source_freed_no_double_free");
 }
 
@@ -441,17 +311,7 @@ fn probe_str_split_source_freed() {
     // `s.split()`: the str source is borrowed, the parts (slice-views into `s`)
     // iterated. The dead source string at the loop exit must be freed (slice
     // provenance handled by `ori_rc_dec` on the FatPointer data).
-    let src = r#"
-@main () -> int = {
-    let s = "this is a very long string that exceeds SSO threshold,another very long string also exceeds";
-    let parts = s.split(sep: ",");
-    let total = 0;
-    for p in parts do {
-        total = total + p.len();
-    };
-    if total == 90 then 0 else 1
-}
-"#;
+    let src = include_str!("fixtures/predicate_stack_probe/probe_str_split_source_freed.ori");
     assert_burden_path_self_sufficient(src, "str_split_source_freed");
 }
 
@@ -462,15 +322,9 @@ fn probe_map_keys_str_loop_managed_not_double_freed() {
     // free ONLY the borrowed map source, never the iter-consumed keys list — a
     // dec there would double-free. Covered by the positive pin's leak-free exit,
     // but pinned separately for the double-free shape (a second dec aborts).
-    let src = r#"
-@main () -> int = {
-    let m = { "alpha key exceeding the sso inline threshold here": 1 };
-    let ks = m.keys();
-    let n = 0;
-    for k in ks do { n = n + k.len(); };
-    if n > 0 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_map_keys_str_loop_managed_not_double_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "map_keys_str_loop_managed_not_double_freed");
 }
 
@@ -492,52 +346,36 @@ fn probe_list_sort_result_freed_at_scope_exit() {
     // `xs.sort()` reuses the buffer in place at rc=1 → the sorted RESULT is the
     // same allocation, last-used via borrowed `@length`/`@first`/`@last`, dead at
     // scope exit. Without the freeing dec the buffer leaks.
-    let src = r#"
-@main () -> int = {
-    let xs = [3, 1, 4, 1, 5, 9, 2, 6];
-    let sorted = xs.sort();
-    if sorted.length() == 8 && sorted.first().unwrap() == 1 && sorted.last().unwrap() == 9 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_list_sort_result_freed_at_scope_exit.ori"
+    );
     assert_burden_path_self_sufficient(src, "list_sort_result_freed_at_scope_exit");
 }
 
 #[test]
 fn probe_list_set_result_freed_at_scope_exit() {
     // `xs.set(i, v)` mutation-result owned-collection dead at scope exit.
-    let src = r#"
-@main () -> int = {
-    let xs = [10, 20, 30];
-    let ys = xs.set(1, 99);
-    if ys.length() == 3 && ys.first().unwrap() == 10 && ys.last().unwrap() == 30 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_list_set_result_freed_at_scope_exit.ori"
+    );
     assert_burden_path_self_sufficient(src, "list_set_result_freed_at_scope_exit");
 }
 
 #[test]
 fn probe_list_insert_result_freed_at_scope_exit() {
     // `xs.insert(i, v)` mutation-result owned-collection dead at scope exit.
-    let src = r#"
-@main () -> int = {
-    let xs = [1, 2];
-    let ys = xs.insert(2, 3);
-    if ys.length() == 3 && ys.last().unwrap() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_list_insert_result_freed_at_scope_exit.ori"
+    );
     assert_burden_path_self_sufficient(src, "list_insert_result_freed_at_scope_exit");
 }
 
 #[test]
 fn probe_list_remove_result_freed_at_scope_exit() {
     // `xs.remove(i)` mutation-result owned-collection dead at scope exit.
-    let src = r#"
-@main () -> int = {
-    let xs = [1, 2, 3];
-    let ys = xs.remove(2);
-    if ys.length() == 2 && ys.last().unwrap() == 2 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_list_remove_result_freed_at_scope_exit.ori"
+    );
     assert_burden_path_self_sufficient(src, "list_remove_result_freed_at_scope_exit");
 }
 
@@ -547,12 +385,9 @@ fn probe_map_read_only_owned_source_freed_at_scope_exit() {
     // every use, dead at scope exit — the simplest whole-buffer leak shape (alloc
     // `+1` unreleased). Int keys keep this a pure buffer-freeing case (the
     // heap-str-element-arg layer is the separate residual leaf).
-    let src = r#"
-@main () -> int = {
-    let m = {1: 10, 2: 20, 3: 30};
-    if m.contains_key(2) then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_map_read_only_owned_source_freed_at_scope_exit.ori"
+    );
     assert_burden_path_self_sufficient(src, "map_read_only_owned_source_freed_at_scope_exit");
 }
 
@@ -560,12 +395,9 @@ fn probe_map_read_only_owned_source_freed_at_scope_exit() {
 fn probe_map_int_index_result_freed_at_scope_exit() {
     // `m[k]` on an int-keyed int-value map: the owned map is borrowed by the index
     // read, dead at scope exit — the whole-buffer leak shape.
-    let src = r#"
-@main () -> int = {
-    let m = {1: 100, 2: 200};
-    if m[1].unwrap_or(0) == 100 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_map_int_index_result_freed_at_scope_exit.ori"
+    );
     assert_burden_path_self_sufficient(src, "map_int_index_result_freed_at_scope_exit");
 }
 
@@ -574,39 +406,28 @@ fn probe_list_int_sort_negative_no_extra_release() {
     // Negative pin: a sort result that IS subsequently returned (ownership
     // transfer, RL-2 transfer kind) must NOT receive a scope-exit release — the
     // caller inherits the obligation. A double-release here aborts.
-    let src = r#"
-@build () -> [int] = {
-    let xs = [3, 1, 2];
-    xs.sort()
-}
-
-@main () -> int = {
-    let ys = build();
-    if ys.length() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_list_int_sort_negative_no_extra_release.ori"
+    );
     assert_burden_path_self_sufficient(src, "list_int_sort_negative_no_extra_release");
 }
 
 // CHAINED COW-mutation results: `xs.push(a).push(b)` / `xs.concat(..).reverse()`
 // build a single fresh-local allocation transformed in place by each COW op. The
 // receiver of the SECOND mutation is itself a mutation RESULT (not a direct
-// `Construct`), so the dead-owned-collection candidate set previously excluded the
-// final result and leaked the buffer. The fresh-local-equivalence transitive
-// closure over a COW-mutator chain rooted at a fresh local Construct makes the
-// chain tail freeable at its borrowed-read scope-exit sink (RL-2 ApplyToBorrowedParam).
+// `Construct`), so the dead-owned-collection candidate set must admit the chain
+// tail or leak the buffer. The fresh-local-equivalence transitive closure over a
+// COW-mutator chain rooted at a fresh local Construct makes the chain tail
+// freeable at its borrowed-read scope-exit sink (RL-2 ApplyToBorrowedParam).
 
 #[test]
 fn probe_list_push_chain_result_freed_at_scope_exit() {
     // `[1].push(2).push(3)`: the second push's receiver is the first push RESULT,
     // not a Construct. The chain tail is borrowed-read by `@length`/`@first`/`@last`,
     // dead at scope exit. Without the transitive closure the realloc'd buffer leaks.
-    let src = r#"
-@main () -> int = {
-    let xs = [1].push(2).push(3);
-    if xs.length() == 3 && xs.first().unwrap() == 1 && xs.last().unwrap() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_list_push_chain_result_freed_at_scope_exit.ori"
+    );
     assert_burden_path_self_sufficient(src, "list_push_chain_result_freed_at_scope_exit");
 }
 
@@ -614,12 +435,9 @@ fn probe_list_push_chain_result_freed_at_scope_exit() {
 fn probe_list_concat_reverse_chain_result_freed_at_scope_exit() {
     // `([1,2] + [3]).reverse()`: reverse's receiver is the concat result. The
     // chain tail is borrowed-read at scope exit.
-    let src = r#"
-@main () -> int = {
-    let xs = ([1, 2] + [3]).reverse();
-    if xs.length() == 3 && xs.first().unwrap() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_list_concat_reverse_chain_result_freed_at_scope_exit.ori"
+    );
     assert_burden_path_self_sufficient(src, "list_concat_reverse_chain_result_freed_at_scope_exit");
 }
 
@@ -627,12 +445,9 @@ fn probe_list_concat_reverse_chain_result_freed_at_scope_exit() {
 fn probe_list_reverse_reverse_chain_result_freed_at_scope_exit() {
     // `xs.reverse().reverse()`: a two-COW chain whose tail is borrowed-read, dead
     // at scope exit.
-    let src = r#"
-@main () -> int = {
-    let xs = [1, 2, 3].reverse().reverse();
-    if xs.length() == 3 && xs.first().unwrap() == 1 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_list_reverse_reverse_chain_result_freed_at_scope_exit.ori"
+    );
     assert_burden_path_self_sufficient(
         src,
         "list_reverse_reverse_chain_result_freed_at_scope_exit",
@@ -644,16 +459,9 @@ fn probe_list_push_chain_negative_returned_no_extra_release() {
     // Negative pin: a push-chain result that IS returned (ownership transfer, RL-2
     // transfer kind) must NOT receive a scope-exit release — the caller inherits
     // the obligation. A double-release here aborts.
-    let src = r#"
-@build () -> [int] = {
-    [1].push(2).push(3)
-}
-
-@main () -> int = {
-    let ys = build();
-    if ys.length() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_list_push_chain_negative_returned_no_extra_release.ori"
+    );
     assert_burden_path_self_sufficient(src, "list_push_chain_negative_returned_no_extra_release");
 }
 
@@ -670,39 +478,27 @@ fn probe_list_push_chain_negative_returned_no_extra_release() {
 fn probe_set_union_result_freed_at_scope_exit() {
     // `a.union(b)` returns a fresh owned `{int}`, borrowed-read by `@len`, dead
     // at scope exit. Without the set-algebra recognizer the result buffer leaks.
-    let src = r#"
-@main () -> int = {
-    let a: Set<int> = [1, 2].iter().collect();
-    let b: Set<int> = [2, 3].iter().collect();
-    if a.union(b).len() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_set_union_result_freed_at_scope_exit.ori"
+    );
     assert_burden_path_self_sufficient(src, "set_union_result_freed_at_scope_exit");
 }
 
 #[test]
 fn probe_set_difference_result_freed_at_scope_exit() {
     // `a.difference(b)` fresh owned `{int}` result, borrowed-read then dead.
-    let src = r#"
-@main () -> int = {
-    let a: Set<int> = [1, 2, 3].iter().collect();
-    let b: Set<int> = [2].iter().collect();
-    if a.difference(b).len() == 2 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_set_difference_result_freed_at_scope_exit.ori"
+    );
     assert_burden_path_self_sufficient(src, "set_difference_result_freed_at_scope_exit");
 }
 
 #[test]
 fn probe_set_intersection_result_freed_at_scope_exit() {
     // `a.intersection(b)` fresh owned `{int}` result, borrowed-read then dead.
-    let src = r#"
-@main () -> int = {
-    let a: Set<int> = [1, 2, 3].iter().collect();
-    let b: Set<int> = [2, 3, 4].iter().collect();
-    if a.intersection(b).len() == 2 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_set_intersection_result_freed_at_scope_exit.ori"
+    );
     assert_burden_path_self_sufficient(src, "set_intersection_result_freed_at_scope_exit");
 }
 
@@ -712,18 +508,9 @@ fn probe_set_union_result_returned_negative_no_extra_release() {
     // RL-2 transfer kind) must NOT receive a scope-exit release — the caller
     // inherits the obligation. The `returned` exclusion must hold; a
     // double-release here aborts.
-    let src = r#"
-@combine (a: Set<int>, b: Set<int>) -> Set<int> = {
-    a.union(b)
-}
-
-@main () -> int = {
-    let x: Set<int> = [1, 2].iter().collect();
-    let y: Set<int> = [2, 3].iter().collect();
-    let z = combine(a: x, b: y);
-    if z.len() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_set_union_result_returned_negative_no_extra_release.ori"
+    );
     assert_burden_path_self_sufficient(src, "set_union_result_returned_negative_no_extra_release");
 }
 
@@ -741,26 +528,18 @@ fn probe_set_union_result_returned_negative_no_extra_release() {
 fn probe_map_insert_heap_str_key_local_freed() {
     // The inserted KEY str is copied into the map (key_inc); the local survives the
     // borrowed `@insert` and is dead at scope exit. Without the local dec it leaks.
-    let src = r#"
-@main () -> int = {
-    let m: {str: int} = {};
-    let m = m.insert("this is a long key that definitely exceeds the SSO threshold", 42);
-    if m.len() == 1 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_map_insert_heap_str_key_local_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "map_insert_heap_str_key_local_freed");
 }
 
 #[test]
 fn probe_map_insert_heap_str_value_local_freed() {
     // The inserted VALUE str is copied into the map (val_inc); the local leaks.
-    let src = r#"
-@main () -> int = {
-    let m: {int: str} = {};
-    let m = m.insert(1, "a very long value string that exceeds SSO threshold for sure");
-    if m.len() == 1 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_map_insert_heap_str_value_local_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "map_insert_heap_str_value_local_freed");
 }
 
@@ -769,16 +548,9 @@ fn probe_map_remove_str_key_lookup_local_freed() {
     // The `remove` lookup KEY str is borrowed for the search (never stored); the
     // local is the only reference, dead after the borrowed call — it leaks without
     // a last-use dec.
-    let src = r#"
-@main () -> int = {
-    let m = {
-        "this is a very long heap string that exceeds the SSO threshold for sure": 1,
-        "another long heap allocated string for map remove testing purposes here": 2
-    };
-    let m2 = m.remove(key: "another long heap allocated string for map remove testing purposes here");
-    if m2.len() == 1 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_map_remove_str_key_lookup_local_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "map_remove_str_key_lookup_local_freed");
 }
 
@@ -789,15 +561,9 @@ fn probe_map_construct_heap_str_keys_negative_no_double_free() {
     // local dec here double-frees. The map is read-only (`contains_key`), dead at
     // scope exit; the buffer-freeing pass frees the buffer + elements via the V5
     // walk, and the per-element pass MUST NOT also free the moved keys.
-    let src = r#"
-@main () -> int = {
-    let m = {
-        "this is a very long heap string key that exceeds the SSO threshold here": 1,
-        "another long heap allocated string key for construct testing purposes": 2
-    };
-    if m.contains_key("this is a very long heap string key that exceeds the SSO threshold here") then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_map_construct_heap_str_keys_negative_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "map_construct_heap_str_keys_negative_no_double_free");
 }
 
@@ -807,13 +573,9 @@ fn probe_set_to_list_conversion_result_freed() {
     // is a FRESH owned collection the runtime allocates from the receiver; bound to
     // a local, borrowed-read by `@length`, dead at scope exit — it leaks the result
     // buffer under sole-emitter lowering without a scope-exit release dec.
-    let src = r#"
-@main () -> int = {
-    let s: Set<int> = [1, 2, 3].iter().collect();
-    let xs = s.to_list();
-    if xs.length() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_set_to_list_conversion_result_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "set_to_list_conversion_result_freed");
 }
 
@@ -830,16 +592,9 @@ fn probe_set_to_list_conversion_result_freed() {
 
 #[test]
 fn probe_map_values_heap_str_source_borrowed_no_loop() {
-    let src = r#"
-@main () -> int = {
-    let m: {int: str} = {};
-    let m = m.insert(1, "this is a very long heap string value that exceeds the SSO threshold for sure");
-    let m = m.insert(2, "another long heap allocated string value for map values testing purposes");
-    let m = m.insert(3, "third heap string value to check all elements are inc'd by val_inc_fn");
-    let vals = m.values();
-    if vals.len() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_map_values_heap_str_source_borrowed_no_loop.ori"
+    );
     assert_burden_path_self_sufficient(src, "map_values_heap_str_source_borrowed_no_loop");
 }
 
@@ -851,14 +606,7 @@ fn probe_set_str_union_owned_consumed() {
     // the single-borrow conversion-source relocation does not over-fire on a
     // union-operand shape (the receiver is owned-consumed, not a borrowed
     // conversion source, so the relocation leaves it untouched).
-    let src = r#"
-@main () -> int = {
-    let a: Set<str> = ["alpha string exceeding sso threshold here now", "beta string also exceeding the sso threshold"].iter().collect();
-    let b: Set<str> = ["gamma string exceeding sso threshold here now", "alpha string exceeding sso threshold here now"].iter().collect();
-    let u = a.union(other: b);
-    if u.len() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!("fixtures/predicate_stack_probe/probe_set_str_union_owned_consumed.ori");
     assert_burden_path_self_sufficient(src, "set_str_union_owned_consumed");
 }
 
@@ -876,25 +624,9 @@ fn probe_map_str_passed_to_iter_consuming_fn_no_double_free() {
     // `sum_values(m)` iter-consumes the map via `for entry in m`. The caller's
     // scope-exit dec on `m` double-frees against the callee's `ori_iter_drop`.
     // The iter-consume verdict suppresses the caller dec.
-    let src = r#"
-@sum_values (m: {str: int}) -> int = {
-    let total = 0;
-    for entry in m do {
-        let (k, v) = entry;
-        total = total + v
-    };
-    total
-}
-
-@main () -> int = {
-    let m = {
-        "a very long key string that exceeds the twenty three byte SSO threshold for testing": 10,
-        "another long key string to exercise function parameter map cleanup": 20
-    };
-    let result = sum_values(m: m);
-    if result == 30 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_map_str_passed_to_iter_consuming_fn_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "map_str_passed_to_iter_consuming_fn");
 }
 
@@ -902,25 +634,95 @@ fn probe_map_str_passed_to_iter_consuming_fn_no_double_free() {
 fn probe_set_str_passed_to_iter_consuming_fn_no_double_free() {
     // `count_items(s)` iter-consumes the set via `for x in s`. Same inward-transfer
     // as the map case; the caller dec is suppressed.
-    let src = r#"
-@count_items (s: Set<str>) -> int = {
-    let total = 0;
-    for x in s do {
-        total = total + 1
-    };
-    total
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_set_str_passed_to_iter_consuming_fn_no_double_free.ori"
+    );
+    assert_burden_path_self_sufficient(src, "set_str_passed_to_iter_consuming_fn");
 }
 
-@main () -> int = {
-    let s: Set<str> = [
-        "a very long set element string exceeding the sso threshold for sure",
-        "another long set element string for function parameter set cleanup"
-    ].iter().collect();
-    let result = count_items(s: s);
-    if result == 2 then 0 else 1
+// Set iteration decrements only owned receivers; borrowed generic parameters
+// remain caller-owned. The matrix spans scalar/heap elements, named/automatic
+// iteration, and borrowed/owned receivers.
+
+/// A generic borrowed `Set<int>` parameter survives named `.iter()`.
+#[test]
+fn probe_generic_set_int_param_named_iter_count_no_double_free() {
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_generic_set_int_param_named_iter_count_no_double_free.ori"
+    );
+    assert_burden_path_self_sufficient(src, "generic_set_int_param_named_iter_count");
 }
-"#;
-    assert_burden_path_self_sufficient(src, "set_str_passed_to_iter_consuming_fn");
+
+/// Regression: generic by-value `Set<str>` param (heap elements) + named
+/// `.iter()`. Heap-elem variant: `elem_inc_fn`/`elem_dec_fn` element
+/// refcounts must net zero while the source set buffer is freed exactly once.
+#[test]
+fn probe_generic_set_str_param_named_iter_count_no_double_free() {
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_generic_set_str_param_named_iter_count_no_double_free.ori"
+    );
+    assert_burden_path_self_sufficient(src, "generic_set_str_param_named_iter_count");
+}
+
+/// Regression: generic by-value `Set<int>` param + named `.iter()` feeding a
+/// DISTINCT iterator consumer (`.fold`, not `.count`). The cure gates
+/// the dec at the iter SOURCE (`emit_set_iter`), so it is consumer-agnostic; this
+/// cell pins that — a fix special-cased to the `.count` codepath would leave this
+/// genuine `.fold` consumer double-freeing the borrowed set buffer. (Generic `T`
+/// forbids summing `x: T`, so the fold counts one per element; the deliverable is
+/// the distinct fold consumer, not the accumulated value.)
+#[test]
+fn probe_generic_set_int_param_named_iter_fold_no_double_free() {
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_generic_set_int_param_named_iter_fold_no_double_free.ori"
+    );
+    assert_burden_path_self_sufficient(src, "generic_set_int_param_named_iter_fold");
+}
+
+/// Automatic iteration balances its owned `Set<int>` receiver before the
+/// set-buffer decrement (`receiver_owned = true`).
+#[test]
+fn probe_generic_set_int_param_auto_iter_balanced() {
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_generic_set_int_param_auto_iter_balanced.ori"
+    );
+    assert_burden_path_self_sufficient(src, "generic_set_int_param_auto_iter");
+}
+
+/// Named iteration frees a non-generic owned `Set<int>` exactly once.
+#[test]
+fn probe_owned_set_int_local_named_iter_count_freed_once() {
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_owned_set_int_local_named_iter_count_freed_once.ori"
+    );
+    assert_burden_path_self_sufficient(src, "owned_set_int_local_named_iter_count");
+}
+
+/// Named iteration frees an owned `Set<str>` buffer and every heap element once.
+#[test]
+fn probe_owned_set_str_local_named_iter_count_freed_once() {
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_owned_set_str_local_named_iter_count_freed_once.ori"
+    );
+    assert_burden_path_self_sufficient(src, "owned_set_str_local_named_iter_count");
+}
+
+/// An owned `Set<int>` returned after named iteration retains one caller reference.
+/// The receiver is `[own]` (transfers through Return),
+/// so AIMS freezes an additional owner credit across the iterator; the
+/// counter adapter realizes that credit as a keep-alive inc (RC 2). The cure's
+/// gate fires the set-buffer dec, leaving RC 1 for the caller's surviving ref —
+/// no leak, no double-free. Covers the owned-Set-param iterator-consumption and
+/// escaping-return overlap, governed by
+/// `RL2_iter_consume_return_overlap_balanced`. If the ownership gate
+/// skipped the dec on this owned-surviving path, the set buffer would LEAK (the
+/// `ORI_CHECK_LEAKS=1` harness detects that).
+#[test]
+fn probe_owned_set_int_returned_after_iter_freed_once() {
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_owned_set_int_returned_after_iter_freed_once.ori"
+    );
+    assert_burden_path_self_sufficient(src, "owned_set_int_returned_after_iter");
 }
 
 #[test]
@@ -939,37 +741,9 @@ fn probe_iter_consume_call_inside_catch_then_normal_call_no_leak() {
     // base path without the verdict). The callee's own `ori_iter_drop` frees the
     // collection on BOTH the normal and the panic-unwind exit — no caller dec is
     // double-freed; the 2nd call's normal completion frees cleanly.
-    let src = r#"
-@process_word (w: str) -> int = {
-    if w.starts_with(prefix: "panic") then {
-        panic(msg: "word triggered panic")
-    };
-    w.len()
-}
-
-@process_all (words: [str]) -> int = {
-    let total = 0;
-    for w in words do {
-        total = total + process_word(w: w)
-    };
-    total
-}
-
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "panic trigger long string for heap allocation needed",
-        "unreachable very long string that is also on the heap"
-    ];
-    let r1 = catch(expr: process_all(words: words));
-    let r2 = process_all(words: [
-        "first safe long string exceeding SSO threshold here",
-        "second safe long string also exceeding the threshold"
-    ]);
-    let caught = match r1 { Ok(_) -> false, Err(_) -> true };
-    if caught && r2 == 103 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_iter_consume_call_inside_catch_then_normal_call_no_leak.ori"
+    );
     assert_burden_path_self_sufficient(src, "iter_consume_call_inside_catch_then_normal_call");
 }
 
@@ -982,17 +756,9 @@ fn probe_borrow_read_fold_call_keeps_caller_dec_no_leak() {
     // so the caller MUST KEEP its scope-exit dec — suppressing it leaks the list.
     // Pins that the iter-consume verdict does NOT over-fire onto a borrow-read
     // callee with an identical (`access=Borrowed`, scalar-return) contract.
-    let src = r#"
-@sum_list (xs: [int]) -> int = {
-    xs.fold(initial: 0, op: (acc, x) -> acc + x)
-}
-
-@main () -> int = {
-    let xs = [10, 20, 30];
-    let result = sum_list(xs: xs);
-    if result == 60 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_borrow_read_fold_call_keeps_caller_dec_no_leak.ori"
+    );
     assert_burden_path_self_sufficient(src, "borrow_read_fold_call_keeps_caller_dec");
 }
 
@@ -1014,19 +780,9 @@ fn probe_borrow_read_fold_call_keeps_caller_dec_no_leak() {
 #[test]
 fn probe_inline_for_loop_str_list_two_call_no_double_free() {
     // `[str]` source iter-consumed by TWO inline `for s in items do` loops.
-    let src = r#"
-@main () -> int = {
-    let items = [
-        "this string exceeds SSO threshold by being very long indeed",
-        "second string also exceeds the SSO threshold of twenty three bytes"
-    ];
-    let count1 = 0;
-    for s in items do count1 = count1 + 1;
-    let count2 = 0;
-    for s in items do count2 = count2 + 1;
-    if count1 == 2 && count2 == 2 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_inline_for_loop_str_list_two_call_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "inline_for_loop_str_list_two_call");
 }
 
@@ -1034,19 +790,9 @@ fn probe_inline_for_loop_str_list_two_call_no_double_free() {
 fn probe_inline_for_loop_map_two_call_no_double_free() {
     // `{str: int}` source iter-consumed by TWO inline `for entry in m do` loops —
     // the keep-alive composes with the map buffer's `elem_dec_fn` key-string walk.
-    let src = r#"
-@main () -> int = {
-    let m = {
-        "long key string that exceeds the SSO threshold of twenty three": 10,
-        "another long key string that also exceeds SSO threshold clearly": 20
-    };
-    let count1 = 0;
-    for entry in m do count1 = count1 + 1;
-    let count2 = 0;
-    for entry in m do count2 = count2 + 1;
-    if count1 == 2 && count2 == 2 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_inline_for_loop_map_two_call_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "inline_for_loop_map_two_call");
 }
 
@@ -1059,17 +805,9 @@ fn probe_inline_for_loop_single_loop_negative_no_extra_release() {
     // Pins that the inline-`@iter [own]` recognizer counts the position but the
     // multi-borrow gate (uses.len() >= 2) keeps the single-loop source on the base
     // path (its net-0 burden pair + the for-loop's own `ori_iter_drop` are correct).
-    let src = r#"
-@main () -> int = {
-    let items = [
-        "this string exceeds SSO threshold by being very long indeed",
-        "second string also exceeds the SSO threshold of twenty three bytes"
-    ];
-    let count = 0;
-    for s in items do count = count + 1;
-    if count == 2 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_inline_for_loop_single_loop_negative_no_extra_release.ori"
+    );
     assert_burden_path_self_sufficient(src, "inline_for_loop_single_loop_negative");
 }
 
@@ -1081,12 +819,9 @@ fn probe_bare_unused_iterator_handle_freed_at_scope_exit() {
     // be freed by a scope-exit `RcDec [Iterator]` (= `ori_iter_drop`). The default
     // path emits it; the burden path must emit a standalone `BurdenDec` on the
     // handle lineage that lowers (via `RcStrategy::from_repr` Iterator) to the same.
-    let src = r#"
-@main () -> int = {
-    let _it = [1, 2, 3, 4].iter();
-    0
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_bare_unused_iterator_handle_freed_at_scope_exit.ori"
+    );
     assert_burden_path_self_sufficient(src, "bare_unused_iterator_handle");
 }
 
@@ -1097,12 +832,9 @@ fn probe_iterator_handle_in_tuple_freed_at_scope_exit() {
     // tuple's scope-exit `RcDec [AggFields]` walks to the iterator field and
     // `ori_iter_drop`s it (freeing the iterator-owned buffer). The burden path
     // must emit a `BurdenDec` on the fresh iterator-bearing tuple lineage.
-    let src = r#"
-@main () -> int = {
-    let _t: (int, Iterator<int>) = (42, [7, 8, 9].iter());
-    0
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_iterator_handle_in_tuple_freed_at_scope_exit.ori"
+    );
     assert_burden_path_self_sufficient(src, "iterator_handle_in_tuple");
 }
 
@@ -1110,35 +842,22 @@ fn probe_iterator_handle_in_tuple_freed_at_scope_exit() {
 fn probe_iterator_handle_in_struct_freed_at_scope_exit() {
     // Iterator handle MOVED into a struct field — same AGGREGATE-drop mechanism
     // as the tuple shape, exercising `Tag::Struct` `RcStrategy::AggregateFields`.
-    let src = r#"
-type Holder = { it: Iterator<int> };
-
-@main () -> int = {
-    let _h = Holder { it: [1, 2, 3].iter() };
-    0
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_iterator_handle_in_struct_freed_at_scope_exit.ori"
+    );
     assert_burden_path_self_sufficient(src, "iterator_handle_in_struct");
 }
 
 #[test]
 fn probe_for_loop_iterator_handle_negative_no_double_free() {
-    // NEGATIVE pin (the SEED-not-reuse boundary): a `for x in coll` lowering
-    // already emits an explicit `@ori_iter_drop` Apply on every loop-exit path.
-    // The new in-function-iterator-handle pass MUST NOT also emit a freeing dec on
+    // A `for x in coll` lowering emits an explicit `@ori_iter_drop` Apply on
+    // every loop-exit path. Iterator-handle cleanup must not also emit a dec on
     // that for-loop-managed handle — doing so double-frees the iterator-owned
     // buffer. The handle's lineage is in `compute_iter_drop_handle_lineages`
     // (it is an `ori_iter_drop` arg) and must be excluded.
-    let src = r#"
-@main () -> int = {
-    let nums = [1, 2, 3, 4, 5];
-    let total = 0;
-    for n in nums do {
-        total = total + n
-    };
-    if total == 15 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_for_loop_iterator_handle_negative_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "for_loop_iterator_handle_negative");
 }
 
@@ -1158,16 +877,9 @@ fn probe_for_yield_int_result_dup_indexed_freed() {
     // alloc-aware net (alloc(+1) + 1 fresh inc + N dup incs − N dup decs = +1) →
     // the result buffer leaks. The net-keyed elision removes exactly the surplus
     // fresh inc, restoring rc balance to 0.
-    let src = r#"
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold"
-    ];
-    let lengths = for w in words yield w.length();
-    if lengths[0] == 53 && lengths[1] == 56 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_for_yield_int_result_dup_indexed_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "for_yield_int_result_dup_indexed");
 }
 
@@ -1177,13 +889,9 @@ fn probe_for_yield_int_result_triple_indexed_freed() {
     // The `ori_list_take` fresh-result over-count nets +1 regardless of index
     // multiplicity (the dup-index incs net 0 among themselves); the net-keyed
     // elision removes the single surplus fresh inc.
-    let src = r#"
-@main () -> int = {
-    let nums = [2, 3, 4];
-    let squares = for i in nums yield i * i;
-    if squares[0] == 4 && squares[1] == 9 && squares[2] == 16 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_for_yield_int_result_triple_indexed_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "for_yield_int_result_triple_indexed");
 }
 
@@ -1193,12 +901,9 @@ fn probe_for_yield_int_result_single_use_negative_no_double_free() {
     // (`.length()` only, no dup-index) has a net != 1 once the move-alias dec is
     // counted — the fresh inc is load-bearing there. The net-keyed elision MUST
     // NOT elide it (eliding a net-0 lineage's inc would net −1 = a double-free).
-    let src = r#"
-@main () -> int = {
-    let nums = for i in [10, 20, 30] yield i * 2;
-    if nums.length() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_for_yield_int_result_single_use_negative_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "for_yield_int_result_single_use_negative");
 }
 
@@ -1208,7 +913,7 @@ fn probe_for_yield_int_result_single_use_negative_no_double_free() {
 // (the 2nd loop's scratch-init block carries it forward) before its lone TRUE
 // release fires on the threaded block-param's `Let` alias. The fresh-site
 // `BurdenInc` + paired premature `BurdenDec` net 0 at the alloc site; the threaded
-// downstream dec is the genuine single release. `compute_same_alloc_reps` EXCLUDES
+// subsequent dec is the genuine single release. `compute_same_alloc_reps` excludes
 // the Jump-phi BY DESIGN, so the unthreaded net for the result is +1 → the
 // fresh-inc-elision over-fires, leaving alloc(+1) − premature-dec − true-dec =
 // −1 = a double-free of the first result. The phi-aware lineage net threads the
@@ -1221,17 +926,9 @@ fn probe_for_yield_int_two_call_jump_threaded_result_no_double_free() {
     // results, both `.length()`-checked. The first result is jump-threaded across
     // the second loop's init block; its premature fresh-site dec must NOT survive
     // the fresh-inc elision (which is correctly suppressed by the phi-aware net).
-    let src = r#"
-@main () -> int = {
-    let items = [
-        "this string exceeds SSO threshold by being very long indeed",
-        "second string also exceeds the SSO threshold of twenty three bytes"
-    ];
-    let r1 = for s in items yield s.len();
-    let r2 = for s in items yield s.len();
-    if r1.length() == 2 && r2.length() == 2 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_for_yield_int_two_call_jump_threaded_result_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "for_yield_int_two_call_jump_threaded");
 }
 
@@ -1241,19 +938,9 @@ fn probe_for_yield_int_three_call_jump_threaded_result_no_double_free() {
     // jump-threaded forward through the later loops' init blocks. Both threaded
     // results must keep their fresh incs (phi-aware net == 0 each), so neither
     // double-frees.
-    let src = r#"
-@main () -> int = {
-    let items = [
-        "this string exceeds SSO threshold by being very long indeed",
-        "second string also exceeds the SSO threshold of twenty three bytes",
-        "third string also well beyond the SSO inline storage threshold here"
-    ];
-    let r1 = for s in items yield s.len();
-    let r2 = for s in items yield s.len();
-    let r3 = for s in items yield s.len();
-    if r1.length() == 3 && r2.length() == 3 && r3.length() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_for_yield_int_three_call_jump_threaded_result_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "for_yield_int_three_call_jump_threaded");
 }
 
@@ -1265,16 +952,9 @@ fn probe_for_yield_int_single_call_not_threaded_negative_no_double_free() {
     // here (no phi edge to thread), keeping the alloc-aware-net fresh-inc elision
     // intact (net +1 → elide the surplus fresh inc, no leak). The phi-aware
     // extension must not perturb the non-threaded single-result case.
-    let src = r#"
-@main () -> int = {
-    let items = [
-        "this string exceeds SSO threshold by being very long indeed",
-        "second string also exceeds the SSO threshold of twenty three bytes"
-    ];
-    let r = for s in items yield s.len();
-    if r[0] == 59 && r[1] == 66 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_for_yield_int_single_call_not_threaded_negative_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "for_yield_int_single_call_not_threaded");
 }
 
@@ -1300,16 +980,9 @@ fn probe_for_yield_str_identity_indexed_no_double_free() {
     // `for w in words yield w` then `result[0]`/`result[1]` (INDEX-consumed). The
     // yielded str elements are copied into the result buffer; each indexed view
     // needs its own release, and the yielded element needs the duplicating inc.
-    let src = r#"
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold"
-    ];
-    let copied = for w in words yield w;
-    if copied[0].length() + copied[1].length() == 109 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_for_yield_str_identity_indexed_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "for_yield_str_identity_indexed");
 }
 
@@ -1318,20 +991,8 @@ fn probe_for_yield_break_str_no_double_free() {
     // `for w in words yield { if ..break; w }` — early-exit yield of the heap str
     // element. The result is length-checked (index-equivalent consumption: the
     // result owns its yielded copies; the source retains the un-yielded ones).
-    let src = r#"
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold",
-        "third string for good measure and beyond SSO"
-    ];
-    let result = for w in words yield {
-        if w.length() > 55 then break;
-        w
-    };
-    if result.length() == 1 then 0 else 1
-}
-"#;
+    let src =
+        include_str!("fixtures/predicate_stack_probe/probe_for_yield_break_str_no_double_free.ori");
     assert_burden_path_self_sufficient(src, "for_yield_break_str");
 }
 
@@ -1341,22 +1002,10 @@ fn probe_for_yield_str_identity_iter_consumed_negative_no_double_free() {
     // yield w` then a SECOND for-loop consumes the result (`for w in copy do ...`).
     // The result is ITER-consumed (`@iter [own]` → `ori_iter_drop` frees its
     // elements), so the yield-element inc + per-view dec MUST NOT fire (adding the
-    // inc would double-free against the iter-drop). Mirrors
-    // `yield_identity_str_list`.
-    let src = r#"
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold"
-    ];
-    let copy = for w in words yield w;
-    let total = 0;
-    for w in copy do {
-        total = total + w.len();
-    };
-    if total == 109 then 0 else 1
-}
-"#;
+    // inc would double-free against the iterator drop).
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_for_yield_str_identity_iter_consumed_negative_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "for_yield_str_identity_iter_consumed");
 }
 
@@ -1374,25 +1023,9 @@ fn probe_for_yield_str_identity_iter_consumed_negative_no_double_free() {
 #[test]
 fn probe_str_list_two_iter_consuming_calls_no_double_free() {
     // `sum_lens(words)` iter-consumes `words`; called TWICE on the same source.
-    let src = r#"
-@sum_lens (words: [str]) -> int = {
-    let total = 0;
-    for w in words do {
-        total = total + w.len();
-    };
-    total
-}
-
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold"
-    ];
-    let a = sum_lens(words: words);
-    let b = sum_lens(words: words);
-    if a == 109 && b == 109 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_str_list_two_iter_consuming_calls_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "str_list_two_iter_consuming_calls");
 }
 
@@ -1400,22 +1033,9 @@ fn probe_str_list_two_iter_consuming_calls_no_double_free() {
 fn probe_int_list_two_iter_consuming_calls_no_double_free() {
     // Type-dimension cell: `[int]` source (scalar elements, but the buffer is
     // still RcPtr) borrowed by two iter-consuming calls.
-    let src = r#"
-@sum_list (xs: [int]) -> int = {
-    let total = 0;
-    for x in xs do {
-        total = total + x;
-    };
-    total
-}
-
-@main () -> int = {
-    let xs = [10, 20, 30, 40];
-    let a = sum_list(xs: xs);
-    let b = sum_list(xs: xs);
-    if a == 100 && b == 100 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_int_list_two_iter_consuming_calls_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "int_list_two_iter_consuming_calls");
 }
 
@@ -1423,28 +1043,9 @@ fn probe_int_list_two_iter_consuming_calls_no_double_free() {
 fn probe_two_distinct_iter_consumed_sources_no_double_free() {
     // Pattern cell: two DISTINCT sources, one borrowed twice + one borrowed once,
     // interleaved — each source's keep-alive accounting is independent.
-    let src = r#"
-@sum_lens (words: [str]) -> int = {
-    let total = 0;
-    for w in words do {
-        total = total + w.len();
-    };
-    total
-}
-
-@main () -> int = {
-    let a = [
-        "this is a very long string that exceeds SSO threshold"
-    ];
-    let b = [
-        "another very long string that also exceeds the threshold"
-    ];
-    let ra = sum_lens(words: a);
-    let rb = sum_lens(words: b);
-    let ra2 = sum_lens(words: a);
-    if ra == 53 && rb == 56 && ra2 == 53 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_two_distinct_iter_consumed_sources_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "two_distinct_iter_consumed_sources");
 }
 
@@ -1453,29 +1054,9 @@ fn probe_chained_iter_consuming_callee_no_double_free() {
     // Pattern cell: the iter-consume is one call deep (a `wrapper` forwards the
     // borrowed source to the iter-consuming `iterate_words`); `wrapper` is called
     // twice on the same source.
-    let src = r#"
-@iterate_words (words: [str]) -> int = {
-    let total = 0;
-    for w in words do {
-        total = total + w.len();
-    };
-    total
-}
-
-@wrapper (words: [str]) -> int = {
-    iterate_words(words: words)
-}
-
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold",
-        "another very long string that also exceeds the threshold"
-    ];
-    let a = wrapper(words: words);
-    let b = wrapper(words: words);
-    if a == 109 && b == 109 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_chained_iter_consuming_callee_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "chained_iter_consuming_callee");
 }
 
@@ -1485,21 +1066,9 @@ fn probe_single_iter_consuming_call_negative_still_freed() {
     // where the source DIES after the call (the single-borrow `Suppress` shape).
     // The multi-borrow suppression must NOT change this — the callee's iter-drop
     // is still the sole release; emitting a keep-alive inc here would LEAK.
-    let src = r#"
-@sum_list (xs: [int]) -> int = {
-    let total = 0;
-    for x in xs do {
-        total = total + x;
-    };
-    total
-}
-
-@main () -> int = {
-    let xs = [10, 20, 30, 40];
-    let r = sum_list(xs: xs);
-    if r == 100 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_single_iter_consuming_call_negative_still_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "single_iter_consuming_call_negative");
 }
 
@@ -1509,25 +1078,9 @@ fn probe_iter_consumed_twice_inside_borrowed_callee_no_double_free() {
     // callee (`call_twice` borrows `words`, calls iter-consuming `sum_lens` twice)
     // — the multi-borrow keep-alive accounting must hold one call-frame deep, on
     // the borrowed param's lineage.
-    let src = r#"
-@sum_lens (words: [str]) -> int = {
-    let total = 0;
-    for w in words do {
-        total = total + w.len();
-    };
-    total
-}
-
-@call_twice (words: [str]) -> int = {
-    sum_lens(words: words) + sum_lens(words: words)
-}
-
-@main () -> int = {
-    let words = ["this is a very long string that exceeds SSO threshold"];
-    let r = call_twice(words: words);
-    if r == 106 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_iter_consumed_twice_inside_borrowed_callee_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "iter_consumed_twice_inside_borrowed_callee");
 }
 
@@ -1544,20 +1097,9 @@ fn probe_for_yield_option_str_match_projected_interior_no_double_free() {
     // `match item { Some(s) -> s.length() }` projects `s` (str) out of the
     // `Option<str>` iter-element-view via `Project (variant payload).1`. The str
     // view is a borrow; the source list's `elem_dec_fn` frees the interior strs.
-    let src = r#"
-@main () -> int = {
-    let items: [Option<str>] = [
-        Some("this is a very long string that exceeds SSO threshold"),
-        None,
-        Some("another very long string exceeding threshold here")
-    ];
-    let lengths = for item in items yield match item {
-        Some(s) -> s.length(),
-        None -> 0,
-    };
-    if lengths[0] == 53 && lengths[1] == 0 && lengths[2] == 49 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_for_yield_option_str_match_projected_interior_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "for_yield_option_str_match_projected_interior");
 }
 
@@ -1565,18 +1107,9 @@ fn probe_for_yield_option_str_match_projected_interior_no_double_free() {
 fn probe_for_yield_struct_field_projected_interior_no_double_free() {
     // `item.name.length()` projects the `name: str` field out of the `Item`
     // iter-element-view via `Project (struct).0`. The field view is a borrow.
-    let src = r#"
-type Item = { name: str }
-
-@main () -> int = {
-    let items = [
-        Item { name: "this is a very long name that exceeds SSO threshold" },
-        Item { name: "another long name exceeding SSO for sure here" }
-    ];
-    let lengths = for item in items yield item.name.length();
-    if lengths[0] == 51 && lengths[1] == 45 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_for_yield_struct_field_projected_interior_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "for_yield_struct_field_projected_interior");
 }
 
@@ -1588,20 +1121,9 @@ type Item = { name: str }
 
 #[test]
 fn probe_nested_for_do_str_inner_list_keepalive_no_double_free() {
-    let src = r#"
-@main () -> int = {
-    let outer = [
-        ["this string exceeds SSO threshold by being very long indeed",
-         "second string also exceeds the SSO threshold for heap alloc"],
-        ["third string that is long enough to require heap allocation"]
-    ];
-    let count = 0;
-    for inner in outer do {
-        for s in inner do count = count + 1;
-    };
-    if count == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_nested_for_do_str_inner_list_keepalive_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "nested_for_do_str_inner_list_keepalive");
 }
 
@@ -1609,16 +1131,9 @@ fn probe_nested_for_do_str_inner_list_keepalive_no_double_free() {
 fn probe_nested_for_do_three_level_int_list_keepalive_no_double_free() {
     // Three nesting levels: each level's `Project @__iter_next.1` inner-list view
     // is iter-consumed by the next `@iter [own]` and needs its own keep-alive.
-    let src = r#"
-@main () -> int = {
-    let outer = [[[1, 2], [3, 4]], [[5, 6]]];
-    let count = 0;
-    for middle in outer do {
-        for inner in middle do count = count + 1;
-    };
-    if count == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_nested_for_do_three_level_int_list_keepalive_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "nested_for_do_three_level_int_list_keepalive");
 }
 
@@ -1628,21 +1143,9 @@ fn probe_for_yield_inner_list_user_callee_iter_consume_keepalive_no_double_free(
     // passed to a USER callee `sum_list` whose `ParamContract.iter_consumes` is
     // true (its body `for x in xs` -> `@iter [own]` -> `ori_iter_drop` frees the
     // arg). The view needs a keep-alive inc before the iter-consuming call.
-    let src = r#"
-@sum_list (xs: [int]) -> int = {
-    let total = 0;
-    for x in xs do {
-        total = total + x;
-    };
-    total
-}
-
-@main () -> int = {
-    let lists = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
-    let sums = for l in lists yield sum_list(l);
-    if sums[0] == 6 && sums[1] == 15 && sums[2] == 24 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_for_yield_inner_list_user_callee_iter_consume_keepalive_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(
         src,
         "for_yield_inner_list_user_callee_iter_consume_keepalive",
@@ -1657,20 +1160,13 @@ fn probe_flat_str_yield_not_keepalive_negative() {
     // (no inner iter-consume of a borrow-view); the joint-fixpoint classifier
     // must NOT over-exclude the flat element. Guards the flat-element yield-RC
     // path against an over-fire from the compound-projection cure.
-    let src = r#"
-@main () -> int = {
-    let words = [
-        "this is a very long string that exceeds SSO threshold here",
-        "another very long string that also exceeds the SSO bound"
-    ];
-    let copy = for w in words yield w;
-    if copy[0].length() == 58 && copy[1].length() == 56 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_flat_str_yield_not_keepalive_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "flat_str_yield_not_keepalive_negative");
 }
 
-// --- Accessor-result payload retention (Spec: Annex E §AIMS RL-2 / RL-4) ---
+// Accessor-result payload retention (Spec: Annex E §AIMS RL-2 / RL-4)
 //
 // `@unwrap` / `@unwrap_err` / `@first` / `@last` / `@get` extract an OWNED heap
 // payload out of a wrapper and RETAIN it (codegen `inc_value_rc` on the extracted
@@ -1688,15 +1184,9 @@ fn probe_option_unwrap_heap_str_payload_retained() {
     // `@unwrap` retains the payload, not inline before -> else the payload is
     // freed under the still-aliasing result (UAF; masked at the floor only by
     // same-size allocator slot reuse).
-    let src = r#"
-@make () -> Option<str> = Some("hello world this is a long heap string");
-
-@main () -> int = {
-    let o = make();
-    let v = o.unwrap();
-    if v == "hello world this is a long heap string" then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_option_unwrap_heap_str_payload_retained.ori"
+    );
     assert_burden_path_self_sufficient(src, "option_unwrap_heap_str_payload_retained");
 }
 
@@ -1706,19 +1196,11 @@ fn probe_option_unwrap_heap_str_different_size_literal_no_double_free() {
     // DIFFERENT length than the unwrapped payload, so the freed payload slot is
     // NOT reused by the literal alloc -> the latent UAF surfaces as a hard
     // double-free at the clean floor (the same-size variant only passes by
-    // allocator slot reuse). The comparison is intentionally false; the program
-    // still returns 0 so the probe asserts a clean exit. Proves the fix is robust
-    // (not re-masked by a different allocator coincidence).
-    let src = r#"
-@make () -> Option<str> = Some("hello world this is a long heap string");
-
-@main () -> int = {
-    let o = make();
-    let v = o.unwrap();
-    let matched = v == "a different length comparison literal that is quite a bit longer than the payload";
-    if matched then 1 else 0
-}
-"#;
+    // allocator slot reuse). The intentionally false comparison makes a clean
+    // exit independent of allocator coincidence.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_option_unwrap_heap_str_different_size_literal_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(
         src,
         "option_unwrap_heap_str_different_size_literal_no_double_free",
@@ -1727,29 +1209,17 @@ fn probe_option_unwrap_heap_str_different_size_literal_no_double_free() {
 
 #[test]
 fn probe_result_unwrap_heap_str_payload_retained() {
-    let src = r#"
-@make () -> Result<str, str> = Ok("hello world this is a long heap string");
-
-@main () -> int = {
-    let r = make();
-    let v = r.unwrap();
-    if v == "hello world this is a long heap string" then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_result_unwrap_heap_str_payload_retained.ori"
+    );
     assert_burden_path_self_sufficient(src, "result_unwrap_heap_str_payload_retained");
 }
 
 #[test]
 fn probe_result_unwrap_err_list_payload_retained() {
-    let src = r#"
-@make () -> Result<str, [int]> = Err([10, 20, 30]);
-
-@main () -> int = {
-    let r = make();
-    let v = r.unwrap_err();
-    if v == [10, 20, 30] then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_result_unwrap_err_list_payload_retained.ori"
+    );
     assert_burden_path_self_sufficient(src, "result_unwrap_err_list_payload_retained");
 }
 
@@ -1758,31 +1228,16 @@ fn probe_list_first_heap_str_payload_retained() {
     // `items.first()` returns `Option<str>` whose Some payload is a RETAINED copy
     // of the first element. The list `items` is borrowed by `@first`; its dec
     // belongs on the successor edge AFTER `@first` retains the element copy.
-    let src = r#"
-@make () -> [str] = ["hello world this is a long heap string", "another long heap string here"];
-
-@main () -> int = {
-    let items = make();
-    let f = items.first();
-    let v = f.unwrap();
-    if v == "hello world this is a long heap string" then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_list_first_heap_str_payload_retained.ori"
+    );
     assert_burden_path_self_sufficient(src, "list_first_heap_str_payload_retained");
 }
 
 #[test]
 fn probe_list_last_list_payload_retained() {
-    let src = r#"
-@make () -> [[int]] = [[1, 2], [3, 4, 5]];
-
-@main () -> int = {
-    let items = make();
-    let l = items.last();
-    let v = l.unwrap();
-    if v == [3, 4, 5] then 0 else 1
-}
-"#;
+    let src =
+        include_str!("fixtures/predicate_stack_probe/probe_list_last_list_payload_retained.ori");
     assert_burden_path_self_sufficient(src, "list_last_list_payload_retained");
 }
 
@@ -1793,13 +1248,9 @@ fn probe_eq_comparison_literal_stays_elidable_negative() {
     // operand (RL-1 `!incElidable`) — relocating accessor source decs to edges
     // must NOT disturb the comparison-literal balance, and the `==`-literal must
     // stay leak-free. Clamps the cure to accessor-source decs only.
-    let src = r#"
-@main () -> int = {
-    let a = "this is a long heap string that exceeds the SSO inline threshold";
-    let b = "this is a long heap string that exceeds the SSO inline threshold";
-    if a == b then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_eq_comparison_literal_stays_elidable_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "eq_comparison_literal_stays_elidable_negative");
 }
 
@@ -1809,14 +1260,45 @@ fn probe_list_contains_borrowed_read_no_payload_negative() {
     // (`bool`) — it extracts NO heap payload. The source list dec must keep its
     // existing balance and the heap-str literal arg must stay leak-free; the
     // accessor-source relocation must NOT over-fire on a no-payload borrowed read.
-    let src = r#"
-@main () -> int = {
-    let items = ["one long string element here that exceeds sso", "two long string element here that exceeds sso"];
-    let has = items.contains(value: "one long string element here that exceeds sso");
-    if has then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_list_contains_borrowed_read_no_payload_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "list_contains_borrowed_read_no_payload_negative");
+}
+
+/// Retain-aliasing closure growth (gate d) DECLINES when an accessor-retain
+/// member (`val.unwrap()`) feeds a FURTHER borrowed read whose result is
+/// NEITHER a tracked closure member NOR provably scalar — here
+/// `.substring(..)`, a sharing-view producer returning a co-owning view of
+/// the SAME str backing buffer. An unvetted closure would place the
+/// unwrap()-result's release without accounting for the untracked substring
+/// view's own read (use-after-free / double-free). The decline is correct;
+/// fallback placement is outside this vet.
+#[test]
+fn probe_retain_aliasing_untracked_sharing_view_declines_no_uaf() {
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_retain_aliasing_untracked_sharing_view_declines_no_uaf.ori"
+    );
+    assert_burden_path_self_sufficient(src, "retain_aliasing_untracked_sharing_view_declines");
+}
+
+/// Same scalar-decline gate as
+/// [`probe_retain_aliasing_untracked_sharing_view_declines_no_uaf`], on a
+/// list-`.first()` root instead of a map `__index` root. Map roots take a
+/// distinct fallback-placement path, so this list-root variant isolates the
+/// vet's decline behavior cleanly. `f.unwrap()` is a
+/// tracked accessor-retain member; `.substring(..)` on it is neither a
+/// member nor provably scalar, so gate (d) must decline retain-aliasing
+/// admission and let the base walk place the releases.
+#[test]
+fn probe_retain_aliasing_untracked_sharing_view_declines_list_root_no_uaf() {
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_retain_aliasing_untracked_sharing_view_declines_list_root_no_uaf.ori"
+    );
+    assert_burden_path_self_sufficient(
+        src,
+        "retain_aliasing_untracked_sharing_view_declines_list_root",
+    );
 }
 
 // No-use dead-owned-collection scope-exit cleanup dec (RL-2 unused-owned).
@@ -1864,23 +1346,9 @@ fn probe_dead_no_use_list_struct_drop_runs_at_scope_exit() {
     // Canonical shape: `let r = [Resource { .. }]`, dead with NO use. The oracle
     // emits `RcDec %r` at scope exit; the burden walk must emit the same dec so the
     // owned field's @drop (print) runs on the unwind path.
-    let src = r#"
-type Logged = { tag: str }
-
-impl Logged: Drop {
-    @drop (self) -> void = print(msg: `drop-{self.tag}`);
-}
-
-type Resource = { a: Logged }
-
-impl Resource: Drop {
-    @drop (self) -> void = panic(msg: "intentional");
-}
-
-@main () -> void = {
-    let r = [Resource { a: Logged { tag: "a" } }]
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_dead_no_use_list_struct_drop_runs_at_scope_exit.ori"
+    );
     assert_burden_dead_no_use_drop_runs(src, "drop-a", "dead_no_use_list_struct");
 }
 
@@ -1888,20 +1356,9 @@ impl Resource: Drop {
 fn probe_dead_no_use_list_struct_user_panic_drop_runs() {
     // `[Holder { payload: <heap-str> }]`, dead no-use. The user @drop body prints
     // then panics — the print proves the scope-exit dec fired and ran the drop glue.
-    let src = r#"
-type Holder = { payload: str }
-
-impl Holder: Drop {
-    @drop (self) -> void = {
-        print(msg: "drop-user");
-        panic(msg: "boom")
-    }
-}
-
-@main () -> void = {
-    let h = [Holder { payload: "owned-heap-string-not-sso-xxxxxxxxxxxxxxxx" }]
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_dead_no_use_list_struct_user_panic_drop_runs.ori"
+    );
     assert_burden_dead_no_use_drop_runs(src, "drop-user", "dead_no_use_list_struct_user_panic");
 }
 
@@ -1909,55 +1366,20 @@ impl Holder: Drop {
 fn probe_dead_no_use_list_map_value_drop_runs() {
     // `[Wrap { m: {"k": Boom{..}} }]`, dead no-use. The single outer-List dec walks
     // `elem_dec_fn` -> Wrap field walk -> Map two-channel teardown -> Boom @drop.
-    let src = r#"
-type Boom = { tag: str }
-
-impl Boom: Drop {
-    @drop (self) -> void = {
-        print(msg: `boom-{self.tag}`);
-        panic(msg: "boom")
-    }
-}
-
-type Wrap = { m: {str: Boom} }
-
-@main () -> void = {
-    let w = [Wrap { m: { "k": Boom { tag: "v" } } }]
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_dead_no_use_list_map_value_drop_runs.ori"
+    );
     assert_burden_dead_no_use_drop_runs(src, "boom-v", "dead_no_use_list_map_value");
 }
 
 #[test]
 fn probe_dead_no_use_list_enum_payload_drop_runs() {
     // `[Both(loud:.., quiet:..)]`, dead no-use. The outer-List dec walks to the enum
-    // payload: the loud field @drop panics, the sibling quiet field still drops via
+    // payload: the loud field @drop panics, and the quiet peer field still drops via
     // the landing pad (both prints appear).
-    let src = r#"
-type Loud = { tag: str }
-
-impl Loud: Drop {
-    @drop (self) -> void = {
-        print(msg: `loud-{self.tag}`);
-        panic(msg: "loud-boom")
-    }
-}
-
-type Quiet = { tag: str }
-
-impl Quiet: Drop {
-    @drop (self) -> void = print(msg: `quiet-{self.tag}`);
-}
-
-type Wrapper = Both(loud: Loud, quiet: Quiet);
-
-@main () -> void = {
-    let w = [Both(
-        loud: Loud { tag: "L" },
-        quiet: Quiet { tag: "Q" },
-    )]
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_dead_no_use_list_enum_payload_drop_runs.ori"
+    );
     let (exit, stdout, stderr) =
         compile_and_run_with_build_env(src, &[("ORI_DISABLE_PREDICATE_STACK_RC", "1")]);
     assert!(
@@ -1986,31 +1408,9 @@ fn probe_dead_no_use_list_nested_collection_element_drop_runs() {
     // panic unwinds (exit 1); the landing pad still drops the remaining nested
     // elements (all three prints appear). Exercises the recursive elem_dec_fn
     // composition through a nested collection field on the no-use cleanup dec.
-    let src = r#"
-type Counted = { tag: str }
-
-impl Counted: Drop {
-    @drop (self) -> void = print(msg: `drop-{self.tag}`);
-}
-
-type Bomb = { tag: str }
-
-impl Bomb: Drop {
-    @drop (self) -> void = {
-        print(msg: `bomb-{self.tag}`);
-        panic(msg: "bomb")
-    }
-}
-
-type Mixed = { items: [Counted], trigger: Bomb }
-
-@main () -> void = {
-    let m = [Mixed {
-        items: [Counted { tag: "a" }, Counted { tag: "b" }],
-        trigger: Bomb { tag: "T" },
-    }]
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_dead_no_use_list_nested_collection_element_drop_runs.ori"
+    );
     let (exit, stdout, stderr) =
         compile_and_run_with_build_env(src, &[("ORI_DISABLE_PREDICATE_STACK_RC", "1")]);
     assert!(
@@ -2038,12 +1438,9 @@ fn probe_dead_no_use_list_int_buffer_freed_at_scope_exit() {
     // must fire (no leak) and must NOT double-free (the int buffer has a null
     // elem_dec_fn). The exit-0 leak-free clamp also pins that the cleanup composes
     // with `ori_buffer_rc_dec`'s null-elem_dec_fn path (no spurious element walk).
-    let src = r#"
-@main () -> int = {
-    let xs = [1, 2, 3, 4, 5];
-    0
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_dead_no_use_list_int_buffer_freed_at_scope_exit.ori"
+    );
     assert_burden_path_self_sufficient(src, "dead_no_use_list_int_buffer_freed_at_scope_exit");
 }
 
@@ -2052,17 +1449,9 @@ fn probe_dead_no_use_returned_list_no_double_dec_negative() {
     // NEGATIVE / transfer clamp: a fresh owned list that IS RETURNED is an RL-2
     // ownership transfer — the caller inherits the release. The dead-no-use
     // scope-exit cleanup must NOT fire on a returned value (a double-dec aborts).
-    let src = r#"
-@build () -> [int] = {
-    let xs = [10, 20, 30];
-    xs
-}
-
-@main () -> int = {
-    let ys = build();
-    if ys.length() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_dead_no_use_returned_list_no_double_dec_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "dead_no_use_returned_list_no_double_dec_negative");
 }
 
@@ -2072,13 +1461,9 @@ fn probe_dead_no_use_used_list_no_extra_dec_negative() {
     // `.length()`) before dying at scope exit is handled by the existing borrowed-
     // read last-use sink, NOT the no-use path. The no-use cleanup must NOT also fire
     // (a double release on a used-then-dead value aborts).
-    let src = r#"
-@main () -> int = {
-    let xs = ["alpha long heap element here exceeds sso", "beta long heap element here exceeds sso"];
-    let n = xs.length();
-    if n == 2 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_dead_no_use_used_list_no_extra_dec_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "dead_no_use_used_list_no_extra_dec_negative");
 }
 
@@ -2089,16 +1474,16 @@ fn probe_dead_no_use_used_list_no_extra_dec_negative() {
 // `burden_carries_rc` (a heap-bearing `owned_fields` / `variant_burdens` field),
 // dead with ZERO uses. The oracle emits one scope-exit `RcDec [AggFields]` /
 // `[InlineEnum]` that walks the field drop-glue, freeing the heap field(s) and
-// running their user `@drop`. Under sole-emitter burden lowering the Phase-5 walk
+// running their user `@drop`. Under sole-emitter burden lowering the AIMS walk
 // emits ZERO burden ops on the no-use aggregate (no duplicating use -> no inc, no
 // last-use sink -> no dec), so the heap field is NEVER freed and its `@drop`
 // silently does not run (a leak; observable as the missing drop print). Distinct
-// from the dead-no-use COLLECTION shapes above (`let r = [Resource {..}]`): those
+// from dead-no-use `RcPointer` collection shapes (`let r = [Resource {..}]`): those
 // wrap the aggregate in an `RcPointer` list buffer; these are the BARE inline
 // aggregate. An inline aggregate has NO self-buffer `+1` (it is not heap-allocated);
 // the dec balances the HEAP FIELD's implicit `+1` owned by the AggFields / InlineEnum
-// drop-glue. The cure is a NEW candidate class `compute_dead_no_use_aggregate_reps`
-// gated on `var_repr in {Aggregate}` + `burden_carries_rc`, emitting one scope-exit
+// drop-glue. `compute_dead_no_use_aggregate_reps` selects
+// `var_repr in {Aggregate}` + `burden_carries_rc`, emitting one scope-exit
 // `BurdenDec` on the OUTERMOST dead-no-use lineage (nested constructs are
 // owned-consumed into the parent Construct -> excluded). Spec: Annex E §AIMS RL-2.
 
@@ -2131,19 +1516,9 @@ fn probe_dead_no_use_struct_str_field_drop_runs() {
     // Bare `let a = Doc { content: Logged {..} }`: a struct (`AggFields`) holding a
     // heap-bearing field, dead no-use. The scope-exit `RcDec [AggFields]` must walk
     // to the `content` field and run its @drop.
-    let src = r#"
-type Logged = { tag: str }
-
-impl Logged: Drop {
-    @drop (self) -> void = print(msg: `drop-{self.tag}`);
-}
-
-type Doc = { content: Logged }
-
-@main () -> void = {
-    let a = Doc { content: Logged { tag: "S" } }
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_dead_no_use_struct_str_field_drop_runs.ori"
+    );
     assert_burden_dead_no_use_aggregate_drop_runs(src, "drop-S", "dead_no_use_struct_str_field");
 }
 
@@ -2151,17 +1526,9 @@ type Doc = { content: Logged }
 fn probe_dead_no_use_tuple_str_fields_drop_runs() {
     // Bare `let t = (Logged {..}, Logged {..})`: a tuple (`AggFields`), dead no-use.
     // The scope-exit dec walks both tuple slots in reverse decl order.
-    let src = r#"
-type Logged = { tag: str }
-
-impl Logged: Drop {
-    @drop (self) -> void = print(msg: `drop-{self.tag}`);
-}
-
-@main () -> void = {
-    let t = (Logged { tag: "T0" }, Logged { tag: "T1" })
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_dead_no_use_tuple_str_fields_drop_runs.ori"
+    );
     let (exit, stdout, stderr) =
         compile_and_run_with_build_env(src, &[("ORI_DISABLE_PREDICATE_STACK_RC", "1")]);
     assert!(
@@ -2186,17 +1553,9 @@ fn probe_dead_no_use_option_struct_drop_runs() {
     // Bare `let a: Option<Logged> = Some(Logged {..})`: a niche/tagged Option
     // (`InlineEnum`), dead no-use. The scope-exit `RcDec [InlineEnum]` walks the
     // Some payload and runs its @drop.
-    let src = r#"
-type Logged = { tag: str }
-
-impl Logged: Drop {
-    @drop (self) -> void = print(msg: `drop-{self.tag}`);
-}
-
-@main () -> void = {
-    let a: Option<Logged> = Some(Logged { tag: "O" })
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_dead_no_use_option_struct_drop_runs.ori"
+    );
     assert_burden_dead_no_use_aggregate_drop_runs(src, "drop-O", "dead_no_use_option_struct");
 }
 
@@ -2205,17 +1564,9 @@ fn probe_dead_no_use_result_struct_drop_runs() {
     // Bare `let a: Result<Logged, int> = Ok(Logged {..})`: a tagged Result
     // (`InlineEnum`), dead no-use. The scope-exit `RcDec [InlineEnum]` walks the Ok
     // payload and runs its @drop.
-    let src = r#"
-type Logged = { tag: str }
-
-impl Logged: Drop {
-    @drop (self) -> void = print(msg: `drop-{self.tag}`);
-}
-
-@main () -> void = {
-    let a: Result<Logged, int> = Ok(Logged { tag: "RE" })
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_dead_no_use_result_struct_drop_runs.ori"
+    );
     assert_burden_dead_no_use_aggregate_drop_runs(src, "drop-RE", "dead_no_use_result_struct");
 }
 
@@ -2226,27 +1577,9 @@ fn probe_dead_no_use_user_enum_payload_drop_runs() {
     // scope-exit `RcDec [InlineEnum]` on the OUTERMOST `c` lineage walks every node's
     // payload recursively (the nested Link is owned-consumed into the outer Construct,
     // so it gets NO separate dec) and runs every node's field @drop.
-    let src = r#"
-type Logged = { tag: str }
-
-impl Logged: Drop {
-    @drop (self) -> void = print(msg: `drop-{self.tag}`);
-}
-
-type Chain = Nil | Link(a: Logged, b: Logged, next: Chain);
-
-@main () -> void = {
-    let c = Link(
-        a: Logged { tag: "outer-a" },
-        b: Logged { tag: "outer-b" },
-        next: Link(
-            a: Logged { tag: "inner-a" },
-            b: Logged { tag: "inner-b" },
-            next: Nil,
-        ),
-    )
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_dead_no_use_user_enum_payload_drop_runs.ori"
+    );
     let (exit, stdout, stderr) =
         compile_and_run_with_build_env(src, &[("ORI_DISABLE_PREDICATE_STACK_RC", "1")]);
     for tag in [
@@ -2280,24 +1613,9 @@ fn probe_dead_no_use_nested_struct_field_drop_runs() {
     // (`AggFields`) where the innermost field @drop panics. The single outermost
     // scope-exit dec walks Outer -> Inner -> Boom and the panic unwinds (exit 1); the
     // print proves the dec fired and reached the nested field.
-    let src = r#"
-type Boom = { tag: str }
-
-impl Boom: Drop {
-    @drop (self) -> void = {
-        print(msg: `boom-{self.tag}`);
-        panic(msg: "boom")
-    }
-}
-
-type Inner = { payload: Boom }
-
-type Outer = { inner: Inner }
-
-@main () -> void = {
-    let w = Outer { inner: Inner { payload: Boom { tag: "N" } } }
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_dead_no_use_nested_struct_field_drop_runs.ori"
+    );
     let (exit, stdout, stderr) =
         compile_and_run_with_build_env(src, &[("ORI_DISABLE_PREDICATE_STACK_RC", "1")]);
     assert!(
@@ -2323,14 +1641,9 @@ fn probe_dead_no_use_heap_str_field_freed_negative() {
     // freed exactly once via the scope-exit `RcDec [AggFields]` walking the field's
     // FatPointer. Without the cleanup the buffer leaks (alloc `+1` unreleased); the
     // exit-0 leak-free clamp pins the cleanup fires and does not double-free.
-    let src = r#"
-type Doc = { content: str }
-
-@main () -> int = {
-    let a = Doc { content: "owned-heap-string-not-sso-xxxxxxxxxxxxxxxx" };
-    0
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_dead_no_use_heap_str_field_freed_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "dead_no_use_heap_str_field_freed");
 }
 
@@ -2340,25 +1653,9 @@ fn probe_dead_no_use_returned_aggregate_no_double_free_negative() {
     // ownership transfer — the caller inherits the release. The dead-no-use scope-exit
     // cleanup must NOT fire on a returned aggregate (a double-dec aborts / double-frees
     // the heap field).
-    let src = r#"
-type Logged = { tag: str }
-
-impl Logged: Drop {
-    @drop (self) -> void = print(msg: `drop-{self.tag}`);
-}
-
-type Doc = { content: Logged }
-
-@build () -> Doc = {
-    let a = Doc { content: Logged { tag: "R" } };
-    a
-}
-
-@main () -> void = {
-    let d = build();
-    print(msg: d.content.tag)
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_dead_no_use_returned_aggregate_no_double_free_negative.ori"
+    );
     let (exit, stdout, stderr) =
         compile_and_run_with_build_env(src, &[("ORI_DISABLE_PREDICATE_STACK_RC", "1")]);
     // The returned aggregate's field @drop runs exactly once (the caller's transfer
@@ -2383,14 +1680,9 @@ fn probe_dead_no_use_scalar_only_struct_no_dec_negative() {
     // has no heap-bearing field, so `burden_carries_rc` is false and the no-use cleanup
     // must NOT fire (a `RcDec [AggFields]` on a struct with a null field drop-glue is a
     // spurious release). Exit-0 leak-free proves the pass skips it.
-    let src = r#"
-type Point = { x: int, y: int }
-
-@main () -> int = {
-    let p = Point { x: 1, y: 2 };
-    0
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_dead_no_use_scalar_only_struct_no_dec_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "dead_no_use_scalar_only_struct_no_dec");
 }
 
@@ -2402,27 +1694,18 @@ type Point = { x: int, y: int }
 // `ori_iter_drop`). Under sole-emitter burden lowering the Phase-5 walk
 // mis-models the take-project source: it emits a spurious dec on the consuming
 // arm (-> use-after-free, the iterator is freed before `@count` reads it) and
-// omits the dec on the bypass / Empty paths (-> leak). The cure mirrors the
-// predicate-stack `dead_cleanup` bypass-safe-entry emission via the shared
-// `TakeMoveFacts` SSOT.
+// omits the dec on the bypass / Empty paths (-> leak). The cure classifies the
+// take-project source's release per arm: consumed (no dec) on the projecting
+// arm, dead-at-scope-exit (decced) on every non-projecting arm.
 
 #[test]
 fn probe_take_project_match_consume_no_use_after_free() {
     // Iterator projected out of `Holds` and consumed via `.count()`. The source
     // enum must NOT be decced on the consume arm (the projection transfers the
     // iterator out; `@count` owns + frees it) -> a dec there is a use-after-free.
-    let src = r#"
-type MaybeIter = Empty | Holds(it: Iterator<int>);
-
-@main () -> int = {
-    let x: MaybeIter = Holds(it: [1, 2, 3].iter());
-    let n = match x {
-        Empty -> 0,
-        Holds(it) -> it.count()
-    };
-    if n == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_take_project_match_consume_no_use_after_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "take_project_match_consume");
 }
 
@@ -2432,21 +1715,9 @@ fn probe_take_project_conditional_consume_no_leak() {
     // bypass path (flag false) the iterator is never consumed, so the source
     // enum is dead-at-scope-exit on the else branch and must be freed there
     // (the burden walk omitted that dec -> leak).
-    let src = r#"
-type MaybeIter = Empty | Holds(it: Iterator<int>);
-
-@main () -> int = {
-    let x: MaybeIter = Holds(it: [1, 2, 3].iter());
-    let flag = false;
-    if flag then
-        match x {
-            Empty -> 0,
-            Holds(it) -> it.count()
-        }
-    else
-        0
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_take_project_conditional_consume_no_leak.ori"
+    );
     assert_burden_path_self_sufficient(src, "take_project_conditional_consume");
 }
 
@@ -2455,21 +1726,9 @@ fn probe_take_project_dynamic_consume_no_double_free() {
     // Dynamic Holds/Empty construction via a helper -> the match diamond is not
     // constant-folded, both arms live. The Empty arm frees the whole enum; the
     // Holds arm transfers the iterator out -> no double-free across the diamond.
-    let src = r#"
-type MaybeIter = Empty | Holds(it: Iterator<int>);
-
-@build (use_holds: bool) -> MaybeIter =
-    if use_holds then Holds(it: [1, 2, 3].iter()) else Empty;
-
-@main () -> int = {
-    let x = build(use_holds: true);
-    let n = match x {
-        Empty -> 0,
-        Holds(it) -> it.count()
-    };
-    if n == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_take_project_dynamic_consume_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "take_project_dynamic_consume");
 }
 
@@ -2479,30 +1738,9 @@ fn probe_take_project_two_unrelated_sources_no_leak() {
     // `b` is consumed, `a` is on a bypass path. `a` must drop on the bypass-safe
     // path via its own per-class scope-exit drop (function-global bypass-safe
     // computation would suppress `a`'s drop on every block reachable from `b`).
-    let src = r#"
-type MaybeIter = Empty | Holds(it: Iterator<int>);
-
-@main () -> int = {
-    let a: MaybeIter = Holds(it: [1, 2, 3].iter());
-    let b: MaybeIter = Holds(it: [4, 5, 6].iter());
-    let flag1 = false;
-    let flag2 = true;
-    let count_b = if flag1 then
-        match a {
-            Empty -> 0,
-            Holds(it) -> it.count()
-        }
-    else
-        if flag2 then
-            match b {
-                Empty -> 0,
-                Holds(it) -> it.count()
-            }
-        else
-            0;
-    count_b - count_b
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_take_project_two_unrelated_sources_no_leak.ori"
+    );
     assert_burden_path_self_sufficient(src, "take_project_two_unrelated_sources");
 }
 
@@ -2512,26 +1750,8 @@ fn probe_take_project_phi_merge_no_leak() {
     // merge block param. The phi param is a CFG choice, not shared storage; the
     // per-class bypass-safe set must not falsely conflate the two sources'
     // lineages through the shared merge param.
-    let src = r#"
-type MaybeIter = Empty | Holds(it: Iterator<int>);
-
-@main () -> int = {
-    let a: MaybeIter = Holds(it: [1, 2, 3].iter());
-    let b: MaybeIter = Holds(it: [4, 5, 6].iter());
-    let pick = false;
-    let result = if pick then
-        match a {
-            Empty -> 0,
-            Holds(it) -> it.count()
-        }
-    else
-        match b {
-            Empty -> 0,
-            Holds(it) -> it.count()
-        };
-    result - 3
-}
-"#;
+    let src =
+        include_str!("fixtures/predicate_stack_probe/probe_take_project_phi_merge_no_leak.ori");
     assert_burden_path_self_sufficient(src, "take_project_phi_merge");
 }
 
@@ -2542,28 +1762,7 @@ fn probe_take_project_in_loop_no_leak() {
     // (bypass path); the source enum must drop on the post-loop bypass-safe path
     // even though the loop header is reached via a back-edge from a bypass-safe
     // latch.
-    let src = r#"
-type MaybeIter = Empty | Holds(it: Iterator<int>);
-
-@main () -> int = {
-    let x: MaybeIter = Holds(it: [1, 2, 3].iter());
-    let do_take = false;
-    let iters = 0;
-    loop {
-        iters = iters + 1;
-        if iters >= 1 then
-            break
-    };
-    let count = if do_take then
-        match x {
-            Empty -> 0,
-            Holds(it) -> it.count()
-        }
-    else
-        0;
-    count + iters - 1
-}
-"#;
+    let src = include_str!("fixtures/predicate_stack_probe/probe_take_project_in_loop_no_leak.ori");
     assert_burden_path_self_sufficient(src, "take_project_in_loop");
 }
 
@@ -2575,17 +1774,9 @@ fn probe_take_project_unused_binding_negative_no_double_free() {
     // source-dec extension must NOT also fire on the source enum here (a double
     // release of the same iterator payload aborts). This guards the
     // `enum_match_unused_binding` shape from regressing.
-    let src = r#"
-type MaybeIter = Empty | Holds(it: Iterator<int>);
-
-@main () -> int = {
-    let x: MaybeIter = Holds(it: [1, 2, 3].iter());
-    match x {
-        Empty -> 0,
-        Holds(it) -> 0
-    }
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_take_project_unused_binding_negative_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "take_project_unused_binding_negative");
 }
 
@@ -2599,13 +1790,9 @@ fn probe_eager_filter_borrowed_source_freed_after_call() {
     // (`ApplyToBorrowedParam` emits a caller dec) + RL-4 (release on the dying
     // successor edge): the source survives the borrowed call, dead on each
     // successor -> relocate to BOTH edges. Fresh-result -> safe to relocate.
-    let src = r#"
-@main () -> int = {
-    let nums: [int] = [1, 2, 3, 4, 5];
-    let evens: [int] = nums.filter(predicate: x -> x % 2 == 0);
-    if evens.len() == 2 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_eager_filter_borrowed_source_freed_after_call.ori"
+    );
     assert_burden_path_self_sufficient(src, "eager_filter_borrowed_source_freed");
 }
 
@@ -2614,13 +1801,9 @@ fn probe_eager_map_borrowed_source_freed_after_call() {
     // `nums.map(f)`: the eager list map BORROWS `nums` and produces a FRESH
     // non-aliasing `[int]` result. Same misplaced-inline-source-dec UAF as
     // filter; same RL-2 + RL-4 successor-edge relocation cure.
-    let src = r#"
-@main () -> int = {
-    let nums: [int] = [1, 2, 3];
-    let doubled: [int] = nums.map(transform: x -> x * 2);
-    if doubled.len() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_eager_map_borrowed_source_freed_after_call.ori"
+    );
     assert_burden_path_self_sufficient(src, "eager_map_borrowed_source_freed");
 }
 
@@ -2629,13 +1812,9 @@ fn probe_eager_filter_then_index_borrowed_source_freed() {
     // `nums.filter(p)` then `evens[0]`: the fresh filter result is index-read.
     // The borrowed source `nums` still must relocate its dec to the successor
     // edge (it does not alias the fresh result, which the index reads).
-    let src = r#"
-@main () -> int = {
-    let nums: [int] = [1, 2, 3, 4, 5, 6];
-    let evens: [int] = nums.filter(predicate: x -> x % 2 == 0);
-    if evens[0] == 2 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_eager_filter_then_index_borrowed_source_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "eager_filter_then_index_borrowed_source_freed");
 }
 
@@ -2647,12 +1826,9 @@ fn probe_bare_list_len_borrowed_source_unchanged_negative() {
     // extension must NOT disturb this floor-passing path — the source frees once
     // on the successor edge, leak-free + double-free-free, with or without the
     // new fresh-result set.
-    let src = r#"
-@main () -> int = {
-    let nums: [int] = [1, 2, 3];
-    if nums.len() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_bare_list_len_borrowed_source_unchanged_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "bare_list_len_borrowed_source_unchanged");
 }
 
@@ -2667,13 +1843,9 @@ fn probe_list_clone_borrowed_source_freed_after_call() {
     // result's own dec frees it (1 -> 0). Both refs balanced, single free — the
     // clone-vs-buffer-sharing contract-indistinguishability is resolved by the
     // refined escape-gated Phase-6.65 relocation.
-    let src = r#"
-@main () -> int = {
-    let xs = [1, 2, 3];
-    let ys = xs.clone();
-    if ys.length() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_list_clone_borrowed_source_freed_after_call.ori"
+    );
     assert_burden_path_self_sufficient(src, "list_clone_borrowed_source_freed");
 }
 
@@ -2687,13 +1859,8 @@ fn probe_iter_map_collect_result_freed_int() {
     // the flag. RL-2 scope-exit dec on the fresh result (lowering to
     // `RcDec [HeapPtr]`) frees it once; the iterator-consumer recognizer +
     // alloc-aware net catch it. Spec: Annex E §AIMS RL-2.
-    let src = r#"
-@main () -> int = {
-    let xs = [1, 2, 3];
-    let doubled = xs.iter().map(x -> x * 2).collect();
-    if doubled.length() == 3 then 0 else 1
-}
-"#;
+    let src =
+        include_str!("fixtures/predicate_stack_probe/probe_iter_map_collect_result_freed_int.ori");
     assert_burden_path_self_sufficient(src, "iter_map_collect_result_freed_int");
 }
 
@@ -2704,16 +1871,9 @@ fn probe_iter_map_collect_result_freed_heap_str() {
     // fresh buffer). The RL-2 scope-exit `RcDec [HeapPtr]` on the result walks the
     // V5 `elem_dec_fn` so the str copies free too (the buffer + element-glue
     // composition). Without it the result buffer + 2 element strings leak.
-    let src = r#"
-@main () -> int = {
-    let words = [
-        "this is a very long heap string that exceeds the SSO threshold of twenty three bytes",
-        "another long heap string for testing trampoline ABI correctness"
-    ];
-    let same = words.iter().map(transform: s -> s).collect();
-    if same.len() == 2 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_iter_map_collect_result_freed_heap_str.ori"
+    );
     assert_burden_path_self_sufficient(src, "iter_map_collect_result_freed_heap_str");
 }
 
@@ -2724,17 +1884,9 @@ fn probe_iter_collect_result_returned_no_double_free_negative() {
     // pass MUST NOT emit a freeing dec on a returned collect result (the
     // `compute_returned_lineages` exclusion holds) — a dec here would double-free
     // against the caller's release. `@main` consumes the returned list locally.
-    let src = r#"
-@build () -> [int] = {
-    let xs = [1, 2, 3];
-    xs.iter().map(x -> x * 2).collect()
-}
-
-@main () -> int = {
-    let got = build();
-    if got.length() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_iter_collect_result_returned_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "iter_collect_result_returned_no_double_free");
 }
 
@@ -2751,44 +1903,25 @@ fn probe_iter_collect_result_returned_no_double_free_negative() {
 
 #[test]
 fn probe_loop_carried_push_list_int_source_no_double_free() {
-    let src = r#"
-@main () -> int = {
-    let xs = [1, 2, 3];
-    for i in 0..30 do {
-        xs = xs.push(i);
-    };
-    if xs.len() == 33 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_loop_carried_push_list_int_source_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "loop_carried_push_list_int_source");
 }
 
 #[test]
 fn probe_loop_carried_push_list_str_source_no_double_free() {
-    let src = r#"
-@main () -> int = {
-    let xs = ["a", "b"];
-    for i in 0..10 do {
-        xs = xs.push("x");
-    };
-    if xs.len() == 12 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_loop_carried_push_list_str_source_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "loop_carried_push_list_str_source");
 }
 
 #[test]
 fn probe_loop_carried_insert_map_source_no_double_free() {
-    let src = r#"
-@main () -> int = {
-    let m = {"seed": 0};
-    let keys = ["a", "b", "c", "d"];
-    for k in keys do {
-        m = m.insert(key: k, value: 1);
-    };
-    if m.len() == 5 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_loop_carried_insert_map_source_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "loop_carried_insert_map_source");
 }
 
@@ -2796,46 +1929,25 @@ fn probe_loop_carried_insert_map_source_no_double_free() {
 fn probe_loop_carried_concat_str_source_no_double_free() {
     // `s = s + "x"` concat-loop: the old string operand is consumed/COW-read by
     // `ori_str_concat` (an owned-position duplicating use) each iteration.
-    let src = r#"
-@main () -> int = {
-    let s = "ab";
-    for i in 0..10 do {
-        s = s + "x";
-    };
-    if s.length() == 12 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_loop_carried_concat_str_source_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "loop_carried_concat_str_source");
 }
 
 #[test]
 fn probe_loop_carried_push_while_source_no_double_free() {
-    let src = r#"
-@main () -> int = {
-    let xs = [0];
-    let n = 0;
-    while n < 20 do {
-        xs = xs.push(n);
-        n = n + 1;
-    };
-    if xs.len() == 21 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_loop_carried_push_while_source_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "loop_carried_push_while_source");
 }
 
 #[test]
 fn probe_loop_carried_push_break_source_no_double_free() {
-    let src = r#"
-@main () -> int = {
-    let xs = [1];
-    for i in 0..50 do {
-        xs = xs.push(i);
-        if xs.len() == 11 then break;
-    };
-    if xs.len() == 11 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_loop_carried_push_break_source_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "loop_carried_push_break_source");
 }
 
@@ -2849,19 +1961,9 @@ fn probe_loop_invariant_closure_borrow_no_premature_free_negative() {
     // NOT flag this lineage cow-mutated (the discriminator is in-loop
     // owned-CONSUME vs BORROW, not the bb0 Jump-transfer shape) — over-flagging
     // keeps a spurious inc and leaks the closure env.
-    let src = r#"
-@apply (f: (int) -> int, x: int) -> int = f(x);
-
-@main () -> int = {
-    let multiplier = 10;
-    let scale = (n: int) -> int = n * multiplier;
-    let sum = 0;
-    for i in 1..=3 do {
-        sum = sum + apply(f: scale, x: i);
-    };
-    if sum == 60 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_loop_invariant_closure_borrow_no_premature_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "loop_invariant_closure_borrow_negative");
 }
 
@@ -2872,43 +1974,45 @@ fn probe_loop_invariant_map_index_borrow_no_premature_free_negative() {
     // bb0 fresh inc is elidable; the loop-carried-consume cure MUST NOT flag the
     // read-only map lineage (a `[borrow]` index is not an owned-position
     // consume).
-    let src = r#"
-@main () -> int = {
-    let m = {"alpha": 10, "beta": 20, "gamma": 30};
-    let keys = ["alpha", "beta", "gamma"];
-    let sum = 0;
-    for k in keys do {
-        let v = m[k];
-        if v.is_some() then sum = sum + v.unwrap()
-    };
-    if sum == 60 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_loop_invariant_map_index_borrow_no_premature_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "loop_invariant_map_index_borrow_negative");
 }
 
-// --- Transfer-through-return forwarder RESULT freeing (RL-2 ScopeExit) ---
+#[test]
+fn probe_loop_reassigned_list_borrow_read_no_double_free_negative() {
+    // NEGATIVE / loop-invariant-BORROW closure clamp: a list local REASSIGNED
+    // each iteration (`xs = [i]; xs = xs.push(i)`) is then borrow-READ
+    // (`@__index [borrow]`). The reassignment feeds a FRESH per-iteration
+    // allocation into the loop-carried slot via the back-edge, so the slot is
+    // NOT loop-invariant — the borrow-only-read RL-5 release MUST NOT fire (the
+    // base walk already releases each fresh value). Over-firing a single
+    // scope-exit release on the reassigned slot double-frees the last
+    // iteration's buffer (`-134`). The discriminator is the lineage-closure gate:
+    // a member block-param fed by a non-member (the fresh reassignment) declines.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_loop_reassigned_list_borrow_read_no_double_free_negative.ori"
+    );
+    assert_burden_path_self_sufficient(src, "loop_reassigned_list_borrow_read_negative");
+}
+
+// Transfer-through-return forwarder RESULT freeing (RL-2 ScopeExit)
 // A fresh-owned collection passed `[own]` into a `transfers_through_return ∧
 // ReturnAliasShape::Direct` forwarder (`@id<T>(x: T) -> T = x`) is returned
 // unchanged: the caller's result IS the SAME allocation as the transferred owned
 // arg, borrowed-read then dead at scope exit, carrying ZERO burden ops. Under
-// sole-emitter Phase-7 lowering the allocation's `+1` is never released → leak.
+// sole-emitter lowering the allocation's `+1` is never released → leak.
 // The per-allocation alloc-aware net threaded through the apply-Direct transfer
 // edge fires ONE scope-exit `BurdenDec` on the result's live SSA value (the
 // trivial `@id` chain nets +1 = leaked → dec; a multi-borrow-then-return
-// forwarder already nets 0 = released → no dec, the negative below).
+// multi-borrow-return forwarder already nets 0 = released → no dec).
 
 #[test]
 fn probe_forwarder_result_freed_id_list_int() {
     // `@id` over `[int]`: result borrowed-read (`@len`/`@__index`) then dead.
-    let src = r#"
-@id <T> (x: T) -> T = x;
-
-@main () -> int = {
-    let xs = id(x: [1, 2, 3]);
-    if xs.len() == 3 && xs[0] == 1 && xs[2] == 3 then 0 else 1
-}
-"#;
+    let src =
+        include_str!("fixtures/predicate_stack_probe/probe_forwarder_result_freed_id_list_int.ori");
     assert_burden_path_self_sufficient(src, "forwarder_result_freed_id_list_int");
 }
 
@@ -2916,15 +2020,9 @@ fn probe_forwarder_result_freed_id_list_int() {
 fn probe_forwarder_result_freed_multi_hop_list() {
     // Two-hop chain `@id2(@id1(xs))`: each hop is a Direct transfer; the final
     // result is the same allocation as the original Construct.
-    let src = r#"
-@id1 <T> (x: T) -> T = x;
-@id2 <T> (x: T) -> T = id1(x: x);
-
-@main () -> int = {
-    let xs = id2(x: [7, 8, 9]);
-    if xs.len() == 3 && xs[1] == 8 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_forwarder_result_freed_multi_hop_list.ori"
+    );
     assert_burden_path_self_sufficient(src, "forwarder_result_freed_multi_hop_list");
 }
 
@@ -2935,14 +2033,9 @@ fn probe_forwarder_result_freed_non_generic_list() {
     // single unbalanced allocation `+1` is released at its one borrowed-read dead
     // sink. (Branchy multi-condition result use is the compound-shape next leaf —
     // the result's own per-branch `binc`/`bdec` pairs need joint accounting.)
-    let src = r#"
-@just_return_it (x: [int]) -> [int] = x;
-
-@main () -> int = {
-    let xs = just_return_it(x: [11, 22, 33]);
-    if xs.len() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_forwarder_result_freed_non_generic_list.ori"
+    );
     assert_burden_path_self_sufficient(src, "forwarder_result_freed_non_generic_list");
 }
 
@@ -2955,19 +2048,9 @@ fn probe_multi_borrow_then_return_no_double_free_negative() {
     // alloc-aware net nets 0 (the existing release balances the alloc), so the
     // result-freeing pass must NOT add a second dec — a contract-level recognizer
     // would over-fire here and double-free.
-    let src = r#"
-@use_twice (xs: [int]) -> [int] = {
-    print(msg: `len: {xs.len()}`);
-    print(msg: `first: {xs[0]}`);
-    xs
-};
-
-@main () -> int = {
-    let original = [10, 20, 30];
-    let returned = use_twice(xs: original);
-    if returned.len() == 3 && returned[0] == 10 && returned[2] == 30 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_multi_borrow_then_return_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "multi_borrow_then_return_no_double_free_negative");
 }
 
@@ -2987,16 +2070,9 @@ fn probe_project_borrowed_view_struct_str_field_no_double_free() {
     // The canonical str-field view: `let borrowed = w.s` borrow-view of a local
     // `Wrapper { s: str }`. The struct's `RcDec [AggFields]` frees the field
     // string; the spurious `RcDec %view [FatPtr]` frees it AGAIN -> double-free.
-    let src = r#"
-type Wrapper = { s: str }
-
-@main () -> int = {
-    let w = Wrapper { s: "borrow_then_letvar_chain" };
-    let borrowed = w.s;
-    let chained = borrowed;
-    if chained == "borrow_then_letvar_chain" then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_project_borrowed_view_struct_str_field_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "project_borrowed_view_struct_str_field");
 }
 
@@ -3005,14 +2081,9 @@ fn probe_project_borrowed_view_struct_list_str_field_no_double_free() {
     // `[str]`-field view: `c.items` borrow-view of `Container { items: [str] }`.
     // The struct `[AggFields]` drop frees the `[str]` buffer (RcPtr field); the
     // spurious view dec double-frees it.
-    let src = r#"
-type Container = { items: [str] }
-
-@main () -> int = {
-    let c = Container { items: ["hello", "world"] };
-    if c.items.length() == 2 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_project_borrowed_view_struct_list_str_field_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "project_borrowed_view_struct_list_str_field");
 }
 
@@ -3022,14 +2093,9 @@ fn probe_project_borrowed_view_struct_list_int_field_no_double_free() {
     // Same shape as the `[str]` field — the scalar element type does not change
     // the aggregate-drop-frees-the-buffer accounting. The membership-strip
     // approach mishandled `[int]`-field index-retain shapes; the net does not.
-    let src = r#"
-type Container = { items: [int] }
-
-@main () -> int = {
-    let c = Container { items: [10, 20, 30] };
-    if c.items.length() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_project_borrowed_view_struct_list_int_field_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "project_borrowed_view_struct_list_int_field");
 }
 
@@ -3038,17 +2104,9 @@ fn probe_project_borrowed_view_option_struct_str_field_no_double_free() {
     // Option-payload struct-field view: a `Some(Wrapper { s: str })` matched, then
     // the inner struct's `s` field projected and borrow-read. The InlineEnum +
     // AggFields drop walk frees the field; the spurious view dec double-frees.
-    let src = r#"
-type Wrapper = { s: str }
-
-@main () -> int = {
-    let o: Option<Wrapper> = Some(Wrapper { s: "abcdefghijklmnopqrstuvwxyz1234" });
-    match o {
-        Some(w) -> if w.s.length() == 30 then 0 else 1,
-        None -> 2,
-    }
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_project_borrowed_view_option_struct_str_field_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "project_borrowed_view_option_struct_str_field");
 }
 
@@ -3057,17 +2115,9 @@ fn probe_project_borrowed_view_result_struct_str_field_no_double_free() {
     // Result-payload struct-field view: an `Ok(Wrapper { s: str })` matched, then
     // the inner struct's `s` field projected and borrow-read. Same InlineEnum +
     // AggFields drop walk; the spurious view dec double-frees.
-    let src = r#"
-type Wrapper = { s: str }
-
-@main () -> int = {
-    let r: Result<Wrapper, int> = Ok(Wrapper { s: "abcdefghijklmnopqrstuvwxyz1234" });
-    match r {
-        Ok(w) -> if w.s.length() == 30 then 0 else 1,
-        Err(e) -> e,
-    }
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_project_borrowed_view_result_struct_str_field_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "project_borrowed_view_result_struct_str_field");
 }
 
@@ -3075,19 +2125,14 @@ type Wrapper = { s: str }
 fn probe_project_borrowed_view_paired_inc_collection_field_keep_negative() {
     // NEGATIVE / keep clamp: a struct with TWO projected fields (a map field AND a
     // str field) each `.length()`-read. The aggregate is copied (a paired
-    // `[AggFields]` inc bumps the fields above rc 1), so each projection dec
+    // `[AggFields]` inc raises the fields past rc 1), so each projection dec
     // releases the EXTRA reference, NOT a redundant second release of a single-ref
     // field. The alloc-aware net is 0 (the aggregate inc balances the alloc) ->
     // the dec is the genuine release and MUST be kept. A membership-strip orphans
     // the index-retain inc here and leaks; the net keeps it.
-    let src = r#"
-type Config = { settings: {str: int}, name: str }
-
-@main () -> int = {
-    let c = Config { settings: {"a": 1}, name: "cfg" };
-    if c.settings.length() + c.name.length() == 4 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_project_borrowed_view_paired_inc_collection_field_keep_negative.ori"
+    );
     assert_burden_path_self_sufficient(
         src,
         "project_borrowed_view_paired_inc_collection_field_keep",
@@ -3101,17 +2146,9 @@ fn probe_project_borrowed_view_sum_str_payload_keep_negative() {
     // enum's keep-alive inc (the payload survives the match into the arm body),
     // so the payload's release is balanced (net 0) and MUST be kept. Stripping it
     // leaks the heap string.
-    let src = r#"
-type Value = Text(content: str) | Empty;
-
-@main () -> int = {
-    let v = Text(content: "abcdefghijklmnopqrstuvwxyz1234");
-    match v {
-        Text(content) -> if content.length() == 30 then 0 else 1,
-        Empty -> 2,
-    }
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_project_borrowed_view_sum_str_payload_keep_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "project_borrowed_view_sum_str_payload_keep");
 }
 
@@ -3121,17 +2158,9 @@ fn probe_project_borrowed_view_sum_list_int_payload_keep_negative() {
     // `[int]` payload extracted and borrow-read. Same paired-inc keep accounting
     // as the str payload — the RcPtr buffer's release is balanced (net 0). The
     // last-owner sum-payload view is the buffer's genuine release; keep it.
-    let src = r#"
-type Data = Numbers(items: [int]) | Empty;
-
-@main () -> int = {
-    let d = Numbers(items: [10, 20, 30]);
-    match d {
-        Numbers(items) -> if items.length() == 3 then 0 else 1,
-        Empty -> 2,
-    }
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_project_borrowed_view_sum_list_int_payload_keep_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "project_borrowed_view_sum_list_int_payload_keep");
 }
 
@@ -3141,12 +2170,9 @@ fn probe_project_borrowed_view_owned_literal_release_keep_negative() {
     // its own last-use release. The strip discriminator keys on a `Project`-view
     // whose source aggregate drop frees the field; an owned non-view value has no
     // such source, so its release MUST be kept. Stripping it leaks the string.
-    let src = r#"
-@main () -> int = {
-    let a = "abcdefghijklmnopqrstuvwxyz1234";
-    if a.length() == 30 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_project_borrowed_view_owned_literal_release_keep_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "project_borrowed_view_owned_literal_release_keep");
 }
 
@@ -3157,15 +2183,9 @@ fn probe_project_borrowed_view_disjoint_field_no_double_free() {
     // spurious view dec on the projected field double-frees it (the unused field
     // is freed once by the aggregate drop — no view to double it). Strip the
     // projected-view dec; the aggregate drop owns both releases.
-    let src = r#"
-type Pair = { a: str, b: str }
-
-@main () -> int = {
-    let p = Pair { a: "abcdefghijklmnopqrstuvwxyz1234", b: "0987654321zyxwvutsrqponmlkji" };
-    let projected = p.a;
-    if projected.length() == 30 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_project_borrowed_view_disjoint_field_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "project_borrowed_view_disjoint_field");
 }
 
@@ -3179,19 +2199,9 @@ fn probe_derived_eq_used_struct_str_field_no_leak() {
     // borrow-read (`incElidable`, no duplication). The spurious incs net the
     // a-allocation +1 on every path -> the heap `content` string LEAKS.
     // Spec: Annex E §AIMS RL-1 (`RL1_emit_iff_not_elidable`) + RL-2.
-    let src = r#"
-#derive(Eq)
-type Doc = { content: str }
-
-@main () -> int = {
-    let a = Doc { content: "abcdefghijklmnopqrstuvwxyz1234" };
-    let b = Doc { content: "abcdefghijklmnopqrstuvwxyz1234" };
-    let c = Doc { content: "abcdefghijklmnopqrstuvwxyz9999" };
-    if a == b then {
-        if a != c then 0 else 1
-    } else 2
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_derived_eq_used_struct_str_field_no_leak.ori"
+    );
     assert_burden_path_self_sufficient(src, "derived_eq_used_struct_str_field");
 }
 
@@ -3199,19 +2209,9 @@ type Doc = { content: str }
 fn probe_derived_eq_used_struct_list_field_no_leak() {
     // The `[int]`-field derived-`Eq` shape: the aggregate holds an `RcPtr` list
     // buffer; the comparison-operand spurious incs leak the buffer.
-    let src = r#"
-#derive(Eq)
-type Bag = { items: [int] }
-
-@main () -> int = {
-    let a = Bag { items: [1, 2, 3, 4, 5] };
-    let b = Bag { items: [1, 2, 3, 4, 5] };
-    let c = Bag { items: [9, 9, 9] };
-    if a == b then {
-        if a != c then 0 else 1
-    } else 2
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_derived_eq_used_struct_list_field_no_leak.ori"
+    );
     assert_burden_path_self_sufficient(src, "derived_eq_used_struct_list_field");
 }
 
@@ -3220,19 +2220,9 @@ fn probe_derived_eq_used_struct_map_field_no_leak() {
     // The `{str: int}`-field derived-`Eq` shape: the aggregate holds an `RcPtr` map
     // buffer (with owned key strings via `elem_dec_fn`); the comparison-operand
     // spurious incs leak the whole map + its key strings.
-    let src = r#"
-#derive(Eq)
-type Env = { vars: {str: int} }
-
-@main () -> int = {
-    let a = Env { vars: {"alpha": 1, "beta": 2} };
-    let b = Env { vars: {"alpha": 1, "beta": 2} };
-    let c = Env { vars: {"gamma": 9} };
-    if a == b then {
-        if a != c then 0 else 1
-    } else 2
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_derived_eq_used_struct_map_field_no_leak.ori"
+    );
     assert_burden_path_self_sufficient(src, "derived_eq_used_struct_map_field");
 }
 
@@ -3241,62 +2231,52 @@ fn probe_derived_eq_used_option_str_payload_no_leak() {
     // Sum-payload-with-heap-field derived-`Eq`: an `Option<str>` field compared
     // through `a == b` / `a != c`. The `[InlineEnum]` aggregate's heap payload
     // leaks via the comparison-operand spurious incs.
-    let src = r#"
-#derive(Eq)
-type Holder = { maybe: Option<str> }
-
-@main () -> int = {
-    let a = Holder { maybe: Some("abcdefghijklmnopqrstuvwxyz1234") };
-    let b = Holder { maybe: Some("abcdefghijklmnopqrstuvwxyz1234") };
-    let c = Holder { maybe: None };
-    if a == b then {
-        if a != c then 0 else 1
-    } else 2
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_derived_eq_used_option_str_payload_no_leak.ori"
+    );
     assert_burden_path_self_sufficient(src, "derived_eq_used_option_str_payload");
 }
 
 #[test]
 fn probe_derived_clone_used_struct_str_field_no_leak() {
-    // The f20 sibling (mirrors `fm_clone_struct_str_heap`): a `#derive(Eq, Clone)`
-    // struct cloned then compared `a == b`, with the clone result re-read on the
+    // A `#derive(Eq, Clone)` struct is cloned and compared `a == b`, with the result read on the
     // then-branch. The compared aggregate flows through the same comparison-operand
     // keep-alive divergence as f13; the str field leaks via the spurious operand
     // inc unless M3+M4 fire.
-    let src = r#"
-#derive(Eq, Clone)
-type Doc = { content: str }
-
-@main () -> int = {
-    let a = Doc { content: "abcdefghijklmnopqrstuvwxyz1234" };
-    let b = a.clone();
-    if a == b then {
-        if b.content.length() == 30 then 0 else 1
-    } else 2
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_derived_clone_used_struct_str_field_no_leak.ori"
+    );
     assert_burden_path_self_sufficient(src, "derived_clone_used_struct_str_field");
 }
 
 #[test]
-fn probe_config_projected_fields_compared_keep_negative() {
-    // NEGATIVE (the inline-struct projected-field boundary): a `Config { settings,
-    // name }` whose fields are PROJECTED + independently read (`.settings.length()`
-    // + `.name.length()`). The aggregate fields are released by explicit
-    // projection-path decs; the per-(field) alloc-aware net is 0. There are NO
-    // `==`/`!=` comparison operands, so the comparison-operand strip MUST NOT fire.
-    // Passes pre AND post the cure (must-not-regress + must-not-over-strip).
-    let src = r#"
-type Config = { settings: {str: int}, name: str }
-
-@main () -> int = {
-    let c = Config { settings: {"a": 1}, name: "configname_long_enough_to_heap" };
-    if c.settings.length() == 1 then {
-        if c.name.length() == 30 then 0 else 1
-    } else 2
+fn probe_derived_clone_subset_move_releases_unread_heap_field() {
+    // A call-produced derived-Clone result is a constructless positional
+    // aggregate. Moving one heap field out must skip that field at the
+    // container release while still releasing the unread heap sibling.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_derived_clone_subset_move_releases_unread_heap_field.ori"
+    );
+    assert_burden_path_self_sufficient(src, "derived_clone_subset_move");
 }
-"#;
+
+#[test]
+fn probe_config_projected_fields_compared_keep_negative() {
+    // POSITIVE PIN (the multi-borrow-view-alias surplus cure): a `Config {
+    // settings, name }` whose fields are borrow-read through DISTINCT whole-var
+    // aliases (`%6 = c` -> `Project %6.settings` -> `.length()`; `%11 = c` ->
+    // `Project %11.name` -> `.length()`). The aggregate `%4`, its Let-Var aliases
+    // `%6`/`%11`, are the SAME allocation; the base walk emits a surplus whole-var
+    // `BurdenDec` at EACH alias's borrow-project AND a spurious keep-alive FRESH
+    // inc — N+1 releases of ONE allocation (cleanup-on leaks both heap fields;
+    // cleanup-off double-frees). The Phase-5 multi-borrow-view-alias arm suppresses
+    // each alias's surplus dec + the keep-alive inc, leaving the owner's single
+    // edge-cleanup release (RL-2 `RL2_release_exactly_once`). There are NO
+    // `==`/`!=` comparison operands on the aggregate, so the comparison-operand
+    // strip MUST NOT fire. Spec: Annex E §AIMS RL-2 + TF-4 + DP-3.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_config_projected_fields_compared_keep_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "config_projected_fields_compared");
 }
 
@@ -3308,38 +2288,23 @@ fn probe_derived_eq_single_comparison_keep_negative() {
     // keep-alive inc -> nothing to strip. Passes pre AND post; the cure must not
     // touch the single-comparison shape (would double-free if it stripped the
     // genuine release).
-    let src = r#"
-#derive(Eq)
-type Doc = { content: str }
-
-@main () -> int = {
-    let a = Doc { content: "abcdefghijklmnopqrstuvwxyz1234" };
-    let b = Doc { content: "abcdefghijklmnopqrstuvwxyz1234" };
-    if a == b then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_derived_eq_single_comparison_keep_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "derived_eq_single_comparison");
 }
 
 #[test]
 fn probe_heap_str_clone_then_double_compare_freed() {
-    // POSITIVE (distinct-root comparison-operand widening): a heap `str` cloned
-    // then double-compared (`a == b && a == "literal"`). `clone` of a heap str is
-    // an rc-INC of the SAME buffer, but the clone RESULT is a DISTINCT
+    // A heap `str` cloned and double-compared (`a == b && a == "literal"`)
+    // increments the same buffer, while its result has a distinct
     // `same_alloc` rep (an Invoke result, not a Let-Var alias), so each `==`
     // compares operands of DISTINCT allocations. Each operand is an RL-1
-    // borrow-read (`incElidable`) wrongly given a spurious keep-alive inc that
-    // nets the compared allocation +1 -> the buffer (and the fresh `==`-literal)
-    // LEAK under flag. The comparison-operand strip (M3 inc + M4 dec), widened to
-    // FatValue/RcPointer/Literal(String) operands, frees both. FAILED=leak
-    // pre-cure -> PASS. Spec: Annex E §AIMS RL-1 + RL-2.
-    let src = r#"
-@main () -> int = {
-    let a = "this is a heap-allocated string!";
-    let b = a.clone();
-    if a == b && a == "this is a heap-allocated string!" then 0 else 1
-}
-"#;
+    // borrow-read (`incElidable`). Comparison-operand stripping must leave both
+    // the buffer and fresh literal balanced (Spec: Annex E §AIMS RL-1 + RL-2).
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_heap_str_clone_then_double_compare_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "heap_str_clone_then_double_compare");
 }
 
@@ -3354,34 +2319,21 @@ fn probe_heap_str_same_root_multi_compare_no_double_free_negative() {
     // double-free). The widened strip MUST exclude a comparison whose two operands
     // share a `same_alloc` rep. Passes pre AND post the cure (must-not-double-free).
     // RL-2 `RL2_release_exactly_once`: one allocation released exactly once per path.
-    let src = r#"
-@main () -> int = {
-    let a = "this is a heap string for alias chain";
-    let b = a;
-    let c = b;
-    if a == b && b == c then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_heap_str_same_root_multi_compare_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "heap_str_same_root_multi_compare");
 }
 
 #[test]
 fn probe_heap_str_same_root_three_compare_no_double_free_negative() {
-    // NEGATIVE (already-balanced same-root sibling): three separate `==` results
+    // Three already-balanced same-root `==` results
     // (`r1 = a==b; r2 = b==c; r3 = a==c`) where `b`/`c` alias `a` -> one
     // `same_alloc` rep, three same-root comparisons. The widened strip MUST leave
-    // every same-root comparison untouched. Passes pre AND post the cure.
-    let src = r#"
-@main () -> int = {
-    let a = "alias chain comparison string";
-    let b = a;
-    let c = b;
-    let $r1 = a == b;
-    let $r2 = b == c;
-    let $r3 = a == c;
-    if r1 && r2 && r3 then 0 else 1
-}
-"#;
+    // every same-root comparison untouched.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_heap_str_same_root_three_compare_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "heap_str_same_root_three_compare");
 }
 
@@ -3392,13 +2344,9 @@ fn probe_heap_str_single_compare_no_double_free_negative() {
     // Each operand is used once -> no spurious keep-alive inc; the per-operand
     // burden dec nets each allocation to 0. The cure must not over-strip a genuine
     // single release. Passes pre AND post the cure.
-    let src = r#"
-@main () -> int = {
-    let a = "equal heap string for single compare!";
-    let b = "equal heap string for single compare!";
-    if a == b then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_heap_str_single_compare_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "heap_str_single_compare");
 }
 
@@ -3411,13 +2359,9 @@ fn probe_sharing_view_list_slice_then_length_no_uaf() {
     // receiver dec to after the borrowed read (its true last use), so the buffer
     // is live when the slice reads it. NON-branchy single-read of the result.
     // Spec: Annex E §AIMS RL-2 + RL-4.
-    let src = r#"
-@main () -> int = {
-    let xs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    let ys = xs.slice(start: 2, end: 8);
-    if ys.length() == 6 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_sharing_view_list_slice_then_length_no_uaf.ori"
+    );
     assert_burden_path_self_sufficient(src, "sharing_view_list_slice_then_length");
 }
 
@@ -3427,15 +2371,9 @@ fn probe_sharing_view_list_slice_branchy_multi_read_no_uaf() {
     // across MULTIPLE `&&`-short-circuit branches (`ys.length()`, `ys.first()`,
     // `ys.last()`). The receiver dies at the slice site (only the result flows
     // onward); its dec belongs at the borrowed read, not split across edges.
-    let src = r#"
-@main () -> int = {
-    let xs = [10, 20, 30, 40, 50];
-    let ys = xs.slice(start: 1, end: 4);
-    if ys.length() == 3 && ys.first().unwrap() == 20 && ys.last().unwrap() == 40
-        then 0
-        else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_sharing_view_list_slice_branchy_multi_read_no_uaf.ori"
+    );
     assert_burden_path_self_sufficient(src, "sharing_view_list_slice_branchy_multi_read");
 }
 
@@ -3443,13 +2381,9 @@ fn probe_sharing_view_list_slice_branchy_multi_read_no_uaf() {
 fn probe_sharing_view_list_take_dead_receiver_no_uaf() {
     // `take` is a seamless-slice producer sharing the receiver buffer. Dead
     // receiver after the take; result read once.
-    let src = r#"
-@main () -> int = {
-    let xs = [1, 2, 3, 4, 5, 6, 7, 8];
-    let ys = xs.take(count: 3);
-    if ys.length() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_sharing_view_list_take_dead_receiver_no_uaf.ori"
+    );
     assert_burden_path_self_sufficient(src, "sharing_view_list_take_dead_receiver");
 }
 
@@ -3457,13 +2391,9 @@ fn probe_sharing_view_list_take_dead_receiver_no_uaf() {
 fn probe_sharing_view_list_drop_dead_receiver_no_uaf() {
     // `drop` is a seamless-slice producer sharing the receiver buffer. Dead
     // receiver after the drop; result read once.
-    let src = r#"
-@main () -> int = {
-    let xs = [1, 2, 3, 4, 5, 6, 7, 8];
-    let ys = xs.drop(count: 2);
-    if ys.length() == 6 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_sharing_view_list_drop_dead_receiver_no_uaf.ori"
+    );
     assert_burden_path_self_sufficient(src, "sharing_view_list_drop_dead_receiver");
 }
 
@@ -3472,29 +2402,19 @@ fn probe_sharing_view_str_substring_then_transform_no_uaf() {
     // `substring` is a seamless-slice producer sharing the str backing. Dead
     // receiver `s` after the substring; the result `sub` flows into a transform
     // (`to_uppercase`) that reads the shared backing.
-    let src = r#"
-@main () -> int = {
-    let s = "the quick brown fox jumps over the lazy dog";
-    let sub = s.substring(start: 4, end: 43);
-    let upper = sub.to_uppercase();
-    if upper == "QUICK BROWN FOX JUMPS OVER THE LAZY DOG" then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_sharing_view_str_substring_then_transform_no_uaf.ori"
+    );
     assert_burden_path_self_sufficient(src, "sharing_view_str_substring_then_transform");
 }
 
 #[test]
 fn probe_sharing_view_non_sharing_borrowed_read_keep_negative() {
-    // NEGATIVE / keep clamp: a plain borrowed scalar read (`@length`) that does
-    // NOT produce a buffer-sharing view. The sharing-view relocation must NOT fire here —
-    // there is no sharing-view callee, so the receiver's release stays where the
-    // burden walk placed it. This passes pre-cure AND post-cure.
-    let src = r#"
-@main () -> int = {
-    let xs = [1, 2, 3, 4, 5];
-    if xs.length() == 5 then 0 else 1
-}
-"#;
+    // A plain borrowed scalar read (`@length`) creates no sharing view, so its
+    // receiver release remains at the burden-walk position.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_sharing_view_non_sharing_borrowed_read_keep_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "sharing_view_non_sharing_borrowed_read");
 }
 
@@ -3508,39 +2428,19 @@ fn probe_user_call_fresh_list_result_dup_read_freed() {
     // so the apply-Direct seed does NOT merge it with the source -> the net is
     // cleanly +1 and one freeing dec at the borrowed-read scope-exit sink frees it.
     // Spec: Annex E §AIMS RL-2.
-    let src = r#"
-type List = Nil | Cons(head: int, tail: List);
-
-@to_array (list: List) -> [int] = match list {
-    Nil -> [],
-    Cons(h, t) -> [h, ...to_array(list: t)],
-};
-
-@main () -> int = {
-    let $list = Cons(head: 1, tail: Cons(head: 2, tail: Cons(head: 3, tail: Nil)));
-    let $arr = to_array(list: list);
-    if arr.len() == 3 && arr[0] == 1 && arr[2] == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_user_call_fresh_list_result_dup_read_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "user_call_fresh_list_result_dup_read");
 }
 
 #[test]
 fn probe_user_call_fresh_list_result_single_read_freed() {
-    // Same mechanism, single borrowed read of the fresh user-call result (the
-    // matrix scenario where the result is read once then dead). The fresh-owned
-    // collection result still leaks pre-cure (alloc +1, no release).
-    // Spec: Annex E §AIMS RL-2.
-    let src = r#"
-@build (n: int) -> [int] = {
-    if n <= 0 then [] else [n, ...build(n: n - 1)]
-};
-
-@main () -> int = {
-    let xs = build(n: 5);
-    if xs.len() == 5 then 0 else 1
-}
-"#;
+    // A fresh collection result read once and then dead requires one release
+    // (Spec: Annex E §AIMS RL-2).
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_user_call_fresh_list_result_single_read_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "user_call_fresh_list_result_single_read");
 }
 
@@ -3550,18 +2450,9 @@ fn probe_user_call_fresh_map_result_dup_read_freed() {
     // map (FatPointer/RcPtr collection), built and returned by a user function,
     // dup-read then dead. Same alloc-aware-net surplus-inc leak.
     // Spec: Annex E §AIMS RL-2.
-    let src = r#"
-@pair_map (a: int, b: int) -> {int: int} = {
-    let m: {int: int} = {};
-    let m2 = m.insert(a, a * 10);
-    m2.insert(b, b * 10)
-};
-
-@main () -> int = {
-    let m = pair_map(a: 1, b: 2);
-    if m.len() == 2 && m.get(1).unwrap() == 10 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_user_call_fresh_map_result_dup_read_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "user_call_fresh_map_result_dup_read");
 }
 
@@ -3574,15 +2465,9 @@ fn probe_user_call_returns_borrowed_slice_view_no_double_free_negative() {
     // (the shared buffer is freed by the source's release; a result dec double-
     // frees the shared backing). Source + slice result freed exactly once total.
     // Spec: Annex E §AIMS RL-2.
-    let src = r#"
-@head3 (xs: [int]) -> [int] = xs.slice(start: 0, end: 3);
-
-@main () -> int = {
-    let src = [10, 20, 30, 40, 50];
-    let ys = head3(xs: src);
-    if ys.len() == 3 && ys[0] == 10 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_user_call_returns_borrowed_slice_view_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "user_call_returns_borrowed_slice_view");
 }
 
@@ -3597,31 +2482,9 @@ fn probe_user_call_fresh_recursive_enum_result_dup_read_freed() {
     // same-alloc-merge any arg (genuine builder), so it is a fresh-owned aggregate;
     // one freeing dec at the borrowed-read scope-exit sink lowers to
     // `RcDec [InlineEnum]` walking the chain. Spec: Annex E §AIMS RL-2.
-    let src = r#"
-type List = Nil | Cons(head: int, tail: List);
-
-@build_list (n: int) -> List = {
-    if n <= 0 then Nil
-    else Cons(head: n, tail: build_list(n: n - 1))
-};
-
-@list_len (list: List) -> int = match list {
-    Nil -> 0,
-    Cons(_, t) -> 1 + list_len(list: t),
-};
-
-@list_sum (list: List) -> int = match list {
-    Nil -> 0,
-    Cons(h, t) -> h + list_sum(list: t),
-};
-
-@main () -> int = {
-    let $list = build_list(n: 100);
-    let $len_ok = list_len(list: list) == 100;
-    let $sum_ok = list_sum(list: list) == 5050;
-    if len_ok && sum_ok then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_user_call_fresh_recursive_enum_result_dup_read_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "user_call_fresh_recursive_enum_result_dup_read");
 }
 
@@ -3635,26 +2498,9 @@ fn probe_inline_construct_recursive_enum_dup_read_freed() {
     // chain's head allocation `+1` unreleased -> leak. One `RcDec [InlineEnum]` at
     // the borrowed-read scope-exit sink frees the whole chain. Spec: Annex E §AIMS
     // RL-2.
-    let src = r#"
-type List = Nil | Cons(head: int, tail: List);
-
-@list_len (list: List) -> int = match list {
-    Nil -> 0,
-    Cons(_, t) -> 1 + list_len(list: t),
-};
-
-@list_sum (list: List) -> int = match list {
-    Nil -> 0,
-    Cons(h, t) -> h + list_sum(list: t),
-};
-
-@main () -> int = {
-    let $list = Cons(head: 1, tail: Cons(head: 2, tail: Cons(head: 3, tail: Nil)));
-    let $len1 = list_len(list: list);
-    let $sum1 = list_sum(list: list);
-    if len1 == 3 && sum1 == 6 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_inline_construct_recursive_enum_dup_read_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "inline_construct_recursive_enum_dup_read");
 }
 
@@ -3664,33 +2510,9 @@ fn probe_recursive_struct_payload_enum_dup_read_freed() {
     // STRUCT (`Branch(node: TreeNode)` where TreeNode holds the recursive children).
     // The recursive enum self-allocates per node; dup-read then dead. Same boxed
     // single-release accounting as the flat recursive enum. Spec: Annex E §AIMS RL-2.
-    let src = r#"
-type Tree = Leaf(value: int) | Branch(left: Tree, right: Tree);
-
-@tree_sum (t: Tree) -> int = match t {
-    Leaf(v) -> v,
-    Branch(l, r) -> tree_sum(t: l) + tree_sum(t: r),
-};
-
-@tree_depth (t: Tree) -> int = match t {
-    Leaf(_) -> 1,
-    Branch(l, r) -> {
-        let $ld = tree_depth(t: l);
-        let $rd = tree_depth(t: r);
-        1 + (if ld > rd then ld else rd)
-    },
-};
-
-@main () -> int = {
-    let $tree = Branch(
-        left: Branch(left: Leaf(value: 1), right: Leaf(value: 2)),
-        right: Leaf(value: 3),
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_recursive_struct_payload_enum_dup_read_freed.ori"
     );
-    let $sum_ok = tree_sum(t: tree) == 6;
-    let $depth_ok = tree_depth(t: tree) == 3;
-    if sum_ok && depth_ok then 0 else 1
-}
-"#;
     assert_burden_path_self_sufficient(src, "recursive_struct_payload_enum_dup_read");
 }
 
@@ -3704,14 +2526,9 @@ fn probe_inline_struct_multi_heap_field_projected_no_double_free_negative() {
     // already-released fields. `is_self_allocating_aggregate` gates on recursion, so
     // an inline non-recursive struct is excluded (field-walk / Phase-6.85 domain).
     // Spec: Annex E §AIMS RL-2.
-    let src = r#"
-type Config = { settings: {str: int}, name: str }
-
-@main () -> int = {
-    let c = Config { settings: {"a": 1}, name: "cfg" };
-    if c.settings.length() + c.name.length() == 4 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_inline_struct_multi_heap_field_projected_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "inline_struct_multi_heap_field_projected");
 }
 
@@ -3723,27 +2540,9 @@ fn probe_user_call_returns_recursive_enum_no_double_free_negative() {
     // aggregate -> double-free. The `compute_returned_lineages` exclusion must hold
     // for the new aggregate candidate class. Built + read once + returned: freed
     // exactly once by main's consumer. Spec: Annex E §AIMS RL-2.
-    let src = r#"
-type List = Nil | Cons(head: int, tail: List);
-
-@build_list (n: int) -> List = {
-    if n <= 0 then Nil
-    else Cons(head: n, tail: build_list(n: n - 1))
-};
-
-@list_len (list: List) -> int = match list {
-    Nil -> 0,
-    Cons(_, t) -> 1 + list_len(list: t),
-};
-
-@pass_through (list: List) -> List = list;
-
-@main () -> int = {
-    let $list = build_list(n: 4);
-    let $forwarded = pass_through(list: list);
-    if list_len(list: forwarded) == 4 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_user_call_returns_recursive_enum_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "user_call_returns_recursive_enum");
 }
 
@@ -3754,18 +2553,9 @@ fn probe_scalar_only_struct_dup_read_no_extra_release_negative() {
     // is false. The cure MUST NOT recognise it as a fresh-owned aggregate and emit
     // a spurious `RcDec` (it has no heap to free; a dec would be an RC op on non-RC
     // memory). Built + dup-read: no RC at all. Spec: Annex E §AIMS RL-2.
-    let src = r#"
-type P = { x: int, y: int };
-
-@psum (p: P) -> int = p.x + p.y;
-
-@main () -> int = {
-    let $p = P { x: 3, y: 4 };
-    let $a = psum(p: p);
-    let $b = psum(p: p);
-    if a == 7 && b == 7 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_scalar_only_struct_dup_read_no_extra_release_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "scalar_only_struct_dup_read");
 }
 
@@ -3780,38 +2570,20 @@ fn probe_user_call_fresh_str_result_dup_read_freed() {
     // seed does NOT merge it with any source -> the net is cleanly +1 and one
     // freeing dec at the borrowed-read scope-exit sink frees it.
     // Spec: Annex E §AIMS RL-2.
-    let src = r#"
-@make_label (n: int) -> str = {
-    if n > 0 then "this is a long positive label!!" else "this is a long negative label!!"
-};
-
-@main () -> int = {
-    let s = make_label(n: 5);
-    let ok = s.contains(substr: "positive") && s.length() > 3;
-    if ok then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_user_call_fresh_str_result_dup_read_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "user_call_fresh_str_result_dup_read");
 }
 
 #[test]
 fn probe_user_call_fresh_str_result_single_read_freed() {
-    // Matrix clamp (must-not-regress): same fresh-owned-str user-call result, read
-    // ONCE then dead. A single use emits NO keep-alive `RcInc`, so the explicit ops
-    // net 0 and the result is already freed pre-cure (the single move-alias dec is
-    // the sole release). The cure adds the str result to the candidate set; the
-    // alloc-aware net stays 0 at the single sink so NO extra dec fires -> no double
-    // free. Passes pre AND post cure. Spec: Annex E §AIMS RL-2.
-    let src = r#"
-@make_label (n: int) -> str = {
-    if n > 0 then "this is a long positive label!!" else "this is a long negative label!!"
-};
-
-@main () -> int = {
-    let s = make_label(n: 5);
-    if s.contains(substr: "positive") then 0 else 1
-}
-"#;
+    // A fresh owned string result read once needs no keep-alive `RcInc`; its
+    // move-alias decrement is the sole release, and allocation-aware accounting
+    // must not add another (Spec: Annex E §AIMS RL-2).
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_user_call_fresh_str_result_single_read_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "user_call_fresh_str_result_single_read");
 }
 
@@ -3819,22 +2591,11 @@ fn probe_user_call_fresh_str_result_single_read_freed() {
 fn probe_derive_debug_str_result_dup_read_freed() {
     // Type-dimension matrix cell: the fresh user-call str result is a derived
     // `@debug()` return (a non-builtin method synthesising a fresh quoted `str`).
-    // The struct has two heap str fields; the debug result `s` is dup-read across
-    // `&&` (two `.contains()` checks) then dead -> the result string leaks under
-    // the flag pre-cure. Same alloc-aware-net surplus-inc leak as the bare user fn.
-    // Spec: Annex E §AIMS RL-2.
-    let src = r#"
-#[derive(Debug)]
-type Pair = { first: str, second: str }
-
-@main () -> int = {
-    let p = Pair { first: "aaaaaaaaaaaaaaaaaaaaaaaaa", second: "bbbbbbbbbbbbbbbbbbbbbbbbb" };
-    let s = p.debug();
-    let ok = s.contains(substr: "aaaaaaaaaaaaaaaaaaaaaaaaa")
-        && s.contains(substr: "bbbbbbbbbbbbbbbbbbbbbbbbb");
-    if ok then 0 else 1
-}
-"#;
+    // Two `.contains()` reads must leave the dead result string balanced
+    // (Spec: Annex E §AIMS RL-2).
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_derive_debug_str_result_dup_read_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "derive_debug_str_result_dup_read");
 }
 
@@ -3846,18 +2607,9 @@ fn probe_user_call_returns_str_no_double_free_negative() {
     // free. The `compute_returned_lineages` exclusion must hold for the new
     // str-result candidate. Built + read once + returned: freed exactly once by
     // main's consumer. Spec: Annex E §AIMS RL-2.
-    let src = r#"
-@make_label (n: int) -> str = {
-    if n > 0 then "this is a long positive label!!" else "this is a long negative label!!"
-};
-
-@relabel (n: int) -> str = make_label(n: n);
-
-@main () -> int = {
-    let s = relabel(n: 5);
-    if s.contains(substr: "positive") then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_user_call_returns_str_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "user_call_returns_str");
 }
 
@@ -3868,14 +2620,9 @@ fn probe_str_arg_to_user_call_no_double_free_negative() {
     // fresh-owned-str RESULTS, not str ARGS; `compute_user_call_arg_lineages`
     // already excludes a str arg (it considers FatValue args). A freeing dec on the
     // arg lineage would double-free the transferred str. Spec: Annex E §AIMS RL-2.
-    let src = r#"
-@first_char_is_p (label: str) -> bool = label.contains(substr: "positive");
-
-@main () -> int = {
-    let s = "this is a long positive label!!";
-    if first_char_is_p(label: s) then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_str_arg_to_user_call_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "str_arg_to_user_call");
 }
 
@@ -3890,22 +2637,9 @@ fn probe_slice_element_into_struct_field_no_double_free() {
     // inc, the backing reaches rc 0 early -> FREE -> a later drop double-frees it.
     // The oracle emits `RcInc <slice>` before the `Construct`, balanced by the
     // aggregate field-drop. Spec: Annex E §AIMS RL-1 + RL-2.
-    let src = r#"
-#derive(Clone)
-type Wrapper = { s: str, n: int }
-
-@main () -> int = {
-    let text = "this is a long string exceeding SSO by a large amount,and this second part also exceeds it";
-    let parts = text.split(sep: ",");
-    let total = 0;
-    for p in parts do {
-        let w = Wrapper { s: p, n: p.len() };
-        let copy = w.clone();
-        total = total + copy.n;
-    };
-    if total == 89 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_slice_element_into_struct_field_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "slice_element_into_struct_field");
 }
 
@@ -3916,22 +2650,9 @@ fn probe_slice_element_into_option_field_no_double_free() {
     // walks the Option payload (the slice) and decs the shared backing; the
     // RL-1 keep-alive on the slice element must balance it. Spec: Annex E §AIMS
     // RL-1 + RL-2.
-    let src = r#"
-#derive(Clone)
-type MaybeNamed = { name: Option<str>, id: int }
-
-@main () -> int = {
-    let text = "this is a long string exceeding SSO by a large amount,and this second part also exceeds it";
-    let parts = text.split(sep: ",");
-    let total = 0;
-    for p in parts do {
-        let w = MaybeNamed { name: Some(p), id: p.len() };
-        let copy = w.clone();
-        total = total + copy.id;
-    };
-    if total == 89 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_slice_element_into_option_field_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "slice_element_into_option_field");
 }
 
@@ -3942,22 +2663,9 @@ fn probe_slice_element_into_tuple_field_no_double_free() {
     // drop walks the tuple's str element (the slice) and decs the shared
     // backing; the RL-1 keep-alive must balance it. Spec: Annex E §AIMS RL-1 +
     // RL-2.
-    let src = r#"
-#derive(Clone)
-type Pair = { data: (str, int) }
-
-@main () -> int = {
-    let text = "this is a long string exceeding SSO by a large amount,and this second part also exceeds it";
-    let parts = text.split(sep: ",");
-    let total = 0;
-    for p in parts do {
-        let w = Pair { data: (p, p.len()) };
-        let copy = w.clone();
-        total = total + copy.data.1;
-    };
-    if total == 89 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_slice_element_into_tuple_field_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "slice_element_into_tuple_field");
 }
 
@@ -3967,24 +2675,9 @@ fn probe_slice_element_into_result_field_no_double_free() {
     // `Ok(p)` / `Err(p)` and stored as a `Result<str, str>` field. Each Result
     // variant's str payload is the shared slice; the aggregate drop decs it and
     // the RL-1 keep-alive must balance. Spec: Annex E §AIMS RL-1 + RL-2.
-    let src = r#"
-#derive(Clone)
-type Holder = { payload: Result<str, str>, id: int }
-
-@main () -> int = {
-    let text = "this is a long string exceeding SSO by a large amount,and this second part also exceeds it";
-    let parts = text.split(sep: ",");
-    let total = 0;
-    for p in parts do {
-        let ok_holder = Holder { payload: Ok(p), id: p.len() };
-        let ok_copy = ok_holder.clone();
-        let err_holder = Holder { payload: Err(p), id: p.len() };
-        let err_copy = err_holder.clone();
-        total = total + ok_copy.id + err_copy.id;
-    };
-    if total == 178 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_slice_element_into_result_field_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "slice_element_into_result_field");
 }
 
@@ -3997,18 +2690,9 @@ fn probe_owned_collection_field_into_struct_negative_no_extra_release() {
     // slice-element keep-alive pass MUST NOT fire on this owned field (it is not
     // in `collect_iter_element_defs`) — a spurious second inc would orphan a +1
     // and LEAK the list buffer. Spec: Annex E §AIMS RL-1.
-    let src = r#"
-type Bag = { items: [int], n: int }
-
-@main () -> int = {
-    let total = 0;
-    for i in 0..3 do {
-        let b = Bag { items: [i, i + 1, i + 2], n: i };
-        total = total + b.items.length() + b.n;
-    };
-    if total == 12 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_owned_collection_field_into_struct_negative_no_extra_release.ori"
+    );
     assert_burden_path_self_sufficient(src, "owned_collection_field_into_struct_negative");
 }
 
@@ -4022,17 +2706,9 @@ fn probe_slice_element_scalar_use_only_negative_no_extra_release() {
     // leak the `text` backing. Pins that the keep-alive is gated on the
     // Construct/Reuse field-store position, not on every iter-element-view use.
     // Spec: Annex E §AIMS RL-1.
-    let src = r#"
-@main () -> int = {
-    let text = "this is a long string exceeding SSO by a large amount,and this second part also exceeds it";
-    let parts = text.split(sep: ",");
-    let total = 0;
-    for p in parts do {
-        total = total + p.len();
-    };
-    if total == 89 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_slice_element_scalar_use_only_negative_no_extra_release.ori"
+    );
     assert_burden_path_self_sufficient(src, "slice_element_scalar_use_only_negative");
 }
 
@@ -4046,16 +2722,9 @@ fn probe_str_local_dup_read_borrowed_user_call_freed() {
     // EXCLUDED as a "user-call arg" (the callee's concern), but a Borrowed str
     // SURVIVES the call and the caller still owns it: RL-2 mandates one scope-exit
     // release. Spec: Annex E §AIMS RL-2 (`RL2_release_exactly_once`).
-    let src = r#"
-@get_len (s: str) -> int = s.length();
-
-@main () -> int = {
-    let s = "abcdefghijklmnopqrstuvwxyz1234";
-    let len1 = get_len(s: s);
-    let len2 = get_len(s: s);
-    if len1 + len2 == 60 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_str_local_dup_read_borrowed_user_call_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "str_local_dup_read_borrowed_user_call");
 }
 
@@ -4065,18 +2734,9 @@ fn probe_str_local_dup_read_via_higher_order_freed() {
     // through a higher-order forwarder (`@apply(f, s: str)` — `s` Borrowed). The
     // str flows to two user-call Borrowed positions, dead, not returned. Same
     // alloc-aware net +1 leak as the direct shape. Spec: Annex E §AIMS RL-2.
-    let src = r#"
-@apply (f: (str) -> int, s: str) -> int = f(s);
-
-@get_len (s: str) -> int = s.length();
-
-@main () -> int = {
-    let s = "abcdefghijklmnopqrstuvwxyz1234";
-    let a = apply(f: get_len, s: s);
-    let b = apply(f: get_len, s: s);
-    if a + b == 60 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_str_local_dup_read_via_higher_order_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "str_local_dup_read_via_higher_order");
 }
 
@@ -4087,15 +2747,9 @@ fn probe_str_single_read_borrowed_user_call_no_double_free_negative() {
     // borrowed read's release already balances the alloc) — the un-exclusion MUST
     // NOT add a second release (double-free). Pins that the alloc-aware net, not a
     // structural "is borrowed str" proxy, gates the release. Spec: Annex E §AIMS RL-2.
-    let src = r#"
-@get_len (s: str) -> int = s.length();
-
-@main () -> int = {
-    let s = "abcdefghijklmnopqrstuvwxyz1234";
-    let len = get_len(s: s);
-    if len == 30 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_str_single_read_borrowed_user_call_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "str_single_read_borrowed_user_call_negative");
 }
 
@@ -4108,20 +2762,9 @@ fn probe_str_returned_from_user_call_chain_no_double_free_negative() {
     // scope-exit dec on a returned str double-frees with the caller's release.
     // Pins the `returned`-exclusion still gates the un-excluded str lineage.
     // Spec: Annex E §AIMS RL-2 (`RL2_transfer_kinds_no_dec`).
-    let src = r#"
-@get_len (s: str) -> int = s.length();
-
-@pick () -> str = {
-    let s = "abcdefghijklmnopqrstuvwxyz1234";
-    let n = get_len(s: s);
-    if n == 30 then s else "fallback_string_value_padding"
-}
-
-@main () -> int = {
-    let r = pick();
-    if r.length() == 30 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_str_returned_from_user_call_chain_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "str_returned_from_user_call_chain_negative");
 }
 
@@ -4135,15 +2778,9 @@ fn probe_collection_borrowed_to_user_call_single_read_no_double_free_negative() 
     // un-exclusion, so the release does NOT fire here and MUST NOT add a second
     // dec (double-free). Pins the net, not membership, decides. Spec: Annex E
     // §AIMS RL-2.
-    let src = r#"
-@sum_two (xs: [int]) -> int = xs[0] + xs[1];
-
-@main () -> int = {
-    let xs = [10, 20, 30];
-    let a = sum_two(xs: xs);
-    if a == 30 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_collection_borrowed_to_user_call_single_read_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(
         src,
         "collection_borrowed_to_user_call_single_read_negative",
@@ -4165,16 +2802,9 @@ fn probe_list_borrowed_to_user_call_dup_read_freed() {
     // positions — no owned/COW consumer), so a COW-mutating callee stays excluded.
     // Spec: Annex E §AIMS RL-2 (`RL2_borrowed_param_emits_caller_dec` +
     // `RL2_release_exactly_once`).
-    let src = r#"
-@sum_two (xs: [int]) -> int = xs[0] + xs[1];
-
-@main () -> int = {
-    let xs = [10, 20, 30];
-    let a = sum_two(xs: xs);
-    let b = sum_two(xs: xs);
-    if a == 30 && b == 30 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_list_borrowed_to_user_call_dup_read_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "list_borrowed_to_user_call_dup_read");
 }
 
@@ -4185,18 +2815,10 @@ fn probe_list_borrowed_recursive_borrow_read_dup_read_freed() {
     // `xs[idx]` and forwards `xs` to a recursive call where it is ALSO borrow-read).
     // The param flows only to borrowed positions across the recursion — the
     // `borrowed_read_only` contract fact stays true through SCC-propagated
-    // forwarding. Mirrors the `fat_matrix::f16_recursion::test_fm_recursion_list_param`
-    // corpus shape. Spec: Annex E §AIMS RL-2.
-    let src = r#"
-@sum_recursive (xs: [int], idx: int) -> int = {
-    if idx >= xs.length() then 0
-    else xs[idx] + sum_recursive(xs: xs, idx: idx + 1)
-}
-
-@main () -> int = {
-    if sum_recursive(xs: [10, 20, 30], idx: 0) == 60 then 0 else 1
-}
-"#;
+    // forwarding. Spec: Annex E §AIMS RL-2.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_list_borrowed_recursive_borrow_read_dup_read_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "list_borrowed_recursive_borrow_read_dup_read");
 }
 
@@ -4210,13 +2832,9 @@ fn probe_chained_curried_closure_str_capture_freed() {
     // last (invoking) read. RL-2: an owned closure value at its non-transfer last use
     // releases (its env-dec); invoking a closure is a `.LastReadBeforeScopeExit`, not
     // a transfer. Spec: Annex E §AIMS RL-2.
-    let src = r#"
-@main () -> int = {
-    let $fst = a -> b -> a;
-    let $s = fst("hello")(0);
-    if s == "hello" then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_chained_curried_closure_str_capture_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "chained_curried_closure_str_capture");
 }
 
@@ -4227,13 +2845,9 @@ fn probe_chained_curried_closure_list_capture_freed() {
     // env carries the captured list's RC; the missing closure-value last-use dec
     // leaks the env (and the captured list reachable through it). Spec: Annex E §AIMS
     // RL-2.
-    let src = r#"
-@main () -> int = {
-    let $fst = a -> b -> a;
-    let $xs = fst([1, 2, 3])(0);
-    if xs == [1, 2, 3] then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_chained_curried_closure_list_capture_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "chained_curried_closure_list_capture");
 }
 
@@ -4246,16 +2860,9 @@ fn probe_call_returned_closure_invoked_freed() {
     // the base burden walk does not scope-exit-dec — the env leaks. Distinct from the
     // PartialApply-result shape: this is an `Apply`-result closure. Spec: Annex E
     // §AIMS RL-2.
-    let src = r#"
-@make_adder (n: int) -> (int) -> int = {
-    x -> x + n
-}
-
-@main () -> int = {
-    let $r = make_adder(n: 5)(10);
-    if r == 15 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_call_returned_closure_invoked_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "call_returned_closure_invoked");
 }
 
@@ -4267,16 +2874,9 @@ fn probe_closure_transferred_into_struct_no_double_free_negative() {
     // closure-value scope-exit dec MUST NOT also fire here, or the env double-frees.
     // The transferred-out gate (Construct owned-arg = transfer) excludes it. PASS
     // pre AND post cure.
-    let src = r#"
-type Holder = { f: (int) -> int }
-
-@main () -> int = {
-    let n = 5;
-    let $h = Holder { f: x -> x + n };
-    let $r = (h.f)(10);
-    if r == 15 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_closure_transferred_into_struct_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "closure_transferred_into_struct_no_double_free");
 }
 
@@ -4288,19 +2888,9 @@ fn probe_let_bound_closure_single_invoke_no_double_free_negative() {
     // scope-exit pass MUST NOT add a SECOND dec on a lineage that already has one, or
     // the env double-frees. The existing-dec gate (skip lineages already carrying a
     // BurdenDec) excludes it. PASS pre AND post cure.
-    let src = r#"
-@make_greeter (name: str) -> () -> str = {
-    let greet = () -> `hello {name}`;
-    greet
-}
-
-@main () -> int = {
-    let g = make_greeter(name: "world");
-    let msg = g();
-    print(msg: msg);
-    0
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_let_bound_closure_single_invoke_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "let_bound_closure_single_invoke_no_double_free");
 }
 
@@ -4313,20 +2903,9 @@ fn probe_fresh_heap_str_dead_on_question_early_exit_freed() {
     // branch). RL-4 edge-cleanup: `name` is owned non-scalar, live at the branch
     // block's exit, dead at the early-return successor's entry, not a Jump arg ->
     // one edge `BurdenDec` on that successor. Spec: Annex E §AIMS RL-4.
-    let src = r#"
-@process (opt: Option<int>) -> Option<int> = {
-    let name = "abcdefghijklmnopqrstuvwxyz1234";
-    let v = opt?;
-    Some(v + name.length())
-}
-
-@main () -> int = {
-    match process(opt: None) {
-        Some(_) -> 1,
-        None -> 0,
-    }
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_fresh_heap_str_dead_on_question_early_exit_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "fresh_heap_str_dead_on_question_early_exit");
 }
 
@@ -4337,17 +2916,9 @@ fn probe_fresh_heap_str_dead_on_explicit_branch_freed() {
     // `else` branch leaves `tag` dead WITHOUT a release on that edge. Same RL-4
     // edge-cleanup as the `?`-exit shape, via a plain `if/else` split rather than
     // `?`-desugar. Spec: Annex E §AIMS RL-4.
-    let src = r#"
-@pick (b: bool) -> int = {
-    let tag = "a heap string well past the SSO inline threshold of 23!";
-    if b then tag.length() else 7
-}
-
-@main () -> int = {
-    let r = pick(b: false);
-    if r == 7 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_fresh_heap_str_dead_on_explicit_branch_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "fresh_heap_str_dead_on_explicit_branch");
 }
 
@@ -4359,17 +2930,9 @@ fn probe_fresh_heap_str_returned_on_early_exit_no_double_free_negative() {
     // that branch, or `name` double-frees against the caller's release. The
     // transferred-out (Return / Construct-arg) guard excludes it. PASS pre AND post
     // cure. Spec: Annex E §AIMS RL-2 + RL-4.
-    let src = r#"
-@choose (b: bool) -> str = {
-    let name = "a heap string well past the SSO inline threshold of 23!";
-    if b then name else "other"
-}
-
-@main () -> int = {
-    let s = choose(b: true);
-    if s.length() == 55 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_fresh_heap_str_returned_on_early_exit_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "fresh_heap_str_returned_on_early_exit_no_double_free");
 }
 
@@ -4388,49 +2951,24 @@ fn probe_fresh_heap_str_returned_on_early_exit_no_double_free_negative() {
 
 #[test]
 fn probe_heap_str_into_sum_variant_borrow_read_freed() {
-    // POSITIVE (the f06 shape): a heap `str` (> 23-byte SSO threshold) moved into
+    // A heap `str` (> 23-byte SSO threshold) moved into
     // `Named(description: heap, count: int)`, the variant borrowed-read by
     // `desc_len` and dead afterward. The moved-in str field must be freed at the
-    // variant's scope-exit drop. FAILED=leak pre-cure -> PASS.
-    let src = r#"
-type Item = Named(description: str, count: int) | Anon(count: int);
-
-@desc_len (i: Item) -> int =
-    match i {
-        Named(description, count) -> description.length() + count,
-        Anon(count) -> count,
-    };
-
-@main () -> int = {
-    let heap = "this is a long string that exceeds SSO threshold!!!";
-    let r = desc_len(i: Named(description: heap, count: 7));
-    if r == 58 then 0 else 1
-}
-"#;
+    // variant's scope-exit drop.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_heap_str_into_sum_variant_borrow_read_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "heap_str_into_sum_variant_borrow_read_freed");
 }
 
 #[test]
 fn probe_heap_list_into_sum_variant_borrow_read_freed() {
-    // POSITIVE (the f12 shape): a heap `[int]` list moved into `Items(list)`, the
+    // A heap `[int]` list moved into `Items(list)`, the
     // variant borrowed-read by `get_size` and dead afterward. The moved-in list
-    // backing buffer must be freed at the variant's scope-exit drop. FAILED=leak
-    // pre-cure -> PASS.
-    let src = r#"
-type Content = Title(text: str) | Items(list: [int]) | Nothing;
-
-@get_size (c: Content) -> int =
-    match c {
-        Title(text) -> text.length(),
-        Items(list) -> list.length(),
-        Nothing -> 0,
-    };
-
-@main () -> int = {
-    let b = get_size(c: Items(list: [10, 20, 30]));
-    if b == 3 then 0 else 1
-}
-"#;
+    // backing buffer must be freed at the variant's scope-exit drop.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_heap_list_into_sum_variant_borrow_read_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "heap_list_into_sum_variant_borrow_read_freed");
 }
 
@@ -4443,26 +2981,9 @@ fn probe_call_result_variant_borrow_read_no_double_free_negative() {
     // sum-variant edge-release MUST NOT also fire, or the str double-frees. The
     // alloc-aware net (already-balanced, net 0) excludes it. PASS pre AND post
     // cure. Spec: Annex E §AIMS RL-2.
-    let src = r#"
-type Item = Named(description: str, count: int) | Anon(count: int);
-
-@make () -> Item = {
-    let heap = "this is a long string that exceeds SSO threshold!!!";
-    Named(description: heap, count: 7)
-}
-
-@desc_len (i: Item) -> int =
-    match i {
-        Named(description, count) -> description.length() + count,
-        Anon(count) -> count,
-    };
-
-@main () -> int = {
-    let it = make();
-    let r = desc_len(i: it);
-    if r == 58 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_call_result_variant_borrow_read_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "call_result_variant_borrow_read_no_double_free");
 }
 
@@ -4473,39 +2994,19 @@ fn probe_value_variant_into_sum_no_spurious_dec_negative() {
     // field). The scope-exit edge-release MUST NOT fire (there is no field to free;
     // a spurious `RcDec [InlineEnum]` on a scalar-only inline enum is unsound). The
     // `is_burden_carrying_aggregate` gate excludes it. PASS pre AND post cure.
-    let src = r#"
-type Pair = Both(a: int, b: int) | Single(a: int);
-
-@sum_pair (p: Pair) -> int =
-    match p {
-        Both(a, b) -> a + b,
-        Single(a) -> a,
-    };
-
-@main () -> int = {
-    let r = sum_pair(p: Both(a: 12, b: 30));
-    if r == 42 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_value_variant_into_sum_no_spurious_dec_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "value_variant_into_sum_no_spurious_dec");
 }
 
 #[test]
 fn probe_heap_str_into_sum_variant_already_balanced_sibling() {
-    // SIBLING (already-balanced): a heap str bound to a `let` FIRST, borrowed-read
-    // directly (NOT via a sum variant) then dead — the existing dead-owned /
-    // borrowed-read path already frees it. The new sum-variant edge-release MUST
-    // NOT also fire on this lineage (no variant wraps the str). Confirms the cure
-    // is scoped to the moved-into-variant shape only. PASS pre AND post cure.
-    let src = r#"
-@len_of (s: str) -> int = s.length();
-
-@main () -> int = {
-    let heap = "this is a long string that exceeds SSO threshold!!!";
-    let n = len_of(s: heap);
-    if n == 51 then 0 else 1
-}
-"#;
+    // A heap string bound directly, borrowed, and then dead is already balanced.
+    // Sum-variant edge release must ignore a lineage with no variant wrapper.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_heap_str_into_sum_variant_already_balanced_sibling.ori"
+    );
     assert_burden_path_self_sufficient(src, "heap_str_into_sum_variant_already_balanced_sibling");
 }
 
@@ -4530,17 +3031,9 @@ fn probe_collect_set_result_multibranch_dead_freed() {
     // a chain of `if/else if` branches, dead after the last read. The fresh-site
     // `BurdenInc` on the `@collect_set` result is the M1 over-count -> the result
     // buffer leaks. The alloc-aware-net elision must drop it. Spec: Annex E §AIMS RL-1.
-    let src = r#"
-@main () -> int = {
-    let s: Set<int> = [10, 20, 30].iter().collect();
-    if !s.contains(value: 10) then 1
-    else if !s.contains(value: 20) then 2
-    else if !s.contains(value: 30) then 3
-    else if s.contains(value: 40) then 4
-    else if s.len() != 3 then 5
-    else 0
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_collect_set_result_multibranch_dead_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "collect_set_result_multibranch_dead");
 }
 
@@ -4550,15 +3043,9 @@ fn probe_collect_list_result_multibranch_dead_freed() {
     // `.iter().map(..).collect()` list result borrow-read across `if/else if`
     // branches and dead after. Same M1 fresh-inc over-count on the `@collect`
     // result. Spec: Annex E §AIMS RL-1.
-    let src = r#"
-@main () -> int = {
-    let xs: [int] = [1, 2, 3].iter().map((x) -> x * 1000).collect();
-    if xs[0] != 1000 then 1
-    else if xs[1] != 2000 then 2
-    else if xs[2] != 3000 then 3
-    else 0
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_collect_list_result_multibranch_dead_freed.ori"
+    );
     assert_burden_path_self_sufficient(src, "collect_list_result_multibranch_dead");
 }
 
@@ -4570,29 +3057,20 @@ fn probe_collect_result_duplicated_not_double_freed_negative() {
     // duplicated lineage is NOT +1 (the dup-alias dec balances the fresh inc), so
     // the elision MUST NOT fire; eliding here would net -1 -> DOUBLE-FREE. The
     // `net == 1` gate excludes it. PASS pre AND post cure. Spec: Annex E §AIMS RL-1.
-    let src = r#"
-@main () -> int = {
-    let a: [int] = [1, 2, 3].iter().map((x) -> x * 2).collect();
-    let b = a;
-    if a[0] == 2 && b[2] == 6 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_collect_result_duplicated_not_double_freed_negative.ori"
+    );
     assert_burden_path_self_sufficient(src, "collect_result_duplicated_not_double_freed");
 }
 
 #[test]
 fn probe_collect_result_straightline_dead_already_balanced_sibling() {
-    // SIBLING (already-balanced): a `.collect()` result borrow-read ONCE on a
-    // straight-line path then dead — the existing dead-owned-collection pass
-    // (Phase 6.8) already frees it. The fresh-inc elision must leave this net-0
-    // lineage freed exactly once (no double-free from a redundant elision). PASS
-    // pre AND post cure. Spec: Annex E §AIMS RL-2.
-    let src = r#"
-@main () -> int = {
-    let xs: [int] = [1, 2, 3].iter().map((x) -> x * 2).collect();
-    if xs.len() == 3 then 0 else 1
-}
-"#;
+    // A `.collect()` result read once on a straight-line path is already net
+    // zero; fresh-inc elision must preserve its single release (Spec: Annex E
+    // §AIMS RL-2).
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_collect_result_straightline_dead_already_balanced_sibling.ori"
+    );
     assert_burden_path_self_sufficient(
         src,
         "collect_result_straightline_dead_already_balanced_sibling",
@@ -4614,19 +3092,9 @@ fn probe_transfer_through_return_param_list_int_multi_use() {
     // [int] param: two borrow uses across CFG (a print + an index) then return.
     // The interpolation splits the body across unwind-edge blocks, so the param's
     // terminal move to the Return is multi-block — the contract strip is the cure.
-    let src = r#"
-@use_twice (xs: [int]) -> [int] = {
-    print(msg: `len: {xs.len()}`);
-    print(msg: `first: {xs[0]}`);
-    xs
-};
-
-@main () -> int = {
-    let original = [10, 20, 30];
-    let returned = use_twice(xs: original);
-    if returned.len() == 3 && returned[0] == 10 && returned[2] == 30 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_transfer_through_return_param_list_int_multi_use.ori"
+    );
     assert_burden_path_self_sufficient(src, "transfer_through_return_param_list_int_multi_use");
 }
 
@@ -4634,19 +3102,9 @@ fn probe_transfer_through_return_param_list_int_multi_use() {
 fn probe_transfer_through_return_param_str_multi_use() {
     // str param: borrow uses across CFG then return — the str fat-value variant
     // of the same multi-block transfer-through-return shape.
-    let src = r#"
-@use_twice (s: str) -> str = {
-    print(msg: `a: {s.len()}`);
-    print(msg: `b: {s.len()}`);
-    s
-};
-
-@main () -> int = {
-    let original = "hello";
-    let returned = use_twice(s: original);
-    if returned.len() == 5 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_transfer_through_return_param_str_multi_use.ori"
+    );
     assert_burden_path_self_sufficient(src, "transfer_through_return_param_str_multi_use");
 }
 
@@ -4655,19 +3113,9 @@ fn probe_transfer_through_return_param_list_str_multi_use() {
     // [str] param (heap elements): exercises elem_dec_fn on the returned buffer —
     // a spurious callee dec would double-free the element buffer, not just the
     // outer fat pointer.
-    let src = r#"
-@use_twice (xs: [str]) -> [str] = {
-    print(msg: `len: {xs.len()}`);
-    print(msg: `first: {xs[0]}`);
-    xs
-};
-
-@main () -> int = {
-    let original = ["a", "bb", "ccc"];
-    let returned = use_twice(xs: original);
-    if returned.len() == 3 && returned[0].len() == 1 && returned[2].len() == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_transfer_through_return_param_list_str_multi_use.ori"
+    );
     assert_burden_path_self_sufficient(src, "transfer_through_return_param_list_str_multi_use");
 }
 
@@ -4676,21 +3124,9 @@ fn probe_transfer_through_return_param_match_arm_multi_use() {
     // Pattern-dispatch path: the param is used in a `match` arm then returned —
     // the terminal move crosses Maranget decision-tree blocks, so the param is
     // multi-block-used and the contract strip is required.
-    let src = r#"
-@first_or_zero (xs: [int]) -> [int] = {
-    let _peek = match xs.len() {
-        0 -> 0,
-        _ -> xs[0],
-    };
-    xs
-};
-
-@main () -> int = {
-    let original = [7, 8, 9];
-    let returned = first_or_zero(xs: original);
-    if returned.len() == 3 && returned[0] == 7 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_transfer_through_return_param_match_arm_multi_use.ori"
+    );
     assert_burden_path_self_sufficient(src, "transfer_through_return_param_match_arm_multi_use");
 }
 
@@ -4702,88 +3138,18 @@ fn probe_transfer_through_return_param_borrowed_does_not_leak_negative() {
     // LEAK the param's allocation (the callee owns the only reference at scope
     // exit). The function returns a scalar derived from the param, never the param
     // itself. Spec: Annex E §AIMS RL-2 (non-transfer terminal use -> dec).
-    let src = r#"
-@sum_len (xs: [int]) -> int = {
-    print(msg: `len: {xs.len()}`);
-    xs.len() as int
-};
-
-@main () -> int = {
-    let original = [1, 2, 3];
-    let n = sum_len(xs: original);
-    if n == 3 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_transfer_through_return_param_borrowed_does_not_leak_negative.ori"
+    );
     assert_burden_path_self_sufficient(
         src,
         "transfer_through_return_param_borrowed_does_not_leak_negative",
     );
 }
 
-/// Compile `source` on the burden-only path WITH the Phase-6 lineage re-balance
-/// DISABLED (`ORI_DISABLE_LINEAGE_REBALANCE=1`) and assert it DOUBLE-FREES /
-/// crashes (exit != 0). The negative half of a re-balance semantic pin: it
-/// proves the cure is LOAD-BEARING — without the re-balance the same program is
-/// broken, so the positive (re-balance ON) pin is not passing by accident.
-fn assert_double_free_without_lineage_rebalance(source: &str, label: &str) {
-    let (exit, _stdout, _stderr) = compile_and_run_with_build_env(
-        source,
-        &[
-            ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
-            ("ORI_DISABLE_LINEAGE_REBALANCE", "1"),
-        ],
-    );
-    assert!(
-        exit != 0,
-        "[{label}] expected a double-free / crash with the lineage re-balance DISABLED \
-         (the re-balance is the cure) but the program exited 0 — the positive pin may be \
-         passing for an unrelated reason"
-    );
-}
-
-// Mutation-verify for the Phase-5 RL-5 dead-forwarder-param release: with the
-// release DISABLED the forwarder-identity allocation reaching the dead merge-block
-// params is never released, so the burden-only run leaks / crashes. Proves the
-// dead-param release is the cure, not an incidental pass.
-fn assert_leak_without_dead_forwarder_param_release(source: &str, label: &str) {
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        source,
-        &[
-            ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
-            ("ORI_DISABLE_DEAD_FORWARDER_PARAM_RELEASE", "1"),
-        ],
-    );
-    assert!(
-        exit != 0 || stderr.to_lowercase().contains("leak"),
-        "[{label}] expected a leak / crash with the dead-forwarder-param release DISABLED \
-         (the Phase-5 RL-5 dec is the cure) but the program exited 0 with no leak — the \
-         positive pin may be passing for an unrelated reason"
-    );
-}
-
-// Mutation-verify for the Phase-5 construct-fed dead-param lineage cure: with the
-// pass DISABLED the sum-aggregate-`Construct`-fed allocation reaching the dead
-// merge-block param over-emits (2 spurious keep-alive incs + 1 misplaced release)
-// → +1 leak on the burden-only path. Proves the suppression + dead-param release
-// is the cure, not an incidental pass. Run on the DEFAULT backend (not the probe):
-// these are both-paths-fail lineages whose default-path leak the cure also clears,
-// so toggling the cure off on the default path restores the leak.
-fn assert_leak_without_construct_fed_dead_param_release(source: &str, label: &str) {
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        source,
-        &[("ORI_DISABLE_CONSTRUCT_FED_DEAD_PARAM_RELEASE", "1")],
-    );
-    assert!(
-        exit != 0 || stderr.to_lowercase().contains("leak"),
-        "[{label}] expected a leak / crash with the construct-fed dead-param release \
-         DISABLED (the Phase-5 suppression + RL-5 dec is the cure) but the program exited \
-         0 with no leak — the positive pin may be passing for an unrelated reason"
-    );
-}
-
 #[test]
 fn probe_aggregate_transfer_forwarder_box_no_double_free() {
-    // POSITIVE PIN (the §09.2 generics-forwarder transfer-through-return cure):
+    // POSITIVE PIN: Generic forwarders preserve transfer-through-return for aggregate results.
     // an owned-transfer-through-return forwarder (`@id<T>(x: T) -> T = x`) over an
     // AGGREGATE result (`Box<[int]>`, a heap struct wrapping a heap [int]) — the
     // Phase-5 walk KEEPS the spurious apply-result inc for an Aggregate result
@@ -4795,84 +3161,45 @@ fn probe_aggregate_transfer_forwarder_box_no_double_free() {
     // the Invoke result), elides ALL incs + keeps exactly one POST-transfer
     // release (RL-1 spurious-inc + RL-2 release-exactly-once + RL-34 transfer).
     // Spec: Annex E §AIMS RL-1 + RL-2 + RL-34.
-    let src = r#"
-type Box<T> = { value: T };
-
-@id <T> (x: T) -> T = x;
-
-@main () -> int = {
-    let b: Box<[int]> = Box { value: [7, 8, 9] };
-    let b2 = id(x: b);
-    if b2.value.len() == 3 && b2.value[2] == 9 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_aggregate_transfer_forwarder_box_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "aggregate_transfer_forwarder_box");
-    // NEGATIVE half: the same program double-frees with the re-balance OFF — the
-    // re-balance is the cure, not an incidental pass.
-    assert_double_free_without_lineage_rebalance(src, "aggregate_transfer_forwarder_box");
 }
 
 #[test]
 fn probe_aggregate_transfer_forwarder_option_no_double_free() {
-    // POSITIVE PIN (the forwarder dead-block-param under-emission cure): an
-    // owned-transfer forwarder (`@id<T>(x: T) -> T = x`) over a SUM-type Aggregate
-    // (`Option<[int]>`) whose payload carries the heap [int]. The forwarder identity
-    // (`%4` source = `%7` result) reaches the post-match merge/return block as TWO
-    // DEAD block-params (`Cardinality = Absent`) via `Jump bb(.., %4, %7)` on every
-    // arm. The Jump-arg -> Owned-param handoff (RL-4 exemption) defers the source's
-    // release to the dead successor params, which the Phase-5 walk never released ->
-    // the [int] buffer leaks. The cure emits EXACTLY ONE RL-5 dead-at-entry release
-    // (`RL5_dead_at_entry_cleanup`), deduped by forwarder identity so the two params
-    // sharing ONE RC=1 allocation get one dec, not two (two would double-free).
+    // POSITIVE PIN (the forwarder dead-block-param leak class, TWO layered cures):
+    // an owned-transfer forwarder (`@id<T>(x: T) -> T = x`) over a SUM-type
+    // Aggregate (`Option<[int]>`) whose payload carries the heap [int]. On the
+    // UNPRUNED shape the forwarder identity (`%4` source = `%7` result) reaches the
+    // post-match merge/return block as TWO DEAD block-params (`Cardinality =
+    // Absent`) via `Jump bb(.., %4, %7)`; the Jump-arg -> Owned-param handoff (RL-4
+    // exemption) defers the source's release to those dead params -> the [int]
+    // buffer leaks unless the RL-5 dead-at-entry release
+    // (`RL5_dead_at_entry_cleanup`) fires, deduped by forwarder identity (one dec
+    // per allocation, two would double-free). At DEFAULT, match-merge mutable-param
+    // pruning removes the never-reassigned bindings from the merge signature
+    // first, dissolving the dead-param shape before the RL-5 scan runs — the four
+    // four assertions pin every cell of that pruning x RL-5 matrix.
     // Spec: Annex E §AIMS RL-5 + RL-4 + RL-34.
-    let src = r#"
-@id <T> (x: T) -> T = x;
-
-@main () -> int = {
-    let opt: Option<[int]> = Some([1, 2, 3]);
-    let o2 = id(x: opt);
-    match o2 {
-        Some(xs) -> if xs.len() == 3 then 0 else 1,
-        None -> 2,
-    }
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_aggregate_transfer_forwarder_option_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "aggregate_transfer_forwarder_option");
-    // NEGATIVE half: the same program leaks with the Phase-5 dead-forwarder-param
-    // release DISABLED — the release is the cure, not an incidental pass.
-    assert_leak_without_dead_forwarder_param_release(src, "aggregate_transfer_forwarder_option");
 }
 
 #[test]
 fn probe_borrowed_forwarder_rcptr_not_rebalanced_no_corruption() {
-    // NEGATIVE PIN (the over-fire boundary the `Owned` + no-self-alloc gate
-    // protects): a forwarder whose param is OWNED-transferred-through-return but
-    // whose result is an RcPtr collection (`[int]`) — Phase 5 already SUPPRESSED
-    // its apply-result inc (`compute_transfer_through_return_results`, RcPtr-
-    // gated), so it was sound while EXCLUDED from the re-balance. The
-    // aggregate-only un-exclusion MUST NOT fire here: un-excluding an RcPtr
-    // forwarder lineage lets the self-alloc re-balance mis-select the kept release
-    // on the multi-block used-then-returned body and corrupt the list contents
+    // An owned-through-return forwarder with an RcPtr result has no apply-result
+    // increment. Aggregate-only rebalancing must exclude this lineage or it may
+    // retain the wrong release and corrupt the returned list
     // (the value read back is wrong → exit 1). Verifies the RcPtr forwarder still
     // runs correctly (exit 0, no corruption) under the burden-only path. Spec:
     // Annex E §AIMS RL-1 + RL-2.
-    let src = r#"
-@borrow_if_use (xs: [int], flag: bool) -> [int] = {
-    if flag then {
-        print(msg: `then: {xs.len()}`);
-        xs
-    } else {
-        print(msg: `else: {xs[0]}`);
-        xs
-    }
-};
-
-@main () -> int = {
-    let original_a = [11, 22, 33];
-    let returned_a = borrow_if_use(xs: original_a, flag: true);
-    if returned_a.len() == 3 && returned_a[0] == 11 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_borrowed_forwarder_rcptr_not_rebalanced_no_corruption.ori"
+    );
     assert_burden_path_self_sufficient(src, "borrowed_forwarder_rcptr_not_rebalanced");
 }
 
@@ -4891,23 +3218,10 @@ fn probe_construct_fed_dead_param_for_yield_option_str_no_leak() {
     // release at `%7` (no-op on None, frees the heap str on Some). RL-2
     // release-exactly-once + RL-5 dead-at-entry + RL-4 Jump-arg exemption. Spec:
     // Annex E §AIMS RL-5 + RL-4 + RL-2.
-    let src = r#"
-@main () -> int = {
-    let opt = Some("this string exceeds SSO threshold by being very long indeed");
-    let result = for x in opt yield {
-        break
-    };
-    if result.length() == 0 then 0 else 1
-}
-"#;
-    assert_burden_path_self_sufficient(src, "construct_fed_dead_param_for_yield_option_str");
-    // NEGATIVE half (mutation-verify): the same program LEAKS with the construct-fed
-    // dead-param release DISABLED — the cure is the suppression + release, not an
-    // incidental pass. Run on the DEFAULT backend (both-paths-fail lineage).
-    assert_leak_without_construct_fed_dead_param_release(
-        src,
-        "construct_fed_dead_param_for_yield_option_str",
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_construct_fed_dead_param_for_yield_option_str_no_leak.ori"
     );
+    assert_burden_path_self_sufficient(src, "construct_fed_dead_param_for_yield_option_str");
 }
 
 #[test]
@@ -4919,19 +3233,11 @@ fn probe_construct_fed_dead_param_conditional_body_no_uaf() {
     // use (the param is dead at the merge, all body uses precede it), so the str
     // backing is released exactly once with no use-after-free. Stripping the
     // lineage incs WITHOUT relocating the release to the post-body dead param would
-    // convert the previously-masked UAF into a live UAF (exit 139) — this pin proves
-    // the relocation avoids it (exit 0, no double-free). Spec: Annex E §AIMS RL-2 +
-    // RL-5.
-    let src = r#"
-@main () -> int = {
-    let opt = Some("this string exceeds SSO threshold by being very long indeed");
-    let result = for x in opt yield {
-        if x.len() > 10 then break;
-        x.len()
-    };
-    if result.length() == 0 then 0 else 1
-}
-"#;
+    // surface a live UAF (exit 139) — this pin proves the relocation avoids it
+    // (exit 0, no double-free). Spec: Annex E §AIMS RL-2 + RL-5.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_construct_fed_dead_param_conditional_body_no_uaf.ori"
+    );
     assert_burden_path_self_sufficient(src, "construct_fed_dead_param_conditional_body");
 }
 
@@ -4947,60 +3253,38 @@ fn probe_construct_fed_forwarder_option_disjoint_no_double_free() {
     // keeps the forwarder lineage correct (exit 0, no double-free) on BOTH paths —
     // the construct-fed pass and the forwarder pass target DISJOINT reps. Spec:
     // Annex E §AIMS RL-5 + RL-34.
-    let src = r#"
-@id <T> (x: T) -> T = x;
-
-@main () -> int = {
-    let opt: Option<[int]> = Some([1, 2, 3]);
-    let o2 = id(x: opt);
-    match o2 {
-        Some(xs) -> if xs.len() == 3 then 0 else 1,
-        None -> 2,
-    }
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_construct_fed_forwarder_option_disjoint_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "construct_fed_forwarder_option_disjoint");
 }
 
 #[test]
 fn probe_nested_construct_fed_dead_param_option_recursive_node_no_leak() {
-    // POSITIVE PIN (the nested construct-fed dead-param lineage cure): a recursive
-    // `Node { value: int, next: Option<Node> }` matched out of an `Option<Node>`
-    // reading only the scalar `.value`. The matched sum-aggregate (`%10 = Construct
-    // Variant(Option.0)(%9)`) is fed to a DEAD merge-block param (`%16`) and released
-    // by the construct-fed pass; its payload is a NESTED heap `Construct Struct(Node)`
-    // (`%2`/`%7`) moved in via owning `Construct`-args, EACH also fed to its own dead
-    // param (`%14`/`%15`). The base walk gives each nested Construct a spurious
-    // FRESH-site keep-alive `BurdenInc` (its rep ALSO feeds a Jump-arg to its dead
-    // param → `use_counts >= 2` dup-proxy) → +1 leak per nested level. The parent
-    // aggregate's single dead-param release transitively frees the whole tree, so the
-    // cure suppresses the nested lineages' incs (Part B cont. 2, NO separate release —
-    // a second dec would double-free). RL-2 release-exactly-once + RL-5 dead-at-entry.
-    // Spec: Annex E §AIMS RL-5 + RL-4 + RL-2.
-    let src = r#"
-use std.testing { assert_eq }
-type Node = { value: int, next: Option<Node> }
-
-@main () -> void = {
-    let n2 = Node { value: 2, next: None };
-    let n1 = Node { value: 1, next: Some(n2) };
-    let o: Option<Node> = Some(n1);
-    let v = match o {
-        Some(node) -> node.value,
-        None -> 0,
-    };
-    assert_eq(actual: v, expected: 1);
-    ()
-}
-"#;
-    assert_burden_path_self_sufficient(
-        src,
-        "nested_construct_fed_dead_param_option_recursive_node",
+    // POSITIVE PIN (burden self-sufficiency for the recursive-Node match-scalar
+    // shape): a recursive `Node { value: int, next: Option<Node> }` matched out of
+    // an `Option<Node>` reading only the scalar `.value`. The `match ... node.value`
+    // lowers to `Switch %14` on the scalar tag projection plus an inline
+    // `Project %12.1` payload extract — NOT a Jump-arg-to-dead-block-param shape, so
+    // NO dead merge-block param exists and the construct-fed dead-param scan
+    // (`compute_construct_fed_dead_param_lineage`) is INERT here. The base burden
+    // walk balances the two-node tree on its own: `transfer_via_move_alias`
+    // suppresses the per-Construct-link source decs and emits exactly one inline
+    // `burden_dec` for the outer aggregate (`%12`, which transitively frees the
+    // whole owning Construct chain) plus one for the projected inner Node (`%16`) —
+    // RL-2 release-exactly-once, verified leak-free / double-free-free under the
+    // gated burden-only probe (2 allocs → 2 frees, live=0). Spec: Annex E §AIMS
+    // RL-2.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_nested_construct_fed_dead_param_option_recursive_node_no_leak.ori"
     );
-    // NEGATIVE half (mutation-verify): the same program LEAKS with the construct-fed
-    // dead-param pass DISABLED — the nested-lineage suppression is the cure. Run on
-    // the DEFAULT backend (both-paths-fail lineage).
-    assert_leak_without_construct_fed_dead_param_release(
+    // No mutation-verify against `ORI_DISABLE_CONSTRUCT_FED_DEAD_PARAM_RELEASE`: that
+    // scan never fires for this `Switch`+inline-`Project` lowering, so toggling it
+    // off changes nothing — the base walk owns the balance. The genuine
+    // construct-fed dead-param mutation-verify lives on
+    // `probe_construct_fed_dead_param_for_yield_option_str` (a Jump-arg-to-dead-param
+    // lowering the scan actually cures).
+    assert_burden_path_self_sufficient(
         src,
         "nested_construct_fed_dead_param_option_recursive_node",
     );
@@ -5008,32 +3292,18 @@ type Node = { value: int, next: Option<Node> }
 
 #[test]
 fn probe_nested_construct_fed_dead_param_result_recursive_node_no_leak() {
-    // POSITIVE PIN (sum-type matrix sibling): the same nested recursive-`Node`
-    // shape matched out of a `Result<Node, str>` instead of an `Option<Node>`. The
-    // `Ok(node) -> node.value` arm exercises the identical nested-Construct-fed
-    // dead-param lineage through the Result aggregate. Spec: Annex E §AIMS RL-5 +
-    // RL-4 + RL-2.
-    let src = r#"
-use std.testing { assert_eq }
-type Node = { value: int, next: Option<Node> }
-
-@main () -> void = {
-    let n2 = Node { value: 2, next: None };
-    let n1 = Node { value: 1, next: Some(n2) };
-    let r: Result<Node, str> = Ok(n1);
-    let v = match r {
-        Ok(node) -> node.value,
-        Err(_) -> 0,
-    };
-    assert_eq(actual: v, expected: 1);
-    ()
-}
-"#;
-    assert_burden_path_self_sufficient(
-        src,
-        "nested_construct_fed_dead_param_result_recursive_node",
+    // The recursive-`Node` match-scalar shape is matched out of a
+    // `Result<Node, str>` instead of an
+    // `Option<Node>`. The `Ok(node) -> node.value` arm lowers to the identical
+    // `Switch`+inline-`Project` form (no dead block-param), so the construct-fed
+    // scan is INERT and the base burden walk owns the two-node-tree balance —
+    // RL-2 release-exactly-once, verified under the gated burden-only probe. No
+    // mutation-verify (the scan never fires for this shape). Spec: Annex E §AIMS
+    // RL-2.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_nested_construct_fed_dead_param_result_recursive_node_no_leak.ori"
     );
-    assert_leak_without_construct_fed_dead_param_release(
+    assert_burden_path_self_sufficient(
         src,
         "nested_construct_fed_dead_param_result_recursive_node",
     );
@@ -5051,22 +3321,9 @@ fn probe_nested_construct_payload_extracted_live_no_double_free_negative() {
     // detects the heap payload reaching a live owned block-param via its `Project`
     // view closure and aborts the whole nested suppression. Verifies exit 0, no
     // double-free, on the burden-only path. Spec: Annex E §AIMS RL-2.
-    let src = r#"
-use std.testing { assert_eq }
-type Node = { value: int, next: Option<Node> }
-
-@main () -> void = {
-    let n2 = Node { value: 2, next: None };
-    let n1 = Node { value: 1, next: Some(n2) };
-    let o: Option<Node> = Some(n1);
-    let extracted = match o {
-        Some(node) -> node,
-        None -> Node { value: 0, next: None },
-    };
-    assert_eq(actual: extracted.value, expected: 1);
-    ()
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_nested_construct_payload_extracted_live_no_double_free_negative.ori"
+    );
     assert_burden_path_self_sufficient(
         src,
         "nested_construct_payload_extracted_live_no_double_free",
@@ -5074,26 +3331,56 @@ type Node = { value: int, next: Option<Node> }
 }
 
 #[test]
+fn probe_double_wrap_niche_sum_cross_block_extract_no_double_free() {
+    // POSITIVE PIN (cross-block enum-cascade dominating-extract, RL-2): a
+    // `catch(catch(panic(..)))` double-wrap lowers to a chain of TRANSPARENT
+    // niche-family sum wrappers over ONE leaf `str` allocation
+    // (`Result<Result<never, str>, str>`). The outer-Ok match arm `Project`s the
+    // inner `Result` (itself a niche-family sum, NOT a leaf) and the base walk
+    // places the outer sum's CASCADE dec at that site — freeing the leaf `str`
+    // in a block that STRICTLY DOMINATES the inner-Err successor that re-extracts
+    // + retains the same leaf. The cure admits the DEPTH-≥2 niche-of-niche
+    // projection web (the live-extract merge places ONE release for the whole
+    // transparent nest; `RL2_release_exactly_once`). Verifies exit 0, no
+    // double-free, no leak, on the burden-only path. Spec: Annex E §AIMS RL-2 +
+    // TF-4.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_double_wrap_niche_sum_cross_block_extract_no_double_free.ori"
+    );
+    assert_burden_path_self_sufficient(src, "double_wrap_niche_sum_cross_block_extract");
+}
+
+#[test]
+fn probe_single_wrap_niche_sum_extract_no_regression_negative() {
+    // NEGATIVE / over-fire boundary PIN (the FLAT single-wrap shape the
+    // depth-≥2 merge gate MUST NOT touch): a single `catch(panic(..))` lowers to
+    // ONE niche-family sum wrapper (`Result<never, str>`) `Project`ed DIRECTLY to
+    // a LEAF `str` (no nested niche projection). The base walk handles the flat
+    // shape correctly (same-block extract + keep-alive); the depth-≥2 merge gate
+    // (`has_nested_niche_projection`) is FALSE here, so the overlapping Ok/Err
+    // candidate web keeps the gate-(g) decline (status quo). Firing the merge
+    // here double-frees the leaf (the `match_alias::test_match_arm_alias_result_str`
+    // over-fire boundary). Verifies exit 0, no double-free, on the burden-only
+    // path. Spec: Annex E §AIMS RL-2.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_single_wrap_niche_sum_extract_no_regression_negative.ori"
+    );
+    assert_burden_path_self_sufficient(src, "single_wrap_niche_sum_extract_no_regression");
+}
+
+#[test]
 fn probe_owner_drop_deferred_past_borrow_view_intlist_field_no_uaf() {
-    // Regression (TF-14 owner-drop borrow-view liveness): a fresh sole-owned-RC-
-    // field struct (`Container { items: [int] }`) whose `[int]` field is projected
+    // TF-14 owner-drop liveness applies to a sole-owned-RC-field struct
+    // (`Container { items: [int] }`) whose `[int]` field is projected
     // as a borrow-view (`let xs = c.items`) and read at a borrowed-`Invoke`
     // terminator arg (`xs.fold(..)`) AFTER the container's own syntactic last use.
     // The container's whole-var `RcDec [AggFields]` cascade-frees the field; placed
-    // at the container's last use it frees the buffer BEFORE `fold` borrow-reads it
-    // -> use-after-free. The fix relocates the container release to the borrowed-
-    // call's normal-successor block entry (RL-2 release-once, past the borrow-read).
+    // at the container's last use it frees the buffer before `fold` reads it.
+    // The container release belongs at the borrowed call's normal-successor entry.
     // Spec: Annex E §AIMS TF-14 + RL-2 + RL-4.
-    let src = r#"
-type Container = { items: [int] }
-
-@main () -> int = {
-    let c = Container { items: [10, 20, 30] };
-    let xs = c.items;
-    let sum = xs.fold(initial: 0, op: (acc, x) -> acc + x);
-    if sum == 60 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_owner_drop_deferred_past_borrow_view_intlist_field_no_uaf.ori"
+    );
     assert_burden_path_self_sufficient(src, "owner_drop_deferred_past_borrow_view_intlist_field");
 }
 
@@ -5102,16 +3389,9 @@ fn probe_owner_drop_deferred_past_borrow_view_str_field_no_uaf() {
     // Matrix (str field): the same owner-drop-past-borrow-view shape with a `str`
     // owned field instead of `[int]` — the borrow-view `s` is read via a borrowed
     // call after the holder's syntactic last use. Spec: Annex E §AIMS TF-14 + RL-2.
-    let src = r#"
-type Holder = { name: str }
-
-@main () -> int = {
-    let h = Holder { name: "a string long enough to exceed inline SSO storage by a wide margin" };
-    let s = h.name;
-    let n = s.split(sep: " ").count();
-    if n == 13 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_owner_drop_deferred_past_borrow_view_str_field_no_uaf.ori"
+    );
     assert_burden_path_self_sufficient(src, "owner_drop_deferred_past_borrow_view_str_field");
 }
 
@@ -5123,16 +3403,9 @@ fn probe_terminal_concat_str_operand_no_leak() {
     // the operand is move-once-linear (DP-3 `incElidable`) and its keep-alive
     // FRESH-site inc is surplus — without suppression the literal leaks (alloc
     // rc=1 + inc rc=2 - one dec rc=1). Spec: Annex E §AIMS RL-1 + RL-2.
-    let src = r#"
-@main () -> int = {
-    let $x = Some(42);
-    let $s = match x {
-        Some(v) -> "matched_some_heap_value_" + str(v),
-        None -> "matched_none_heap_fallback",
-    };
-    if s.starts_with(prefix: "matched_some") then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_terminal_concat_str_operand_no_leak.ori"
+    );
     assert_burden_path_self_sufficient(src, "terminal_concat_str_operand");
 }
 
@@ -5142,12 +3415,9 @@ fn probe_terminal_concat_list_operand_no_leak() {
     // concat operand (`[1,2,3] + [4,5]`). The same move-once-linear surplus-inc
     // shape as the str variant (`ori_list_concat_cow` borrows the operand).
     // Spec: Annex E §AIMS RL-1 + RL-2.
-    let src = r#"
-@main () -> int = {
-    let $xs = [10, 20, 30] + [40, 50];
-    if xs.length() == 5 then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_terminal_concat_list_operand_no_leak.ori"
+    );
     assert_burden_path_self_sufficient(src, "terminal_concat_list_operand");
 }
 
@@ -5160,12 +3430,140 @@ fn probe_concat_lhs_reread_after_concat_no_double_free() {
     // multi-use count excludes this shape from suppression; if the cure
     // over-fired here, `a` would be mutated-in-place and the later read would see
     // the concatenated value (wrong) or double-free. Spec: Annex E §AIMS RL-1.
-    let src = r#"
-@main () -> int = {
-    let $a = "long_prefix_heap_value_exceeding_inline_sso_storage";
-    let $s = a + "_suffix";
-    if a.starts_with(prefix: "long_prefix") && s.starts_with(prefix: "long_prefix") then 0 else 1
-}
-"#;
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_concat_lhs_reread_after_concat_no_double_free.ori"
+    );
     assert_burden_path_self_sufficient(src, "concat_lhs_reread_after_concat");
+}
+
+#[test]
+fn probe_heap_str_literal_slice_split_borrow_read_dead_no_leak() {
+    // POSITIVE / heap str-literal receiver-lineage clamp: a HEAP string literal
+    // (`base`, > SSO_MAX_LEN) borrow-read through a chain of borrowed-`Invoke`
+    // args (`base.substring(..)` -> `.split(..)`: every long part is a seamless
+    // slice co-owning `base`'s buffer) then DEAD at the normal-exit `Return`. The
+    // base walk places `base`'s whole-var release on the dying unwind edges only,
+    // NOT on the normal `Return` -> `base` leaks on the normal path
+    // (`RL2_release_exactly_once`: every concrete path nets to 0; the normal path
+    // nets +1). The borrowed-`Invoke` lineage scan admits the heap str-literal
+    // root (gated on `owned_vars_needing_rc` membership = heap, not SSO) and
+    // places EXACTLY ONE release after the closure's final borrow-read on the
+    // normal exit. Spec: Annex E §AIMS RL-2 + RL-4.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_heap_str_literal_slice_split_borrow_read_dead_no_leak.ori"
+    );
+    assert_burden_path_self_sufficient(src, "heap_str_literal_slice_split_borrow_read_dead");
+}
+
+#[test]
+fn probe_heap_str_literal_returned_no_double_free_negative() {
+    // NEGATIVE / heap str-literal OWNED-CONSUME clamp: a HEAP string literal
+    // (`s`, > SSO_MAX_LEN) read once via a borrowed `@len` then RETURNED through a
+    // branch. The `Return` is an OWNED-position consume (RL-2 transfer) — the
+    // same-alloc vetting gate (d) of the borrowed-`Invoke` lineage scan MUST
+    // DECLINE the str-literal root (any owned-position consume / `Return` declines).
+    // Over-firing a normal-path dead-param release on a value the `Return`
+    // transfers would double-free the returned allocation (`-134`). The
+    // discriminator is the vetting gate: a member at an owned terminator operand
+    // declines. Spec: Annex E §AIMS RL-2.
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_heap_str_literal_returned_no_double_free_negative.ori"
+    );
+    assert_burden_path_self_sufficient(src, "heap_str_literal_returned_negative");
+}
+
+// Set-collect fresh-allocation matrix: a `.iter().collect()` Set/List result
+// flowing into an iter-consuming generic callee at a borrowed body-call arg.
+// Spec: Annex E §AIMS RL-1 + RL-2; each matrix case pins one boundary.
+
+/// A heap-element `Set` remains live across an iteration-consuming generic call.
+/// The caller-owned release balances the surviving lineage without a UAF or
+/// double free.
+#[test]
+fn probe_set_str_collect_read_after_iter_consuming_call_no_uaf() {
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_set_str_collect_read_after_iter_consuming_call_no_uaf.ori"
+    );
+    assert_burden_path_self_sufficient(src, "set_str_collect_read_after_iter_consuming_call");
+}
+
+/// Two iteration-consuming calls over a heap-element Set use multi-borrow
+/// accounting; single-use suppression must decline.
+#[test]
+fn probe_set_str_collect_two_iter_consuming_calls_no_double_free() {
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_set_str_collect_two_iter_consuming_calls_no_double_free.ori"
+    );
+    assert_burden_path_self_sufficient(src, "set_str_collect_two_iter_consuming_calls");
+}
+
+/// Regression: iter-consuming callee that ALSO returns its param — ownership
+/// transfers through the return, so the caller-side suppression must NOT fire
+/// (the returned lineage carries the release).
+#[test]
+fn probe_set_str_collect_iter_consume_then_return_param_no_leak() {
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_set_str_collect_iter_consume_then_return_param_no_leak.ori"
+    );
+    assert_burden_path_self_sufficient(src, "set_str_collect_iter_consume_then_return_param");
+}
+
+/// Regression: heap-elem Set collect result DEAD at scope exit (no consuming
+/// call) — the fresh-collect admission gives it exactly one scope-exit release
+/// (no leak, no double-free).
+#[test]
+fn probe_set_str_collect_dead_at_scope_exit_freed_once() {
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_set_str_collect_dead_at_scope_exit_freed_once.ori"
+    );
+    assert_burden_path_self_sufficient(src, "set_str_collect_dead_at_scope_exit");
+}
+
+/// Regression: heap-elem Set collect result RETURNED from a helper — the
+/// transferred lineage keeps its accounting (fresh-collect admission must not
+/// strip a returned value's ops).
+#[test]
+fn probe_set_str_collect_returned_from_helper_no_double_free() {
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_set_str_collect_returned_from_helper_no_double_free.ori"
+    );
+    assert_burden_path_self_sufficient(src, "set_str_collect_returned_from_helper");
+}
+
+/// A heap-element `List` passes through an iteration-consuming generic callee;
+/// its admission and caller-release accounting match the set path.
+#[test]
+fn probe_list_str_collect_iter_consuming_call_no_double_free() {
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_list_str_collect_iter_consuming_call_no_double_free.ori"
+    );
+    assert_burden_path_self_sufficient(src, "list_str_collect_iter_consuming_call");
+}
+
+/// Regression: heap-elem Set collect borrowed at a MAY-UNWIND call to the
+/// iter-consuming generic callee (`catch` wraps the call so it lowers to an
+/// `Invoke` terminator arg) — pins the Invoke-terminator admission arm.
+#[test]
+fn probe_set_str_collect_invoke_terminator_iter_consuming_call_no_double_free() {
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_set_str_collect_invoke_terminator_iter_consuming_call_no_double_free.ori"
+    );
+    assert_burden_path_self_sufficient(
+        src,
+        "set_str_collect_invoke_terminator_iter_consuming_call",
+    );
+}
+
+/// Regression: heap-key map built then borrowed-read through the `keys()`
+/// conversion — clamps the narrowed `__collect_set` admission against touching
+/// map-producing names (the conversion-result accounting must be unchanged).
+#[test]
+fn probe_map_str_keys_conversion_unchanged_by_collect_admission() {
+    let src = include_str!(
+        "fixtures/predicate_stack_probe/probe_map_str_keys_conversion_unchanged_by_collect_admission.ori"
+    );
+    assert_burden_path_self_sufficient(
+        src,
+        "map_str_keys_conversion_unchanged_by_collect_admission",
+    );
 }

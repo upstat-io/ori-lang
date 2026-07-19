@@ -15,12 +15,92 @@ impl TypeCheckError {
     /// Uses `Idx::display_name()` for type names, which renders primitives
     /// (int, bool, str, etc.) and falls back to `"<type>"` for complex types
     /// that would need a Pool to render fully.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive TypeErrorKind message dispatch"
-    )]
     pub fn message(&self) -> String {
+        if let Some(message) = self.simple_resolution_message() {
+            return message;
+        }
+        if let Some(message) = self.simple_inference_message() {
+            return message;
+        }
+        if let Some(message) = self.simple_trait_message() {
+            return message;
+        }
+        if let Some(message) = self.simple_derive_message() {
+            return message;
+        }
+        if let Some(message) = self.simple_conversion_message() {
+            return message;
+        }
+        if let Some(message) = self.simple_ownership_message() {
+            return message;
+        }
+
         match &self.kind {
+            TypeErrorKind::Mismatch { .. }
+            | TypeErrorKind::UnknownIdent { .. }
+            | TypeErrorKind::UnresolvedTrait { .. }
+            | TypeErrorKind::UndefinedField { .. }
+            | TypeErrorKind::UnknownMethod { .. }
+            | TypeErrorKind::ArityMismatch { .. }
+            | TypeErrorKind::MissingCapability { .. }
+            | TypeErrorKind::InfiniteType { .. }
+            | TypeErrorKind::AmbiguousType { .. }
+            | TypeErrorKind::PatternMismatch { .. }
+            | TypeErrorKind::NonExhaustiveMatch { .. }
+            | TypeErrorKind::RigidMismatch { .. }
+            | TypeErrorKind::ImportError { .. }
+            | TypeErrorKind::MissingAssocType { .. }
+            | TypeErrorKind::UnsatisfiedBound { .. }
+            | TypeErrorKind::NotAStruct { .. }
+            | TypeErrorKind::MissingFields { .. }
+            | TypeErrorKind::DuplicateField { .. }
+            | TypeErrorKind::UninhabitedStructField { .. }
+            | TypeErrorKind::UnsupportedOperator { .. }
+            | TypeErrorKind::DuplicateImpl { .. }
+            | TypeErrorKind::OverlappingImpls { .. }
+            | TypeErrorKind::ConflictingDefaults { .. }
+            | TypeErrorKind::AmbiguousMethod { .. }
+            | TypeErrorKind::NotObjectSafe { .. }
+            | TypeErrorKind::NotIndexable { .. }
+            | TypeErrorKind::IndexKeyMismatch { .. }
+            | TypeErrorKind::AmbiguousIndex { .. }
+            | TypeErrorKind::CannotDeriveForSumType { .. }
+            | TypeErrorKind::CannotDeriveWithoutSupertrait { .. }
+            | TypeErrorKind::HashInvariantViolation { .. }
+            | TypeErrorKind::NonHashableMapKey { .. }
+            | TypeErrorKind::FieldMissingTraitInDerive { .. }
+            | TypeErrorKind::TraitNotDerivable { .. }
+            | TypeErrorKind::InvalidFormatSpec { .. }
+            | TypeErrorKind::FormatTypeMismatch { .. }
+            | TypeErrorKind::IntoNotImplemented { .. }
+            | TypeErrorKind::AmbiguousInto { .. }
+            | TypeErrorKind::MissingPrintable { .. }
+            | TypeErrorKind::AssignToImmutable { .. }
+            | TypeErrorKind::IndexAssignNotSupported { .. }
+            | TypeErrorKind::AssignThroughParameter { .. }
+            | TypeErrorKind::UnsupportedFeature { .. }
+            | TypeErrorKind::InvalidReprAttribute { .. }
+            | TypeErrorKind::ConditionalPartialMove { .. }
+            | TypeErrorKind::UseAfterDropEarly { .. }
+            | TypeErrorKind::UndeclaredFixedListCapacityConst { .. }
+            | TypeErrorKind::NonPositiveFixedListCapacity { .. }
+            | TypeErrorKind::InvalidFixedListCapacityExpression { .. }
+            | TypeErrorKind::DropPartialMove { .. }
+            | TypeErrorKind::ValueDropConflict { .. }
+            | TypeErrorKind::PreContractNotBool { .. }
+            | TypeErrorKind::PostContractVoidReturn
+            | TypeErrorKind::PreContractUnknownIdent { .. }
+            | TypeErrorKind::RefutablePattern { .. }
+            | TypeErrorKind::BreakValueInVoidLoop { .. }
+            | TypeErrorKind::ContinueValueInNonCollectingLoop { .. }
+            | TypeErrorKind::OrPatternBindingMismatch { .. } => {
+                unreachable!("type error kind was not handled by its message family")
+            }
+        }
+    }
+
+    fn simple_resolution_message(&self) -> Option<String> {
+        let message = match &self.kind {
             TypeErrorKind::Mismatch {
                 expected,
                 found,
@@ -33,7 +113,7 @@ impl TypeCheckError {
                     if let Some(detail) =
                         problem_message_with(problem, &|idx| idx.display_name().to_string())
                     {
-                        return format!("type mismatch: {detail}");
+                        return Some(format!("type mismatch: {detail}"));
                     }
                 }
                 format!(
@@ -48,6 +128,17 @@ impl TypeCheckError {
                 // the full message (e.g., "unknown identifier `foo`").
                 "unknown identifier".to_string()
             }
+            TypeErrorKind::UndeclaredFixedListCapacityConst { .. } => {
+                "undeclared fixed-list capacity const; declare it in the generic parameter list or use a declared const"
+                    .to_string()
+            }
+            TypeErrorKind::NonPositiveFixedListCapacity { value } => format!(
+                "fixed-list capacity must be a positive compile-time integer; supplied {value}"
+            ),
+            TypeErrorKind::InvalidFixedListCapacityExpression { reason } => format!(
+                "fixed-list capacity must be an evaluable integer expression; {}",
+                reason.description()
+            ),
             TypeErrorKind::UnresolvedTrait { .. } => {
                 // trait_name is an interned ID; a caller with interner access
                 // renders the full "unresolved trait `Drop`" form.
@@ -55,6 +146,9 @@ impl TypeCheckError {
             }
             TypeErrorKind::UndefinedField { ty, .. } => {
                 format!("no such field on type {}", ty.display_name())
+            }
+            TypeErrorKind::UnknownMethod { ty, .. } => {
+                format!("no method on type {}", ty.display_name())
             }
             TypeErrorKind::ArityMismatch {
                 expected,
@@ -74,6 +168,13 @@ impl TypeCheckError {
                 }
             }
             TypeErrorKind::MissingCapability { .. } => "missing required capability".to_string(),
+            _ => return None,
+        };
+        Some(message)
+    }
+
+    fn simple_inference_message(&self) -> Option<String> {
+        let message = match &self.kind {
             TypeErrorKind::InfiniteType { .. } => "infinite type detected".to_string(),
             TypeErrorKind::AmbiguousType { site, .. } => match site {
                 AmbiguousTypeSite::Expression => "cannot infer type in expression".to_string(),
@@ -119,6 +220,13 @@ impl TypeCheckError {
             TypeErrorKind::UninhabitedStructField { .. } => {
                 "cannot use `Never` as struct field type".to_string()
             }
+            _ => return None,
+        };
+        Some(message)
+    }
+
+    fn simple_trait_message(&self) -> Option<String> {
+        let message = match &self.kind {
             TypeErrorKind::UnsupportedOperator { ty, op, trait_name } => {
                 format!(
                     "cannot apply operator `{op}` to type `{}`; implement `{trait_name}` trait",
@@ -140,6 +248,13 @@ impl TypeCheckError {
             TypeErrorKind::NotObjectSafe { .. } => {
                 "trait cannot be made into an object".to_string()
             }
+            _ => return None,
+        };
+        Some(message)
+    }
+
+    fn simple_derive_message(&self) -> Option<String> {
+        let message = match &self.kind {
             TypeErrorKind::NotIndexable { ty } => {
                 format!(
                     "type `{}` does not support indexing; implement `Index` trait",
@@ -191,6 +306,13 @@ impl TypeCheckError {
                 "field type does not implement trait required by derive".to_string()
             }
             TypeErrorKind::TraitNotDerivable { .. } => "trait cannot be derived".to_string(),
+            _ => return None,
+        };
+        Some(message)
+    }
+
+    fn simple_conversion_message(&self) -> Option<String> {
+        let message = match &self.kind {
             TypeErrorKind::InvalidFormatSpec { spec, reason } => {
                 format!("invalid format specification `{spec}`: {reason}")
             }
@@ -245,9 +367,21 @@ impl TypeCheckError {
             TypeErrorKind::InvalidReprAttribute { reason, .. } => {
                 format!("invalid `#repr` attribute: {reason}")
             }
+            _ => return None,
+        };
+        Some(message)
+    }
+
+    fn simple_ownership_message(&self) -> Option<String> {
+        let message = match &self.kind {
             TypeErrorKind::ConditionalPartialMove { .. } => {
                 "conditional partial move not statically computable; \
                  make the field projection unconditional, or mirror it symmetrically on every branch"
+                    .to_string()
+            }
+            TypeErrorKind::UseAfterDropEarly { .. } => {
+                "use of a binding after `drop_early` consumed it; \
+                 use the value before the `drop_early` call, or re-bind the name afterward"
                     .to_string()
             }
             TypeErrorKind::DropPartialMove { .. } => {
@@ -328,7 +462,10 @@ impl TypeCheckError {
                     loop_kind.description()
                 )
             }
-        }
+            TypeErrorKind::OrPatternBindingMismatch { reason, .. } => reason.message().to_string(),
+            _ => return None,
+        };
+        Some(message)
     }
 
     /// Get the error code for this error kind.
@@ -353,6 +490,7 @@ impl TypeCheckError {
             TypeErrorKind::UnknownIdent { .. }
             | TypeErrorKind::UnresolvedTrait { .. }
             | TypeErrorKind::UndefinedField { .. }
+            | TypeErrorKind::UnknownMethod { .. }
             | TypeErrorKind::RigidMismatch { .. }
             | TypeErrorKind::ImportError { .. }
             | TypeErrorKind::NotAStruct { .. } => ErrorCode::E2003,
@@ -369,9 +507,12 @@ impl TypeCheckError {
             TypeErrorKind::InfiniteType { .. } => ErrorCode::E2008,
 
             // E2010: Duplicate implementations
-            TypeErrorKind::DuplicateImpl { .. }
-            | TypeErrorKind::DuplicateField { .. }
-            | TypeErrorKind::MissingAssocType { .. } => ErrorCode::E2010,
+            TypeErrorKind::DuplicateImpl { .. } | TypeErrorKind::DuplicateField { .. } => {
+                ErrorCode::E2010
+            }
+
+            // E2018: Missing associated type
+            TypeErrorKind::MissingAssocType { .. } => ErrorCode::E2018,
 
             // E2014: Missing capabilities
             TypeErrorKind::MissingCapability { .. } => ErrorCode::E2014,
@@ -465,6 +606,15 @@ impl TypeCheckError {
 
             // E2048: Partial move on type implementing Drop
             TypeErrorKind::DropPartialMove { .. } => ErrorCode::E2048,
+
+            // E2054: Use of a binding after `drop_early` consumed it
+            TypeErrorKind::UseAfterDropEarly { .. } => ErrorCode::E2054,
+            // E2056: Undeclared const in a fixed-list capacity
+            TypeErrorKind::UndeclaredFixedListCapacityConst { .. } => ErrorCode::E2056,
+            // E2057: Fixed-list capacity is zero or negative
+            TypeErrorKind::NonPositiveFixedListCapacity { .. } => ErrorCode::E2057,
+            // E2059: Fixed-list capacity cannot be evaluated as an integer
+            TypeErrorKind::InvalidFixedListCapacityExpression { .. } => ErrorCode::E2059,
             // E2049: Value + Drop mutual exclusion
             TypeErrorKind::ValueDropConflict { .. } => ErrorCode::E2049,
 
@@ -472,6 +622,15 @@ impl TypeCheckError {
             TypeErrorKind::BreakValueInVoidLoop { .. } => ErrorCode::E0860,
             // E0861: continue value in a non-collecting loop
             TypeErrorKind::ContinueValueInNonCollectingLoop { .. } => ErrorCode::E0861,
+
+            // E2052/E2053: or-pattern binding divergence (CF-1) — name vs type
+            TypeErrorKind::OrPatternBindingMismatch { reason, .. } => {
+                use super::kind::OrBindingMismatchReason;
+                match reason {
+                    OrBindingMismatchReason::NameDivergence => ErrorCode::E2052,
+                    OrBindingMismatchReason::TypeDivergence { .. } => ErrorCode::E2053,
+                }
+            }
         }
     }
 }

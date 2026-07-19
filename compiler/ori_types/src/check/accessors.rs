@@ -67,6 +67,12 @@ impl<'a> ModuleChecker<'a> {
         self.well_known.resolve_ffi_concrete(name)
     }
 
+    /// Resolve an FFI type name to its symbolic `CAbiKind`.
+    #[inline]
+    pub fn resolve_ffi_cabi_kind(&self, name: Name) -> Option<ori_ir::CAbiKind> {
+        self.well_known.resolve_ffi_cabi_kind(name)
+    }
+
     /// Get the type pool.
     #[inline]
     pub fn pool(&self) -> &Pool {
@@ -77,6 +83,14 @@ impl<'a> ModuleChecker<'a> {
     #[inline]
     pub fn pool_mut(&mut self) -> &mut Pool {
         &mut self.pool
+    }
+
+    /// Install the builtin-type extension-method index (from `module.extends`).
+    pub(crate) fn set_builtin_extensions(
+        &mut self,
+        idx: rustc_hash::FxHashMap<ori_registry::TypeTag, rustc_hash::FxHashSet<ori_ir::Name>>,
+    ) {
+        self.builtin_extensions = idx;
     }
 
     /// Get the type registry.

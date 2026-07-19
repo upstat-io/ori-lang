@@ -1,0 +1,5 @@
+@main () -> int = {
+    let items = ["hello world this is a long string exceeding SSO threshold here", "another long heap string here"];
+    let f = items.first();
+    if f.is_some() && f.unwrap().substring(start: 0, end: 5) == "hello" then 0 else 1
+}

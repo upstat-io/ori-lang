@@ -58,9 +58,11 @@ mod tests {
         linker.gc_sections(true);
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-        assert!(args.contains(&"--gc-sections".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "--gc-sections"));
     }
 
     #[test]
@@ -71,9 +73,11 @@ mod tests {
         linker.strip_symbols(true);
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-        assert!(args.contains(&"--strip-all".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "--strip-all"));
     }
 
     #[test]
@@ -99,9 +103,11 @@ mod tests {
         linker.link_library("c", LibraryKind::Dynamic);
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-        assert!(args.contains(&"-lc".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "-lc"));
     }
 
     #[test]
@@ -136,9 +142,11 @@ mod tests {
         linker.link_library("wasi", LibraryKind::Static);
 
         let cmd = linker.finalize();
-        let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-        assert!(args.contains(&"-lwasi".into()));
+        assert!(cmd
+            .get_args()
+            .map(|a| a.to_string_lossy())
+            .any(|x| x == "-lwasi"));
     }
 
     #[test]

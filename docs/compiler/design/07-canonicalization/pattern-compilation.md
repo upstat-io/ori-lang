@@ -65,7 +65,7 @@ Ori separates pattern compilation into two distinct phases. First, **flattening*
 
 ### Path-Based Value Navigation
 
-Rather than generating code that destructures values into local variables, Ori's decision trees reference sub-values via **scrutinee paths** — sequences of `PathInstruction` values like `[TagPayload(0), TupleIndex(1)]` that describe how to navigate from the root scrutinee to a nested sub-value. Both the evaluator (`ori_eval`) and ARC lowering (`ori_arc`) interpret these paths to extract values at runtime. `ori_llvm` does not consume `DecisionTreePool` directly — it sees only the ARC IR produced by `ori_arc`'s lowering of the decision trees. This indirection avoids materializing intermediate destructured values and enables the same decision tree to be consumed by multiple backends.
+Rather than generating code that destructures values into local variables, Ori's decision trees reference sub-values via **scrutinee paths** — sequences of `PathInstruction` values like `[TagPayload(0), TupleIndex(1)]` that describe how to navigate from the root scrutinee to a nested sub-value. The evaluator (`ori_eval`) interprets these paths at runtime; ARC lowering (`ori_arc`) resolves them into shared control flow for physical execution. `ori_llvm` and `ori_vm` do not consume `DecisionTreePool` directly — they see only the realized result of that lowering. This indirection avoids materializing intermediate destructured values and prevents each physical backend from acquiring its own path interpreter.
 
 ### Arc-Shared Trees Across Backends
 
@@ -273,7 +273,7 @@ pub struct DecisionTreePool {
 }
 ```
 
-The `Arc` wrapping enables both the evaluator and LLVM codegen to share tree instances without copying. The evaluator clones the `Arc` when entering a match to release its borrow on `self`; the ARC pipeline receives the same shared reference during codegen.
+The `Arc` wrapping lets the evaluator and ARC lowering share tree instances without copying. The evaluator clones the `Arc` when entering a match to release its borrow on `self`; ARC lowering receives the same shared reference and turns it into control flow for every physical executor.
 
 ## Multi-Clause Function Compilation
 
@@ -431,7 +431,7 @@ Luc Maranget's "[Compiling Pattern Matching to Good Decision Trees](http://mosco
 
 ## Design Tradeoffs
 
-**Decision trees vs. backtracking automata.** Ori uses Maranget's decision tree approach, which never duplicates arm bodies (arms are referenced by index). The alternative — backtracking automata (Augustsson style) — can produce more compact code for some patterns but duplicates arm bodies when wildcards span multiple constructor groups. For Ori, where both the evaluator and LLVM codegen consume the same tree, avoiding body duplication is important: each arm body is a `CanId` reference into the `CanArena`, and duplicating it would require duplicating the canonical expression subtree.
+**Decision trees vs. backtracking automata.** Ori uses Maranget's decision tree approach, which never duplicates arm bodies (arms are referenced by index). The alternative — backtracking automata (Augustsson style) — can produce more compact code for some patterns but duplicates arm bodies when wildcards span multiple constructor groups. The evaluator and ARC lowering consume the same tree, so avoiding body duplication is important: each arm body is a `CanId` reference into the `CanArena`, and duplicating it would require duplicating the canonical expression subtree.
 
 **Column selection heuristic.** Ori picks the column with the most distinct constructors. This greedy heuristic isn't optimal in all cases — Maranget's paper discusses alternative heuristics (necessity, "first non-wildcard") that can produce smaller trees for specific pattern shapes. The "most constructors" heuristic works well in practice because it maximizes the splitting power of each test, producing balanced trees for typical code. A more sophisticated heuristic would add complexity for marginal gains on uncommon patterns.
 
@@ -439,7 +439,7 @@ Luc Maranget's "[Compiling Pattern Matching to Good Decision Trees](http://mosco
 
 **Flattening as a separate phase.** Separating pattern flattening from compilation means the algorithm operates on owned, self-contained values rather than arena references. This adds a copying step (every pattern is cloned from the arena into a `FlatPattern`) but decouples the compilation algorithm from the AST representation. The copying cost is negligible — patterns are small data structures, and flattening happens once per match expression.
 
-**Path-based binding vs. immediate destructuring.** Ori's decision trees record bindings as `(Name, ScrutineePath)` pairs — the binding says *where* the value is, not *what* it is. The evaluator and codegen interpret these paths at runtime to extract values. An alternative would be to generate destructuring code during compilation (as GHC does when lowering to Core). Path-based binding is more flexible — both backends interpret the same paths — but requires a path interpreter in each backend.
+**Path-based binding vs. immediate destructuring.** Ori's decision trees record bindings as `(Name, ScrutineePath)` pairs — the binding says *where* the value is, not *what* it is. The evaluator interprets these paths directly; ARC lowering resolves them once into shared control flow for VM and compiled executors. An alternative would be to generate destructuring code during compilation (as GHC does when lowering to Core). The current split preserves a representation-abstract oracle without requiring every physical backend to implement another path interpreter.
 
 **Guard nodes in the tree vs. guard-free compilation.** Including guards as first-class tree nodes (rather than converting guarded arms to guard-free form) preserves the original program's structure and enables the exhaustiveness checker to reason about guard fallthrough. The tradeoff is that guard nodes add a case to every tree-processing function (evaluator, codegen, exhaustiveness checker). Since guards are common in practice, this cost is justified.
 

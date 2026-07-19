@@ -9,17 +9,19 @@ Evidence-tie (4-anchor evidence cross-tie — rule <-> spec <-> .proof <-> Lean)
   map: aims-proof/scripts/proof-lean-map.json (theorem -> rule/spec/proof/lean).
 
 Correspondence: `docs/ori_lang/v2026/spec/annex-e-system-considerations.md §AIMS`.
-The decision predicates map a canonical lattice state (§3 dimensions) to an
-RC / COW / reuse / stack decision; each predicate gates a §8 realization rule:
-  DP-1 is_rc_needed        gates §8.1 RL-1 / RL-2 reference-count emission
-  DP-2 is_rc_dec_unnecessary gates the §8.1 supplementary-dec elision
-  DP-3 is_rc_inc_elidable  gates the §8.1 move-once inc elision
-  DP-4 needs_cow_check     gates §8.2 RL-6 / RL-7 / RL-8 (Unique / MaybeShared / Shared)
+The decision predicates map a canonical lattice state (§3 dimensions) to a
+backend-neutral ownership, sharing-isolation, or transfer decision; each
+predicate gates a §8 realization rule. Physical RC / COW / reuse spellings are
+projection choices, not part of this calculus:
+  DP-1 needs_ownership_events gates §8.1 RL-1 / RL-2 credit/release events
+  DP-2 is_release_unnecessary gates the §8.1 supplementary-release elision
+  DP-3 is_additional_credit_elidable gates §8.1 move-once credit elision
+  DP-4 needs_sharing_observation gates §8.2 RL-6 / RL-7 / RL-8
   DP-5 can_mutate_in_place gates §8.2 RL-6 in-place mutation + §8.2 RL-10 disjoint-field
   DP-6 is_reuse_candidate  gates §8.3 RL-11 / RL-11a allocation reuse
-  DP-7 is_rc_skip_eligible gates the §8.1 caller-inc / callee-dec pair elision
-  DP-8 is_local            gates §8.4 RL-14 / RL-15 stack promotion (Locality ≤ FunctionLocal)
-  DP-9 cow_mode            gates §8.2 RL-6 / RL-7 / RL-8 mode selection (Static / Dynamic)
+  DP-7 is_event_pair_elision_eligible gates §8.1 boundary-pair elision
+  DP-8 is_local            identifies the local subset consumed by RL-14 lifetime facts and DP-7
+  DP-9 mutation_obligation gates §8.2 RL-6 / RL-7 / RL-8 outcome selection
   DP-10 REMOVED            unsound caller→callee uniqueness derivation; see doc-comment.
 
 Each predicate is defined as a Lean function over `AimsState` (DP-1..DP-4, DP-6,
@@ -52,21 +54,26 @@ set_option maxHeartbeats 1000000
 
 namespace AimsProof
 
-/-! ## §DP-1 — `is_rc_needed` (annex-e §AIMS §3 + §8.1 RL-1 / RL-2)
+/-! ## §DP-1 — `needs_ownership_events` (annex-e §AIMS §3 + §8.1 RL-1 / RL-2)
 
-    `is_rc_needed(s) ⟺ s.access = Owned ∧ s.consumption ≠ Dead ∧ ¬is_scalar`.
-    Gates §8.1 reference-count emission: an owned, live, non-scalar value carries
-    RC responsibility. -/
+    `needs_ownership_events(s) ⟺ s.access = Owned ∧ s.consumption ≠ Dead ∧
+    ¬is_scalar`. Gates §8.1 logical owner-credit/release realization: an owned,
+    live, non-scalar value carries an ownership obligation. -/
 
-/-- DP-1: RC is needed iff the value is Owned, live (≠ Dead), and not a scalar. -/
-def is_rc_needed (s : AimsState) (is_scalar : Bool) : Bool :=
+/-- DP-1: ownership events are needed iff the value is Owned, live (≠ Dead),
+    and not a scalar. -/
+def needs_ownership_events (s : AimsState) (is_scalar : Bool) : Bool :=
   (s.access = .Owned) && (s.consumption != .Dead) && (!is_scalar)
+
+/-- Historical compatibility alias. `is_rc_needed` was the original
+    projection-specific spelling of the neutral DP-1 predicate. -/
+abbrev is_rc_needed := needs_ownership_events
 
 /-- DP-1 truth table (4 rows, exhaustive over Access × Consumption × is_scalar):
       Borrowed → false; Owned ∧ Dead → false; Owned ∧ ≠Dead ∧ scalar → false;
       Owned ∧ ≠Dead ∧ non-scalar → true. -/
 theorem DP1_is_rc_needed_table (s : AimsState) (is_scalar : Bool) :
-    is_rc_needed s is_scalar
+    needs_ownership_events s is_scalar
       = ((s.access = .Owned) && (s.consumption != .Dead) && (!is_scalar)) := by
   rfl
 
@@ -74,66 +81,76 @@ theorem DP1_is_rc_needed_table (s : AimsState) (is_scalar : Bool) :
     `true` on EXACTLY the Owned × non-Dead × non-scalar corner. -/
 theorem DP1_is_rc_needed_rows (acc : AccessClass) (con : Consumption)
     (rest : AimsState) (is_scalar : Bool) :
-    is_rc_needed { rest with access := acc, consumption := con } is_scalar
+    needs_ownership_events { rest with access := acc, consumption := con } is_scalar
       = (decide (acc = .Owned) && decide (con ≠ .Dead) && !is_scalar) := by
   cases acc <;> cases con <;> cases is_scalar <;> rfl
 
-/-! ## §DP-2 — `is_rc_dec_unnecessary` (annex-e §AIMS §3 + §8.1)
+/-! ## §DP-2 — `is_release_unnecessary` (annex-e §AIMS §3 + §8.1)
 
     `is_rc_dec_unnecessary(s) ⟺ s.cardinality = Absent ∨ s.consumption = Dead`.
     Under CN-1 (§5) the two clauses are bidirectionally implied on canonical
     states. Gates the §8.1 supplementary-dec elision. -/
 
-def is_rc_dec_unnecessary (s : AimsState) : Bool :=
+def is_release_unnecessary (s : AimsState) : Bool :=
   (s.cardinality = .Absent) || (s.consumption = .Dead)
+
+/-- Historical compatibility alias for the physical-counter spelling. -/
+abbrev is_rc_dec_unnecessary := is_release_unnecessary
 
 /-- DP-2 truth table (Cardinality × Consumption): Absent → true; Dead → true;
       Once ∧ ≠Dead → false; Many ∧ ≠Dead → false. -/
 theorem DP2_is_rc_dec_unnecessary_table (car : Cardinality) (con : Consumption)
     (rest : AimsState) :
-    is_rc_dec_unnecessary { rest with cardinality := car, consumption := con }
+    is_release_unnecessary { rest with cardinality := car, consumption := con }
       = (decide (car = .Absent) || decide (con = .Dead)) := by
   cases car <;> cases con <;> rfl
 
-/-! ## §DP-3 — `is_rc_inc_elidable` (annex-e §AIMS §3 + §8.1)
+/-! ## §DP-3 — `is_additional_credit_elidable` (annex-e §AIMS §3 + §8.1)
 
     `is_rc_inc_elidable(s) ⟺ s.cardinality = Once ∧ s.consumption ∈ {Linear, Affine}`.
     A value used EXACTLY ONCE (`cardinality = Once`) is not duplicated, so the
-    duplicate-inc at its single use is unnecessary — independent of whether that
+    duplicate-credit at its single use is unnecessary — independent of whether that
     use is a MOVE (`Linear`: the consumer takes ownership and decs) or a BORROW
     (`Affine`: the value is read non-consumingly then released by its own RL-2
-    scope-exit dec). Neither use creates a new owned reference, so neither needs
-    the inc. Existing upstream aliases are DECOUPLED (each carries its own
-    refcount entry; DP-3 only affects the duplicate-inc at this use site), so the
+    scope-exit debit). Neither use creates a new logical owner, so neither needs
+    the credit. Existing upstream aliases are DECOUPLED (each carries its own
+    owner-credit obligation; DP-3 only affects the duplicate at this use site), so the
     extension to `Affine` does not re-introduce the removed-DP-10 unsoundness.
     `Unrestricted` is excluded (it co-occurs only with `Many` cardinality — a
     genuine multi-use that DOES need the inc); `Dead` is excluded by the `Once`
     gate (CN-1: Dead ↔ Absent). -/
 
-def is_rc_inc_elidable (s : AimsState) : Bool :=
+def is_additional_credit_elidable (s : AimsState) : Bool :=
   (s.cardinality = .One) && (s.consumption = .Linear || s.consumption = .Affine)
+
+/-- Historical compatibility alias for the physical-counter spelling. -/
+abbrev is_rc_inc_elidable := is_additional_credit_elidable
 
 /-- DP-3 truth table (Cardinality × Consumption): Once ∧ (Linear ∨ Affine) →
       true; Once ∧ (Dead ∨ Unrestricted) → false; ≠Once → false. -/
 theorem DP3_is_rc_inc_elidable_table (car : Cardinality) (con : Consumption)
     (rest : AimsState) :
-    is_rc_inc_elidable { rest with cardinality := car, consumption := con }
+    is_additional_credit_elidable { rest with cardinality := car, consumption := con }
       = (decide (car = .One) && (decide (con = .Linear) || decide (con = .Affine))) := by
   cases car <;> cases con <;> rfl
 
-/-! ## §DP-4 — `needs_cow_check` (annex-e §AIMS §3.4 + §8.2 RL-6 / RL-7 / RL-8)
+/-! ## §DP-4 — `needs_sharing_observation` (annex-e §AIMS §3.4 + §8.2 RL-6 / RL-7 / RL-8)
 
-    `needs_cow_check(s) ⟺ s.uniqueness = MaybeShared`. Unique = §8.2 RL-6 static
-    fast path; Shared = §8.2 RL-8 static slow path; MaybeShared = §8.2 RL-7
-    runtime IsShared check. -/
+    `needs_sharing_observation(s) ⟺ s.uniqueness = MaybeShared`. Unique admits
+    the same-identity mutation outcome; Shared requires mutation isolation;
+    MaybeShared requires a sharing observation before choosing between those
+    outcomes. The observation and isolation mechanisms belong to projection. -/
 
-def needs_cow_check (s : AimsState) : Bool :=
+def needs_sharing_observation (s : AimsState) : Bool :=
   s.uniqueness = .MaybeShared
+
+/-- Historical compatibility alias for the COW-specific spelling. -/
+abbrev needs_cow_check := needs_sharing_observation
 
 /-- DP-4 truth table (Uniqueness): Unique → false; MaybeShared → true;
       Shared → false — true on EXACTLY the MaybeShared row. -/
 theorem DP4_needs_cow_check_table (u : Uniqueness) (rest : AimsState) :
-    needs_cow_check { rest with uniqueness := u } = decide (u = .MaybeShared) := by
+    needs_sharing_observation { rest with uniqueness := u } = decide (u = .MaybeShared) := by
   cases u <;> rfl
 
 /-! ## §DP-6 — `is_reuse_candidate` (annex-e §AIMS §3 + §8.3 RL-11 / RL-11a)
@@ -153,11 +170,12 @@ theorem DP6_is_reuse_candidate_table (acc : AccessClass) (u : Uniqueness)
       = (decide (acc = .Owned) && decide (u ≠ .Shared) && decide (sh ≠ .NonReusable)) := by
   cases acc <;> cases u <;> cases sh <;> rfl
 
-/-! ## §DP-8 — `is_local` (annex-e §AIMS §3.5 + §8.4 RL-14 / RL-15)
+/-! ## §DP-8 — `is_local` (annex-e §AIMS §3.5 + §8.4 RL-14)
 
     `is_local(s) ⟺ s.locality ∈ {BlockLocal, FunctionLocal}`. ArgEscaping is NOT
-    local — it escapes into the callee; its optimization is §8.4 RL-15a caller
-    stack promotion, not RC elision. Gates §8.4 stack promotion. -/
+    local — it escapes into the callee and RL-15a freezes its exact caller-use
+    extent. The predicate gates DP-7 and identifies the two precise local
+    LifetimeBound cases; it does not choose target placement. -/
 
 def is_local (s : AimsState) : Bool :=
   (s.locality = .BlockLocal) || (s.locality = .FunctionLocal)
@@ -170,20 +188,23 @@ theorem DP8_is_local_table (l : Locality) (rest : AimsState) :
       = (decide (l = .BlockLocal) || decide (l = .FunctionLocal)) := by
   cases l <;> rfl
 
-/-! ## §DP-7 — `is_rc_skip_eligible` (annex-e §AIMS §3 + §8.1)
+/-! ## §DP-7 — `is_event_pair_elision_eligible` (annex-e §AIMS §3 + §8.1)
 
-    `is_rc_skip_eligible(s) ⟺ is_local(s) ∧ s.access = Owned ∧
+    `is_event_pair_elision_eligible(s) ⟺ is_local(s) ∧ s.access = Owned ∧
       s.consumption = Linear ∧ s.cardinality = Once ∧ s.uniqueness = Unique ∧
       ¬is_scalar`. Gates the §8.1 caller-inc / callee-dec pair elision; evaluated
     on the callee's parameter state. -/
 
-def is_rc_skip_eligible (s : AimsState) (is_scalar : Bool) : Bool :=
+def is_event_pair_elision_eligible (s : AimsState) (is_scalar : Bool) : Bool :=
   (is_local s)
     && (s.access = .Owned)
     && (s.consumption = .Linear)
     && (s.cardinality = .One)
     && (s.uniqueness = .Unique)
     && (!is_scalar)
+
+/-- Historical compatibility alias for the RC-specific boundary spelling. -/
+abbrev is_rc_skip_eligible := is_event_pair_elision_eligible
 
 /-- DP-7 truth table (7-row): false unless is_local ∧ Owned ∧ Linear ∧ Once ∧
       Unique ∧ non-scalar; the single `true` row is the move-once local unique
@@ -192,7 +213,7 @@ def is_rc_skip_eligible (s : AimsState) (is_scalar : Bool) : Bool :=
 theorem DP7_is_rc_skip_eligible_table (l : Locality) (acc : AccessClass)
     (con : Consumption) (car : Cardinality) (u : Uniqueness)
     (rest : AimsState) (is_scalar : Bool) :
-    is_rc_skip_eligible
+    is_event_pair_elision_eligible
         { rest with locality := l, access := acc, consumption := con,
                     cardinality := car, uniqueness := u } is_scalar
       = ((decide (l = .BlockLocal) || decide (l = .FunctionLocal))
@@ -293,80 +314,112 @@ theorem DP5_set_disjoint_field_allows (rest : AimsState) :
         (borrowPathOverlapsField := false) (aliasLive := false) = true := by
   rfl
 
-/-! ## §DP-9 — `cow_mode` (annex-e §AIMS §3.4 + §7 IC-3 + §8.2 RL-6 / RL-7 / RL-8)
+/-! ## §DP-9 — mutation outcome/obligation classification
+    (annex-e §AIMS §3.4 + §7 IC-3 + §8.2 RL-6 / RL-7 / RL-8)
 
-    `cow_mode` classifies a mutation into one of three modes. It composes DP-5
+    `mutation_obligation` is a neutral classification into three
+    admissible-outcome/obligation states. It composes DP-5
     (the local in-place safety check) and the §7 IC-3 `ParamContract.uniqueness`
     (the interprocedural past-guarantee). The 6-row table (post row (c) /
     (c-prime) refinement):
-      (a) Unique ∧ DP-5 = true            → StaticUnique  (§8.2 RL-6)
-      (b) Unique ∧ DP-5 = false           → StaticShared  (§8.2 RL-8)
-      (c) MaybeShared ∧ DP-5 ∧ IC-3 = Unique → StaticUnique (caller proved RC == 1)
-      (c-prime) MaybeShared ∧ ¬DP-5 ∧ IC-3 = Unique → Dynamic (local borrow blocks)
-      (d) MaybeShared ∧ IC-3 ≠ Unique     → Dynamic  (§8.2 RL-7)
-      (e) Shared                          → StaticShared  (§8.2 RL-8). -/
+      (a) Unique ∧ DP-5 = true            → SameIdentityAdmissible (§8.2 RL-6)
+      (b) Unique ∧ DP-5 = false           → IsolationRequired (§8.2 RL-8)
+      (c) MaybeShared ∧ DP-5 ∧ IC-3 = Unique → SameIdentityAdmissible
+      (c-prime) MaybeShared ∧ ¬DP-5 ∧ IC-3 = Unique → SharingObservationRequired
+      (d) MaybeShared ∧ IC-3 ≠ Unique     → SharingObservationRequired (§8.2 RL-7)
+      (e) Shared                          → IsolationRequired (§8.2 RL-8).
 
-inductive CowMode
-  | StaticUnique
-  | StaticShared
-  | Dynamic
+    None of these states prescribes a check, branch, copy, storage layout, or
+    backend. Physical projections choose mechanisms that satisfy the frozen
+    obligation. -/
+
+inductive MutationObligation
+  | SameIdentityAdmissible
+  | IsolationRequired
+  | SharingObservationRequired
 deriving Repr, DecidableEq
 
-/-- DP-9: classify the mutation mode from the state's Uniqueness, the DP-5 local
-    in-place result, and the §7 IC-3 parameter-contract uniqueness. -/
-def cow_mode (s : AimsState) (dp5 : Bool) (ic3Uniqueness : Uniqueness) : CowMode :=
+/-- Historical compatibility alias for the copy-on-write carrier spelling. -/
+abbrev CowMode := MutationObligation
+
+namespace CowMode
+
+/-- Historical compatibility names for the three neutral obligations. -/
+abbrev StaticUnique : CowMode := .SameIdentityAdmissible
+abbrev StaticShared : CowMode := .IsolationRequired
+abbrev Dynamic : CowMode := .SharingObservationRequired
+
+end CowMode
+
+/-- DP-9: classify the admissible mutation outcome or sharing/isolation
+    obligation from the state's Uniqueness, the DP-5 local result, and the §7
+    IC-3 parameter-contract uniqueness. -/
+def mutation_obligation (s : AimsState) (dp5 : Bool)
+    (ic3Uniqueness : Uniqueness) : MutationObligation :=
   match s.uniqueness with
-  | .Unique      => if dp5 then .StaticUnique else .StaticShared           -- rows (a) / (b)
-  | .Shared      => .StaticShared                                          -- row (e)
+  | .Unique      => if dp5 then .SameIdentityAdmissible else .IsolationRequired
+  | .Shared      => .IsolationRequired
   | .MaybeShared =>
       match ic3Uniqueness with
-      | .Unique => if dp5 then .StaticUnique else .Dynamic                 -- rows (c) / (c-prime)
-      | _       => .Dynamic                                                -- row (d)
+      | .Unique => if dp5 then .SameIdentityAdmissible else .SharingObservationRequired
+      | _       => .SharingObservationRequired
+
+/-- Historical compatibility alias for the copy-on-write classifier name. -/
+abbrev cow_mode := mutation_obligation
 
 /-- DP-9 truth table (6-row, exhaustive over Uniqueness × DP-5-result ×
       IC-3-uniqueness — 3 × 2 × 3 = 18 cases): matches the row partition
       (a) / (b) / (c) / (c-prime) / (d) / (e). -/
 theorem DP9_cow_mode_table (u : Uniqueness) (rest : AimsState)
     (dp5 : Bool) (ic3Uniqueness : Uniqueness) :
-    cow_mode { rest with uniqueness := u } dp5 ic3Uniqueness
+    mutation_obligation { rest with uniqueness := u } dp5 ic3Uniqueness
       = (match u with
-         | .Unique      => if dp5 then CowMode.StaticUnique else CowMode.StaticShared
-         | .Shared      => CowMode.StaticShared
+         | .Unique      => if dp5 then MutationObligation.SameIdentityAdmissible
+                                    else MutationObligation.IsolationRequired
+         | .Shared      => MutationObligation.IsolationRequired
          | .MaybeShared =>
              match ic3Uniqueness with
-             | .Unique => if dp5 then CowMode.StaticUnique else CowMode.Dynamic
-             | _       => CowMode.Dynamic) := by
+             | .Unique => if dp5 then MutationObligation.SameIdentityAdmissible
+                                    else MutationObligation.SharingObservationRequired
+             | _       => MutationObligation.SharingObservationRequired) := by
   cases u <;> cases dp5 <;> cases ic3Uniqueness <;> rfl
 
-/-- DP-9 row (c): MaybeShared ∧ DP-5 = true ∧ IC-3 = Unique → StaticUnique. The
-    caller-proved RC == 1 (IC-3) composes with local borrow safety (DP-5). -/
+/-- DP-9 row (c): MaybeShared ∧ DP-5 = true ∧ IC-3 = Unique admits the same
+    logical identity. The
+    caller-proved exactly-one-logical-owner fact (IC-3) composes with local
+    borrow safety (DP-5). -/
 theorem DP9_row_c_refinement (rest : AimsState) :
-    cow_mode { rest with uniqueness := .MaybeShared } true .Unique
-      = CowMode.StaticUnique := by rfl
+    mutation_obligation { rest with uniqueness := .MaybeShared } true .Unique
+      = MutationObligation.SameIdentityAdmissible := by rfl
 
-/-- DP-9 row (c-prime): MaybeShared ∧ DP-5 = false ∧ IC-3 = Unique → Dynamic.
-    IC-3 proves not-shared at entry but the local DP-5 check forces fall-through
-    to the §8.2 RL-7 runtime IsShared path (the joint-DP-5 refinement). -/
+/-- DP-9 row (c-prime): MaybeShared ∧ DP-5 = false ∧ IC-3 = Unique requires
+    a sharing observation.
+    IC-3 proves not-shared at entry but the local DP-5 check retains a
+    sharing-observation obligation (the joint-DP-5 refinement). -/
 theorem DP9_row_c_prime_fallthrough (rest : AimsState) :
-    cow_mode { rest with uniqueness := .MaybeShared } false .Unique
-      = CowMode.Dynamic := by rfl
+    mutation_obligation { rest with uniqueness := .MaybeShared } false .Unique
+      = MutationObligation.SharingObservationRequired := by rfl
 
-/-- DP-9 row (d): MaybeShared ∧ IC-3 ≠ Unique → Dynamic regardless of DP-5.
-    No interprocedural guarantee → §8.2 RL-7 runtime check required. -/
+/-- DP-9 row (d): MaybeShared ∧ IC-3 ≠ Unique requires a sharing observation
+    regardless of DP-5.
+    Without an interprocedural guarantee, a sharing observation is required. -/
 theorem DP9_row_d_dynamic (rest : AimsState) (dp5 : Bool) (ic3 : Uniqueness)
     (h : ic3 ≠ .Unique) :
-    cow_mode { rest with uniqueness := .MaybeShared } dp5 ic3 = CowMode.Dynamic := by
+    mutation_obligation { rest with uniqueness := .MaybeShared } dp5 ic3
+      = MutationObligation.SharingObservationRequired := by
   cases ic3 <;> cases dp5 <;> first | rfl | exact absurd rfl h
 
-/-- DP-9 row (e): Shared → StaticShared regardless of DP-5 / IC-3 (RC > 1 proved
-    statically → §8.2 RL-8 unconditional copy). -/
+/-- DP-9 row (e): Shared requires isolation regardless of DP-5 / IC-3 (multiple
+    logical owners proved statically → mutation isolation is mandatory). -/
 theorem DP9_row_e_shared (rest : AimsState) (dp5 : Bool) (ic3 : Uniqueness) :
-    cow_mode { rest with uniqueness := .Shared } dp5 ic3 = CowMode.StaticShared := by
+    mutation_obligation { rest with uniqueness := .Shared } dp5 ic3
+      = MutationObligation.IsolationRequired := by
   rfl
 
 /-! ## §DP-10 — REMOVED (unsound)
 
-    DP-10 formerly claimed `Owned ∧ Linear ∧ Once ⟹ RC == 1`. This is FALSE:
+    DP-10 formerly claimed `Owned ∧ Linear ∧ Once ⟹ exactly one logical owner`.
+    This is FALSE:
     backward analysis proves "no future duplication" but NOT "no existing
     aliases". Uniqueness is established ONLY via the Uniqueness dimension
     (§3.4) or a fresh allocation (TF-3 §4), never derived from the substructural

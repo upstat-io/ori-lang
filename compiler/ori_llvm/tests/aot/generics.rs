@@ -5,11 +5,6 @@
 //! generic-calling-generic chains, multiple specializations, generic with
 //! Option/Result, and generic functions returning tuples.
 
-#![allow(
-    clippy::needless_raw_string_hashes,
-    reason = "readability in test program literals"
-)]
-
 use crate::util::{assert_aot_success, compile_and_run_capture};
 
 // Generic with string arguments (RC-managed)
@@ -21,16 +16,47 @@ fn test_generic_identity_string() {
     );
 }
 
-// Regression: method-level type generic on a concrete-receiver impl returning
-// a layout-bearing [T]. A rigid_var-at-codegen ICE regressed only the LLVM/AOT
-// path (the interpreter always passed). Exercises int + str (heap-element)
-// instantiations of one method-level binder; assert_aot_success also leak-checks
-// (exit 2 = leak).
+/// An imported generic `len<T: Len>` reads an aggregate receiver's length
+/// through its forwarded borrowed pointer. List, map, and string receivers must
+/// produce the same length in interpreter and AOT execution.
+#[test]
+fn test_imported_generic_len_aggregate_receiver() {
+    assert_aot_success(
+        include_str!("fixtures/generics/imported_generic_len_aggregate.ori"),
+        "imported_generic_len_aggregate",
+    );
+}
+
+/// An imported generic `is_empty<T>` reads a non-empty list receiver through
+/// the borrowed-receiver forwarder. Scalar and heap element layouts must agree
+/// between interpreter and AOT execution.
+#[test]
+fn test_imported_generic_is_empty_aggregate_receiver() {
+    assert_aot_success(
+        include_str!("fixtures/generics/imported_generic_is_empty_aggregate.ori"),
+        "imported_generic_is_empty_aggregate",
+    );
+}
+
+// Method-level generics returning layout-bearing lists.
 #[test]
 fn test_method_generic_layout() {
     assert_aot_success(
         include_str!("fixtures/generics/method_generic_layout.ori"),
         "method_generic_layout",
+    );
+}
+
+/// Regression: method-mono dispatch on a nested-generic receiver
+/// `Option<[int]>.unwrap()`. The recorder substitutes the full concrete receiver
+/// `Idx` (`Applied(Option, [List(int)])`), distinct from `Option<int>`, so the
+/// collector/mangler/lookup resolve a dedicated `MonoFunction`; a re-collapse of the
+/// nested `[int]` to the generic shell re-surfaces a missing-mono-instance E5001.
+#[test]
+fn test_option_complex_arg_unwrap() {
+    assert_aot_success(
+        include_str!("fixtures/generics/option_complex_arg_unwrap.ori"),
+        "option_complex_arg_unwrap",
     );
 }
 
@@ -152,7 +178,6 @@ fn test_generic_chain_three_levels_string() {
 // Generic calling generic: mixed specializations
 #[test]
 fn test_generic_chain_multiple_specializations() {
-    // Same chain instantiated with different types in one program.
     assert_aot_success(
         include_str!("fixtures/generics/generic_chain_multiple_specializations.ori"),
         "generic_chain_four_specializations",
@@ -353,33 +378,37 @@ fn test_generic_str_compound() {
 }
 
 #[test]
-#[ignore = "BUG-04-105: nounwind-analysis does not distinguish may-unwind monomorphized callees; unrelated to BUG-04-090's generic-forwarder surface"]
-fn test_mono_may_unwind_callee_uses_invoke() {
-    // A generic function that calls panic should still use `invoke`.
+fn test_mono_may_unwind_callee_reaches_wrapper_invoke() {
+    // A cleanup-free call may use plain `call` and let the exception propagate,
+    // but neither the Ori entry function nor its C wrapper may be nounwind. The
+    // wrapper must retain the `invoke` that catches the propagated panic.
     let ir = crate::util::compile_and_capture_ir(include_str!(
         "fixtures/generics/mono_may_unwind_callee_uses_invoke.ori"
     ));
 
     let main_section = crate::util::extract_function_ir(&ir, "_ori_main");
+    let wrapper_section = crate::util::extract_function_ir(&ir, "main");
 
-    // _ori_main should use `invoke` for may_panic$m$int because it calls panic
     assert!(
-        main_section.contains("invoke fastcc"),
-        "expected `invoke fastcc` for may-unwind monomorphized callee in _ori_main.\n\
-         IR:\n{main_section}"
+        main_section.contains("call fastcc") && main_section.contains("_ori_may_panic"),
+        "expected cleanup-free call to the may-unwind specialization.\nIR:\n{main_section}"
+    );
+    for function in ["_ori_main", "main"] {
+        let attrs = crate::util::resolve_function_attrs(&ir, function);
+        assert!(
+            !attrs.contains("nounwind"),
+            "{function} must allow the monomorphized panic to unwind.\nAttributes: {attrs}"
+        );
+    }
+    assert!(
+        wrapper_section.contains("invoke i64 @_ori_main"),
+        "C wrapper must catch the panic propagated through _ori_main.\nIR:\n{wrapper_section}"
     );
 }
 
-// Generic chain root-extension regression matrix
-//
-// Coverage for the union-find root-extension fix that lets deferred
-// monomorphization resolve callees whose scheme var is NOT the
-// representative of its equivalence class. The fix landed in
-// `extend_var_subst_with_roots` (`pool/substitute/mod.rs`) and is invoked
-// at the three mono call sites: eager typeck, deferred typeck exports,
-// and JIT imported-mono. Each fixture exercises a different shape through
-// the 3+ hop chain; pre-fix all of these either silently miscompiled or
-// fired the PC-2 assertion at codegen.
+// Generic chain root-extension matrix.
+// Deferred monomorphization resolves callees even when the scheme variable is
+// not the representative of its equivalence class.
 
 #[test]
 fn test_generic_chain_four_levels() {
@@ -433,16 +462,11 @@ fn test_generic_chain_list_element() {
     );
 }
 
-// BUG-04-090: generic forwarder over [T] hop-count axis
-// Each forwarder hop currently emits a spurious scope-exit RcDec on the param
-// because AIMS interprocedural analysis lacks `transfers_through_return`. The
-// fix completes the Lean 4 `ownParamsUsingArgs` pattern — eliminate BOTH the
-// caller-side inc and the callee-side dec on owned-arg → owned-callee-param
-// transfer through Return. Tests live without `#[ignore]` so they fail today
-// (matching the existing ignored 3-hop case) and pass after the fix activates.
+// Generic forwarder hop-count matrix for transfer-through-return ownership.
+// Each hop suppresses both the caller increment and the callee scope-exit decrement.
 
 /// Single-hop generic identity forwarder applied to `[int]`. The minimal
-/// repro for BUG-04-090: even one hop produces a use-after-free because the
+/// Even one hop produces a use-after-free because the
 /// callee's spurious scope-exit dec frees the freshly-allocated list before
 /// the caller's scope exits.
 #[test]
@@ -454,9 +478,7 @@ fn test_generic_forwarder_hop1_returns_list_intact() {
 }
 
 /// Two-hop generic forwarder chain over `[int]`. Each hop adds one spurious
-/// dec; verifies the bug surfaces at the hop count below the existing 3-hop
-/// fixture so the fix's scope is bounded by the hop-count axis, not the
-/// 3-hop SCC depth specifically.
+/// dec; verifies the two-hop cell independently of SCC depth.
 #[test]
 fn test_generic_forwarder_hop2_returns_list_intact() {
     assert_aot_success(
@@ -467,8 +489,8 @@ fn test_generic_forwarder_hop2_returns_list_intact() {
 
 /// Four-hop generic forwarder chain over `[int]`. Stresses fixpoint
 /// convergence at depth ≥ 4 — guards against off-by-one in the SCC
-/// convergence bound (interprocedural/mod.rs:233 IC-7 formula updated by
-/// the fix from `× 6` dimension-count to `× 15` height-weighted).
+/// convergence bound (the `IC-7` height-weighted iteration-limit formula in
+/// `ori_arc` interprocedural analysis).
 #[test]
 fn test_generic_forwarder_hop4_returns_list_intact() {
     assert_aot_success(
@@ -477,9 +499,7 @@ fn test_generic_forwarder_hop4_returns_list_intact() {
     );
 }
 
-// BUG-04-090: cross-type axis
-// 1-hop generic forwarder applied to every relevant heap-typed shape.
-// Heap types fail today (use-after-free); scalar must NOT regress.
+// Cross-type forwarder axis.
 
 /// Generic forwarder over `[str]` — heap list of heap elements; verifies
 /// element-level decs still fire correctly (`elem_dec_fn` for inner str).
@@ -545,10 +565,7 @@ fn test_generic_forwarder_closure_capturing_list_returns_intact() {
     );
 }
 
-/// Generic forwarder over `int` — scalar regression clamp. Scalars have
-/// NO RC ops (RE-2 scalar exemption); this test must continue to
-/// pass both pre-fix and post-fix. The fix introduces no scalar-path
-/// changes.
+/// A generic `int` forwarder uses no RC operations under the scalar exemption.
 #[test]
 fn test_generic_forwarder_int_scalar_must_not_regress() {
     assert_aot_success(
@@ -602,10 +619,7 @@ fn test_generic_forwarder_box_list_returns_intact() {
     );
 }
 
-// BUG-04-090: forwarder shape axis
-// The param-return-alias rule must apply uniformly across forwarder
-// shapes. Generics are merely the most common pattern; non-generic
-// forwarders and inherent methods must also be covered.
+// Forwarder-shape axis.
 
 /// Non-generic forwarder applied to `[int]`. The fix's gate is
 /// STRUCTURAL (param flows to Return), not generics-specific. Verifies
@@ -629,12 +643,7 @@ fn test_inherent_method_forwarder_self_returns_self() {
     );
 }
 
-// BUG-04-090: path-sensitivity
-// The fix's suppression gate MUST be path-sensitive. A naive global-
-// suppression implementation (suppress all decs unconditionally for
-// params with transfers_through_return=true) would LEAK the not-returned
-// param on multi-return conditional flow. These cells pin the
-// path-sensitivity requirement.
+// Path-sensitive transfer-through-return coverage.
 
 /// `select<T>(cond, x, y) -> T = if cond then x else y` over `[int]`.
 /// Both x and y are candidates for return; only ONE is returned per
@@ -672,12 +681,8 @@ fn test_path_sensitive_triple_list_balances_rc_on_all_three_paths() {
     );
 }
 
-// Dead-owned-param-branch release (compute_dead_owned_param_branch_releases): a callee
-// Owned non-scalar PARAM that is returned on one branch but DEAD on others leaks on the
-// dead branches — the Phase-5 walk emits no per-edge RL-4 release. The positive pins clear
-// the leak (the two-param `pick`/`select` family); the negative pin clamps the
-// boundary (borrow-read-keeps-live) so the per-edge release never double-frees. Spec:
-// Annex E §AIMS RL-4 (edge dec) + RL-2 (release exactly once).
+// Dead owned-parameter branch release.
+// Spec: Annex E §AIMS RL-4 and RL-2.
 
 /// Positive matrix pin (type dimension `[str]`): the two-param `pick(c, x, y)` shape over
 /// a HEAP-ELEMENT list. On each branch the non-returned `[str]` param is dead; the
@@ -718,9 +723,8 @@ fn test_dead_param_borrow_read_then_dead_no_double_free() {
 
 /// Negative pin for path-sensitivity: stress-test exercising
 /// `select<T>` across multiple call sites with mixed path selection.
-/// Surfaces leak-detection failures under naive global-suppression.
-/// Phase 5 verification step runs this with `ORI_CHECK_LEAKS=1`; this
-/// AOT-success test pins the runtime crash today.
+/// Leak checking rejects implementations that suppress ownership operations
+/// globally instead of respecting the selected path.
 #[test]
 fn test_path_sensitive_select_negative_pin_completes_without_uaf() {
     assert_aot_success(
@@ -729,17 +733,12 @@ fn test_path_sensitive_select_negative_pin_completes_without_uaf() {
     );
 }
 
-// Forwarder-result RL-2 release (compute_forwarder_result_under_release): a
-// transfer-through-return forwarder RESULT whose monomorphized result-type burden is
-// empty leaks its transferred-in allocation when borrow-consumed then dead, because the
-// result lineage gets neither a FRESH inc nor a scope-exit dec. The positive pin clears
-// the leak; the two negative pins clamp the over-emission boundary (gate c moved-onward,
-// gate e FRESH-Construct owner) so the release never double-frees.
+// Forwarder-result RL-2 release boundaries.
 
 /// Positive pin (semantic): `Set<int>` from `@__collect_set` (a CALL RESULT, no
 /// in-class `Construct` owner) through a forwarder, borrow-consumed then dead. The
-/// forwarder-result release frees the 72-byte Set buffer; reverting it
-/// (`ORI_DISABLE_FORWARDER_RESULT_RELEASE=1`) re-surfaces the leak.
+/// forwarder-result release frees the 72-byte Set buffer. Setting
+/// `ORI_DISABLE_FORWARDER_RESULT_RELEASE=1` disables that release.
 #[test]
 fn test_forwarder_result_collect_set_borrow_consumed_no_leak() {
     assert_aot_success(
@@ -749,7 +748,7 @@ fn test_forwarder_result_collect_set_borrow_consumed_no_leak() {
 }
 
 /// Negative over-fire pin (gate c — alt-consumer): a forwarder result MOVED ONWARD into
-/// a second forwarder must NOT get the release (the downstream lineage owns + releases
+/// a second forwarder must NOT get the release (the continuing lineage owns + releases
 /// the allocation). Reverting gate c double-frees (exit-134).
 #[test]
 fn test_forwarder_result_collect_set_moved_no_double_free() {
@@ -771,7 +770,7 @@ fn test_forwarder_result_list_construct_owner_no_double_free() {
     );
 }
 
-// BUG-04-090: edge cases
+// Edge cases
 // Each cell pins a specific architectural decision the fix must
 // thread between.
 
@@ -809,6 +808,20 @@ fn test_edge_trmc_tail_recursive_unaffected_by_fix() {
     );
 }
 
+/// L8 AOT: prelude free fn `compare` shares the interned source
+/// name of the Comparable method it calls. On the native AOT path the codegen
+/// mono name+arg-types fallback must NOT self-target the builtin-method call
+/// into an infinite branch; the receiver-scoped discriminator lets it fall
+/// through to int's real `compare`. A cons-recursive TRMC fn coexists and must
+/// still recurse (no over-fire). A regression makes the binary hang.
+#[test]
+fn test_trmc_prelude_compare_no_self_loop() {
+    assert_aot_success(
+        include_str!("fixtures/generics/trmc_prelude_compare_no_self_loop.ori"),
+        "trmc_prelude_compare_no_self_loop",
+    );
+}
+
 /// `for...yield` return. yield-style return uses Invoke + Resume
 /// terminators; verify the gate does NOT suppress decs on Resume
 /// blocks (`is_unwind_block` should stay true).
@@ -824,7 +837,6 @@ fn test_edge_for_yield_return_preserves_unwind_decs() {
 /// unwind paths; verify the gate doesn't suppress decs on the unwind
 /// side.
 #[test]
-#[ignore = "BUG-04-092: lower_try Tag::int aggregate-shape mismatch in canon blocks reaching BUG-04-090's AIMS RC surface; un-ignore when BUG-04-092 lands"]
 fn test_edge_try_block_return_preserves_unwind_decs() {
     assert_aot_success(
         include_str!("fixtures/generics/edge_try_block_return.ori"),
@@ -875,7 +887,6 @@ fn test_iter_then_return_str_elements_survive_iter_consume() {
 /// Capability handlers lower to standard Return terminators; the
 /// param-return-alias rule applies uniformly.
 #[test]
-#[ignore = "BUG-02-026: typeck E2014 capability-propagation rejects main calling uses-Suspend callee; can't reach BUG-04-090's AIMS RC surface until BUG-02-026 lands"]
 fn test_edge_capability_handler_returns_param_uniformly() {
     assert_aot_success(
         include_str!("fixtures/generics/edge_capability_handler_returns_param.ori"),
@@ -894,10 +905,6 @@ fn test_generic_chain_tuple_element() {
 
 #[test]
 fn test_generic_chain_user_struct() {
-    // 3-hop with user-defined struct. The existing
-    // `test_generic_chain_with_struct` is 2-hop (main → apply_identity →
-    // identity); this one is 3-hop so the deferred-mono root-extension
-    // path is exercised end-to-end with a struct type argument.
     assert_aot_success(
         include_str!("fixtures/generics/generic_chain_user_struct.ori"),
         "generic_chain_user_struct",
@@ -995,9 +1002,8 @@ fn test_generic_method_on_generic_type() {
     );
 }
 
-// Inherent method on a generic type — broadened coverage across receiver shape
-// and method-body shape (int element type, the layout that monomorphizes
-// end-to-end today).
+// Inherent methods on generic types cover receiver and method-body shapes for
+// the fully monomorphized integer layout.
 
 /// Inherent method on a generic type called on two distinct `Box<int>`
 /// receivers; both call sites share one monomorphized `unwrap` body.
@@ -1072,8 +1078,7 @@ fn test_box_method_with_drifted_args_emits_typeck_error() {
         "fixtures/generics/generic_method_drifted_args_typeck_error.ori"
     ));
 
-    // Compilation MUST fail at type-check. A zero exit would mean the arity
-    // mismatch was accepted and a binary produced — a silent miscompilation.
+    // Compilation must reject the arity mismatch during type checking.
     assert_eq!(
         exit_code, -1,
         "drifted-arg method call compiled cleanly (silent miscompilation); \
@@ -1094,10 +1099,7 @@ fn test_box_method_with_drifted_args_emits_typeck_error() {
     );
 }
 
-// BUG-04-111: (B-1) Return-as-transfer extensions
-// Borrowed param + use(s) + Return. Verifies the new pre-compute set
-// for borrow-flow scope-exit RcDec covers (B-1) shape across types
-// and use patterns beyond the str-flavored snapshot (use_twice).
+// Return-as-transfer extensions.
 
 /// Regression: borrowed `[int]` param + 2 borrow uses + return. Extends the
 /// str-flavored `use_twice` snapshot to `[int]` element type — verifies the
@@ -1155,10 +1157,7 @@ fn test_borrow_list_int_match_arm_use_then_return_no_leak() {
     );
 }
 
-// BUG-04-111: (B-3) Borrow-only access
-// Value used as borrow inside function-call boundaries; verifies the
-// pre-compute set distinguishes borrow Applies (no dec at site) from
-// Return-as-transfer (dec required at function exit).
+// Borrow-only access.
 
 /// Regression: borrowed `[int]` param + 1 borrow Apply + Return.
 /// Single borrow access through a function-call boundary.
@@ -1190,10 +1189,7 @@ fn test_borrow_list_int_mixed_apply_then_return_no_leak() {
     );
 }
 
-// BUG-04-111: Cross-pattern cells
-// Distinct control-flow shapes that exercise Return-as-transfer across
-// genuinely uncovered patterns: Project consumer, depth-3 alias chain,
-// loop-body Let-alias, multi-block CFG, for...yield iteration.
+// Cross-pattern return-as-transfer cells.
 
 /// Regression: borrowed `[int]` param + Project consumer (index access)
 /// + Return. Verifies Project access (`xs[0]`) does NOT consume the borrow.
@@ -1245,17 +1241,12 @@ fn test_borrow_list_int_for_yield_then_return_no_leak() {
     );
 }
 
-// Live-across borrowed-collection family — a transfer-through-return Owned param
-// that is ALSO iter-consumed (for...yield) or multi-hop read-aliased inside the
-// body. One allocation, two terminal consumes (iter-free / scope-read + Return
-// transfer): the iter-consume is an RL-1 duplication needing one BurdenInc, and
-// a multi-hop read-alias is transparent (no spurious dec). Positive cross-type
-// pins + over-fire negatives (consumed-but-NOT-returned must keep status quo).
+// Live-across borrowed-collection coverage.
 
 /// Regression: for...yield iter-consume over a heap-element `[str]` param +
 /// Return the param. The iterator frees the param buffer; the duplication inc
 /// (RL-1) leaves the original reference for the Return transfer. Cross-type
-/// sibling of `test_borrow_list_int_for_yield_then_return_no_leak`.
+/// heap-element counterpart to the scalar-element return case.
 #[test]
 fn test_borrow_list_str_for_yield_then_return_no_leak() {
     assert_aot_success(
@@ -1266,8 +1257,8 @@ fn test_borrow_list_str_for_yield_then_return_no_leak() {
 
 /// Regression: loop-body multi-hop Let-alias of a heap-element `[str]` param +
 /// Return the param. The deepest alias is the same allocation the Return
-/// transfers out — it carries no spurious last-use dec. Cross-type sibling of
-/// `test_borrow_list_int_loop_body_let_alias_then_return_no_leak`.
+/// transfers out — it carries no spurious last-use dec. This is the heap-element
+/// counterpart to the scalar-element alias case.
 #[test]
 fn test_borrow_list_str_loop_body_let_alias_then_return_no_leak() {
     assert_aot_success(
@@ -1299,10 +1290,7 @@ fn test_borrow_list_int_loop_body_let_alias_no_return_no_leak() {
     );
 }
 
-// BUG-04-111: Canonical-rep semantics pins
-// Positive pins exercising post-fix canonical-rep selection logic.
-// May not be RED at HEAD (they verify NEW semantics introduced by the
-// fix); pre-fix passing is acceptable for these.
+// Canonical-representation selection semantics.
 
 /// Positive pin: `canonical_rep_for` picks the LATEST-emitting member
 /// when multiple SSA alias class members exist.
@@ -1335,12 +1323,10 @@ fn test_borrow_list_int_bypass_safe_interaction_then_return_no_leak() {
     );
 }
 
-// BUG-04-111: (A)-shape new pins
-// Positive pins exercising post-fix PIN-6 chain semantics.
+// Additional ownership shapes for PIN-6 chain semantics.
 
 /// Positive pin: 3-alias merge at CFG join — verifies
-/// post-fix expanded input set doesn't break PIN-6 chain resolution
-/// when the SSA alias class has 3 distinct members merging.
+/// PIN-6 chain resolution when three SSA alias-class members merge.
 #[test]
 fn test_borrow_list_int_three_alias_merge_then_return_no_leak() {
     assert_aot_success(
@@ -1361,13 +1347,8 @@ fn test_borrow_list_int_nested_pin6_chain_then_return_no_leak() {
     );
 }
 
-// As-compiled impl-method contract pins
-// Caller-side `transfers_through_return` binding for impl-method callees.
+// As-compiled impl-method contracts.
 
-/// Negative over-fire pin: a CONDITIONAL impl-method forwarder (both params
-/// may flow to the return) must not double-free under the caller-side
-/// as-compiled contract binding — the returned Wrapper is released once,
-/// the non-returned one by its own path release.
 #[test]
 fn test_impl_method_conditional_forwarder_no_double_free() {
     assert_aot_success(
@@ -1376,18 +1357,6 @@ fn test_impl_method_conditional_forwarder_no_double_free() {
     );
 }
 
-// Forwarder-identity alias transparency
-// A `Let { Var }` alias of a transfers-through-return Owned param is a
-// same-allocation view of the moved-through value, not an RL-1 duplication.
-// Classifying it emits a paired alias inc/dec the per-var DP-2/DP-3
-// elimination splits (inc elided, dec kept) — an over-release double-free.
-// Toggle: ORI_DISABLE_FORWARDER_IDENTITY_ALIAS_DEDUP=1 restores the
-// classification (the double-free returns — mutation-verified).
-
-/// Multi-use-then-return impl forwarder: `self.items.len()` borrow-read plus
-/// `if .. then self else self` — the branch aliases of the moved-through
-/// `self` must carry no RC pair of their own; the allocation is released
-/// exactly once by the caller of the bound result.
 #[test]
 fn test_impl_method_multi_use_then_return_forwarder_releases_once() {
     assert_aot_success(
@@ -1396,10 +1365,6 @@ fn test_impl_method_multi_use_then_return_forwarder_releases_once() {
     );
 }
 
-/// Free-function twin of the multi-use-then-return forwarder: the defect is
-/// contract-independent (the real interprocedural contract already proved
-/// `transfers_through_return`, yet the alias classification ignored it), so
-/// the transparency rule must fire uniformly on free functions.
 #[test]
 fn test_free_fn_multi_use_then_return_forwarder_releases_once() {
     assert_aot_success(
@@ -1408,21 +1373,6 @@ fn test_free_fn_multi_use_then_return_forwarder_releases_once() {
     );
 }
 
-// Genuine-duplication pair coupling
-// A ttr-param alias consumed at an owned Construct position while the source
-// is read after the store and returned on BOTH arms is a GENUINE RL-1
-// duplication — the store creates a real second reference. The pair is
-// atomic: the alias-site inc backs the container's release (kept even though
-// the alias's own dec is transfer-suppressed), and the per-var DP-2/DP-3
-// elimination must never split a param-rooted alias pair (inc elided per the
-// alias's Once state, dec kept — net -1 over-release).
-// Toggle: ORI_DISABLE_GENUINE_DUP_PAIR_COUPLING=1 restores the decoupled
-// treatment (the double-free returns — mutation-verified).
-
-/// Stash-and-return: `let a = w; Holder { kept: a }` stores the duplicate
-/// while `w.items` is read after the store and `w` returns on both arms.
-/// The allocation must be released exactly twice across both owners — once
-/// by the Holder's drop, once by the caller of the returned value.
 #[test]
 fn test_genuine_dup_stash_and_return_releases_each_owner_once() {
     assert_aot_success(
@@ -1431,18 +1381,30 @@ fn test_genuine_dup_stash_and_return_releases_each_owner_once() {
     );
 }
 
-// Local terminal-move store
-// A fresh local read once (borrow projection) then STORED into a Holder as
-// its terminal use. The store IS the move — the Holder's release is the
-// single release of the whole tree; the read-alias pair must never be split
-// by the per-var elimination (inc elided per the alias's Once state, dec
-// kept — net -1, an over-release double-free on top of the transfer).
-// Toggle: ORI_DISABLE_LOCAL_CONSTRUCT_PAIR_COUPLING=1 restores the split
-// (the double-free returns — mutation-verified).
+#[test]
+fn test_generic_body_ordering_scalar_construct_and_match_returns_correct_ordering() {
+    assert_aot_success(
+        include_str!("fixtures/generics/generic_body_ordering_scalar_construct.ori"),
+        "generic_body_ordering_scalar_construct",
+    );
+}
 
-/// Read-then-store: `let $n = w.items.len(); Holder { kept: w }` — the
-/// borrow read's alias pair stays whole, the store transfers the original
-/// reference, and the holder's drop releases the tree exactly once.
+#[test]
+fn test_tagged_ptr_construct_project_payload_survives() {
+    assert_aot_success(
+        include_str!("fixtures/generics/tagged_ptr_construct_project_payload_survives.ori"),
+        "tagged_ptr_construct_project_payload_survives",
+    );
+}
+
+#[test]
+fn test_imported_generic_aggregate_construct_no_regression() {
+    assert_aot_success(
+        include_str!("fixtures/generics/imported_generic_aggregate_construct_no_regression.ori"),
+        "imported_generic_aggregate_construct_no_regression",
+    );
+}
+
 #[test]
 fn test_local_terminal_move_store_releases_once() {
     assert_aot_success(

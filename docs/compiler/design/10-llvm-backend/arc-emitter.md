@@ -25,15 +25,24 @@ This translation is rarely one-to-one. A high-level "construct a struct" operati
 
 Ori uses **direct emission** from ARC IR to LLVM IR. The `ArcIrEmitter` walks each `ArcFunction`'s basic blocks, dispatching on instruction type and emitting the corresponding LLVM IR through the `IrBuilder` API. Each ARC IR instruction maps to a known pattern of LLVM instructions — there is no pattern matching, no template expansion, just a procedural walk.
 
-The key characteristic of Ori's instruction selection is that the source IR is **ARC IR**, not the original canonical expressions. By the time the emitter sees the program, all high-level constructs (match expressions, desugared operators, loop forms) have been compiled to basic blocks with explicit control flow, and all memory management decisions (where to increment, where to decrement, which allocations to reuse) have been made. The emitter's job is purely mechanical: translate each ARC instruction into LLVM instructions, respecting the `RcStrategy` annotations and `EmittedValue` representations.
+- The source IR is **ARC IR**, not the original canonical expressions.
+- Before emission, high-level constructs become explicit control flow and AIMS
+  freezes every logical ownership event, reuse/COW decision, transfer edge, and
+  cleanup obligation.
+- Production emission validates those facts against
+  `CompiledLayoutPlan(TargetSpec)` and encodes them mechanically as LLVM IR.
+- The shipped `RcStrategy` and `EmittedValue` dispatch documents today's
+  physical adapter; it is not the AIMS contract.
 
 ## What Makes the ARC Emitter Distinctive
 
-### The Sole Codegen Path
+### The Ordinary-Body Codegen Path
 
-The `ArcIrEmitter` is the **only** way Ori generates LLVM IR. Every function body — user-defined functions, derived trait methods, closure bodies, entry point wrappers — flows through the same emitter. There is no "direct" codegen path that bypasses ARC analysis, no "fast path" for simple functions, no separate handling for compiler-generated code.
+The `ArcIrEmitter` is the sole LLVM path for ordinary realized bodies: user-defined functions, closure bodies, and lowered control flow. It translates the ownership plan mechanically and does not decide where RC, COW, reuse, or drops belong.
 
-This single-path design was a deliberate architectural choice. An earlier version of the backend had a dual-path system: simple functions used a direct `ExprLowerer` that translated canonical expressions to LLVM IR without ARC analysis, while complex functions used the AIMS pipeline. The dual-path system was removed (roughly 11,000 lines of code) because it was a constant source of bugs — the two paths would diverge on edge cases, producing correct code in one path and incorrect code in the other. The single ARC path eliminated this class of bugs entirely.
+An earlier version of the backend routed simple user functions through a direct `ExprLowerer` while complex functions used AIMS. Removing that split eliminated a recurring divergence class for source bodies.
+
+> **Current gap — compiler-generated bodies.** Derived trait methods are still synthesized directly by `derive_codegen`, outside `ArcIrEmitter` and AIMS. Some wrappers and builtin handlers also have LLVM-specific construction surfaces. These are not exceptions to the one-calculus rule: production convergence must express shared semantics and ownership in the executable carrier, then let this module project them to LLVM. Until that migration lands, claims of a sole whole-program codegen path are incorrect.
 
 ### RPO Block Emission
 
@@ -129,9 +138,14 @@ The distinction between variants matters in three places:
 
 ## RC Operation Emission
 
-RC operations are the emitter's most nuanced responsibility. Each `RcInc`, `RcDec`, and `IsShared` instruction in the ARC IR carries an `RcStrategy` that determines the emission pattern.
+- Ownership-event projection is the emitter's most nuanced responsibility.
+- The shipped `RcInc`, `RcDec`, and `IsShared` carrier includes `RcStrategy`,
+  which currently selects an LLVM emission pattern.
+- Production uses the event's stable `ValueSemanticsId`/`ExecutableDropPlanId`
+  plus `CompiledLayoutPlan(TargetSpec)`; LLVM never determines which logical
+  event or field cleanup applies.
 
-### RcStrategy Dispatch
+### Current `RcStrategy` Dispatch (Migration Surface)
 
 | Strategy | Inc Pattern | Dec Pattern |
 |----------|-------------|-------------|
@@ -144,9 +158,15 @@ RC operations are the emitter's most nuanced responsibility. Each `RcInc`, `RcDe
 
 **Closure RC** is the most complex case. Non-capturing closures have a null `env_ptr`, so RC operations must null-check before touching the pointer. The dec path is asymmetric: it loads the drop function from field 0 of the environment struct and passes it to `ori_rc_dec_with_drop`, which calls the drop function when the refcount reaches zero.
 
-**AggregateFields** uses recursive type-structure traversal (in `rc_value_traversal.rs`). The emitter walks the type's structure at codegen time, emitting GEP instructions to reach each nested RC field. For a struct with fields `{ name: str, scores: [int], id: int }`, the traversal emits: GEP to field 0 → dec `str`, GEP to field 1 → dec `[int]`, skip field 2 (scalar `int`).
+**AggregateFields** currently uses recursive type-structure traversal in
+`rc_value_traversal.rs`. It must migrate to the bound `ExecutableDropPlanId`
+for logical field/drop order plus `CompiledLayoutPlan(TargetSpec)` for offsets;
+LLVM must not re-derive either policy from the type.
 
-**InlineEnum** generates a switch on the discriminant tag, with one arm per variant. Each arm decrements only the RC fields present in that variant. The inc path is a no-op because enum values are always freshly constructed with correct reference counts.
+**InlineEnum** currently generates a switch on the compiled discriminant. In
+production, the drop plan selects the active variant's logical fields and the
+compiled layout supplies the discriminant/offset encoding. The current no-op
+increment behavior is migration evidence, not a universal AIMS or VM rule.
 
 ## Drop Function Generation
 
@@ -231,26 +251,32 @@ flowchart LR
 
 ## Interaction with ori_arc
 
-The emitter consumes `ArcFunction` values produced by `ori_arc::run_arc_pipeline()`. It does not call any ARC analysis passes itself. The contract between the two crates is clear:
+- The shipped emitter consumes `ArcFunction` values produced by `ori_arc::run_arc_pipeline()`.
+- It does not call ARC analysis passes itself.
+- Production consumes the validated executable carrier plus compiled layout plan.
 
-**ori_arc is responsible for:**
+**AIMS and executable construction are responsible for:**
 - Lowering canonical expressions to basic-block IR
 - Borrow inference (determining Owned vs. Borrowed parameters)
 - Liveness analysis (determining when variables are last used)
 - RC insertion (placing `RcInc` and `RcDec` at the right points)
 - Reset/reuse optimization (converting free+alloc to in-place reuse)
 - RC elimination (removing redundant inc/dec pairs)
-- Attaching `RcStrategy` annotations to every RC operation
+- Binding every logical event to exact stable value/drop-plan identities;
+  `RcStrategy` remains a transitional carrier until that coverage is complete
 
 **ArcIrEmitter is responsible for:**
 - Translating flat ARC IR blocks into LLVM basic blocks
 - Emitting LLVM instructions for each ARC IR instruction
-- Generating drop functions for types that need custom cleanup
-- Generating element RC callbacks for COW collection operations
+- Encoding bound drop plans and collection cleanup through the validated
+  `CompiledLayoutPlan(TargetSpec)` without re-deriving logical traversal
 - Managing the LLVM basic block structure (RPO ordering, dead block elimination)
-- Respecting `EmittedValue` representations at every step
+- Respecting the selected compiled representation at every step
 
-This separation means the emitter never needs to reason about variable liveness or RC placement — those decisions are baked into the ARC IR's instruction sequence. The emitter is a straightforward translation layer, which makes it easier to verify and maintain.
+- The emitter never reasons about variable liveness or logical ownership-event placement.
+- It does not own layout; it validates and encodes the shared compiled plan.
+- That narrow responsibility makes the projection independently verifiable and
+  prevents LLVM from becoming a hidden AIMS or representation authority.
 
 ## Prior Art
 
@@ -264,7 +290,7 @@ This separation means the emitter never needs to reason about variable liveness 
 
 ## Design Tradeoffs
 
-**Single codegen path vs. tiered compilation.** All functions go through ARC IR, even trivially simple ones that need no RC operations. A tiered approach — direct emission for simple functions, AIMS pipeline for complex ones — would reduce compilation time for simple functions but would reintroduce the dual-path divergence bugs that motivated the single-path design. The AIMS pipeline is fast enough for simple functions (an empty function produces a two-block, zero-instruction ARC function) that the simplicity benefit outweighs the speed cost.
+**Shared calculus vs. tiered physical compilation.** All ordinary functions go through ARC IR, even when they need no RC operations. Physical tiers may interpret bytecode, emit LLVM IR, or JIT hot regions, but they consume one ownership plan. A tier that reruns ownership analysis for "simple" functions would reintroduce the divergence that removing `ExprLowerer` fixed. Compiler-generated bodies remain the current convergence gap described above.
 
 **RPO emission vs. natural order.** RPO traversal adds a pre-computation step (DFS + reversal) before emission. Emitting blocks in array order would be simpler but would produce incorrect SSA in cases where the `expand_reuse` pass creates blocks out of dominance order. The RPO computation is O(n) in the number of blocks and adds negligible time relative to the LLVM instruction emission.
 

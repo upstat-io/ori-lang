@@ -58,8 +58,9 @@ impl TypeCheckError {
                 similar: vec![],
             },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                format!("constant `${name:?}` is not defined in this scope"),
+            suggestions: vec![Suggestion::text_with_names(
+                "constant `${0}` is not defined in this scope",
+                vec![name],
                 0,
             )],
         }
@@ -149,15 +150,11 @@ impl TypeCheckError {
 
     /// Create a "not a struct" error for struct literal with non-struct name.
     pub fn not_a_struct(span: Span, name: Name) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: TypeErrorKind::NotAStruct { name },
-            context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                "only struct types can be constructed with `Name { field: value }` syntax",
-                0,
-            )],
-        }
+            TypeErrorKind::NotAStruct { name },
+            "only struct types can be constructed with `Name { field: value }` syntax",
+        )
     }
 
     /// Create a "missing fields" error for struct literal.
@@ -194,15 +191,11 @@ impl TypeCheckError {
     /// struct unconstructable. `Never` may appear in sum type variant payloads
     /// (making the variant uninhabited) but not in struct fields.
     pub fn uninhabited_struct_field(span: Span, struct_name: Name, field: Name) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: TypeErrorKind::UninhabitedStructField { struct_name, field },
-            context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                "use `Never` in sum type variants instead, or use `Option<T>` for optional fields",
-                0,
-            )],
-        }
+            TypeErrorKind::UninhabitedStructField { struct_name, field },
+            "use `Never` in sum type variants instead, or use `Option<T>` for optional fields",
+        )
     }
 
     /// Create an "unsupported operator" error (E2020).
@@ -230,15 +223,11 @@ impl TypeCheckError {
     ///
     /// Emitted when `x[k]` is used on a type that doesn't implement `Index`.
     pub fn not_indexable(span: Span, ty: Idx) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: TypeErrorKind::NotIndexable { ty },
-            context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                "implement `Index<Key, Value>` for this type",
-                0,
-            )],
-        }
+            TypeErrorKind::NotIndexable { ty },
+            "implement `Index<Key, Value>` for this type",
+        )
     }
 
     /// Create an "index assignment not supported" error (E2050).
@@ -293,15 +282,11 @@ impl TypeCheckError {
     ///
     /// Emitted when multiple `Index` impls match and the key type is ambiguous.
     pub fn ambiguous_index(span: Span, ty: Idx) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: TypeErrorKind::AmbiguousIndex { ty },
-            context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                "add a type annotation to the key to disambiguate",
-                0,
-            )],
-        }
+            TypeErrorKind::AmbiguousIndex { ty },
+            "add a type annotation to the key to disambiguate",
+        )
     }
 
     /// Create a "cannot derive Default for sum type" error (E2028).
@@ -363,15 +348,11 @@ impl TypeCheckError {
     /// Emitted when a type's `Hashable` and `Eq` implementations may be
     /// inconsistent (e.g., one is derived and the other is manual).
     pub fn hash_invariant_violation(span: Span, type_name: Name) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: TypeErrorKind::HashInvariantViolation { type_name },
-            context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                "ensure equal values produce equal hashes: if a == b then a.hash() == b.hash()",
-                0,
-            )],
-        }
+            TypeErrorKind::HashInvariantViolation { type_name },
+            "ensure equal values produce equal hashes: if a == b then a.hash() == b.hash()",
+        )
     }
 
     /// Create a "non-hashable map key" error (E2031).
@@ -379,15 +360,11 @@ impl TypeCheckError {
     /// Emitted when a type that does not implement `Hashable` is used as a
     /// map key or set element type.
     pub fn non_hashable_map_key(span: Span, key_type: Idx) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: TypeErrorKind::NonHashableMapKey { key_type },
-            context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                "add `#[derive(Eq, Hashable)]` to the type, or implement `Hashable` manually",
-                0,
-            )],
-        }
+            TypeErrorKind::NonHashableMapKey { key_type },
+            "add `#[derive(Eq, Hashable)]` to the type, or implement `Hashable` manually",
+        )
     }
 
     /// Create a "field missing trait in derive" error (E2032).
@@ -419,7 +396,7 @@ impl TypeCheckError {
 
     /// Create a "pre-contract not bool" error (E2044).
     ///
-    /// Spec: 10-patterns.md § Function-Level Contracts. Emitted when the
+    /// Spec: Clause 15 § Function-Level Contracts. Emitted when the
     /// expression inside `pre(...)` infers to a type other than `bool`.
     pub fn pre_contract_not_bool(span: Span, actual: Idx) -> Self {
         Self {
@@ -435,7 +412,7 @@ impl TypeCheckError {
 
     /// Create a "post-contract on void-returning function" error (E2046).
     ///
-    /// Spec: 10-patterns.md § Function-Level Contracts. Emitted when `post()`
+    /// Spec: Clause 15 § Function-Level Contracts. Emitted when `post()`
     /// is declared on a function whose return type is `void` — there is no
     /// result value for the post-lambda to bind.
     pub fn post_contract_void_return(span: Span) -> Self {
@@ -452,7 +429,7 @@ impl TypeCheckError {
 
     /// Create a "pre-contract unknown identifier" error (E2047).
     ///
-    /// Spec: 10-patterns.md § Function-Level Contracts. Emitted when the
+    /// Spec: Clause 15 § Function-Level Contracts. Emitted when the
     /// contract expression references a name that is neither a function
     /// parameter nor a module-level binding.
     pub fn pre_contract_unknown_ident(span: Span, name: Name) -> Self {

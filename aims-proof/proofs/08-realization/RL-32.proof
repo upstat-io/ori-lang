@@ -24,9 +24,8 @@ Theorem RL-32: all non-scalar parameters initialize Borrowed; fixpoint promotes 
            Owned per §AIMS §3.1), never decreases it, so the fixpoint converges
            and the final ABI never under-claims ownership the callee needs.
 
-    RL-32 refines plain ARC's everything-Owned ABI by inferring Borrowed where
-    the callee provably does not consume the value, eliminating the
-    caller-inc / callee-dec pair at the boundary.
+    RL-32 infers Borrowed where the callee provably does not consume the value,
+    enabling logical boundary-event pair elision while preserving behavior.
 
   Proof obligation:
     Constructive discharge by the case_analysis engine.

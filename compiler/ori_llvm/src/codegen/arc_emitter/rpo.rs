@@ -58,13 +58,12 @@ fn rpo_dfs(
 /// RPO guarantees that a block's dominators (and thus variable definitions
 /// from preceding blocks) are visited before the block itself.
 ///
+/// # Extra roots
+///
 /// `extra_roots` seeds the DFS from additional entry points beyond
-/// `func.entry`. Same-frame catch handlers for inline checked-ops
-/// (BUG-04-159) have no CFG predecessor — an inline checked-op references its
-/// handler via no terminator — so without seeding them here their landing-pad
-/// prelude (emitted in the RPO loop) would never run. Each extra root is
-/// appended to the post-order AFTER the entry-reachable blocks, so a handler's
-/// landing pad emits after the normal-path blocks it shares variables with.
+/// `func.entry`. Metadata-referenced landing blocks have no CFG predecessor,
+/// so each must be seeded as a block root. Extra-root RPO follows the
+/// entry-reachable RPO so cleanup operands are materialized first.
 pub(super) fn compute_block_rpo(
     func: &ArcFunction,
     dead: &FxHashSet<usize>,
@@ -72,17 +71,22 @@ pub(super) fn compute_block_rpo(
 ) -> Vec<usize> {
     let n = func.blocks.len();
     let mut visited = vec![false; n];
-    let mut post_order = Vec::with_capacity(n);
+    let mut entry_post_order = Vec::with_capacity(n);
     rpo_dfs(
         func,
         func.entry.index(),
         &mut visited,
-        &mut post_order,
+        &mut entry_post_order,
         dead,
     );
+    entry_post_order.reverse();
+
+    let mut rpo = entry_post_order;
     for &root in extra_roots {
-        rpo_dfs(func, root, &mut visited, &mut post_order, dead);
+        let mut extra_post_order = Vec::new();
+        rpo_dfs(func, root, &mut visited, &mut extra_post_order, dead);
+        extra_post_order.reverse();
+        rpo.extend(extra_post_order);
     }
-    post_order.reverse();
-    post_order
+    rpo
 }

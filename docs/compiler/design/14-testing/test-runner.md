@@ -11,9 +11,9 @@ A test runner is the component of a language toolchain that discovers executable
 orchestrates their execution, and reports outcomes. In compiled languages, the runner must navigate
 a tension that interpreted languages avoid entirely: the code under test must be compiled before it
 can run, which means the runner participates in (or at least coordinates with) the compilation
-pipeline. This chapter examines test runner design through the lens of Ori's implementation, which
-confronts an unusually sharp version of this tension by supporting two execution backends --- a
-tree-walking interpreter and an LLVM JIT compiler --- from a single set of test definitions.
+pipeline. This chapter examines test runner design through the lens of Ori's implementation. The
+shipped runner currently exposes evaluator and LLVM lanes from one set of definitions; the VM lane
+is the required third physical-executor integration.
 
 ## Conceptual Foundations
 
@@ -51,12 +51,12 @@ threads steal tasks from busy threads' queues. This provides good load balancing
 times vary widely. Ori uses rayon for its file-level parallelism, getting work-stealing load
 balancing without test-level isolation concerns.
 
-### The Dual-Backend Challenge
+### The Cross-Executor Challenge
 
 Most test runners execute tests against a single backend. Rust tests always run compiled native
 code. Python tests always run interpreted bytecode. But some languages face the challenge of
 maintaining behavioral equivalence across multiple execution engines. Ori is one of them: the
-interpreter and the LLVM JIT must produce identical results for every test. This creates a
+evaluator, bytecode VM, and LLVM paths must produce identical observable results for every test. This creates a
 requirement that the test runner be backend-agnostic at the test definition level while
 backend-specific at the execution level --- presenting a uniform interface (discovery, filtering,
 reporting) regardless of which backend is active, while internally dispatching to very different
@@ -64,11 +64,11 @@ execution strategies.
 
 ## What Makes Ori's Runner Distinctive
 
-**Dual-backend execution.** Every test can run under either the tree-walking interpreter or the LLVM
-JIT compiler. The interpreter is the default for development (fast startup, no LLVM dependency)
-while the LLVM backend validates that compiled code produces identical results. The `--backend=llvm`
-flag switches execution engines without changing test definitions, serving as a correctness oracle:
-any behavioral divergence between backends indicates a compiler bug.
+**Current two-lane execution.** Every test can run under either the tree-walking evaluator or the LLVM
+JIT compiler. The `--backend=llvm` flag switches those shipped engines without changing definitions.
+This comparison remains useful, but the evaluator is the semantic oracle and the VM is a distinct
+physical consumer. Production completeness requires the same definitions to run through the VM;
+agreement between evaluator and LLVM alone cannot validate the VM encoding.
 
 **Compile-once-run-many for LLVM.** When using the LLVM backend, the runner compiles all functions
 and test wrappers in a file into a single JIT module, then invokes each test wrapper from that
@@ -214,10 +214,10 @@ downstream use. Both queries are memoized by Salsa. The source text is borrowed 
 database without cloning, since all subsequent database access is through shared borrows.
 
 **Phase 3: Canonicalize.** The `canonicalize_cached()` function transforms the typed AST into
-canonical form --- a normalized, pattern-compiled representation suitable for both interpretation
-and code generation. Canonicalization runs even when type errors exist, because pattern problems
+canonical form --- a normalized, pattern-compiled representation suitable for semantic evaluation
+and ARC lowering. Canonicalization runs even when type errors exist, because pattern problems
 (non-exhaustive matches, redundant arms) are independent of type correctness. The result is stored
-in a `SharedCanonResult` (`Arc`-wrapped) so both backends can access it without copying.
+in a `SharedCanonResult` (`Arc`-wrapped) so the evaluator and ARC lowering can access it without copying.
 
 **Phase 4: Change Detection.** When incremental mode is enabled, the runner computes body hashes for
 all functions and tests using `FunctionChangeMap::from_canon()`, which hashes each canonical subtree
@@ -379,7 +379,7 @@ struct returns) uses correct type information.
 
 **Execution.** Each test is invoked from the compiled module via `run_test(test.name)`, which looks
 up the test wrapper function in the JIT engine and calls it. Skip checks and `#fail` wrapper
-application are identical to the interpreter path. If LLVM compilation fails (either through an
+application are identical to the evaluator lane. If LLVM compilation fails (either through an
 error return or a caught panic), all tests in the file receive the `LlvmCompileFail` outcome rather
 than `Failed`. The panic message is extracted from the `Any` payload (as `String` or `&str`, with a
 fallback to a generic message). This distinction matters for reporting: LLVM compilation failures
@@ -401,7 +401,7 @@ of Rust's `#[should_panic(expected = "...")]`.
 | `SkippedUnchanged` | `SkippedUnchanged` | Pass-through |
 | `LlvmCompileFail(msg)` | `LlvmCompileFail(msg)` | Pass-through |
 
-The wrapper is applied after test execution for both backends. Skip outcomes and LLVM compilation
+The wrapper is applied after test execution for each currently wired runner lane. Skip outcomes and LLVM compilation
 failures pass through unchanged because the test did not actually run. The matching uses
 `contains()` on the error message, not exact equality --- error messages may include context (file
 paths, line numbers) that makes exact matching brittle.

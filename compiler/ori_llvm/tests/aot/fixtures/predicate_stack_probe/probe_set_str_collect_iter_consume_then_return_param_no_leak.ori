@@ -1,0 +1,14 @@
+@count_then_pass<T> (c: Set<T>) -> Set<T> = {
+    let $n = c.iter().count();
+
+    c
+};
+
+@main () -> int = {
+    let s: Set<str> = [
+        "a very long set element string exceeding the sso threshold for sure",
+        "another long set element string for generic iter parameter cleanup"
+    ].iter().collect();
+    let t = count_then_pass(c: s);
+    if t.len() == 2 then 0 else 1
+}

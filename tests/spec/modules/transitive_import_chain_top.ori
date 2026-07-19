@@ -1,0 +1,11 @@
+// Spec: 18-modules.md § Imports
+// Design: (modules not yet in design docs)
+//
+// Top hop of a genuine 3-hop import chain: this module imports
+// transitive_import_chain_mid.ori, which itself imports
+// transitive_import_leaf_deep.ori. Pins that transitive-import resolution
+// recurses to arbitrary depth — not hard-coded to a single nesting level.
+
+use "./transitive_import_chain_mid" { deep_mid_offset }
+
+pub @deep_top_wrap (x: int) -> int = deep_mid_offset(x: x) * 2;

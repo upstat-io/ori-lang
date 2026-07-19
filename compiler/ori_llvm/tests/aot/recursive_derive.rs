@@ -24,7 +24,7 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::assert_aot_success;
+use crate::util::{assert_aot_success, compile_and_capture_ir};
 
 /// `#derive(Clone)` on a recursive `Node`: clone a 2-node chain and assert the
 /// clone is an independent deep copy by reading a field off the clone. The
@@ -82,9 +82,9 @@ type Node = { value: int, next: Option<Node> }
 }
 
 /// `#derive(Debug)` on a recursive `Node`: format a 2-node chain (bounded by the
-/// actual `None`-terminated data, so no infinite loop) and assert the formatted
-/// string is non-empty. The derived `debug` projects the recursive back-edge to
-/// format the `next` field, hitting the `build_struct` abort.
+/// actual `None`-terminated data, so no infinite loop) and assert the exact
+/// nested structural rendering. The derived `debug` projects the recursive
+/// back-edge to format the `next` field, hitting the `build_struct` abort.
 #[test]
 fn recursive_derive_debug_chain_formats_nonempty() {
     let source = r#"
@@ -97,11 +97,86 @@ type Node = { value: int, next: Option<Node> }
     let n2 = Node { value: 2, next: None };
     let n1 = Node { value: 1, next: Some(n2) };
     let s = n1.debug();
-    assert_eq(actual: s.is_empty(), expected: false);
+    assert_eq(
+        actual: s,
+        expected: "Node { value: 1, next: Some(Node { value: 2, next: None }) }",
+    );
     ()
 }
 "#;
     assert_aot_success(source, "recursive_derive_debug_chain_formats_nonempty");
+}
+
+/// Structural pin: production LLVM projection emits only the shared
+/// post-AIMS derived body. Recursive formatting must call that same body, and
+/// heap intermediates synthesized by the Option renderer must carry the plain
+/// string-buffer drop target when released.
+#[test]
+fn recursive_derive_debug_uses_closed_target_without_legacy_duplicate() {
+    let ir = compile_and_capture_ir(
+        r#"
+#derive(Debug)
+type Node = { value: int, next: Option<Node> }
+
+@main () -> void = {
+    let node = Node { value: 1, next: Some(Node { value: 2, next: None }) };
+    let _ = node.debug();
+    ()
+}
+"#,
+    );
+
+    assert!(
+        ir.contains("debug") && ir.contains("derived"),
+        "shared derived Debug body missing from LLVM IR:\n{ir}"
+    );
+    assert!(
+        !ir.contains("_ori_Node$debug") && !ir.contains("<?>"),
+        "legacy direct-derive Debug body leaked into LLVM IR:\n{ir}"
+    );
+    assert!(
+        ir.contains("ori_str_rc_dec") && ir.contains("ptr @ori_str_drop_buffer"),
+        "compound Debug intermediate release lacks its buffer drop target:\n{ir}"
+    );
+}
+
+/// An impl body is emitted only after the executable method table is bound.
+/// Its synthesized `Option<Node>.debug()` edge must therefore reach the
+/// shared recursive `Node` Debug target.
+#[test]
+fn impl_body_nested_compound_debug_uses_bound_derived_target() {
+    let source = r#"
+use std.testing { assert_eq }
+
+#derive(Debug)
+type Node = { value: int, next: Option<Node> }
+
+type Renderer = { node: Node }
+
+trait Render {
+    @render (self) -> str
+}
+
+impl Renderer: Render {
+    @render (self) -> str = Some(self.node).debug();
+}
+
+@main () -> void = {
+    let renderer = Renderer {
+        node: Node { value: 7, next: None },
+    };
+    assert_eq(
+        actual: renderer.render(),
+        expected: "Some(Node { value: 7, next: None })",
+    );
+    ()
+}
+"#;
+
+    assert_aot_success(
+        source,
+        "impl_body_nested_compound_debug_uses_bound_derived_target",
+    );
 }
 
 /// `#derive(Eq)` on a recursive `Node` whose back-edge is the `Ok` arm of a

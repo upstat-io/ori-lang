@@ -1,0 +1,10 @@
+@make_label (n: int) -> str = {
+    if n > 0 then "this is a long positive label!!" else "this is a long negative label!!"
+};
+
+@relabel (n: int) -> str = make_label(n: n);
+
+@main () -> int = {
+    let s = relabel(n: 5);
+    if s.contains(substr: "positive") then 0 else 1
+}

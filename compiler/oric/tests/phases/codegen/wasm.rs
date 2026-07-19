@@ -175,9 +175,11 @@ fn test_wasm_opt_runner_build_command_with_source_map() {
     let runner = WasmOptRunner::new().with_source_map(true);
 
     let cmd = runner.build_command(Path::new("in.wasm"), Path::new("out.wasm"));
-    let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy()).collect();
 
-    assert!(args.contains(&"--source-map".into()));
+    assert!(cmd
+        .get_args()
+        .map(|a| a.to_string_lossy())
+        .any(|x| x == "--source-map"));
 }
 
 #[test]
@@ -613,7 +615,13 @@ fn test_wasm_export_clone() {
         is_async: false,
     };
     let cloned = export.clone();
-    assert_eq!(cloned.ori_name, "test");
+    // The clone is a faithful copy of every field...
+    assert_eq!(cloned.ori_name, export.ori_name);
+    assert_eq!(cloned.wasm_name, export.wasm_name);
+    assert_eq!(cloned.params.len(), export.params.len());
+    assert_eq!(cloned.is_async, export.is_async);
+    // ...and the original is still usable, proving Clone copied rather than moved.
+    assert_eq!(export.ori_name, "test");
 }
 
 #[test]
@@ -623,16 +631,18 @@ fn test_wasi_preopen_clone() {
         host_path: "/home/user/app".to_string(),
     };
     let cloned = preopen.clone();
-    assert_eq!(cloned.guest_path, "/app");
-    assert_eq!(cloned.host_path, "/home/user/app");
+    assert_eq!(cloned.guest_path, preopen.guest_path);
+    assert_eq!(cloned.host_path, preopen.host_path);
+    assert_eq!(preopen.guest_path, "/app");
 }
 
 #[test]
 fn test_wasm_config_clone() {
     let config = WasmConfig::browser();
     let cloned = config.clone();
-    assert!(cloned.generate_js_bindings());
-    assert!(cloned.generate_dts());
+    assert_eq!(cloned.generate_js_bindings(), config.generate_js_bindings());
+    assert_eq!(cloned.generate_dts(), config.generate_dts());
+    assert!(config.generate_js_bindings());
 }
 
 #[test]
@@ -641,8 +651,9 @@ fn test_wasi_config_clone() {
         .with_preopen("/app", "/tmp")
         .with_env("KEY", "value");
     let cloned = config.clone();
-    assert_eq!(cloned.preopens.len(), 1);
-    assert_eq!(cloned.env_vars.len(), 1);
+    assert_eq!(cloned.preopens.len(), config.preopens.len());
+    assert_eq!(cloned.env_vars.len(), config.env_vars.len());
+    assert_eq!(config.preopens.len(), 1);
 }
 
 #[test]

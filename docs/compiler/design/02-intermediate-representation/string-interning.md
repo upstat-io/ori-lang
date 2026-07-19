@@ -185,13 +185,16 @@ struct Function {
 
 // Type checker uses Names for type resolution
 // Evaluator uses Names for variable lookup
-// LLVM backend uses Names for symbol generation
+// Physical executors use Names for symbol and executable identity
 
 // Environment lookups are HashMap<Name, Value>
 // — hashing 4 bytes, not variable-length strings
 ```
 
-The `Name` type threads through the entire pipeline: lexer → parser → type checker → canonicalizer → evaluator / LLVM backend. At no point does the compiler store or compare raw identifier strings — every occurrence is an interned `Name(u32)`.
+The `Name` type threads through the shared front end to canonical form. Canon then branches: the evaluator consumes
+canonical form directly, while AIMS carries physical execution through the shared executable representation to each
+admitted VM, LLVM/native, compiled-WASM, or JIT consumer. At no point does the compiler store or compare raw
+identifier strings - every occurrence is an interned `Name(u32)`.
 
 ## Design Tradeoffs
 

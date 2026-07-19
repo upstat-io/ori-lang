@@ -1,0 +1,1 @@
+@f (res: Result<int, str>) -> int = match res { Ok(x) -> x, Err(_) -> 0 }

@@ -60,11 +60,15 @@ fn builder_block_params() {
     let bb1 = builder.new_block();
     let param_var = builder.add_block_param(bb1, Idx::INT);
     assert_eq!(param_var.raw(), 0);
+    let argument = builder.emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(7)), None);
+    builder.terminate_jump(bb1, vec![argument]);
+    builder.position_at(bb1);
+    builder.terminate_return(param_var);
 
     let func = builder.finish(
         Name::from_raw(1),
         vec![],
-        Idx::UNIT,
+        Idx::INT,
         ArcBlockId::new(0),
         false,
     );
@@ -128,21 +132,17 @@ fn builder_emit_project() {
 }
 
 #[test]
-fn builder_finish_adds_unreachable_to_unterminated() {
+#[should_panic(expected = "ARC block 0 must be terminated before finish")]
+fn builder_finish_unterminated_block_panics() {
     let mut builder = ArcIrBuilder::new();
     builder.emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(1)), None);
-    // Don't terminate — finish should add Unreachable.
-    let func = builder.finish(
+    builder.finish(
         Name::from_raw(1),
         vec![],
         Idx::INT,
         ArcBlockId::new(0),
         false,
     );
-    assert!(matches!(
-        func.blocks[0].terminator,
-        ArcTerminator::Unreachable
-    ));
 }
 
 #[test]

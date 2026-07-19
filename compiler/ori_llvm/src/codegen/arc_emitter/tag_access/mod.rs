@@ -13,14 +13,13 @@
 //! - **`TaggedPtr`** — tag stored in low 3 bits of an aligned pointer
 //! - **None** — single-variant enum, no tag needed
 //!
-//! `TaggedPtr` enums are special: they have NO struct layout. The entire
-//! enum is a single 64-bit value. Consumers must check
-//! [`TagEncoding::is_tagged_ptr`] BEFORE attempting any GEP-based access.
+//! `TaggedPtr` enums are special: they have no struct layout. The entire enum
+//! is a single 64-bit value, so consumers must avoid GEP-based access.
 
 #[cfg(test)]
 mod tests;
 
-use ori_repr::{EnumRepr, EnumTag, IntWidth};
+use ori_repr::{EnumRepr, EnumTag};
 
 /// Pure encoding information for an enum's tag — no LLVM dependency.
 ///
@@ -32,48 +31,17 @@ use ori_repr::{EnumRepr, EnumTag, IntWidth};
 #[derive(Debug, Clone)]
 pub(crate) struct TagEncoding {
     tag: EnumTag,
-    variant_count: u32,
 }
 
-#[allow(dead_code, reason = "/ will consume remaining methods")]
 impl TagEncoding {
     /// Create a `TagEncoding` from an `EnumRepr`.
     pub(crate) fn from_enum_repr(repr: &EnumRepr) -> Self {
-        Self {
-            tag: repr.tag,
-            variant_count: repr.variants.len() as u32,
-        }
+        Self { tag: repr.tag }
     }
 
-    /// Create a `TagEncoding` directly from an `EnumTag` and variant count.
-    pub(crate) fn new(tag: EnumTag, variant_count: u32) -> Self {
-        Self { tag, variant_count }
-    }
-
-    /// The integer width of the explicit tag, if any.
-    ///
-    /// - `Explicit { width }` → `Some(width)`
-    /// - `Niche {.. }` → `None` (no separate tag field)
-    /// - `TaggedPtr` → `None` (tag is in pointer alignment bits, not a field)
-    /// - `None` → `None` (no tag at all)
-    pub(crate) fn tag_width(&self) -> Option<IntWidth> {
-        match &self.tag {
-            EnumTag::Explicit { width } => Some(*width),
-            EnumTag::Niche { .. } | EnumTag::TaggedPtr | EnumTag::None => None,
-        }
-    }
-
-    /// The GEP field index where the tag is stored, if an explicit tag exists.
-    ///
-    /// - `Explicit` → `Some(0)` (tag is always field 0 in `{ tag, payload }`)
-    /// - `Niche` → `None` (tag is encoded in a payload field, not a separate field)
-    /// - `TaggedPtr` → `None` (no struct layout — entire value is `i64`)
-    /// - `None` → `None`
-    pub(crate) fn tag_gep_index(&self) -> Option<u32> {
-        match &self.tag {
-            EnumTag::Explicit { .. } => Some(0),
-            EnumTag::Niche { .. } | EnumTag::TaggedPtr | EnumTag::None => None,
-        }
+    #[cfg(test)]
+    fn new(tag: EnumTag, _variant_count: u32) -> Self {
+        Self { tag }
     }
 
     /// Convert a logical variant index to the physical tag value to store.
@@ -110,20 +78,6 @@ impl TagEncoding {
         }
     }
 
-    /// The GEP field index where the payload starts for a given variant.
-    ///
-    /// - `Explicit` → 1 (payload follows the tag field)
-    /// - `Niche` → 0 (no tag field — payload IS the entire struct)
-    /// - `TaggedPtr` → 0, but **GEP is invalid** — tagged-pointer enums have
-    ///   no struct layout. Consumers MUST check [`is_tagged_ptr`] first.
-    /// - `None` → 0 (no tag field — single variant is the entire struct)
-    pub(crate) fn payload_gep_index(&self) -> u32 {
-        match &self.tag {
-            EnumTag::Explicit { .. } => 1,
-            EnumTag::Niche { .. } | EnumTag::TaggedPtr | EnumTag::None => 0,
-        }
-    }
-
     /// Whether a `store_tag` call is needed for a given variant.
     ///
     /// - `Explicit` → always true (every variant needs its tag stored)
@@ -141,26 +95,6 @@ impl TagEncoding {
         }
     }
 
-    /// Whether this is a niche-encoded enum.
-    pub(crate) fn is_niche(&self) -> bool {
-        matches!(&self.tag, EnumTag::Niche { .. })
-    }
-
-    /// Whether this is a tagged-pointer enum.
-    ///
-    /// Tagged-pointer enums have NO struct layout — the entire enum is a
-    /// single 64-bit value. Consumers must check this BEFORE any GEP-based
-    /// access (`tag_gep_index`, `payload_gep_index` are documented to return
-    /// 0, but the value is meaningless for `TaggedPtr`).
-    pub(crate) fn is_tagged_ptr(&self) -> bool {
-        matches!(&self.tag, EnumTag::TaggedPtr)
-    }
-
-    /// Whether this is a single-variant (no-tag) enum.
-    pub(crate) fn is_tagless(&self) -> bool {
-        matches!(&self.tag, EnumTag::None)
-    }
-
     /// Bit mask for extracting the discriminant from a tagged-pointer encoded
     /// value: `value & TAGGED_PTR_TAG_MASK` yields the variant index.
     ///
@@ -172,11 +106,6 @@ impl TagEncoding {
     /// value: `value & TAGGED_PTR_PTR_MASK` yields the original aligned
     /// pointer (or zero for unit variants).
     pub(crate) const TAGGED_PTR_PTR_MASK: u64 = !0x7;
-
-    /// The number of variants.
-    pub(crate) fn variant_count(&self) -> u32 {
-        self.variant_count
-    }
 
     /// For niche encoding: which field contains the niche.
     pub(crate) fn niche_field_index(&self) -> Option<u32> {

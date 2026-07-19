@@ -9,18 +9,13 @@
 #   --no-color     Disable color output
 #   -h, --help     Show this help
 #
-# Checks (all derived from debug_flags.rs + compiler/ — self-contained to this repo):
-#   1. Every ORI_* flag defined in debug_flags.rs is used somewhere in the codebase
+# Checks (all derived from debug_flags/ + compiler/ — self-contained to this repo):
+#   1. Every ORI_* flag defined under debug_flags/ is used somewhere in the codebase
 #   2. Every raw std::env::var("ORI_*") or std::env::var_os("ORI_*") check
-#      references a flag in debug_flags.rs
+#      references a flag defined under debug_flags/
 #      (excludes runtime-only flags in ori_rt, non-diagnostic flags, and test guards)
 #
 # Reports: stale flags (defined but unused), orphan checks (used but undefined).
-#
-# Flag->docs consistency (every flag documented in CLAUDE.md / .claude/rules/) is
-# enforced by the wrapper repo's pre-commit, NOT here: those docs are not present
-# in a standalone / public checkout, and a public-repo script must not reference
-# them. See scripts/check-flag-docs.sh in the wrapper.
 #
 # Exit codes:
 #   0 = all checks pass
@@ -32,7 +27,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-DEBUG_FLAGS="$ROOT_DIR/compiler/oric/src/debug_flags.rs"
+DEBUG_FLAGS_DIR="$ROOT_DIR/compiler/oric/src/debug_flags"
 
 # --- Defaults ---
 USE_COLOR=auto
@@ -70,26 +65,26 @@ else
 fi
 
 # --- Verify required files exist ---
-if [[ ! -f "$DEBUG_FLAGS" ]]; then
-    echo "Error: debug_flags.rs not found at $DEBUG_FLAGS" >&2
+if [[ ! -d "$DEBUG_FLAGS_DIR" ]]; then
+    echo "Error: debug_flags/ not found at $DEBUG_FLAGS_DIR" >&2
     exit 2
 fi
 
-# --- Step 1: Parse defined flags from debug_flags.rs ---
+# --- Step 1: Parse defined flags from debug_flags/*.rs ---
 # Flags are defined as: ORI_FLAG_NAME (preceded by doc comments)
-mapfile -t DEFINED_FLAGS < <(grep -oP '^\s+ORI_\w+' "$DEBUG_FLAGS" | tr -d ' ')
+mapfile -t DEFINED_FLAGS < <(grep -rohP '^\s+ORI_\w+' "$DEBUG_FLAGS_DIR" | tr -d ' ' | sort -u)
 
 if [[ ${#DEFINED_FLAGS[@]} -eq 0 ]]; then
-    echo "Error: no ORI_* flags found in debug_flags.rs" >&2
+    echo "Error: no ORI_* flags found under debug_flags/" >&2
     exit 2
 fi
 
-printf "${C_BOLD}Checking %d defined flags in debug_flags.rs${C_NC}\n" "${#DEFINED_FLAGS[@]}"
+printf "${C_BOLD}Checking %d defined flags in debug_flags/${C_NC}\n" "${#DEFINED_FLAGS[@]}"
 
 # --- Known exceptions ---
 # Flags checked in ori_rt via raw env var (ori_rt can't depend on oric):
 #   ORI_TRACE_RC, ORI_RT_DEBUG, ORI_CHECK_LEAKS
-# These are documented in debug_flags.rs for consistency but used in ori_rt directly.
+# These are documented in debug_flags/ for consistency but used in ori_rt directly.
 RUNTIME_FLAGS=("ORI_TRACE_RC" "ORI_RT_DEBUG" "ORI_CHECK_LEAKS")
 
 # Non-diagnostic env vars (not debug flags, but ORI_* prefixed):
@@ -98,11 +93,25 @@ RUNTIME_FLAGS=("ORI_TRACE_RC" "ORI_RT_DEBUG" "ORI_CHECK_LEAKS")
 #   ORI_SYSROOT — system library root override
 #   ORI_LOG — tracing filter (handled by tracing crate, not debug_flags)
 #   ORI_LOG_TREE — tracing tree mode
-# These should NOT be in debug_flags.rs.
-NON_DIAGNOSTIC=("ORI_STDLIB" "ORI_WORKSPACE_DIR" "ORI_SYSROOT" "ORI_LOG" "ORI_LOG_TREE")
+# These should NOT be in debug_flags/.
+NON_DIAGNOSTIC=(
+    "ORI_STDLIB"
+    "ORI_WORKSPACE_DIR"
+    "ORI_SYSROOT"
+    "ORI_LOG"
+    "ORI_LOG_TREE"
+)
 
 # Test-only env vars (guard patterns in test files, not production flags):
-TEST_ONLY=("ORI_RC_OVERFLOW_TEST" "ORI_RC_TRACE_TEST" "ORI_LEAK_ATTRIB_TEST" "ORI_RC_UNDERFLOW_TEST")
+TEST_ONLY=(
+    "ORI_RC_OVERFLOW_TEST"
+    "ORI_RC_TRACE_TEST"
+    "ORI_LEAK_ATTRIB_TEST"
+    "ORI_RC_UNDERFLOW_TEST"
+    "ORI_UNCAUGHT_PANIC_BOUNDARY_TEST"
+    "ORI_PUSH_TOGGLE_TRACE_CHILD"
+    "ORI_RL31_TOGGLE_TRACE_CHILD"
+)
 
 issues=0
 
@@ -118,11 +127,13 @@ for flag in "${DEFINED_FLAGS[@]}"; do
     done
     if [[ $skip -eq 1 ]]; then continue; fi
 
-    # Search for usage in compiler/ (excluding debug_flags.rs itself and plans/)
+    # Search for usage in compiler/ (excluding debug_flags/ itself and plans/).
+    # A zero-match grep exits 1; under pipefail + set -e the || true keeps a
+    # stale flag reportable instead of killing the script at its first hit.
     usage_count=$(grep -r --include='*.rs' "$flag" "$ROOT_DIR/compiler/" \
-        | grep -v "debug_flags.rs" \
+        | grep -v "/debug_flags/" \
         | grep -v "/target/" \
-        | wc -l)
+        | wc -l || true)
 
     if [[ "$usage_count" -eq 0 ]]; then
         printf "  ${C_RED}STALE${C_NC}: %s — defined but never referenced\n" "$flag"
@@ -140,7 +151,7 @@ printf "\n${C_BOLD}2. Runtime flags (used in ori_rt):${C_NC}\n"
 for flag in "${RUNTIME_FLAGS[@]}"; do
     usage_count=$(grep -r --include='*.rs' "$flag" "$ROOT_DIR/compiler/ori_rt/src/" \
         | grep -v "/target/" \
-        | wc -l)
+        | wc -l || true)
 
     if [[ "$usage_count" -eq 0 ]]; then
         printf "  ${C_RED}STALE${C_NC}: %s — defined as runtime flag but not used in ori_rt\n" "$flag"
@@ -151,7 +162,7 @@ for flag in "${RUNTIME_FLAGS[@]}"; do
 done
 
 # --- Step 4: Check for orphan env var checks ---
-printf "\n${C_BOLD}3. Orphan checks (raw env var, not in debug_flags.rs):${C_NC}\n"
+printf "\n${C_BOLD}3. Orphan checks (raw env var, not in debug_flags/):${C_NC}\n"
 orphan_count=0
 
 # Find all raw ORI_* env var checks in compiler source.
@@ -162,7 +173,7 @@ mapfile -t RAW_CHECKS < <(
     grep -rnoP 'std::env::var(?:_os)?\("(ORI_\w+)"' "$ROOT_DIR/compiler/" \
         --include='*.rs' \
         | grep -v "/target/" \
-        | grep -v "debug_flags.rs" \
+        | grep -v "/debug_flags/" \
         | grep -oP 'ORI_\w+' \
         | sort -u
 )
@@ -181,13 +192,13 @@ for check in "${RAW_CHECKS[@]}"; do
     done
     if [[ $skip -eq 1 ]]; then continue; fi
 
-    # Check if it's defined in debug_flags.rs
-    if ! grep -q "^\s*$check\$" "$DEBUG_FLAGS"; then
-        printf "  ${C_YELLOW}ORPHAN${C_NC}: %s — used in source but not defined in debug_flags.rs\n" "$check"
+    # Check if it's defined under debug_flags/
+    if ! grep -rq "^\s*$check\$" "$DEBUG_FLAGS_DIR"; then
+        printf "  ${C_YELLOW}ORPHAN${C_NC}: %s — used in source but not defined in debug_flags/\n" "$check"
         # Show where it's used (both var and var_os access forms)
         grep -rnP "std::env::var(?:_os)?\(\"$check\"" "$ROOT_DIR/compiler/" --include='*.rs' \
             | grep -v "/target/" \
-            | grep -v "debug_flags.rs" \
+            | grep -v "/debug_flags/" \
             | sed 's|'"$ROOT_DIR/"'||' \
             | while read -r location; do
                 printf "    %s\n" "$location"
@@ -200,13 +211,6 @@ done
 if [[ $orphan_count -eq 0 ]]; then
     printf "  ${C_GREEN}OK${C_NC} — no orphan env var checks\n"
 fi
-
-# --- Documentation check (flag -> CLAUDE.md / .claude/rules/) ---
-# Re-homed to wrapper-owned tooling: a public-repo script must NOT reach into
-# the private wrapper's CLAUDE.md / .claude/rules/ (those are not present in a
-# standalone / public CI checkout, and referencing them is a wrapper-leakage
-# violation). The flag->docs consistency check lives in the wrapper pre-commit;
-# see scripts/check-flag-docs.sh + lefthook.yml in the wrapper repo.
 
 # --- Summary ---
 printf "\n${C_BOLD}Summary:${C_NC}\n"

@@ -220,7 +220,7 @@ pub(crate) fn format_const_expr<I: StringLookup, E: Emitter>(
 ) {
     let expr = arena.get_expr(expr_id);
     match &expr.kind {
-        ExprKind::Int(n) => ctx.emit(&n.to_string()),
+        ExprKind::Int(n) => ctx.emit(n.to_string()),
         ExprKind::Const(name) => {
             ctx.emit("$");
             ctx.emit(interner.lookup(*name));

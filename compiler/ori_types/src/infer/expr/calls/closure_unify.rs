@@ -1,15 +1,7 @@
 //! Closure-argument unification helpers for higher-order iterator adapters.
 //!
-//! `unify_higher_order_constraints` dispatches per-method to the right
-//! closure-unification routine for `map`, `flat_map`, `filter`, `any`,
-//! `all`, `find`, `for_each`, `fold`, `rfold`. The two helpers below it
-//! (`unify_closure_param_with_iterator_elem`, `unify_flat_map_constraints`)
-//! handle the structural unification of the closure's params/return
-//! against the iterator's element / result types.
-//!
-//! Extracted from `method_call.rs` to keep modules under the 500-line cap so
-//! lambda-param propagation extensions to `unify_closure_param_with_iterator_elem`
-//! can land without growing `method_call.rs` past the limit.
+//! Per-method dispatch constrains closure parameters and returns against the
+//! iterator element and result types.
 
 use ori_ir::{Name, Span};
 
@@ -41,14 +33,28 @@ pub(super) fn unify_higher_order_constraints(
 
     match method_str {
         "map" => {
+            // Result.map dispatches through the Result-family handler (closure
+            // operates on the Ok value); List/Iterator map keep the iterator-shaped
+            // logic used by the remaining receiver families.
+            let resolved_recv = engine.resolve(receiver_ty);
+            if engine.pool().tag(resolved_recv) == Tag::Result {
+                unify_result_closure_constraints(engine, "map", ret_ty, resolved_recv, arg_types);
+                return;
+            }
             let Some(&closure_ty) = arg_types.first() else {
                 return;
             };
             let resolved_ret = engine.resolve(ret_ty);
-            if !engine.pool().tag(resolved_ret).is_iterator() {
+            let ret_tag = engine.pool().tag(resolved_ret);
+            // map's result element comes from either an iterator-shaped return (Iterator/DEI
+            // receivers) or a List-shaped return (List receivers, shaped by computed_list_return).
+            let elem_var = if ret_tag.is_iterator() {
+                engine.pool().iterator_elem(resolved_ret)
+            } else if ret_tag == Tag::List {
+                engine.pool().list_elem(resolved_ret)
+            } else {
                 return;
-            }
-            let elem_var = engine.pool().iterator_elem(resolved_ret);
+            };
             let resolved_closure = engine.resolve(closure_ty);
             if engine.pool().tag(resolved_closure) == Tag::Function {
                 let closure_ret = engine.pool().function_return(resolved_closure);
@@ -88,10 +94,8 @@ pub(super) fn unify_higher_order_constraints(
                     if let Some(&first_param) = params.first() {
                         let _ = engine.unify().unify(first_param, ret_ty);
                     }
-                    // Bind the closure's second param (the element) to the
-                    // receiver's element type via the shared SSOT — covers
-                    // `Tag::Map` ((K, V) tuple) and `Tag::Str` (char) at parity
-                    // with `unify_closure_param_with_iterator_elem`.
+                    // Bind the closure's second param (element) to the receiver's
+                    // element type via `receiver_element_type` (the shared SSOT).
                     if let Some(elem) = receiver_element_type(engine, receiver_ty) {
                         if let Some(&second_param) = params.get(1) {
                             let _ = engine.unify().unify(second_param, elem);
@@ -100,25 +104,155 @@ pub(super) fn unify_higher_order_constraints(
                 }
             }
         }
+        "zip" => {
+            unify_zip_other_element(engine, ret_ty, arg_types);
+        }
+        // Result closure-methods (Result-only method names). The Result-family
+        // helper guards on Tag::Result; a Tag::Error poison receiver adds no
+        // constraint (the error type stays poison, never destructured).
+        "map_err" | "and_then" | "or_else" => {
+            let resolved_recv = engine.resolve(receiver_ty);
+            if engine.pool().tag(resolved_recv) == Tag::Result {
+                unify_result_closure_constraints(
+                    engine,
+                    method_str,
+                    ret_ty,
+                    resolved_recv,
+                    arg_types,
+                );
+            }
+        }
         _ => {}
     }
 }
 
-/// Compute the per-element type a higher-order closure parameter binds to
-/// for a given receiver.
+/// Bind the fresh right-hand element in a computed `zip` return to the element
+/// of its `other` argument.
 ///
-/// SSOT for both the first-param bind in
-/// `unify_closure_param_with_iterator_elem` and the second-param (element)
-/// bind in the `fold`/`rfold` arm of `unify_higher_order_constraints`.
-/// Covers the full adapter-receiver surface: iterator / `Tag::List` /
-/// `Tag::Set` / `Tag::Map` (synthetic `(K, V)` tuple — Map iteration shape) /
-/// `Tag::Str` (`Idx::CHAR`). Returns `None` for receivers with no element
-/// shape (the closure param stays an unconstrained `Tag::Var`).
+/// `Iterator<T>.zip(Iterator<U>)` returns `Iterator<(T, U)>`; `List<T>.zip([U])`
+/// returns `[(T, U)]`. The registry correctly marks these returns `Fresh`
+/// because `U` comes from an argument, while computed-return resolution builds
+/// the outer container and tuple. This step connects the remaining fresh tuple
+/// slot to that argument. Only List and Iterator shapes participate so this
+/// constraint cannot make unrelated collection-like arguments type-check.
+fn unify_zip_other_element(engine: &mut InferEngine<'_>, ret_ty: Idx, arg_types: &[Idx]) {
+    let Some(&other_ty) = arg_types.first() else {
+        return;
+    };
+
+    let resolved_ret = engine.resolve(ret_ty);
+    let result_elem = if engine.pool().tag(resolved_ret).is_iterator() {
+        engine.pool().iterator_elem(resolved_ret)
+    } else if engine.pool().tag(resolved_ret) == Tag::List {
+        engine.pool().list_elem(resolved_ret)
+    } else {
+        return;
+    };
+    let resolved_pair = engine.resolve(result_elem);
+    if engine.pool().tag(resolved_pair) != Tag::Tuple
+        || engine.pool().tuple_elem_count(resolved_pair) != 2
+    {
+        return;
+    }
+
+    let resolved_other = engine.resolve(other_ty);
+    let other_elem = if engine.pool().tag(resolved_other).is_iterator() {
+        engine.pool().iterator_elem(resolved_other)
+    } else if engine.pool().tag(resolved_other) == Tag::List {
+        engine.pool().list_elem(resolved_other)
+    } else {
+        return;
+    };
+
+    let right_elem = engine.pool().tuple_elem(resolved_pair, 1);
+    let _ = engine.unify().unify(right_elem, other_elem);
+}
+
+/// Unify a Result closure-method's closure against the receiver Ok/Err slots and
+/// the computed `Result<_,_>` return (BD-2 propagation). Precondition:
+/// `receiver_ty` resolves to `Tag::Result` (`result_ok`/`result_err` assert it).
+///
+/// - `map`/`map_err`: closure param binds receiver Ok/Err; closure return binds
+///   the result's Ok (`map`) / Err (`map_err`) slot.
+/// - `and_then`/`or_else`: closure param binds receiver Ok/Err; closure return
+///   binds the whole computed `Result`.
+fn unify_result_closure_constraints(
+    engine: &mut InferEngine<'_>,
+    method: &str,
+    ret_ty: Idx,
+    receiver_ty: Idx,
+    arg_types: &[Idx],
+) {
+    let Some(&closure_ty) = arg_types.first() else {
+        return;
+    };
+    let resolved_closure = engine.resolve(closure_ty);
+    if engine.pool().tag(resolved_closure) != Tag::Function {
+        return;
+    }
+    let resolved_ret = engine.resolve(ret_ty);
+    if engine.pool().tag(resolved_ret) != Tag::Result {
+        return;
+    }
+    let closure_ret = engine.pool().function_return(resolved_closure);
+    let first_param = engine
+        .pool()
+        .function_params(resolved_closure)
+        .first()
+        .copied();
+
+    match method {
+        // closure param = receiver Ok; closure return = result Ok slot
+        "map" => {
+            if let Some(param) = first_param {
+                let recv_ok = engine.pool().result_ok(receiver_ty);
+                let _ = engine.unify().unify(param, recv_ok);
+            }
+            let ret_ok = engine.pool().result_ok(resolved_ret);
+            let _ = engine.unify().unify(closure_ret, ret_ok);
+        }
+        // closure param = receiver Err; closure return = result Err slot
+        "map_err" => {
+            if let Some(param) = first_param {
+                let recv_err = engine.pool().result_err(receiver_ty);
+                let _ = engine.unify().unify(param, recv_err);
+            }
+            let ret_err = engine.pool().result_err(resolved_ret);
+            let _ = engine.unify().unify(closure_ret, ret_err);
+        }
+        // closure param = receiver Ok; closure return = whole computed Result
+        "and_then" => {
+            if let Some(param) = first_param {
+                let recv_ok = engine.pool().result_ok(receiver_ty);
+                let _ = engine.unify().unify(param, recv_ok);
+            }
+            let _ = engine.unify().unify(closure_ret, resolved_ret);
+        }
+        // closure param = receiver Err; closure return = whole computed Result
+        "or_else" => {
+            if let Some(param) = first_param {
+                let recv_err = engine.pool().result_err(receiver_ty);
+                let _ = engine.unify().unify(param, recv_err);
+            }
+            let _ = engine.unify().unify(closure_ret, resolved_ret);
+        }
+        _ => {}
+    }
+}
+
+/// Compute the per-element type a higher-order closure parameter binds to for a
+/// given receiver. SSOT for the first-param bind in
+/// `unify_closure_param_with_iterator_elem` and the `fold`/`rfold` second-param
+/// (element) bind. Covers iterator / `Tag::Range` / `Tag::List` / `Tag::Set` / `Tag::Map`
+/// (synthetic `(K, V)` tuple) / `Tag::Str` (`Idx::CHAR`); returns `None` for a
+/// receiver with no element shape (the closure param stays an unconstrained `Tag::Var`).
 fn receiver_element_type(engine: &mut InferEngine<'_>, receiver_ty: Idx) -> Option<Idx> {
     let resolved_recv = engine.resolve(receiver_ty);
     let recv_tag = engine.pool().tag(resolved_recv);
     if recv_tag.is_iterator() {
         Some(engine.pool().iterator_elem(resolved_recv))
+    } else if recv_tag == Tag::Range {
+        Some(engine.pool().range_elem(resolved_recv))
     } else if recv_tag == Tag::List {
         Some(engine.pool().list_elem(resolved_recv))
     } else if recv_tag == Tag::Set {
@@ -135,17 +269,12 @@ fn receiver_element_type(engine: &mut InferEngine<'_>, receiver_ty: Idx) -> Opti
     }
 }
 
-/// Unify a closure's first parameter with the source receiver's element type.
-///
-/// For adapters like `.map(r -> r.score)`, ensures that `r` is constrained to
-/// the receiver's element type rather than remaining as an unresolved type variable.
-///
-/// Applies to `Tag::List`, `Tag::Set`, `Tag::Map`, `Tag::Str` receivers in
-/// addition to the original `Tag::Iterator` / `Tag::DoubleEndedIterator`
-/// gate (via `receiver_element_type`). Closes the lambda-parameter inference
-/// gap that previously left `list.map(x -> x + 1)` with an unresolved
-/// `Tag::Var` for `x`. Map receivers project the `(K, V)` iteration shape as a
-/// synthetic tuple so `kvs.map(kv -> kv.0)` resolves `kv: (K, V)`.
+/// Constrain a closure's first parameter to the receiver's element type, so an
+/// adapter like `.map(r -> r.score)` resolves `r` instead of leaving it an
+/// unresolved `Tag::Var`. Delegates the per-receiver element type to
+/// `receiver_element_type`, covering iterator / `Tag::Range` / `Tag::List` / `Tag::Set` /
+/// `Tag::Map` (projecting the `(K, V)` iteration shape as a synthetic tuple so
+/// `kvs.map(kv -> kv.0)` resolves `kv: (K, V)`) / `Tag::Str`.
 pub(super) fn unify_closure_param_with_iterator_elem(
     engine: &mut InferEngine<'_>,
     resolved_closure: Idx,

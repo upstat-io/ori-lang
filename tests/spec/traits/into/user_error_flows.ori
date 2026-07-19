@@ -1,0 +1,48 @@
+// Spec: Clause 8.6 (user-defined types) + Clause 8.11 (Into) + Clause 9.9 (Traceable).
+// BUG-02-028 accept-tier preservation cells (#4/#4b/#5/#6/#10/#11/#12): separating
+// the user-facing `Error` struct from the `Idx::ERROR` poison sentinel MUST keep
+// every legitimate `Error`-typed flow type-checking + executing unchanged.
+// Regression: bug-tracker/plans/BUG-02-028/
+
+use std.testing { assert, assert_eq }
+
+@mkerr () -> Error = "boom".into();
+
+// Cell #4 — `Error` as a Result error payload (correct position) typechecks.
+@err_payload () -> Result<int, Error> = Err(mkerr());
+
+// Cell #4b — try-expr `?` propagates a user-`Error` payload.
+@try_propagates () -> Result<int, Error> = {
+    let $x = err_payload()?;
+    Ok(x)
+}
+
+// Cell #12 — `Error` in signature position; field access resolves to `str`.
+@error_message (e: Error) -> str = e.message;
+
+// Cell #5 — `Error` field access yields `str`.
+@cell5_field_access_yields_str tests _ () -> void = {
+    let $e = mkerr();
+    assert_eq(actual: error_message(e: e), expected: e.message)
+}
+
+// Cell #6 — Traceable builtin methods survive on the `Error` value. Calling
+// trace_entries() proves the method resolves on the new Error struct Idx; the
+// concrete assertion pins the Error's own content ("boom" from mkerr's into()).
+@cell6_traceable_methods tests _ () -> void = {
+    let $e = mkerr();
+    let _entries = e.trace_entries();
+    assert_eq(actual: e.message, expected: "boom")
+}
+
+// Cell #10 — user-`Error` flows as a normal generic type argument.
+@cell10_error_as_generic_arg tests _ () -> void = {
+    let _o: Option<Error> = Some(mkerr());
+    assert(cond: is_some(option: _o))
+}
+
+// Cell #11 — non-`Error` builtin `into` (int -> float) is unaffected by the fix.
+@cell11_int_to_float_into_unaffected tests _ () -> void = {
+    let $f: float = (1).into();
+    assert_eq(actual: f, expected: 1.0)
+}

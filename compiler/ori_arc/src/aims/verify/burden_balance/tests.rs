@@ -168,6 +168,44 @@ fn burden_dec_partial_balances_inc() {
     );
 }
 
+// Verify-gate fail-closed pin on a cyclic disagreeing loop.
+// A loop whose body carries a non-zero per-iteration whole-var burden delta has
+// no static entry net; freeze-on-disagree CONVERGES the loop-header merge to a
+// recorded disagreement (rather than oscillating to the iteration cap), and
+// `verify_burden_balance` reports it as a HARD `merge-disagree` error
+// (fail-closed) rather than silently passing on stale nets. Pre-cure
+// (`balance_verdict` returning `violation: None` on the non-converged path) this
+// returned ZERO errors — the under-verification this verifier exists to eliminate.
+// This pins the MergeDisagree path; the `ConvergenceExhausted` fail-closed branch
+// — unreachable through any real CFG once freeze-on-disagree lands — is pinned
+// directly against a hand-built non-converged net in `burden_delta/tests.rs`.
+#[test]
+fn cyclic_disagree_loop_verify_reports_merge_disagree() {
+    //   b0 entry  : Jump b1
+    //   b1 header : Branch b2 | b3
+    //   b2 body   : BurdenInc(v0); Jump b1   (back-edge, non-zero cycle delta)
+    //   b3 exit   : Return v0
+    let entry = jump_block(0, Vec::new(), b(1));
+    let header = branch_block(1, b(2), b(3));
+    let body = jump_block(2, vec![ArcInstr::BurdenInc { var: v(0) }], b(1));
+    let exit = return_block(3, Vec::new());
+    let func = make_burden_func(vec![entry, header, body, exit]);
+
+    let errors = verify_burden_balance(&func);
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "a cyclic disagreeing burden delta MUST fail verification closed; got: {errors:?}"
+    );
+    assert_eq!(
+        errors[0].exit_kind, "merge-disagree",
+        "freeze-on-disagree converges the loop header to a recorded merge \
+         disagreement, not an iteration-cap exhaustion; got: {:?}",
+        errors[0].exit_kind
+    );
+}
+
 //  TDD matrix — axis-1 Let-Literal slice.
 // Per `TF-3` / TF-1 + Clamping.
 
@@ -330,7 +368,7 @@ mod fresh_site_inc_balance {
         #[test]
         fn positive_construct_variant_dec_balances_inc() {
             // axis-1 = Construct(EnumVariant) → BurdenInc on enum value;
-            // BurdenDecVariant (whole-var grain per ir/instr.rs:152-167)
+            // BurdenDecVariant (whole-var grain per ir/instr.rs)
             // balances on equal footing with BurdenDec / BurdenDecPartial.
             let entry = jump_block(0, vec![ArcInstr::BurdenInc { var: v(0) }], b(1));
             let exit = return_block(1, vec![ArcInstr::BurdenDecVariant { var: v(0) }]);
@@ -726,7 +764,7 @@ mod fresh_site_inc_balance {
         #[test]
         fn positive_reuse_variant_dec_balances_inc() {
             // axis-1 = Reuse(EnumVariant) — Reset/Reuse on enum value;
-            // DecVariant balances whole-var grain per ir/instr.rs:152-167.
+            // DecVariant balances whole-var grain per ir/instr.rs.
             let entry = jump_block(0, vec![ArcInstr::BurdenInc { var: v(0) }], b(1));
             let exit = return_block(1, vec![ArcInstr::BurdenDecVariant { var: v(0) }]);
             let func = make_burden_func(vec![entry, exit]);
@@ -773,10 +811,10 @@ mod fresh_site_inc_balance {
     }
 
     // axis-1 CollectionReuse slice.
-    // Per `TF-9a` — CollectionReuse emits FRESH(
-    // CollectionBuffer). Self-contained: LLVM emitter calls
-    // ori_list_reset_buffer (uniqueness checked internally). Burden lower
-    // emits BurdenInc on dst; symmetric BurdenDec mirrors §8 RL-2.
+    // Per `TF-9a` — CollectionReuse emits a fresh logical collection-buffer
+    // identity from an eligible donor. The transitional burden carrier books
+    // the result credit; the symmetric release mirrors §8 RL-2. Copy, reset,
+    // recycling, and uniqueness-probe mechanics belong to a physical plan.
     mod collection_reuse {
         use super::super::*;
 

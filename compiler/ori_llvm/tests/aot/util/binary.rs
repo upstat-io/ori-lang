@@ -107,20 +107,21 @@ pub(super) enum SnapshotStrategy {
 pub(super) struct StagedArtifact {
     /// File name of the artifact inside both `source_dir` and `stage_dir`.
     pub(super) name: String,
-    /// Stage-time identity (`dev:inode:mtime:size`) of the pinned artifact.
-    /// KEEP IN SYNC with `artifact_identity()` in `test-all.sh` — the AOT
-    /// identity gate compares these values against its pre-run baseline.
-    pub(super) source_identity: String,
+    /// Stage-time identity (`dev:inode:mtime:size`) of the STAGED artifact
+    /// at `<stage_dir>/<name>`. KEEP IN SYNC with `aot_artifact_identity_of_path()`
+    /// in `scripts/aot_gate_lib.sh` — the snapshot-integrity gate re-stats the
+    /// staged path and verifies it still matches this recorded value.
+    pub(super) staged_identity: String,
     /// `"hardlink"` or `"copy"` — the strategy that actually took effect.
     pub(super) strategy_used: &'static str,
 }
 
 /// Identity tuple `dev:inode:mtime:size` for an on-disk artifact.
 ///
-/// KEEP IN SYNC with `artifact_identity()` in `test-all.sh`: that gate
-/// captures the same tuple via GNU `stat -c '%d:%i:%Y:%s'` as its pre-run
-/// baseline and string-compares it against the values the harness writes
-/// into the stage manifest.
+/// KEEP IN SYNC with `aot_artifact_identity_of_path()` in
+/// `scripts/aot_gate_lib.sh`: the snapshot-integrity gate re-stats each staged
+/// file via that function (same GNU `stat -c '%d:%i:%Y:%s'` tuple) and requires
+/// it still match the value written here into the stage manifest.
 #[cfg(unix)]
 fn artifact_identity_of(path: &Path) -> Result<String, String> {
     use std::os::unix::fs::MetadataExt;
@@ -192,18 +193,14 @@ pub(super) fn stage_snapshot(
                 "copy"
             }
         };
-        // Identity of the artifact actually pinned: a hardlink shares the
-        // source inode, so the STAGED path carries the stage-time source
-        // identity even if the source is swapped between link and stat; a
-        // copy has its own inode, so the source path is statted instead.
-        let identity_path: &Path = if strategy_used == "hardlink" {
-            &dst
-        } else {
-            &src
-        };
+        // Stat the STAGED path for BOTH strategies — the snapshot-integrity
+        // gate re-stats `<stage_dir>/<name>` at check time, so the recorded
+        // identity must be the staged file's own. A hardlink shares the source
+        // inode (swap-immune between link and stat); a copy has its own inode,
+        // and recording the source identity would never match the staged copy.
         Ok(StagedArtifact {
             name: name.to_string(),
-            source_identity: artifact_identity_of(identity_path)?,
+            staged_identity: artifact_identity_of(&dst)?,
             strategy_used,
         })
     };
@@ -249,8 +246,8 @@ const STAGE_MANIFEST_NAME: &str = "stage-manifest.txt";
 /// artifact <name> <hardlink|copy> <dev:inode:mtime:size>
 /// ```
 ///
-/// The gate extracts whitespace field 4 of each `artifact` line and compares
-/// it against its own pre-run `artifact_identity()` baseline.
+/// The snapshot-integrity gate extracts whitespace field 4 of each `artifact`
+/// line and requires a fresh re-stat of `<stage-dir>/<name>` to still match it.
 fn render_stage_manifest(
     profile: &str,
     stage_dir: &Path,
@@ -269,7 +266,7 @@ fn render_stage_manifest(
         let _ = writeln!(
             out,
             "artifact {} {} {}",
-            artifact.name, artifact.strategy_used, artifact.source_identity
+            artifact.name, artifact.strategy_used, artifact.staged_identity
         );
     }
     out

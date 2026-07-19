@@ -1,0 +1,5 @@
+@main () -> int = {
+    let a: Result<int, str> = Err("an allocated failure message well past sso");
+    let v = a ?? 42;
+    if v == 42 then 0 else 1
+}

@@ -31,7 +31,7 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum TokenTag {
-    // === Literals (0-10) ===
+    // Literals (0-10)
     Ident = 0,
     Int = 1,
     Float = 2,
@@ -44,8 +44,7 @@ pub enum TokenTag {
     TemplateTail = 9,
     TemplateComplete = 10,
 
-    // === Keywords — reserved (12-39) ===
-    // 11: removed (was KwAsync)
+    // Keywords — reserved (12-39); discriminant 11 is unused
     KwBreak = 12,
     KwContinue = 13,
     KwReturn = 14,
@@ -75,7 +74,7 @@ pub enum TokenTag {
     KwVoid = 38,
     KwWhere = 39,
 
-    // === Keywords — additional (40-49) ===
+    // Keywords — additional (40-49)
     KwWith = 40,
     KwYield = 41,
     KwTests = 42,
@@ -87,7 +86,7 @@ pub enum TokenTag {
     KwExtern = 48,
     // 49: reserved for future keyword
 
-    // === Type keywords (50-56) ===
+    // Type keywords (50-56)
     KwIntType = 50,
     KwFloatType = 51,
     KwBoolType = 52,
@@ -96,13 +95,13 @@ pub enum TokenTag {
     KwByteType = 55,
     KwNeverType = 56,
 
-    // === Constructors (57-60) ===
+    // Constructors (57-60)
     KwOk = 57,
     KwErr = 58,
     KwSome = 59,
     KwNone = 60,
 
-    // === Pattern keywords (61-73) ===
+    // Pattern keywords (61-73)
     KwCache = 61,
     KwCatch = 62,
     KwParallel = 63,
@@ -121,7 +120,7 @@ pub enum TokenTag {
     FormatSpec = 74,
     HashBang = 75, // #!
 
-    // === Punctuation (76-99) ===
+    // Punctuation (76-99)
     HashBracket = 76,    // #[
     At = 77,             // @
     Dollar = 78,         // $
@@ -147,7 +146,7 @@ pub enum TokenTag {
     Underscore = 98,     // _
     Semicolon = 99,      // ;
 
-    // === Operators (100-120) ===
+    // Operators (100-120)
     Eq = 100,       // =
     EqEq = 101,     // ==
     NotEq = 102,    // !=
@@ -170,13 +169,13 @@ pub enum TokenTag {
     Caret = 119,    // ^
     Div = 120,      // div
 
-    // === Special (121-127) ===
+    // Special (121-127)
     Newline = 121,
     Error = 122,
     Eof = 127,
     // 123-126: reserved for future special tokens
 
-    // === Compound Assignment (128-139) ===
+    // Compound Assignment (128-139)
     PlusEq = 128,     // +=
     MinusEq = 129,    // -=
     StarEq = 130,     // *=
@@ -191,11 +190,9 @@ pub enum TokenTag {
     PipePipeEq = 139, // ||=
 }
 
-// TokenTag is repr(u8), so all discriminants fit in 0..255 by construction.
-// TokenSet uses [u128; 2] (256 bits) to cover the full range.
-// OPER_TABLE[128] and POSTFIX_BITSET only cover 0-127 with early-return
-// guards for higher values — compound assignment tokens (128+) are handled
-// outside those tables via compound_assign_op().
+// INVARIANT: TokenTag is repr(u8) (discriminants 0..255); TokenSet's [u128; 2]
+// covers the full range. OPER_TABLE[128] and POSTFIX_BITSET cover only 0-127;
+// compound-assignment tokens (128+) route through compound_assign_op() instead.
 
 impl TokenTag {
     /// Maximum discriminant value across all variants.
@@ -205,8 +202,16 @@ impl TokenTag {
     pub const MAX_DISCRIMINANT: u8 = Self::PipePipeEq as u8;
 
     /// Get a human-readable name for this tag.
-    #[expect(clippy::too_many_lines, reason = "exhaustive TokenTag → name dispatch")]
     pub const fn name(self) -> &'static str {
+        match self as u8 {
+            0..=60 => self.primary_name(),
+            61..=75 => self.extended_keyword_name(),
+            76..=127 => self.symbol_name(),
+            _ => self.compound_assignment_name(),
+        }
+    }
+
+    const fn primary_name(self) -> &'static str {
         match self {
             Self::Ident => "identifier",
             Self::Int => "integer",
@@ -219,7 +224,6 @@ impl TokenTag {
             Self::TemplateMiddle => "template middle",
             Self::TemplateTail => "template tail",
             Self::TemplateComplete => "template literal",
-            Self::FormatSpec => "format spec",
             Self::KwBreak => "break",
             Self::KwContinue => "continue",
             Self::KwReturn => "return",
@@ -266,6 +270,12 @@ impl TokenTag {
             Self::KwErr => "Err",
             Self::KwSome => "Some",
             Self::KwNone => "None",
+            _ => unreachable!(),
+        }
+    }
+
+    const fn extended_keyword_name(self) -> &'static str {
+        match self {
             Self::KwCache => "cache",
             Self::KwCatch => "catch",
             Self::KwParallel => "parallel",
@@ -279,8 +289,15 @@ impl TokenTag {
             Self::KwPanic => "panic",
             Self::KwTodo => "todo",
             Self::KwUnreachable => "unreachable",
-            Self::HashBracket => "#[",
+            Self::FormatSpec => "format spec",
             Self::HashBang => "#!",
+            _ => unreachable!(),
+        }
+    }
+
+    const fn symbol_name(self) -> &'static str {
+        match self {
+            Self::HashBracket => "#[",
             Self::At => "@",
             Self::Dollar => "$",
             Self::Hash => "#",
@@ -328,7 +345,12 @@ impl TokenTag {
             Self::Newline => "newline",
             Self::Error => "error",
             Self::Eof => "end of file",
-            // Compound assignment
+            _ => unreachable!(),
+        }
+    }
+
+    const fn compound_assignment_name(self) -> &'static str {
+        match self {
             Self::PlusEq => "+=",
             Self::MinusEq => "-=",
             Self::StarEq => "*=",
@@ -341,6 +363,7 @@ impl TokenTag {
             Self::ShlEq => "<<=",
             Self::AmpAmpEq => "&&=",
             Self::PipePipeEq => "||=",
+            _ => unreachable!(),
         }
     }
 }

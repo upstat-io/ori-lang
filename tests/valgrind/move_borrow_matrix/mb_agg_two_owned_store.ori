@@ -1,0 +1,15 @@
+// Move/borrow matrix: MB07 — aggregate with two owned heap fields, sole-owner store.
+// A struct carrying two heap strs (>23 bytes, SSO-defeating) is constructed and
+// stored into ONE list literal; the list is read after. Verifies the sole-owner
+// store transfers both field obligations exactly once — no leak, no double-free.
+
+type Pair = { a: str, b: str }
+
+@main () -> int = {
+    let p = Pair { a: "abcdefghijklmnopqrstuvwxyz1234", b: "another_long_heap_string_content" };
+    let held = [p];
+    let first = held[0];
+    let ok = held.length() == 1 && first.a.length() == 30;
+
+    if ok then 0 else 1
+}

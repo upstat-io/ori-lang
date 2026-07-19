@@ -1,0 +1,6 @@
+// repeat(str) — heap element; pins per-yield RC clone + master release.
+// Inline join (no let-bind) avoids the independent pre-existing AOT UAF in the
+// let-bound `[str]`-into-join path. Leak-checked by the AOT harness.
+@main () -> void = {
+    print(msg: repeat("hi").take(3).collect().join(sep: ","))
+}

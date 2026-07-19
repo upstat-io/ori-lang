@@ -1,0 +1,154 @@
+// Spec: Section 3.8 — DoubleEndedIterator raw protocol methods on LLVM/AOT.
+//
+// Regression: raw `iter.next()` (Iterator) and `iter.next_back()`
+// (DoubleEndedIterator) aborted LLVM/AOT codegen with
+// `unresolved function next/next_back in apply — missing mono instance?` while
+// the interpreter ran them. Wiring them into the LLVM builtin iterator-method
+// emission (emit_iter_next_protocol / emit_iter_next_back_protocol +
+// ori_iter_next_back runtime) makes them compile and match the interpreter.
+//
+// Matrix: method {next, next_back} x element {int, str, struct} x context
+// {direct chain, let-bound iterator, generic fn}. The let-destructure binding
+// of the (Option<T>, Self) result is used throughout — it is the RC-balanced
+// shape on every backend.
+
+use std.testing { assert, assert_eq }
+
+type Box = { v: int }
+
+// Generic-fn context: drives the raw-protocol mono through a generic body.
+@gen_next_back<T> (xs: [T]) -> Option<T> = {
+    let (v, _rest) = xs.iter().next_back();
+    v
+}
+
+@gen_next<T> (xs: [T]) -> Option<T> = {
+    let (v, _rest) = xs.iter().next();
+    v
+}
+
+// next_back x element x context
+
+// int — direct chain
+@next_back_int_direct tests _ () -> void = {
+    let (v, _rest) = [10, 20, 30].iter().next_back();
+    assert_eq(actual: v.unwrap(), expected: 30)
+}
+
+// int — let-bound iterator
+@next_back_int_let tests _ () -> void = {
+    let xs = [10, 20, 30];
+    let it = xs.iter();
+    let (v, _rest) = it.next_back();
+    assert_eq(actual: v.unwrap(), expected: 30)
+}
+
+// int — generic fn
+@next_back_int_generic tests _ () -> void = {
+    assert_eq(actual: gen_next_back([1, 2, 3]).unwrap(), expected: 3)
+}
+
+// str — direct chain
+@next_back_str_direct tests _ () -> void = {
+    let (v, _rest) = ["a", "bb", "ccc"].iter().next_back();
+    assert_eq(actual: v.unwrap(), expected: "ccc")
+}
+
+// str — let-bound iterator
+@next_back_str_let tests _ () -> void = {
+    let xs = ["x", "yy", "zzz"];
+    let it = xs.iter();
+    let (v, _rest) = it.next_back();
+    assert_eq(actual: v.unwrap(), expected: "zzz")
+}
+
+// struct — direct chain
+@next_back_struct_direct tests _ () -> void = {
+    let (v, _rest) = [Box { v: 1 }, Box { v: 2 }, Box { v: 3 }].iter().next_back();
+    assert_eq(actual: v.unwrap().v, expected: 3)
+}
+
+// struct — generic fn
+@next_back_struct_generic tests _ () -> void = {
+    let r = gen_next_back([Box { v: 7 }, Box { v: 9 }]);
+    assert_eq(actual: r.unwrap().v, expected: 9)
+}
+
+// next (forward) x element x context
+
+// int — direct chain
+@next_int_direct tests _ () -> void = {
+    let (v, _rest) = [10, 20, 30].iter().next();
+    assert_eq(actual: v.unwrap(), expected: 10)
+}
+
+// int — let-bound iterator
+@next_int_let tests _ () -> void = {
+    let xs = [10, 20, 30];
+    let it = xs.iter();
+    let (v, _rest) = it.next();
+    assert_eq(actual: v.unwrap(), expected: 10)
+}
+
+// int — generic fn
+@next_int_generic tests _ () -> void = {
+    assert_eq(actual: gen_next([1, 2, 3]).unwrap(), expected: 1)
+}
+
+// str — direct chain
+@next_str_direct tests _ () -> void = {
+    let (v, _rest) = ["a", "bb", "ccc"].iter().next();
+    assert_eq(actual: v.unwrap(), expected: "a")
+}
+
+// struct — generic fn
+@next_struct_generic tests _ () -> void = {
+    let r = gen_next([Box { v: 7 }, Box { v: 9 }]);
+    assert_eq(actual: r.unwrap().v, expected: 7)
+}
+
+// rev() double-ended — the eager Reversed adapter must answer next_back too
+// (.rev() of a DoubleEndedIterator is a DEI; next_back yields the back of the
+// reversed sequence = the FRONT of the original). The Reversed variant was
+// unreachable in the LLVM next_back dispatch before the [front, pos) window.
+
+// rev().next_back() yields the original front.
+@rev_next_back_front tests _ () -> void = {
+    let (v, _rest) = [10, 20, 30].iter().rev().next_back();
+    assert_eq(actual: v.unwrap(), expected: 10)
+}
+
+// rev() then next() (orig back) then next_back() (orig front) — interleaved
+// over the [front, pos) window from both ends.
+@rev_next_back_interleaved tests _ () -> void = {
+    let it = [1, 2, 3, 4, 5].iter().rev();
+    let (a, it2) = it.next();
+    let (b, _it3) = it2.next_back();
+    assert_eq(actual: a.unwrap(), expected: 5);
+    assert_eq(actual: b.unwrap(), expected: 1)
+}
+
+// str element through rev().next_back() (heap-typed element path).
+@rev_next_back_str tests _ () -> void = {
+    let (v, _rest) = ["a", "bb", "ccc"].iter().rev().next_back();
+    assert_eq(actual: v.unwrap(), expected: "a")
+}
+
+// Semantic / negative pins
+
+// next_back yields the BACK element while next yields the FRONT — a reverted or
+// mis-wired emission (e.g. next_back routed to next) makes these collide.
+@next_back_distinct_from_next tests _ () -> void = {
+    let (front, _r1) = [10, 20, 30].iter().next();
+    let (back, _r2) = [10, 20, 30].iter().next_back();
+    assert_eq(actual: front.unwrap(), expected: 10);
+    assert_eq(actual: back.unwrap(), expected: 30);
+    assert(condition: front.unwrap() != back.unwrap())
+}
+
+// Empty list: next_back yields None (negative pin on the tag path).
+@next_back_empty_none tests _ () -> void = {
+    let empty: [int] = [];
+    let (v, _rest) = empty.iter().next_back();
+    assert(condition: v.is_none())
+}

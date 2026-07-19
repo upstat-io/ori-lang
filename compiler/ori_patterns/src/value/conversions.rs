@@ -120,9 +120,6 @@ impl Value {
     /// For variant values, this returns the enum type name (e.g., "Status").
     /// For Range values, returns "range" (lowercase) for method dispatch consistency.
     /// For all other types, delegates to `type_name()`.
-    ///
-    /// This method unifies the type name logic that was previously duplicated
-    /// between `Value::type_name()` and `Evaluator::get_value_type_name()`.
     pub fn type_name_with_interner<I: StringLookup>(&self, interner: &I) -> Cow<'static, str> {
         match self {
             Value::Struct(s) => Cow::Owned(interner.lookup(s.type_name).to_string()),

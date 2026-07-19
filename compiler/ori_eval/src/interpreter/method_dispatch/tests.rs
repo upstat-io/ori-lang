@@ -32,6 +32,5 @@ mod expect_arg_count_tests {
     }
 }
 
-// Note: More comprehensive method dispatch tests are in the integration
-// tests (tests/spec/) since they require a full interpreter setup.
-// These unit tests cover the simpler helper functions.
+// Full method-dispatch coverage lives in tests/spec/ (requires a full
+// interpreter setup); these unit tests cover the helper functions.

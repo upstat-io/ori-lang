@@ -1,0 +1,8 @@
+@main () -> int = {
+    let words = [
+        "this is a very long heap string that exceeds the SSO threshold of twenty three bytes",
+        "another long heap allocated string to exercise discarded for_each results"
+    ];
+    words.iter().for_each(action: (s: str) -> str = s);
+    0
+}

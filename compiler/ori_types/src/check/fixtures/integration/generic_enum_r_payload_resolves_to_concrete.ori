@@ -1,0 +1,4 @@
+
+#derive(Eq) type Either<A, B> = L(value: A) | R(value: B);
+@either_cmp (x: Either<int, str>, y: Either<int, str>) -> bool = x == y;
+@test_either tests @either_cmp () -> void = ();

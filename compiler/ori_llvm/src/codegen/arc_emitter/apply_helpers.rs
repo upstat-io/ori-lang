@@ -174,10 +174,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Call a function with sret (struct return via hidden pointer).
     ///
-    /// When the current function itself returns via sret and no prior
-    /// `call_with_sret` has consumed the sret pointer, forwards the
-    /// function's sret destination directly (avoiding intermediate
-    /// alloca+load+store). Otherwise creates a fresh entry-block alloca.
+    /// When the current function itself returns the same LLVM type via sret
+    /// and no compatible prior call has consumed its destination, forwards
+    /// that destination directly (avoiding intermediate alloca+load+store).
+    /// A differently typed nested return always gets a fresh entry alloca.
     pub(super) fn call_with_sret(
         &mut self,
         func_id: FunctionId,
@@ -185,11 +185,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ret_ty: LLVMTypeId,
         name: &str,
     ) -> Option<ValueId> {
-        // Sret forwarding: reuse the function's sret pointer if available.
-        // `take()` ensures only the first call_with_sret gets forwarded —
-        // subsequent calls create their own allocas to avoid clobbering.
-        let forwarded = self.current_sret_ptr.is_some();
-        let sret_alloca = if let Some(sret_ptr) = self.current_sret_ptr.take() {
+        // LLVM pointers are opaque, so forwarding without comparing the
+        // pointee types can let a larger nested return overwrite the caller's
+        // smaller result slot. Compare the registered LLVM types rather than
+        // arena IDs because resolving the same type may register it twice.
+        let forward_ptr = self.current_sret.and_then(|(ptr, current_ty)| {
+            self.builder
+                .same_llvm_type(current_ty, ret_ty)
+                .then_some(ptr)
+        });
+        let sret_alloca = if let Some(sret_ptr) = forward_ptr {
+            self.current_sret = None;
             sret_ptr
         } else {
             self.builder
@@ -204,7 +210,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Track the forwarded result: if this value is returned directly,
         // the Return terminator can skip the identity store (value is
         // already at the sret destination).
-        if forwarded {
+        if forward_ptr.is_some() {
             self.sret_forwarded_result = Some(result);
         }
 

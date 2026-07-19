@@ -1,7 +1,7 @@
 use std.testing { assert_eq }
 
-// BUG-04-146: cross-instantiation isolation — @pick<int> and @pick<str> are
-// distinct mono instances (no first-match dedup collision).
+// Cross-instantiation isolation: @pick<int> and @pick<str> are distinct mono
+// instances, with no first-match dedup collision between the two instantiations.
 type Boxer = { tag: int }
 
 impl Boxer {

@@ -4,6 +4,7 @@
 // the empty-literal defaulting scope and stay ambiguous.
 
 #compile_fail(code: "E2005")
+@empty_list_unannotated_param_in_function tests _ () -> void = { () }
 
 @process (xs) -> int = xs.len();
 

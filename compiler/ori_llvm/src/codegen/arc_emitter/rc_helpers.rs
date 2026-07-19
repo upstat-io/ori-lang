@@ -163,9 +163,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             Tag::Struct => self.extract_rc_from_struct_fields(val, resolved),
             Tag::Tuple => self.extract_rc_from_tuple_elems(val, resolved),
             Tag::Option => {
-                // {i64 tag, T payload} — recurse into inner type at field 1
+                // {i64 tag, T payload} — recurse into inner type at field 1.
+                // This flat path is NOT tag-aware, so callers MUST NOT route a
+                // possibly-None Option through it: `emit_drop_rc_dec`,
+                // `inc_value_rc`/`dec_value_rc`, and the buffer elem-dec glue all
+                // route Option through the tag-aware value-traversal
+                // (`emit_inline_enum_inc`/`_dec`) before reaching here, so this
+                // arm is unreached for a live None (a None's field-1 payload is
+                // uninitialized).
                 let inner = self.pool.option_inner(resolved);
-                if self.classifier.needs_rc(inner) {
+                if self.classifier.has_managed_ownership_obligation(inner) {
                     if let Some(field) = self.builder.extract_value(val, 1, "rc.opt_inner") {
                         if is_boxed_enum_field(self.pool, resolved, inner) {
                             // Boxed recursive inner: payload is the RC box
@@ -200,6 +207,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     vec![]
                 }
             }
+            // Range: fixed 4-field scalar-only value (start, end, step,
+            // inclusive — `codegen-rules.md TR-1`); no field is ever
+            // RC-managed regardless of element type. Matches the
+            // `Tag::Range` no-op arms in `rc_value_traversal.rs`.
+            Tag::Range => vec![],
             _ => vec![val],
         }
     }
@@ -213,7 +225,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             reason = "field count bounded by struct definition, well within u32 range"
         )]
         for (i, (_, field_ty)) in fields.into_iter().enumerate() {
-            if self.classifier.needs_rc(field_ty) {
+            if self.classifier.has_managed_ownership_obligation(field_ty) {
                 let mem_i = self.remap_struct_field(ty, i as u32);
                 if let Some(field_val) =
                     self.builder
@@ -242,7 +254,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             reason = "element count bounded by tuple arity, well within u32 range"
         )]
         for (i, elem_ty) in elems.into_iter().enumerate() {
-            if self.classifier.needs_rc(elem_ty) {
+            if self.classifier.has_managed_ownership_obligation(elem_ty) {
                 let mem_i = self.remap_struct_field(ty, i as u32);
                 if let Some(elem_val) =
                     self.builder
@@ -270,7 +282,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// is RC-bearing, OR the position is a boxed recursive back-edge (a heap
     /// RC box that must be dropped regardless of the inline classification).
     pub(super) fn payload_needs_rc(&self, owner_ty: Idx, field_ty: Idx) -> bool {
-        self.classifier.needs_rc(field_ty) || is_boxed_enum_field(self.pool, owner_ty, field_ty)
+        self.classifier.has_managed_ownership_obligation(field_ty)
+            || is_boxed_enum_field(self.pool, owner_ty, field_ty)
     }
 
     fn collect_variant_rc_fields(&self, resolved_ty: Idx, pool_tag: Tag) -> Vec<Vec<(u32, Idx)>> {
@@ -342,12 +355,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         pool_tag: Tag,
         count: u32,
     ) {
-        self.emit_inline_enum_rc_core(val, resolved_ty, pool_tag, true, count);
+        self.emit_inline_enum_rc_core(
+            val,
+            resolved_ty,
+            pool_tag,
+            super::emitter_utils::RcOperation::Retain { count },
+        );
     }
 
     /// Delegates to shared `emit_inline_enum_rc_core` with dec direction.
     pub(super) fn emit_inline_enum_dec(&mut self, val: ValueId, resolved_ty: Idx, pool_tag: Tag) {
-        self.emit_inline_enum_rc_core(val, resolved_ty, pool_tag, false, 1);
+        self.emit_inline_enum_rc_core(
+            val,
+            resolved_ty,
+            pool_tag,
+            super::emitter_utils::RcOperation::Release,
+        );
     }
 
     /// Shared core for inline enum RC inc/dec.
@@ -360,8 +383,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         val: ValueId,
         resolved_ty: Idx,
         pool_tag: Tag,
-        is_inc: bool,
-        count: u32,
+        operation: super::emitter_utils::RcOperation,
     ) {
         let variant_rc_fields = self.collect_variant_rc_fields(resolved_ty, pool_tag);
 
@@ -371,14 +393,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Tagged-pointer enum — decode tag, dispatch per variant.
         if self.get_tagged_ptr_encoding(resolved_ty).is_some() {
-            self.emit_tagged_ptr_enum_rc(val, &variant_rc_fields, is_inc, count);
+            self.emit_tagged_ptr_enum_rc(val, &variant_rc_fields, operation);
             return;
         }
 
         // Tagless single-variant enum — struct-like field RC, no tag,
         // no niche, no switch.
         if self.is_tagless_enum(resolved_ty) {
-            self.emit_inline_tagless_rc(val, resolved_ty, is_inc, count);
+            self.emit_inline_tagless_rc(val, resolved_ty, operation);
             return;
         }
 
@@ -390,13 +412,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 pool_tag,
                 &variant_rc_fields,
                 &encoding,
-                is_inc,
-                count,
+                operation,
             );
             return;
         }
 
-        let dir = if is_inc { "rc_inc" } else { "rc_dec" };
+        let dir = operation.prefix();
 
         let enum_llvm_ty = self.resolve_type(resolved_ty);
         let alloca = self.builder.alloca(enum_llvm_ty, &format!("{dir}.enum"));
@@ -466,9 +487,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // forward order (unobservable for inc). Collect into an owned Vec so
             // the iteration does not borrow `cases`.
             let ordered: Vec<(u32, Idx)> =
-                super::emitter_utils::field_rc_walk_order(fields, !is_inc);
+                super::emitter_utils::field_rc_walk_order(fields, operation.field_walk_order());
 
-            if is_inc {
+            if let Some(count) = operation.retain_count() {
                 self.inc_enum_payload_fields(
                     &ordered,
                     enum_llvm_ty,
@@ -554,11 +575,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         pool_tag: Tag,
         variant_rc_fields: &[Vec<(u32, Idx)>],
         encoding: &super::tag_access::TagEncoding,
-        is_inc: bool,
-        count: u32,
+        operation: super::emitter_utils::RcOperation,
     ) {
         let enum_llvm_ty = self.resolve_type(resolved_ty);
-        let prefix = if is_inc { "rc_inc" } else { "rc_dec" };
+        let prefix = operation.prefix();
         let alloca = self
             .builder
             .alloca(enum_llvm_ty, &format!("{prefix}.niche"));
@@ -599,7 +619,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.position_at_end(data_block);
         let data_variant_idx = usize::from(niche_variant_idx == 0);
         if let Some(data_fields) = variant_rc_fields.get(data_variant_idx) {
-            if is_inc {
+            if let Some(count) = operation.retain_count() {
                 // Niche layout: no tag field — payload fields at struct index
                 // `field_index`. Inc keeps forward order (unobservable for inc).
                 for &(field_index, field_type) in data_fields {
@@ -621,7 +641,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 // later-walked sibling payload fields via the per-field cleanup
                 // pad (matching every other enum payload path). Reverse-decl
                 // (LIFO) teardown order.
-                let walk = super::emitter_utils::field_rc_walk_order(data_fields, true);
+                let walk = super::emitter_utils::field_rc_walk_order(
+                    data_fields,
+                    super::emitter_utils::FieldRcWalkOrder::Teardown,
+                );
                 let ops = super::drop_enum::NicheEnumPayloadOps {
                     value: alloca,
                     enum_llvm_ty,
@@ -649,10 +672,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         val: ValueId,
         variant_rc_fields: &[Vec<(u32, Idx)>],
-        is_inc: bool,
-        count: u32,
+        operation: super::emitter_utils::RcOperation,
     ) {
-        let dir = if is_inc { "rc_inc" } else { "rc_dec" };
+        let dir = operation.prefix();
 
         // Decode the tag bits from the encoded value.
         let tag_val = self.tagged_ptr_decode_tag(val, &format!("{dir}.tag"));
@@ -697,7 +719,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         for &(_, block, field_type) in &cases {
             self.builder.position_at_end(block);
             let ptr_val = self.tagged_ptr_decode_ptr(val, &format!("{dir}.tp.ptr"));
-            if is_inc {
+            if let Some(count) = operation.retain_count() {
                 self.inc_value_rc(ptr_val, field_type, count);
             } else {
                 self.dec_value_rc(ptr_val, field_type);

@@ -1,28 +1,18 @@
-//! Identifier and keyword acceptance for the parser cursor.
+//! Identifier-like token classification for the parser cursor.
 //!
-//! Handles the three public parser APIs that consume identifier-like tokens:
-//! - [`Cursor::expect_ident`] — identifiers + soft keywords
-//! - [`Cursor::expect_member_name`] — identifiers + all keywords + integers
-//! - [`Cursor::expect_ident_or_keyword`] — identifiers + soft + positional keywords
-//!
-//! The canonical classification of which keywords are usable as identifiers
-//! lives in [`soft_keyword_str`] and [`positional_keyword_str`].
+//! Soft keywords remain valid identifiers outside their contextual syntax.
+//! Positional keywords can name members and arguments, while member access
+//! additionally admits reserved keywords and integer tuple indices.
 
 use ori_diagnostic::ErrorCode;
 use ori_ir::{Name, TokenKind};
 
 use super::{Cursor, ParseError};
 
-// Identifier acceptance methods
+// Spec: Clauses 7.2 and 7.3.3.
 
 impl Cursor<'_> {
-    /// Check if current token is a context-sensitive keyword that can be used as an identifier.
-    /// These are only treated as keywords in specific contexts (e.g., when followed by `(`).
-    /// Per spec, context-sensitive keywords: by cache catch for max parallel recurse run spawn timeout try with without
-    /// Returns the string form if the current token is a soft keyword, None otherwise.
-    ///
-    /// Delegates to [`soft_keyword_str`] — the canonical source for soft-keyword
-    /// classification.
+    /// Return the source spelling when the current token is a soft keyword.
     pub fn soft_keyword_to_name(&self) -> Option<&'static str> {
         soft_keyword_str(self.current_kind())
     }
@@ -49,7 +39,6 @@ impl Cursor<'_> {
     /// Expect and consume an identifier, returning its interned name.
     /// Also accepts soft keywords (print, panic, by, etc.) as identifiers.
     ///
-    /// Split into inline happy path + `#[cold]` error path for inlining.
     #[inline]
     pub fn expect_ident(&mut self) -> Result<Name, ParseError> {
         self.take_ident_or_soft_keyword()
@@ -63,19 +52,17 @@ impl Cursor<'_> {
     /// are valid in member position because the `.` prefix provides unambiguous
     /// context (e.g., `ordering.then(other: Less)`, `pair.0`).
     ///
-    /// See grammar.ebnf § `member_name`.
+    /// Spec: `grammar.ebnf` rule `member_name`.
     #[inline]
     pub fn expect_member_name(&mut self) -> Result<Name, ParseError> {
         if let Some(name) = self.take_ident_or_soft_keyword() {
             return Ok(name);
         }
-        // Accept any keyword (then, if, for, type, etc.)
         if let Some(kw_str) = self.current_kind().keyword_str() {
             let name = self.interner().intern(kw_str);
             self.advance();
             return Ok(name);
         }
-        // Accept integer literals for tuple field access: t.0, t.1
         if let TokenKind::Int(value) = *self.current_kind() {
             let name = self.interner().intern(&value.to_string());
             self.advance();
@@ -84,8 +71,7 @@ impl Cursor<'_> {
         Err(self.make_expect_member_name_error())
     }
 
-    /// Accept an identifier or a keyword that can be used as a named argument name.
-    /// This handles cases like `where:` in the find pattern where `where` is a keyword.
+    /// Accept an identifier or keyword as a named-argument name.
     pub fn expect_ident_or_keyword(&mut self) -> Result<Name, ParseError> {
         if let Some(name) = self.take_ident_or_soft_keyword() {
             return Ok(name);
@@ -100,13 +86,9 @@ impl Cursor<'_> {
 
     /// Map keywords usable as named argument names to their string form.
     ///
-    /// Delegates to [`positional_keyword_str`] — the canonical source for
-    /// positional-keyword classification.
     pub(super) fn keyword_as_name(&self) -> Option<&'static str> {
         positional_keyword_str(self.current_kind())
     }
-
-    // Error factories
 
     /// Build the error for a failed `expect_ident()` call.
     #[cold]
@@ -129,6 +111,17 @@ impl Cursor<'_> {
     #[cold]
     #[inline(never)]
     fn make_expect_member_name_error(&self) -> ParseError {
+        if matches!(self.current_kind(), TokenKind::Float(_)) {
+            return ParseError::new(
+                ErrorCode::E1004,
+                "expected a member name after `.`, but adjacent numeric selections form a float literal",
+                self.current_span(),
+            )
+            .with_help(
+                "parenthesize the first tuple selection, for example `(value.0).1` \
+                 (Spec: Clause 14.1.1)",
+            );
+        }
         ParseError::new(
             ErrorCode::E1004,
             format!(
@@ -154,15 +147,13 @@ impl Cursor<'_> {
     }
 }
 
-// Keyword classification functions
-
 /// Map a soft keyword token to its string form.
 ///
 /// Soft keywords are context-sensitive: they act as keywords in certain syntactic
-/// positions but are valid identifiers elsewhere.
+/// positions but are valid identifiers outside those contexts.
 ///
-/// This is the **canonical source** for soft-keyword classification — both
-/// [`Cursor::soft_keyword_to_name`] and [`is_keyword_usable_as_ident`] delegate here.
+/// [`Cursor::soft_keyword_to_name`] and [`is_keyword_usable_as_ident`] consume
+/// this classification.
 pub(super) fn soft_keyword_str(kind: &TokenKind) -> Option<&'static str> {
     match kind {
         // I/O primitives
@@ -190,8 +181,8 @@ pub(super) fn soft_keyword_str(kind: &TokenKind) -> Option<&'static str> {
 /// They are a strict subset of reserved keywords that are unambiguous in
 /// identifier position.
 ///
-/// This is the **canonical source** for positional-keyword classification — both
-/// [`Cursor::keyword_as_name`] and [`is_keyword_usable_as_ident`] delegate here.
+/// [`Cursor::keyword_as_name`] and [`is_keyword_usable_as_ident`] consume this
+/// classification.
 pub(super) fn positional_keyword_str(kind: &TokenKind) -> Option<&'static str> {
     match kind {
         TokenKind::Where => Some("where"),
@@ -206,12 +197,7 @@ pub(super) fn positional_keyword_str(kind: &TokenKind) -> Option<&'static str> {
 
 /// Check if a keyword token can be used as an identifier (named arg, field name, etc.).
 ///
-/// Derived from [`soft_keyword_str`] and [`positional_keyword_str`] — no independent
-/// match list. Adding a new keyword-as-identifier only requires updating the
-/// corresponding canonical function above.
-///
-/// Used by [`Cursor::is_named_arg_at`] for lookahead.
-/// A test (`keyword_as_ident_consistency`) enforces this stays in sync.
+/// Return whether either keyword classification admits the token as an identifier.
 pub(super) fn is_keyword_usable_as_ident(kind: &TokenKind) -> bool {
     soft_keyword_str(kind).is_some() || positional_keyword_str(kind).is_some()
 }

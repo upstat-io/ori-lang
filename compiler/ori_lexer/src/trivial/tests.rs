@@ -11,8 +11,8 @@ use crate::cooker::TokenCooker;
 #[test]
 fn trivial_matches_cook() {
     let interner = StringInterner::new();
-    // Trivial tokens don't read source bytes, so any dummy source works.
-    let source = b"+";
+    // Trivial tokens don't read source text, so any dummy source works.
+    let source = "+";
     let mut cooker = TokenCooker::new(source, &interner);
 
     let trivial_tags = [
@@ -115,7 +115,6 @@ fn non_trivial_returns_none() {
         RawTag::InvalidByte,
         RawTag::UnterminatedString,
         RawTag::UnterminatedChar,
-        RawTag::InvalidEscape,
         RawTag::UnterminatedTemplate,
         RawTag::InteriorNull,
         RawTag::Whitespace,
@@ -225,7 +224,6 @@ fn every_raw_tag_has_explicit_routing() {
         RawTag::UnterminatedChar,
         RawTag::UnterminatedTemplate,
         RawTag::Backslash,
-        RawTag::InvalidEscape,
         // Trivia (debug_assert in cook — handled by driver, not cook)
         RawTag::Whitespace,
         RawTag::Newline,

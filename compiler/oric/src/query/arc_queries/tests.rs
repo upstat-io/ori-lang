@@ -177,8 +177,8 @@ fn arc_module_input_roundtrip() {
     let func_bar = stub_function(name_bar);
 
     let mut funcs_map = FxHashMap::default();
-    funcs_map.insert(name_foo, func_foo.clone());
-    funcs_map.insert(name_bar, func_bar.clone());
+    funcs_map.insert(name_foo, func_foo);
+    funcs_map.insert(name_bar, func_bar);
 
     let sorted_funcs = ArcModuleInput::sorted_functions(funcs_map);
     let module = ArcModuleInput::new(

@@ -35,7 +35,6 @@ impl AstCopier<'_> {
         }
     }
 
-    /// Copy a trait item.
     fn copy_trait_item(&self, item: &TraitItem, new_arena: &mut ExprArena) -> TraitItem {
         match item {
             TraitItem::MethodSig(sig) => {
@@ -87,7 +86,6 @@ impl AstCopier<'_> {
         }
     }
 
-    /// Copy a trait default method.
     fn copy_trait_default_method(
         &self,
         method: &TraitDefaultMethod,
@@ -188,7 +186,6 @@ impl AstCopier<'_> {
         }
     }
 
-    /// Copy an impl method.
     pub(super) fn copy_impl_method(
         &self,
         method: &ImplMethod,

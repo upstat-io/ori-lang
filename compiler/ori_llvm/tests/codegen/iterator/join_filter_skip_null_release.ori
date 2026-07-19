@@ -1,0 +1,14 @@
+// FileCheck test: element-identity adapters preserve their dynamic yield
+// obligation in runtime iterator state; join receives no release verdict.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ptr null, i64 24, ptr %join.out)
+
+@main () -> void = {
+    let $joined = ["epsilon-epsilon-epsilon-epsilon", "zeta-zeta-zeta-zeta-zeta-zeta"]
+        .iter()
+        .filter(predicate: (s: str) -> bool = s.len() > 3)
+        .skip(count: 0)
+        .join(separator: ", ");
+    print(msg: joined)
+}

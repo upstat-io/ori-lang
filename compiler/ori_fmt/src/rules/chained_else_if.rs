@@ -9,7 +9,7 @@
 //!
 //! # Spec Reference
 //!
-//! Spec: Annex D §If-Then-Else line 755 — chained `else if` each on own line.
+//! Spec: Annex D §If-Then-Else — chained `else if` each on own line.
 
 use ori_ir::{ExprArena, ExprId, ExprKind};
 

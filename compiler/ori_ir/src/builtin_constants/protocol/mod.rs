@@ -2,7 +2,7 @@
 //!
 //! These names appear as `Apply` callees in ARC IR. Most are intercepted by
 //! the LLVM emitter (they never become real function calls), while `Iter` and
-//! `IterDrop` go through normal function dispatch — see [`ProtocolBuiltin::is_intercepted()`].
+//! `IterDrop` go through normal function dispatch; see `ProtocolBuiltin::is_intercepted()`.
 //! Each variant carries per-argument ownership semantics so borrow inference
 //! and RC insertion handle them correctly without falling through to the
 //! "unknown callee → all Owned" default.

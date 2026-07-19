@@ -1,0 +1,2 @@
+// * x: The input value
+@f (x: int) -> int = x;

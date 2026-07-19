@@ -16,8 +16,8 @@ Theorem DP-8: is_local truth table — Locality in {BlockLocal, FunctionLocal}
         is_local <=> Locality <= FunctionLocal (strict: <= over the
                      partial order, not lattice meet)
       ArgEscaping > FunctionLocal in the partial order; DP-8 is the
-      decision predicate carving the local subset out for RC-skip / stack
-      promotion / DP-7 eligibility.
+      decision predicate carving out the local LifetimeBound and DP-7 subset;
+      it does not select a target placement.
 
   Soundness property:
     Forall s in AimsState (canonical).
@@ -35,27 +35,25 @@ Theorem DP-8: is_local truth table — Locality in {BlockLocal, FunctionLocal}
     Part (a) — Appendix C row partition (5 rows, exhaustive):
       Row 1: Locality = BlockLocal -> true
         Soundness: predicate true. Block-local values never cross basic-block
-        boundaries; stack-promotion candidate (per RL-14); DP-7 eligibility
-        candidate; no RC ops emitted on the stack path.
+        boundaries; RL-14 freezes Block(block-id); DP-7 eligibility remains a
+        separate candidate.
       Row 2: Locality = FunctionLocal -> true
         Soundness: predicate true. Function-local values may cross block
-        boundaries but not function-boundary; stack-promotion candidate;
-        DP-7 eligibility candidate; IA-4 cross-block widening to
-        FunctionLocal is the standard non-escape target.
+        boundaries but not the function boundary; RL-14 freezes Function;
+        DP-7 eligibility remains a separate candidate. IA-4 cross-block
+        widening to FunctionLocal is the standard local fact.
       Row 3: Locality = ArgEscaping -> false
         Soundness: predicate false (DP-8 ArgEscaping-not-local clause per
-        §4 DP-8 rationale). ArgEscaping arg participates in stack
-        promotion in CALLER (per RL-15a) but not RC elision via DP-7 —
-        callee-scoped, no heap persistence; the ABI obligation forbids
-        RC-skip via DP-7 because the value escapes into callee's
-        parameter scope.
-      Row 4: Locality = HeapEscaping -> false
-        Soundness: predicate false. Heap escape requires heap allocation
-        (per RL-16) with full RC header; no stack promotion, no RC
+        §4 DP-8 rationale). RL-15a freezes a nonempty exact CallerExtent,
+        but that cross-function extent cannot justify local-only DP-7
         elision.
+      Row 4: Locality = HeapEscaping -> false
+        Soundness: predicate false. RL-14 freezes an Escaping lifetime;
+        physical placement remains target-owned and DP-7 cannot elide.
       Row 5: Locality = Unknown -> false
-        Soundness: predicate false. Conservative default; no optimization;
-        no stack promotion; no RC elision.
+        Soundness: predicate false. RL-16 freezes Unknown lifetime,
+        Unbounded owners, and PotentiallyShared reachability; DP-7 cannot
+        elide.
 
     Part (b) — coverage + composition with DP-7:
       Coverage: 5 enumerated states; 2 true rows; 3 false rows.
@@ -67,20 +65,21 @@ Theorem DP-8: is_local truth table — Locality in {BlockLocal, FunctionLocal}
       is_local = false -> DP-7 = false unconditionally). The is_local
       conjunct + remaining DP-7 conjuncts (Owned, Linear, Once, Unique,
       non-scalar) together enforce: RC-skip eligibility implies value never
-      escapes its function. Stack promotion (per RL-14 + RL-14a + RL-15)
-      consumes is_local; ArgEscaping arg uses RL-15a's caller-stack-with-
-      immortal-RC-header path, NOT DP-7's RC-skip path. The partition is:
+      escapes its function. RL-14 and RL-15a consume Locality to freeze exact
+      lifetime facts; RL-16 supplies conservative unknown defaults. None of
+      these rules chooses placement or metadata. The partition is:
         is_local AND DP-7 conjuncts -> RC-skip elision
-        ArgEscaping (NOT is_local) -> caller-stack via RL-15a (immortal
-                                      RC header preserves RC obligations)
-        HeapEscaping/Unknown -> heap allocation with full RC header
+        ArgEscaping (NOT is_local) -> exact CallerExtent or Unknown via RL-15a
+        HeapEscaping/Unknown -> Escaping or Unknown LifetimeBound
+      A target combines those facts with representation-owned ExtentClass and
+      proves RL-18 Satisfies before selecting a physical mechanism.
 
     DP-8 composition with DP-6 (is_reuse_candidate):
       DP-6 does NOT consume is_local — reuse eligibility depends on Access
-      + Uniqueness + Shape. A heap-allocated, uniquely-owned ReusableCtor
-      value (DP-6 = true, is_local = false) is a valid reuse target via
-      the cross-block heap-reuse path (RL-12). DP-6 + DP-8 are orthogonal
-      decision predicates.
+      + Uniqueness + Shape. A non-local, uniquely-owned ReusableCtor value
+      (DP-6 = true, is_local = false) remains a valid reuse target through
+      the cross-block reuse path (RL-12). Its target-selected placement is
+      irrelevant to the logical predicate. DP-6 + DP-8 are orthogonal.
 
     Live-variable / borrow_sources / project_alias_sources / IC-3 contract
     typed pre-pass dependency: NOT REQUIRED for DP-8 (pure boolean predicate

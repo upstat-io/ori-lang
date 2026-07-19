@@ -11,16 +11,6 @@
 //!
 //! These limits are enforced at runtime with clear panic messages.
 
-// Arc is needed for SharedArena - the implementation of shared arena references
-#![expect(
-    clippy::disallowed_types,
-    reason = "Arc is the implementation of SharedArena"
-)]
-
-use std::fmt;
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
-
 use super::ast::{
     AccessStep, CallArg, Expr, ExprKind, FieldInit, GenericParam, ListElement, MapElement,
     MapEntry, MatchArm, NamedExpr, Param, Stmt, StructLitField,
@@ -32,8 +22,14 @@ use super::{
 
 use crate::ast::patterns::{FunctionExp, FunctionSeq};
 use crate::ast::{BindingPattern, MatchPattern, TemplatePart};
+use crate::SparseSideTable;
 
+mod direct_append;
 mod range_builders;
+mod salsa_impls;
+mod shared;
+
+pub use shared::SharedArena;
 
 /// Panic helper for capacity overflow (cold path, never inlined).
 #[cold]
@@ -158,11 +154,18 @@ pub struct ExprArena {
     access_steps: Vec<AccessStep>,
 
     /// Call-site type arguments for `MethodCall` / `MethodCallNamed`, keyed by the
-    /// call expression's `ExprId`. A sparse side-table (turbofish calls are rare)
-    /// stored as `Vec<(ExprId, ParsedTypeRange)>` — NOT a `FxHashMap` — so the
-    /// Salsa `Eq + Hash` contract on `ExprArena` stays deterministic (mirrors the
-    /// `canon::arena` `MonoInstance` side-table pattern).
-    method_call_type_args: Vec<(ExprId, ParsedTypeRange)>,
+    /// call expression's `ExprId`. Recorded by the parser for a method turbofish
+    /// (`obj.method<T>(...)`) and consumed by type inference for explicit type and
+    /// const binding. A sparse side-table keeps the common no-turbofish node small.
+    method_call_type_args: SparseSideTable<ExprId, ParsedTypeRange>,
+
+    /// Receiver-position type arguments for a primary-position type-path turbofish
+    /// `Type<args>.method(...)` (e.g. `Box<int>.new(v: 5)`), keyed by the receiver
+    /// expression's `ExprId`. SEPARATE from `method_call_type_args` (those are the
+    /// method's own turbofish `obj.method<T>(...)`); these are the TYPE's instantiation
+    /// arguments, threaded into associated-function resolution so the receiver type is
+    /// concrete before the method is looked up.
+    receiver_type_args: SparseSideTable<ExprId, ParsedTypeRange>,
 }
 
 impl ExprArena {
@@ -200,7 +203,8 @@ impl ExprArena {
             template_parts: Vec::with_capacity(estimated_exprs / 32),
             access_steps: Vec::with_capacity(estimated_exprs / 32),
             // Sparse — turbofish call sites are rare; no capacity pre-allocation.
-            method_call_type_args: Vec::new(),
+            method_call_type_args: SparseSideTable::new(),
+            receiver_type_args: SparseSideTable::new(),
         }
     }
 
@@ -280,7 +284,7 @@ impl ExprArena {
         &self.stmts[id.index()]
     }
 
-    // -- Parsed Type Storage --
+    // Parsed Type Storage
 
     /// Allocate a parsed type, return ID.
     #[inline]
@@ -300,7 +304,7 @@ impl ExprArena {
         &self.parsed_types[id.index()]
     }
 
-    // -- Call-site Type Arguments (method-call turbofish side-table) --
+    // Call-site Type Arguments (method-call turbofish side-table)
 
     /// Record call-site type arguments for a `MethodCall` / `MethodCallNamed`
     /// expression, keyed by its `ExprId`. An `EMPTY` range is a no-op (the table
@@ -308,22 +312,42 @@ impl ExprArena {
     #[inline]
     pub fn set_method_call_type_args(&mut self, id: ExprId, type_args: ParsedTypeRange) {
         if !type_args.is_empty() {
-            self.method_call_type_args.push((id, type_args));
+            self.method_call_type_args.insert(id, type_args);
         }
     }
 
     /// Get the call-site type arguments recorded for a method-call expression.
     /// Returns `ParsedTypeRange::EMPTY` when none were recorded (the common case).
-    /// Linear scan — turbofish call sites are rare, so the table is small.
     #[inline]
     pub fn method_call_type_args(&self, id: ExprId) -> ParsedTypeRange {
         self.method_call_type_args
-            .iter()
-            .find(|(eid, _)| *eid == id)
-            .map_or(ParsedTypeRange::EMPTY, |(_, range)| *range)
+            .get(id)
+            .copied()
+            .unwrap_or(ParsedTypeRange::EMPTY)
     }
 
-    // -- Match Pattern Storage --
+    /// Record receiver-position type arguments for a primary-position type-path
+    /// turbofish (`Type<args>.method(...)`), keyed by the receiver expression's
+    /// `ExprId`. An `EMPTY` range is a no-op (sparse table; absence means "no
+    /// receiver turbofish").
+    #[inline]
+    pub fn set_receiver_type_args(&mut self, id: ExprId, type_args: ParsedTypeRange) {
+        if !type_args.is_empty() {
+            self.receiver_type_args.insert(id, type_args);
+        }
+    }
+
+    /// Get the receiver-position type arguments recorded for a receiver expression.
+    /// Returns `ParsedTypeRange::EMPTY` when none were recorded (the common case).
+    #[inline]
+    pub fn receiver_type_args(&self, id: ExprId) -> ParsedTypeRange {
+        self.receiver_type_args
+            .get(id)
+            .copied()
+            .unwrap_or(ParsedTypeRange::EMPTY)
+    }
+
+    // Match Pattern Storage
 
     /// Allocate a match pattern, return ID.
     #[inline]
@@ -343,7 +367,7 @@ impl ExprArena {
         &self.match_patterns[id.index()]
     }
 
-    // -- Binding Pattern Storage --
+    // Binding Pattern Storage
 
     /// Allocate a binding pattern, return ID.
     #[inline]
@@ -363,7 +387,7 @@ impl ExprArena {
         &self.binding_patterns[id.index()]
     }
 
-    // -- Function Sequence Storage --
+    // Function Sequence Storage
 
     /// Allocate a function sequence, return ID.
     #[inline]
@@ -383,7 +407,7 @@ impl ExprArena {
         &self.function_seqs[id.index()]
     }
 
-    // -- Function Expression Storage --
+    // Function Expression Storage
 
     /// Allocate a function expression, return ID.
     #[inline]
@@ -429,142 +453,12 @@ impl ExprArena {
         self.template_parts.clear();
         self.access_steps.clear();
         self.method_call_type_args.clear();
+        self.receiver_type_args.clear();
     }
 
     /// Check if arena is empty.
     pub fn is_empty(&self) -> bool {
         self.expr_kinds.is_empty()
-    }
-}
-
-impl PartialEq for ExprArena {
-    fn eq(&self, other: &Self) -> bool {
-        self.expr_kinds == other.expr_kinds
-            && self.expr_spans == other.expr_spans
-            && self.expr_lists == other.expr_lists
-            && self.stmts == other.stmts
-            && self.params == other.params
-            && self.arms == other.arms
-            && self.map_entries == other.map_entries
-            && self.field_inits == other.field_inits
-            && self.struct_lit_fields == other.struct_lit_fields
-            && self.list_elements == other.list_elements
-            && self.map_elements == other.map_elements
-            && self.named_exprs == other.named_exprs
-            && self.call_args == other.call_args
-            && self.generic_params == other.generic_params
-            && self.parsed_types == other.parsed_types
-            && self.parsed_type_lists == other.parsed_type_lists
-            && self.match_patterns == other.match_patterns
-            && self.match_pattern_lists == other.match_pattern_lists
-            && self.binding_patterns == other.binding_patterns
-            && self.function_seqs == other.function_seqs
-            && self.function_exps == other.function_exps
-            && self.template_parts == other.template_parts
-            && self.access_steps == other.access_steps
-            && self.method_call_type_args == other.method_call_type_args
-    }
-}
-
-impl Eq for ExprArena {}
-
-impl Hash for ExprArena {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.expr_kinds.hash(state);
-        self.expr_spans.hash(state);
-        self.expr_lists.hash(state);
-        self.stmts.hash(state);
-        self.params.hash(state);
-        self.arms.hash(state);
-        self.map_entries.hash(state);
-        self.field_inits.hash(state);
-        self.struct_lit_fields.hash(state);
-        self.list_elements.hash(state);
-        self.map_elements.hash(state);
-        self.named_exprs.hash(state);
-        self.call_args.hash(state);
-        self.generic_params.hash(state);
-        self.parsed_types.hash(state);
-        self.parsed_type_lists.hash(state);
-        self.match_patterns.hash(state);
-        self.match_pattern_lists.hash(state);
-        self.binding_patterns.hash(state);
-        self.function_seqs.hash(state);
-        self.function_exps.hash(state);
-        self.template_parts.hash(state);
-        self.access_steps.hash(state);
-        self.method_call_type_args.hash(state);
-    }
-}
-
-impl fmt::Debug for ExprArena {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "ExprArena {{ {} exprs, {} lists, {} stmts, {} params }}",
-            self.expr_kinds.len(),
-            self.expr_lists.len(),
-            self.stmts.len(),
-            self.params.len()
-        )
-    }
-}
-
-/// Shared expression arena wrapper for cross-module function references.
-///
-/// This newtype enforces that all arena sharing goes through this type,
-/// preventing accidental direct `Arc<ExprArena>` usage.
-///
-/// # Purpose
-/// When importing functions from other modules, the function's body expression
-/// references expressions in the imported module's arena. `SharedArena` allows
-/// the imported function to carry its arena reference for correct evaluation.
-///
-/// # Thread Safety
-/// Uses `Arc` internally for thread-safe reference counting.
-///
-/// # Usage
-///
-/// `ParseOutput.arena` is already a `SharedArena`, so cloning is O(1):
-/// ```text
-/// let arena = parse_result.arena.clone(); // Arc::clone, not deep copy
-/// let func = FunctionValue::new(params, captures, arena);
-/// ```
-#[derive(Clone)]
-pub struct SharedArena(Arc<ExprArena>);
-
-impl SharedArena {
-    /// Create a new shared arena from an `ExprArena`.
-    pub fn new(arena: ExprArena) -> Self {
-        SharedArena(Arc::new(arena))
-    }
-}
-
-impl std::ops::Deref for SharedArena {
-    type Target = ExprArena;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl PartialEq for SharedArena {
-    fn eq(&self, other: &Self) -> bool {
-        *self.0 == *other.0
-    }
-}
-
-impl Eq for SharedArena {}
-
-impl std::hash::Hash for SharedArena {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
-    }
-}
-
-impl fmt::Debug for SharedArena {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "SharedArena({:?})", &*self.0)
     }
 }
 

@@ -17,13 +17,14 @@
 //! algorithm (matches `petgraph::algo::tarjan_scc` shape — single DFS,
 //! `O(V+E)`).
 //!
-//! Decision rule for `compiled_drop`:
-//! `compiled_drop = Some(_) iff (in non-singleton SCC) OR (self-loop) OR
+//! Decision rule for `drop_operation`:
+//! `drop_operation = Some(_) iff (in non-singleton SCC) OR (self-loop) OR
 //! (user_drop = Some(_))`.
 //!
-//! Spec: Annex E §AIMS — compiled drop-glue per type is a typed pre-pass
-//! input feeding lattice-driven analysis. SCC detection at registration
-//! time wires the cycle-safe drop walk before Phase 5 emission.
+//! Spec: Annex E §AIMS — the logical cleanup graph is typed pre-pass input to
+//! lattice-driven analysis. SCC detection at registration time gives recursive
+//! cleanup a stable cycle-safe identity before Phase 5 emission. A physical
+//! projection may inline the graph or assign its own helper symbol.
 
 use core::num::NonZeroU32;
 
@@ -59,7 +60,7 @@ struct DfsFrame {
 /// Types referenced by edges but absent from the corpus (e.g., primitive
 /// `Idx::INT`, or a borrowed `field_type` whose burden is empty) are
 /// excluded from the partition — they cannot participate in a cycle and
-/// require no compiled drop function.
+/// require no recursive cleanup-operation identity.
 ///
 /// The algorithm is iterative to avoid host-stack overflow on deeply
 /// nested types (per `ori_stack` discipline).
@@ -99,7 +100,7 @@ pub fn compute_scc_partition(corpus: &[(Idx, &UserBurdenSpec)]) -> Vec<Vec<Idx>>
 
 /// Iterate every type-Idx referenced by a `UserBurdenSpec`.
 ///
-/// Edges enumerated per §04.1 design (a)-(d):
+/// Edges enumerated (a)-(d):
 ///
 /// - (a) `owned_fields[*].field_type`
 /// - (b) `borrowed_fields[*].field_type`
@@ -122,31 +123,27 @@ fn collect_edges<F: FnMut(Idx)>(spec: &UserBurdenSpec, mut emit: F) {
     }
 }
 
-/// Decide whether a type's `UserBurdenSpec` SHALL carry `compiled_drop =
-/// Some(_)`. Per §04.1 decision rule:
-/// `compiled_drop = Some iff (in non-singleton SCC) OR (self-loop) OR
+/// Decide whether a type's `UserBurdenSpec` SHALL carry `drop_operation =
+/// Some(_)`. Decision rule:
+/// `drop_operation = Some iff (in non-singleton SCC) OR (self-loop) OR
 /// (user_drop = Some(_))`.
 ///
 /// `scc_size` = number of members in this type's SCC.
 /// `has_self_loop` = `true` when this type's outgoing edge set contains
 /// itself (self-recursive singleton).
 #[must_use]
-pub fn needs_compiled_drop(scc_size: usize, has_self_loop: bool, spec: &UserBurdenSpec) -> bool {
+pub fn needs_drop_operation(scc_size: usize, has_self_loop: bool, spec: &UserBurdenSpec) -> bool {
     scc_size >= 2 || has_self_loop || spec.user_drop.is_some()
 }
 
-/// Mint a deterministic `FnSym` for a type's compiled drop function.
+/// Mint a deterministic logical cleanup-operation identity for a type.
 ///
-/// Mangling at codegen-time keys on the type Idx (`_ori_drop$<idx_raw>`
-/// per `drop_gen.rs:45`), so the `FnSym` carries the type's Idx raw value
-/// — two distinct types yield two distinct `FnSym`s even when they share
-/// an SCC. `Idx::ERROR` (raw == 8) is a valid non-zero source, but
-/// `Idx::INT` (raw == 0) would collapse to `MIN`; we shift up by one to
-/// preserve the per-Idx distinctness contract and reserve raw 0 as the
-/// "unminted" sentinel (matching `ori_registry::burden::FnSym`'s
-/// `NonZeroU32` discipline).
+/// The identity carries the type's `Idx` value in the registry-local non-zero
+/// domain, so distinct types remain distinct even inside one SCC. Physical
+/// helper naming is deliberately absent. `Idx::INT` has raw value zero, so the
+/// mapping shifts by one and reserves zero as the unminted sentinel.
 #[must_use]
-pub fn mint_compiled_drop_fn_sym(idx: Idx) -> FnSym {
+pub fn mint_drop_operation_sym(idx: Idx) -> FnSym {
     // raw + 1 keeps the per-Idx distinctness; saturating add avoids
     // overflow at u32::MAX (which would only arise from Idx::NONE, a
     // sentinel that never participates in the burden corpus).
@@ -160,7 +157,7 @@ pub fn mint_compiled_drop_fn_sym(idx: Idx) -> FnSym {
 
 /// True when `this_idx` has an out-edge pointing at itself in the
 /// adjacency graph — a self-loop forms a singleton SCC that still needs
-/// `compiled_drop` per `needs_compiled_drop`.
+/// `drop_operation` per `needs_drop_operation`.
 fn has_self_loop(spec: &UserBurdenSpec, this_idx: Idx) -> bool {
     let mut found = false;
     collect_edges(spec, |target| {
@@ -171,14 +168,14 @@ fn has_self_loop(spec: &UserBurdenSpec, this_idx: Idx) -> bool {
     found
 }
 
-/// Apply the §04.1 SCC + self-loop + `user_drop` decision rule to a corpus,
-/// returning per-Idx `Option<FnSym>` mapping for `compiled_drop`.
+/// Apply the SCC + self-loop + `user_drop` decision rule to a corpus,
+/// returning per-Idx `Option<FnSym>` mapping for `drop_operation`.
 ///
 /// `Idx` not present in the corpus has no entry in the returned map.
 /// `Idx` whose decision evaluates to `false` is absent from the map
-/// (callers preserve any pre-existing `compiled_drop = None`).
+/// (callers preserve any pre-existing `drop_operation = None`).
 #[must_use]
-pub fn assign_compiled_drop_fn_syms(corpus: &[(Idx, &UserBurdenSpec)]) -> FxHashMap<Idx, FnSym> {
+pub fn assign_drop_operation_syms(corpus: &[(Idx, &UserBurdenSpec)]) -> FxHashMap<Idx, FnSym> {
     let partition = compute_scc_partition(corpus);
 
     // Build idx -> SCC size lookup
@@ -193,8 +190,8 @@ pub fn assign_compiled_drop_fn_syms(corpus: &[(Idx, &UserBurdenSpec)]) -> FxHash
     for (idx, spec) in corpus {
         let scc_size = scc_size_by_idx.get(idx).copied().unwrap_or(1);
         let self_loop = has_self_loop(spec, *idx);
-        if needs_compiled_drop(scc_size, self_loop, spec) {
-            out.insert(*idx, mint_compiled_drop_fn_sym(*idx));
+        if needs_drop_operation(scc_size, self_loop, spec) {
+            out.insert(*idx, mint_drop_operation_sym(*idx));
         }
     }
     out

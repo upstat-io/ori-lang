@@ -53,8 +53,8 @@
 ; - IA-5 step (1) alias-transfer soundness (Let Var transparent + Project
 ; borrow + jump-arg + Select conditional alias propagation)
 ; [aims-proof/proofs/04-transfers/IA-5-step-1.proof]
-; - RL-31 Disjoint Borrowed parameters SHALL receive !alias.scope + !noalias
-; metadata (cross-function provenance summary)
+; - RL-31 freezes a backend-neutral disjoint-Borrowed-parameter fact from the
+; cross-function provenance summary; target alias metadata is a later projection
 ; [aims-proof/proofs/08-realization/RL-31.proof]
 ; - CN-8 Access = Borrowed ∧ Locality > FunctionLocal ⟹ Locality :=
 ; FunctionLocal (prevents borrow from outliving its source)

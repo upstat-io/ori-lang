@@ -1,7 +1,4 @@
-// Golden test: Concurrent task orchestration
-// Spec: 10-patterns.md § parallel, spawn, timeout
-// Design: tooling/formatter/design/appendices/A-edge-cases.md
-use std.testing { assert, assert_eq }
+use std.testing { assert_eq }
 
 type TaskResult = Success(value: int) | Failure(reason: str) | Timeout;
 
@@ -9,117 +6,88 @@ type WorkItem = { id: int, payload: str, priority: int }
 
 type BatchResult = { completed: int, failed: int, total: int }
 
-// TODO: LLVM backend doesn't support struct field access
-// @process_item (item: WorkItem) -> Result<int, str> = {
-//     if item.priority > 0 then Ok(item.id * 10) else Err("invalid priority"),
-// }
-@process_item (item: WorkItem) -> Result<int, str> = Ok(0);
+@process_item (item: WorkItem) -> Result<int, str> = {
+    if item.priority > 0 then Ok(item.id * 10) else Err("invalid priority")
+}
 
-// TODO: LLVM backend doesn't support struct field access in for-loop iteration
-// @process_batch (items: [WorkItem]) -> [Result<int, str>] = {
-//     let results = parallel(
-//         tasks: [1, 2, 3],
-//     ),
-//     for item in items yield process_item(item: item),
-// }
-@process_batch (items: [WorkItem]) -> [Result<int, str>] = [];
+@process_batch (items: [WorkItem]) -> [Result<int, str>] = {
+    for item in items yield process_item(item: item)
+}
 
-// TODO: LLVM backend doesn't support struct field access
-// @process_with_timeout (item: WorkItem) -> Result<int, str> = {
-//     let result = timeout(operation: process_item(item: item), after: 5s),
-//     match result {
-//         Ok(inner) -> inner,
-//         Err(_) -> Err("timeout"),
-//     },
-// }
-@process_with_timeout (item: WorkItem) -> Result<int, str> = Ok(0);
+@process_without_timeout (item: WorkItem) -> Result<int, str> = process_item(item: item);
 
-// TODO: spawn() not yet supported (E2040)
-// @fire_and_forget (items: [WorkItem]) -> void = {
-//     spawn(
-//         tasks: [1, 2, 3],
-//     )
-// }
-// TODO: LLVM backend doesn't support struct field access in for-loop iteration
-// @parallel_with_limit (items: [WorkItem]) -> [Result<int, str>] = {
-//     let results = parallel(
-//         tasks: [1, 2, 3, 4, 5],
-//         max_concurrent: 3,
-//     ),
-//     for item in items yield process_item(item: item),
-// }
-@parallel_with_limit (items: [WorkItem]) -> [Result<int, str>] = [];
+@process_batch_sequentially (items: [WorkItem]) -> [Result<int, str>] = process_batch(items: items);
 
 @orchestrate (items: [WorkItem]) -> BatchResult = {
     let results = process_batch(items: items);
     let completed = 0;
     let failed = 0;
+    for result in results do
+        { if is_ok(r: result) then completed = completed + 1 else failed = failed + 1 };
 
     BatchResult { completed: completed, failed: failed, total: completed + failed }
 }
 
-// TODO: LLVM backend doesn't support struct field access
-// @cached_process (item: WorkItem) -> int = {
-//     let result = cache(key: "item", operation: item.id * 2),
-//     result,
-// }
-@cached_process (item: WorkItem) -> int = 0;
+@compute_without_cache (item: WorkItem) -> int = item.id * 2;
 
-#skip("BUG-07-038: stub — concurrency not yet implemented")
 @test_process_batch tests @process_batch () -> void = {
-    let items = [];
+    let items = [
+        WorkItem { id: 1, payload: "first", priority: 2 },
+        WorkItem { id: 2, payload: "second", priority: 0 },
+    ];
     let result = process_batch(items: items);
+    assert_eq(actual: result.length(), expected: 2);
+    assert_eq(actual: result[0], expected: Ok(10));
 
-    assert(cond: true)
+    assert_eq(actual: result[1], expected: Err("invalid priority"))
 }
 
-#skip("BUG-07-038: stub — concurrency not yet implemented")
-@test_process_with_timeout tests @process_with_timeout () -> void = {
+@test_process_without_timeout tests @process_without_timeout () -> void = {
     let item = WorkItem { id: 1, payload: "test", priority: 1 };
-    let result = process_with_timeout(item: item);
+    let result = process_without_timeout(item: item);
 
-    assert(cond: true)
+    assert_eq(actual: result, expected: Ok(10))
 }
 
-#skip("BUG-07-038: stub — concurrency not yet implemented")
-@test_parallel_with_limit tests @parallel_with_limit () -> void = {
-    let items = [];
-    let result = parallel_with_limit(items: items);
+@test_process_batch_sequentially tests @process_batch_sequentially () -> void = {
+    let items = [
+        WorkItem { id: 1, payload: "first", priority: 1 },
+        WorkItem { id: 2, payload: "second", priority: 1 },
+    ];
+    let result = process_batch_sequentially(items: items);
 
-    assert(cond: true)
+    assert_eq(actual: result, expected: [Ok(10), Ok(20)])
 }
 
-#skip("BUG-07-038: stub — concurrency not yet implemented")
-@test_cached_process tests @cached_process () -> void = {
+@test_compute_without_cache tests @compute_without_cache () -> void = {
     let item = WorkItem { id: 1, payload: "test", priority: 1 };
-    let result = cached_process(item: item);
+    let result = compute_without_cache(item: item);
 
-    assert(cond: true)
+    assert_eq(actual: result, expected: 2)
 }
 
-#skip("BUG-07-038: LLVM backend — struct parameters not supported")
 @test_process_item tests @process_item () -> void = {
     let item = WorkItem { id: 1, payload: "test", priority: 5 };
     let result = process_item(item: item);
 
-    assert(cond: is_ok(r: result))
+    assert_eq(actual: result, expected: Ok(10))
 }
 
-#skip("BUG-07-038: LLVM backend — struct parameters not supported")
 @test_invalid_priority tests @process_item () -> void = {
     let item = WorkItem { id: 1, payload: "test", priority: 0 };
     let result = process_item(item: item);
 
-    assert(cond: is_err(r: result))
+    assert_eq(actual: result, expected: Err("invalid priority"))
 }
 
-#skip("BUG-07-038: LLVM backend — struct parameters not supported")
 @test_orchestrate tests @orchestrate () -> void = {
     let items = [
         WorkItem { id: 1, payload: "a", priority: 1 },
-        WorkItem { id: 2, payload: "b", priority: 2 },
+        WorkItem { id: 2, payload: "b", priority: 0 },
     ];
     let result = orchestrate(items: items);
+    assert_eq(actual: result.completed, expected: 1);
+    assert_eq(actual: result.failed, expected: 1);
 
-    assert_eq(actual: result.total, expected: result.completed + result.failed)
+    assert_eq(actual: result.total, expected: 2)
 }

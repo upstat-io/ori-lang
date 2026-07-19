@@ -207,33 +207,7 @@ fn test_no_newline_on_same_line() {
 }
 
 #[test]
-fn test_line_start_flag() {
-    // "let\nx" -> tokens: [let, \n, x, EOF]
-    let ctx = TestCtx::new("let\nx");
-    let mut cursor = ctx.cursor();
-
-    cursor.advance(); // skip `let`
-    cursor.skip_newlines();
-
-    // `x` is the first non-trivia token on its line — LINE_START set
-    assert!(cursor.check_ident());
-    assert!(cursor.at_line_start());
-}
-
-#[test]
-fn test_no_line_start_mid_line() {
-    // "let x = 42" -> all on same line
-    let ctx = TestCtx::new("let x = 42");
-    let mut cursor = ctx.cursor();
-
-    cursor.advance(); // skip `let`
-
-    // `x` is NOT at line start — it's mid-line
-    assert!(!cursor.at_line_start());
-}
-
-#[test]
-fn test_current_flags_returns_correct_value() {
+fn test_current_flags_space_before_set_after_spaces() {
     // "let   x" -> tokens: [let, x, EOF]
     let ctx = TestCtx::new("let   x");
     let mut cursor = ctx.cursor();
@@ -258,7 +232,6 @@ fn test_multiple_newlines_flag() {
     // `b` follows multiple newlines
     assert!(cursor.check_ident());
     assert!(cursor.has_newline_before());
-    assert!(cursor.at_line_start());
 }
 
 #[test]

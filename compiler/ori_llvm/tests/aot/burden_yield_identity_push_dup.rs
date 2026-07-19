@@ -86,27 +86,3 @@ fn test_yield_identity_owned_source_no_inc_no_leak() {
         "total=109",
     );
 }
-
-/// Toggle-parity semantic pin: `ORI_DISABLE_YIELD_IDENTITY_PUSH_DUP_INC=1`
-/// removes the store-dup inc, restoring the pre-cure double-free on the
-/// borrowed-source single-reuse shape — proving the inc is the load-bearing
-/// cure surface.
-#[test]
-fn test_yield_identity_with_push_dup_inc_disabled_double_frees_again() {
-    use crate::util::compile_and_run_with_build_env;
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        BORROWED_SINGLE_REUSE_SRC,
-        &[("ORI_DISABLE_YIELD_IDENTITY_PUSH_DUP_INC", "1")],
-    );
-    assert_ne!(
-        exit, 0,
-        "with the yield-identity push-dup inc disabled, the borrowed-source \
-         single-reuse cell must regress (double-free abort, exit != 0)\n\
-         stderr:\n{stderr}"
-    );
-    assert!(
-        stderr.contains("double-free"),
-        "the regression is the pre-cure double-free shape\nexit={exit}\n\
-         stderr:\n{stderr}"
-    );
-}

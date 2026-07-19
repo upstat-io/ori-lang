@@ -109,6 +109,7 @@ pub(crate) struct BuiltinMethodNames {
     // Type names for associated function dispatch
     pub(crate) duration: Name,
     pub(crate) size: Name,
+    pub(crate) void: Name,
 
     // Duration/Size operator aliases
     pub(crate) subtract: Name,
@@ -296,6 +297,7 @@ impl BuiltinMethodNames {
             // Type names
             duration: interner.intern("Duration"),
             size: interner.intern("Size"),
+            void: interner.intern("void"),
             // Duration/Size aliases
             subtract: interner.intern("subtract"),
             multiply: interner.intern("multiply"),

@@ -23,9 +23,11 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::{smallvec, SmallVec};
 
+pub(crate) use crate::ir::ParamEdgeArg;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 
-use super::super::lattice::{AccessClass, AimsState, Cardinality};
+use super::super::lattice::{AimsState, Cardinality};
+use super::block_state::BlockState;
 use super::state_map::{AimsStateMap, ApplyAliasSource};
 
 /// Per-variable set of possible Project source aggregates.
@@ -55,13 +57,6 @@ pub(crate) struct ProjectAliasTable {
     /// R5 Select-origin dsts. Consumed by `propagate_project_source_demand` to
     /// exclude Select aliases from BACKWARD demand over `demand_sources`.
     pub(crate) select_alias_dsts: FxHashSet<ArcVarId>,
-    /// GENUINE same-allocation union-find reps (member -> rep): Let{Var} whole-var
-    /// aliases + apply-result Direct/Conditional edges ONLY — NO Jump-arg/merge
-    /// (R3/R4), NO Select (R5). The unconditional same-allocation subset of the
-    /// alias closure; `compute_same_alloc_reps` is a thin projection of THIS
-    /// construction (one table, one builder — no parallel tracker). Spec: Annex
-    /// E §AIMS.
-    pub(crate) genuine_same_alloc_reps: FxHashMap<ArcVarId, ArcVarId>,
 }
 
 /// Compute a function-wide map from (Project destination + transitive Let
@@ -74,7 +69,7 @@ pub(crate) struct ProjectAliasTable {
 /// predecessors jump to the same block with projections from different
 /// aggregates, the param maps to the union of all sources.
 ///
-/// BUG-04-090: also folds in [`ApplyAliasSource`] entries as Step 1b roots so
+/// Also folds in [`ApplyAliasSource`] entries as Step 1b roots so
 /// shipped transitivity Rules 2/3/4/6 (§1.9 `project_alias_sources` preamble —
 /// Rules 5/7 are unshipped, folding through them is dead code) carry the
 /// Apply-result allocation-identity through Let/Jump/CFG-merge/nested-Project
@@ -100,6 +95,18 @@ pub(crate) fn compute_project_alias_sources(
     compute_project_alias_table(func, apply_result_aliases).sources
 }
 
+/// Compute production alias facts using the frozen representation classes.
+/// Scalar projections copy bits and therefore carry no allocation identity.
+pub(crate) fn compute_project_alias_table_for_state(
+    func: &ArcFunction,
+    apply_result_aliases: &FxHashMap<ArcVarId, ApplyAliasSource>,
+    state_map: &AimsStateMap,
+) -> ProjectAliasTable {
+    compute_project_alias_table_filtered(func, apply_result_aliases, |dst| {
+        !state_map.is_scalar(dst)
+    })
+}
+
 /// Compute the unified same-allocation alias table: the §1.9
 /// `project_alias_sources` map (R1 Project, R3 Jump-arg, R4 CFG-merge, R6
 /// nested-Project transitive) WIDENED with R2 generalized to whole-var Let
@@ -111,33 +118,45 @@ pub(crate) fn compute_project_alias_sources(
 /// mutually-exclusive operands of DIFFERENT allocations — a DP-5 safety-check
 /// over-approximation that must NOT keep both alive via
 /// `propagate_project_source_demand`).
+#[cfg(test)]
 pub(crate) fn compute_project_alias_table(
     func: &ArcFunction,
     apply_result_aliases: &FxHashMap<ArcVarId, ApplyAliasSource>,
 ) -> ProjectAliasTable {
+    compute_project_alias_table_filtered(func, apply_result_aliases, |_| true)
+}
+
+fn compute_project_alias_table_filtered(
+    func: &ArcFunction,
+    apply_result_aliases: &FxHashMap<ArcVarId, ApplyAliasSource>,
+    include_project: impl Fn(ArcVarId) -> bool,
+) -> ProjectAliasTable {
     // Step 1: Direct Project destinations → sources.
     //
-    // note: take-projects (unique-owned payloads moved out
-    // of sum types, e.g., iterators projected from a tagged-pointer
-    // enum) *could* also be skipped here to avoid keeping the parent
+    // Note: take-projects (unique-owned payloads moved out of logical
+    // sum carriers) could also be skipped here to avoid keeping the parent
     // alive, but that would require plumbing a `Pool` through the
-    // public `analyze_function` API. Instead, is fixed at
-    // the borrowed_defs + is_ownership_transfer layer, which is
-    // sufficient: the take-project's projected payload is no longer
-    // classified as borrowed, so no spurious `RcInc` fires at the
-    // owned-arg call site, and the Project itself is treated as an
-    // ownership transfer, so walk_dec skips the source enum's
-    // scope-exit last-use dec.
+    // public `analyze_function` API. Instead, is fixed downstream: the
+    // class-ledger's birth-site partition (aims/intraprocedural/
+    // birth_site_partition.rs) unifies the take-project's view into the
+    // source's own field-path class rather than tracking a per-instruction
+    // ownership-transfer flag, so no spurious `RcInc` fires at the owned-arg
+    // call site, and the class's own per-class release plan
+    // (aims/class_ledger/emit/releases.rs) places the source enum's release
+    // at the class's real death point instead of the projection site.
     let mut alias_sources: FxHashMap<ArcVarId, ProjectSources> = FxHashMap::default();
     for block in &func.blocks {
         for instr in &block.body {
             if let ArcInstr::Project { dst, value, .. } = instr {
-                alias_sources.insert(*dst, smallvec![*value]);
+                if include_project(*dst) {
+                    alias_sources.insert(*dst, smallvec![*value]);
+                }
             }
         }
     }
+    let borrow_alias_sources = alias_sources.clone();
 
-    // Step 1b (BUG-04-090): seed alias graph with Apply-result allocation-identity
+    // Step 1b: seed alias graph with Apply-result allocation-identity
     // entries. Each `apply_result_aliases[apply_dst]` records that `apply_dst`
     // shares an allocation with one or more consumed args; representing those
     // arg(s) as the alias source lets Step 2's Let/Jump/CFG-merge transitivity
@@ -147,7 +166,7 @@ pub(crate) fn compute_project_alias_table(
     //   - Project { arg,.. } → seed alias_sources[apply_dst] = [arg]
     //                          (variable-level only — field info not tracked
     //                          here; field-level discrimination happens at
-    //                          File 13 walk.rs realization)
+    //                          `realize/walk.rs`)
     //   - Conditional { candidates } → seed alias_sources[apply_dst] = candidates
     //                          (multi-root union — dst aliases ONE of N at
     //                          runtime; analysis keeps ALL parents alive)
@@ -178,14 +197,13 @@ pub(crate) fn compute_project_alias_table(
         merge_sources(&mut alias_sources, *apply_dst, &roots);
     }
 
-    // Step 2 runs the transitive fixed point TWICE over the shared base
-    // (Step-1 Project + Step-1b apply seeds):
+    // Step 2 runs the transitive fixed point over two provenance domains:
     //
     //  - `demand_sources` (seed_r2gen = false, no R5): the ORIGINAL §1.9
     //    backward-demand table (R1 Project, R3 Jump-arg, R4 CFG-merge, R6
-    //    nested-Project). `propagate_project_source_demand` consumes THIS so the
-    //    proven keep-the-borrow-parent-alive behavior is byte-identical to the
-    //    pre-unification table. R2-gen whole-var identity is DELIBERATELY ABSENT:
+    //    nested-Project), seeded only by Step-1 Project edges. Apply allocation
+    //    aliases are not borrows and cannot trigger TF-14. R2-gen whole-var
+    //    identity is DELIBERATELY ABSENT:
     //    a whole-var alias of a non-projected parent threaded through a CFG merge
     //    reaches the merge param as a same-alloc source, but the field was MOVED
     //    out (not borrowed), so keeping the parent alive at the merge would
@@ -197,16 +215,13 @@ pub(crate) fn compute_project_alias_table(
     //    roots + R5 Select. Consumed by the DP-5 safety check, the
     //    post-convergence witness extension, and the cross-block same-allocation
     //    cure. Spec: Annex E §AIMS — alias closure.
-    let demand_sources = run_alias_fixpoint(func, alias_sources.clone(), false).0;
+    let demand_sources = run_alias_fixpoint(func, borrow_alias_sources, false).0;
     let (sources, select_alias_dsts) = run_alias_fixpoint(func, alias_sources, true);
-
-    let genuine_same_alloc_reps = compute_genuine_same_alloc_reps(func, apply_result_aliases);
 
     ProjectAliasTable {
         sources,
         demand_sources,
         select_alias_dsts,
-        genuine_same_alloc_reps,
     }
 }
 
@@ -218,9 +233,8 @@ pub(crate) fn compute_project_alias_table(
 /// DIFFERENT runtime allocations into one name when predecessors / operands
 /// pass distinct values, so neither is an unconditional same-allocation
 /// relation; per-edge attribution ([`compute_param_edge_args`]) resolves a
-/// block-param to ONE predecessor's arg instead. The ONE builder behind
-/// `compute_same_alloc_reps` (thin projection) and the unified table's
-/// over-approximation classification. Spec: Annex E §AIMS.
+/// block-param to ONE predecessor's arg instead. Spec: Annex E §AIMS.
+#[cfg(test)]
 pub(crate) fn compute_genuine_same_alloc_reps(
     func: &ArcFunction,
     apply_result_aliases: &FxHashMap<ArcVarId, ApplyAliasSource>,
@@ -274,24 +288,6 @@ pub(crate) fn compute_genuine_same_alloc_reps(
         reps.insert(v, r);
     }
     reps
-}
-
-/// One predecessor edge feeding a block-param: the predecessor block index, the
-/// Jump-arg the edge passes for this param position, and whether the edge is a
-/// loop BACK-EDGE (the target reaches the predecessor — the edge closes a CFG
-/// cycle).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ParamEdgeArg {
-    /// The predecessor block jumping into the param's owning block.
-    pub(crate) pred_block: usize,
-    /// The Jump-arg passed at this param's position on THIS edge.
-    pub(crate) arg: ArcVarId,
-    /// True iff the edge closes a CFG cycle (the param's owning block reaches
-    /// `pred_block`). Back-edge unification DECLINES conservatively: the
-    /// back-edge arg is the NEXT iteration's value of the same lineage, never
-    /// this iteration's allocation. Spec: Annex E §AIMS — merge-point
-    /// filtering.
-    pub(crate) is_back_edge: bool,
 }
 
 /// Per-predecessor-edge attribution for every block-param (§1.9 merge-point
@@ -491,16 +487,16 @@ fn merge_sources(
 /// correct for the backward analysis (keeps parent aggregates alive on each
 /// predecessor's path) but the emission side must filter: variables that
 /// exist only on one predecessor path must NOT get block-level `RcDec` at the
-/// merge point. See `emit_dead_at_entry_decs` and `collect_branch_edge_decs`.
+/// merge point.
 pub(super) fn propagate_project_source_demand(
-    current: &mut FxHashMap<ArcVarId, AimsState>,
+    current: &mut BlockState,
     state_map: &AimsStateMap,
     project_alias_sources: &FxHashMap<ArcVarId, ProjectSources>,
     select_alias_dsts: &FxHashSet<ArcVarId>,
     _block_params: &[(ArcVarId, ori_types::Idx)],
 ) {
     let mut extra_demand: Vec<(ArcVarId, AimsState)> = Vec::new();
-    for (&var, &state) in current.iter() {
+    for (var, state) in current.observed_entries() {
         if state.cardinality == Cardinality::Absent {
             continue;
         }
@@ -517,27 +513,14 @@ pub(super) fn propagate_project_source_demand(
             continue;
         }
         if let Some(sources) = project_alias_sources.get(&var) {
-            let mut src_demand = AimsState {
-                access: AccessClass::Borrowed,
-                cardinality: state.cardinality,
-                ..state
-            };
-            // Canonicalize: Rule 8 enforces Borrowed → locality <=
-            // FunctionLocal. Without this, a returned child's
-            // HeapEscaping locality would create an infeasible state.
-            src_demand.canonicalize();
-
             for &source in sources {
                 if !state_map.is_excluded(source) {
-                    extra_demand.push((source, src_demand));
+                    extra_demand.push((source, state));
                 }
             }
         }
     }
-    for (var, demand) in extra_demand {
-        let joined = current
-            .get(&var)
-            .map_or(demand, |existing| existing.join(&demand));
-        current.insert(var, joined);
+    for (source, destination) in extra_demand {
+        current.transfer_project(source, destination);
     }
 }

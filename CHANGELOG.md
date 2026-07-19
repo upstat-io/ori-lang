@@ -29,4 +29,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Note on codegen backend
 
-Earlier iterations of this project used a C code generator. The current compiler is an LLVM-backed multi-crate pipeline (lex → parse → typecheck → canonicalize → ARC lowering → AIMS analysis → ARC realization → LLVM codegen); see `.claude/rules/canon.md §1` and the Project Structure section of `CONTRIBUTING.md` for the shipped architecture.
+Earlier iterations of this project used a C code generator. LLVM remains the
+shipped compiled projection, but it is not the definition or destination of
+AIMS. The production architecture runs backend-neutral ARC/AIMS realization
+once and binds the same logical ownership plan to sibling VM, LLVM/native,
+compiled-WebAssembly, and JIT projections as each reaches its promotion gates;
+the evaluator remains the canonical behavioral oracle. Moving the current
+LLVM-owned invocation fully upstream is a tracked seam migration, not an
+exception to that authority. See `.claude/rules/canon.md §1` and the Project
+Structure section of `CONTRIBUTING.md`.

@@ -19,6 +19,7 @@ use inkwell::AddressSpace;
 ///
 /// Contains only the LLVM module, context, and commonly-used types.
 /// Used by `IrBuilder` and `FunctionCompiler` for all code generation.
+#[derive(Debug)]
 pub struct SimpleCx<'ll> {
     /// The LLVM context (owns all LLVM types and values).
     pub llcx: &'ll Context,
@@ -54,7 +55,7 @@ impl<'ll> SimpleCx<'ll> {
         self.llmod
     }
 
-    // -- Type constructors --
+    // Type constructors
 
     /// Get the i1 (boolean) type.
     #[inline]

@@ -19,10 +19,9 @@
 //!
 //! The AIMS lattice `join()` applies `canonicalize()` after componentwise max.
 //! All lattice laws (commutativity, associativity, idempotence) hold on
-//! canonical states. Canonicalization rules are monotone (they only move
-//! dimensions toward top / more conservative). The formerly anti-monotone
-//! Rule 4 was removed (anti-monotone, broke associativity); Rule 6 was widened
-//! to `>= HeapEscaping` (monotonicity fix).
+//! canonical states. Canonicalization is monotone: every rule moves dimensions
+//! toward top or a more conservative state, and Rule 6 applies at
+//! `>= HeapEscaping`.
 //!
 //! - `canonical_aims_state_strategy()` — for lattice law, transfer, fixpoint
 //! - `raw_aims_state_strategy()` — for canonicalization-specific tests
@@ -129,7 +128,7 @@ fn raw_aims_state_strategy() -> impl Strategy<Value = AimsState> {
 /// uniformly, but after canonicalization many raw states collapse to the
 /// same canonical form. States triggering active canonicalization rules
 /// (CN-3, CN-6, CN-8) are underrepresented in the canonical distribution.
-/// The former Rule 4 zone is preserved as a regression guard.
+/// The CN-4 boundary zone remains explicitly represented.
 fn rule_boundary_aims_state_strategy() -> impl Strategy<Value = AimsState> {
     prop_oneof![
         // Rule 3 trigger zone: Shared + ReusableCtor → NonReusable
@@ -148,9 +147,8 @@ fn rule_boundary_aims_state_strategy() -> impl Strategy<Value = AimsState> {
                 shape: ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
                 effect: eff,
             }),
-        // Former Rule 4 zone (CN-4 REMOVED — anti-monotone): BlockLocal + Owned +
-        // ≤Once + MaybeShared. Preserved as regression guard — these states must
-        // NOT be promoted to Unique by canonicalization after the fix.
+        // CN-4 boundary zone: BlockLocal + Owned + ≤Once + MaybeShared.
+        // Canonicalization must not promote these states to Unique.
         (effect_class_strategy(), shape_class_strategy()).prop_map(|(eff, shape)| AimsState {
             access: AccessClass::Owned,
             consumption: Consumption::Linear,
@@ -160,11 +158,8 @@ fn rule_boundary_aims_state_strategy() -> impl Strategy<Value = AimsState> {
             shape,
             effect: eff,
         }),
-        // Rule 6 trigger zone: Owned + HeapEscaping + Unique → MaybeShared.
-        // Rule 8 fires before Rule 6 in canonicalize_single_pass(). Rule 8
-        // clamps Borrowed+HeapEscaping to Borrowed+FunctionLocal, so Borrowed
-        // values NEVER reach Rule 6. Only Owned+HeapEscaping+Unique triggers
-        // Rule 6.
+        // Rule 8 first clamps borrowed heap-escaping values to function-local,
+        // so only owned, heap-escaping, unique values trigger Rule 6.
         (
             consumption_strategy(),
             cardinality_strategy(),
@@ -229,9 +224,9 @@ fn enriched_canonical_strategy() -> impl Strategy<Value = AimsState> {
 ///
 /// Standard lattice-theoretic definition. Only meaningful for canonical states.
 ///
-/// Join-based partial order (now transitive after Rule 4 removal). See
+/// The join-based partial order is transitive. See
 /// `lattice_leq_transitive` test (ignored). Use [`componentwise_leq`] for
-/// downstream monotonicity tests that require a valid partial order.
+/// monotonicity tests that require a valid partial order.
 fn lattice_leq(a: &AimsState, b: &AimsState) -> bool {
     a.join(b) == *b
 }
@@ -240,8 +235,8 @@ fn lattice_leq(a: &AimsState, b: &AimsState) -> bool {
 /// the corresponding dimension of `b`.
 ///
 /// This is always a valid partial order (reflexive, antisymmetric, transitive)
-/// regardless of join associativity. Used for monotonicity tests (04.4) since
-/// After Rule 4 removal, the join-based [`lattice_leq`] is transitive.
+/// regardless of join associativity. Monotonicity tests (04.4) use it as an
+/// independent check of the transitive [`lattice_leq`] relation.
 fn componentwise_leq(a: &AimsState, b: &AimsState) -> bool {
     a.access <= b.access
         && a.consumption <= b.consumption
@@ -306,7 +301,6 @@ proptest! {
     }
 
     /// Join associativity (L-2): `(a join b) join c == a join (b join c)`.
-    /// Regression guard: Rule 4 removal must not be reverted.
     #[test]
     fn join_associative(
         a in canonical_aims_state_strategy(),
@@ -352,16 +346,11 @@ proptest! {
     }
 }
 
-// Partial-order axioms (canonical states only)
-//
-// Two orderings are tested:
-// 1. `lattice_leq`: `a.join(b) == b` — reflexive, antisymmetric, and transitive
-//    (after anti-monotone Rule 4 was removed). Valid partial order.
-// 2. `componentwise_leq`: per-dimension `<=` — always a valid partial order.
-//    Used for downstream monotonicity tests (04.4).
+// Canonical states test both join-derived lattice order and componentwise
+// order; monotonicity uses the latter.
 
 proptest! {
-    // --- lattice_leq axioms (reflexive + antisymmetric only) ---
+    // lattice_leq axioms (reflexive + antisymmetric only)
 
     #[test]
     fn lattice_leq_reflexive(a in enriched_canonical_strategy()) {
@@ -384,7 +373,7 @@ proptest! {
         }
     }
 
-    // --- componentwise_leq axioms (full partial order) ---
+    // componentwise_leq axioms (full partial order)
 
     #[test]
     fn componentwise_leq_reflexive(a in enriched_canonical_strategy()) {
@@ -412,7 +401,6 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(5000))]
 
     /// Partial-order transitivity (L-4): `a <= b && b <= c => a <= c`.
-    /// Regression guard: Rule 4 removal ensures transitivity holds.
     #[test]
     fn lattice_leq_transitive(
         a in canonical_aims_state_strategy(),
@@ -428,10 +416,7 @@ proptest! {
         );
     }
 
-    /// Componentwise partial order IS transitive (always valid).
-    ///
-    /// Uses constructive generation: build chains a <= b <= c via join,
-    /// then verify componentwise ordering holds transitively.
+    /// Componentwise order remains transitive for join-constructed chains.
     #[test]
     fn componentwise_leq_transitive(
         a in canonical_aims_state_strategy(),
@@ -440,7 +425,7 @@ proptest! {
     ) {
         let b = a.join(&diff_ab);
         let c = b.join(&diff_bc);
-        // Only test triples where the componentwise ordering holds
+        // Why: The property applies only to triples ordered componentwise.
         prop_assume!(componentwise_leq(&a, &b) && componentwise_leq(&b, &c));
         assert!(
             componentwise_leq(&a, &c),
@@ -564,47 +549,38 @@ proptest! {
 
 // Transfer function properties (canonical states)
 
-// Transfer functions in `aims/transfer/mod.rs` operate on ARC IR
-// instructions, not raw AimsState → AimsState. The pure state-level
-// decision functions test whether specific optimizations are safe:
-//
-//   - is_rc_dec_unnecessary: true when variable is dead or absent
-//   - is_rc_inc_elidable: true when used exactly once and consumed linearly
-//   - is_owned_and_unique: true when owned and unique
-//   - capture_state_update: computes state for captured closure variables
-//
-// These are optimization-decision predicates, not lattice morphisms. Their
-// correctness depends on giving conservative (safe) answers, not on
-// monotonicity w.r.t. the lattice partial order.
+// These state-level predicates make conservative optimization decisions; they
+// are not lattice morphisms because transfer functions operate on ARC IR.
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(5000))]
 
-    /// is_rc_dec_unnecessary must be true at BOTTOM (Dead+Absent) and false
+    /// is_release_event_unnecessary must be true at BOTTOM (Dead+Absent) and false
     /// at TOP (Unrestricted+Many).
     #[test]
     fn rc_dec_unnecessary_semantic_contract(a in canonical_aims_state_strategy()) {
-        use crate::aims::transfer::is_rc_dec_unnecessary;
-        let result = is_rc_dec_unnecessary(&a);
+        use crate::aims::transfer::is_release_event_unnecessary;
+        let result = is_release_event_unnecessary(&a);
         let expected = a.cardinality == Cardinality::Absent
             || a.consumption == Consumption::Dead;
         assert_eq!(
             result, expected,
-            "is_rc_dec_unnecessary must match semantic definition: a={a:?}"
+            "is_release_event_unnecessary must match semantic definition: a={a:?}"
         );
     }
 
-    /// is_rc_inc_elidable must match DP-3: `Once ∧ (Linear ∨ Affine)` per
-    /// `AimsProof.Decision.is_rc_inc_elidable` + `DP3_is_rc_inc_elidable_table`.
+    /// is_additional_credit_elidable must match DP-3:
+    /// `Once ∧ (Linear ∨ Affine)`. Historical theorem metadata retains
+    /// `DP3_is_rc_inc_elidable_table`.
     #[test]
     fn rc_inc_elidable_semantic_contract(a in canonical_aims_state_strategy()) {
-        use crate::aims::transfer::is_rc_inc_elidable;
-        let result = is_rc_inc_elidable(&a);
+        use crate::aims::transfer::is_additional_credit_elidable;
+        let result = is_additional_credit_elidable(&a);
         let expected = a.cardinality == Cardinality::Once
             && (a.consumption == Consumption::Linear || a.consumption == Consumption::Affine);
         assert_eq!(
             result, expected,
-            "is_rc_inc_elidable must match semantic definition: a={a:?}"
+            "is_additional_credit_elidable must match semantic definition: a={a:?}"
         );
     }
 
@@ -643,15 +619,15 @@ proptest! {
 
     // Intrinsic AimsState decision predicates
 
-    /// is_rc_needed: Owned + not-Dead + not-SCALAR.
+    /// needs_ownership_events: Owned + not-Dead + not-SCALAR.
     #[test]
     fn is_rc_needed_semantic_contract(a in canonical_aims_state_strategy()) {
         let expected = a.access == AccessClass::Owned
             && a.consumption != Consumption::Dead
             && !a.is_scalar();
         assert_eq!(
-            a.is_rc_needed(), expected,
-            "is_rc_needed must match semantic definition: a={a:?}"
+            a.needs_ownership_events(), expected,
+            "needs_ownership_events must match semantic definition: a={a:?}"
         );
     }
 
@@ -677,7 +653,8 @@ proptest! {
         );
     }
 
-    /// is_rc_skip_eligible: local + Owned + Linear + Unique + not-SCALAR (DP-7).
+    /// is_event_pair_elision_eligible: local + Owned + Linear + Unique +
+    /// not-SCALAR (DP-7).
     #[test]
     fn is_rc_skip_eligible_semantic_contract(a in canonical_aims_state_strategy()) {
         let expected = a.is_local()
@@ -686,8 +663,8 @@ proptest! {
             && a.uniqueness == Uniqueness::Unique
             && !a.is_scalar();
         assert_eq!(
-            a.is_rc_skip_eligible(), expected,
-            "is_rc_skip_eligible must match DP-7 semantic definition: a={a:?}"
+            a.is_event_pair_elision_eligible(), expected,
+            "is_event_pair_elision_eligible must match DP-7 semantic definition: a={a:?}"
         );
     }
 
@@ -707,8 +684,7 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(5000))]
 
-    /// capture_state_update monotonicity in first arg (TF-13).
-    /// Regression guard: Rule 6 widening to `>= HeapEscaping` ensures monotonicity.
+    /// `capture_state_update` is monotone in its first argument (TF-13).
     #[test]
     fn capture_state_update_monotone_in_current(
         a in canonical_aims_state_strategy(),
@@ -727,8 +703,7 @@ proptest! {
         );
     }
 
-    /// capture_state_update monotonicity in second arg (TF-13).
-    /// Regression guard: Rule 6 widening to `>= HeapEscaping` ensures monotonicity.
+    /// `capture_state_update` is monotone in its second argument (TF-13).
     #[test]
     fn capture_state_update_monotone_in_closure(
         current in canonical_aims_state_strategy(),
@@ -825,8 +800,7 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(2000))]
 
-    /// N-ary join permutation invariance (IA-9): fold order doesn't matter.
-    /// Regression guard: Rule 4 removal ensures join invariance.
+    /// N-ary join permutation invariance (IA-9): fold order does not matter.
     #[test]
     fn nary_join_permutation_invariant(
         states in proptest::collection::vec(canonical_aims_state_strategy(), 2..8),
@@ -857,7 +831,6 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(1000))]
 
     /// N-ary join shuffled permutation invariance (IA-9, shuffle variant).
-    /// Regression guard: Rule 4 removal.
     #[test]
     fn nary_join_shuffled_permutations(
         states in proptest::collection::vec(canonical_aims_state_strategy(), 3..6),
@@ -878,7 +851,7 @@ proptest! {
 
         let baseline = fold_join(&states);
 
-        let mut shuffled = states.clone();
+        let mut shuffled = states;
         for i in (1..shuffled.len()).rev() {
             let mut hasher = DefaultHasher::new();
             seed.hash(&mut hasher);
@@ -899,7 +872,7 @@ proptest! {
     /// `Cardinality::seq_add` distributes over `Cardinality::alt_join`.
     ///
     /// 3 values = 27 triples total — exhaustive test exists in tests.rs.
-    /// This proptest exists for regression safety with better shrinking.
+    /// This proptest provides randomized coverage with better shrinking.
     #[test]
     fn cardinality_seq_add_distributes_over_alt_join(
         a in cardinality_strategy(),
@@ -1021,104 +994,404 @@ fn collect_all_canonical_states() -> Vec<AimsState> {
     seen.into_iter().collect()
 }
 
-/// Exhaustive characterization of associativity divergence.
-///
-/// Two-tier: (1) find sensitive (a,b) pairs where the intermediate has
-/// MaybeShared/Unique uniqueness, (2) sweep all c values for each.
-/// Checks whether divergence affects downstream RC/COW/reuse decisions.
-///
-/// RESULT: Decision divergence found on first sensitive triple. Option B
-/// (fix required) confirmed — uniqueness divergence (`MaybeShared` vs `Unique`)
-/// changes `needs_cow_check`, `is_owned_and_unique`, and reuse eligibility.
-/// With associative join (Rule 4 removed), this scan finds 0 divergences.
-/// O(n³) exhaustive — too slow for CI (~3928³ ≈ 60B operations). The
-/// proptest `join_associative` provides fast regression coverage (5000 cases).
-/// Run this manually when modifying canonicalization rules.
-#[test]
-#[ignore = "BUG-07-038: on-demand exhaustive O(n^3) — confirms 0 associativity divergences; run manually after lattice changes"]
-fn associativity_divergence_with_canonical_triples_detects_decision_impact() {
-    use crate::aims::transfer::is_owned_and_unique;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DemandFactor {
+    consumption: Consumption,
+    cardinality: Cardinality,
+}
 
-    let canonical_states = collect_all_canonical_states();
-    let n = canonical_states.len();
-    eprintln!("canonical state count: {n}");
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct OwnershipFactor {
+    access: AccessClass,
+    uniqueness: Uniqueness,
+    locality: Locality,
+    shape: ShapeClass,
+}
 
-    // Tier 1: find sensitive pairs
-    let mut sensitive_pairs: Vec<(usize, usize)> = Vec::new();
-    for (i, a) in canonical_states.iter().enumerate() {
-        for (j, b) in canonical_states.iter().enumerate() {
-            let ab = a.join(b);
-            if ab.uniqueness == Uniqueness::MaybeShared || ab.uniqueness == Uniqueness::Unique {
-                sensitive_pairs.push((i, j));
-            }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct StateFactors {
+    demand: DemandFactor,
+    ownership: OwnershipFactor,
+    effect: EffectClass,
+}
+
+impl StateFactors {
+    fn from_state(state: AimsState) -> Self {
+        Self {
+            demand: DemandFactor {
+                consumption: state.consumption,
+                cardinality: state.cardinality,
+            },
+            ownership: OwnershipFactor {
+                access: state.access,
+                uniqueness: state.uniqueness,
+                locality: state.locality,
+                shape: state.shape,
+            },
+            effect: state.effect,
         }
     }
-    eprintln!("sensitive pairs: {}", sensitive_pairs.len());
 
-    // Tier 2: sweep c for sensitive pairs, early-exit on first decision divergence.
-    // Full enumeration exceeds 150s (8.5M pairs × 3928 c = ~33.5B operations).
-    // Early exit is sound: one decision divergence proves Option B (fix required).
-    let mut failure_count = 0u64;
-    let mut decision_divergence_example: Option<String> = None;
+    fn into_state(self) -> AimsState {
+        AimsState {
+            access: self.ownership.access,
+            consumption: self.demand.consumption,
+            cardinality: self.demand.cardinality,
+            uniqueness: self.ownership.uniqueness,
+            locality: self.ownership.locality,
+            shape: self.ownership.shape,
+            effect: self.effect,
+        }
+    }
+}
 
-    'outer: for &(i, j) in &sensitive_pairs {
-        let a = &canonical_states[i];
-        let b = &canonical_states[j];
-        let ab = a.join(b);
-        for c in &canonical_states {
-            let ab_c = ab.join(c);
-            let a_bc = a.join(&b.join(c));
-            if ab_c != a_bc {
-                failure_count += 1;
+struct JoinTable<T> {
+    values: Vec<T>,
+    results: Vec<usize>,
+}
 
-                let diverges_non_uniqueness = ab_c.access != a_bc.access
-                    || ab_c.consumption != a_bc.consumption
-                    || ab_c.cardinality != a_bc.cardinality
-                    || ab_c.locality != a_bc.locality
-                    || ab_c.shape != a_bc.shape
-                    || ab_c.effect != a_bc.effect;
+impl<T: Copy> JoinTable<T> {
+    fn result_index(&self, left: usize, right: usize) -> usize {
+        let flat_index = left
+            .checked_mul(self.values.len())
+            .and_then(|offset| offset.checked_add(right));
+        let Some(flat_index) = flat_index else {
+            panic!("join-table index arithmetic must fit usize");
+        };
+        let Some(result) = self.results.get(flat_index) else {
+            panic!("join-table operands must be in the canonical domain");
+        };
+        *result
+    }
 
-                assert!(
-                    !diverges_non_uniqueness,
-                    "associativity failure in non-uniqueness dimension — \
-                     a={a:?}, b={b:?}, c={c:?}, \
-                     ab_c={ab_c:?}, a_bc={a_bc:?}"
-                );
+    fn result(&self, left: usize, right: usize) -> T {
+        self.values[self.result_index(left, right)]
+    }
+}
 
-                // Check ALL downstream uniqueness consumers
-                let predicates_match = ab_c.is_rc_needed() == a_bc.is_rc_needed()
-                    && ab_c.needs_cow_check() == a_bc.needs_cow_check()
-                    && ab_c.is_reuse_candidate() == a_bc.is_reuse_candidate()
-                    && ab_c.is_rc_skip_eligible() == a_bc.is_rc_skip_eligible()
-                    && ab_c.is_local() == a_bc.is_local()
-                    && is_owned_and_unique(&ab_c) == is_owned_and_unique(&a_bc)
-                    && (ab_c.uniqueness == Uniqueness::Unique)
-                        == (a_bc.uniqueness == Uniqueness::Unique);
-                if !predicates_match {
-                    decision_divergence_example = Some(format!(
-                        "a={a:?}, b={b:?}, c={c:?}, \
-                         ab_c.uniqueness={:?}, a_bc.uniqueness={:?}",
-                        ab_c.uniqueness, a_bc.uniqueness
-                    ));
-                    break 'outer;
+fn push_unique<T: Copy + PartialEq>(values: &mut Vec<T>, value: T) {
+    if !values.contains(&value) {
+        values.push(value);
+    }
+}
+
+fn collect_factors(
+    states: &[AimsState],
+) -> (Vec<DemandFactor>, Vec<OwnershipFactor>, Vec<EffectClass>) {
+    let mut demands = Vec::new();
+    let mut ownerships = Vec::new();
+    let mut effects = Vec::new();
+    for &state in states {
+        let factors = StateFactors::from_state(state);
+        push_unique(&mut demands, factors.demand);
+        push_unique(&mut ownerships, factors.ownership);
+        push_unique(&mut effects, factors.effect);
+    }
+    (demands, ownerships, effects)
+}
+
+fn factor_index<T: PartialEq + std::fmt::Debug>(values: &[T], value: &T) -> usize {
+    values
+        .iter()
+        .position(|candidate| candidate == value)
+        .unwrap_or_else(|| panic!("factor escaped canonical domain: {value:?}"))
+}
+
+fn build_join_table<T: Copy + PartialEq + std::fmt::Debug>(
+    values: &[T],
+    state_for: impl Fn(T) -> AimsState,
+    project: impl Fn(AimsState) -> T,
+) -> JoinTable<T> {
+    let Some(table_len) = values.len().checked_mul(values.len()) else {
+        panic!("join-table size must fit usize");
+    };
+    let mut results = Vec::with_capacity(table_len);
+    for &left in values {
+        for &right in values {
+            let left_state = state_for(left);
+            let right_state = state_for(right);
+            let joined = project(left_state.join(&right_state));
+            results.push(factor_index(values, &joined));
+        }
+    }
+    JoinTable {
+        values: values.to_vec(),
+        results,
+    }
+}
+
+fn first_missing_product_state(
+    state_set: &std::collections::HashSet<AimsState>,
+    demands: &[DemandFactor],
+    ownerships: &[OwnershipFactor],
+    effects: &[EffectClass],
+) -> Option<AimsState> {
+    for &demand in demands {
+        for &ownership in ownerships {
+            for &effect in effects {
+                let state = StateFactors {
+                    demand,
+                    ownership,
+                    effect,
+                }
+                .into_state();
+                if !state_set.contains(&state) {
+                    return Some(state);
                 }
             }
         }
     }
+    None
+}
 
-    eprintln!(
-        "scanned {failure_count} associativity failures before {}",
-        if decision_divergence_example.is_some() {
-            "finding decision divergence (early exit)"
-        } else {
-            "completing scan (no decision divergence)"
-        }
+fn assert_canonical_product_complete(
+    states: &[AimsState],
+    demands: &[DemandFactor],
+    ownerships: &[OwnershipFactor],
+    effects: &[EffectClass],
+) {
+    use std::collections::HashSet;
+
+    let state_set: HashSet<_> = states.iter().copied().collect();
+    let product_size = demands
+        .len()
+        .checked_mul(ownerships.len())
+        .and_then(|size| size.checked_mul(effects.len()))
+        .unwrap_or_else(|| panic!("canonical product size overflowed usize"));
+    assert_eq!(
+        state_set.len(),
+        product_size,
+        "canonical factor product size"
     );
 
-    assert!(
-        decision_divergence_example.is_none(),
-        "associativity divergence affects downstream decisions. \
-         Example: {}",
-        decision_divergence_example.unwrap_or_default()
+    assert_eq!(
+        first_missing_product_state(&state_set, demands, ownerships, effects),
+        None,
+        "canonical factor product omitted a state"
+    );
+}
+
+fn assert_join_factorizes(
+    states: &[AimsState],
+    indexed: &[(usize, usize, usize)],
+    demand_table: &JoinTable<DemandFactor>,
+    ownership_table: &JoinTable<OwnershipFactor>,
+    effect_table: &JoinTable<EffectClass>,
+) {
+    for (left_index, left) in states.iter().enumerate() {
+        let (left_demand, left_ownership, left_effect) = indexed[left_index];
+        for (right_index, right) in states.iter().enumerate() {
+            let (right_demand, right_ownership, right_effect) = indexed[right_index];
+            let expected = StateFactors {
+                demand: demand_table.result(left_demand, right_demand),
+                ownership: ownership_table.result(left_ownership, right_ownership),
+                effect: effect_table.result(left_effect, right_effect),
+            };
+            assert_eq!(
+                StateFactors::from_state(left.join(right)),
+                expected,
+                "join must factorize: left={left:?}, right={right:?}"
+            );
+        }
+    }
+}
+
+fn index_triples(size: usize) -> impl Iterator<Item = (usize, usize, usize)> {
+    (0..size).flat_map(move |left| {
+        (0..size).flat_map(move |middle| (0..size).map(move |right| (left, middle, right)))
+    })
+}
+
+fn check_join_table_associative<
+    T: Copy + PartialEq + std::fmt::Debug,
+    I: IntoIterator<Item = (usize, usize, usize)>,
+>(
+    name: &str,
+    table: &JoinTable<T>,
+    triples: I,
+) -> Result<(), String> {
+    let size = table.values.len();
+    let combination_count = size
+        .checked_pow(3)
+        .ok_or_else(|| format!("{name} triple count overflowed usize"))?;
+    let mut covered = vec![false; combination_count];
+
+    for (left, middle, right) in triples {
+        if left >= size || middle >= size || right >= size {
+            return Err(format!(
+                "{name} associativity proof received out-of-domain triple ({left}, {middle}, {right})"
+            ));
+        }
+        let flat_index = left
+            .checked_mul(size)
+            .and_then(|offset| offset.checked_add(middle))
+            .and_then(|prefix| prefix.checked_mul(size))
+            .and_then(|offset| offset.checked_add(right))
+            .ok_or_else(|| format!("{name} associativity index overflowed usize"))?;
+        if std::mem::replace(&mut covered[flat_index], true) {
+            return Err(format!(
+                "{name} associativity proof repeated triple ({left}, {middle}, {right})"
+            ));
+        }
+
+        let left_grouped = table.result_index(table.result_index(left, middle), right);
+        let right_grouped = table.result_index(left, table.result_index(middle, right));
+        if table.values[left_grouped] != table.values[right_grouped] {
+            return Err(format!(
+                "{name} join is not associative: left={:?}, middle={:?}, right={:?}",
+                table.values[left], table.values[middle], table.values[right]
+            ));
+        }
+    }
+
+    if let Some(flat_index) = covered.iter().position(|was_covered| !was_covered) {
+        let size_squared = size
+            .checked_mul(size)
+            .ok_or_else(|| format!("{name} associativity domain overflowed usize"))?;
+        let left = flat_index / size_squared;
+        let middle = (flat_index / size) % size;
+        let right = flat_index % size;
+        return Err(format!(
+            "{name} associativity proof omitted triple ({left}, {middle}, {right})"
+        ));
+    }
+    Ok(())
+}
+
+fn assert_join_table_associative<T: Copy + PartialEq + std::fmt::Debug>(
+    name: &str,
+    table: &JoinTable<T>,
+) {
+    check_join_table_associative(name, table, index_triples(table.values.len()))
+        .unwrap_or_else(|message| panic!("{message}"));
+}
+
+fn assert_exhaustiveness_negative_witnesses(
+    states: &[AimsState],
+    demands: &[DemandFactor],
+    ownerships: &[OwnershipFactor],
+    effects: &[EffectClass],
+    effect_table: &JoinTable<EffectClass>,
+) {
+    let omitted_state = states
+        .last()
+        .copied()
+        .unwrap_or_else(|| panic!("canonical state universe must not be empty"));
+    let incomplete_state_set = states
+        .iter()
+        .copied()
+        .filter(|state| *state != omitted_state)
+        .collect();
+    assert_eq!(
+        first_missing_product_state(&incomplete_state_set, demands, ownerships, effects,),
+        Some(omitted_state),
+        "negative witness: omitting one canonical combination must be detected"
+    );
+
+    let last = effect_table
+        .values
+        .len()
+        .checked_sub(1)
+        .unwrap_or_else(|| panic!("effect factor universe must not be empty"));
+    let omitted_triple = (last, last, last);
+    let incomplete_triples =
+        index_triples(effect_table.values.len()).filter(|triple| *triple != omitted_triple);
+    assert_eq!(
+        check_join_table_associative("effect", effect_table, incomplete_triples),
+        Err(format!(
+            "effect associativity proof omitted triple ({last}, {last}, {last})"
+        )),
+        "negative witness: omitting one factor triple must be detected"
+    );
+}
+
+/// Exhaustively proves associativity for every canonical `AimsState` triple.
+///
+/// The canonical universe is first proven to be the Cartesian product of the
+/// demand, ownership, and effect factors. Every full-state pair is then checked
+/// against the three production-join factor tables. Exhaustive associativity
+/// over each table therefore represents every triple in the full O(n³) matrix
+/// without repeating the same independent factor joins for each combination.
+#[test]
+fn canonical_state_join_is_exhaustively_associative() {
+    let states = collect_all_canonical_states();
+    let (demands, ownerships, effects) = collect_factors(&states);
+    assert_canonical_product_complete(&states, &demands, &ownerships, &effects);
+
+    let first = StateFactors::from_state(
+        states
+            .first()
+            .copied()
+            .unwrap_or_else(|| panic!("canonical state universe must not be empty")),
+    );
+    let demand_table = build_join_table(
+        &demands,
+        |demand| StateFactors { demand, ..first }.into_state(),
+        |state| StateFactors::from_state(state).demand,
+    );
+    let ownership_table = build_join_table(
+        &ownerships,
+        |ownership| StateFactors { ownership, ..first }.into_state(),
+        |state| StateFactors::from_state(state).ownership,
+    );
+    let effect_table = build_join_table(
+        &effects,
+        |effect| StateFactors { effect, ..first }.into_state(),
+        |state| StateFactors::from_state(state).effect,
+    );
+    assert_exhaustiveness_negative_witnesses(
+        &states,
+        &demands,
+        &ownerships,
+        &effects,
+        &effect_table,
+    );
+
+    let indexed: Vec<_> = states
+        .iter()
+        .map(|&state| {
+            let factors = StateFactors::from_state(state);
+            (
+                factor_index(&demands, &factors.demand),
+                factor_index(&ownerships, &factors.ownership),
+                factor_index(&effects, &factors.effect),
+            )
+        })
+        .collect();
+    assert_join_factorizes(
+        &states,
+        &indexed,
+        &demand_table,
+        &ownership_table,
+        &effect_table,
+    );
+    assert_join_table_associative("demand", &demand_table);
+    assert_join_table_associative("ownership", &ownership_table);
+    assert_join_table_associative("effect", &effect_table);
+
+    let state_count = u128::try_from(states.len())
+        .unwrap_or_else(|_| panic!("canonical state count must fit in u128"));
+    let full_triple_count = state_count
+        .checked_mul(state_count)
+        .and_then(|square| square.checked_mul(state_count))
+        .unwrap_or_else(|| panic!("canonical triple count overflowed u128"));
+    let represented_triple_count = [demands.len(), ownerships.len(), effects.len()]
+        .into_iter()
+        .try_fold(1_u128, |product, factor_size| {
+            let factor_size = u128::try_from(factor_size).ok()?;
+            let factor_triples = factor_size
+                .checked_mul(factor_size)?
+                .checked_mul(factor_size)?;
+            product.checked_mul(factor_triples)
+        })
+        .unwrap_or_else(|| panic!("factorized triple count overflowed u128"));
+    assert_eq!(
+        represented_triple_count, full_triple_count,
+        "factor proof must represent every canonical state triple"
+    );
+    eprintln!(
+        "verified {} canonical states representing {} associative triples",
+        states.len(),
+        represented_triple_count
     );
 }

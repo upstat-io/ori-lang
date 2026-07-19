@@ -59,13 +59,9 @@ fn iter_ownership_is_borrowed() {
 
 #[test]
 fn iter_drop_ownership_is_owned() {
-    // `ori_iter_drop` consumes the iterator handle (frees
-    // the Box-allocated state). Before the fix, iterators were trivial
-    // so ARC never emitted scope-exit drops and the Borrowed contract
-    // was harmless; now that iterators are non-trivial, the explicit
-    // for-loop `ori_iter_drop` call must be marked as consuming so
-    // borrow inference does not also insert a second scope-exit
-    // `RcDec`, which would double-free the iterator state.
+    // Why: `ori_iter_drop` consumes the iterator handle (frees the
+    // Box-allocated state); marking it Owned stops borrow inference from
+    // inserting a second scope-exit `RcDec` that would double-free the state.
     let ownership = ProtocolBuiltin::IterDrop.arg_ownership();
     assert_eq!(ownership.len(), 1);
     assert_eq!(ownership[0], ProtocolArgOwnership::Owned);
@@ -116,5 +112,42 @@ fn is_intercepted_exhaustive() {
     for &pb in ProtocolBuiltin::ALL {
         // Just calling is_intercepted() proves the match is exhaustive.
         let _ = pb.is_intercepted();
+    }
+}
+
+/// Regression pin (codegen-interception mechanism): `from_name` recognizes
+/// every protocol-builtin emission name, and `ALL` covers exactly that name
+/// set. This is the invariant that keeps a builtin `Apply` (`__cast` /
+/// `__index` / `__iter_next` / `__collect_set` / `iter` / `ori_iter_drop`) in
+/// a generic body OFF the user-function mono-dispatch path — codegen
+/// intercepts it via `from_name`, so it never surfaces an E5001 missing-mono.
+#[test]
+fn from_name_recognizes_every_emission_name() {
+    let emission_names = [
+        "__index",
+        "iter",
+        "__iter_next",
+        "ori_iter_drop",
+        "__collect_set",
+        "__cast",
+    ];
+    for name in emission_names {
+        let Some(resolved) = ProtocolBuiltin::from_name(name) else {
+            panic!("from_name should recognize emission name {name}")
+        };
+        // The round-trip is exact: the resolved variant re-emits the same name.
+        assert_eq!(resolved.name(), name);
+    }
+
+    // `ALL` covers exactly the recognized emission names — no variant is
+    // absent from `ALL` (which would leave its name on the mono path) and no
+    // `ALL` member emits a name `from_name` cannot resolve.
+    assert_eq!(ProtocolBuiltin::ALL.len(), emission_names.len());
+    for &pb in ProtocolBuiltin::ALL {
+        assert!(
+            emission_names.contains(&pb.name()),
+            "ALL member {pb:?} emits unrecognized name {}",
+            pb.name()
+        );
     }
 }

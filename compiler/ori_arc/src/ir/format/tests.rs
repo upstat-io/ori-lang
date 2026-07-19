@@ -138,9 +138,9 @@ fn format_function_with_rc_ops_includes_rc_inc_and_dec_in_output() {
     );
 }
 
-/// of aims-burden-tracking: BurdenInc/BurdenDec format as
-/// `burden_inc %N` / `burden_dec %N` (parallel to `RcInc %N [strategy]`
-/// but no strategy slot — burden ops are trivial side-effect markers).
+/// BurdenInc/BurdenDec format as `burden_inc %N` / `burden_dec %N`
+/// (parallel to `RcInc %N [strategy]` but no strategy slot — burden ops
+/// are trivial side-effect markers).
 #[test]
 fn format_function_with_burden_ops_includes_burden_inc_and_dec_in_output() {
     let interner = StringInterner::new();

@@ -1,0 +1,16 @@
+// NEGATIVE PIN — a nested-block `let` shadow does not leak its un-consume (E2054).
+// The inner block re-binds `s` (block-local); at block exit the OUTER consumed
+// `s` resumes, so the use after the block is still a use-after-free.
+//
+// Spec: 13-variables.md §13.7 (Variable Lifetime).
+
+#compile_fail(code: "E2054", message: "after `drop_early` consumed it")
+@drop_early_use_after_nested_block_shadow_rejected tests @_anchor () -> void = {
+    let $s = "hi";
+    drop_early(value: s);
+    { let $s = "inner"; print(msg: s); };
+    print(msg: s);
+    ()
+}
+
+@_anchor () -> bool = true;

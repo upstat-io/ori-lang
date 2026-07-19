@@ -1,7 +1,7 @@
 // Axis 2 — Element type independence.
 // Refutability is structural — multi-element list patterns against dynamic
-// `[T]` reject regardless of element type. Spec 15-patterns.md:276-281 +
-// 332-340.
+// `[T]` reject regardless of element type. Spec 15-patterns.md
+// § Pattern Refutability + § List Pattern Exhaustiveness.
 
 use std.testing { assert_eq }
 

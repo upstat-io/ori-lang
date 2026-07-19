@@ -73,6 +73,31 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         }
     }
 
+    /// Create an integer constant of the given LLVM integer type.
+    ///
+    /// Used to build a scalar-int sum discriminant directly (e.g. `Ordering`
+    /// = i8) when the destination LLVM type is a non-aggregate integer. If the
+    /// type ID does not resolve to an `IntType`, falls back to `i64` and
+    /// records a codegen error (the module is rejected before execution).
+    pub fn const_int_of_type(
+        &mut self,
+        ty_id: super::super::value_id::LLVMTypeId,
+        val: u64,
+    ) -> ValueId {
+        let ty = self.arena.get_type(ty_id);
+        let BasicTypeEnum::IntType(int_ty) = ty else {
+            tracing::error!(
+                ?ty,
+                "const_int_of_type: expected IntType — type resolution bug"
+            );
+            self.record_codegen_error();
+            let v = self.scx.type_i64().const_int(val, false);
+            return self.arena.push_value(v.into());
+        };
+        let v = int_ty.const_int(val, false);
+        self.arena.push_value(v.into())
+    }
+
     /// Create a null pointer constant.
     #[inline]
     pub fn const_null_ptr(&mut self) -> ValueId {

@@ -10,9 +10,6 @@
 //! The RC header for the *original* allocation starts at
 //! `original_data - RC_HEADER_SIZE` (32 bytes, V5), where
 //! `original_data = slice_data - byte_offset`.
-//!
-//! Historical influence: seamless-slice SHAPEs from Roc (OWNERSHIP.md) and the
-//! Go slice model; Ori's encoding is its own.
 
 /// The sign bit of `cap` marks a seamless slice.
 ///

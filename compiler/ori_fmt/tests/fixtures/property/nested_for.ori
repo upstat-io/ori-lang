@@ -1,0 +1,1 @@
+@f (rows: [[int]]) -> [int] = for row in rows yield for x in row yield x;

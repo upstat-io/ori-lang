@@ -1,0 +1,6 @@
+@conv <T> (marker: T, f: float) -> int = f as int;
+
+@main () -> int = {
+    let r = conv(marker: 0, f: 3.9);
+    if r == 3 then 0 else 1
+}

@@ -30,8 +30,8 @@ Rule index (per §AIMS §9):
   VF-1  : Layer-1 structural ARC IR well-formedness — the 5 checks
           (use-before-def, dangling-block, RC-on-scalar, dec-on-borrowed,
           arg-ownership-len) map 1:1 to 5 VerifyError variants.
-  VF-2  : Layer-2 AIMS contract consistency — AbsentParamHasUses; (b)/(c)/(d)
-          target-only, gated on RL-31 / RL-29 / RL-30.
+  VF-2  : Layer-2 AIMS contract consistency — AbsentParamHasUses plus neutral
+          RL-31 / RL-29 / RL-30 fact validation; target fidelity is separate.
   VF-3  : Layer-3 oracle cross-check — re-derived contract refines the inferred
           contract along access / consumption / effects (too-optimistic = error).
   VF-4  : Layer-4 FIP certification — Certified iff zero unmatched alloc/dealloc.
@@ -103,8 +103,8 @@ def allFailureClasses : List FailureClass :=
     ArgOwnershipLenMismatch}. (P1) the check↔error map is a bijection (every
     well-formedness failure class Layer-1 owns is detected by exactly one check);
     (P2) detection has teeth — a malformed function exhibiting any class is
-    rejected, while a well-formed function (INCLUDING the RL-14 field-drop
-    exemption: a param-unrestricted Project+RcDec at scope cleanup) is accepted. -/
+    rejected, while a well-formed function (INCLUDING an exact RL-14a cleanup
+    field-drop: a param-unrestricted Project+RcDec at scope cleanup) is accepted. -/
 
 /-- §9.1 VF-1 the 5 structural checks (= the 5 VerifyError variants). -/
 inductive StructCheck
@@ -162,7 +162,7 @@ theorem VF1_exactly_five_checks : allChecks.length = 5 := by decide
 /-! ### §9.1 VF-1 (P2) detection has teeth
 
     A function is rejected iff it exhibits at least one of the 5 structural
-    failure classes. The RL-14 field-drop exemption is a Project+RcDec at scope
+    failure classes. An RL-14a cleanup field-drop is a Project+RcDec at scope
     cleanup that is param-UNRESTRICTED, so it is NOT a DecOnBorrowed violation
     (the `check_no_dec_on_borrowed` check is restricted to function params). We
     model a function's structural status as the set of failure classes it
@@ -179,7 +179,7 @@ def vf1_accepts (w : StructWitness) : Bool := w.isEmpty
     ACCEPTED. -/
 theorem VF1_wellformed_accepted : vf1_accepts [] = true := by decide
 
-/-- §9.1 VF-1 (P2) the RL-14 field-drop exemption is ACCEPTED: a param-
+/-- §9.1 VF-1 (P2) an exact RL-14a cleanup field-drop is ACCEPTED: a param-
     unrestricted Project+RcDec at scope cleanup exhibits NO DecOnBorrowed
     failure class (the check is param-restricted), so the witness is empty and
     the function is accepted. -/
@@ -207,9 +207,9 @@ theorem VF1_catches_structural :
 
     VF-2 is an INDEPENDENT layer (not a filter over VF-1). The implemented check
     is AbsentParamHasUses: a parameter declared `Cardinality = Absent` MUST have
-    no live use. (b)/(c)/(d) are TARGET-ONLY, each gated on its sec-08
-    LLVM-fact-export rule (RL-31 / RL-29 / RL-30); emitting one without the
-    underlying proof asserts unproven facts. -/
+    no live use. (b)/(c)/(d) validate backend-neutral RL-31 / RL-29 / RL-30
+    facts, each gated on its sec-08 derivation rule. Target spelling and
+    placement are separate backend-fidelity obligations. -/
 
 /-- §9.2 VF-2 the AbsentParamHasUses decision inputs: whether the param is
     declared Absent, and whether it has a live forward-reachable use. -/
@@ -247,24 +247,24 @@ theorem VF2_absent_with_use_flagged :
     vf2_absent_param_error { declaredAbsent := true, hasLiveUse := true }
       = true := by decide
 
-/-- §9.2 VF-2 (P2) target-only conditional soundness: a target-only check
-    (b)/(c)/(d) is sound iff its sec-08 LLVM-fact-export dependency discharged.
+/-- §9.2 VF-2 (P2) neutral-fact conditional soundness: a fact check
+    (b)/(c)/(d) is sound iff its sec-08 derivation dependency discharged.
     Modeled as the implication `dependencyDischarged → checkSound`. -/
-def vf2_target_only_sound (dependencyDischarged checkSound : Bool) : Bool :=
+def vf2_fact_check_sound (dependencyDischarged checkSound : Bool) : Bool :=
   !dependencyDischarged || checkSound
 
-/-- §9.2 VF-2 (P2) when the sec-08 dependency (RL-31 / RL-29 / RL-30) IS
-    discharged, the corresponding target-only check is sound. -/
-theorem VF2_target_only_discharged_sound :
-    vf2_target_only_sound true true = true := by decide
+/-- §9.2 VF-2 (P2) when the sec-08 neutral dependency is discharged, the
+    corresponding fact check is sound. -/
+theorem VF2_fact_check_discharged_sound :
+    vf2_fact_check_sound true true = true := by decide
 
-/-- §9.2 VF-2 (P2) the negative witness: emitting a target-only check WITHOUT its
-    sec-08 proof (`checkSound = false` while claiming to fire) is unsound — the
+/-- §9.2 VF-2 (P2) the negative witness: freezing a fact WITHOUT its sec-08
+    proof (`checkSound = false` while claiming to fire) is unsound — the
     soundness implication is violated. The verifier rejects the undischarged
-    case: a fired-but-undischarged target check (`dependencyDischarged = true`,
+    case: a fired-but-undischarged fact check (`dependencyDischarged = true`,
     `checkSound = false`) yields an unsound verdict. -/
-theorem VF2_target_only_undischarged_unsound :
-    vf2_target_only_sound true false = false := by decide
+theorem VF2_fact_check_undischarged_unsound :
+    vf2_fact_check_sound true false = false := by decide
 
 /-- §9.2 VF-2 catches the ContractInconsistent failure class (disjoint from VF-1's
     StructuralIllformed — the two layers catch distinct classes). -/

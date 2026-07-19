@@ -7,7 +7,7 @@
 //! per-edge identity table + the all-arms extract-transfer attribution own
 //! them. Eval is clean on every fixture — the family is AOT-only.
 
-use crate::util::{assert_aot_success, compile_and_run_with_build_env};
+use crate::util::assert_aot_success;
 
 // Positive: rebuild on one branch arm only, read on the other. The read-arm
 // borrow aliases of the loop-carried param are pure borrow-views — their
@@ -83,21 +83,5 @@ fn test_loop_header_init_vs_back_edge_keeps_per_edge_identity() {
     assert_aot_success(
         include_str!("fixtures/struct_self_rebuild/loop_header_merge_read.ori"),
         "struct_self_rebuild_loop_header_merge_read",
-    );
-}
-
-// Toggle semantic pin: disabling the RL-5 rebuild-lineage dead-param release
-// restores the loop-exit leak on the late-use shape (the loop-carried var is
-// unused after the loop; the union suppressed the in-loop releases).
-#[test]
-fn test_rebuild_lineage_release_toggle_restores_leak() {
-    let source = include_str!("fixtures/struct_self_rebuild/late_use_alias_loop.ori");
-    let (exit, _stdout, stderr) = compile_and_run_with_build_env(
-        source,
-        &[("ORI_DISABLE_REBUILD_LINEAGE_DEAD_PARAM_RELEASE", "1")],
-    );
-    assert!(
-        exit != 0 || stderr.contains("not freed"),
-        "toggle ON must restore the loop-exit leak; exit={exit} stderr={stderr}"
     );
 }

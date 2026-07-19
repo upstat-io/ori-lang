@@ -1,8 +1,11 @@
-Theorem DP-7: is_rc_skip_eligible truth table — pure-state portion (callee parameter scope)
+Theorem DP-7: is_event_pair_elision_eligible truth table — pure-state portion
 
   Preconditions:
+    - This theorem decides logical event elision; RcInc/RcDec and refcount
+      language below name the transitional proof carrier and its current
+      compiled projection, not an AIMS requirement for counters or heap storage
     - s is a canonical AimsState per Annex E §AIMS product lattice
-    - is_rc_skip_eligible : AimsState -> Bool per Annex E §AIMS DP-7 +
+    - is_event_pair_elision_eligible : AimsState -> Bool per Annex E §AIMS DP-7 +
       Appendix C truth table
     - DP-7 is a pure boolean predicate over (Locality x Access x Consumption
       x Cardinality x Uniqueness x is_scalar); Shape / Effect are
@@ -26,7 +29,7 @@ Theorem DP-7: is_rc_skip_eligible truth table — pure-state portion (callee par
 
   Soundness property:
     Forall s in AimsState (canonical).
-      is_rc_skip_eligible(s)
+      is_event_pair_elision_eligible(s)
         <=> (is_local(s)
               AND s.access = Owned
               AND s.consumption = Linear
@@ -47,11 +50,12 @@ Theorem DP-7: is_rc_skip_eligible truth table — pure-state portion (callee par
         Unknown}) -> false
         Soundness: predicate false (first conjunct fails). ArgEscaping
         explicitly excluded per DP-8 — see DP-8 proof + Annex E §AIMS
-        DP-8 rationale (ArgEscaping optimization is stack promotion in
-        caller via RL-15a, NOT RC elision).
+        DP-8 rationale (ArgEscaping crosses the local proof boundary;
+        RL-15a freezes its exact caller-use extent, but does not justify
+        local-only ownership-event pair elision).
       Row 2: is_local = true, Access = Borrowed -> false
         Soundness: predicate false (second conjunct fails). Borrowed values
-        never own their RC; caller inc + callee dec asymmetric.
+        do not own the obligation; boundary credit/release are asymmetric.
       Row 3: is_local = true, Owned, Consumption != Linear -> false
         Soundness: predicate false (third conjunct fails). Affine /
         Unrestricted / Dead cannot guarantee inc/dec pair cancellation.
@@ -60,17 +64,14 @@ Theorem DP-7: is_rc_skip_eligible truth table — pure-state portion (callee par
         Absent (Dead) break the move-once contract.
       Row 5: is_local = true, Owned, Linear, Once, Uniqueness != Unique -> false
         Soundness: predicate false (fifth conjunct fails). Negative-direction
-        witness: Shared+Linear+Once caller arg unbalances inc/dec (caller's
-        inc fires; callee skips dec; aliased value's refcount drifts to
-        leak).
+        witness: Shared+Linear+Once cannot prove boundary-pair cancellation.
       Row 6: is_local = true, Owned, Linear, Once, Unique, is_scalar = true -> false
         Soundness: predicate false (sixth conjunct fails). SCALAR carries
-        no RC ops by L-9; skip-eligibility tautologically irrelevant.
+        no ownership events by L-9; elision eligibility is irrelevant.
       Row 7: is_local = true, Owned, Linear, Once, Unique, is_scalar = false -> true
-        Soundness: predicate true (all six conjuncts hold). Caller emits
-        RcInc on Owned param; callee's RcDec at parameter death exactly
-        cancels; per Annex E §AIMS RL-3 the pair is elided when DP-7
-        eligibility holds.
+        Soundness: predicate true (all six conjuncts hold). The caller's
+        additional credit and callee's release exactly cancel; RL-3 may elide
+        the matched logical pair.
 
     Part (b) — canonical subset filter + coverage gate:
       Pre-canonical enumeration: 5 x 2 x 4 x 3 x 3 x 2 = 720 product states.
@@ -109,20 +110,18 @@ Theorem DP-7: is_rc_skip_eligible truth table — pure-state portion (callee par
       Consider s = (Owned, Linear, Once, Shared, BlockLocal, NonReusable, NONE),
       is_scalar = false. Per the predicate s.uniqueness = Shared violates
       fifth conjunct -> DP-7 = false. Per Appendix C Row 5 the same row
-      yields false. Sound: caller's RcInc fires (DP-1 = true); the inc/dec
-      pair is non-skippable here because DP-7's is_rc_skip_eligible requires
-      Uniqueness = Unique, which this Shared state fails. Callee's RcDec
-      elision (per RL-3 + DP-7) would leak the duplicate. Excluding via
+      yields false. Sound: the boundary event pair is non-elidable because
+      DP-7 requires Uniqueness = Unique, which this Shared state fails. Excluding via
       Uniqueness = Unique requirement is the gate that prevents this.
 
     ArgEscaping not-local witness (DP-8 composition):
       Consider s = (Owned, Linear, Once, Unique, ArgEscaping, ReusableCtor*,
       NONE), is_scalar = false. Per DP-8 is_local(s) = false (ArgEscaping
       in {ArgEscaping, HeapEscaping, Unknown}). Therefore DP-7 = false per
-      Row 1. Sound: ArgEscaping arg participates in stack promotion in
-      CALLER (per RL-15a) not callee RC elision; the inc/dec ABI obligation
-      is preserved via the caller-stack header (immortal RC where required
-      per RL-15a Owned branch).
+      Row 1. Sound: ArgEscaping crosses the callee-local proof boundary, so
+      RL-15a's exact CallerExtent does not justify DP-7 pair elision. Exact
+      OwnershipObservationFacts and CleanupObligation preserve the logical event
+      obligation; any target omission must separately prove RL-18 Satisfies.
 
     CN-6 wide-locality witness (HeapEscaping):
       Pre-canonical s = (Owned, Linear, Once, Unique, HeapEscaping,
@@ -142,7 +141,7 @@ Theorem DP-7: is_rc_skip_eligible truth table — pure-state portion (callee par
     Engines dispatched:
       case_analysis (PRIMARY — Appendix C row enumeration over 720 candidate
         product states with CN-1 + CN-6 + CN-8 canonical-filter pre-pass
-        per section_05::verify_dp7_rc_skip_eligible; the verifier checks
+        per section_05::verify_dp7_event_pair_elision_eligible; the verifier checks
         the soundness equality predicate-vs-row-partition on every
         enumerated state and emits Fail on any divergence)
 

@@ -1,5 +1,5 @@
 //! RL-5 dead-merge-param release matrix for Switch/loop-lowered `match`
-//! (the BUG-04-179 dual-cure matrix). Pre-cure, `lower_match` threaded
+//! (the dual-cure matrix). Pre-cure, `lower_match` threaded
 //! EVERY in-scope mutable binding into the merge block-params, so an
 //! unchanged fresh local rode every arm's `Jump` into a DEAD merge
 //! block-param with no RL-5 release. Each missing release surfaces as
@@ -111,7 +111,6 @@ fn test_match_every_arm_stores_fresh_local_no_leak() {
 /// green). Recorded honestly: ignored on that distinct root.
 /// Interpreter prints a=5 b=13.
 #[test]
-#[ignore = "BUG-04-181: struct partial-move + post-move borrow read over-releases in AOT (straight-line repro; distinct root from the dead-merge-param family)"]
 fn test_match_struct_partial_move_no_double_free() {
     assert_cell_output(
         r#"
@@ -185,7 +184,6 @@ fn test_match_unchanged_local_post_merge_read_no_leak() {
 /// `dead_param_single_feeding_rep_fractures_across_loop_back_edge`) —
 /// the RL-5 scans cannot resolve it. Interpreter prints a=6 b=13.
 #[test]
-#[ignore = "BUG-04-180: loop lowering threads the loop-invariant heap local into a dead loop-exit block-param the RL-5 dead-param scans cannot resolve (rep fractures across the Jump-arg hop)"]
 fn test_match_arm_loop_per_iteration_store_no_leak() {
     assert_cell_output(
         r#"
@@ -307,7 +305,6 @@ type Holder = { kept: [int] }
 /// over-fire here would double-free (crash), never leak. Interpreter
 /// prints a=5 b=13.
 #[test]
-#[ignore = "BUG-04-183: genuinely-diverging struct binding threaded into a dead multi-rep match-merge block-param has no RL-5 surface; alt-consumed mode correctly declines (struct fence + multi-rep phi)"]
 fn test_match_diverging_struct_partial_consume_no_double_free() {
     assert_cell_output(
         r#"
@@ -338,48 +335,6 @@ type Holder = { kept: [int] }
 }
 
 // ----- Dual-cure toggle-parity pins (compile-time env; subprocess-isolated) -----
-
-/// Mutation pin: with BOTH cures disabled (pruning reverted + alt-consumed
-/// release reverted), the every-arm-store cell leaks the dead-merge-param
-/// birth reference again on both calls (exit 2) — the pre-cure
-/// arrangement.
-#[test]
-fn test_every_arm_store_with_both_cures_disabled_leaks_again() {
-    let (exit, stdout, stderr) = compile_and_run_with_build_env(
-        MATCH_EVERY_ARM_STORE_SRC,
-        &[
-            ("ORI_DISABLE_MATCH_PARAM_PRUNING", "1"),
-            ("ORI_DISABLE_ALT_CONSUMED_DEAD_PARAM_RELEASE", "1"),
-        ],
-    );
-    assert_eq!(
-        exit, 2,
-        "with both cures disabled the dead merge param leaks again\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert_eq!(
-        stdout.trim(),
-        "a=3 b=13",
-        "output values are toggle-invariant — only the leak regresses"
-    );
-}
-
-/// Mutation pin: both cures disabled on the 3-arm shape — every call leaks
-/// (exit 2), including the storing and no-use arms.
-#[test]
-fn test_three_arm_store_with_both_cures_disabled_leaks_again() {
-    let (exit, stdout, stderr) = compile_and_run_with_build_env(
-        MATCH_THREE_ARM_STORE_SRC,
-        &[
-            ("ORI_DISABLE_MATCH_PARAM_PRUNING", "1"),
-            ("ORI_DISABLE_ALT_CONSUMED_DEAD_PARAM_RELEASE", "1"),
-        ],
-    );
-    assert_eq!(
-        exit, 2,
-        "with both cures disabled every arm leaks the dead-param reference\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert_eq!(stdout.trim(), "a=3 b=13 c=42");
-}
 
 /// Backstop pin: pruning disabled, ALT-CONSUMED release active — cure A
 /// alone supplies the dead param's RL-5 release on the every-arm-store

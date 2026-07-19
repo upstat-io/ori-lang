@@ -19,17 +19,25 @@
 //!
 //! # Usage
 //!
-//! ```ignore
-//! use ori_llvm::aot::{TargetConfig, ObjectEmitter, EmitOptions};
+//! ```no_run
+//! use ori_llvm::aot::{ObjectEmitter, TargetConfig};
+//! use ori_llvm::inkwell::context::Context;
+//! use std::path::Path;
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
+//! let context = Context::create();
+//! let module = context.create_module("example");
 //! let target = TargetConfig::native()?;
 //! let emitter = ObjectEmitter::new(&target)?;
+//! emitter.configure_module(&module)?;
 //!
 //! // Emit object file
 //! emitter.emit_object(&module, Path::new("output.o"))?;
 //!
 //! // Emit assembly (for debugging)
 //! emitter.emit_assembly(&module, Path::new("output.s"))?;
+//! # Ok(())
+//! # }
 //! ```
 
 use std::fmt;
@@ -389,7 +397,7 @@ impl ObjectEmitter {
         self.emit_to_memory(module, FileType::Assembly)
     }
 
-    // -- Internal helpers --
+    // Internal helpers
 
     /// Emit to a file using LLVM's target machine.
     fn emit_to_file(

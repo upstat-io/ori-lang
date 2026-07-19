@@ -2,7 +2,7 @@
 //!
 //! Formatting for use/import declarations.
 
-use crate::comments::{format_comment, CommentIndex};
+use crate::comments::CommentIndex;
 use ori_ir::ast::items::{ExtensionImport, UseDef, UseItem};
 use ori_ir::{CommentList, StringLookup, Visibility};
 
@@ -48,7 +48,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
 
         // Format stdlib imports
         for import in &stdlib {
-            self.emit_comments_before_import(import.span.start, comments, comment_index);
+            self.emit_comments_before(import.span.start, comments, comment_index);
             self.format_use(import);
             self.ctx.emit_newline();
         }
@@ -60,22 +60,8 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
 
         // Format relative imports
         for import in &relative {
-            self.emit_comments_before_import(import.span.start, comments, comment_index);
+            self.emit_comments_before(import.span.start, comments, comment_index);
             self.format_use(import);
-            self.ctx.emit_newline();
-        }
-    }
-
-    fn emit_comments_before_import(
-        &mut self,
-        pos: u32,
-        comments: &CommentList,
-        comment_index: &mut CommentIndex,
-    ) {
-        let indices = comment_index.take_comments_before(pos);
-        for idx in indices {
-            let comment = &comments[idx];
-            self.ctx.emit(&format_comment(comment, self.interner));
             self.ctx.emit_newline();
         }
     }
@@ -160,7 +146,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         comment_index: &mut CommentIndex,
     ) {
         for ext_import in ext_imports {
-            self.emit_comments_before_import(ext_import.span.start, comments, comment_index);
+            self.emit_comments_before(ext_import.span.start, comments, comment_index);
             self.format_extension_import(ext_import);
             self.ctx.emit_newline();
         }

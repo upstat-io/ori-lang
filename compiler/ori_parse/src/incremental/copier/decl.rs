@@ -90,7 +90,9 @@ impl AstCopier<'_> {
             .collect();
 
         TestDef {
+            id: test.id,
             name: test.name,
+            display_name: test.display_name,
             targets: test.targets.clone(),
             params: new_arena.alloc_params(new_params),
             return_ty: test
@@ -100,6 +102,7 @@ impl AstCopier<'_> {
             body: self.copy_expr(test.body, new_arena),
             span: self.adjust_span(test.span),
             skip_reason: test.skip_reason,
+            skip_backends: test.skip_backends.clone(),
             expected_errors: test.expected_errors.clone(),
             fail_expected: test.fail_expected,
         }
@@ -302,7 +305,6 @@ impl AstCopier<'_> {
         }
     }
 
-    /// Copy a where clause.
     pub(super) fn copy_where_clause(
         &self,
         clause: &WhereClause,

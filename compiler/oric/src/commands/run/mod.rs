@@ -2,7 +2,7 @@
 
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
 use oric::query::evaluated;
-use oric::{CompilerDb, SourceFile};
+use oric::{CompilerDb, Db, SourceFile};
 use std::path::PathBuf;
 
 #[cfg(feature = "llvm")]
@@ -64,8 +64,12 @@ fn report_eval_result(
     emitter: &mut TerminalEmitter<std::io::Stderr>,
 ) {
     if eval_result.is_failure() {
-        // Use enriched diagnostics when we have a structured error snapshot
-        if let Some(ref snapshot) = eval_result.eval_error {
+        let const_diagnostics = const_eval_diagnostics(eval_result, db.interner());
+        if !const_diagnostics.is_empty() {
+            emitter.emit_all(&const_diagnostics);
+            emitter.flush();
+        } else if let Some(ref snapshot) = eval_result.eval_error {
+            // Use enriched diagnostics when we have a structured runtime snapshot.
             let source = file.text(db);
             let diag = oric::problem::eval::snapshot_to_diagnostic(snapshot, source.as_str(), path);
             emitter.emit(&diag);
@@ -94,6 +98,16 @@ fn report_eval_result(
             std::process::exit(exit_code);
         }
     }
+}
+
+fn const_eval_diagnostics(
+    eval_result: &oric::eval::ModuleEvalResult,
+    interner: &oric::ir::StringInterner,
+) -> Vec<ori_diagnostic::Diagnostic> {
+    oric::problem::semantic::const_eval_problems_to_diagnostics(
+        &eval_result.const_problems,
+        interner,
+    )
 }
 
 /// Evaluate with profiling enabled — bypasses Salsa's `evaluated()` query
@@ -289,19 +303,21 @@ fn compile_and_cache(
     // Generate LLVM IR (shared with build_file)
     let context = Context::create();
     let llvm_module = compile_to_llvm_with_imported_monos(
-        &context,
-        &db,
-        &parse_result,
-        &type_result,
-        &imported_state.merged_pool,
-        imported_state.surfaces(),
-        &canon_result,
-        path,
-        Some(target.triple()),
-        if ori_repr::NarrowingPolicy::env_disabled() {
-            ori_repr::NarrowingPolicy::Disabled
-        } else {
-            ori_repr::NarrowingPolicy::Aggressive
+        crate::commands::compile_common::ImportedMonoCompilation {
+            context: &context,
+            db: &db,
+            parse: &parse_result,
+            typed: &type_result,
+            pool: &imported_state.merged_pool,
+            imported: imported_state.surfaces(),
+            canon: &canon_result,
+            source_path: path,
+            target_triple: Some(target.triple()),
+            narrowing_policy: if ori_repr::NarrowingPolicy::env_disabled() {
+                ori_repr::NarrowingPolicy::Disabled
+            } else {
+                ori_repr::NarrowingPolicy::Aggressive
+            },
         },
     )
     .unwrap_or_else(|e| {
@@ -367,7 +383,7 @@ fn compile_and_cache(
         output: binary_path.to_path_buf(),
         output_kind: LinkOutput::Executable,
         gc_sections: true, // Remove unused sections
-        sanitizer: opt_config.sanitizer.clone(),
+        sanitizer: opt_config.sanitizer,
         ..Default::default()
     };
 

@@ -1,0 +1,5 @@
+
+@test () -> int = {
+    let async = 42;
+    async
+}

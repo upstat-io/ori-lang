@@ -1,0 +1,3 @@
+@sum (x: int, y: int) -> garbage = x + y;
+
+@main () -> void = println(sum(1, 2).to_str());

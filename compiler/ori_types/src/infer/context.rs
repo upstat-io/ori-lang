@@ -180,9 +180,12 @@ impl InferEngine<'_> {
             suggestions.extend(problem.suggestions());
         }
 
-        // Sort by priority and deduplicate
+        // Sort by priority and deduplicate. Compare `names` too: deferred-render
+        // suggestions share one `{N}` template across distinct `Name` operands
+        // (e.g. "add the missing field `{0}`" per missing field), so message
+        // alone would collapse distinct-field suggestions into one.
         suggestions.sort_by_key(|s| s.priority);
-        suggestions.dedup_by(|a, b| a.message == b.message);
+        suggestions.dedup_by(|a, b| a.message == b.message && a.names == b.names);
 
         suggestions
     }

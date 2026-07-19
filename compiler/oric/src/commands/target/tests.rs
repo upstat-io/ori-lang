@@ -59,17 +59,11 @@ fn test_target_subcommand_clone() {
     assert_eq!(original, cloned);
 }
 
-// =============================================================================
 // canonicalize_target_for_install tests
 //
-// Regression: BUG-04-045 / TPR-BUG-04-045-05. Before the fix, `add_target`
-// validated input via `SUPPORTED_TARGETS.contains(&target)` — a raw string
-// match against canonical-only entries — so any aliased or versioned spelling
-// accepted by `ori build --target=...` was rejected here. The fix routes
-// validation through the same canonicalization path (`support_key()`) that
-// `from_triple` uses, so the CLI parity invariant holds: every spelling
-// accepted by the build path is accepted here, and vice versa.
-// =============================================================================
+// INVARIANT: install-target validation routes through the same canonicalization
+// path (`support_key()`) `from_triple` uses, so every target spelling accepted
+// by `ori build --target=...` is accepted here and vice versa (CLI parity).
 
 #[cfg(feature = "llvm")]
 #[test]
@@ -138,7 +132,7 @@ fn test_canonicalize_target_rejects_unknown_arch() {
 /// also be accepted by `ori target add` — the CLI parity contract. This
 /// test enumerates the same alias spellings the AOT integration suite
 /// covers in `cross.rs::test_from_triple_accepts_*` and asserts they all
-/// canonicalize successfully here. Regression guard for TPR-BUG-04-045-05.
+/// canonicalize successfully here.
 #[cfg(feature = "llvm")]
 #[test]
 fn test_canonicalize_target_parity_with_from_triple_matrix() {

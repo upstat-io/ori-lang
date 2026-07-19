@@ -1,57 +1,39 @@
-Theorem RL-17: sharing-bound analysis (maximum simultaneous reference count)
+Theorem RL-17: OwnerBound is a dynamic upper bound
 
   Preconditions:
-    - RL-17 governs sharing-bound analysis per Annex E §AIMS RC Header
-      Compression: "Sharing bound analysis SHALL determine the maximum
-      simultaneous RC. is_local(s) AND Unique -> no header; straight-line N
-      incs -> Bounded(N+1); loops / recursion / global -> Unbounded."
-    - Signature ArcFunction x AimsStateMap -> ArcFunction per
-      the canonical proof notation:264; discharged against the sec-01
-      Realization.proof sorry obligation.
-    - DP-8 (is_local) <=> Locality IN {BlockLocal, FunctionLocal}; this
-      replaces the former "NoEscape" term per RL-18a (Locality is the SSOT).
-    - Shipped: target-system rule (ori_repr compress_arc_headers is a stubbed
-      pass per repr.md sec-Shipped-vs-stubbed); realize/decide.rs supplies the
-      sharing-bound inputs.
-    - depends-on sec-05: DP-8 (is_local).
+    - OwnershipObservationFacts preserves exact additional-credit,
+      release, and sharing-observation identities.
+    - Loop/global reachability and external retention are conservative signals.
 
   Soundness property:
-    Forall heap value v:
+    Forall additional-credit event sequence R:
 
-      (P1) Bound classification: RL-17 computes
-        - NoHeader when is_local(v) AND Uniqueness(v) = Unique;
-        - Bounded(N + 1) for straight-line code with N RcInc operations;
-        - Unbounded when v is reachable through a loop, recursion, or global.
+      (P1) straight-line non-unique ownership yields OwnerBound.Bounded(|R|),
+           whose capacity is |R| + 1 including the original owner.
 
-      (P2) Soundness: the computed bound is an UPPER bound on the simultaneous
-           reference count — a local-unique value is never shared (NoHeader);
-           straight-line code can create at most N + 1 references (the
-           allocation plus N incs); loops / recursion / global reachability
-           cannot be statically bounded (Unbounded is the conservative
-           fallback).
+      (P2) a local unique value without a widening signal yields Bounded(0).
 
-    RL-17 is the analysis that RL-18 narrows the header width from; the bound
-    must never UNDER-count (an under-count would narrow the header too far and
-    overflow at runtime).
+      (P3) loop/global or externally retainable values yield Unbounded.
+
+      (P4) loop/global precedence dominates local uniqueness.
 
   Proof obligation:
-    Constructive discharge by the case_analysis engine via enumeration of the
-    three bound classes.
+    Constructive classification with the load-bearing row
+    local_unique=true and loop_or_global=true -> Unbounded.
 
-    Part (P1/P2) — bound-classification grid:
-      local_unique_no_header -> NoHeader
-      straight_line_3_incs_bounded_4 -> Bounded(4)
-      loop_recursion_global_unbounded -> Unbounded
-      Coverage gate: 3 bound classes.
+    Part (P1/P2/P3/P4) - owner-bound grid:
+      local_unique_one_owner -> Bounded(0)
+      three_additional_credits_four_owners -> Bounded(3)
+      local_unique_loop_unbounded -> Unbounded
+      external_credit_creation_unbounded -> Unbounded
+      Coverage gate: 4 owner-bound cases.
 
     Engines dispatched:
-      case_analysis (PRIMARY — section_08::verify_rl17_sharing_bound; bound-
-        classification enumeration; emits Fail on a misclassification)
-      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
-      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
-        row)
+      case_analysis (PRIMARY - section_08::verify_rl17_owner_bound;
+        ownerBound and ownerCapacity classification)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL row)
+      refinement (SECONDARY - gracious-accept per the coverage-manifest RL row)
 
   Expected:
     status: valid
-    reason: section_08 case_analysis engine discharges RL-17 via the sharing-bound classification (local+Unique -> NoHeader; straight-line N incs -> Bounded(N+1); loop/recursion/global -> Unbounded) as an upper bound on simultaneous RC, grounded in the DP-8 is_local predicate and realize/decide.rs sharing-bound inputs
+    reason: section_08 case_analysis engine discharges RL-17 with dynamic OwnerBound capacity and loop/global or external-retention precedence over local uniqueness

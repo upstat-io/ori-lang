@@ -55,20 +55,11 @@ pub(crate) const OP_TRAIT_MAP: &[(&str, OpAccessor)] = &[
 /// 1. `OpDefs` fields — operator traits (Add, Sub, Neg, etc.)
 /// 2. `MethodDef.trait_name` — method traits (Clone, Eq, Hashable, Len, etc.)
 /// 3. `TypeDef.traits` — marker traits (Default, Sendable, Iterator)
-/// 4. Special cases: Eq/Comparable from operators, Unit/Never without `TypeDef`
+/// 4. Special case: Never without a `TypeDef`
 ///
-/// For types without a registry `TypeDef` (Unit, Never), hardcoded fallbacks
-/// are used. These will be eliminated when Unit/Never get `TypeDef`s.
+/// Never is uninhabited and intentionally has no registry definition.
 #[must_use]
 pub(crate) fn registry_satisfies_trait(type_tag: TypeTag, trait_name: &str) -> bool {
-    // Special case: Unit has no TypeDef but satisfies these traits.
-    if type_tag == TypeTag::Unit {
-        return matches!(
-            trait_name,
-            "Eq" | "Comparable" | "Hashable" | "Clone" | "Default" | "Debug"
-        );
-    }
-
     // Special case: Never has no TypeDef and satisfies no traits.
     if type_tag == TypeTag::Never {
         return false;
@@ -128,7 +119,7 @@ fn type_def_satisfies_trait(type_def: &ori_registry::TypeDef, trait_name: &str) 
 /// need trait/impl dispatch (Named, Applied, Struct, Enum, etc.).
 #[must_use]
 pub(crate) fn registry_type_satisfies_trait(tag: Tag, trait_name: &str) -> Option<bool> {
-    // Unit and Never are special — they have no TypeDef but are builtin.
+    // Never is special — it has no TypeDef and no values.
     if tag == Tag::Unit {
         return Some(registry_satisfies_trait(TypeTag::Unit, trait_name));
     }
@@ -208,36 +199,7 @@ pub(crate) fn tag_to_type_tag(tag: Tag) -> Option<TypeTag> {
 #[must_use]
 pub(crate) fn binary_op_strategy(tag: Tag, op: BinaryOp) -> Option<OpStrategy> {
     let type_tag = tag_to_type_tag(tag)?;
-    let type_def = ori_registry::find_type(type_tag)?;
-    let ops = &type_def.operators;
-    let strategy = match op {
-        BinaryOp::Add => ops.add,
-        BinaryOp::Sub => ops.sub,
-        BinaryOp::Mul => ops.mul,
-        BinaryOp::Div => ops.div,
-        BinaryOp::Mod => ops.rem,
-        BinaryOp::FloorDiv => ops.floor_div,
-        BinaryOp::Eq => ops.eq,
-        BinaryOp::NotEq => ops.neq,
-        BinaryOp::Lt => ops.lt,
-        BinaryOp::LtEq => ops.lt_eq,
-        BinaryOp::Gt => ops.gt,
-        BinaryOp::GtEq => ops.gt_eq,
-        BinaryOp::BitAnd => ops.bit_and,
-        BinaryOp::BitOr => ops.bit_or,
-        BinaryOp::BitXor => ops.bit_xor,
-        BinaryOp::Shl => ops.shl,
-        BinaryOp::Shr => ops.shr,
-        // These operators don't map to OpDefs fields — they use dedicated
-        // dispatch paths (logical, range, coalesce) or trait dispatch (MatMul).
-        BinaryOp::And
-        | BinaryOp::Or
-        | BinaryOp::Range
-        | BinaryOp::RangeInclusive
-        | BinaryOp::Coalesce
-        | BinaryOp::MatMul => return None,
-    };
-    Some(strategy)
+    crate::registry_binary_strategy(type_tag, op)
 }
 
 /// Check if a binary operator is supported for a builtin type via the registry.
@@ -257,16 +219,7 @@ pub(crate) fn is_binary_op_supported(tag: Tag, op: BinaryOp) -> Option<bool> {
 #[must_use]
 pub(crate) fn unary_op_strategy(tag: Tag, op: UnaryOp) -> Option<OpStrategy> {
     let type_tag = tag_to_type_tag(tag)?;
-    let type_def = ori_registry::find_type(type_tag)?;
-    let ops = &type_def.operators;
-    let strategy = match op {
-        UnaryOp::Neg => ops.neg,
-        UnaryOp::Not => ops.not,
-        UnaryOp::BitNot => ops.bit_not,
-        // Try (?) has dedicated dispatch — not an OpDefs field.
-        UnaryOp::Try => return None,
-    };
-    Some(strategy)
+    crate::registry_unary_strategy(type_tag, op)
 }
 
 /// Check if a unary operator is supported for a builtin type via the registry.
@@ -388,7 +341,13 @@ fn concrete_tag_to_idx(engine: &mut InferEngine<'_>, receiver_ty: Idx, type_tag:
         TypeTag::Ordering => Idx::ORDERING,
         TypeTag::Duration => Idx::DURATION,
         TypeTag::Size => Idx::SIZE,
-        TypeTag::Error => Idx::ERROR,
+        // `TypeTag::Error` denotes the user-facing `Error` TYPE
+        // (e.g. the `str.into() : Error` return), NOT the poison sentinel.
+        // Resolve to the registered `Error` struct Idx so the value is a real
+        // type that mismatches non-`Error` targets (E2001), not poison that
+        // unify absorbs. Falls back to `Idx::ERROR` only if the prelude struct
+        // was not registered (no-prelude builds).
+        TypeTag::Error => engine.pool().error_struct_idx().unwrap_or(Idx::ERROR),
 
         // Parameterized: construct in pool from receiver's inner type
         TypeTag::Option => {

@@ -1,0 +1,11 @@
+// Spec: Clause 8.16 Type Inference
+// Negative pin: an unconstrained `Option<T>.unwrap()` (generic producer, no
+// inference anchor) fails cleanly at typeck (E2005), never a missing-mono E5001.
+
+@get_none<T> () -> Option<T> = None;
+
+#compile_fail(code: "E2005")
+@option_unsubstituted_var_emits_typeck_error tests _ () -> void = {
+    let $y = get_none().unwrap();
+    print(msg: y)
+}

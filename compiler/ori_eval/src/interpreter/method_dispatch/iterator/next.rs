@@ -4,7 +4,7 @@
 //! source variants to `IteratorValue::next()` and adapter variants through
 //! the interpreter for closure evaluation.
 
-use ori_patterns::IteratorValue;
+use ori_patterns::{EvalError, IteratorValue};
 
 use crate::{ControlAction, EvalResult, Value};
 
@@ -15,10 +15,6 @@ impl Interpreter<'_> {
     ///
     /// Returns `(Option<Value>, IteratorValue)` — the yielded item and the
     /// advanced iterator state.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive IteratorValue variant dispatch across source and adapter variants"
-    )]
     pub(in crate::interpreter) fn eval_iter_next(
         &mut self,
         iter_val: IteratorValue,
@@ -35,211 +31,16 @@ impl Interpreter<'_> {
                 Ok((item, new_iter))
             }
 
-            // Mapped: get next from source, apply transform
-            IteratorValue::Mapped { source, transform } => {
-                let (item, new_source) = self.eval_iter_next(*source)?;
-                match item {
-                    Some(val) => {
-                        let mapped = self.eval_call(&transform, &[val])?;
-                        Ok((
-                            Some(mapped),
-                            IteratorValue::Mapped {
-                                source: Box::new(new_source),
-                                transform,
-                            },
-                        ))
-                    }
-                    None => Ok((
-                        None,
-                        IteratorValue::Mapped {
-                            source: Box::new(new_source),
-                            transform,
-                        },
-                    )),
-                }
+            adapter @ (IteratorValue::Mapped { .. } | IteratorValue::Filtered { .. }) => {
+                self.eval_iter_next_transform(adapter)
             }
 
-            // Filtered: loop source until predicate passes or exhausted
-            IteratorValue::Filtered { source, predicate } => {
-                let mut current = *source;
-                loop {
-                    let (item, new_source) = self.eval_iter_next(current)?;
-                    match item {
-                        Some(val) => {
-                            let keep = self.eval_call(&predicate, std::slice::from_ref(&val))?;
-                            if keep.is_truthy() {
-                                return Ok((
-                                    Some(val),
-                                    IteratorValue::Filtered {
-                                        source: Box::new(new_source),
-                                        predicate,
-                                    },
-                                ));
-                            }
-                            current = new_source;
-                        }
-                        None => {
-                            return Ok((
-                                None,
-                                IteratorValue::Filtered {
-                                    source: Box::new(new_source),
-                                    predicate,
-                                },
-                            ));
-                        }
-                    }
-                }
-            }
+            adapter @ (IteratorValue::TakeN { .. }
+            | IteratorValue::SkipN { .. }
+            | IteratorValue::Enumerated { .. }) => self.eval_iter_next_stateful(adapter),
 
-            // TakeN: yield up to `remaining` items
-            IteratorValue::TakeN { source, remaining } => {
-                if remaining == 0 {
-                    return Ok((
-                        None,
-                        IteratorValue::TakeN {
-                            source,
-                            remaining: 0,
-                        },
-                    ));
-                }
-                let (item, new_source) = self.eval_iter_next(*source)?;
-                let new_remaining = remaining.saturating_sub(1);
-                Ok((
-                    item,
-                    IteratorValue::TakeN {
-                        source: Box::new(new_source),
-                        remaining: new_remaining,
-                    },
-                ))
-            }
-
-            // SkipN: skip first `remaining` items, then yield normally
-            IteratorValue::SkipN { source, remaining } => {
-                let mut current = *source;
-                for _ in 0..remaining {
-                    let (item, new_source): (Option<Value>, IteratorValue) =
-                        self.eval_iter_next(current)?;
-                    current = new_source;
-                    if item.is_none() {
-                        return Ok((
-                            None,
-                            IteratorValue::SkipN {
-                                source: Box::new(current),
-                                remaining: 0,
-                            },
-                        ));
-                    }
-                }
-                let (item, new_source) = self.eval_iter_next(current)?;
-                Ok((
-                    item,
-                    IteratorValue::SkipN {
-                        source: Box::new(new_source),
-                        remaining: 0,
-                    },
-                ))
-            }
-
-            // Enumerated: pair each item with its 0-based index
-            IteratorValue::Enumerated { source, index } => {
-                let (item, new_source) = self.eval_iter_next(*source)?;
-                match item {
-                    Some(val) => {
-                        #[expect(
-                            clippy::cast_possible_wrap,
-                            reason = "enumerate index won't exceed i64::MAX in practice"
-                        )]
-                        let idx_val = Value::int(index as i64);
-                        let pair = Value::tuple(vec![idx_val, val]);
-                        Ok((
-                            Some(pair),
-                            IteratorValue::Enumerated {
-                                source: Box::new(new_source),
-                                index: index.saturating_add(1),
-                            },
-                        ))
-                    }
-                    None => Ok((
-                        None,
-                        IteratorValue::Enumerated {
-                            source: Box::new(new_source),
-                            index,
-                        },
-                    )),
-                }
-            }
-
-            // Zipped: advance both, yield tuple or stop if either exhausted
-            IteratorValue::Zipped { left, right } => {
-                let (left_item, new_left) = self.eval_iter_next(*left)?;
-                match left_item {
-                    Some(l) => {
-                        let (right_item, new_right) = self.eval_iter_next(*right)?;
-                        match right_item {
-                            Some(r) => Ok((
-                                Some(Value::tuple(vec![l, r])),
-                                IteratorValue::Zipped {
-                                    left: Box::new(new_left),
-                                    right: Box::new(new_right),
-                                },
-                            )),
-                            None => Ok((
-                                None,
-                                IteratorValue::Zipped {
-                                    left: Box::new(new_left),
-                                    right: Box::new(new_right),
-                                },
-                            )),
-                        }
-                    }
-                    None => Ok((
-                        None,
-                        IteratorValue::Zipped {
-                            left: Box::new(new_left),
-                            right,
-                        },
-                    )),
-                }
-            }
-
-            // Chained: exhaust first, then yield from second
-            IteratorValue::Chained {
-                first,
-                second,
-                first_done,
-            } => {
-                if first_done {
-                    let (item, new_second) = self.eval_iter_next(*second)?;
-                    return Ok((
-                        item,
-                        IteratorValue::Chained {
-                            first,
-                            second: Box::new(new_second),
-                            first_done: true,
-                        },
-                    ));
-                }
-                let (item, new_first) = self.eval_iter_next(*first)?;
-                if let Some(val) = item {
-                    Ok((
-                        Some(val),
-                        IteratorValue::Chained {
-                            first: Box::new(new_first),
-                            second,
-                            first_done: false,
-                        },
-                    ))
-                } else {
-                    let (item, new_second) = self.eval_iter_next(*second)?;
-                    Ok((
-                        item,
-                        IteratorValue::Chained {
-                            first: Box::new(new_first),
-                            second: Box::new(new_second),
-                            first_done: true,
-                        },
-                    ))
-                }
+            adapter @ (IteratorValue::Zipped { .. } | IteratorValue::Chained { .. }) => {
+                self.eval_iter_next_composed(adapter)
             }
 
             // Flattened: advance inner; if exhausted, advance source for new inner
@@ -267,17 +68,210 @@ impl Interpreter<'_> {
         }
     }
 
+    fn eval_iter_next_transform(
+        &mut self,
+        iter_val: IteratorValue,
+    ) -> Result<(Option<Value>, IteratorValue), ControlAction> {
+        match iter_val {
+            IteratorValue::Mapped { source, transform } => {
+                let (item, new_source) = self.eval_iter_next(*source)?;
+                let mapped = match item {
+                    Some(value) => Some(self.eval_call(&transform, &[value])?),
+                    None => None,
+                };
+                Ok((
+                    mapped,
+                    IteratorValue::Mapped {
+                        source: Box::new(new_source),
+                        transform,
+                    },
+                ))
+            }
+            IteratorValue::Filtered { source, predicate } => {
+                let mut current = *source;
+                loop {
+                    let (item, new_source) = self.eval_iter_next(current)?;
+                    match item {
+                        Some(value) => {
+                            let keep = self.eval_call(&predicate, std::slice::from_ref(&value))?;
+                            if keep.is_truthy() {
+                                return Ok((
+                                    Some(value),
+                                    IteratorValue::Filtered {
+                                        source: Box::new(new_source),
+                                        predicate,
+                                    },
+                                ));
+                            }
+                            current = new_source;
+                        }
+                        None => {
+                            return Ok((
+                                None,
+                                IteratorValue::Filtered {
+                                    source: Box::new(new_source),
+                                    predicate,
+                                },
+                            ));
+                        }
+                    }
+                }
+            }
+            _ => unreachable!("non-transform adapter in transform dispatch"),
+        }
+    }
+
+    fn eval_iter_next_stateful(
+        &mut self,
+        iter_val: IteratorValue,
+    ) -> Result<(Option<Value>, IteratorValue), ControlAction> {
+        match iter_val {
+            IteratorValue::TakeN { source, remaining } => {
+                if remaining == 0 {
+                    return Ok((None, IteratorValue::TakeN { source, remaining }));
+                }
+                let (item, new_source) = self.eval_iter_next(*source)?;
+                Ok((
+                    item,
+                    IteratorValue::TakeN {
+                        source: Box::new(new_source),
+                        remaining: remaining.saturating_sub(1),
+                    },
+                ))
+            }
+            IteratorValue::SkipN { source, remaining } => {
+                let mut current = *source;
+                for _ in 0..remaining {
+                    let (item, new_source) = self.eval_iter_next(current)?;
+                    current = new_source;
+                    if item.is_none() {
+                        return Ok((
+                            None,
+                            IteratorValue::SkipN {
+                                source: Box::new(current),
+                                remaining: 0,
+                            },
+                        ));
+                    }
+                }
+                let (item, new_source) = self.eval_iter_next(current)?;
+                Ok((
+                    item,
+                    IteratorValue::SkipN {
+                        source: Box::new(new_source),
+                        remaining: 0,
+                    },
+                ))
+            }
+            IteratorValue::Enumerated { source, index } => {
+                let (item, new_source) = self.eval_iter_next(*source)?;
+                let next_index = if item.is_some() {
+                    index.saturating_add(1)
+                } else {
+                    index
+                };
+                let index_value = i64::try_from(index)
+                    .map_err(|_| EvalError::new("iterator index exceeds the int range"))?;
+                let item = item.map(|value| Value::tuple(vec![Value::int(index_value), value]));
+                Ok((
+                    item,
+                    IteratorValue::Enumerated {
+                        source: Box::new(new_source),
+                        index: next_index,
+                    },
+                ))
+            }
+            _ => unreachable!("non-stateful adapter in stateful dispatch"),
+        }
+    }
+
+    fn eval_iter_next_composed(
+        &mut self,
+        iter_val: IteratorValue,
+    ) -> Result<(Option<Value>, IteratorValue), ControlAction> {
+        match iter_val {
+            IteratorValue::Zipped { left, right } => {
+                let (left_item, new_left) = self.eval_iter_next(*left)?;
+                let Some(left_value) = left_item else {
+                    return Ok((
+                        None,
+                        IteratorValue::Zipped {
+                            left: Box::new(new_left),
+                            right,
+                        },
+                    ));
+                };
+                let (right_item, new_right) = self.eval_iter_next(*right)?;
+                let item =
+                    right_item.map(|right_value| Value::tuple(vec![left_value, right_value]));
+                Ok((
+                    item,
+                    IteratorValue::Zipped {
+                        left: Box::new(new_left),
+                        right: Box::new(new_right),
+                    },
+                ))
+            }
+            IteratorValue::Chained {
+                first,
+                second,
+                first_done,
+            } => {
+                if first_done {
+                    let (item, new_second) = self.eval_iter_next(*second)?;
+                    return Ok((
+                        item,
+                        IteratorValue::Chained {
+                            first,
+                            second: Box::new(new_second),
+                            first_done,
+                        },
+                    ));
+                }
+                let (item, new_first) = self.eval_iter_next(*first)?;
+                if item.is_some() {
+                    return Ok((
+                        item,
+                        IteratorValue::Chained {
+                            first: Box::new(new_first),
+                            second,
+                            first_done,
+                        },
+                    ));
+                }
+                let (item, new_second) = self.eval_iter_next(*second)?;
+                Ok((
+                    item,
+                    IteratorValue::Chained {
+                        first: Box::new(new_first),
+                        second: Box::new(new_second),
+                        first_done: true,
+                    },
+                ))
+            }
+            _ => unreachable!("non-composed adapter in composed dispatch"),
+        }
+    }
+
+    /// Pack an advance result `(item?, new_iter)` into the Ori iterator-protocol
+    /// tuple `(T?, Iterator<T>)` — the single return shape shared by `next()` and
+    /// `next_back()`.
+    fn pack_iter_advance_tuple((maybe_item, new_iter): (Option<Value>, IteratorValue)) -> Value {
+        let option_val = match maybe_item {
+            Some(v) => Value::some(v),
+            None => Value::None,
+        };
+        Value::tuple(vec![option_val, Value::iterator(new_iter)])
+    }
+
     /// `next()` returns `(T?, Iterator<T>)` tuple for the Ori protocol.
     pub(in crate::interpreter) fn eval_iter_next_as_tuple(
         &mut self,
         iter_val: IteratorValue,
     ) -> EvalResult {
-        let (maybe_item, new_iter) = self.eval_iter_next(iter_val)?;
-        let option_val = match maybe_item {
-            Some(v) => Value::some(v),
-            None => Value::None,
-        };
-        Ok(Value::tuple(vec![option_val, Value::iterator(new_iter)]))
+        Ok(Self::pack_iter_advance_tuple(
+            self.eval_iter_next(iter_val)?,
+        ))
     }
 
     /// Advance an iterator from the back by one step.
@@ -377,11 +371,8 @@ impl Interpreter<'_> {
         &mut self,
         iter_val: IteratorValue,
     ) -> EvalResult {
-        let (maybe_item, new_iter) = self.eval_iter_next_back(iter_val)?;
-        let option_val = match maybe_item {
-            Some(v) => Value::some(v),
-            None => Value::None,
-        };
-        Ok(Value::tuple(vec![option_val, Value::iterator(new_iter)]))
+        Ok(Self::pack_iter_advance_tuple(
+            self.eval_iter_next_back(iter_val)?,
+        ))
     }
 }

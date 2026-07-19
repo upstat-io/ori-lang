@@ -45,6 +45,8 @@ impl PatternDefinition for WithPattern {
         // Always call release if provided (RAII pattern)
         if let Some(rel_expr) = release_expr {
             let release_fn = exec.eval(rel_expr)?;
+            // Why: release is best-effort cleanup; its error must not mask the
+            // action's result (which is returned below). Discard is intentional.
             let _ = exec.call(&release_fn, vec![resource]);
         }
 

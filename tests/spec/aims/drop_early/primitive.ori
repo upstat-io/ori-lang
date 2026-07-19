@@ -1,0 +1,11 @@
+// Spec: Annex C §drop_early; 08-types.md §8.10.5
+// drop_early on a primitive (int, Copy — no heap RC) type-checks and runs as a
+// no-op consume; the value was usable before the call.
+use std.testing { assert_eq }
+
+@drop_early_primitive_noop tests _ () -> void = {
+    let x = 5;
+    let y = x + 10;
+    drop_early(value: x);
+    assert_eq(actual: y, expected: 15)
+}

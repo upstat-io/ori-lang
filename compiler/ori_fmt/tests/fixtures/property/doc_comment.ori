@@ -1,0 +1,2 @@
+// #Description of function
+@f () -> int = 42;

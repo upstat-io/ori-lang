@@ -1,0 +1,10 @@
+// POSITIVE PIN — a block-local consume must NOT leak past the block.
+// `t` is bound + consumed inside the inner block; it goes out of scope at block
+// exit, so a fresh later `let $t` is a different binding and is freely usable.
+use std.testing { assert_eq }
+
+@drop_early_block_local_consume_no_leak tests _ () -> void = {
+    { let t = "a".to_str(); drop_early(value: t); };
+    let t = "bb".to_str();
+    assert_eq(actual: t.length(), expected: 2)
+}

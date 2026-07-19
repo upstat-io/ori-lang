@@ -1,20 +1,20 @@
 //! Immortal object detection for the AIMS pipeline.
 //!
-//! Immortal objects have their reference count permanently set to `MAX_REFCOUNT`,
-//! causing all RC operations to be no-ops. This eliminates RC traffic for
-//! heap-allocated literals that are never freed (e.g., empty string `""`).
+//! Immortal values have process-wide logical lifetime and therefore carry no
+//! per-use ownership-count or cleanup obligation. A physical plan may realize
+//! that contract with a saturated counter, static storage, an immediate, or any
+//! other validated mechanism; none of those encodings is an AIMS fact.
 //!
 //! Variables marked as immortal are excluded from RC emission, COW annotation,
 //! reuse detection, and drop hints — the same treatment as `SCALAR` variables,
-//! but for heap-allocated values that happen to be statically known constants.
+//! but for non-scalar values whose stable identity is known to be immortal.
 //!
 //! # Relationship to Scalars
 //!
-//! Scalar variables (`ArcClass::Scalar`) never have heap allocations at all.
-//! Immortal variables DO have heap allocations, but those allocations use
-//! pre-allocated singletons with `MAX_REFCOUNT` — so RC operations are
-//! unnecessary. Both are excluded from the same emission phases, but for
-//! different reasons.
+//! Scalar variables (`ArcClass::Scalar`) carry no logical allocation identity.
+//! Immortal variables may carry one, but its process-wide lifetime makes
+//! ownership-count and cleanup events unnecessary. Both are excluded from the
+//! same emission phases for distinct backend-neutral reasons.
 
 #[cfg(test)]
 mod tests;
@@ -30,11 +30,11 @@ use crate::ir::{ArcFunction, ArcInstr, ArcValue, LitValue};
 ///
 /// # Immortal-Eligible Values (v1)
 ///
-/// - Empty string literal `""` — heap-allocated `DefiniteRef` with zero content
+/// - Empty string literal `""` — registry-defined immortal string identity
 ///
 /// Boolean/int/unit/char literals are already `ArcClass::Scalar` and skip RC
-/// via the scalar fast path. Immortal detection focuses on heap-allocated
-/// literals that would otherwise incur RC operations.
+/// via the scalar fast path. Immortal detection focuses on non-scalar literals
+/// whose logical lifetime makes ownership-count events unnecessary.
 pub fn detect_immortals(func: &ArcFunction, interner: &StringInterner) -> Vec<bool> {
     let num_vars = func.var_types.len();
     let mut immortals = vec![false; num_vars];
@@ -66,8 +66,8 @@ pub fn detect_immortals(func: &ArcFunction, interner: &StringInterner) -> Vec<bo
 fn is_immortal_literal(lit: &LitValue, interner: &StringInterner) -> bool {
     match lit {
         LitValue::String(name) => is_empty_string(*name, interner),
-        // Int, Float, Bool, Char, Duration, Size, Unit are all Scalar —
-        // already handled by the scalar fast path, no benefit from immortal.
+        // Why: Int, Float, Bool, Char, Duration, Size, Unit are all Scalar, which
+        // bypass RC insertion via the scalar path rather than immortal optimization.
         _ => false,
     }
 }

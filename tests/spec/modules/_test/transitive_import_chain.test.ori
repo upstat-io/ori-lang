@@ -1,0 +1,81 @@
+// Spec: 18-modules.md § Imports
+// Design: (modules not yet in design docs)
+//
+// Regression matrix for interpreter transitive-import resolution: an
+// imported module's OWN `use` imports must be visible in its evaluation
+// environment, so a 2+-hop chained import resolves at runtime the same way
+// it type-checks. `ori_llvm/tests/aot/concrete_imports.rs::
+// chained_imports_resolve_transitively` pins the same 2-hop shape on the
+// AOT/LLVM backend; this file dual-execs the full matrix under BOTH the
+// interpreter and LLVM backends via test-all.sh.
+//
+// Matrix dimensions covered:
+//   - hop depth: 2-hop (mid_quadruple) and genuine 3-hop (deep_top_wrap)
+//   - import style: plain item-import (mid) vs module-alias qualified
+//     access (mid_alias)
+//   - accumulation: single own-import (mid) vs multiple own-imports from
+//     distinct source modules in one module (mid_multi)
+//   - composition: an imported symbol combined with a directly-exported
+//     (pub) sibling in the SAME module (mid_combine)
+//   - scope boundary: a same-module private-sibling chain retained in the
+//     imported callable closure
+
+use std.testing { assert_eq }
+
+use "../transitive_import_mid" { mid_quadruple, mid_sibling, mid_combine }
+use "../transitive_import_mid_alias" { mid_alias_quadruple }
+use "../transitive_import_mid_multi_source" { mid_multi_combine }
+use "../transitive_import_chain_top" { deep_top_wrap }
+use "../transitive_import_private_sibling_chain_lib" { private_chain_exported }
+
+// --- Reported symptom: 2-hop plain item-import chain ---
+
+@test_two_hop_transitive_import tests @mid_quadruple () -> void = {
+    // mid_quadruple(x) = leaf_double(leaf_double(x)) = x * 4
+    assert_eq(actual: mid_quadruple(x: 5), expected: 20);
+    assert_eq(actual: mid_quadruple(x: 0), expected: 0);
+    assert_eq(actual: mid_quadruple(x: -3), expected: -12)
+}
+
+// --- Own-declared sibling stays resolvable alongside own imports ---
+
+@test_own_declared_sibling_still_resolves tests @mid_sibling () -> void = {
+    assert_eq(actual: mid_sibling(x: 5), expected: 1005)
+}
+
+// --- Composition: imported symbol UNION own-declared exported sibling ---
+
+@test_import_and_own_sibling_composition tests @mid_combine () -> void = {
+    // mid_combine(x) = mid_sibling(leaf_double(x)) = (x * 2) + 1000
+    assert_eq(actual: mid_combine(x: 5), expected: 1010)
+}
+
+// --- Module-alias variant of the same 2-hop transitive import ---
+
+@test_module_alias_transitive_import tests @mid_alias_quadruple () -> void = {
+    assert_eq(actual: mid_alias_quadruple(x: 5), expected: 20);
+    assert_eq(actual: mid_alias_quadruple(x: 0), expected: 0)
+}
+
+// --- Accumulation: multiple own-imports from distinct source modules ---
+
+@test_multi_source_own_imports_accumulate tests @mid_multi_combine () -> void = {
+    // mid_multi_combine(x) = leaf_b_increment(leaf_triple(x)) = (x * 3) + 1
+    assert_eq(actual: mid_multi_combine(x: 5), expected: 16);
+    assert_eq(actual: mid_multi_combine(x: 0), expected: 1)
+}
+
+// --- Genuine 3-hop chain: proves recursion is not hard-coded to depth 2 ---
+
+@test_three_hop_transitive_import tests @deep_top_wrap () -> void = {
+    // deep_top_wrap(x) = (deep_negate(x) + 100) * 2 = ((-x) + 100) * 2
+    assert_eq(actual: deep_top_wrap(x: 5), expected: 190);
+    assert_eq(actual: deep_top_wrap(x: 0), expected: 200)
+}
+
+// --- Scope boundary: same-module private-sibling chain ---
+
+@test_private_sibling_chain_closes tests @private_chain_exported () -> void = {
+    // private_chain_exported(x) = private_chain_h1(x) = (x + 2) * 2
+    assert_eq(actual: private_chain_exported(x: 5), expected: 14)
+}

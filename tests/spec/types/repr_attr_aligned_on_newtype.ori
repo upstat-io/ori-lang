@@ -1,5 +1,6 @@
 // Invalid: #repr("aligned", 16) on a newtype — only valid on structs.
 #compile_fail(code: "E2041", message: "can only be applied to structs")
+@repr_attr_aligned_on_newtype tests _ () -> void = { () }
 
 #repr("aligned", 16)
 type BadAlignedNewtype = int;

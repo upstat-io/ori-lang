@@ -11,8 +11,8 @@
 //! - **Safe defaults**: queries return canonical (un-narrowed) values
 //!   when no decision has been recorded — the canonical pass alone causes zero
 //!   behavioral change.
-//! - **Placeholder fields**: `escape_info` and `function_var_ranges`
-//!   use stub types until range analysis and escape analysis replace them.
+//! - **Placeholder fields**: `escape_info` uses a stub type until escape
+//!   analysis replaces it.
 
 use ori_arc::ArcVarId;
 use ori_ir::Name;
@@ -21,6 +21,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::enum_repr::EnumRepr;
 use crate::escape::EscapeInfo;
+use crate::layout::EnumLayoutInfo;
 use crate::range::ValueRange;
 use crate::repr::MachineRepr;
 
@@ -106,6 +107,11 @@ pub struct ReprPlan {
     /// all observed element values across `Construct(ListLiteral)` and
     /// `CollectionReuse` sites. Consumed by collection element narrowing.
     element_range_summaries: FxHashMap<Idx, ValueRange>,
+    /// Canonical enum layout facts, keyed by enum type `Idx`.
+    ///
+    /// Populated from the final `EnumRepr` after all repr-optimization passes.
+    /// Consumers query `enum_layout_info()` instead of computing layout ad-hoc.
+    enum_layouts: FxHashMap<Idx, EnumLayoutInfo>,
     /// Audit trail — all decisions in insertion order.
     audit: Vec<ReprDecision>,
     /// Narrowing policy controlling optimization aggressiveness.
@@ -153,6 +159,7 @@ impl ReprPlan {
             function_var_ranges: FxHashMap::default(),
             field_range_summaries: FxHashMap::default(),
             element_range_summaries: FxHashMap::default(),
+            enum_layouts: FxHashMap::default(),
             audit: Vec::new(),
             narrowing_policy: policy,
             pub_type_indices: FxHashSet::default(),
@@ -190,6 +197,24 @@ impl ReprPlan {
             MachineRepr::Enum(e) => Some(e),
             _ => None,
         }
+    }
+
+    /// Record the canonical [`EnumLayoutInfo`] for an enum type.
+    ///
+    /// Written by the `populate_enum_layouts` pass after all repr-optimization
+    /// passes have finalized the type's `EnumRepr`.
+    pub fn set_enum_layout(&mut self, idx: Idx, info: EnumLayoutInfo) {
+        self.enum_layouts.insert(idx, info);
+    }
+
+    /// Query the canonical enum layout facts for a type.
+    ///
+    /// Returns `None` if `idx` is not an enum or no layout was recorded. This
+    /// is the canonical query — consumers read layout facts here instead of
+    /// recomputing tag/GEP/offset logic ad-hoc.
+    #[must_use]
+    pub fn enum_layout_info(&self, idx: Idx) -> Option<&EnumLayoutInfo> {
+        self.enum_layouts.get(&idx)
     }
 
     /// Resolve the `EnumRepr` for `idx` — plan-first, with on-the-fly

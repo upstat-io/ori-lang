@@ -21,7 +21,7 @@ use tempfile::TempDir;
 
 use crate::util::{
     assert_no_signal_crash, compile_and_capture_ir, compile_and_run_valgrind_with_args,
-    compile_and_run_with_args, ori_binary, stdlib_path,
+    compile_and_run_with_args, ori_binary, stdlib_path, wasm_ld_available, wasm_opt_available,
 };
 
 /// Create a simple Ori source file for testing.
@@ -671,6 +671,87 @@ fn test_build_wasm_flag() {
     assert!(output.exists(), "WASM object file was not created");
 }
 
+/// Production-path test: `ori build --wasm --wasm-opt` links a real WASM
+/// binary then runs the wasm-opt post-processor on it in place.
+///
+/// Requires `wasm-ld` (to link) and `wasm-opt` (Binaryen); skips gracefully
+/// when either is unavailable, matching the valgrind-gated tests above.
+#[test]
+fn test_build_wasm_opt_runs_post_processor_on_linked_binary() {
+    if !wasm_ld_available() {
+        eprintln!("skipping: wasm-ld not available");
+        return;
+    }
+    if !wasm_opt_available() {
+        eprintln!("skipping: wasm-opt not available");
+        return;
+    }
+
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source = create_test_source(&temp_dir, "test.ori", SIMPLE_PROGRAM);
+    let output = temp_dir.path().join("test.wasm");
+
+    let result = Command::new(ori_binary())
+        .args([
+            "build",
+            source.to_str().unwrap(),
+            "--wasm",
+            "--wasm-opt",
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute ori build");
+
+    assert!(
+        result.status.success(),
+        "ori build --wasm --wasm-opt failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    assert!(output.exists(), "wasm-opt-processed binary was not created");
+
+    let content = fs::read(&output).expect("Failed to read wasm-opt output");
+    assert!(
+        content.starts_with(&[0x00, 0x61, 0x73, 0x6d]),
+        "wasm-opt output doesn't appear to be a valid WASM module (missing magic bytes)"
+    );
+}
+
+/// Negative pin: `ori build --wasm` without `--wasm-opt` still links a valid
+/// WASM binary — the post-processor is opt-in, never required for a plain
+/// wasm build.
+#[test]
+fn test_build_wasm_without_wasm_opt_flag_still_links() {
+    if !wasm_ld_available() {
+        eprintln!("skipping: wasm-ld not available");
+        return;
+    }
+
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source = create_test_source(&temp_dir, "test.ori", SIMPLE_PROGRAM);
+    let output = temp_dir.path().join("test.wasm");
+
+    let result = Command::new(ori_binary())
+        .args([
+            "build",
+            source.to_str().unwrap(),
+            "--wasm",
+            "-o",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .expect("Failed to execute ori build");
+
+    assert!(
+        result.status.success(),
+        "ori build --wasm failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    assert!(output.exists(), "WASM binary was not created");
+}
+
 /// Test: `ori build --target=` with unsupported target fails gracefully.
 #[test]
 fn test_build_unsupported_target() {
@@ -747,67 +828,313 @@ fn test_build_missing_dependency() {
     );
 }
 
-/// Test: `ori build` with unchanged source should be fast (incremental rebuild).
-///
-/// This test verifies that the incremental compilation cache works:
-/// 1. First build: full compilation
-/// 2. Second build (no changes): should be faster (cache hit)
-///
-/// Note: This test requires incremental compilation to be wired up.
-/// Currently marked as ignored until the feature is fully integrated.
+fn isolated_incremental_build_command(cache_root: &std::path::Path) -> Command {
+    let mut command = Command::new(ori_binary());
+    for (name, _) in std::env::vars_os() {
+        let rendered = name.to_string_lossy();
+        if rendered.starts_with("ORI_")
+            || rendered.starts_with("LLVM_")
+            || rendered.starts_with("CLANG_")
+            || rendered.starts_with("LD_")
+            || rendered.starts_with("DYLD_")
+            || rendered == "RUST_LOG"
+            || rendered == "SOURCE_DATE_EPOCH"
+        {
+            command.env_remove(name);
+        }
+    }
+    command.env("XDG_CACHE_HOME", cache_root);
+    command
+}
+
+fn assert_incremental_cache_token(output: &std::process::Output, expected: &str) {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.lines().any(|line| line.trim() == expected),
+        "expected exact cache token '{expected}' in stderr:\n{stderr}"
+    );
+}
+
+fn assert_program_exit(path: &std::path::Path, expected: i32) {
+    let result = Command::new(path)
+        .status()
+        .expect("failed to execute incrementally built program");
+    assert_eq!(
+        result.code(),
+        Some(expected),
+        "incrementally built program returned the wrong value"
+    );
+}
+
+struct IncrementalBuildFixture {
+    temp_dir: TempDir,
+    cache_root: PathBuf,
+    prelude: PathBuf,
+    source: PathBuf,
+    output: PathBuf,
+}
+
+impl IncrementalBuildFixture {
+    fn new(program: &str) -> Self {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let cache_root = temp_dir.path().join("xdg-cache");
+        let prelude_dir = temp_dir.path().join("library/std");
+        fs::create_dir_all(&prelude_dir).expect("failed to create test prelude directory");
+        let prelude = prelude_dir.join("prelude.ori");
+        fs::write(&prelude, "// incremental-cache dependency version 1\n")
+            .expect("failed to write test prelude");
+        let source = create_test_source(&temp_dir, "incremental.ori", program);
+        let output = temp_dir.path().join("incremental");
+
+        Self {
+            temp_dir,
+            cache_root,
+            prelude,
+            source,
+            output,
+        }
+    }
+
+    fn write_source(&self, program: &str) {
+        fs::write(&self.source, program).expect("failed to mutate incremental source");
+    }
+
+    fn write_prelude(&self, content: &str) {
+        fs::write(&self.prelude, content).expect("failed to mutate test prelude");
+    }
+
+    fn remove_output(&self) {
+        fs::remove_file(&self.output).expect("failed to remove incremental build output");
+    }
+
+    fn build_command(&self, cache_root: &std::path::Path, options: &[&str]) -> Command {
+        let mut command = isolated_incremental_build_command(cache_root);
+        command
+            .arg("build")
+            .arg(&self.source)
+            .arg("--verbose")
+            .args(options)
+            .arg("-o")
+            .arg(&self.output);
+        command
+    }
+
+    fn build(&self, options: &[&str]) -> std::process::Output {
+        self.build_command(&self.cache_root, options)
+            .output()
+            .expect("failed to execute incremental ori build")
+    }
+}
+
+fn assert_incremental_build_succeeded(output: &std::process::Output, context: &str) {
+    assert!(
+        output.status.success(),
+        "{context} build failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn prime_incremental_cache(
+    fixture: &IncrementalBuildFixture,
+    options: &[&str],
+    expected_exit: i32,
+) {
+    let first = fixture.build(options);
+    assert_incremental_build_succeeded(&first, "First");
+    assert_incremental_cache_token(&first, "incremental cache: miss");
+    assert_program_exit(&fixture.output, expected_exit);
+}
+
+fn cache_object_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut pending = vec![root.to_path_buf()];
+    let mut objects = Vec::new();
+    while let Some(directory) = pending.pop() {
+        let Ok(entries) = fs::read_dir(directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|extension| extension == "o") {
+                objects.push(path);
+            }
+        }
+    }
+    objects.sort();
+    objects
+}
+
+/// Exact incremental-build contract: an unchanged object is reused and the
+/// requested executable is relinked even when the prior output was removed.
 #[test]
-#[ignore = "BUG-07-038: Incremental compilation not yet wired up in ori build"]
 fn test_build_incremental_unchanged() {
-    use std::time::Instant;
+    let fixture = IncrementalBuildFixture::new("@main () -> int = 17;\n");
+    prime_incremental_cache(&fixture, &[], 17);
 
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let source = create_test_source(&temp_dir, "incremental.ori", SIMPLE_PROGRAM);
-    let output = temp_dir.path().join("incremental");
+    fixture.remove_output();
+    let second = fixture.build(&[]);
+    assert_incremental_build_succeeded(&second, "Second");
+    assert_incremental_cache_token(&second, "incremental cache: hit");
+    assert!(
+        fixture.output.exists(),
+        "cache hit must relink the deleted output"
+    );
+    assert_program_exit(&fixture.output, 17);
+}
 
-    // First build: full compilation
-    let start1 = Instant::now();
-    let result1 = Command::new(ori_binary())
-        .args([
-            "build",
-            source.to_str().unwrap(),
-            "-o",
-            output.to_str().unwrap(),
-        ])
+#[test]
+fn incremental_build_invalidates_source_change() {
+    let fixture = IncrementalBuildFixture::new("@main () -> int = 17;\n");
+    prime_incremental_cache(&fixture, &[], 17);
+
+    fixture.write_source("@main () -> int = 23;\n");
+    fixture.remove_output();
+    let source_changed = fixture.build(&[]);
+    assert_incremental_build_succeeded(&source_changed, "Source-invalidated");
+    assert_incremental_cache_token(&source_changed, "incremental cache: miss");
+    assert_program_exit(&fixture.output, 23);
+}
+
+#[test]
+fn incremental_build_invalidates_codegen_option_change() {
+    let fixture = IncrementalBuildFixture::new("@main () -> int = 23;\n");
+    prime_incremental_cache(&fixture, &[], 23);
+
+    fixture.remove_output();
+    let options_changed = fixture.build(&["--opt=1"]);
+    assert_incremental_build_succeeded(&options_changed, "Option-invalidated");
+    assert_incremental_cache_token(&options_changed, "incremental cache: miss");
+    assert_program_exit(&fixture.output, 23);
+}
+
+#[test]
+fn incremental_build_invalidates_implicit_prelude_change() {
+    let fixture = IncrementalBuildFixture::new("@main () -> int = 23;\n");
+    prime_incremental_cache(&fixture, &["--opt=1"], 23);
+
+    fixture.write_prelude("// incremental-cache dependency version 2\n");
+    fixture.remove_output();
+    let dependency_changed = fixture.build(&["--opt=1"]);
+    assert_incremental_build_succeeded(&dependency_changed, "Dependency-invalidated");
+    assert_incremental_cache_token(&dependency_changed, "incremental cache: miss");
+    assert_program_exit(&fixture.output, 23);
+}
+
+#[test]
+fn incremental_build_bypasses_unfingerprinted_environment() {
+    let fixture = IncrementalBuildFixture::new("@main () -> int = 23;\n");
+    prime_incremental_cache(&fixture, &["--opt=1"], 23);
+
+    fixture.remove_output();
+    let bypassed = fixture
+        .build_command(&fixture.cache_root, &["--opt=1"])
+        .env("ORI_WORKSPACE_DIR", "unfingerprinted-test-input")
         .output()
-        .expect("Failed to execute first ori build");
-
-    assert!(
-        result1.status.success(),
-        "First build failed: {}",
-        String::from_utf8_lossy(&result1.stderr)
+        .expect("Failed to execute cache-bypassed ori build");
+    assert_incremental_build_succeeded(&bypassed, "Cache-bypassed");
+    assert_incremental_cache_token(
+        &bypassed,
+        concat!(
+            "incremental cache: bypass (ORI_WORKSPACE_DIR is set and is not part of the cache ",
+            "fingerprint; unset it to enable reuse)"
+        ),
     );
-    let duration1 = start1.elapsed();
+    assert_program_exit(&fixture.output, 23);
+}
 
-    // Second build: should use cache
-    let start2 = Instant::now();
-    let result2 = Command::new(ori_binary())
-        .args([
-            "build",
-            source.to_str().unwrap(),
-            "-o",
-            output.to_str().unwrap(),
-        ])
+#[test]
+fn incremental_build_bypasses_rust_log() {
+    let fixture = IncrementalBuildFixture::new("@main () -> int = 23;\n");
+    prime_incremental_cache(&fixture, &["--opt=1"], 23);
+
+    fixture.remove_output();
+    let bypassed = fixture
+        .build_command(&fixture.cache_root, &["--opt=1"])
+        .env("RUST_LOG", "ori_llvm=trace")
         .output()
-        .expect("Failed to execute second ori build");
-
-    assert!(
-        result2.status.success(),
-        "Second build failed: {}",
-        String::from_utf8_lossy(&result2.stderr)
+        .expect("Failed to execute RUST_LOG cache-bypassed ori build");
+    assert_incremental_build_succeeded(&bypassed, "RUST_LOG cache-bypassed");
+    assert_incremental_cache_token(
+        &bypassed,
+        concat!(
+            "incremental cache: bypass (RUST_LOG is set and is not part of the cache ",
+            "fingerprint; unset it to enable reuse)"
+        ),
     );
-    let duration2 = start2.elapsed();
+    assert_program_exit(&fixture.output, 23);
+}
 
-    // Second build should be significantly faster (at least 2x)
-    // This is a heuristic - cache hits should be much faster than full builds
-    assert!(
-        duration2 < duration1 / 2,
-        "Incremental build not faster: first={duration1:?}, second={duration2:?}"
+#[test]
+fn incremental_build_bypasses_dynamic_loader_environment() {
+    let fixture = IncrementalBuildFixture::new("@main () -> int = 23;\n");
+    prime_incremental_cache(&fixture, &["--opt=1"], 23);
+
+    fixture.remove_output();
+    let bypassed = fixture
+        .build_command(&fixture.cache_root, &["--opt=1"])
+        .env("LD_BIND_NOW", "1")
+        .output()
+        .expect("Failed to execute loader-environment cache-bypassed ori build");
+    assert_incremental_build_succeeded(&bypassed, "Loader-environment cache-bypassed");
+    assert_incremental_cache_token(
+        &bypassed,
+        concat!(
+            "incremental cache: bypass (LD_BIND_NOW is set and is not part of the cache ",
+            "fingerprint; unset it to enable reuse)"
+        ),
     );
+    assert_program_exit(&fixture.output, 23);
+}
+
+#[test]
+fn incremental_build_warns_and_bypasses_cache_io_failure() {
+    let fixture = IncrementalBuildFixture::new("@main () -> int = 23;\n");
+    let blocked_cache_root = fixture.temp_dir.path().join("cache-root-is-a-file");
+    fs::write(&blocked_cache_root, b"not a directory").expect("failed to block cache root");
+    let io_bypassed = fixture
+        .build_command(&blocked_cache_root, &["--opt=1"])
+        .output()
+        .expect("Failed to execute cache-I/O-bypassed ori build");
+    assert_incremental_build_succeeded(&io_bypassed, "Cache-I/O-bypassed");
+    let io_stderr = String::from_utf8_lossy(&io_bypassed.stderr);
+    assert!(
+        io_stderr.contains("warning: incremental cache: bypass (cache I/O error at")
+            && io_stderr
+                .contains("set XDG_CACHE_HOME to a writable directory or fix its permissions")
+            && io_stderr.contains("rebuild proceeds without reuse"),
+        "cache I/O failure must warn, explain the safe bypass, and name the fix:\n{io_stderr}"
+    );
+    assert_program_exit(&fixture.output, 23);
+}
+
+#[test]
+fn incremental_build_rejects_wrong_object_at_cached_path() {
+    let fixture = IncrementalBuildFixture::new("@main () -> int = 17;\n");
+
+    let first = fixture.build(&[]);
+    assert_incremental_build_succeeded(&first, "first integrity-test");
+    let first_object = cache_object_files(&fixture.cache_root)
+        .into_iter()
+        .next()
+        .expect("first build must publish one cache object");
+
+    fixture.write_source("@main () -> int = 23;\n");
+    fixture.remove_output();
+    let second = fixture.build(&[]);
+    assert_incremental_build_succeeded(&second, "second integrity-test");
+    let second_object = cache_object_files(&fixture.cache_root)
+        .into_iter()
+        .find(|candidate| candidate != &first_object)
+        .expect("changed source must publish a distinct cache object");
+
+    fs::copy(&second_object, &first_object).expect("failed to corrupt the first cache entry");
+    fixture.write_source("@main () -> int = 17;\n");
+    fixture.remove_output();
+    let repaired = fixture.build(&[]);
+    assert_incremental_build_succeeded(&repaired, "cache-repair");
+    assert_incremental_cache_token(&repaired, "incremental cache: miss");
+    assert_program_exit(&fixture.output, 17);
 }
 
 // @main(args: [str]) ABI — Indirect param passing
@@ -981,9 +1308,9 @@ fn test_main_args_nounwind_uses_call_ir() {
     );
 }
 
-// Verify that @main without args does NOT use invoke (no cleanup needed).
+// A nounwind @main without args has no exception boundary to provide.
 #[test]
-fn test_main_no_args_wrapper_uses_call_ir() {
+fn test_main_no_args_nounwind_uses_call_ir() {
     let ir = compile_and_capture_ir(r#"@main () -> void = print(msg: "hi");"#);
     let main_fn = ir
         .split("define ")
@@ -997,6 +1324,41 @@ fn test_main_no_args_wrapper_uses_call_ir() {
     assert!(
         !main_fn.contains("invoke"),
         "main wrapper without args should NOT use invoke.\nIR:\n{main_fn}"
+    );
+}
+
+// An unwinding @main without args still needs the process-level panic boundary:
+// source-level catches must stay silent, while an uncaught panic is reported.
+#[test]
+fn test_main_no_args_unwinding_uses_panic_boundary_ir() {
+    let ir = compile_and_capture_ir(r#"@main () -> void = panic(msg: "boom");"#);
+    let main_fn = ir
+        .split("define ")
+        .find(|s| s.contains("@main("))
+        .expect("expected `define ... @main(` in IR");
+
+    if main_fn.contains("ori_try_call") {
+        assert!(
+            main_fn.contains("call i64 @ori_try_call("),
+            "SEH main wrapper must use ori_try_call.\nIR:\n{main_fn}"
+        );
+        assert!(
+            main_fn.contains("seh.success") && main_fn.contains("seh.caught"),
+            "SEH main wrapper must branch to success/caught.\nIR:\n{main_fn}"
+        );
+    } else {
+        assert!(
+            main_fn.contains("invoke void @_ori_main("),
+            "Itanium main wrapper must invoke an unwinding _ori_main.\nIR:\n{main_fn}"
+        );
+        assert!(
+            main_fn.contains("landingpad") && main_fn.contains("catch ptr null"),
+            "Itanium main wrapper must provide a catch-all boundary.\nIR:\n{main_fn}"
+        );
+    }
+    assert!(
+        main_fn.contains("call void @ori_report_uncaught_panic()"),
+        "the true process boundary must report an uncaught panic.\nIR:\n{main_fn}"
     );
 }
 
@@ -1057,6 +1419,72 @@ fn test_jit_str_list_construction() {
     assert!(
         stdout.contains("1 passed"),
         "expected 1 passed test, got:\n{stdout}\nstderr: {stderr}"
+    );
+}
+
+/// Regression: source-level catch owns the observable panic. User-defined
+/// operator panics recovered by the LLVM executor must not reach stderr.
+#[test]
+fn llvm_test_caught_user_operator_panics_emit_no_stderr() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source_path = create_test_source(
+        &temp_dir,
+        "caught_user_operator_panics.ori",
+        include_str!("../../../../tests/spec/traits/user_operator_unwind_aot.ori"),
+    );
+
+    let result = Command::new(ori_binary())
+        .args(["test", "--backend=llvm", source_path.to_str().unwrap()])
+        .env("ORI_STDLIB", stdlib_path())
+        .output()
+        .expect("Failed to execute ori test");
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+
+    assert!(
+        result.status.success(),
+        "caught user-operator tests failed.\nstdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("3 passed"),
+        "expected all three operator catch cells to pass:\n{stdout}"
+    );
+    assert!(
+        stderr.is_empty(),
+        "caught user-operator panics must not emit uncaught diagnostics:\n{stderr}"
+    );
+}
+
+/// Regression: a generic derive shell is not a concrete LLVM work item. The
+/// valid instantiation compiles without an unresolved Named-type warning.
+#[test]
+fn llvm_test_generic_derived_comparable_emits_no_type_resolution_warning() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source_path = create_test_source(
+        &temp_dir,
+        "generic_derived_comparable.ori",
+        include_str!("../../../../tests/spec/traits/generic_derived_comparable_aot.ori"),
+    );
+
+    let result = Command::new(ori_binary())
+        .args(["test", "--backend=llvm", source_path.to_str().unwrap()])
+        .env("ORI_STDLIB", stdlib_path())
+        .output()
+        .expect("Failed to execute ori test");
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+
+    assert!(
+        result.status.success(),
+        "generic derived Comparable test failed.\nstdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("1 passed"),
+        "expected the generic derive cell to pass:\n{stdout}"
+    );
+    assert!(
+        stderr.is_empty(),
+        "a valid concrete derive must not emit type-resolution warnings:\n{stderr}"
     );
 }
 

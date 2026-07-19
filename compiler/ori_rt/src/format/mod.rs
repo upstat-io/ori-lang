@@ -4,8 +4,16 @@
 //! expressions. Each function receives the value and a format spec string, parses
 //! the spec, and returns a formatted `OriStr`.
 //!
-//! The format spec parser and formatters are self-contained ports of the evaluator
-//! logic (`ori_eval::interpreter::format`), with no external dependencies.
+//! The spec parser and the scalar emission kernel live in the `ori_format` leaf
+//! crate — the single source of truth shared with the interpreter backend
+//! (`ori_eval::interpreter::format`). These entry points are thin wrappers:
+//! reconstruct the spec `&str` from the FFI pointer, parse + emit via
+//! `ori_format`, and wrap the result in an `OriStr`.
+
+use ori_format::{
+    format_bool, format_char, format_float, format_int, format_str, parse_format_spec,
+    ParsedFormatSpec,
+};
 
 use crate::OriStr;
 
@@ -14,8 +22,11 @@ use crate::OriStr;
 /// Format an integer with a format specification.
 #[no_mangle]
 pub extern "C" fn ori_format_int(n: i64, spec_ptr: *const u8, spec_len: i64) -> OriStr {
+    // SAFETY: `spec_ptr` / `spec_len` are the LLVM-emitted (ptr, len) for the
+    // format-spec string — valid UTF-8 of `spec_len` bytes per the codegen ABI
+    // contract (Spec: Annex E §ARC Runtime).
     let spec_str = unsafe { spec_from_raw(spec_ptr, spec_len) };
-    let parsed = parse_format_spec(spec_str);
+    let parsed = parse_format_spec(spec_str).unwrap_or(ParsedFormatSpec::EMPTY);
     let result = format_int(n, &parsed);
     OriStr::from_owned(&result)
 }
@@ -23,8 +34,11 @@ pub extern "C" fn ori_format_int(n: i64, spec_ptr: *const u8, spec_len: i64) -> 
 /// Format a float with a format specification.
 #[no_mangle]
 pub extern "C" fn ori_format_float(f: f64, spec_ptr: *const u8, spec_len: i64) -> OriStr {
+    // SAFETY: `spec_ptr` / `spec_len` are the LLVM-emitted (ptr, len) for the
+    // format-spec string — valid UTF-8 of `spec_len` bytes per the codegen ABI
+    // contract (Spec: Annex E §ARC Runtime).
     let spec_str = unsafe { spec_from_raw(spec_ptr, spec_len) };
-    let parsed = parse_format_spec(spec_str);
+    let parsed = parse_format_spec(spec_str).unwrap_or(ParsedFormatSpec::EMPTY);
     let result = format_float(f, &parsed);
     OriStr::from_owned(&result)
 }
@@ -32,88 +46,41 @@ pub extern "C" fn ori_format_float(f: f64, spec_ptr: *const u8, spec_len: i64) -
 /// Format a string with a format specification.
 #[no_mangle]
 pub extern "C" fn ori_format_str(s: *const OriStr, spec_ptr: *const u8, spec_len: i64) -> OriStr {
+    // SAFETY: `s` is a valid `*const OriStr` emitted by codegen for the string
+    // operand (Spec: Annex E §ARC Runtime); `as_str` borrows its bytes for this call.
     let input = unsafe { (*s).as_str() };
+    // SAFETY: `spec_ptr` / `spec_len` are the LLVM-emitted (ptr, len) for the
+    // format-spec string — valid UTF-8 of `spec_len` bytes per the codegen ABI
+    // contract (Spec: Annex E §ARC Runtime).
     let spec_str = unsafe { spec_from_raw(spec_ptr, spec_len) };
-    let parsed = parse_format_spec(spec_str);
-    let result = fmt_str(input, &parsed);
+    let parsed = parse_format_spec(spec_str).unwrap_or(ParsedFormatSpec::EMPTY);
+    let result = format_str(input, &parsed);
     OriStr::from_owned(&result)
 }
 
 /// Format a boolean with a format specification.
 #[no_mangle]
 pub extern "C" fn ori_format_bool(b: bool, spec_ptr: *const u8, spec_len: i64) -> OriStr {
+    // SAFETY: `spec_ptr` / `spec_len` are the LLVM-emitted (ptr, len) for the
+    // format-spec string — valid UTF-8 of `spec_len` bytes per the codegen ABI
+    // contract (Spec: Annex E §ARC Runtime).
     let spec_str = unsafe { spec_from_raw(spec_ptr, spec_len) };
-    let parsed = parse_format_spec(spec_str);
-    let s = if b { "true" } else { "false" };
-    let result = fmt_str(s, &parsed);
+    let parsed = parse_format_spec(spec_str).unwrap_or(ParsedFormatSpec::EMPTY);
+    let result = format_bool(b, &parsed);
     OriStr::from_owned(&result)
 }
 
 /// Format a char (as i32 codepoint) with a format specification.
 #[no_mangle]
 pub extern "C" fn ori_format_char(c: i32, spec_ptr: *const u8, spec_len: i64) -> OriStr {
+    // SAFETY: `spec_ptr` / `spec_len` are the LLVM-emitted (ptr, len) for the
+    // format-spec string — valid UTF-8 of `spec_len` bytes per the codegen ABI
+    // contract (Spec: Annex E §ARC Runtime).
     let spec_str = unsafe { spec_from_raw(spec_ptr, spec_len) };
-    let parsed = parse_format_spec(spec_str);
+    let parsed = parse_format_spec(spec_str).unwrap_or(ParsedFormatSpec::EMPTY);
     let ch = char::from_u32(c as u32).unwrap_or('\u{FFFD}');
-    let result = fmt_str(&ch.to_string(), &parsed);
+    let result = format_char(ch, &parsed);
     OriStr::from_owned(&result)
-}
-
-// Format Spec Parser (self-contained, no ori_ir dependency)
-
-/// A parsed `[[fill]align][sign][#][0][width][.precision][type]` format spec.
-#[derive(Clone, Debug)]
-pub(crate) struct ParsedFormatSpec {
-    pub(crate) fill: Option<char>,
-    pub(crate) align: Option<Align>,
-    pub(crate) sign: Option<Sign>,
-    pub(crate) alternate: bool,
-    pub(crate) zero_pad: bool,
-    pub(crate) width: Option<usize>,
-    pub(crate) precision: Option<usize>,
-    pub(crate) format_type: Option<FormatType>,
-}
-
-impl ParsedFormatSpec {
-    const EMPTY: Self = Self {
-        fill: None,
-        align: None,
-        sign: None,
-        alternate: false,
-        zero_pad: false,
-        width: None,
-        precision: None,
-        format_type: None,
-    };
-}
-
-/// Width-alignment direction (`<` left, `^` center, `>` right).
-#[derive(Copy, Clone, Debug)]
-pub(crate) enum Align {
-    Left,
-    Center,
-    Right,
-}
-
-/// Sign-display mode (`+` plus, `-` minus, ` ` space).
-#[derive(Copy, Clone, Debug)]
-pub(crate) enum Sign {
-    Plus,
-    Minus,
-    Space,
-}
-
-/// Format-type code selecting the numeric rendering (`b`/`o`/`x`/`X`/`e`/`E`/`f`/`%`).
-#[derive(Copy, Clone, Debug)]
-pub(crate) enum FormatType {
-    Binary,
-    Octal,
-    Hex,
-    HexUpper,
-    Exp,
-    ExpUpper,
-    Fixed,
-    Percent,
 }
 
 /// Reconstruct a `&str` from FFI pointer + length.
@@ -125,367 +92,9 @@ unsafe fn spec_from_raw<'a>(ptr: *const u8, len: i64) -> &'a str {
     if len <= 0 || ptr.is_null() {
         return "";
     }
+    // SAFETY: guarded above for null / non-positive `len`; the caller guarantees
+    // `ptr` addresses `len` valid bytes per this fn's `# Safety` contract.
     let bytes = unsafe { core::slice::from_raw_parts(ptr, len as usize) };
-    core::str::from_utf8_unchecked(bytes)
+    // SAFETY: the caller guarantees those bytes are valid UTF-8 per the same contract.
+    unsafe { core::str::from_utf8_unchecked(bytes) }
 }
-
-/// Parse a format spec string into structured options.
-///
-/// Mirrors `ori_ir::format_spec::parse_format_spec`. On invalid input,
-/// falls back to empty spec (LLVM-compiled code has already been validated
-/// by the type checker, so errors here indicate an internal bug, not user error).
-pub(crate) fn parse_format_spec(spec: &str) -> ParsedFormatSpec {
-    if spec.is_empty() {
-        return ParsedFormatSpec::EMPTY;
-    }
-
-    let mut result = ParsedFormatSpec::EMPTY;
-    let chars: Vec<char> = spec.chars().collect();
-    let mut pos = 0;
-
-    // [[fill]align]
-    if chars.len() >= 2 && is_align_char(chars[1]) {
-        result.fill = Some(chars[0]);
-        result.align = Some(parse_align(chars[1]));
-        pos = 2;
-    } else if is_align_char(chars[0]) {
-        result.align = Some(parse_align(chars[0]));
-        pos = 1;
-    }
-
-    // [sign]
-    if pos < chars.len() {
-        match chars[pos] {
-            '+' => {
-                result.sign = Some(Sign::Plus);
-                pos += 1;
-            }
-            '-' => {
-                result.sign = Some(Sign::Minus);
-                pos += 1;
-            }
-            ' ' => {
-                result.sign = Some(Sign::Space);
-                pos += 1;
-            }
-            _ => {}
-        }
-    }
-
-    // [#]
-    if pos < chars.len() && chars[pos] == '#' {
-        result.alternate = true;
-        pos += 1;
-    }
-
-    // [0]
-    pos = parse_zero_pad(&chars, pos, &mut result);
-
-    // [width]
-    pos = parse_width(&chars, pos, &mut result);
-
-    // [.precision]
-    pos = parse_precision(&chars, pos, &mut result);
-
-    // [type]
-    parse_type(&chars, pos, &mut result);
-
-    result
-}
-
-fn parse_zero_pad(chars: &[char], mut pos: usize, result: &mut ParsedFormatSpec) -> usize {
-    if pos < chars.len() && chars[pos] == '0' {
-        // '0' is zero-pad if followed by more digits, at end, or before precision/type.
-        // Otherwise it's the start of a width number (handled in parse_width).
-        let is_zero_pad = pos + 1 >= chars.len()
-            || chars[pos + 1].is_ascii_digit()
-            || chars[pos + 1] == '.'
-            || is_format_type(chars[pos + 1]);
-        if is_zero_pad {
-            result.zero_pad = true;
-            pos += 1;
-        }
-    }
-    pos
-}
-
-fn parse_width(chars: &[char], mut pos: usize, result: &mut ParsedFormatSpec) -> usize {
-    let start = pos;
-    while pos < chars.len() && chars[pos].is_ascii_digit() {
-        pos += 1;
-    }
-    if pos > start {
-        let s: String = chars[start..pos].iter().collect();
-        result.width = s.parse().ok();
-    }
-    pos
-}
-
-fn parse_precision(chars: &[char], mut pos: usize, result: &mut ParsedFormatSpec) -> usize {
-    if pos < chars.len() && chars[pos] == '.' {
-        pos += 1;
-        let start = pos;
-        while pos < chars.len() && chars[pos].is_ascii_digit() {
-            pos += 1;
-        }
-        if pos > start {
-            let s: String = chars[start..pos].iter().collect();
-            result.precision = s.parse().ok();
-        } else {
-            result.precision = Some(0);
-        }
-    }
-    pos
-}
-
-fn parse_type(chars: &[char], pos: usize, result: &mut ParsedFormatSpec) {
-    if pos < chars.len() {
-        result.format_type = match chars[pos] {
-            'b' => Some(FormatType::Binary),
-            'o' => Some(FormatType::Octal),
-            'x' => Some(FormatType::Hex),
-            'X' => Some(FormatType::HexUpper),
-            'e' => Some(FormatType::Exp),
-            'E' => Some(FormatType::ExpUpper),
-            'f' => Some(FormatType::Fixed),
-            '%' => Some(FormatType::Percent),
-            _ => None,
-        };
-    }
-}
-
-fn is_align_char(c: char) -> bool {
-    matches!(c, '<' | '>' | '^')
-}
-
-fn parse_align(c: char) -> Align {
-    match c {
-        '<' => Align::Left,
-        '^' => Align::Center,
-        _ => Align::Right,
-    }
-}
-
-fn is_format_type(c: char) -> bool {
-    matches!(c, 'b' | 'o' | 'x' | 'X' | 'e' | 'E' | 'f' | '%')
-}
-
-// Integer Formatting
-
-fn format_int(n: i64, spec: &ParsedFormatSpec) -> String {
-    let (is_negative, abs_n) = if n < 0 {
-        (true, n.unsigned_abs())
-    } else {
-        (false, n as u64)
-    };
-
-    let (digits, prefix) = match spec.format_type {
-        Some(FormatType::Binary) => {
-            let p = if spec.alternate { "0b" } else { "" };
-            (format!("{abs_n:b}"), p)
-        }
-        Some(FormatType::Octal) => {
-            let p = if spec.alternate { "0o" } else { "" };
-            (format!("{abs_n:o}"), p)
-        }
-        Some(FormatType::Hex) => {
-            let p = if spec.alternate { "0x" } else { "" };
-            (format!("{abs_n:x}"), p)
-        }
-        Some(FormatType::HexUpper) => {
-            let p = if spec.alternate { "0X" } else { "" };
-            (format!("{abs_n:X}"), p)
-        }
-        _ => (format!("{abs_n}"), ""),
-    };
-
-    let sign = format_sign(is_negative, spec);
-    let core = format!("{sign}{prefix}{digits}");
-
-    if spec.zero_pad {
-        if let Some(width) = spec.width {
-            let core_len = core.chars().count();
-            if core_len < width {
-                let pad = width - sign.len() - prefix.len();
-                return format!("{sign}{prefix}{digits:0>pad$}");
-            }
-        }
-    }
-
-    apply_alignment(&core, spec)
-}
-
-// Float Formatting
-
-fn format_float(f: f64, spec: &ParsedFormatSpec) -> String {
-    let is_negative = f.is_sign_negative() && !f.is_nan();
-    let abs_f = f.abs();
-
-    let digits = match spec.format_type {
-        Some(FormatType::Exp) => format_scientific(abs_f, false, spec.precision),
-        Some(FormatType::ExpUpper) => format_scientific(abs_f, true, spec.precision),
-        Some(FormatType::Fixed) => {
-            let prec = spec.precision.unwrap_or(6);
-            format!("{abs_f:.prec$}")
-        }
-        Some(FormatType::Percent) => format_percent(abs_f, spec.precision),
-        _ => {
-            if let Some(prec) = spec.precision {
-                format!("{abs_f:.prec$}")
-            } else {
-                format!("{abs_f}")
-            }
-        }
-    };
-
-    let sign = format_sign(is_negative, spec);
-    let core = format!("{sign}{digits}");
-
-    if spec.zero_pad {
-        if let Some(width) = spec.width {
-            let core_len = core.chars().count();
-            if core_len < width {
-                let pad = width - sign.len();
-                return format!("{sign}{digits:0>pad$}");
-            }
-        }
-    }
-
-    apply_alignment(&core, spec)
-}
-
-fn format_percent(abs_f: f64, precision: Option<usize>) -> String {
-    let pct = abs_f * 100.0;
-    if let Some(prec) = precision {
-        format!("{pct:.prec$}%")
-    } else {
-        format!("{pct}%")
-    }
-}
-
-fn format_scientific(f: f64, uppercase: bool, precision: Option<usize>) -> String {
-    let e = if uppercase { 'E' } else { 'e' };
-
-    // Why: never run exponent math on a non-finite value. format_float
-    // does not special-case NaN/Inf before dispatch (is_sign_negative only
-    // suppresses the sign flag), so guard here. Rust Display gives "NaN"/"inf".
-    if !f.is_finite() {
-        return format!("{f}");
-    }
-
-    if f == 0.0 {
-        return if let Some(prec) = precision {
-            if prec > 0 {
-                let zeros: String = "0".repeat(prec);
-                format!("0.{zeros}{e}+00")
-            } else {
-                format!("0{e}+00")
-            }
-        } else {
-            format!("0{e}+00")
-        };
-    }
-
-    // Rust's own scientific formatter normalizes the mantissa into [1,10),
-    // rounds correctly, performs the decade-carry, and handles subnormals and
-    // f64 extremes. f is already f.abs() per the dispatch; sign is the caller's.
-    let rust_sci = match precision {
-        Some(prec) => format!("{f:.prec$e}"),
-        None => format!("{f:e}"),
-    };
-
-    // INVARIANT: Rust's {:e} emits "<mantissa>e<exp>" with <exp> a valid i32 for every
-    // finite f (non-finite is guarded above). unreachable! keeps a broken invariant loud
-    // rather than silently emitting exponent 0.
-    let Some((mantissa_raw, exp_str)) = rust_sci.split_once('e') else {
-        unreachable!("Rust scientific format lacks 'e' separator: {rust_sci}");
-    };
-    let raw_exp: i32 = match exp_str.parse() {
-        Ok(exp) => exp,
-        Err(_) => unreachable!("scientific exponent not a valid i32: {exp_str}"),
-    };
-
-    // No precision: Rust {:e} already gives the shortest round-trip mantissa;
-    // trim any ".0" tail so e.g. "1.0" renders as "1".
-    let mantissa_str = if precision.is_none() && mantissa_raw.contains('.') {
-        mantissa_raw.trim_end_matches('0').trim_end_matches('.')
-    } else {
-        mantissa_raw
-    };
-
-    // Render exponent C-printf-%e style: explicit sign + zero-padded min-2-digit
-    // magnitude (>=3 digits render full width).
-    let sign = if raw_exp >= 0 { '+' } else { '-' };
-    let mag = raw_exp.unsigned_abs();
-    format!("{mantissa_str}{e}{sign}{mag:02}")
-}
-
-// String Formatting
-
-fn fmt_str(s: &str, spec: &ParsedFormatSpec) -> String {
-    // No-op fast path: no precision truncation or width/alignment needed
-    if spec.precision.is_none() && spec.width.is_none() {
-        return s.to_string();
-    }
-
-    let truncated = if let Some(prec) = spec.precision {
-        if s.chars().count() > prec {
-            s.chars().take(prec).collect::<String>()
-        } else {
-            s.to_string()
-        }
-    } else {
-        s.to_string()
-    };
-
-    apply_alignment(&truncated, spec)
-}
-
-// Shared Helpers
-
-fn format_sign(is_negative: bool, spec: &ParsedFormatSpec) -> &'static str {
-    if is_negative {
-        "-"
-    } else {
-        match spec.sign {
-            Some(Sign::Plus) => "+",
-            Some(Sign::Space) => " ",
-            _ => "",
-        }
-    }
-}
-
-fn apply_alignment(s: &str, spec: &ParsedFormatSpec) -> String {
-    let Some(width) = spec.width else {
-        return s.to_string();
-    };
-
-    let len = s.chars().count();
-    if len >= width {
-        return s.to_string();
-    }
-
-    let fill = spec.fill.unwrap_or(' ');
-    let padding = width - len;
-
-    match spec.align.unwrap_or(Align::Left) {
-        Align::Left => {
-            let right_pad: String = std::iter::repeat_n(fill, padding).collect();
-            format!("{s}{right_pad}")
-        }
-        Align::Right => {
-            let left_pad: String = std::iter::repeat_n(fill, padding).collect();
-            format!("{left_pad}{s}")
-        }
-        Align::Center => {
-            let left = padding / 2;
-            let right = padding - left;
-            let left_pad: String = std::iter::repeat_n(fill, left).collect();
-            let right_pad: String = std::iter::repeat_n(fill, right).collect();
-            format!("{left_pad}{s}{right_pad}")
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests;

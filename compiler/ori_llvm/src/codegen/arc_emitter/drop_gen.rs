@@ -37,13 +37,13 @@ use crate::codegen::value_id::{FunctionId, ValueId};
 /// caches the `FunctionId` immediately (cycle safety), then generates the
 /// body based on `DropKind`.
 ///
-/// Naming: `_ori_drop$<idx_raw>` — unique per type pool index.
+/// Naming is an LLVM projection owned by [`crate::drop_glue_symbol`].
 pub(super) fn generate_drop_fn<'a, 'scx: 'ctx, 'ctx, 'tcx>(
     emitter: &mut ArcIrEmitter<'a, 'scx, 'ctx, 'tcx>,
     ty: Idx,
     drop_info: &DropInfo,
 ) -> FunctionId {
-    let func_name = format!("_ori_drop${}", ty.raw());
+    let func_name = crate::drop_glue_symbol(ty);
 
     // Get-or-declare: reuse an existing function from a previous emitter instance
     // to avoid duplicate definitions (LLVM would auto-rename with `.1`, `.2`, etc.)
@@ -59,14 +59,12 @@ pub(super) fn generate_drop_fn<'a, 'scx: 'ctx, 'ctx, 'tcx>(
         return func_id;
     }
 
-    emitter.builder.set_ccc(func_id);
+    emitter.builder.set_module_local(func_id);
     // A may-unwind drop fn (its drop tree reaches a user `@drop` that may raise
     // a foreign Ori exception) MUST NOT be `nounwind` — it threads the
-    // exception out via a cleanup landing pad (the AUGMENT body runs the field
-    // walk + free on the unwind path, then `resume`s). Itanium only for now;
-    // SEH funclet EH for the drop-fn cleanup pad is anchored. A
-    // non-may-unwind drop fn (scalar/trivial children, no `@drop`) stays
-    // `nounwind` (the prior contract — its callers keep the fast path).
+    // exception out via a cleanup landing pad that runs the field walk and
+    // free before resuming. SEH drop-function cleanup pads are not emitted;
+    // other drop functions remain `nounwind`.
     let drop_unwinds = emitter.drop_may_unwind(ty)
         && emitter.builder.eh_model() == crate::codegen::eh_model::EhModel::Itanium;
     if drop_unwinds {
@@ -184,7 +182,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         fields: &[(u32, Idx)],
         _user_drop: Option<ori_registry::burden::FnSym>,
     ) {
-        let reversed: Vec<(u32, Idx)> = super::emitter_utils::field_rc_walk_order(fields, true);
+        let reversed: Vec<(u32, Idx)> = super::emitter_utils::field_rc_walk_order(
+            fields,
+            super::emitter_utils::FieldRcWalkOrder::Teardown,
+        );
 
         // Recoverable path: the type's OWN `@drop` may unwind (a panicking
         // user `@drop`). A field-only may-unwind (no own `@drop`) takes the

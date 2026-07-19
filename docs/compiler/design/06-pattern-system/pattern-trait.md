@@ -301,7 +301,7 @@ impl PatternDefinition for TimeoutPattern {
 }
 ```
 
-In the interpreter, `timeout` validates that `after` is provided but doesn't enforce the time limit — cooperative timeout requires runtime support that the tree-walking interpreter doesn't have. The compiled output will generate actual timeout enforcement. The pattern trait makes this possible: the same `PatternDefinition` provides metadata for both backends, while `evaluate()` handles the interpreter-specific behavior.
+In the evaluator, `timeout` validates that `after` is provided but does not enforce the time limit — cooperative timeout requires physical runtime support that the tree-walking oracle does not have. The shared `PatternDefinition` supplies semantic metadata to every path; VM and compiled executors must implement the runtime effect through their physical adapters, while `evaluate()` owns only evaluator behavior.
 
 ## Prior Art
 

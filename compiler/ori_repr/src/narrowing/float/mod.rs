@@ -119,7 +119,7 @@ pub(crate) fn is_f32_exact(value: f64) -> bool {
     )]
     let as_f32 = value as f32;
     let roundtripped = f64::from(as_f32);
-    // Intentional exact comparison: we need bit-identical roundtrip.
+    // Intentional exact comparison: a bit-identical roundtrip is required.
     #[expect(
         clippy::float_cmp,
         reason = "exact equality is the precision test — no epsilon"
@@ -155,7 +155,7 @@ pub(crate) fn narrow_float_fields(
     let mut narrowed_count: u32 = 0;
 
     // Collect struct candidates (same pattern as int.rs).
-    // We must collect first because we need mutable access to the plan.
+    // Collect first because mutable access to the plan is needed below.
     let candidates: Vec<Idx> = plan
         .decision_indices()
         .filter_map(|idx| {

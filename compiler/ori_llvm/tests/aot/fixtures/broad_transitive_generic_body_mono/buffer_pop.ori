@@ -1,0 +1,30 @@
+// FAIL-FIRST: missing mono instance pre-fix (broad transitive-generic-body
+// monomorphization gap, ROOT-B). `pop_one<U>`'s body calls the generic
+// `buffer_pop` on its own rigid `U`; the concrete `BoundedBuffer<int>` flow
+// records `pop_one<int>` but nested `buffer_pop<int>` is never recorded, so
+// AOT dispatch starves: `unresolved function 'buffer_pop' in apply -- missing
+// mono instance?`. Interp passes (empty buffer -> None -> exit 0).
+type BoundedBuffer<T> = { items: [T], capacity: int }
+
+@make_buffer<T> (capacity: int) -> BoundedBuffer<T> = BoundedBuffer {
+    items: [],
+    capacity,
+};
+
+@buffer_pop<T> (buf: BoundedBuffer<T>) -> (Option<T>, BoundedBuffer<T>) = match buf.items {
+    [] -> (None, buf),
+    [head, ..tail] -> (Some(head), BoundedBuffer { items: tail, capacity: buf.capacity })
+};
+
+@pop_one<U> (buf: BoundedBuffer<U>) -> Option<U> = {
+    let (v, _) = buffer_pop(buf:);
+    v
+};
+
+@main () -> int = {
+    let buf: BoundedBuffer<int> = make_buffer(capacity: 2);
+    match pop_one(buf:) {
+        Some(_) -> 1,
+        None -> 0,
+    }
+}

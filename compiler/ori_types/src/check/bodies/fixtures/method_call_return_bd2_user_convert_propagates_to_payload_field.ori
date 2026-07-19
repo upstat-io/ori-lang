@@ -1,0 +1,4 @@
+trait Convert<T> { @to_t (self) -> T }
+type MyErr = { msg: str }
+impl str: Convert<MyErr> { @to_t (self) -> MyErr = MyErr { msg: self } }
+@f () -> str = { let e: MyErr = "x".to_t(); e.msg }

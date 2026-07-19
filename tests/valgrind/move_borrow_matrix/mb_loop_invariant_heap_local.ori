@@ -1,0 +1,77 @@
+// Move/borrow matrix: MB06 — loop-invariant heap locals (the RL-5 family).
+// A fresh heap collection is live across a rebind loop but never (or only
+// borrow-) read inside it: purely-dead collection roots thread the loop
+// block-params unchanged; borrow-only siblings read .length() per iteration.
+// One row per function — the release family is per-lineage; each function
+// pins one root shape freed exactly once at its loop exit.
+
+@dead_list_root () -> int = {
+    let root_list = [1, 2, 3];
+    let xs = [0];
+    for i in 0..5 do {
+        xs = xs.push(i);
+    };
+
+    xs.length()
+}
+
+@dead_map_root () -> int = {
+    let root_map = {"k1": 1, "k2": 2};
+    let acc = [0];
+    for i in 0..4 do {
+        acc = acc.push(i * 2);
+    };
+
+    acc.length()
+}
+
+@dead_nested_root () -> int = {
+    let root_nested = [[1, 2], [3]];
+    let acc = [1];
+    for i in 0..3 do {
+        acc = acc.push(i);
+    };
+
+    acc.length()
+}
+
+@borrowed_list_root () -> int = {
+    let inv = [10, 20, 30];
+    let total = 0;
+    for i in 0..4 do {
+        total = total + inv.length();
+    };
+
+    total
+}
+
+@borrowed_map_root () -> int = {
+    let m = {"a": 1, "b": 2};
+    let total = 0;
+    for i in 0..3 do {
+        total = total + m.length();
+    };
+
+    total
+}
+
+@borrowed_heap_elem_root () -> int = {
+    let words = ["abcdefghijklmnopqrstuvwxyz1234", "another_long_heap_string_content"];
+    let total = 0;
+    for i in 0..2 do {
+        total = total + words.length();
+    };
+
+    total
+}
+
+@main () -> int = {
+    let ok1 = dead_list_root() == 6;
+    let ok2 = dead_map_root() == 5;
+    let ok3 = dead_nested_root() == 4;
+    let ok4 = borrowed_list_root() == 12;
+    let ok5 = borrowed_map_root() == 6;
+    let ok6 = borrowed_heap_elem_root() == 4;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 && ok6 then 0 else 1
+}

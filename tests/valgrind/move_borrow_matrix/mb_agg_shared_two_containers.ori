@@ -1,0 +1,16 @@
+// Move/borrow matrix: MB08 — same value stored into TWO containers, base read after.
+// A fresh local collection is stored into two sibling struct containers while the
+// base stays forward-live and is read after both stores (the funded-dup two-store
+// family). Verifies each store-site duplication is funded and the base's final
+// release fires exactly once — no alias-store leak, no second-drop SIGSEGV.
+
+type Holder = { kept: [int] }
+
+@main () -> int = {
+    let base = [1, 2];
+    let h1 = Holder { kept: base };
+    let h2 = Holder { kept: base };
+    let ok = h1.kept.length() == 2 && h2.kept.length() == 2 && base[0] == 1;
+
+    if ok then 0 else 1
+}

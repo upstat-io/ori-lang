@@ -208,7 +208,9 @@ Implementations that cannot be so derived shall require explicit user implementa
 
 ### Rule 4: Trait Facts Flow Through the Pipeline
 
-Every compiler pipeline stage shall have access to the full trait conformance set of every type it processes. No stage shall be prohibited from using trait information for its decisions. This includes, at minimum: type checker, AIMS, ARC lowering, LLVM codegen, and optimization passes.
+Trait conformance shall be derived once by the frontend and exposed through typed, stable identities to the downstream phase that owns each decision. AIMS may consume the exact logical properties needed for ownership/effect proofs; physical backends receive only the frozen executable and physical-plan facts needed for faithful projection.
+
+LLVM, VM, native, compiled-WebAssembly, and JIT code shall not inspect the full trait set to reconstruct semantics, ownership, layout, or helper policy already decided upstream.
 
 ### Rule 5: No Auto/Unsafe/Special Traits
 

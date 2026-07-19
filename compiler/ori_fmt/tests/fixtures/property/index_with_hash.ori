@@ -1,0 +1,1 @@
+@f (list: [int]) -> int = list[# - 1];

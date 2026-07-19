@@ -9,6 +9,7 @@
 //! eliminated during canonicalization — all calls here use positional args.
 
 mod lambda;
+mod method_call;
 
 use ori_ir::canon::{CanExpr, CanId, CanRange, MonoInstanceId};
 use ori_ir::{Name, Span};
@@ -32,9 +33,9 @@ impl ArcLowerer<'_> {
     /// Classifying them as nounwind prevents the ARC pipeline from
     /// generating cleanup landing pads, causing RC leaks on unwind.
     ///
-    /// `__index` on a list receiver is also may-unwind (OOB panics via
-    /// `ori_list_get`), but it never flows through this helper — it is
-    /// emitted directly by `lower_index`.
+    /// `__index` on a list or string receiver is also may-unwind (OOB panics),
+    /// but it never flows through this helper; `lower_index` emits its Invoke
+    /// carrier directly so callee-owned values are cleaned before propagation.
     fn is_nounwind_call(&self, name: Name) -> bool {
         let s = self.interner.lookup(name);
         if s.starts_with("ori_panic") || s.starts_with("ori_assert") {
@@ -48,7 +49,7 @@ impl ArcLowerer<'_> {
     /// Returns `Some(id)` when the canon-side `mono_dispatch_map_can` carries
     /// an entry for `call_expr_id` (populated during canon lowering by
     /// `Lowerer::record_mono_dispatch_if_present`); `None` otherwise.
-    /// The map is sorted by `CanId.raw` per `lower/mod.rs:367`, enabling
+    /// The map is sorted by `CanId.raw` in `Lowerer::finish`, enabling
     /// O(log n) binary search lookup.
     fn lookup_mono_dispatch(&self, call_expr_id: CanId) -> Option<MonoInstanceId> {
         let key = call_expr_id.raw();
@@ -144,7 +145,7 @@ impl ArcLowerer<'_> {
     /// so the IR emits `Let { Var(arg) }` with no additional storage or
     /// allocation. This dispatch fires before the indirect-call wildcard so
     /// newtype constructor names never reach `lower_ident`'s `Tag::Function`
-    /// arm, which would emit unresolvable `PartialApply` (plan).
+    /// arm, which would emit an unresolvable `PartialApply`.
     fn try_emit_newtype_ctor(
         &mut self,
         name: Name,
@@ -175,6 +176,55 @@ impl ArcLowerer<'_> {
         Some(
             self.builder
                 .emit_let(ty, ArcValue::Var(arg_vars[0]), Some(span)),
+        )
+    }
+
+    /// Try to emit the builtin `Error` struct constructor as a direct
+    /// `Construct`. Returns `None` unless the callee is `Error` AND the
+    /// `Error` struct is registered. Fires before the indirect-call wildcard
+    /// so `Error(msg)` never reaches the `Tag::Function` arm, which would emit
+    /// an unresolvable `PartialApply @Error` that AOT calls through a null fn
+    /// ptr (SIGSEGV). Spec: Annex E §Built-in Type Representations.
+    fn try_emit_struct_ctor(
+        &mut self,
+        name: Name,
+        ty: Idx,
+        arg_vars: Vec<ArcVarId>,
+        span: Span,
+    ) -> Option<ArcVarId> {
+        // Both the selected name and the type-checker-selected result must be
+        // the builtin Error struct. A module enum variant may also be named
+        // `Error`, so spelling alone is not a constructor identity.
+        let error_name = self.interner.intern("Error");
+        if name != error_name || !self.pool.is_error_struct_receiver(ty) {
+            return None;
+        }
+        if arg_vars.len() != 1 {
+            // The `Error` constructor takes exactly one `str`; fall through so
+            // the typechecker's existing arity diagnostic is the user-visible
+            // error rather than a downstream codegen confusion (mirrors
+            // `try_emit_newtype_ctor`).
+            return None;
+        }
+        tracing::trace!(
+            ctor = self.name_str(name),
+            "call: Error builtin struct constructor"
+        );
+        let resolved = self.pool.resolve_fully(ty);
+        if self.pool.tag(resolved) != Tag::Struct {
+            return None;
+        }
+        let fields = self.pool.struct_fields(resolved);
+        let trace_list_ty = fields[1].1;
+        let trace_var =
+            self.builder
+                .emit_construct(trace_list_ty, CtorKind::ListLiteral, vec![], Some(span));
+        let mut full_args = arg_vars;
+        full_args.push(trace_var);
+
+        Some(
+            self.builder
+                .emit_construct(ty, CtorKind::Struct(name), full_args, Some(span)),
         )
     }
 
@@ -209,6 +259,9 @@ impl ArcLowerer<'_> {
                 if let Some(var) = self.try_emit_newtype_ctor(name, ty, &arg_vars, span) {
                     return var;
                 }
+                if let Some(var) = self.try_emit_struct_ctor(name, ty, arg_vars.clone(), span) {
+                    return var;
+                }
                 tracing::trace!(
                     func = self.name_str(name),
                     args = arg_vars.len(),
@@ -241,6 +294,9 @@ impl ArcLowerer<'_> {
                 if let Some(var) = self.try_emit_newtype_ctor(name, ty, &arg_vars, span) {
                     return var;
                 }
+                if let Some(var) = self.try_emit_struct_ctor(name, ty, arg_vars.clone(), span) {
+                    return var;
+                }
                 let resolved = self.resolve_ident_callee(name);
                 tracing::trace!(
                     func = self.name_str(resolved),
@@ -263,7 +319,13 @@ impl ArcLowerer<'_> {
                 // via `lower_ident`, which routes through the `Tag::Function`
                 // arm and emits unresolvable `PartialApply` (plan root
                 // cause).
+                if let Some(var) = self.try_emit_variant_ctor(name, ty, arg_vars.clone(), span) {
+                    return var;
+                }
                 if let Some(var) = self.try_emit_newtype_ctor(name, ty, &arg_vars, span) {
+                    return var;
+                }
+                if let Some(var) = self.try_emit_struct_ctor(name, ty, arg_vars.clone(), span) {
                     return var;
                 }
                 let closure_var = self.lower_expr(func);
@@ -286,85 +348,16 @@ impl ArcLowerer<'_> {
         }
     }
 
-    // Method call (positional -- named args already desugared)
-
-    /// Lower a method call expression to ARC IR.
-    ///
-    /// `call_expr_id` is the `CanId` of the method-call expression itself
-    /// (the `CanExpr::MethodCall` node), used as the lookup key into
-    /// `CanonResult.mono_dispatch_map_can` to recover the abstract dispatch
-    /// index for generic-instantiated method calls.
-    ///
-    /// For type-qualified calls (receiver is `TypeRef`, e.g. `Point.default`),
-    /// the receiver is NOT passed as an argument — these are static/associated
-    /// methods with no `self` parameter.
-    pub(crate) fn lower_method_call(
-        &mut self,
-        call_expr_id: CanId,
-        receiver: CanId,
-        method: Name,
-        args: CanRange,
-        ty: Idx,
-        span: Span,
-    ) -> ArcVarId {
-        let receiver_kind = *self.arena.kind(receiver);
-        let is_type_qualified = matches!(receiver_kind, CanExpr::TypeRef(_));
-        let mono_instance_id = self.lookup_mono_dispatch(call_expr_id);
-
-        // Inline lowering for tag-check builtins (is_err, is_ok, is_some,
-        // is_none). These are compiled inline by LLVM codegen and don't go
-        // through the ARC pipeline, so emitting them as Invoke would cause
-        // the Perceus algorithm to transfer ownership to a callee that never
-        // Dec's the receiver. Lower as Project + PrimOp instead.
-        if !is_type_qualified {
-            if let Some(var) = self.try_lower_tag_check(receiver, method, span) {
-                return var;
-            }
-            // Newtype `unwrap` is layout-transparent — emit
-            // identity wrap. Without this, `id.unwrap` lowers as `Apply`
-            // with method name `unwrap`, which the codegen treats as a
-            // monomorphization lookup miss (`unresolved function 'unwrap' in
-            // apply — missing mono instance?` per plan). Newtype
-            // accessors have no compiled function — they are pure type-level
-            // erasure of the newtype tag.
-            if let Some(var) = self.try_lower_newtype_unwrap(receiver, method, ty, span) {
-                return var;
-            }
-        }
-
-        let arg_ids: Vec<_> = self.arena.get_expr_list(args).to_vec();
-
-        let mut all_args = if is_type_qualified {
-            // Type-qualified call (e.g., `Point.default`) — no self argument.
-            Vec::with_capacity(arg_ids.len())
-        } else {
-            let recv_var = self.lower_expr(receiver);
-            let mut v = Vec::with_capacity(arg_ids.len() + 1);
-            v.push(recv_var);
-            v
-        };
-
-        for &id in &arg_ids {
-            all_args.push(self.lower_expr(id));
-        }
-        tracing::trace!(
-            method = self.name_str(method),
-            type_qualified = is_type_qualified,
-            args = all_args.len(),
-            "method_call: dispatch"
-        );
-        self.emit_call_or_invoke(ty, method, all_args, span, mono_instance_id)
-    }
-
     /// Emit an inline tag comparison for a Result/Option type.
     ///
     /// Returns `Some(bool_var)` if `method` is a recognized tag-check
     /// builtin (`is_err`, `is_ok`, `is_some`, `is_none`) on a matching type.
     /// The receiver must already be lowered to an `ArcVarId`.
     ///
-    /// These builtins are lowered as `Project(tag) == constant` instead
-    /// of an Invoke, because they're compiled inline by LLVM codegen and
-    /// don't participate in Perceus ownership.
+    /// These builtins lower to the backend-neutral primitive sequence
+    /// `Project(tag) == constant` rather than a call. The sequence has no
+    /// callee ownership transfer, and every physical consumer implements it
+    /// directly; LLVM currently emits it inline.
     fn emit_tag_check(
         &mut self,
         method: Name,
@@ -397,89 +390,6 @@ impl ArcLowerer<'_> {
             },
             Some(span),
         ))
-    }
-
-    /// Try to lower a tag-check method call inline.
-    ///
-    /// Handles the method call path where the receiver hasn't been
-    /// lowered yet. Delegates to [`emit_tag_check`] after lowering.
-    fn try_lower_tag_check(
-        &mut self,
-        receiver: CanId,
-        method: Name,
-        span: Span,
-    ) -> Option<ArcVarId> {
-        // Quick pre-check: bail early for non-tag-check methods.
-        let s = self.name_str(method);
-        if !matches!(s, "is_ok" | "is_err" | "is_some" | "is_none") {
-            return None;
-        }
-        let recv_var = self.lower_expr(receiver);
-        let recv_ty = self.expr_type(receiver);
-        self.emit_tag_check(method, recv_var, recv_ty, span)
-    }
-
-    /// Try to lower a newtype `.unwrap` method call as a transparent wrap.
-    ///
-    /// Returns `Some(var)` iff the receiver type is a registered newtype
-    /// (per `Pool::is_newtype_ctor`) AND the method is `unwrap`. The wrap
-    /// emits `Let { Var(receiver_var) }` because newtypes are layout-identical
-    /// to their inner type. Without this dispatch, the
-    /// method call path emits `Apply { func: Name("unwrap") }` which the
-    /// codegen cannot resolve (no compiled `unwrap` function exists for
-    /// newtype receivers — newtype accessors are type-level erasure, not
-    /// runtime function dispatch).
-    fn try_lower_newtype_unwrap(
-        &mut self,
-        receiver: CanId,
-        method: Name,
-        ty: Idx,
-        span: Span,
-    ) -> Option<ArcVarId> {
-        // Quick pre-check: bail early for non-unwrap methods.
-        if self.name_str(method) != "unwrap" {
-            return None;
-        }
-        // Check the receiver's UNRESOLVED type — newtype `Tag::Named` entries
-        // now register a pool resolution to their underlying type, which means
-        // `pool.resolve_fully` would transparently unwrap the newtype to its
-        // underlying primitive/struct/etc. and `pool.tag(resolved) ==
-        // Tag::Named` would never match. Read the surface type and chase
-        // `Tag::Var` links manually so we still see the `Tag::Named` layer.
-        let mut recv_ty = self.expr_type(receiver);
-        for _ in 0..16 {
-            if self.pool.tag(recv_ty) != Tag::Var {
-                break;
-            }
-            // Step through Var links without crossing the Named→underlying
-            // resolution boundary.
-            let next = self.pool.resolve_fully(recv_ty);
-            if next == recv_ty {
-                break;
-            }
-            // If `resolve_fully` jumped past the Named layer (e.g., returned
-            // a primitive), we cannot identify the newtype here — bail.
-            if self.pool.tag(next) != Tag::Var && self.pool.tag(next) != Tag::Named {
-                return None;
-            }
-            recv_ty = next;
-        }
-        if self.pool.tag(recv_ty) != Tag::Named {
-            return None;
-        }
-        let recv_name = self.pool.named_name(recv_ty);
-        if !self.pool.is_newtype_ctor(recv_name) {
-            return None;
-        }
-        let recv_var = self.lower_expr(receiver);
-        tracing::trace!(
-            newtype = self.name_str(recv_name),
-            "method_call: newtype unwrap (transparent wrap)"
-        );
-        Some(
-            self.builder
-                .emit_let(ty, ArcValue::Var(recv_var), Some(span)),
-        )
     }
 }
 

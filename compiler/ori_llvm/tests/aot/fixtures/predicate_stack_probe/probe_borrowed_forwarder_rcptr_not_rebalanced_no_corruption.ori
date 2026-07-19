@@ -1,0 +1,15 @@
+@borrow_if_use (xs: [int], flag: bool) -> [int] = {
+    if flag then {
+        print(msg: `then: {xs.len()}`);
+        xs
+    } else {
+        print(msg: `else: {xs[0]}`);
+        xs
+    }
+};
+
+@main () -> int = {
+    let original_a = [11, 22, 33];
+    let returned_a = borrow_if_use(xs: original_a, flag: true);
+    if returned_a.len() == 3 && returned_a[0] == 11 then 0 else 1
+}

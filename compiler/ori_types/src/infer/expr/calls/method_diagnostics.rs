@@ -1,12 +1,12 @@
 //! Method-dispatch diagnostics: `into`-not-implemented + the general
-//! method-not-found emit. Extracted from `impl_lookup.rs` to keep that module
-//! under the 500-line cap (§10.R-010); the emit logic is a distinct
-//! responsibility (diagnostic construction) from the lookup/resolution paths.
+//! method-not-found emit — diagnostic construction, distinct from the
+//! lookup/resolution paths in `impl_lookup.rs`.
 
 use ori_ir::{Name, Span};
 
 use super::super::super::InferEngine;
-use crate::{Idx, Tag, TypeCheckError};
+use crate::infer::tag_to_type_tag;
+use crate::{Idx, Tag, TypeCheckError, UnboundVarState};
 
 /// True iff `receiver_ty` (already union-find-resolved) is an unbound NAMED
 /// `Tag::Var` that denotes a generic type parameter (`@f<T>(x: T)`).
@@ -29,7 +29,7 @@ pub(super) fn is_named_generic_var(engine: &InferEngine<'_>, receiver_ty: Idx) -
     // Extract the optional name (Copy) before borrowing the trait registry
     // (borrow-dance per `calls.rs:resolve_impl_method`).
     let var_name = match engine.pool().var_state_checked(var_id) {
-        Some(crate::pool::VarState::Unbound { name: Some(n), .. }) => *n,
+        Some(crate::pool::VarState::Unbound(UnboundVarState { name: Some(n), .. })) => *n,
         _ => return false,
     };
     !engine
@@ -61,7 +61,7 @@ pub(super) fn emit_into_not_implemented(
 
 /// Emit a "no method `m` on generic type parameter" diagnostic for a genuine
 /// `NotFound` method lookup on a RIGID receiver (a generic type parameter with
-/// no matching trait bound): §10.1, e.g. `@f<T>(x)=x.hello()`.
+/// no matching trait bound): bound-chain dispatch, e.g. `@f<T>(x)=x.hello()`.
 ///
 /// Caller MUST gate this on the outcome having been `LookupOutcome::NotFound`
 /// (NOT `Ambiguous` — that path already pushed `E2023`).
@@ -73,16 +73,15 @@ pub(super) fn emit_into_not_implemented(
 /// `list.updated(...)`), and the evaluator resolves these via its own dispatch
 /// (`ori_eval` `methods/units.rs` / `numeric.rs`). Emitting on a concrete miss
 /// would false-positive on every such legitimate call. The concrete-receiver
-/// silent-poison (BUG-02-044, e.g. `{str:int}.map(...)`) stays open: its correct
-/// cure is blocked on completing concrete-receiver typeck dispatch so a miss
+/// silent-poison case (e.g. `{str:int}.map(...)`) is therefore not diagnosed:
+/// its cure depends on completing concrete-receiver typeck dispatch so a miss
 /// reliably implies genuine absence. A RIGID miss is unambiguous — an unbounded
 /// generic `T` has no methods anywhere (the evaluator cannot resolve them
 /// either), so there is no false-positive surface.
 ///
 /// Receiver-kind discipline:
 /// - `Idx::ERROR` / `Tag::Error` receiver: skip — error-recovery monotonicity
-///   (never cascade on an already-poisoned receiver per `HYG:§Error Recovery
-///   Monotonicity`).
+///   (never cascade on an already-poisoned receiver).
 /// - `Tag::RigidVar` / NAMED unbound `Tag::Var`: emit with an "add a trait
 ///   bound" suggestion (a generic parameter has no methods without a bound).
 /// - every other receiver (concrete, anonymous `Tag::Var`, `Tag::Infer`,
@@ -105,28 +104,47 @@ pub(super) fn emit_unknown_method(
     if receiver_ty == Idx::ERROR {
         return;
     }
-    let tag = engine.pool().tag(receiver_ty);
-    // A NAMED unbound `Tag::Var` that is a generic type parameter (`@f<T>`, name
-    // not a registered trait) is diagnosable (no method on the generic; add a
-    // bound). A capability/trait-namespace named var (`Http`) and an ANONYMOUS
-    // `Tag::Var` are deferred — see `is_named_generic_var`.
-    let treat_as_rigid = tag == Tag::RigidVar || is_named_generic_var(engine, receiver_ty);
-    // Concrete + all placeholder receivers: skip. Only a rigid miss is a genuine
-    // unknown (see scope doc above); a concrete miss may be a legitimate call
-    // typeck's dispatch does not yet cover, resolved by the evaluator.
-    if !treat_as_rigid {
-        return;
-    }
+    // `into` is never a method-not-found here — it has its own E2036 path.
     if engine
         .well_known()
         .is_some_and(|wk| method == wk.into_method)
     {
         return;
     }
-    let method_str = engine.lookup_name(method).unwrap_or("<method>").to_owned();
-    let msg = format!(
-        "no method `{method_str}` on generic type parameter — add a trait \
-         bound providing `{method_str}` (e.g. `<T: SomeTrait>`)"
-    );
-    engine.push_error(TypeCheckError::unsatisfied_bound(span, msg));
+    let tag = engine.pool().tag(receiver_ty);
+    // A NAMED unbound `Tag::Var` that is a generic type parameter (`@f<T>`, name
+    // not a registered trait) is diagnosable (no method on the generic; add a
+    // bound). A capability/trait-namespace named var (`Http`) and an ANONYMOUS
+    // `Tag::Var` are deferred — see `is_named_generic_var`.
+    let treat_as_rigid = tag == Tag::RigidVar || is_named_generic_var(engine, receiver_ty);
+    if treat_as_rigid {
+        let method_str = engine.lookup_name(method).unwrap_or("<method>").to_owned();
+        let msg = format!(
+            "no method `{method_str}` on generic type parameter — add a trait \
+             bound providing `{method_str}` (e.g. `<T: SomeTrait>`)"
+        );
+        engine.push_error(TypeCheckError::unsatisfied_bound(span, msg));
+        return;
+    }
+    // Reject ONLY builtin-dispatchable receivers — `ori_registry` is the complete
+    // method surface for these (RG-4), so a miss after builtin + trait lookup is a
+    // genuine absence. Non-builtin tags DEFER (a miss is not a proven absence):
+    // user `Named`/`Applied` types resolve extensions, derived/inherent impls, and
+    // callable struct fields via the evaluator (typeck dispatch is incomplete for
+    // them); placeholders (`Var`/`Infer`/`BoundVar`/`Projection`/`SelfType`) have
+    // no determined dispatch target; `ModuleNs` is a qualified function call.
+    // `tag_to_type_tag` returns `None` for every non-builtin tag. BUG-02-041 is
+    // scoped to builtin receivers.
+    let Some(type_tag) = tag_to_type_tag(tag) else {
+        return;
+    };
+    // An `extend <builtin> { @m }` extension provides a method the registry lacks
+    // — not a genuine unknown; the evaluator resolves it (TR-9 dispatch is
+    // target-only, so typeck only avoids the false-reject here).
+    if engine.builtin_extension_provides(type_tag, method) {
+        return;
+    }
+    // Genuine absence on a builtin receiver: the registry is the SSOT (RG-4) and a
+    // miss after builtin + trait + extension lookup means the method does not exist.
+    engine.push_error(TypeCheckError::unknown_method(span, receiver_ty, method));
 }

@@ -1,0 +1,2 @@
+
+@save (data: str) -> void uses FileSystem, Async = FileSystem.write(path: "/data", content: data);

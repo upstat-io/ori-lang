@@ -3,7 +3,8 @@
 //! Per `the proof-checker design`
 //! sec-Engine-per-Category-Inventory, this engine serves:
 //!
-//! - **RL** (RL-29 / RL-30 / RL-31 LLVM-fact-export soundness):
+//! - **RL** (RL-29 / RL-30 / RL-31 backend-neutral fact soundness and target
+//!   projection fidelity):
 //! refinement of CONSERVATIVE state by callee `ReturnContract` per
 //! Annex E §AIMS TF-6 `refine()`.
 //! - **VF** (VF-2 contract-consistency): contract-vs-realization
@@ -63,7 +64,8 @@ impl Engine for RefinementEngine {
             return result;
         }
         // §08 realization-rule discharge (PRIMARY engine for RL-29/RL-30/RL-31
-        // LLVM fact export; SECONDARY gracious-accept for RC-emission +
+        // backend-neutral AIMS facts plus separate target fidelity; SECONDARY
+        // gracious-accept for RC-emission +
         // case-analysis RL rules) per
         // Annex E §AIMS §8.
         if let Some(result) = super::realization_rules::discharge_for_engine(self.name(), theorem) {

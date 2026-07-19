@@ -1,0 +1,6 @@
+type Color = Red | Green | Blue;
+
+#[derive(Default)]
+type Bad = { c: Color, n: int };
+
+@main () -> int = 0;

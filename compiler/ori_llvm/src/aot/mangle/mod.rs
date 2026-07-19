@@ -29,7 +29,7 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```
 //! use ori_llvm::aot::mangle::{Mangler, demangle};
 //!
 //! let mangler = Mangler::new();
@@ -49,8 +49,8 @@
 //!
 //! # Submodules
 //!
-//! - [`emit`] — `Mangler` struct and all mangle methods
-//! - [`parse`] — `demangle()` function and `DemangleParser`
+//! - `emit` — `Mangler` struct and all mangle methods
+//! - `parse` — `demangle()` function and `DemangleParser`
 
 mod emit;
 mod parse;

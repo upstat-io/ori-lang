@@ -208,8 +208,8 @@ impl IntWidth {
 
 /// Configuration for range analysis passes.
 ///
-/// Controls budget limits for fixpoint iteration to prevent
-/// quadratic blowup on large functions or recursive call graphs.
+/// Controls local and recursive fixpoint limits without making ordinary
+/// program size a reason to skip analysis.
 #[derive(Debug, Clone)]
 pub struct RangeAnalysisConfig {
     /// Maximum fixpoint iterations per function (intraprocedural).
@@ -218,8 +218,6 @@ pub struct RangeAnalysisConfig {
     pub max_blocks: usize,
     /// Maximum fixpoint iterations per SCC (interprocedural).
     pub max_scc_iterations: usize,
-    /// Maximum total SCC iterations across all SCCs.
-    pub max_total_scc_iterations: usize,
     /// Maximum outer iterations for the return-range feedback loop.
     /// Each iteration pushes callee return ranges one hop deeper.
     /// Default 5 handles chains up to depth 6.
@@ -235,7 +233,6 @@ impl Default for RangeAnalysisConfig {
             max_iterations: 20,
             max_blocks: 500,
             max_scc_iterations: 10,
-            max_total_scc_iterations: 50,
             max_feedback_iterations: 5,
             known_builtins: KnownBuiltins::default(),
         }
@@ -295,7 +292,6 @@ pub fn is_int_typed(ty: Idx, pool: &Pool) -> bool {
             }
             let result = is_int_typed(resolved, pool);
             tracing::trace!(
-                target: "ori_repr",
                 ?ty, ?resolved, result, tag = ?pool.tag(ty),
                 "is_int_typed: resolved through indirection"
             );

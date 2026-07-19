@@ -1,0 +1,5 @@
+
+type P2Pair<A, B> = { first: A, second: B };
+@p2_firstof <T> (p: P2Pair<T, int>) -> T = p.first;
+@p2_use () -> str = p2_firstof(p: P2Pair { first: "hi", second: 0 });
+@test_p2 tests @p2_use () -> void = ();

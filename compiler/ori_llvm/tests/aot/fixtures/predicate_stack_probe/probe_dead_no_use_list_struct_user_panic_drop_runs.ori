@@ -1,0 +1,12 @@
+type Holder = { payload: str }
+
+impl Holder: Drop {
+    @drop (self) -> void = {
+        print(msg: "drop-user");
+        panic(msg: "boom")
+    }
+}
+
+@main () -> void = {
+    let h = [Holder { payload: "owned-heap-string-not-sso-xxxxxxxxxxxxxxxx" }]
+}

@@ -31,7 +31,7 @@ fn refine_with_op(op: BinaryOp, x_range: ValueRange, c: i64) -> Vec<BranchRefine
     refine_from_branch(v0, &ranges, &body)
 }
 
-// ─── Lt ────────────────────────────────────────────────────────
+// Lt
 
 /// Semantic pin: x < 100 with x in [0, 200] → true [0, 99], false [100, 200]
 #[test]
@@ -52,7 +52,7 @@ fn lt_boundary_i64_min() {
     assert_eq!(r[0].true_range, ValueRange::Bottom);
 }
 
-// ─── LtEq ──────────────────────────────────────────────────────
+// LtEq
 
 #[test]
 fn lteq_basic() {
@@ -79,7 +79,7 @@ fn lteq_boundary_i64_max() {
     assert_eq!(r[0].false_range, ValueRange::Bottom);
 }
 
-// ─── Gt ────────────────────────────────────────────────────────
+// Gt
 
 #[test]
 fn gt_basic() {
@@ -97,7 +97,7 @@ fn gt_boundary_i64_max() {
     assert_eq!(r[0].true_range, ValueRange::Bottom);
 }
 
-// ─── GtEq ──────────────────────────────────────────────────────
+// GtEq
 
 #[test]
 fn gteq_basic() {
@@ -145,7 +145,7 @@ fn gteq_boundary_i64_min() {
     assert_eq!(r[0].false_range, ValueRange::Bottom);
 }
 
-// ─── Eq ────────────────────────────────────────────────────────
+// Eq
 
 #[test]
 fn eq_basic() {
@@ -169,7 +169,7 @@ fn eq_i64_min() {
     );
 }
 
-// ─── NotEq ─────────────────────────────────────────────────────
+// NotEq
 
 #[test]
 fn noteq_basic() {
@@ -181,7 +181,7 @@ fn noteq_basic() {
     assert_eq!(r[0].false_range, Bounded { lo: 100, hi: 100 });
 }
 
-// ─── Edge cases ────────────────────────────────────────────────
+// Edge cases
 
 #[test]
 fn cond_not_in_body_returns_empty() {

@@ -1,0 +1,7 @@
+@main () -> int = {
+    let first = (a, b) -> a;
+    let expected = "returned text that is deliberately longer than the small-string boundary";
+    let result = first(a: expected, b: [3, 4]);
+
+    if result == expected then 0 else 1
+}

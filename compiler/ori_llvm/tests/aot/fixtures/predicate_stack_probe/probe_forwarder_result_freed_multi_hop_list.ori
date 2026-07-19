@@ -1,0 +1,7 @@
+@id1 <T> (x: T) -> T = x;
+@id2 <T> (x: T) -> T = id1(x: x);
+
+@main () -> int = {
+    let xs = id2(x: [7, 8, 9]);
+    if xs.len() == 3 && xs[1] == 8 then 0 else 1
+}

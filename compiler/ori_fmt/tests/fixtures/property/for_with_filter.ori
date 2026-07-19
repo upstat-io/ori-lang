@@ -1,0 +1,1 @@
+@f (items: [int]) -> [int] = for x in items if x > 0 yield x;

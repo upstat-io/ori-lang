@@ -11,8 +11,7 @@ use crate::spawn::SpawnPattern;
 use crate::timeout::TimeoutPattern;
 use crate::with_pattern::WithPattern;
 use crate::{
-    EvalContext, EvalResult, FusedPattern, OptionalArg, PatternDefinition, PatternExecutor,
-    ScopedBinding,
+    EvalContext, EvalResult, OptionalArg, PatternDefinition, PatternExecutor, ScopedBinding,
 };
 
 /// Enum dispatch for all built-in patterns.
@@ -40,163 +39,51 @@ pub enum Pattern {
     Channel(ChannelPattern),
 }
 
+/// Forward a `PatternDefinition` method call to the wrapped concrete pattern,
+/// matching every `Pattern` variant. Adding a variant requires one new arm here
+/// rather than an arm in each forwarding method.
+macro_rules! dispatch_to_variant {
+    ($self:ident, $method:ident $(, $arg:expr)*) => {
+        match $self {
+            Pattern::Recurse(p) => p.$method($($arg),*),
+            Pattern::Parallel(p) => p.$method($($arg),*),
+            Pattern::Spawn(p) => p.$method($($arg),*),
+            Pattern::Timeout(p) => p.$method($($arg),*),
+            Pattern::Cache(p) => p.$method($($arg),*),
+            Pattern::With(p) => p.$method($($arg),*),
+            Pattern::Print(p) => p.$method($($arg),*),
+            Pattern::Panic(p) => p.$method($($arg),*),
+            Pattern::Catch(p) => p.$method($($arg),*),
+            Pattern::Todo(p) => p.$method($($arg),*),
+            Pattern::Unreachable(p) => p.$method($($arg),*),
+            Pattern::Channel(p) => p.$method($($arg),*),
+        }
+    };
+}
+
 impl PatternDefinition for Pattern {
     fn name(&self) -> &'static str {
-        match self {
-            Pattern::Recurse(p) => p.name(),
-            Pattern::Parallel(p) => p.name(),
-            Pattern::Spawn(p) => p.name(),
-            Pattern::Timeout(p) => p.name(),
-            Pattern::Cache(p) => p.name(),
-            Pattern::With(p) => p.name(),
-            Pattern::Print(p) => p.name(),
-            Pattern::Panic(p) => p.name(),
-            Pattern::Catch(p) => p.name(),
-            Pattern::Todo(p) => p.name(),
-            Pattern::Unreachable(p) => p.name(),
-            Pattern::Channel(p) => p.name(),
-        }
+        dispatch_to_variant!(self, name)
     }
 
     fn required_props(&self) -> &'static [&'static str] {
-        match self {
-            Pattern::Recurse(p) => p.required_props(),
-            Pattern::Parallel(p) => p.required_props(),
-            Pattern::Spawn(p) => p.required_props(),
-            Pattern::Timeout(p) => p.required_props(),
-            Pattern::Cache(p) => p.required_props(),
-            Pattern::With(p) => p.required_props(),
-            Pattern::Print(p) => p.required_props(),
-            Pattern::Panic(p) => p.required_props(),
-            Pattern::Catch(p) => p.required_props(),
-            Pattern::Todo(p) => p.required_props(),
-            Pattern::Unreachable(p) => p.required_props(),
-            Pattern::Channel(p) => p.required_props(),
-        }
+        dispatch_to_variant!(self, required_props)
     }
 
     fn optional_props(&self) -> &'static [&'static str] {
-        match self {
-            Pattern::Recurse(p) => p.optional_props(),
-            Pattern::Parallel(p) => p.optional_props(),
-            Pattern::Spawn(p) => p.optional_props(),
-            Pattern::Timeout(p) => p.optional_props(),
-            Pattern::Cache(p) => p.optional_props(),
-            Pattern::With(p) => p.optional_props(),
-            Pattern::Print(p) => p.optional_props(),
-            Pattern::Panic(p) => p.optional_props(),
-            Pattern::Catch(p) => p.optional_props(),
-            Pattern::Todo(p) => p.optional_props(),
-            Pattern::Unreachable(p) => p.optional_props(),
-            Pattern::Channel(p) => p.optional_props(),
-        }
+        dispatch_to_variant!(self, optional_props)
     }
 
     fn optional_args(&self) -> &'static [OptionalArg] {
-        match self {
-            Pattern::Recurse(p) => p.optional_args(),
-            Pattern::Parallel(p) => p.optional_args(),
-            Pattern::Spawn(p) => p.optional_args(),
-            Pattern::Timeout(p) => p.optional_args(),
-            Pattern::Cache(p) => p.optional_args(),
-            Pattern::With(p) => p.optional_args(),
-            Pattern::Print(p) => p.optional_args(),
-            Pattern::Panic(p) => p.optional_args(),
-            Pattern::Catch(p) => p.optional_args(),
-            Pattern::Todo(p) => p.optional_args(),
-            Pattern::Unreachable(p) => p.optional_args(),
-            Pattern::Channel(p) => p.optional_args(),
-        }
+        dispatch_to_variant!(self, optional_args)
     }
 
     fn scoped_bindings(&self) -> &'static [ScopedBinding] {
-        match self {
-            Pattern::Recurse(p) => p.scoped_bindings(),
-            Pattern::Parallel(p) => p.scoped_bindings(),
-            Pattern::Spawn(p) => p.scoped_bindings(),
-            Pattern::Timeout(p) => p.scoped_bindings(),
-            Pattern::Cache(p) => p.scoped_bindings(),
-            Pattern::With(p) => p.scoped_bindings(),
-            Pattern::Print(p) => p.scoped_bindings(),
-            Pattern::Panic(p) => p.scoped_bindings(),
-            Pattern::Catch(p) => p.scoped_bindings(),
-            Pattern::Todo(p) => p.scoped_bindings(),
-            Pattern::Unreachable(p) => p.scoped_bindings(),
-            Pattern::Channel(p) => p.scoped_bindings(),
-        }
-    }
-
-    fn allows_arbitrary_props(&self) -> bool {
-        match self {
-            Pattern::Recurse(p) => p.allows_arbitrary_props(),
-            Pattern::Parallel(p) => p.allows_arbitrary_props(),
-            Pattern::Spawn(p) => p.allows_arbitrary_props(),
-            Pattern::Timeout(p) => p.allows_arbitrary_props(),
-            Pattern::Cache(p) => p.allows_arbitrary_props(),
-            Pattern::With(p) => p.allows_arbitrary_props(),
-            Pattern::Print(p) => p.allows_arbitrary_props(),
-            Pattern::Panic(p) => p.allows_arbitrary_props(),
-            Pattern::Catch(p) => p.allows_arbitrary_props(),
-            Pattern::Todo(p) => p.allows_arbitrary_props(),
-            Pattern::Unreachable(p) => p.allows_arbitrary_props(),
-            Pattern::Channel(p) => p.allows_arbitrary_props(),
-        }
+        dispatch_to_variant!(self, scoped_bindings)
     }
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
-        match self {
-            Pattern::Recurse(p) => p.evaluate(ctx, exec),
-            Pattern::Parallel(p) => p.evaluate(ctx, exec),
-            Pattern::Spawn(p) => p.evaluate(ctx, exec),
-            Pattern::Timeout(p) => p.evaluate(ctx, exec),
-            Pattern::Cache(p) => p.evaluate(ctx, exec),
-            Pattern::With(p) => p.evaluate(ctx, exec),
-            Pattern::Print(p) => p.evaluate(ctx, exec),
-            Pattern::Panic(p) => p.evaluate(ctx, exec),
-            Pattern::Catch(p) => p.evaluate(ctx, exec),
-            Pattern::Todo(p) => p.evaluate(ctx, exec),
-            Pattern::Unreachable(p) => p.evaluate(ctx, exec),
-            Pattern::Channel(p) => p.evaluate(ctx, exec),
-        }
-    }
-
-    fn can_fuse_with(&self, next: &dyn PatternDefinition) -> bool {
-        match self {
-            Pattern::Recurse(p) => p.can_fuse_with(next),
-            Pattern::Parallel(p) => p.can_fuse_with(next),
-            Pattern::Spawn(p) => p.can_fuse_with(next),
-            Pattern::Timeout(p) => p.can_fuse_with(next),
-            Pattern::Cache(p) => p.can_fuse_with(next),
-            Pattern::With(p) => p.can_fuse_with(next),
-            Pattern::Print(p) => p.can_fuse_with(next),
-            Pattern::Panic(p) => p.can_fuse_with(next),
-            Pattern::Catch(p) => p.can_fuse_with(next),
-            Pattern::Todo(p) => p.can_fuse_with(next),
-            Pattern::Unreachable(p) => p.can_fuse_with(next),
-            Pattern::Channel(p) => p.can_fuse_with(next),
-        }
-    }
-
-    fn fuse_with(
-        &self,
-        next: &dyn PatternDefinition,
-        self_ctx: &EvalContext,
-        next_ctx: &EvalContext,
-    ) -> Option<FusedPattern> {
-        match self {
-            Pattern::Recurse(p) => p.fuse_with(next, self_ctx, next_ctx),
-            Pattern::Parallel(p) => p.fuse_with(next, self_ctx, next_ctx),
-            Pattern::Spawn(p) => p.fuse_with(next, self_ctx, next_ctx),
-            Pattern::Timeout(p) => p.fuse_with(next, self_ctx, next_ctx),
-            Pattern::Cache(p) => p.fuse_with(next, self_ctx, next_ctx),
-            Pattern::With(p) => p.fuse_with(next, self_ctx, next_ctx),
-            Pattern::Print(p) => p.fuse_with(next, self_ctx, next_ctx),
-            Pattern::Panic(p) => p.fuse_with(next, self_ctx, next_ctx),
-            Pattern::Catch(p) => p.fuse_with(next, self_ctx, next_ctx),
-            Pattern::Todo(p) => p.fuse_with(next, self_ctx, next_ctx),
-            Pattern::Unreachable(p) => p.fuse_with(next, self_ctx, next_ctx),
-            Pattern::Channel(p) => p.fuse_with(next, self_ctx, next_ctx),
-        }
+        dispatch_to_variant!(self, evaluate, ctx, exec)
     }
 }
 
@@ -243,25 +130,11 @@ impl PatternRegistry {
     }
 
     /// Get all registered pattern kinds.
+    ///
+    /// Derives from `FunctionExpKind::ALL` (the canonical inventory) so a new
+    /// variant is registered here automatically rather than via a parallel list.
     pub fn kinds(&self) -> impl Iterator<Item = FunctionExpKind> {
-        [
-            FunctionExpKind::Recurse,
-            FunctionExpKind::Parallel,
-            FunctionExpKind::Spawn,
-            FunctionExpKind::Timeout,
-            FunctionExpKind::Cache,
-            FunctionExpKind::With,
-            FunctionExpKind::Print,
-            FunctionExpKind::Panic,
-            FunctionExpKind::Catch,
-            FunctionExpKind::Todo,
-            FunctionExpKind::Unreachable,
-            FunctionExpKind::Channel,
-            FunctionExpKind::ChannelIn,
-            FunctionExpKind::ChannelOut,
-            FunctionExpKind::ChannelAll,
-        ]
-        .into_iter()
+        FunctionExpKind::ALL.into_iter()
     }
 
     /// Get the number of registered patterns.

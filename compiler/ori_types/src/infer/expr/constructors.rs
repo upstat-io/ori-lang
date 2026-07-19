@@ -2,9 +2,10 @@
 
 use ori_ir::{ExprArena, ExprId, Name, Span};
 
-use super::super::InferEngine;
-use super::{check_expr, infer_expr};
 use crate::{ContextKind, Expected, Idx, Tag, TypeCheckError};
+
+use super::super::{scope::TryPropagation, InferEngine};
+use super::{check_expr, infer_expr, infer_optional_or_unit};
 
 /// Infer the type of `Ok(value)`.
 pub(crate) fn infer_ok(
@@ -13,11 +14,7 @@ pub(crate) fn infer_ok(
     inner: ExprId,
     _span: Span,
 ) -> Idx {
-    let ok_ty = if inner.is_present() {
-        infer_expr(engine, arena, inner)
-    } else {
-        Idx::UNIT
-    };
+    let ok_ty = infer_optional_or_unit(engine, arena, inner);
     let err_ty = engine.fresh_var();
     engine.infer_result(ok_ty, err_ty)
 }
@@ -29,11 +26,7 @@ pub(crate) fn infer_err(
     inner: ExprId,
     _span: Span,
 ) -> Idx {
-    let err_ty = if inner.is_present() {
-        infer_expr(engine, arena, inner)
-    } else {
-        Idx::UNIT
-    };
+    let err_ty = infer_optional_or_unit(engine, arena, inner);
     let ok_ty = engine.fresh_var();
     engine.infer_result(ok_ty, err_ty)
 }
@@ -58,11 +51,11 @@ pub(crate) fn infer_none(engine: &mut InferEngine<'_>) -> Idx {
 /// BD-2 check `Ok(value)` against an outer `Result<T, E>` expectation.
 ///
 /// When `expected` resolves to a concrete `Result<T, E>`, the inner
-/// expression is checked against `Check(T)` and the constructor returns
-/// the outer `Result<T, E>` type — closing the LHS-propagation gap that
-/// previously left the `Err` slot as a fresh unification variable. For
-/// non-Result expectations, falls through to bottom-up synthesis so
-/// unification downstream catches mismatches.
+/// expression is checked against `Check(T)`, propagating the annotation
+/// into `inner` instead of leaving the `Err` slot a fresh unification
+/// variable, and the constructor returns the outer `Result<T, E>` type.
+/// For non-Result expectations, falls through to bottom-up synthesis so
+/// subsequent unification catches mismatches.
 pub(crate) fn check_ok(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -148,10 +141,13 @@ pub(crate) fn infer_try(
     match tag {
         Tag::Option => {
             // Option<T>? -> T (propagates None)
+            engine.record_try_propagation(TryPropagation::Option { span });
             engine.pool().option_inner(resolved)
         }
         Tag::Result => {
             // Result<T, E>? -> T (propagates Err)
+            let error_ty = engine.pool().result_err(resolved);
+            engine.record_try_propagation(TryPropagation::Result { error_ty, span });
             engine.pool().result_ok(resolved)
         }
         _ => {
@@ -165,12 +161,15 @@ pub(crate) fn infer_try(
 
 /// Infer the type of an await expression.
 pub(crate) fn infer_await(
-    _engine: &mut InferEngine<'_>,
+    engine: &mut InferEngine<'_>,
     _arena: &ExprArena,
     _inner: ExprId,
-    _span: Span,
+    span: Span,
 ) -> Idx {
-    // TODO: Implement await inference
+    engine.push_error(TypeCheckError::unsupported_feature(
+        span,
+        "await expressions",
+    ));
     Idx::ERROR
 }
 
@@ -181,10 +180,29 @@ pub(crate) fn infer_with_capability(
     capability: Name,
     provider: ExprId,
     body: ExprId,
-    _span: Span,
+    span: Span,
 ) -> Idx {
-    // Infer provider type (validates the provider expression)
-    let provider_ty = infer_expr(engine, arena, provider);
+    // Infer and freeze the provider type before entering the lexical frame.
+    let inferred_provider_ty = infer_expr(engine, arena, provider);
+    let provider_ty = engine.resolve(inferred_provider_ty);
+    let capability_name = engine.lookup_name(capability);
+    if matches!(capability_name, Some("Suspend" | "Unsafe")) {
+        engine.push_error(TypeCheckError::unsatisfied_bound(
+            span,
+            format!(
+                "marker capability `{}` cannot be explicitly bound; use its discharge context instead",
+                capability_name.unwrap_or("<marker>")
+            ),
+        ));
+    } else if !provider_satisfies_registered_capability(engine, capability, provider_ty) {
+        let name = capability_name.unwrap_or("<capability>");
+        engine.push_error(TypeCheckError::unsatisfied_bound(
+            span,
+            format!(
+                "provider for capability `{name}` does not implement `{name}`; add an impl or bind a compatible provider value"
+            ),
+        ));
+    }
 
     // Bind the capability name in a child scope so the body can
     // reference it as an identifier (e.g., `with Http = mock in Http`).
@@ -193,9 +211,51 @@ pub(crate) fn infer_with_capability(
 
     // Provide the capability for the duration of the body.
     // This makes calls to functions `uses <capability>` valid within.
-    let body_ty =
-        engine.with_provided_capability(capability, |engine| infer_expr(engine, arena, body));
+    let body_ty = engine.with_capability_provider(
+        crate::CapabilityProvider {
+            capability,
+            provider_type: provider_ty,
+            source: crate::CapabilityProviderSource::WithBinding { provider },
+        },
+        |engine| infer_expr(engine, arena, body),
+    );
 
     engine.exit_scope();
     body_ty
+}
+
+/// A `with` provider must satisfy a registered capability trait. Unregistered
+/// names retain the legacy value-namespace behavior used by existing source;
+/// unresolved generic providers are checked when their concrete impl methods
+/// are selected. Concrete registered providers fail closed here even when the
+/// body does not invoke a capability method.
+fn provider_satisfies_registered_capability(
+    engine: &InferEngine<'_>,
+    capability: Name,
+    provider_ty: Idx,
+) -> bool {
+    if provider_ty == Idx::ERROR
+        || engine.pool().flags(provider_ty).has_any_var_or_infer()
+        || engine
+            .rigid_var_bounds(provider_ty)
+            .is_some_and(|bounds| bounds.contains(&capability))
+    {
+        return true;
+    }
+    let Some(registry) = engine.trait_registry() else {
+        return true;
+    };
+    let Some(trait_entry) = registry.get_trait_by_name(capability) else {
+        return true;
+    };
+    registry.find_impl(trait_entry.idx, provider_ty).is_some()
+        || registry.impls_of_trait(trait_entry.idx).any(|entry| {
+            super::calls::match_self_type(
+                engine.pool(),
+                entry.self_type,
+                provider_ty,
+                &entry.type_params,
+            )
+            .is_some()
+        })
 }

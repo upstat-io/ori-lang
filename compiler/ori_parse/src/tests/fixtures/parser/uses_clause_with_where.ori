@@ -1,0 +1,2 @@
+
+@process<T> (data: T) -> T uses Logger where T: Clone = data;

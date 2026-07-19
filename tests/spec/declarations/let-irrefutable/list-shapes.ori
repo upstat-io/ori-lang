@@ -1,5 +1,5 @@
 // Axis 1 — List shape coverage for let-binding irrefutability (CF-3).
-// Per Spec/15-patterns.md:332-340 (List Pattern Exhaustiveness table),
+// Per Spec/15-patterns.md § List Pattern Exhaustiveness,
 // the 5 canonical List shapes: [], [$x], [$x, $y], [$x, ..rest], [..rest].
 // Only [..rest] is irrefutable on dynamic [T]; all others produce E2001.
 
@@ -37,7 +37,6 @@ use std.testing { assert_eq }
 // Canonical irrefutable shape — [..rest] accepted
 // =============================================================================
 
-#skip("BUG-05-004: ARC leak on irrefutable rest-only let-binding")
 @test_let_rest_only_accepts tests _ () -> void = {
     let items = [1, 2, 3];
     let [..rest] = items;
@@ -66,9 +65,40 @@ use std.testing { assert_eq }
     let [$x, _, ..rest] = items
 }
 
-#skip("BUG-05-004: ARC leak on irrefutable rest-only let-binding")
 @test_let_immutable_rest_only_accepts tests _ () -> void = {
     let items = [1, 2, 3];
     let [..$rest] = items;
+    assert_eq(actual: rest.len(), expected: 3)
+}
+
+// =============================================================================
+// Heap-element guard cells — rest-only [..rest] on element types carrying a
+// per-element elem_dec_fn (str / nested list / sum-typed heap payload). The
+// [int] cells above exercise buffer-only RC; these would catch a per-element
+// under-release the inline-int cells cannot. Regression: rest-only seamless
+// slice co-owns the original buffer; both must release every heap element.
+// =============================================================================
+
+@test_let_rest_only_str_accepts tests _ () -> void = {
+    let items: [str] = ["alpha", "beta", "gamma"];
+    let [..rest] = items;
+    assert_eq(actual: rest.len(), expected: 3)
+}
+
+@test_let_immutable_rest_only_str_accepts tests _ () -> void = {
+    let items: [str] = ["one", "two"];
+    let [..$rest] = items;
+    assert_eq(actual: rest.len(), expected: 2)
+}
+
+@test_let_rest_only_nested_list_accepts tests _ () -> void = {
+    let items: [[int]] = [[1, 2], [3], [4, 5, 6]];
+    let [..rest] = items;
+    assert_eq(actual: rest.len(), expected: 3)
+}
+
+@test_let_rest_only_option_str_accepts tests _ () -> void = {
+    let items: [Option<str>] = [Some("a"), None, Some("c")];
+    let [..rest] = items;
     assert_eq(actual: rest.len(), expected: 3)
 }

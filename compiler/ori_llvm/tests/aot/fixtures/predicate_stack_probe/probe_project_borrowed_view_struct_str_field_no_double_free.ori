@@ -1,0 +1,8 @@
+type Wrapper = { s: str }
+
+@main () -> int = {
+    let w = Wrapper { s: "borrow_then_letvar_chain" };
+    let borrowed = w.s;
+    let chained = borrowed;
+    if chained == "borrow_then_letvar_chain" then 0 else 1
+}

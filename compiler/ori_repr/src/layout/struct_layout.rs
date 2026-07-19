@@ -74,7 +74,8 @@ fn compute_c_layout(struct_repr: &StructRepr, repr_attr: Option<&ReprAttribute>)
         let mut field = f.clone();
         field.offset = offset;
         fields.push(field);
-        offset += size;
+        // FLOW-30: saturate accumulated aggregate size rather than wrap.
+        offset = offset.saturating_add(size);
         max_align = max_align.max(align);
     }
 
@@ -103,7 +104,8 @@ fn compute_packed_layout(struct_repr: &StructRepr) -> StructRepr {
         let mut field = f.clone();
         field.offset = offset;
         fields.push(field);
-        offset += size;
+        // FLOW-30: saturate accumulated aggregate size rather than wrap.
+        offset = offset.saturating_add(size);
     }
 
     StructRepr {
@@ -142,11 +144,9 @@ fn compute_transparent_layout(struct_repr: &StructRepr) -> StructRepr {
         let mut fields = Vec::with_capacity(struct_repr.fields.len());
         for f in &struct_repr.fields {
             let mut field = f.clone();
-            if field_size(&f.repr) > 0 {
-                field.offset = 0;
-            } else {
-                field.offset = 0; // ZST fields get offset 0 too
-            }
+            // Transparent layout collapses every field (the single non-ZST
+            // payload and any ZST siblings) to offset 0.
+            field.offset = 0;
             fields.push(field);
         }
 

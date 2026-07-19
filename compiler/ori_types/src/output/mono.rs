@@ -6,26 +6,22 @@
 use ori_ir::ExprId;
 use ori_ir::Name;
 
-use crate::Idx;
+use crate::{Idx, ImplMethodId, MethodProducer};
 
-/// A compile-time value used as a const generic argument.
+pub use ori_ir::canon::GenericConstValue as ConstValue;
+pub use ori_ir::canon::MonoConstBinding;
+
+/// Solved or caller-symbolic const term observed during call inference.
 ///
-/// Phase 1: unused (only [`GenericArg::Type`] variants).
-/// Phase 2+: const generics (`$N: int`, `$B: bool`).
-/// Phase 3+: any type `with Eq, Hashable` (`$C: Color`, `$S: [int]`).
-///
-/// Each variant must be `Eq + Hash`, mirroring Ori's requirement that
-/// const-eligible types implement `Eq + Hashable`.
+/// Only `Value` may enter a concrete [`MonoInstance`]. `CallerParam` is kept
+/// distinct so a generic caller can defer substitution without fabricating a
+/// value or collapsing the const axis into a type `Idx`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum ConstValue {
-    /// Integer constant (`$N: int → 42`).
-    Int(i64),
-    /// Boolean constant (`$B: bool → true`).
-    Bool(bool),
-    // Future phases add variants as const generic eligibility expands:
-    // Str(Name), Char(char), Byte(u8),
-    // Enum { type_name: Name, variant: Name },
-    // List(Vec<ConstValue>), Tuple(Vec<ConstValue>),
+pub enum ConstGenericTerm {
+    /// Concrete value solved at this call site.
+    Value(ConstValue),
+    /// Const parameter owned by the enclosing generic caller.
+    CallerParam(Name),
 }
 
 /// A concrete argument to a generic parameter.
@@ -33,10 +29,9 @@ pub enum ConstValue {
 /// Unifies type substitution (`T → int`) and const value substitution
 /// (`$N → 42`). Parallel to the function's generic parameter list.
 ///
-/// This design matches the convergent pattern across reference compilers:
-/// - Rust: `GenericArgKind::Type | Const | Lifetime`
-/// - Zig: uniform `InternPool.Index` for types and comptime values
-/// - Lean 4: `Expr`-based key (types and values are both expressions)
+/// Reference compilers likewise use one generic-argument representation:
+/// Rust uses `GenericArgKind::Type | Const | Lifetime`, Zig uses a uniform
+/// `InternPool.Index`, and Lean 4 uses expression-based keys.
 ///
 /// Using a single enum avoids impedance mismatches when generic parameter
 /// lists contain both type and const params (e.g., `@f<T with Clone, $N: int>`).
@@ -49,6 +44,30 @@ pub enum GenericArg {
 }
 
 pub use ori_ir::canon::MonoInstanceId;
+
+/// Exact body producer that owns a deferred generic free-function call.
+///
+/// A source impl method is qualified by [`ImplMethodId`], not just its spelling:
+/// unrelated impls may declare same-named methods whose nested calls must
+/// specialize independently. Other [`MethodProducer`] variants do not identify
+/// locally checked source bodies and therefore cannot own deferred records.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum DeferredMonoCaller {
+    /// A top-level function or test body.
+    TopLevel(Name),
+    /// One exact locally checked source/default impl method body.
+    ImplMethod { name: Name, id: ImplMethodId },
+}
+
+impl DeferredMonoCaller {
+    /// Source spelling retained for diagnostics and tracing only.
+    #[must_use]
+    pub const fn name(self) -> Name {
+        match self {
+            Self::TopLevel(name) | Self::ImplMethod { name, .. } => name,
+        }
+    }
+}
 
 /// A concrete instantiation of a generic function or method discovered during type checking.
 ///
@@ -80,6 +99,13 @@ pub struct MonoInstance {
     ///
     /// Empty for method instances (use `impl_args` + `method_args`).
     pub generic_args: Vec<GenericArg>,
+    /// Ordered concrete provider types for value capabilities.
+    ///
+    /// This lane is distinct from source generics: it participates in
+    /// specialization identity and mangling, but never in source-level generic
+    /// arity. Provider values of the same ordered types intentionally share
+    /// one instance and are passed separately at each call site.
+    pub capability_args: Vec<Idx>,
     /// Concrete impl-level type arguments for method instances.
     ///
     /// Empty for top-level instances. Populated from the enclosing impl block's
@@ -92,6 +118,12 @@ pub struct MonoInstance {
     /// parameter list (e.g. `@m<U>(self) -> U` instantiated at `U = str`
     /// produces `method_args = [str]`).
     pub method_args: Vec<GenericArg>,
+    /// Named const bindings for body evaluation/lowering.
+    ///
+    /// The values are the same `GenericArg::Const` lane used by identity and
+    /// mangling; names come from declaration metadata. Concrete instances may
+    /// not contain symbolic caller parameters.
+    pub const_bindings: Vec<MonoConstBinding>,
     /// The enclosing impl block's `Self` type, for any function inside an
     /// impl block (including associated functions without `self`).
     ///
@@ -100,6 +132,10 @@ pub struct MonoInstance {
     /// `Option<int>.new()` carry distinct `receiver_type` values even when their
     /// `concrete_param_types` and `concrete_return_type` post-substitution match.
     pub receiver_type: Option<Idx>,
+    /// Exact checker-selected producer for a method specialization.
+    ///
+    /// `None` is valid only for a top-level free-function instance.
+    pub method_producer: Option<MethodProducer>,
     /// Substituted parameter types (all type variables replaced with concrete types).
     pub concrete_param_types: Vec<Idx>,
     /// Substituted return type.
@@ -110,6 +146,15 @@ pub struct MonoInstance {
     /// cutoff). The ARC lowerer converts this to `FxHashMap` for O(1) lookup
     /// when lowering the shared canonical IR body into a monomorphized ARC
     /// function (matching Swift's clone-and-substitute strategy).
+    pub body_type_map: Vec<(Idx, Idx)>,
+}
+
+/// Concrete receiver/signature coordinates for one method specialization.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ConcreteMethodMono {
+    pub receiver_type: Idx,
+    pub param_types: Vec<Idx>,
+    pub return_type: Idx,
     pub body_type_map: Vec<(Idx, Idx)>,
 }
 
@@ -128,9 +173,39 @@ impl MonoInstance {
         let inst = Self {
             fn_name,
             generic_args,
+            capability_args: Vec::new(),
             impl_args: Vec::new(),
             method_args: Vec::new(),
+            const_bindings: Vec::new(),
             receiver_type: None,
+            method_producer: None,
+            concrete_param_types,
+            concrete_return_type,
+            body_type_map,
+        };
+        inst.check_invariants();
+        inst
+    }
+
+    /// Construct a top-level specialization with ordered capability-provider
+    /// types in addition to any ordinary generic arguments.
+    pub fn new_top_level_with_capabilities(
+        fn_name: Name,
+        generic_args: Vec<GenericArg>,
+        capability_args: Vec<Idx>,
+        concrete_param_types: Vec<Idx>,
+        concrete_return_type: Idx,
+        body_type_map: Vec<(Idx, Idx)>,
+    ) -> Self {
+        let inst = Self {
+            fn_name,
+            generic_args,
+            capability_args,
+            impl_args: Vec::new(),
+            method_args: Vec::new(),
+            const_bindings: Vec::new(),
+            receiver_type: None,
+            method_producer: None,
             concrete_param_types,
             concrete_return_type,
             body_type_map,
@@ -147,22 +222,42 @@ impl MonoInstance {
     /// Asserts the resulting instance satisfies the top-level/method invariant.
     pub fn new_method(
         fn_name: Name,
+        method_producer: MethodProducer,
         impl_args: Vec<GenericArg>,
         method_args: Vec<GenericArg>,
-        receiver_type: Idx,
-        concrete_param_types: Vec<Idx>,
-        concrete_return_type: Idx,
-        body_type_map: Vec<(Idx, Idx)>,
+        concrete: ConcreteMethodMono,
+    ) -> Self {
+        Self::new_method_with_const_bindings(
+            fn_name,
+            method_producer,
+            impl_args,
+            method_args,
+            Vec::new(),
+            concrete,
+        )
+    }
+
+    /// Construct a method instance with named const values for body lowering.
+    pub fn new_method_with_const_bindings(
+        fn_name: Name,
+        method_producer: MethodProducer,
+        impl_args: Vec<GenericArg>,
+        method_args: Vec<GenericArg>,
+        const_bindings: Vec<MonoConstBinding>,
+        concrete: ConcreteMethodMono,
     ) -> Self {
         let inst = Self {
             fn_name,
             generic_args: Vec::new(),
+            capability_args: Vec::new(),
             impl_args,
             method_args,
-            receiver_type: Some(receiver_type),
-            concrete_param_types,
-            concrete_return_type,
-            body_type_map,
+            const_bindings,
+            receiver_type: Some(concrete.receiver_type),
+            method_producer: Some(method_producer),
+            concrete_param_types: concrete.param_types,
+            concrete_return_type: concrete.return_type,
+            body_type_map: concrete.body_type_map,
         };
         inst.check_invariants();
         inst
@@ -171,9 +266,10 @@ impl MonoInstance {
     /// Enforce the top-level / method invariant.
     ///
     /// `assert!` (not `debug_assert!`): a release-build mangling collision
-    /// from a violated invariant is silent miscompilation per CLAUDE.md
-    /// §Debug/Release Parity. The check is O(1) (Vec emptiness + Option tag),
-    /// so the runtime cost is negligible relative to the soundness guarantee.
+    /// from a violated invariant is silent miscompilation, so the soundness
+    /// invariant must hold in release builds too. The check is linear only in
+    /// the method's generic-argument count, negligible relative to the
+    /// soundness guarantee.
     fn check_invariants(&self) {
         if self.receiver_type.is_some() {
             assert!(
@@ -183,6 +279,11 @@ impl MonoInstance {
                  method_args instead (got generic_args = {:?})",
                 self.fn_name,
                 self.generic_args,
+            );
+            assert!(
+                self.method_producer.is_some(),
+                "MonoInstance invariant violated: method instance for {:?} must carry an exact producer",
+                self.fn_name,
             );
         } else {
             assert!(
@@ -199,7 +300,31 @@ impl MonoInstance {
                 self.fn_name,
                 self.method_args,
             );
+            assert!(
+                self.method_producer.is_none(),
+                "MonoInstance invariant violated: top-level instance for {:?} must not carry a method producer",
+                self.fn_name,
+            );
         }
+
+        let method_const_values: Vec<_> = self
+            .method_args
+            .iter()
+            .filter_map(|arg| match arg {
+                GenericArg::Const(value) => Some(value),
+                GenericArg::Type(_) => None,
+            })
+            .collect();
+        let binding_values: Vec<_> = self
+            .const_bindings
+            .iter()
+            .map(|binding| &binding.value)
+            .collect();
+        assert_eq!(
+            method_const_values, binding_values,
+            "MonoInstance invariant violated: const-valued method_args for {:?} must exactly match ordered const_bindings values",
+            self.fn_name,
+        );
     }
 }
 
@@ -212,6 +337,14 @@ pub enum DeferredVarBinding {
     /// Already resolved to a concrete type. E.g., `make_pair`'s `B` → `int` when
     /// called as `make_pair(a: x, b: 99)` inside a generic function.
     Concrete(Idx),
+    /// A transient inference type recorded from a non-generic caller: the bound
+    /// type carries an unbound inference var (a bare `Tag::Var` OR a composite
+    /// such as `[Var]`/`Option<Var>`) at eager-record time but resolves to its
+    /// concrete root by the deferred phase. `resolve_deferred_var_subst`
+    /// re-resolves `idx` against the now-fully-linked pool
+    /// (`substitute_in_pool` follows every interior var link to its concrete
+    /// leaf); if any interior var is still unbound, the publish aborts (retry).
+    DeferredType { idx: Idx },
 }
 
 /// A deferred monomorphization call: generic function calling another generic.
@@ -229,8 +362,8 @@ pub enum DeferredVarBinding {
 /// `make_pair`'s `A` → `CallerSchemeVar(0)`, `B` → `Concrete(Idx::INT)`.
 #[derive(Clone, Debug)]
 pub struct DeferredMonoCall {
-    /// The generic function that contains the call.
-    pub caller: Name,
+    /// The exact source body that contains the call.
+    pub caller: DeferredMonoCaller,
     /// The generic function being called.
     pub callee: Name,
     /// The callee's scheme var IDs (in declaration order).
@@ -239,6 +372,13 @@ pub struct DeferredMonoCall {
     /// concrete type). This semantic mapping avoids dependence on pool
     /// union-find state.
     pub var_subst: Vec<(u32, DeferredVarBinding)>,
+    /// Ordered provider binders owned by the callee signature.
+    ///
+    /// Their bindings live in `var_subst` beside ordinary scheme binders so
+    /// one deferred publication substitutes the complete source body. The
+    /// order is the provider ABI order and therefore also the capability
+    /// specialization identity order.
+    pub capability_var_ids: Vec<u32>,
     /// The callee's parameter types (from its generic signature).
     pub callee_param_types: Vec<Idx>,
     /// The callee's return type (from its generic signature).
@@ -249,7 +389,7 @@ pub struct DeferredMonoCall {
     /// entry into `ModuleChecker.mono_dispatch_pre_dedup` once the deferred
     /// call resolves to a concrete `MonoInstance`. After dedup-remap (per
     /// the `check/mod.rs` export pipeline), the entry lands in
-    /// `TypedModule.mono_dispatch_map` and flows downstream symmetrically
+    /// `TypedModule.mono_dispatch_map` and follows the same path
     /// with eager-path entries.
     pub call_expr_id: ExprId,
 }

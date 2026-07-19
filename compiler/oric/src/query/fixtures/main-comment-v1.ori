@@ -1,0 +1,2 @@
+// comment v1
+@main () -> int = 42

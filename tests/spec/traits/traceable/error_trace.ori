@@ -13,6 +13,11 @@ use std.testing { assert_eq, assert }
     Ok(x)
 }
 
+// The `?`-injected trace DATA (has_trace/trace_entries/trace after a `?`-hop)
+// is now required on both interpreter and LLVM backends.
+// Each post-`?` trace-DATA assertion below stays dual-exec.
+// The Ok-pass-through control (test_ok_clean) also stays dual-exec and
+// verifies clean results remain traceless.
 @test_has tests @has () -> void = {
     let r = one_hop();
     assert(cond: r.has_trace())

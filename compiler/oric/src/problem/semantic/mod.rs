@@ -3,13 +3,12 @@
 //! These problems occur during semantic analysis (name resolution,
 //! duplicate definitions, visibility, etc.).
 //!
-//! # Active vs Reserved Variants
+//! # Production Coverage
 //!
-//! Most variants are **reserved for a future dedicated semantic analysis pass**
-//! and have no production producer yet. Their `into_diagnostic()` rendering is
-//! implemented and tested so diagnostics are ready when the pass lands.
+//! Most variants are reserved and have no production producer. Their
+//! `into_diagnostic()` rendering remains covered independently.
 //!
-//! Currently produced in production code:
+//! Production producers emit:
 //! - `MissingTest` — `commands/check.rs` (test coverage analysis)
 //! - `NonExhaustiveMatch` — via `pattern_problem_to_diagnostic()`
 //! - `RedundantPattern` — via `pattern_problem_to_diagnostic()`
@@ -199,10 +198,8 @@ impl SemanticProblem {
         }
     }
 
-    /// Check if this is a warning (vs error).
-    ///
-    /// Note: This method is kept manual because the warning logic
-    /// is different from the span extraction pattern.
+    /// Classify unused declarations, unreachable code, and redundant patterns
+    /// as warnings.
     pub fn is_warning(&self) -> bool {
         matches!(
             self,
@@ -217,163 +214,14 @@ impl SemanticProblem {
     ///
     /// Uses the interner to resolve interned `Name` fields to display strings.
     #[cold]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive SemanticWarning → Diagnostic dispatch"
-    )]
     pub fn into_diagnostic(&self, interner: &StringInterner) -> Diagnostic {
+        if let Some(diagnostic) = self.name_resolution_diagnostic(interner) {
+            return diagnostic;
+        }
+        if let Some(diagnostic) = self.declaration_diagnostic(interner) {
+            return diagnostic;
+        }
         match self {
-            SemanticProblem::UnknownIdentifier {
-                span,
-                name,
-                similar,
-            } => {
-                let name = interner.lookup(*name);
-                let mut diag = Diagnostic::error(ErrorCode::E2003)
-                    .with_message(format!("unknown identifier `{name}`"))
-                    .with_label(*span, "not found in this scope");
-                if let Some(s) = similar {
-                    let s = interner.lookup(*s);
-                    diag = diag.with_suggestion(format!("try using `{s}`"));
-                }
-                diag
-            }
-
-            SemanticProblem::UnknownFunction {
-                span,
-                name,
-                similar,
-            } => {
-                let name = interner.lookup(*name);
-                let mut diag = Diagnostic::error(ErrorCode::E2003)
-                    .with_message(format!("unknown function `@{name}`"))
-                    .with_label(*span, "function not found");
-                if let Some(s) = similar {
-                    let s = interner.lookup(*s);
-                    diag = diag.with_suggestion(format!("try using `@{s}`"));
-                }
-                diag
-            }
-
-            SemanticProblem::UnknownConfig {
-                span,
-                name,
-                similar,
-            } => {
-                let name = interner.lookup(*name);
-                let mut diag = Diagnostic::error(ErrorCode::E2003)
-                    .with_message(format!("unknown config `${name}`"))
-                    .with_label(*span, "config not found");
-                if let Some(s) = similar {
-                    let s = interner.lookup(*s);
-                    diag = diag.with_suggestion(format!("try using `${s}`"));
-                }
-                diag
-            }
-
-            SemanticProblem::DuplicateDefinition {
-                span,
-                name,
-                kind,
-                first_span,
-            } => {
-                let name = interner.lookup(*name);
-                Diagnostic::error(ErrorCode::E2006)
-                    .with_message(format!("duplicate {kind} definition `{name}`"))
-                    .with_label(*span, "duplicate definition")
-                    .with_secondary_label(*first_span, "first definition here")
-            }
-
-            SemanticProblem::PrivateAccess { span, name, kind } => {
-                let name = interner.lookup(*name);
-                Diagnostic::error(ErrorCode::E2003)
-                    .with_message(format!("{kind} `{name}` is private"))
-                    .with_label(*span, "private, cannot access")
-                    .with_suggestion(format!(
-                        "add `pub` to the {kind} definition to make it public"
-                    ))
-            }
-
-            SemanticProblem::ImportNotFound { span, path } => Diagnostic::error(ErrorCode::E2003)
-                .with_message(format!("cannot find module `{path}`"))
-                .with_label(*span, "module not found")
-                .with_note("check that the file path is correct and the file exists"),
-
-            SemanticProblem::ImportedItemNotFound { span, item, module } => {
-                let item = interner.lookup(*item);
-                Diagnostic::error(ErrorCode::E2003)
-                    .with_message(format!("cannot find `{item}` in module `{module}`"))
-                    .with_label(*span, "not found in module")
-                    .with_note("check the item is exported from the module")
-            }
-
-            SemanticProblem::ImmutableMutation {
-                span,
-                name,
-                binding_span,
-            } => {
-                let name = interner.lookup(*name);
-                Diagnostic::error(ErrorCode::E2039)
-                    .with_message(format!("cannot mutate immutable binding `{name}`"))
-                    .with_label(*span, "cannot mutate")
-                    .with_secondary_label(*binding_span, "defined as immutable here")
-                    .with_suggestion("remove the `$` prefix to make this binding mutable")
-            }
-
-            SemanticProblem::UseBeforeInit { span, name } => {
-                let name = interner.lookup(*name);
-                Diagnostic::error(ErrorCode::E2003)
-                    .with_message(format!("use of possibly uninitialized `{name}`"))
-                    .with_label(*span, "used before initialization")
-                    .with_suggestion("initialize the variable before using it")
-            }
-
-            SemanticProblem::MissingTest { span, func_name } => {
-                let func_name = interner.lookup(*func_name);
-                Diagnostic::error(ErrorCode::E3010)
-                    .with_message(format!("function `@{func_name}` has no tests"))
-                    .with_label(*span, "missing test")
-                    .with_note(format!(
-                        "add a test with `@test_{func_name} tests @{func_name} () -> void`"
-                    ))
-            }
-
-            SemanticProblem::TestTargetNotFound {
-                span,
-                test_name,
-                target_name,
-            } => {
-                let test_name = interner.lookup(*test_name);
-                let target_name = interner.lookup(*target_name);
-                Diagnostic::error(ErrorCode::E3011)
-                    .with_message(format!(
-                        "test `@{test_name}` targets unknown function `@{target_name}`"
-                    ))
-                    .with_label(*span, "function not found")
-                    .with_note("check the function name in `tests @target_name`")
-            }
-
-            SemanticProblem::BreakOutsideLoop { span } => Diagnostic::error(ErrorCode::E3002)
-                .with_message("`break` outside of loop")
-                .with_label(
-                    *span,
-                    "`break` can only appear inside `loop` or `for` bodies",
-                )
-                .with_suggestion("move this statement inside a loop body"),
-
-            SemanticProblem::ContinueOutsideLoop { span } => Diagnostic::error(ErrorCode::E3002)
-                .with_message("`continue` outside of loop")
-                .with_label(
-                    *span,
-                    "`continue` can only appear inside `loop` or `for` bodies",
-                )
-                .with_suggestion("move this statement inside a loop body"),
-
-            SemanticProblem::SelfOutsideMethod { span } => Diagnostic::error(ErrorCode::E3002)
-                .with_message("`self` outside of method")
-                .with_label(*span, "`self` is only available in `impl` block methods")
-                .with_suggestion("define this function inside an `impl` block"),
-
             SemanticProblem::InfiniteRecursion { span, func_name } => {
                 let func_name = interner.lookup(*func_name);
                 Diagnostic::warning(ErrorCode::E3003)
@@ -446,13 +294,196 @@ impl SemanticProblem {
                     .with_label(*span, "duplicate")
                     .with_secondary_label(*first_span, "first provided here")
             }
+            SemanticProblem::UnknownIdentifier { .. }
+            | SemanticProblem::UnknownFunction { .. }
+            | SemanticProblem::UnknownConfig { .. }
+            | SemanticProblem::DuplicateDefinition { .. }
+            | SemanticProblem::PrivateAccess { .. }
+            | SemanticProblem::ImportNotFound { .. }
+            | SemanticProblem::ImportedItemNotFound { .. }
+            | SemanticProblem::ImmutableMutation { .. }
+            | SemanticProblem::UseBeforeInit { .. }
+            | SemanticProblem::MissingTest { .. }
+            | SemanticProblem::TestTargetNotFound { .. }
+            | SemanticProblem::BreakOutsideLoop { .. }
+            | SemanticProblem::ContinueOutsideLoop { .. }
+            | SemanticProblem::SelfOutsideMethod { .. } => {
+                unreachable!("handled by name-resolution diagnostic helper")
+            }
         }
     }
+
+    fn declaration_diagnostic(&self, interner: &StringInterner) -> Option<Diagnostic> {
+        let diagnostic = match self {
+            SemanticProblem::ImmutableMutation {
+                span,
+                name,
+                binding_span,
+            } => Diagnostic::error(ErrorCode::E2039)
+                .with_message(format!(
+                    "cannot mutate immutable binding `{}`",
+                    interner.lookup(*name)
+                ))
+                .with_label(*span, "cannot mutate")
+                .with_secondary_label(*binding_span, "defined as immutable here")
+                .with_suggestion("remove the `$` prefix to make this binding mutable"),
+            SemanticProblem::UseBeforeInit { span, name } => Diagnostic::error(ErrorCode::E2003)
+                .with_message(format!(
+                    "use of possibly uninitialized `{}`",
+                    interner.lookup(*name)
+                ))
+                .with_label(*span, "used before initialization")
+                .with_suggestion("initialize the variable before using it"),
+            SemanticProblem::MissingTest { span, func_name } => {
+                let name = interner.lookup(*func_name);
+                Diagnostic::error(ErrorCode::E3010)
+                    .with_message(format!("function `@{name}` has no tests"))
+                    .with_label(*span, "missing test")
+                    .with_note(format!(
+                        "add a test with `@test_{name} tests @{name} () -> void`"
+                    ))
+            }
+            SemanticProblem::TestTargetNotFound {
+                span,
+                test_name,
+                target_name,
+            } => Diagnostic::error(ErrorCode::E3011)
+                .with_message(format!(
+                    "test `@{}` targets unknown function `@{}`",
+                    interner.lookup(*test_name),
+                    interner.lookup(*target_name)
+                ))
+                .with_label(*span, "function not found")
+                .with_note("check the function name in `tests @target_name`"),
+            SemanticProblem::BreakOutsideLoop { span } => Diagnostic::error(ErrorCode::E3002)
+                .with_message("`break` outside of loop")
+                .with_label(
+                    *span,
+                    "`break` can only appear inside `loop` or `for` bodies",
+                )
+                .with_suggestion("move this statement inside a loop body"),
+            SemanticProblem::ContinueOutsideLoop { span } => Diagnostic::error(ErrorCode::E3002)
+                .with_message("`continue` outside of loop")
+                .with_label(
+                    *span,
+                    "`continue` can only appear inside `loop` or `for` bodies",
+                )
+                .with_suggestion("move this statement inside a loop body"),
+            SemanticProblem::SelfOutsideMethod { span } => Diagnostic::error(ErrorCode::E3002)
+                .with_message("`self` outside of method")
+                .with_label(*span, "`self` is only available in `impl` block methods")
+                .with_suggestion("define this function inside an `impl` block"),
+            _ => return None,
+        };
+        Some(diagnostic)
+    }
+
+    fn name_resolution_diagnostic(&self, interner: &StringInterner) -> Option<Diagnostic> {
+        let diagnostic = match self {
+            SemanticProblem::UnknownIdentifier {
+                span,
+                name,
+                similar,
+            } => unknown_name_diagnostic(
+                interner,
+                *span,
+                *name,
+                *similar,
+                "identifier",
+                "",
+                "not found in this scope",
+            ),
+            SemanticProblem::UnknownFunction {
+                span,
+                name,
+                similar,
+            } => unknown_name_diagnostic(
+                interner,
+                *span,
+                *name,
+                *similar,
+                "function",
+                "@",
+                "function not found",
+            ),
+            SemanticProblem::UnknownConfig {
+                span,
+                name,
+                similar,
+            } => unknown_name_diagnostic(
+                interner,
+                *span,
+                *name,
+                *similar,
+                "config",
+                "$",
+                "config not found",
+            ),
+            SemanticProblem::DuplicateDefinition {
+                span,
+                name,
+                kind,
+                first_span,
+            } => Diagnostic::error(ErrorCode::E2006)
+                .with_message(format!(
+                    "duplicate {kind} definition `{}`",
+                    interner.lookup(*name)
+                ))
+                .with_label(*span, "duplicate definition")
+                .with_secondary_label(*first_span, "first definition here"),
+            SemanticProblem::PrivateAccess { span, name, kind } => {
+                Diagnostic::error(ErrorCode::E2003)
+                    .with_message(format!("{kind} `{}` is private", interner.lookup(*name)))
+                    .with_label(*span, "private, cannot access")
+                    .with_suggestion(format!(
+                        "add `pub` to the {kind} definition to make it public"
+                    ))
+            }
+            SemanticProblem::ImportNotFound { span, path } => Diagnostic::error(ErrorCode::E2003)
+                .with_message(format!("cannot find module `{path}`"))
+                .with_label(*span, "module not found")
+                .with_note("check that the file path is correct and the file exists"),
+            SemanticProblem::ImportedItemNotFound { span, item, module } => {
+                Diagnostic::error(ErrorCode::E2003)
+                    .with_message(format!(
+                        "cannot find `{}` in module `{module}`",
+                        interner.lookup(*item)
+                    ))
+                    .with_label(*span, "not found in module")
+                    .with_note("check the item is exported from the module")
+            }
+            _ => return None,
+        };
+        Some(diagnostic)
+    }
+}
+
+fn unknown_name_diagnostic(
+    interner: &StringInterner,
+    span: Span,
+    name: Name,
+    similar: Option<Name>,
+    kind: &str,
+    sigil: &str,
+    label: &str,
+) -> Diagnostic {
+    let name = interner.lookup(name);
+    let mut diagnostic = Diagnostic::error(ErrorCode::E2003)
+        .with_message(format!("unknown {kind} `{sigil}{name}`"))
+        .with_label(span, label);
+    if let Some(similar) = similar {
+        diagnostic =
+            diagnostic.with_suggestion(format!("try using `{sigil}{}`", interner.lookup(similar)));
+    }
+    diagnostic
 }
 
 mod test_coverage;
 
-pub use test_coverage::{check_test_coverage, pattern_problem_to_diagnostic};
+pub use test_coverage::{
+    check_test_coverage, const_eval_problem_to_diagnostic, const_eval_problems_summary,
+    const_eval_problems_to_diagnostics, pattern_problem_to_diagnostic,
+};
 
 #[cfg(test)]
 mod tests;

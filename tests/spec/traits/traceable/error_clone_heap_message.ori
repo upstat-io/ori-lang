@@ -1,0 +1,38 @@
+// Spec: 07-properties-of-types.md § Traceable / Clone
+// Regression: `clone() -> Self` on the Named error-struct receiver — registry-
+// first re-routing gives clone correct resolution for the FIRST time (pre-fix
+// it poisons to Idx::ERROR identically to trace_entries, since
+// resolve_named_type_method handles only unwrap/inner/value/to_str/debug and
+// register_error_type registers no derive/impl for clone). HEAP (>23 char)
+// message exercises the non-SSO fat-pointer message-buffer clone path.
+
+use std.testing { assert_eq }
+
+@fail_heap () -> Error =
+    Error("a heap error message over 23 chars, used for the clone pin");
+
+@cloned_message () -> str = {
+    let original = fail_heap();
+    let copy = original.clone();
+    copy.message
+}
+
+@test_cloned_message tests @cloned_message () -> void = {
+    assert_eq(
+        actual: cloned_message(),
+        expected: "a heap error message over 23 chars, used for the clone pin",
+    )
+}
+
+@cloned_message_matches_original () -> bool = {
+    let original = fail_heap();
+    let copy = original.clone();
+    original.message == copy.message
+}
+
+@test_cloned_message_matches_original tests @cloned_message_matches_original () -> void = {
+    assert_eq(
+        actual: cloned_message_matches_original(),
+        expected: true,
+    )
+}

@@ -1,0 +1,24 @@
+// FileCheck IR-shape pin (inc arm, Some preserved): a Some-bearing Option<str>
+// struct field walked for RC inc must STILL inc its inner str — but through the
+// tag-aware path (tag switch BEFORE the payload inc), never the un-guarded
+// bypass arm. The inc-direction Some negative pin (mirror of the dec Some pin):
+// the converge fix must not under-emit the Some payload inc nor reintroduce the
+// un-guarded inc-side payload extract. Sharing the Holder via a two-element
+// list forces the field inc walk.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: switch
+// CHECK: ori_str_rc_inc
+// CHECK-NOT: opt_inner
+
+type Holder = { f: Option<str> }
+
+@mk (b: bool) -> Option<str> = if b then Some("hi") else None;
+
+@count (xs: [Holder]) -> int = xs.len();
+
+@main () -> void = {
+    let h = Holder { f: mk(b: true) };
+    let xs = [h, h];
+    print(msg: count(xs: xs).to_str())
+}

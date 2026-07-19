@@ -7,8 +7,9 @@ Theorem VF-1: Verification layer signatures — VF-1 through VF-8
       passes one layer but regresses another is a correctness regression
     - All VF rules have signature ArcFunction x AimsStateMap x MemoryContract
       -> Bool per the canonical proof notation:285
-    - VF-2 sub-checks (b), (c), (d) are target-only conditional on sec-08
-      RL-29 / RL-30 / RL-31 LLVM fact export landing per Annex E §AIMS VF-2
+    - VF-2 sub-checks (b), (c), (d) validate backend-neutral RL-29 / RL-30 /
+      RL-31 facts conditional on their sec-08 derivations. Target spelling and
+      placement are separate backend-fidelity obligations
     - 8 active VF theorems per the section inventory table (line 109)
 
   Soundness property:
@@ -29,12 +30,12 @@ Theorem VF-1: Verification layer signatures — VF-1 through VF-8
       checks:
         (a) AbsentParamHasUses (parameters declared Absent MUST have no
             live uses on any forward-reachable path) — IMPLEMENTED
-        (b) RL-31 alias metadata backed by disjointness proof — target-only
-        (c) RL-29 noalias returns validated against ReturnContract —
-            target-only
-        (d) RL-30 memory(...) attributes derivable from IC-5 + parameter
-            contracts — target-only
-      Mandatory per VF-8 when shipped.
+        (b) RL-31 neutral parameter-disjointness facts backed by proof
+        (c) RL-29 FreshSelfAllocationFacts match IC-4
+            returns_fresh_self_alloc
+        (d) RL-30 MemoryAccessFact derives from IC-5, parameter contracts,
+            and realized operations
+      Target projections are verified separately.
 
     VF-3 (Layer 3 — Oracle):
       type : ArcFunction -> MemoryContract

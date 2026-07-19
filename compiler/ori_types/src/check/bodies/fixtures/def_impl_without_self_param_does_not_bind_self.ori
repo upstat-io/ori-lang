@@ -1,0 +1,2 @@
+trait Constant { @m () -> int; }
+pub def impl Constant { @m () -> int = { 42 } }

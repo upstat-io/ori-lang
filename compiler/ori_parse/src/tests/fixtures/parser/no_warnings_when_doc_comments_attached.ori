@@ -1,0 +1,2 @@
+// #Description
+@main () -> int = 42;

@@ -4,14 +4,9 @@
 //! tuples as function parameters/returns, tuples in collections, and
 //! tuple interaction with other language features.
 
-#![allow(
-    clippy::needless_raw_string_hashes,
-    reason = "readability in test program literals"
-)]
-
 use crate::util::assert_aot_success;
 
-// ─── Construction ───
+// Construction.
 
 #[test]
 fn test_tuple_pair_int() {
@@ -53,7 +48,7 @@ fn test_tuple_bool_pair() {
     );
 }
 
-// ─── Destructuring ───
+// Destructuring.
 
 #[test]
 fn test_tuple_destructure_pair() {
@@ -87,7 +82,7 @@ fn test_tuple_destructure_from_variable() {
     );
 }
 
-// ─── Field access ───
+// Field access.
 
 #[test]
 fn test_tuple_field_access_4() {
@@ -113,7 +108,7 @@ fn test_tuple_field_as_function_arg() {
     );
 }
 
-// ─── As function parameter/return ───
+// Function parameters and return values.
 
 #[test]
 fn test_tuple_as_param() {
@@ -147,10 +142,9 @@ fn test_tuple_return_triple() {
     );
 }
 
-// ─── Nested tuples ───
+// Nested tuples.
 
 #[test]
-#[ignore = "BUG-07-038: Parser gap — chained tuple field access t.0.0 lexed as float"]
 fn test_tuple_nested_pair_of_pairs() {
     assert_aot_success(
         include_str!("fixtures/tuples/tuple_nested_pair_of_pairs.ori"),
@@ -167,7 +161,6 @@ fn test_tuple_nested_destructure() {
 }
 
 #[test]
-#[ignore = "BUG-07-038: Parser gap — chained tuple field access t.1.0 lexed as float"]
 fn test_tuple_nested_mixed() {
     assert_aot_success(
         include_str!("fixtures/tuples/tuple_nested_mixed.ori"),
@@ -175,7 +168,7 @@ fn test_tuple_nested_mixed() {
     );
 }
 
-// ─── Tuples with strings ───
+// Tuples with strings.
 
 #[test]
 fn test_tuple_string_field() {
@@ -193,7 +186,7 @@ fn test_tuple_two_strings() {
     );
 }
 
-// ─── Tuples in control flow ───
+// Tuples in control flow.
 
 #[test]
 fn test_tuple_from_if_expression() {
@@ -219,7 +212,7 @@ fn test_tuple_destructure_in_loop() {
     );
 }
 
-// ─── Tuple with closures ───
+// Tuples with closures.
 
 #[test]
 fn test_tuple_closure_capture() {
@@ -237,7 +230,7 @@ fn test_tuple_returned_from_closure() {
     );
 }
 
-// ─── Tuple comparison ───
+// Tuple comparison.
 
 #[test]
 fn test_tuple_equality() {

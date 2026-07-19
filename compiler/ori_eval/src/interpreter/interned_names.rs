@@ -4,8 +4,6 @@
 //! so that hot-path operations (method dispatch, print routing, operator lookup,
 //! format spec construction) use `Name` comparison (`u32 == u32`) instead of
 //! repeated hash lookups via `interner.intern("...")`.
-//!
-//! Extracted from `interpreter/mod.rs` to keep that file under the 500-line limit.
 
 use ori_ir::{Name, StringInterner};
 

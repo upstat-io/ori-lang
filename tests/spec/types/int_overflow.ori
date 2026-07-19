@@ -1,0 +1,94 @@
+// Spec: 17-errors-and-panics.md § Implicit panics — "integer overflow in {operation}"
+// Spec: 14-expressions.md § Arithmetic
+
+use std.testing { assert_eq }
+
+// int is stored as i64.
+// i64::MAX = 9223372036854775807
+// i64::MIN = -9223372036854775808
+
+// =============================================================================
+// Addition Overflow
+// =============================================================================
+
+#fail("integer overflow in addition")
+@test_int_add_overflow tests @_int_add () -> void = {
+    let _ = 9223372036854775807 + 1;
+    ()
+}
+
+@_int_add () -> bool = true;
+
+@test_int_add_near_boundary tests @_int_add_ok () -> void = {
+    assert_eq(actual: 9223372036854775806 + 1, expected: 9223372036854775807)
+}
+
+@_int_add_ok () -> int = 9223372036854775806 + 1;
+
+// =============================================================================
+// Subtraction Overflow
+// =============================================================================
+
+#fail("integer overflow in subtraction")
+@test_int_sub_overflow tests @_int_sub () -> void = {
+    let _ = -9223372036854775808 - 1;
+    ()
+}
+
+@_int_sub () -> bool = true;
+
+// =============================================================================
+// Multiplication Overflow
+// =============================================================================
+
+#fail("integer overflow in multiplication")
+@test_int_mul_overflow tests @_int_mul () -> void = {
+    let _ = 9223372036854775807 * 2;
+    ()
+}
+
+@_int_mul () -> bool = true;
+
+// =============================================================================
+// Division
+// =============================================================================
+
+#fail("division by zero")
+@test_int_div_zero tests @_int_div_zero () -> void = {
+    let _ = 1 / 0;
+    ()
+}
+
+@_int_div_zero () -> bool = true;
+
+#fail("integer overflow in division")
+@test_int_div_overflow tests @_int_div_overflow () -> void = {
+    let _ = -9223372036854775808 / -1;
+    ()
+}
+
+@_int_div_overflow () -> bool = true;
+
+// =============================================================================
+// Modulo
+// =============================================================================
+
+#fail("modulo by zero")
+@test_int_mod_zero tests @_int_mod_zero () -> void = {
+    let _ = 1 % 0;
+    ()
+}
+
+@_int_mod_zero () -> bool = true;
+
+// =============================================================================
+// Negation Overflow
+// =============================================================================
+
+#fail("integer overflow in negation")
+@test_int_neg_overflow tests @_int_neg () -> void = {
+    let _ = -(-9223372036854775808);
+    ()
+}
+
+@_int_neg () -> bool = true;

@@ -1,8 +1,4 @@
-//! Special construct lowering for ARC IR.
-//!
-//! Handles Ori's unique expression patterns:
-//! - `FunctionExp`: `print(...)`, `panic(...)`, `todo`, `recurse`, etc.
-//! - `FormatWith`: template string format specs (`{value:>10.2f}`)
+//! ARC lowering for function expressions and formatted templates.
 
 use ori_ir::canon::{CanId, CanNamedExprRange};
 use ori_ir::{FunctionExpKind, Name, Span};
@@ -19,7 +15,7 @@ impl ArcLowerer<'_> {
     ///
     /// Routes to type-specific lowering based on `FunctionExpKind`.
     /// Post-0.1 concurrency variants (Parallel, Spawn, Timeout, With, Channel*)
-    /// are rejected at the type checker (E2040) and never reach here.
+    /// are rejected by the type checker (E2040) before ARC lowering.
     pub(crate) fn lower_function_exp(
         &mut self,
         kind: FunctionExpKind,
@@ -35,7 +31,7 @@ impl ArcLowerer<'_> {
             FunctionExpKind::Recurse => self.lower_exp_recurse(props, ty, span),
             FunctionExpKind::Cache => self.lower_exp_cache(props, span),
             FunctionExpKind::Catch => self.lower_exp_catch(props, ty, span),
-            // Post-2026 — rejected by type checker (E2040), never reaches lowerer
+            // INVARIANT: E2040 rejects concurrency forms before ARC lowering.
             FunctionExpKind::Parallel
             | FunctionExpKind::Spawn
             | FunctionExpKind::Timeout
@@ -107,10 +103,8 @@ impl ArcLowerer<'_> {
                 self.interner.intern("ori_panic_cstr")
             };
 
-            // Panic functions raise exceptions via _Unwind_RaiseException.
-            // Use Invoke (not Apply) so the ARC pipeline can generate cleanup
-            // landing pads for RC-managed variables on the unwind path.
-            // The normal continuation is unreachable (panic never returns).
+            // Panic uses `Invoke` so ARC can clean managed values on unwind;
+            // its normal continuation is unreachable.
             self.builder
                 .emit_invoke(Idx::UNIT, fn_name, vec![val], Some(span), None);
         } else {
@@ -239,21 +233,14 @@ impl ArcLowerer<'_> {
         let merge_block = self.builder.new_block();
         let merge_param = self.builder.add_block_param(merge_block, result_ty);
 
-        // Set catch target — Invoke calls AND inline checked-ops inside the
-        // body unwind here. An `Invoke` wires `catch_handler` via its unwind
-        // edge; an inline checked-op PrimOp instead records its result var →
-        // `catch_handler` (via `note_checked_op` → `catch_scoped_checked_ops`)
-        // so the LLVM emitter materializes a landing pad and routes the
-        // checked-op panic here (`Spec: Annex E §AIMS` cleanup is unaffected;
-        // Spec: Clause 14.3 for the panic conditions). `catch_unwind_target`
-        // is always the innermost enclosing catch, so a nested checked-op maps
-        // to its own (inner) handler.
+        // INVARIANT: The innermost catch owns both Invoke unwind edges and
+        // checked-op metadata; AIMS may interpose cleanup before projection.
+        // Spec: Clause 14.3.
         let prev_target = self.builder.set_catch_target(catch_handler);
 
         // Lower the body expression (panicking calls become Invoke → catch_handler)
         let body_result = self.lower_expr(body_id);
 
-        // Restore previous catch target
         if let Some(prev) = prev_target {
             self.builder.set_catch_target(prev);
         } else {
@@ -342,10 +329,8 @@ impl ArcLowerer<'_> {
             Some(span),
         );
 
-        // Non-primitive FormatWith is desugared in ori_canon (user `format()`
-        // dispatch or `to_str()` re-route), so only the 5 primitive arms reach
-        // here. The catch-all unreachable keeps a missed canon path loud rather
-        // than silently miscompiling a struct pointer to `ori_format_int`.
+        // INVARIANT: Canon lowers non-primitive formatting, so treating any
+        // other representation as an integer would be a miscompile.
         let runtime_fn = match inner_ty {
             Idx::INT => "ori_format_int",
             Idx::FLOAT => "ori_format_float",
@@ -365,7 +350,7 @@ impl ArcLowerer<'_> {
     /// Emit a unit literal in a fresh block after a terminator.
     ///
     /// Used after `terminate_unreachable()` to provide a valid `ArcVarId`
-    /// for subsequent code (which will be dead but must be well-formed).
+    /// for subsequent unreachable code that must remain well-formed.
     fn emit_unit_in_new_block(&mut self) -> ArcVarId {
         let dead_block = self.builder.new_block();
         self.builder.position_at(dead_block);

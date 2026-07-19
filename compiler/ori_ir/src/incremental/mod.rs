@@ -238,8 +238,7 @@ impl ChangeMarker {
             pos
         } else if pos >= self.affected_end {
             // At or after the end of affected region - shift by delta
-            // Safe: we check bounds and delta is computed from u32 values
-            #[allow(
+            #[expect(
                 clippy::cast_sign_loss,
                 clippy::cast_possible_truncation,
                 reason = "Bounds-checked: delta computed from u32 values"

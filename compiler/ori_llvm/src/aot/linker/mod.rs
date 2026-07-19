@@ -34,19 +34,23 @@
 //!
 //! # Usage
 //!
-//! ```ignore
-//! use ori_llvm::aot::{TargetConfig, LinkerDriver, LinkOutput};
+//! ```no_run
+//! use ori_llvm::aot::{LinkInput, LinkLibrary, LinkOutput, LinkerDriver, TargetConfig};
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
 //! let target = TargetConfig::native()?;
-//! let driver = LinkerDriver::new(&target)?;
+//! let driver = LinkerDriver::new(&target);
 //!
-//! driver.link(LinkInput {
+//! let input = LinkInput {
 //!     objects: vec!["main.o".into()],
 //!     output: "myapp".into(),
 //!     output_kind: LinkOutput::Executable,
-//!     libraries: vec!["ori_rt".into()],
+//!     libraries: vec![LinkLibrary::new("ori_rt")],
 //!     ..Default::default()
-//! })?;
+//! };
+//! driver.link(&input)?;
+//! # Ok(())
+//! # }
 //! ```
 
 mod detect;

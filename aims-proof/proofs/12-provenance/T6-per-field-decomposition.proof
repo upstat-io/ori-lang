@@ -1,0 +1,79 @@
+Theorem IA-T6: Per-field release decomposition — skip-set derivation soundness
+
+  Preconditions:
+    - The T2 CFG-ledger model is the substrate: per-partition-class event
+      ledgers, the three-clause per-class per-path invariant, the committed
+      clauses<->safety bridge (three_clauses_iff_ledger_safe).
+    - A by-value aggregate container C holds named owned heap fields (the
+      Burden owned_fields top-level grain: struct field indices / sum-variant
+      ordinals). Each payload P is born (+1 on P's partition class) and
+      stored into C by C's Construct (the STORE-consume, -1: ownership enters
+      C's recursive-release books).
+    - A CONSUME MARK on a field is a transferring terminal use of the
+      extracted field view AFTER the container's Construct, classified
+      through the COMMITTED RL-2 twelve-kind table
+      (rl2_use_transfers_ownership), never free input. A merely-read
+      (borrow-view) field is NEVER consume-marked.
+    - The decomposed release DecPartial(skip S) walks no field in S; the
+      plan RE-BOOKS the store as non-consuming for skipped fields (ownership
+      never enters the container's release path). The container's own class
+      books the SAME single whole-var consume as the whole-var Dec.
+
+  Soundness property:
+    The skip set derived from the partition's consume marks is the UNIQUE
+    clause-preserving skip set. Per (moved, skipped) cell the payload-class
+    ledger is birth :: (store-consume unless skipped) :: (move-out consume
+    iff moved), and the T2 three clauses hold EXACTLY when skipped = moved:
+      moved=F skipped=F : net  0 (the container glue frees it)   ACCEPT
+      moved=T skipped=F : net -1 (double free)                   REJECT
+      moved=T skipped=T : net  0 (the transferee owns it)        ACCEPT
+      moved=F skipped=T : net +1 (leak)                          REJECT
+    Over any named-field set, pointwise clause satisfaction on every payload
+    class holds IFF skip = marked pointwise (FD_skipset_sound). Both
+    balanced cells are safe end-to-end through the committed
+    clauses<->safety bridge. Frame: the container's class derives the
+    verbatim [consume] from DecPartial exactly as from Dec; every class
+    disjoint from the container derives the verbatim-empty ledger from the
+    release. Scope: T6 governs clause 1 (exactly-once ownership); clauses
+    2/3 stay enforced by the UNCHANGED T2 verifier over the replanned
+    streams (the decomposition adds no read/mutate events).
+
+  Proof obligation:
+    Compiled Lean: AimsProof.FieldDecomposition (lake build clean).
+      payloadEvents (the four-cell carrier)
+      FD_cell_balanced_iff (P1 core: threeClauses = (skipped == moved))
+      FD_skipset_sound (P1 THE derivation-uniqueness iff over any field set)
+      FD_under_skip_double_free, FD_over_skip_leak (named negative witnesses)
+      FD_balanced_cells_safe (committed clauses<->safety bridge applied)
+      FD_container_class_verbatim, FD_untouched_class_verbatim (P2 frame)
+      FD_cured_moved_field_balanced, FD_cured_unmoved_field_balanced,
+        FD_buggy_whole_var_release_rejected (P4 struct_list_field
+        instantiation: cured skip-set accepted, whole-var release rejected)
+      FD_moveout_is_committed_transfer, FD_read_is_not_transfer (P4 the
+        consume mark computed through the committed RL-2 table)
+      FD_per_site_skipset_sound (P5 per-SITE pathwise iff: over a path
+        universe with path-dependent move marks and one release site per
+        path, each path's clause verdict holds exactly when its site skip
+        verdict matches its move mark - the take-project source-enum shape,
+        payload moved on the extraction path and kept on the bypass path)
+      FD_site_uniform_projection (P5 the site-verdict projection: when
+        every path through a release site shares one move mark - skip
+        sites extraction-dominated, whole-var sites extraction-free - the
+        per-site assignment matching each site's uniform mark balances
+        every path)
+    Bridged committed theorems and carriers consumed: LedgerEvent,
+      LedgerInstr, deriveLedger, runLedger, threeClauses, ledgerSafe,
+      three_clauses_iff_ledger_safe (AimsProof.Ledger);
+      rl2_use_transfers_ownership (AimsProof.Realization).
+    The compiled Lean (verified by `lake build` under the trusted kernel) is
+    the authoritative calculus; this .proof is the human-readable companion.
+
+    Engines dispatched:
+      case_analysis (PRIMARY - the four (moved, skipped) cells, each
+        computed through the committed runLedger/threeClauses evaluators)
+      structural_induction (the field-set pointwise iff; the derivation
+        frame over the instruction carrier)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: IA per-field-decomposition shape outside the rule-numbered IA verifier inventory (the IA dischargers serve numbered IA suffixes only). The authoritative machine-check is the compiled Lean AimsProof.FieldDecomposition (lake build clean): FD_skipset_sound discharges the derivation-uniqueness iff (skip = consume marks is the sole clause-preserving skip set), FD_cell_balanced_iff the four-cell balance verdict with both named negative witnesses (under-skip double free, over-skip leak), FD_container_class_verbatim + FD_untouched_class_verbatim the release frame, and the P4 instantiation the cured-vs-buggy struct_list_field composition, with the consume mark classified through the committed RL-2 twelve-kind table.

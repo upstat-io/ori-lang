@@ -3,11 +3,10 @@
 // Arc<String> is used here for source file path and source text that are shared
 // across child interpreters (clone-per-child). Heap<T> is not suitable because
 // its constructor is pub(super) to the value module.
-#![expect(
+#[expect(
     clippy::disallowed_types,
     reason = "Arc<String> shared across child interpreters"
 )]
-
 use std::sync::Arc;
 
 use super::resolvers::{
@@ -30,6 +29,10 @@ use ori_ir::{ExprArena, SharedArena, StringInterner};
 /// - `EvalMode::Interpret` for `ori run`
 /// - `EvalMode::TestRun { .. }` for `ori test`
 /// - `EvalMode::ConstEval { .. }` for compile-time evaluation
+#[expect(
+    clippy::disallowed_types,
+    reason = "Arc<String> shared across child interpreters"
+)]
 pub struct InterpreterBuilder<'a> {
     interner: &'a StringInterner,
     arena: &'a ExprArena,
@@ -111,7 +114,8 @@ impl<'a> InterpreterBuilder<'a> {
 
     /// Set the print handler for the Print capability.
     ///
-    /// Default is stdout for `Interpret` mode. Overrides mode-based default.
+    /// The default is stdout regardless of mode; setting this overrides it
+    /// (buffer for capture, silent to discard).
     #[must_use]
     pub fn print_handler(mut self, handler: SharedPrintHandler) -> Self {
         self.print_handler = Some(handler);
@@ -142,6 +146,10 @@ impl<'a> InterpreterBuilder<'a> {
     ///
     /// Used by `?` operator to record propagation location in error traces.
     #[must_use]
+    #[expect(
+        clippy::disallowed_types,
+        reason = "Arc<String> shared across child interpreters"
+    )]
     pub fn source_file_path(mut self, path: Arc<String>) -> Self {
         self.source_file_path = Some(path);
         self
@@ -152,6 +160,10 @@ impl<'a> InterpreterBuilder<'a> {
     /// Used by `?` operator to convert span byte offsets to line:column
     /// in error trace entries.
     #[must_use]
+    #[expect(
+        clippy::disallowed_types,
+        reason = "Arc<String> shared across child interpreters"
+    )]
     pub fn source_text(mut self, text: Arc<String>) -> Self {
         self.source_text = Some(text);
         self
@@ -203,7 +215,7 @@ impl<'a> InterpreterBuilder<'a> {
         // Pre-intern builtin method names for hot-path dispatch (u32 == u32)
         let builtin_method_names = crate::methods::BuiltinMethodNames::new(self.interner);
 
-        // Default print handler depends on mode if not explicitly set
+        // Stdout unless the caller overrode it (buffer/silent).
         let print_handler = self.print_handler.unwrap_or_else(stdout_handler);
 
         let mode_state = ModeState::new(&self.mode);

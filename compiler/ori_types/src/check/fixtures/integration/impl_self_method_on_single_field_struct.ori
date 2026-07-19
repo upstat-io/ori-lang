@@ -1,0 +1,5 @@
+type Wrapper = { value: int }
+
+impl Wrapper {
+    @doubled (self) -> int = self.value * 2;
+}

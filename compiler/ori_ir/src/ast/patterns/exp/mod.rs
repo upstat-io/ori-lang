@@ -50,6 +50,27 @@ pub enum FunctionExpKind {
 }
 
 impl FunctionExpKind {
+    /// Every `function_exp` kind, in declaration order. The canonical inventory:
+    /// consumers (e.g. `PatternRegistry::kinds`) derive from this rather than
+    /// re-listing the variants.
+    pub const ALL: [Self; 15] = [
+        Self::Recurse,
+        Self::Parallel,
+        Self::Spawn,
+        Self::Timeout,
+        Self::Cache,
+        Self::With,
+        Self::Print,
+        Self::Panic,
+        Self::Catch,
+        Self::Todo,
+        Self::Unreachable,
+        Self::Channel,
+        Self::ChannelIn,
+        Self::ChannelOut,
+        Self::ChannelAll,
+    ];
+
     pub fn name(self) -> &'static str {
         match self {
             FunctionExpKind::Recurse => "recurse",

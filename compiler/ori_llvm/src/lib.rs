@@ -14,11 +14,11 @@
 //!
 //! # Key Types
 //!
-//! - [`SimpleCx`](context::SimpleCx): Minimal LLVM context (module + types)
+//! - [`SimpleCx`]: Minimal LLVM context (module + types)
 //! - [`IrBuilder`](codegen::IrBuilder): ID-based LLVM instruction builder
 //! - [`FunctionCompiler`](codegen::function_compiler::FunctionCompiler): Two-pass compilation
 //! - [`TypeInfoStore`](codegen::TypeInfoStore): Type information cache
-//! - [`LLVMEvaluator`](evaluator::LLVMEvaluator): JIT evaluation
+//! - [`OwnedLLVMEvaluator`](evaluator::OwnedLLVMEvaluator): JIT evaluation
 
 #![warn(clippy::allow_attributes_without_reason)]
 #![allow(
@@ -42,43 +42,39 @@
     clippy::similar_names,
     reason = "workspace equivalent — codegen uses similar names intentionally"
 )]
-#![allow(
-    clippy::cognitive_complexity,
-    reason = "workspace equivalent — codegen match arms are complex"
-)]
 #![allow(clippy::module_name_repetitions, reason = "workspace equivalent")]
 #![allow(clippy::must_use_candidate, reason = "workspace equivalent")]
 
-// -- V2 codegen pipeline --
+// V2 codegen pipeline
 pub mod codegen;
 pub mod context;
 
-// -- Monomorphization --
-pub mod monomorphize;
+// Monomorphization
 
-// -- Evaluator (JIT) --
+// Evaluator (JIT)
 pub mod evaluator;
 
-// -- Runtime bindings --
+mod drop_symbol;
+
+// Runtime bindings
 pub mod runtime;
 
-// -- AOT compilation --
+// AOT compilation
 pub mod aot;
 
-// -- Verification --
+// Verification
 pub mod verify;
 
-// -- Range-analysis inputs --
-mod unconstrained_fns;
+// Range-analysis inputs
 
-// -- Initialization --
+// Initialization
 mod init;
 
-// -- Re-exports --
+// Re-exports
 pub use context::SimpleCx;
+pub use drop_symbol::{drop_glue_symbol, DROP_GLUE_PREFIX};
 pub use init::install_fatal_error_handler;
 pub use inkwell;
-pub use unconstrained_fns::collect_unconstrained_fn_names;
 
 #[cfg(test)]
 mod tests;

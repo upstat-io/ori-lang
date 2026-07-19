@@ -459,6 +459,14 @@ fn test_cast_int_to_char_beyond_u32_panics() {
     );
 }
 
+#[test]
+fn test_checked_conversion_panics_are_catchable() {
+    assert_aot_success(
+        include_str!("fixtures/conversions/checked_conversion_panics_are_catchable.ori"),
+        "checked_conversion_panics_are_catchable",
+    );
+}
+
 // ─── checked float -> int (to_int / int()) panic guards ───
 //
 // `to_int` / `int()` are CHECKED conversions: NaN / infinity /

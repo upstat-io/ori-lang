@@ -37,16 +37,11 @@ pub fn compile_and_run(source: &str, config: &CompileConfig) -> CompileOutput {
     // Parse
     let parse_result = ori_parse::parse(&tokens, &interner);
     if parse_result.has_errors() {
-        let diagnostics: Vec<_> = parse_result
-            .errors
-            .iter()
-            .map(ori_parse::ParseError::to_diagnostic)
-            .collect();
         return CompileOutput {
             success: false,
             output: String::new(),
             printed: String::new(),
-            diagnostics,
+            diagnostics: parse_diagnostics(&parse_result),
             error_phase: Some(ErrorPhase::Parse),
         };
     }
@@ -82,7 +77,7 @@ pub fn compile_and_run(source: &str, config: &CompileConfig) -> CompileOutput {
     // Build interpreter
     let print_handler = buffer_handler();
     let mut interpreter = InterpreterBuilder::new(&interner, &parse_result.arena)
-        .print_handler(print_handler.clone())
+        .print_handler(print_handler)
         .canon(shared_canon.clone())
         .build();
 
@@ -100,7 +95,7 @@ pub fn compile_and_run(source: &str, config: &CompileConfig) -> CompileOutput {
         return CompileOutput {
             success: false,
             output: String::new(),
-            printed: interpreter.get_print_output(),
+            printed: interpreter.print_output(),
             diagnostics: vec![no_main_diagnostic(&config.file_path)],
             error_phase: Some(ErrorPhase::Runtime),
         };
@@ -110,7 +105,7 @@ pub fn compile_and_run(source: &str, config: &CompileConfig) -> CompileOutput {
     match interpreter.eval_can(can_id) {
         Ok(value) => {
             let output = format_value(&value);
-            let printed = interpreter.get_print_output();
+            let printed = interpreter.print_output();
             CompileOutput {
                 success: true,
                 output,
@@ -120,7 +115,7 @@ pub fn compile_and_run(source: &str, config: &CompileConfig) -> CompileOutput {
             }
         }
         Err(e) => {
-            let printed = interpreter.get_print_output();
+            let printed = interpreter.print_output();
             let eval_error = e.into_eval_error();
             let diag = eval_error.to_diagnostic();
             CompileOutput {
@@ -146,15 +141,10 @@ pub fn format_source(source: &str, max_width: Option<usize>) -> FormatOutput {
     // Parse
     let parse_result = ori_parse::parse(&lex_output.tokens, &interner);
     if parse_result.has_errors() {
-        let diagnostics: Vec<_> = parse_result
-            .errors
-            .iter()
-            .map(ori_parse::ParseError::to_diagnostic)
-            .collect();
         return FormatOutput {
             success: false,
             formatted: None,
-            diagnostics,
+            diagnostics: parse_diagnostics(&parse_result),
         };
     }
 
@@ -178,6 +168,15 @@ pub fn format_source(source: &str, max_width: Option<usize>) -> FormatOutput {
         formatted: Some(formatted),
         diagnostics: Vec::new(),
     }
+}
+
+/// Render a parse phase's accumulated errors into diagnostics.
+fn parse_diagnostics(parse_result: &ori_parse::ParseOutput) -> Vec<ori_diagnostic::Diagnostic> {
+    parse_result
+        .errors
+        .iter()
+        .map(ori_parse::ParseError::to_diagnostic)
+        .collect()
 }
 
 /// Format a `Value` for output display.

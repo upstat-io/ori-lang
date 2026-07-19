@@ -79,8 +79,7 @@ Each compiler crate registers as a distinct tracing target, allowing developers 
 | `ori_types` | Type checking phases, inference steps, unification, trait resolution, type errors |
 | `ori_eval` | Expression evaluation, method dispatch, function calls, built-in operations |
 | `ori_llvm` | LLVM code generation, ABI decisions, ARC emission, optimization passes |
-| `ori_parse` | Parser state transitions (limited instrumentation) |
-| `ori_patterns` | Pattern matching compilation (limited instrumentation) |
+| `ori_parse` | Public parse entry points, module phases, declaration dispatch, and recursive expression/type parsing |
 
 ### Levels
 
@@ -213,7 +212,7 @@ The `diagnostics/` directory contains shell scripts that compose the low-level d
 
 **`dual-exec-debug.sh`** runs a program through both the interpreter (`ori run`) and the AOT backend (`ori build` followed by execution), comparing exit codes and stdout. When the results differ --- indicating a codegen bug --- it automatically runs `ir-dump.sh` and `rc-stats.sh` to capture diagnostic context. This is the primary tool for "it works in the interpreter but crashes when compiled" investigations.
 
-**`dual-exec-verify.sh`** extends the dual-execution concept to batch mode, running an entire test suite through both backends. Supports `--test-only` (only test functions), `--main-only` (only `@main` functions), and `--json` (machine-readable output). Used in CI to detect interpreter/AOT divergence across the full spec test suite.
+**`dual-exec-verify.sh`** batch-compares the evaluator and LLVM/AOT path. It supports `--test-only` (only test functions), `--main-only` (only `@main` functions), and `--json` (machine-readable output). This remains a useful two-path diagnostic, but it is not a complete cross-executor verdict once the VM is in scope; VM parity must be included by the production matrix.
 
 ### Focused Analysis
 
@@ -231,7 +230,7 @@ The `diagnostics/` directory contains shell scripts that compose the low-level d
 
 ### Consistency Checking
 
-**`check-debug-flags.sh`** validates that the debugging infrastructure itself is consistent. It performs three checks: every `ORI_*` flag defined in the central `debug_flags.rs` is actually used somewhere in the codebase (no stale flags); every raw `std::env::var("ORI_*")` check in the codebase references a flag defined in `debug_flags.rs` (no orphan checks); and `CLAUDE.md` documents all diagnostic environment variables (no undocumented flags).
+**`check-debug-flags.sh`** validates that the debugging infrastructure itself is consistent. It performs two checks: every `ORI_*` flag defined under the central `debug_flags/` module is actually used somewhere in the codebase (no stale flags), and every raw `std::env::var("ORI_*")` check in the codebase references a flag defined under `debug_flags/` (no orphan checks).
 
 ## Common Debug Scenarios
 
@@ -262,7 +261,7 @@ Shows function calls and method dispatch at function granularity. Use `trace` fo
 ```bash
 diagnostics/dual-exec-debug.sh file.ori --verbose
 ```
-Runs both backends, compares results, and automatically captures IR and RC statistics on mismatch.
+Runs the evaluator and LLVM path, compares results, and automatically captures IR and RC statistics on mismatch. Run the VM parity probe separately until the diagnostic surface is unified.
 
 **"Memory leak?"** --- A compiled program's memory usage grows without bound.
 ```bash
@@ -366,7 +365,7 @@ The Ori compiler's debugging infrastructure draws on established patterns from p
 
 Three significant tradeoffs shaped the debugging infrastructure's design:
 
-**Environment variables vs. CLI flags.** All debugging controls use environment variables rather than compiler command-line flags. This avoids polluting the user-facing CLI with developer-only options, allows flags to compose freely (set as many as needed in any combination), and works consistently across all invocation methods (direct, via build scripts, via IDE integrations). The cost is discoverability --- a developer must know the variable names. The `check-debug-flags.sh` consistency script and centralized `debug_flags.rs` documentation mitigate this.
+**Environment variables vs. CLI flags.** All debugging controls use environment variables rather than compiler command-line flags. This avoids polluting the user-facing CLI with developer-only options, allows flags to compose freely (set as many as needed in any combination), and works consistently across all invocation methods (direct, via build scripts, via IDE integrations). The cost is discoverability --- a developer must know the variable names. The `check-debug-flags.sh` consistency script and the centralized `debug_flags/` module documentation mitigate this.
 
 **The `tracing` crate vs. a custom logging system.** The `tracing` crate adds compile-time and runtime overhead: each instrumented span creates a `Span` object, and the subscriber dispatch involves a virtual call per event. A custom system could eliminate this overhead for disabled targets. The tradeoff favors `tracing` because it integrates with the Rust ecosystem (any `tracing`-compatible subscriber works), provides the hierarchical span model that naturally fits compiler phase nesting, and the overhead is negligible relative to the work the compiler performs at each traced point. Benchmarks show less than 1% overhead with all tracing disabled.
 

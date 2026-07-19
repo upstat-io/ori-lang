@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn test_function_exp_kind_name_all_variants() {
+fn function_exp_kind_name_maps_each_declared_variant() {
     // Verify all 15 FunctionExpKind variants return correct names
     assert_eq!(FunctionExpKind::Recurse.name(), "recurse");
     assert_eq!(FunctionExpKind::Parallel.name(), "parallel");
@@ -18,6 +18,28 @@ fn test_function_exp_kind_name_all_variants() {
     assert_eq!(FunctionExpKind::ChannelIn.name(), "channel_in");
     assert_eq!(FunctionExpKind::ChannelOut.name(), "channel_out");
     assert_eq!(FunctionExpKind::ChannelAll.name(), "channel_all");
+}
+
+#[test]
+fn function_exp_kind_all_constant_stays_in_sync_with_declared_variants() {
+    use std::collections::HashSet;
+
+    // ALL is the canonical inventory consumers derive from. A variant added to
+    // the enum (and forced into the exhaustive `name()` match) but forgotten in
+    // ALL drifts the inventory; the unique-non-empty-name pin catches it because
+    // every variant's name is distinct, so a missing entry collapses the set.
+    let names: HashSet<&'static str> = FunctionExpKind::ALL.iter().map(|k| k.name()).collect();
+    assert_eq!(
+        names.len(),
+        FunctionExpKind::ALL.len(),
+        "FunctionExpKind::ALL has duplicate or missing entries — names must be unique"
+    );
+    for kind in FunctionExpKind::ALL {
+        assert!(
+            !kind.name().is_empty(),
+            "every FunctionExpKind in ALL must have a non-empty name"
+        );
+    }
 }
 
 #[test]

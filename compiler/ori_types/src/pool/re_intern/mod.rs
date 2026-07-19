@@ -46,9 +46,13 @@
 
 use rustc_hash::FxHashMap;
 
-use crate::{FunctionSig, Idx, Pool, Tag, TypeFlags, VarState, DEFAULT_RANK};
+mod variables;
 
-// --- Public API ------------------------------------------------------------
+use variables::{get_or_allocate_var_id, re_intern_scheme, re_intern_var_leaf};
+
+use crate::{FunctionSig, Idx, Pool, Tag, TypeFlags};
+
+// Public API
 
 /// Re-intern a single type from `source` pool into `target` pool.
 ///
@@ -112,6 +116,7 @@ pub fn re_intern_type_with_var_remap(
         let hash = source.hash(idx);
         if let Some(local_idx) = target.lookup_by_hash(hash) {
             cache.insert(idx, local_idx);
+            carry_nominal_resolution(source, idx, tag, target, local_idx, cache, var_remap);
             return local_idx;
         }
     }
@@ -173,6 +178,20 @@ pub fn re_intern_sig_with_var_remap(
     }
     result.return_type =
         re_intern_type_with_var_remap(source, result.return_type, target, cache, var_remap);
+    for capability in &mut result.capability_params {
+        let crate::CapabilityParam::Value {
+            provider_type,
+            provider_var_id,
+            ..
+        } = capability
+        else {
+            continue;
+        };
+        *provider_type =
+            re_intern_type_with_var_remap(source, *provider_type, target, cache, var_remap);
+        *provider_var_id =
+            get_or_allocate_var_id(*provider_var_id, source, target, cache, var_remap);
+    }
 
     // Rewrite scheme_var_ids through var_remap. Every binder in scheme_var_ids
     // MUST resolve to a destination-local id. If the binder wasn't encountered
@@ -188,7 +207,7 @@ pub fn re_intern_sig_with_var_remap(
     result
 }
 
-// --- Internals --------------------------------------------------------------
+// Internals
 
 /// Returns true iff the source type is eligible for the Merkle-hash fast path
 /// in [`re_intern_type_with_var_remap`].
@@ -291,7 +310,17 @@ fn re_intern_by_tag(
         // Named: [name_lo, name_hi] — structural, no child types
         Tag::Named => {
             let name = source.named_name(idx);
-            target.named(name)
+            let new_named = target.named(name);
+            // Publish the wrapper before rebuilding its concrete body. A
+            // recursive body can refer back to this same Named identity.
+            cache.insert(idx, new_named);
+            carry_nominal_resolution(source, idx, Tag::Named, target, new_named, cache, var_remap);
+            // Carry the FFI C-ABI kind side table (keyed by the Named Idx) — re-
+            // interning the Named structure alone drops it.
+            if let Some(kind) = source.cabi_kind(idx) {
+                target.set_cabi_kind(new_named, kind);
+            }
+            new_named
         }
 
         Tag::Applied => re_intern_applied(source, idx, target, cache, var_remap),
@@ -377,7 +406,50 @@ fn re_intern_applied(
         .into_iter()
         .map(|a| re_intern_type_with_var_remap(source, a, target, cache, var_remap))
         .collect();
-    target.applied(name, &args)
+    let target_applied = target.applied(name, &args);
+    // Publish the wrapper before rebuilding its concrete body so recursive
+    // generic composites terminate through the session cache.
+    cache.insert(idx, target_applied);
+    // A materialized generic-composite `Applied` carries its concrete
+    // `Struct`/`Enum` body in the source pool's `resolutions` map. Re-interning the
+    // `Applied` alone drops that resolution, so the AOT codegen pool (which migrates
+    // into a fresh pool, unlike the JIT path) loses the concrete layout and emits a
+    // generic-placeholder struct + malformed `ori_rc_dec`. Carry the resolution.
+    carry_nominal_resolution(
+        source,
+        idx,
+        Tag::Applied,
+        target,
+        target_applied,
+        cache,
+        var_remap,
+    );
+    target_applied
+}
+
+/// Rebuild the concrete body paired with a Named/Applied wrapper.
+///
+/// Pool resolutions are part of a nominal type's usable identity: ARC and
+/// representation consumers resolve wrappers to their concrete fields and
+/// variants. The source wrapper must already be present in `cache` before this
+/// helper runs so recursive definitions terminate at the target wrapper.
+fn carry_nominal_resolution(
+    source: &Pool,
+    source_idx: Idx,
+    source_tag: Tag,
+    target: &mut Pool,
+    target_idx: Idx,
+    cache: &mut FxHashMap<Idx, Idx>,
+    var_remap: &mut FxHashMap<u32, u32>,
+) {
+    if !matches!(source_tag, Tag::Named | Tag::Applied) {
+        return;
+    }
+    let Some(concrete) = source.resolve(source_idx) else {
+        return;
+    };
+    let target_concrete = re_intern_type_with_var_remap(source, concrete, target, cache, var_remap);
+    target.set_resolution(target_idx, target_concrete);
 }
 
 /// Re-intern a struct type (name + typed fields).
@@ -426,141 +498,6 @@ fn re_intern_enum(
         })
         .collect();
     target.enum_type(name, &variants)
-}
-
-/// Look up `src_var_id` in `var_remap` or allocate a fresh destination id.
-///
-/// Single SSOT for the "remap-or-allocate" pattern used by scheme binders,
-/// leaf `Tag::Var` / `Tag::BoundVar` / `Tag::RigidVar`, and
-/// `FunctionSig.scheme_var_ids` coherence. On first sighting of `src_var_id`,
-/// allocates a fresh dst via [`Pool::allocate_var_id`], records the mapping in
-/// `var_remap`, and rebuilds `target.var_states[dst_id]` variant-aware from
-/// `source.var_states[src_var_id]` via [`rebuild_var_state`].
-fn get_or_allocate_var_id(
-    src_var_id: u32,
-    source: &Pool,
-    target: &mut Pool,
-    cache: &mut FxHashMap<Idx, Idx>,
-    var_remap: &mut FxHashMap<u32, u32>,
-) -> u32 {
-    if let Some(&existing) = var_remap.get(&src_var_id) {
-        return existing;
-    }
-    let new_id = target.allocate_var_id();
-    var_remap.insert(src_var_id, new_id);
-    rebuild_var_state(source, src_var_id, target, new_id, cache, var_remap);
-    new_id
-}
-
-/// Re-intern a `Tag::Scheme` — remap binders FIRST so the body's leaf
-/// `Tag::Var` references can resolve to the same destination ids through
-/// `var_remap` during the recursive body walk.
-///
-/// A scheme whose body references a `var_id` not in its binder list (or vice
-/// versa) is malformed; the scheme matrix cells (e2, e5) in
-/// `pool/re_intern/tests.rs` pin this coherence invariant.
-fn re_intern_scheme(
-    source: &Pool,
-    idx: Idx,
-    target: &mut Pool,
-    cache: &mut FxHashMap<Idx, Idx>,
-    var_remap: &mut FxHashMap<u32, u32>,
-) -> Idx {
-    let src_vars = source.scheme_vars(idx).to_vec();
-    let mut dst_vars: Vec<u32> = Vec::with_capacity(src_vars.len());
-    for &src_var_id in &src_vars {
-        dst_vars.push(get_or_allocate_var_id(
-            src_var_id, source, target, cache, var_remap,
-        ));
-    }
-    let body =
-        re_intern_type_with_var_remap(source, source.scheme_body(idx), target, cache, var_remap);
-    target.scheme(&dst_vars, body)
-}
-
-/// Re-intern a leaf type-variable — `Tag::Var`, `Tag::BoundVar`, or
-/// `Tag::RigidVar`. Remaps `data` (the pool-local `var_id`) to a
-/// destination-local id via `var_remap`, allocating a fresh slot if this is
-/// the first sighting of `src_var_id` in this re-intern session.
-fn re_intern_var_leaf(
-    source: &Pool,
-    idx: Idx,
-    tag: Tag,
-    target: &mut Pool,
-    cache: &mut FxHashMap<Idx, Idx>,
-    var_remap: &mut FxHashMap<u32, u32>,
-) -> Idx {
-    let src_var_id = source.data(idx);
-    let dst_var_id = get_or_allocate_var_id(src_var_id, source, target, cache, var_remap);
-    target.intern(tag, dst_var_id)
-}
-
-/// Rebuild `target.var_states[dst_var_id]` variant-aware from
-/// `source.var_states[src_var_id]`.
-///
-/// Rebuild rules (scheme-coherence invariant SC-1):
-/// - `Unbound { id, rank, name }` → `Unbound { id: dst_var_id, rank, name }`
-///   (`id` is pool-local — must be the NEW destination id, not the source's).
-/// - `Generalized { id, name }` → `Generalized { id: dst_var_id, name }`
-///   (same pool-local id rule; preserves the `Generalized` variant so
-///   `substitute_in_pool` takes the correct branch downstream).
-/// - `Rigid { name }` → `Rigid { name }` (literal clone; `Name` is a global
-///   intern, pool-independent).
-/// - `Link { target }` → `Link { target: re_intern_type_with_var_remap(..) }`
-///   (recursive re-intern of the link target; do NOT resolve via
-///   `cache.get(&source.target).expect(..)` which panics when the link target
-///   is reachable ONLY through this Link).
-///
-/// If the source has no `var_state` entry at `src_var_id` (e.g., a
-/// test-fabricated `Tag::Var(7)` where the intern exists but no matching
-/// `var_states` slot was registered), falls back to a default `Unbound` at
-/// `dst_var_id` — the destination stands alone as a fresh unbound variable.
-fn rebuild_var_state(
-    source: &Pool,
-    src_var_id: u32,
-    target: &mut Pool,
-    dst_var_id: u32,
-    cache: &mut FxHashMap<Idx, Idx>,
-    var_remap: &mut FxHashMap<u32, u32>,
-) {
-    // Clone source state to release the borrow on source before any target
-    // mutation.
-    let src_state = source.var_state_checked(src_var_id).cloned();
-
-    let dst_state = match src_state {
-        Some(VarState::Unbound { rank, name, .. }) => VarState::Unbound {
-            id: dst_var_id,
-            rank,
-            name,
-        },
-        Some(VarState::Generalized { name, .. }) => VarState::Generalized {
-            id: dst_var_id,
-            name,
-        },
-        Some(VarState::Rigid { name }) => VarState::Rigid { name },
-        Some(VarState::Link {
-            target: src_link_target,
-        }) => {
-            // Recursive re-intern of the Link target. May mutate target,
-            // cache, var_remap before we write the final dst_state.
-            let dst_link_target =
-                re_intern_type_with_var_remap(source, src_link_target, target, cache, var_remap);
-            VarState::Link {
-                target: dst_link_target,
-            }
-        }
-        None => VarState::Unbound {
-            id: dst_var_id,
-            rank: DEFAULT_RANK,
-            name: None,
-        },
-    };
-
-    // Defensive: if the caller allocated `dst_var_id` via `allocate_var_id`,
-    // the slot already exists. If not (e.g., future callers that reserve via
-    // `ensure_var_capacity`), extend capacity here.
-    target.ensure_var_capacity(dst_var_id + 1);
-    *target.var_state_mut(dst_var_id) = dst_state;
 }
 
 #[cfg(test)]

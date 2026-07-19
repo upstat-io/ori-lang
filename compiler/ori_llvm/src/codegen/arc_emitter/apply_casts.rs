@@ -110,8 +110,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// The `spec_str` is `{i64 len, ptr data}` that needs decomposition.
     ///
     /// Dispatch is `Name`-keyed via [`super::FormatRtNames`] (pre-interned,
-    /// per interning discipline) — the registry carries the per-function
-    /// `value_is_str` flag alongside the runtime symbol.
+    /// per interning discipline) — the registry resolves a typed target whose
+    /// runtime symbol and value ABI cannot disagree.
     pub(super) fn try_emit_format_call(
         &mut self,
         callee: Name,
@@ -122,10 +122,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return None;
         }
 
-        // Single dispatch point: resolve the runtime function AND whether the
-        // formatted value itself is a string struct needing ptr coercion.
-        let (symbol, value_is_str) = self.format_rt_names.lookup(callee)?;
-        let func_id = self.builder.runtime_fn(symbol);
+        let target = self.format_rt_names.lookup(callee)?;
+        let func_id = self.builder.runtime_fn(target.symbol());
 
         // args[0] = the value to format
         let value = self.var(args[0]);
@@ -133,7 +131,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let spec_str = self.var(args[1]);
 
         // For ori_format_str, the value arg is also a string struct — coerce to ptr.
-        let value_arg = if value_is_str {
+        let value_arg = if target.value_needs_pointer() {
             let val_ty = func.var_type(args[0]);
             self.coerce_aggregate_to_ptr(value, val_ty)
         } else {

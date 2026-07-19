@@ -1,0 +1,9 @@
+trait Default {
+    @default () -> Self
+}
+
+type Box<T> = { value: T }
+
+impl<T: Default> Box<T>: Default {
+    @default () -> Box<T> = Box { value: T.default() }
+}

@@ -1,26 +1,9 @@
-//! Type-directed index/field-assignment desugar.
+//! Type-directed assignment-chain desugaring.
 //!
-//! Rewrites `ExprKind::Assign { target: AssignTarget, value }` into the
-//! pure-reassignment form so AIMS (which runs after canonicalization) never
-//! sees a `CanExpr::Assign { target: Index/Field }`:
-//!
-//! | Source | Desugared |
-//! |--------|-----------|
-//! | `xs[i] = v` | `xs = xs.updated(key: i, value: v)` |
-//! | `m[k] = v` | `m = m.updated(key: k, value: v)` (`{K: V}` `IndexSet`) |
-//! | `s.f = v` | `s = { ...s, f: v }` |
-//! | `grid[x][y] = v` | `grid = grid.updated(key: x, value: grid[x].updated(key: y, value: v))` |
-//! | `s.items[i] = v` | `s = { ...s, items: s.items.updated(key: i, value: v) }` |
-//!
-//! Chains wrap right-to-left. The per-level resolved types come from the type
-//! checker's [`ori_types::AssignDesugar`] plan (the type-direction decision);
-//! synthesis happens here because the source arena is immutable during type
-//! checking.
-//!
-//! Side-effect hoisting: each index expression is bound once to a synthetic
-//! `let $__assign_idx_N` temporary and reused everywhere the chain reads it,
-//! so `arr[f()] += 1` (whose parser compound-desugar shares the index
-//! `ExprId` between the read-copy and the write-copy) runs `f()` exactly once.
+//! Indexed and field assignments become pure root reassignments before AIMS.
+//! Chains wrap right-to-left using the type checker's [`ori_types::AssignDesugar`]
+//! plan. Potentially effectful index expressions are hoisted and reused, so
+//! compound assignment evaluates each index exactly once.
 
 use ori_ir::canon::{CanExpr, CanField, CanId};
 use ori_ir::{AccessStep, AccessStepRange, ExprId, ExprKind, Mutability, Name, Span, TypeId};
@@ -38,6 +21,15 @@ enum IndexKey {
     None,
 }
 
+struct ReadChainPlan<'a> {
+    root_name: Name,
+    steps: &'a [AccessStep],
+    step_routes: &'a [ori_types::AssignStepRoute],
+    index_keys: &'a [IndexKey],
+    span: Span,
+    level_types: &'a [TypeId],
+}
+
 impl Lowerer<'_> {
     /// Desugar one `Assign { target: AssignTarget{root, steps}, value }` into
     /// the pure-reassignment form. `assign_target_id` keys the
@@ -53,72 +45,58 @@ impl Lowerer<'_> {
         outer_ty: TypeId,
     ) -> CanId {
         let ExprKind::Ident(root_name) = *self.src.expr_kind(root) else {
-            // Root is not a plain identifier — the only assignable root shape.
-            // Fall back to the un-desugared chain (the evaluator surfaces the
-            // clean diagnostic). Valid programs never reach here: the type
-            // checker rejects non-identifier / immutable roots before planning.
+            // Preserve the fallback diagnostic for an invalid root shape.
             return self.lower_assign_chain_fallback(root, steps, value, span, outer_ty);
         };
 
-        let level_types: Vec<TypeId> = match self.typed.resolve_assign_desugar(assign_target_id) {
-            Some(plan) => plan
-                .level_types
-                .iter()
-                .map(|idx| TypeId::from_raw(idx.raw()))
-                .collect(),
-            None => {
-                return self.lower_assign_chain_fallback(root, steps, value, span, outer_ty);
-            }
-        };
+        let (level_types, step_routes): (Vec<TypeId>, Vec<ori_types::AssignStepRoute>) =
+            match self.typed.resolve_assign_desugar(assign_target_id) {
+                Some(plan) => (
+                    plan.level_types
+                        .iter()
+                        .map(|idx| TypeId::from_raw(idx.raw()))
+                        .collect(),
+                    plan.step_routes.clone(),
+                ),
+                None => {
+                    return self.lower_assign_chain_fallback(root, steps, value, span, outer_ty);
+                }
+            };
 
         let step_list: Vec<AccessStep> = self.src.get_access_steps(steps).to_vec();
 
         // `level_types[k]` is the type of reading `root` plus the first `k`
         // steps. A well-formed plan carries `steps + 1` entries.
-        if level_types.len() != step_list.len() + 1 {
+        let routes_match = step_list.iter().zip(&step_routes).all(|(step, route)| {
+            matches!(
+                (step, route),
+                (AccessStep::Field(_), ori_types::AssignStepRoute::Field)
+                    | (AccessStep::Index(_), ori_types::AssignStepRoute::Index(_))
+            )
+        });
+        if level_types.len() != step_list.len() + 1
+            || step_routes.len() != step_list.len()
+            || !routes_match
+        {
             return self.lower_assign_chain_fallback(root, steps, value, span, outer_ty);
         }
 
-        // Per index step, decide a key strategy (hoisted temp vs direct
-        // re-lower) and record the hoisting `let` bindings + the source-ExprId
-        // -> temp override so the parser-shared read-copy inside `value` reuses
-        // the temp.
+        // Plan each index once so compound-assignment reads reuse its key.
         let (temp_lets, index_keys) = self.plan_index_keys(&step_list, span);
+        let read_chain = ReadChainPlan {
+            root_name,
+            steps: &step_list,
+            step_routes: &step_routes,
+            index_keys: &index_keys,
+            span,
+            level_types: &level_types,
+        };
 
-        // Lower the assigned value with the index-temp overrides active so any
-        // shared index read inside `value` (the parser's compound-assign
-        // read-copy) reuses the hoisted temp instead of re-evaluating it.
+        // Active temp overrides also apply to the parser-shared read copy.
         let value_can = self.lower_expr(value);
+        let inner = self.build_assign_value(&read_chain, value_can);
 
-        // Wrap right-to-left: each step k applies `updated` (index) or struct
-        // spread (field) to the read-chain `root.step0..step(k-1)`.
-        let mut inner = value_can;
-        for k in (0..step_list.len()).rev() {
-            let receiver =
-                self.synth_read_chain(root_name, &step_list, &index_keys, k, span, &level_types);
-            inner = match step_list[k] {
-                AccessStep::Index(_) => {
-                    let key = self.lower_index_key(index_keys[k], span);
-                    let args = self.arena.push_expr_list(&[key, inner]);
-                    self.push(
-                        CanExpr::MethodCall {
-                            receiver,
-                            method: self.name_updated,
-                            args,
-                        },
-                        span,
-                        level_types[k],
-                    )
-                }
-                AccessStep::Field(field) => {
-                    self.synth_struct_update(receiver, level_types[k], field, inner, span)
-                }
-            };
-        }
-
-        // The final reassignment: `root = <wrapped>`. `inner` collapses to
-        // `value_can` when there are zero steps (defensive — the parser only
-        // builds an AssignTarget when at least one step exists).
+        // Zero steps defensively collapse to assigning `value_can` directly.
         let target = self.push(CanExpr::Ident(root_name), span, level_types[0]);
         let assign = self.push(
             CanExpr::Assign {
@@ -129,21 +107,14 @@ impl Lowerer<'_> {
             outer_ty,
         );
 
-        // Clear the per-desugar overrides before returning; nested assignments
-        // re-populate their own.
+        // Nested assignments populate their own overrides.
         self.index_temp_overrides.clear();
 
         if temp_lets.is_empty() {
             return assign;
         }
 
-        // Wrap the temp bindings + reassignment in a block so the temps scope
-        // to this assignment only.
-        let start = self.arena.start_expr_list();
-        for let_node in temp_lets {
-            self.arena.push_expr_list_item(let_node);
-        }
-        let stmts = self.arena.finish_expr_list(start);
+        let stmts = self.arena.push_expr_list(&temp_lets);
         self.push(
             CanExpr::Block {
                 stmts,
@@ -152,6 +123,32 @@ impl Lowerer<'_> {
             span,
             outer_ty,
         )
+    }
+
+    fn build_assign_value(&mut self, plan: &ReadChainPlan<'_>, value: CanId) -> CanId {
+        let mut inner = value;
+        for k in (0..plan.steps.len()).rev() {
+            let receiver = self.synth_read_chain(plan, k);
+            inner = match plan.steps[k] {
+                AccessStep::Index(_) => {
+                    let key = self.lower_index_key(plan.index_keys[k], plan.span);
+                    let args = self.arena.push_expr_list(&[key, inner]);
+                    self.push(
+                        CanExpr::MethodCall {
+                            receiver,
+                            method: self.name_updated,
+                            args,
+                        },
+                        plan.span,
+                        plan.level_types[k],
+                    )
+                }
+                AccessStep::Field(field) => {
+                    self.synth_struct_update(receiver, plan.level_types[k], field, inner, plan.span)
+                }
+            };
+        }
+        inner
     }
 
     /// Plan a key strategy per index step: a trivially-pure index re-lowers
@@ -206,27 +203,27 @@ impl Lowerer<'_> {
     /// Synthesize the read-chain `root.step0..step(k-1)` as canonical
     /// `Index`/`Field` read nodes. `level_types[j]` types the read after the
     /// first `j` steps; index keys reuse the hoisted temps.
-    fn synth_read_chain(
-        &mut self,
-        root_name: Name,
-        steps: &[AccessStep],
-        index_keys: &[IndexKey],
-        k: usize,
-        span: Span,
-        level_types: &[TypeId],
-    ) -> CanId {
-        let mut node = self.push(CanExpr::Ident(root_name), span, level_types[0]);
+    fn synth_read_chain(&mut self, plan: &ReadChainPlan<'_>, k: usize) -> CanId {
+        let mut node = self.push(
+            CanExpr::Ident(plan.root_name),
+            plan.span,
+            plan.level_types[0],
+        );
         for j in 0..k {
-            node = match steps[j] {
+            node = match plan.steps[j] {
                 AccessStep::Index(_) => {
-                    let key = self.lower_index_key(index_keys[j], span);
+                    let key = self.lower_index_key(plan.index_keys[j], plan.span);
+                    let ori_types::AssignStepRoute::Index(dispatch) = plan.step_routes[j] else {
+                        unreachable!("validated index step must carry an index dispatch route");
+                    };
                     self.push(
                         CanExpr::Index {
                             receiver: node,
                             index: key,
+                            dispatch,
                         },
-                        span,
-                        level_types[j + 1],
+                        plan.span,
+                        plan.level_types[j + 1],
                     )
                 }
                 AccessStep::Field(field) => self.push(
@@ -234,8 +231,8 @@ impl Lowerer<'_> {
                         receiver: node,
                         field,
                     },
-                    span,
-                    level_types[j + 1],
+                    plan.span,
+                    plan.level_types[j + 1],
                 ),
             };
         }
@@ -265,26 +262,29 @@ impl Lowerer<'_> {
             _ => return self.push(CanExpr::Error, span, struct_ty),
         };
 
-        let Some(field_names) = self.resolve_struct_fields(struct_name) else {
+        let Some(field_defs) = self.resolve_struct_fields(struct_name, struct_ty) else {
             return self.push(CanExpr::Error, span, struct_ty);
         };
 
-        let can_fields: Vec<CanField> = field_names
+        let can_fields: Vec<CanField> = field_defs
             .iter()
-            .map(|&fname| {
-                let value = if fname == field {
+            .map(|&(field_name, field_ty)| {
+                let value = if field_name == field {
                     new_value
                 } else {
                     self.push(
                         CanExpr::Field {
                             receiver,
-                            field: fname,
+                            field: field_name,
                         },
                         span,
-                        TypeId::ERROR,
+                        field_ty,
                     )
                 };
-                CanField { name: fname, value }
+                CanField {
+                    name: field_name,
+                    value,
+                }
             })
             .collect();
 
@@ -347,6 +347,29 @@ impl Lowerer<'_> {
         span: Span,
         outer_ty: TypeId,
     ) -> CanId {
+        let node = self.lower_raw_access_chain(root, steps, span, outer_ty);
+        let value = self.lower_expr(value);
+        self.push(
+            CanExpr::Assign {
+                target: node,
+                value,
+            },
+            span,
+            outer_ty,
+        )
+    }
+
+    /// Lower `root` plus a raw `AccessStepRange` into a left-associated
+    /// `Index`/`Field` read chain, re-lowering each index directly and tagging
+    /// every node with `ty`. The single canonical builder for an un-desugared
+    /// access chain for fallback write targets and bare `ExprKind::AssignTarget`.
+    pub(crate) fn lower_raw_access_chain(
+        &mut self,
+        root: ExprId,
+        steps: AccessStepRange,
+        span: Span,
+        ty: TypeId,
+    ) -> CanId {
         let mut node = self.lower_expr(root);
         let step_list = self.src.get_access_steps(steps).to_vec();
         for step in step_list {
@@ -357,7 +380,7 @@ impl Lowerer<'_> {
                         field,
                     },
                     span,
-                    outer_ty,
+                    ty,
                 ),
                 AccessStep::Index(index) => {
                     let index = self.lower_expr(index);
@@ -365,21 +388,14 @@ impl Lowerer<'_> {
                         CanExpr::Index {
                             receiver: node,
                             index,
+                            dispatch: ori_ir::canon::IndexDispatch::Error,
                         },
                         span,
-                        outer_ty,
+                        ty,
                     )
                 }
             };
         }
-        let value = self.lower_expr(value);
-        self.push(
-            CanExpr::Assign {
-                target: node,
-                value,
-            },
-            span,
-            outer_ty,
-        )
+        node
     }
 }

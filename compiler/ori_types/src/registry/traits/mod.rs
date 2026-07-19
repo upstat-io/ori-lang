@@ -1,21 +1,12 @@
 //! Registry for traits and their implementations.
 //!
-//! The `TraitRegistry` stores trait definitions and their implementations,
-//! enabling efficient lookup for method resolution and coherence checking.
-//!
-//! # Design
-//!
-//! - Traits indexed by name for definition lookup
-//! - Implementations indexed by self type for method resolution
-//! - Secondary index by trait for coherence checking
-//! - All types derive Salsa-required traits
-//!
-//! Read-only lookup paths (`get_trait_by_*`, `lookup_method*`,
-//! `all_super_traits`, `collected_methods`, `find_conflicting_defaults`,
-//! `impls_*`, coherence + iteration helpers) live in the `lookup`
-//! submodule. This module owns the data definitions, the `new` constructor,
-//! and the registration mutators (`register_trait`, `register_impl`,
-//! `extend_object_safety_violations`).
+//! [`TraitRegistry`] indexes definitions by name and type, and implementations
+//! by receiver and trait. Lookup, coherence, supertrait traversal, and mutation
+//! operate on the same indexed entry vectors.
+
+mod lookup;
+mod registration;
+mod supertraits;
 
 use std::collections::BTreeMap;
 
@@ -23,8 +14,6 @@ use ori_ir::{ExprId, Name, Span};
 use rustc_hash::FxHashMap;
 
 use crate::Idx;
-
-mod lookup;
 
 /// Registry for traits and their implementations.
 ///
@@ -48,6 +37,9 @@ pub struct TraitRegistry {
     /// All implementations.
     pub(super) impls: Vec<ImplEntry>,
 
+    /// Type-checker-owned semantic origin parallel to `impls`.
+    pub(super) impl_origins: Vec<Option<RegisteredImplOrigin>>,
+
     /// Quick lookup: `self_type` -> impl indices.
     /// Enables O(1) lookup of implementations for a given type.
     pub(super) impls_by_type: FxHashMap<Idx, Vec<usize>>,
@@ -55,6 +47,30 @@ pub struct TraitRegistry {
     /// Quick lookup: `trait_idx` -> impl indices.
     /// Enables coherence checking and trait method resolution.
     pub(super) impls_by_trait: FxHashMap<Idx, Vec<usize>>,
+}
+
+/// Module-local semantic origin of one registered implementation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum RegisteredImplOrigin {
+    /// Source or inherited-default body in a parsed impl block.
+    Source { impl_index: usize },
+    /// Source body in an extension block. Extension owners occupy the
+    /// module-local index range immediately after parsed impl blocks.
+    Extension {
+        owner_index: usize,
+        target_name: Name,
+    },
+    /// Compiler-generated accepted derive.
+    Derived(ori_ir::DerivedImplId),
+    /// Method templates imported from another producer module.
+    Imported(FxHashMap<ExprId, ImportedMethodOrigin>),
+}
+
+/// Stable imported producer identity for one method body.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ImportedMethodOrigin {
+    pub(crate) symbol: Box<str>,
+    pub(crate) signature_hash: u64,
 }
 
 /// A registered trait definition.
@@ -174,6 +190,10 @@ pub struct TraitMethodDef {
     /// Empty when the method has no where clause.
     pub where_clause_metadata: Vec<WhereConstraint>,
 
+    /// Fixed-list capacity expressions that depend on this method's const
+    /// binders, retained for concrete call-site validation.
+    pub fixed_list_capacity_constraints: Vec<crate::GenericConstExpr>,
+
     /// Source location.
     pub span: Span,
 }
@@ -281,7 +301,11 @@ pub struct ImplMethodDef {
     /// Empty when the method has no where clause.
     pub where_clause_metadata: Vec<WhereConstraint>,
 
-    /// Count of non-`self` parameters WITH a default value (BUG-04-190).
+    /// Fixed-list capacity expressions that depend on this method's const
+    /// binders, retained for concrete call-site validation.
+    pub fixed_list_capacity_constraints: Vec<crate::GenericConstExpr>,
+
+    /// Count of non-`self` parameters WITH a default value.
     /// A call is arity-valid when `arg_count` is in
     /// `[total_non_self - optional_param_count, total_non_self]`; omitted
     /// trailing defaults are filled in canon. `0` = all params required
@@ -331,7 +355,7 @@ pub struct GenericParamMeta {
 
     /// Default value of a const-generic parameter (e.g., `<$N: int = 42>`).
     /// Always `None` when `is_const == false`.
-    pub const_default_value: Option<Idx>,
+    pub const_default_value: Option<crate::GenericConstExpr>,
 
     /// Projection-bound constraints attached to this parameter
     /// (e.g., `T.Item: Eq` shape per associated-type clarification note).
@@ -342,59 +366,6 @@ impl TraitRegistry {
     /// Create a new empty registry.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    // === Trait Registration ===
-
-    /// Register a trait definition.
-    pub fn register_trait(&mut self, entry: TraitEntry) {
-        let name = entry.name;
-        let idx = entry.idx;
-        let trait_idx = self.traits.len();
-        self.traits_by_name.insert(name, trait_idx);
-        self.traits_by_idx.insert(idx, trait_idx);
-        self.traits.push(entry);
-    }
-
-    /// Append additional object-safety violations to a registered trait.
-    ///
-    /// Used by the second-phase `register_object_safety_violations` pass to
-    /// propagate `GenericMethod` violations from super-traits to children
-    /// (Spec: Clause 8.8).
-    pub fn extend_object_safety_violations(
-        &mut self,
-        name: Name,
-        additional: Vec<ObjectSafetyViolation>,
-    ) {
-        if let Some(&trait_idx) = self.traits_by_name.get(&name) {
-            if let Some(entry) = self.traits.get_mut(trait_idx) {
-                entry.object_safety_violations.extend(additional);
-            }
-        }
-    }
-
-    /// Register a trait implementation.
-    ///
-    /// Returns the impl index for reference.
-    pub fn register_impl(&mut self, entry: ImplEntry) -> usize {
-        let impl_idx = self.impls.len();
-
-        // Index by self type
-        self.impls_by_type
-            .entry(entry.self_type)
-            .or_default()
-            .push(impl_idx);
-
-        // Index by trait (if not an inherent impl)
-        if let Some(trait_idx) = entry.trait_idx {
-            self.impls_by_trait
-                .entry(trait_idx)
-                .or_default()
-                .push(impl_idx);
-        }
-
-        self.impls.push(entry);
-        impl_idx
     }
 }
 
@@ -418,6 +389,14 @@ pub enum MethodLookup<'a> {
         /// The method definition.
         method: &'a ImplMethodDef,
     },
+
+    /// Method from an extension block.
+    Extension {
+        /// Index of the registered extension provider.
+        impl_idx: usize,
+        /// The method definition.
+        method: &'a ImplMethodDef,
+    },
 }
 
 impl<'a> MethodLookup<'a> {
@@ -425,7 +404,9 @@ impl<'a> MethodLookup<'a> {
     #[inline]
     pub fn method(&self) -> &'a ImplMethodDef {
         match self {
-            Self::Inherent { method, .. } | Self::Trait { method, .. } => method,
+            Self::Inherent { method, .. }
+            | Self::Trait { method, .. }
+            | Self::Extension { method, .. } => method,
         }
     }
 
@@ -433,7 +414,9 @@ impl<'a> MethodLookup<'a> {
     #[inline]
     pub fn impl_idx(&self) -> usize {
         match self {
-            Self::Inherent { impl_idx, .. } | Self::Trait { impl_idx, .. } => *impl_idx,
+            Self::Inherent { impl_idx, .. }
+            | Self::Trait { impl_idx, .. }
+            | Self::Extension { impl_idx, .. } => *impl_idx,
         }
     }
 
@@ -447,7 +430,7 @@ impl<'a> MethodLookup<'a> {
     #[inline]
     pub fn trait_idx(&self) -> Option<Idx> {
         match self {
-            Self::Inherent { .. } => None,
+            Self::Inherent { .. } | Self::Extension { .. } => None,
             Self::Trait { trait_idx, .. } => Some(*trait_idx),
         }
     }
@@ -469,7 +452,7 @@ pub enum MethodLookupResult<'a> {
     NotFound,
 }
 
-/// Result of a bound-chain method lookup (§10.1).
+/// Result of a bound-chain method lookup.
 ///
 /// Returned by `TraitRegistry::find_trait_method_via_bound_chain`. Distinct
 /// from `MethodLookupResult` because the resolved method is a trait-level
@@ -499,5 +482,8 @@ pub enum BoundChainLookup<'a> {
 }
 
 #[cfg(test)]
-#[expect(clippy::expect_used, reason = "Test code uses expect for clarity")]
+#[expect(
+    clippy::expect_used,
+    reason = "trait-registry tests abort when a required fixture method is absent"
+)]
 mod tests;

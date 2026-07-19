@@ -13,7 +13,7 @@
 //!   ├── prelude resolution (walk-up search → load_file → parsed)
 //!   └── use-statement resolution (resolve_import → parsed)
 //!         ↓
-//!   ResolvedImports { prelude, modules, imported_functions }
+//!   ResolvedImports { prelude, modules, imported_functions, imported_constants }
 //!         ↓
 //!   ├── type checker: register_resolved_imports()
 //!   ├── interpreter: load_module() consumes prelude + modules
@@ -38,6 +38,7 @@ use crate::typeck::{is_prelude_file, prelude_candidates};
 // Boundary types consumed by all backends
 
 /// A resolved imported module: the parsed output and its source path.
+#[derive(Clone)]
 pub(crate) struct ResolvedImportedModule {
     /// Full parsed module (functions, types, arena, etc.).
     pub parse_output: ParseOutput,
@@ -73,6 +74,28 @@ pub(crate) struct ImportedFunctionRef {
     pub span: Span,
 }
 
+/// Reference to a selected constant within a resolved module.
+///
+/// Constant imports have their own carrier because `$name` denotes an
+/// evaluated module value, not a callable. Keeping the carriers disjoint
+/// prevents function-only consumers from attempting to resolve constants as
+/// function definitions.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ImportedConstantRef {
+    /// Name in the importing scope.
+    ///
+    /// The current grammar does not permit aliases for constant imports, but
+    /// retaining the local/source distinction keeps this boundary ready for a
+    /// future grammar extension without changing its consumers.
+    pub local_name: Name,
+    /// Name in the source module.
+    pub original_name: Name,
+    /// Index into `ResolvedImports::modules`.
+    pub module_index: usize,
+    /// Source span of the containing `use` statement.
+    pub span: Span,
+}
+
 /// All resolved imports for a single file.
 ///
 /// Produced by `resolve_imports()` and consumed by all backends.
@@ -84,6 +107,8 @@ pub(crate) struct ResolvedImports {
     /// Mapping of imported functions to their source modules.
     /// Each entry tracks the local name, original name, and which module it comes from.
     pub imported_functions: Vec<ImportedFunctionRef>,
+    /// Selected constant values and the modules that define them.
+    pub imported_constants: Vec<ImportedConstantRef>,
     /// Import errors encountered during resolution.
     /// These are collected rather than failing fast so all errors are reported.
     pub errors: Vec<ImportError>,
@@ -152,6 +177,14 @@ struct ResolvedImport {
 }
 
 /// Build a module path from base directory and components, adding .ori extension.
+/// Standard system install roots searched for the Ori stdlib (FHS locations).
+///
+/// Canonical home for the system install-root list; both module resolution
+/// ([`generate_module_candidates`]) and prelude resolution
+/// ([`crate::typeck::prelude_candidates`]) query this, never their own copies.
+pub(crate) const SYSTEM_STDLIB_ROOTS: [&str; 2] =
+    ["/usr/local/lib/ori/stdlib", "/usr/lib/ori/stdlib"];
+
 fn build_module_path(base: PathBuf, components: &[&str]) -> PathBuf {
     let mut path = base;
     for component in components {
@@ -240,7 +273,7 @@ pub(crate) fn is_parent_module_import(current_file: &Path, import_path: &Path) -
 }
 
 /// Normalize a path by resolving . and .. components.
-fn normalize_path(path: &Path) -> PathBuf {
+pub(crate) fn normalize_path(path: &Path) -> PathBuf {
     let mut result = PathBuf::new();
     for component in path.components() {
         match component {
@@ -406,10 +439,26 @@ fn resolve_module_import_tracked(
     // Defer module_name allocation to error path — the success path above
     // never needs the joined string.
     let module_name = components.join(".");
-    Err(ImportError::new(
-        ImportErrorKind::ModuleNotFound,
-        format!("module '{module_name}' not found. Searched: ORI_STDLIB, ./library/, standard locations"),
-    ))
+    // Stdlib modules (`std.*`) get an actionable message naming the exact fix,
+    // since a missing standard library is almost always an environment problem
+    // (running outside the project, or ORI_STDLIB unset) rather than a typo.
+    let message = if components.first() == Some(&"std") {
+        format!(
+            "cannot find the Ori standard library module '{module_name}'. \
+             The standard library was not found in ORI_STDLIB, any 'library/' \
+             directory above the source file, '~/.local/share/ori/library/', or \
+             the standard system locations. To fix: set the ORI_STDLIB \
+             environment variable to your Ori 'library/' directory, or run from \
+             a directory that contains './library/std/'."
+        )
+    } else {
+        format!(
+            "module '{module_name}' not found. Searched: ORI_STDLIB, every \
+             'library/' directory above the source file, \
+             '~/.local/share/ori/library/', and the standard system locations."
+        )
+    };
+    Err(ImportError::new(ImportErrorKind::ModuleNotFound, message))
 }
 
 /// Generate candidate file paths for a module import.
@@ -474,7 +523,7 @@ fn generate_module_candidates(
     }
 
     // 4. Standard system locations
-    for base in ["/usr/local/lib/ori/stdlib", "/usr/lib/ori/stdlib"] {
+    for base in SYSTEM_STDLIB_ROOTS {
         candidates.push(build_module_path(PathBuf::from(base), components));
     }
 
@@ -511,29 +560,12 @@ pub(crate) fn resolve_imports(
         return cached;
     }
 
-    let mut prelude = None;
+    let prelude = resolve_prelude_module(db, file_path);
     let mut modules = Vec::new();
     let mut imported_functions = Vec::new();
+    let mut imported_constants = Vec::new();
     let mut errors = Vec::new();
 
-    // 1. Resolve prelude
-    if !is_prelude_file(file_path) {
-        let prelude_file = prelude_candidates(file_path)
-            .iter()
-            .find_map(|candidate| db.load_file(candidate));
-
-        if let Some(prelude_file) = prelude_file {
-            let prelude_parsed = parsed(db, prelude_file);
-            prelude = Some(ResolvedImportedModule {
-                parse_output: prelude_parsed,
-                module_path: PathBuf::from("std/prelude"),
-                source_file: Some(prelude_file),
-                import_index: 0, // Not used for prelude (stored separately)
-            });
-        }
-    }
-
-    // 2. Resolve explicit imports
     // Read ORI_STDLIB once for all module imports (avoids per-import syscall).
     let stdlib_override = std::env::var("ORI_STDLIB").ok();
     for (imp_idx, imp) in parse_result.module.imports.iter().enumerate() {
@@ -561,34 +593,30 @@ pub(crate) fn resolve_imports(
             import_index: imp_idx,
         });
 
-        // Handle module alias imports (use std.http as http)
         if let Some(alias) = imp.module_alias {
-            imported_functions.push(ImportedFunctionRef {
-                local_name: alias,
-                original_name: alias,
+            push_module_alias_import(
+                db,
+                imp,
+                alias,
                 module_index,
-                is_module_alias: true,
-                span: imp.span,
-            });
+                &modules,
+                &mut imported_functions,
+            );
             continue;
         }
-
-        // Handle individual item imports
-        for item in &imp.items {
-            imported_functions.push(ImportedFunctionRef {
-                local_name: item.alias.unwrap_or(item.name),
-                original_name: item.name,
-                module_index,
-                is_module_alias: false,
-                span: imp.span,
-            });
-        }
+        push_item_imports(
+            imp,
+            module_index,
+            &mut imported_functions,
+            &mut imported_constants,
+        );
     }
 
     let result = Arc::new(ResolvedImports {
         prelude,
         modules,
         imported_functions,
+        imported_constants,
         errors,
     });
 
@@ -596,6 +624,108 @@ pub(crate) fn resolve_imports(
     db.imports_cache().store(file_path, result.clone());
 
     result
+}
+
+/// Resolve `library/std/prelude.ori` for `file_path`, unless `file_path` is itself the prelude.
+fn resolve_prelude_module(db: &dyn Db, file_path: &Path) -> Option<ResolvedImportedModule> {
+    if is_prelude_file(file_path) {
+        return None;
+    }
+    let prelude_file = prelude_candidates(file_path)
+        .iter()
+        .find_map(|candidate| db.load_file(candidate))?;
+    let prelude_parsed = parsed(db, prelude_file);
+    Some(ResolvedImportedModule {
+        parse_output: prelude_parsed,
+        module_path: PathBuf::from("std/prelude"),
+        source_file: Some(prelude_file),
+        import_index: 0, // Not used for prelude (stored separately)
+    })
+}
+
+/// Register a module-alias import (`use std.http as http`) plus one qualified
+/// import entry per public function of the aliased module, so the regular
+/// import machinery declares and merges them like any other import.
+///
+/// Import-wiring for qualified access (`alias.func(args)`): synthesize one
+/// ordinary import entry per PUBLIC function of the aliased module, under the
+/// qualified local name `"alias.func"`. These are `is_module_alias: false`, so
+/// the regular import machinery registers them in typeck
+/// (`register_imported_function_as`), declares them in codegen, and merges
+/// their canon bodies — exactly what the namespace entry above does NOT do.
+/// `ori_canon` rewrites the alias-qualified `MethodCall` to
+/// `Call(FunctionRef("alias.func"))` (the SAME interned name, per
+/// `ori_types::module_alias_call::record_qualified_call`), so the rewritten
+/// free call links to the declared import. The qualified name is never
+/// typeable as a bare identifier (the parser reads `alias.func` as a
+/// `MethodCall`), so alias scoping is preserved.
+fn push_module_alias_import(
+    db: &dyn Db,
+    imp: &ori_ir::UseDef,
+    alias: Name,
+    module_index: usize,
+    modules: &[ResolvedImportedModule],
+    imported_functions: &mut Vec<ImportedFunctionRef>,
+) {
+    imported_functions.push(ImportedFunctionRef {
+        local_name: alias,
+        original_name: alias,
+        module_index,
+        is_module_alias: true,
+        span: imp.span,
+    });
+
+    let interner = db.interner();
+    let alias_str = interner.lookup(alias).to_string();
+    let public_fn_names: Vec<Name> = modules[module_index]
+        .parse_output
+        .module
+        .functions
+        .iter()
+        .filter(|f| f.visibility == ori_ir::Visibility::Public)
+        .map(|f| f.name)
+        .collect();
+    for fn_name in public_fn_names {
+        let qualified = interner.intern(&ori_ir::qualified_alias_name(
+            &alias_str,
+            interner.lookup(fn_name),
+        ));
+        imported_functions.push(ImportedFunctionRef {
+            local_name: qualified,
+            original_name: fn_name,
+            module_index,
+            is_module_alias: false,
+            span: imp.span,
+        });
+    }
+}
+
+/// Register one import entry per individually-named item (`use "./m" { f, C }`),
+/// routing constants and functions to their respective inventories.
+fn push_item_imports(
+    imp: &ori_ir::UseDef,
+    module_index: usize,
+    imported_functions: &mut Vec<ImportedFunctionRef>,
+    imported_constants: &mut Vec<ImportedConstantRef>,
+) {
+    for item in &imp.items {
+        if item.is_constant {
+            imported_constants.push(ImportedConstantRef {
+                local_name: item.name,
+                original_name: item.name,
+                module_index,
+                span: imp.span,
+            });
+            continue;
+        }
+        imported_functions.push(ImportedFunctionRef {
+            local_name: item.alias.unwrap_or(item.name),
+            original_name: item.name,
+            module_index,
+            is_module_alias: false,
+            span: imp.span,
+        });
+    }
 }
 
 #[cfg(test)]

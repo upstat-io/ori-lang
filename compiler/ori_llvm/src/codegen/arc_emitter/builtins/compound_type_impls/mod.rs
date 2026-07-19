@@ -1,4 +1,4 @@
-//! Type-specific compound trait implementations (Option, Result, Tuple, Str, Map).
+//! Type-specific compound trait implementations.
 //!
 //! Implements `equals`, `compare`, and `hash` for compound wrapper types
 //! by structural recursion into element types via `emit_element_*` dispatch.
@@ -11,5 +11,6 @@
 
 mod option;
 mod result;
+mod set;
 mod str_map;
 mod tuple;

@@ -36,7 +36,27 @@ impl super::RawScanner<'_> {
     }
 
     pub(super) fn plus(&mut self, start: u32) -> RawToken {
-        self.compound_eq(start, RawTag::Plus, RawTag::PlusEq)
+        self.cursor.advance(); // consume '+'
+        match self.cursor.current() {
+            b'+' => {
+                self.cursor.advance();
+                RawToken {
+                    tag: RawTag::InvalidByte,
+                    len: self.cursor.pos() - start,
+                }
+            }
+            b'=' => {
+                self.cursor.advance();
+                RawToken {
+                    tag: RawTag::PlusEq,
+                    len: self.cursor.pos() - start,
+                }
+            }
+            _ => RawToken {
+                tag: RawTag::Plus,
+                len: self.cursor.pos() - start,
+            },
+        }
     }
 
     pub(super) fn minus_or_arrow(&mut self, start: u32) -> RawToken {
@@ -84,9 +104,17 @@ impl super::RawScanner<'_> {
         match self.cursor.current() {
             b'=' => {
                 self.cursor.advance();
-                RawToken {
-                    tag: RawTag::EqualEqual,
-                    len: self.cursor.pos() - start,
+                if self.cursor.current() == b'=' {
+                    self.cursor.advance();
+                    RawToken {
+                        tag: RawTag::InvalidByte,
+                        len: self.cursor.pos() - start,
+                    }
+                } else {
+                    RawToken {
+                        tag: RawTag::EqualEqual,
+                        len: self.cursor.pos() - start,
+                    }
                 }
             }
             b'>' => {
@@ -104,7 +132,27 @@ impl super::RawScanner<'_> {
     }
 
     pub(super) fn bang(&mut self, start: u32) -> RawToken {
-        self.compound_eq(start, RawTag::Bang, RawTag::BangEqual)
+        self.cursor.advance(); // consume '!'
+        if self.cursor.current() == b'=' {
+            self.cursor.advance();
+            if self.cursor.current() == b'=' {
+                self.cursor.advance();
+                RawToken {
+                    tag: RawTag::InvalidByte,
+                    len: self.cursor.pos() - start,
+                }
+            } else {
+                RawToken {
+                    tag: RawTag::BangEqual,
+                    len: self.cursor.pos() - start,
+                }
+            }
+        } else {
+            RawToken {
+                tag: RawTag::Bang,
+                len: self.cursor.pos() - start,
+            }
+        }
     }
 
     pub(super) fn less(&mut self, start: u32) -> RawToken {
@@ -279,16 +327,14 @@ impl super::RawScanner<'_> {
     /// Scan a format spec after `:` in a template interpolation.
     ///
     /// Consumes everything between `:` (already consumed) and `}` (not consumed).
-    /// The `}` will be handled by the normal `right_brace` → `template_middle_or_tail`
-    /// path on the next call to `next_token()`.
+    /// The next `next_token()` call routes `}` through
+    /// `right_brace` → `template_middle_or_tail`.
     fn format_spec(&mut self, start: u32) -> RawToken {
-        // Scan forward until `}` at brace depth 0.
-        // Track nested `{}`  in the spec (unlikely but safe).
         let mut brace_depth: u32 = 0;
         loop {
             match self.cursor.current() {
                 b'}' if brace_depth == 0 => {
-                    // Don't consume the `}` — it triggers template_middle_or_tail
+                    // Why: Leaving `}` lets the next token classify the template tail.
                     return RawToken {
                         tag: RawTag::FormatSpec,
                         len: self.cursor.pos() - start,
@@ -303,7 +349,6 @@ impl super::RawScanner<'_> {
                     self.cursor.advance();
                 }
                 0 if self.cursor.is_eof() => {
-                    // Unterminated — return what we have
                     return RawToken {
                         tag: RawTag::FormatSpec,
                         len: self.cursor.pos() - start,
@@ -317,7 +362,7 @@ impl super::RawScanner<'_> {
     }
 
     pub(super) fn hash(&mut self, start: u32) -> RawToken {
-        self.cursor.advance(); // consume '#'
+        self.cursor.advance();
         match self.cursor.current() {
             b'[' => {
                 self.cursor.advance();

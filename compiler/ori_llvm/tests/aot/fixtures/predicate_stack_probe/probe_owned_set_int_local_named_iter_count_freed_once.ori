@@ -1,0 +1,5 @@
+@main () -> int = {
+    let s: Set<int> = [5, 6, 7].iter().collect();
+    let n = s.iter().count();
+    if n == 3 then 0 else 1
+}

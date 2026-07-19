@@ -1,26 +1,14 @@
-// Spec: 08-declarations.md § Method-level Generics
-// BUG-02-023 §03 Cross-pattern — const-only method (no type generics)
-//
-// Critical gate-flip test: verifies E1.1's gate liberalization at
-// `monomorphization.rs:43-44`. Pre-fix the gate `!sig.is_generic() ||
-// sig.scheme_var_ids.is_empty()` returns early for const-only methods because
-// `scheme_var_ids` is empty even though the method IS generic via const_params.
-// Post-fix: gate admits `(scheme_var_ids OR const_params).any()`.
-//
-// Pre-fix failure mode: monomorphization recording skipped entirely (silent miss);
-// runtime panics with `undefined variable: N`.
+// Spec: 08-types.md § 8.3.1 Const Generic Parameters
 
 use std.testing { assert_eq }
 
 type Counter = { value: int }
 
 impl Counter {
-    // Const-only method: no <T>, only <$N: int>
     @repeat_value<$N: int> (self) -> [int, max N] = self.spread().take(count: N).to_fixed<$N>();
     @spread (self) -> [int] = [self.value, self.value, self.value, self.value, self.value];
 }
 
-#skip("BUG-02-023: const-only method (no type generics) — gate-flip test for E1.1; awaits gate liberalization at monomorphization.rs:43-44")
 @test_const_only_method tests _ () -> void = {
     let c = Counter { value: 7 };
     let three: [int, max 3] = c.repeat_value();

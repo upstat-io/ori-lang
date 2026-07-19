@@ -1,0 +1,59 @@
+use std.testing { assert_eq }
+
+type Bomb = { label: str };
+type EqBomb = { label: str };
+
+impl Bomb: Eq {
+    @eq (self, other: Bomb) -> bool = self.label == other.label;
+}
+
+impl Bomb: Comparable {
+    @compare (self, other: Bomb) -> Ordering =
+        panic(msg: "comparator-panic");
+}
+
+impl EqBomb: Eq {
+    @eq (self, other: EqBomb) -> bool = panic(msg: "equality-panic");
+}
+
+@caught_operator_panic () -> str = {
+    let result = catch(
+        expr: Bomb { label: "left-owned" } < Bomb { label: "right-owned" },
+    );
+    match result {
+        Err(message) -> message,
+        Ok(_) -> "operator-did-not-panic",
+    }
+}
+
+@caught_equality_panic () -> str = {
+    let result = catch(
+        expr: EqBomb { label: "left-owned" } == EqBomb { label: "right-owned" },
+    );
+    match result {
+        Err(message) -> message,
+        Ok(_) -> "operator-did-not-panic",
+    }
+}
+
+@caught_inequality_panic () -> str = {
+    let result = catch(
+        expr: EqBomb { label: "left-owned" } != EqBomb { label: "right-owned" },
+    );
+    match result {
+        Err(message) -> message,
+        Ok(_) -> "operator-did-not-panic",
+    }
+}
+
+@test_user_operator_unwind tests @caught_operator_panic () -> void = {
+    assert_eq(actual: caught_operator_panic(), expected: "comparator-panic")
+}
+
+@test_user_equality_unwind tests @caught_equality_panic () -> void = {
+    assert_eq(actual: caught_equality_panic(), expected: "equality-panic")
+}
+
+@test_user_inequality_unwind tests @caught_inequality_panic () -> void = {
+    assert_eq(actual: caught_inequality_panic(), expected: "equality-panic")
+}

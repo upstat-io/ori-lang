@@ -365,7 +365,7 @@ Theorem IC-7: Convergence iteration limit soundness
       Per L-6 (monotonicity), widening to the most-conservative
       value is the lattice TOP, which is the soundness floor
       for downstream consumers (Step 5 emission, Step 5a
-      verification, RL-29 + RL-30 LLVM fact-export gates). A
+      verification, and RL-29 + RL-30 neutral fact derivation). A
       widened contract may lose optimization opportunities but
       cannot produce silent miscompilation.
 

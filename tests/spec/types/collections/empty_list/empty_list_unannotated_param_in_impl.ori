@@ -5,6 +5,7 @@
 // same invariant must hold.
 
 #compile_fail(code: "E2005")
+@empty_list_unannotated_param_in_impl tests _ () -> void = { () }
 
 type Container = { name: str }
 

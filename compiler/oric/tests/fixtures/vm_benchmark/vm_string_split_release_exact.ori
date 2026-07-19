@@ -1,0 +1,14 @@
+@split_is_exact (input: str) -> bool = {
+    let parts = input.split(sep: "|");
+    parts.len() == 3
+    && parts[0] == "first split field deliberately exceeds the inline storage threshold"
+    && parts[1] == "second split field deliberately exceeds the inline storage threshold"
+    && parts[2] == "third split field deliberately exceeds the inline storage threshold"
+}
+
+@main () -> int =
+    if split_is_exact(
+        input: "first split field deliberately exceeds the inline storage threshold|second split field deliberately exceeds the inline storage threshold|third split field deliberately exceeds the inline storage threshold",
+    ) then
+        71
+    else 101;

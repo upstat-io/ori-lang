@@ -3,8 +3,6 @@ use ori_types::{Idx, Pool, TypeRegistry};
 use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArgOwnership, CtorKind};
 use crate::ownership::Ownership;
 use crate::test_helpers::{b, make_func, v};
-use rustc_hash::FxHashMap;
-
 use ori_ir::Name;
 
 /// Run the full ARC pipeline via the public orchestration function.
@@ -13,41 +11,27 @@ fn run_full_pipeline(
     classifier: &dyn crate::ArcClassification,
     pool: &Pool,
 ) {
-    let sigs = FxHashMap::default();
     let interner = ori_ir::StringInterner::new();
-    crate::annotate_arg_ownership(
-        func,
-        &sigs,
-        &interner,
-        &crate::BuiltinOwnershipSets::empty(),
-        pool,
-    );
-    let uniqueness_summaries = FxHashMap::default();
-    // IC-1: the contracts map MUST cover every analyzed function. `make_func`
-    // names its function `Name::from_raw(1)`; pre-populate its contract so the
-    // get_required sites in the per-function pipeline do not fire on a
-    // synthetic empty map (the production path computes contracts via
-    // analyze_program before invoking the per-function pipeline).
-    let mut aims_contracts = FxHashMap::default();
-    aims_contracts.insert(
-        func.name,
-        crate::aims::contract::MemoryContract::conservative(func.params.len()),
-    );
+    let builtins = crate::BuiltinOwnershipSets::new(&interner);
     let type_registry = TypeRegistry::default();
+    let external_contracts = rustc_hash::FxHashMap::default();
+    let callable_boundaries = crate::CallableBoundaryFacts::default();
     #[expect(
         clippy::expect_used,
         reason = "test helper — panicking on verification ICE is correct"
     )]
-    let _problems = crate::run_arc_pipeline(
-        func,
-        classifier,
-        &sigs,
-        pool,
-        &interner,
-        &uniqueness_summaries,
-        &aims_contracts,
-        &type_registry,
-        false,
+    let _outcome = crate::realize_closed_program(
+        std::slice::from_mut(func),
+        &crate::ArcPipelineContext {
+            classifier,
+            interner: &interner,
+            pool,
+            builtins: &builtins,
+            type_registry: &type_registry,
+            callable_boundaries: &callable_boundaries,
+            verify_arc: false,
+            external_contracts: &external_contracts,
+        },
     )
     .expect("ARC pipeline should not produce verification errors in tests");
 }

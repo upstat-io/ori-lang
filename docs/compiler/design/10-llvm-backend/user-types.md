@@ -27,17 +27,33 @@ Modern compilers face several layout decisions for user-defined types:
 
 ### Where Ori Sits
 
-Ori uses **inline struct layouts** with **declaration-order fields** and **separate discriminant tags** for sum types. Structs are LLVM named structs with fields at their native types. Enums use a `{ i8, max_payload }` representation with a one-byte tag. RC information flows from the type system (via `TypeInfo`) to the AIMS pipeline (via `ArcClass` classification) to the LLVM backend (via drop function generation).
+Ori's current LLVM projection uses **inline struct layouts** with **declaration-order fields** and **separate discriminant tags** for sum types. Structs are LLVM named structs with fields at their native types.
 
-The key architectural decision is the `TypeInfo` enum — a unified representation that captures both the logical structure of each type and the information needed to generate correct LLVM code for it.
+Enums use a `{ i8, max_payload }` representation with a one-byte tag.
+
+Ownership policy flows through the backend-neutral AIMS plan before physical projection. AIMS freezes stable logical field identities and executable drop-plan identities; it does not produce an LLVM layout, helper, or callback.
+
+The VM and other physical consumers may choose a different faithful layout while consuming the same ownership facts.
+
+- `TypeInfo` is the current LLVM layout projection.
+- `CompiledLayoutPlan(TargetSpec)` maps frozen logical field identities to
+  physical fields and binds every LLVM helper or callback to the validated plan.
+- Reconstructing ownership-relevant structure inside `TypeInfo` is an explicit
+  migration gap, not an architectural authority.
 
 ## What Makes Ori's Type Compilation Distinctive
 
-### The TypeInfo Enum: One Representation for All Decisions
+### The TypeInfo Enum: Current LLVM Projection
 
-Most LLVM backends maintain separate data structures for different concerns: one for type layouts, one for method resolution, one for RC classification. Ori unifies these into a single `TypeInfo` enum with one variant per type category. When the backend needs to know how to lay out a `Point`, how to RC-increment a `[str]`, or how to destructure a `Result<T, E>`, it asks the same `TypeInfo` value.
+The current LLVM backend combines layout, method-resolution support, and
+compiled cleanup shape in one `TypeInfo` enum. LLVM asks that projection how
+to lay out a `Point`, encode a retain for `[str]`, or destructure a
+`Result<T, E>`.
 
-This unification means that adding a new type category requires exactly one `TypeInfo` variant — not scattered updates across multiple lookup tables. The trade-off is that `TypeInfo` is a large enum, but the benefit is that type-related decisions are centralized.
+This centralizes the shipped LLVM implementation, but it must not become a
+second ownership calculus. Production construction derives `TypeInfo` from a
+validated `CompiledLayoutPlan`; adding an LLVM type category cannot alter the
+upstream AIMS field or drop identities.
 
 ### Lazy Population with Cycle Detection
 
@@ -81,7 +97,16 @@ Each Ori type category maps to a `TypeInfo` variant:
 | `Iterator { item }` | `Iterator<T>` | `ptr` |
 | `Range` | `Range` | `{ i64, i64, i64, i64 }` |
 
-Each variant carries the information needed for downstream decisions: `List { element: Idx }` stores the element type's pool index, which AIMS uses to generate element-level RC callbacks. `Struct { fields: Vec<(Name, Idx)> }` stores field names and types, which drop function generation uses to walk and decrement RC-managed fields.
+- Each variant carries LLVM-projection data.
+- `List { element: Idx }` currently stores the element pool index used to
+  generate an LLVM callback projection.
+- Production code binds that callback through `CompiledLayoutPlan` to the
+  upstream `ExecutableDropPlanId`.
+- `Struct { fields: Vec<(Name, Idx)> }` currently reconstructs a field walk
+  from names and types.
+- Production code maps stable logical field identities to LLVM fields and
+  emits only the drop walk frozen in the executable plan.
+- Both direct reconstructions are migration gaps.
 
 ### TypeInfoStore
 
@@ -152,7 +177,9 @@ Impl block methods are compiled alongside module functions, following the same t
 
 1. **Phase 1 (Declaration)**: Each method is declared as an LLVM function with its computed ABI. The method's mangled name encodes the type and method name (e.g., `Point.distance` → `_ori_Point$distance`).
 
-2. **Phase 2 (Definition)**: Each method body is lowered through the AIMS pipeline and emitted as LLVM IR via `ArcIrEmitter`. The method's `self` parameter is passed as the first argument, following the same calling convention as any other function parameter.
+2. **Phase 2 (Definition)**: Each method's exact post-AIMS body is read from the bound `ExecutableProgram` and emitted as LLVM IR via `ArcIrEmitter`. The method's `self` parameter is passed as the first argument under the validated compiled ABI plan.
+
+All ordinary functions, methods, lambdas, derives, and wrappers are required to enter one backend-neutral realization batch before LLVM selection; a local LLVM AIMS call is forbidden as a fallback. Ordinary functions and methods now compile from the bound artifact. Any compiler-generated body not yet present in its exact inventory is a convergence blocker, not permission for LLVM to synthesize an ownership policy.
 
 Methods are compiled as regular functions because Ori uses static dispatch for concrete types — the compiler knows the exact type at every call site. Dynamic dispatch only occurs through trait objects, which are handled separately by the trait system.
 
@@ -193,7 +220,7 @@ Project { dst: v2, ty: int_idx, src: v1, field: 0 }
 
 In the LLVM backend, this becomes an `extract_value` operation on the LLVM struct value at the field's index. The field index is known at compile time (determined by declaration order), so field access is a single LLVM instruction with no runtime lookup.
 
-For nested field access (`state.position.x`), each level produces a separate `Project` instruction. The AIMS pipeline handles ownership correctly at each level — if `position` is shared, it gets an `RcInc` before the projection.
+For nested field access (`state.position.x`), each level produces a separate `Project` instruction. AIMS freezes the ownership relation and any additional owner credit at each level. The current counter carrier may spell that credit as `RcInc`; another satisfying physical plan need not use a counter.
 
 ## Enum Representation
 
@@ -226,7 +253,7 @@ For RC operations, enum values require tag-based dispatch: the `RcDec` path gene
 
 **Inline structs vs. pointer indirection.** Ori lays out struct fields inline — a `Point { x: int, y: int }` is 16 bytes of contiguous memory, not a pointer to a 16-byte allocation. This is faster for access (no pointer chase, better cache locality) but makes passing large structs by value expensive. The ABI system mitigates this by passing large structs via pointer (indirect passing), but the layout is still inline in memory.
 
-**Fixed tag size vs. niche optimization.** Using a fixed `i8` tag for all enums wastes space when the payload could encode the variant information (like using null for `None` in `Option<&T>`). Niche optimization would save memory but adds significant complexity to the layout algorithm, the codegen, and AIMS (which must know where the tag is for each type). This is a future optimization opportunity.
+**Fixed tag size vs. niche optimization.** Using a fixed `i8` tag for all enums wastes space when the payload could encode the variant information (like using null for `None` in `Option<&T>`). Niche optimization would save memory but adds significant complexity to representation planning and each physical projection. AIMS continues to own only the logical discriminant, payload, and drop identities; it must never depend on the tag's byte location. This is a future optimization opportunity.
 
 **Static dispatch vs. vtables.** Ori compiles method calls as direct function calls, not vtable lookups. This means every concrete method call has zero dispatch overhead but requires monomorphization for generic code. The alternative — vtables for all types, like Java — would enable code sharing across generic instantiations but would add indirect call overhead to every method call.
 

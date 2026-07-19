@@ -8,16 +8,19 @@
 //!
 //! # Usage
 //!
-//! ```ignore
-//! use ori_llvm::aot::{TargetConfig, TargetError};
+//! ```no_run
+//! use ori_llvm::aot::TargetConfig;
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
 //! // Native target (auto-detected)
-//! let native = TargetConfig::native()?;
+//! let _native = TargetConfig::native()?;
 //!
 //! // Specific target with features
-//! let config = TargetConfig::from_triple("x86_64-unknown-linux-gnu")?
+//! let _config = TargetConfig::from_triple("x86_64-unknown-linux-gnu")?
 //!     .with_cpu("skylake")
 //!     .with_features("+avx2,+fma");
+//! # Ok(())
+//! # }
 //! ```
 
 use inkwell::targets::{CodeModel, RelocMode, Target, TargetMachine, TargetTriple};
@@ -252,7 +255,7 @@ impl TargetConfig {
         self
     }
 
-    // -- Accessors --
+    // Accessors
 
     /// Get the target triple string.
     #[must_use]
@@ -388,7 +391,7 @@ impl TargetConfig {
 
     /// Get pointer size in bytes for this target.
     ///
-    /// Delegates to the typed [`Arch::pointer_size_bytes`] — exhaustive over
+    /// Delegates to the typed [`Arch::pointer_size_bytes`](crate::aot::Arch::pointer_size_bytes) — exhaustive over
     /// every supported architecture, no string fallthrough.
     #[must_use]
     pub fn pointer_size(&self) -> u32 {

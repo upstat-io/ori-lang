@@ -1,0 +1,10 @@
+// Borrowed source element through filter, then map produces the fresh value:
+// only the map output is consumer-owned.
+@main () -> void = {
+    let $joined = ["zeta-zeta-zeta-zeta-zeta-zeta", "eta-eta-eta-eta-eta-eta-eta"]
+        .iter()
+        .filter(predicate: (s: str) -> bool = s.len() > 3)
+        .map(transform: (s: str) -> str = s + "-suffix-suffix-suffix-suffix")
+        .join(separator: "; ");
+    print(msg: joined)
+}

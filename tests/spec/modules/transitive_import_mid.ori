@@ -1,0 +1,23 @@
+// Spec: 18-modules.md § Imports
+// Design: (modules not yet in design docs)
+//
+// Intermediate module: imports transitive_import_leaf's items via a PLAIN
+// item-import, then calls the imported item from its own exported function
+// — pins that an imported module's OWN `use` imports are visible in its
+// evaluation environment when called two hops away.
+
+use "./transitive_import_leaf" { leaf_double }
+
+// Two-hop resolution: mid_quadruple's own call chain never separately
+// re-imports leaf_double at the top-level caller.
+pub @mid_quadruple (x: int) -> int = leaf_double(x: leaf_double(x: x));
+
+// Own-declared sibling, directly exported (pub) — a plain regression guard,
+// distinct from a same-module PRIVATE-sibling-chain (out of scope here);
+// both endpoints here are pub.
+pub @mid_sibling (x: int) -> int = x + 1000;
+
+// Combines an imported symbol AND a directly-exported sibling within the
+// SAME module — pins "own resolved imports UNION own declared functions"
+// composition.
+pub @mid_combine (x: int) -> int = mid_sibling(x: leaf_double(x: x));

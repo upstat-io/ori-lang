@@ -1,6 +1,9 @@
 use super::*;
 use crate::codegen::eh_model::EhModel;
+use crate::codegen::value_id::{BlockId, FunctionId};
+use crate::context::SimpleCx;
 use inkwell::context::Context;
+use inkwell::values::BasicValueEnum;
 
 /// Helper: create a `SimpleCx` for testing.
 fn test_scx(ctx: &Context) -> SimpleCx<'_> {
@@ -16,7 +19,7 @@ fn setup_builder(irb: &mut IrBuilder<'_, '_>) {
     irb.position_at_end(entry);
 }
 
-// -- Constant creation --
+// Constant creation
 
 #[test]
 fn const_i64_roundtrip() {
@@ -66,7 +69,7 @@ fn const_bool_roundtrip() {
     drop(irb);
 }
 
-// -- Arithmetic --
+// Arithmetic
 
 #[test]
 fn integer_arithmetic() {
@@ -119,7 +122,7 @@ fn float_arithmetic() {
     drop(irb);
 }
 
-// -- Memory --
+// Memory
 
 #[test]
 fn alloca_load_store_roundtrip() {
@@ -163,7 +166,7 @@ fn create_entry_alloca_inserts_at_entry() {
     drop(irb);
 }
 
-// -- Block management --
+// Block management
 
 #[test]
 fn block_creation_and_positioning() {
@@ -202,7 +205,7 @@ fn current_block_terminated() {
     drop(irb);
 }
 
-// -- Phi nodes --
+// Phi nodes
 
 #[test]
 fn phi_from_incoming_zero() {
@@ -263,7 +266,7 @@ fn phi_from_incoming_multiple() {
     drop(irb);
 }
 
-// -- Position save/restore --
+// Position save/restore
 
 #[test]
 fn position_save_restore() {
@@ -288,7 +291,7 @@ fn position_save_restore() {
     drop(irb);
 }
 
-// -- Type registration --
+// Type registration
 
 #[test]
 fn type_registration() {
@@ -317,7 +320,7 @@ fn type_registration() {
     drop(irb);
 }
 
-// -- Select instruction --
+// Select instruction
 
 #[test]
 fn select_instruction() {
@@ -335,7 +338,74 @@ fn select_instruction() {
     drop(irb);
 }
 
-// -- Function management --
+fn assert_known_aggregate_component_extraction(jit: bool) {
+    let ctx = Context::create();
+    let scx = test_scx(&ctx);
+    let mut irb = if jit {
+        IrBuilder::new_jit(&scx)
+    } else {
+        IrBuilder::new(&scx)
+    };
+    let i64_ty = irb.i64_type();
+    let ptr_ty = irb.ptr_type();
+    let function_name = if jit {
+        "jit_component_provenance"
+    } else {
+        "aot_component_control"
+    };
+    let func = irb.declare_function(function_name, &[i64_ty, i64_ty, ptr_ty], i64_ty);
+    let entry = irb.append_block(func, "entry");
+    irb.set_current_function(func);
+    irb.position_at_end(entry);
+
+    let first = irb.get_param(func, 0);
+    let second = irb.get_param(func, 1);
+    let third = irb.get_param(func, 2);
+    let aggregate_ty = irb.register_type(
+        scx.type_struct(
+            &[
+                scx.type_i64().into(),
+                scx.type_i64().into(),
+                scx.type_ptr().into(),
+            ],
+            false,
+        )
+        .into(),
+    );
+    let aggregate = irb.const_zero_ty(aggregate_ty);
+    let aggregate = irb.insert_value(aggregate, first, 0, "aggregate.first");
+    let aggregate = irb.insert_value(aggregate, second, 1, "aggregate.second");
+    let aggregate = irb.insert_value(aggregate, third, 2, "aggregate.third");
+
+    let inserted_component = irb.extract_value(aggregate, 1, "component");
+    let built = irb.build_struct(aggregate_ty, &[first, second, third], "built");
+    let built_component = irb.extract_value(built, 0, "built.component");
+    let ir = scx.llmod.print_to_string().to_string();
+    if jit {
+        assert_eq!(inserted_component, Some(second));
+        assert_eq!(built_component, Some(first));
+        assert!(
+            !ir.contains("extractvalue"),
+            "JIT known-component extraction must not emit extractvalue:\n{ir}"
+        );
+    } else {
+        assert_ne!(inserted_component, Some(second));
+        assert_ne!(built_component, Some(first));
+        assert!(
+            ir.contains("extractvalue"),
+            "AOT known-component extraction must retain extractvalue:\n{ir}"
+        );
+    }
+    drop(irb);
+}
+
+#[test]
+fn jit_extract_value_reuses_known_aggregate_component_only_in_jit() {
+    assert_known_aggregate_component_extraction(true);
+    assert_known_aggregate_component_extraction(false);
+}
+
+// Function management
 
 #[test]
 fn declare_and_get_function() {
@@ -366,7 +436,7 @@ fn get_or_declare_function_idempotent() {
     drop(irb);
 }
 
-// -- Comparisons --
+// Comparisons
 
 #[test]
 fn integer_comparisons() {
@@ -410,7 +480,7 @@ fn float_comparisons() {
     drop(irb);
 }
 
-// -- Conversions --
+// Conversions
 
 #[test]
 fn integer_conversions() {
@@ -435,7 +505,7 @@ fn integer_conversions() {
     drop(irb);
 }
 
-// -- Intern helpers --
+// Intern helpers
 
 #[test]
 fn intern_raw_values() {
@@ -449,7 +519,7 @@ fn intern_raw_values() {
     drop(irb);
 }
 
-// -- Void function declaration --
+// Void function declaration
 
 #[test]
 fn declare_void_function() {
@@ -468,7 +538,7 @@ fn declare_void_function() {
     drop(irb);
 }
 
-// -- Calling conventions --
+// Calling conventions
 
 #[test]
 fn set_fastcc_and_ccc() {
@@ -489,7 +559,7 @@ fn set_fastcc_and_ccc() {
     drop(irb);
 }
 
-// -- sret attribute --
+// sret attribute
 
 #[test]
 fn sret_attribute_applied() {
@@ -523,7 +593,7 @@ fn sret_attribute_applied() {
     drop(irb);
 }
 
-// -- declare_extern_function --
+// declare_extern_function
 
 #[test]
 fn declare_extern_function_basic() {
@@ -571,7 +641,7 @@ fn declare_extern_function_idempotent() {
     drop(irb);
 }
 
-// -- Tail calls --
+// Tail calls
 
 #[test]
 fn call_without_tail_has_no_tail_attribute() {
@@ -601,7 +671,7 @@ fn call_without_tail_has_no_tail_attribute() {
     drop(irb);
 }
 
-// -- call_with_sret --
+// call_with_sret
 
 #[test]
 fn call_with_sret_creates_alloca_and_load() {
@@ -640,7 +710,7 @@ fn call_with_sret_creates_alloca_and_load() {
     drop(irb);
 }
 
-// -- Exception handling --
+// Exception handling
 
 /// Helper: set up a function with entry, then, and catch blocks for invoke tests.
 fn setup_invoke_blocks(irb: &mut IrBuilder<'_, '_>) -> (FunctionId, BlockId, BlockId, BlockId) {
@@ -861,7 +931,7 @@ fn invoke_indirect_produces_invoke() {
     drop(irb);
 }
 
-// -- SEH (Structured Exception Handling) tests --
+// SEH (Structured Exception Handling) tests
 
 /// Helper: set up a function with MSVC triple and SEH personality for SEH tests.
 ///
@@ -874,7 +944,7 @@ fn setup_seh_builder(irb: &mut IrBuilder<'_, '_>) -> (FunctionId, BlockId) {
         .set_triple(&TargetTriple::create("x86_64-pc-windows-msvc"));
     let i32_ty = irb.i32_type();
     let func = irb.declare_function("test_fn", &[], i32_ty);
-    // __CxxFrameHandler3 personality (i32 return, matches runtime_functions.rs)
+    // The `__CxxFrameHandler3` personality uses the runtime's `i32` signature.
     let personality = irb.declare_function("__CxxFrameHandler3", &[], i32_ty);
     irb.set_personality(func, personality);
     let entry = irb.append_block(func, "entry");
@@ -1145,7 +1215,7 @@ fn seh_indirect_call_with_sret_and_funclet() {
     drop(irb);
 }
 
-// -- Alignment --
+// Alignment
 
 /// Helper: set up a builder with a specific target DataLayout.
 fn setup_with_data_layout(irb: &mut IrBuilder<'_, '_>, data_layout: &str) -> FunctionId {
@@ -1253,7 +1323,7 @@ fn struct_load_field_alignment_x86_64() {
     );
 }
 
-// -- String constant deduplication --
+// String constant deduplication
 
 #[test]
 fn global_string_ptr_dedup_same_content() {
@@ -1309,21 +1379,40 @@ fn global_string_ptr_unnamed_addr() {
     );
 }
 
-/// Drift guard: BUG-04-159 — `emit_panic_block` is the SINGLE `ori_panic_cstr`
+/// Drift guard: `emit_panic_block` is the SINGLE `ori_panic_cstr`
 /// carrier for every checked-op panic site. Its invoke-when-caught path is what
-/// routes a same-frame checked-op panic to the catch landing pad. A future edit
-/// that reintroduces an inline `ori_panic_cstr` call (as `emit_checked_binop`
-/// once had) would bypass that threading and silently un-catchable that op's
-/// panic again. Assert exactly one `ori_panic_cstr` reference in the source —
-/// the one inside `emit_panic_block`.
+/// routes a same-frame checked-op panic to the catch landing pad. Any inline
+/// `ori_panic_cstr` call would bypass that threading and make the panic
+/// uncatchable. Exactly one `ori_panic_cstr` reference may exist across the
+/// `checked_ops` module family — the one inside
+/// `checked_ops::panic::emit_panic_block` — and zero
+/// in every other `checked_ops` file.
 #[test]
 fn checked_ops_has_single_ori_panic_cstr_carrier() {
-    let src = include_str!("checked_ops.rs");
-    let count = src.matches("\"ori_panic_cstr\"").count();
+    let carrier = include_str!("checked_ops/panic.rs");
+    let siblings = [
+        ("checked_ops/mod.rs", include_str!("checked_ops/mod.rs")),
+        (
+            "checked_ops/div_rem.rs",
+            include_str!("checked_ops/div_rem.rs"),
+        ),
+        ("checked_ops/shift.rs", include_str!("checked_ops/shift.rs")),
+    ];
+
+    let carrier_count = carrier.matches("\"ori_panic_cstr\"").count();
     assert_eq!(
-        count, 1,
-        "checked_ops.rs must reference \"ori_panic_cstr\" exactly once (inside \
-         emit_panic_block, the single carrier). Found {count} — a reintroduced \
-         inline panic site bypasses the invoke-when-caught threading (BUG-04-159)."
+        carrier_count, 1,
+        "checked_ops/panic.rs must reference \"ori_panic_cstr\" exactly once \
+         (inside emit_panic_block, the single carrier). Found {carrier_count}."
     );
+
+    for (path, src) in siblings {
+        let count = src.matches("\"ori_panic_cstr\"").count();
+        assert_eq!(
+            count, 0,
+            "{path} must not reference \"ori_panic_cstr\" — a reintroduced \
+             inline panic site bypasses emit_panic_block's invoke-when-caught \
+             threading. Found {count}."
+        );
+    }
 }

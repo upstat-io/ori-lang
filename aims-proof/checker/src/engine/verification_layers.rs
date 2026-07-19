@@ -161,15 +161,15 @@ fn require_count(rule: &str, expected: u64, actual: u64, label: &str) -> EngineR
 // COVERAGE: every well-formedness failure class the verifier is responsible for
 // is detected by exactly one check, and a malformed IR exhibiting that class is
 // REJECTED (the check fires). DecOnBorrowed is restricted to function
-// parameters (field-drop Project+RcDec from RL-14/RL-14a/RL-15/RL-15a scope
-// cleanup is EXEMPT). Three checkpoints: after AIMS emission (Step 6), after
+// parameters (a field-drop Project+RcDec discharging RL-14a's exact cleanup
+// obligation is EXEMPT). Three checkpoints: after AIMS emission (Step 6), after
 // full pipeline (Step 11), after post-pipeline passes (§8 RL-22..RL-26).
 //
 // (P1) Check↔error bijection: the 5 checks map 1:1 to the 5 VerifyError
 // variants (UseBeforeDef, DanglingBlockRef, RcOnScalar, DecOnBorrowed,
 // ArgOwnershipLenMismatch); no check is missing and none is duplicated.
 // (P2) Detection has teeth: a malformed IR for each class is REJECTED; a
-// well-formed IR (incl. the RL-14 field-drop EXEMPTION) is ACCEPTED.
+// well-formed IR (incl. the cleanup field-drop EXEMPTION) is ACCEPTED.
 //
 // Shipped: compiler/ori_arc/src/verify/mod.rs check_function
 // (check_variable_scope / check_block_connectivity / check_no_rc_on_scalar /
@@ -212,18 +212,18 @@ struct StructuralFixture {
     label: &'static str,
     /// Which failure class the fixture exhibits, or `None` for well-formed.
     exhibits: Option<StructuralCheck>,
-    /// `true` for a fixture that LOOKS like DecOnBorrowed but is the RL-14
-    /// field-drop EXEMPTION (Project+RcDec at scope cleanup) — must be ACCEPTED.
-    is_rl14_field_drop_exemption: bool,
+    /// `true` for a fixture that LOOKS like DecOnBorrowed but is an exact
+    /// cleanup field-drop (Project+RcDec at scope cleanup) — must be ACCEPTED.
+    is_cleanup_field_drop_exemption: bool,
 }
 
 /// Decide whether the structural verifier ACCEPTS a fixture. Accepts iff the
-/// fixture is well-formed OR it is the RL-14 field-drop exemption (the
+/// fixture is well-formed OR it is the cleanup field-drop exemption (the
 /// DecOnBorrowed check is param-restricted and exempts scope-cleanup drops).
 fn vf1_accepts(fixture: &StructuralFixture) -> bool {
     match fixture.exhibits {
         None => true,
-        Some(StructuralCheck::DecOnBorrowed) if fixture.is_rl14_field_drop_exemption => true,
+        Some(StructuralCheck::DecOnBorrowed) if fixture.is_cleanup_field_drop_exemption => true,
         Some(_) => false,
     }
 }
@@ -257,56 +257,56 @@ fn verify_vf1_structural_wellformedness() -> EngineResult {
     }
 
     // (P2) Detection has teeth: malformed fixtures REJECTED; well-formed +
-    // the RL-14 exemption ACCEPTED.
+    // the cleanup field-drop exemption ACCEPTED.
     let fixtures: &[StructuralFixture] = &[
         // One malformed fixture per failure class — each must be REJECTED.
         StructuralFixture {
             label: "use_before_def_rejected",
             exhibits: Some(StructuralCheck::UseBeforeDef),
-            is_rl14_field_drop_exemption: false,
+            is_cleanup_field_drop_exemption: false,
         },
         StructuralFixture {
             label: "dangling_block_ref_rejected",
             exhibits: Some(StructuralCheck::DanglingBlockRef),
-            is_rl14_field_drop_exemption: false,
+            is_cleanup_field_drop_exemption: false,
         },
         StructuralFixture {
             label: "rc_on_scalar_rejected",
             exhibits: Some(StructuralCheck::RcOnScalar),
-            is_rl14_field_drop_exemption: false,
+            is_cleanup_field_drop_exemption: false,
         },
         StructuralFixture {
             label: "dec_on_borrowed_param_rejected",
             exhibits: Some(StructuralCheck::DecOnBorrowed),
-            is_rl14_field_drop_exemption: false,
+            is_cleanup_field_drop_exemption: false,
         },
         StructuralFixture {
             label: "arg_ownership_len_mismatch_rejected",
             exhibits: Some(StructuralCheck::ArgOwnershipLenMismatch),
-            is_rl14_field_drop_exemption: false,
+            is_cleanup_field_drop_exemption: false,
         },
         // Well-formed IR — ACCEPTED.
         StructuralFixture {
             label: "well_formed_accepted",
             exhibits: None,
-            is_rl14_field_drop_exemption: false,
+            is_cleanup_field_drop_exemption: false,
         },
-        // RL-14 field-drop EXEMPTION: a Project+RcDec at scope cleanup looks
-        // like DecOnBorrowed but is exempt (param-restricted check) — ACCEPTED.
+        // Exact cleanup field-drop EXEMPTION: a Project+RcDec at scope cleanup
+        // looks like DecOnBorrowed but is exempt (param-restricted check).
         StructuralFixture {
-            label: "rl14_field_drop_exemption_accepted",
+            label: "cleanup_field_drop_exemption_accepted",
             exhibits: Some(StructuralCheck::DecOnBorrowed),
-            is_rl14_field_drop_exemption: true,
+            is_cleanup_field_drop_exemption: true,
         },
     ];
     let mut checked: u64 = 0;
     for f in fixtures {
         let accepts = vf1_accepts(f);
         // Malformed (non-exempt) must be REJECTED; well-formed + exemption ACCEPTED.
-        let expect_accept = f.exhibits.is_none() || f.is_rl14_field_drop_exemption;
+        let expect_accept = f.exhibits.is_none() || f.is_cleanup_field_drop_exemption;
         if accepts != expect_accept {
             return fail(format!(
-                "VF-1 (P2) detection: '{}' expected accept={} got {}; Layer-1 must reject each malformed class and accept the RL-14 field-drop exemption",
+                "VF-1 (P2) detection: '{}' expected accept={} got {}; Layer-1 must reject each malformed class and accept the exact cleanup field-drop exemption",
                 f.label, expect_accept, accepts
             ));
         }
@@ -318,7 +318,7 @@ fn verify_vf1_structural_wellformedness() -> EngineResult {
     let neg = StructuralFixture {
         label: "NEG_dec_on_borrowed_param",
         exhibits: Some(StructuralCheck::DecOnBorrowed),
-        is_rl14_field_drop_exemption: false,
+        is_cleanup_field_drop_exemption: false,
     };
     if vf1_accepts(&neg) {
         return fail(
@@ -329,34 +329,35 @@ fn verify_vf1_structural_wellformedness() -> EngineResult {
         "VF-1",
         7,
         checked,
-        "(P2) structural fixtures (5 malformed rejected + 1 well-formed + 1 RL-14 exemption accepted; negative witness: param DecOnBorrowed rejected)",
+        "(P2) structural fixtures (5 malformed rejected + 1 well-formed + 1 exact cleanup exemption accepted; negative witness: param DecOnBorrowed rejected)",
     )
 }
 
 // ============================================================================
-// VF-2: Layer 2 — AIMS contract consistency (AbsentParamHasUses implemented;
-// (b)/(c)/(d) target-only conditional on §08 RL-31/RL-29/RL-30)
+// VF-2: Layer 2 — AIMS contract consistency. Conservative neutral carriers
+// for (b)/(c)/(d) are validated at executable realization; richer provenance
+// and region precision remains target work.
 // ============================================================================
 //
 // Per Annex E §AIMS VF-2: an INDEPENDENT contract-consistency layer (NOT a
 // filter over VF-1). Four checks:
 // (a) AbsentParamHasUses — parameters declared Absent MUST have no live uses
 // on any forward-reachable path. IMPLEMENTED + sound.
-// (b) RL-31 alias metadata backed by a disjointness proof — TARGET-ONLY.
-// (c) RL-29 noalias returns validated against ReturnContract — TARGET-ONLY.
-// (d) RL-30 memory(...) attributes derivable from IC-5 + parameter contracts
-// — TARGET-ONLY.
-// When the target-only checks ship, they are mandatory per VF-8.
+// (b) RL-31 neutral disjointness facts backed by a disjointness proof.
+// (c) RL-29 fresh-self-allocation facts validated against ReturnContract.
+// (d) RL-30 neutral memory-access facts derivable from IC-5 + parameter
+// contracts + realized operations. Target spelling and placement are separate
+// backend fidelity obligations.
 //
 // (P1) Implemented-check soundness: AbsentParamHasUses fires IFF an Absent
 // param has a live forward-reachable use (the contract-vs-IR inconsistency).
 // (P2) Conditional-soundness of (b)/(c)/(d): each is sound ASSUMING its §08
-// LLVM-fact-export rule (RL-31/RL-29/RL-30) discharged; (b) cross-call-site
+// backend-neutral derivation rule (RL-31/RL-29/RL-30) discharged; (b) cross-call-site
 // provenance also exercises interprocedural_summary.
 //
 // Shipped: compiler/ori_arc/src/verify/mod.rs
-// check_function_with_contract (AbsentParamHasUses). (b)/(c)/(d) target-only —
-// require RL-29/RL-30/RL-31 LLVM fact export.
+// check_function_with_contract (AbsentParamHasUses). Exact conservative
+// (b)/(c)/(d) carriers are validated at the executable realization boundary.
 
 fn verify_vf2_contract_consistency() -> EngineResult {
     // (P1) AbsentParamHasUses decision grid. Each row: (param_absent,
@@ -428,68 +429,69 @@ fn verify_vf2_contract_consistency() -> EngineResult {
         ));
     }
 
-    // (P2) Conditional soundness of (b)/(c)/(d): each target-only check is sound
-    // ASSUMING its §08 LLVM-fact-export rule discharged. The verifier confirms
+    // (P2) Conditional soundness of (b)/(c)/(d): each neutral fact check is sound
+    // ASSUMING its §08 derivation rule discharged. The verifier confirms
     // the conditional implication: (rule discharged) ⟹ (check sound).
-    struct TargetCheck {
+    struct FactCheck {
         label: &'static str,
-        // The §08 rule the target-only check depends on (RL-31/RL-29/RL-30).
+        // The §08 rule the neutral fact check depends on (RL-31/RL-29/RL-30).
         depends_rule_discharged: bool,
-        // The check is sound exactly when its dependency is discharged.
+        // The fact check is sound exactly when its dependency is discharged.
         expect_sound: bool,
     }
-    let target_checks: &[TargetCheck] = &[
-        // (b) RL-31 alias metadata: sound when RL-31 (disjointness proof)
-        // discharged. RL-31 is discharged in §08 (refinement PRIMARY +
+    let fact_checks: &[FactCheck] = &[
+        // (b) RL-31 neutral parameter-disjointness facts are sound when the
+        // RL-31 derivation proof is discharged. Target metadata is separate.
+        // RL-31 is discharged in §08 (refinement PRIMARY +
         // interprocedural_summary cross-call-site provenance).
-        TargetCheck {
-            label: "b_rl31_alias_metadata",
+        FactCheck {
+            label: "b_rl31_parameter_disjointness",
             depends_rule_discharged: true,
             expect_sound: true,
         },
-        // (c) RL-29 noalias returns: sound when RL-29 (preserves_freshness ∧
-        // Unique) discharged. RL-29 is discharged in §08.
-        TargetCheck {
-            label: "c_rl29_noalias_returns",
+        // (c) RL-29 fresh-return fact: sound when the path-universal
+        // returns_fresh_self_alloc derivation is discharged.
+        FactCheck {
+            label: "c_rl29_fresh_self_allocation",
             depends_rule_discharged: true,
             expect_sound: true,
         },
-        // (d) RL-30 memory(...) attrs: sound when RL-30 (IC-5 + ParamContract
-        // derivation) discharged. RL-30 is discharged in §08.
-        TargetCheck {
-            label: "d_rl30_memory_attrs",
+        // (d) RL-30 neutral memory fact: sound when RL-30 (IC-5 +
+        // ParamContract + realized-operation derivation) is discharged.
+        FactCheck {
+            label: "d_rl30_memory_access",
             depends_rule_discharged: true,
             expect_sound: true,
         },
         // Negative-direction witness (LIVE): an UNDISCHARGED §08 dependency ⟹
-        // the target-only check is NOT sound. Runs the SAME conditional
+        // the neutral fact check is NOT sound. Runs the SAME conditional
         // implication (sound = depends_rule_discharged) through the loop below;
         // a regression hardcoding sound=true would fail this row
         // (sound=true != expect_sound=false). Replaces the prior dead
         // `let neg_sound = false; if neg_sound {…}` witness (unreachable body).
-        TargetCheck {
+        FactCheck {
             label: "neg_undischarged_dep_not_sound",
             depends_rule_discharged: false,
             expect_sound: false,
         },
     ];
-    let mut target_checked: u64 = 0;
-    for tc in target_checks {
+    let mut facts_checked: u64 = 0;
+    for check in fact_checks {
         // Conditional implication: sound IFF the dependency is discharged.
-        let sound = tc.depends_rule_discharged;
-        if sound != tc.expect_sound {
+        let sound = check.depends_rule_discharged;
+        if sound != check.expect_sound {
             return fail(format!(
-                "VF-2 (P2) conditional soundness: '{}' expected sound={} got {}; the target-only check is sound exactly when its §08 LLVM-fact-export rule discharged",
-                tc.label, tc.expect_sound, sound
+                "VF-2 (P2) conditional soundness: '{}' expected sound={} got {}; the neutral fact check is sound exactly when its §08 derivation rule discharged",
+                check.label, check.expect_sound, sound
             ));
         }
-        target_checked += 1;
+        facts_checked += 1;
     }
     require_count(
         "VF-2",
         4,
-        target_checked,
-        "(P2) conditional-soundness checks: 3 target-only (b RL-31 / c RL-29 / d RL-30, sound iff §08 discharged) + 1 negative-direction witness (undischarged dep ⟹ not sound)",
+        facts_checked,
+        "(P2) conditional-soundness checks: 3 neutral facts (b RL-31 / c RL-29 / d RL-30, sound iff §08 discharged) + 1 negative-direction witness (undischarged dep ⟹ not sound)",
     )
 }
 
@@ -662,12 +664,13 @@ fn verify_vf3_oracle_rederivation() -> EngineResult {
 /// is (allocs - deallocs); a Certified function nets 0.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum AllocEvent {
-    /// A heap allocation (Construct / Reuse fresh path / CollectionReuse).
+    /// A logical storage-acquisition event (Construct / Reuse fresh path /
+    /// CollectionReuse). Target placement is outside this checker.
     Alloc,
-    /// A matched deallocation (RcDec reaching 0, or scope-exit free).
+    /// A matched logical cleanup event.
     Dealloc,
-    /// A Reset+Reuse pair: the dying allocation is reused IN PLACE for a fresh
-    /// same-type allocation. Nets 0 — no new heap traffic (the FIP win).
+    /// A Reset+Reuse pair: the dying identity funds a fresh same-type identity.
+    /// Nets 0 logical storage-acquisition events (the FIP obligation).
     ReuseInPlace,
 }
 
@@ -842,8 +845,11 @@ fn verify_vf5_end_to_end_mandate() -> EngineResult {
     ];
     let mut checked: u64 = 0;
     for s in grid {
-        let complete =
-            end_to_end_verified(s.has_implementation, s.has_invariant_enforcement, s.has_tests);
+        let complete = end_to_end_verified(
+            s.has_implementation,
+            s.has_invariant_enforcement,
+            s.has_tests,
+        );
         if complete != s.expect_complete {
             return fail(format!(
                 "VF-5 (P1/P2) end-to-end mandate: '{}' expected complete={} got {}; a subsystem is verified iff implementation ∧ invariant-enforcement ∧ tests",
@@ -1250,7 +1256,8 @@ fn verify_vf8_stack_applies_to_all_rules() -> EngineResult {
     }
     if !is_spec_gap(false, false) {
         return fail(
-            "VF-8 negative witness: an unimplemented rule with no planned layer must be a spec gap".to_string(),
+            "VF-8 negative witness: an unimplemented rule with no planned layer must be a spec gap"
+                .to_string(),
         );
     }
     require_count(
@@ -1316,7 +1323,8 @@ fn verify_vf_composition() -> EngineResult {
     // A fix passing every layer is accepted by the union.
     if !stack_accepts(&[true; 8]) {
         return fail(
-            "VF-comp union: a fix passing every layer must be accepted by the layered stack".to_string(),
+            "VF-comp union: a fix passing every layer must be accepted by the layered stack"
+                .to_string(),
         );
     }
     // Coverage gate: the complete §09 verification-layer set is exactly 8

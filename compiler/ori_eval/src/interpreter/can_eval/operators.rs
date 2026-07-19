@@ -36,7 +36,7 @@ impl Interpreter<'_> {
                 return Ok(Value::Bool(right_val.is_truthy()));
             }
             BinaryOp::Coalesce => {
-                // In canonical mode, we compare TypeIds directly (always available).
+                // Canonical mode compares TypeIds directly (always available).
                 let canon = self.canon_ref();
                 let is_chaining = canon.arena.ty(left) == canon.arena.ty(binary_id);
 
@@ -87,7 +87,6 @@ impl Interpreter<'_> {
         }
 
         // Ordering operators on user types: dispatch through compare method.
-        // The compare method returns Ordering, which we convert to bool.
         if matches!(
             op,
             BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq

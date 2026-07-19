@@ -1,0 +1,8 @@
+@source () -> [[int]] = [[1], [2, 3, 4], [5, 6]];
+
+@main () -> int = {
+    // Uneven per-element inner-list lengths exercise the non-uniform stride
+    // the two-pass sum-then-copy primitive must accumulate correctly.
+    let $x = source().flatten();
+    if x.length() == 6 then 0 else 1
+}

@@ -107,7 +107,7 @@ fn double_ended_iterator_has_correct_name() {
     assert_eq!(Tag::DoubleEndedIterator.name(), "DoubleEndedIterator");
 }
 
-// === Merkle Hash Classification Tests ===
+// Merkle Hash Classification Tests
 
 /// Every Tag variant must fall into exactly one Merkle hash category.
 ///

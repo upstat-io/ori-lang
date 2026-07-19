@@ -81,7 +81,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let resolved = self.pool.resolve_fully(ty);
         let tag = self.pool.tag(resolved);
         match tag {
-            // Scalars: no RC action
+            // Scalars: no RC action. Range (fixed 4-field scalar-only value
+            // — start, end, step, inclusive per `codegen-rules.md TR-1`)
+            // joins this arm: every field is `int`/`bool`-shaped, so no
+            // field can ever carry an RC pointer regardless of element type.
             Tag::Int
             | Tag::Float
             | Tag::Bool
@@ -92,7 +95,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | Tag::Error
             | Tag::Duration
             | Tag::Size
-            | Tag::Ordering => {}
+            | Tag::Ordering
+            | Tag::Range => {}
 
             // Iterators (Box-allocated, no RC header): Inc is a no-op.
             // Iterators are unique-owned — they are moved through
@@ -159,23 +163,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.inc_aggregate_fields(val, resolved, &elems, count);
             }
 
-            // Option: recurse into inner type at field 1
-            // NOTE: latent bug — doesn't check runtime tag. If value is None,
-            // field 1 is uninitialized. Matches existing behavior; tracked as
-            // BUG-04-130 (tag-blind Option RC walk).
+            // Option: route through the tag-aware inline-enum path, which loads
+            // the discriminant and walks only the live variant's payload — a
+            // None incs nothing; a Some incs its inner. Covers boxed AND
+            // non-boxed inner; never an un-guarded field-1 payload read.
             Tag::Option => {
                 let inner = self.pool.option_inner(resolved);
-                if self.classifier.needs_rc(inner) {
-                    if is_boxed_enum_field(self.pool, resolved, inner) {
-                        // Boxed recursive inner: the None payload slot holds the
-                        // niche/tag, not a pointer. Route through the tag-aware
-                        // inline path so only Some incs the box pointer.
-                        self.emit_inline_enum_inc(val, resolved, tag, count);
-                    } else if let Some(field) =
-                        self.builder.extract_value(val, 1, "rc_inc.opt_inner")
-                    {
-                        self.inc_value_rc(field, inner, count);
-                    }
+                if self.classifier.has_managed_ownership_obligation(inner) {
+                    self.emit_inline_enum_inc(val, resolved, tag, count);
                 }
             }
 
@@ -198,7 +193,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let resolved = self.pool.resolve_fully(ty);
         let tag = self.pool.tag(resolved);
         match tag {
-            // Scalars: no RC action
+            // Scalars: no RC action. Range (fixed 4-field scalar-only value
+            // — start, end, step, inclusive per `codegen-rules.md TR-1`)
+            // joins this arm: every field is `int`/`bool`-shaped, so no
+            // field can ever carry an RC pointer regardless of element type.
             Tag::Int
             | Tag::Float
             | Tag::Bool
@@ -209,7 +207,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | Tag::Error
             | Tag::Duration
             | Tag::Size
-            | Tag::Ordering => {}
+            | Tag::Ordering
+            | Tag::Range => {}
 
             // Iterators: call `ori_iter_drop(ptr)` to free the
             // Box-allocated state. There is no RC header to decrement,
@@ -267,20 +266,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.dec_aggregate_fields(val, resolved, &elems);
             }
 
-            // Option: recurse into inner (same latent bug as inc)
+            // Option: tag-aware via the shared inline-enum path (lockstep with
+            // the inc arm) — a None decs nothing; a Some decs its inner. Never
+            // an un-guarded field-1 payload read.
             Tag::Option => {
                 let inner = self.pool.option_inner(resolved);
-                if self.classifier.needs_rc(inner) {
-                    if is_boxed_enum_field(self.pool, resolved, inner) {
-                        // Boxed recursive inner: the None payload slot holds the
-                        // niche/tag, not a pointer. Route through the tag-aware
-                        // inline path so only Some decs the box pointer.
-                        self.emit_inline_enum_dec(val, resolved, tag);
-                    } else if let Some(field) =
-                        self.builder.extract_value(val, 1, "rc_dec.opt_inner")
-                    {
-                        self.dec_value_rc(field, inner);
-                    }
+                if self.classifier.has_managed_ownership_obligation(inner) {
+                    self.emit_inline_enum_dec(val, resolved, tag);
                 }
             }
 
@@ -309,7 +301,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         count: u32,
     ) {
         for (i, &field_ty) in field_types.iter().enumerate() {
-            if !self.classifier.needs_rc(field_ty) {
+            if !self.classifier.has_managed_ownership_obligation(field_ty) {
                 continue;
             }
             let mem_i = self.remap_struct_field(owner, i as u32);
@@ -342,12 +334,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // same field-teardown order. `(memory_index, field_type)` per field.
         let mut decl_walk: Vec<(u32, Idx)> = Vec::new();
         for (i, &field_ty) in field_types.iter().enumerate() {
-            if !self.classifier.needs_rc(field_ty) {
+            if !self.classifier.has_managed_ownership_obligation(field_ty) {
                 continue;
             }
             decl_walk.push((self.remap_struct_field(owner, i as u32), field_ty));
         }
-        let walk = super::emitter_utils::field_rc_walk_order(&decl_walk, true);
+        let walk = super::emitter_utils::field_rc_walk_order(
+            &decl_walk,
+            super::emitter_utils::FieldRcWalkOrder::Teardown,
+        );
         let ops = InlineAggregateOps { base: val, owner };
         self.dec_fields_may_unwind(&ops, &walk, 0);
     }

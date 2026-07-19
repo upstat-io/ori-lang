@@ -8,19 +8,40 @@ Theorem VF-3: Layer 3 oracle re-derivation — re-derived MemoryContract refines
     - VF-3's concrete shape is ArcFunction -> MemoryContract (the re-derived
       side of the contract) per aims-proof/proofs/01-verification/Verification.proof.
       Discharged here against the sec-01 Verification.proof sorry obligation.
+    - Re-derivation is SUBJECT-INDEPENDENT. The realized-evidence carrier has
+      only realizable CFG paths, realized terminal-use kinds, explicit local
+      credits/releases, and semantic demand tokens. It contains no inferred
+      ParamContract field. In particular, inferred iter_consumes and
+      borrowed_cow_consumed cannot mint an opening credit.
+    - Access starts each realized path at LOCAL funding zero. Explicit positive
+      RcInc credit funds a later non-iter transfer/release. The committed
+      ApplyToIterConsumingParam terminal-use kind is independently observed and
+      represents caller-funded inward transfer; it does not consume local
+      credit. Borrowed is sufficient iff every path remains prefix-nonnegative.
+    - Consumption composes semantic demand with TF-11 seq_add within a path and
+      IC-3 component join across alternative paths. Raw CFG visit counts and
+      aggregate operation counts are not demand evidence.
+    - Semantic demand identity follows SSA value provenance and exact CFG-edge
+      alternatives. Value-producing definitions cut backward demand;
+      transparent aliases and block-parameter flow preserve it on the exact
+      incoming edge. Physical return/storage aliasing is a separate RC/share
+      relation and cannot manufacture demand across a definition.
+    - Realized endpoint normalization deduplicates only a structurally proven
+      multi-instruction lowering of one source demand. A shared source span is
+      corroboration, not identity: distinct same-span sites and generated or
+      no-span sites remain distinct. Loop recurrence remains repeated demand.
     - The comparison is a REFINEMENT check along three dimensions (access,
       consumption, effects): the re-derived contract MUST be lattice-<= the
       inferred contract (the realized IR is no MORE demanding than the inferred
       contract claimed). An UNSAFE mismatch is the re-derived value EXCEEDING
       the inferred value (analysis was too optimistic — the realized IR needs
       more than the contract promised).
-    - Shipped verifier site:
+    - Compiler conformance site:
         * compiler/ori_arc/src/aims/verify/oracle.rs
-          verify_coherence re-derives may_allocate / may_deallocate / may_share
-          from Construct / PartialApply and compares against the inferred
-          contract. The full general-effects cross-check is target-only per
-          Annex E §AIMS frontmatter; the shipped subset is authoritative current
-          behavior.
+          verify_coherence must extract the independent realized evidence above
+          before comparing it with the inferred contract. Agreement between two
+          contract-driven algorithms is not VF-3 evidence. General-effects
+          coverage beyond the shipped subset remains target-only per Annex E.
     - depends-on sec-02: L-1..L-5 lattice properties are load-bearing for the
       re-derived contract being lattice-<= the inferred contract; L-6
       monotonicity is the cross-layer invariant VF-3 preserves.
@@ -41,6 +62,22 @@ Theorem VF-3: Layer 3 oracle re-derivation — re-derived MemoryContract refines
            compared independently in the lattice partial order. ANY single
            dimension where C_rederived > C_inferred is an unsafe mismatch; SAFE
            requires every dimension to refine.
+
+      (P3) Independent Access evidence: each path starts at local count zero.
+           A non-iter ownership transfer/release requires a preceding explicit
+           realized credit. A later credit cannot self-fund an earlier transfer,
+           and a funded branch cannot mask an unfunded alternative.
+
+      (P4) Independent iter evidence: ApplyToIterConsumingParam is recognized
+           from the committed realized terminal-use kind and compared with the
+           inferred iter bit. The inferred bit cannot create evidence or credit.
+
+      (P5) Demand composition: sequential semantic demands use TF-11 seq_add;
+           alternative path demands use IC-3 join. Two alternative Linear uses
+           remain Linear; two sequential Linear uses become Unrestricted. Two
+           instructions assigned one proven semantic endpoint remain one
+           Linear use, while distinct same-span/no-span endpoints remain
+           Unrestricted when sequential.
 
     VF-3 is the oracle layer: it re-derives the contract from the realized side
     and checks the inferred side was not too optimistic. A contract that under-
@@ -79,6 +116,35 @@ Theorem VF-3: Layer 3 oracle re-derivation — re-derived MemoryContract refines
       promised (a miscompilation where a caller treats the value as Borrowed but
       realization owns it).
 
+    Realized-evidence discharge (compiled AimsProof.Oracle):
+      RealizedParamEvent, RealizedParamPath, RealizedParamEvidence,
+      RealizedParamEvent.localFundingEvents,
+      RealizedParamPath.locallyFunded,
+      RealizedParamEvidence.access,
+      RealizedParamEvidence.iterTransfers,
+      RealizedParamEvidence.iterTransferAgrees,
+      RealizedParamEvidence.consumption,
+      RealizedParamEvidence.contractDims,
+      RealizedParamEvidence.oracleAccepts,
+      VF3_independent_oracle_acceptance_iff,
+      VF3_local_credit_funds_borrowed_transfer,
+      VF3_inferred_self_funding_rejected,
+      VF3_uncredited_borrowed_cow_release_requires_owned,
+      VF3_iter_transfer_is_independent_inward_funding,
+      VF3_inferred_iter_claim_cannot_create_evidence,
+      VF3_branch_with_unfunded_transfer_requires_owned,
+      VF3_consumption_sequential_matches_TF11,
+      VF3_consumption_alternative_matches_IC3,
+      VF3_duplicate_lowering_endpoint_is_linear,
+      VF3_distinct_same_span_endpoints_are_unrestricted,
+      VF3_generated_distinct_endpoints_are_unrestricted,
+      VF3_endpoint_alternatives_remain_linear,
+      VF3_alternative_single_uses_are_not_unrestricted,
+      VF3_sequential_single_uses_are_unrestricted,
+      VF3_local_credit_implies_may_share,
+      VF3_borrowed_boundary_propagates_may_share,
+      VF3_may_share_alternative_matches_IC3.
+
     Engines dispatched:
       refinement (PRIMARY — section_09::verify_vf3_oracle_rederivation;
         per-dimension lattice-<= refinement over the safe/unsafe grid; emits
@@ -91,4 +157,4 @@ Theorem VF-3: Layer 3 oracle re-derivation — re-derived MemoryContract refines
 
   Expected:
     status: valid
-    reason: section_09 refinement engine discharges VF-3 via (P1) the refinement direction (SAFE iff the re-derived MemoryContract is lattice-<= the inferred contract; analysis-too-optimistic = unsafe) and (P2) the per-dimension comparison over access / consumption / effects (5 rows: 2 safe + 3 unsafe, one per dimension, with a negative witness rejecting a too-optimistic access), grounded in the shipped compiler/ori_arc/src/aims/verify/oracle.rs verify_coherence oracle cross-check
+    reason: section_09 refinement discharges the lattice comparison, while compiled AimsProof.Oracle discharges subject-independent realized evidence: zero-seeded per-path local funding, terminal-kind iter evidence, SSA/CFG endpoint identity, TF-11 sequential demand, IC-3 alternative demand, and negative witnesses for inferred self-funding, an unfunded branch, branch-count inflation, and same-span/no-span over-deduplication

@@ -1,0 +1,9 @@
+// Pass-through-only chain: filter yields the source's borrowed elements;
+// join must not release what the source list still owns.
+@main () -> void = {
+    let $joined = ["nu-nu-nu-nu-nu-nu-nu-nu-nu-nu", "xi-xi-xi-xi-xi-xi-xi-xi-xi-xi"]
+        .iter()
+        .filter(predicate: (s: str) -> bool = s.len() > 5)
+        .join(separator: " ");
+    print(msg: joined)
+}

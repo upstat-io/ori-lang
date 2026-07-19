@@ -1,0 +1,11 @@
+type ConstVec<T> = { items: [T] }
+
+impl<T> ConstVec<T> {
+    @first_n<$N: int> (self) -> [T, max N] = self.items;
+}
+
+@method_const_capacity_expected_annotation_non_positive () -> void = {
+    let values = ConstVec { items: [1, 2, 3] };
+    let zero: [int, max 0] = values.first_n();
+    ()
+}

@@ -11,7 +11,11 @@ section: "AIMS"
 
 Traditional ARC optimizers use liveness analysis — a single boolean per variable answering "will this value be read in the future?" AIMS replaces this with a richer question: "what is the complete memory fate of this variable?" The answer is an `AimsState` — a 7-dimensional product lattice that captures ownership, consumption pattern, usage count, uniqueness proof, escape scope, reuse shape, and effect classification simultaneously.
 
-Where traditional liveness computes one bit per variable (live or dead), AIMS computes seven interacting dimensions. Where traditional liveness feeds into a separate RC insertion pass that feeds into a separate reuse detection pass, AIMS's unified state feeds a single realization step that emits all outputs at once.
+Where traditional liveness computes one bit per variable, AIMS computes seven
+interacting dimensions. Instead of feeding separate RC-insertion and reuse
+passes, its unified state feeds one logical realization step that freezes
+ownership events, cleanup, COW/reuse admissibility, and effect obligations
+together. Physical planners act only after those facts are fixed.
 
 The analysis is a textbook backward dataflow analysis (Appel, "Modern Compiler Implementation," Section 10.1) generalized to a product lattice. Information flows backward through the control flow graph: how a variable is used in future blocks constrains its state at earlier blocks. The analysis computes a fixed point by iterating until the `AimsState` at each block boundary stabilizes.
 
@@ -25,11 +29,17 @@ Each variable at each program point has an `AimsState` — a product of seven di
 | 2 | **Consumption** | `Dead < Linear < Affine < Unrestricted` | Dead is most optimistic | 3 |
 | 3 | **Cardinality** | `Absent < Once < Many` | Absent is most optimistic | 2 |
 | 4 | **Uniqueness** | `Unique < MaybeShared < Shared` | Unique is most optimistic | 2 |
-| 5 | **Locality** | `BlockLocal < FunctionLocal < HeapEscaping < Unknown` | BlockLocal is most optimistic | 3 |
+| 5 | **Locality** | `BlockLocal < FunctionLocal < ArgEscaping < HeapEscaping < Unknown` | BlockLocal is most optimistic | 4 |
 | 6 | **ShapeClass** | `NonReusable \| ReusableCtor(kind) \| CollectionBuffer \| ContextHole` | Flat lattice | 1 |
 | 7 | **EffectClass** | `{ may_alloc, may_share, may_throw }` | Per-bit boolean | 3 |
 
-**Total lattice height: 15.** This bounds convergence — no variable's state can change more than 15 times before reaching the top.
+**Target-calculus height: 16.** The shipped `ori_arc` carrier temporarily
+omits `ArgEscaping` under the documented ArgEscaping-family carve-out and has
+height 15.
+
+That implementation-status carve-out does not make AIMS an executor-specific
+phase: VM, LLVM/native, compiled-WebAssembly, and JIT projections are all
+governed by the same five-value target contract.
 
 ### Key Constants
 
@@ -37,7 +47,7 @@ Each variable at each program point has an `AimsState` — a product of seven di
 |----------|-------|-----|
 | `AimsState::TOP` | Most conservative state | Unconstrained variables, join identity for empty sets |
 | `AimsState::BOTTOM` | Most optimistic state | Starting point for all variables |
-| `AimsState::SCALAR` | Sentinel for non-RC types | Scalars excluded from analysis |
+| `AimsState::SCALAR` | Sentinel for types with no managed ownership obligation | Scalars excluded from analysis |
 | `AimsState::FRESH` | Base for newly constructed values | Constructions start here |
 
 ### Operations
@@ -45,7 +55,7 @@ Each variable at each program point has an `AimsState` — a product of seven di
 **Join** (`a.join(b)`) — componentwise maximum. Idempotent, associative, commutative. Used at control flow merge points to combine information from different predecessors. If one path says a variable is `Once` and another says `Many`, the result is `Many`.
 
 **Canonicalize** — enforces cross-dimension feasibility rules. Some dimension combinations are impossible or imply stronger facts. For example:
-- `BlockLocal + Owned + Once` implies `Unique` (a local, singly-used, owned value must have RC == 1)
+- `Unique` requires freshness or alias-proven one-owner multiplicity; locality alone proves only a lifetime bound
 - `Dead + Unique` implies `Absent` cardinality (a dead unique variable has zero future uses)
 
 Canonicalization runs in multiple rounds to catch cross-dimension chains where updating one dimension triggers another. The `cross_dimension_detected` flag tracks whether any additional rounds were needed.
@@ -56,7 +66,11 @@ Canonicalization runs in multiple rounds to catch cross-dimension chains where u
 
 1. Mark all variables as `BOTTOM` (most optimistic)
 2. Identify scalar variables (from `ArcClass`) — these are set to `SCALAR` and excluded from analysis
-3. Identify immortal variables (heap-allocated constants with MAX_REFCOUNT) — also excluded
+3. Identify static-lifetime values whose frozen lifetime and
+   `OwnershipObservationFacts` require no dynamic additional-credit or
+   sharing-observation events — also excluded. The shipped compiled projection
+   realizes some of these as heap objects with `MAX_REFCOUNT`; that storage and
+   saturation mechanism is not part of AIMS.
 4. Compute postorder traversal of the CFG
 
 ### Step 2: Backward Iteration
@@ -94,7 +108,9 @@ After the fixed point is reached:
 3. **Populate sparse events**:
    - `ContextOpen`/`ContextClose` — TRMC context regions
    - `ReusableAllocation` — candidates for reuse
-   - `LocalAllocCandidate` — escape analysis eligibility
+   - `LifetimeBound` / `PlacementEligibilityCandidate` — neutral
+     lifetime evidence that a physical planner may use for placement; the
+     current event carrier is named `PlacementEligibilityCandidate`
    - `FipGate` — conditional FIP gates
    - `AllocCreditBalance` — per-branch FIP balance
 4. **Compute per-variable shapes** — from `ShapeClass` dimension
@@ -116,7 +132,10 @@ Each instruction type has a backward transfer function that updates one or more 
 
 **`RcInc` / `RcDec`** — RC operations: not present during analysis (inserted during realization). Transfer functions for these are not needed.
 
-**`PartialApply`** — closure capture: captured variables get `Owned + HeapEscaping` (they are stored in a heap-allocated environment).
+**`PartialApply`** — closure capture: captured variables become owned by the
+closure environment and inherit at least the environment's lifetime. The
+current lattice records an escaping capture with the legacy `HeapEscaping`
+label; AIMS does not require the environment to use heap storage.
 
 ### Dimension-Specific Updates
 
@@ -125,12 +144,12 @@ Each transfer function updates specific dimensions:
 | Instruction | Access | Consumption | Cardinality | Uniqueness | Locality | Shape | Effect |
 |-------------|--------|-------------|-------------|------------|----------|-------|--------|
 | Use as operand | — | ↑ | +1 | — | — | — | — |
-| Return | Owned | Linear | Once | — | HeapEscaping | — | — |
+| Return | Owned | Linear | Once | — | escaping lifetime (`HeapEscaping` legacy label) | — | — |
 | Construct arg | Owned | — | +1 | — | — | — | may_alloc |
 | Project | Borrowed | — | +1 | inherit | inherit | — | — |
 | Apply (owned param) | Owned | — | +1 | — | per contract | — | per contract |
 | Apply (borrowed param) | Borrowed | — | +1 | — | per contract | — | per contract |
-| PartialApply capture | Owned | — | +1 | — | HeapEscaping | — | — |
+| PartialApply capture | Owned | — | +1 | — | closure-environment lifetime (`HeapEscaping` when escaping) | — | — |
 
 The "—" entries mean the dimension is unchanged by that instruction. "+1" means cardinality is incremented (Absent → Once → Many).
 
@@ -138,11 +157,14 @@ The "—" entries mean the dimension is unchanged by that instruction. "+1" mean
 
 Convergence is guaranteed by the lattice structure:
 
-1. **Finite height**: Total lattice height is 15 (sum of per-dimension heights)
+1. **Finite height**: Target lattice height is 16 (sum of per-dimension heights); the shipped four-value-locality carrier is 15
 2. **Monotonic**: Each transfer function can only raise state (toward TOP), never lower it
 3. **Join is monotonic**: `join(a, b) ≥ a` and `join(a, b) ≥ b`
 
-In practice, convergence is fast — typically 2-3 iterations for acyclic control flow, and a few more for loops. The theoretical bound of 15 iterations per variable is rarely approached.
+In practice, convergence is fast — typically 2-3 iterations for acyclic
+control flow, and a few more for loops. The target theoretical bound is 16
+ascents per variable; the current four-value shipped carrier uses its exact
+height-15 bound.
 
 ## Output: AimsStateMap
 
@@ -163,7 +185,7 @@ The converged analysis produces an `AimsStateMap` with the following fields:
 | `var_shapes` | `FxHashMap<ArcVarId, ShapeClass>` | Per-variable shape classification |
 | `cross_dimension_detected` | `bool` | Whether canonicalization needed multiple rounds |
 
-The realization step reads this map to make all RC, reuse, COW, and drop decisions. After `merge_blocks()`, position-keyed fields (`block_entry_states`, `block_exit_states`) may be stale — Phase 2 realization uses `ArcVarId`-keyed lookups via `var_state_at_block_entry()` instead.
+The realization step reads this map to make all logical ownership-event, reuse, COW, and drop decisions. After `merge_blocks()`, position-keyed fields (`block_entry_states`, `block_exit_states`) may be stale — Phase 2 realization uses `ArcVarId`-keyed lookups via `var_state_at_block_entry()` instead.
 
 ## Relationship to Traditional Liveness
 
@@ -174,7 +196,7 @@ AIMS's backward analysis subsumes traditional liveness:
 | Live/dead | `Cardinality`: `Absent` = dead, `Once`/`Many` = live |
 | Live-for-use vs live-for-drop | `Consumption` + `Cardinality`: `Dead + Once` = live-for-drop only |
 | Last-use point | Where `Cardinality` transitions from `Once` to `Absent` |
-| Multi-use detection | `Cardinality` = `Many` (needs `RcInc`) |
+| Multi-use detection | `Cardinality` = `Many` (requires an additional owner-credit event; current carrier: `RcInc`) |
 
 The additional dimensions (Access, Uniqueness, Locality, Shape, Effect) provide information that traditional liveness does not — enabling reuse, COW, FIP, and TRMC decisions in the same realization step.
 
@@ -190,7 +212,7 @@ The additional dimensions (Access, Uniqueness, Locality, Shape, Effect) provide 
 
 ## Design Tradeoffs
 
-**7-dimensional product vs separate analyses.** AIMS computes all dimensions simultaneously rather than running separate liveness, uniqueness, and escape analyses. The unified approach catches cross-dimension synergies (e.g., BlockLocal + Once → Unique) but increases the per-iteration cost. The total lattice height of 15 bounds the worst case; in practice, most dimensions converge in 2-3 iterations.
+**7-dimensional product vs separate analyses.** AIMS computes all dimensions simultaneously rather than running separate liveness, uniqueness, and escape analyses. The unified approach lets lifetime, freshness, and alias-proven owner-multiplicity facts constrain one another without treating locality as uniqueness. The target lattice height is 16; the shipped four-value-locality carrier has height 15. In practice, most dimensions converge in 2-3 iterations.
 
 **Sparse state maps vs dense arrays.** The implementation uses `FxHashMap<ArcVarId, AimsState>` for per-block states. Dense arrays indexed by `ArcVarId::raw()` would be faster for large functions but waste memory when most variables are scalar (excluded from analysis). The sparse representation is a good fit because typically only ~50% of variables need tracking (the non-scalar ones).
 

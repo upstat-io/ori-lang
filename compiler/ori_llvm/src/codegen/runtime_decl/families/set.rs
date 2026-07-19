@@ -177,4 +177,21 @@ pub(in crate::codegen::runtime_decl) static SET: &[RtFn] = &[
         attrs: &[Attr::Nounwind, Attr::MemArgmemRW],
         jit_allowed: true,
     },
+    // Structural trait codegen targets — Eq + Hashable
+    RtFn {
+        name: "ori_set_eq",
+        // (a, b, elem_size, elem_eq, elem_hash) -> bool
+        params: &[Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr, Ty::Ptr],
+        ret: Some(Ty::Bool),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "ori_set_hash",
+        // (set, elem_size, elem_hash) -> i64
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
+        ret: Some(Ty::I64),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
 ];

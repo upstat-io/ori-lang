@@ -1,0 +1,7 @@
+@sum_all <T> (marker: T, xs: [int]) -> int =
+    xs.iter().fold(initial: 0, op: (acc, x) -> acc + x);
+
+@main () -> int = {
+    let total = sum_all(marker: 0, xs: [1, 2, 3, 4]);
+    if total == 10 then 0 else 1
+}

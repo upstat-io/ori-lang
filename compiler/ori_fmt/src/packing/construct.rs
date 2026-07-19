@@ -6,7 +6,7 @@
 /// Each variant maps to a specific packing strategy via `determine_packing()`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ConstructKind {
-    // Always Stacked (Spec lines 78-90)
+    // Always Stacked (Spec: Annex D §Always-Stacked Constructs)
     /// Top-level run expression: `run(...)` at function body level
     ///
     /// Always stacked with each statement on its own line.
@@ -42,7 +42,7 @@ pub enum ConstructKind {
     /// Always stacked.
     Nursery,
 
-    // Width-Based: One Per Line When Broken (Spec lines 64-74)
+    // Width-Based: One Per Line When Broken (Spec: Annex D §Width-Based Breaking)
     /// Function parameters: `@foo (x: int, y: int)`
     ///
     /// Inline if fits, one per line otherwise.
@@ -98,13 +98,13 @@ pub enum ConstructKind {
     /// Inline if fits, one per line otherwise.
     ImportItems,
 
-    // Width-Based: Multiple Per Line for Simple Items (Spec line 75)
+    // Width-Based: Multiple Per Line for Simple Items (Spec: Annex D §Width-Based Breaking)
     /// Simple list (literals, identifiers only): `[1, 2, 3]`
     ///
     /// Can pack multiple per line when broken.
     ListSimple,
 
-    // Width-Based: One Per Line for Complex Items (Spec line 76)
+    // Width-Based: One Per Line for Complex Items (Spec: Annex D §Width-Based Breaking)
     /// Complex list (structs, calls, nested): `[foo(), bar()]`
     ///
     /// One per line when broken.
@@ -124,18 +124,13 @@ pub enum ConstructKind {
 
 impl ConstructKind {
     /// Check if this construct is always stacked (never inline).
+    ///
+    /// Derives from `base_packing` so the always-stacked membership has one home.
     #[inline]
     pub fn is_always_stacked(self) -> bool {
         matches!(
-            self,
-            ConstructKind::RunTopLevel
-                | ConstructKind::Try
-                | ConstructKind::Match
-                | ConstructKind::Recurse
-                | ConstructKind::Parallel
-                | ConstructKind::Spawn
-                | ConstructKind::Nursery
-                | ConstructKind::MatchArms
+            super::strategy::base_packing(self),
+            super::Packing::AlwaysStacked
         )
     }
 

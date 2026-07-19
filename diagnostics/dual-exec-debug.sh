@@ -142,21 +142,10 @@ interp_ms=$(( (interp_end - interp_start) / 1000000 ))
 interp_s=$(awk "BEGIN { printf \"%.2f\", $interp_ms / 1000 }")
 
 interp_stdout=$(cat "$tmpdir/interp_stdout.txt")
-interp_stdout_display="${interp_stdout:-"(empty)"}"
-# Escape for display (show \n literally for newlines)
-interp_stdout_oneline=$(echo "$interp_stdout" | head -5 | tr '\n' '\\' | sed 's/\\/\\n/g; s/\\n$//')
-[[ -z "$interp_stdout_oneline" ]] && interp_stdout_oneline="(empty)"
 
-echo -e "  exit=${interp_exit}  stdout=${C_DIM}\"${interp_stdout_oneline}\"${C_NC}  (${interp_s}s)"
-
-if [[ "$VERBOSE" -eq 1 ]] && [[ -s "$tmpdir/interp_stderr.txt" ]]; then
-    echo -e "  ${C_DIM}stderr (trace):${C_NC}"
-    head -20 "$tmpdir/interp_stderr.txt" | sed 's/^/  │ /'
-    stderr_lines=$(wc -l < "$tmpdir/interp_stderr.txt")
-    if [[ "$stderr_lines" -gt 20 ]]; then
-        echo -e "  │ ${C_DIM}... ($stderr_lines total lines, truncated)${C_NC}"
-    fi
-fi
+echo -e "  exit=${interp_exit}  (${interp_s}s)"
+render_captured_stream "stdout" "$tmpdir/interp_stdout.txt"
+render_captured_stream "stderr" "$tmpdir/interp_stderr.txt"
 echo ""
 
 # ═══════════════════════════════════════════════════════════
@@ -191,6 +180,7 @@ if ! "$ORI" build "$FILE" -o "$aot_binary" 2>"$tmpdir/build_err.txt"; then
     echo -e "${C_RED}Cannot compare: AOT compilation failed.${C_NC}"
     exit 2
 fi
+render_captured_stream "build stderr" "$tmpdir/build_err.txt"
 
 # Execute step
 aot_start=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
@@ -210,19 +200,10 @@ aot_ms=$(( (aot_end - aot_start) / 1000000 ))
 aot_s=$(awk "BEGIN { printf \"%.2f\", $aot_ms / 1000 }")
 
 aot_stdout=$(cat "$tmpdir/aot_stdout.txt")
-aot_stdout_oneline=$(echo "$aot_stdout" | head -5 | tr '\n' '\\' | sed 's/\\/\\n/g; s/\\n$//')
-[[ -z "$aot_stdout_oneline" ]] && aot_stdout_oneline="(empty)"
 
-echo -e "  exit=${aot_exit}  stdout=${C_DIM}\"${aot_stdout_oneline}\"${C_NC}  (${aot_s}s)"
-
-if [[ "$VERBOSE" -eq 1 ]] && [[ -s "$tmpdir/aot_stderr.txt" ]]; then
-    echo -e "  ${C_DIM}stderr (trace):${C_NC}"
-    head -20 "$tmpdir/aot_stderr.txt" | sed 's/^/  │ /'
-    stderr_lines=$(wc -l < "$tmpdir/aot_stderr.txt")
-    if [[ "$stderr_lines" -gt 20 ]]; then
-        echo -e "  │ ${C_DIM}... ($stderr_lines total lines, truncated)${C_NC}"
-    fi
-fi
+echo -e "  exit=${aot_exit}  (${aot_s}s)"
+render_captured_stream "stdout" "$tmpdir/aot_stdout.txt"
+render_captured_stream "stderr" "$tmpdir/aot_stderr.txt"
 echo ""
 
 # ═══════════════════════════════════════════════════════════
@@ -328,8 +309,8 @@ fi
 # ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}Summary${C_NC}"
 echo "════════════════════════════════════════════════════════"
-echo -e "  Interpreter:  exit=${interp_exit}  stdout=${C_DIM}\"${interp_stdout_oneline}\"${C_NC}  (${interp_s}s)"
-echo -e "  AOT:          exit=${aot_exit}  stdout=${C_DIM}\"${aot_stdout_oneline}\"${C_NC}  (${aot_s}s)"
+echo -e "  Interpreter:  exit=${interp_exit}  (${interp_s}s; full streams shown above)"
+echo -e "  AOT:          exit=${aot_exit}  (${aot_s}s; full streams shown above)"
 echo ""
 if [[ $has_mismatch -eq 0 ]]; then
     echo -e "${C_GREEN}MATCH: Both backends produce identical results.${C_NC}"

@@ -66,7 +66,7 @@ impl Spanned for ExternItem {
 /// deallocation function for opaque types declared by this block.
 /// `free_fn` is `Some(symbol)` when the annotation is present; `None`
 /// otherwise. Consumed by burden registration to populate
-/// `UserBurdenSpec.user_drop` per proposal:643-645 (Spec: Annex E §FFI).
+/// `UserBurdenSpec.user_drop` (Spec: Annex E §FFI).
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct ExternBlock {
     /// Calling convention: `"c"` or `"js"`.

@@ -1,0 +1,14 @@
+type Bundle = { items: [str], label: str }
+
+@main () -> int = {
+    let first = (a, b) -> a;
+    let result = first(
+        a: Bundle {
+            items: ["alpha payload beyond the small-string boundary"],
+            label: "bundle label beyond the small-string boundary",
+        },
+        b: [7, 8],
+    );
+
+    if result.items.len() == 1 && result.label.starts_with(prefix: "bundle") then 0 else 1
+}

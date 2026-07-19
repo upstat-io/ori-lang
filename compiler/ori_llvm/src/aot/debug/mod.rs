@@ -21,18 +21,28 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```no_run
 //! use ori_llvm::aot::debug::{DebugInfoBuilder, DebugInfoConfig, DebugLevel};
+//! use ori_llvm::inkwell::context::Context;
+//! use ori_llvm::inkwell::debug_info::AsDIScope;
+//!
+//! let context = Context::create();
+//! let module = context.create_module("example");
+//! let builder = context.create_builder();
+//! let fn_type = context.void_type().fn_type(&[], false);
+//! let fn_val = module.add_function("my_func", fn_type, None);
 //!
 //! let config = DebugInfoConfig::new(DebugLevel::Full);
-//! let di = DebugInfoBuilder::new(&module, &context, config, "src/main.ori", "src")?;
+//! let di = DebugInfoBuilder::new(&module, &context, config, "src/main.ori", "src")
+//!     .expect("full debug info is enabled");
 //!
 //! // Create function debug info
-//! let func_di = di.create_function("my_func", 10, &fn_type);
+//! let debug_fn_type = di.create_subroutine_type(None, &[]);
+//! let func_di = di.create_function("my_func", None, 10, debug_fn_type, false, true);
 //! fn_val.set_subprogram(func_di);
 //!
 //! // Set debug location for instructions
-//! di.set_location(&builder, 15, 4);
+//! di.set_location(&builder, 15, 4, func_di.as_debug_info_scope());
 //!
 //! // Finalize before emission
 //! di.finalize();

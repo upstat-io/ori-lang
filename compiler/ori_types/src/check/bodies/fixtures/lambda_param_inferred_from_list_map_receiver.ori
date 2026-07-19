@@ -1,0 +1,1 @@
+@process (xs: [int]) -> [int] = { xs.map(x -> x + 1) }

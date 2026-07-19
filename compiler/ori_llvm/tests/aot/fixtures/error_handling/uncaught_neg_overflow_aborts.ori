@@ -1,4 +1,4 @@
-// Negative pin: BUG-04-159 — negation overflow (-INT_MIN) with NO catch in
+// Negative pin: negation overflow (-INT_MIN) with NO catch in
 // scope MUST still abort. Clamps the emit_unary_op neg dispatch-site boundary.
 @main () -> int = {
     let m = -9223372036854775807 - 1;

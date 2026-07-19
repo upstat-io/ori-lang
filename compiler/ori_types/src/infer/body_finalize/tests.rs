@@ -1,7 +1,7 @@
 //! Tests for the end-of-body defaulting pre-pass.
 //!
-//! Covers the matrix authored as part of the §11.1 polymorphic-constructor
-//! extension: empty-literal defaulting (the original surface) plus the
+//! Covers the polymorphic-constructor extension matrix:
+//! empty-literal defaulting (the original surface) plus the
 //! introducer-only walks for `None` / `Ok` / `Err`, with negative pins for
 //! `Some` (NOT a defaulting root — `infer_some` reuses the inner's type) and
 //! for unbound payload generics under `Ok` / `Err` (payload vars must survive
@@ -15,7 +15,7 @@
 //!   5. Asserts the resulting type/var state matches the spec for that cell.
 
 use ori_ir::{Expr, ExprArena, ExprKind, Name, Span};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::output::FunctionSig;
 use crate::{Idx, InferEngine, Pool, Tag, VarState};
@@ -26,6 +26,42 @@ const SPAN: Span = Span::DUMMY;
 /// need a non-trivial sig override these fields directly.
 fn empty_sig() -> FunctionSig {
     FunctionSig::simple(Name::from_raw(1), vec![], Idx::INT)
+}
+
+#[test]
+fn body_finalization_materializes_link_resolved_compounds_in_type_phase() {
+    let mut pool = Pool::new();
+    let var = pool.fresh_var();
+    let var_id = pool.data(var);
+    let list_var = pool.list(var);
+    *pool.var_state_mut(var_id) = VarState::Link { target: Idx::STR };
+    let pool_len = pool.len();
+    let mut sig = FunctionSig::simple(Name::from_raw(2), vec![list_var], list_var);
+    let mut expr_types = FxHashMap::from_iter([(0, list_var)]);
+
+    {
+        let mut engine = InferEngine::new(&mut pool);
+        engine.materialize_body_type_sites_sig(&mut expr_types, &mut sig);
+    }
+
+    let materialized = expr_types[&0];
+    assert_eq!(pool.tag(materialized), Tag::List);
+    assert_eq!(pool.list_elem(materialized), Idx::STR);
+    assert_eq!(sig.param_types, vec![materialized]);
+    assert_eq!(sig.return_type, materialized);
+    assert_eq!(sig.param_hashes, vec![pool.hash(materialized)]);
+    assert_eq!(sig.return_hash, pool.hash(materialized));
+    assert!(pool.len() > pool_len);
+
+    let materialized_pool_len = pool.len();
+    {
+        let mut engine = InferEngine::new(&mut pool);
+        engine.materialize_body_type_sites_sig(&mut expr_types, &mut sig);
+    }
+    assert_eq!(expr_types[&0], materialized);
+    assert_eq!(sig.param_types, vec![materialized]);
+    assert_eq!(sig.return_type, materialized);
+    assert_eq!(pool.len(), materialized_pool_len);
 }
 
 /// Allocate a root expression of `kind` and drive the defaulting pre-pass
@@ -201,7 +237,7 @@ fn some_never_defaulting_root_when_payload_unbound() {
 
     // Some is NOT a defaulting root — the payload var must remain Unbound.
     assert!(
-        matches!(pool.var_state(payload_var_id), VarState::Unbound { .. }),
+        matches!(pool.var_state(payload_var_id), VarState::Unbound(_)),
         "Some's payload var was incorrectly defaulted; \
          is_defaulting_root must classify Some as NotARoot"
     );
@@ -353,7 +389,7 @@ fn ok_introducer_only_walk_preserves_unrelated_payload_generic_e2005() {
     // the validator's PC-2 pass fires E2005 on it. A full-tree walk would
     // have incorrectly defaulted this var.
     assert!(
-        matches!(pool.var_state(payload_var_id), VarState::Unbound { .. }),
+        matches!(pool.var_state(payload_var_id), VarState::Unbound(_)),
         "Ok's ok-slot payload var was incorrectly defaulted by a full-tree walk; \
          introducer-only walk must restrict to the err slot"
     );
@@ -372,10 +408,10 @@ fn ok_introducer_only_walk_preserves_unrelated_payload_generic_e2005() {
     );
 }
 
-// Empty literal regression — the original §03 surface stays green.
+// Empty literal regression — the original empty-literal surface stays green.
 
 /// Bare `let xs = []` defaults to `[Never]` per the existing empty-literal
-/// behavior. Pre-§11.1 cure path; pinned here to guard against the rename
+/// behavior. Pinned here to guard against the rename
 /// or the introducer-only refactor accidentally regressing the original
 /// `EmptyLiteralRoot` classification.
 #[test]

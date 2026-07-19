@@ -26,6 +26,14 @@ pub(in crate::codegen::runtime_decl) static EH: &[RtFn] = &[
         attrs: &[Attr::Nounwind],
         jit_allowed: true,
     },
+    // Default panic reporting is deferred to a true uncaught boundary.
+    RtFn {
+        name: "ori_report_uncaught_panic",
+        params: &[],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
     // SEH/MSVC catch trampoline — wraps a function call in __try/__except.
     // extern "C" (catches exceptions internally, returns status code)
     RtFn {
@@ -52,5 +60,29 @@ pub(in crate::codegen::runtime_decl) static EH: &[RtFn] = &[
         ret: Some(Ty::I32),
         attrs: &[Attr::Nounwind],
         jit_allowed: false,
+    },
+    // Traceable trace injection and formatting.
+    // `function`/`file` are `*const OriStr` — a 24-byte struct exceeds the
+    // SysV 16-byte by-value threshold; by-pointer avoids shifting later args.
+    RtFn {
+        name: "_ori_inject_trace_entry",
+        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr, Ty::I64, Ty::I64],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "_ori_format_error_trace",
+        params: &[Ty::Ptr],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
+    },
+    RtFn {
+        name: "_ori_error_with_trace",
+        params: &[Ty::Ptr, Ty::Ptr, Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+        jit_allowed: true,
     },
 ];

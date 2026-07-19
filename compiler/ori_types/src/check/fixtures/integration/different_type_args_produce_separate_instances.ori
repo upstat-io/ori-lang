@@ -1,0 +1,7 @@
+
+@identity <T> (x: T) -> T = x;
+@caller_int () -> int = identity(x: 42);
+@caller_str () -> str = identity(x: "hello");
+@test_int tests @caller_int () -> void = ();
+@test_str tests @caller_str () -> void = ();
+@test_identity tests @identity () -> void = ();

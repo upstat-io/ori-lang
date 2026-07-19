@@ -1,0 +1,10 @@
+type P = { x: int, y: int };
+
+@psum (p: P) -> int = p.x + p.y;
+
+@main () -> int = {
+    let $p = P { x: 3, y: 4 };
+    let $a = psum(p: p);
+    let $b = psum(p: p);
+    if a == 7 && b == 7 then 0 else 1
+}

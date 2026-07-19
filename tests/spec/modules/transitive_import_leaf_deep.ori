@@ -1,0 +1,9 @@
+// Spec: 18-modules.md § Imports
+// Design: (modules not yet in design docs)
+//
+// Deepest leaf of a 3-hop import chain (see transitive_import_chain_mid.ori
+// -> transitive_import_chain_top.ori -> _test/transitive_import_chain.test.ori).
+// Pins that transitive-import resolution recurses to arbitrary depth, not
+// just one level below root.
+
+pub @deep_negate (x: int) -> int = 0 - x;

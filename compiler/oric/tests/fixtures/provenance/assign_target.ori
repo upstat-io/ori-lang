@@ -1,0 +1,15 @@
+type Point = { x: int, y: int }
+
+@main () -> void = {
+    let xs = [1, 2, 3];
+    xs[0] = 9;
+
+    let m = {"a": 1, "b": 2};
+    m["a"] = 9;
+
+    let p = Point { x: 1, y: 2 };
+    p.x = 9;
+
+    let ps = [Point { x: 1, y: 2 }];
+    ps[0].x = 9;
+}

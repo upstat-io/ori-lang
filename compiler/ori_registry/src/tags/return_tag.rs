@@ -87,9 +87,8 @@ impl From<TypeTag> for ReturnTag {
 
 /// Which type parameter to project from the receiver.
 ///
-/// Used by `ReturnTag::OptionOf`, `ListOf`, `IteratorOf`,
-/// `DoubleEndedIteratorOf` to express generic return types relative
-/// to the receiver's type parameters.
+/// Selects the generic return type relative to the receiver's type
+/// parameters for the projection-wrapper `ReturnTag` variants.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum TypeProjection {
     /// The single element type (`T` in `List<T>`, `Option<T>`, `Iterator<T>`, etc.).

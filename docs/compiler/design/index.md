@@ -11,7 +11,11 @@ sidebar_path: "/docs/compiler-design"
 
 ## What This Document Covers
 
-This is the design documentation for the Ori compiler — a multi-crate Rust codebase that compiles a statically-typed, expression-based language with Hindley-Milner type inference, automatic reference counting, and capability-based effects. The compiler features a dual backend: a tree-walking interpreter for rapid development and a full LLVM pipeline for native binaries and WebAssembly.
+This is the design documentation for the Ori compiler — a multi-crate Rust
+codebase for a statically typed, expression-based language with Hindley-Milner
+type inference, deterministic automatic ownership, and capability-based
+effects. It separates a tree-walking semantic evaluator from physical execution
+through a bytecode VM and compiled native/WebAssembly backends.
 
 These documents serve the same purpose as a compiler textbook's case study chapters: they explain not just *what* each component does, but *why* it was designed that way, what alternatives were considered, and how the pieces fit together. Each section opens with the general compiler concept — what problem it solves, what the classical approaches are — then shows how Ori applies and adapts those ideas.
 
@@ -31,17 +35,25 @@ Ori's compiler makes several distinctive choices across these stages that are wo
 
 ## What Makes Ori's Compiler Distinctive
 
-### Dual Backend with Shared Canonical IR
+### One Semantic Oracle, One Ownership Calculus, Multiple Executors
 
-Most compilers have one backend. Ori has two: a tree-walking interpreter for `ori run` (instant feedback during development) and a full LLVM pipeline for `ori build` (native performance for production). Both consume the same canonical IR — a sugar-free, type-annotated intermediate representation produced by a single canonicalization pass. This means desugaring, pattern compilation, and constant folding happen exactly once, regardless of which backend executes the result.
+The tree-walking evaluator consumes canonical IR as a representation-abstract oracle. AIMS consumes that same canonical meaning once and produces the realized ownership plan used by the bytecode VM and compiled backends. Desugaring, pattern compilation, ownership, COW, reuse, and drop policy each have one owner; physical executors encode shared facts rather than rediscovering them.
 
 ### Incremental Everything via Salsa
 
 The compiler is built on the [Salsa](https://salsa-rs.netlify.app/) framework, which provides automatic incremental computation. Every phase — lexing, parsing, type checking, evaluation — is a Salsa query whose result is memoized. When a source file changes, only the affected queries re-execute. This matters for IDE integration: editing one function doesn't re-type-check the entire module.
 
-### AIMS (ARC Intelligent Memory System) — Not GC, Not Borrow Checking
+### AIMS — One Ownership Calculus, Not GC or Source Borrow Checking
 
-Ori uses automatic reference counting with compile-time optimizations inspired by [Perceus](https://www.microsoft.com/en-us/research/publication/perceus-garbage-free-reference-counting-with-reuse/) (Reinking et al., 2021) and [Lean 4](https://leanprover.github.io/). AIMS performs interprocedural contract analysis, backward dataflow analysis, unified realization, and reuse emission — all as compiler passes over a dedicated ARC IR. This sits between the simplicity of garbage collection (no borrow checker for users to fight) and the determinism of manual memory management (no GC pauses).
+Ori uses deterministic automatic ownership management, commonly realized with
+reference counting today, with compile-time optimization shapes historically
+influenced by [Perceus](https://www.microsoft.com/en-us/research/publication/perceus-garbage-free-reference-counting-with-reuse/)
+and [Lean 4](https://leanprover.github.io/). AIMS performs interprocedural
+contract analysis, backward dataflow analysis, unified logical realization, and
+reuse planning over the historical ARC IR carrier. Its facts are shared by
+every physical executor; counters, layouts, instructions, and LLVM integration
+belong to selected physical plans. The former “ARC Intelligent Memory System”
+expansion is historical and does not define the calculus.
 
 ### Expression-Based with No Return
 
@@ -90,14 +102,16 @@ flowchart TB
     CanArena + DecisionTrees"]
     F["Eval Result
     Value + EvalOutput"]
-    G["ARC IR
-    borrow + liveness + RC"]
-    H["LLVM IR
-    Native Binary"]
+    G["Realized ARC Program
+    ownership + drop plan"]
+    H["Bytecode VM"]
+    I["LLVM / Native / WASM"]
 
     A --> B --> C --> D --> E
     E --> F
-    E --> G --> H
+    E --> G
+    G --> H
+    G --> I
 
     classDef frontend fill:#1e3a5f,stroke:#60a5fa,color:#dbeafe
     classDef canon fill:#3b1f6e,stroke:#a78bfa,color:#e9d5ff
@@ -107,10 +121,10 @@ flowchart TB
     class A,B,C,D frontend
     class E canon
     class F interpreter
-    class G,H native
+    class G,H,I native
 ```
 
-Each step is a Salsa query with automatic memoization. After canonicalization, the pipeline **forks**: the interpreter consumes canonical IR directly, while AIMS lowers it to a basic-block SSA IR with explicit reference counting before LLVM codegen.
+Each step is a Salsa query with automatic memoization. After canonicalization, the representation-abstract evaluator consumes canonical IR directly. Physical execution takes a different branch: AIMS lowers the same canonical program once into a realized ownership plan, and the VM and compiled backends encode that shared artifact without re-deriving its policy.
 
 ## Compiler Architecture
 
@@ -204,9 +218,9 @@ The compiler is organized as a multi-crate Rust workspace. Dependencies flow str
 - [Lowering](09-aims/lowering.md) - CanExpr → ARC IR
 - [Interprocedural Contracts](09-aims/borrow-inference.md) - SCC-based contract computation
 - [Backward Dataflow Analysis](09-aims/liveness.md) - 7D lattice analysis algorithm
-- [Unified Realization](09-aims/rc-insertion.md) - RC, reuse, COW, and drop emission
+- [Unified Realization](09-aims/rc-insertion.md) - logical ownership, reuse, COW, and drop realization
 - [Reuse Emission](09-aims/reset-reuse.md) - In-place constructor and collection reuse
-- [RC Optimization](09-aims/rc-elimination.md) - Redundancy avoidance and remaining elimination
+- [Ownership-Event Optimization](09-aims/rc-elimination.md) - logical redundancy avoidance and physical-plan boundaries
 - [Drop Descriptors](09-aims/drop-descriptors.md) - Per-type drop generation
 - [Decision Trees](09-aims/decision-trees.md) - Pattern compilation in ARC IR
 

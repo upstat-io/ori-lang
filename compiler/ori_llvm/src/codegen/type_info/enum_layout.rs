@@ -78,37 +78,27 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
         self.resolving.borrow_mut().insert(idx);
 
         // Enum payloads use [M x i64] layout where each field occupies
-        // at least one full i64 slot (8 bytes). Must match
+        // at least one full i64 slot (8 bytes). The max-over-variants slot
+        // sum is shared with the ABI size walker via max_variant_payload_bytes
+        // (codegen::type_info::type_size) so the two cannot diverge. Must match
         // compute_variant_field_offsets in drop_enum.rs and
         // enum_payload_size / pool_type_store_size in ori_arc.
         //
-        // Unit/Never fields are zero-sized in Ori's type system
-        // but map to i64 in LLVM (because LLVM void can't be stored/phi'd).
-        // Skip them here so they don't inflate the payload size.
-        let mut max_payload_bytes: u64 = 0;
-        for variant in variants {
-            let variant_bytes: u64 = variant
-                .fields
-                .iter()
-                .map(|&f| {
-                    if !self.is_non_void_field(f) {
-                        return 0;
-                    }
-                    // A recursive variant field is a boxed `ptr` (one i64 slot)
-                    // per the boxing SSOT — sized from the box, not by recursing
-                    // into the field type (which would inline a mutually- or
-                    // self-recursive back-edge when resolved standalone).
-                    let size = if self.position_is_rc_boxed(idx, f) {
-                        Self::type_store_size(self.scx.type_ptr().into())
-                    } else {
-                        Self::type_store_size(self.resolve(f))
-                    };
-                    // Round up to 8-byte i64 slot boundary
-                    size.div_ceil(8) * 8
-                })
-                .sum();
-            max_payload_bytes = max_payload_bytes.max(variant_bytes);
-        }
+        // Unit/Never fields are zero-sized in Ori's type system but map to i64
+        // in LLVM (because LLVM void can't be stored/phi'd); the shared helper
+        // skips them so they don't inflate the payload size.
+        let max_payload_bytes =
+            super::type_size::max_variant_payload_bytes(variants, self.store.pool(), |f| {
+                // A recursive variant field is a boxed `ptr` (one i64 slot)
+                // per the boxing SSOT — sized from the box, not by recursing
+                // into the field type (which would inline a mutually- or
+                // self-recursive back-edge when resolved standalone).
+                if self.position_is_rc_boxed(idx, f) {
+                    Self::type_store_size(self.scx.type_ptr().into())
+                } else {
+                    Self::type_store_size(self.resolve(f))
+                }
+            });
 
         // Use narrowed tag type (i8 for ≤256 variants) instead of i64.
         let tag_ty = match ori_repr::min_tag_width(variants.len()) {

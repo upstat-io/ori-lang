@@ -1,0 +1,5 @@
+@main () -> int = {
+    let $fst = a -> b -> a;
+    let $xs = fst([1, 2, 3])(0);
+    if xs == [1, 2, 3] then 0 else 1
+}

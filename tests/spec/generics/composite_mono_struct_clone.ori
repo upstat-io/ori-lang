@@ -1,0 +1,14 @@
+// Regression: derived `clone` on a generic struct instantiation
+// must emit concrete-typed field copies (each field's clone resolves on int/str,
+// not the generic param). Dual-backend.
+use std.testing { assert }
+
+#derive(Eq, Clone) type P3Pair<A, B> = { a: A, b: B }
+
+@p3_clone (p: P3Pair<int, str>) -> P3Pair<int, str> = p.clone();
+
+@test_p3_clone tests _ () -> void = {
+    let $p = P3Pair { a: 5, b: "x" };
+    let $c = p3_clone(p: p);
+    assert(cond: c == p)
+}

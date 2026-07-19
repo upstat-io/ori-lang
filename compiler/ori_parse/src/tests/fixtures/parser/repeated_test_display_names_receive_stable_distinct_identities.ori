@@ -1,0 +1,2 @@
+@test tests @alpha () -> void = ();
+@test tests @beta () -> void = ();

@@ -1,0 +1,118 @@
+// Spec: 07-properties-of-types.md § Traceable
+// ?-hop trace injection with a HEAP (>23 char, non-SSO) Error message.
+// Pins the message-fat-ptr transfer that SSO messages ("fail"/"boom") hide:
+// the receiver Error is consumed by __ori_inject_trace and its message ref
+// transfers through the by-value return; a mis-modeled ownership double-frees
+// the heap message. Requires ORI_CHECK_LEAKS=1 + the gated burden probe.
+
+use std.testing { assert_eq, assert }
+
+// 32-char message -> heap-allocated (non-SSO).
+@fail_heap () -> Result<int, Error> =
+    Err(Error("a heap error message over 23 chars"));
+
+// Single ?-hop, heap message.
+@one_hop_heap () -> Result<int, Error> = {
+    let x = fail_heap()?;
+    Ok(x)
+}
+
+@test_heap_has tests @heap_has () -> void = {
+    let r = one_hop_heap();
+    assert(cond: r.has_trace())
+}
+
+@heap_has () -> bool = {
+    let r = one_hop_heap();
+    r.has_trace()
+}
+
+@test_heap_count tests @heap_count () -> void = {
+    let r = one_hop_heap();
+    assert_eq(actual: r.trace_entries().len(), expected: 1)
+}
+
+@heap_count () -> int = {
+    let r = one_hop_heap();
+    r.trace_entries().len()
+}
+
+// Chained 2-hop, heap message: two ? sites = two entries, no double-free.
+@inner_heap () -> Result<int, Error> = {
+    let x = fail_heap()?;
+    Ok(x)
+}
+
+@outer_heap () -> Result<int, Error> = {
+    let x = inner_heap()?;
+    Ok(x)
+}
+
+@test_heap_chain tests @heap_chain () -> void = {
+    let r = outer_heap();
+    assert_eq(actual: r.trace_entries().len(), expected: 2)
+}
+
+@heap_chain () -> int = {
+    let r = outer_heap();
+    r.trace_entries().len()
+}
+
+// Message survives: the transferred heap message buffer is still readable
+// after a ?-hop (a mis-modeled ownership frees it -> garbage / UAF). Reads the
+// Err payload's message directly, NOT trace_entries — distinct assertion.
+// Skipped: the `match { Err(e) -> e.message }` extract is a {str, list} sum-variant
+// partial move (extract message, drop trace list); AOT double-frees the extracted
+// str while interp is correct. General AIMS burden-path partial-move defect,
+// independent of trace injection (reproduces with no Error/trace/?-hop).
+@test_heap_msg_survives tests @heap_msg_survives () -> void = {
+    let r = one_hop_heap();
+    assert_eq(actual: heap_msg_of(r: r), expected: "a heap error message over 23 chars")
+}
+
+@heap_msg_of (r: Result<int, Error>) -> str =
+    match r {
+        Err(e) -> e.message,
+        Ok(_) -> "",
+    };
+
+// Delegation-receiver (Result) + heap message through the trace() string
+// formatter (_ori_format_error_trace): niche-selects the Err payload, reads the
+// transferred heap message + trace. Exercises the accessor + heap-message path
+// the has_trace/trace_entries tests above leave uncovered.
+@test_heap_trace_str tests @heap_trace_str () -> void = {
+    let r = one_hop_heap();
+    assert(cond: r.trace() != "")
+}
+
+@heap_trace_str () -> bool = {
+    let r = one_hop_heap();
+    r.trace() != ""
+}
+
+// str.into() -> Error construction (emit_str_into_error) with a HEAP
+// message: pins the empty-trace-init fix — a 1-field build left `trace`
+// uninitialized (garbage fat pointer); the 2-field build zero-inits it to a
+// valid empty list. The Error is wrapped in a Result so the
+// delegation-receiver accessor path is exercised: calling `has_trace`/
+// `trace_entries` on an unwrapped Error receiver corrupts subsequent LLVM
+// dispatch (tracked separately). Each accessor is pinned on its own
+// receiver — calling BOTH has_trace() and trace_entries() on the SAME
+// receiver in one function leaks under the gated burden probe (also
+// tracked separately); each accessor stays pinned independently to stay
+// leak-clean.
+@heap_into_error_a () -> Result<int, Error> =
+    Err("a heap error message over 23 chars".into());
+
+@test_heap_into_has_trace_false tests @heap_into_error_a () -> void = {
+    let r = heap_into_error_a();
+    assert_eq(actual: r.has_trace(), expected: false)
+}
+
+@heap_into_error_b () -> Result<int, Error> =
+    Err("a heap error message over 23 chars".into());
+
+@test_heap_into_trace_entries_empty tests @heap_into_error_b () -> void = {
+    let r = heap_into_error_b();
+    assert_eq(actual: r.trace_entries().len(), expected: 0)
+}

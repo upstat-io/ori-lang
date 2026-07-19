@@ -203,7 +203,7 @@ pub(super) fn build_prim_trait_sets() -> [TraitSet; Idx::PRIMITIVE_COUNT as usiz
         (3, TypeTag::Str),
         (4, TypeTag::Char),
         (5, TypeTag::Byte),
-        // 6 = Unit (no TypeDef)
+        (6, TypeTag::Unit),
         // 7 = Never (no TypeDef)
         // 8 = Error — has TypeDef but skipped by old code (no standard traits)
         (9, TypeTag::Duration),
@@ -224,16 +224,6 @@ pub(super) fn build_prim_trait_sets() -> [TraitSet; Idx::PRIMITIVE_COUNT as usiz
     if let Some(error_def) = ori_registry::find_type(TypeTag::Error) {
         sets[Idx::ERROR.raw() as usize] = type_def_to_trait_set(error_def);
     }
-
-    // Unit: no TypeDef in the registry. Hardcode until Unit gets a TypeDef.
-    sets[Idx::UNIT.raw() as usize] = TraitSet::from_bits(&[
-        trait_bits::EQ,
-        trait_bits::COMPARABLE,
-        trait_bits::HASHABLE,
-        trait_bits::CLONE,
-        trait_bits::DEFAULT,
-        trait_bits::DEBUG,
-    ]);
 
     // Never: no traits — stays EMPTY
 

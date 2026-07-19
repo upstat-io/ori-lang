@@ -1,0 +1,57 @@
+// Spec: 06-types.md § Derive — Hashable on a nested-generic-instantiation receiver
+// Formal semantics: a derived `hash` must be emitted for EVERY concrete instantiation
+// of a generic composite a call site can demand, including an inner instantiation
+// reachable ONLY by nesting (`Wrap<Wrap<int>>` -> inner `Wrap<int>`). The
+// mono-aware derive path (`concrete_instantiations` -> `register_mono_derive_function`
+// -> `derived_method_full`) emits a per-instantiation method only for instantiations
+// `compile_derives` reaches via its `module.types` iteration; the inner-only `Wrap<int>`
+// instantiation STARVES on the AOT (LLVM) backend with "unresolved function `hash` in
+// apply — missing mono instance?", while the interpreter (the parity oracle) computes
+// the value correctly.
+//
+// TDD-first: these cells FAIL pre-fix on the LLVM backend (missing mono
+// instance) and PASS on the interpreter. ISOLATION: this file derives `hash` only and
+// MUST NOT add a `.debug()` cell on the same instantiation — emitting `debug` for the
+// nested receiver materializes the inner `Wrap<int>` instance and would MASK the hash
+// starve. The golden hash value is the interpreter's derived result; the SAME assert
+// runs interp + LLVM via dual-exec, forcing post-fix LLVM to the EXACT interp value.
+// Re-bless only if the derive-hash algorithm changes for BOTH backends together.
+
+use std.testing { assert }
+
+#[derive(Eq, Hashable, Debug)]
+type Wrap<T> = { inner: T }
+
+// Equal nested-generic values hash equally (determinism).
+@test_nested_generic_hash_stable tests @nested_hash_stable () -> void = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    let b = Wrap { inner: Wrap { inner: 7 } };
+    assert(cond: a.hash() == b.hash())
+}
+@nested_hash_stable () -> bool = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    let b = Wrap { inner: Wrap { inner: 7 } };
+    a.hash() == b.hash()
+}
+
+// Distinct inner values must hash distinctly.
+@test_nested_generic_hash_differs tests @nested_hash_differs () -> void = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    let b = Wrap { inner: Wrap { inner: 8 } };
+    assert(cond: a.hash() != b.hash())
+}
+@nested_hash_differs () -> bool = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    let b = Wrap { inner: Wrap { inner: 8 } };
+    a.hash() != b.hash()
+}
+
+// Exact-value parity oracle (L9) — golden hash from the interpreter.
+@test_nested_generic_hash_exact tests @nested_hash_exact () -> void = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    assert(cond: a.hash() == 5308871545)
+}
+@nested_hash_exact () -> int = {
+    let a = Wrap { inner: Wrap { inner: 7 } };
+    a.hash()
+}

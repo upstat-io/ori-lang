@@ -23,7 +23,13 @@ Modes (exactly one):
                   not output). Mirrors the parse_ori_results prefix convention.
   --failures-json emit a JSON array of Ori failure objects via json.dumps. Each
                   object: test_id, test_id_kind, suite, failure_kind,
-                  error_message. Requires --suite. Reads the runner JSON.
+                  error_message, source_path, leak_positive. Requires --suite.
+                  Reads the runner JSON. source_path carries the failing test's
+                  owning .ori file path (files[].path) so downstream per-node
+                  parity attribution has a source signal; "" when the runner
+                  omits it. leak_positive is True when the failure message
+                  carries the ORI_CHECK_LEAKS=1 RC-leak signature, the per-node
+                  leak_free verdict leg's source signal.
   --summary-line  emit the reconstructed human summary line (the console UX
                   the JSON consumption replaces the runner's text render with).
   --fail-lines    emit one human-readable `FAIL: <name> - <msg>` line per failed
@@ -51,13 +57,34 @@ EXIT_OK = 0
 EXIT_USAGE = 2
 EXIT_PARSE_ERROR = 3
 
+# A failure message indicating an ORI_CHECK_LEAKS=1 RC leak. The runtime emits
+# "N RC allocation(s) not freed (memory leak)" (compiler/ori_rt/src/lib.rs); the
+# AOT leg's assert_aot_success surfaces it as "leaked memory"; the spec runner
+# wraps it as "ARC leak: N allocation(s) not freed". Matching any of these lets
+# a per-failure leak_free source signal be derived for the per-node verdict.
+_LEAK_MSG_RE = re.compile(
+    r"not freed|memory leak|leaked memory|ARC leak", re.IGNORECASE
+)
+
+
+def _is_leak_failure(message):
+    """True iff a failure message carries the ORI_CHECK_LEAKS=1 leak signature.
+
+    Drives the per-failure leak_positive field consumed by the per-node
+    leak_free verdict leg. A failure with no leak signature is leak_positive
+    False; the downstream per-node verdict fail-closes leak_free to unknown for
+    nodes with no leak signal at all."""
+    return bool(message) and bool(_LEAK_MSG_RE.search(message))
+
+
 # cargo libtest failure line: `test <name> ... FAILED`.
 _RUST_FAIL_RE = re.compile(r"^test\s+(?P<name>.*?)\s+\.\.\.\s+FAILED$")
-# cargo-nextest failure line: `<indent>FAIL [   0.038s] (7487/7887) <crate> <test::path>`.
+# cargo-nextest failure line: `<indent>FAIL|LEAK [   0.038s] (7487/7887) <crate> <test::path>`.
 # The `(n/total)` progress index is present in streamed runs, absent in some
 # modes; the time field varies (`0.038s` / `1.2s ` / `12.34s`). Both optional.
-_NEXTEST_FAIL_RE = re.compile(
-    r"^\s*FAIL \[[^\]]*\]\s+(?:\(\d+/\d+\)\s+)?(?P<crate>\S+)\s+(?P<name>\S+)\s*$"
+_NEXTEST_FAILURE_RE = re.compile(
+    r"^\s*(?P<status>FAIL|LEAK) \[[^\]]*\]\s+"
+    r"(?:\(\d+/\d+\)\s+)?(?P<crate>\S+)\s+(?P<name>\S+)\s*$"
 )
 
 
@@ -101,67 +128,65 @@ def _emit_summary_line(obj):
     print(", ".join(parts))
 
 
-def _failure_entries(obj, suite):
-    """Yield a failure object per failed / llvm-compile-fail test, plus one
-    per file-level error. The runner already resolved interned names to
-    strings and serde-escaped every message; json.dumps re-escapes on emit."""
-    entries = []
+def _iter_file_failures(obj):
+    """Yield (file_summary, kind, name, message) once per failing outcome, in
+    file-then-result order: kind is "failed" | "llvm_compile_fail" for a
+    results[] entry (name set), or "file_error" for a file-level error (name
+    None). Single walk of files[] -> results[]/errors[] shared by every
+    failure-listing consumer (`_failure_entries`, `_emit_fail_lines`)."""
     for file_summary in obj.get("files", []):
         for result in file_summary.get("results", []):
             outcome = result.get("outcome")
             name = result.get("name", "")
             if isinstance(outcome, dict) and "Failed" in outcome:
-                msg = outcome["Failed"]
-                entries.append({
-                    "test_id": name,
-                    "test_id_kind": "ori_spec",
-                    "suite": suite,
-                    "failure_kind": "assertion_failure",
-                    "error_message": msg,
-                })
+                yield file_summary, "failed", name, outcome["Failed"]
             elif isinstance(outcome, dict) and "LlvmCompileFail" in outcome:
-                reason = outcome["LlvmCompileFail"]
-                entries.append({
-                    "test_id": name,
-                    "test_id_kind": "ori_spec",
-                    "suite": suite,
-                    "failure_kind": "llvm_compile_fail",
-                    "error_message": reason,
-                })
+                yield file_summary, "llvm_compile_fail", name, outcome["LlvmCompileFail"]
         for error in file_summary.get("errors", []):
-            entries.append({
-                "test_id": file_summary.get("path", ""),
-                "test_id_kind": "ori_spec",
-                "suite": suite,
-                "failure_kind": "file_error",
-                "error_message": error,
-            })
+            yield file_summary, "file_error", None, error
+
+
+_FAILURE_KIND_MAP = {
+    "failed": "assertion_failure",
+    "llvm_compile_fail": "llvm_compile_fail",
+    "file_error": "file_error",
+}
+
+
+def _failure_entries(obj, suite):
+    """Yield a failure object per failed / llvm-compile-fail test, plus one
+    per file-level error. The runner already resolved interned names to
+    strings and serde-escaped every message; json.dumps re-escapes on emit."""
+    entries = []
+    for file_summary, kind, name, message in _iter_file_failures(obj):
+        source_path = file_summary.get("path", "")
+        entries.append({
+            "test_id": name if kind != "file_error" else source_path,
+            "test_id_kind": "ori_spec",
+            "suite": suite,
+            "failure_kind": _FAILURE_KIND_MAP[kind],
+            "error_message": message,
+            "source_path": source_path,
+            "leak_positive": _is_leak_failure(message),
+        })
     return entries
 
 
 def _emit_fail_lines(obj):
     """Human-readable per-failure listing for the console (the detail the
     runner's text render emitted; reconstructed from the parsed JSON)."""
-    for file_summary in obj.get("files", []):
-        printed_path = False
-        for result in file_summary.get("results", []):
-            outcome = result.get("outcome")
-            name = result.get("name", "")
-            label = None
-            if isinstance(outcome, dict) and "Failed" in outcome:
-                label = f"  FAIL: {name} - {outcome['Failed']}"
-            elif isinstance(outcome, dict) and "LlvmCompileFail" in outcome:
-                label = f"  LLVM COMPILE FAIL: {name} - {outcome['LlvmCompileFail']}"
-            if label is not None:
-                if not printed_path:
-                    print(file_summary.get("path", ""))
-                    printed_path = True
-                print(label)
-        for error in file_summary.get("errors", []):
-            if not printed_path:
-                print(file_summary.get("path", ""))
-                printed_path = True
-            print(f"  ERROR: {error}")
+    printed_summary_id = None
+    for file_summary, kind, name, message in _iter_file_failures(obj):
+        if kind == "failed":
+            label = f"  FAIL: {name} - {message}"
+        elif kind == "llvm_compile_fail":
+            label = f"  LLVM COMPILE FAIL: {name} - {message}"
+        else:
+            label = f"  ERROR: {message}"
+        if id(file_summary) != printed_summary_id:
+            print(file_summary.get("path", ""))
+            printed_summary_id = id(file_summary)
+        print(label)
 
 
 def _emit_failures_json(obj, suite):
@@ -176,41 +201,52 @@ def _rust_failure_entries(text, suite, failure_kind):
     Matches both runner formats so failure-name attribution survives the
     cargo-test -> cargo-nextest runner switch:
     - cargo libtest:  `test <name> ... FAILED`
-    - cargo-nextest:  `<indent>FAIL [ <time> ] (<n>/<total>) <crate> <test::path>`
-    A test_id is emitted at most once even if both forms appear (dedup by id).
-    """
-    kind = "panic" if "panicked at" in text else failure_kind
-    entries = []
+    - cargo-nextest:  `<indent>FAIL|LEAK [ <time> ] (<n>/<total>) <crate> <test::path>`
+    A test/failure-kind pair is emitted at most once even if a runner repeats it.
+
+    `failure_kind` is attributed PER TEST, never blanket-applied from the
+    whole log: a test is "panic" only when its own `thread '<name>' panicked`
+    line is present, or when it is the log's sole failing test (a solo
+    failure carries no other candidate to misattribute a stray panic to,
+    e.g. a harness panic reported under `thread 'main'`)."""
+    matches = []
     seen = set()
     for line in text.splitlines():
         cargo = _RUST_FAIL_RE.match(line)
         if cargo:
             name = cargo.group("name")
-            if name in seen:
+            identity = (name, "FAIL")
+            if identity in seen:
                 continue
-            seen.add(name)
-            entries.append({
-                "test_id": name,
-                "test_id_kind": "rust",
-                "suite": suite,
-                "failure_kind": kind,
-                "error_message": f"test {name} ... FAILED",
-            })
+            seen.add(identity)
+            matches.append((name, f"test {name} ... FAILED", "FAIL"))
             continue
-        nextest = _NEXTEST_FAIL_RE.match(line)
+        nextest = _NEXTEST_FAILURE_RE.match(line)
         if nextest:
             crate = nextest.group("crate")
             name = nextest.group("name")
-            if name in seen:
+            status = nextest.group("status")
+            identity = (name, status)
+            if identity in seen:
                 continue
-            seen.add(name)
-            entries.append({
-                "test_id": name,
-                "test_id_kind": "rust",
-                "suite": suite,
-                "failure_kind": kind,
-                "error_message": f"FAIL {crate} {name} (nextest)",
-            })
+            seen.add(identity)
+            matches.append((name, f"{status} {crate} {name} (nextest)", status))
+
+    solo_fallback = len(matches) == 1 and "panicked at" in text
+    entries = []
+    for name, error_message, status in matches:
+        panicked = f"thread '{name}' panicked" in text or solo_fallback
+        entries.append({
+            "test_id": name,
+            "test_id_kind": "rust",
+            "suite": suite,
+            "failure_kind": (
+                "process_leak"
+                if status == "LEAK"
+                else "panic" if panicked else failure_kind
+            ),
+            "error_message": error_message,
+        })
     return entries
 
 

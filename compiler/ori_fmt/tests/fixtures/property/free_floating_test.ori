@@ -1,0 +1,1 @@
+@test_something () -> void = assert(condition: true);

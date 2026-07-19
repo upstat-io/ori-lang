@@ -1,7 +1,7 @@
 //! Operator strategy definitions for the Ori type registry.
 //!
 //! [`OpDefs`] holds the [`OpStrategy`] for every operator applicable to a
-//! type. It is a fixed-field struct so that Rust's exhaustiveness checking
+//! type. It is a fixed-field struct so that exhaustive field construction
 //! catches missing operator entries when a new operator is added.
 
 use crate::tags::OpStrategy;
@@ -17,7 +17,7 @@ use crate::tags::OpStrategy;
 ///
 /// Consumers map their own `BinOp` enum to these fields directly:
 ///
-/// ```ignore
+/// ```text
 /// let type_def = find_type(tag)?;
 /// let strategy = match op {
 ///     BinOp::Add => type_def.operators.add,
@@ -31,8 +31,7 @@ use crate::tags::OpStrategy;
 /// with the required struct fields ensures compile-time coverage.
 ///
 /// Adding a new field here is a compile error in every `TypeDef` definition
-/// (Sections 03-07) and every backend match arm that reads `OpDefs`,
-/// enforcing full coverage.
+/// and every backend match arm that reads `OpDefs`, enforcing full coverage.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OpDefs {
     // Arithmetic operators
@@ -84,13 +83,8 @@ pub struct OpDefs {
     pub shr: OpStrategy,
 }
 
-// 20 fields x sizeof(OpStrategy).
-// 64-bit: 20 x 24 = 480 bytes.
-// 32-bit (WASM): 20 x 12 = 240 bytes.
-#[cfg(target_pointer_width = "64")]
-const _: () = assert!(core::mem::size_of::<OpDefs>() == 480);
-#[cfg(target_pointer_width = "32")]
-const _: () = assert!(core::mem::size_of::<OpDefs>() == 240);
+// 20 fields x 1-byte niche-packed typed strategy.
+const _: () = assert!(core::mem::size_of::<OpDefs>() == 20);
 
 impl OpDefs {
     /// All operators unsupported.

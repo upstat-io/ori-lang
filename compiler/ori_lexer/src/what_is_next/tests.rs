@@ -2,22 +2,26 @@ use super::*;
 
 #[test]
 fn detects_triple_equals() {
-    assert_eq!(what_is_next(b"===", 0), NextContext::Operator("==="));
+    assert_eq!(
+        what_is_next(b"===", 0),
+        NextContext::UnsupportedOperator(UnsupportedOperator::StrictEqual)
+    );
 }
 
 #[test]
 fn detects_not_triple_equals() {
-    assert_eq!(what_is_next(b"!==", 0), NextContext::Operator("!=="));
+    assert_eq!(
+        what_is_next(b"!==", 0),
+        NextContext::UnsupportedOperator(UnsupportedOperator::StrictNotEqual)
+    );
 }
 
 #[test]
 fn detects_increment() {
-    assert_eq!(what_is_next(b"++", 0), NextContext::Operator("++"));
-}
-
-#[test]
-fn detects_decrement() {
-    assert_eq!(what_is_next(b"--x", 0), NextContext::Operator("--"));
+    assert_eq!(
+        what_is_next(b"++", 0),
+        NextContext::UnsupportedOperator(UnsupportedOperator::Increment)
+    );
 }
 
 #[test]
@@ -45,4 +49,23 @@ fn detects_eof() {
 fn single_equals_is_punctuation() {
     // A single = should NOT match === pattern
     assert_eq!(what_is_next(b"=x", 0), NextContext::Punctuation('='));
+}
+
+#[test]
+fn ascii_control_char_is_other() {
+    // 0x01 is < 0x80, not a multi-char operator, and not in the punctuation
+    // set -> NextContext::Other (the fall-through ASCII arm).
+    assert_eq!(what_is_next(b"\x01", 0), NextContext::Other('\u{1}'));
+}
+
+#[test]
+fn ascii_letter_is_other() {
+    // An ASCII letter is not punctuation/operator -> NextContext::Other.
+    assert_eq!(what_is_next(b"a", 0), NextContext::Other('a'));
+}
+
+#[test]
+fn ascii_digit_is_other() {
+    // An ASCII digit falls through to the catch-all -> NextContext::Other.
+    assert_eq!(what_is_next(b"7", 0), NextContext::Other('7'));
 }

@@ -1,11 +1,11 @@
 //! Read-only lookup paths for `TraitRegistry`.
 //!
 //! Trait/impl lookup, super-trait DAG walks, method resolution, and
-//! coherence checks. Mutation (registration) lives in the parent
-//! module's `impl TraitRegistry` block.
+//! coherence checks.
+
+mod resolution;
 
 use ori_ir::Name;
-use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::Idx;
 
@@ -15,10 +15,11 @@ use super::{
 };
 
 impl TraitRegistry {
-    // === Trait Lookup ===
+    // Trait Lookup
 
     /// Look up a trait by name.
     #[inline]
+    #[must_use = "the absence of a value must be handled"]
     pub fn get_trait_by_name(&self, name: Name) -> Option<&TraitEntry> {
         self.traits_by_name
             .get(&name)
@@ -27,6 +28,7 @@ impl TraitRegistry {
 
     /// Look up a trait by pool index.
     #[inline]
+    #[must_use = "the absence of a value must be handled"]
     pub fn get_trait_by_idx(&self, idx: Idx) -> Option<&TraitEntry> {
         self.traits_by_idx
             .get(&idx)
@@ -40,6 +42,7 @@ impl TraitRegistry {
     }
 
     /// Get a trait method signature.
+    #[must_use = "the absence of a value must be handled"]
     pub fn trait_method(&self, trait_idx: Idx, method_name: Name) -> Option<&TraitMethodDef> {
         self.get_trait_by_idx(trait_idx)
             .and_then(|t| t.methods.get(&method_name))
@@ -47,148 +50,24 @@ impl TraitRegistry {
 
     /// Iterate `(impl_idx, &ImplEntry)` over every registered impl.
     ///
-    /// Used by the base-name dispatch fallback in `infer/expr/calls/impl_lookup.rs`
-    /// when exact-`Idx` `lookup_method_checked` misses on a generic impl whose
-    /// `entry.self_type = Applied(Name, [Named(U)])` no longer matches a
-    /// concrete receiver `Applied(Name, [int])` per. The
-    /// engine iterates, filters by base name + method name, then unifies the
-    /// receiver against `entry.self_type` to produce the impl-level
-    /// substitution map.
+    /// Supports base-name fallback when exact-`Idx` lookup misses on a generic
+    /// impl whose `entry.self_type = Applied(Name, [Named(U)])` differs from
+    /// a concrete receiver `Applied(Name, [int])`. The engine iterates, filters
+    /// by base name and method name, then unifies the receiver against
+    /// `entry.self_type` to produce the impl-level substitution map.
     #[inline]
     pub fn impls_iter(&self) -> impl Iterator<Item = (usize, &ImplEntry)> {
         self.impls.iter().enumerate()
     }
 
     /// Get an associated type definition from a trait.
+    #[must_use = "the absence of a value must be handled"]
     pub fn trait_assoc_type(&self, trait_idx: Idx, assoc_name: Name) -> Option<&TraitAssocTypeDef> {
         self.get_trait_by_idx(trait_idx)
             .and_then(|t| t.assoc_types.get(&assoc_name))
     }
 
-    // === Super-trait Queries ===
-
-    /// Collect all super-traits transitively (DAG walk with cycle protection).
-    ///
-    /// Returns a de-duplicated list of all ancestor trait indices, in
-    /// breadth-first order. Gracefully handles missing traits (returns empty
-    /// for unknown indices, allowing registration-order independence).
-    pub fn all_super_traits(&self, trait_idx: Idx) -> Vec<Idx> {
-        let mut visited = FxHashSet::default();
-        let mut result = Vec::new();
-        let mut queue = std::collections::VecDeque::new();
-
-        // Seed with direct super-traits
-        if let Some(entry) = self.get_trait_by_idx(trait_idx) {
-            for &st in &entry.super_traits {
-                if visited.insert(st) {
-                    queue.push_back(st);
-                }
-            }
-        }
-
-        while let Some(idx) = queue.pop_front() {
-            result.push(idx);
-            if let Some(entry) = self.get_trait_by_idx(idx) {
-                for &st in &entry.super_traits {
-                    if visited.insert(st) {
-                        queue.push_back(st);
-                    }
-                }
-            }
-        }
-
-        result
-    }
-
-    /// Gather methods from a trait and all its ancestors, deduplicating by name.
-    ///
-    /// Closest override wins: methods defined on the trait itself take priority
-    /// over those inherited from super-traits. Returns `(method_name,
-    /// owning_trait_idx, &TraitMethodDef)` tuples.
-    pub fn collected_methods(&self, trait_idx: Idx) -> Vec<(Name, Idx, &TraitMethodDef)> {
-        let mut seen = FxHashSet::default();
-        let mut result = Vec::new();
-
-        // Direct methods first (highest priority)
-        if let Some(entry) = self.get_trait_by_idx(trait_idx) {
-            for (name, method) in &entry.methods {
-                if seen.insert(*name) {
-                    result.push((*name, trait_idx, method));
-                }
-            }
-        }
-
-        // Walk ancestors in BFS order; skip already-seen names
-        for ancestor_idx in self.all_super_traits(trait_idx) {
-            if let Some(entry) = self.get_trait_by_idx(ancestor_idx) {
-                for (name, method) in &entry.methods {
-                    if seen.insert(*name) {
-                        result.push((*name, ancestor_idx, method));
-                    }
-                }
-            }
-        }
-
-        result
-    }
-
-    /// Find methods with conflicting defaults from different super-trait paths.
-    ///
-    /// Returns `(method_name, [conflicting_trait_indices])` for each method
-    /// that has default implementations from multiple unrelated super-trait
-    /// paths. Only includes methods where the conflict isn't resolved by the
-    /// trait itself (i.e., the trait's own methods are excluded from conflict
-    /// detection since they are the resolution).
-    pub fn find_conflicting_defaults(&self, trait_idx: Idx) -> Vec<(Name, Vec<Idx>)> {
-        // Track which methods we've seen defaults for, and from which traits
-        let mut defaults_by_method: FxHashMap<Name, Vec<Idx>> = FxHashMap::default();
-
-        // Collect defaults from all direct super-traits and their ancestors.
-        // Only look at direct super-traits' collected_methods — each super-trait
-        // provides its resolved set (closest override wins within its branch).
-        //
-        // Registration discipline: trait_idx MUST already be registered before
-        // conflict-default analysis runs (Registration group pass 0c precedes
-        // any consumer per CK-1). Missing entry = missing-registration bug,
-        // NOT "no super-traits" — silently swallowing as empty Vec hid the
-        // bug class. debug_assert in debug builds; production fallback returns
-        // empty conflict set (consumer sees zero conflicts vs panicking).
-        let direct_supers = if let Some(entry) = self.get_trait_by_idx(trait_idx) {
-            entry.super_traits.clone()
-        } else {
-            debug_assert!(
-                false,
-                "find_conflicting_defaults called with unregistered trait_idx={trait_idx:?} — \
-                 Registration group pass 0c must precede this query (CK-1)"
-            );
-            return Vec::new();
-        };
-
-        for &super_idx in &direct_supers {
-            for (name, _owner, method) in self.collected_methods(super_idx) {
-                if method.has_default {
-                    defaults_by_method.entry(name).or_default().push(super_idx);
-                }
-            }
-        }
-
-        // Methods defined directly on this trait are NOT conflicting — they
-        // serve as the resolution. Also, if this trait declares a method
-        // (default or not), it overrides any inherited version.
-        if let Some(entry) = self.get_trait_by_idx(trait_idx) {
-            for name in entry.methods.keys() {
-                defaults_by_method.remove(name);
-            }
-        }
-
-        // Conflicting: >1 distinct super-trait provides a default for the same method
-        defaults_by_method
-            .into_iter()
-            .filter(|(_, providers)| providers.len() > 1)
-            .collect()
-    }
-
-    // === Impl Lookup ===
+    // Impl Lookup
 
     /// Get all implementations for a given self type.
     pub fn impls_for_type(&self, self_type: Idx) -> impl Iterator<Item = &ImplEntry> {
@@ -197,6 +76,20 @@ impl TraitRegistry {
             .into_iter()
             .flat_map(|indices| indices.iter())
             .filter_map(|&i| self.impls.get(i))
+    }
+
+    /// Iterate implementations for a receiver together with their registry
+    /// coordinate. The coordinate is required when a caller must freeze the
+    /// exact semantic producer rather than merely inspect its signature.
+    pub(crate) fn indexed_impls_for_type(
+        &self,
+        self_type: Idx,
+    ) -> impl Iterator<Item = (usize, &ImplEntry)> {
+        self.impls_by_type
+            .get(&self_type)
+            .into_iter()
+            .flat_map(|indices| indices.iter())
+            .filter_map(|&i| self.impls.get(i).map(|implementation| (i, implementation)))
     }
 
     /// Get all implementations of a specific trait.
@@ -210,17 +103,62 @@ impl TraitRegistry {
 
     /// Get an impl entry by index.
     #[inline]
+    #[must_use = "the absence of a value must be handled"]
     pub fn get_impl(&self, impl_idx: usize) -> Option<&ImplEntry> {
         self.impls.get(impl_idx)
     }
 
+    /// Return the exact producer selected from one registered impl method.
+    #[must_use = "the absence of a value must be handled"]
+    pub(crate) fn method_producer(
+        &self,
+        impl_idx: usize,
+        method: &ImplMethodDef,
+    ) -> Option<crate::MethodProducer> {
+        match self.impl_origins.get(impl_idx)?.as_ref()? {
+            super::RegisteredImplOrigin::Source { impl_index } => Some(
+                crate::MethodProducer::Impl(crate::ImplMethodId::new(*impl_index, method.body)),
+            ),
+            super::RegisteredImplOrigin::Extension { owner_index, .. } => Some(
+                crate::MethodProducer::Impl(crate::ImplMethodId::new(*owner_index, method.body)),
+            ),
+            super::RegisteredImplOrigin::Derived(id) => Some(crate::MethodProducer::Derived(*id)),
+            super::RegisteredImplOrigin::Imported(methods) => {
+                methods
+                    .get(&method.body)
+                    .map(|origin| crate::MethodProducer::Imported {
+                        symbol: origin.symbol.clone(),
+                        signature_hash: origin.signature_hash,
+                    })
+            }
+        }
+    }
+
+    /// Whether a registered provider is an extension rather than an inherent
+    /// impl. Both carry `trait_idx == None`, so precedence must consult origin.
+    pub(crate) fn is_extension_impl(&self, impl_idx: usize) -> bool {
+        matches!(
+            self.impl_origins.get(impl_idx).and_then(Option::as_ref),
+            Some(super::RegisteredImplOrigin::Extension { .. })
+        )
+    }
+
+    fn extension_target_name(&self, impl_idx: usize) -> Option<Name> {
+        match self.impl_origins.get(impl_idx)?.as_ref()? {
+            super::RegisteredImplOrigin::Extension { target_name, .. } => Some(*target_name),
+            _ => None,
+        }
+    }
+
     /// Get a mutable impl entry by index.
     #[inline]
+    #[must_use = "the absence of a value must be handled"]
     pub fn get_impl_mut(&mut self, impl_idx: usize) -> Option<&mut ImplEntry> {
         self.impls.get_mut(impl_idx)
     }
 
     /// Find an impl of a specific trait for a specific type.
+    #[must_use = "the absence of a value must be handled"]
     pub fn find_impl(&self, trait_idx: Idx, self_type: Idx) -> Option<(usize, &ImplEntry)> {
         self.find_impl_with_args(trait_idx, self_type, &[])
     }
@@ -231,6 +169,7 @@ impl TraitRegistry {
     /// For non-generic traits, pass an empty `trait_type_args` slice.
     /// For generic traits like `Index<Key, Value>`, pass the resolved type
     /// arguments to distinguish between different instantiations.
+    #[must_use = "the absence of a value must be handled"]
     pub fn find_impl_with_args(
         &self,
         trait_idx: Idx,
@@ -253,12 +192,44 @@ impl TraitRegistry {
         })
     }
 
+    /// Project an associated-type binding for a concrete receiver.
+    ///
+    /// A known `trait_idx` selects that trait's binding before considering an
+    /// unqualified match. Returns `None` when no registered implementation
+    /// defines the associated type.
+    #[must_use = "the absence of a value must be handled"]
+    pub fn find_impl_assoc_binding(
+        &self,
+        trait_idx: Option<Idx>,
+        self_type: Idx,
+        assoc_name: Name,
+    ) -> Option<Idx> {
+        let indices = self.impls_by_type.get(&self_type)?;
+        if let Some(want) = trait_idx {
+            if let Some(binding) = indices.iter().find_map(|&i| {
+                let entry = &self.impls[i];
+                if entry.trait_idx == Some(want) {
+                    entry.assoc_types.get(&assoc_name).copied()
+                } else {
+                    None
+                }
+            }) {
+                return Some(binding);
+            }
+        }
+        // Why: Trait-blind callers retain the established first-match behavior.
+        indices
+            .iter()
+            .find_map(|&i| self.impls[i].assoc_types.get(&assoc_name).copied())
+    }
+
     /// Find the inherent impl for a type (impl without a trait).
+    #[must_use = "the absence of a value must be handled"]
     pub fn inherent_impl(&self, self_type: Idx) -> Option<(usize, &ImplEntry)> {
         self.impls_by_type.get(&self_type).and_then(|indices| {
             indices.iter().find_map(|&i| {
                 let entry = &self.impls[i];
-                if entry.trait_idx.is_none() {
+                if entry.trait_idx.is_none() && !self.is_extension_impl(i) {
                     Some((i, entry))
                 } else {
                     None
@@ -269,16 +240,15 @@ impl TraitRegistry {
 
     /// Look up a method implementation for a given type.
     ///
-    /// Searches inherent impls first, then trait impls.
+    /// Searches inherent impls first, then trait impls, then extensions.
+    #[must_use = "the absence of a value must be handled"]
     pub fn lookup_method(&self, self_type: Idx, method_name: Name) -> Option<MethodLookup<'_>> {
-        // 1. Check inherent impl first
         if let Some((impl_idx, impl_entry)) = self.inherent_impl(self_type) {
             if let Some(method) = impl_entry.methods.get(&method_name) {
                 return Some(MethodLookup::Inherent { impl_idx, method });
             }
         }
 
-        // 2. Check trait impls
         for (impl_idx, impl_entry) in self
             .impls_by_type
             .get(&self_type)
@@ -287,7 +257,7 @@ impl TraitRegistry {
             .filter_map(|&i| Some((i, self.impls.get(i)?)))
         {
             if let Some(method) = impl_entry.methods.get(&method_name) {
-                // Non-inherent impls should always have a trait_idx
+                // INVARIANT: Non-inherent registered implementations name a trait.
                 let Some(trait_idx) = impl_entry.trait_idx else {
                     continue;
                 };
@@ -299,27 +269,42 @@ impl TraitRegistry {
             }
         }
 
+        // Why: Extensions have lower precedence than every trait provider.
+        for (impl_idx, impl_entry) in self
+            .impls_by_type
+            .get(&self_type)
+            .into_iter()
+            .flat_map(|indices| indices.iter())
+            .filter_map(|&i| Some((i, self.impls.get(i)?)))
+        {
+            if !self.is_extension_impl(impl_idx) {
+                continue;
+            }
+            if let Some(method) = impl_entry.methods.get(&method_name) {
+                return Some(MethodLookup::Extension { impl_idx, method });
+            }
+        }
+
         None
     }
 
     /// Look up a method with ambiguity detection.
     ///
     /// Like `lookup_method()`, but instead of returning the first trait match,
-    /// collects ALL trait impls that provide the method. Returns `Ambiguous`
+    /// collects all trait impls that provide the method. Returns `Ambiguous`
     /// when multiple trait impls match.
+    #[must_use]
     pub fn lookup_method_checked(
         &self,
         self_type: Idx,
         method_name: Name,
     ) -> MethodLookupResult<'_> {
-        // 1. Inherent impl always wins (no ambiguity possible)
         if let Some((impl_idx, impl_entry)) = self.inherent_impl(self_type) {
             if let Some(method) = impl_entry.methods.get(&method_name) {
                 return MethodLookupResult::Found(MethodLookup::Inherent { impl_idx, method });
             }
         }
 
-        // 2. Collect ALL trait impls with the method + their specificity
         let mut candidates: Vec<(usize, Idx, &ImplMethodDef, ImplSpecificity)> = Vec::new();
         for (impl_idx, impl_entry) in self
             .impls_by_type
@@ -335,143 +320,16 @@ impl TraitRegistry {
             }
         }
 
-        match candidates.len() {
-            0 => MethodLookupResult::NotFound,
-            1 => {
-                let (impl_idx, trait_idx, method, _) = candidates[0];
-                MethodLookupResult::Found(MethodLookup::Trait {
-                    trait_idx,
-                    impl_idx,
-                    method,
-                })
-            }
-            _ => {
-                // Multiple candidates: first filter by super-trait relationships.
-                // If trait A is a super-trait of trait B and both provide the method,
-                // keep only B (the sub-trait inherits or overrides A's method).
-                let trait_idxs: Vec<Idx> = candidates.iter().map(|c| c.1).collect();
-                let mut superseded: FxHashSet<Idx> = FxHashSet::default();
-                for &t in &trait_idxs {
-                    let supers = self.all_super_traits(t);
-                    for &s in &supers {
-                        if trait_idxs.contains(&s) {
-                            superseded.insert(s);
-                        }
-                    }
-                }
-                let candidates: Vec<_> = candidates
-                    .into_iter()
-                    .filter(|c| !superseded.contains(&c.1))
-                    .collect();
-
-                if candidates.len() == 1 {
-                    let (impl_idx, trait_idx, method, _) = candidates[0];
-                    return MethodLookupResult::Found(MethodLookup::Trait {
-                        trait_idx,
-                        impl_idx,
-                        method,
-                    });
-                }
-
-                // Then try to disambiguate by specificity.
-                // Keep only the most-specific candidates.
-                let max_spec = candidates
-                    .iter()
-                    .map(|c| c.3)
-                    .max()
-                    .unwrap_or(ImplSpecificity::Generic);
-                let best: Vec<_> = candidates.iter().filter(|c| c.3 == max_spec).collect();
-
-                if best.len() == 1 {
-                    let (impl_idx, trait_idx, method, _) = *best[0];
-                    MethodLookupResult::Found(MethodLookup::Trait {
-                        trait_idx,
-                        impl_idx,
-                        method,
-                    })
-                } else {
-                    let trait_candidates: Vec<(Idx, Name)> = best
-                        .iter()
-                        .filter_map(|&&(_, trait_idx, _, _)| {
-                            let name = self.get_trait_by_idx(trait_idx)?.name;
-                            Some((trait_idx, name))
-                        })
-                        .collect();
-                    MethodLookupResult::Ambiguous {
-                        candidates: trait_candidates,
-                    }
-                }
-            }
+        let trait_result = self.resolve_trait_candidates(candidates);
+        if !matches!(trait_result, MethodLookupResult::NotFound) {
+            return trait_result;
         }
+
+        // Why: Extensions are the final precedence tier, and conflicts fail closed.
+        self.resolve_extension_candidates(self_type, method_name)
     }
 
-    // === Bound-Chain Dispatch (§10.1) ===
-
-    /// Find a trait method via the bound chain of a generic type parameter.
-    ///
-    /// When the receiver type is `Tag::RigidVar` (e.g., `T` in `@f<T: Clone>`),
-    /// `lookup_method_checked` keyed on `Idx` always misses because `RigidVar`
-    /// indices are never registered as `impls_by_type` keys. This helper walks
-    /// the declared bounds (`type_param_bounds_for_var`) on the rigid var,
-    /// resolves each bound trait name, and looks for a method matching
-    /// `method_name` in that trait's `collected_methods` (covering supertrait
-    /// inheritance per `BI-1`). Returns the first match — ambiguous bounds
-    /// are detected by counting candidates across all bounds.
-    ///
-    /// Cycle protection: trait names are deduplicated via `FxHashSet`. Depth
-    /// guard is implicit in the bound list (which is finite per
-    /// `FunctionSig.type_param_bounds`).
-    ///
-    /// `type_param_bounds_for_var` is the slice from
-    /// `FunctionSig.type_param_bounds[bound_idx]` where `bound_idx` is the
-    /// index of the rigid var in `FunctionSig.scheme_var_ids` / `type_params`.
-    /// Callers extract this from the current function signature.
-    pub fn find_trait_method_via_bound_chain(
-        &self,
-        method_name: Name,
-        type_param_bounds_for_var: &[Name],
-    ) -> BoundChainLookup<'_> {
-        let mut seen_traits: FxHashSet<Idx> = FxHashSet::default();
-        let mut candidates: Vec<(Idx, &TraitMethodDef)> = Vec::new();
-
-        for &trait_name in type_param_bounds_for_var {
-            let Some(trait_entry) = self.get_trait_by_name(trait_name) else {
-                continue;
-            };
-            let trait_idx = trait_entry.idx;
-            if !seen_traits.insert(trait_idx) {
-                continue;
-            }
-            for (mname, _owner_idx, method_def) in self.collected_methods(trait_idx) {
-                if mname == method_name {
-                    candidates.push((trait_idx, method_def));
-                    break;
-                }
-            }
-        }
-
-        match candidates.len() {
-            0 => BoundChainLookup::NotFound,
-            1 => {
-                let (trait_idx, method) = candidates[0];
-                BoundChainLookup::Found { trait_idx, method }
-            }
-            _ => {
-                let trait_candidates: Vec<(Idx, Name)> = candidates
-                    .iter()
-                    .filter_map(|&(trait_idx, _)| {
-                        let name = self.get_trait_by_idx(trait_idx)?.name;
-                        Some((trait_idx, name))
-                    })
-                    .collect();
-                BoundChainLookup::Ambiguous {
-                    candidates: trait_candidates,
-                }
-            }
-        }
-    }
-
-    // === Coherence ===
+    // Coherence
 
     /// Check if implementing a trait for a type would be a duplicate.
     ///
@@ -485,7 +343,7 @@ impl TraitRegistry {
         self.inherent_impl(self_type).is_some()
     }
 
-    // === Iteration ===
+    // Iteration
 
     /// Iterate over all registered traits in name order.
     pub fn iter_traits(&self) -> impl Iterator<Item = &TraitEntry> {

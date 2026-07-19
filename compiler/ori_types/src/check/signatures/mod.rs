@@ -19,13 +19,15 @@
 //! checker.base_env ← Binds function types in environment
 //! ```
 
-use ori_ir::{
-    ExprArena, Function, Module, Name, ParsedType, Span, TestDef, Visibility as IrVisibility,
-};
+mod resolution;
+
+use ori_ir::{ExprArena, Function, Module, Name, ParsedType, TestDef, Visibility as IrVisibility};
 use rustc_hash::FxHashMap;
 
 use super::ModuleChecker;
 use crate::{ConstParamInfo, FnWhereClause, FunctionSig, Idx};
+use resolution::resolve_and_check_type_with_vars;
+pub(crate) use resolution::resolve_const_param_type;
 
 // Pass 1: Signature Collection
 
@@ -118,27 +120,31 @@ pub(super) fn infer_function_signature_from(
     infer_function_signature_with_arena(checker, func, foreign_arena)
 }
 
-/// Shared implementation for inferring a function signature from any arena.
-///
-/// Returns the signature and the var IDs of generic type parameters.
-#[expect(
-    clippy::too_many_lines,
-    reason = "full function signature inference covering generics, params, return type, and where clauses"
-)]
-fn infer_function_signature_with_arena(
+/// Generic type/const-param collection results: declared type-param names,
+/// declared const-param metadata, the name→fresh-var substitution map, and
+/// the var ids parallel to `type_params` (NOT `FxHashMap` iteration order —
+/// `scheme_var_ids[i]` must correspond to `type_params[i]` and
+/// `generic_param_mapping[i]` for monomorphization substitution).
+struct GenericParamCollection {
+    type_params: Vec<Name>,
+    const_params: Vec<ConstParamInfo>,
+    type_param_vars: FxHashMap<Name, Idx>,
+    var_ids: Vec<u32>,
+}
+
+/// Collect a function's generic type + const params (filtering const params
+/// out of the type-param list — they are values, not types) and bind each
+/// type param to a fresh unification variable.
+fn collect_generic_params(
     checker: &mut ModuleChecker<'_>,
-    func: &Function,
-    arena: &ExprArena,
-) -> (FunctionSig, Vec<u32>) {
-    // Collect generic parameter names (filter out const params — they are values, not types)
-    let generic_params = arena.get_generic_params(func.generics);
+    generic_params: &[ori_ir::GenericParam],
+) -> GenericParamCollection {
     let type_params: Vec<Name> = generic_params
         .iter()
         .filter(|p| !p.is_const)
         .map(|p| p.name)
         .collect();
 
-    // Collect const generic parameters (e.g., `$N: int`)
     let const_params: Vec<ConstParamInfo> = generic_params
         .iter()
         .filter(|p| p.is_const)
@@ -152,7 +158,6 @@ fn infer_function_signature_with_arena(
         })
         .collect();
 
-    // Create a mapping from generic param names to fresh type variables
     let type_param_vars: FxHashMap<Name, Idx> = type_params
         .iter()
         .map(|&name| {
@@ -161,58 +166,61 @@ fn infer_function_signature_with_arena(
         })
         .collect();
 
-    // Collect var IDs parallel to type_params (NOT HashMap iteration order).
-    // This ensures scheme_var_ids[i] corresponds to type_params[i] and
-    // generic_param_mapping[i] — needed for monomorphization substitution.
     let var_ids: Vec<u32> = type_params
         .iter()
         .map(|name| checker.pool().data(type_param_vars[name]))
         .collect();
 
-    // Resolve parameter types using the generic param mapping
-    // Clone params to avoid borrow conflicts - params slice borrows arena,
-    // but we need mutable pool access during type resolution
-    let params: Vec<_> = arena.get_params(func.params).to_vec();
-    let param_names: Vec<Name> = params.iter().map(|p| p.name).collect();
-
-    let mut param_types = Vec::with_capacity(params.len());
-    for p in &params {
-        let ty = match &p.ty {
-            Some(parsed_ty) => resolve_and_check_type_with_vars(
-                checker,
-                parsed_ty,
-                &type_param_vars,
-                p.span,
-                arena,
-            ),
-            // Parameter without type annotation gets a fresh variable
-            None => checker.pool_mut().fresh_var(),
-        };
-        param_types.push(ty);
+    GenericParamCollection {
+        type_params,
+        const_params,
+        type_param_vars,
+        var_ids,
     }
+}
 
-    // Resolve return type
-    let return_type = match &func.return_ty {
-        Some(parsed_ty) => {
-            resolve_and_check_type_with_vars(checker, parsed_ty, &type_param_vars, func.span, arena)
-        }
-        // No return type annotation: infer from the body.
-        // Use a fresh type variable that will be unified with the body type
-        // during Pass 2 (body checking).
-        None => checker.pool_mut().fresh_var(),
-    };
-
-    // Extract capabilities
+/// Extract a function's declared capabilities and, for each non-marker
+/// capability, allocate a fresh provider-type variable retaining the ordered
+/// provider schema in Pass 1, before any caller or body is checked.
+fn collect_capability_params(
+    checker: &mut ModuleChecker<'_>,
+    func: &Function,
+) -> (Vec<Name>, Vec<crate::CapabilityParam>) {
     let capabilities: Vec<Name> = func.capabilities.iter().map(|c| c.name).collect();
+    let capability_params: Vec<crate::CapabilityParam> = capabilities
+        .iter()
+        .map(|&capability| {
+            if crate::is_marker_capability(capability, checker.interner()) {
+                crate::CapabilityParam::Marker { capability }
+            } else {
+                let provider_type = checker.pool_mut().fresh_named_var(capability);
+                crate::CapabilityParam::Value {
+                    capability,
+                    provider_type,
+                    provider_var_id: checker.pool().data(provider_type),
+                }
+            }
+        })
+        .collect();
+    (capabilities, capability_params)
+}
 
-    // Collect trait bounds for each generic type parameter (matching type_params order)
+/// Collect per-type-param trait bounds, the function's where-clauses (type
+/// bounds only; const bounds are deferred), and the map from each generic
+/// type param to the function param that directly uses it.
+fn collect_bounds_and_mapping(
+    func: &Function,
+    generic_params: &[ori_ir::GenericParam],
+    type_params: &[Name],
+    type_param_vars: &FxHashMap<Name, Idx>,
+    param_types: &[Idx],
+) -> (Vec<Vec<Name>>, Vec<FnWhereClause>, Vec<Option<usize>>) {
     let type_param_bounds: Vec<Vec<Name>> = generic_params
         .iter()
         .filter(|p| !p.is_const)
         .map(|p| p.bounds.iter().map(ori_ir::TraitBound::name).collect())
         .collect();
 
-    // Collect where-clauses (only type bounds; const bounds are deferred)
     let where_clauses: Vec<FnWhereClause> = func
         .where_clauses
         .iter()
@@ -227,7 +235,6 @@ fn infer_function_signature_with_arena(
         })
         .collect();
 
-    // Map each generic type param to the function param that directly uses it
     let generic_param_mapping: Vec<Option<usize>> = type_params
         .iter()
         .map(|tp_name| {
@@ -236,9 +243,58 @@ fn infer_function_signature_with_arena(
         })
         .collect();
 
-    // Collect default expressions and count required params.
-    let param_defaults: Vec<Option<ori_ir::ExprId>> = params.iter().map(|p| p.default).collect();
-    let required_params = param_defaults.iter().filter(|d| d.is_none()).count();
+    (type_param_bounds, where_clauses, generic_param_mapping)
+}
+
+/// Shared implementation for inferring a function signature from any arena.
+///
+/// Returns the signature and the var IDs of generic type parameters.
+fn infer_function_signature_with_arena(
+    checker: &mut ModuleChecker<'_>,
+    func: &Function,
+    arena: &ExprArena,
+) -> (FunctionSig, Vec<u32>) {
+    let generic_params = arena.get_generic_params(func.generics);
+    let GenericParamCollection {
+        type_params,
+        const_params,
+        type_param_vars,
+        var_ids,
+    } = collect_generic_params(checker, generic_params);
+
+    let (param_names, param_types, param_defaults, required_params) =
+        resolve_function_params(checker, func, arena, &type_param_vars);
+
+    // Resolve return type
+    let return_type = match &func.return_ty {
+        Some(parsed_ty) => {
+            resolve_and_check_type_with_vars(checker, parsed_ty, &type_param_vars, func.span, arena)
+        }
+        // No return type annotation: infer from the body.
+        // Use a fresh type variable that will be unified with the body type
+        // during Pass 2 (body checking).
+        None => checker.pool_mut().fresh_var(),
+    };
+
+    // Detect an associated-type projection return over a generic type-param
+    // (`-> C.Item` where `C` is a bound type-param). `return_type` is
+    // `Idx::ERROR` poison (the projection cannot resolve until `C` is bound to a
+    // concrete receiver at a call site); record `(base_param, assoc_name)` so
+    // the call-site inference path can project the concrete result.
+    let return_projection = func
+        .return_ty
+        .as_ref()
+        .and_then(|rt| detect_type_param_projection(rt, &type_params, arena));
+
+    let (capabilities, capability_params) = collect_capability_params(checker, func);
+
+    let (type_param_bounds, where_clauses, generic_param_mapping) = collect_bounds_and_mapping(
+        func,
+        generic_params,
+        &type_params,
+        &type_param_vars,
+        &param_types,
+    );
 
     // Check for special function attributes
     let is_main = {
@@ -261,6 +317,7 @@ fn infer_function_signature_with_arena(
         param_types,
         return_type,
         capabilities,
+        capability_params,
         is_public: func.visibility == IrVisibility::Public,
         is_test: false,
         is_main,
@@ -273,9 +330,58 @@ fn infer_function_signature_with_arena(
         param_defaults,
         param_hashes,
         return_hash,
+        return_projection,
     };
 
     (sig, var_ids)
+}
+
+fn resolve_function_params(
+    checker: &mut ModuleChecker<'_>,
+    func: &Function,
+    arena: &ExprArena,
+    type_param_vars: &FxHashMap<Name, Idx>,
+) -> (Vec<Name>, Vec<Idx>, Vec<Option<ori_ir::ExprId>>, usize) {
+    let params = arena.get_params(func.params).to_vec();
+    let names = params.iter().map(|param| param.name).collect();
+    let types = params
+        .iter()
+        .map(|param| match &param.ty {
+            Some(parsed) => resolve_and_check_type_with_vars(
+                checker,
+                parsed,
+                type_param_vars,
+                param.span,
+                arena,
+            ),
+            None => checker.pool_mut().fresh_var(),
+        })
+        .collect();
+    let defaults: Vec<_> = params.iter().map(|param| param.default).collect();
+    let required = defaults.iter().filter(|default| default.is_none()).count();
+    (names, types, defaults, required)
+}
+
+/// Detect a return-position associated-type projection over a generic
+/// type-param: `C.Item` where `base` is a `Named(C)` and `C` is in
+/// `type_params`. Returns `(base_param, assoc_name)`. `None` for any other
+/// shape (a `Self.Item` projection, a non-type-param base, a non-projection).
+fn detect_type_param_projection(
+    parsed: &ParsedType,
+    type_params: &[Name],
+    arena: &ExprArena,
+) -> Option<(Name, Name)> {
+    let ParsedType::AssociatedType { base, assoc_name } = parsed else {
+        return None;
+    };
+    let ParsedType::Named { name, .. } = arena.get_parsed_type(*base) else {
+        return None;
+    };
+    if type_params.contains(name) {
+        Some((*name, *assoc_name))
+    } else {
+        None
+    }
 }
 
 /// Infer the signature of a test function.
@@ -331,7 +437,8 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
         param_types,
         return_type,
         capabilities: Vec::new(), // Tests don't declare capabilities
-        is_public: false,         // Tests are never public
+        capability_params: Vec::new(),
+        is_public: false, // Tests are never public
         is_test: true,
         is_main: false,
         is_fbip: false, // Tests can't be fbip
@@ -343,221 +450,7 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
         param_defaults,
         param_hashes,
         return_hash,
-    }
-}
-
-// Type Resolution with Generic Parameters
-
-/// Resolve a const param's declared type to a Pool `Idx`.
-///
-/// Handles both `Primitive` (parser recognized the keyword) and `Named`
-/// (parser treated it as a named type) representations of `int`/`bool`.
-pub(crate) fn resolve_const_param_type(
-    checker: &ModuleChecker<'_>,
-    param: &ori_ir::GenericParam,
-) -> Idx {
-    match &param.const_type {
-        Some(ParsedType::Primitive(tid)) => match tid.raw() {
-            0 => Idx::INT,
-            2 => Idx::BOOL,
-            _ => Idx::ERROR,
-        },
-        Some(ParsedType::Named { name, .. }) => {
-            let wk = checker.well_known();
-            if *name == wk.int {
-                Idx::INT
-            } else if *name == wk.bool {
-                Idx::BOOL
-            } else {
-                Idx::ERROR
-            }
-        }
-        _ => Idx::ERROR,
-    }
-}
-
-/// Resolve a parsed type and check object safety in a single pass.
-///
-/// Combines the work of `resolve_type_with_vars` and
-/// `check_parsed_type_object_safety` into one tree walk.
-/// The `span` is used for object-safety error reporting on `Named` nodes.
-#[expect(
-    clippy::too_many_lines,
-    reason = "exhaustive ParsedType variant resolution with object-safety checking in one tree walk"
-)]
-fn resolve_and_check_type_with_vars(
-    checker: &mut ModuleChecker<'_>,
-    parsed: &ParsedType,
-    type_param_vars: &FxHashMap<Name, Idx>,
-    span: Span,
-    arena: &ExprArena,
-) -> Idx {
-    match parsed {
-        ParsedType::Primitive(type_id) => {
-            let raw = type_id.raw();
-            if raw < ori_ir::TypeId::PRIMITIVE_COUNT {
-                Idx::from_raw(raw)
-            } else {
-                Idx::ERROR
-            }
-        }
-
-        // List type: [T]
-        ParsedType::List(elem_id) => {
-            let elem = arena.get_parsed_type(*elem_id);
-            let elem_ty =
-                resolve_and_check_type_with_vars(checker, elem, type_param_vars, span, arena);
-            checker.pool_mut().list(elem_ty)
-        }
-
-        // Map type: {K: V}
-        ParsedType::Map { key, value } => {
-            let key_parsed = arena.get_parsed_type(*key);
-            let value_parsed = arena.get_parsed_type(*value);
-            let key_ty =
-                resolve_and_check_type_with_vars(checker, key_parsed, type_param_vars, span, arena);
-            let value_ty = resolve_and_check_type_with_vars(
-                checker,
-                value_parsed,
-                type_param_vars,
-                span,
-                arena,
-            );
-            checker.pool_mut().map(key_ty, value_ty)
-        }
-
-        // Tuple type: (T, U, V)
-        ParsedType::Tuple(elems) => {
-            let elem_ids = arena.get_parsed_type_list(*elems);
-            let elem_types: Vec<Idx> = elem_ids
-                .iter()
-                .map(|&elem_id| {
-                    let elem = arena.get_parsed_type(elem_id);
-                    resolve_and_check_type_with_vars(checker, elem, type_param_vars, span, arena)
-                })
-                .collect();
-            checker.pool_mut().tuple(&elem_types)
-        }
-
-        // Function type: fn(T) -> U
-        ParsedType::Function { params, ret } => {
-            let param_ids = arena.get_parsed_type_list(*params);
-            let param_types: Vec<Idx> = param_ids
-                .iter()
-                .map(|&param_id| {
-                    let param = arena.get_parsed_type(param_id);
-                    resolve_and_check_type_with_vars(checker, param, type_param_vars, span, arena)
-                })
-                .collect();
-            let ret_parsed = arena.get_parsed_type(*ret);
-            let ret_ty =
-                resolve_and_check_type_with_vars(checker, ret_parsed, type_param_vars, span, arena);
-            checker.pool_mut().function(&param_types, ret_ty)
-        }
-
-        // Named type: Could be a type parameter or a user-defined type
-        ParsedType::Named { name, type_args } => {
-            // First, check if this is a type parameter
-            if let Some(&var) = type_param_vars.get(name) {
-                return var;
-            }
-
-            // Resolve type arguments (recursion handles object safety for children)
-            let type_arg_ids = arena.get_parsed_type_list(*type_args);
-            let resolved_args: Vec<Idx> = type_arg_ids
-                .iter()
-                .map(|&arg_id| {
-                    let arg = arena.get_parsed_type(arg_id);
-                    resolve_and_check_type_with_vars(checker, arg, type_param_vars, span, arena)
-                })
-                .collect();
-
-            // Object safety: check non-concrete named types for trait object usage
-            if !checker.is_well_known_concrete_cached(*name, type_arg_ids.len()) {
-                emit_object_safety_error(checker, *name, span);
-            }
-
-            // Well-known generic types → dedicated Pool constructors
-            if !resolved_args.is_empty() {
-                if let Some(idx) = checker.resolve_well_known_generic_cached(*name, &resolved_args)
-                {
-                    return idx;
-                }
-                return checker.pool_mut().applied(*name, &resolved_args);
-            }
-
-            // No type args — check for built-in primitive type names via cache
-            if let Some(idx) = checker.resolve_primitive_name(*name) {
-                return idx;
-            }
-
-            // User-defined bare named type
-            checker.pool_mut().named(*name)
-        }
-
-        // Fixed-size list: treat as regular list for now
-        ParsedType::FixedList { elem, capacity: _ } => {
-            let elem_parsed = arena.get_parsed_type(*elem);
-            let elem_ty = resolve_and_check_type_with_vars(
-                checker,
-                elem_parsed,
-                type_param_vars,
-                span,
-                arena,
-            );
-            checker.pool_mut().list(elem_ty)
-        }
-
-        // Infer type: fresh variable
-        ParsedType::Infer => checker.pool_mut().fresh_var(),
-
-        // Self type: handled specially in impl blocks
-        ParsedType::SelfType => Idx::ERROR,
-
-        // Associated type: T::Item
-        ParsedType::AssociatedType { base, .. } => {
-            // Still recurse into base for object safety
-            let base_parsed = arena.get_parsed_type(*base);
-            resolve_and_check_type_with_vars(checker, base_parsed, type_param_vars, span, arena);
-            Idx::ERROR
-        }
-
-        // Const expression in type position
-        ParsedType::ConstExpr(_) => Idx::INT,
-
-        // Bounded trait object: resolve all bounds (checking object safety),
-        // return the first as the primary type.
-        ParsedType::TraitBounds(bounds) => {
-            let bound_ids = arena.get_parsed_type_list(*bounds);
-            let mut primary = Idx::ERROR;
-            for (i, &bound_id) in bound_ids.iter().enumerate() {
-                let bound = arena.get_parsed_type(bound_id);
-                let resolved =
-                    resolve_and_check_type_with_vars(checker, bound, type_param_vars, span, arena);
-                if i == 0 {
-                    primary = resolved;
-                }
-            }
-            primary
-        }
-    }
-}
-
-/// Emit an object safety error for a non-object-safe trait used as a type.
-///
-/// Extracted to keep the fused resolve+check function focused on tree walking.
-fn emit_object_safety_error(checker: &mut ModuleChecker<'_>, name: Name, span: Span) {
-    use crate::{ObjectSafetyViolation, TypeCheckError};
-
-    let violations: Option<Vec<ObjectSafetyViolation>> = {
-        let trait_reg = checker.trait_registry();
-        trait_reg
-            .get_trait_by_name(name)
-            .filter(|entry| !entry.is_object_safe())
-            .map(|entry| entry.object_safety_violations.clone())
-    };
-    if let Some(violations) = violations {
-        checker.push_error(TypeCheckError::not_object_safe(span, name, violations));
+        return_projection: None,
     }
 }
 

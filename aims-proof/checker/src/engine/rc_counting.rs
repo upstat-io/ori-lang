@@ -1,26 +1,27 @@
-//! RC-preservation engine.
+//! Logical ownership-event preservation engine.
 //!
 //! Per `the proof-checker design`
 //! sec-Engine-per-Category-Inventory, this engine serves:
 //!
-//! - **RL** (RL-1..RL-21 + RL-22..RL-26 RC-balance arguments):
-//! per-instruction RC-delta arithmetic + balance-equation witness
-//! construction per Annex E §AIMS sec8.
+//! - **RL** (RL-1..RL-5 + RL-22..RL-26 + composition balance arguments):
+//! per-event owner-credit arithmetic + balance-equation witness construction
+//! per Annex E §AIMS sec8. Backend-neutral fact and projection rules use this
+//! only as a secondary engine after their constructive primary discharge.
 //! - **VF** (VF-4 FIP certification): proves
 //! `FipContract::Certified` functions have zero unmatched
 //! alloc/dealloc per Annex E §AIMS VF-4 + VF-6.
 //!
 //! Constructive primitives consumed per the foundational-axiom policy
 //! sec-Per-Engine-Constructive-Proof-Shape: structural induction on
-//! instruction lists; per-instruction RC-delta arithmetic over integers;
+//! instruction lists; per-event owner-credit arithmetic over integers;
 //! balance-equation witness construction. FORBIDDEN absent extension:
 //! Markov's Principle; classical existence of a balancing witness.
 
 use crate::ast::{Category, ProofStep, Theorem};
 use crate::engine::{Engine, EngineResult, EngineVerdict};
 
-/// RC-preservation engine — discharges per-instruction RC-balance
-/// arguments via structural induction on instruction lists.
+/// Logical ownership-event preservation engine. `rc_counting` is the historical
+/// dispatcher key; the engine does not require a physical reference counter.
 pub struct RcCountingEngine;
 
 impl Engine for RcCountingEngine {
@@ -29,7 +30,7 @@ impl Engine for RcCountingEngine {
     }
 
     fn accepts(&self, _step: &ProofStep) -> bool {
-        // Scaffold-time: dispatcher gates by category; RC-delta + balance
+        // Scaffold-time: dispatcher gates by category; event-delta + balance
         // predicates ship with the RL-1..26 + VF-4 discharge implementations.
         true
     }
@@ -54,8 +55,8 @@ impl Engine for RcCountingEngine {
         if let Some(result) = super::bootstrap::discharge_for_engine(self.name(), theorem) {
             return result;
         }
-        // §08 realization-rule discharge (PRIMARY engine for RL-1..RL-5 RC
-        // emission + RL-22..RL-26 KnownSafe/PRE motion + composition) per
+        // §08 realization-rule discharge (PRIMARY engine for RL-1..RL-5
+        // ownership events + RL-22..RL-26 pair refinement + composition) per
         // Annex E §AIMS §8.
         if let Some(result) = super::realization_rules::discharge_for_engine(self.name(), theorem) {
             return result;

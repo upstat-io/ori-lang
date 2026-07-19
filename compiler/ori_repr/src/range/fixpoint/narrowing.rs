@@ -138,7 +138,7 @@ pub(super) fn run_narrowing_pass(
 ///
 /// During the fixpoint loop, field summaries may accumulate wider ranges
 /// from pre-convergence iterations. This clears and recomputes from the
-/// converged ranges. See
+/// converged ranges.
 pub(super) fn recompute_field_summaries(
     rpo: &[usize],
     func: &ArcFunction,
@@ -156,7 +156,7 @@ pub(super) fn recompute_field_summaries(
 
 /// Recompute element summaries from final (post-narrowing) variable ranges.
 ///
-/// Same rationale as `recompute_field_summaries` — see
+/// Same rationale as `recompute_field_summaries`.
 pub(super) fn recompute_element_summaries(
     rpo: &[usize],
     func: &ArcFunction,

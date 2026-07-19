@@ -1,0 +1,7 @@
+trait Parent {
+    @parent_method (self) -> int
+}
+
+trait Child: Parent {
+    @child_method (self) -> int
+}

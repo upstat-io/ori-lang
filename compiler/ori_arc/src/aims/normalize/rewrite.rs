@@ -188,13 +188,13 @@ fn rewrite_single_region(func: &mut ArcFunction, region: &ContextRegion) -> bool
     let original_block_count = func.blocks.len();
 
     // Allocate all fresh variables up front.
-    let ctx_has = func.fresh_var(ori_types::Idx::BOOL);
-    let ctx_res = func.fresh_var(return_ty);
-    let ctx_hole_obj = func.fresh_var(return_ty);
-    let false_var = func.fresh_var(ori_types::Idx::BOOL);
-    let null_sentinel = func.fresh_var(return_ty);
-    let new_res = func.fresh_var(return_ty);
-    let true_var = func.fresh_var(ori_types::Idx::BOOL);
+    let ctx_has = func.fresh_scalar_var(ori_types::Idx::BOOL);
+    let ctx_res = func.fresh_var_like_typed(input.ctor_dst, return_ty);
+    let ctx_hole_obj = func.fresh_var_like_typed(input.ctor_dst, return_ty);
+    let false_var = func.fresh_scalar_var(ori_types::Idx::BOOL);
+    let null_sentinel = func.fresh_var_like_typed(input.ctor_dst, return_ty);
+    let new_res = func.fresh_var_like_typed(input.ctor_dst, return_ty);
+    let true_var = func.fresh_scalar_var(ori_types::Idx::BOOL);
 
     // Step 1: Allocate fresh block params for each function parameter.
     //
@@ -206,12 +206,13 @@ fn rewrite_single_region(func: &mut ArcFunction, region: &ContextRegion) -> bool
     //
     // With fresh IDs, Phase 7 sees distinct vars from both predecessors and
     // correctly identifies the params as non-invariant.
-    // (Same pattern as tail_call/rewrite.rs lines 50-68.)
-    let param_types: Vec<ori_types::Idx> = func.params.iter().map(|p| p.ty).collect();
-    let fresh_params: Vec<(ArcVarId, ori_types::Idx)> = param_types
+    // (Same pattern as the fresh-param prologue in tail_call/rewrite.rs.)
+    let params: Vec<(ArcVarId, ori_types::Idx)> =
+        func.params.iter().map(|p| (p.var, p.ty)).collect();
+    let fresh_params: Vec<(ArcVarId, ori_types::Idx)> = params
         .iter()
-        .map(|&ty| {
-            let fresh = func.fresh_var(ty);
+        .map(|&(source, ty)| {
+            let fresh = func.fresh_var_like_typed(source, ty);
             (fresh, ty)
         })
         .collect();
@@ -268,7 +269,7 @@ fn rewrite_single_region(func: &mut ArcFunction, region: &ContextRegion) -> bool
     // Step 6: Prepend Let bindings that define original param vars from
     // fresh block params. The header body references original param vars,
     // so these bindings bridge fresh block params → original names.
-    // (Same pattern as tail_call/rewrite.rs lines 104-124.)
+    // (Same pattern as the param-rebinding step in tail_call/rewrite.rs.)
     //
     // Done after Steps 4-5 so that the recursive block body replacement
     // and base-case return rewriting are complete.

@@ -1,10 +1,12 @@
 Theorem RL-5: dead-at-entry cleanup for Owned non-scalar block params with Cardinality = Absent
 
   Preconditions:
-    - RL-5 governs dead-at-entry cleanup per Annex E §AIMS RC
-      Emission: "An OWNED non-scalar block param with Cardinality = Absent
-      at entry SHALL receive an immediate dec. Borrowed Absent params don't
-      need decs."
+    - Entry dec is the historical carrier name for a logical cleanup release;
+      the proof chooses neither a counter nor an atomic operation
+    - RL-5 governs dead-at-entry cleanup per Annex E §AIMS logical event
+      realization: "An OWNED non-scalar block param with Cardinality = Absent
+      at entry SHALL receive an immediate cleanup release. Borrowed Absent
+      params do not need release events."
     - Signature ArcFunction x AimsStateMap -> ArcFunction per
       the canonical proof notation:264; discharged against the sec-01
       Realization.proof sorry obligation.

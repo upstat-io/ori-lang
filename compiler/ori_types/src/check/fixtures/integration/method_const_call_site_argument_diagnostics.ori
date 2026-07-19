@@ -1,0 +1,12 @@
+type ConstVec<T> = { items: [T] }
+
+impl<T> ConstVec<T> {
+    @capacity<$N: int> (self) -> [T, max N] = self.items;
+}
+
+@method_const_call_site_argument_diagnostics () -> void = {
+    let values = ConstVec { items: [1, 2, 3] };
+    let extra = values.capacity<1, 2>();
+    let wrong_type = values.capacity<true>();
+    ()
+}

@@ -46,6 +46,23 @@ pub struct MethodCollectionConfig<'a> {
     pub interner: &'a StringInterner,
 }
 
+/// Register the value bindings owned by one module in capture-safe order.
+///
+/// Constructors must exist before top-level function values snapshot their
+/// lexical captures. Otherwise a prelude binding with the same unqualified
+/// name (for example `Alignment.Right`) is frozen into the function and
+/// shadows the module's own `Stream.Right` constructor at runtime.
+pub fn register_module_bindings(
+    module: &Module,
+    arena: &SharedArena,
+    env: &mut Environment,
+    canon: Option<&SharedCanonResult>,
+) {
+    register_variant_constructors(module, env);
+    register_newtype_constructors(module, env);
+    register_module_functions(module, arena, env, canon);
+}
+
 /// Register all functions from a module into the environment.
 ///
 /// Creates function values with proper captures and arena references, ensuring
@@ -90,6 +107,7 @@ pub fn register_module_functions(
         })
         .unwrap_or_default();
 
+    let mut module_functions = FxHashMap::default();
     for (name, funcs) in func_groups {
         // For multi-clause functions, `lower_module()` synthesizes a single
         // canonical match body. Use canonical param names from CanonRoot
@@ -142,7 +160,12 @@ pub fn register_module_functions(
             }
         }
 
-        env.define(name, Value::Function(func_value), Mutability::Immutable);
+        module_functions.insert(name, func_value);
+    }
+
+    FunctionValue::attach_module_scope(&mut module_functions);
+    for (name, function) in module_functions {
+        env.define(name, Value::Function(function), Mutability::Immutable);
     }
 }
 
@@ -201,10 +224,10 @@ fn collect_impl_methods(
         trait_map.insert(trait_def.name, trait_def);
     }
 
-    // Track how many times each (type_name, method_name) pair has been seen,
-    // so we can pick the correct canonical body when multiple impls define the
-    // same method (e.g., two `impl T: Index<K,V>` blocks both defining `index`).
-    // The canonicalization pass pushes method_roots in the same iteration order,
+    // Why: counts each (type_name, method_name) pair to pick the correct
+    // canonical body when multiple impls define the same method (e.g. two
+    // `impl T: Index<K,V>` blocks both defining `index`).
+    // INVARIANT: canonicalization pushes method_roots in this iteration order,
     // so the Nth occurrence here matches the Nth entry in `method_roots`.
     let mut method_canon_index: FxHashMap<(Name, Name), usize> = FxHashMap::default();
 

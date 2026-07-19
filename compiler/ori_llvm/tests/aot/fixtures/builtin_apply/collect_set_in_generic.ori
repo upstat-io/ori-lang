@@ -1,0 +1,9 @@
+@to_set <T> (marker: T, ys: [int]) -> int = {
+    let s: Set<int> = ys.iter().collect();
+    s.len()
+}
+
+@main () -> int = {
+    let n = to_set(marker: "x", ys: [5, 5, 6, 7]);
+    if n == 3 then 0 else 1
+}

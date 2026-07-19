@@ -11,13 +11,13 @@ mod metadata;
 
 use ori_arc::ir::ArcFunction;
 use ori_ir::ReprAttrKind;
-use ori_types::{Idx, Pool};
+use ori_types::{Idx, Pool, Tag};
 
 use crate::plan::{NarrowingPolicy, ReprAttribute, ReprPlan};
 use crate::repr::{FloatWidth, IntWidth};
 use crate::{narrowing, range, DecisionReason, DecisionSource, MachineRepr, ReprDecision};
 
-use alias_propagation::propagate_layout_to_aliases;
+use alias_propagation::{propagate_layout_to_aliases, LayoutAliasIndex};
 use metadata::{propagate_metadata_to_applied_resolutions, seed_imported_metadata};
 
 /// Compute the representation plan for all types reachable from the program.
@@ -172,6 +172,8 @@ pub fn compute_repr_plan_with_interner(
     crate::canonical::populate_canonical(&mut plan, pool);
 
     if policy == NarrowingPolicy::Disabled {
+        // Enum layouts reflect the canonical (unoptimized) reprs in this path.
+        populate_enum_layouts(&mut plan, pool);
         tracing::debug!("repr-opt disabled — returning canonical-only plan");
         return plan;
     }
@@ -195,6 +197,9 @@ pub fn compute_repr_plan_with_interner(
 
     // Phase 6: Collection specialization
     specialize_collections(&mut plan, pool);
+
+    // Phase 7: Canonical enum layout facts (after all EnumRepr-mutating passes).
+    populate_enum_layouts(&mut plan, pool);
 
     plan
 }
@@ -394,6 +399,8 @@ fn compute_struct_layouts(plan: &mut ReprPlan, pool: &Pool) {
         }
     }
 
+    let aliases = LayoutAliasIndex::new(pool);
+
     // Write back reordered layouts. Also propagate to resolved aliases
     // so that different Pool Idx values for the same logical type (common
     // with monomorphized generics) share the same reordered layout.
@@ -421,12 +428,32 @@ fn compute_struct_layouts(plan: &mut ReprPlan, pool: &Pool) {
         // Monomorphization creates multiple Idx values for the same
         // concrete type — without propagation, call sites may use a
         // different Idx than the function body, causing layout mismatch.
-        propagate_layout_to_aliases(plan, pool, idx, &repr);
+        propagate_layout_to_aliases(plan, pool, &aliases, idx, &repr);
     }
 }
 
 /// Enum niche optimization and discriminant narrowing.
 fn compute_enum_reprs(_plan: &mut ReprPlan, _pool: &Pool) {}
+
+/// Populate canonical `EnumLayoutInfo` for every enum type.
+///
+/// Runs AFTER every `EnumRepr`-mutating pass so each layout reflects the final
+/// repr. `is_runtime_abi` is detected here (the Pool resolves Option/Result);
+/// `compute_enum_layout_info` is otherwise pure.
+fn populate_enum_layouts(plan: &mut ReprPlan, pool: &Pool) {
+    let updates: Vec<(Idx, crate::EnumLayoutInfo)> = plan
+        .decision_indices()
+        .filter_map(|idx| {
+            let repr = plan.get_enum_repr(idx)?;
+            let is_runtime_abi =
+                matches!(pool.tag(pool.resolve_fully(idx)), Tag::Option | Tag::Result);
+            Some((idx, crate::compute_enum_layout_info(repr, is_runtime_abi)))
+        })
+        .collect();
+    for (idx, info) in updates {
+        plan.set_enum_layout(idx, info);
+    }
+}
 
 /// Escape analysis for stack promotion.
 fn analyze_escape(_plan: &mut ReprPlan, _pool: &Pool, _fns: &[ArcFunction]) {}

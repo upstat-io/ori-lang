@@ -7,11 +7,11 @@ use crate::string::OriStr;
 use super::ori_str_substring;
 use super::ori_str_trim;
 
-// ── ori_str_substring ─────────────────────────────────────────────────
+// ori_str_substring
 
 #[test]
 fn substring_of_heap_string_produces_slice() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Create a heap string > 23 bytes
     let source = OriStr::from_heap(b"The quick brown fox jumps over the lazy dog");
     let heap_data = unsafe { source.heap.data };
@@ -49,7 +49,7 @@ fn substring_of_heap_string_produces_slice() {
 
 #[test]
 fn substring_of_heap_short_result_uses_sso() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Create a heap string > 23 bytes
     let source = OriStr::from_heap(b"The quick brown fox jumps over the lazy dog");
     let heap_data = unsafe { source.heap.data };
@@ -79,7 +79,7 @@ fn substring_of_sso_string_copies() {
 
 #[test]
 fn substring_empty_range_returns_empty() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let source = OriStr::from_heap(b"The quick brown fox jumps over the lazy dog");
     let heap_data = unsafe { source.heap.data };
 
@@ -96,7 +96,7 @@ fn substring_empty_range_returns_empty() {
 
 #[test]
 fn substring_full_range_of_heap_produces_slice() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     let source = OriStr::from_heap(b"The quick brown fox jumps over the lazy dog");
     let heap_data = unsafe { source.heap.data };
 
@@ -140,7 +140,7 @@ fn substring_null_returns_empty() {
 
 #[test]
 fn substring_of_slice_accumulates_offsets() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Create a heap string and take a slice, then slice the slice
     let source = OriStr::from_heap(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ-extra-padding-data");
     let heap_data = unsafe { source.heap.data };
@@ -174,11 +174,11 @@ fn substring_of_slice_accumulates_offsets() {
     ori_rc_free(heap_data, 45, 1);
 }
 
-// ── ori_str_trim ──────────────────────────────────────────────────────
+// ori_str_trim
 
 #[test]
 fn trim_heap_string_produces_slice() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Heap string with leading/trailing whitespace, trimmed result > 23 bytes
     let source = OriStr::from_heap(b"   The quick brown fox jumps over the lazy dog   ");
     let heap_data = unsafe { source.heap.data };
@@ -224,7 +224,7 @@ fn trim_all_whitespace_returns_empty() {
 
 #[test]
 fn trim_no_whitespace_full_slice() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Heap string with no whitespace → full slice (offset 0)
     let source = OriStr::from_heap(b"The-quick-brown-fox-jumps-over");
     let heap_data = unsafe { source.heap.data };
@@ -250,7 +250,7 @@ fn trim_null_returns_empty() {
 
 #[test]
 fn trim_heap_short_result_uses_sso() {
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
     // Heap string with lots of whitespace, only "hi" remains (2 bytes → SSO)
     let padded = b"                        hi                        ";
     let source = OriStr::from_heap(padded);
@@ -270,12 +270,12 @@ fn trim_heap_short_result_uses_sso() {
     ori_rc_free(heap_data, padded.len(), 1);
 }
 
-// ── ori_str_split slices ──────────────────────────────────────────────
+// ori_str_split slices
 
 #[test]
 fn split_heap_string_long_pieces_are_slices() {
     use crate::string::ori_str_split;
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
 
     // Create a heap string with two long pieces separated by "|"
     // "ABCDEFGHIJKLMNOPQRSTUVWX|abcdefghijklmnopqrstuvwx" = 49 bytes
@@ -353,7 +353,7 @@ fn split_heap_string_long_pieces_are_slices() {
 #[test]
 fn split_heap_string_short_pieces_use_sso() {
     use crate::string::ori_str_split;
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
 
     // Heap string where pieces are all short (< 24 bytes)
     let content = b"hello world foo bar baz qux quux";
@@ -408,7 +408,7 @@ fn split_heap_string_short_pieces_use_sso() {
 #[test]
 fn split_slice_backed_string_no_crash() {
     use crate::string::ori_str_split;
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
 
     // Create heap string: 60 bytes total, well over SSO_MAX_LEN
     let content = b"AAAAAAAAAAAAAAAAAAAAAAAA|BBBBBBBBBBBBBBBBBBBBBBBB|CCCCCCCCCCCC";
@@ -491,7 +491,7 @@ fn split_slice_backed_string_no_crash() {
 #[test]
 fn to_uppercase_on_slice_backed_string() {
     use super::ori_str_to_uppercase;
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
 
     // Create heap string > 23 bytes
     let source = OriStr::from_heap(b"the quick brown fox jumps over the lazy dog");
@@ -522,7 +522,7 @@ fn to_uppercase_on_slice_backed_string() {
 #[test]
 fn to_lowercase_on_slice_backed_string() {
     use super::ori_str_to_lowercase;
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
 
     let source = OriStr::from_heap(b"THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG");
     let heap_data = unsafe { source.heap.data };
@@ -548,7 +548,7 @@ fn to_lowercase_on_slice_backed_string() {
 #[test]
 fn replace_on_slice_backed_string() {
     use super::ori_str_replace;
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
 
     let source = OriStr::from_heap(b"the quick brown fox jumps over the lazy dog");
     let heap_data = unsafe { source.heap.data };
@@ -578,7 +578,7 @@ fn replace_on_slice_backed_string() {
 #[test]
 fn push_char_on_slice_backed_string() {
     use super::ori_str_push_char;
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
 
     let source = OriStr::from_heap(b"the quick brown fox jumps over the lazy dog");
     let heap_data = unsafe { source.heap.data };
@@ -606,7 +606,7 @@ fn push_char_on_slice_backed_string() {
 #[test]
 fn concat_on_slice_backed_string() {
     use crate::string::ori_str_concat;
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
 
     let source = OriStr::from_heap(b"the quick brown fox jumps over the lazy dog");
     let heap_data = unsafe { source.heap.data };
@@ -637,7 +637,7 @@ fn concat_on_slice_backed_string() {
 #[test]
 fn repeat_one_returns_owned_clone() {
     use super::ori_str_repeat;
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
 
     let source = OriStr::from_heap(b"the quick brown fox jumps over the lazy dog");
     let heap_data = unsafe { source.heap.data };
@@ -667,7 +667,7 @@ fn repeat_one_returns_owned_clone() {
 #[test]
 fn repeat_one_on_slice_backed_string() {
     use super::ori_str_repeat;
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
 
     let source = OriStr::from_heap(b"the quick brown fox jumps over the lazy dog");
     let heap_data = unsafe { source.heap.data };
@@ -701,7 +701,7 @@ fn repeat_one_on_slice_backed_string() {
 #[test]
 fn concat_empty_right_returns_owned_clone() {
     use crate::string::ori_str_concat;
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
 
     let source = OriStr::from_heap(b"the quick brown fox jumps over the lazy dog");
     let heap_data = unsafe { source.heap.data };
@@ -729,7 +729,7 @@ fn concat_empty_right_returns_owned_clone() {
 #[test]
 fn concat_empty_left_returns_owned_clone() {
     use crate::string::ori_str_concat;
-    let _g = crate::test_helpers::lock_rc();
+    let _g = crate::test_support::lock_rc();
 
     let source = OriStr::from_heap(b"the quick brown fox jumps over the lazy dog");
     let heap_data = unsafe { source.heap.data };

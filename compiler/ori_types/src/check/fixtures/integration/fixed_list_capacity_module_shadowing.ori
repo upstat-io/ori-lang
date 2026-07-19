@@ -1,0 +1,10 @@
+let $capacity = 4;
+
+@shadowed_parameter_capacity (capacity: int, items: [int]) -> void = {
+    let bounded: [int, max capacity] = items;
+}
+
+@shadowed_mutable_capacity (items: [int]) -> void = {
+    let capacity = 2;
+    let bounded: [int, max capacity] = items;
+}

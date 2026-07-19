@@ -11,6 +11,7 @@
 // struct does NOT satisfy it (unlike Eq/Clone/Debug/Printable which are structural).
 
 #compile_fail(message: "does not satisfy trait bound")
+@method_generics_where_bound_negative tests _ () -> void = { () }
 
 type Box<T> = { value: T }
 type NonHashable = { x: int }

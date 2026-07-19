@@ -1,0 +1,20 @@
+@main () -> int = {
+    let r = 0..6;
+    let mapped: [int] = r.map(x -> x + 10);
+    let filtered: [int] = r.filter(predicate: x -> x % 2 == 0);
+    let folded: int = r.fold(initial: 10, op: (acc, x) -> acc + x);
+    let nested: [int] = (0..3)
+        .map(transform: x -> x + 1)
+        .map(transform: x -> x * 2);
+
+    if mapped.len() == 6
+        && mapped[0] == 10
+        && mapped[5] == 15
+        && filtered.len() == 3
+        && filtered[0] == 0
+        && filtered[2] == 4
+        && folded == 25
+        && nested == [2, 4, 6]
+    then 0
+    else 1
+}

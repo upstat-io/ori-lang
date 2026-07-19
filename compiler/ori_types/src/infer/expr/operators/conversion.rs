@@ -2,9 +2,10 @@
 
 use ori_ir::{ExprArena, ExprId, Span};
 
+use crate::Idx;
+
 use super::super::super::InferEngine;
 use super::super::{infer_expr, resolve_and_check_parsed_type};
-use crate::Idx;
 
 /// Infer the type of a cast expression.
 pub(crate) fn infer_cast(

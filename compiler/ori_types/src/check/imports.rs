@@ -1,16 +1,14 @@
 //! Import and signature management for `ModuleChecker`.
 //!
-//! Handles registering imported functions, traits, built-in functions/values,
-//! module aliases, function signature storage, and monomorphization accumulation.
-//! Supports both hash-first resolution (O(1) per type) and AST fallback for
-//! generic or missing types.
+//! Imported functions, traits, builtins, aliases, and signatures use hash-first
+//! resolution with AST fallback for generic or missing types.
 
-use ori_ir::{ExprArena, ExprId, Name};
+use ori_ir::{ExprArena, Name};
 use rustc_hash::FxHashMap;
 
 use super::signatures;
 use super::ModuleChecker;
-use crate::{FunctionSig, Idx, MonoInstanceId, TypeEnv};
+use crate::{FunctionSig, Idx, TypeEnv};
 
 impl ModuleChecker<'_> {
     // Signature Registration
@@ -34,8 +32,45 @@ impl ModuleChecker<'_> {
     /// `impl<T> Box<T>`). Codegen keys mono-collection dispatch on the receiver
     /// shell, NOT on `sig.param_types.first()` (which is the first VALUE param,
     /// not the receiver, for a no-`self` associated function).
-    pub fn register_impl_sig(&mut self, self_type: Idx, name: Name, sig: FunctionSig) {
-        self.impl_sigs.push((self_type, name, sig));
+    pub fn register_impl_sig(
+        &mut self,
+        id: crate::ImplMethodId,
+        self_type: Idx,
+        trait_type: Option<Idx>,
+        name: Name,
+        role: crate::ImplMethodRole,
+        sig: FunctionSig,
+    ) {
+        self.impl_sigs.push(crate::ImplSig {
+            id,
+            receiver: self_type,
+            trait_type,
+            name,
+            role,
+            sig,
+        });
+    }
+
+    /// Freeze an impl method's semantic role at registration time.
+    pub(crate) fn register_impl_method_role(
+        &mut self,
+        id: crate::ImplMethodId,
+        role: crate::ImplMethodRole,
+    ) {
+        let previous = self.impl_method_roles.insert(id, role);
+        assert!(
+            previous.is_none(),
+            "duplicate semantic role registration for impl method {id:?}"
+        );
+    }
+
+    /// Read the registration-owned role for one exact impl method.
+    #[must_use]
+    pub(crate) fn impl_method_role(&self, id: crate::ImplMethodId) -> crate::ImplMethodRole {
+        self.impl_method_roles
+            .get(&id)
+            .copied()
+            .unwrap_or(crate::ImplMethodRole::Ordinary)
     }
 
     /// Record a trait impl method name for unconstrained function detection.
@@ -45,83 +80,6 @@ impl ModuleChecker<'_> {
     /// methods are NOT recorded (they have known call sites).
     pub fn register_trait_impl_fn_name(&mut self, self_type: Idx, name: Name) {
         self.trait_impl_fn_names.push((self_type, name));
-    }
-
-    /// Accumulate one body-pass session's mono outputs: instances and the
-    /// parallel `(call_expr_id, MonoInstanceId)` dispatch entries.
-    ///
-    /// Each engine session indexes its dispatch entries against its own
-    /// local `mono_instances` Vec (positions starting at 0). This method
-    /// re-anchors them into module-wide positions in
-    /// `self.mono_instances` by offsetting each [`MonoInstanceId`] by the
-    /// pre-extend length of `self.mono_instances`. The combined entry
-    /// point makes it impossible to extend instances without re-anchoring
-    /// the dispatch entries — the SSOT for this offset arithmetic per
-    ///.
-    ///
-    /// Both vectors are still pre-dedup at this point;
-    /// [`crate::check::ModuleChecker::finish_with_pool`] applies a second
-    /// remap across dedup + sort before storing in
-    /// [`crate::TypedModule::mono_dispatch_map`].
-    pub fn accumulate_mono_session(
-        &mut self,
-        instances: Vec<crate::MonoInstance>,
-        dispatch_entries: Vec<(ExprId, MonoInstanceId)>,
-    ) {
-        // Saturating `Vec::len() → u32` matches the workspace pattern
-        // at `pool/substitute/mod.rs:541` (`unwrap_or(u32::MAX)`); strict
-        // workspace clippy denies bare `as u32` casts (`cast_possible_truncation`)
-        // and `expect`/`unwrap`. A 4-billion-instance overflow is structurally
-        // unreachable for one module's mono table; if it ever did occur,
-        // dispatch entries beyond `u32::MAX` would alias, which the post-dedup
-        // remap would surface via duplicate `MonoInstanceId` values in the
-        // sorted output map.
-        let offset = u32::try_from(self.mono_instances.len()).unwrap_or(u32::MAX);
-        self.mono_instances.extend(instances);
-        self.mono_dispatch_pre_dedup.extend(
-            dispatch_entries
-                .into_iter()
-                .map(|(eid, MonoInstanceId(local))| (eid, MonoInstanceId(local + offset))),
-        );
-    }
-
-    /// Accumulate deferred mono calls from an inference engine pass.
-    pub fn accumulate_deferred_mono_calls(&mut self, calls: Vec<crate::DeferredMonoCall>) {
-        self.deferred_mono_calls.extend(calls);
-    }
-
-    /// Accumulate `AssignTarget` desugar plans from an inference engine pass.
-    ///
-    /// Keys are module-wide AST `ExprId`s (one arena per module), so entries
-    /// extend without re-anchoring — unlike `accumulate_mono_session`, which
-    /// offsets body-local `MonoInstanceId` indices.
-    pub fn accumulate_assign_desugars(&mut self, desugars: Vec<(ExprId, crate::AssignDesugar)>) {
-        self.assign_desugars.extend(desugars);
-    }
-
-    /// Flush composed `UserBurdenSpec` entries from one body-pass session
-    /// into the `TypeRegistry`.
-    ///
-    /// Each `(idx, spec)` entry was produced by a monomorphization site
-    /// in the body via `InferEngine::record_composed_burden`. Calls
-    /// `TypeRegistry::register_user_burden` per entry, which dedups
-    /// against the signature reverse-index and writes the canonical spec
-    /// onto the `TypeEntry` at `idx`. Late-stage codegen reads the
-    /// registered spec via `TypeRegistry::burden(idx)` without
-    /// re-deriving.
-    ///
-    /// Called from `bodies::finalize_body_and_export` after each body's
-    /// inference closure completes — gives every body's composed entries
-    /// equal access to the registry's dedup state. Called by every body
-    /// kind (functions, tests, impl methods, def-impl methods) through
-    /// the shared spine.
-    pub fn flush_composed_burdens(
-        &mut self,
-        entries: Vec<(crate::Idx, crate::registry::burden::UserBurdenSpec)>,
-    ) {
-        for (idx, spec) in entries {
-            let _ = self.type_registry_mut().register_user_burden(idx, spec);
-        }
     }
 
     /// Get all registered signatures.
@@ -239,13 +197,11 @@ impl ModuleChecker<'_> {
             return None;
         }
 
-        // Try to resolve every param type by hash
         let mut local_param_types = Vec::with_capacity(ext_sig.param_types.len());
         for &hash in &ext_sig.param_hashes {
             local_param_types.push(self.pool.lookup_by_hash(hash)?);
         }
 
-        // Try to resolve return type by hash
         let local_return_type = self.pool.lookup_by_hash(ext_sig.return_hash)?;
 
         // All types resolved — build local FunctionSig
@@ -257,6 +213,7 @@ impl ModuleChecker<'_> {
             param_types: local_param_types,
             return_type: local_return_type,
             capabilities: ext_sig.capabilities.clone(),
+            capability_params: ext_sig.capability_params.clone(),
             is_public: ext_sig.is_public,
             is_test: ext_sig.is_test,
             is_main: ext_sig.is_main,
@@ -269,6 +226,7 @@ impl ModuleChecker<'_> {
             param_defaults: ext_sig.param_defaults.clone(),
             param_hashes: ext_sig.param_hashes.clone(),
             return_hash: ext_sig.return_hash,
+            return_projection: ext_sig.return_projection,
         })
     }
 
@@ -307,6 +265,21 @@ impl ModuleChecker<'_> {
         super::registration::register_imported_traits(self, module, foreign_arena);
     }
 
+    /// Register implementation templates exported by a foreign module.
+    ///
+    /// `module_identity` must be the same resolver-owned identity later used by
+    /// codegen to locate the producer body. Foreign arena indices are retained
+    /// only inside the registry entry; executable demands carry the stable
+    /// [`crate::MethodProducer::Imported`] identity instead.
+    pub fn register_imported_impls(
+        &mut self,
+        module: &ori_ir::Module,
+        foreign_arena: &ExprArena,
+        module_identity: &str,
+    ) {
+        super::registration::register_imported_impls(self, module, foreign_arena, module_identity);
+    }
+
     /// Register a built-in function directly by type signature.
     ///
     /// Used for native functions (like `int()`, `str()`, `float()`) that are
@@ -341,9 +314,10 @@ impl ModuleChecker<'_> {
     /// stores them under the alias name. Also binds the alias in the import
     /// environment as a named type placeholder.
     ///
-    /// **Note:** Full qualified-access resolution (`alias.func(...)`) is deferred —
-    /// it requires inference engine changes for `ExprKind::FieldAccess` on
-    /// namespace types. The data storage is in place for when that's needed.
+    /// Qualified access (`alias.func(args)`) resolves through the `MethodCall`
+    /// inference path: the call records into `TypedModule.module_alias_call_map`,
+    /// which `ori_canon` reads to rewrite the namespace call to a free `Call`.
+    /// The signatures stored here back that resolution at inference time.
     pub fn register_module_alias(
         &mut self,
         alias: Name,

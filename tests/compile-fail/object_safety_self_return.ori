@@ -6,5 +6,6 @@ trait Clone {
 }
 
 #[compile_fail("cannot be made into an object")]
+@object_safety_self_return tests _ () -> void = { () }
 @process (item: Clone) -> void =
     print(msg: "processing");

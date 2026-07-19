@@ -209,30 +209,18 @@ pub fn compute_function_abi(
         "param_names and param_types must be parallel (function {:?})",
         sig.name
     );
-    let params: Vec<ParamAbi> = sig
-        .param_names
-        .iter()
-        .zip(sig.param_types.iter())
-        .map(|(&name, &ty)| ParamAbi {
-            name,
-            ty,
-            passing: compute_param_passing(ty, store, repr_plan),
-            readonly: false,
-        })
-        .collect();
-
-    let return_abi = ReturnAbi {
-        ty: sig.return_type,
-        passing: compute_return_passing(sig.return_type, store, repr_plan),
-    };
-
-    let call_conv = select_call_conv(sig_call_conv_site(sig));
-
-    FunctionAbi {
-        params,
-        return_abi,
-        call_conv,
-    }
+    compute_function_abi_from_shape(
+        sig.param_names
+            .iter()
+            .copied()
+            .zip(sig.param_types.iter().copied())
+            .map(|(name, ty)| (name, ty, Ownership::Owned)),
+        sig.return_type,
+        sig_call_conv_site(sig),
+        store,
+        None,
+        repr_plan,
+    )
 }
 
 // ARC borrow-aware ABI computation
@@ -258,6 +246,78 @@ pub fn compute_param_passing_with_ownership(
     }
     // Owned or scalar → existing size-based logic
     compute_param_passing(ty, store, repr_plan)
+}
+
+/// Project the uniform borrowed convention for one explicit closure argument.
+///
+/// A closure value is target-independent: indirect callers retain ownership of
+/// every explicit argument, and the generated closure wrapper adapts that
+/// borrowed physical ABI to the concrete target ABI.
+pub fn compute_closure_param_passing(
+    ty: Idx,
+    store: &TypeInfoStore<'_>,
+    repr_plan: Option<&ReprPlan>,
+    classifier: &dyn ArcClassification,
+) -> ParamPassing {
+    compute_param_passing_with_ownership(
+        ty,
+        store,
+        repr_plan,
+        Ownership::Borrowed,
+        classifier.arc_class(ty),
+    )
+}
+
+/// Assemble one physical ABI from a semantic parameter and return shape.
+///
+/// Frontend signatures, closed artifact functions, and lambdas adapt their
+/// own identities into `(name, type, ownership)` tuples. Passing modes,
+/// readonly attributes, return convention, and calling convention are then
+/// selected here exactly once. `ownership_classifier` is absent only for
+/// legacy/all-owned shapes which carry no frozen ownership facts.
+pub fn compute_function_abi_from_shape<I>(
+    params: I,
+    return_type: Idx,
+    site: CallConvSite,
+    store: &TypeInfoStore<'_>,
+    ownership_classifier: Option<&dyn ArcClassification>,
+    repr_plan: Option<&ReprPlan>,
+) -> FunctionAbi
+where
+    I: IntoIterator<Item = (Name, Idx, Ownership)>,
+{
+    let params = params
+        .into_iter()
+        .map(|(name, ty, ownership)| {
+            let passing = ownership_classifier.map_or_else(
+                || compute_param_passing(ty, store, repr_plan),
+                |classifier| {
+                    compute_param_passing_with_ownership(
+                        ty,
+                        store,
+                        repr_plan,
+                        ownership,
+                        classifier.arc_class(ty),
+                    )
+                },
+            );
+            ParamAbi {
+                name,
+                ty,
+                passing,
+                readonly: ownership_classifier.is_some() && ownership == Ownership::Borrowed,
+            }
+        })
+        .collect();
+
+    FunctionAbi {
+        params,
+        return_abi: ReturnAbi {
+            ty: return_type,
+            passing: compute_return_passing(return_type, store, repr_plan),
+        },
+        call_conv: select_call_conv(site),
+    }
 }
 
 /// Compute the complete physical ABI for a function with borrow annotations.
@@ -295,42 +355,29 @@ pub fn compute_function_abi_with_ownership(
         "annotated_sig params must be parallel to sig param_types (function {:?})",
         sig.name
     );
-    let params: Vec<ParamAbi> = sig
+    let params = sig
         .param_names
         .iter()
         .zip(sig.param_types.iter())
         .enumerate()
         .map(|(i, (&name, &ty))| {
-            let (ownership, arc_class) = if i < annotated_sig.params.len() {
-                (annotated_sig.params[i].ownership, classifier.arc_class(ty))
+            let ownership = if i < annotated_sig.params.len() {
+                annotated_sig.params[i].ownership
             } else {
                 // No annotation → default to owned (standard passing)
-                (Ownership::Owned, ArcClass::Scalar)
+                Ownership::Owned
             };
+            (name, ty, ownership)
+        });
 
-            ParamAbi {
-                name,
-                ty,
-                passing: compute_param_passing_with_ownership(
-                    ty, store, repr_plan, ownership, arc_class,
-                ),
-                readonly: ownership == Ownership::Borrowed,
-            }
-        })
-        .collect();
-
-    let return_abi = ReturnAbi {
-        ty: sig.return_type,
-        passing: compute_return_passing(sig.return_type, store, repr_plan),
-    };
-
-    let call_conv = select_call_conv(sig_call_conv_site(sig));
-
-    FunctionAbi {
+    compute_function_abi_from_shape(
         params,
-        return_abi,
-        call_conv,
-    }
+        sig.return_type,
+        sig_call_conv_site(sig),
+        store,
+        Some(classifier),
+        repr_plan,
+    )
 }
 
 // Tests

@@ -1,6 +1,4 @@
-use ori_ir::canon::{
-    CanArena, CanExpr, CanNode, CanonResult, CanonRoot, ConstantPool, DecisionTreePool,
-};
+use ori_ir::canon::{CanArena, CanExpr, CanNode, CanonResult, CanonRoot};
 use ori_ir::{ExprId, Name, Span, TypeId};
 
 use super::*;
@@ -26,13 +24,8 @@ fn make_canon(roots: &[(u32, i64)]) -> CanonResult {
 
     CanonResult {
         arena,
-        constants: ConstantPool::default(),
-        decision_trees: DecisionTreePool::default(),
-        root: ori_ir::canon::CanId::INVALID,
         roots: canon_roots,
-        method_roots: vec![],
-        problems: vec![],
-        mono_dispatch_map_can: vec![],
+        ..CanonResult::empty()
     }
 }
 
@@ -40,14 +33,20 @@ fn make_canon(roots: &[(u32, i64)]) -> CanonResult {
 fn make_module(tests: &[(u32, &[u32])]) -> Module {
     let mut module = Module::new();
     for &(name_raw, target_raws) in tests {
+        let Ok(test_id) = u32::try_from(module.tests.len()) else {
+            panic!("test fixture count must fit u32")
+        };
         module.tests.push(TestDef {
+            id: ori_ir::TestId::new(test_id),
             name: Name::from_raw(name_raw),
+            display_name: Name::from_raw(name_raw),
             targets: target_raws.iter().map(|&r| Name::from_raw(r)).collect(),
             params: ori_ir::ParamRange::default(),
             return_ty: None,
             body: ExprId::new(0),
             span: Span::DUMMY,
             skip_reason: None,
+            skip_backends: vec![],
             fail_expected: None,
             expected_errors: vec![],
         });
@@ -82,7 +81,7 @@ fn no_changes_detected_for_identical_canons() {
 #[test]
 fn body_change_detected() {
     let canon1 = make_canon(&[(1, 42), (2, 99)]);
-    let canon2 = make_canon(&[(1, 42), (2, 100)]); // function 2 body changed
+    let canon2 = make_canon(&[(1, 42), (2, 100)]);
     let map1 = FunctionChangeMap::from_canon(&canon1);
     let map2 = FunctionChangeMap::from_canon(&canon2);
     let changed = map2.changed_since(&map1);
@@ -94,7 +93,7 @@ fn body_change_detected() {
 #[test]
 fn new_function_detected_as_changed() {
     let canon1 = make_canon(&[(1, 42)]);
-    let canon2 = make_canon(&[(1, 42), (2, 99)]); // function 2 is new
+    let canon2 = make_canon(&[(1, 42), (2, 99)]);
     let map1 = FunctionChangeMap::from_canon(&canon1);
     let map2 = FunctionChangeMap::from_canon(&canon2);
     let changed = map2.changed_since(&map1);
@@ -105,7 +104,7 @@ fn new_function_detected_as_changed() {
 #[test]
 fn deleted_function_detected_as_changed() {
     let canon1 = make_canon(&[(1, 42), (2, 99)]);
-    let canon2 = make_canon(&[(1, 42)]); // function 2 deleted
+    let canon2 = make_canon(&[(1, 42)]);
     let map1 = FunctionChangeMap::from_canon(&canon1);
     let map2 = FunctionChangeMap::from_canon(&canon2);
     let changed = map2.changed_since(&map1);
@@ -113,25 +112,17 @@ fn deleted_function_detected_as_changed() {
     assert!(changed.contains(&Name::from_raw(2)));
 }
 
-// TestTargetIndex
-
 #[test]
 fn index_bidirectional_mapping() {
-    // test 100 targets functions 1, 2
-    // test 101 targets function 2
     let module = make_module(&[(100, &[1, 2]), (101, &[2])]);
     let index = TestTargetIndex::from_module(&module);
 
-    // Forward: function 1 → test 100
     assert_eq!(index.tests_for(Name::from_raw(1)).len(), 1);
 
-    // Forward: function 2 → tests 100, 101
     assert_eq!(index.tests_for(Name::from_raw(2)).len(), 2);
 
-    // Reverse: test 100 → functions 1, 2
     assert_eq!(index.targets_for(Name::from_raw(100)).len(), 2);
 
-    // Reverse: test 101 → function 2
     assert_eq!(index.targets_for(Name::from_raw(101)).len(), 1);
 }
 
@@ -141,22 +132,19 @@ fn tests_for_changed_functions() {
     let index = TestTargetIndex::from_module(&module);
 
     let mut changed = FxHashSet::default();
-    changed.insert(Name::from_raw(2)); // function 2 changed
+    changed.insert(Name::from_raw(2));
 
     let affected = index.tests_for_changed(&changed);
-    // Tests 100 and 101 target function 2
     assert!(affected.contains(&Name::from_raw(100)));
     assert!(affected.contains(&Name::from_raw(101)));
-    // Test 102 targets function 3 (unchanged)
     assert!(!affected.contains(&Name::from_raw(102)));
 }
 
 #[test]
 fn floating_tests_never_skipped() {
-    // test 100 has no targets (floating)
     let module = make_module(&[(100, &[])]);
     let index = TestTargetIndex::from_module(&module);
-    let changed = FxHashSet::default(); // nothing changed
+    let changed = FxHashSet::default();
 
     let test_refs: Vec<&TestDef> = module.tests.iter().collect();
     let skippable = index.skippable_tests(&changed, &test_refs);
@@ -172,14 +160,12 @@ fn targeted_tests_skipped_when_targets_unchanged() {
     let index = TestTargetIndex::from_module(&module);
 
     let mut changed = FxHashSet::default();
-    changed.insert(Name::from_raw(1)); // only function 1 changed
+    changed.insert(Name::from_raw(1));
 
     let test_refs: Vec<&TestDef> = module.tests.iter().collect();
     let skippable = index.skippable_tests(&changed, &test_refs);
 
-    // Test 101 (targets function 2) can be skipped
     assert!(skippable.contains(&Name::from_raw(101)));
-    // Test 100 (targets function 1) must re-run
     assert!(!skippable.contains(&Name::from_raw(100)));
 }
 

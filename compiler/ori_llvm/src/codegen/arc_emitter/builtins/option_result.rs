@@ -43,8 +43,8 @@ declare_builtins! { emitter, ctx;
     ("Result", "unwrap_or") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "expect") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "expect_err") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
-    ("Result", "debug") => emitter.emit_result_debug(ctx.arg_vals, ctx.receiver_ty, true),
-    ("Result", "to_str") => emitter.emit_result_debug(ctx.arg_vals, ctx.receiver_ty, false),
+    ("Result", "debug") => emitter.emit_result_debug(ctx.arg_vals, ctx.receiver_ty, RenderStyle::Debug),
+    ("Result", "to_str") => emitter.emit_result_debug(ctx.arg_vals, ctx.receiver_ty, RenderStyle::Printable),
     ("Result", "ok") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "err") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
     ("Result", "clone") => emitter.emit_result_method(ctx.method, ctx.arg_vals, ctx.receiver_ty),
@@ -60,7 +60,7 @@ use ori_types::Idx;
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
 
-use super::super::ArcIrEmitter;
+use super::{super::ArcIrEmitter, RenderStyle};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit an Option method (`is_some`, `is_none`, `unwrap`, `expect`, `debug`).
@@ -166,20 +166,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
             // Render mode is decided once at the dispatch boundary — the
             // shared body never re-compares the method name.
-            "debug" => self.emit_option_render(receiver, receiver_ty, true),
-            "to_str" => self.emit_option_render(receiver, receiver_ty, false),
+            "debug" => self.emit_option_render(receiver, receiver_ty, RenderStyle::Debug),
+            "to_str" => self.emit_option_render(receiver, receiver_ty, RenderStyle::Printable),
             "clone" => Some(receiver),
             _ => None,
         }
     }
 
     /// Shared `debug` / `to_str` rendering for explicit-tag Options.
-    /// `render_debug` selects Debug formatting over Printable.
+    /// `style` selects Debug or Printable formatting.
     fn emit_option_render(
         &mut self,
         receiver: ValueId,
         receiver_ty: Idx,
-        render_debug: bool,
+        style: RenderStyle,
     ) -> Option<ValueId> {
         let tag = self.builder.extract_value(receiver, 0, "opt.tag")?;
         let some = self
@@ -190,7 +190,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let TypeInfo::Option { inner } = self.type_info.get(receiver_ty) else {
             return None;
         };
-        self.emit_option_debug_branch(is_some, payload, inner, render_debug)
+        self.emit_option_debug_branch(is_some, payload, inner, style)
     }
 
     /// Emit a Result method (`is_ok`, `is_err`, `unwrap`, `unwrap_err`).
@@ -427,6 +427,32 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.select(is_ok, payload, default, "unwrap_or"))
     }
 
+    /// Shared emission for `Result<T, E>.expect(msg)` / `.expect_err(msg)`
+    /// with RC retain on the guaranteed-present payload. The two variants
+    /// differ only in which tag they branch on and which `TypeInfo::Result`
+    /// payload type they project (`ok` vs `err`).
+    fn emit_result_expect_variant(
+        &mut self,
+        receiver: ValueId,
+        receiver_ty: Idx,
+        msg: ValueId,
+        want_tag: u64,
+        project_payload_ty: impl FnOnce(TypeInfo) -> Option<Idx>,
+        branch_label: &str,
+    ) -> Option<ValueId> {
+        let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
+        let want = self.builder.const_int_matching(tag, want_tag);
+        let is_want = self.builder.icmp_eq(tag, want, "is_want");
+        self.emit_expect_branch(is_want, msg, branch_label)?;
+        // After expect branch, guaranteed to be the wanted variant — retain unconditionally.
+        let Some(payload_ty) = project_payload_ty(self.type_info.get(receiver_ty)) else {
+            return self.builder.extract_value(receiver, 1, "res.payload");
+        };
+        let payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, payload_ty)?;
+        self.inc_value_rc(payload, payload_ty, 1);
+        Some(payload)
+    }
+
     /// `Result<T, E>.expect(msg)` with RC retain on Ok payload.
     fn emit_result_expect(
         &mut self,
@@ -434,19 +460,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver_ty: Idx,
         msg: ValueId,
     ) -> Option<ValueId> {
-        let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
-        let ok = self
-            .builder
-            .const_int_matching(tag, ori_ir::RESULT_TAG_OK as u64);
-        let is_ok = self.builder.icmp_eq(tag, ok, "is_ok");
-        self.emit_expect_branch(is_ok, msg, "res_expect")?;
-        // After expect branch, guaranteed Ok — retain unconditionally.
-        let TypeInfo::Result { ok: ok_ty, .. } = self.type_info.get(receiver_ty) else {
-            return self.builder.extract_value(receiver, 1, "res.payload");
-        };
-        let payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
-        self.inc_value_rc(payload, ok_ty, 1);
-        Some(payload)
+        self.emit_result_expect_variant(
+            receiver,
+            receiver_ty,
+            msg,
+            ori_ir::RESULT_TAG_OK as u64,
+            |ti| {
+                let TypeInfo::Result { ok, .. } = ti else {
+                    return None;
+                };
+                Some(ok)
+            },
+            "res_expect",
+        )
     }
 
     /// `Result<T, E>.expect_err(msg)` with RC retain on Err payload.
@@ -456,18 +482,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver_ty: Idx,
         msg: ValueId,
     ) -> Option<ValueId> {
-        let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
-        let err_tag = self
-            .builder
-            .const_int_matching(tag, ori_ir::RESULT_TAG_ERR as u64);
-        let is_err = self.builder.icmp_eq(tag, err_tag, "is_err");
-        self.emit_expect_branch(is_err, msg, "res_expect_err")?;
-        // After expect branch, guaranteed Err — retain unconditionally.
-        let TypeInfo::Result { err: err_ty, .. } = self.type_info.get(receiver_ty) else {
-            return self.builder.extract_value(receiver, 1, "res.payload");
-        };
-        let payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
-        self.inc_value_rc(payload, err_ty, 1);
-        Some(payload)
+        self.emit_result_expect_variant(
+            receiver,
+            receiver_ty,
+            msg,
+            ori_ir::RESULT_TAG_ERR as u64,
+            |ti| {
+                let TypeInfo::Result { err, .. } = ti else {
+                    return None;
+                };
+                Some(err)
+            },
+            "res_expect_err",
+        )
     }
 }
