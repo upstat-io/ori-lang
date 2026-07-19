@@ -111,7 +111,7 @@ impl super::OwnedLLVMEvaluator {
 
             Self::compile_all_functions(
                 scx_ref,
-                JitCompilationInputs {
+                &JitCompilationInputs {
                     module,
                     tests,
                     canon,
@@ -140,9 +140,9 @@ impl super::OwnedLLVMEvaluator {
     /// Returns `(test_wrappers, codegen_error_count, codegen_error_descriptions)`.
     fn compile_all_functions<'ctx>(
         scx_ref: &'ctx SimpleCx<'ctx>,
-        input: JitCompilationInputs<'_, '_, '_>,
+        input: &JitCompilationInputs<'_, '_, '_>,
     ) -> (FxHashMap<Name, String>, u32, Vec<String>) {
-        let JitCompilationInputs {
+        let &JitCompilationInputs {
             module,
             tests,
             canon,
@@ -184,18 +184,7 @@ impl super::OwnedLLVMEvaluator {
         fc.bind_executable_program(executable);
         fc.declare_all(&module.functions, function_sigs);
 
-        if !imported_functions.is_empty() {
-            debug!(
-                count = imported_functions.len(),
-                "declaring imported functions"
-            );
-            for imp_fn in imported_functions {
-                fc.declare_all(
-                    std::slice::from_ref(imp_fn.function),
-                    std::slice::from_ref(&imp_fn.sig),
-                );
-            }
-        }
+        Self::declare_imported_functions(&mut fc, imported_functions);
 
         if !mono_functions.is_empty() {
             debug!(
@@ -271,6 +260,24 @@ impl super::OwnedLLVMEvaluator {
         let errors = builder.codegen_error_count() + store.type_error_count();
         let descriptions = builder.codegen_error_descriptions();
         (wrappers, errors, descriptions)
+    }
+
+    fn declare_imported_functions<'a, 'scx: 'ctx, 'ctx, 'tcx>(
+        fc: &mut FunctionCompiler<'a, 'scx, 'ctx, 'tcx>,
+        imported_functions: &[ImportedFunctionForCodegen<'_>],
+    ) {
+        if !imported_functions.is_empty() {
+            debug!(
+                count = imported_functions.len(),
+                "declaring imported functions"
+            );
+            for imported in imported_functions {
+                fc.declare_all(
+                    std::slice::from_ref(imported.function),
+                    std::slice::from_ref(&imported.sig),
+                );
+            }
+        }
     }
 
     fn collect_annotated_sigs(
