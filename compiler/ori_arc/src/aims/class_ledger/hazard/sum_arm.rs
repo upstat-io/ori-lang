@@ -162,10 +162,10 @@ impl TransferFlowContext {
 
 fn transfer_precedes_release(site: EventSite, slot: emit::PlanSlot) -> bool {
     match (site, slot) {
-        (EventSite::BlockEntry, _) => true,
+        (EventSite::BlockEntry, _)
+        | (EventSite::Body(_), emit::PlanSlot::BeforeTerminator { .. }) => true,
         (EventSite::Body(transfer), emit::PlanSlot::BeforeBody { index, .. }) => transfer < index,
         (EventSite::Body(transfer), emit::PlanSlot::AfterBody { index, .. }) => transfer <= index,
-        (EventSite::Body(_), emit::PlanSlot::BeforeTerminator { .. }) => true,
         (EventSite::Body(_), emit::PlanSlot::BlockFront { .. }) | (EventSite::Terminator, _) => {
             false
         }

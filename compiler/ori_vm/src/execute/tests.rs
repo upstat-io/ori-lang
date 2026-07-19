@@ -543,8 +543,11 @@ fn closure_final_release_transitively_releases_captured_heap_owner() {
     ));
 }
 
-#[test]
-fn whole_value_nested_closure_adapter_copies_all_owned_paths() {
+/// Builds a verified program whose main function's closure adapter retains a
+/// borrowed whole-value argument through a two-hop owned chain
+/// (`outer -> inner -> shared`) plus a sibling field sharing the same leaf
+/// retain plan, using a three-plan retain chain (shared/inner/outer).
+fn nested_whole_value_retain_program() -> VerifiedProgram {
     let mut program = verified_aggregate_program();
     let function = program.program.main;
     let shared_plan = VmRetainPlanId::from_shared(ori_arc::RetainPlanId::from_raw(0));
@@ -596,8 +599,17 @@ fn whole_value_nested_closure_adapter_copies_all_owned_paths() {
         }]
         .into_boxed_slice(),
     });
+    program
+}
 
-    let mut interpreter = Interpreter::new(&program, ExecutionConfig::default());
+/// Allocates a nested owned+sibling aggregate (`outer = (inner, sibling)`,
+/// `inner = (selected,)`) so the whole-value closure adapter retain built by
+/// [`nested_whole_value_retain_program`] must walk two aggregate hops to
+/// reach `selected` while leaving `sibling` reachable at the top level.
+/// Returns `(selected, sibling, inner, outer)`.
+fn build_nested_owner_aggregate(
+    interpreter: &mut Interpreter,
+) -> (VmValue, VmValue, VmValue, VmValue) {
     let selected = must_succeed(
         interpreter.heap.allocate(
             HeapObject::List(vec![VmValue::int(7)]),
@@ -635,6 +647,16 @@ fn whole_value_nested_closure_adapter_copies_all_owned_paths() {
             .allocate_aggregate(outer, interpreter.config.max_value_arena_entries),
         "outer product should allocate",
     );
+    (selected, sibling, inner, outer)
+}
+
+#[test]
+fn whole_value_nested_closure_adapter_copies_all_owned_paths() {
+    let program = nested_whole_value_retain_program();
+    let function = program.program.main;
+
+    let mut interpreter = Interpreter::new(&program, ExecutionConfig::default());
+    let (selected, sibling, inner, outer) = build_nested_owner_aggregate(&mut interpreter);
     let mut values = [outer];
 
     must_succeed(
