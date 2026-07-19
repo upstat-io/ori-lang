@@ -148,6 +148,7 @@ fn terminal_use_table_matches_committed_rl2_grid() {
 fn boundary_facts_project_the_contract() {
     let mut contract = MemoryContract::conservative(2);
     contract.params[0].iter_consumes = true;
+    contract.params[0].iter_consumes_projected_field = Some(3);
     contract.params[1].transfers_through_return = true;
     contract.params[1].borrowed_cow_consumed = true;
     contract.return_info.returns_sharing_view = true;
@@ -155,6 +156,10 @@ fn boundary_facts_project_the_contract() {
 
     let facts = BoundaryFacts::from_contract(&contract);
     assert_eq!(facts.param_iter_consumes, vec![true, false]);
+    assert_eq!(
+        facts.param_iter_consumes_projected_field,
+        vec![Some(3), None]
+    );
     assert_eq!(facts.param_borrowed_cow_consumed, vec![false, true]);
     assert_eq!(facts.param_transfers_through_return, vec![false, true]);
     assert!(facts.returns_sharing_view);
@@ -165,6 +170,9 @@ fn boundary_facts_project_the_contract() {
     assert!(facts.incoming_whole_value_credit(1));
     assert!(!facts.iter_consume_transfer(1));
     assert!(!facts.iter_consume_transfer(9));
+    assert_eq!(facts.projected_field_transfer(0), Some(3));
+    assert_eq!(facts.projected_field_transfer(1), None);
+    assert_eq!(facts.projected_field_transfer(9), None);
 }
 
 // derive_ledger — the pure mirror of AimsProof.Ledger::deriveLedger
@@ -643,6 +651,67 @@ fn iter_consume_fact_overrides_borrowed_to_consume() {
         derive_ledger(arg, &flat(&classification)),
         vec![LedgerEvent::Birth, LedgerEvent::Consume]
     );
+}
+
+/// A projected-field transfer is not a whole-value transfer. The caller keeps
+/// the aggregate shell as a READ and exports a site-aware field transfer for
+/// the release planner even when the caller has no local `Project` node.
+#[test]
+fn projected_field_consume_records_boundary_transfer_without_whole_consume() {
+    let callee = Name::from_raw(11);
+    let func = one_block_func(
+        2,
+        vec![
+            construct(0, vec![]),
+            ArcInstr::Apply {
+                dst: v(1),
+                ty: ty(0),
+                func: callee,
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Borrowed],
+                mono_instance_id: None,
+            },
+        ],
+        ArcTerminator::Return { value: v(1) },
+    );
+    let mut facts = no_facts();
+    facts.insert(
+        callee,
+        BoundaryFacts {
+            param_iter_consumes_projected_field: vec![Some(3)],
+            ..BoundaryFacts::default()
+        },
+    );
+    let state_map = AimsStateMap::new(&func);
+    let (classification, mut partition) = classify(&func, &state_map, &facts);
+
+    let arg = rep(&mut partition, 0);
+    assert_eq!(
+        derive_ledger(arg, &flat(&classification)),
+        vec![LedgerEvent::Birth, LedgerEvent::Read],
+        "field transfer must retain the aggregate shell"
+    );
+    assert_eq!(classification.boundary_field_transfers.len(), 1);
+    let transfer = classification.boundary_field_transfers[0];
+    assert_eq!(partition.rep_of(transfer.container), arg);
+    assert_eq!(transfer.field, 3);
+    assert_eq!(transfer.block, 0);
+    assert_eq!(transfer.site, EventSite::Body(1));
+}
+
+/// Whole-value and projected-field owner demands are mutually exclusive.
+/// Boundary projection must preserve the contract oracle's conflict instead
+/// of silently selecting either transfer granularity.
+#[test]
+fn projected_field_and_whole_value_transfer_conflict() {
+    let mut contract = MemoryContract::conservative(1);
+    contract.params[0].iter_consumes = true;
+    contract.params[0].iter_consumes_projected_field = Some(3);
+
+    let conflict = contract.params[0]
+        .callee_owner_demand()
+        .expect_err("dual whole/projected ownership demand must be rejected");
+    assert_eq!(conflict.field, 3);
 }
 
 /// A borrowed-COW-consuming user boundary retains the caller's original

@@ -270,6 +270,296 @@ fn unconditional_emitter_produces_plan() {
     assert!(!analysis.plan.classes.is_empty());
 }
 
+/// A borrowed direct call can consume one aggregate field without a caller-
+/// local `Project`. The contract fact must still decompose the later shell
+/// release so the callee-owned field is not released twice.
+#[test]
+fn boundary_field_consume_without_local_project_plans_partial_release() {
+    let callee = Name::from_raw(19);
+    let func = one_block_func(
+        2,
+        vec![
+            construct(0, vec![]),
+            apply_to(1, callee, vec![(0, ArgOwnership::Borrowed)]),
+        ],
+        ret(1),
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(1));
+    let mut contract = MemoryContract::conservative(1);
+    contract.params[0].iter_consumes_projected_field = Some(3);
+    let contracts = FxHashMap::from_iter([(callee, contract)]);
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+    let interner = test_interner();
+    let facts = FxHashMap::from_iter(
+        contracts
+            .iter()
+            .map(|(name, contract)| (*name, BoundaryFacts::from_contract(contract))),
+    );
+    let classification = classify_function(&func, &state_map, &mut partition, &facts, &interner);
+    let analysis = analyze_class_ledger(
+        &func,
+        &classification,
+        &mut partition,
+        &ori_types::TypeRegistry::default(),
+        &interner,
+    );
+
+    let container = class_rep(&mut partition, 0);
+    let ops = ops_for(&analysis, container);
+    assert!(
+        ops.iter().any(|op| {
+            matches!(
+                &op.kind,
+                PlannedOpKind::DecPartial { skip_fields } if skip_fields == &vec![3]
+            )
+        }),
+        "post-call release must skip the transferred field: {ops:?}"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+}
+
+/// A branch that bypasses the consuming call still owns the field. The
+/// transfer-dominated release skips it, while the bypass release remains a
+/// whole-value `Dec`.
+#[test]
+fn boundary_field_consume_is_path_sensitive_across_bypass_branch() {
+    let callee = Name::from_raw(20);
+    let func = func_with_blocks(
+        5,
+        vec![
+            block(0, vec![], vec![construct(0, vec![])], branch(1, 1, 2)),
+            block(
+                1,
+                vec![],
+                vec![apply_to(2, callee, vec![(0, ArgOwnership::Borrowed)])],
+                ret(2),
+            ),
+            block(2, vec![], vec![is_shared(3, 0)], ret(3)),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [1u32, 2, 3, 4] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let mut contract = MemoryContract::conservative(1);
+    contract.params[0].iter_consumes_projected_field = Some(2);
+    let facts = FxHashMap::from_iter([(callee, BoundaryFacts::from_contract(&contract))]);
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+    let interner = test_interner();
+    let classification = classify_function(&func, &state_map, &mut partition, &facts, &interner);
+    let analysis = analyze_class_ledger(
+        &func,
+        &classification,
+        &mut partition,
+        &ori_types::TypeRegistry::default(),
+        &interner,
+    );
+
+    let container = class_rep(&mut partition, 0);
+    let ops = ops_for(&analysis, container);
+    assert!(
+        ops.iter().any(|op| {
+            op.slot.block() == 1
+                && matches!(
+                    &op.kind,
+                    PlannedOpKind::DecPartial { skip_fields } if skip_fields == &vec![2]
+                )
+        }),
+        "the call-dominated release must skip field 2: {ops:?}"
+    );
+    assert!(
+        ops.iter()
+            .any(|op| op.slot.block() == 2 && op.kind == PlannedOpKind::Dec),
+        "the bypass release must retain the whole recursive drop: {ops:?}"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+}
+
+/// A local moved-out field and a boundary-consumed field share the one
+/// canonical partial-release representation. Neither authority may replace
+/// the other, and duplicate indices are normalized once.
+#[test]
+fn boundary_and_local_field_skips_are_unioned_once() {
+    let callee = Name::from_raw(21);
+    let func = one_block_func(
+        7,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![]),
+            construct(2, vec![0, 1]),
+            ArcInstr::Project {
+                dst: v(3),
+                ty: ty(0),
+                value: v(2),
+                field: 0,
+            },
+            apply(4, vec![(3, ArgOwnership::Owned)]),
+            apply_to(5, callee, vec![(2, ArgOwnership::Borrowed)]),
+            is_shared(6, 2),
+        ],
+        ret(6),
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [4u32, 5, 6] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let mut contract = MemoryContract::conservative(1);
+    contract.params[0].iter_consumes_projected_field = Some(1);
+    let facts = FxHashMap::from_iter([(callee, BoundaryFacts::from_contract(&contract))]);
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+    let interner = test_interner();
+    let classification = classify_function(&func, &state_map, &mut partition, &facts, &interner);
+    let analysis = analyze_class_ledger(
+        &func,
+        &classification,
+        &mut partition,
+        &ori_types::TypeRegistry::default(),
+        &interner,
+    );
+
+    let container = class_rep(&mut partition, 2);
+    let ops = ops_for(&analysis, container);
+    assert!(
+        ops.iter().any(|op| {
+            matches!(
+                &op.kind,
+                PlannedOpKind::DecPartial { skip_fields } if skip_fields == &vec![0, 1]
+            )
+        }),
+        "local and boundary skip authorities must union: {ops:?}"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+}
+
+/// Transfer sites and release slots in one block use instruction ordering,
+/// not block-level dominance alone.
+#[test]
+fn boundary_field_consume_respects_same_block_ordering() {
+    use super::hazard::sum_arm::{SiteVerdict, TransferFlowContext};
+
+    let func = one_block_func(1, vec![construct(0, vec![])], ret(0));
+    let ctx = TransferFlowContext::from_transfer_sites(&func, &[(0, EventSite::Body(0))]);
+    let before = PlannedOp {
+        slot: PlanSlot::BeforeBody { block: 0, index: 0 },
+        kind: PlannedOpKind::Dec,
+        var: v(0),
+    };
+    let after = PlannedOp {
+        slot: PlanSlot::AfterBody { block: 0, index: 0 },
+        kind: PlannedOpKind::Dec,
+        var: v(0),
+    };
+
+    assert_eq!(ctx.classify(&func, &before), Some(SiteVerdict::Whole));
+    assert_eq!(ctx.classify(&func, &after), Some(SiteVerdict::Skip));
+}
+
+/// A release before a loop-local transfer is reached both before any
+/// transfer and after the loop backedge has crossed one. The site is mixed
+/// and cannot safely take either a uniform skip or whole verdict.
+#[test]
+fn boundary_field_consume_in_cycle_declines_when_not_uniform() {
+    use super::hazard::sum_arm::TransferFlowContext;
+
+    let func = func_with_blocks(
+        2,
+        vec![
+            block(0, vec![], vec![], jump(1, vec![])),
+            block(1, vec![], vec![construct(0, vec![])], branch(1, 1, 2)),
+            block(2, vec![], vec![], ret(0)),
+        ],
+    );
+    let ctx = TransferFlowContext::from_transfer_sites(&func, &[(1, EventSite::Body(0))]);
+    let release = PlannedOp {
+        slot: PlanSlot::BeforeBody { block: 1, index: 0 },
+        kind: PlannedOpKind::Dec,
+        var: v(0),
+    };
+
+    assert_eq!(ctx.classify(&func, &release), None);
+}
+
+/// `Invoke` transfers ownership before either successor executes. Normal and
+/// unwind release sites therefore share the boundary skip verdict.
+#[test]
+fn boundary_field_consume_invoke_covers_normal_and_unwind() {
+    use super::hazard::sum_arm::{SiteVerdict, TransferFlowContext};
+
+    let func = func_with_blocks(
+        2,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![construct(0, vec![])],
+                invoke(1, vec![], 1, 2),
+            ),
+            block(1, vec![], vec![], ret(1)),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    let ctx = TransferFlowContext::from_transfer_sites(&func, &[(0, EventSite::Terminator)]);
+    for block in [1usize, 2] {
+        let release = PlannedOp {
+            slot: PlanSlot::BlockFront { block },
+            kind: PlannedOpKind::Dec,
+            var: v(0),
+        };
+        assert_eq!(ctx.classify(&func, &release), Some(SiteVerdict::Skip));
+    }
+}
+
+/// One transfer can govern multiple release sites, but each site receives an
+/// independent verdict rather than inheriting a class-global skip.
+#[test]
+fn boundary_field_consume_classifies_each_release_site() {
+    use super::hazard::sum_arm::{SiteVerdict, TransferFlowContext};
+
+    let func = func_with_blocks(
+        2,
+        vec![
+            block(0, vec![], vec![construct(0, vec![])], branch(1, 1, 2)),
+            block(1, vec![], vec![], ret(0)),
+            block(2, vec![], vec![], ret(0)),
+        ],
+    );
+    let ctx = TransferFlowContext::from_transfer_sites(&func, &[(0, EventSite::Body(0))]);
+    for block in [1usize, 2] {
+        let release = PlannedOp {
+            slot: PlanSlot::BlockFront { block },
+            kind: PlannedOpKind::Dec,
+            var: v(0),
+        };
+        assert_eq!(ctx.classify(&func, &release), Some(SiteVerdict::Skip));
+    }
+}
+
+/// A joined release reached through both a transfer path and a bypass path
+/// is mixed. A class-global skip would leak the bypass-owned field.
+#[test]
+fn boundary_field_consume_mixed_join_declines() {
+    use super::hazard::sum_arm::TransferFlowContext;
+
+    let func = func_with_blocks(
+        2,
+        vec![
+            block(0, vec![], vec![], branch(1, 1, 2)),
+            block(1, vec![], vec![construct(0, vec![])], jump(3, vec![])),
+            block(2, vec![], vec![], jump(3, vec![])),
+            block(3, vec![], vec![], ret(0)),
+        ],
+    );
+    let ctx = TransferFlowContext::from_transfer_sites(&func, &[(1, EventSite::Body(0))]);
+    let release = PlannedOp {
+        slot: PlanSlot::BeforeTerminator { block: 3 },
+        kind: PlannedOpKind::Dec,
+        var: v(0),
+    };
+
+    assert_eq!(ctx.classify(&func, &release), None);
+}
+
 /// A borrowed user-call boundary whose callee consumes a COW owner needs two
 /// simultaneous credits: the caller retains its original owner across the
 /// call, while a separately funded owner transfers into the callee. The
