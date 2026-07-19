@@ -64,7 +64,6 @@ pub(crate) enum VmRetainPlanKind {
 pub(crate) enum VmCalleeOwnerDemand {
     Borrow,
     WholeValue,
-    ProjectedField(u32),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

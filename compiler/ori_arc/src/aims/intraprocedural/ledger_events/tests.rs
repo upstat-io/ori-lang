@@ -150,7 +150,6 @@ fn boundary_facts_project_the_contract() {
     let mut contract = MemoryContract::conservative(3);
     contract.params[0].iter_consumes = true;
     contract.params[1].access = AccessClass::Borrowed;
-    contract.params[1].iter_consumes_projected_field = Some(3);
     contract.params[2].transfers_through_return = true;
     contract.params[2].borrowed_cow_consumed = true;
     contract.return_info.returns_sharing_view = true;
@@ -158,10 +157,6 @@ fn boundary_facts_project_the_contract() {
 
     let facts = BoundaryFacts::from_contract(&contract);
     assert_eq!(facts.param_iter_consumes, vec![true, false, false]);
-    assert_eq!(
-        facts.param_iter_consumes_projected_field,
-        vec![None, Some(3), None]
-    );
     assert_eq!(facts.param_borrowed_cow_consumed, vec![false, false, true]);
     assert_eq!(
         facts.param_transfers_through_return,
@@ -175,10 +170,6 @@ fn boundary_facts_project_the_contract() {
     assert!(facts.incoming_whole_value_credit(2));
     assert!(!facts.iter_consume_transfer(1));
     assert!(!facts.iter_consume_transfer(9));
-    assert_eq!(facts.projected_field_owner_demand(0), None);
-    assert_eq!(facts.projected_field_owner_demand(1), Some(3));
-    assert_eq!(facts.projected_field_owner_demand(2), None);
-    assert_eq!(facts.projected_field_owner_demand(9), None);
 }
 
 // derive_ledger — the pure mirror of AimsProof.Ledger::deriveLedger
@@ -659,62 +650,6 @@ fn iter_consume_fact_overrides_borrowed_to_consume() {
     );
 }
 
-/// A projected-field demand is not a whole-value transfer. The caller keeps
-/// the aggregate shell as a READ, while replacement declines until the event
-/// vocabulary can fund the exact field credit.
-#[test]
-fn projected_field_demand_is_read_and_marks_boundary_unrepresentable() {
-    let callee = Name::from_raw(11);
-    let func = one_block_func(
-        2,
-        vec![
-            construct(0, vec![]),
-            ArcInstr::Apply {
-                dst: v(1),
-                ty: ty(0),
-                func: callee,
-                args: vec![v(0)],
-                arg_ownership: vec![ArgOwnership::Borrowed],
-                mono_instance_id: None,
-            },
-        ],
-        ArcTerminator::Return { value: v(1) },
-    );
-    let mut facts = no_facts();
-    facts.insert(
-        callee,
-        BoundaryFacts {
-            param_iter_consumes_projected_field: vec![Some(3)],
-            ..BoundaryFacts::default()
-        },
-    );
-    let state_map = AimsStateMap::new(&func);
-    let (classification, mut partition) = classify(&func, &state_map, &facts);
-
-    let arg = rep(&mut partition, 0);
-    assert_eq!(
-        derive_ledger(arg, &flat(&classification)),
-        vec![LedgerEvent::Birth, LedgerEvent::Read],
-        "field transfer must retain the aggregate shell"
-    );
-    assert!(classification.boundary_owner_demand_unrepresentable);
-}
-
-/// Whole-value and projected-field owner demands are mutually exclusive.
-/// Boundary projection must preserve the contract oracle's conflict instead
-/// of silently selecting either transfer granularity.
-#[test]
-fn projected_field_and_whole_value_transfer_conflict() {
-    let mut contract = MemoryContract::conservative(1);
-    contract.params[0].iter_consumes = true;
-    contract.params[0].iter_consumes_projected_field = Some(3);
-
-    let conflict = contract.params[0]
-        .callee_owner_demand()
-        .expect_err("dual whole/projected ownership demand must be rejected");
-    assert_eq!(conflict.field, 3);
-}
-
 /// A borrowed-COW-consuming user boundary retains the caller's original
 /// owner and transfers a separately funded owner to the callee. The ordered
 /// CONSUME+READ pair is the class-ledger shape that plans the funding inc and
@@ -821,8 +756,6 @@ fn sharing_view_producer_credits_the_result() {
         callee,
         BoundaryFacts {
             param_iter_consumes: vec![false],
-            param_iter_consumes_projected_field: vec![None],
-            param_owner_demand_conflict: vec![false],
             param_borrowed_cow_consumed: vec![false],
             param_transfers_through_return: vec![false],
             param_cardinality_absent: vec![false],
@@ -1970,8 +1903,6 @@ fn absent_owned_param_books_no_events() {
         func.name,
         BoundaryFacts {
             param_iter_consumes: vec![false],
-            param_iter_consumes_projected_field: vec![None],
-            param_owner_demand_conflict: vec![false],
             param_borrowed_cow_consumed: vec![false],
             param_transfers_through_return: vec![false],
             param_cardinality_absent: vec![true],
@@ -2003,8 +1934,6 @@ fn absent_owned_param_books_no_events() {
         func.name,
         BoundaryFacts {
             param_iter_consumes: vec![false],
-            param_iter_consumes_projected_field: vec![None],
-            param_owner_demand_conflict: vec![false],
             param_borrowed_cow_consumed: vec![false],
             param_transfers_through_return: vec![false],
             param_cardinality_absent: vec![false],

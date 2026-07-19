@@ -164,13 +164,7 @@ fn validate_target_plan(
                 "adapter slot type disagrees with the realized parameter type",
             );
         }
-        let demand = param_contract.callee_owner_demand().map_err(|_| {
-            invalid_target_error(
-                target,
-                target_symbol,
-                "final parameter contract carries contradictory owner demand",
-            )
-        })?;
+        let demand = param_contract.callee_owner_demand();
         if slot.demand != demand {
             return invalid_target(
                 target,
@@ -180,14 +174,8 @@ fn validate_target_plan(
         }
         match (demand, slot.action) {
             (CalleeOwnerDemand::Borrow, ClosureAdapterAction::Borrow)
-            | (
-                CalleeOwnerDemand::WholeValue | CalleeOwnerDemand::ProjectedField(_),
-                ClosureAdapterAction::Copy,
-            ) => {}
-            (
-                CalleeOwnerDemand::WholeValue | CalleeOwnerDemand::ProjectedField(_),
-                ClosureAdapterAction::Retain(root),
-            ) => {
+            | (CalleeOwnerDemand::WholeValue, ClosureAdapterAction::Copy) => {}
+            (CalleeOwnerDemand::WholeValue, ClosureAdapterAction::Retain(root)) => {
                 let node = retain_plans.get(root).ok_or_else(|| {
                     invalid_target_error(
                         target,

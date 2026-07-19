@@ -575,7 +575,6 @@ fn absent_param() -> ParamContract {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         borrowed_cow_mutated: false,
-        iter_consumes_projected_field: None,
     }
 }
 
@@ -595,7 +594,6 @@ fn used_param() -> ParamContract {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         borrowed_cow_mutated: false,
-        iter_consumes_projected_field: None,
     }
 }
 

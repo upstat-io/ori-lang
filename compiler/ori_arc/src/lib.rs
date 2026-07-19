@@ -38,8 +38,8 @@ pub mod verify;
 pub(crate) mod test_helpers;
 
 pub use aims::contract::{
-    CalleeOwnerDemand, CalleeOwnerDemandConflict, ContractMapExt, EffectSummary,
-    FreshSelfAllocationFacts, FunctionEffectFacts, MemoryAccessClass, MemoryContract,
+    CalleeOwnerDemand, ContractMapExt, EffectSummary, FreshSelfAllocationFacts,
+    FunctionEffectFacts, MemoryAccessClass, MemoryContract,
 };
 pub use aims::realize::push_receiver_lineage_returned;
 pub use aims::realize::rc_remark::write_rc_remarks_header;

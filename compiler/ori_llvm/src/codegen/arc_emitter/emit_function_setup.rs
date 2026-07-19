@@ -140,17 +140,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             for (i, param) in func.params.iter().enumerate() {
                 if let Some(pc) = contract.params.get(i) {
                     match pc.callee_owner_demand() {
-                        Ok(CalleeOwnerDemand::WholeValue) => {
+                        CalleeOwnerDemand::WholeValue => {
                             self.iter_owns_rooted_vars.insert(param.var);
                         }
-                        Ok(CalleeOwnerDemand::Borrow | CalleeOwnerDemand::ProjectedField(_)) => {}
-                        Err(conflict) => {
-                            self.builder.record_codegen_error_with_msg(format!(
-                                "invalid owner demand for {} parameter {i}: whole-value and projected-field({}) credits conflict",
-                                self.interner.lookup(func.name),
-                                conflict.field,
-                            ));
-                        }
+                        CalleeOwnerDemand::Borrow => {}
                     }
                 }
             }

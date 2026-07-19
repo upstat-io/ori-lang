@@ -315,11 +315,6 @@ pub enum ClosureAbiError {
         parameters: usize,
         contract_parameters: usize,
     },
-    ContradictoryOwnerDemand {
-        target: Name,
-        parameter: usize,
-        field: u32,
-    },
     TooManyRetainPlans {
         count: usize,
     },
@@ -391,15 +386,6 @@ impl fmt::Display for ClosureAbiError {
             } => write!(
                 f,
                 "closure target name_id={} has {parameters} parameters but {contract_parameters} final contract entries",
-                target.raw()
-            ),
-            Self::ContradictoryOwnerDemand {
-                target,
-                parameter,
-                field,
-            } => write!(
-                f,
-                "closure target name_id={} parameter {parameter} simultaneously demands whole-value and projected-field({field}) credits",
                 target.raw()
             ),
             Self::TooManyRetainPlans { count } => {
@@ -594,13 +580,7 @@ fn freeze_closure_adapter_plan(
         } else {
             ClosureAdapterSource::BorrowedCallArgument
         };
-        let demand = param_contract.callee_owner_demand().map_err(|conflict| {
-            ClosureAbiError::ContradictoryOwnerDemand {
-                target: function.name,
-                parameter,
-                field: conflict.field,
-            }
-        })?;
+        let demand = param_contract.callee_owner_demand();
         let action = match demand {
             CalleeOwnerDemand::Borrow => ClosureAdapterAction::Borrow,
             CalleeOwnerDemand::WholeValue => match builder.duplication_for(param.ty) {
@@ -615,20 +595,6 @@ fn freeze_closure_adapter_plan(
                     });
                 }
             },
-            CalleeOwnerDemand::ProjectedField(field) => {
-                match builder.duplication_for_projected_field(param.ty, field) {
-                    Ok(Duplication::Copy) => ClosureAdapterAction::Copy,
-                    Ok(Duplication::Retain(plan)) => ClosureAdapterAction::Retain(plan),
-                    Err(reason) => {
-                        return Err(ClosureAbiError::OwnedParameterNotShareable {
-                            target: function.name,
-                            parameter,
-                            ty: param.ty,
-                            reason,
-                        });
-                    }
-                }
-            }
         };
         slots.push(ClosureAdapterSlot {
             source,
@@ -802,48 +768,6 @@ impl<'a> RetainPlanBuilder<'a> {
         }
     }
 
-    fn duplication_for_projected_field(
-        &mut self,
-        ty: Idx,
-        field: u32,
-    ) -> Result<Duplication, &'static str> {
-        let resolved = self.pool.resolve_fully(ty);
-        if resolved == Idx::NONE || resolved.raw() as usize >= self.pool.len() {
-            return Err("the aggregate parameter type is unresolved");
-        }
-        if crate::lower::type_has_user_drop(ty, self.type_registry)
-            || crate::lower::type_has_user_drop(resolved, self.type_registry)
-        {
-            return Err("the aggregate parameter has user-defined drop behavior");
-        }
-        let fields = match self.pool.tag(resolved) {
-            Tag::Tuple => self.pool.tuple_elems(resolved),
-            Tag::Struct => self
-                .pool
-                .struct_fields(resolved)
-                .into_iter()
-                .map(|(_, field)| field)
-                .collect(),
-            _ => return Err("projected-field owner demand requires an inline product type"),
-        };
-        let field_index = field as usize;
-        let Some(&field_ty) = fields.get(field_index) else {
-            return Err("projected-field owner demand names a missing field");
-        };
-        match self.duplication_for(field_ty)? {
-            Duplication::Copy => Ok(Duplication::Copy),
-            Duplication::Retain(child) => self
-                .intern(
-                    ty,
-                    RetainPlanKind::OwnedFields(
-                        vec![RetainPlanEdge { field, child }].into_boxed_slice(),
-                    ),
-                )
-                .map(Duplication::Retain)
-                .map_err(|_| "the retain-plan table exceeds its stable identity range"),
-        }
-    }
-
     fn variant_duplication(
         &mut self,
         ty: Idx,
@@ -962,7 +886,6 @@ mod tests {
             facts.borrowed_cow_consumed = false;
             facts.borrowed_cow_mutated = false;
             facts.iter_consumes = false;
-            facts.iter_consumes_projected_field = None;
         }
         contract
     }
@@ -1196,76 +1119,5 @@ mod tests {
         let slot = frozen.adapters[&target_name].slots()[0];
         assert_eq!(slot.demand, CalleeOwnerDemand::WholeValue);
         assert!(matches!(slot.action, ClosureAdapterAction::Retain(_)));
-    }
-
-    #[test]
-    fn projected_iter_consume_credits_only_the_consumed_field() {
-        let mut pool = Pool::new();
-        let list = pool.list(Idx::INT);
-        let aggregate = pool.struct_type(
-            Name::from_raw(20),
-            &[(Name::from_raw(21), list), (Name::from_raw(22), list)],
-        );
-        let registry = TypeRegistry::new();
-        let target_name = Name::from_raw(16);
-        let target = realized_target(
-            target_name,
-            &[(
-                aggregate,
-                Ownership::Borrowed,
-                ValueRepr::Aggregate,
-                Some(RcStrategy::AggregateFields),
-            )],
-            0,
-        );
-        let caller = caller(target_name, &[]);
-        let mut contract = contract_for(&target);
-        contract.params[0].iter_consumes_projected_field = Some(1);
-        let contracts = contract_map(target_name, contract);
-
-        let frozen = freeze_successfully(&[caller, target], &contracts, &pool, &registry);
-        let slot = frozen.adapters[&target_name].slots()[0];
-        assert_eq!(slot.demand, CalleeOwnerDemand::ProjectedField(1));
-        let ClosureAdapterAction::Retain(root) = slot.action else {
-            panic!("projected list consume needs one field credit")
-        };
-        let Some(RetainPlanNode {
-            kind: RetainPlanKind::OwnedFields(edges),
-            ..
-        }) = frozen.retain_plans.get(root)
-        else {
-            panic!("projected demand needs a product retain root")
-        };
-        assert_eq!(edges.len(), 1);
-        assert_eq!(edges[0].field, 1);
-    }
-
-    #[test]
-    fn contradictory_whole_and_projected_demand_is_rejected() {
-        let mut pool = Pool::new();
-        let list = pool.list(Idx::INT);
-        let aggregate = pool.struct_type(Name::from_raw(23), &[(Name::from_raw(24), list)]);
-        let registry = TypeRegistry::new();
-        let target_name = Name::from_raw(17);
-        let target = realized_target(
-            target_name,
-            &[(
-                aggregate,
-                Ownership::Owned,
-                ValueRepr::Aggregate,
-                Some(RcStrategy::AggregateFields),
-            )],
-            0,
-        );
-        let caller = caller(target_name, &[]);
-        let mut contract = contract_for(&target);
-        contract.params[0].iter_consumes_projected_field = Some(0);
-        let contracts = contract_map(target_name, contract);
-
-        assert!(matches!(
-            freeze_closure_adapter_plans(&[caller, target], &contracts, &pool, &registry),
-            Err(errors)
-                if matches!(errors.as_slice(), [ClosureAbiError::ContradictoryOwnerDemand { parameter: 0, field: 0, .. }])
-        ));
     }
 }

@@ -14,15 +14,6 @@ pub enum CalleeOwnerDemand {
     Borrow,
     /// The callee consumes one credit for the complete value.
     WholeValue,
-    /// The callee consumes one credit for exactly one projected field.
-    ProjectedField(u32),
-}
-
-/// Contradictory final contract facts that demand both whole-value and
-/// projected-field credits at one parameter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CalleeOwnerDemandConflict {
-    pub field: u32,
 }
 
 /// Shape of how a parameter aliases the callee's return value.
@@ -262,15 +253,6 @@ pub struct ParamContract {
     /// keeps the per-call RL-1 funding increment for this demand.
     /// IC-3 join: OR. Default: `false` (no mutator claim).
     pub borrowed_cow_mutated: bool,
-
-    /// Exact projected-field owner demand at a borrowed boundary.
-    /// `Some(field)` requires independent evidence that the callee needs one
-    /// credit for that field. A borrowed Project passed to `@iter` does not
-    /// qualify: iterator drop consumes the callee's retained projection, not
-    /// the aggregate's original field credit. The caller must fund a proven
-    /// demand separately and preserve its aggregate owner. IC-3 keeps equal
-    /// `Some` values and poisons disagreement to `None`; default is `None`.
-    pub iter_consumes_projected_field: Option<u32>,
 }
 
 impl ParamContract {
@@ -279,19 +261,17 @@ impl ParamContract {
     ///
     /// This is the single semantic oracle for closure adapters. Ordinary Owned
     /// access, borrowed COW consumption, and plain RL-2 iterator consumption
-    /// require a whole-value credit. Field-grained iterator consumption needs
-    /// one independent credit for only that field; retaining every field would
-    /// leak. Return alias and return containment facts have their own result
-    /// accounting and do not add a pre-entry credit here.
-    pub fn callee_owner_demand(&self) -> Result<CalleeOwnerDemand, CalleeOwnerDemandConflict> {
+    /// require a whole-value credit. Return alias and return containment facts
+    /// have their own result accounting and do not add a pre-entry credit here.
+    #[must_use]
+    pub fn callee_owner_demand(&self) -> CalleeOwnerDemand {
         let whole_value = self.access == AccessClass::Owned
             || self.borrowed_cow_consumed
             || self.is_rl2_consume();
-        match (whole_value, self.iter_consumes_projected_field) {
-            (true, Some(field)) => Err(CalleeOwnerDemandConflict { field }),
-            (true, None) => Ok(CalleeOwnerDemand::WholeValue),
-            (false, Some(field)) => Ok(CalleeOwnerDemand::ProjectedField(field)),
-            (false, None) => Ok(CalleeOwnerDemand::Borrow),
+        if whole_value {
+            CalleeOwnerDemand::WholeValue
+        } else {
+            CalleeOwnerDemand::Borrow
         }
     }
 
@@ -319,8 +299,6 @@ impl ParamContract {
         borrowed_cow_consumed: false,
         // Unknown callees claim no mutation, so lineage gate c3 never declines.
         borrowed_cow_mutated: false,
-        // Unknown callees make no field-grained iter-consume claim.
-        iter_consumes_projected_field: None,
     };
 
     /// Most-optimistic: borrowed, dead, absent, no escape/share, block-local, unique,
@@ -350,8 +328,6 @@ impl ParamContract {
         borrowed_cow_consumed: false,
         // IC-2 OR-join bottom; promotes when a path's MUTATOR consume fires.
         borrowed_cow_mutated: false,
-        // IC-2 seed has no claim; extraction replaces it from the per-param scan.
-        iter_consumes_projected_field: None,
     };
 
     /// RL-2 CONSUME classification: `iter_consumes ∧ ¬transfers_through_return`.
@@ -392,15 +368,6 @@ impl ParamContract {
             borrowed_cow_consumed: self.borrowed_cow_consumed || other.borrowed_cow_consumed,
             // Any mutating path obligates caller funding and declines lineage.
             borrowed_cow_mutated: self.borrowed_cow_mutated || other.borrowed_cow_mutated,
-            // Equal fields survive; disagreement poisons the field claim to None.
-            iter_consumes_projected_field: match (
-                self.iter_consumes_projected_field,
-                other.iter_consumes_projected_field,
-            ) {
-                (None, x) | (x, None) => x,
-                (Some(a), Some(b)) if a == b => Some(a),
-                (Some(_), Some(_)) => None,
-            },
         }
     }
 }

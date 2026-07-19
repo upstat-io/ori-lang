@@ -66,7 +66,7 @@ pub(super) fn sum_release_sites_safe(
 /// any extraction (not forward-reachable from one — the bypass edge keeps
 /// the recursive release); MIXED (None) when paths disagree — decline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SiteVerdict {
+pub(in crate::aims::class_ledger) enum SiteVerdict {
     Skip,
     Whole,
 }
@@ -75,7 +75,7 @@ pub(crate) enum SiteVerdict {
 /// boundary-contract adapters. Each block entry tracks whether it is
 /// reachable before and/or after the transfer; the two-bit fixed point makes
 /// joins and backedges explicit instead of inferring them from dominance.
-pub(crate) struct TransferFlowContext {
+pub(in crate::aims::class_ledger) struct TransferFlowContext {
     transfer_sites: Vec<Vec<EventSite>>,
     entry_without_transfer: Vec<bool>,
     entry_with_transfer: Vec<bool>,
@@ -83,7 +83,7 @@ pub(crate) struct TransferFlowContext {
 
 impl TransferFlowContext {
     #[must_use]
-    pub(crate) fn from_transfer_sites(
+    pub(in crate::aims::class_ledger) fn from_transfer_sites(
         func: &ArcFunction,
         transfer_sites: &[(usize, EventSite)],
     ) -> Self {
@@ -131,7 +131,10 @@ impl TransferFlowContext {
 
     /// Classify one planned release. `None` means concrete paths reach the
     /// site both before and after transfer, so neither release shape is safe.
-    pub(crate) fn classify(&self, op: &emit::PlannedOp) -> Option<SiteVerdict> {
+    pub(in crate::aims::class_ledger) fn classify(
+        &self,
+        op: &emit::PlannedOp,
+    ) -> Option<SiteVerdict> {
         if !matches!(
             op.kind,
             emit::PlannedOpKind::Dec | emit::PlannedOpKind::DecPartial { .. }

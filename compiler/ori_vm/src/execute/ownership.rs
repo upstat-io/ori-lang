@@ -184,24 +184,6 @@ impl Interpreter<'_> {
             VmCalleeOwnerDemand::WholeValue => {
                 Ok(!matches!(node.kind, VmRetainPlanKind::SelfOwnedIdentity))
             }
-            VmCalleeOwnerDemand::ProjectedField(_) => match &node.kind {
-                VmRetainPlanKind::OwnedFields(edges) => {
-                    for edge in edges {
-                        if !matches!(
-                            self.retain_plan(edge.child)?.kind,
-                            VmRetainPlanKind::SelfOwnedIdentity
-                        ) {
-                            return Ok(true);
-                        }
-                    }
-                    Ok(false)
-                }
-                VmRetainPlanKind::SelfOwnedIdentity | VmRetainPlanKind::OwnedVariants(_) => {
-                    Err(ExecutionError::InvalidClosureAdapterExecution {
-                        details: "projected-field demand has a non-product retain root",
-                    })
-                }
-            },
             VmCalleeOwnerDemand::Borrow => Err(ExecutionError::InvalidClosureAdapterExecution {
                 details: "borrowed adapter slot unexpectedly carries a retain action",
             }),

@@ -24,7 +24,7 @@ mod param;
 mod tests;
 
 pub use context::{ContextBehavior, ContextRegion};
-pub use param::{CalleeOwnerDemand, CalleeOwnerDemandConflict, ParamContract, ReturnAliasShape};
+pub use param::{CalleeOwnerDemand, ParamContract, ReturnAliasShape};
 
 use super::lattice::{AccessClass, Cardinality, Consumption, Locality, ShapeClass, Uniqueness};
 use crate::ir::{ArcFunction, ArcInstr, ArcParam, ArcTerminator};

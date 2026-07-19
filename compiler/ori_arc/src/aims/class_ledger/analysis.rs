@@ -53,10 +53,6 @@ pub(crate) struct ClassLedgerAnalysis {
     /// A heap arg handed through an indirect call (unmodeled ownership;
     /// per the classification flag) — the replacement gate declines.
     pub(crate) indirect_arg_handoff: bool,
-    /// A called direct boundary needs an owner-credit shape the planner cannot
-    /// represent without changing the caller's release obligation.
-    #[cfg(test)]
-    pub(crate) boundary_owner_demand_unrepresentable: bool,
     /// Every variable excluded under the classifier's own semantics (per
     /// the classification flag) — the zero-class empty plan is admitted.
     pub(crate) all_vars_excluded: bool,
@@ -327,8 +323,7 @@ pub(crate) fn analyze_class_ledger(
         hazard::HazardCureState::new(partition, &mut classes, &mut verdicts, &mut declined);
     let uncured = hazard::cure_endangered_views(&cure_inputs, &mut cure_state, &hazards);
     let field_view_hazard = !uncured.is_empty();
-    let all_classes_clean = !classification.boundary_owner_demand_unrepresentable
-        && declined.is_empty()
+    let all_classes_clean = declined.is_empty()
         && verdicts
             .iter()
             .all(|&(_, verdict)| verdict == ClassVerdict::Clean);
@@ -341,8 +336,6 @@ pub(crate) fn analyze_class_ledger(
         },
         field_view_hazard,
         indirect_arg_handoff: classification.indirect_arg_handoff,
-        #[cfg(test)]
-        boundary_owner_demand_unrepresentable: classification.boundary_owner_demand_unrepresentable,
         all_vars_excluded: classification.all_vars_excluded,
         consume_covered: classification.consume_covered.clone(),
         copy_out_covered: rustc_hash::FxHashSet::default(),

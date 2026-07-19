@@ -69,6 +69,9 @@ impl Parser<'_> {
                 } else if self.cursor.check(&TokenKind::RBrace) || self.cursor.is_at_end() {
                     // Expression at end without `;` → this is the result
                     last_expr = Some(expr);
+                } else if self.cursor.previous_non_newline_is_rbrace() {
+                    let expr_span = self.arena.get_expr(expr).span;
+                    stmts.push(Stmt::new(StmtKind::Expr(expr), expr_span));
                 } else {
                     let unexpected = self.cursor.current_kind().display_name();
                     return ParseOutcome::consumed_err(

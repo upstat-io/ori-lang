@@ -244,10 +244,6 @@ fn param_contract_for(i: usize, state: &AimsState, facts: &ParamFacts) -> ParamC
         // MUTATOR-only refinement (excludes the builtin `iter`) — the
         // borrowed-`Invoke` lineage gate (c3) declines on it.
         borrowed_cow_mutated: facts.borrowed_cow_mutated.contains(&i),
-        // A borrowed Project -> @iter -> iter_drop path funds itself with a
-        // callee-local retain; it does not transfer the aggregate's field
-        // credit across the call boundary.
-        iter_consumes_projected_field: None,
     }
 }
 

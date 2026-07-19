@@ -5,7 +5,9 @@ use ori_registry::{OpStrategy, PrimitiveAllocationEffect, RuntimeOperator};
 use ori_types::Idx;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::aims::contract::{ContextRegion, FipContract, MemoryAccessClass, MemoryContract};
+use crate::aims::contract::{
+    CalleeOwnerDemand, ContextRegion, FipContract, MemoryAccessClass, MemoryContract,
+};
 use crate::aims::intraprocedural::analyze_function;
 use crate::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
@@ -436,9 +438,11 @@ fn borrowed_projected_iteration_does_not_transfer_aggregate_field_credit() {
         &interner,
     );
 
+    assert!(!contract.params[0].iter_consumes);
     assert_eq!(
-        contract.params[0].iter_consumes_projected_field, None,
-        "iterator drop consumes the callee's retain, not the aggregate's original field credit"
+        contract.params[0].callee_owner_demand(),
+        CalleeOwnerDemand::Borrow,
+        "iterator drop consumes its own retained projection, not aggregate owner credit"
     );
 }
 
