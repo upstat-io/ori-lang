@@ -1,9 +1,8 @@
 //! String emission helpers for derived format codegen (Printable & Debug).
 //!
-//! Provides LLVM IR generation for string literals, concatenation, and
-//! field-to-string conversion. Used by `compile_format_fields()` to build
-//! formatted representations like `"TypeName(val1, val2)"` (Printable) or
-//! `"TypeName { f1: val1, f2: val2 }"` (Debug).
+//! Emits string literals, concatenation, and field conversion for Printable
+//! forms like `"TypeName(val1, val2)"` and Debug forms like
+//! `"TypeName { f1: val1, f2: val2 }"`.
 
 use ori_ir::DerivedTrait;
 use ori_types::Idx;
@@ -46,9 +45,8 @@ pub(super) fn emit_str_literal<'a>(
 /// (decrements RC on the data buffer), and seamless slices (finds original
 /// buffer). The `drop_fn` is null because strings contain no nested references.
 ///
-/// Used by `compile_format_fields` to clean up intermediate concatenation results
-/// that are overwritten and become unreachable. Without these calls, every
-/// intermediate string in the format loop leaks.
+/// Intermediate concatenation results require this decrement before overwrite;
+/// otherwise each heap-backed intermediate leaks.
 pub(super) fn emit_str_rc_dec<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     str_val: ValueId,

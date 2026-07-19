@@ -1,4 +1,4 @@
-use ori_ir::canon::{CanArena, CanExpr, CanNode, CanonResult};
+use ori_ir::canon::{CanArena, CanExpr, CanNode, CanonResult, IndexDispatch};
 use ori_ir::{Name, Span, StringInterner, TypeId};
 use ori_types::{Idx, Pool};
 
@@ -334,7 +334,7 @@ fn list_index_retains_unwind_carrier_without_lexical_catch() {
         CanExpr::Index {
             receiver,
             index,
-            producer: None,
+            dispatch: IndexDispatch::Builtin,
         },
         Span::new(0, 12),
         TypeId::from_raw(Idx::INT.raw()),
@@ -394,7 +394,7 @@ fn bound_var_index_without_selected_producer_retains_protocol_call() {
         CanExpr::Index {
             receiver,
             index,
-            producer: None,
+            dispatch: IndexDispatch::Deferred,
         },
         Span::DUMMY,
         TypeId::from_raw(Idx::INT.raw()),
@@ -455,7 +455,7 @@ fn concrete_user_index_without_selected_producer_reports_internal_error() {
         CanExpr::Index {
             receiver,
             index,
-            producer: None,
+            dispatch: IndexDispatch::Error,
         },
         Span::DUMMY,
         TypeId::from_raw(Idx::INT.raw()),
@@ -483,7 +483,7 @@ fn concrete_user_index_without_selected_producer_reports_internal_error() {
     assert!(matches!(
         problems.as_slice(),
         [super::super::ArcProblem::InternalError { message, .. }]
-            if message.contains("no type-checker-selected method producer")
+            if message.contains("invalid index dispatch")
     ));
 }
 
@@ -511,7 +511,7 @@ fn user_index_lowers_as_may_unwind_call_with_selected_producer() {
         CanExpr::Index {
             receiver,
             index,
-            producer: Some(selected),
+            dispatch: IndexDispatch::Selected(selected),
         },
         Span::DUMMY,
         TypeId::from_raw(Idx::INT.raw()),

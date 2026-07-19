@@ -99,12 +99,11 @@ pub fn resolve_derived_function_name<'a>(ir: &'a str, method_name: &str) -> &'a 
             continue;
         }
         if let Some(previous) = resolved {
-            if previous != symbol {
-                panic!(
-                    "multiple derived {method_name} functions found in IR: \
-                     {previous} and {symbol}"
-                );
-            }
+            assert!(
+                previous == symbol,
+                "multiple derived {method_name} functions found in IR: \
+                 {previous} and {symbol}"
+            );
         } else {
             resolved = Some(symbol);
         }
@@ -313,6 +312,7 @@ fn is_ssa_var_used_in(var_name: &str, line: &str) -> bool {
 /// Compile an Ori program to LLVM IR and return the IR text.
 ///
 /// Returns `Ok(ir_text)` on success, `Err(stderr)` on compilation failure.
+#[must_use = "success or failure must be handled"]
 pub fn compile_to_llvm_ir(source: &str) -> Result<String, String> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -343,32 +343,4 @@ pub fn compile_to_llvm_ir(source: &str) -> Result<String, String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{extract_function_ir, resolve_derived_function_name, resolve_function_attrs};
-
-    #[test]
-    fn derived_function_lookup_reaches_quoted_artifact_body_and_attributes() {
-        let ir = r#"
-define i1 @_ori_main() #0 {
-entry:
-  %result = call fastcc i1 @"_ori_eq$24derived$240"(ptr null, ptr null)
-  ret i1 %result
-}
-
-define fastcc i1 @"_ori_eq$24derived$240"(ptr %left, ptr %right) #1 {
-entry:
-  ret i1 true
-}
-
-attributes #0 = { nounwind }
-attributes #1 = { nounwind }
-"#;
-
-        let symbol = resolve_derived_function_name(ir, "eq");
-        assert_eq!(symbol, "_ori_eq$24derived$240");
-        let body = extract_function_ir(ir, symbol);
-        assert!(body.contains("ret i1 true"));
-        assert!(!body.contains("call fastcc"));
-        assert!(resolve_function_attrs(ir, symbol).contains("nounwind"));
-    }
-}
+mod tests;

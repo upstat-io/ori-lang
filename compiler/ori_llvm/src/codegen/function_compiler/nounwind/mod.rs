@@ -11,16 +11,13 @@
 //!
 //! # Known limitations
 //!
-//! Impl methods are compiled via the old immediate-emit path
-//! ([`FunctionCompiler::emit_arc_function`]) **before** the two-pass analysis
-//! runs. This means impl methods calling monomorphized generic functions will
-//! use `invoke` instead of `call`, even if the callee is trivially nounwind.
-//! This is safe (using `invoke` is always correct) but generates unnecessary
-//! overhead. A future refactor could fold impl methods into the two-pass batch.
+//! Impl methods use [`FunctionCompiler::emit_arc_function`] before the two-pass
+//! analysis. Calls from impl methods to monomorphized generic functions
+//! therefore use the conservative `invoke` form even for nounwind callees.
 //!
 //! # Derived methods
 //!
-//! Legacy derived methods are emitted by `derive_codegen`; closed-executable
+//! Open-world derived methods are emitted by `derive_codegen`; closed-executable
 //! derived artifact bodies enter this two-pass pipeline. Both paths use
 //! `DerivedTrait::is_nounwind_derived()` so Printable and Debug stay
 //! conservatively may-unwind.
@@ -34,25 +31,10 @@
 
 mod analyze;
 mod emit;
+mod policy;
 mod prepare;
 mod types;
 
-pub use types::PreparedFunction;
+pub use types::{NounwindAnalyzedFunctions, PreparedFunction};
 
-fn derived_artifact_allows_nounwind(name: &str) -> bool {
-    ori_ir::DerivedTrait::from_executable_body_name(name)
-        .is_none_or(|(trait_kind, _)| trait_kind.is_nounwind_derived())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::derived_artifact_allows_nounwind;
-
-    #[test]
-    fn derived_artifact_nounwind_policy_uses_trait_metadata() {
-        assert!(derived_artifact_allows_nounwind("eq$derived$0"));
-        assert!(!derived_artifact_allows_nounwind("to_str$derived$1"));
-        assert!(!derived_artifact_allows_nounwind("debug$derived$2"));
-        assert!(derived_artifact_allows_nounwind("ordinary_function"));
-    }
-}
+use policy::derived_artifact_allows_nounwind;

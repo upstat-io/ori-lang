@@ -1,4 +1,5 @@
-//! String iteration, comparison (incl. list/map deep-eq), operations, property access, conversion, debug formatting, methods.
+//! Runtime declarations for string iteration, comparison, property access,
+//! conversion, formatting, and methods, including deep list/map equality.
 
 use super::super::types::{Attr, RtFn, Ty};
 

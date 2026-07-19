@@ -6,15 +6,15 @@
 use std::cell::{Cell, RefCell};
 
 use inkwell::types::{BasicTypeEnum, StructType};
-use rustc_hash::{FxHashMap, FxHashSet};
-
 use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Tag};
+use rustc_hash::{FxHashMap, FxHashSet};
+
+use crate::context::SimpleCx;
 
 use super::store::TypeInfoStore;
 use super::type_size::{select_shared_payload_arm, SharedPayloadArm};
 use super::TypeInfo;
-use crate::context::SimpleCx;
 
 /// Resolves `Idx` → `BasicTypeEnum` with cycle-safe two-phase struct creation.
 ///
@@ -24,10 +24,7 @@ use crate::context::SimpleCx;
 /// 2. Recursively resolve field types (which may reference `%Tree`)
 /// 3. Fill the struct body (`%Tree = type { i8, [2 x i64] }`)
 ///
-/// This follows the same pattern used by:
-/// - Rust's `rustc_codegen_llvm` (`declare_type` → `define_type`)
-/// - Zig's `codegen/llvm.zig` (`lowerType` with `TypeMap`)
-/// - Roc's `gen_llvm/src/llvm/convert.rs` (`basic_type_from_layout`)
+#[derive(Debug)]
 pub struct TypeLayoutResolver<'a, 'll, 'tcx> {
     /// Type info store for looking up `TypeInfo` by `Idx`.
     pub(super) store: &'a TypeInfoStore<'tcx>,
@@ -38,17 +35,17 @@ pub struct TypeLayoutResolver<'a, 'll, 'tcx> {
     /// When present, struct/enum types get meaningful LLVM names like `%ori.Point`.
     /// When absent (e.g., in unit tests), falls back to numeric IDs like `%ori.3`.
     interner: Option<&'a StringInterner>,
-    /// Representation plan from `ori_repr` (Phase A migration).
+    /// Representation plan from `ori_repr`.
     ///
     /// When present, type lookups consult the `ReprPlan` first for non-recursive
     /// types (primitives, fat pointers, opaque pointers). When absent (or when
     /// the plan has no entry for a type, or the type requires recursive
     /// resolution), falls back to `TypeInfoStore`.
     pub(super) repr_plan: Option<&'a ori_repr::ReprPlan>,
-    /// Types currently being resolved (cycle detection).
+    /// Active type-resolution stack for cycle detection.
     ///
-    /// When we encounter an `Idx` already in this set, we've found a cycle
-    /// and return the previously created opaque struct instead of recursing.
+    /// A repeated `Idx` denotes a cycle and resolves to its opaque struct
+    /// rather than recurring.
     pub(super) resolving: RefCell<FxHashSet<Idx>>,
     /// Resolved LLVM types cache.
     cache: RefCell<FxHashMap<Idx, BasicTypeEnum<'ll>>>,
@@ -64,18 +61,17 @@ pub struct TypeLayoutResolver<'a, 'll, 'tcx> {
 }
 
 impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
+    /// Maximum recursion depth for type resolution.
+    ///
+    /// Catches indirect cycles (different Idx values for the same conceptual
+    /// type) and prevents stack overflow from deeply nested types.
+    const MAX_RESOLVE_DEPTH: u32 = 32;
+
     /// Create a new resolver.
     ///
     /// Pass an `interner` to get human-readable LLVM type names (e.g., `%ori.Point`).
     /// Without it, types get numeric names (e.g., `%ori.3`).
-    /// Access the representation plan (if available).
-    ///
-    /// Used by `ArcIrEmitter` (Phase B) to query per-variable ranges for
-    /// local variable narrowing.
-    pub fn repr_plan(&self) -> Option<&'a ori_repr::ReprPlan> {
-        self.repr_plan
-    }
-
+    #[must_use]
     pub fn new(
         store: &'a TypeInfoStore<'tcx>,
         scx: &'a SimpleCx<'ll>,
@@ -94,16 +90,47 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         }
     }
 
+    /// Access the representation plan, when one was supplied.
+    #[must_use = "the absence of a value must be handled"]
+    pub fn repr_plan(&self) -> Option<&'a ori_repr::ReprPlan> {
+        self.repr_plan
+    }
+
+    /// Access the underlying `TypeInfoStore`.
+    pub fn store(&self) -> &'a TypeInfoStore<'tcx> {
+        self.store
+    }
+
+    /// Look up a resolved named struct for a given `Idx`.
+    #[must_use = "the absence of a value must be handled"]
+    pub fn get_named_struct(&self, idx: Idx) -> Option<StructType<'ll>> {
+        self.named_structs.borrow().get(&idx).copied()
+    }
+
+    /// Whether the position inside `owner_idx` is an RC-boxed recursive edge.
+    pub(super) fn position_is_rc_boxed(&self, owner_idx: Idx, field_ty: Idx) -> bool {
+        super::repr_box_oracle::position_is_rc_boxed(self.store.pool(), owner_idx, field_ty)
+    }
+
+    /// Whether the `Option` payload is an RC-boxed recursive edge.
+    pub(super) fn option_payload_is_rc_boxed(&self, idx: Idx) -> bool {
+        super::repr_box_oracle::option_payload_is_rc_boxed(self.store.pool(), idx)
+    }
+
+    /// Whether the `Result` success payload is an RC-boxed recursive edge.
+    pub(super) fn result_ok_is_rc_boxed(&self, idx: Idx) -> bool {
+        super::repr_box_oracle::result_ok_is_rc_boxed(self.store.pool(), idx)
+    }
+
+    /// Whether the `Result` error payload is an RC-boxed recursive edge.
+    pub(super) fn result_err_is_rc_boxed(&self, idx: Idx) -> bool {
+        super::repr_box_oracle::result_err_is_rc_boxed(self.store.pool(), idx)
+    }
+
     /// Resolve an `Idx` to its LLVM type, handling recursive types correctly.
     ///
     /// For non-recursive types this delegates to `TypeInfo::storage_type`.
     /// For structs and enums it uses two-phase creation with cycle detection.
-    /// Maximum recursion depth for type resolution.
-    ///
-    /// Catches indirect cycles (different Idx values for the same conceptual
-    /// type) and prevents stack overflow from deeply nested types.
-    const MAX_RESOLVE_DEPTH: u32 = 32;
-
     pub fn resolve(&self, idx: Idx) -> BasicTypeEnum<'ll> {
         // Sentinel
         if idx == Idx::NONE {
@@ -137,11 +164,12 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         resolved
     }
 
-    // `try_repr_to_llvm_type` and `try_lower_narrowed_aggregate` are defined in
-    // `type_info/repr_lowering.rs` (same `impl TypeLayoutResolver` block).
-    // Enum resolution methods (resolve_enum, resolve_enum_explicit,
-    // resolve_enum_tagless, resolve_enum_niche, is_non_void_field)
-    // live in `type_info/enum_layout.rs`.
+    /// Approximate store size of an LLVM type in bytes.
+    ///
+    /// Delegates to [`super::type_size::type_store_size`].
+    pub(crate) fn type_store_size(ty: BasicTypeEnum<'ll>) -> u64 {
+        super::type_size::type_store_size(ty)
+    }
 
     /// Inner resolve implementation, separated for depth guard.
     fn resolve_inner(&self, idx: Idx) -> BasicTypeEnum<'ll> {
@@ -338,7 +366,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                 s.fields
                     .iter()
                     .map(|f| {
-                        // Match by field name for robustness across Pool entries.
+                        // Why: Pool entries may store the same fields in different orders.
                         let ty = fields
                             .iter()
                             .find(|(n, _)| *n == f.name)
@@ -383,31 +411,6 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         self.resolve(element_ty)
     }
 
-    /// Boxing SSOT: whether the position inside `owner_idx` holding `field_ty`
-    /// is a boxed recursive back-edge (lowers to `ptr`).
-    pub(super) fn position_is_rc_boxed(&self, owner_idx: Idx, field_ty: Idx) -> bool {
-        super::repr_box_oracle::position_is_rc_boxed(self.store.pool(), owner_idx, field_ty)
-    }
-
-    /// Whether the `Option` Some payload at `idx` is a boxed recursive back-edge.
-    pub(super) fn option_payload_is_rc_boxed(&self, idx: Idx) -> bool {
-        super::repr_box_oracle::option_payload_is_rc_boxed(self.store.pool(), idx)
-    }
-
-    /// Whether the `Result` Ok payload at `idx` is a boxed recursive back-edge.
-    pub(super) fn result_ok_is_rc_boxed(&self, idx: Idx) -> bool {
-        super::repr_box_oracle::result_ok_is_rc_boxed(self.store.pool(), idx)
-    }
-
-    /// Whether the `Result` Err payload at `idx` is a boxed recursive back-edge.
-    pub(super) fn result_err_is_rc_boxed(&self, idx: Idx) -> bool {
-        super::repr_box_oracle::result_err_is_rc_boxed(self.store.pool(), idx)
-    }
-
-    // Enum resolution methods (resolve_enum, resolve_enum_explicit,
-    // resolve_enum_tagless, resolve_enum_niche, is_non_void_field)
-    // live in enum_layout.rs.
-
     /// Get a human-readable name for an LLVM named struct.
     pub(super) fn type_name(&self, idx: Idx, fallback: &str) -> String {
         let pool = self.store.pool();
@@ -437,22 +440,5 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             }
         }
         name.raw().to_string()
-    }
-
-    /// Approximate store size of an LLVM type in bytes.
-    ///
-    /// Delegates to [`super::type_size::type_store_size`].
-    pub(crate) fn type_store_size(ty: BasicTypeEnum<'ll>) -> u64 {
-        super::type_size::type_store_size(ty)
-    }
-
-    /// Access the underlying `TypeInfoStore`.
-    pub fn store(&self) -> &'a TypeInfoStore<'tcx> {
-        self.store
-    }
-
-    /// Look up a resolved named struct for a given `Idx`.
-    pub fn get_named_struct(&self, idx: Idx) -> Option<StructType<'ll>> {
-        self.named_structs.borrow().get(&idx).copied()
     }
 }

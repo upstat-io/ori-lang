@@ -23,10 +23,7 @@
 
 use std.testing { assert_eq }
 
-// =============================================================================
 // Type dimension — unique receiver, pair concat (the minimal repro per type)
-// =============================================================================
-
 @concat_int () -> [int] = {
     let $a = [1, 2];
     let $b = [3, 4];
@@ -103,10 +100,7 @@ type Holder = { tag: str, items: [int] }
     assert_eq(actual: concat_struct()[1].items, expected: [3])
 }
 
-// =============================================================================
 // Arrangement dimension
-// =============================================================================
-
 // Chained: intermediate concat result becomes the receiver of the next concat.
 @concat_chained () -> [int] = {
     let $a = [1, 2];
@@ -151,11 +145,7 @@ type Holder = { tag: str, items: [int] }
     assert_eq(actual: concat_literal_receiver(), expected: [1, 2, 3, 4])
 }
 
-// =============================================================================
-// Uniqueness CLAMP — shared receiver forces the slow path on BOTH backends.
-// Must remain leak-free: pins that the fix keeps the legitimate slow path
-// correct, not merely that it restores the fast path.
-// =============================================================================
+// A shared receiver forces the slow path and must remain leak-free.
 
 @concat_shared_receiver () -> [int] = {
     let $a = [1, 2];
@@ -168,13 +158,10 @@ type Holder = { tag: str, items: [int] }
     assert_eq(actual: concat_shared_receiver(), expected: [1, 2, 3, 4, 1, 2, 5, 6])
 }
 
-// =============================================================================
 // Slice-receiver CLAMP — a real seamless slice legitimately sets is_slice_cap
 // and legitimately takes the slow path. Must produce the correct result and be
 // leak-free: the cap must load as a real slice and its consumed reference must
 // release the original buffer through the slice-aware lifecycle.
-// =============================================================================
-
 @concat_slice_receiver () -> [int] = {
     let $a = [10, 20, 30, 40];
     let $s = a.slice(start: 1, end: 3);
@@ -186,12 +173,9 @@ type Holder = { tag: str, items: [int] }
     assert_eq(actual: concat_slice_receiver(), expected: [20, 30, 99])
 }
 
-// =============================================================================
 // Slice-argument CLAMP — the `other` operand is a real slice. Symmetric to the
 // slice-receiver clamp: `cap2` extracts through the same aggregate path as
 // `cap1`, and consuming it must also release the original slice allocation.
-// =============================================================================
-
 @concat_slice_arg () -> [int] = {
     let $a = [1, 2];
     let $b = [10, 20, 30, 40];
@@ -203,10 +187,7 @@ type Holder = { tag: str, items: [int] }
     assert_eq(actual: concat_slice_arg(), expected: [1, 2, 20, 30])
 }
 
-// =============================================================================
 // Closure capture — concat inside a lambda that captures a list by value.
-// =============================================================================
-
 @concat_in_closure () -> [int] = {
     let $base = [1, 2];
     let $f = (x: [int]) -> base.concat(other: x);
@@ -217,11 +198,8 @@ type Holder = { tag: str, items: [int] }
     assert_eq(actual: concat_in_closure(), expected: [1, 2, 3, 4])
 }
 
-// =============================================================================
 // Error path — concat on a value obtained via `?` (propagated to the
 // Result-returning function).
-// =============================================================================
-
 @make_tail () -> Result<[int], str> = Ok([3, 4]);
 
 @concat_error_path () -> Result<[int], str> = {
@@ -234,12 +212,8 @@ type Holder = { tag: str, items: [int] }
     assert_eq(actual: concat_error_path().unwrap(), expected: [1, 2, 3, 4])
 }
 
-// =============================================================================
 // Loop back-edge — concat reassigning a mutable accumulator across iterations.
-// The loop back-edge is the #1 ARC-bug source for list operations.
-// Ordered LAST: pre-fix the mis-directed dec corrupts the reused heap and
-// SIGSEGVs on the JIT path — a stronger manifestation of the same cap mis-load.
-// =============================================================================
+// Incorrect capacity ownership on this path corrupts the reused JIT heap.
 
 @concat_in_loop () -> [int] = {
     let $parts = [[1, 2], [3, 4], [5, 6]];

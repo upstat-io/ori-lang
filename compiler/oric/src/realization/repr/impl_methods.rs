@@ -6,7 +6,9 @@ use oric::ir::{Name, StringInterner};
 use oric::parser::ParseOutput;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::{method_receiver_key, ImplLoweringInputs, ImplLoweringOutputs, ImplMethodAnalysis};
+use super::{
+    method_receiver_key, DispatchTier, ImplLoweringInputs, ImplLoweringOutputs, ImplMethodAnalysis,
+};
 
 /// ARC-lower impl methods for closed-program representation and AIMS analysis.
 ///
@@ -22,6 +24,7 @@ use super::{method_receiver_key, ImplLoweringInputs, ImplLoweringOutputs, ImplMe
 ///
 /// The realized bodies become executable-artifact members and are the bodies
 /// consumed by physical backends.
+#[must_use = "success or failure must be handled"]
 pub(crate) fn lower_impl_methods_for_analysis(
     parse_result: &ParseOutput,
     type_result: &TypeCheckResult,
@@ -191,12 +194,14 @@ fn lower_declared_impl_methods(
                     qualified_name,
                 ));
         }
-        outputs.dispatch.record(
-            recv_key,
-            method.name,
-            qualified_name,
-            impl_def.trait_path.is_none(),
-        );
+        let tier = if impl_def.trait_path.is_none() {
+            DispatchTier::Inherent
+        } else {
+            DispatchTier::Trait
+        };
+        outputs
+            .dispatch
+            .record(recv_key, method.name, qualified_name, tier);
         record_producer_target(outputs, method_id, qualified_name, method.span);
         outputs.emission_names.push(Some(qualified_name));
         let mut context = crate::arc_lowering::ArcLoweringContext {
@@ -320,9 +325,12 @@ fn lower_default_trait_methods(
                             qualified_name,
                         ));
                 }
-                outputs
-                    .dispatch
-                    .record(recv_key, default.name, qualified_name, false);
+                outputs.dispatch.record(
+                    recv_key,
+                    default.name,
+                    qualified_name,
+                    DispatchTier::Trait,
+                );
                 record_producer_target(outputs, method_id, qualified_name, default.span);
                 outputs.emission_names.push(Some(qualified_name));
                 let mut context = crate::arc_lowering::ArcLoweringContext {

@@ -14,6 +14,7 @@
 mod cfg_region;
 mod incs;
 mod merge_equalize;
+mod release_subject;
 mod releases;
 
 pub(crate) use cfg_region::CycleRegions;
@@ -120,7 +121,7 @@ pub(crate) fn plan_class(
     seed_ops: &[PlannedOp],
 ) -> ClassOutcome {
     let dom_early = crate::graph::DominatorTree::build(func);
-    let release_ctx = releases::ReleaseCtx::new(func, &dom_early);
+    let release_ctx = release_subject::ReleaseCtx::new(func, &dom_early);
     if seed_ops.is_empty() && births_only(events) {
         // RL-2 unused-owned / RL-5 dead-at-entry: a class whose only events
         // are births (no demand, no credits — a credit is itself a live use
@@ -158,8 +159,8 @@ pub(crate) fn plan_class(
     // still sees the funded reads. The seed set closes over `Let { Var }`
     // aliases: a read through an alias of the seeded var reads the SAME
     // seed-funded reference.
-    let seed_vars: rustc_hash::FxHashSet<ArcVarId> =
-        close_over_let_aliases(func, seed_ops.iter().map(|op| op.var).collect());
+    let alias_flow = AliasFlowGraph::new(func);
+    let seed_vars = alias_flow.close_let_aliases(seed_ops.iter().map(|op| op.var));
     let demand_seed = if seed_vars.is_empty() {
         event_blocks(events, true)
     } else {
@@ -230,9 +231,9 @@ pub(crate) fn plan_class(
             regions,
             events,
             activity_live: &activity_live,
-            full_closure,
             entry_net: &nets.entry_net,
             delta: &delta,
+            full_closure,
         },
         &mut ops,
     )
@@ -260,74 +261,117 @@ pub(crate) fn plan_class(
     ClassOutcome::Planned(ops)
 }
 
-/// Close `vars` over `Let { Var }` aliases AND `Project` results — the
-/// BORROW-VIEW closure: a projection of a borrowed-rooted value views the
-/// same caller-owned allocation tree (TF-4), so the callee releases nothing
-/// for it.
-pub(super) fn close_over_borrow_views(
-    func: &ArcFunction,
-    mut vars: rustc_hash::FxHashSet<ArcVarId>,
-) -> rustc_hash::FxHashSet<ArcVarId> {
-    use crate::ir::{ArcInstr, ArcValue};
-
-    if vars.is_empty() {
-        return vars;
-    }
-    loop {
-        let mut changed = false;
-        for arc_block in &func.blocks {
-            for instr in &arc_block.body {
-                let (dst, src) = match instr {
-                    ArcInstr::Let {
-                        dst,
-                        value: ArcValue::Var(src),
-                        ..
-                    } => (dst, src),
-                    ArcInstr::Project { dst, value, .. } => (dst, value),
-                    _ => continue,
-                };
-                if vars.contains(src) && vars.insert(*dst) {
-                    changed = true;
-                }
-            }
-        }
-        if !changed {
-            return vars;
-        }
-    }
+/// Forward variable-flow edges used by class-ledger alias closures.
+///
+/// The graph is built in one body scan. Each closure is then a worklist walk,
+/// avoiding a whole-function re-scan for every newly discovered alias or seed.
+pub(super) struct AliasFlowGraph {
+    lets: Vec<Vec<ArcVarId>>,
+    projects: Vec<Vec<ArcVarId>>,
+    jumps: Vec<Vec<ArcVarId>>,
 }
 
-/// The transitive `Let { Var }` alias closure of `vars`: every binding
-/// renaming a member of the set joins it (fixpoint over the body streams —
-/// forward block order does not bound alias chains threaded through jumps).
-pub(super) fn close_over_let_aliases(
-    func: &ArcFunction,
-    mut vars: rustc_hash::FxHashSet<ArcVarId>,
-) -> rustc_hash::FxHashSet<ArcVarId> {
-    use crate::ir::{ArcInstr, ArcValue};
+impl AliasFlowGraph {
+    pub(super) fn new(func: &ArcFunction) -> Self {
+        use crate::ir::{ArcInstr, ArcTerminator, ArcValue};
 
-    if vars.is_empty() {
-        return vars;
-    }
-    loop {
-        let mut changed = false;
-        for arc_block in &func.blocks {
-            for instr in &arc_block.body {
-                let ArcInstr::Let {
-                    dst,
-                    value: ArcValue::Var(src),
-                    ..
-                } = instr
-                else {
-                    continue;
-                };
-                if vars.contains(src) && vars.insert(*dst) {
-                    changed = true;
+        let mut let_edges = vec![Vec::new(); func.var_types.len()];
+        let mut project_edges = vec![Vec::new(); func.var_types.len()];
+        let mut jump_edges = vec![Vec::new(); func.var_types.len()];
+
+        for block in &func.blocks {
+            for instruction in &block.body {
+                match instruction {
+                    ArcInstr::Let {
+                        dst,
+                        value: ArcValue::Var(source),
+                        ..
+                    } => let_edges[source.index()].push(*dst),
+                    ArcInstr::Project {
+                        dst, value: source, ..
+                    } => project_edges[source.index()].push(*dst),
+                    _ => {}
                 }
             }
+
+            let ArcTerminator::Jump { target, args } = &block.terminator else {
+                continue;
+            };
+            let Some(target_block) = func.blocks.get(target.index()) else {
+                continue;
+            };
+            for (argument, &(parameter, _)) in args.iter().zip(&target_block.params) {
+                jump_edges[argument.index()].push(parameter);
+            }
         }
-        if !changed {
-            return vars;
+
+        Self {
+            lets: let_edges,
+            projects: project_edges,
+            jumps: jump_edges,
+        }
+    }
+
+    pub(super) fn close_let_aliases(
+        &self,
+        seeds: impl IntoIterator<Item = ArcVarId>,
+    ) -> rustc_hash::FxHashSet<ArcVarId> {
+        self.close(seeds, false, false)
+    }
+
+    pub(super) fn close_borrow_views(
+        &self,
+        seeds: impl IntoIterator<Item = ArcVarId>,
+    ) -> rustc_hash::FxHashSet<ArcVarId> {
+        self.close(seeds, true, false)
+    }
+
+    pub(super) fn close_let_aliases_and_jumps(
+        &self,
+        seeds: impl IntoIterator<Item = ArcVarId>,
+    ) -> rustc_hash::FxHashSet<ArcVarId> {
+        self.close(seeds, false, true)
+    }
+
+    fn close(
+        &self,
+        seeds: impl IntoIterator<Item = ArcVarId>,
+        include_projects: bool,
+        include_jumps: bool,
+    ) -> rustc_hash::FxHashSet<ArcVarId> {
+        let mut closure = rustc_hash::FxHashSet::default();
+        let mut pending = Vec::new();
+        for seed in seeds {
+            if closure.insert(seed) {
+                pending.push(seed);
+            }
+        }
+
+        while let Some(source) = pending.pop() {
+            Self::extend_closure(&self.lets, source, &mut closure, &mut pending);
+            if include_projects {
+                Self::extend_closure(&self.projects, source, &mut closure, &mut pending);
+            }
+            if include_jumps {
+                Self::extend_closure(&self.jumps, source, &mut closure, &mut pending);
+            }
+        }
+        closure
+    }
+
+    fn extend_closure(
+        edges: &[Vec<ArcVarId>],
+        source: ArcVarId,
+        closure: &mut rustc_hash::FxHashSet<ArcVarId>,
+        pending: &mut Vec<ArcVarId>,
+    ) {
+        let Some(destinations) = edges.get(source.index()) else {
+            return;
+        };
+        for &destination in destinations {
+            if closure.insert(destination) {
+                pending.push(destination);
+            }
         }
     }
 }

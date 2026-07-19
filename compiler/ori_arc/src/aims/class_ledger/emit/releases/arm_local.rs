@@ -28,10 +28,10 @@ pub(in super::super::super) fn pair_arm_local_seed_releases(
         .filter(|op| op.kind == PlannedOpKind::Inc)
         .cloned()
         .collect();
+    let alias_flow = super::super::AliasFlowGraph::new(func);
     for seed in seeds {
         let block = seed.slot.block();
-        let closure =
-            super::super::close_over_let_aliases(func, std::iter::once(seed.var).collect());
+        let closure = alias_flow.close_let_aliases(std::iter::once(seed.var));
         let mut last_body: Option<usize> = None;
         let mut terminator_read = false;
         let mut arm_local = true;

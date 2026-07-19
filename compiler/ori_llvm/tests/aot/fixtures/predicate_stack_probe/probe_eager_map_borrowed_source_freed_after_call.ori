@@ -1,0 +1,5 @@
+@main () -> int = {
+    let nums: [int] = [1, 2, 3];
+    let doubled: [int] = nums.map(transform: x -> x * 2);
+    if doubled.len() == 3 then 0 else 1
+}

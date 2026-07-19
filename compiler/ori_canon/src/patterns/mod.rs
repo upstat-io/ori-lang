@@ -76,7 +76,7 @@ fn flatten_arm_pattern(
     }
 
     let ctx = decision_tree::flatten::FlattenCtx::new(lowerer.src, lowerer.pool, lowerer.interner);
-    ctx.flatten(pattern, scrutinee_ty)
+    ctx.to_flat_pattern(pattern, scrutinee_ty)
 }
 
 /// Compile multi-clause function parameter patterns into a decision tree.

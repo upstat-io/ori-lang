@@ -14,16 +14,9 @@ use super::super::infer_expr;
 
 /// Infer the type of a field access expression: `receiver.field`.
 ///
-/// Handles:
-/// - Tuple field access by numeric index (`.0`, `.1`, etc.)
-/// - Struct field access by name (`.x`, `.name`)
-/// - Generic struct field access with type parameter substitution
-/// - Module namespace access (`Counter.new`)
-///
-/// For unresolved type variables, returns a fresh variable to defer resolution.
-/// For error types, propagates ERROR silently. For types where field access
-/// is genuinely unsupported (primitives, functions, etc.), returns ERROR
-/// without reporting an error — method resolution may handle these separately.
+/// Resolves tuple indices, generic struct fields, and module namespaces.
+/// Unresolved receivers remain deferred; unsupported receivers return `ERROR`
+/// so method or namespace resolution can diagnose them later.
 pub(crate) fn infer_field(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -36,7 +29,6 @@ pub(crate) fn infer_field(
 
     match engine.pool().tag(resolved) {
         Tag::Tuple => {
-            // Tuple field access: `.0`, `.1`, etc.
             let Some(field_str) = engine.lookup_name(field) else {
                 return Idx::ERROR;
             };
@@ -75,11 +67,10 @@ pub(crate) fn infer_field(
             infer_struct_field(engine, type_name, Some(type_args), field, span)
         }
 
-        // Unresolved type variable — return fresh var to defer resolution
-        // (following V1 pattern: the actual field type will be resolved later)
+        // Why: A fresh variable preserves unresolved access for later unification.
         Tag::Var => engine.fresh_var(),
 
-        // Error type has field-like accessors (Spec: Clause 8 — Error = { message: str })
+        // Spec: Clause 8 defines `Error.message` as `str`.
         Tag::Error => {
             let field_str = engine.lookup_name(field).unwrap_or("");
             match field_str {
@@ -88,10 +79,7 @@ pub(crate) fn infer_field(
             }
         }
 
-        // Unsupported types for field access — return ERROR silently.
-        // Don't report errors here since module namespace access
-        // (e.g., `Counter.new`) and other patterns may reach this point
-        // and would require method/namespace resolution to diagnose properly.
+        // Why: Method and namespace resolution diagnose unsupported receivers later.
         _ => Idx::ERROR,
     }
 }
@@ -103,7 +91,7 @@ pub(crate) fn infer_field(
 /// fully registered (e.g., from other modules).
 ///
 /// Only reports errors when the struct is known but the field doesn't exist —
-/// a case where we can give a definitive, useful error message.
+/// a case with a definitive missing-field diagnosis.
 pub(crate) fn infer_struct_field(
     engine: &mut InferEngine<'_>,
     type_name: Name,
@@ -116,14 +104,13 @@ pub(crate) fn infer_struct_field(
     };
 
     let Some(entry) = type_registry.get_by_name(type_name).cloned() else {
-        return Idx::ERROR; // Not registered — likely imported
+        return Idx::ERROR;
     };
 
     let TypeKind::Struct(struct_def) = &entry.kind else {
-        return Idx::ERROR; // Enum/newtype/alias — not a struct
+        return Idx::ERROR;
     };
 
-    // Find the field
     let Some(field_def) = struct_def.fields.iter().find(|f| f.name == field).cloned() else {
         let available: Vec<Name> = struct_def.fields.iter().map(|f| f.name).collect();
         let receiver_idx = engine.pool_mut().named(type_name);
@@ -136,7 +123,6 @@ pub(crate) fn infer_struct_field(
         return Idx::ERROR;
     };
 
-    // Substitute type parameters for generic structs
     if let Some(args) = type_args {
         if !entry.type_params.is_empty() && args.len() == entry.type_params.len() {
             let subst: FxHashMap<Name, Idx> = entry
@@ -156,6 +142,7 @@ pub(crate) fn infer_struct_field(
 ///
 /// Returns a `Name -> Idx` map of field types if the type is a known struct
 /// in the registry. Returns `None` for unknown or non-struct types.
+#[must_use = "the absence of a value must be handled"]
 pub(crate) fn lookup_struct_field_types(
     engine: &mut InferEngine<'_>,
     type_name: Name,
@@ -210,56 +197,74 @@ pub(crate) fn infer_index(
     index: ExprId,
     span: Span,
 ) -> Idx {
+    // INVARIANT: Every successful route replaces this fail-closed dispatch entry.
+    engine.record_index_dispatch(expr_id, crate::IndexDispatchSelection::Error);
     let receiver_ty = infer_expr(engine, arena, receiver);
     let index_ty = infer_expr(engine, arena, index);
     let resolved = engine.resolve(receiver_ty);
 
     match engine.pool().tag(resolved) {
         Tag::List => {
+            engine.record_index_dispatch(expr_id, crate::IndexDispatchSelection::Builtin);
             let elem_ty = engine.pool().list_elem(resolved);
-            let _ = engine.unify_types(index_ty, Idx::INT);
+            check_index_key_type(engine, arena, index, index_ty, Idx::INT, span);
             elem_ty
         }
 
         Tag::Map => {
+            engine.record_index_dispatch(expr_id, crate::IndexDispatchSelection::Builtin);
             let key_ty = engine.pool().map_key(resolved);
             let value_ty = engine.pool().map_value(resolved);
-            let _ = engine.unify_types(index_ty, key_ty);
-            // Map indexing returns Option<V>
+            check_index_key_type(engine, arena, index, index_ty, key_ty, span);
             engine.pool_mut().option(value_ty)
         }
 
         Tag::Str => {
-            let _ = engine.unify_types(index_ty, Idx::INT);
+            engine.record_index_dispatch(expr_id, crate::IndexDispatchSelection::Builtin);
+            check_index_key_type(engine, arena, index, index_ty, Idx::INT, span);
             Idx::STR
         }
 
-        // Unresolved type variable — return fresh var
-        Tag::Var => engine.fresh_var(),
+        Tag::Var => {
+            engine.record_index_dispatch(expr_id, crate::IndexDispatchSelection::Deferred);
+            engine.fresh_var()
+        }
 
-        // Error type — propagate silently
         Tag::Error => Idx::ERROR,
 
-        // All other types: try Index trait dispatch
         _ => resolve_index_via_trait(engine, arena, expr_id, resolved, index_ty, index, span),
     }
+}
+
+fn check_index_key_type(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    index: ExprId,
+    actual: Idx,
+    required: Idx,
+    span: Span,
+) {
+    let expected = Expected {
+        ty: required,
+        origin: ExpectedOrigin::Context {
+            span,
+            kind: ContextKind::IndexKey,
+        },
+    };
+    let _checked_type = engine.check_type(actual, &expected, arena.get_expr(index).span);
 }
 
 #[derive(Clone)]
 struct IndexCandidate {
     signature: Idx,
-    has_self: bool,
     producer: crate::MethodProducer,
+    has_self: bool,
 }
 
-/// Try to resolve subscript indexing via `Index` trait dispatch.
+/// Resolve subscript indexing through `Index` trait dispatch.
 ///
-/// Iterates all `Index` trait impls for the receiver type and filters by
-/// key type compatibility. This handles the case where a type implements
-/// `Index` for multiple key types (e.g., `Index<int, V>` + `Index<str, V>`).
-///
-/// Follows the borrow-dance pattern: scope the `trait_registry()` borrow
-/// to extract candidate data, then use engine mutably for type checking.
+/// Candidate data is detached from the registry borrow before mutable type
+/// checking, then key compatibility disambiguates multiple implementations.
 fn resolve_index_via_trait(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -273,9 +278,7 @@ fn resolve_index_via_trait(
         return Idx::ERROR;
     };
 
-    // Scoped borrow: collect signatures together with their exact registered
-    // producer. Keeping only `(signature, has_self)` here previously erased the
-    // key-specific impl identity selected by this expression.
+    // Why: The registered producer preserves the key-specific impl identity.
     let candidates: Vec<IndexCandidate> = {
         let Some(trait_registry) = engine.trait_registry() else {
             return Idx::ERROR;
@@ -287,8 +290,8 @@ fn resolve_index_via_trait(
                 let producer = trait_registry.method_producer(impl_index, method)?;
                 Some(IndexCandidate {
                     signature: method.signature,
-                    has_self: method.has_self,
                     producer,
+                    has_self: method.has_self,
                 })
             })
             .collect()
@@ -299,7 +302,6 @@ fn resolve_index_via_trait(
         return Idx::ERROR;
     }
 
-    // Single candidate — use directly without key-type filtering
     if candidates.len() == 1 {
         return check_index_signature(
             engine,
@@ -312,7 +314,6 @@ fn resolve_index_via_trait(
         );
     }
 
-    // Multiple candidates — disambiguate by matching key type tags.
     let resolved_index = engine.resolve(index_ty);
     let index_tag = engine.pool().tag(resolved_index);
 
@@ -331,7 +332,6 @@ fn resolve_index_via_trait(
             }
             let key_resolved = engine.resolve(key_params[0]);
             let key_tag = engine.pool().tag(key_resolved);
-            // Match if key tags equal, or if either is a type variable (deferred)
             key_tag == index_tag || key_tag == Tag::Var || index_tag == Tag::Var
         })
         .collect();
@@ -386,16 +386,12 @@ fn check_index_signature(
         return Idx::ERROR;
     }
 
-    let expected = Expected {
-        ty: method_params[0],
-        origin: ExpectedOrigin::Context {
-            span,
-            kind: ContextKind::IndexKey,
-        },
-    };
-    let _ = engine.check_type(index_ty, &expected, arena.get_expr(index).span);
+    check_index_key_type(engine, arena, index, index_ty, method_params[0], span);
 
-    engine.record_index_dispatch(expr_id, candidate.producer);
+    engine.record_index_dispatch(
+        expr_id,
+        crate::IndexDispatchSelection::Selected(candidate.producer),
+    );
 
     ret
 }

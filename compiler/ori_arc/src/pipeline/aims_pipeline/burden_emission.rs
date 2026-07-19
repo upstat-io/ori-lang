@@ -77,13 +77,10 @@ pub(super) fn dump_after_class_ledger_emission_compat(
 
 #[cfg(test)]
 mod toggle_tests {
-    #[test]
-    fn burden_ops_toggle_reports_effect() {
-        crate::test_helpers::assert_ablation_env_event(
-            concat!(module_path!(), "::burden_ops_toggle_reports_effect"),
-            "ORI_DISABLE_BURDEN_OPS",
-            "decline class-ledger burden-op emission",
-            || !super::burden_ops_enabled(),
-        );
-    }
+    crate::test_helpers::ablation_env_event_test!(
+        burden_ops_toggle_reports_effect,
+        "ORI_DISABLE_BURDEN_OPS",
+        "decline class-ledger burden-op emission",
+        || !super::burden_ops_enabled(),
+    );
 }

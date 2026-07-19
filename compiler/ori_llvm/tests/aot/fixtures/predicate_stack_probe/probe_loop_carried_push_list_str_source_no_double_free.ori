@@ -1,0 +1,7 @@
+@main () -> int = {
+    let xs = ["a", "b"];
+    for i in 0..10 do {
+        xs = xs.push("x");
+    };
+    if xs.len() == 12 then 0 else 1
+}

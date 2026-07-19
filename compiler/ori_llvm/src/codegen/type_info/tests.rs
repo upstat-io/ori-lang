@@ -152,13 +152,13 @@ fn loadable_types() {
 
 #[test]
 fn non_loadable_types() {
-    assert!(!TypeInfo::Str.is_loadable()); // 24 bytes (SSO layout)
-    assert!(!TypeInfo::List { element: Idx::INT }.is_loadable()); // 24 bytes
+    assert!(!TypeInfo::Str.is_loadable());
+    assert!(!TypeInfo::List { element: Idx::INT }.is_loadable());
     assert!(!TypeInfo::Map {
         key: Idx::STR,
         value: Idx::INT
     }
-    .is_loadable()); // 24 bytes
+    .is_loadable());
 }
 
 // Storage type tests
@@ -1400,10 +1400,9 @@ fn integration_compile_through_type_system() {
     assert_eq!(resolver.resolve(Idx::NONE), scx.type_i64().into());
 }
 
-// Phase A: ReprPlan integration tests
+// ReprPlan integration tests.
 
-/// Phase A fallback for 12 primitives: empty ReprPlan produces the same
-/// LLVM types as TypeInfoStore alone.
+/// An empty `ReprPlan` produces the same 12 primitive LLVM types as the store.
 #[test]
 fn store_fallback_resolves_primitives() {
     let pool = test_pool();
@@ -1411,10 +1410,8 @@ fn store_fallback_resolves_primitives() {
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test_phase_a");
 
-    // Baseline: no ReprPlan (None).
     let no_plan = TypeLayoutResolver::new(&store, &scx, None, None);
 
-    // Phase A: empty ReprPlan (no decisions recorded).
     let empty_plan = ori_repr::ReprPlan::new(ori_repr::NarrowingPolicy::Disabled);
     let with_plan = TypeLayoutResolver::new(&store, &scx, None, Some(&empty_plan));
 
@@ -1443,13 +1440,13 @@ fn store_fallback_resolves_primitives() {
     }
 }
 
-/// Phase A fallback for composite types: empty ReprPlan produces the same
+/// Composite fallback: an empty `ReprPlan` produces the same
 /// LLVM type structure as TypeInfoStore alone for Option, Result, Tuple,
 /// Struct, Enum.
 ///
 /// Named structs in the same LLVM context get uniquified names (`%ori.400`
-/// vs `%ori.400.0`), so we compare field counts and field types instead
-/// of pointer identity.
+/// vs `%ori.400.0`), so the assertion compares field counts and field types
+/// instead of pointer identity.
 #[test]
 fn store_fallback_resolves_composites() {
     use inkwell::types::BasicTypeEnum::StructType as ST;
@@ -1527,8 +1524,7 @@ fn store_fallback_resolves_composites() {
     }
 }
 
-/// Phase A override: populate ReprPlan with a narrowed decision for Int,
-/// verify the ReprPlan path is used (produces i32 instead of i64).
+/// A narrowed `ReprPlan` decision takes precedence over the store's Int layout.
 #[test]
 fn repr_plan_override_takes_precedence_over_store() {
     let pool = test_pool();
@@ -1536,7 +1532,6 @@ fn repr_plan_override_takes_precedence_over_store() {
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test_phase_a_override");
 
-    // Create a plan with a narrowed Int representation (i32 instead of i64).
     let mut plan = ori_repr::ReprPlan::new(ori_repr::NarrowingPolicy::Conservative);
     plan.set_repr(
         Idx::INT,
@@ -1556,7 +1551,7 @@ fn repr_plan_override_takes_precedence_over_store() {
 
     let resolver = TypeLayoutResolver::new(&store, &scx, None, Some(&plan));
 
-    // ReprPlan path: Int should produce i32 (narrowed), not i64 (canonical).
+    // The explicit representation decision overrides canonical i64 storage.
     assert_eq!(
         resolver.resolve(Idx::INT),
         scx.type_i32().into(),
@@ -1572,8 +1567,7 @@ fn repr_plan_override_takes_precedence_over_store() {
     );
 }
 
-/// Phase A with None ReprPlan: backward-compatibility test — all lookups
-/// go through TypeInfoStore exclusively.
+/// A missing `ReprPlan` resolves every type through `TypeInfoStore`.
 #[test]
 fn none_repr_plan_resolves_via_store() {
     let pool = test_pool();
@@ -1596,9 +1590,7 @@ fn none_repr_plan_resolves_via_store() {
     assert_eq!(resolver.resolve(Idx::ORDERING), scx.type_i8().into());
 }
 
-/// Semantic pin: empty ReprPlan must produce IDENTICAL output to no
-/// ReprPlan for all resolvable primitive types. This test guards against
-/// Phase A introducing any behavioral change.
+/// An empty `ReprPlan` is identical to no plan for every resolvable type.
 #[test]
 fn semantic_pin_empty_plan_equals_no_plan() {
     let mut pool = Pool::new();
@@ -1647,15 +1639,8 @@ fn semantic_pin_empty_plan_equals_no_plan() {
     }
 }
 
-/// Cross-crate parity: `compute_repr_plan` canonical representations
-/// must produce the same LLVM types as the legacy TypeInfoStore path
-/// for all codegen-reachable types in the 29-type matrix.
-///
-/// This is the live verification for the `ori_repr` ↔ `ori_llvm` contract.
-/// Unlike the empty-plan semantic pins above, this test exercises the
-/// *populated* ReprPlan (canonical decisions from `populate_canonical`)
-/// and verifies parity against TypeInfoStore for every type that reaches
-/// LLVM codegen.
+/// Canonical `ReprPlan` decisions and `TypeInfoStore` produce identical LLVM
+/// types for every codegen-reachable entry in the matrix.
 ///
 /// Covers: 12 primitives, 7 simple containers (Option, List, Set, Channel,
 /// Range, Iterator, DoubleEndedIterator), 2 two-child (Map, Result),
@@ -1824,9 +1809,11 @@ fn repr_plan_canonical_parity_full_matrix() {
     // Populate a ReprPlan via the real compute_repr_plan pipeline.
     let plan = ori_repr::compute_repr_plan(
         &pool,
-        &[], // no arc_functions for canonical-only
+        // Canonical-only planning has no ARC functions.
+        &[],
         ori_repr::NarrowingPolicy::Disabled,
-        &[], // no repr_attrs
+        // The fixture declares no representation attributes.
+        &[],
     );
 
     let store = TypeInfoStore::new(&pool);
@@ -1872,7 +1859,7 @@ fn iterator_non_trivial_via_fallback_path() {
 
 /// Production path (via TypeInfoStore::new_with_plan) must
 /// classify Iterator/DoubleEndedIterator as NON-trivial through ReprPlan.
-/// See the fallback-path test above for rationale.
+/// The fallback contract requires the same recursive boxing decision.
 #[test]
 fn iterator_non_trivial_via_production_path() {
     let mut pool = Pool::new();
@@ -1926,13 +1913,8 @@ fn iterator_triviality_paths_agree() {
     );
 }
 
-// pool_type_store_size <-> type_store_size cross-crate sync pin
-
-/// Tag-matrix cross-check: `ori_arc::lower::pool_type_store_size` (Pool
-/// level) and `type_size::type_store_size` (LLVM level) compute the same
-/// store size for every representable shape. The two are a manual sync
-/// contract (lowering bakes elem sizes before the ReprPlan exists); this
-/// pin makes drift loud instead of silently miscompiling buffer strides.
+/// Semantic pool sizes and LLVM store sizes agree for every representable
+/// shape in the tag matrix, preventing buffer-stride mismatches.
 #[test]
 fn pool_store_size_matches_llvm_store_size_across_tag_matrix() {
     use super::type_size::type_store_size;

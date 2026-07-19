@@ -15,7 +15,11 @@ pub enum RealizationError {
     UnsupportedVersion { found: u32, expected: u32 },
     /// The program contains more functions than its stable index can represent.
     #[error("executable program contains too many functions: {count}")]
-    TooManyFunctions { count: usize },
+    TooManyFunctions {
+        count: usize,
+        #[source]
+        source: std::num::TryFromIntError,
+    },
     /// The external callable table exceeds its stable index representation.
     #[error("executable program contains too many external functions: {count}")]
     TooManyExternalFunctions { count: usize },
@@ -404,8 +408,18 @@ pub enum RealizationError {
     },
     /// A block index cannot be represented in the executable call-site table.
     #[error("function {function:?} has too many basic blocks")]
-    TooManyBlocks { function: Name },
+    TooManyBlocks {
+        function: Name,
+        count: usize,
+        #[source]
+        source: std::num::TryFromIntError,
+    },
     /// An instruction index cannot be represented in the executable call-site table.
     #[error("a basic block in function {function:?} has too many instructions")]
-    TooManyInstructions { function: Name },
+    TooManyInstructions {
+        function: Name,
+        count: usize,
+        #[source]
+        source: std::num::TryFromIntError,
+    },
 }

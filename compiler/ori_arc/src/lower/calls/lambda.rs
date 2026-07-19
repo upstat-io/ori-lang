@@ -6,9 +6,7 @@
 
 use rustc_hash::FxHashSet;
 
-use ori_ir::canon::{
-    CanExpr, CanFieldRange, CanId, CanMapEntryRange, CanNamedExprRange, CanParamRange, CanRange,
-};
+use ori_ir::canon::{CanExpr, CanId, CanParamRange, CanRange};
 use ori_ir::{Name, Span};
 use ori_types::{Idx, Tag};
 
@@ -18,6 +16,12 @@ use crate::Ownership;
 use super::super::expr::ArcLowerer;
 use super::super::scope::ArcScope;
 use super::super::ArcIrBuilder;
+
+#[derive(Clone, Copy)]
+enum CaptureSegment {
+    Expr(CanId),
+    Range(CanRange),
+}
 
 impl ArcLowerer<'_> {
     // Lambda
@@ -57,18 +61,23 @@ impl ArcLowerer<'_> {
         } else {
             resolved_ty
         };
-        let (fn_param_types, declared_return_type) = if self.pool.tag(fn_ty) == Tag::Function {
-            let params = self.pool.function_params(fn_ty);
-            (
-                params
-                    .into_iter()
-                    .map(|parameter| self.resolve_body_type(parameter))
-                    .collect(),
-                Some(self.resolve_body_type(self.pool.function_return(fn_ty))),
-            )
-        } else {
-            (vec![Idx::UNIT; param_slice.len()], None)
-        };
+        assert_eq!(
+            self.pool.tag(fn_ty),
+            Tag::Function,
+            "typed lambda must carry a function type before ARC lowering"
+        );
+        let fn_param_types: Vec<_> = self
+            .pool
+            .function_params(fn_ty)
+            .into_iter()
+            .map(|parameter| self.resolve_body_type(parameter))
+            .collect();
+        assert_eq!(
+            fn_param_types.len(),
+            param_slice.len(),
+            "typed lambda parameter count must match its function type"
+        );
+        let declared_return_type = self.resolve_body_type(self.pool.function_return(fn_ty));
 
         let mut lambda_builder = ArcIrBuilder::new();
         let mut lambda_scope = ArcScope::new();
@@ -87,8 +96,7 @@ impl ArcLowerer<'_> {
         }
 
         // User params follow
-        for (i, param) in param_slice.iter().enumerate() {
-            let param_ty = fn_param_types.get(i).copied().unwrap_or(Idx::UNIT);
+        for (param, &param_ty) in param_slice.iter().zip(&fn_param_types) {
             let var = lambda_builder.fresh_var(param_ty);
             lambda_scope.bind(param.name, var);
             lambda_params.push(ArcParam {
@@ -100,14 +108,7 @@ impl ArcLowerer<'_> {
 
         // Closure ABI uses the declared result rather than a narrower type
         // inferred for the body expression.
-        let body_ty = declared_return_type.unwrap_or_else(|| {
-            let raw_body_ty = self.expr_type(body);
-            if self.pool.tag(raw_body_ty) == Tag::Scheme {
-                self.pool.scheme_body(raw_body_ty)
-            } else {
-                raw_body_ty
-            }
-        });
+        let body_ty = declared_return_type;
         let entry = lambda_builder.entry_block();
 
         // Lower the lambda body
@@ -197,7 +198,7 @@ impl ArcLowerer<'_> {
                 provider: first,
                 body: second,
                 ..
-            } => self.collect_two_captures([first, second], params, captures, seen),
+            } => self.collect_exprs([first, second], params, captures, seen),
             CanExpr::Unary { operand: child, .. }
             | CanExpr::Lambda { body: child, .. }
             | CanExpr::Loop { body: child, .. }
@@ -222,7 +223,7 @@ impl ArcLowerer<'_> {
                 receiver: callee,
                 args,
                 ..
-            } => self.collect_call_captures(callee, args, params, captures, seen),
+            } => self.collect_expr_range_captures(callee, args, params, captures, seen),
             CanExpr::If {
                 cond: first,
                 then_branch: second,
@@ -239,19 +240,19 @@ impl ArcLowerer<'_> {
                 end: second,
                 step: third,
                 ..
-            } => self.collect_three_captures([first, second, third], params, captures, seen),
+            } => self.collect_exprs([first, second, third], params, captures, seen),
             CanExpr::Block { stmts, result } => {
-                self.collect_block_captures(stmts, result, params, captures, seen);
+                self.collect_range_expr_captures(stmts, result, params, captures, seen);
             }
             CanExpr::Match {
                 scrutinee, arms, ..
-            } => {
-                self.collect_match_captures(scrutinee, arms, params, captures, seen);
-            }
+            } => self.collect_expr_range_captures(scrutinee, arms, params, captures, seen),
             CanExpr::Tuple(range) | CanExpr::List(range) => {
                 self.collect_range_captures(range, params, captures, seen);
             }
-            CanExpr::Struct { fields, .. } => self.collect_fields(fields, params, captures, seen),
+            CanExpr::Struct { fields, .. } => {
+                self.collect_field_captures(fields, params, captures, seen);
+            }
             CanExpr::Map(entries) => self.collect_map_captures(entries, params, captures, seen),
             CanExpr::FunctionExp { props, .. } => {
                 self.collect_named_captures(props, params, captures, seen);
@@ -291,45 +292,9 @@ impl ArcLowerer<'_> {
         }
     }
 
-    fn collect_call_captures(
+    fn collect_exprs(
         &self,
-        callee: CanId,
-        args: CanRange,
-        params: &[Name],
-        captures: &mut Vec<(Name, ArcVarId)>,
-        seen: &mut FxHashSet<Name>,
-    ) {
-        self.collect_captures(callee, params, captures, seen);
-        self.collect_range_captures(args, params, captures, seen);
-    }
-
-    fn collect_block_captures(
-        &self,
-        stmts: CanRange,
-        result: CanId,
-        params: &[Name],
-        captures: &mut Vec<(Name, ArcVarId)>,
-        seen: &mut FxHashSet<Name>,
-    ) {
-        self.collect_range_captures(stmts, params, captures, seen);
-        self.collect_captures(result, params, captures, seen);
-    }
-
-    fn collect_match_captures(
-        &self,
-        scrutinee: CanId,
-        arms: CanRange,
-        params: &[Name],
-        captures: &mut Vec<(Name, ArcVarId)>,
-        seen: &mut FxHashSet<Name>,
-    ) {
-        self.collect_captures(scrutinee, params, captures, seen);
-        self.collect_range_captures(arms, params, captures, seen);
-    }
-
-    fn collect_three_captures(
-        &self,
-        exprs: [CanId; 3],
+        exprs: impl IntoIterator<Item = CanId>,
         params: &[Name],
         captures: &mut Vec<(Name, ArcVarId)>,
         seen: &mut FxHashSet<Name>,
@@ -339,15 +304,57 @@ impl ArcLowerer<'_> {
         }
     }
 
-    fn collect_two_captures(
+    fn collect_expr_range_captures(
         &self,
-        exprs: [CanId; 2],
+        expr: CanId,
+        range: CanRange,
         params: &[Name],
         captures: &mut Vec<(Name, ArcVarId)>,
         seen: &mut FxHashSet<Name>,
     ) {
-        for expr in exprs {
-            self.collect_captures(expr, params, captures, seen);
+        self.collect_segments(
+            [CaptureSegment::Expr(expr), CaptureSegment::Range(range)],
+            params,
+            captures,
+            seen,
+        );
+    }
+
+    fn collect_range_expr_captures(
+        &self,
+        range: CanRange,
+        expr: CanId,
+        params: &[Name],
+        captures: &mut Vec<(Name, ArcVarId)>,
+        seen: &mut FxHashSet<Name>,
+    ) {
+        self.collect_segments(
+            [CaptureSegment::Range(range), CaptureSegment::Expr(expr)],
+            params,
+            captures,
+            seen,
+        );
+    }
+
+    fn collect_segments(
+        &self,
+        segments: impl IntoIterator<Item = CaptureSegment>,
+        params: &[Name],
+        captures: &mut Vec<(Name, ArcVarId)>,
+        seen: &mut FxHashSet<Name>,
+    ) {
+        for segment in segments {
+            match segment {
+                CaptureSegment::Expr(expr) => {
+                    self.collect_captures(expr, params, captures, seen);
+                }
+                CaptureSegment::Range(range) => self.collect_exprs(
+                    self.arena.get_expr_list(range).iter().copied(),
+                    params,
+                    captures,
+                    seen,
+                ),
+            }
         }
     }
 
@@ -358,45 +365,65 @@ impl ArcLowerer<'_> {
         captures: &mut Vec<(Name, ArcVarId)>,
         seen: &mut FxHashSet<Name>,
     ) {
-        for &expr in self.arena.get_expr_list(range) {
-            self.collect_captures(expr, params, captures, seen);
-        }
+        self.collect_exprs(
+            self.arena.get_expr_list(range).iter().copied(),
+            params,
+            captures,
+            seen,
+        );
     }
 
-    fn collect_fields(
+    fn collect_field_captures(
         &self,
-        fields: CanFieldRange,
+        fields: ori_ir::canon::CanFieldRange,
         params: &[Name],
         captures: &mut Vec<(Name, ArcVarId)>,
         seen: &mut FxHashSet<Name>,
     ) {
-        for field in self.arena.get_fields(fields) {
-            self.collect_captures(field.value, params, captures, seen);
-        }
+        self.collect_exprs(
+            self.arena
+                .get_fields(fields)
+                .iter()
+                .map(|field| field.value),
+            params,
+            captures,
+            seen,
+        );
     }
 
     fn collect_map_captures(
         &self,
-        entries: CanMapEntryRange,
+        entries: ori_ir::canon::CanMapEntryRange,
         params: &[Name],
         captures: &mut Vec<(Name, ArcVarId)>,
         seen: &mut FxHashSet<Name>,
     ) {
-        for entry in self.arena.get_map_entries(entries) {
-            self.collect_captures(entry.key, params, captures, seen);
-            self.collect_captures(entry.value, params, captures, seen);
-        }
+        self.collect_exprs(
+            self.arena
+                .get_map_entries(entries)
+                .iter()
+                .flat_map(|entry| [entry.key, entry.value]),
+            params,
+            captures,
+            seen,
+        );
     }
 
     fn collect_named_captures(
         &self,
-        props: CanNamedExprRange,
+        props: ori_ir::canon::CanNamedExprRange,
         params: &[Name],
         captures: &mut Vec<(Name, ArcVarId)>,
         seen: &mut FxHashSet<Name>,
     ) {
-        for named in self.arena.get_named_exprs(props) {
-            self.collect_captures(named.value, params, captures, seen);
-        }
+        self.collect_exprs(
+            self.arena
+                .get_named_exprs(props)
+                .iter()
+                .map(|named| named.value),
+            params,
+            captures,
+            seen,
+        );
     }
 }

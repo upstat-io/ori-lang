@@ -1,0 +1,9 @@
+type Wrapper = { s: str }
+
+@main () -> int = {
+    let o: Option<Wrapper> = Some(Wrapper { s: "abcdefghijklmnopqrstuvwxyz1234" });
+    match o {
+        Some(w) -> if w.s.length() == 30 then 0 else 1,
+        None -> 2,
+    }
+}

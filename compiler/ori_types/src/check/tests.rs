@@ -1,4 +1,7 @@
-use ori_ir::Span;
+use ori_ir::{ExprArena, Name, Span, StringInterner};
+use rustc_hash::FxHashSet;
+
+use crate::{Idx, Pool, TraitRegistry, TypeRegistry};
 
 use super::*;
 

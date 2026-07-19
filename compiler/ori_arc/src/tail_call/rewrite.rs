@@ -245,16 +245,50 @@ fn rc_op_on_var(instr: &ArcInstr, var: ArcVarId) -> bool {
 
 #[cfg(test)]
 mod toggle_tests {
-    #[test]
-    fn transferred_result_dec_drop_toggle_reports_effect() {
-        crate::test_helpers::assert_ablation_env_event(
-            concat!(
-                module_path!(),
-                "::transferred_result_dec_drop_toggle_reports_effect"
-            ),
-            "ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP",
-            "retain RC ops on eliminated recursive Invoke results",
-            super::transferred_result_dec_drop_disabled,
-        );
-    }
+    crate::test_helpers::ablation_env_event_test!(
+        transferred_result_dec_drop_reproduces_dangling_cleanup,
+        "ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP",
+        "retain RC ops on eliminated recursive Invoke results",
+        || {
+            let result = crate::test_helpers::v(1);
+            let mut func = crate::test_helpers::make_func(
+                Vec::new(),
+                ori_types::Idx::UNIT,
+                vec![
+                    crate::test_helpers::make_block(
+                        crate::test_helpers::b(0),
+                        Vec::new(),
+                        crate::test_helpers::make_invoke(
+                            result,
+                            ori_types::Idx::STR,
+                            ori_ir::Name::from_raw(7),
+                            Vec::new(),
+                            Vec::new(),
+                            crate::test_helpers::b(1),
+                            crate::test_helpers::b(2),
+                        ),
+                    ),
+                    crate::test_helpers::make_block(
+                        crate::test_helpers::b(1),
+                        vec![crate::ArcInstr::BurdenDec { var: result }],
+                        crate::ArcTerminator::Unreachable,
+                    ),
+                    crate::test_helpers::make_block(
+                        crate::test_helpers::b(2),
+                        Vec::new(),
+                        crate::ArcTerminator::Resume,
+                    ),
+                ],
+                vec![ori_types::Idx::UNIT, ori_types::Idx::STR],
+            );
+
+            super::rewrite_invoke_site(&mut func, 0, crate::test_helpers::b(0));
+
+            assert!(matches!(
+                func.blocks[0].body.as_slice(),
+                [crate::ArcInstr::BurdenDec { var }] if *var == result
+            ));
+            super::transferred_result_dec_drop_disabled()
+        },
+    );
 }

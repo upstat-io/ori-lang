@@ -1,0 +1,15 @@
+type Logged = { tag: str }
+
+impl Logged: Drop {
+    @drop (self) -> void = print(msg: `drop-{self.tag}`);
+}
+
+type Resource = { a: Logged }
+
+impl Resource: Drop {
+    @drop (self) -> void = panic(msg: "intentional");
+}
+
+@main () -> void = {
+    let r = [Resource { a: Logged { tag: "a" } }]
+}

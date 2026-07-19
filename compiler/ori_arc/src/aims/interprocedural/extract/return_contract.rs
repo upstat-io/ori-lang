@@ -10,7 +10,7 @@ use crate::ArcClassification;
 use super::super::super::contract::{MemoryContract, ReturnContract};
 use super::super::super::lattice::Uniqueness;
 
-use super::{build_definition_map, build_invoke_def_map};
+use super::contract::{build_definition_map, build_invoke_def_map};
 
 // Return info extraction
 
@@ -414,16 +414,10 @@ fn callee_return_uniqueness(
 
 #[cfg(test)]
 mod toggle_tests {
-    #[test]
-    fn fresh_lineage_return_trace_toggle_reports_effect() {
-        crate::test_helpers::assert_ablation_env_event(
-            concat!(
-                module_path!(),
-                "::fresh_lineage_return_trace_toggle_reports_effect"
-            ),
-            "ORI_DISABLE_FRESH_LINEAGE_RETURN_TRACE",
-            "decline loop-threaded fresh-lineage return certification",
-            super::fresh_lineage_return_trace_disabled,
-        );
-    }
+    crate::test_helpers::ablation_env_event_test!(
+        fresh_lineage_return_trace_toggle_reports_effect,
+        "ORI_DISABLE_FRESH_LINEAGE_RETURN_TRACE",
+        "decline loop-threaded fresh-lineage return certification",
+        super::fresh_lineage_return_trace_disabled,
+    );
 }

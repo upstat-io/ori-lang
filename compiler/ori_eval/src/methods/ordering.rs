@@ -3,8 +3,8 @@
 use ori_ir::Name;
 use ori_patterns::{no_such_method, EvalError, EvalResult, OrderingValue, Value};
 
+use super::arguments::require_args;
 use super::compare::{extract_ordering, ordering_to_value};
-use super::helpers::require_args;
 use super::DispatchCtx;
 
 /// Dispatch methods on Ordering values.

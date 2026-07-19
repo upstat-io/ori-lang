@@ -30,6 +30,32 @@ pub struct PreparedFunction {
     pub(in crate::codegen::function_compiler) lambdas: Vec<PreparedLambda>,
 }
 
+/// Prepared functions whose complete nounwind fixed point has been computed.
+///
+/// Construction is confined to the nounwind implementation. Public callers
+/// obtain values from
+/// [`FunctionCompiler::compute_nounwind_set`](crate::codegen::function_compiler::FunctionCompiler::compute_nounwind_set)
+/// and are consumed by
+/// [`FunctionCompiler::emit_prepared_functions`](crate::codegen::function_compiler::FunctionCompiler::emit_prepared_functions),
+/// making emission before nounwind analysis unrepresentable.
+#[derive(Debug)]
+#[must_use = "nounwind analysis must be consumed by LLVM emission"]
+pub struct NounwindAnalyzedFunctions(Vec<PreparedFunction>);
+
+impl NounwindAnalyzedFunctions {
+    pub(in crate::codegen::function_compiler::nounwind) fn new(
+        prepared: Vec<PreparedFunction>,
+    ) -> Self {
+        Self(prepared)
+    }
+
+    pub(in crate::codegen::function_compiler::nounwind) fn into_prepared(
+        self,
+    ) -> Vec<PreparedFunction> {
+        self.0
+    }
+}
+
 /// A lambda processed through the ARC pipeline, ready for LLVM emission.
 ///
 /// The lambda's LLVM function is already declared and registered in

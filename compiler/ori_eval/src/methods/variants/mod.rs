@@ -6,7 +6,7 @@
 mod scalar;
 mod wrapper;
 
-pub use scalar::{
+pub(super) use scalar::{
     dispatch_bool_method, dispatch_byte_method, dispatch_char_method, dispatch_newtype_method,
 };
-pub use wrapper::{dispatch_option_method, dispatch_result_method};
+pub(super) use wrapper::{dispatch_option_method, dispatch_result_method};

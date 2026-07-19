@@ -482,7 +482,9 @@ fn lower_index_preserves_selected_method_producer_handle() {
     let producer = ori_ir::canon::MethodProducerId::new(0);
     let mut typed = TypedModule::new();
     typed.expr_types.extend([Idx::INT, Idx::INT, Idx::STR]);
-    typed.index_dispatch_map.insert(root, producer);
+    typed
+        .index_dispatch_map
+        .insert(root, ori_ir::canon::IndexDispatch::Selected(producer));
     let type_result = TypeCheckResult::ok(typed);
 
     let result = lower(
@@ -496,7 +498,7 @@ fn lower_index_preserves_selected_method_producer_handle() {
     assert!(matches!(
         result.arena.kind(result.root),
         CanExpr::Index {
-            producer: Some(selected),
+            dispatch: ori_ir::canon::IndexDispatch::Selected(selected),
             ..
         } if *selected == producer
     ));

@@ -1,12 +1,9 @@
-// Spec: 07-properties-of-types.md § Debug Trait
+// Debug trait behavior for primitive values.
 // Tests for Debug trait on primitive types
 
 use std.testing { assert_eq }
 
-// =============================================================================
 // Integer Debug
-// =============================================================================
-
 @test_int_debug tests @int_debug () -> void = {
     assert_eq(actual: 42.debug(), expected: "42");
     assert_eq(actual: 0.debug(), expected: "0");
@@ -15,10 +12,7 @@ use std.testing { assert_eq }
 
 @int_debug () -> str = 42.debug();
 
-// =============================================================================
 // Float Debug
-// =============================================================================
-
 @test_float_debug tests @float_debug () -> void = {
     assert_eq(actual: 3.14.debug(), expected: "3.14");
     assert_eq(actual: 0.0.debug(), expected: "0")
@@ -26,10 +20,7 @@ use std.testing { assert_eq }
 
 @float_debug () -> str = 3.14.debug();
 
-// =============================================================================
 // Bool Debug
-// =============================================================================
-
 @test_bool_debug tests @bool_debug () -> void = {
     assert_eq(actual: true.debug(), expected: "true");
     assert_eq(actual: false.debug(), expected: "false")
@@ -37,10 +28,7 @@ use std.testing { assert_eq }
 
 @bool_debug () -> str = true.debug();
 
-// =============================================================================
 // String Debug (shows escaped quotes)
-// =============================================================================
-
 @test_str_debug_simple tests @str_debug_simple () -> void = {
     assert_eq(actual: "hello".debug(), expected: "\"hello\"")
 }
@@ -56,10 +44,7 @@ use std.testing { assert_eq }
 
 @str_debug_escapes () -> str = "a\nb".debug();
 
-// =============================================================================
 // Char Debug (shows single-quoted)
-// =============================================================================
-
 @test_char_debug tests @char_debug () -> void = {
     assert_eq(actual: 'a'.debug(), expected: "'a'")
 }
@@ -73,10 +58,7 @@ use std.testing { assert_eq }
 
 @char_debug_escape () -> str = '\n'.debug();
 
-// =============================================================================
 // Byte Debug
-// =============================================================================
-
 @test_byte_debug tests @byte_debug () -> void = {
     let zero: byte = 0;
     let forty_two: byte = 42;
@@ -94,10 +76,7 @@ use std.testing { assert_eq }
     b.debug()
 }
 
-// =============================================================================
 // Ordering Debug
-// =============================================================================
-
 @test_ordering_debug tests @ordering_debug () -> void = {
     assert_eq(actual: Less.debug(), expected: "Less");
     assert_eq(actual: Equal.debug(), expected: "Equal");
@@ -106,10 +85,7 @@ use std.testing { assert_eq }
 
 @ordering_debug () -> str = Less.debug();
 
-// =============================================================================
 // Duration Debug
-// =============================================================================
-
 @test_duration_debug tests @duration_debug () -> void = {
     assert_eq(actual: 100ms.debug(), expected: "100ms");
     assert_eq(actual: 1s.debug(), expected: "1s")
@@ -117,10 +93,7 @@ use std.testing { assert_eq }
 
 @duration_debug () -> str = 100ms.debug();
 
-// =============================================================================
 // Size Debug
-// =============================================================================
-
 @test_size_debug tests @size_debug () -> void = {
     assert_eq(actual: 1kb.debug(), expected: "1kb");
     assert_eq(actual: 0b.debug(), expected: "0b")

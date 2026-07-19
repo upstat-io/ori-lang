@@ -71,13 +71,8 @@ pub struct MethodRoot {
     pub body: CanId,
 }
 
-/// Typed index into the typeck-side `Vec<MonoInstance>` — the canonical-IR
-/// dispatch key ([`CanonResult::mono_dispatch_map_can`]) shared by ARC, LLVM,
-/// and evaluator dispatch. LLVM computes the mangled symbol name with
-/// `mangle_mono_name`; typeck and canon produce only this index.
-///
-/// The leaf-crate definition lets every consumer share the handle without a
-/// cross-crate cycle. Equality and hashing match
+/// Typed index into the typeck-side `Vec<MonoInstance>` and canonical dispatch
+/// key in [`CanonResult::mono_dispatch_map_can`]. Equality and hashing match
 /// index identity; construct via [`MonoInstanceId::new`], read the index via
 /// [`MonoInstanceId::raw`] / [`MonoInstanceId::index`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -88,6 +83,7 @@ impl MonoInstanceId {
     /// Create a new `MonoInstanceId` from a raw index into the
     /// typeck-side `Vec<MonoInstance>`.
     #[inline]
+    #[must_use]
     pub const fn new(index: u32) -> Self {
         Self(index)
     }
@@ -118,6 +114,7 @@ pub struct MethodProducerId(u32);
 impl MethodProducerId {
     /// Create a handle from an index into `TypedModule.method_producers`.
     #[inline]
+    #[must_use]
     pub const fn new(index: u32) -> Self {
         Self(index)
     }
@@ -187,8 +184,7 @@ pub struct CanonResult {
     ///
     /// Stored as `Vec<(CanId, MonoInstanceId)>` (NOT `FxHashMap`) for Salsa
     /// compatibility — `CanonResult` derives
-    /// `Eq + PartialEq` and `FxHashMap` cannot satisfy them. Mirrors the
-    /// shape of `TypedModule.mono_dispatch_map: Vec<(ExprId, MonoInstanceId)>`.
+    /// `Eq + PartialEq` and `FxHashMap` cannot satisfy them.
     /// Sorted by `CanId.raw()` for binary-search lookup; deduplication is
     /// not required because each `CanId` is allocated exactly once.
     ///
@@ -206,6 +202,7 @@ pub struct CanonResult {
 
 impl CanonResult {
     /// Create a result around one canonical expression root.
+    #[must_use]
     pub fn new(arena: CanArena, root: CanId) -> Self {
         Self {
             arena,
@@ -215,6 +212,7 @@ impl CanonResult {
     }
 
     /// Create an empty result (for error recovery).
+    #[must_use]
     pub fn empty() -> Self {
         Self {
             arena: CanArena::new(),
@@ -234,21 +232,25 @@ impl CanonResult {
 
     /// Look up the named const bindings for one exact mono instance.
     #[inline]
+    #[must_use = "the absence of a value must be handled"]
     pub fn mono_const_bindings(&self, id: MonoInstanceId) -> Option<&[MonoConstBinding]> {
         self.mono_const_bindings.get(id.index()).map(Vec::as_slice)
     }
 
     /// Look up a named root by function name.
+    #[must_use = "the absence of a value must be handled"]
     pub fn root_for(&self, name: Name) -> Option<CanId> {
         self.roots.iter().find(|r| r.name == name).map(|r| r.body)
     }
 
     /// Look up a canon root by function name (includes defaults).
+    #[must_use = "the absence of a value must be handled"]
     pub fn canon_root_for(&self, name: Name) -> Option<&CanonRoot> {
         self.roots.iter().find(|r| r.name == name)
     }
 
     /// Look up a method root by type name and method name.
+    #[must_use = "the absence of a value must be handled"]
     pub fn method_root_for(&self, type_name: Name, method_name: Name) -> Option<CanId> {
         self.method_roots
             .iter()
@@ -262,6 +264,7 @@ impl CanonResult {
     /// (e.g., `impl Index<int, V>` and `impl Index<str, V>`), each produces
     /// a separate `MethodRoot` entry. This method selects the Nth one,
     /// matching the sequential order in which impls appear in the module.
+    #[must_use = "the absence of a value must be handled"]
     pub fn method_root_for_nth(
         &self,
         type_name: Name,
@@ -276,6 +279,7 @@ impl CanonResult {
     }
 
     /// Look up a method root by its exact parse-level body identity.
+    #[must_use = "the absence of a value must be handled"]
     pub fn method_root_for_source(&self, source_body: ExprId) -> Option<CanId> {
         self.method_roots
             .iter()
@@ -301,6 +305,7 @@ pub struct SharedCanonResult(std::sync::Arc<CanonResult>);
 )]
 impl SharedCanonResult {
     /// Create a new shared canon result.
+    #[must_use]
     pub fn new(result: CanonResult) -> Self {
         Self(std::sync::Arc::new(result))
     }

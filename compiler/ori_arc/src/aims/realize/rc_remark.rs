@@ -431,13 +431,10 @@ pub(crate) fn emit_rc_survivor_remark(site: &RcSurvivorSite) {
 
 #[cfg(test)]
 mod toggle_tests {
-    #[test]
-    fn predicate_stack_rc_toggle_reports_effect() {
-        crate::test_helpers::assert_ablation_env_event(
-            concat!(module_path!(), "::predicate_stack_rc_toggle_reports_effect"),
-            "ORI_DISABLE_PREDICATE_STACK_RC",
-            "compile through the burden-only RC projection",
-            super::on_burden_sole_path,
-        );
-    }
+    crate::test_helpers::ablation_env_event_test!(
+        predicate_stack_rc_toggle_reports_effect,
+        "ORI_DISABLE_PREDICATE_STACK_RC",
+        "compile through the burden-only RC projection",
+        super::on_burden_sole_path,
+    );
 }

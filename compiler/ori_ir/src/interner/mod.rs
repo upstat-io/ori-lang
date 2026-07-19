@@ -10,15 +10,14 @@
     reason = "Arc required for SharedInterner thread-safety"
 )]
 
+mod shard;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use parking_lot::RwLock;
 
 use super::Name;
-
-mod shard;
-
 pub use shard::InternError;
 use shard::InternShard;
 
@@ -351,7 +350,7 @@ impl StringLookup for StringInterner {
 /// # Thread Safety
 /// Uses `Arc` internally for thread-safe reference counting. The underlying
 /// `StringInterner` uses per-shard `RwLocks` for concurrent access.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SharedInterner(Arc<StringInterner>);
 
 impl SharedInterner {

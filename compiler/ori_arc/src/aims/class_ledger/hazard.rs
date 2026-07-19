@@ -2,6 +2,7 @@
 //!
 //! A cure reconciles recursive container release with the independent
 //! liveness of field-path views. The result identifies any uncured view.
+//! Trace events share the `ori_arc::aims::class_ledger` target across the cure ladder.
 
 use ori_ir::Name;
 use rustc_hash::FxHashSet;
@@ -79,26 +80,31 @@ impl ClassHazardFlags {
 
     pub(crate) const EMPTY: Self = Self(CompactFlags::EMPTY);
 
+    #[must_use]
     pub(crate) const fn with_released(mut self, released: bool) -> Self {
         self.0 = self.0.with(Self::RELEASED, released);
         self
     }
 
+    #[must_use]
     pub(crate) const fn with_demand(mut self, has_demand: bool) -> Self {
         self.0 = self.0.with(Self::HAS_DEMAND, has_demand);
         self
     }
 
+    #[must_use]
     pub(crate) const fn with_self_funded_clean(mut self, self_funded_clean: bool) -> Self {
         self.0 = self.0.with(Self::SELF_FUNDED_CLEAN, self_funded_clean);
         self
     }
 
+    #[must_use]
     pub(crate) const fn with_credit(mut self, has_credit: bool) -> Self {
         self.0 = self.0.with(Self::HAS_CREDIT, has_credit);
         self
     }
 
+    #[must_use]
     pub(crate) const fn with_borrowed_rooted_clean(mut self, borrowed_rooted_clean: bool) -> Self {
         self.0 = self
             .0
@@ -106,6 +112,7 @@ impl ClassHazardFlags {
         self
     }
 
+    #[must_use]
     pub(crate) const fn with_verified_clean(mut self, verified_clean: bool) -> Self {
         self.0 = self.0.with(Self::VERIFIED_CLEAN, verified_clean);
         self
@@ -149,7 +156,7 @@ pub(crate) struct ClassHazardFacts {
     pub(crate) consume_events: Vec<(usize, EventSite, Option<crate::ir::ArcVarId>)>,
 }
 
-/// Immutable facts shared by every rung of the field-view cure ladder.
+/// Immutable inputs for field-view cure attempts.
 pub(crate) struct HazardCureInputs<'a> {
     func: &'a ArcFunction,
     classification: &'a LedgerClassification,
@@ -172,6 +179,7 @@ impl std::fmt::Debug for HazardCureInputs<'_> {
 }
 
 impl<'a> HazardCureInputs<'a> {
+    #[must_use]
     pub(crate) fn new(
         func: &'a ArcFunction,
         classification: &'a LedgerClassification,
@@ -193,7 +201,7 @@ impl<'a> HazardCureInputs<'a> {
     }
 }
 
-/// Mutable whole-function accumulators shared by every cure attempt.
+/// Mutable whole-function accumulators for field-view cures.
 pub(crate) struct HazardCureState<'a> {
     partition: &'a mut BirthSitePartition,
     classes: &'a mut [ClassPlan],
@@ -214,6 +222,7 @@ impl std::fmt::Debug for HazardCureState<'_> {
 }
 
 impl<'a> HazardCureState<'a> {
+    #[must_use]
     pub(crate) fn new(
         partition: &'a mut BirthSitePartition,
         classes: &'a mut [ClassPlan],
@@ -268,6 +277,7 @@ impl FieldViewHazard {
 }
 
 impl ClassHazardFacts {
+    #[must_use]
     pub(crate) fn new(
         class: NodeIdx,
         flags: ClassHazardFlags,
@@ -367,6 +377,7 @@ pub(crate) fn cure_endangered_views(
 /// `None` for the caller to decline, or the clean [`ClassOutcome`] to commit.
 /// Shared plan-and-verify skeleton for every cure ladder rung
 /// ([`cure_view_with_extraction_funding`], [`cure_view_with_field_decomposition`]).
+#[must_use = "the absence of a value must be handled"]
 pub(super) fn plan_and_verify_cure(
     inputs: &HazardCureInputs<'_>,
     state: &mut HazardCureState<'_>,

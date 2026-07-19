@@ -10,6 +10,8 @@ use super::{
     FunctionId, RealizationError, RuntimeCall,
 };
 
+/// Rejects unknown external names and collisions with local function bodies.
+#[must_use = "success or failure must be handled"]
 pub(super) fn validate_external_symbols(
     externals: &[ExternalCallable],
     symbols: &StringInterner,
@@ -30,11 +32,16 @@ pub(super) fn validate_external_symbols(
     Ok(())
 }
 
+/// Closed target maps for instruction calls and direct callable values.
 pub(super) struct ResolvedCallTargets {
+    /// Target selected for each executable call site.
     pub(super) call_targets: FxHashMap<CallSite, CallableTarget>,
+    /// Target selected for each function-local direct callable value.
     pub(super) direct_call_targets: FxHashMap<(FunctionId, ori_arc::ArcVarId), CallableTarget>,
 }
 
+/// Resolves every closed-program call site and validates its signature.
+#[must_use = "success or failure must be handled"]
 pub(super) fn build_call_targets(
     functions: &[ArcFunction],
     function_ids: &FxHashMap<Name, FunctionId>,
@@ -46,55 +53,32 @@ pub(super) fn build_call_targets(
     let mut targets = FxHashMap::default();
     let mut direct_targets = FxHashMap::default();
     for function in functions {
-        let function_id = function_ids.get(&function.name).copied().ok_or(
-            RealizationError::MissingFunctionIdentity {
-                name: function.name,
-            },
-        )?;
+        let function_id = resolve_function_id(function_ids, function.name)?;
         for (block_index, block) in function.blocks.iter().enumerate() {
             let block_id = BlockIndex::new(block_index, function.name)?;
             for (instruction_index, instruction) in block.body.iter().enumerate() {
                 let position = CallPosition::instruction(instruction_index, function.name)?;
-                if let Some((name, arguments, closure_only, destination)) =
-                    instruction_target(instruction)
-                {
-                    let target = resolve_callable(
-                        function,
-                        name,
+                let Some(call) = resolve_instruction_call(
+                    function,
+                    instruction,
+                    function_ids,
+                    external_functions,
+                    external_ids,
+                    symbols,
+                    pool,
+                )?
+                else {
+                    continue;
+                };
+                targets.insert(CallSite::new(function_id, block_id, position), call.target);
+                if let Some(destination) = call.destination {
+                    insert_direct_target(
+                        &mut direct_targets,
+                        function_id,
+                        function.name,
                         destination,
-                        function_ids,
-                        external_ids,
-                        symbols,
-                        pool,
+                        call.target,
                     )?;
-                    validate_closure_target(function.name, name, target, closure_only)?;
-                    if let (
-                        CallableTarget::External(external),
-                        ArcInstr::Apply {
-                            dst, arg_ownership, ..
-                        },
-                    ) = (target, instruction)
-                    {
-                        validate_external_call(
-                            function,
-                            arguments,
-                            *dst,
-                            arg_ownership,
-                            &external_functions[external.index()],
-                        )?;
-                    }
-                    targets.insert(CallSite::new(function_id, block_id, position), target);
-                    if let Some(destination) = destination {
-                        if direct_targets
-                            .insert((function_id, destination), target)
-                            .is_some()
-                        {
-                            return Err(RealizationError::DuplicateDirectCallResult {
-                                function: function.name,
-                                destination,
-                            });
-                        }
-                    }
                 }
             }
             if let Some((name, arguments, destination)) = terminator_target(&block.terminator) {
@@ -107,33 +91,24 @@ pub(super) fn build_call_targets(
                     symbols,
                     pool,
                 )?;
-                if let ArcTerminator::Invoke {
-                    dst, arg_ownership, ..
-                } = &block.terminator
-                {
-                    if let CallableTarget::External(external) = target {
-                        validate_external_call(
-                            function,
-                            arguments,
-                            *dst,
-                            arg_ownership,
-                            &external_functions[external.index()],
-                        )?;
-                    }
-                }
+                validate_external_terminator_call(
+                    function,
+                    &block.terminator,
+                    arguments,
+                    target,
+                    external_functions,
+                )?;
                 targets.insert(
                     CallSite::new(function_id, block_id, CallPosition::Terminator),
                     target,
                 );
-                if direct_targets
-                    .insert((function_id, destination), target)
-                    .is_some()
-                {
-                    return Err(RealizationError::DuplicateDirectCallResult {
-                        function: function.name,
-                        destination,
-                    });
-                }
+                insert_direct_target(
+                    &mut direct_targets,
+                    function_id,
+                    function.name,
+                    destination,
+                    target,
+                )?;
             }
         }
     }
@@ -141,6 +116,111 @@ pub(super) fn build_call_targets(
         call_targets: targets,
         direct_call_targets: direct_targets,
     })
+}
+
+struct ResolvedInstructionCall {
+    target: CallableTarget,
+    destination: Option<ori_arc::ArcVarId>,
+}
+
+fn resolve_instruction_call(
+    function: &ArcFunction,
+    instruction: &ArcInstr,
+    function_ids: &FxHashMap<Name, FunctionId>,
+    external_functions: &[ExternalCallable],
+    external_ids: &FxHashMap<Name, ExternalFunctionId>,
+    symbols: &StringInterner,
+    pool: &Pool,
+) -> Result<Option<ResolvedInstructionCall>, RealizationError> {
+    let Some(call) = instruction_target(instruction) else {
+        return Ok(None);
+    };
+    let destination = match call.kind {
+        InstructionCallKind::Direct { destination } => Some(destination),
+        InstructionCallKind::Closure => None,
+    };
+    let target = resolve_callable(
+        function,
+        call.name,
+        destination,
+        function_ids,
+        external_ids,
+        symbols,
+        pool,
+    )?;
+    if matches!(call.kind, InstructionCallKind::Closure) {
+        validate_closure_target(function.name, call.name, target)?;
+    }
+    if let (
+        CallableTarget::External(external),
+        ArcInstr::Apply {
+            dst, arg_ownership, ..
+        },
+    ) = (target, instruction)
+    {
+        validate_external_call(
+            function,
+            call.arguments,
+            *dst,
+            arg_ownership,
+            &external_functions[external.index()],
+        )?;
+    }
+    Ok(Some(ResolvedInstructionCall {
+        target,
+        destination,
+    }))
+}
+
+fn resolve_function_id(
+    function_ids: &FxHashMap<Name, FunctionId>,
+    name: Name,
+) -> Result<FunctionId, RealizationError> {
+    function_ids
+        .get(&name)
+        .copied()
+        .ok_or(RealizationError::MissingFunctionIdentity { name })
+}
+
+fn validate_external_terminator_call(
+    function: &ArcFunction,
+    terminator: &ArcTerminator,
+    arguments: &[ori_arc::ArcVarId],
+    target: CallableTarget,
+    external_functions: &[ExternalCallable],
+) -> Result<(), RealizationError> {
+    let ArcTerminator::Invoke {
+        dst, arg_ownership, ..
+    } = terminator
+    else {
+        return Ok(());
+    };
+    let CallableTarget::External(external) = target else {
+        return Ok(());
+    };
+    validate_external_call(
+        function,
+        arguments,
+        *dst,
+        arg_ownership,
+        &external_functions[external.index()],
+    )
+}
+
+fn insert_direct_target(
+    targets: &mut FxHashMap<(FunctionId, ori_arc::ArcVarId), CallableTarget>,
+    function_id: FunctionId,
+    function: Name,
+    destination: ori_arc::ArcVarId,
+    target: CallableTarget,
+) -> Result<(), RealizationError> {
+    if targets.insert((function_id, destination), target).is_some() {
+        return Err(RealizationError::DuplicateDirectCallResult {
+            function,
+            destination,
+        });
+    }
+    Ok(())
 }
 
 fn validate_external_call(
@@ -181,19 +261,38 @@ fn validate_external_call(
     Ok(())
 }
 
-fn instruction_target(
-    instruction: &ArcInstr,
-) -> Option<(Name, &[ori_arc::ArcVarId], bool, Option<ori_arc::ArcVarId>)> {
+#[derive(Clone, Copy)]
+struct InstructionTarget<'a> {
+    name: Name,
+    arguments: &'a [ori_arc::ArcVarId],
+    kind: InstructionCallKind,
+}
+
+#[derive(Clone, Copy)]
+enum InstructionCallKind {
+    Direct { destination: ori_arc::ArcVarId },
+    Closure,
+}
+
+fn instruction_target(instruction: &ArcInstr) -> Option<InstructionTarget<'_>> {
     match instruction {
         ArcInstr::Apply {
             dst, func, args, ..
-        } => Some((*func, args, false, Some(*dst))),
+        } => Some(InstructionTarget {
+            name: *func,
+            arguments: args,
+            kind: InstructionCallKind::Direct { destination: *dst },
+        }),
         ArcInstr::PartialApply { func, args, .. }
         | ArcInstr::Construct {
             ctor: CtorKind::Closure { func },
             args,
             ..
-        } => Some((*func, args, true, None)),
+        } => Some(InstructionTarget {
+            name: *func,
+            arguments: args,
+            kind: InstructionCallKind::Closure,
+        }),
         _ => None,
     }
 }
@@ -248,14 +347,7 @@ fn resolve_callable(
                     .ok_or_else(&missing_callable)?;
                 return Ok(CallableTarget::Runtime(runtime));
             }
-            // A source builtin method has no frozen producer yet, but its
-            // receiver-qualified registry identity is still exact. Resolve
-            // that identity before consulting same-spelled free functions;
-            // otherwise `Error.trace()` can bind an unrelated global
-            // `@trace`. A closed producerless user/derived/imported target,
-            // however, already carries an exact function or external `Name`;
-            // when no registry method owns that symbol, let the identity
-            // tables below resolve it.
+            // Why: receiver-qualified builtins must win over same-spelled free functions.
             if fact.producer.is_none() {
                 let receiver = if pool.is_error_struct_receiver(fact.receiver_type) {
                     Some(ori_registry::TypeTag::Error)
@@ -284,7 +376,7 @@ fn resolve_callable(
         return Ok(CallableTarget::External(external));
     }
     // A producer-qualified user/derived/imported method must have been
-    // rewritten to an exact function or external identity above. Never let a
+    // rewritten to an exact function or external identity. Never let a
     // stale method spelling bind an unrelated runtime/free callable.
     if destination.is_some_and(|destination| caller.method_call_fact(destination).is_some()) {
         return Err(missing_callable());
@@ -300,11 +392,10 @@ fn validate_closure_target(
     caller: Name,
     callee: Name,
     target: CallableTarget,
-    closure_only: bool,
 ) -> Result<(), RealizationError> {
-    if closure_only && !matches!(target, CallableTarget::Function(_)) {
-        Err(RealizationError::InvalidClosureTarget { caller, callee })
-    } else {
+    if matches!(target, CallableTarget::Function(_)) {
         Ok(())
+    } else {
+        Err(RealizationError::InvalidClosureTarget { caller, callee })
     }
 }

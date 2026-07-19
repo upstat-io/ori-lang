@@ -1,0 +1,10 @@
+@iter_then_return (c: Set<int>) -> Set<int> = {
+    let n = c.iter().count();
+    c
+}
+
+@main () -> int = {
+    let s: Set<int> = [8, 9, 10].iter().collect();
+    let kept = iter_then_return(c: s);
+    if kept.len() == 3 then 0 else 1
+}

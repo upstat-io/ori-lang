@@ -1,0 +1,11 @@
+#derive(Eq)
+type Env = { vars: {str: int} }
+
+@main () -> int = {
+    let a = Env { vars: {"alpha": 1, "beta": 2} };
+    let b = Env { vars: {"alpha": 1, "beta": 2} };
+    let c = Env { vars: {"gamma": 9} };
+    if a == b then {
+        if a != c then 0 else 1
+    } else 2
+}

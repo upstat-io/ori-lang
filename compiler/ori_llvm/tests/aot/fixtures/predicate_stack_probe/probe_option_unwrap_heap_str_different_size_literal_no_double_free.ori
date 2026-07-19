@@ -1,0 +1,8 @@
+@make () -> Option<str> = Some("hello world this is a long heap string");
+
+@main () -> int = {
+    let o = make();
+    let v = o.unwrap();
+    let matched = v == "a different length comparison literal that is quite a bit longer than the payload";
+    if matched then 1 else 0
+}

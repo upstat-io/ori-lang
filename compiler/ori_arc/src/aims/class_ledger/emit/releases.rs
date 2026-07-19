@@ -2,23 +2,25 @@
 //! RL-4 releases for dead successors, within-block RL-2 / RL-5 releases of
 //! the iteration's residue, and dead-class per-birth releases.
 //! Spec: Annex E §AIMS RL-2 + RL-4 + RL-5.
+//! Trace events share the `ori_arc::aims::class_ledger` target across release planning.
 
 mod arm_local;
 
-use rustc_hash::{FxHashMap as DefMap, FxHashSet};
+use rustc_hash::FxHashSet;
 
 use crate::aims::intraprocedural::ledger_events::EventSite;
-use crate::ir::{ArcFunction, ArcVarId};
+use crate::ir::ArcFunction;
 
 use super::super::events::{live_out, live_out_forward, successors_of, ClassEvent, ClassEvents};
-use super::super::placement::{collect_def_points, def_reaches_slot, DefPoint};
 use super::cfg_region::CycleRegions;
+use super::release_subject::{release_var_for_slot, ReleaseCtx};
 use super::{DeclineReason, PlanSlot, PlannedOp, PlannedOpKind};
 pub(in super::super) use arm_local::pair_arm_local_seed_releases;
 
 /// RL-2 unused-owned / RL-5 dead-at-entry releases for a class with zero
 /// demand events: every acquiring event (positive delta) gets its release
 /// immediately after its site.
+#[must_use = "success or failure must be handled"]
 pub(super) fn plan_dead_class_releases(
     func: &ArcFunction,
     ctx: &ReleaseCtx<'_>,
@@ -69,11 +71,12 @@ pub(super) struct ReleasePlanningInput<'a, 'ctx> {
     pub(super) regions: &'a CycleRegions,
     pub(super) events: &'a ClassEvents,
     pub(super) activity_live: &'a [bool],
-    pub(super) full_closure: bool,
     pub(super) entry_net: &'a [Option<i64>],
     pub(super) delta: &'a [i64],
+    pub(super) full_closure: bool,
 }
 
+#[must_use = "success or failure must be handled"]
 pub(super) fn plan_releases(
     input: &ReleasePlanningInput<'_, '_>,
     ops: &mut Vec<PlannedOp>,
@@ -84,9 +87,9 @@ pub(super) fn plan_releases(
         regions: _,
         events,
         activity_live,
-        full_closure,
         entry_net,
         delta,
+        full_closure,
     } = input;
     let func = ctx.func;
     let dom = ctx.dom;
@@ -194,7 +197,7 @@ fn plan_edge_releases(
         // Runtime-grounded books MAY owe several REAL references to one
         // allocation (a birth plus an RL-34 result re-acquisition credit):
         // one front dec per owed reference. Cure-inflated books stay on the
-        // fail-closed single-reference path above.
+        // fail-closed single-reference path.
         push_front_decs(ctx, events, block, successor, exit, ops, fronts)?;
     }
     Ok(())
@@ -254,7 +257,7 @@ fn plan_block_release(
     let forward_credit_target = if edge_credits > 0 {
         // A FORWARD Jump-arg credit hands the reference to the successor's
         // param; the !live_out gate already proved the class has no
-        // downstream activity, so the credited reference dies on arrival —
+        // subsequent activity, so the credited reference dies on arrival —
         // release at the single successor's front (a Jump has exactly one
         // successor). A BACK-edge credit funds the next iteration's ledger
         // and falls through to the residue logic.
@@ -374,91 +377,4 @@ fn push_front_decs(
         });
     }
     Ok(())
-}
-
-/// Dominance context for release-var selection.
-pub(super) struct ReleaseCtx<'a> {
-    pub(super) func: &'a ArcFunction,
-    pub(super) dom: &'a crate::graph::DominatorTree,
-    pub(super) defs: DefMap<ArcVarId, DefPoint>,
-}
-
-impl<'a> ReleaseCtx<'a> {
-    pub(super) fn new(func: &'a ArcFunction, dom: &'a crate::graph::DominatorTree) -> Self {
-        Self {
-            func,
-            dom,
-            defs: collect_def_points(func),
-        }
-    }
-}
-
-/// The member variable a release names: the last resolved event var in the
-/// releasing block whose definition reaches the slot, else ANY class member
-/// var that reaches it — event vars first, then planned-op vars (a seeded
-/// extraction inc's subject is a class member naming the same allocation
-/// whose def often dominates edges a branch-local read alias cannot reach) —
-/// else `UnresolvedOpVar` (fail-closed).
-fn release_var_for_slot(
-    ctx: &ReleaseCtx<'_>,
-    events: &ClassEvents,
-    ops: &[PlannedOp],
-    block: usize,
-    slot: PlanSlot,
-) -> Result<ArcVarId, DeclineReason> {
-    // A caller-retained borrowed param is never a release subject. A borrowed
-    // ABI param whose class is Foreign is different: its contract supplied a
-    // distinct whole-value credit that the callee owns. That param may be the
-    // only class member dominating an early unwind edge; plan against it and
-    // let application materialize the verifier-safe entry alias.
-    let borrowed_credit_owned =
-        events.origin == Some(crate::aims::intraprocedural::ledger_events::ClassOrigin::Foreign);
-    let is_borrowed_param = |var: ArcVarId| {
-        ctx.func
-            .params
-            .iter()
-            .any(|p| p.var == var && p.ownership == crate::Ownership::Borrowed)
-    };
-    let resolve = |allow_borrowed_credit_param: bool| {
-        let eligible = |var: ArcVarId| {
-            ctx.defs
-                .get(&var)
-                .is_some_and(|&def| def_reaches_slot(ctx.func, ctx.dom, def, slot))
-                && (!is_borrowed_param(var)
-                    || (allow_borrowed_credit_param && borrowed_credit_owned))
-        };
-        events.per_block[block]
-            .iter()
-            .rev()
-            .filter_map(|ev| ev.var)
-            .find(|&v| eligible(v))
-            .or_else(|| {
-                events
-                    .per_block
-                    .iter()
-                    .flatten()
-                    .filter_map(|ev| ev.var)
-                    .find(|&v| eligible(v))
-            })
-            .or_else(|| ops.iter().map(|op| op.var).find(|&v| eligible(v)))
-    };
-    // Prefer an existing verifier-safe alias. Fall back to the credited ABI
-    // parameter only when no such member dominates the release slot.
-    let resolved = resolve(false).or_else(|| resolve(true));
-    if resolved.is_none() {
-        tracing::trace!(
-            target: "ori_arc::aims::class_ledger",
-            block,
-            slot = ?slot,
-            event_vars = ?events
-                .per_block
-                .iter()
-                .flatten()
-                .filter_map(|event| event.var)
-                .collect::<Vec<_>>(),
-            planned_vars = ?ops.iter().map(|op| op.var).collect::<Vec<_>>(),
-            "release placement declined: no class member reaches the release slot"
-        );
-    }
-    resolved.ok_or(DeclineReason::UnresolvedOpVar)
 }

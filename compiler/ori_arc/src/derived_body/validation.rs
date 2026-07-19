@@ -2,16 +2,35 @@
 
 use ori_types::{Idx, Pool, Tag, TypeFlags};
 
-pub(super) const SELF_PARAMETER: &str = "self parameter";
-pub(super) const RETURN_TYPE: &str = "return type";
+pub(crate) const SELF_PARAMETER: &str = "self parameter";
+pub(crate) const RETURN_TYPE: &str = "return type";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum ConcreteTypeError {
+pub(crate) enum ConcreteTypeError {
     InvalidTypeIndex { position: &'static str, ty: Idx },
     NonConcreteType { position: &'static str, ty: Idx },
 }
 
-pub(super) fn validate_concrete_type(
+macro_rules! impl_concrete_type_error_conversion {
+    ($target:ty) => {
+        impl From<$crate::derived_body::ConcreteTypeError> for $target {
+            fn from(error: $crate::derived_body::ConcreteTypeError) -> Self {
+                match error {
+                    $crate::derived_body::ConcreteTypeError::InvalidTypeIndex { position, ty } => {
+                        Self::InvalidTypeIndex { position, ty }
+                    }
+                    $crate::derived_body::ConcreteTypeError::NonConcreteType { position, ty } => {
+                        Self::NonConcreteType { position, ty }
+                    }
+                }
+            }
+        }
+    };
+}
+
+pub(crate) use impl_concrete_type_error_conversion;
+
+pub(crate) fn validate_concrete_type(
     pool: &Pool,
     position: &'static str,
     ty: Idx,

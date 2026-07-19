@@ -131,11 +131,10 @@ pub(super) fn try_resolve_deferred_call(
                 && inst.generic_args == generic_args
                 && inst.capability_args == capability_args
         }) {
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "MonoInstanceId is u32 by spec; mono_instances.len() bounded by source"
-            )]
-            let existing_id = MonoInstanceId::new(existing_idx as u32);
+            let Ok(existing_idx) = u32::try_from(existing_idx) else {
+                unreachable!("mono-instance table exceeded MonoInstanceId capacity");
+            };
+            let existing_id = MonoInstanceId::new(existing_idx);
             mono_dispatch_pre_dedup.push((deferred.call_expr_id, existing_id));
         }
         return;
@@ -163,11 +162,10 @@ pub(super) fn try_resolve_deferred_call(
     // `mono_instances.len()` slot; this entry flows through the same
     // dedup-remap pipeline as eager entries (see `check/mod.rs` export
     // pipeline).
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "MonoInstanceId is u32 by spec; mono_instances.len() bounded by source"
-    )]
-    let new_id = MonoInstanceId::new(mono_instances.len() as u32);
+    let Ok(new_idx) = u32::try_from(mono_instances.len()) else {
+        unreachable!("mono-instance table exceeded MonoInstanceId capacity");
+    };
+    let new_id = MonoInstanceId::new(new_idx);
     mono_instances.push(instance);
     mono_dispatch_pre_dedup.push((deferred.call_expr_id, new_id));
 }

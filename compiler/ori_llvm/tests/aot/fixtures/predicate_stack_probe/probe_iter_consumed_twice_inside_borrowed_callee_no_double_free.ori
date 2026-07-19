@@ -1,0 +1,17 @@
+@sum_lens (words: [str]) -> int = {
+    let total = 0;
+    for w in words do {
+        total = total + w.len();
+    };
+    total
+}
+
+@call_twice (words: [str]) -> int = {
+    sum_lens(words: words) + sum_lens(words: words)
+}
+
+@main () -> int = {
+    let words = ["this is a very long string that exceeds SSO threshold"];
+    let r = call_twice(words: words);
+    if r == 106 then 0 else 1
+}

@@ -6,7 +6,7 @@ use ori_patterns::{
 };
 use rustc_hash::FxHashMap;
 
-use super::helpers::require_args;
+use super::arguments::require_args;
 use super::DispatchCtx;
 
 /// Dispatch methods on Error values.

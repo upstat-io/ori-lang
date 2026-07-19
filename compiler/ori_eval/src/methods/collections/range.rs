@@ -3,7 +3,8 @@
 use ori_ir::Name;
 use ori_patterns::{no_such_method, EvalResult, IteratorValue, Value};
 
-use super::super::helpers::{len_to_value, require_args, require_int_arg};
+use super::super::arguments::{require_args, require_int_arg};
+use super::super::length::len_to_value;
 use super::super::DispatchCtx;
 
 /// Dispatch methods on range values.

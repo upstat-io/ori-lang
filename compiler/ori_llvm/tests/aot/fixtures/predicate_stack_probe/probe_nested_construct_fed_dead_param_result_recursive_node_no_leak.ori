@@ -1,0 +1,14 @@
+use std.testing { assert_eq }
+type Node = { value: int, next: Option<Node> }
+
+@main () -> void = {
+    let n2 = Node { value: 2, next: None };
+    let n1 = Node { value: 1, next: Some(n2) };
+    let r: Result<Node, str> = Ok(n1);
+    let v = match r {
+        Ok(node) -> node.value,
+        Err(_) -> 0,
+    };
+    assert_eq(actual: v, expected: 1);
+    ()
+}

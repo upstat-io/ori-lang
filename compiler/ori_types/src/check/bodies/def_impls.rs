@@ -1,7 +1,6 @@
 //! Def-impl (default implementation) method body type checking.
 //!
-//! Owns `check_def_impl_bodies` (Pass 5) and its block/method helpers. See
-//! `bodies/mod.rs` for the architecture docstring that covers all four body passes.
+//! Owns `check_def_impl_bodies` (Pass 5) and its block and method helpers.
 
 use ori_ir::{ImplMethod, Module, Name, Param, Span};
 use rustc_hash::FxHashSet;
@@ -61,7 +60,6 @@ fn check_def_impl_method(
     method: &ImplMethod,
     def_impl_trait: ori_ir::Name,
 ) {
-    // Create child environment from frozen base
     let Some(child_env) = checker.child_of_base() else {
         return;
     };
@@ -157,6 +155,7 @@ fn infer_def_impl_body(
         input.return_type,
         &[],
     );
+    engine.materialize_body_type_sites(&mut expr_types, input.param_types, input.return_type);
     engine.compose_body_type_burdens(&expr_types);
 
     super::BodyOutputs {

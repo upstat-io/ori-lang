@@ -9,21 +9,23 @@ use ori_ir::ast::patterns::MatchPattern;
 use ori_ir::ast::ExprKind;
 use ori_ir::canon::tree::FlatPattern;
 use ori_ir::{ExprArena, ExprId, Name, StringInterner};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Immutable context for pattern flattening.
 ///
 /// Groups the three constant parameters (`arena`, `pool`, `interner`) that are
-/// threaded unchanged through every recursive call to `flatten`. This avoids
+/// threaded unchanged through every recursive conversion. This avoids
 /// passing 5 parameters at each of the 7+ recursive call sites.
-pub struct FlattenCtx<'a> {
-    pub arena: &'a ExprArena,
-    pub pool: &'a ori_types::Pool,
-    pub interner: &'a StringInterner,
+pub(in crate::patterns) struct FlattenCtx<'a> {
+    arena: &'a ExprArena,
+    pool: &'a ori_types::Pool,
+    interner: &'a StringInterner,
 }
 
 impl<'a> FlattenCtx<'a> {
     /// Create a new flattening context.
-    pub fn new(
+    #[must_use]
+    pub(in crate::patterns) fn new(
         arena: &'a ExprArena,
         pool: &'a ori_types::Pool,
         interner: &'a StringInterner,
@@ -35,162 +37,206 @@ impl<'a> FlattenCtx<'a> {
         }
     }
 
-    /// Flatten a `MatchPattern` from the arena into a `FlatPattern`.
+    /// Convert a `MatchPattern` from the arena into a `FlatPattern`.
     ///
     /// Recursively resolves `MatchPatternId` references via the arena and
     /// converts literal `ExprId` references to concrete `FlatPattern` variants.
     ///
     /// The `interner` is needed to resolve variant names for well-known types
     /// (`Option`, `Result`) which have dedicated Pool tags rather than `Tag::Enum`.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive MatchPattern → FlatPattern lowering"
-    )]
-    pub fn flatten(&self, pattern: &MatchPattern, scrutinee_ty: ori_types::Idx) -> FlatPattern {
+    pub(in crate::patterns) fn to_flat_pattern(
+        &self,
+        pattern: &MatchPattern,
+        scrutinee_ty: ori_types::Idx,
+    ) -> FlatPattern {
         match pattern {
             MatchPattern::Wildcard => FlatPattern::Wildcard,
 
             MatchPattern::Binding(name) => FlatPattern::Binding(*name),
 
-            MatchPattern::Literal(expr_id) => self.flatten_literal(*expr_id),
+            MatchPattern::Literal(expr_id) => self.to_flat_literal(*expr_id),
 
             MatchPattern::Variant { name, inner } => {
-                let variant_index = self.resolve_variant_index(scrutinee_ty, *name);
-                let pat_ids = self.arena.get_match_pattern_list(*inner);
-
-                // Get the field types for this variant directly from the enum definition.
-                let field_types =
-                    self.resolve_variant_field_types(scrutinee_ty, variant_index, *name);
-
-                let fields: Vec<FlatPattern> = pat_ids
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &pat_id)| {
-                        let inner_pat = self.arena.get_match_pattern(pat_id);
-                        let field_ty = field_types.get(i).copied().unwrap_or(ori_types::Idx::UNIT);
-                        self.flatten(inner_pat, field_ty)
-                    })
-                    .collect();
-
-                FlatPattern::Variant {
-                    variant_name: *name,
-                    variant_index,
-                    fields,
-                }
+                self.to_flat_variant(scrutinee_ty, *name, *inner)
             }
 
-            MatchPattern::Tuple(sub_patterns) => {
-                let pat_ids = self.arena.get_match_pattern_list(*sub_patterns);
-                let elements: Vec<FlatPattern> = pat_ids
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &pat_id)| {
-                        let inner_pat = self.arena.get_match_pattern(pat_id);
-                        let elem_ty = self.resolve_tuple_elem_ty(scrutinee_ty, i);
-                        self.flatten(inner_pat, elem_ty)
-                    })
-                    .collect();
-
-                FlatPattern::Tuple(elements)
-            }
+            MatchPattern::Tuple(patterns) => self.to_flat_tuple(scrutinee_ty, *patterns),
 
             MatchPattern::Struct { fields, rest } => {
-                // Build flat patterns for explicitly named fields
-                let mut flat_fields: Vec<(Name, FlatPattern)> = fields
-                    .iter()
-                    .map(|(field_name, sub_pat)| {
-                        let field_ty = self.resolve_struct_field_ty(scrutinee_ty, *field_name);
-                        let flat = if let Some(pat_id) = sub_pat {
-                            let inner_pat = self.arena.get_match_pattern(*pat_id);
-                            self.flatten(inner_pat, field_ty)
-                        } else {
-                            // Shorthand: `{ x }` is equivalent to `{ x: x }` → binding
-                            FlatPattern::Binding(*field_name)
-                        };
-                        (*field_name, flat)
-                    })
-                    .collect();
-
-                // When rest (`..`) is present, pad missing struct fields with wildcards.
-                // The decision tree requires uniform column counts across all matrix rows.
-                if *rest {
-                    let all_fields = self.resolve_all_struct_fields(scrutinee_ty);
-                    for (fname, _fty) in &all_fields {
-                        if !flat_fields.iter().any(|(n, _)| n == fname) {
-                            flat_fields.push((*fname, FlatPattern::Wildcard));
-                        }
-                    }
-                }
-
-                // Keep struct columns deterministic and aligned with evaluator values.
-                // Decision-tree paths retain each field name so other consumers can
-                // resolve their own layout order.
-                flat_fields.sort_by_key(|(name, _)| *name);
-
-                FlatPattern::Struct {
-                    fields: flat_fields,
-                }
+                self.to_flat_struct(scrutinee_ty, fields, *rest)
             }
 
             MatchPattern::List { elements, rest } => {
-                let pat_ids = self.arena.get_match_pattern_list(*elements);
-                let elem_ty = self.resolve_list_elem_ty(scrutinee_ty);
-                let flat_elements: Vec<FlatPattern> = pat_ids
-                    .iter()
-                    .map(|&pat_id| {
-                        let inner_pat = self.arena.get_match_pattern(pat_id);
-                        self.flatten(inner_pat, elem_ty)
-                    })
-                    .collect();
-
-                FlatPattern::List {
-                    elements: flat_elements,
-                    rest: *rest,
-                }
+                self.to_flat_list(scrutinee_ty, *elements, *rest)
             }
 
             MatchPattern::Range {
                 start,
                 end,
                 inclusive,
-            } => {
-                let start_val = start.map(|id| self.extract_int_literal(id));
-                let end_val = end.map(|id| self.extract_int_literal(id));
-                FlatPattern::Range {
-                    start: start_val,
-                    end: end_val,
-                    inclusive: *inclusive,
-                }
-            }
+            } => self.to_flat_range(*start, *end, *inclusive),
 
-            MatchPattern::Or(sub_patterns) => {
-                let pat_ids = self.arena.get_match_pattern_list(*sub_patterns);
-                let alternatives: Vec<FlatPattern> = pat_ids
-                    .iter()
-                    .map(|&pat_id| {
-                        let inner_pat = self.arena.get_match_pattern(pat_id);
-                        self.flatten(inner_pat, scrutinee_ty)
-                    })
-                    .collect();
+            MatchPattern::Or(patterns) => self.to_flat_or(scrutinee_ty, *patterns),
 
-                FlatPattern::Or(alternatives)
-            }
+            MatchPattern::At { name, pattern } => self.to_flat_at(scrutinee_ty, *name, *pattern),
+        }
+    }
 
-            MatchPattern::At { name, pattern } => {
-                let inner_pat = self.arena.get_match_pattern(*pattern);
-                let inner = self.flatten(inner_pat, scrutinee_ty);
-                FlatPattern::At {
-                    name: *name,
-                    inner: Box::new(inner),
-                }
+    fn to_flat_range(
+        &self,
+        start: Option<ExprId>,
+        end: Option<ExprId>,
+        inclusive: bool,
+    ) -> FlatPattern {
+        FlatPattern::Range {
+            start: start.map(|id| self.extract_int_literal(id)),
+            end: end.map(|id| self.extract_int_literal(id)),
+            inclusive,
+        }
+    }
+
+    fn to_flat_at(
+        &self,
+        scrutinee_ty: ori_types::Idx,
+        name: Name,
+        pattern: ori_ir::MatchPatternId,
+    ) -> FlatPattern {
+        let inner_pat = self.arena.get_match_pattern(pattern);
+        let inner = self.to_flat_pattern(inner_pat, scrutinee_ty);
+        FlatPattern::At {
+            name,
+            inner: Box::new(inner),
+        }
+    }
+
+    fn to_flat_variant(
+        &self,
+        scrutinee_ty: ori_types::Idx,
+        name: Name,
+        patterns: ori_ir::MatchPatternRange,
+    ) -> FlatPattern {
+        let (variant_index, field_types) = self.resolve_variant(scrutinee_ty, name);
+        let fields = self
+            .arena
+            .get_match_pattern_list(patterns)
+            .iter()
+            .enumerate()
+            .map(|(index, &pattern)| {
+                let pattern = self.arena.get_match_pattern(pattern);
+                let field_ty = field_types
+                    .get(index)
+                    .copied()
+                    .unwrap_or(ori_types::Idx::UNIT);
+                self.to_flat_pattern(pattern, field_ty)
+            })
+            .collect();
+        FlatPattern::Variant {
+            variant_name: name,
+            variant_index,
+            fields,
+        }
+    }
+
+    fn to_flat_tuple(
+        &self,
+        scrutinee_ty: ori_types::Idx,
+        patterns: ori_ir::MatchPatternRange,
+    ) -> FlatPattern {
+        let elements = self
+            .arena
+            .get_match_pattern_list(patterns)
+            .iter()
+            .enumerate()
+            .map(|(index, &pattern)| {
+                self.to_flat_pattern(
+                    self.arena.get_match_pattern(pattern),
+                    self.resolve_tuple_elem_ty(scrutinee_ty, index),
+                )
+            })
+            .collect();
+        FlatPattern::Tuple(elements)
+    }
+
+    fn to_flat_struct(
+        &self,
+        scrutinee_ty: ori_types::Idx,
+        fields: &[(Name, Option<ori_ir::MatchPatternId>)],
+        has_rest: bool,
+    ) -> FlatPattern {
+        let field_types = self.resolve_struct_field_types(scrutinee_ty);
+        let mut flat_fields: Vec<(Name, FlatPattern)> = fields
+            .iter()
+            .map(|(field_name, pattern)| {
+                let field_ty = field_types
+                    .as_ref()
+                    .and_then(|types| types.get(field_name))
+                    .copied()
+                    .unwrap_or(ori_types::Idx::UNIT);
+
+                let pattern = pattern.map_or(FlatPattern::Binding(*field_name), |pattern| {
+                    self.to_flat_pattern(self.arena.get_match_pattern(pattern), field_ty)
+                });
+                (*field_name, pattern)
+            })
+            .collect();
+
+        if has_rest {
+            if let Some(field_types) = field_types {
+                let explicit_fields: FxHashSet<Name> =
+                    flat_fields.iter().map(|(name, _)| *name).collect();
+                flat_fields.extend(
+                    field_types
+                        .into_iter()
+                        .filter(|(name, _)| !explicit_fields.contains(name))
+                        .map(|(name, _)| (name, FlatPattern::Wildcard)),
+                );
             }
         }
+
+        // Stable field ordering aligns matrix columns while named paths let
+        // each consumer choose its physical layout.
+        flat_fields.sort_by_key(|(name, _)| *name);
+        FlatPattern::Struct {
+            fields: flat_fields,
+        }
+    }
+
+    fn to_flat_list(
+        &self,
+        scrutinee_ty: ori_types::Idx,
+        patterns: ori_ir::MatchPatternRange,
+        rest: Option<Name>,
+    ) -> FlatPattern {
+        let elem_ty = self.resolve_list_elem_ty(scrutinee_ty);
+        let elements = self
+            .arena
+            .get_match_pattern_list(patterns)
+            .iter()
+            .map(|&pattern| self.to_flat_pattern(self.arena.get_match_pattern(pattern), elem_ty))
+            .collect();
+        FlatPattern::List { elements, rest }
+    }
+
+    fn to_flat_or(
+        &self,
+        scrutinee_ty: ori_types::Idx,
+        patterns: ori_ir::MatchPatternRange,
+    ) -> FlatPattern {
+        FlatPattern::Or(
+            self.arena
+                .get_match_pattern_list(patterns)
+                .iter()
+                .map(|&pattern| {
+                    self.to_flat_pattern(self.arena.get_match_pattern(pattern), scrutinee_ty)
+                })
+                .collect(),
+        )
     }
 
     // Literal extraction
 
     /// Convert a literal expression to a `FlatPattern`.
-    fn flatten_literal(&self, expr_id: ExprId) -> FlatPattern {
+    fn to_flat_literal(&self, expr_id: ExprId) -> FlatPattern {
         let expr = self.arena.get_expr(expr_id);
         match &expr.kind {
             ExprKind::Int(v) => FlatPattern::LitInt(*v),
@@ -226,157 +272,100 @@ impl<'a> FlattenCtx<'a> {
 
     // Type resolution helpers
 
-    /// Resolve a variant name to its discriminant index.
+    /// Resolve a variant name to its discriminant index and field types.
     ///
     /// Handles four cases:
     /// - `Tag::Enum`: looks up variant by name in the enum definition
     /// - `Tag::Option`: `Some` = 0, `None` = 1
     /// - `Tag::Result`: `Ok` = 0, `Err` = 1
     /// - `Tag::Ordering`: `Less` = 0, `Equal` = 1, `Greater` = 2
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "variant indices never exceed u32"
-    )]
-    fn resolve_variant_index(&self, enum_ty: ori_types::Idx, variant_name: Name) -> u32 {
-        use ori_types::Tag;
-        let resolved = self.pool.resolve_fully(enum_ty);
-        match self.pool.tag(resolved) {
-            Tag::Enum => {
-                let count = self.pool.enum_variant_count(resolved);
-                for i in 0..count {
-                    let (vname, _) = self.pool.enum_variant(resolved, i);
-                    if vname == variant_name {
-                        return i as u32;
-                    }
-                }
-            }
-            Tag::Option => {
-                return if self.interner.lookup(variant_name) == "None" {
-                    ori_ir::OPTION_VARIANT_NONE
-                } else {
-                    ori_ir::OPTION_VARIANT_SOME
-                };
-            }
-            Tag::Result => {
-                return if self.interner.lookup(variant_name) == "Err" {
-                    ori_ir::RESULT_VARIANT_ERR
-                } else {
-                    ori_ir::RESULT_VARIANT_OK
-                };
-            }
-            Tag::Ordering => {
-                // Convention: Less = 0, Equal = 1, Greater = 2
-                let name_str = self.interner.lookup(variant_name);
-                return match name_str {
-                    "Less" => 0,
-                    "Equal" => 1,
-                    "Greater" => 2,
-                    other => {
-                        debug_assert!(false, "unknown Ordering variant: {other}");
-                        0
-                    }
-                };
-            }
-            _ => {}
-        }
-        tracing::debug!(
-            ?enum_ty,
-            ?resolved,
-            resolved_tag = ?self.pool.tag(resolved),
-            ?variant_name,
-            "could not resolve variant index in flatten"
-        );
-        0
-    }
-
-    /// Get the field types for a specific variant of an enum, Option, Result, or Ordering.
-    ///
-    /// - `Tag::Enum`: returns field types from the enum definition
-    /// - `Tag::Option`: `Some` (index 0) has one field (the inner type), `None` (index 1) has none
-    /// - `Tag::Result`: `Ok` (index 0) has one field (ok type), `Err` (index 1) has one field (err type)
-    /// - `Tag::Ordering`: all variants (Less, Equal, Greater) are unit — no fields
-    fn resolve_variant_field_types(
+    fn resolve_variant(
         &self,
         enum_ty: ori_types::Idx,
-        variant_index: u32,
         variant_name: Name,
-    ) -> Vec<ori_types::Idx> {
+    ) -> (u32, Vec<ori_types::Idx>) {
         use ori_types::Tag;
         let resolved = self.pool.resolve_fully(enum_ty);
+        let variant = self.interner.lookup(variant_name);
         match self.pool.tag(resolved) {
             Tag::Enum => {
-                let count = self.pool.enum_variant_count(resolved);
-                if (variant_index as usize) < count {
-                    let (_, field_types) = self.pool.enum_variant(resolved, variant_index as usize);
-                    return field_types;
-                }
+                return self
+                    .pool
+                    .enum_variants(resolved)
+                    .into_iter()
+                    .enumerate()
+                    .find_map(|(index, (name, fields))| {
+                        (name == variant_name).then(|| {
+                            let index = u32::try_from(index)
+                                .unwrap_or_else(|_| unreachable!("variant index fits in u32"));
+                            (index, fields)
+                        })
+                    })
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "typed variant `{variant}` must belong to resolved enum type {resolved:?}"
+                        )
+                    });
             }
-            Tag::Option => {
-                // Some has 1 field (the inner type), None has 0 fields.
-                if self.interner.lookup(variant_name) == "Some" {
-                    return vec![self.pool.option_inner(resolved)];
+            Tag::Option => match variant {
+                "Some" => {
+                    return (
+                        ori_ir::OPTION_VARIANT_SOME,
+                        vec![self.pool.option_inner(resolved)],
+                    )
                 }
-                return Vec::new();
-            }
-            Tag::Result => {
-                // Ok has 1 field (ok type), Err has 1 field (err type).
-                if self.interner.lookup(variant_name) == "Err" {
-                    return vec![self.pool.result_err(resolved)];
+                "None" => return (ori_ir::OPTION_VARIANT_NONE, Vec::new()),
+                _ => {}
+            },
+            Tag::Result => match variant {
+                "Ok" => {
+                    return (
+                        ori_ir::RESULT_VARIANT_OK,
+                        vec![self.pool.result_ok(resolved)],
+                    )
                 }
-                return vec![self.pool.result_ok(resolved)];
-            }
-            // Ordering variants (Less, Equal, Greater) are all unit — no fields.
-            Tag::Ordering => return Vec::new(),
+                "Err" => {
+                    return (
+                        ori_ir::RESULT_VARIANT_ERR,
+                        vec![self.pool.result_err(resolved)],
+                    )
+                }
+                _ => {}
+            },
+            Tag::Ordering => match variant {
+                "Less" => return (0, Vec::new()),
+                "Equal" => return (1, Vec::new()),
+                "Greater" => return (2, Vec::new()),
+                _ => {}
+            },
             _ => {}
         }
-        Vec::new()
+        panic!(
+            "typed variant `{variant}` must belong to resolved scrutinee type {resolved:?} ({:?}) before canonical pattern lowering",
+            self.pool.tag(resolved),
+        )
     }
 
     /// Get the type of a tuple element.
     fn resolve_tuple_elem_ty(&self, tuple_ty: ori_types::Idx, index: usize) -> ori_types::Idx {
         use ori_types::Tag;
         let resolved = self.pool.resolve_fully(tuple_ty);
-        if self.pool.tag(resolved) == Tag::Tuple {
-            let count = self.pool.tuple_elem_count(resolved);
-            if index < count {
-                return self.pool.tuple_elem(resolved, index);
-            }
-        }
-        ori_types::Idx::UNIT
-    }
-
-    /// Get all fields of a struct type as `(name, type)` pairs.
-    fn resolve_all_struct_fields(&self, struct_ty: ori_types::Idx) -> Vec<(Name, ori_types::Idx)> {
-        use ori_types::Tag;
-        let resolved = self.pool.resolve_fully(struct_ty);
-        if self.pool.tag(resolved) == Tag::Struct {
-            let count = self.pool.struct_field_count(resolved);
-            (0..count)
-                .map(|i| self.pool.struct_field(resolved, i))
-                .collect()
+        if self.pool.tag(resolved) == Tag::Tuple && index < self.pool.tuple_elem_count(resolved) {
+            self.pool.tuple_elem(resolved, index)
         } else {
-            Vec::new()
+            ori_types::Idx::UNIT
         }
     }
 
-    /// Get the type of a struct field.
-    fn resolve_struct_field_ty(
+    /// Get every struct field type by name in one pool traversal.
+    fn resolve_struct_field_types(
         &self,
         struct_ty: ori_types::Idx,
-        field_name: Name,
-    ) -> ori_types::Idx {
+    ) -> Option<FxHashMap<Name, ori_types::Idx>> {
         use ori_types::Tag;
         let resolved = self.pool.resolve_fully(struct_ty);
-        if self.pool.tag(resolved) == Tag::Struct {
-            let count = self.pool.struct_field_count(resolved);
-            for i in 0..count {
-                let (fname, fty) = self.pool.struct_field(resolved, i);
-                if fname == field_name {
-                    return fty;
-                }
-            }
-        }
-        ori_types::Idx::UNIT
+        (self.pool.tag(resolved) == Tag::Struct)
+            .then(|| self.pool.struct_fields(resolved).into_iter().collect())
     }
 
     /// Get the element type of a list.
@@ -384,8 +373,9 @@ impl<'a> FlattenCtx<'a> {
         use ori_types::Tag;
         let resolved = self.pool.resolve_fully(list_ty);
         if self.pool.tag(resolved) == Tag::List {
-            return self.pool.list_elem(resolved);
+            self.pool.list_elem(resolved)
+        } else {
+            ori_types::Idx::UNIT
         }
-        ori_types::Idx::UNIT
     }
 }

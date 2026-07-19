@@ -52,9 +52,10 @@ pub(super) fn plan_incs(input: &IncPlanningInput<'_>) -> Result<Vec<PlannedOp>, 
     // Per-seed same-reference closures: a consumed alias belongs to the
     // SEED whose downstream Let-alias closure contains it (the closure
     // grows from the extraction root, never from an alias).
+    let alias_flow = super::AliasFlowGraph::new(func);
     let seed_closures: Vec<rustc_hash::FxHashSet<crate::ir::ArcVarId>> = seed_roots
         .iter()
-        .map(|&root| super::close_over_let_aliases(func, std::iter::once(root).collect()))
+        .map(|&root| alias_flow.close_let_aliases(std::iter::once(root)))
         .collect();
     let mut ops = Vec::new();
     for (block, evs) in events.per_block.iter().enumerate() {

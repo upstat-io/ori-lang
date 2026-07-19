@@ -1,0 +1,8 @@
+@main () -> int = {
+    let s: Set<str> = [
+        "owned local heap set element long enough to exceed sso inline storage",
+        "second owned local heap set element also exceeding the sso threshold"
+    ].iter().collect();
+    let n = s.iter().count();
+    if n == 2 then 0 else 1
+}

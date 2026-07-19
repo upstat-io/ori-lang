@@ -1,5 +1,6 @@
 //! Typed-module metadata and type-directed canonicalization sidecars.
 
+use ori_ir::canon::IndexDispatch;
 use ori_ir::{ExprId, Name, ReprAttrKind};
 
 use crate::Idx;
@@ -42,15 +43,9 @@ pub struct CapabilityCallSite {
 
 /// Per-type metadata exported for cross-module repr plan construction.
 ///
-/// Carries `#repr` attributes and visibility information alongside the
-/// Merkle hash that identifies the type in the Pool. This metadata is
-/// NOT part of the type's structural identity (hash) — it is source-level
-/// information needed by `ori_repr` to correctly exempt imported types
-/// from integer narrowing.
-///
-/// Without this sidecar, imported `pub` or `#repr("c")` types lose their
-/// protection when an importing module builds its `ReprPlan`, allowing
-/// their field layouts to be narrowed in violation of ABI guarantees.
+/// The Merkle hash identifies the type; its `#repr` and visibility metadata
+/// remain outside structural identity. Importing modules use the metadata to
+/// protect public and explicitly represented types from ABI-breaking narrowing.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ExportedTypeMetadata {
     /// Merkle hash of the type's Pool representation.
@@ -72,24 +67,23 @@ pub struct ExportedTypeMetadata {
 
 /// Type-directed desugar plan for one `ExprKind::AssignTarget` chain.
 ///
-/// `ori_types` resolves the type produced at each level of the chain
-/// (`root`, `root` + step 0, `root` + steps 0..1, ...) during
-/// `infer_assign_target`; `ori_canon` consumes the plan to synthesize the
-/// pure-reassignment form (`root = root.updated(...)` / `{ ...root, f: v }`)
-/// in its own `CanArena`. The arena is borrowed immutably during type
-/// checking, so the synthesized nodes are minted in `ori_canon`, where the
-/// mutable arena lives — `ori_types` records only the resolved types the
-/// synthesis needs, keeping the type-direction decision in the type checker
-/// while AIMS sees only the pure reassignment.
-///
 /// `level_types[k]` is the resolved type of the receiver-read after applying
-/// the first `k` access steps: `level_types[0]` is `root`'s type,
-/// `level_types[k]` is the type of reading `root.step0...step(k-1)`. The
-/// vector has `steps.len() + 1` entries.
+/// the first `k` access steps; it contains `steps.len() + 1` entries.
+/// `step_routes[k]` freezes the semantic route for access step `k` before
+/// canonical lowering rebuilds the chain as pure reassignment.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct AssignDesugar {
     /// Resolved receiver-read type at each chain level (length `steps + 1`).
     pub level_types: Vec<Idx>,
+    /// Type-checker-selected route for each access step.
+    pub step_routes: Vec<AssignStepRoute>,
+}
+
+/// Frozen semantic route for one assignment-target access step.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AssignStepRoute {
+    Field,
+    Index(IndexDispatch),
 }
 
 /// Type-directed canonicalization plan for an iterator method.
@@ -112,12 +106,8 @@ pub struct IterMethodRoute {
 /// Pool `Idx` values for the builtin `FormatSpec` struct and its `Option<_>`
 /// field types, captured at type-check time.
 ///
-/// `ori_canon` consumes these to type the synthesized `FormatSpec` struct
-/// node + its field-value nodes when desugaring a non-primitive `{expr:spec}`
-/// interpolation that dispatches a user `Formattable.format(self:, spec:)`.
-/// Without precise field types the LLVM backend cannot compute the struct
-/// layout. `register_format_spec_type` registers these in every module's pool,
-/// so this is always populated after a successful check.
+/// Canonical lowering uses them to type synthesized formatting nodes precisely
+/// enough for LLVM layout. Successful checking always registers the builtin.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FormatSpecTypes {
     /// The `FormatSpec` struct type.

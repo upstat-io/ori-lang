@@ -1,7 +1,6 @@
 //! LLVM type size utilities.
 //!
 //! Store size calculation for LLVM types including alignment padding.
-//! Must stay in sync with `pool_type_store_size()` in `ori_arc`.
 
 use std::cmp::Ordering;
 
@@ -42,9 +41,6 @@ pub(crate) fn max_variant_payload_bytes(
 }
 
 /// Store size of an LLVM type in bytes, including trailing alignment padding.
-///
-/// **Sync point**: `pool_type_store_size()` in `ori_arc` mirrors
-/// this logic at the Pool level. Both must agree on sizes for all types.
 pub(crate) fn type_store_size(ty: BasicTypeEnum<'_>) -> u64 {
     type_store_size_inner(ty, 0)
 }

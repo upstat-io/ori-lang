@@ -7,7 +7,8 @@ fn validator_rejects_expression_indices_outside_expr_id_range() {
     validator_expr_id(u32::MAX as usize + 1);
 }
 use crate::{
-    check::test_utils::parse_and_check, check::ModuleChecker, Tag, TypeEnv, TypeErrorKind, VarState,
+    check::test_utils::parse_and_check, check::ModuleChecker, Idx, Tag, TypeEnv, TypeErrorKind,
+    VarState,
 };
 use ori_ir::{ExprArena, Module, StringInterner};
 

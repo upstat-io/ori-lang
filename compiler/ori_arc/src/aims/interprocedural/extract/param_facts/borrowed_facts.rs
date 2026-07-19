@@ -51,7 +51,7 @@ pub(in crate::aims::interprocedural::extract) fn find_borrowed_read_only_params(
                 None => true,
                 Some(name) => {
                     borrowed_ro_arg_is_owned_position(name, pos, &builtins, sigs)
-                        || !borrowed_ro_arg_forward_safe(name, pos, &builtins, sigs, interner)
+                        || !borrowed_ro_arg_forward_safe(name, pos, &builtins, sigs)
                 }
             };
             if clears {
@@ -86,10 +86,10 @@ pub(in crate::aims::interprocedural::extract) fn find_borrowed_read_only_params(
         .collect()
 }
 
-/// Does `callee` consume its `pos`-th arg at an OWNED position? Mirrors
-/// `compute_arg_ownership`: COW receiver / second-arg, protocol owned positions,
-/// or a user-fn param contract `access == Owned`. Unknown non-builtin callees are
-/// conservatively Owned. Companion to [`find_borrowed_read_only_params`].
+/// Whether `callee` consumes its `pos`-th argument at an OWNED position.
+/// COW receivers, protocol-owned positions, and user-function parameters with
+/// `access == Owned` consume; unknown non-builtin callees are conservatively
+/// Owned. Companion to [`find_borrowed_read_only_params`].
 fn borrowed_ro_arg_is_owned_position(
     callee: Name,
     pos: usize,
@@ -123,25 +123,19 @@ fn borrowed_ro_arg_is_owned_position(
     true
 }
 
-/// Is a BORROWED `pos`-th arg of `callee` read-only-safe to forward? Builtin and
-/// `ori_*` borrowed positions are leaf-safe (no deeper user COW). A user-fn
-/// borrowed position is safe only when that callee's corresponding param is itself
-/// `borrowed_read_only` (SCC: inner contract finalized first per IC-1). Companion
-/// to [`find_borrowed_read_only_params`].
+/// Is a BORROWED `pos`-th arg of `callee` read-only-safe to forward?
+///
+/// Registered builtins are leaf-safe. A user function is safe only when its
+/// finalized contract marks the corresponding parameter `borrowed_read_only`.
+/// Unknown callees remain conservative. Companion to
+/// [`find_borrowed_read_only_params`].
 fn borrowed_ro_arg_forward_safe(
     callee: Name,
     pos: usize,
     builtins: &crate::BuiltinOwnershipSets,
     sigs: &FxHashMap<Name, MemoryContract>,
-    interner: &ori_ir::StringInterner,
 ) -> bool {
     if builtins.contains(callee) {
-        return true;
-    }
-    if interner
-        .try_lookup(callee)
-        .is_some_and(|n| n.starts_with("ori_"))
-    {
         return true;
     }
     sigs.get(&callee)
@@ -318,16 +312,13 @@ fn collect_param_alias_use_sites(
 /// when a cycle re-reaches it).
 fn successor_reachable(func: &ArcFunction, start: usize) -> FxHashSet<usize> {
     let mut visited: FxHashSet<usize> = FxHashSet::default();
-    let mut stack: Vec<usize> = func
-        .blocks
-        .get(start)
-        .map(|b| {
-            crate::graph::successor_block_ids(&b.terminator)
-                .into_iter()
-                .map(crate::ir::ArcBlockId::index)
-                .collect()
-        })
-        .unwrap_or_default();
+    let Some(start_block) = func.blocks.get(start) else {
+        unreachable!("successor traversal must start from an enumerated ARC block");
+    };
+    let mut stack: Vec<usize> = crate::graph::successor_block_ids(&start_block.terminator)
+        .into_iter()
+        .map(crate::ir::ArcBlockId::index)
+        .collect();
     while let Some(b) = stack.pop() {
         if !visited.insert(b) {
             continue;
@@ -339,4 +330,21 @@ fn successor_reachable(func: &ArcFunction, start: usize) -> FxHashSet<usize> {
         }
     }
     visited
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unregistered_runtime_prefix_is_not_assumed_forward_safe() {
+        let interner = ori_ir::StringInterner::new();
+        let callee = interner.intern("ori_unregistered_helper");
+        let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+        let contracts = FxHashMap::default();
+
+        assert!(!borrowed_ro_arg_forward_safe(
+            callee, 0, &builtins, &contracts,
+        ));
+    }
 }

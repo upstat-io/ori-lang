@@ -20,19 +20,21 @@ impl SingleConstructorColumn {
         }
     }
 
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "field indices are always < u32::MAX"
-    )]
     fn path_instruction(&self, index: usize) -> PathInstruction {
         match self {
-            Self::Tuple { .. } => PathInstruction::TupleIndex(index as u32),
+            Self::Tuple { .. } => {
+                let Ok(index) = u32::try_from(index) else {
+                    panic!("tuple pattern field index {index} exceeds the path index range");
+                };
+                PathInstruction::TupleIndex(index)
+            }
             Self::Struct { field_names } => PathInstruction::StructField(field_names[index]),
         }
     }
 }
 
 /// Returns the common tuple or struct shape when every concrete pattern shares it.
+#[must_use = "the absence of a value must be handled"]
 pub(super) fn single_constructor_column(
     matrix: &PatternMatrix,
     col: usize,
@@ -74,7 +76,7 @@ pub(super) fn decompose_single_constructor(
     col: usize,
     paths: &[ScrutineePath],
     base_path: &ScrutineePath,
-    shape: SingleConstructorColumn,
+    shape: &SingleConstructorColumn,
 ) -> Specialized {
     let sub_count = shape.field_count();
 

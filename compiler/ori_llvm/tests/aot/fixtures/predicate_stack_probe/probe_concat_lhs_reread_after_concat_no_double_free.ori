@@ -1,0 +1,5 @@
+@main () -> int = {
+    let $a = "long_prefix_heap_value_exceeding_inline_sso_storage";
+    let $s = a + "_suffix";
+    if a.starts_with(prefix: "long_prefix") && s.starts_with(prefix: "long_prefix") then 0 else 1
+}

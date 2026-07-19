@@ -6,8 +6,8 @@ use ori_patterns::{
     Value,
 };
 
+use super::arguments::{require_args, require_float_arg, require_scalar_int_arg};
 use super::compare::ordering_to_value;
-use super::helpers::{require_args, require_float_arg, require_scalar_int_arg};
 use super::DispatchCtx;
 
 /// Dispatch operator methods on integer values.

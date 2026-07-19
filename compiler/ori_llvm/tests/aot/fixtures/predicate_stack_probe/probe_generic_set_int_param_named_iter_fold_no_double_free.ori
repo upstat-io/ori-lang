@@ -1,0 +1,7 @@
+@fold_count<T> (c: Set<T>) -> int = c.iter().fold(initial: 0, op: (acc, x) -> acc + 1);
+
+@main () -> int = {
+    let s: Set<int> = [10, 20, 30].iter().collect();
+    let n = fold_count(c: s);
+    if n == 3 then 0 else 1
+}

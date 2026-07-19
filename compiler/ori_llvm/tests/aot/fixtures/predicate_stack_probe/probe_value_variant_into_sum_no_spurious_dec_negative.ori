@@ -1,0 +1,12 @@
+type Pair = Both(a: int, b: int) | Single(a: int);
+
+@sum_pair (p: Pair) -> int =
+    match p {
+        Both(a, b) -> a + b,
+        Single(a) -> a,
+    };
+
+@main () -> int = {
+    let r = sum_pair(p: Both(a: 12, b: 30));
+    if r == 42 then 0 else 1
+}

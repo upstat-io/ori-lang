@@ -2,12 +2,12 @@
 //!
 //! [`CanExpr`] is the core expression enum consumed by both backends.
 //! [`CanNode`] pairs a `CanExpr` with its source span and resolved type.
-//! Supporting value and diagnostic types ([`CanMapEntry`](super::CanMapEntry),
+//! Supporting value and diagnostic types include [`CanMapEntry`](super::CanMapEntry),
 //! [`CanField`](super::CanField), [`ConstValue`](super::ConstValue),
-//! [`PatternProblem`](super::PatternProblem)) live in the sibling `support`
-//! module.
+//! and [`PatternProblem`](super::PatternProblem).
 
-use std::fmt;
+mod debug;
+
 use std::hash::{Hash, Hasher};
 
 use crate::{
@@ -19,13 +19,26 @@ use super::patterns::{CanNamedExprRange, CanParamRange};
 use super::pools::{ConstantId, DecisionTreeId};
 use super::result::MethodProducerId;
 
+/// Type-checker-selected dispatch route for one index expression.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum IndexDispatch {
+    /// Primitive List, Map, str, or Tuple indexing.
+    Builtin,
+    /// Polymorphic indexing whose concrete route remains specialization-dependent.
+    Deferred,
+    /// Exact user-defined `Index` producer selected during type checking.
+    Selected(MethodProducerId),
+    /// Invalid indexing retained only while diagnostics prevent execution.
+    Error,
+}
+
 /// Canonical expression node — sugar-free, type-annotated, pattern-compiled.
 ///
 /// This is NOT `ExprKind` with variants removed. It is a **distinct type** with
-/// distinct semantics. Backends pattern-match on `CanExpr` exhaustively —
-/// no `unreachable!()` arms, no sugar handling.
+/// distinct semantics. Backends pattern-match on `CanExpr` exhaustively with
+/// no sugar handling.
 ///
-/// # Sugar Variants Absent
+/// # Examples
 ///
 /// These `ExprKind` variants have no `CanExpr` equivalent — they are desugared
 /// during lowering (`ori_canon::desugar`):
@@ -76,16 +89,10 @@ pub enum CanExpr {
     SelfRef,
     /// Function reference: `@name`
     FunctionRef(Name),
-    /// Type reference for associated function calls: `Duration`, `Size`, user types.
-    ///
-    /// Emitted during canonicalization when an identifier resolves to a type name
-    /// (via `TypedModule::type_def` or builtin type check). Eliminates the need for
-    /// the evaluator to perform name resolution (phase bleeding) and acquire a
-    /// `UserMethodRegistry` read lock on every identifier evaluation.
-    ///
-    /// The evaluator checks the environment first (for variable shadowing), then
-    /// produces `Value::TypeRef`. Method dispatch on the resulting `TypeRef` routes
-    /// to associated functions.
+    /// Type reference for associated calls: `Duration`, `Size`, or a user type.
+    /// Canonicalization emits it when an identifier resolves to a type name, so
+    /// evaluation needs no cross-layer lookup. The environment retains priority
+    /// for variable shadowing; otherwise evaluation produces `Value::TypeRef`.
     TypeRef(Name),
     /// Hash in index context (refers to length): `#`
     HashLength,
@@ -125,13 +132,12 @@ pub enum CanExpr {
     Field { receiver: CanId, field: Name },
     /// Index access: `receiver[index]`.
     ///
-    /// `producer` is present for user-defined `Index` dispatch and absent for
-    /// primitive List/Map/str indexing. It is a module-local handle into the
-    /// type checker's exact producer table, not a backend symbol.
+    /// `dispatch` freezes the type checker's builtin, deferred, selected, or
+    /// invalid route so semantic consumers never reconstruct it from type shape.
     Index {
         receiver: CanId,
         index: CanId,
-        producer: Option<MethodProducerId>,
+        dispatch: IndexDispatch,
     },
 
     // Control Flow
@@ -258,214 +264,11 @@ pub enum CanExpr {
 // Largest variants are Duration/Size (u64 forces 8-byte alignment).
 static_assert_size!(CanExpr, 24);
 
-impl fmt::Debug for CanExpr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            expr @ (CanExpr::Int(_)
-            | CanExpr::Float(_)
-            | CanExpr::Bool(_)
-            | CanExpr::Str(_)
-            | CanExpr::Char(_)
-            | CanExpr::Duration { .. }
-            | CanExpr::Size { .. }
-            | CanExpr::Unit
-            | CanExpr::Constant(_)
-            | CanExpr::Ident(_)
-            | CanExpr::Const(_)
-            | CanExpr::SelfRef
-            | CanExpr::FunctionRef(_)
-            | CanExpr::TypeRef(_)
-            | CanExpr::HashLength
-            | CanExpr::Binary { .. }
-            | CanExpr::Unary { .. }
-            | CanExpr::Cast { .. }
-            | CanExpr::Call { .. }
-            | CanExpr::MethodCall { .. }
-            | CanExpr::Field { .. }
-            | CanExpr::Index { .. }) => fmt_basic_expr(expr, f),
-            expr @ (CanExpr::If { .. }
-            | CanExpr::Match { .. }
-            | CanExpr::For { .. }
-            | CanExpr::Loop { .. }
-            | CanExpr::Break { .. }
-            | CanExpr::Continue { .. }
-            | CanExpr::Block { .. }
-            | CanExpr::Let { .. }
-            | CanExpr::Assign { .. }
-            | CanExpr::Lambda { .. }) => fmt_control_expr(expr, f),
-            expr @ (CanExpr::List(_)
-            | CanExpr::Tuple(_)
-            | CanExpr::Map(_)
-            | CanExpr::Struct { .. }
-            | CanExpr::Range { .. }
-            | CanExpr::Ok(_)
-            | CanExpr::Err(_)
-            | CanExpr::Some(_)
-            | CanExpr::None
-            | CanExpr::Try(_)
-            | CanExpr::Await(_)
-            | CanExpr::Unsafe(_)
-            | CanExpr::WithCapability { .. }
-            | CanExpr::FunctionExp { .. }
-            | CanExpr::FormatWith { .. }
-            | CanExpr::Error) => fmt_aggregate_expr(expr, f),
-        }
-    }
-}
-
-fn fmt_basic_expr(expr: &CanExpr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match expr {
-        CanExpr::Int(v) => write!(f, "Int({v})"),
-        CanExpr::Float(v) => write!(f, "Float({v})"),
-        CanExpr::Bool(v) => write!(f, "Bool({v})"),
-        CanExpr::Str(n) => write!(f, "Str({n:?})"),
-        CanExpr::Char(c) => write!(f, "Char({c:?})"),
-        CanExpr::Duration { value, unit } => write!(f, "Duration({value}, {unit:?})"),
-        CanExpr::Size { value, unit } => write!(f, "Size({value}, {unit:?})"),
-        CanExpr::Unit => write!(f, "Unit"),
-        CanExpr::Constant(id) => write!(f, "Constant({id:?})"),
-        CanExpr::Ident(n) => write!(f, "Ident({n:?})"),
-        CanExpr::Const(n) => write!(f, "Const({n:?})"),
-        CanExpr::SelfRef => write!(f, "SelfRef"),
-        CanExpr::FunctionRef(n) => write!(f, "FunctionRef({n:?})"),
-        CanExpr::TypeRef(n) => write!(f, "TypeRef({n:?})"),
-        CanExpr::HashLength => write!(f, "HashLength"),
-        CanExpr::Binary { op, left, right } => {
-            write!(f, "Binary({op:?}, {left:?}, {right:?})")
-        }
-        CanExpr::Unary { op, operand } => write!(f, "Unary({op:?}, {operand:?})"),
-        CanExpr::Cast {
-            expr,
-            target,
-            fallible,
-        } => {
-            write!(f, "Cast({expr:?}, {target:?}, fallible={fallible})")
-        }
-        CanExpr::Call { func, args } => write!(f, "Call({func:?}, {args:?})"),
-        CanExpr::MethodCall {
-            receiver,
-            method,
-            args,
-        } => {
-            write!(f, "MethodCall({receiver:?}, {method:?}, {args:?})")
-        }
-        CanExpr::Field { receiver, field } => {
-            write!(f, "Field({receiver:?}, {field:?})")
-        }
-        CanExpr::Index {
-            receiver,
-            index,
-            producer,
-        } => {
-            write!(f, "Index({receiver:?}, {index:?}, {producer:?})")
-        }
-        _ => unreachable!("basic expression classifier is exhaustive"),
-    }
-}
-
-fn fmt_control_expr(expr: &CanExpr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match expr {
-        CanExpr::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            write!(f, "If({cond:?}, {then_branch:?}, {else_branch:?})")
-        }
-        CanExpr::Match {
-            scrutinee,
-            decision_tree,
-            arms,
-        } => {
-            write!(f, "Match({scrutinee:?}, {decision_tree:?}, {arms:?})")
-        }
-        CanExpr::For {
-            label,
-            pattern,
-            iter,
-            guard,
-            body,
-            is_yield,
-        } => {
-            write!(
-                f,
-                "For({label:?}, {pattern:?}, {iter:?}, {guard:?}, {body:?}, yield={is_yield})"
-            )
-        }
-        CanExpr::Loop { label, body } => write!(f, "Loop({label:?}, {body:?})"),
-        CanExpr::Break { label, value } => write!(f, "Break({label:?}, {value:?})"),
-        CanExpr::Continue { label, value } => write!(f, "Continue({label:?}, {value:?})"),
-        CanExpr::Block { stmts, result } => write!(f, "Block({stmts:?}, {result:?})"),
-        CanExpr::Let {
-            pattern,
-            init,
-            mutable,
-        } => {
-            write!(f, "Let({pattern:?}, {init:?}, {mutable:?})")
-        }
-        CanExpr::Assign { target, value } => write!(f, "Assign({target:?}, {value:?})"),
-        CanExpr::Lambda { params, body } => {
-            write!(f, "Lambda({params:?}, {body:?})")
-        }
-        _ => unreachable!("control expression classifier is exhaustive"),
-    }
-}
-
-fn fmt_aggregate_expr(expr: &CanExpr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match expr {
-        CanExpr::List(r) => write!(f, "List({r:?})"),
-        CanExpr::Tuple(r) => write!(f, "Tuple({r:?})"),
-        CanExpr::Map(r) => write!(f, "Map({r:?})"),
-        CanExpr::Struct { name, fields } => write!(f, "Struct({name:?}, {fields:?})"),
-        CanExpr::Range {
-            start,
-            end,
-            step,
-            inclusive,
-        } => {
-            write!(
-                f,
-                "Range({start:?}, {end:?}, {step:?}, inclusive={inclusive})"
-            )
-        }
-        CanExpr::Ok(v) => write!(f, "Ok({v:?})"),
-        CanExpr::Err(v) => write!(f, "Err({v:?})"),
-        CanExpr::Some(v) => write!(f, "Some({v:?})"),
-        CanExpr::None => write!(f, "None"),
-        CanExpr::Try(v) => write!(f, "Try({v:?})"),
-        CanExpr::Await(v) => write!(f, "Await({v:?})"),
-        CanExpr::Unsafe(v) => write!(f, "Unsafe({v:?})"),
-        CanExpr::WithCapability {
-            capability,
-            provider,
-            body,
-        } => {
-            write!(f, "WithCapability({capability:?}, {provider:?}, {body:?})")
-        }
-        CanExpr::FunctionExp { kind, props } => {
-            write!(f, "FunctionExp({kind:?}, {props:?})")
-        }
-        CanExpr::FormatWith { expr, spec } => {
-            write!(f, "FormatWith({expr:?}, {spec:?})")
-        }
-        CanExpr::Error => write!(f, "Error"),
-        _ => unreachable!("aggregate expression classifier is exhaustive"),
-    }
-}
-
 /// A canonical expression node with source location and resolved type.
 ///
-/// Unlike [`Expr`](crate::Expr) (which has no type information), each `CanNode`
-/// carries the resolved type from the type checker. This means backends don't
-/// need to look up types separately — they're right there on the node.
-///
-/// Historical influence: the Roc canonical-IR SHAPE where every node carries its type.
-///
-/// # Note on `ty` field
-///
-/// The `ty` field uses [`TypeId`] which shares the same index layout as
-/// `ori_types::Idx`. The lowering pass in `ori_canon` populates this field
-/// from the type checker's `expr_types` map.
+/// Unlike [`Expr`](crate::Expr), each node carries its resolved type directly.
+/// [`TypeId`] shares the index layout of `ori_types::Idx`; canonical lowering
+/// populates it from the type checker's expression-type map.
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct CanNode {
     /// The expression variant.
@@ -479,6 +282,7 @@ pub struct CanNode {
 impl CanNode {
     /// Create a new canonical node.
     #[inline]
+    #[must_use]
     pub const fn new(kind: CanExpr, span: Span, ty: TypeId) -> Self {
         Self { kind, span, ty }
     }
@@ -489,15 +293,5 @@ impl Hash for CanNode {
         self.kind.hash(state);
         self.span.hash(state);
         self.ty.hash(state);
-    }
-}
-
-impl fmt::Debug for CanNode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "CanNode({:?}, {:?}, {:?})",
-            self.kind, self.span, self.ty
-        )
     }
 }

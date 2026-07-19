@@ -414,7 +414,7 @@ pub(crate) fn derive_ledger(class: NodeIdx, instrs: &[ClassInstr]) -> Vec<Ledger
 /// live-sibling count a dynamic-COW mutate's floor demands
 /// (`AimsProof.Ledger::sibReadCount`).
 pub(crate) fn sib_read_count(class: NodeIdx, value: ArcVarId, rest: &[ClassInstr]) -> usize {
-    let mut siblings: Vec<ArcVarId> = Vec::new();
+    let mut siblings = rustc_hash::FxHashSet::default();
     for instr in rest {
         let ClassInstr::Read {
             class: c,
@@ -423,8 +423,8 @@ pub(crate) fn sib_read_count(class: NodeIdx, value: ArcVarId, rest: &[ClassInstr
         else {
             continue;
         };
-        if c == class && read_value != value && !siblings.contains(&read_value) {
-            siblings.push(read_value);
+        if c == class && read_value != value {
+            siblings.insert(read_value);
         }
     }
     siblings.len()

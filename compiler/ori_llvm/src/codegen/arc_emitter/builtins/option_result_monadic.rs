@@ -15,6 +15,7 @@ use super::super::ArcIrEmitter;
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `Option.map(transform:)`, `.and_then(then:)`, `.flat_map(f:)`,
     /// `.filter(predicate:)`, `.or(other:)`, `.or_else(f:)`, `.ok_or(err:)`.
+    #[must_use = "the absence of a value must be handled"]
     pub(crate) fn emit_option_monadic(
         &mut self,
         method: &str,
@@ -25,7 +26,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let receiver = arg_vals[0];
 
-        // Niche-encoded dispatch
         if let Some(encoding) = self.get_niche_encoding(receiver_ty) {
             return self.emit_option_monadic_niche(
                 method,
@@ -91,7 +91,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .append_block(self.current_function, "map.merge");
         self.builder.cond_br(is_some, some_bb, none_bb);
 
-        // Some: extract payload, call closure, wrap in Some
         self.builder.position_at_end(some_bb);
         let payload = self.builder.extract_value(receiver, 1, "opt.val")?;
         let mapped = self.call_closure_single_arg(closure, payload, inner, return_ty)?;
@@ -100,13 +99,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let some_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // None: build typed None
         self.builder.position_at_end(none_bb);
         let none_result = self.build_none(return_ty)?;
         let none_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // Merge
         self.builder.position_at_end(merge_bb);
         let result_llvm = self.resolve_type_for_option(return_ty);
         let phi = self.builder.phi(result_llvm, "map.result");
@@ -139,14 +136,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let merge_bb = self.builder.append_block(self.current_function, "at.merge");
         self.builder.cond_br(is_some, some_bb, none_bb);
 
-        // Some: call closure (returns Option<U> directly)
         self.builder.position_at_end(some_bb);
         let payload = self.builder.extract_value(receiver, 1, "opt.val")?;
         let some_result = self.call_closure_single_arg(closure, payload, inner, return_ty)?;
         let some_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // None: build zero value with None tag
         self.builder.position_at_end(none_bb);
         let result_llvm = self.resolve_type(return_ty);
         let zero = self.builder.const_zero_ty(result_llvm);
@@ -155,7 +150,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let none_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // Merge
         self.builder.position_at_end(merge_bb);
         let phi = self.builder.phi(result_llvm, "at.result");
         self.builder.add_phi_incoming(
@@ -185,7 +179,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .append_block(self.current_function, "flt.merge");
         self.builder.cond_br(is_some, some_bb, none_bb);
 
-        // Some: call predicate, select between self and None
         self.builder.position_at_end(some_bb);
         let payload = self.builder.extract_value(receiver, 1, "opt.val")?;
         let pred_result = self.call_closure_single_arg(closure, payload, inner, Idx::BOOL)?;
@@ -196,12 +189,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let some_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // None: pass through receiver
         self.builder.position_at_end(none_bb);
         let none_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // Merge
         self.builder.position_at_end(merge_bb);
         let opt_llvm = self.resolve_type_for_option(inner);
         let phi = self.builder.phi(opt_llvm, "flt.result");
@@ -279,11 +270,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .append_block(self.current_function, "okor.merge");
         self.builder.cond_br(is_some, some_bb, none_bb);
 
-        // Some: Ok(payload) in Result<T, E> layout
         self.builder.position_at_end(some_bb);
         let payload = self.builder.extract_value(receiver, 1, "opt.val")?;
-        // The receiver is borrowed, so Ok needs an independent payload credit.
-        // The owned fallback is unused on this branch and must be discharged.
+        // Why: Borrowed payload transfer needs an increment; the unused fallback needs a decrement.
         self.inc_value_rc(payload, inner, 1);
         self.dec_value_rc(err_val, err_ty);
         let ok_result = self.build_result_struct(
@@ -297,7 +286,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let some_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // None: Err(err_val) in Result<T, E> layout
         self.builder.position_at_end(none_bb);
         let err_result = self.build_result_struct(
             ori_ir::RESULT_TAG_ERR,
@@ -320,9 +308,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(phi)
     }
 
-    // Helpers
-
-    /// Build a `None` value as `{i64 OPTION_TAG_NONE, zeroed payload}`.
     fn build_none(&mut self, payload_ty: Idx) -> Option<ValueId> {
         let none_tag = self.builder.const_i64(ori_ir::OPTION_TAG_NONE);
         let payload_llvm = self.resolve_type(payload_ty);
@@ -330,7 +315,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.build_option_struct(none_tag, zero_payload, payload_ty)
     }
 
-    /// Resolve the LLVM type for `Option<T>` = `{i64, T}`.
+    /// Pair the `i64` option tag with the resolved payload layout.
+    #[must_use]
     pub(super) fn resolve_type_for_option(
         &mut self,
         inner_ty: Idx,
@@ -343,12 +329,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.register_type(opt.into())
     }
 
-    // Niche-encoded stub
-
-    /// Niche-encoded Option monadic dispatch.
     #[expect(
         clippy::unused_self,
-        reason = "stub — will gain niche implementation later"
+        reason = "dispatch compatibility requires an emitter method, but fallback delegation reads no emitter state"
     )]
     fn emit_option_monadic_niche(
         &mut self,
@@ -360,7 +343,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         _arc_args: &[ArcVarId],
         _arc_func: &ArcFunction,
     ) -> Option<ValueId> {
-        // Niche-encoded monadic methods fall through to runtime path.
         None
     }
 }

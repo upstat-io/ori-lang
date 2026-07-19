@@ -1,0 +1,11 @@
+@use_twice (s: str) -> str = {
+    print(msg: `a: {s.len()}`);
+    print(msg: `b: {s.len()}`);
+    s
+};
+
+@main () -> int = {
+    let original = "hello";
+    let returned = use_twice(s: original);
+    if returned.len() == 5 then 0 else 1
+}

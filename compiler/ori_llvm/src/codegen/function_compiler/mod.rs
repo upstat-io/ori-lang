@@ -36,7 +36,7 @@ mod seh_main_thunk;
 mod shared_seam;
 mod test_wrappers;
 
-pub use nounwind::PreparedFunction;
+pub use nounwind::{NounwindAnalyzedFunctions, PreparedFunction};
 
 use ori_arc::{AnnotatedSig, ArcClassifier, MemoryContract};
 #[cfg(test)]
@@ -58,7 +58,7 @@ use super::value_id::{FunctionId, LLVMTypeId, ValueId};
 #[cfg(test)]
 use super::abi::CallConv;
 
-/// Process-cached `ORI_DISABLE_RL31_NOALIAS=1` flag.
+/// Env: `ORI_DISABLE_RL31_NOALIAS=1` — omits RL-31 `noalias` projection, debug-only.
 ///
 /// Read once at first access; reused for every function declaration.
 /// `true` omits the RL-31 param `noalias` emission (diagnostic bisection).
@@ -237,7 +237,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Ordinary ARC calls already carry a frozen per-register target. Compound
     /// builtin emission can synthesize a nested method call after ARC closure,
     /// so it consults this equally frozen semantic table instead of rebuilding
-    /// dispatch from source declarations or legacy derive codegen.
+    /// dispatch from source declarations or the open-world derived-method path.
     pub fn bind_executable_method_targets(&mut self) {
         self.codegen_ctx.exact_method_functions.clear();
         let Some(program) = self.executable_program else {
@@ -318,5 +318,4 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 }
 
 #[cfg(test)]
-#[expect(clippy::doc_markdown, reason = "test code — style relaxed for clarity")]
 mod tests;

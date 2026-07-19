@@ -1,0 +1,5 @@
+@main () -> int = {
+    let a: Set<int> = [1, 2].iter().collect();
+    let b: Set<int> = [2, 3].iter().collect();
+    if a.union(b).len() == 3 then 0 else 1
+}

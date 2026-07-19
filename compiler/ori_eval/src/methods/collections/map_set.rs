@@ -6,8 +6,10 @@
 
 use ori_patterns::{no_such_method, ControlAction, EvalResult, IteratorValue, MapData, Value};
 
+use super::super::arguments::require_args;
 use super::super::compare::{equals_values, hash_value};
-use super::super::helpers::{debug_value, len_to_value, require_args};
+use super::super::debug_format::debug_value;
+use super::super::length::len_to_value;
 use crate::interpreter::Interpreter;
 
 /// A key's resolved bucket placement.

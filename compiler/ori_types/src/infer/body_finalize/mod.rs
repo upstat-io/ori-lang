@@ -1,6 +1,6 @@
 //! End-of-body finalization helpers for [`InferEngine`].
 //!
-//! Two independent normalization passes invoked by each body-group pass
+//! Three independent normalization passes invoked by each body-group pass
 //! (`check::bodies`) after `InferEngine` body-checking completes:
 //!
 //! 1. `default_unbound_vars_*` — defaulting of genuinely unconstrained
@@ -10,8 +10,11 @@
 //! 2. `normalize_body_generalized_to_bound_var*` — post-generalization
 //!    rewrite of `Tag::Var(Generalized)` leaves in `expr_types` + sig
 //!    positions to `Tag::BoundVar`.
+//! 3. `materialize_body_type_sites*` — follow resolved inference-variable
+//!    links and intern the resulting compound identities while `ori_types`
+//!    still owns mutation authority over the canonical [`Pool`].
 //!
-//! Both are wrapper/core pairs — the wrapper mutates a full [`FunctionSig`]
+//! Each is a wrapper/core pair — the wrapper mutates a full [`FunctionSig`]
 //! and refreshes Merkle hashes; the core operates on loose `param_types` /
 //! `return_type` slices.
 
@@ -27,6 +30,42 @@ use super::{ExprIndex, InferEngine};
 mod tests;
 
 impl InferEngine<'_> {
+    /// Materialize linked compound identities in body and signature type sites,
+    /// then refresh signature hashes.
+    ///
+    /// This is the final type-owned step before canonicalization. Downstream
+    /// phases consume these identities read-only and fail closed if a required
+    /// compound identity was not produced here.
+    pub fn materialize_body_type_sites_sig(
+        &mut self,
+        expr_types: &mut FxHashMap<ExprIndex, Idx>,
+        sig: &mut FunctionSig,
+    ) {
+        self.materialize_body_type_sites(expr_types, &mut sig.param_types, &mut sig.return_type);
+        let pool = self.pool();
+        sig.param_hashes = sig.param_types.iter().map(|&idx| pool.hash(idx)).collect();
+        sig.return_hash = pool.hash(sig.return_type);
+    }
+
+    /// Core form of [`InferEngine::materialize_body_type_sites_sig`] for body
+    /// passes that construct their [`FunctionSig`] after inference.
+    pub fn materialize_body_type_sites(
+        &mut self,
+        expr_types: &mut FxHashMap<ExprIndex, Idx>,
+        param_types: &mut [Idx],
+        return_type: &mut Idx,
+    ) {
+        let substitutions = FxHashMap::default();
+        let pool = self.pool_mut();
+        for ty in expr_types.values_mut() {
+            *ty = substitute_in_pool(pool, *ty, &substitutions);
+        }
+        for ty in param_types {
+            *ty = substitute_in_pool(pool, *ty, &substitutions);
+        }
+        *return_type = substitute_in_pool(pool, *return_type, &substitutions);
+    }
+
     /// Convenience wrapper: apply [`default_unbound_vars_in_scope`] to a whole
     /// [`FunctionSig`] and refresh its Merkle hashes on success.
     ///
@@ -320,8 +359,8 @@ enum DefaultingClassification {
     IntroducerSlot(ResultSlot),
 }
 
-/// Classify `kind` for end-of-body defaulting. See
-/// [`DefaultingClassification`] for the per-variant semantics.
+/// Classify `kind` for end-of-body defaulting according to
+/// [`DefaultingClassification`].
 fn is_defaulting_root(arena: &ExprArena, kind: &ExprKind) -> DefaultingClassification {
     match kind {
         ExprKind::List(range) => {
@@ -370,10 +409,8 @@ fn is_defaulting_root(arena: &ExprArena, kind: &ExprKind) -> DefaultingClassific
 
 /// Walk the compound type rooted at `ty`, adding every
 /// `VarState::Unbound` var id (not in `exempt`) to `var_subst` with target
-/// [`Idx::NEVER`]. Mirrors the traversal in
-/// `check::validators::collect_first_unbound_var` — no visited-set needed
-/// because occurs-check prevents cyclic types from
-/// reaching this code path.
+/// [`Idx::NEVER`]. The canonical child walker covers every compound type; no
+/// visited set is needed because occurs-check prevents cyclic types here.
 fn collect_unbound_reachable_vars(
     pool: &Pool,
     ty: Idx,

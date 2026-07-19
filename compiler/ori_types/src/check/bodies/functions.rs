@@ -1,8 +1,7 @@
 //! Function and test body type checking.
 //!
-//! Owns `check_function_bodies` (Pass 2) and `check_test_bodies` (Pass 3) and
-//! their private body-checking helpers. See `bodies/mod.rs` for the architecture
-//! docstring that covers all four body passes.
+//! Owns `check_function_bodies` (Pass 2), `check_test_bodies` (Pass 3), and
+//! their private body-checking helpers.
 
 use ori_ir::{ExprArena, Function, Module, Name, Span, TestDef};
 use rustc_hash::FxHashSet;
@@ -129,7 +128,7 @@ fn infer_function_body(
         let mut engine = checker.create_engine_with_env(param_env);
         configure_function_engine(&mut engine, fn_type, func.name, sig, &capability_var_bounds);
         check_function_expressions(&mut engine, arena, func, sig, guard_span, body_span);
-        finish_function_inference(&mut engine, arena, sig, &exempt_var_ids, capability_var_ids)
+        finish_body_inference(&mut engine, arena, sig, &exempt_var_ids, capability_var_ids)
     })
 }
 
@@ -243,7 +242,7 @@ fn check_parameter_defaults(
     }
 }
 
-fn finish_function_inference(
+fn finish_body_inference(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
     sig: &mut FunctionSig,
@@ -253,6 +252,7 @@ fn finish_function_inference(
     let mut expr_types = engine.take_expr_types();
     engine.default_unbound_vars_from_empty_literals(arena, &mut expr_types, sig, exempt_var_ids);
     engine.normalize_body_generalized_to_bound_var_sig(&mut expr_types, sig);
+    engine.materialize_body_type_sites_sig(&mut expr_types, sig);
     engine.compose_body_type_burdens(&expr_types);
 
     super::BodyOutputs {
@@ -287,43 +287,78 @@ pub(in crate::check) fn check_test_bodies(checker: &mut ModuleChecker<'_>, modul
 
 /// Type check a single test body.
 fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
-    // Look up pre-collected signature. Cloned into a mutable local so the
-    // defaulting pass can refresh `param_types` / `return_type` /
-    // Merkle hashes before export.
     let Some(mut sig) = checker.get_signature(test.name).cloned() else {
         checker.error_undefined(test.name, test.span);
         return;
     };
-
-    let Some(child_env) = checker.child_of_base() else {
+    let Some(setup) = prepare_test(checker, test, &sig) else {
         return;
     };
 
-    // Bind parameters
-    let mut param_env = child_env;
-    for (name, ty) in sig.param_names.iter().zip(&sig.param_types) {
-        param_env.bind(*name, *ty);
+    let outputs = infer_test_body(checker, test, &mut sig, setup);
+    super::finalize_body_and_export(checker, &sig, test.span, test.body, outputs);
+    checker.signatures.insert(test.name, sig);
+}
+
+struct TestSetup {
+    param_env: TypeEnv,
+    fn_type: Idx,
+    exempt_var_ids: FxHashSet<u32>,
+    body_span: Span,
+}
+
+fn prepare_test(
+    checker: &mut ModuleChecker<'_>,
+    test: &TestDef,
+    sig: &FunctionSig,
+) -> Option<TestSetup> {
+    let mut param_env = checker.child_of_base()?;
+    for (&name, &ty) in sig.param_names.iter().zip(&sig.param_types) {
+        param_env.bind(name, ty);
     }
 
-    // Why: precompute exemptions to avoid an inference-to-validator dependency.
-    let exempt = build_exempt_var_ids(checker.pool(), &sig.scheme_var_ids);
-
-    let arena = checker.arena();
-
+    let exempt_var_ids = build_exempt_var_ids(checker.pool(), &sig.scheme_var_ids);
     let fn_type = checker
         .pool_mut()
         .function(&sig.param_types, sig.return_type);
-    let mut engine = checker.create_engine_with_env(param_env);
+    let body_span = checker.arena().get_expr(test.body).span;
+
+    Some(TestSetup {
+        param_env,
+        fn_type,
+        exempt_var_ids,
+        body_span,
+    })
+}
+
+fn infer_test_body(
+    checker: &mut ModuleChecker<'_>,
+    test: &TestDef,
+    sig: &mut FunctionSig,
+    setup: TestSetup,
+) -> super::BodyOutputs {
+    let arena = checker.arena();
+    let mut engine = checker.create_engine_with_env(setup.param_env);
+    configure_test_engine(&mut engine, setup.fn_type, test.name);
+    check_test_expression(&mut engine, arena, test, sig.return_type, setup.body_span);
+    finish_body_inference(&mut engine, arena, sig, &setup.exempt_var_ids, Vec::new())
+}
+
+fn configure_test_engine(engine: &mut InferEngine<'_>, fn_type: Idx, test_name: Name) {
     engine.set_self_type(fn_type);
+    engine.set_deferred_mono_caller(crate::DeferredMonoCaller::TopLevel(test_name), Vec::new());
+}
 
-    // INVARIANT: test bodies supply the caller identity required by deferred mono calls.
-    engine.set_deferred_mono_caller(crate::DeferredMonoCaller::TopLevel(test.name), Vec::new());
-
+fn check_test_expression(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    test: &TestDef,
+    return_type: Idx,
+    body_span: Span,
+) {
     engine.push_context(ContextKind::TestBody);
-
-    let body_span = arena.get_expr(test.body).span;
     let expected = Expected {
-        ty: sig.return_type,
+        ty: return_type,
         origin: ExpectedOrigin::Context {
             span: body_span,
             kind: ContextKind::FunctionReturn {
@@ -331,67 +366,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
             },
         },
     };
-    let _body_ty = check_expr(&mut engine, arena, test.body, &expected, body_span);
-
+    let _body_ty = check_expr(engine, arena, test.body, &expected, body_span);
     engine.pop_context();
-
-    // Mark body inference complete before the defaulting pre-pass runs;
-    // defaulting helpers debug-assert this flag (see `check_function`).
     engine.mark_body_inference_complete();
-
-    // default unbound vars reachable from empty-literal expr roots before
-    // exporting types, so tests with empty literals type-check without E2005.
-    let mut expr_types = engine.take_expr_types();
-    engine.default_unbound_vars_from_empty_literals(arena, &mut expr_types, &mut sig, &exempt);
-
-    // Normalize scheme vars to `Tag::BoundVar`.
-    // See `check_function` for the full rationale.
-    engine.normalize_body_generalized_to_bound_var_sig(&mut expr_types, &mut sig);
-
-    // Deep-resolve var-links so late-resolved generic-builtin instantiations are
-    // var-free in the exported IR and composed by the burden sweep, matching
-    // the main-body path and `intern_link_resolved_body_types`.
-    engine.compose_body_type_burdens(&expr_types);
-
-    let errors = engine.take_errors();
-    let warnings = engine.take_warnings();
-    let pat_resolutions = engine.take_pattern_resolutions();
-    let mono_instances = engine.take_mono_instances();
-    let mono_dispatch_pre_dedup = engine.take_mono_dispatch_pre_dedup();
-    let index_dispatch_selections = engine.take_index_dispatch_selections();
-    let deferred_mono_calls = engine.take_deferred_mono_calls();
-    let composed_burdens = engine.take_composed_burdens();
-    let assign_desugars = engine.take_assign_desugars();
-    let module_alias_calls = engine.take_module_alias_calls();
-    let iter_route_desugars = engine.take_iter_routes();
-    let capability_calls = engine.take_capability_calls();
-
-    // Shared PC-2 validation + store/push/accumulate spine.
-    super::finalize_body_and_export(
-        checker,
-        &sig,
-        test.span,
-        test.body,
-        super::BodyOutputs {
-            expr_types,
-            errors,
-            warnings,
-            pat_resolutions,
-            mono_instances,
-            mono_dispatch_pre_dedup,
-            index_dispatch_selections,
-            deferred_mono_calls,
-            composed_burdens,
-            capability_exempt_var_ids: Vec::new(),
-            assign_desugars,
-            module_alias_calls,
-            iter_route_desugars,
-            capability_calls,
-        },
-    );
-
-    // write the defaulted test signature back so the hash channel
-    // (cross-module identity) reflects post-defaulted types, matching
-    // check_function's behavior.
-    checker.signatures.insert(test.name, sig);
 }

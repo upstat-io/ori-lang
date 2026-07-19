@@ -1,0 +1,9 @@
+@pick (b: bool) -> int = {
+    let tag = "a heap string well past the SSO inline threshold of 23!";
+    if b then tag.length() else 7
+}
+
+@main () -> int = {
+    let r = pick(b: false);
+    if r == 7 then 0 else 1
+}

@@ -1,7 +1,7 @@
 //! Builtin-method dispatch entry point.
 //!
-//! Holds the `ArcIrEmitter` dispatch surface that routes a method call
-//! through the declarative submodule chain declared in `builtins/mod.rs`.
+//! Holds the `ArcIrEmitter` surface that routes method calls through the
+//! declarative builtin registry.
 
 use ori_arc::ir::{ArcFunction, ArcVarId, ArgOwnership};
 use ori_ir::Name;
@@ -110,7 +110,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         if method_name == "collect" {
                             return Some(iter_val);
                         }
-                        return Some(self.collect_auto_iter_result(iter_val, dst_ty));
+                        return self.collect_auto_iter_result(iter_val, dst_ty);
                     }
                 }
             }
@@ -199,8 +199,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emits an unconditional branch to a panic block (`ori_panic_cstr` +
     /// `unreachable`), then positions the builder at an unreachable
     /// continuation block and returns a zero value of the destination type so
-    /// the caller's normal-block wiring stays well-formed. Mirrors the
-    /// interpreter's unknown-method dispatch error (dual-execution parity).
+    /// the caller's normal-block wiring stays well-formed. Both execution
+    /// engines report the same unknown-method failure.
     fn emit_unknown_method_panic(
         &mut self,
         type_name: &str,
@@ -239,7 +239,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// result type per Spec: Annex C is the eager collection (`[T]` for list
     /// adapters), not an iterator. The handle's representation (opaque `ptr`)
     /// must agree with its type (a `{len,cap,data}` fat pointer) before any
-    /// downstream `.len()` / indexing / RC op runs — otherwise codegen does
+    /// `.len()`, indexing, or RC operation runs — otherwise codegen does
     /// `extract_value` on the opaque handle. So when `dst_ty` resolves to a
     /// collection, collect the iterator back into that collection.
     ///
@@ -247,24 +247,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// non-collection `dst_ty`; the dispatch already produced the final value
     /// and this is the identity. Explicit `.iter()...collect()` chains keep an
     /// `Iterator`-typed `dst_ty` at the adapter step and likewise pass through.
-    fn collect_auto_iter_result(&mut self, iter_val: ValueId, dst_ty: Idx) -> ValueId {
+    fn collect_auto_iter_result(&mut self, iter_val: ValueId, dst_ty: Idx) -> Option<ValueId> {
         let resolved = self.pool.resolve_fully(dst_ty);
         match self.pool.tag(resolved) {
             ori_types::Tag::List => {
                 let elem_ty = self.pool.list_elem(resolved);
                 self.emit_iter_collect(iter_val, elem_ty)
-                    .unwrap_or(iter_val)
             }
             ori_types::Tag::Set => {
                 let elem_ty = self.pool.set_elem(resolved);
                 self.emit_iter_collect_set(iter_val, elem_ty)
-                    .unwrap_or(iter_val)
             }
             // Non-collection result (`count`/`any`/`all`/`fold`/`find`
             // consumers → int/bool/T) or a genuinely iterator-typed result
             // (explicit `.iter()` chains) — the dispatch already produced the
             // correct value; no collect-back.
-            _ => iter_val,
+            _ => Some(iter_val),
         }
     }
 
@@ -280,28 +278,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let tag = self.pool.tag(resolved);
         match tag {
             ori_types::Tag::List | ori_types::Tag::Set => {
-                if let Some(dp) = self.builder.extract_value(val, 2, "rc_inc.data") {
-                    let cap = self
-                        .builder
-                        .extract_value(val, 1, "rc_inc.cap")
-                        .unwrap_or_else(|| self.builder.const_i64(0));
-                    self.call_list_rc_inc(dp, cap, 1);
-                } else {
-                    self.call_rc_inc_all(&[val], 1);
-                }
+                let Some(data) = self.builder.extract_value(val, 2, "rc_inc.data") else {
+                    return;
+                };
+                let Some(capacity) = self.builder.extract_value(val, 1, "rc_inc.cap") else {
+                    return;
+                };
+                self.call_list_rc_inc(data, capacity, 1);
             }
             // Str: slice-aware RC inc via ori_str_rc_inc(data, cap).
             // Handles SSO, heap, and seamless slices from str.split.
             ori_types::Tag::Str => {
-                if let Some(dp) = self.builder.extract_value(val, 2, "rc_inc.data") {
-                    let cap = self
-                        .builder
-                        .extract_value(val, 1, "rc_inc.str_cap")
-                        .unwrap_or_else(|| self.builder.const_i64(0));
-                    self.call_str_rc_inc(dp, cap, 1);
-                } else {
-                    self.call_rc_inc_all(&[val], 1);
-                }
+                let Some(data) = self.builder.extract_value(val, 2, "rc_inc.data") else {
+                    return;
+                };
+                let Some(capacity) = self.builder.extract_value(val, 1, "rc_inc.str_cap") else {
+                    return;
+                };
+                self.call_str_rc_inc(data, capacity, 1);
             }
             _ => {
                 let rc_inc = self.builder.runtime_fn("ori_rc_inc");
@@ -330,9 +324,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// The receiver is borrowed (the caller retains its reference), so the
     /// constructed `Error` takes its own ref to the message (slice-aware
-    /// RC inc) before the message str becomes the struct's field 0. Mirrors
-    /// the evaluator's `Value::error(s)` (`ori_eval/methods/collections.rs`)
-    /// so interp↔LLVM observable behavior agrees (message preserved).
+    /// RC inc) before the message str becomes the struct's field 0. Both
+    /// execution engines preserve the message.
     pub(crate) fn emit_str_into_error(
         &mut self,
         receiver_str: ValueId,
@@ -371,12 +364,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // For Str: slice-aware ori_str_rc_inc(data, cap).
         self.emit_slice_aware_rc_inc(receiver, receiver_ty);
         match type_info {
-            // The slice-aware inc above gave the iterator its own ref → owns_data = true.
+            // The slice-aware increment gives the iterator its own reference.
             TypeInfo::List { element } => {
                 self.emit_list_iter(receiver, receiver_ty, *element, ArgOwnership::Owned)
             }
-            // The slice-aware inc above gave the iterator its own ref → receiver_owned = true
-            // (same as the List arm's hardcoded `true`); emit_set_iter decs the set buffer.
+            // The slice-aware increment gives the iterator ownership of the set buffer.
             TypeInfo::Set { element } => {
                 self.emit_set_iter(receiver, *element, ArgOwnership::Owned)
             }

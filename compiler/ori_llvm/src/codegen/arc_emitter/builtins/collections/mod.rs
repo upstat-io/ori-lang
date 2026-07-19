@@ -18,9 +18,6 @@ mod set_dispatch;
 mod string_builtins;
 mod string_dispatch;
 
-#[cfg(test)]
-pub(in crate::codegen::arc_emitter) use list_cow::push_result_elem_header_store_disabled;
-
 use crate::codegen::value_id::ValueId;
 
 use super::super::ArcIrEmitter;

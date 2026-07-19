@@ -129,6 +129,23 @@ pub(crate) fn assert_ablation_env_event(
     );
 }
 
+/// Define the standard subprocess-isolated assertion for an ablation reader.
+macro_rules! ablation_env_event_test {
+    ($name:ident, $toggle:literal, $effect:literal, $reader:expr $(,)?) => {
+        #[test]
+        fn $name() {
+            $crate::test_helpers::assert_ablation_env_event(
+                concat!(module_path!(), "::", stringify!($name)),
+                $toggle,
+                $effect,
+                $reader,
+            );
+        }
+    };
+}
+
+pub(crate) use ablation_env_event_test;
+
 /// Shorthand for `ArcVarId::new(n)`.
 pub(crate) fn v(n: u32) -> ArcVarId {
     ArcVarId::new(n)

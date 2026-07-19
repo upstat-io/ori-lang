@@ -1,0 +1,10 @@
+@id <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let opt: Option<[int]> = Some([1, 2, 3]);
+    let o2 = id(x: opt);
+    match o2 {
+        Some(xs) -> if xs.len() == 3 then 0 else 1,
+        None -> 2,
+    }
+}

@@ -5,23 +5,15 @@
 //! events or select a physical backend.
 
 use ori_ir::Name;
-use ori_types::{FunctionSig, Idx, Pool, Tag, TypeFlags};
+use ori_types::{FunctionSig, Idx, Pool, Tag};
 
 use crate::classify::ArcClassifier;
+use crate::derived_body::{validate_concrete_type, RETURN_TYPE, SELF_PARAMETER};
 use crate::ir::{
     compute_var_reprs, ArcFunction, ArcParam, ArcValue, ArcVarId, LitValue, MethodCallForm,
 };
 use crate::lower::ArcIrBuilder;
 use crate::Ownership;
-
-const SELF_PARAMETER: &str = "self parameter";
-const RETURN_TYPE: &str = "return type";
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ConcreteTypeError {
-    InvalidTypeIndex { position: &'static str, ty: Idx },
-    NonConcreteType { position: &'static str, ty: Idx },
-}
 
 /// Invalid input to a compiler-derived `Hashable.hash` body.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -76,6 +68,8 @@ pub enum DerivedHashBodyError {
         index: usize,
     },
 }
+
+crate::derived_body::impl_concrete_type_error_conversion!(DerivedHashBodyError);
 
 impl std::fmt::Display for DerivedHashBodyError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -151,8 +145,10 @@ pub fn build_derived_hash(
     }
 
     let receiver_type = signature.param_types[0];
-    validate_concrete_type(pool, SELF_PARAMETER, receiver_type).map_err(map_type_error)?;
-    validate_concrete_type(pool, RETURN_TYPE, signature.return_type).map_err(map_type_error)?;
+    validate_concrete_type(pool, SELF_PARAMETER, receiver_type)
+        .map_err(DerivedHashBodyError::from)?;
+    validate_concrete_type(pool, RETURN_TYPE, signature.return_type)
+        .map_err(DerivedHashBodyError::from)?;
     if !pool.structural_eq(signature.return_type, Idx::INT) {
         return Err(DerivedHashBodyError::ReturnTypeMismatch {
             return_type: signature.return_type,
@@ -337,43 +333,6 @@ fn emit_hash_combine(
 
 fn emit_zero(builder: &mut ArcIrBuilder) -> ArcVarId {
     builder.emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(0)), None)
-}
-
-fn map_type_error(error: ConcreteTypeError) -> DerivedHashBodyError {
-    match error {
-        ConcreteTypeError::InvalidTypeIndex { position, ty } => {
-            DerivedHashBodyError::InvalidTypeIndex { position, ty }
-        }
-        ConcreteTypeError::NonConcreteType { position, ty } => {
-            DerivedHashBodyError::NonConcreteType { position, ty }
-        }
-    }
-}
-
-fn validate_concrete_type(
-    pool: &Pool,
-    position: &'static str,
-    ty: Idx,
-) -> Result<(), ConcreteTypeError> {
-    if !pool.is_valid_idx(ty) {
-        return Err(ConcreteTypeError::InvalidTypeIndex { position, ty });
-    }
-    let resolved = pool.resolve_fully(ty);
-    if !pool.is_valid_idx(resolved) {
-        return Err(ConcreteTypeError::InvalidTypeIndex {
-            position,
-            ty: resolved,
-        });
-    }
-    let flags = pool.flags(resolved);
-    let unresolved = TypeFlags::HAS_SELF | TypeFlags::HAS_PROJECTION;
-    if !flags.is_recordable()
-        || flags.intersects(unresolved)
-        || matches!(pool.tag(resolved), Tag::Scheme | Tag::ModuleNs)
-    {
-        return Err(ConcreteTypeError::NonConcreteType { position, ty });
-    }
-    Ok(())
 }
 
 #[cfg(test)]

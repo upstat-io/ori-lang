@@ -7,9 +7,50 @@
 //! use a different `Idx` than the function body, causing layout mismatch.
 
 use ori_types::{Idx, Pool, Tag};
+use rustc_hash::FxHashMap;
 
 use crate::plan::ReprPlan;
 use crate::{DecisionReason, DecisionSource, MachineRepr, ReprDecision};
+
+/// Pool-wide index of concrete tuple/struct aliases by resolved structure.
+///
+/// Building this once keeps layout propagation linear in the pool size instead
+/// of re-scanning every pool entry for every reordered layout decision.
+pub(super) struct LayoutAliasIndex {
+    by_signature: FxHashMap<u64, Vec<Idx>>,
+    signatures: FxHashMap<Idx, u64>,
+}
+
+impl LayoutAliasIndex {
+    #[must_use]
+    pub(super) fn new(pool: &Pool) -> Self {
+        let mut by_signature: FxHashMap<u64, Vec<Idx>> = FxHashMap::default();
+        let mut signatures = FxHashMap::default();
+        for idx in pool
+            .iter_indices()
+            .filter(|idx| idx.raw() >= Idx::FIRST_DYNAMIC)
+        {
+            if !matches!(pool.tag(idx), Tag::Tuple | Tag::Struct) {
+                continue;
+            }
+            let signature = pool.resolved_structural_hash(idx);
+            by_signature.entry(signature).or_default().push(idx);
+            signatures.insert(idx, signature);
+        }
+
+        Self {
+            by_signature,
+            signatures,
+        }
+    }
+
+    fn candidates(&self, source: Idx) -> &[Idx] {
+        self.signatures
+            .get(&source)
+            .and_then(|signature| self.by_signature.get(signature))
+            .map_or(&[], Vec::as_slice)
+    }
+}
 
 /// Propagate a reordered layout to all Pool entries that share the same
 /// concrete type structure. This handles the Pool aliasing issue where
@@ -17,10 +58,10 @@ use crate::{DecisionReason, DecisionSource, MachineRepr, ReprDecision};
 pub(super) fn propagate_layout_to_aliases(
     plan: &mut ReprPlan,
     pool: &Pool,
+    aliases: &LayoutAliasIndex,
     source_idx: Idx,
     repr: &MachineRepr,
 ) {
-    let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
     let source_tag = pool.tag(source_idx);
 
     // Only propagate tuples and structs.
@@ -28,234 +69,36 @@ pub(super) fn propagate_layout_to_aliases(
         return;
     }
 
-    // Get the structural signature of the source type (resolved element types).
-    let source_elems: Vec<Idx> = if source_tag == Tag::Tuple {
-        pool.tuple_elems(source_idx)
-            .into_iter()
-            .map(|e| pool.resolve_fully(e))
-            .collect()
-    } else {
-        pool.struct_fields(source_idx)
-            .into_iter()
-            .map(|(_, ty)| pool.resolve_fully(ty))
-            .collect()
-    };
-
-    // Scan for matching types that don't yet have the reordered layout.
-    for raw in Idx::FIRST_DYNAMIC..pool_len {
-        let idx = Idx::from_raw(raw);
+    for &idx in aliases.candidates(source_idx) {
         if idx == source_idx {
             continue;
         }
-        if pool.tag(idx) != source_tag {
+        // The signature is an index key, not the final equality decision: a
+        // collision must never propagate a representation across type shapes.
+        if !pool.structural_eq(source_idx, idx) {
             continue;
         }
-        // Check structural match using deep structural equality.
-        // Plain Idx comparison fails for monomorphized generics where
-        // nested composite children (e.g., inner tuples) get different
-        // Pool Idx values despite being structurally identical.
-        let elems: Vec<Idx> = if source_tag == Tag::Tuple {
-            pool.tuple_elems(idx)
-                .into_iter()
-                .map(|e| pool.resolve_fully(e))
-                .collect()
-        } else {
-            pool.struct_fields(idx)
-                .into_iter()
-                .map(|(_, ty)| pool.resolve_fully(ty))
-                .collect()
-        };
-        if elems.len() == source_elems.len()
-            && elems
-                .iter()
-                .zip(source_elems.iter())
-                .all(|(&a, &b)| structural_type_eq(pool, a, b))
-        {
-            // For structs: verify field NAMES match in the same order.
-            // Different Pool entries for the same struct can have fields
-            // in different orders — the StructRepr's original_index values
-            // assume the source's field order and would be wrong for a target
-            // with different ordering.
-            if source_tag == Tag::Struct {
-                // Structural equality does not erase nominal identity. Two
-                // declarations can share the same fields while requiring
-                // independently proven narrowed layouts.
-                if pool.struct_name(source_idx) != pool.struct_name(idx) {
+
+        if source_tag == Tag::Struct {
+            // Fixed-layout structs cannot inherit a reordered default layout.
+            if let Some(attr) = plan.repr_attr(idx) {
+                if !matches!(attr, crate::plan::ReprAttribute::Default) {
                     continue;
-                }
-                let source_names: Vec<_> = pool
-                    .struct_fields(source_idx)
-                    .into_iter()
-                    .map(|(name, _)| name)
-                    .collect();
-                let target_names: Vec<_> = pool
-                    .struct_fields(idx)
-                    .into_iter()
-                    .map(|(name, _)| name)
-                    .collect();
-                if source_names != target_names {
-                    continue;
-                }
-                // Don't propagate to types with fixed-layout attrs.
-                if let Some(attr) = plan.repr_attr(idx) {
-                    if !matches!(attr, crate::plan::ReprAttribute::Default) {
-                        continue;
-                    }
                 }
             }
-            // Same structural type, compatible attributes and field order — propagate.
-            plan.set_repr(
-                idx,
-                ReprDecision {
-                    source: DecisionSource::StructLayout,
-                    type_idx: idx,
-                    repr: repr.clone(),
-                    reason: DecisionReason::Custom("field reordering (alias propagation)".into()),
-                },
-            );
         }
-    }
-}
 
-/// Deep structural type equality for alias propagation.
-///
-/// Two resolved Idx values are structurally equal if they have the same tag
-/// and their children are structurally equal. This handles the case where
-/// monomorphized generics create distinct Pool entries for the same logical
-/// type (e.g., two `(int, int)` tuples from different generic instantiations).
-fn structural_type_eq(pool: &Pool, a: Idx, b: Idx) -> bool {
-    let a = pool.resolve_fully(a);
-    let b = pool.resolve_fully(b);
-    if a == b {
-        return true;
-    }
-
-    let a_tag = pool.tag(a);
-    let b_tag = pool.tag(b);
-    if a_tag != b_tag {
-        return false;
-    }
-
-    match a_tag {
-        Tag::Tuple => {
-            let a_elems = pool.tuple_elems(a);
-            let b_elems = pool.tuple_elems(b);
-            a_elems.len() == b_elems.len()
-                && a_elems
-                    .iter()
-                    .zip(b_elems.iter())
-                    .all(|(&x, &y)| structural_type_eq(pool, x, y))
-        }
-        Tag::Struct => {
-            let a_fields = pool.struct_fields(a);
-            let b_fields = pool.struct_fields(b);
-            a_fields.len() == b_fields.len()
-                && a_fields
-                    .iter()
-                    .zip(b_fields.iter())
-                    .all(|((_, tx), (_, ty))| structural_type_eq(pool, *tx, *ty))
-        }
-        // Parametric tags: compare inner types recursively.
-        // Without this, Option<int> would match Option<str> (same tag, different payload).
-        Tag::Option => structural_type_eq(pool, pool.option_inner(a), pool.option_inner(b)),
-        Tag::Result => {
-            structural_type_eq(pool, pool.result_ok(a), pool.result_ok(b))
-                && structural_type_eq(pool, pool.result_err(a), pool.result_err(b))
-        }
-        Tag::List => structural_type_eq(pool, pool.list_elem(a), pool.list_elem(b)),
-        Tag::Set => structural_type_eq(pool, pool.set_elem(a), pool.set_elem(b)),
-        Tag::Map => {
-            structural_type_eq(pool, pool.map_key(a), pool.map_key(b))
-                && structural_type_eq(pool, pool.map_value(a), pool.map_value(b))
-        }
-        Tag::Iterator | Tag::DoubleEndedIterator => {
-            structural_type_eq(pool, pool.iterator_elem(a), pool.iterator_elem(b))
-        }
-        // Primitive/leaf tags (Int, Float, Bool, etc.): same tag + different
-        // resolved Idx should not happen (singletons). If it does, reject the
-        // match — the Idx equality check at the top already handles true equality.
-        _ => false,
+        plan.set_repr(
+            idx,
+            ReprDecision {
+                source: DecisionSource::StructLayout,
+                type_idx: idx,
+                repr: repr.clone(),
+                reason: DecisionReason::Custom("field reordering (alias propagation)".into()),
+            },
+        );
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use ori_ir::Name;
-
-    use super::*;
-    use crate::plan::NarrowingPolicy;
-    use crate::repr::IntWidth;
-
-    fn narrowed_struct(pool: &Pool, idx: Idx) -> MachineRepr {
-        let MachineRepr::Struct(mut repr) = crate::canonical::canonical(pool, idx) else {
-            panic!("test type must have a struct representation");
-        };
-        repr.fields[0].repr = MachineRepr::Int {
-            width: IntWidth::I8,
-            signed: true,
-        };
-        MachineRepr::Struct(repr)
-    }
-
-    #[test]
-    fn layout_alias_propagation_does_not_cross_nominal_struct_names() {
-        let mut pool = Pool::new();
-        let field = Name::new(0, 1);
-        let source = pool.struct_type(Name::new(0, 2), &[(field, Idx::INT)]);
-        let target = pool.struct_type(Name::new(0, 3), &[(field, Idx::INT)]);
-
-        let source_repr = narrowed_struct(&pool, source);
-        let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
-        plan.set_repr(
-            target,
-            ReprDecision {
-                source: DecisionSource::Canonical,
-                type_idx: target,
-                repr: crate::canonical::canonical(&pool, target),
-                reason: DecisionReason::Canonical,
-            },
-        );
-
-        propagate_layout_to_aliases(&mut plan, &pool, source, &source_repr);
-
-        let Some(MachineRepr::Struct(target_repr)) = plan.get_repr(target) else {
-            panic!("target must retain a struct representation");
-        };
-        assert_eq!(
-            target_repr.fields[0].repr,
-            MachineRepr::Int {
-                width: IntWidth::I64,
-                signed: true,
-            }
-        );
-    }
-
-    #[test]
-    fn layout_alias_propagation_retains_same_name_struct_aliases() {
-        let mut pool = Pool::new();
-        let struct_name = Name::new(0, 4);
-        let field = Name::new(0, 5);
-        let source_field = pool.named(Name::new(0, 6));
-        let target_field = pool.named(Name::new(0, 7));
-        pool.set_resolution(source_field, Idx::INT);
-        pool.set_resolution(target_field, Idx::INT);
-        let source = pool.struct_type(struct_name, &[(field, source_field)]);
-        let target = pool.struct_type(struct_name, &[(field, target_field)]);
-
-        let source_repr = narrowed_struct(&pool, source);
-        let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
-        plan.set_repr(
-            target,
-            ReprDecision {
-                source: DecisionSource::Canonical,
-                type_idx: target,
-                repr: crate::canonical::canonical(&pool, target),
-                reason: DecisionReason::Canonical,
-            },
-        );
-
-        propagate_layout_to_aliases(&mut plan, &pool, source, &source_repr);
-
-        assert_eq!(plan.get_repr(target), Some(&source_repr));
-    }
-}
+mod tests;

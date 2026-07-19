@@ -1,0 +1,7 @@
+type Pair = { a: str, b: str }
+
+@main () -> int = {
+    let p = Pair { a: "abcdefghijklmnopqrstuvwxyz1234", b: "0987654321zyxwvutsrqponmlkji" };
+    let projected = p.a;
+    if projected.length() == 30 then 0 else 1
+}

@@ -1,6 +1,5 @@
 // Golden test: Impl methods returning struct literals that break
-// Spec: 08-declarations.md § Implementations
-// Design: tooling/formatter/design/02-constructs/declarations.md
+// Spec: Clause 8 - implementations.
 
 type Rectangle = { width: int, height: int, area: int, perimeter: int }
 

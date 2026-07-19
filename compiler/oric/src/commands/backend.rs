@@ -2,23 +2,27 @@
 //! backend behind `ori_repr::CodegenBackend`.
 //!
 //! Single-variant today (`Llvm`); routes both `compile_common.rs` entry
-//! points through `run_codegen_pipeline` unchanged. See
-//! `.claude/rules/canon.md §1` (pipeline phase 8, sub-layer 7a `ori_repr`);
-//! `.claude/rules/compiler.md §Dispatch` (enum for fixed sets).
+//! points through `run_codegen_pipeline` unchanged. The fixed backend set uses
+//! enum dispatch; backend implementations share the `CodegenBackend` contract.
 
 #[cfg(feature = "llvm")]
 use ori_llvm::inkwell::context::Context;
+
 #[cfg(feature = "llvm")]
 use ori_repr::monomorphize::ImportSig;
+
 #[cfg(feature = "llvm")]
 use ori_repr::{BackendError, CodegenBackend, RealizedProgram};
+
 #[cfg(feature = "llvm")]
 use oric::parser::ParseOutput;
+
 #[cfg(feature = "llvm")]
 use oric::CompilerDb;
 
 #[cfg(feature = "llvm")]
 use super::codegen_pipeline::{run_codegen_pipeline, CodegenPipelineInput, LlvmCodegenOutput};
+
 #[cfg(feature = "llvm")]
 use super::ImportedSurfaces;
 
@@ -26,12 +30,12 @@ use super::ImportedSurfaces;
 /// with the driver-side inputs `RealizedProgram` does not carry (the LLVM
 /// `Context`, the Salsa `CompilerDb`, cross-module import linkage).
 #[cfg(feature = "llvm")]
-pub struct LlvmBackend<'ctx, 'a> {
-    pub context: &'ctx Context,
-    pub db: &'a CompilerDb,
-    pub parse_result: &'a ParseOutput,
-    pub import_sigs: &'a [ImportSig],
-    pub imported: ImportedSurfaces<'a>,
+pub(super) struct LlvmBackend<'ctx, 'a> {
+    pub(super) context: &'ctx Context,
+    pub(super) db: &'a CompilerDb,
+    pub(super) parse_result: &'a ParseOutput,
+    pub(super) import_sigs: &'a [ImportSig],
+    pub(super) imported: ImportedSurfaces<'a>,
 }
 
 #[cfg(feature = "llvm")]
@@ -63,17 +67,17 @@ impl<'ctx> CodegenBackend<'ctx> for LlvmBackend<'ctx, '_> {
     }
 }
 
-/// The fixed set of codegen backends `oric` may select. Single-variant
-/// today per the walking-skeleton's scope decision; enum dispatch per
-/// `.claude/rules/compiler.md §Dispatch`.
+/// The fixed set of codegen backends `oric` may select.
+///
+/// This is single-variant today; enum dispatch keeps the closed set explicit.
 #[cfg(feature = "llvm")]
-pub enum BackendChoice<'ctx, 'a> {
+pub(super) enum BackendChoice<'ctx, 'a> {
     Llvm(LlvmBackend<'ctx, 'a>),
 }
 
 #[cfg(feature = "llvm")]
 impl<'ctx> BackendChoice<'ctx, '_> {
-    pub fn compile<'p>(
+    pub(super) fn compile<'p>(
         &self,
         program: &RealizedProgram<'ctx, 'p>,
     ) -> Result<LlvmCodegenOutput<'ctx>, BackendError> {

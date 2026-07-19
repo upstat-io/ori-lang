@@ -54,7 +54,10 @@ impl FunctionId {
     fn from_index(index: usize) -> Result<Self, RealizationError> {
         u32::try_from(index)
             .map(Self)
-            .map_err(|_| RealizationError::TooManyFunctions { count: index })
+            .map_err(|source| RealizationError::TooManyFunctions {
+                count: index,
+                source,
+            })
     }
 }
 
@@ -67,7 +70,11 @@ impl BlockIndex {
     pub fn new(index: usize, function: Name) -> Result<Self, RealizationError> {
         u32::try_from(index)
             .map(Self)
-            .map_err(|_| RealizationError::TooManyBlocks { function })
+            .map_err(|source| RealizationError::TooManyBlocks {
+                function,
+                count: index,
+                source,
+            })
     }
 
     /// Return the zero-based block index.
@@ -91,7 +98,11 @@ impl CallPosition {
     pub fn instruction(index: usize, function: Name) -> Result<Self, RealizationError> {
         u32::try_from(index)
             .map(Self::Instruction)
-            .map_err(|_| RealizationError::TooManyInstructions { function })
+            .map_err(|source| RealizationError::TooManyInstructions {
+                function,
+                count: index,
+                source,
+            })
     }
 }
 

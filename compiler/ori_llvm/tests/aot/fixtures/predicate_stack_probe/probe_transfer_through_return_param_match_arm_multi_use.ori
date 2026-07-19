@@ -1,0 +1,13 @@
+@first_or_zero (xs: [int]) -> [int] = {
+    let _peek = match xs.len() {
+        0 -> 0,
+        _ -> xs[0],
+    };
+    xs
+};
+
+@main () -> int = {
+    let original = [7, 8, 9];
+    let returned = first_or_zero(xs: original);
+    if returned.len() == 3 && returned[0] == 7 then 0 else 1
+}

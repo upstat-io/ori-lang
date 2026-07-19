@@ -5,7 +5,7 @@
 
 use std.testing { assert_eq }
 
-// --- Types ---
+// Types
 
 #[derive(Debug)]
 type Point = { x: int, y: int }
@@ -19,7 +19,7 @@ type Color = Red | Green | Blue;
 #[derive(Debug)]
 type Shape = Circle(radius: int) | Rectangle(w: int, h: int);
 
-// --- Struct debug ---
+// Struct debug
 
 @test_struct_debug tests @struct_debug () -> void = {
     assert_eq(actual: Point { x: 10, y: 20 }.debug(), expected: "Point { x: 10, y: 20 }")
@@ -32,7 +32,7 @@ type Shape = Circle(radius: int) | Rectangle(w: int, h: int);
 }
 @str_escaped () -> str = WithStr { name: "Alice", value: 42 }.debug();
 
-// --- Payloadless variant debug ---
+// Payloadless variant debug
 
 @test_variant_payloadless tests @pl_variant () -> void = {
     assert_eq(actual: Red.debug(), expected: "Red");
@@ -41,7 +41,7 @@ type Shape = Circle(radius: int) | Rectangle(w: int, h: int);
 }
 @pl_variant () -> str = Red.debug();
 
-// --- Variant with payload ---
+// Variant with payload
 
 @test_variant_payload tests @payload_variant () -> void = {
     assert_eq(actual: Circle(radius: 5).debug(), expected: "Circle(5)")
@@ -53,9 +53,7 @@ type Shape = Circle(radius: int) | Rectangle(w: int, h: int);
 }
 @multi_variant () -> str = Rectangle(w: 3, h: 4).debug();
 
-// --- Char field renders single-quoted (Debug), not the i32 codepoint ---
-// Regression: derive_codegen field path previously rendered char fields via
-// ori_str_from_int ("65"), diverging from the evaluator ("'A'").
+// Derived Debug renders char fields as quoted characters, never code points.
 
 #[derive(Debug)]
 type Letter = { ch: char }

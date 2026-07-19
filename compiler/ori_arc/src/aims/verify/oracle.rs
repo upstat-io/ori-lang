@@ -6,6 +6,7 @@
 
 mod demand;
 mod evidence;
+mod local_funding;
 
 use ori_ir::{Name, StringInterner};
 use rustc_hash::FxHashMap;

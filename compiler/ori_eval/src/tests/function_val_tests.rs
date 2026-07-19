@@ -391,6 +391,7 @@ mod byte_conversion {
 
     #[test]
     fn byte_from_char_non_ascii_error() {
+        assert!(function_val_byte(&[Value::Char('\u{80}')]).is_err());
         assert!(function_val_byte(&[Value::Char('λ')]).is_err());
         assert!(function_val_byte(&[Value::Char('中')]).is_err());
     }

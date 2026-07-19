@@ -2946,26 +2946,88 @@ fn capture_warnings(body: impl FnOnce()) -> String {
     capture_events(tracing::Level::WARN, body)
 }
 
+fn emit_returned_list_push_ir() -> String {
+    let mut pool = Pool::new();
+    let list_ty = pool.list(Idx::INT);
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_push_header_store_toggle"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+    let i64_type = builder.i64_type();
+    let host = builder.declare_function("host", &[], i64_type);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+    let codegen_ctx = super::CodegenContext::default();
+    let classifier = TestClassifier;
+    let mut emitter = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &classifier as &dyn ArcClassification,
+        host,
+        &codegen_ctx,
+        None,
+    );
+    let list_layout = emitter.list_struct_type();
+    let receiver = emitter.builder.const_zero_ty(list_layout);
+    let element = emitter.builder.const_i64(7);
+    let cow_mode = emitter.builder.const_i32(0);
+
+    emitter
+        .emit_list_push_cow(receiver, element, Idx::INT, cow_mode, list_ty, true)
+        .expect("returned list.push must emit its COW call");
+
+    drop(emitter);
+    scx.llmod.print_to_string().to_string()
+}
+
 #[test]
-fn push_header_store_toggle_reports_effect() {
+fn returned_list_push_stores_element_header_metadata_by_default() {
+    let ir = emit_returned_list_push_ir();
+
+    assert!(
+        ir.contains("call void @ori_buffer_store_elem_dec"),
+        "returned push must store the element destructor in the result header:\n{ir}"
+    );
+    assert!(
+        ir.contains("call void @ori_buffer_store_elem_count"),
+        "returned push must store the live element count in the result header:\n{ir}"
+    );
+}
+
+#[test]
+fn push_header_store_toggle_reproduces_missing_metadata_calls() {
     if std::env::var_os("ORI_PUSH_TOGGLE_TRACE_CHILD").is_none() {
         run_toggle_trace_child(
-            "push_header_store_toggle_reports_effect",
+            "push_header_store_toggle_reproduces_missing_metadata_calls",
             "ORI_PUSH_TOGGLE_TRACE_CHILD",
             "ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE",
         );
         return;
     }
 
+    let mut ir = None;
     let output = capture_events(tracing::Level::INFO, || {
-        assert!(
-            super::builtins::push_result_elem_header_store_disabled(),
-            "enabled toggle must disable the stores"
-        );
+        ir = Some(emit_returned_list_push_ir());
     });
+    let ir = ir.expect("the toggle child must emit the returned-push IR");
 
     assert!(output.contains("ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE"));
     assert!(output.contains("skip result-buffer element destructor metadata stores"));
+    assert!(
+        !ir.contains("call void @ori_buffer_store_elem_dec"),
+        "the legacy path must omit the element-destructor header call:\n{ir}"
+    );
+    assert!(
+        !ir.contains("call void @ori_buffer_store_elem_count"),
+        "the legacy path must omit the element-count header call:\n{ir}"
+    );
 }
 
 #[test]

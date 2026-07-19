@@ -147,10 +147,7 @@ pub struct StructDef {
     /// The struct fields.
     pub fields: Vec<FieldDef>,
 
-    /// Memory semantics for this struct (always `Boxed` for now).
-    ///
-    /// Reserved for future `inline type` support where structs may be
-    /// stack-allocated and copied on assignment rather than ARC-managed.
+    /// Memory semantics selected for this struct.
     pub category: ValueCategory,
 }
 
@@ -514,10 +511,10 @@ impl TypeRegistry {
             // the signature slot).
         }
 
-        // Claim the signature slot when it is currently vacant (collisions
+        // Claim a vacant signature slot (collisions
         // leave the prior owner intact per the Debug/Release Parity gate).
         // The slot claim is unconditional bookkeeping — `write_spec_to_idx`
-        // below always lands the spec (nominal entry OR side-table), so the
+        // always lands the spec (nominal entry OR side-table), so the
         // claim never needs backing out.
         if let std::collections::hash_map::Entry::Vacant(slot) = self.burden_by_signature.entry(sig)
         {
@@ -528,7 +525,7 @@ impl TypeRegistry {
         // newtype / alias) takes the burden on its entry; a monomorphized
         // generic-builtin instance (`[T]`, `{K: V}`, `Set<T>`, …) has no
         // `TypeEntry` and lands in the `collection_burdens` side-table. The
-        // signature-slot bookkeeping above stands either way — the slot is
+        // The signature-slot bookkeeping stands either way — the slot is
         // claimed for both nominal and side-table specs so dedup spans both
         // storage homes.
         self.write_spec_to_idx(typeid, spec);
@@ -571,7 +568,7 @@ impl TypeRegistry {
         }
     }
 
-    /// Number of distinct burden signatures currently registered.
+    /// Number of registered distinct burden signatures.
     ///
     /// Equals the count of unique signatures that have claimed the
     /// reverse-index — i.e., the count of `register_user_burden` calls
@@ -618,7 +615,7 @@ impl TypeRegistry {
             entry.repr = repr;
         }
         // Also update the by-name entry (same allocation via insert_entry).
-        // TypeEntry is stored in both maps, so we need to update both.
+        // `TypeEntry` is stored in both maps, so both copies require the update.
         for entry in self.types_by_name.values_mut() {
             if entry.idx == idx {
                 entry.repr = repr;

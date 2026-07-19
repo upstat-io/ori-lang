@@ -18,22 +18,22 @@ pub extern "C" fn ori_str_from_int(n: i64) -> OriStr {
 /// parity test exercises every unit boundary, so a copy typo diverges interp<->AOT
 /// and fails parity.
 mod units {
-    pub const NS_PER_US: u64 = 1_000;
-    pub const NS_PER_MS: u64 = 1_000_000;
-    pub const NS_PER_S: u64 = 1_000_000_000;
-    pub const NS_PER_M: u64 = 60 * NS_PER_S;
-    pub const NS_PER_H: u64 = 60 * NS_PER_M;
+    pub(super) const NS_PER_US: u64 = 1_000;
+    pub(super) const NS_PER_MS: u64 = 1_000_000;
+    pub(super) const NS_PER_S: u64 = 1_000_000_000;
+    pub(super) const NS_PER_M: u64 = 60 * NS_PER_S;
+    pub(super) const NS_PER_H: u64 = 60 * NS_PER_M;
 
-    pub const BYTES_PER_KB: u64 = 1_000;
-    pub const BYTES_PER_MB: u64 = 1_000_000;
-    pub const BYTES_PER_GB: u64 = 1_000_000_000;
-    pub const BYTES_PER_TB: u64 = 1_000_000_000_000;
+    pub(super) const BYTES_PER_KB: u64 = 1_000;
+    pub(super) const BYTES_PER_MB: u64 = 1_000_000;
+    pub(super) const BYTES_PER_GB: u64 = 1_000_000_000;
+    pub(super) const BYTES_PER_TB: u64 = 1_000_000_000_000;
 }
 
 /// Convert a Duration (i64 nanoseconds) to its unit string.
 ///
-/// Mirrors `ori_eval::methods::units::format_duration`: sign-aware, picks the
-/// largest whole unit among ns/us/ms/s/m/h, `"0ns"` for zero.
+/// Sign-aware conversion using the largest whole unit among ns/us/ms/s/m/h,
+/// with `"0ns"` for zero.
 #[no_mangle]
 pub extern "C" fn ori_str_from_duration(ns: i64) -> OriStr {
     let abs_ns = ns.unsigned_abs();
@@ -61,8 +61,8 @@ pub extern "C" fn ori_str_from_duration(ns: i64) -> OriStr {
 
 /// Convert a Size to its unit string.
 ///
-/// Mirrors `ori_eval::methods::units::format_size`: largest whole unit among
-/// b/kb/mb/gb/tb (SI 1000-based), `"0b"` for zero. The codegen ABI passes the
+/// Uses the largest whole unit among b/kb/mb/gb/tb (SI 1000-based), with
+/// `"0b"` for zero. The codegen ABI passes the
 /// byte count as i64; Size values are non-negative, so cast to u64 internally.
 #[no_mangle]
 pub extern "C" fn ori_str_from_size(bytes_i64: i64) -> OriStr {
@@ -186,7 +186,6 @@ pub extern "C" fn ori_str_escape_control(s: *const OriStr) -> OriStr {
     let input = unsafe { &*s };
     // SAFETY: OriStr bytes are valid UTF-8 by construction.
     let src = unsafe { input.as_str() };
-    // Fast path: if no control chars, return as-is
     if !src
         .chars()
         .any(|c| matches!(c, '\n' | '\r' | '\t' | '\\' | '"' | '\0'))
@@ -242,7 +241,7 @@ pub extern "C" fn ori_char_debug_format(ch: u32) -> OriStr {
 /// `65` → `"0x41"`, `0` → `"0x00"`.
 #[no_mangle]
 pub extern "C" fn ori_byte_printable_format(b: i64) -> OriStr {
-    // Truncate to u8 range
+    // Why: Byte formatting intentionally keeps the low eight bits.
     let byte = (b & 0xFF) as u8;
     let result = format!("0x{byte:02x}");
     OriStr::from_owned(&result)

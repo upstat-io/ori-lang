@@ -1,0 +1,13 @@
+@sum_list (xs: [int]) -> int = {
+    let total = 0;
+    for x in xs do {
+        total = total + x;
+    };
+    total
+}
+
+@main () -> int = {
+    let lists = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+    let sums = for l in lists yield sum_list(l);
+    if sums[0] == 6 && sums[1] == 15 && sums[2] == 24 then 0 else 1
+}

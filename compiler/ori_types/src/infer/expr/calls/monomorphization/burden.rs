@@ -11,84 +11,8 @@ use crate::{Idx, Pool, Tag, TypeFlags};
 
 use crate::infer::InferEngine;
 
-use super::collect_generic_type_params;
-
-/// Walk every fully-resolved generic-builtin `Idx` in the engine's pool and
-/// compose its `UserBurdenSpec`, pushing each into the engine's
-/// `composed_burdens` accumulator. Runs as a STRUCTURAL pass over the pool;
-/// the composition function is pure (no pool/registry mutation).
-///
-/// Two callers cover the two ways a collection instance enters the pool:
-/// (1) after a generic free-function monomorphization (the original
-/// `maybe_record_mono_instance` site), and (2) the body-final sweep
-/// (`InferEngine::compose_resolved_builtin_burdens`) which catches collection
-/// instances minted by literals (`["a", "b"]`, `{k: v}`, `Set` builders) that
-/// never flow through a generic call. The `compose_for_idx` accumulator dedups
-/// repeat hits, so running both is idempotent in effect.
-pub(crate) fn compose_builtin_burdens_for_resolved_types(engine: &mut InferEngine<'_>) {
-    // Materialize each concrete generic-composite `Applied` body BEFORE burden
-    // composition so the codegen-direct derived-method path and the struct/enum
-    // burden arms below read concrete field/payload types, not the generic param.
-    materialize_concrete_applied_composites(engine);
-
-    // The concrete types produced by this monomorphization sit in the
-    // engine's pool. Walking the entire pool every call is quadratic;
-    // `collect_candidate_indices` restricts to generic-builtin tags + the
-    // just-materialized concrete user-composite `Applied`s whose flags show no
-    // remaining type variables. Composed specs accumulate in the engine's
-    // `composed_burdens` Vec, drained and registered in the `TypeRegistry` by
-    // the body-finalization spine.
-    let snapshot_indices: Vec<Idx> = {
-        let pool = engine.pool();
-        collect_candidate_indices(pool)
-    };
-    for idx in snapshot_indices {
-        compose_for_idx(engine, idx);
-    }
-}
-
-/// Materialize the concrete pool body for every fully-resolved generic-composite
-/// `Applied` in the engine's pool that lacks a resolution. Reads the
-/// `name → declared param names` map from the registry, then drives the shared
-/// `materialize_applied_body` helper (which interns the concrete `Struct`/`Enum`
-/// and records `set_resolution(applied -> concrete)`). Read-only registry scan
-/// first, then a single mutable pool walk; idempotent (already-resolved
-/// `Applied`s short-circuit inside the helper).
-fn materialize_concrete_applied_composites(engine: &mut InferEngine<'_>) {
-    let generic_type_params = collect_generic_type_params(engine);
-    if generic_type_params.is_empty() {
-        return;
-    }
-    let candidates: Vec<Idx> = {
-        let pool = engine.pool();
-        pool.iter_indices()
-            // Offer every unresolved `Applied` to the helper, which
-            // resolves each arg through its var-links and skips only genuinely
-            // generic instantiations. A raw `HAS_VAR` filter here would drop an
-            // inferred construct's type whose arg is a concrete-linked Var.
-            .filter(|&idx| pool.tag(idx) == Tag::Applied && pool.resolve(idx).is_none())
-            .collect()
-    };
-    if candidates.is_empty() {
-        return;
-    }
-    let pool = engine.pool_mut();
-    let mut in_progress = rustc_hash::FxHashSet::default();
-    for applied in candidates {
-        crate::pool::substitute::materialize_applied_body(
-            pool,
-            applied,
-            &generic_type_params,
-            &mut in_progress,
-        );
-    }
-}
-
-/// Collect every pool Idx whose tag matches a builtin generic template AND
-/// whose flags show no remaining type variables (fully-resolved monomorph).
-/// Walking the full pool here is a placeholder — once the body-pass
-/// integration lands, this becomes a directed enumeration over the
-/// `body_type_map` of the just-recorded `MonoInstance`.
+/// Collect every fully resolved pool identity whose burden must be registered
+/// when closing a merged executable type pool.
 fn collect_candidate_indices(pool: &Pool) -> Vec<Idx> {
     let mut out = Vec::new();
     for idx in pool.iter_indices() {
@@ -119,8 +43,7 @@ fn collect_candidate_indices(pool: &Pool) -> Vec<Idx> {
 
 /// Compose the burden spec for a single fully-resolved generic-builtin Idx,
 /// pushing the result into the engine's accumulator. No-op when the Idx's
-/// tag does not match a builtin template OR when its args cannot be
-/// extracted from the pool.
+/// tag does not match a builtin template or its arguments are unavailable.
 pub(crate) fn compose_for_idx(engine: &mut InferEngine<'_>, idx: Idx) {
     let dummy_registry = crate::TypeRegistry::new();
     let composed = {
@@ -141,13 +64,14 @@ pub(crate) fn compose_for_idx(engine: &mut InferEngine<'_>, idx: Idx) {
 /// imported-body collection-burden pass (an imported function's internal
 /// collection types resolve into the importer's pool but never flow through the
 /// engine sweep). Spec: Annex E §AIMS.
+#[must_use = "the absence of a value must be handled"]
 pub fn compose_burden_for_idx(
     pool: &Pool,
     registry: &crate::TypeRegistry,
     idx: Idx,
 ) -> Option<UserBurdenSpec> {
     // Generic-user-struct / -enum instantiation: compose from the concrete
-    // (substituted) field / variant-payload types (the builtin templates below
+    // (substituted) field / variant-payload types (the builtin templates
     // cover Option/Result/[T]/{K:V}/Set/Range only).
     let resolved = pool.resolve_fully(idx);
     match pool.tag(resolved) {

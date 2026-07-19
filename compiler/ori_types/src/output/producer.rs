@@ -35,6 +35,16 @@ pub enum MethodProducer {
     },
 }
 
+/// Pre-normalization index route retained while exact producers still use
+/// semantic identities rather than dense canonical handles.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum IndexDispatchSelection {
+    Builtin,
+    Deferred,
+    Selected(MethodProducer),
+    Error,
+}
+
 /// Structural location of one nested call in a generated derived body.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
@@ -67,10 +77,10 @@ pub struct DerivedCallSelection {
     pub trait_type: Idx,
     /// Exact required method spelling retained only for consistency validation.
     pub method_name: Name,
-    /// Whether the selected method consumes an explicit receiver operand.
-    pub has_self: bool,
     /// Checker-selected executable producer.
     pub producer: MethodProducer,
+    /// Whether the selected method consumes an explicit receiver operand.
+    pub has_self: bool,
 }
 
 /// One frozen generated free-function call.

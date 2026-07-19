@@ -8,7 +8,7 @@ use ori_repr::monomorphize::{
 };
 use ori_types::{
     build_finalized_body_type_map, extend_var_subst_with_roots, extract_var_from_types,
-    re_intern_type, register_concrete_applied_resolutions, substitute_in_pool, AcceptedDerivedImpl,
+    register_concrete_applied_resolutions, substitute_in_pool, AcceptedDerivedImpl,
     DerivedCallPlan, FunctionSig, GenericArg, Idx, ImplSig, MonoInstance, Pool, TypeEntry,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -101,9 +101,9 @@ pub(super) struct GenericSignature<'a> {
 
 /// Close generic free-function targets revealed only after lambda types become concrete.
 ///
-/// Specialization runs on cloned groups and a cloned pool. The canonical groups
-/// remain unspecialized until `LoweredArcBatch::prepare`; only concrete types
-/// selected by the probe are re-interned into the canonical pool.
+/// Specialization runs on cloned groups against the canonical pool read-only.
+/// The canonical groups remain unspecialized until `LoweredArcBatch::prepare`;
+/// every type selected by the probe was already interned by type checking.
 pub(crate) fn close_generic_mono_targets(
     input: GenericMonoClosureInput<'_>,
 ) -> Result<GenericMonoClosure, GenericMonoClosureError> {
@@ -292,8 +292,8 @@ fn discover_new_instances(
     local_generic_type_params: &FxHashMap<Name, Vec<Name>>,
     rounds: usize,
 ) -> Result<Vec<MonoInstance>, GenericMonoClosureError> {
-    let (probe_groups, probe_pool) = specialized_probe(groups, pool, interner)?;
-    let uses = collect_generic_uses(&probe_groups, signatures, &probe_pool);
+    let probe_groups = specialized_probe(groups, pool, interner)?;
+    let uses = collect_generic_uses(&probe_groups, signatures, pool);
     tracing::debug!(
         round = rounds,
         uses = uses.len(),
@@ -326,13 +326,9 @@ fn discover_new_instances(
             .map_or(local_generic_type_params, |template| {
                 &template.generic_type_params
             });
-        if let Some(instance) = materialize_instance(
-            source.signature,
-            &generic_use,
-            &probe_pool,
-            pool,
-            generic_type_params,
-        ) {
+        if let Some(instance) =
+            materialize_instance(source.signature, &generic_use, pool, generic_type_params)
+        {
             discovered.push(instance);
         }
     }
@@ -477,24 +473,20 @@ fn specialized_probe(
     groups: &[ArcFunctionGroup],
     pool: &Pool,
     interner: &StringInterner,
-) -> Result<(Vec<ArcFunctionGroup>, Pool), GenericMonoClosureError> {
-    let mut probe_pool = pool.clone();
+) -> Result<Vec<ArcFunctionGroup>, GenericMonoClosureError> {
     let mut specialized = Vec::with_capacity(groups.len());
     let mut errors = Vec::new();
     for group in groups.iter().cloned() {
         let (mut parent, mut lambdas) = group.into_parts();
-        if let Err(error) = ori_arc::specialize_polymorphic_lambdas(
-            &mut parent,
-            &mut lambdas,
-            &mut probe_pool,
-            interner,
-        ) {
+        if let Err(error) =
+            ori_arc::specialize_polymorphic_lambdas(&mut parent, &mut lambdas, pool, interner)
+        {
             errors.push(error);
         }
         specialized.push(ArcFunctionGroup::new(parent, lambdas));
     }
     if errors.is_empty() {
-        Ok((specialized, probe_pool))
+        Ok(specialized)
     } else {
         Err(GenericMonoClosureError::LambdaSpecialization {
             count: errors.len(),
@@ -592,7 +584,6 @@ fn concrete_signatures_match(existing: &FunctionSig, candidate: &FunctionSig, po
 fn materialize_instance(
     signature: &FunctionSig,
     generic_use: &GenericUse,
-    probe_pool: &Pool,
     pool: &mut Pool,
     generic_type_params: &FxHashMap<Name, Vec<Name>>,
 ) -> Option<MonoInstance> {
@@ -616,7 +607,7 @@ fn materialize_instance(
         return None;
     }
     let (actual_params, capability_args, actual_return) =
-        reintern_actual_use_types(probe_pool, pool, generic_use, source_param_count)?;
+        canonical_actual_use_types(pool, generic_use, source_param_count)?;
 
     let var_subst = unify_scheme_var_substitution(
         pool,
@@ -651,29 +642,26 @@ fn materialize_instance(
     ))
 }
 
-/// Re-intern a specialization-probe use's param/capability/return types from
-/// `probe_pool` into the canonical `pool`, rejecting the use if any resulting
-/// type is not recordable in a mono instance.
-fn reintern_actual_use_types(
-    probe_pool: &Pool,
-    pool: &mut Pool,
+/// Read a specialization-probe use's canonical param/capability/return types,
+/// rejecting the use if any type is not recordable in a mono instance.
+fn canonical_actual_use_types(
+    pool: &Pool,
     generic_use: &GenericUse,
     source_param_count: usize,
 ) -> Option<(Vec<Idx>, Vec<Idx>, Idx)> {
-    let mut cache = FxHashMap::default();
     let actual_params: Vec<_> = generic_use
         .param_types
         .iter()
         .take(source_param_count)
-        .map(|&ty| re_intern_type(probe_pool, ty, pool, &mut cache))
+        .copied()
         .collect();
     let capability_args: Vec<_> = generic_use
         .param_types
         .iter()
         .skip(source_param_count)
-        .map(|&ty| re_intern_type(probe_pool, ty, pool, &mut cache))
+        .copied()
         .collect();
-    let actual_return = re_intern_type(probe_pool, generic_use.return_type, pool, &mut cache);
+    let actual_return = generic_use.return_type;
     let has_unrecordable_type = actual_params
         .iter()
         .chain(&capability_args)

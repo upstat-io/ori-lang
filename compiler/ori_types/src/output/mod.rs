@@ -9,7 +9,7 @@
 //! - [`FunctionSig`]: Function signature with parameter and return types
 //! - [`TypeCheckResult`]: Wrapper with errors and guarantee
 //!
-//! Uses [`Idx`](crate::Idx) (pool-based) instead of `TypeId` (legacy interning).
+//! Uses pool-based [`Idx`](crate::Idx) rather than interner-based `TypeId`.
 
 mod derived;
 mod mono;
@@ -29,22 +29,26 @@ pub use producer::{
     RegistryMethodIdentity, RegistryPreludeIdentity, IMPORTED_METHOD_PRODUCER_SCHEMA,
     REGISTRY_PRODUCER_SCHEMA,
 };
+
+pub(crate) use producer::IndexDispatchSelection;
 pub use result::TypeCheckResult;
 pub use sig::{
     is_marker_capability, CapabilityParam, ConstParamInfo, EffectClass, FnWhereClause, FunctionSig,
 };
 pub use typed_module::{
-    AssignDesugar, CapabilityCallSite, CapabilityProvider, CapabilityProviderSource,
-    ExportedTypeMetadata, FormatSpecTypes, ImplMethodId, ImplMethodRole, ImplSig, ImportedImplSig,
-    IterMethodRoute, TypedModule,
+    AssignDesugar, AssignStepRoute, CapabilityCallSite, CapabilityProvider,
+    CapabilityProviderSource, ExportedTypeMetadata, FormatSpecTypes, ImplMethodId, ImplMethodRole,
+    ImplSig, ImportedImplSig, IterMethodRoute, TypedModule,
 };
 
 // Keep these test-only names in the module namespace because the tests import
 // their parent namespace with `use super::*`.
 #[cfg(test)]
 use crate::registry::TypeEntry;
+
 #[cfg(test)]
 use crate::{Idx, TypeCheckError};
+
 #[cfg(test)]
 use ori_ir::{Name, Span};
 

@@ -132,8 +132,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.builder.add_noalias_attribute(func_id, 0);
         }
 
-        // uwtable: required for stack unwinding on all EH-capable targets.
-        // See `ir_builder/attributes.rs` for full rationale.
+        // `uwtable` is required for stack unwinding on every EH-capable target.
         self.builder.add_uwtable_attribute(func_id);
 
         // noundef on all non-Void params — Ori values are always fully defined.

@@ -7,8 +7,8 @@ use ori_patterns::{
     size_negative_multiply, size_would_be_negative, EvalError, EvalResult, Value,
 };
 
+use super::super::arguments::{require_args, require_int_arg, require_size_arg};
 use super::super::compare::ordering_to_value;
-use super::super::helpers::{require_args, require_int_arg, require_size_arg};
 use super::super::DispatchCtx;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};

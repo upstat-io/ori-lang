@@ -2235,14 +2235,13 @@ fn extract_contract_branchy_wrap_publishes_containment() {
     assert!(p.return_payload_contains_param, "wrapped on SOME path");
 }
 
-#[test]
-fn loop_threaded_push_rebuild_return_certifies_fresh_self_alloc() {
+fn loop_threaded_push_rebuild_contract() -> MemoryContract {
     // INVARIANT: A loop parameter fed only by a fresh seed and its COW rebuild
     // remains in the fresh-allocation fixed point.
     let interner = ori_ir::StringInterner::new();
     let push = interner.intern("push");
     let func = ArcFunction {
-        name: name(90),
+        name: interner.intern("loop_threaded_push_rebuild"),
         params: vec![],
         return_type: ty(0),
         var_types: vec![ty(0), ty(0), ty(0), ty(0), ty(1), ty(1)],
@@ -2314,7 +2313,7 @@ fn loop_threaded_push_rebuild_return_certifies_fresh_self_alloc() {
     let classifier = TestClassifier::all_ref(6).with_scalar(4).with_scalar(5);
     let sigs = FxHashMap::default();
     let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
-    let contract = extract_contract(
+    extract_contract(
         &func,
         &state_map,
         &classifier,
@@ -2322,13 +2321,32 @@ fn loop_threaded_push_rebuild_return_certifies_fresh_self_alloc() {
         &FxHashSet::default(),
         &[],
         &interner,
-    );
+    )
+}
+
+#[test]
+fn loop_threaded_push_rebuild_return_certifies_fresh_self_alloc() {
+    let contract = loop_threaded_push_rebuild_contract();
 
     assert!(
         contract.return_info.returns_fresh_self_alloc,
         "loop-threaded push rebuild of a fresh list is a fresh self-alloc return"
     );
 }
+
+crate::test_helpers::ablation_env_event_test!(
+    fresh_lineage_return_trace_reproduces_conservative_return_contract,
+    "ORI_DISABLE_FRESH_LINEAGE_RETURN_TRACE",
+    "decline loop-threaded fresh-lineage return certification",
+    || {
+        let contract = loop_threaded_push_rebuild_contract();
+        assert!(
+            !contract.return_info.returns_fresh_self_alloc,
+            "the ablation must decline the loop-threaded freshness proof"
+        );
+        true
+    },
+);
 
 #[test]
 fn loop_threaded_param_rooted_return_stays_conservative() {

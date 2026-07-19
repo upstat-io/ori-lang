@@ -1,11 +1,5 @@
 //! Compound-aggregate `debug`/`to_str` LLVM emission: Option, Result, List,
 //! Tuple.
-//!
-//! Branch/loop-structured renderers that recurse through
-//! [`emit_element_debug`](ArcIrEmitter::emit_element_debug) /
-//! [`emit_element_to_str`](ArcIrEmitter::emit_element_to_str) for their payload
-//! elements. Leaf primitive/string formatting and the string literal/concat
-//! utilities live in the sibling `debug_helpers` module.
 
 use ori_ir::{FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
@@ -20,6 +14,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// - None -> "None" literal
     /// - Some(v) -> "Some(" + `v.debug()` or `v.to_str()` + ")"
+    #[must_use = "the absence of a value must be handled"]
     pub(super) fn emit_option_debug_branch(
         &mut self,
         is_some: ValueId,
@@ -35,14 +30,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.cond_br(is_some, some_bb, none_bb);
 
-        // None block: produce "None"
         self.builder.position_at_end(none_bb);
         let none_str = self.emit_literal_ori_str("None")?;
         let none_bb_current = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // Some block: materialize and format only the active payload. Recursive
-        // struct/enum payloads are stored as RC box pointers in Option slots.
         self.builder.position_at_end(some_bb);
         let payload = if crate::codegen::type_info::repr_box_oracle::payload_type_is_rc_boxed(
             self.pool, inner_ty,
@@ -71,7 +63,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let some_bb_current = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // Merge block: phi
         self.builder.position_at_end(merge_bb);
         let str_ty = self.resolve_type(ori_types::Idx::STR);
         let phi = self.builder.phi(str_ty, "dbg.result");
@@ -82,16 +73,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(phi)
     }
 
-    /// Emit `Result.debug()` / `Result.to_str()`.
+    /// Render the active `Result` payload in Debug or Printable style.
     ///
-    /// - `Ok(v)` -> `"Ok(" + v.debug()|v.to_str() + ")"`
-    /// - `Err(e)` -> `"Err(" + e.debug()|e.to_str() + ")"`
-    ///
-    /// `style` selects Debug vs Printable rendering of the active payload.
-    ///
-    /// IMPORTANT: Payload extraction and formatting MUST happen inside the
-    /// respective branch blocks, not before the branch. The inactive variant's
-    /// storage may contain garbage pointers that would segfault if formatted.
+    /// Payload extraction stays inside its branch because inactive variant
+    /// storage may contain invalid pointers.
+    #[must_use = "the absence of a value must be handled"]
     pub(super) fn emit_result_debug(
         &mut self,
         arg_vals: &[ValueId],
@@ -121,7 +107,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.cond_br(is_ok, ok_bb, err_bb);
 
-        // Ok block: extract ACTIVE payload, format "Ok(" + ok_str + ")"
         self.builder.position_at_end(ok_bb);
         let ok_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
         let ok_str = if style.is_debug() {
@@ -137,7 +122,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let ok_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // Err block: extract ACTIVE payload, format "Err(" + err_str + ")"
         self.builder.position_at_end(err_bb);
         let err_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
         let err_str = if style.is_debug() {
@@ -153,7 +137,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let err_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // Merge
         self.builder.position_at_end(merge_bb);
         let str_ty = self.resolve_type(ori_types::Idx::STR);
         let phi = self.builder.phi(str_ty, "rdbg.result");
@@ -162,15 +145,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(phi)
     }
 
-    /// Emit `Result.debug()` / `Result.to_str()` for a nested Result inside
-    /// `emit_element_debug` / `emit_element_to_str`.
+    /// Render a nested `Result` from pre-resolved payload types.
     ///
-    /// Variant of `emit_result_debug` that takes pre-resolved type indices
-    /// instead of reading from `arg_vals`. `style` selects Debug vs
-    /// Printable rendering of the active payload.
-    ///
-    /// IMPORTANT: Payload extraction happens inside branches, not before —
-    /// inactive variant storage may contain garbage pointers.
+    /// Payload extraction stays inside its branch because inactive variant
+    /// storage may contain invalid pointers.
+    #[must_use = "the absence of a value must be handled"]
     pub(super) fn emit_nested_result_render(
         &mut self,
         receiver: ValueId,
@@ -197,7 +176,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.cond_br(is_ok, ok_bb, err_bb);
 
-        // Ok branch — only format the ACTIVE Ok payload
         self.builder.position_at_end(ok_bb);
         let ok_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
         let ok_str = if style.is_debug() {
@@ -213,7 +191,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let ok_bb_final = self.builder.current_block().unwrap();
         self.builder.br(merge_bb);
 
-        // Err branch — only format the ACTIVE Err payload
         self.builder.position_at_end(err_bb);
         let err_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
         let err_str = if style.is_debug() {
@@ -243,6 +220,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Layout: `{i64 len, i64 cap, ptr data}`.
     /// For empty lists, returns `"[]"` immediately.
+    #[must_use = "the absence of a value must be handled"]
     pub(super) fn emit_list_debug(
         &mut self,
         list: ValueId,
@@ -268,13 +246,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.cond_br(is_empty, empty_bb, first_bb);
 
-        // Empty: return "[]"
         self.builder.position_at_end(empty_bb);
         let empty_str = self.emit_literal_ori_str("[]")?;
         let empty_bb_end = self.builder.current_block().unwrap();
         self.builder.br(done_bb);
 
-        // First element: "[" + debug(elem[0])
         self.builder.position_at_end(first_bb);
         let open = self.emit_literal_ori_str("[")?;
         let elem_llvm_ty = self.int_element_llvm_type(elem_ty);
@@ -292,7 +268,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let first_bb_end = self.builder.current_block().unwrap();
         self.builder.cond_br(needs_loop, loop_hdr, close_bb);
 
-        // Loop header: check idx < len
         self.builder.position_at_end(loop_hdr);
         let i64_ty = self
             .builder
@@ -302,7 +277,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let has_more = self.builder.icmp_slt(idx_phi, len, "ldbg.more");
         self.builder.cond_br(has_more, loop_body, close_bb);
 
-        // Loop body: acc = acc + ", " + debug(elem[idx])
         self.builder.position_at_end(loop_body);
         let sep = self.emit_literal_ori_str(", ")?;
         let with_sep = self.emit_str_concat(acc_phi, sep)?;
@@ -322,13 +296,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let body_end = self.builder.current_block().unwrap();
         self.builder.br(loop_hdr);
 
-        // Wire phis: idx starts at 1, acc starts at acc_init
         self.builder
             .add_phi_incoming(idx_phi, &[(one, first_bb_end), (next_idx, body_end)]);
         self.builder
             .add_phi_incoming(acc_phi, &[(acc_init, first_bb_end), (new_acc, body_end)]);
 
-        // Close: acc + "]"
         self.builder.position_at_end(close_bb);
         let close_acc = self.builder.phi(str_ty, "ldbg.close.acc");
         self.builder
@@ -339,7 +311,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let close_bb_end = self.builder.current_block().unwrap();
         self.builder.br(done_bb);
 
-        // Done: phi between empty and formatted
         self.builder.position_at_end(done_bb);
         let final_phi = self.builder.phi(str_ty, "ldbg.final");
         self.builder.add_phi_incoming(
@@ -352,6 +323,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `(A, B, ...).debug()` / `.to_str()` -- field-wise formatting as
     /// `"(a, b, ...)"`. `style` selects Debug vs Printable per-field render;
     /// the parens/separator literals are identical for both.
+    #[must_use = "the absence of a value must be handled"]
     pub(super) fn emit_tuple_debug(
         &mut self,
         tuple: ValueId,
@@ -364,18 +336,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         let mut acc = self.emit_literal_ori_str("(")?;
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "tuple field count fits u32"
-        )]
         for (i, &elem_ty) in elements.iter().enumerate() {
+            let field_index = u32::try_from(i).ok()?;
             if i > 0 {
                 let sep = self.emit_literal_ori_str(", ")?;
                 let new_acc = self.emit_str_concat(acc, sep)?;
                 self.dec_intermediate_str(acc);
                 acc = new_acc;
             }
-            let memory_field = self.remap_struct_field(tuple_ty, i as u32);
+            let memory_field = self.remap_struct_field(tuple_ty, field_index);
             let field = self
                 .builder
                 .extract_value(tuple, memory_field, &format!("tdbg.f{i}"))?;

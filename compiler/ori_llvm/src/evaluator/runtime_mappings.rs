@@ -8,8 +8,8 @@
 //! MCJIT resolves external symbols via `DynamicLibrary::SearchForAddressOfSymbol`,
 //! NOT via `ExecutionEngine::GlobalAddressMap` (which `addGlobalMapping` populates).
 //! Since `ori_rt` is linked statically, runtime function symbols are not in the
-//! process's dynamic symbol table. We use `LLVMAddSymbol` to register them in
-//! LLVM's internal symbol search path, which MCJIT's `RuntimeDyld` does check.
+//! process's dynamic symbol table. `LLVMAddSymbol` registers them in LLVM's
+//! internal symbol search path, which MCJIT's `RuntimeDyld` does check.
 
 use std::ffi::CString;
 use std::sync::Once;
@@ -29,9 +29,9 @@ pub(super) fn ensure_runtime_symbols_registered() {
 
         for &(name, addr) in &mappings {
             let c_name = CString::new(name).expect("runtime function name contains null byte");
-            // SAFETY: addr is a valid function pointer obtained from `fn as *const ()`.
-            // LLVMAddSymbol stores the name→address mapping in LLVM's internal
-            // DynamicLibrary, which persists for the process lifetime.
+            // SAFETY:
+            // - `addr` is a function pointer obtained from `fn as *const ()`.
+            // - LLVM copies the name-to-address mapping into process-lifetime storage.
             unsafe {
                 llvm_sys::support::LLVMAddSymbol(c_name.as_ptr(), addr as *mut std::ffi::c_void);
             }
@@ -58,15 +58,11 @@ pub(crate) fn jit_symbol_mappings() -> Vec<(&'static str, usize)> {
 
 /// Resolve a runtime function name to its native address.
 ///
-/// Manual mirror of the `jit_allowed` entries in `RT_FUNCTIONS` — it cannot
-/// be mechanically generated (each arm binds a Rust fn pointer, which
-/// requires a literal path). Drift is doubly contained: the `_` arm panics
-/// on unknown names, and `jit_symbol_mappings_match_jit_allowed` in
-/// `runtime_decl/tests.rs` asserts exact set equality in both directions.
+/// The explicit match binds each runtime name to a literal Rust function path.
 ///
-/// This is the single point where function names are mapped to Rust function
-/// pointers. Adding a new `jit_allowed: true` entry to `RT_FUNCTIONS` requires
-/// adding a corresponding arm here.
+/// # Panics
+///
+/// Panics when `RT_FUNCTIONS` requests an unrecognized JIT symbol.
 fn lookup_jit_address(name: &str) -> usize {
     if name.starts_with("ori_list_") {
         lookup_list_address(name)
@@ -131,8 +127,7 @@ fn lookup_misc_address(name: &str) -> usize {
         "_ori_error_with_trace" => runtime::_ori_error_with_trace as *const () as usize,
         // Exception handling personality (ori_rt/src/eh_personality.c)
         "ori_eh_personality" => runtime::ori_eh_personality_addr(),
-        // Catch-all: panics immediately to surface drift between
-        // RT_FUNCTIONS and this lookup table.
+        // INVARIANT: An unknown name indicates drift from `RT_FUNCTIONS`.
         other => panic!(
             "unknown JIT function {other:?} — add it to lookup_jit_address() \
              in evaluator/runtime_mappings.rs"

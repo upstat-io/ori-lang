@@ -24,9 +24,9 @@ use self::specialize::{collect_test_values, default_matrix, infer_test_kind, spe
 /// `on_fail` subtree. Keeping the carrier parallel avoids teaching behavioral
 /// consumers such as exhaustiveness and evaluation about ownership mechanics.
 #[derive(Debug)]
-pub struct CompiledDecisionTree {
-    pub tree: DecisionTree,
-    pub leaf_discard_paths: Vec<LeafDiscardPaths>,
+pub(crate) struct CompiledDecisionTree {
+    pub(crate) tree: DecisionTree,
+    pub(crate) leaf_discard_paths: Vec<LeafDiscardPaths>,
 }
 
 /// Compiles `matrix` using `paths` as the scrutinee path for each column.
@@ -41,7 +41,10 @@ pub struct CompiledDecisionTree {
     clippy::needless_pass_by_value,
     reason = "recursive — sub-calls pass owned specialized matrices"
 )]
-pub fn compile(matrix: PatternMatrix, paths: Vec<ScrutineePath>) -> CompiledDecisionTree {
+pub(in crate::patterns) fn compile(
+    matrix: PatternMatrix,
+    paths: Vec<ScrutineePath>,
+) -> CompiledDecisionTree {
     assert_matrix_path_alignment(&matrix, &paths);
 
     if matrix.is_empty() {
@@ -84,7 +87,7 @@ pub fn compile(matrix: PatternMatrix, paths: Vec<ScrutineePath>) -> CompiledDeci
     let path = paths[col].clone();
 
     if let Some(shape) = single_constructor_column(&matrix, col) {
-        let decomposed = decompose_single_constructor(&matrix, col, &paths, &path, shape);
+        let decomposed = decompose_single_constructor(&matrix, col, &paths, &path, &shape);
         return compile(decomposed.matrix, decomposed.paths);
     }
 

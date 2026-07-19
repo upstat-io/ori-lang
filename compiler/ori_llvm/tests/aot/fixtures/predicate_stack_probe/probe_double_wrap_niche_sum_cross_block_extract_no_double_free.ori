@@ -1,0 +1,13 @@
+@main () -> int = {
+    let inner_result = catch(
+        expr: catch(expr: panic(msg: "innermost panic message for the nested catch shape")),
+    );
+    let msg = match inner_result {
+        Err(e) -> e,
+        Ok(inner) -> match inner {
+            Err(e) -> e,
+            Ok(_) -> "no panic seen",
+        },
+    };
+    if msg.contains(substr: "innermost") then 0 else 1
+}

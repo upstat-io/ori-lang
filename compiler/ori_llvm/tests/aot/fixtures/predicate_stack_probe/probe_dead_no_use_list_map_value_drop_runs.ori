@@ -1,0 +1,14 @@
+type Boom = { tag: str }
+
+impl Boom: Drop {
+    @drop (self) -> void = {
+        print(msg: `boom-{self.tag}`);
+        panic(msg: "boom")
+    }
+}
+
+type Wrap = { m: {str: Boom} }
+
+@main () -> void = {
+    let w = [Wrap { m: { "k": Boom { tag: "v" } } }]
+}

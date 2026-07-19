@@ -24,8 +24,9 @@ Five patterns:
   P4: return-type narrowing in @t signatures — `-> [T, max N]`,
       `-> Result<T, E>`, `-> Map<K, V>` replaced with `-> int`, `-> bool`,
       `-> str`.
-  P5: net-negative line count — existing test files lose more lines than they
-      gain (`removed - added` >= --threshold, default 5).
+  P5: net-negative executable line count — existing test files lose more
+      non-comment, non-blank lines than they gain
+      (`removed - added` >= --threshold, default 5).
 
 Diff-pair gate:
   P1-P5 fire ONLY when production code (`compiler/**/*.rs`) is ALSO modified
@@ -427,22 +428,29 @@ def detect_p4(record):
 
 
 def detect_p5(record, threshold):
-    """P5: net-negative line count on existing tests. ONE finding per
-    file when removed - added >= threshold."""
-    net = record["removed_count"] - record["added_count"]
+    """P5: net-negative executable line count on existing tests."""
+    removed_count = sum(is_test_surface_line(raw) for _, _, raw in record["removed"])
+    added_count = sum(is_test_surface_line(raw) for _, _, raw in record["added"])
+    net = removed_count - added_count
     if net >= threshold:
         return [{
             "tag": "INVERTED-TDD:positive-test-modification",
             "pattern": "P5",
-            "marker": f"net-negative line count (-{net}, threshold {threshold})",
+            "marker": f"net-negative executable line count (-{net}, threshold {threshold})",
             "path": record["path"],
             "line": 1,
-            "evidence": f"removed {record['removed_count']} line(s); added {record['added_count']} line(s)",
+            "evidence": f"removed {removed_count} executable line(s); added {added_count} executable line(s)",
             "severity": "high",
             "net_removed": net,
             "threshold": threshold,
         }]
     return []
+
+
+def is_test_surface_line(raw):
+    """Return whether a diff line can affect executable test coverage."""
+    content = raw[1:].strip()
+    return bool(content) and not content.startswith("//")
 
 
 def find_violations(records, threshold):

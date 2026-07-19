@@ -9,7 +9,7 @@ use crate::ir::{
 };
 use crate::lower::ArcIrBuilder;
 
-use super::validation::{validate_concrete_type, ConcreteTypeError, RETURN_TYPE};
+use super::validation::{validate_concrete_type, RETURN_TYPE};
 
 /// Invalid input to a compiler-derived Default body.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -45,6 +45,8 @@ pub enum DerivedDefaultBodyError {
     /// Derived Default is defined only for concrete product types.
     UnsupportedReturnType { return_type: Idx, tag: Tag },
 }
+
+crate::derived_body::impl_concrete_type_error_conversion!(DerivedDefaultBodyError);
 
 impl std::fmt::Display for DerivedDefaultBodyError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -110,7 +112,7 @@ pub fn build_derived_default(
     }
 
     validate_concrete_type(pool, RETURN_TYPE, signature.return_type)
-        .map_err(map_default_type_error)?;
+        .map_err(DerivedDefaultBodyError::from)?;
     let resolved_return = pool.resolve_fully(signature.return_type);
     let return_tag = pool.tag(resolved_return);
     if return_tag != Tag::Struct {
@@ -191,15 +193,4 @@ fn emit_default_field(
     let result = builder.emit_invoke(field_type, method_name, Vec::new(), None, None);
     builder.note_method_call(result, field_type, MethodCallForm::Associated);
     result
-}
-
-fn map_default_type_error(error: ConcreteTypeError) -> DerivedDefaultBodyError {
-    match error {
-        ConcreteTypeError::InvalidTypeIndex { position, ty } => {
-            DerivedDefaultBodyError::InvalidTypeIndex { position, ty }
-        }
-        ConcreteTypeError::NonConcreteType { position, ty } => {
-            DerivedDefaultBodyError::NonConcreteType { position, ty }
-        }
-    }
 }

@@ -17,7 +17,7 @@ use crate::plan::{NarrowingPolicy, ReprAttribute, ReprPlan};
 use crate::repr::{FloatWidth, IntWidth};
 use crate::{narrowing, range, DecisionReason, DecisionSource, MachineRepr, ReprDecision};
 
-use alias_propagation::propagate_layout_to_aliases;
+use alias_propagation::{propagate_layout_to_aliases, LayoutAliasIndex};
 use metadata::{propagate_metadata_to_applied_resolutions, seed_imported_metadata};
 
 /// Compute the representation plan for all types reachable from the program.
@@ -399,6 +399,8 @@ fn compute_struct_layouts(plan: &mut ReprPlan, pool: &Pool) {
         }
     }
 
+    let aliases = LayoutAliasIndex::new(pool);
+
     // Write back reordered layouts. Also propagate to resolved aliases
     // so that different Pool Idx values for the same logical type (common
     // with monomorphized generics) share the same reordered layout.
@@ -426,7 +428,7 @@ fn compute_struct_layouts(plan: &mut ReprPlan, pool: &Pool) {
         // Monomorphization creates multiple Idx values for the same
         // concrete type — without propagation, call sites may use a
         // different Idx than the function body, causing layout mismatch.
-        propagate_layout_to_aliases(plan, pool, idx, &repr);
+        propagate_layout_to_aliases(plan, pool, &aliases, idx, &repr);
     }
 }
 

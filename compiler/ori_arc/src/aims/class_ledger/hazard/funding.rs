@@ -1,6 +1,7 @@
 //! Extraction-funding cure: fund an endangered view at its member-defining
 //! `Project` sites with RL-1 dup `BurdenInc` seeds (full-move arms become
 //! bookkeeping credits), then re-plan + re-verify under OWNED semantics.
+//! Trace events share the `ori_arc::aims::class_ledger` target across the cure ladder.
 
 use crate::aims::intraprocedural::birth_site_partition::{BirthSitePartition, NodeIdx};
 use crate::ir::ArcFunction;
@@ -8,6 +9,11 @@ use crate::ir::ArcFunction;
 use super::super::emit::{self, PlannedOp};
 use super::super::events;
 use super::{commit_cured_view, plan_and_verify_cure, HazardCureInputs, HazardCureState};
+
+struct ExtractionSeeds {
+    seeds: Vec<PlannedOp>,
+    credit_sites: Vec<(usize, usize)>,
+}
 
 /// Cure one endangered view class by funding it at its extraction sites: an
 /// RL-1 dup `BurdenInc` right after each `Project` that defines a member
@@ -21,13 +27,17 @@ pub(super) fn cure_view_with_extraction_funding(
     state: &mut HazardCureState<'_>,
     view: NodeIdx,
 ) -> bool {
-    let Some((seeds, credit_sites)) = collect_extraction_seeds(
+    let Some(ExtractionSeeds {
+        seeds,
+        credit_sites,
+    }) = collect_extraction_seeds(
         inputs.func,
         state.partition,
         inputs.type_registry,
         inputs.full_move_arms,
         view,
-    ) else {
+    )
+    else {
         return false;
     };
     // Contract-boundary arrival: a call result whose callee contract proves
@@ -49,7 +59,7 @@ pub(super) fn cure_view_with_extraction_funding(
             inputs.classification,
             state.partition,
             view,
-            true,
+            events::EventFunding::ExtractionOwned,
         );
         if let Some(outcome) = plan_and_verify_cure(
             inputs,
@@ -76,7 +86,7 @@ pub(super) fn cure_view_with_extraction_funding(
             inputs.classification,
             state.partition,
             view,
-            true,
+            events::EventFunding::ExtractionOwned,
         )
     } else {
         events::extract_class_events_with_extraction_credits(
@@ -85,7 +95,7 @@ pub(super) fn cure_view_with_extraction_funding(
             state.partition,
             view,
             &credit_sites,
-            true,
+            events::EventFunding::ExtractionOwned,
         )
     };
     // A seed funds only a LIVE extract: a `Project` whose dst (through its
@@ -124,22 +134,27 @@ pub(super) fn cure_view_with_extraction_funding(
 /// Collect the funding seeds (one `Inc` per member-defining `Project`) and
 /// the full-move CREDIT sites for `view`; `None` when a seed type carries
 /// no burden (the inc cannot fund — decline).
-#[expect(
-    clippy::type_complexity,
-    reason = "one caller; a named pair adds nothing"
-)]
 fn collect_extraction_seeds(
     func: &ArcFunction,
     partition: &mut BirthSitePartition,
     type_registry: &ori_types::TypeRegistry,
     full_move_arms: &[events::FullMoveArm],
     view: NodeIdx,
-) -> Option<(Vec<PlannedOp>, Vec<(usize, usize)>)> {
+) -> Option<ExtractionSeeds> {
     use crate::aims::intraprocedural::birth_site_partition::FieldPath;
     use crate::ir::ArcInstr;
 
     let mut seeds = Vec::new();
     let mut credit_sites: Vec<(usize, usize)> = Vec::new();
+    let full_move_projections: rustc_hash::FxHashSet<(usize, usize)> = full_move_arms
+        .iter()
+        .flat_map(|arm| {
+            arm.projections
+                .iter()
+                .map(move |&(index, _)| (arm.block, index))
+        })
+        .collect();
+
     for (block_idx, arc_block) in func.blocks.iter().enumerate() {
         for (index, instr) in arc_block.body.iter().enumerate() {
             let ArcInstr::Project { dst, .. } = instr else {
@@ -155,9 +170,7 @@ fn collect_extraction_seeds(
             // bookkeeping CREDIT, not a runtime inc (a seed here bumps the
             // count once per arm execution with no matching release, since
             // the moved-out aggregate is never dropped).
-            if full_move_arms.iter().any(|arm| {
-                arm.block == block_idx && arm.projections.iter().any(|&(i, _)| i == index)
-            }) {
+            if full_move_projections.contains(&(block_idx, index)) {
                 credit_sites.push((block_idx, index));
                 continue;
             }
@@ -189,7 +202,10 @@ fn collect_extraction_seeds(
             });
         }
     }
-    Some((seeds, credit_sites))
+    Some(ExtractionSeeds {
+        seeds,
+        credit_sites,
+    })
 }
 
 /// Keep only seeds funding a LIVE extract: a `Project` whose dst — through
@@ -203,36 +219,11 @@ fn live_seeds(
     partition: &mut BirthSitePartition,
     view: NodeIdx,
 ) -> Vec<PlannedOp> {
+    let alias_flow = emit::AliasFlowGraph::new(func);
     seeds
         .into_iter()
         .filter(|seed| {
-            let mut closure =
-                emit::close_over_let_aliases(func, std::iter::once(seed.var).collect());
-            loop {
-                let mut grew = false;
-                for arc_block in &func.blocks {
-                    let crate::ir::ArcTerminator::Jump { target, args } = &arc_block.terminator
-                    else {
-                        continue;
-                    };
-                    let Some(target_block) = func.blocks.iter().find(|b| b.id == *target) else {
-                        continue;
-                    };
-                    for (position, arg) in args.iter().enumerate() {
-                        if closure.contains(arg) {
-                            if let Some(&(param, _)) = target_block.params.get(position) {
-                                if closure.insert(param) {
-                                    grew = true;
-                                }
-                            }
-                        }
-                    }
-                }
-                if !grew {
-                    break;
-                }
-                closure = emit::close_over_let_aliases(func, closure);
-            }
+            let closure = alias_flow.close_let_aliases_and_jumps(std::iter::once(seed.var));
             let live = closure.iter().any(|member| event_vars.contains(member));
             if !live {
                 tracing::trace!(

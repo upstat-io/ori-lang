@@ -2,18 +2,18 @@
 
 use tracing::{debug, trace};
 
-use super::types::{PreparedFunction, PreparedLambda};
+use super::types::{NounwindAnalyzedFunctions, PreparedLambda};
 use crate::codegen::arc_emitter::ArcIrEmitter;
 use crate::codegen::function_compiler::FunctionCompiler;
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
-    /// Emit LLVM IR for all prepared functions using the complete nounwind set.
+    /// Emit LLVM IR for all nounwind-analyzed functions.
     ///
-    /// Must be called after [`Self::compute_nounwind_set`]. For each function,
-    /// emits lambdas first (so `emit_partial_apply` can reference them), then
-    /// the parent function, and applies nounwind attributes from the
-    /// pre-computed set.
-    pub fn emit_prepared_functions(&mut self, prepared: Vec<PreparedFunction>) {
+    /// For each function, emits lambdas first (so `emit_partial_apply` can
+    /// reference them), then the parent function, and applies nounwind
+    /// attributes from the pre-computed set.
+    pub fn emit_prepared_functions(&mut self, analyzed: NounwindAnalyzedFunctions) {
+        let prepared = analyzed.into_prepared();
         debug!(
             count = prepared.len(),
             "emitting prepared functions to LLVM IR"
@@ -23,19 +23,16 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.enter_debug_scope(func.func_id);
             self.builder.set_current_function(func.func_id);
 
-            // Emit lambdas first
+            // Why: Partial applications may reference the emitted lambda functions.
             for lambda in &func.lambdas {
                 self.emit_prepared_lambda(lambda);
             }
 
-            // Lambda compilation changes builder.current_function to the last
-            // lambda's FunctionId. Reset it to the parent so entry-block allocas
-            // (sret temporaries, indirect param storage) land in the right function.
+            // Why: Lambda emission leaves the builder bound to the last lambda.
             self.builder.set_current_function(func.func_id);
 
             self.dump_arc_if_requested(&func.arc_func, "emit path, prepared");
 
-            // Emit parent function
             let mut emitter = ArcIrEmitter::new(
                 self.builder,
                 self.type_info,
@@ -51,11 +48,9 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             emitter.set_func_contract(self.aims_contracts.get(&func.arc_func.name));
             emitter.emit_function(&func.arc_func, &func.abi);
 
-            // Post-emission CFG simplification
             let fn_val = self.builder.get_function_value(func.func_id);
             crate::codegen::ir_builder::cfg_simplify::simplify_cfg(fn_val);
 
-            // Function-level LLVM IR verification.
             if self.verify_arc && !fn_val.verify(true) {
                 tracing::error!(
                     name = %self.interner.lookup(func.name),
@@ -80,22 +75,14 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Post-hoc nounwind pass: walk all emitted LLVM functions and add `nounwind`
-    /// to any function that contains no `invoke` instructions.
+    /// Mark emitted functions `nounwind` when they contain no `invoke`.
     ///
-    /// This catches impl methods and test wrappers that were compiled via the
-    /// immediate-emit path (before the two-pass nounwind analysis). If all their
-    /// call sites used `call` (not `invoke`), the function is provably nounwind.
-    ///
-    /// Must be called after ALL functions are emitted (impls, two-pass batch,
-    /// derives, tests, main wrapper).
+    /// This covers immediate-emission paths outside the prepared-function pass
+    /// and must run after every function has been emitted.
     pub fn apply_posthoc_nounwind(&mut self) {
         let mut total_added = 0u32;
         let mut newly_nounwind = Vec::new();
-        // Fixed-point: newly-marked nounwind functions update their LLVM
-        // attribute, which lets callers pass the `function_has_no_invoke`
-        // check in subsequent iterations. HashMap iteration order is
-        // non-deterministic, so a single pass can miss call chains.
+        // Why: Hash-map order can visit a caller before its newly nounwind callee.
         loop {
             let mut changed = false;
             for (&name, &(func_id, ref abi)) in &self.codegen_ctx.functions {
@@ -148,11 +135,9 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         emitter.set_func_contract(self.aims_contracts.get(&lambda.arc_func.name));
         emitter.emit_function(&lambda.arc_func, &lambda.abi);
 
-        // Post-emission CFG simplification
         let fn_val = self.builder.get_function_value(lambda.func_id);
         crate::codegen::ir_builder::cfg_simplify::simplify_cfg(fn_val);
 
-        // Function-level LLVM IR verification.
         if self.verify_arc && !fn_val.verify(true) {
             tracing::error!(
                 name = %self.interner.lookup(lambda.name),

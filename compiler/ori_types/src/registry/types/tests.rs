@@ -43,7 +43,7 @@ fn register_and_lookup_struct() {
         Visibility::Public,
         0,
         None,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
 
     // Lookup by name
@@ -93,7 +93,7 @@ fn register_and_lookup_enum() {
         Visibility::Public,
         0,
         None,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
 
     // Lookup by name
@@ -136,7 +136,7 @@ fn register_newtype() {
         Visibility::Public,
         0,
         None,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
 
     let entry = registry.get_by_name(name).expect("should find");
@@ -156,25 +156,25 @@ fn register_alias() {
 
     let name = test_name("IntList");
     let idx = Idx::from_raw(103);
-    let target = Idx::from_raw(200); // Some list type
+    let list_type = Idx::from_raw(200);
 
     registry.register_alias(
         name,
         idx,
         vec![],
-        target,
+        list_type,
         test_span(),
         Visibility::Public,
         0,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
 
     let entry = registry.get_by_name(name).expect("should find");
     assert!(entry.kind.is_alias());
 
     match &entry.kind {
-        TypeKind::Alias { target: t } => {
-            assert_eq!(*t, target);
+        TypeKind::Alias { target } => {
+            assert_eq!(*target, list_type);
         }
         _ => panic!("expected alias"),
     }
@@ -220,7 +220,7 @@ fn iteration_is_sorted() {
         Visibility::Public,
         0,
         None,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
     registry.register_struct(
         name_a,
@@ -231,7 +231,7 @@ fn iteration_is_sorted() {
         Visibility::Public,
         0,
         None,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
     registry.register_struct(
         name_m,
@@ -242,7 +242,7 @@ fn iteration_is_sorted() {
         Visibility::Public,
         0,
         None,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
 
     // Iteration should be in sorted order (by Name's Ord impl)
@@ -266,7 +266,7 @@ fn generic_type_params() {
         vec![t_param],
         vec![FieldDef {
             name: test_name("value"),
-            ty: Idx::from_raw(500), // Would be a type variable in real code
+            ty: Idx::from_raw(500),
             span: test_span(),
             visibility: Visibility::Public,
         }],
@@ -274,7 +274,7 @@ fn generic_type_params() {
         Visibility::Public,
         0,
         None,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
 
     let entry = registry.get_by_name(name).expect("should find");
@@ -313,7 +313,7 @@ fn struct_field_lookup() {
         Visibility::Public,
         0,
         None,
-        None, // burden
+        None::<UserBurdenSpec>,
     );
 
     // Find field x
@@ -620,7 +620,6 @@ fn burden_newtype_around_registered_user_struct_inherits_burden() {
         struct_burden,
     );
 
-    // Now compute burden for a newtype wrapping the user struct.
     let newtype_burden = compute_newtype_burden(struct_idx, &pool, &registry);
     let spec = newtype_burden.expect("newtype around heap-bearing user type inherits");
     assert_eq!(
@@ -630,11 +629,8 @@ fn burden_newtype_around_registered_user_struct_inherits_burden() {
     );
 }
 
-// Phase-boundary regression: ori_types is Phase 2/3 (parse/typeck) — ori_arc
-// is Phase 5+ (lowering). burden computation MUST classify fields via
-// `Triviality` + `Tag` (both ori_types-native), NOT `ArcClass` (ori_arc).
-// Structural regression on Cargo.toml guards against future drift that
-// cargo c cannot catch on silent omissions.
+// Burden computation classifies fields with ori_types-native `Triviality` and
+// `Tag`; the manifest must not introduce an ori_arc dependency.
 const ORI_TYPES_CARGO_TOML: &str = include_str!("../../../Cargo.toml");
 
 #[test]
@@ -907,7 +903,7 @@ fn from_typed_exports_round_trips_nominal_type_entry_burden() {
     assert!(spec.self_owned_identity);
 
     // Genuine-pin clamp: a reconstruction NOT given the nominal entry resolves
-    // None — the positive assertion above is driven by the `entries` argument, so
+    // None — the positive assertion is driven by the `entries` argument, so
     // it FAILS if from_typed_exports dropped that argument.
     let empty = TypeRegistry::from_typed_exports(vec![], vec![]);
     assert!(
@@ -949,7 +945,7 @@ fn from_typed_exports_round_trips_collection_burden_side_table() {
     );
 
     // Genuine-pin clamp: a reconstruction NOT given the side-table resolves None —
-    // the positive resolution above exercises the .or_else(collection_burdens)
+    // the positive resolution exercises the `.or_else(collection_burdens)`
     // path, so it FAILS if from_typed_exports dropped that argument.
     let empty = TypeRegistry::from_typed_exports(vec![], vec![]);
     assert!(

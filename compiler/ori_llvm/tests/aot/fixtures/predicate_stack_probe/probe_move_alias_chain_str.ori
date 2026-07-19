@@ -1,0 +1,12 @@
+@id_chain (s: str) -> str = {
+    let a = s;
+    let b = a;
+    let c = b;
+    c
+}
+
+@main () -> int = {
+    let r = id_chain(s: "hello world");
+    print(msg: r);
+    0
+}

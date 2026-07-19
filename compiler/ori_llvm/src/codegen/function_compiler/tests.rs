@@ -10,7 +10,7 @@ use ori_types::{Idx, ImplSig, Pool};
 use rustc_hash::FxHashMap;
 use std::mem::ManuallyDrop;
 
-/// Create a basic FunctionSig for testing.
+/// Create a basic `FunctionSig` for testing.
 fn make_sig(
     name: Name,
     param_names: Vec<Name>,
@@ -822,7 +822,7 @@ fn mixed_params_selective_noundef() {
 
 // Nounwind analysis tests
 
-/// Helper: create a minimal FunctionCompiler for nounwind testing.
+/// Helper: create a minimal `FunctionCompiler` for nounwind testing.
 fn make_nounwind_fc<'a, 'scx: 'ctx, 'ctx, 'tcx>(
     builder: &'a mut IrBuilder<'scx, 'ctx>,
     store: &'a TypeInfoStore<'tcx>,
@@ -846,7 +846,7 @@ fn make_nounwind_fc<'a, 'scx: 'ctx, 'ctx, 'tcx>(
     )
 }
 
-/// Helper: build a single-block ArcFunction with the given body instructions.
+/// Helper: build a single-block `ArcFunction` with the given body instructions.
 fn make_arc_func(
     interner: &StringInterner,
     name: &str,
@@ -1265,7 +1265,7 @@ fn compute_nounwind_set_marks_trivial_nounwind() {
         lambdas: vec![],
     }];
 
-    fc.compute_nounwind_set(&prepared);
+    let _analyzed = fc.compute_nounwind_set(prepared);
     assert!(
         fc.codegen_ctx.nounwind_functions.contains(&func_name),
         "trivially nounwind function should be in nounwind set"
@@ -1345,7 +1345,7 @@ fn compute_nounwind_set_caller_sees_callee() {
         },
     ];
 
-    fc.compute_nounwind_set(&prepared);
+    let _analyzed = fc.compute_nounwind_set(prepared);
 
     assert!(
         fc.codegen_ctx.nounwind_functions.contains(&callee_name),
@@ -1442,7 +1442,7 @@ fn compute_nounwind_set_may_unwind_callee_blocks_caller() {
         },
     ];
 
-    fc.compute_nounwind_set(&prepared);
+    let _analyzed = fc.compute_nounwind_set(prepared);
 
     assert!(
         !fc.codegen_ctx.nounwind_functions.contains(&callee_name),
@@ -1550,7 +1550,7 @@ fn compute_nounwind_set_three_level_chain() {
         },
     ];
 
-    fc.compute_nounwind_set(&prepared);
+    let _analyzed = fc.compute_nounwind_set(prepared);
 
     assert!(
         fc.codegen_ctx.nounwind_functions.contains(&c_name),
@@ -1615,7 +1615,7 @@ fn compute_nounwind_set_propagates_to_generic_original_name() {
         lambdas: vec![],
     }];
 
-    fc.compute_nounwind_set(&prepared);
+    let _analyzed = fc.compute_nounwind_set(prepared);
 
     assert!(
         fc.codegen_ctx.nounwind_functions.contains(&mangled),
@@ -1707,7 +1707,7 @@ fn compute_nounwind_set_does_not_propagate_if_any_mono_may_unwind() {
         },
     ];
 
-    fc.compute_nounwind_set(&prepared);
+    let _analyzed = fc.compute_nounwind_set(prepared);
 
     assert!(
         fc.codegen_ctx.nounwind_functions.contains(&mangled_int),
@@ -1723,7 +1723,7 @@ fn compute_nounwind_set_does_not_propagate_if_any_mono_may_unwind() {
     );
 }
 
-/// Helper: create a minimal FunctionAbi for test PreparedFunctions.
+/// Helper: create a minimal `FunctionAbi` for test `PreparedFunction` values.
 fn make_test_abi(pool: &Pool) -> FunctionAbi {
     use super::super::abi::{CallConv, FunctionAbi, ReturnAbi, ReturnPassing};
     let _ = pool;
@@ -1799,9 +1799,8 @@ fn main_wrapper_has_noundef_return() {
 #[test]
 fn test_process_arc_function_records_codegen_error_on_violation() {
     let mut pool = Pool::new();
-    // Allocate the raw Tag::Var BEFORE the FunctionCompiler borrows the pool
-    // immutably. Mirrors the synthetic-leak pattern at
-    // `ori_arc/src/ir/validate/tests.rs::test_pc2_assertion_fires_on_synthetic_leak`.
+    // Allocate the raw `Tag::Var` before `FunctionCompiler` takes its immutable
+    // pool borrow; the synthetic leak must reach the physical-emission guard.
     let leak_var_ty: Idx = pool.fresh_var();
     let leak_var_id = ArcVarId::new(0);
 

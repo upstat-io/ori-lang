@@ -10,6 +10,7 @@ use ori_types::Idx;
 
 use crate::ir::{ArcBlockId, ArcInstr, ArcValue, ArcVarId, ArgOwnership, CtorKind};
 
+use super::state::InstructionLocation;
 use super::{ArcIrBuilder, InvokeTargets};
 
 impl ArcIrBuilder {
@@ -25,14 +26,22 @@ impl ArcIrBuilder {
         make: impl FnOnce(ArcVarId) -> ArcInstr,
     ) -> ArcVarId {
         let dst = self.fresh_var(ty);
+        let block_id = self.current_block;
         let block = &mut self.blocks[self.current_block.index()];
+        let Ok(instruction) = u32::try_from(block.body.len()) else {
+            unreachable!("ARC block instruction table exceeded u32 capacity");
+        };
         block.body.push(make(dst));
         block.spans.push(span);
+        self.definitions[dst.index()] = InstructionLocation {
+            block: block_id,
+            instruction,
+        };
         dst
     }
 
     /// Emit a `Let` instruction binding a value to a fresh variable.
-    pub fn emit_let(&mut self, ty: Idx, value: ArcValue, span: Option<Span>) -> ArcVarId {
+    pub(crate) fn emit_let(&mut self, ty: Idx, value: ArcValue, span: Option<Span>) -> ArcVarId {
         self.push_instr(ty, span, |dst| ArcInstr::Let { dst, ty, value })
     }
 
@@ -41,7 +50,7 @@ impl ArcIrBuilder {
     /// `mono_instance_id` is the abstract dispatch index for generic-instantiated
     /// calls (sourced from `CanonResult.mono_dispatch_map_can` during ARC
     /// lowering); pass `None` for non-generic calls and builtin emissions.
-    pub fn emit_apply(
+    pub(crate) fn emit_apply(
         &mut self,
         ty: Idx,
         func: Name,
@@ -63,7 +72,7 @@ impl ArcIrBuilder {
     }
 
     /// Emit an `ApplyIndirect` (closure call) instruction.
-    pub fn emit_apply_indirect(
+    pub(crate) fn emit_apply_indirect(
         &mut self,
         ty: Idx,
         closure: ArcVarId,
@@ -80,7 +89,7 @@ impl ArcIrBuilder {
     }
 
     /// Emit a `Construct` instruction.
-    pub fn emit_construct(
+    pub(crate) fn emit_construct(
         &mut self,
         ty: Idx,
         ctor: CtorKind,
@@ -96,7 +105,7 @@ impl ArcIrBuilder {
     }
 
     /// Emit a `PartialApply` instruction (closure creation with captures).
-    pub fn emit_partial_apply(
+    pub(crate) fn emit_partial_apply(
         &mut self,
         ty: Idx,
         func: Name,
@@ -112,7 +121,7 @@ impl ArcIrBuilder {
     }
 
     /// Emit a `Project` (field access) instruction.
-    pub fn emit_project(
+    pub(crate) fn emit_project(
         &mut self,
         ty: Idx,
         value: ArcVarId,
@@ -132,7 +141,7 @@ impl ArcIrBuilder {
     /// Maps to LLVM's `select` instruction: returns `true_val` if `cond`
     /// is true, `false_val` otherwise. Used to eliminate basic blocks for
     /// trivial match arms.
-    pub fn emit_select(
+    pub(crate) fn emit_select(
         &mut self,
         ty: Idx,
         cond: ArcVarId,
@@ -188,7 +197,7 @@ impl ArcIrBuilder {
     ///
     /// Returns the `dst` variable holding the call result (defined at
     /// the normal block's entry).
-    pub fn emit_invoke(
+    pub(crate) fn emit_invoke(
         &mut self,
         ty: Idx,
         func: Name,
@@ -215,7 +224,7 @@ impl ArcIrBuilder {
     ///
     /// Same pattern as [`emit_invoke`] but calls through a closure fat pointer.
     /// Used when an indirect call is made inside `catch(expr:)`.
-    pub fn emit_invoke_indirect(
+    pub(crate) fn emit_invoke_indirect(
         &mut self,
         ty: Idx,
         closure: ArcVarId,
@@ -232,12 +241,12 @@ impl ArcIrBuilder {
     /// When set, [`emit_invoke`](Self::emit_invoke) creates unwind blocks
     /// that `Jump` to this target instead of `Resume`. Returns the previous
     /// target (for nesting).
-    pub fn set_catch_target(&mut self, target: ArcBlockId) -> Option<ArcBlockId> {
+    pub(crate) fn set_catch_target(&mut self, target: ArcBlockId) -> Option<ArcBlockId> {
         self.catch_unwind_target.replace(target)
     }
 
     /// Clear the catch unwind target. Returns the previous target.
-    pub fn clear_catch_target(&mut self) -> Option<ArcBlockId> {
+    pub(crate) fn clear_catch_target(&mut self) -> Option<ArcBlockId> {
         self.catch_unwind_target.take()
     }
 
@@ -248,7 +257,7 @@ impl ArcIrBuilder {
     /// landing block before physical projection. The active
     /// `catch_unwind_target` is always the innermost enclosing catch. No-op
     /// outside a catch. Spec: Clause 14.3.
-    pub fn note_checked_op(&mut self, dst: ArcVarId) {
+    pub(crate) fn note_checked_op(&mut self, dst: ArcVarId) {
         if let Some(handler) = self.catch_unwind_target {
             // `dst` is a fresh SSA var (defined exactly once), so no dedup is
             // needed — each checked-op result appears at most once.

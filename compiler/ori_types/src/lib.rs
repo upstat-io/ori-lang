@@ -1,17 +1,10 @@
 #![deny(unsafe_code)]
 //! Type system for Ori.
 //!
-//! Provides the unified type system based on:
-//! - [`Idx`]: 32-bit type index (THE canonical type handle)
-//! - [`Tag`]: Type kind discriminant
-//! - [`Item`]: Compact type storage (tag + data)
-//! - [`TypeFlags`]: Pre-computed metadata for O(1) queries
-//! - [`Pool`]: Unified type pool with interning
-//!
-//! Type-pool design principles:
-//! - All types have Clone, Eq, Hash for Salsa compatibility
-//! - Interned type representations for efficiency
-//! - Flat structures for cache locality
+//! [`Idx`] is the canonical 32-bit type handle into the interned [`Pool`].
+//! Compact [`Item`] storage pairs a [`Tag`] with precomputed [`TypeFlags`] for
+//! constant-time category queries, cache-local traversal, and Salsa-compatible
+//! equality and hashing.
 
 mod check;
 mod const_eval;
@@ -41,7 +34,8 @@ pub use check::{
 pub use const_eval::GenericConstExpr;
 pub use flags::{TypeCategory, TypeFlags};
 pub use idx::Idx;
-pub use infer::{check_expr, infer_expr, resolve_parsed_type, ExprIndex, InferEngine, TypeEnv};
+pub(crate) use infer::infer_expr;
+pub use infer::{check_expr, resolve_parsed_type, ExprIndex, InferEngine, TypeEnv};
 pub use infer::{compose_burden_for_idx, register_resolved_collection_burdens};
 pub use item::Item;
 pub use lifetime::LifetimeId;
@@ -52,22 +46,25 @@ pub use operator::{
 pub use ori_ir::{PatternKey, PatternResolution};
 pub use output::{
     imported_method_producer, imported_method_signature_hash, is_marker_capability,
-    AcceptedDerivedImpl, AssignDesugar, CapabilityCallSite, CapabilityParam, CapabilityProvider,
-    CapabilityProviderSource, ConcreteMethodMono, ConstGenericTerm, ConstParamInfo, ConstValue,
-    DeferredMonoCall, DeferredMonoCaller, DeferredVarBinding, DerivedCallPlan, DerivedCallPosition,
-    DerivedCallSelection, DerivedDirectCallSelection, EffectClass, ExportedTypeMetadata,
-    FnWhereClause, FormatSpecTypes, FunctionSig, GenericArg, ImplMethodId, ImplMethodRole, ImplSig,
-    ImportedImplSig, IterMethodRoute, MethodProducer, MethodProducerId, MonoConstBinding,
-    MonoInstance, MonoInstanceId, RegistryMethodIdentity, RegistryPreludeIdentity, TypeCheckResult,
-    TypedModule, IMPORTED_METHOD_PRODUCER_SCHEMA, REGISTRY_PRODUCER_SCHEMA,
+    AcceptedDerivedImpl, AssignDesugar, AssignStepRoute, CapabilityCallSite, CapabilityParam,
+    CapabilityProvider, CapabilityProviderSource, ConcreteMethodMono, ConstGenericTerm,
+    ConstParamInfo, ConstValue, DeferredMonoCall, DeferredMonoCaller, DeferredVarBinding,
+    DerivedCallPlan, DerivedCallPosition, DerivedCallSelection, DerivedDirectCallSelection,
+    EffectClass, ExportedTypeMetadata, FnWhereClause, FormatSpecTypes, FunctionSig, GenericArg,
+    ImplMethodId, ImplMethodRole, ImplSig, ImportedImplSig, IterMethodRoute, MethodProducer,
+    MethodProducerId, MonoConstBinding, MonoInstance, MonoInstanceId, RegistryMethodIdentity,
+    RegistryPreludeIdentity, TypeCheckResult, TypedModule, IMPORTED_METHOD_PRODUCER_SCHEMA,
+    REGISTRY_PRODUCER_SCHEMA,
 };
+
+pub(crate) use output::IndexDispatchSelection;
 pub use pool::{
     build_finalized_body_type_map, build_impl_mono_body_type_map, build_mono_body_type_map,
     collect_public_collection_types, extend_var_subst_with_roots, extract_var_from_types,
     re_intern_sig, re_intern_sig_with_var_remap, re_intern_type, re_intern_type_with_var_remap,
-    register_concrete_applied_resolutions, substitute_in_pool, walk_collection_types,
-    BodyTypeMapSink, EnumVariant, GeneralizedVarState, Pool, TypeDescriptor, UnboundVarState,
-    VarState, VariantDescriptor, DEFAULT_RANK,
+    register_concrete_applied_resolutions, substitute_in_existing_pool, substitute_in_pool,
+    walk_collection_types, BodyTypeMapSink, EnumVariant, GeneralizedVarState, MissingSubstitution,
+    Pool, TypeDescriptor, UnboundVarState, VarState, VariantDescriptor, DEFAULT_RANK,
 };
 pub use provenance::{
     ConsumerEdge, GenericLeafDivergence, MonoEdge, ProvenanceDag, ResolutionEdge, StructureEdge,

@@ -6,8 +6,8 @@ use ori_patterns::{
     division_by_zero, integer_overflow, modulo_by_zero, no_such_method, EvalResult, Value,
 };
 
+use super::super::arguments::{require_args, require_duration_arg, require_int_arg};
 use super::super::compare::ordering_to_value;
-use super::super::helpers::{require_args, require_duration_arg, require_int_arg};
 use super::super::DispatchCtx;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};

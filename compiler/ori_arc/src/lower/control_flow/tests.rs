@@ -1,4 +1,6 @@
-use ori_ir::canon::{CanArena, CanBindingPattern, CanExpr, CanId, CanNode, CanonResult};
+use ori_ir::canon::{
+    CanArena, CanBindingPattern, CanExpr, CanId, CanNode, CanonResult, IndexDispatch,
+};
 use ori_ir::{Mutability, Name, Span, StringInterner, TypeId};
 use ori_types::Idx;
 use ori_types::Pool;
@@ -378,7 +380,7 @@ fn lower_index_assignment_reports_internal_error_instead_of_panicking() {
         CanExpr::Index {
             receiver,
             index,
-            producer: None,
+            dispatch: IndexDispatch::Builtin,
         },
         Span::new(0, 3),
         TypeId::from_raw(Idx::INT.raw()),

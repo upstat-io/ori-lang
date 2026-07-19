@@ -64,19 +64,25 @@ struct ReceiverDispatch {
     ambiguous_extension: FxHashSet<(Idx, Name)>,
 }
 
+#[derive(Clone, Copy)]
+enum DispatchTier {
+    Inherent,
+    Trait,
+}
+
 impl ReceiverDispatch {
     fn record(
         &mut self,
         recv_key_idx: Option<Idx>,
         method_name: Name,
         qualified_name: Name,
-        is_inherent: bool,
+        tier: DispatchTier,
     ) {
         let Some(idx) = recv_key_idx else {
             return;
         };
         let key = (idx, method_name);
-        if is_inherent {
+        if matches!(tier, DispatchTier::Inherent) {
             self.ambiguous_trait.remove(&key);
             if !self.inherent.insert(key) {
                 self.targets.remove(&key);
@@ -117,17 +123,26 @@ impl ReceiverDispatch {
         if self.inherent.contains(&key)
             || self.ambiguous_inherent.contains(&key)
             || self.ambiguous_trait.contains(&key)
-            || (self.targets.contains_key(&key) && !self.extension.contains(&key))
             || self.ambiguous_extension.contains(&key)
         {
             return;
         }
-        if !self.extension.insert(key) {
-            self.targets.remove(&key);
-            self.ambiguous_extension.insert(key);
-            return;
+        match self.targets.entry(key) {
+            std::collections::hash_map::Entry::Occupied(target) => {
+                if !self.extension.contains(&key) {
+                    return;
+                }
+                target.remove();
+                self.ambiguous_extension.insert(key);
+            }
+            std::collections::hash_map::Entry::Vacant(target) => {
+                if !self.extension.insert(key) {
+                    self.ambiguous_extension.insert(key);
+                    return;
+                }
+                target.insert(qualified_name);
+            }
         }
-        self.targets.insert(key, qualified_name);
     }
 }
 
@@ -202,6 +217,7 @@ fn insert_mono_method_target(
 /// target map consumes the distinct concrete receiver carrier so same-spelled
 /// methods and zero-argument associated functions cannot collapse through a
 /// name/arity fallback during shared batch preparation.
+#[must_use = "success or failure must be handled"]
 pub(crate) fn extend_mono_method_targets(
     targets: &mut FxHashMap<(Idx, Name), Name>,
     mono_functions: &[MonoFunction],

@@ -139,8 +139,8 @@ fn emit_float<'scx: 'ctx, 'ctx>(
 }
 
 /// Emit `byte(value)` — range-checked conversions (parity with the
-/// interpreter's `function_val_byte`: int errors outside 0..=255, char
-/// errors above codepoint 255; silent truncation diverges on those inputs).
+/// interpreter's `function_val_byte`: int errors outside 0..=255 and char
+/// accepts only ASCII per Spec Clause 8.11.3).
 fn emit_byte<'scx: 'ctx, 'ctx>(
     emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
     args: &[ArcVarId],
@@ -152,19 +152,11 @@ fn emit_byte<'scx: 'ctx, 'ctx>(
     let arg_ty = arc_func.var_type(args[0]);
     let type_info = emitter.type_info.get(arg_ty);
     let arg_val = emitter.var(args[0]);
-    let i8_ty = emitter.builder.i8_type();
 
     match &type_info {
         TypeInfo::Byte => Some(arg_val),
         TypeInfo::Int => emitter.emit_checked_int_to_byte(arg_val, "byte_cast"),
-        TypeInfo::Char => {
-            // Codepoints above 255 do not fit a byte — the interpreter
-            // errors via u8::try_from on the codepoint (Latin-1 accepted).
-            let byte_limit = emitter.builder.const_i32(256);
-            let valid = emitter.builder.icmp_ult(arg_val, byte_limit, "byte.fits");
-            emitter.emit_unwrap_branch(valid, "out of byte range (0-255)", "byte.char")?;
-            Some(emitter.builder.trunc(arg_val, i8_ty, "byte_cast"))
-        }
+        TypeInfo::Char => emitter.emit_checked_char_to_byte(arg_val, "byte_cast"),
         _ => None,
     }
 }

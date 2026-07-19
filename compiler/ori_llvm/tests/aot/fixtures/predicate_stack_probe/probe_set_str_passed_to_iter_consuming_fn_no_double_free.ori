@@ -1,0 +1,16 @@
+@count_items (s: Set<str>) -> int = {
+    let total = 0;
+    for x in s do {
+        total = total + 1
+    };
+    total
+}
+
+@main () -> int = {
+    let s: Set<str> = [
+        "a very long set element string exceeding the sso threshold for sure",
+        "another long set element string for function parameter set cleanup"
+    ].iter().collect();
+    let result = count_items(s: s);
+    if result == 2 then 0 else 1
+}

@@ -206,16 +206,22 @@ fn seed_iter_consuming_runtime(
 
 #[cfg(test)]
 mod toggle_tests {
-    #[test]
-    fn panic_message_transfer_toggle_reports_effect() {
-        crate::test_helpers::assert_ablation_env_event(
-            concat!(
-                module_path!(),
-                "::panic_message_transfer_toggle_reports_effect"
-            ),
-            "ORI_DISABLE_PANIC_MSG_TRANSFER",
-            "seed ori_panic with the conservative borrowed-parameter contract",
-            super::panic_msg_transfer_disabled,
-        );
-    }
+    crate::test_helpers::ablation_env_event_test!(
+        panic_message_transfer_reproduces_conservative_contract_behavior,
+        "ORI_DISABLE_PANIC_MSG_TRANSFER",
+        "seed ori_panic with the conservative borrowed-parameter contract",
+        || {
+            let interner = super::StringInterner::new();
+            let ori_panic = interner.intern("ori_panic");
+            let mut contracts = super::FxHashMap::default();
+
+            super::seed_internal_runtime_contracts(&mut contracts, &interner);
+
+            assert!(
+                !contracts.contains_key(&ori_panic),
+                "the ablation must leave ori_panic on the conservative borrowed default"
+            );
+            super::panic_msg_transfer_disabled()
+        },
+    );
 }

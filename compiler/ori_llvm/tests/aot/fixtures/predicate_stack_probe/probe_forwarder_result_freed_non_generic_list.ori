@@ -1,0 +1,6 @@
+@just_return_it (x: [int]) -> [int] = x;
+
+@main () -> int = {
+    let xs = just_return_it(x: [11, 22, 33]);
+    if xs.len() == 3 then 0 else 1
+}

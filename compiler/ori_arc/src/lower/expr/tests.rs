@@ -522,6 +522,176 @@ fn lambda_target_preserves_callable_signature_identity() {
 }
 
 #[test]
+fn lambda_captures_follow_call_source_order_and_deduplicate_references() {
+    let interner = StringInterner::new();
+    let parent_name = interner.intern("capture_order_parent");
+    let callee_name = interner.intern("callee");
+    let first_name = interner.intern("first");
+    let second_name = interner.intern("second");
+
+    let mut pool = Pool::new();
+    let callee_type = pool.function(&[Idx::INT, Idx::INT, Idx::INT], Idx::INT);
+    let lambda_type = pool.function(&[], Idx::INT);
+    let mut arena = CanArena::with_capacity(8);
+    let callee = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Ident(callee_name),
+        Span::new(1, 7),
+        TypeId::from_raw(callee_type.raw()),
+    ));
+    let first = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Ident(first_name),
+        Span::new(8, 13),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let second = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Ident(second_name),
+        Span::new(15, 21),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let repeated_first = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Ident(first_name),
+        Span::new(23, 28),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let args = arena.push_expr_list(&[first, second, repeated_first]);
+    let call = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Call { func: callee, args },
+        Span::new(1, 29),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let params = arena.push_params(&[]);
+    let lambda = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Lambda { params, body: call },
+        Span::new(0, 29),
+        TypeId::from_raw(lambda_type.raw()),
+    ));
+    let canon = CanonResult::new(arena, lambda);
+    let mut problems = Vec::new();
+
+    let (parent, lambdas) = lower_function_can(
+        ArcLoweringInput {
+            name: parent_name,
+            params: &[
+                (callee_name, callee_type),
+                (first_name, Idx::INT),
+                (second_name, Idx::INT),
+            ],
+            return_type: lambda_type,
+            body: lambda,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
+        &mut problems,
+    );
+
+    assert!(problems.is_empty(), "unexpected problems: {problems:?}");
+    assert_eq!(lambdas.len(), 1);
+    assert_eq!(lambdas[0].num_captures, 3);
+    assert_eq!(
+        lambdas[0]
+            .params
+            .iter()
+            .map(|param| param.ty)
+            .collect::<Vec<_>>(),
+        vec![callee_type, Idx::INT, Idx::INT]
+    );
+    assert!(parent.blocks[0].body.iter().any(|instruction| {
+        matches!(
+            instruction,
+            ArcInstr::PartialApply { args, .. }
+                if args == &vec![
+                    crate::ArcVarId::new(0),
+                    crate::ArcVarId::new(1),
+                    crate::ArcVarId::new(2),
+                ]
+        )
+    }));
+}
+
+#[test]
+#[should_panic(expected = "typed lambda must carry a function type before ARC lowering")]
+fn lambda_with_non_function_type_panics() {
+    let interner = StringInterner::new();
+    let mut arena = CanArena::with_capacity(2);
+    let body = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Unit,
+        Span::DUMMY,
+        TypeId::from_raw(Idx::UNIT.raw()),
+    ));
+    let params = arena.push_params(&[]);
+    let lambda = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Lambda { params, body },
+        Span::DUMMY,
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let canon = CanonResult::new(arena, lambda);
+    let pool = Pool::new();
+    let mut problems = Vec::new();
+
+    let _ = lower_function_can(
+        ArcLoweringInput {
+            name: interner.intern("invalid_lambda_parent"),
+            params: &[],
+            return_type: Idx::INT,
+            body: lambda,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
+        &mut problems,
+    );
+}
+
+#[test]
+#[should_panic(expected = "typed lambda parameter count must match its function type")]
+fn lambda_parameter_count_mismatch_panics() {
+    let interner = StringInterner::new();
+    let parameter_name = interner.intern("extra");
+    let mut pool = Pool::new();
+    let lambda_type = pool.function(&[], Idx::UNIT);
+    let mut arena = CanArena::with_capacity(2);
+    let body = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Unit,
+        Span::DUMMY,
+        TypeId::from_raw(Idx::UNIT.raw()),
+    ));
+    let params = arena.push_params(&[CanParam {
+        name: parameter_name,
+        default: ori_ir::canon::CanId::INVALID,
+    }]);
+    let lambda = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Lambda { params, body },
+        Span::DUMMY,
+        TypeId::from_raw(lambda_type.raw()),
+    ));
+    let canon = CanonResult::new(arena, lambda);
+    let mut problems = Vec::new();
+
+    let _ = lower_function_can(
+        ArcLoweringInput {
+            name: interner.intern("mismatched_lambda_parent"),
+            params: &[],
+            return_type: lambda_type,
+            body: lambda,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
+        &mut problems,
+    );
+}
+
+#[test]
 fn lower_with_capability_binds_provider_for_body() {
     // In `with Cap = 42 in Cap`, the body reference must resolve to the bound
     // provider variable rather than the unbound-identifier unit fallback.

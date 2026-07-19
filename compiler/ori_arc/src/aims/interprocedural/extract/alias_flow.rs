@@ -15,7 +15,7 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use super::super::super::contract::MemoryContract;
 use super::super::super::lattice::AccessClass;
 
-use super::build_definition_map;
+use super::contract::build_definition_map;
 
 pub(super) use return_alias_shapes::find_return_alias_shapes;
 

@@ -21,6 +21,79 @@ use rustc_hash::FxHashMap;
 
 use crate::{Idx, Pool, Tag, TypeFlags, VarState};
 
+/// A substituted compound identity was not interned by the owning type phase.
+///
+/// Read-only consumers use [`substitute_in_existing_pool`] after type checking.
+/// A missing identity is therefore an upstream materialization defect, not
+/// permission for the consumer to extend the canonical type pool.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MissingSubstitution {
+    source: Idx,
+}
+
+impl MissingSubstitution {
+    /// Return the source type whose substituted compound identity is missing.
+    #[must_use]
+    pub const fn source(self) -> Idx {
+        self.source
+    }
+}
+
+trait SubstitutionOutput {
+    fn pool(&self) -> &Pool;
+    fn simple(&mut self, tag: Tag, data: u32) -> Option<Idx>;
+    fn complex(&mut self, tag: Tag, extra: &[u32]) -> Option<Idx>;
+}
+
+struct InterningOutput<'pool> {
+    pool: &'pool mut Pool,
+}
+
+impl SubstitutionOutput for InterningOutput<'_> {
+    fn pool(&self) -> &Pool {
+        self.pool
+    }
+
+    fn simple(&mut self, tag: Tag, data: u32) -> Option<Idx> {
+        Some(self.pool.intern(tag, data))
+    }
+
+    fn complex(&mut self, tag: Tag, extra: &[u32]) -> Option<Idx> {
+        Some(self.pool.intern_complex(tag, extra))
+    }
+}
+
+struct ExistingOutput<'pool> {
+    pool: &'pool Pool,
+}
+
+impl ExistingOutput<'_> {
+    fn lookup(&self, tag: Tag, data: u32, extra: &[u32]) -> Option<Idx> {
+        let hash = self.pool.merkle_hash(tag, data, extra);
+        let idx = self.pool.lookup_by_hash(hash)?;
+        debug_assert_eq!(
+            self.pool.tag(idx),
+            tag,
+            "Merkle hash collision while resolving an existing substitution"
+        );
+        (self.pool.tag(idx) == tag).then_some(idx)
+    }
+}
+
+impl SubstitutionOutput for ExistingOutput<'_> {
+    fn pool(&self) -> &Pool {
+        self.pool
+    }
+
+    fn simple(&mut self, tag: Tag, data: u32) -> Option<Idx> {
+        self.lookup(tag, data, &[])
+    }
+
+    fn complex(&mut self, tag: Tag, extra: &[u32]) -> Option<Idx> {
+        self.lookup(tag, 0, extra)
+    }
+}
+
 /// Recursively substitute type variables in `ty` using `var_subst`.
 ///
 /// The substitution map keys are `var_ids` (matching [`FunctionSig::scheme_var_ids`]).
@@ -34,47 +107,76 @@ use crate::{Idx, Pool, Tag, TypeFlags, VarState};
     reason = "always called with FxHashMap internally"
 )]
 pub fn substitute_in_pool(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
+    substitute_type(&mut InterningOutput { pool }, ty, var_subst)
+        .unwrap_or_else(|_| unreachable!("interning substitution cannot miss a type identity"))
+}
+
+/// Recursively substitute type variables using identities already interned in
+/// `pool` by type checking.
+///
+/// Unlike [`substitute_in_pool`], this function cannot extend `pool`. It is the
+/// downstream read-only form for ARC and other post-canonicalization consumers.
+/// If a changed compound type has no existing canonical identity, the function
+/// fails closed with the source coordinate that the type phase failed to
+/// materialize.
+#[expect(
+    clippy::implicit_hasher,
+    reason = "always called with FxHashMap internally"
+)]
+pub fn substitute_in_existing_pool(
+    pool: &Pool,
+    ty: Idx,
+    var_subst: &FxHashMap<u32, Idx>,
+) -> Result<Idx, MissingSubstitution> {
+    substitute_type(&mut ExistingOutput { pool }, ty, var_subst)
+}
+
+fn substitute_type<Output: SubstitutionOutput>(
+    output: &mut Output,
+    ty: Idx,
+    var_subst: &FxHashMap<u32, Idx>,
+) -> Result<Idx, MissingSubstitution> {
     // INVARIANT: every substitutable variable kind participates in the fast-path gate.
-    if !pool
+    if !output
+        .pool()
         .flags(ty)
         .intersects(TypeFlags::HAS_VAR | TypeFlags::HAS_BOUND_VAR | TypeFlags::HAS_RIGID_VAR)
     {
-        return ty;
+        return Ok(ty);
     }
 
-    match pool.tag(ty) {
-        Tag::Var => substitute_var(pool, ty, var_subst),
-        Tag::BoundVar => substitute_bound_var(pool, ty, var_subst),
-        Tag::RigidVar => substitute_rigid_var(pool, ty, var_subst),
+    match output.pool().tag(ty) {
+        Tag::Var => substitute_var(output, ty, var_subst),
+        Tag::BoundVar | Tag::RigidVar => Ok(var_subst
+            .get(&output.pool().data(ty))
+            .copied()
+            .unwrap_or(ty)),
 
         // Single-child containers
-        Tag::List => substitute_single_child(pool, ty, var_subst, Pool::list),
-        Tag::Option => substitute_single_child(pool, ty, var_subst, Pool::option),
-        Tag::Set => substitute_single_child(pool, ty, var_subst, Pool::set),
-        Tag::Channel => substitute_single_child(pool, ty, var_subst, Pool::channel),
-        Tag::Range => substitute_single_child(pool, ty, var_subst, Pool::range),
-        Tag::Iterator => substitute_single_child(pool, ty, var_subst, Pool::iterator),
-        Tag::DoubleEndedIterator => {
-            substitute_single_child(pool, ty, var_subst, Pool::double_ended_iterator)
-        }
+        tag @ (Tag::List
+        | Tag::Option
+        | Tag::Set
+        | Tag::Channel
+        | Tag::Range
+        | Tag::Iterator
+        | Tag::DoubleEndedIterator) => substitute_single_child(output, ty, tag, var_subst),
 
         // Two-child containers
-        Tag::Map => substitute_map(pool, ty, var_subst),
-        Tag::Result => substitute_result(pool, ty, var_subst),
+        tag @ (Tag::Map | Tag::Result) => substitute_type_pair(output, ty, tag, var_subst),
 
         // Borrowed reference
-        Tag::Borrowed => substitute_borrowed(pool, ty, var_subst),
+        Tag::Borrowed => substitute_borrowed(output, ty, var_subst),
 
         // Variable-length types
-        Tag::Function => substitute_function(pool, ty, var_subst),
-        Tag::Tuple => substitute_tuple(pool, ty, var_subst),
-        Tag::Applied => substitute_applied(pool, ty, var_subst),
-        Tag::Struct => substitute_struct(pool, ty, var_subst),
-        Tag::Enum => substitute_enum(pool, ty, var_subst),
+        Tag::Function => substitute_function(output, ty, var_subst),
+        Tag::Tuple => substitute_tuple(output, ty, var_subst),
+        Tag::Applied => substitute_applied(output, ty, var_subst),
+        Tag::Struct => substitute_struct(output, ty, var_subst),
+        Tag::Enum => substitute_enum(output, ty, var_subst),
 
         // Schemes have their own bound variables; primitives and other tags
         // don't contain variables.
-        _ => ty,
+        _ => Ok(ty),
     }
 }
 
@@ -90,51 +192,28 @@ pub fn substitute_in_pool(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, I
 /// Post-migration, scheme bodies themselves carry `Tag::BoundVar` leaves
 /// (see `substitute_bound_var`); the only legitimate `Tag::Var(Generalized)`
 /// pool entries are the orphan inference residues just described.
-fn substitute_var(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
-    let var_id = pool.data(ty);
+fn substitute_var<Output: SubstitutionOutput>(
+    output: &mut Output,
+    ty: Idx,
+    var_subst: &FxHashMap<u32, Idx>,
+) -> Result<Idx, MissingSubstitution> {
+    let var_id = output.pool().data(ty);
 
     // Direct var_id match (scheme variable)
     if let Some(&replacement) = var_subst.get(&var_id) {
-        return replacement;
+        return Ok(replacement);
     }
 
     // Follow link if present
-    if let VarState::Link { target } = pool.var_state(var_id) {
-        let target = *target;
-        return substitute_in_pool(pool, target, var_subst);
+    let target = match output.pool().var_state(var_id) {
+        VarState::Link { target } => Some(*target),
+        VarState::Unbound(_) | VarState::Rigid { .. } | VarState::Generalized(_) => None,
+    };
+    if let Some(target) = target {
+        return substitute_type(output, target, var_subst);
     }
 
-    ty
-}
-
-/// Substitute a scheme-bound type variable.
-///
-/// `Tag::BoundVar.data` is the `var_id` declared by the enclosing scheme.
-/// Substitution looks it up directly in `var_subst`;
-/// missing entries leave the leaf unchanged — non-substituted bound vars
-/// are legitimate (e.g., when `default_unbound_vars_in_scope` walks an
-/// expression tree carrying a fresh-instantiation handle whose underlying
-/// scheme is unrelated to the substitution map).
-fn substitute_bound_var(pool: &Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
-    let var_id = pool.data(ty);
-    if let Some(&replacement) = var_subst.get(&var_id) {
-        return replacement;
-    }
-    ty
-}
-
-/// Substitute an impl-level rigid type variable (`@m (self) -> T` where `T` is
-/// an `impl<T> Box<T>` binder). `Tag::RigidVar.data` is the `var_id` allocated
-/// by `Pool::rigid_var`. Rigids carry no unification links, so a missing entry
-/// leaves the leaf unchanged. `Var_ids` are globally unique across
-/// `Tag::Var`/`Tag::RigidVar`, so a substitution map built for `Tag::Var`s never
-/// targets a rigid leaf.
-fn substitute_rigid_var(pool: &Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
-    let var_id = pool.data(ty);
-    if let Some(&replacement) = var_subst.get(&var_id) {
-        return replacement;
-    }
-    ty
+    Ok(ty)
 }
 
 /// Build a `var_id -> concrete` substitution for impl-level rigid generics.
@@ -203,46 +282,48 @@ pub fn build_impl_mono_body_type_map(
 }
 
 /// Substitute in a single-child container (List, Option, Set, etc.).
-fn substitute_single_child(
-    pool: &mut Pool,
+fn substitute_single_child<Output: SubstitutionOutput>(
+    output: &mut Output,
     ty: Idx,
+    tag: Tag,
     var_subst: &FxHashMap<u32, Idx>,
-    ctor: fn(&mut Pool, Idx) -> Idx,
-) -> Idx {
-    let child = Idx::from_raw(pool.data(ty));
-    substitute_child(pool, ty, child, var_subst, substitute_in_pool, ctor)
+) -> Result<Idx, MissingSubstitution> {
+    let child = Idx::from_raw(output.pool().data(ty));
+    let new_child = substitute_type(output, child, var_subst)?;
+    if new_child == child {
+        Ok(ty)
+    } else {
+        output
+            .simple(tag, new_child.raw())
+            .ok_or(MissingSubstitution { source: ty })
+    }
 }
 
-/// Substitute in a Map type (key + value).
-fn substitute_map(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
-    let key = pool.map_key(ty);
-    let value = pool.map_value(ty);
-    substitute_pair(
-        pool,
-        ty,
-        key,
-        value,
-        var_subst,
-        substitute_in_pool,
-        Pool::map,
-    )
+/// Substitute in a Map or Result type.
+fn substitute_type_pair<Output: SubstitutionOutput>(
+    output: &mut Output,
+    ty: Idx,
+    tag: Tag,
+    var_subst: &FxHashMap<u32, Idx>,
+) -> Result<Idx, MissingSubstitution> {
+    let (first, second) = match tag {
+        Tag::Map => (output.pool().map_key(ty), output.pool().map_value(ty)),
+        Tag::Result => (output.pool().result_ok(ty), output.pool().result_err(ty)),
+        _ => unreachable!("pair substitution requires Map or Result"),
+    };
+    let new_first = substitute_type(output, first, var_subst)?;
+    let new_second = substitute_type(output, second, var_subst)?;
+    if new_first == first && new_second == second {
+        Ok(ty)
+    } else {
+        output
+            .complex(tag, &[new_first.raw(), new_second.raw()])
+            .ok_or(MissingSubstitution { source: ty })
+    }
 }
 
-/// Substitute in a Result type (ok + err).
-fn substitute_result(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
-    let ok = pool.result_ok(ty);
-    let err = pool.result_err(ty);
-    substitute_pair(
-        pool,
-        ty,
-        ok,
-        err,
-        var_subst,
-        substitute_in_pool,
-        Pool::result,
-    )
-}
-
+/// Shared recurse-and-rebuild skeleton for mutable substitution families whose
+/// child context is not the variable-id map used by [`substitute_type`].
 fn substitute_child<C>(
     pool: &mut Pool,
     ty: Idx,
@@ -259,6 +340,7 @@ fn substitute_child<C>(
     }
 }
 
+/// Shared two-child counterpart to [`substitute_child`].
 fn substitute_pair<C>(
     pool: &mut Pool,
     ty: Idx,
@@ -278,152 +360,170 @@ fn substitute_pair<C>(
 }
 
 /// Substitute in a Borrowed reference (inner + lifetime preserved).
-fn substitute_borrowed(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
-    let inner = pool.borrowed_inner(ty);
-    let lt = pool.borrowed_lifetime(ty);
-    let new_inner = substitute_in_pool(pool, inner, var_subst);
+fn substitute_borrowed<Output: SubstitutionOutput>(
+    output: &mut Output,
+    ty: Idx,
+    var_subst: &FxHashMap<u32, Idx>,
+) -> Result<Idx, MissingSubstitution> {
+    let inner = output.pool().borrowed_inner(ty);
+    let lifetime = output.pool().borrowed_lifetime(ty);
+    let new_inner = substitute_type(output, inner, var_subst)?;
     if new_inner == inner {
-        ty
+        Ok(ty)
     } else {
-        pool.borrowed(new_inner, lt)
+        output
+            .complex(Tag::Borrowed, &[new_inner.raw(), lifetime.raw()])
+            .ok_or(MissingSubstitution { source: ty })
     }
 }
 
 /// Substitute in a Function type (params + return).
-fn substitute_function(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
-    let params = pool.function_params(ty);
-    let ret = pool.function_return(ty);
-
-    let mut changed = false;
+fn substitute_function<Output: SubstitutionOutput>(
+    output: &mut Output,
+    ty: Idx,
+    var_subst: &FxHashMap<u32, Idx>,
+) -> Result<Idx, MissingSubstitution> {
+    let params = output.pool().function_params(ty);
+    let return_type = output.pool().function_return(ty);
     let new_params: Vec<Idx> = params
         .iter()
-        .map(|&p| {
-            let new_p = substitute_in_pool(pool, p, var_subst);
-            if new_p != p {
-                changed = true;
-            }
-            new_p
-        })
-        .collect();
-
-    let new_ret = substitute_in_pool(pool, ret, var_subst);
-    if new_ret != ret {
-        changed = true;
+        .map(|&param| substitute_type(output, param, var_subst))
+        .collect::<Result<_, _>>()?;
+    let new_return = substitute_type(output, return_type, var_subst)?;
+    if new_params == params && new_return == return_type {
+        return Ok(ty);
     }
 
-    if changed {
-        pool.function(&new_params, new_ret)
-    } else {
-        ty
-    }
+    let mut extra = Vec::with_capacity(new_params.len() + 2);
+    extra.push(u32::try_from(new_params.len()).unwrap_or(u32::MAX));
+    extra.extend(new_params.iter().map(|param| param.raw()));
+    extra.push(new_return.raw());
+    output
+        .complex(Tag::Function, &extra)
+        .ok_or(MissingSubstitution { source: ty })
 }
 
 /// Substitute in a Tuple type (element list).
-fn substitute_tuple(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
-    let elems = pool.tuple_elems(ty);
-
-    let mut changed = false;
-    let new_elems: Vec<Idx> = elems
+fn substitute_tuple<Output: SubstitutionOutput>(
+    output: &mut Output,
+    ty: Idx,
+    var_subst: &FxHashMap<u32, Idx>,
+) -> Result<Idx, MissingSubstitution> {
+    let elements = output.pool().tuple_elems(ty);
+    let new_elements: Vec<Idx> = elements
         .iter()
-        .map(|&e| {
-            let new_e = substitute_in_pool(pool, e, var_subst);
-            if new_e != e {
-                changed = true;
-            }
-            new_e
-        })
-        .collect();
-
-    if changed {
-        pool.tuple(&new_elems)
-    } else {
-        ty
+        .map(|&element| substitute_type(output, element, var_subst))
+        .collect::<Result<_, _>>()?;
+    if new_elements == elements {
+        return Ok(ty);
     }
+
+    let mut extra = Vec::with_capacity(new_elements.len() + 1);
+    extra.push(u32::try_from(new_elements.len()).unwrap_or(u32::MAX));
+    extra.extend(new_elements.iter().map(|element| element.raw()));
+    output
+        .complex(Tag::Tuple, &extra)
+        .ok_or(MissingSubstitution { source: ty })
 }
 
 /// Substitute in an Applied type (name + type args).
-fn substitute_applied(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
-    let name = pool.applied_name(ty);
-    let args = pool.applied_args(ty);
-
-    let mut changed = false;
-    let new_args: Vec<Idx> = args
+fn substitute_applied<Output: SubstitutionOutput>(
+    output: &mut Output,
+    ty: Idx,
+    var_subst: &FxHashMap<u32, Idx>,
+) -> Result<Idx, MissingSubstitution> {
+    let name = output.pool().applied_name(ty);
+    let arguments = output.pool().applied_args(ty);
+    let new_arguments: Vec<Idx> = arguments
         .iter()
-        .map(|&a| {
-            let new_a = substitute_in_pool(pool, a, var_subst);
-            if new_a != a {
-                changed = true;
-            }
-            new_a
-        })
-        .collect();
-
-    if changed {
-        pool.applied(name, &new_args)
-    } else {
-        ty
+        .map(|&argument| substitute_type(output, argument, var_subst))
+        .collect::<Result<_, _>>()?;
+    if new_arguments == arguments {
+        return Ok(ty);
     }
+
+    let name_bits = u64::from(name.raw());
+    let mut extra = Vec::with_capacity(new_arguments.len() + 3);
+    extra.push((name_bits & 0xFFFF_FFFF) as u32);
+    extra.push((name_bits >> 32) as u32);
+    extra.push(u32::try_from(new_arguments.len()).unwrap_or(u32::MAX));
+    extra.extend(new_arguments.iter().map(|argument| argument.raw()));
+    output
+        .complex(Tag::Applied, &extra)
+        .ok_or(MissingSubstitution { source: ty })
 }
 
 /// Substitute in a Struct type (field types, preserving field names).
-fn substitute_struct(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
-    let name = pool.struct_name(ty);
-    let fields = pool.struct_fields(ty);
-
-    let mut changed = false;
+fn substitute_struct<Output: SubstitutionOutput>(
+    output: &mut Output,
+    ty: Idx,
+    var_subst: &FxHashMap<u32, Idx>,
+) -> Result<Idx, MissingSubstitution> {
+    let name = output.pool().struct_name(ty);
+    let fields = output.pool().struct_fields(ty);
     let new_fields: Vec<(ori_ir::Name, Idx)> = fields
         .iter()
-        .map(|&(field_name, field_ty)| {
-            let new_ty = substitute_in_pool(pool, field_ty, var_subst);
-            if new_ty != field_ty {
-                changed = true;
-            }
-            (field_name, new_ty)
+        .map(|&(field_name, field_type)| {
+            substitute_type(output, field_type, var_subst).map(|new_type| (field_name, new_type))
         })
-        .collect();
-
-    if changed {
-        pool.struct_type(name, &new_fields)
-    } else {
-        ty
+        .collect::<Result<_, _>>()?;
+    if new_fields == fields {
+        return Ok(ty);
     }
+
+    let name_bits = u64::from(name.raw());
+    let mut extra = Vec::with_capacity(3 + new_fields.len() * 2);
+    extra.push((name_bits & 0xFFFF_FFFF) as u32);
+    extra.push((name_bits >> 32) as u32);
+    extra.push(u32::try_from(new_fields.len()).unwrap_or(u32::MAX));
+    for (field_name, field_type) in new_fields {
+        extra.push(field_name.raw());
+        extra.push(field_type.raw());
+    }
+    output
+        .complex(Tag::Struct, &extra)
+        .ok_or(MissingSubstitution { source: ty })
 }
 
 /// Substitute in an Enum type (variant payload types, preserving variant names).
-///
-/// The `Tag::Enum` twin of [`substitute_struct`]: substitutes each variant
-/// payload `Idx` via `var_subst`, payload-name-agnostic (the Pool enum
-/// representation carries no field names).
-fn substitute_enum(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
-    let name = pool.enum_name(ty);
-    let variants = pool.enum_variants(ty);
-
-    let mut changed = false;
-    let new_variants: Vec<crate::pool::EnumVariant> = variants
+fn substitute_enum<Output: SubstitutionOutput>(
+    output: &mut Output,
+    ty: Idx,
+    var_subst: &FxHashMap<u32, Idx>,
+) -> Result<Idx, MissingSubstitution> {
+    let name = output.pool().enum_name(ty);
+    let variants = output.pool().enum_variants(ty);
+    let new_variants: Vec<(ori_ir::Name, Vec<Idx>)> = variants
         .iter()
         .map(|(variant_name, payloads)| {
-            let new_payloads: Vec<Idx> = payloads
+            let new_payloads = payloads
                 .iter()
-                .map(|&payload_ty| {
-                    let new_ty = substitute_in_pool(pool, payload_ty, var_subst);
-                    if new_ty != payload_ty {
-                        changed = true;
-                    }
-                    new_ty
-                })
-                .collect();
-            crate::pool::EnumVariant {
-                name: *variant_name,
-                field_types: new_payloads,
-            }
+                .map(|&payload| substitute_type(output, payload, var_subst))
+                .collect::<Result<_, _>>()?;
+            Ok((*variant_name, new_payloads))
         })
-        .collect();
-
-    if changed {
-        pool.enum_type(name, &new_variants)
-    } else {
-        ty
+        .collect::<Result<_, MissingSubstitution>>()?;
+    if new_variants == variants {
+        return Ok(ty);
     }
+
+    let name_bits = u64::from(name.raw());
+    let extra_len = 3 + new_variants
+        .iter()
+        .map(|(_, payloads)| 2 + payloads.len())
+        .sum::<usize>();
+    let mut extra = Vec::with_capacity(extra_len);
+    extra.push((name_bits & 0xFFFF_FFFF) as u32);
+    extra.push((name_bits >> 32) as u32);
+    extra.push(u32::try_from(new_variants.len()).unwrap_or(u32::MAX));
+    for (variant_name, payloads) in new_variants {
+        extra.push(variant_name.raw());
+        extra.push(u32::try_from(payloads.len()).unwrap_or(u32::MAX));
+        extra.extend(payloads.iter().map(|payload| payload.raw()));
+    }
+    output
+        .complex(Tag::Enum, &extra)
+        .ok_or(MissingSubstitution { source: ty })
 }
 
 #[cfg(test)]

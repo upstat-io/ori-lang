@@ -9,21 +9,20 @@ use super::{InferEngine, TypeEnv};
 
 impl<'pool> InferEngine<'pool> {
     /// Create a new inference engine.
+    #[must_use]
     pub fn new(pool: &'pool mut Pool) -> Self {
         Self::build(pool, TypeEnv::new())
     }
 
     /// Create a new inference engine with an existing environment.
     ///
-    /// Use this when you need to share type bindings across inference sessions.
+    /// Reuses type bindings across inference sessions.
+    #[must_use]
     pub fn with_env(pool: &'pool mut Pool, env: TypeEnv) -> Self {
         Self::build(pool, env)
     }
 
-    /// SSOT constructor: builds an `InferEngine` with all-default inner state
-    /// and the supplied type environment. Both [`Self::new`] and
-    /// [`Self::with_env`] delegate here so adding a new `InferEngine` field
-    /// requires exactly one edit.
+    /// Build the default engine state around the supplied type environment.
     fn build(pool: &'pool mut Pool, env: TypeEnv) -> Self {
         Self {
             unify: UnifyEngine::new(pool),
@@ -67,20 +66,11 @@ impl<'pool> InferEngine<'pool> {
         }
     }
 
-    /// Compose + register the `UserBurdenSpec` for every generic-builtin type
-    /// that appears in the body's `expr_types`, keyed by the EXACT `Idx` the
-    /// typed IR (and thus ARC) carries.
+    /// Compose burdens for the generic-builtin types carried by a body.
     ///
-    /// Runs at end-of-body, before the burden sweep in `take_composed_burdens`.
-    /// A late-resolved generic-builtin instantiation (inline `Ok([..])` typed
-    /// `Result<[int], Var(k)→int>`) is stored as a `HAS_VAR` Idx; the pool-scan
-    /// sweep `collect_candidate_indices` excludes `HAS_VAR` Idx, so its burden
-    /// is never composed and the RL-2 scope-exit dec is dropped (Spec: Annex E
-    /// §AIMS). `compose_for_idx` composes from the Idx's structure (the heap-
-    /// carrying `Ok` variant yields a non-empty burden regardless of the still-
-    /// linked `Err` slot) and records it under the exact Idx ARC will query —
-    /// without mutating the IR types. The composed-burden accumulator dedups
-    /// against the pool-scan sweep, so running both is idempotent.
+    /// This end-of-body pass keys each burden by the exact IR `Idx`, including
+    /// `HAS_VAR` forms omitted by the later pool scan. The accumulator dedups
+    /// both sources (Spec: Annex E §AIMS, RL-2).
     pub fn compose_body_type_burdens<K>(&mut self, expr_types: &rustc_hash::FxHashMap<K, Idx>) {
         let idxs: Vec<Idx> = expr_types.values().copied().collect();
         for idx in idxs {
@@ -181,6 +171,7 @@ impl<'pool> InferEngine<'pool> {
 
     /// Unify two types.
     #[inline]
+    #[must_use = "success or failure must be handled"]
     pub fn unify_types(&mut self, a: Idx, b: Idx) -> Result<(), UnifyError> {
         self.unify.unify(a, b)
     }
@@ -199,10 +190,7 @@ impl<'pool> InferEngine<'pool> {
     /// to `Tag::BoundVar` (SC-1 scheme bound-var layout).
     pub fn generalize(&mut self, ty: Idx) -> Idx {
         let scheme = self.unify.generalize(ty);
-        // If generalize returned a scheme, extract its bound var ids and
-        // record them for the end-of-body normalization pass. If no
-        // generalization happened (monomorphic), the returned idx is not
-        // a scheme — skip recording.
+        // Why: Only schemes carry generalized variables for body normalization.
         if self.unify.pool().tag(scheme) == Tag::Scheme {
             let vars = self.unify.pool().scheme_vars(scheme).to_vec();
             self.pending_generalized_vars.extend(vars);
@@ -220,9 +208,8 @@ impl<'pool> InferEngine<'pool> {
 
     /// Instantiate a scheme and expose the `scheme_var_id → fresh_var_idx` map.
     ///
-    /// Used by the impl-method call path to enforce method-level inline bounds
-    /// (`<T: Bound>`): the substitution map lets the bound checker find the
-    /// post-instantiation Var Idx for each method-level binder by its
+    /// The substitution map lets method-level inline-bound (`<T: Bound>`)
+    /// checking find the post-instantiation Var Idx for each method binder by its
     /// registration-time `var_id` (recorded in
     /// `ImplMethodDef.scheme_var_ids`).
     #[inline]

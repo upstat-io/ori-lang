@@ -168,7 +168,7 @@ impl ArcLowerer<'_> {
 
         let mut mutable_var_types = FxHashMap::default();
         for (name, var) in pre_scope.mutable_bindings() {
-            mutable_var_types.insert(name, self.builder.var_type_or_unit(var));
+            mutable_var_types.insert(name, self.builder.var_type(var));
         }
 
         self.builder.position_at(then_block);
@@ -352,7 +352,7 @@ impl ArcLowerer<'_> {
                     continue;
                 }
             }
-            let var_ty = self.builder.var_type_or_unit(var);
+            let var_ty = self.builder.var_type(var);
             let merge_var = self.builder.add_block_param(merge_block, var_ty);
             mutable_var_merge.push((name, merge_var));
         }

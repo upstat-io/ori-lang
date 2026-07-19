@@ -76,7 +76,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Produces the `(Option<T>, Self)` tuple: advances the iterator forward by
     /// one step (mutating the handle in place) and packages the yielded element
-    /// (or `None`) with the same — now-advanced — iterator handle.
+    /// (or `None`) with the advanced iterator handle.
     pub(crate) fn emit_iter_next_protocol(
         &mut self,
         iter_ptr: ValueId,
@@ -102,7 +102,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// protocol from a decomposed `(tag, scratch, elem_llvm)` step result.
     ///
     /// `tag` is the i64 has-element flag (1=Some, 0=None); the element payload is
-    /// loaded from `scratch`. `iter_ptr` is the same (now-advanced) handle that
+    /// loaded from `scratch`. `iter_ptr` is the advanced handle that
     /// becomes the tuple's `Self` field. No RC op is emitted — scalar elements
     /// need none, and heap-element ownership of the extracted payload is decided
     /// by the surrounding realized ARC IR.

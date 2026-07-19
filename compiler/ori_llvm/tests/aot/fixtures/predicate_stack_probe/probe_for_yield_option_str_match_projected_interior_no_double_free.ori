@@ -1,0 +1,12 @@
+@main () -> int = {
+    let items: [Option<str>] = [
+        Some("this is a very long string that exceeds SSO threshold"),
+        None,
+        Some("another very long string exceeding threshold here")
+    ];
+    let lengths = for item in items yield match item {
+        Some(s) -> s.length(),
+        None -> 0,
+    };
+    if lengths[0] == 53 && lengths[1] == 0 && lengths[2] == 49 then 0 else 1
+}

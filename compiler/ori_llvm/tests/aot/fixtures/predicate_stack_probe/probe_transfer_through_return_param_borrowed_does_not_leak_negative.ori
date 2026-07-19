@@ -1,0 +1,10 @@
+@sum_len (xs: [int]) -> int = {
+    print(msg: `len: {xs.len()}`);
+    xs.len() as int
+};
+
+@main () -> int = {
+    let original = [1, 2, 3];
+    let n = sum_len(xs: original);
+    if n == 3 then 0 else 1
+}

@@ -68,7 +68,7 @@ impl ArcLowerer<'_> {
         let pre_scope = self.scope.clone();
         let mut mutable_var_types = FxHashMap::default();
         for (name, var) in pre_scope.mutable_bindings() {
-            mutable_var_types.insert(name, self.builder.var_type_or_unit(var));
+            mutable_var_types.insert(name, self.builder.var_type(var));
         }
 
         // Some/Ok branch: pass-through LHS if chaining, extract payload otherwise.
@@ -150,7 +150,7 @@ impl ArcLowerer<'_> {
         let pre_scope = self.scope.clone();
         let mut mutable_var_types = FxHashMap::default();
         for (name, var) in pre_scope.mutable_bindings() {
-            mutable_var_types.insert(name, self.builder.var_type_or_unit(var));
+            mutable_var_types.insert(name, self.builder.var_type(var));
         }
 
         // Then: evaluate RHS (only when LHS is true)
@@ -229,7 +229,7 @@ impl ArcLowerer<'_> {
         let pre_scope = self.scope.clone();
         let mut mutable_var_types = FxHashMap::default();
         for (name, var) in pre_scope.mutable_bindings() {
-            mutable_var_types.insert(name, self.builder.var_type_or_unit(var));
+            mutable_var_types.insert(name, self.builder.var_type(var));
         }
 
         // Then: true

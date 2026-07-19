@@ -1,0 +1,22 @@
+type MaybeIter = Empty | Holds(it: Iterator<int>);
+
+@main () -> int = {
+    let a: MaybeIter = Holds(it: [1, 2, 3].iter());
+    let b: MaybeIter = Holds(it: [4, 5, 6].iter());
+    let flag1 = false;
+    let flag2 = true;
+    let count_b = if flag1 then
+        match a {
+            Empty -> 0,
+            Holds(it) -> it.count()
+        }
+    else
+        if flag2 then
+            match b {
+                Empty -> 0,
+                Holds(it) -> it.count()
+            }
+        else
+            0;
+    count_b - count_b
+}

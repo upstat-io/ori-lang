@@ -17,10 +17,8 @@ pub(super) fn program_realization_error_kind(
         ProgramRealizationError::LambdaSpecialization { .. } => {
             RealizationErrorKind::LambdaSpecialization
         }
-        ProgramRealizationError::OperatorCallResolution { .. } => {
-            RealizationErrorKind::OperatorCallResolution
-        }
-        ProgramRealizationError::SelectedMethodProducerResolution { .. } => {
+        ProgramRealizationError::OperatorCallResolution { .. }
+        | ProgramRealizationError::SelectedMethodProducerResolution { .. } => {
             RealizationErrorKind::OperatorCallResolution
         }
         ProgramRealizationError::DuplicateArcParent { .. } => {

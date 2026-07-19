@@ -10,9 +10,8 @@
 
 use std::cell::RefCell;
 
-use rustc_hash::{FxHashMap, FxHashSet};
-
 use ori_types::{triviality, Idx, Pool, Tag};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::info::{EnumVariantInfo, TypeInfo};
 
@@ -34,6 +33,7 @@ static NONE_TYPE_INFO: TypeInfo = TypeInfo::Error;
 /// Only depends on Pool — struct/enum field data must be pre-flattened
 /// into Pool's extra array during type checking (prerequisite refactor
 /// required for full Struct/Enum support).
+#[derive(Debug)]
 pub struct TypeInfoStore<'tcx> {
     /// `Idx` -> `TypeInfo` mapping. Dense indexed storage.
     /// Indices 0-63 are pre-populated at construction.

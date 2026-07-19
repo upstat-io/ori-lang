@@ -7,6 +7,7 @@ declare_builtins! { emitter, ctx;
     ("int", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("int", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("int", "byte") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("int", "to_byte") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("int", "f") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("int", "to_float") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("int", "into") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
@@ -26,6 +27,7 @@ declare_builtins! { emitter, ctx;
     ("bool", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
     // char
     ("char", "clone") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
+    ("char", "to_byte") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("char", "to_int") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("char", "to_str") => emitter.emit_primitive_method(ctx.method, ctx.arg_vals, ctx.type_info),
     ("char", "debug") => emitter.emit_element_debug(ctx.arg_vals[0], ctx.receiver_ty),
@@ -174,9 +176,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 _ => None,
             },
 
-            // byte: int -> i8 (range-checked; eval errors outside 0..=255)
-            "byte" => match type_info {
+            // byte/to_byte: checked scalar -> i8 conversion.
+            "byte" | "to_byte" => match type_info {
                 TypeInfo::Int => self.emit_checked_int_to_byte(receiver, "byte"),
+                TypeInfo::Char => self.emit_checked_char_to_byte(receiver, "byte"),
                 _ => None,
             },
 
@@ -279,6 +282,28 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             valid,
             "byte value out of range (0-255)",
             &format!("{label}.range"),
+        )?;
+        let i8_ty = self.builder.i8_type();
+        Some(self.builder.trunc(receiver, i8_ty, label))
+    }
+
+    /// Emit a checked char -> byte conversion.
+    ///
+    /// Spec: Clause 8.11.3 limits this conversion to ASCII (U+0000..U+007F).
+    /// The guard matches the evaluator's canonical `char_to_byte` path.
+    pub(crate) fn emit_checked_char_to_byte(
+        &mut self,
+        receiver: ValueId,
+        label: &str,
+    ) -> Option<ValueId> {
+        let ascii_limit = self.builder.const_i32(128);
+        let valid = self
+            .builder
+            .icmp_ult(receiver, ascii_limit, &format!("{label}.ascii"));
+        self.emit_unwrap_branch(
+            valid,
+            "char to byte conversion accepts only ASCII (U+0000..U+007F)",
+            &format!("{label}.ascii_range"),
         )?;
         let i8_ty = self.builder.i8_type();
         Some(self.builder.trunc(receiver, i8_ty, label))

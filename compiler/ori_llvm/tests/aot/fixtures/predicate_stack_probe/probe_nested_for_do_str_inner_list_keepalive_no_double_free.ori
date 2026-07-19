@@ -1,0 +1,12 @@
+@main () -> int = {
+    let outer = [
+        ["this string exceeds SSO threshold by being very long indeed",
+         "second string also exceeds the SSO threshold for heap alloc"],
+        ["third string that is long enough to require heap allocation"]
+    ];
+    let count = 0;
+    for inner in outer do {
+        for s in inner do count = count + 1;
+    };
+    if count == 3 then 0 else 1
+}

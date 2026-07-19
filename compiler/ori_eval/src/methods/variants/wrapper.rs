@@ -3,10 +3,11 @@
 use ori_ir::Name;
 use ori_patterns::{no_such_method, EvalError, EvalResult, Value};
 
+use super::super::arguments::require_args;
 use super::super::compare::{
     compare_option_values, compare_result_values, equals_values, hash_value, ordering_to_value,
 };
-use super::super::helpers::{debug_value, require_args};
+use super::super::debug_format::debug_value;
 use super::super::DispatchCtx;
 
 /// Dispatch methods on Option values.

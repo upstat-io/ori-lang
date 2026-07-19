@@ -15,7 +15,7 @@ mod evidence;
 
 /// Build a one-block `ArcFunction` with the given params and body.
 fn func_with_body(params: Vec<crate::ir::ArcParam>, body: Vec<ArcInstr>) -> crate::ir::ArcFunction {
-    let num_vars = 1000; // large enough for any test var id
+    let num_vars = 1000;
     make_func(
         params,
         Idx::UNIT,
@@ -309,7 +309,8 @@ fn oracle_tracks_aliased_param_via_let_binding() {
                 value: crate::ir::ArcValue::Var(v(0)),
             },
             ArcInstr::RcInc {
-                var: v(1), // alias of param0
+                // Variable 1 aliases parameter 0.
+                var: v(1),
                 count: 1,
                 strategy: RcStrategy::HeapPointer,
                 atomicity: crate::ir::RcAtomicity::default_atomic(),
@@ -372,7 +373,8 @@ fn oracle_accounts_for_arg_ownership_transfer() {
             ty: Idx::UNIT,
             func: ori_ir::Name::from_raw(100),
             args: vec![v(0)],
-            arg_ownership: vec![ArgOwnership::Owned], // ownership transfer!
+            // The call transfers ownership.
+            arg_ownership: vec![ArgOwnership::Owned],
             mono_instance_id: None,
         }],
     );
@@ -406,7 +408,8 @@ fn oracle_derives_may_share_from_rc_incs() {
         consumption: Consumption::Unrestricted,
         cardinality: Cardinality::Many,
         may_escape: false,
-        may_share: false, // claims no sharing, but realized has RcInc
+        // The contract denies sharing despite the realized `RcInc`.
+        may_share: false,
         locality_bound: Locality::Unknown,
         uniqueness: Uniqueness::MaybeShared,
         transfers_through_return: false,
@@ -442,7 +445,8 @@ fn oracle_distinguishes_affine_from_linear() {
                 ty: Idx::UNIT,
                 func: ori_ir::Name::from_raw(100),
                 args: vec![v(0)],
-                arg_ownership: vec![], // empty = default Borrowed
+                // Empty ownership metadata defaults to borrowed.
+                arg_ownership: vec![],
                 mono_instance_id: None,
             },
             // Then: RcDec (cleanup after use)
@@ -484,20 +488,24 @@ fn oracle_tracks_alias_through_jump_then_let() {
                 body: vec![],
                 terminator: ArcTerminator::Jump {
                     target: ArcBlockId::new(1),
-                    args: vec![v(0)], // pass param0 to block 1
+                    // Parameter 0 flows into block 1.
+                    args: vec![v(0)],
                 },
             },
             ArcBlock {
                 id: ArcBlockId::new(1),
-                params: vec![(v(100), Idx::UNIT)], // bp0 = v(100) aliases param0
+                // Block parameter 100 aliases parameter 0.
+                params: vec![(v(100), Idx::UNIT)],
                 body: vec![
                     ArcInstr::Let {
                         dst: v(101),
                         ty: Idx::UNIT,
-                        value: crate::ir::ArcValue::Var(v(100)), // alias of bp0
+                        // The assigned value aliases block parameter 100.
+                        value: crate::ir::ArcValue::Var(v(100)),
                     },
                     ArcInstr::RcInc {
-                        var: v(101), // alias chain: param0 → bp0 → v(101)
+                        // Variable 101 completes the alias chain from parameter 0.
+                        var: v(101),
                         count: 1,
                         strategy: RcStrategy::HeapPointer,
                         atomicity: crate::ir::RcAtomicity::default_atomic(),
@@ -562,7 +570,8 @@ fn oracle_tracks_transitive_alias_chain() {
                 value: crate::ir::ArcValue::Var(v(1)),
             },
             ArcInstr::RcInc {
-                var: v(2), // two-hop alias of param0
+                // Variable 2 is a two-hop alias of parameter 0.
+                var: v(2),
                 count: 1,
                 strategy: RcStrategy::HeapPointer,
                 atomicity: crate::ir::RcAtomicity::default_atomic(),
@@ -588,7 +597,8 @@ fn oracle_detects_owned_transfer_via_apply_indirect() {
         vec![ArcInstr::ApplyIndirect {
             dst: v(2),
             ty: Idx::UNIT,
-            closure: v(10), // closure is always borrowed
+            // Closure operands are always borrowed.
+            closure: v(10),
             args: vec![v(0)],
             arg_ownership: vec![ArgOwnership::Owned],
         }],
@@ -713,7 +723,7 @@ fn oracle_detects_may_share_from_local_rc_inc() {
     let func = func_with_body(
         vec![owned_param(0, Idx::UNIT)],
         vec![ArcInstr::RcInc {
-            var: v(10), // local, not param
+            var: v(10),
             count: 1,
             strategy: RcStrategy::HeapPointer,
             atomicity: crate::ir::RcAtomicity::default_atomic(),
@@ -749,7 +759,8 @@ fn oracle_accepts_conservative_may_share() {
         consumption: Consumption::Linear,
         cardinality: Cardinality::Once,
         may_escape: false,
-        may_share: true, // conservative: claims sharing
+        // The contract conservatively allows sharing.
+        may_share: true,
         locality_bound: Locality::Unknown,
         uniqueness: Uniqueness::MaybeShared,
         transfers_through_return: false,
@@ -776,7 +787,7 @@ fn oracle_coherence_catches_function_level_may_share_mismatch() {
     let func = func_with_body(
         vec![],
         vec![ArcInstr::RcInc {
-            var: v(10), // local variable
+            var: v(10),
             count: 1,
             strategy: RcStrategy::HeapPointer,
             atomicity: crate::ir::RcAtomicity::default_atomic(),
@@ -784,7 +795,8 @@ fn oracle_coherence_catches_function_level_may_share_mismatch() {
     );
 
     let mut contract = make_contract(vec![]);
-    contract.effects.may_share = false; // claims no sharing
+    // The contract denies sharing.
+    contract.effects.may_share = false;
 
     let mismatches = verify_isolated(&func, &contract, 0);
     assert!(
@@ -910,7 +922,8 @@ fn oracle_accepts_conservative_may_allocate_effect() {
     let func = func_with_body(vec![], vec![]);
 
     let mut contract = make_contract(vec![]);
-    contract.effects.may_allocate = true; // conservative: claims allocation
+    // The contract conservatively allows allocation.
+    contract.effects.may_allocate = true;
 
     let mismatches = verify_isolated(&func, &contract, 0);
     assert!(

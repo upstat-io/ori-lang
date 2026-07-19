@@ -13,6 +13,7 @@ mod named_constants;
 mod patterns;
 mod roots;
 mod sequences;
+mod while_expr;
 
 use format_names::FormatDesugarNames;
 

@@ -1,0 +1,9 @@
+@make_label (n: int) -> str = {
+    if n > 0 then "this is a long positive label!!" else "this is a long negative label!!"
+};
+
+@main () -> int = {
+    let s = make_label(n: 5);
+    let ok = s.contains(substr: "positive") && s.length() > 3;
+    if ok then 0 else 1
+}

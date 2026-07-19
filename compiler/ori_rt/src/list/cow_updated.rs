@@ -7,10 +7,10 @@
 //!   (the new element is moved in; ownership transfers from the caller).
 
 use crate::io::panic_index_out_of_bounds;
-use crate::rc::{ori_buffer_rc_dec, ori_rc_is_unique};
-use crate::slice_encoding::is_slice_cap;
+use crate::rc::ori_buffer_rc_dec;
 
 use super::cow::slow_copy_replace_element;
+use super::cow_context::{CowMode, ElementOps, ListBuffer};
 
 /// COW-aware element replacement with consuming semantics (`IndexSet.updated`).
 ///
@@ -55,8 +55,6 @@ pub extern "C-unwind" fn ori_list_updated_cow(
         return;
     }
 
-    // Bounds check — panics like `list[index]` (a null buffer is the empty
-    // sentinel, so every index is out of bounds for it).
     if data.is_null() || index < 0 || index >= len {
         if let Some(dec) = dec_fn {
             dec(elem_ptr.cast_mut());
@@ -69,15 +67,12 @@ pub extern "C-unwind" fn ori_list_updated_cow(
     let ea = elem_align.max(1) as usize;
     let idx = index as usize;
 
-    // FAST PATH: unique owner, non-slice — overwrite in place.
-    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
-    let is_unique =
-        !is_slice_cap(cap) && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data)));
+    let is_unique = CowMode::from_abi(cow_mode).allows_in_place(data, cap);
     if is_unique {
         // SAFETY: Uniqueness verified; idx < len so idx * es is within the buffer.
         unsafe {
             let dst = data.add(idx * es);
-            // Release the replaced element's RC children before overwriting.
+            // Why: Overwriting the unique slot otherwise leaks its owned children.
             if let Some(dec) = dec_fn {
                 dec(dst);
             }
@@ -89,8 +84,12 @@ pub extern "C-unwind" fn ori_list_updated_cow(
         return;
     }
 
-    // SLOW PATH: shared — copy entire list, overwrite in copy. The old
-    // buffer keeps its reference to the replaced element; the moved-in
-    // element carries the caller's reference (no inc).
-    slow_copy_replace_element(data, len, cap, idx, elem_ptr, es, ea, inc_fn, out_ptr);
+    // Why: The old buffer retains the replaced value; the moved replacement owns its credit.
+    slow_copy_replace_element(
+        ListBuffer::new(data, len, cap),
+        idx,
+        elem_ptr,
+        ElementOps::new(es, ea, inc_fn),
+        out_ptr,
+    );
 }

@@ -257,13 +257,13 @@ fn indirect_call_is_borrowed_even_when_partial_apply_target_is_known() {
                 dst: ArcVarId::new(1),
                 ty: Idx::NONE,
                 func: target_name,
-                args: vec![ArcVarId::new(0)], // 1 capture
+                args: vec![ArcVarId::new(0)],
             },
             ArcInstr::ApplyIndirect {
                 dst: ArcVarId::new(4),
                 ty: Idx::INT,
                 closure: ArcVarId::new(1),
-                args: vec![ArcVarId::new(3)], // 1 user arg
+                args: vec![ArcVarId::new(3)],
                 arg_ownership: vec![],
             },
         ],
@@ -302,7 +302,7 @@ fn test_annotate_apply_indirect_opaque_closure() {
         body: vec![ArcInstr::ApplyIndirect {
             dst: ArcVarId::new(3),
             ty: Idx::INT,
-            closure: ArcVarId::new(0), // param — not traceable
+            closure: ArcVarId::new(0),
             args: vec![ArcVarId::new(2)],
             arg_ownership: vec![],
         }],
@@ -349,7 +349,7 @@ fn invoke_indirect_uses_borrowed_residual_abi() {
             dst: ArcVarId::new(0),
             ty: Idx::NONE,
             func: target_name,
-            args: vec![], // 0 captures
+            args: vec![],
         }],
         terminator: ArcTerminator::InvokeIndirect {
             dst: ArcVarId::new(3),
@@ -394,13 +394,13 @@ fn indirect_call_does_not_project_target_ownership_through_capture_offset() {
                 dst: ArcVarId::new(5),
                 ty: Idx::NONE,
                 func: target_name,
-                args: vec![ArcVarId::new(0), ArcVarId::new(1)], // 2 captures
+                args: vec![ArcVarId::new(0), ArcVarId::new(1)],
             },
             ArcInstr::ApplyIndirect {
                 dst: ArcVarId::new(6),
                 ty: Idx::INT,
                 closure: ArcVarId::new(5),
-                args: vec![ArcVarId::new(3), ArcVarId::new(4)], // 2 user args
+                args: vec![ArcVarId::new(3), ArcVarId::new(4)],
                 arg_ownership: vec![],
             },
         ],
@@ -453,7 +453,7 @@ fn zero_capture_function_ref_still_uses_borrowed_residual_abi() {
                 dst: ArcVarId::new(0),
                 ty: Idx::NONE,
                 func: target_name,
-                args: vec![], // 0 captures
+                args: vec![],
             },
             ArcInstr::ApplyIndirect {
                 dst: ArcVarId::new(3),
@@ -663,7 +663,7 @@ fn loop_carried_indirect_call_uses_borrowed_abi_without_resolution() {
             }],
             terminator: ArcTerminator::Jump {
                 target: ArcBlockId::new(1),
-                args: vec![ArcVarId::new(2)], // back-edge: same closure
+                args: vec![ArcVarId::new(2)],
             },
         },
     ];
@@ -706,7 +706,7 @@ fn test_annotate_apply_indirect_zero_user_args() {
                 dst: ArcVarId::new(2),
                 ty: Idx::INT,
                 closure: ArcVarId::new(1),
-                args: vec![], // zero user args
+                args: vec![],
                 arg_ownership: vec![],
             },
         ],
@@ -741,7 +741,7 @@ fn test_annotate_apply_indirect_opaque_not_owned() {
         body: vec![ArcInstr::ApplyIndirect {
             dst: ArcVarId::new(4),
             ty: Idx::INT,
-            closure: ArcVarId::new(0), // opaque
+            closure: ArcVarId::new(0),
             args: vec![ArcVarId::new(1), ArcVarId::new(2), ArcVarId::new(3)],
             arg_ownership: vec![],
         }],
@@ -791,13 +791,13 @@ fn test_annotate_apply_indirect_builtin_partial_apply() {
                 dst: ArcVarId::new(1),
                 ty: Idx::NONE,
                 func: push_name,
-                args: vec![ArcVarId::new(0)], // capture the list
+                args: vec![ArcVarId::new(0)],
             },
             ArcInstr::ApplyIndirect {
                 dst: ArcVarId::new(3),
                 ty: Idx::INT,
                 closure: ArcVarId::new(1),
-                args: vec![ArcVarId::new(2)], // 1 user arg: element
+                args: vec![ArcVarId::new(2)],
                 arg_ownership: vec![],
             },
         ],
@@ -863,7 +863,7 @@ fn test_annotate_apply_indirect_different_capture_types_defaults_borrowed() {
                 dst: ArcVarId::new(2),
                 ty: Idx::NONE,
                 func: target,
-                args: vec![ArcVarId::new(0)], // captures list
+                args: vec![ArcVarId::new(0)],
             }],
             terminator: ArcTerminator::Jump {
                 target: ArcBlockId::new(2),
@@ -877,7 +877,7 @@ fn test_annotate_apply_indirect_different_capture_types_defaults_borrowed() {
                 dst: ArcVarId::new(3),
                 ty: Idx::NONE,
                 func: target,
-                args: vec![ArcVarId::new(1)], // captures str
+                args: vec![ArcVarId::new(1)],
             }],
             terminator: ArcTerminator::Jump {
                 target: ArcBlockId::new(2),
@@ -954,7 +954,7 @@ fn same_capture_types_do_not_specialize_indirect_ownership() {
                 dst: ArcVarId::new(3),
                 ty: Idx::NONE,
                 func: target,
-                args: vec![ArcVarId::new(1)], // different var, same type
+                args: vec![ArcVarId::new(1)],
             }],
             terminator: ArcTerminator::Jump {
                 target: ArcBlockId::new(2),
@@ -1018,7 +1018,7 @@ fn cross_instantiation_closures_keep_borrowed_indirect_ownership() {
                 dst: ArcVarId::new(2),
                 ty: Idx::NONE,
                 func: target,
-                args: vec![ArcVarId::new(0)], // captures List<int>
+                args: vec![ArcVarId::new(0)],
             }],
             terminator: ArcTerminator::Jump {
                 target: ArcBlockId::new(2),
@@ -1032,7 +1032,7 @@ fn cross_instantiation_closures_keep_borrowed_indirect_ownership() {
                 dst: ArcVarId::new(3),
                 ty: Idx::NONE,
                 func: target,
-                args: vec![ArcVarId::new(1)], // captures List<str>
+                args: vec![ArcVarId::new(1)],
             }],
             terminator: ArcTerminator::Jump {
                 target: ArcBlockId::new(2),
@@ -1056,8 +1056,8 @@ fn cross_instantiation_closures_keep_borrowed_indirect_ownership() {
     ];
 
     let mut func = make_func_named(func_name, vec![], Idx::NONE, blocks, vec![Idx::INT; 7]);
-    func.var_types[0] = list_int; // List<int>
-    func.var_types[1] = list_str; // List<str>
+    func.var_types[0] = list_int;
+    func.var_types[1] = list_str;
 
     let mut sigs = FxHashMap::default();
     sigs.insert(target, make_sig(&[Ownership::Owned, Ownership::Owned]));
@@ -1120,7 +1120,7 @@ fn diamond_cfg_closure_provenance_keeps_borrowed_abi() {
             body: vec![],
             terminator: ArcTerminator::Jump {
                 target: ArcBlockId::new(3),
-                args: vec![ArcVarId::new(2)], // alias path A
+                args: vec![ArcVarId::new(2)],
             },
         },
         ArcBlock {
@@ -1129,7 +1129,7 @@ fn diamond_cfg_closure_provenance_keeps_borrowed_abi() {
             body: vec![],
             terminator: ArcTerminator::Jump {
                 target: ArcBlockId::new(3),
-                args: vec![ArcVarId::new(3)], // alias path B
+                args: vec![ArcVarId::new(3)],
             },
         },
         ArcBlock {
@@ -1186,7 +1186,7 @@ fn annotate_protocol_index_produces_borrowed_vector() {
             ty: Idx::INT,
             func: index_name,
             args: vec![ArcVarId::new(0), ArcVarId::new(1)],
-            arg_ownership: vec![ArgOwnership::Owned; 2], // pre-annotation default
+            arg_ownership: vec![ArgOwnership::Owned; 2],
             mono_instance_id: None,
         }],
         terminator: ArcTerminator::Return {
@@ -1352,8 +1352,8 @@ fn annotate_protocol_collect_set_produces_owned() {
 /// Verify `annotate_arg_ownership` maps `iter` to [Borrowed] for non-collection receivers.
 ///
 /// The protocol definition says `Iter.arg_ownership() = [Borrowed]` — this is the base case
-/// for generic/primitive receivers. Collection receivers get overridden to Owned by
-/// the typed authority — see `annotate_iter_on_collection_overrides_to_owned`.
+/// for generic/primitive receivers. The typed authority overrides collection
+/// receivers to Owned.
 #[test]
 fn annotate_protocol_iter_produces_borrowed() {
     let interner = StringInterner::new();

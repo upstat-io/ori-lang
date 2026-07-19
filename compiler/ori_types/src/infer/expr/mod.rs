@@ -37,21 +37,19 @@ use calls::{infer_method_call, infer_method_call_named, MethodCallSite};
 
 pub use calls::{compose_burden_for_idx, register_resolved_collection_burdens};
 pub use checking::check_expr;
-pub use dispatch::infer_expr;
 pub use type_resolution::resolve_parsed_type;
 
 pub(crate) use calls::match_self_type;
 pub(crate) use calls::register_concrete_applied_resolutions;
 pub(crate) use calls::type_satisfies_named_trait;
+pub(crate) use dispatch::infer_expr;
 pub(crate) use fixed_list_capacity::validate_fixed_list_capacities;
 pub(crate) use refutability::{pattern_is_irrefutable, NestedPathStep, RefutableReason};
 pub(crate) use registry_bridge::{tag_to_type_tag, OP_TRAIT_MAP};
 
 pub(super) use bindings::bind_pattern;
 pub(super) use blocks::{infer_block, infer_let, infer_stmt};
-pub(super) use calls::{
-    compose_builtin_burdens_for_resolved_types, compose_for_idx, infer_call, infer_call_named,
-};
+pub(super) use calls::{compose_for_idx, infer_call, infer_call_named};
 pub(super) use collections::{
     check_collect_method_call, infer_list, infer_list_spread, infer_map_literal, infer_map_spread,
     infer_range, infer_tuple,

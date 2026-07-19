@@ -34,7 +34,7 @@ impl ArcLowerer<'_> {
         let pre_scope = self.scope.clone();
         let mutable_bindings: Vec<_> = pre_scope
             .mutable_bindings()
-            .map(|(name, var)| (name, var, self.builder.var_type_or_unit(var)))
+            .map(|(name, var)| (name, var, self.builder.var_type(var)))
             .collect();
         let header_mut_params = mutable_bindings
             .iter()

@@ -11,7 +11,7 @@ use crate::ir::{
 use crate::lower::ArcIrBuilder;
 use crate::Ownership;
 
-use super::validation::{validate_concrete_type, ConcreteTypeError, RETURN_TYPE, SELF_PARAMETER};
+use super::validation::{validate_concrete_type, RETURN_TYPE, SELF_PARAMETER};
 
 /// Invalid input to a compiler-derived Eq body.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -57,6 +57,8 @@ pub enum DerivedEqBodyError {
         index: usize,
     },
 }
+
+crate::derived_body::impl_concrete_type_error_conversion!(DerivedEqBodyError);
 
 struct DerivedEqInputs {
     self_type: Idx,
@@ -161,34 +163,27 @@ pub fn build_derived_eq(
         let equal = builder.new_block();
         let unequal = builder.new_block();
 
-        match receiver_tag {
-            Tag::Struct => emit_struct_eq(
-                &mut builder,
+        {
+            let mut emitter = BodyEmitter {
+                builder: &mut builder,
                 receiver,
                 other,
-                inputs.resolved_receiver,
+                receiver_type: inputs.resolved_receiver,
                 method_name,
                 equal,
                 unequal,
                 pool,
-                &classifier,
-            )?,
-            Tag::Enum => emit_enum_eq(
-                &mut builder,
-                receiver,
-                other,
-                inputs.resolved_receiver,
-                method_name,
-                equal,
-                unequal,
-                pool,
-                &classifier,
-            )?,
-            tag => {
-                return Err(DerivedEqBodyError::UnsupportedReceiverType {
-                    receiver_type: inputs.self_type,
-                    tag,
-                });
+                classifier: &classifier,
+            };
+            match receiver_tag {
+                Tag::Struct => emitter.emit_struct()?,
+                Tag::Enum => emitter.emit_enum()?,
+                tag => {
+                    return Err(DerivedEqBodyError::UnsupportedReceiverType {
+                        receiver_type: inputs.self_type,
+                        tag,
+                    });
+                }
             }
         }
 
@@ -239,9 +234,11 @@ fn validate_derived_eq_inputs(
 
     let self_type = signature.param_types[0];
     let other_type = signature.param_types[1];
-    validate_concrete_type(pool, SELF_PARAMETER, self_type).map_err(map_eq_type_error)?;
-    validate_concrete_type(pool, "other parameter", other_type).map_err(map_eq_type_error)?;
-    validate_concrete_type(pool, RETURN_TYPE, signature.return_type).map_err(map_eq_type_error)?;
+    validate_concrete_type(pool, SELF_PARAMETER, self_type).map_err(DerivedEqBodyError::from)?;
+    validate_concrete_type(pool, "other parameter", other_type)
+        .map_err(DerivedEqBodyError::from)?;
+    validate_concrete_type(pool, RETURN_TYPE, signature.return_type)
+        .map_err(DerivedEqBodyError::from)?;
     let owner_is_newtype = pool.is_newtype_ctor(owner_name);
     let receiver_types_match = if owner_is_newtype {
         self_type == other_type
@@ -268,155 +265,121 @@ fn validate_derived_eq_inputs(
     })
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "derived-body emission carries both operands, exact owner, method, exits, and pool"
-)]
-fn emit_struct_eq(
-    builder: &mut ArcIrBuilder,
+struct BodyEmitter<'builder, 'pool, 'classifier> {
+    builder: &'builder mut ArcIrBuilder,
     receiver: ArcVarId,
     other: ArcVarId,
     receiver_type: Idx,
-    method_name: ori_ir::Name,
+    method_name: Name,
     equal: ArcBlockId,
     unequal: ArcBlockId,
-    pool: &Pool,
-    classifier: &ArcClassifier<'_>,
-) -> Result<(), DerivedEqBodyError> {
-    let fields: Vec<_> = pool
-        .struct_fields(receiver_type)
-        .into_iter()
-        .map(|(_, field_type)| field_type)
-        .collect();
-    emit_field_eq_chain(
-        builder,
-        receiver,
-        other,
-        receiver_type,
-        &fields,
-        0,
-        method_name,
-        equal,
-        unequal,
-        pool,
-        classifier,
-    )
+    pool: &'pool Pool,
+    classifier: &'classifier ArcClassifier<'pool>,
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "derived-body emission carries both operands, exact owner, method, exits, and pool"
-)]
-fn emit_enum_eq(
-    builder: &mut ArcIrBuilder,
-    receiver: ArcVarId,
-    other: ArcVarId,
-    receiver_type: Idx,
-    method_name: ori_ir::Name,
-    equal: ArcBlockId,
-    unequal: ArcBlockId,
-    pool: &Pool,
-    classifier: &ArcClassifier<'_>,
-) -> Result<(), DerivedEqBodyError> {
-    let receiver_tag = builder.emit_project(Idx::INT, receiver, 0, None);
-    let other_tag = builder.emit_project(Idx::INT, other, 0, None);
-    let tags_equal = emit_primitive_eq(builder, receiver_tag, other_tag);
-    let dispatch = builder.new_block();
-    builder.terminate_branch(tags_equal, dispatch, unequal);
-
-    let variants = pool.enum_variants(receiver_type);
-    let mut cases = Vec::with_capacity(variants.len());
-    let mut variant_blocks = Vec::with_capacity(variants.len());
-    for (variant_index, (_, fields)) in variants.iter().enumerate() {
-        let switch_index =
-            u64::try_from(variant_index).map_err(|_| DerivedEqBodyError::IndexOverflow {
-                receiver_type,
-                index_kind: "variant",
-                index: variant_index,
-            })?;
-        let block = builder.new_block();
-        cases.push((switch_index, block));
-        variant_blocks.push((block, fields.as_slice()));
+impl BodyEmitter<'_, '_, '_> {
+    fn emit_struct(&mut self) -> Result<(), DerivedEqBodyError> {
+        let fields: Vec<_> = self
+            .pool
+            .struct_fields(self.receiver_type)
+            .into_iter()
+            .map(|(_, field_type)| field_type)
+            .collect();
+        self.emit_field_chain(&fields, 0)
     }
 
-    builder.position_at(dispatch);
-    builder.terminate_switch(receiver_tag, cases, unequal);
-    for (block, fields) in variant_blocks {
-        builder.position_at(block);
-        emit_field_eq_chain(
-            builder,
-            receiver,
-            other,
-            receiver_type,
-            fields,
-            1,
-            method_name,
-            equal,
-            unequal,
-            pool,
-            classifier,
-        )?;
-    }
-    Ok(())
-}
+    fn emit_enum(&mut self) -> Result<(), DerivedEqBodyError> {
+        let receiver_tag = self.builder.emit_project(Idx::INT, self.receiver, 0, None);
+        let other_tag = self.builder.emit_project(Idx::INT, self.other, 0, None);
+        let tags_equal = emit_primitive_eq(self.builder, receiver_tag, other_tag);
+        let dispatch = self.builder.new_block();
+        self.builder
+            .terminate_branch(tags_equal, dispatch, self.unequal);
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "one structural field chain carries operands, shape, projection base, method, exits, and pool"
-)]
-fn emit_field_eq_chain(
-    builder: &mut ArcIrBuilder,
-    receiver: ArcVarId,
-    other: ArcVarId,
-    receiver_type: Idx,
-    fields: &[Idx],
-    field_base: u32,
-    method_name: ori_ir::Name,
-    equal: ArcBlockId,
-    unequal: ArcBlockId,
-    pool: &Pool,
-    classifier: &ArcClassifier<'_>,
-) -> Result<(), DerivedEqBodyError> {
-    if fields.is_empty() {
-        builder.terminate_jump(equal, Vec::new());
-        return Ok(());
+        let variants = self.pool.enum_variants(self.receiver_type);
+        let mut cases = Vec::with_capacity(variants.len());
+        let mut variant_blocks = Vec::with_capacity(variants.len());
+        for (variant_index, (_, fields)) in variants.iter().enumerate() {
+            let switch_index =
+                u64::try_from(variant_index).map_err(|_| DerivedEqBodyError::IndexOverflow {
+                    receiver_type: self.receiver_type,
+                    index_kind: "variant",
+                    index: variant_index,
+                })?;
+            let block = self.builder.new_block();
+            cases.push((switch_index, block));
+            variant_blocks.push((block, fields.as_slice()));
+        }
+
+        self.builder.position_at(dispatch);
+        self.builder
+            .terminate_switch(receiver_tag, cases, self.unequal);
+        for (block, fields) in variant_blocks {
+            self.builder.position_at(block);
+            self.emit_field_chain(fields, 1)?;
+        }
+        Ok(())
     }
 
-    let mut comparison_order: Vec<_> = fields.iter().copied().enumerate().collect();
-    comparison_order.sort_by_key(|(_, field_type)| !classifier.is_scalar(*field_type));
+    fn emit_field_chain(
+        &mut self,
+        fields: &[Idx],
+        field_base: u32,
+    ) -> Result<(), DerivedEqBodyError> {
+        if fields.is_empty() {
+            self.builder.terminate_jump(self.equal, Vec::new());
+            return Ok(());
+        }
 
-    for (position, (field_index, field_type)) in comparison_order.iter().copied().enumerate() {
-        let offset = u32::try_from(field_index).map_err(|_| DerivedEqBodyError::IndexOverflow {
-            receiver_type,
-            index_kind: "field",
-            index: field_index,
-        })?;
-        let projection =
-            field_base
-                .checked_add(offset)
-                .ok_or(DerivedEqBodyError::IndexOverflow {
-                    receiver_type,
+        let mut comparison_order: Vec<_> = fields.iter().copied().enumerate().collect();
+        comparison_order.sort_by_key(|(_, field_type)| !self.classifier.is_scalar(*field_type));
+
+        for (position, (field_index, field_type)) in comparison_order.iter().copied().enumerate() {
+            let offset =
+                u32::try_from(field_index).map_err(|_| DerivedEqBodyError::IndexOverflow {
+                    receiver_type: self.receiver_type,
                     index_kind: "field",
                     index: field_index,
                 })?;
-        let receiver_field = builder.emit_project(field_type, receiver, projection, None);
-        let other_field = builder.emit_project(field_type, other, projection, None);
-        let field_equal = emit_field_eq(
-            builder,
-            receiver_field,
-            other_field,
-            field_type,
-            method_name,
-            pool,
-        );
-        let is_last = position + 1 == comparison_order.len();
-        let next = if is_last { equal } else { builder.new_block() };
-        builder.terminate_branch(field_equal, next, unequal);
-        if !is_last {
-            builder.position_at(next);
+            let projection =
+                field_base
+                    .checked_add(offset)
+                    .ok_or(DerivedEqBodyError::IndexOverflow {
+                        receiver_type: self.receiver_type,
+                        index_kind: "field",
+                        index: field_index,
+                    })?;
+
+            let receiver_field =
+                self.builder
+                    .emit_project(field_type, self.receiver, projection, None);
+
+            let other_field = self
+                .builder
+                .emit_project(field_type, self.other, projection, None);
+
+            let field_equal = emit_field_eq(
+                self.builder,
+                receiver_field,
+                other_field,
+                field_type,
+                self.method_name,
+                self.pool,
+            );
+            let is_last = position + 1 == comparison_order.len();
+            let next = if is_last {
+                self.equal
+            } else {
+                self.builder.new_block()
+            };
+            self.builder
+                .terminate_branch(field_equal, next, self.unequal);
+            if !is_last {
+                self.builder.position_at(next);
+            }
         }
+        Ok(())
     }
-    Ok(())
 }
 
 fn emit_field_eq(
@@ -451,15 +414,4 @@ fn emit_bool_return(builder: &mut ArcIrBuilder, block: ArcBlockId, value: bool) 
     builder.position_at(block);
     let result = builder.emit_let(Idx::BOOL, ArcValue::Literal(LitValue::Bool(value)), None);
     builder.terminate_return(result);
-}
-
-fn map_eq_type_error(error: ConcreteTypeError) -> DerivedEqBodyError {
-    match error {
-        ConcreteTypeError::InvalidTypeIndex { position, ty } => {
-            DerivedEqBodyError::InvalidTypeIndex { position, ty }
-        }
-        ConcreteTypeError::NonConcreteType { position, ty } => {
-            DerivedEqBodyError::NonConcreteType { position, ty }
-        }
-    }
 }

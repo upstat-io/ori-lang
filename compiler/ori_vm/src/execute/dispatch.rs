@@ -185,7 +185,30 @@ impl Interpreter<'_> {
                     operands,
                 )
                 .map(|()| None),
-            _ => unreachable!("call dispatcher received a non-call operation"),
+            unexpected @ (Op::Const { .. }
+            | Op::Copy { .. }
+            | Op::Binary { .. }
+            | Op::IntBinary { .. }
+            | Op::StringBinary { .. }
+            | Op::RuntimeBinary { .. }
+            | Op::Unary { .. }
+            | Op::BoolNot { .. }
+            | Op::Construct { .. }
+            | Op::Project { .. }
+            | Op::RcInc { .. }
+            | Op::RcDec { .. }
+            | Op::IsShared { .. }
+            | Op::Set { .. }
+            | Op::SetTag { .. }
+            | Op::Select { .. }
+            | Op::Jump { .. }
+            | Op::Branch { .. }
+            | Op::Switch { .. }
+            | Op::Return { .. }
+            | Op::Resume
+            | Op::Unreachable) => {
+                unreachable!("call dispatcher received a non-call operation: {unexpected:?}")
+            }
         }
     }
 
@@ -217,7 +240,27 @@ impl Interpreter<'_> {
             Op::Return { value } => self.dispatch_return(frame, value, operands),
             Op::Resume => self.resume_panic(frame).map(|()| None),
             Op::Unreachable => Err(ExecutionError::ReachedUnreachable),
-            _ => unreachable!("control dispatcher received a non-control operation"),
+            unexpected @ (Op::Const { .. }
+            | Op::Copy { .. }
+            | Op::Binary { .. }
+            | Op::IntBinary { .. }
+            | Op::StringBinary { .. }
+            | Op::RuntimeBinary { .. }
+            | Op::Unary { .. }
+            | Op::BoolNot { .. }
+            | Op::Call { .. }
+            | Op::MakeClosure { .. }
+            | Op::CallClosure { .. }
+            | Op::Construct { .. }
+            | Op::Project { .. }
+            | Op::RcInc { .. }
+            | Op::RcDec { .. }
+            | Op::IsShared { .. }
+            | Op::Set { .. }
+            | Op::SetTag { .. }
+            | Op::Select { .. }) => {
+                unreachable!("control dispatcher received a non-control operation: {unexpected:?}")
+            }
         }
     }
 

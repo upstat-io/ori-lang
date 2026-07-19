@@ -1,6 +1,5 @@
 // Golden test: Inherent implementations
-// Spec: 08-declarations.md § Implementations
-// Design: tooling/formatter/design/02-constructs/declarations.md
+// Spec: Clause 8 - implementations.
 
 type Point = { x: int, y: int }
 

@@ -16,7 +16,7 @@ use crate::ir::{
 use crate::ownership::Ownership;
 
 use super::apply::apply_plan;
-use super::events::{ClassEvent, ClassEvents, EventKind};
+use super::events::{mutate_floor, ClassEvent, ClassEvents, EventKind};
 use super::verify::verify_class;
 use super::*;
 
@@ -30,6 +30,16 @@ fn ty(n: u32) -> Idx {
 
 fn test_interner() -> ori_ir::StringInterner {
     ori_ir::StringInterner::new()
+}
+
+#[test]
+fn mutate_floor_saturates_when_sibling_read_count_reaches_carrier_limit() {
+    assert_eq!(mutate_floor(1, 2), 3, "ordinary owned mutate floor");
+    assert_eq!(
+        mutate_floor(1, i64::MAX),
+        i64::MAX,
+        "owned-unit funding must not overflow the i64 floor carrier"
+    );
 }
 
 fn construct(dst: u32, args: Vec<u32>) -> ArcInstr {
@@ -656,10 +666,6 @@ fn resume_terminal_residual_is_flagged_leak_not_silently_clean() {
     // consumed (-1, floor 1) so the Return arm alone nets 0.
     let events = ClassEvents {
         origin: Some(ClassOrigin::Fresh),
-        container_held: false,
-        externally_funded: false,
-        threads_back_edge: false,
-        books_runtime_grounded: true,
         per_block: vec![
             vec![ClassEvent {
                 site: EventSite::Body(0),
@@ -677,6 +683,10 @@ fn resume_terminal_residual_is_flagged_leak_not_silently_clean() {
                 floor: 1,
             }],
         ],
+        threads_back_edge: false,
+        container_held: false,
+        externally_funded: false,
+        books_runtime_grounded: true,
     };
 
     assert_eq!(
@@ -792,10 +802,6 @@ fn unresolved_consume_var_declines_unresolved_op_var() {
     let preds = crate::graph::compute_predecessors(&func);
     let events = ClassEvents {
         origin: Some(ClassOrigin::Borrowed),
-        container_held: false,
-        externally_funded: true,
-        threads_back_edge: false,
-        books_runtime_grounded: true,
         per_block: vec![vec![ClassEvent {
             site: EventSite::Body(0),
             kind: EventKind::Consume,
@@ -803,6 +809,10 @@ fn unresolved_consume_var_declines_unresolved_op_var() {
             delta: -1,
             floor: 1,
         }]],
+        threads_back_edge: false,
+        container_held: false,
+        externally_funded: true,
+        books_runtime_grounded: true,
     };
     let regions = super::emit::CycleRegions::compute(&func);
     assert!(matches!(
@@ -822,10 +832,6 @@ fn consume_at_block_entry_declines_unplaceable_inc() {
     let preds = crate::graph::compute_predecessors(&func);
     let events = ClassEvents {
         origin: Some(ClassOrigin::Borrowed),
-        container_held: false,
-        externally_funded: true,
-        threads_back_edge: false,
-        books_runtime_grounded: true,
         per_block: vec![vec![ClassEvent {
             site: EventSite::BlockEntry,
             kind: EventKind::Consume,
@@ -833,6 +839,10 @@ fn consume_at_block_entry_declines_unplaceable_inc() {
             delta: -1,
             floor: 1,
         }]],
+        threads_back_edge: false,
+        container_held: false,
+        externally_funded: true,
+        books_runtime_grounded: true,
     };
     let regions = super::emit::CycleRegions::compute(&func);
     assert!(matches!(
@@ -875,10 +885,9 @@ fn passthrough_refund_needs_no_inc() {
     assert!(analysis.readiness.all_classes_clean);
 }
 
-/// A sharing-view result enters through a CREDIT, is COW-consumed, and is
-/// later stored in the returned tuple. The tuple's future field-path member
-/// does not make the view container-funded before that store: its own credit
-/// must be duplicated before the earlier COW hand-off.
+/// A sharing-view result enters through a CREDIT, survives COW consumption,
+/// and is stored in the returned tuple. Tuple field membership starts at the
+/// store and cannot fund the preceding COW hand-off.
 #[test]
 fn credit_only_view_surviving_consume_is_duplicated_before_handoff() {
     let slice = Name::from_raw(11);
@@ -1731,6 +1740,33 @@ fn trmc_context_hole_admitted_post_k3() {
     );
     assert_ne!(outcome.fallback_reason, Some(FallbackReason::TrmcContext));
 }
+
+crate::test_helpers::ablation_env_event_test!(
+    trmc_context_ledger_reproduces_context_hole_decline,
+    "ORI_DISABLE_TRMC_CONTEXT_LEDGER",
+    "decline class-ledger replacement for TRMC context-hole functions",
+    || {
+        let func = one_block_func(1, vec![construct(0, vec![])], ret(0));
+        let mut state_map = AimsStateMap::new(&func);
+        state_map.set_var_shape(v(0), crate::aims::lattice::ShapeClass::ContextHole);
+        let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+        let registry = ori_types::TypeRegistry::default();
+        let mut gated = func;
+
+        let outcome = attempt_replacement(
+            &mut gated,
+            &state_map,
+            &contracts,
+            &registry,
+            &test_interner(),
+            true,
+        );
+
+        assert_eq!(outcome.mode, EmissionMode::Fallback);
+        assert_eq!(outcome.fallback_reason, Some(FallbackReason::TrmcContext));
+        true
+    },
+);
 
 // Field-view hazard cures across loop / merge / select liveness shapes
 
@@ -2596,10 +2632,6 @@ fn multi_owed_func() -> ArcFunction {
 fn multi_owed_events(grounded: bool) -> ClassEvents {
     ClassEvents {
         origin: Some(ClassOrigin::Fresh),
-        threads_back_edge: false,
-        container_held: false,
-        externally_funded: false,
-        books_runtime_grounded: grounded,
         per_block: vec![
             vec![
                 ClassEvent {
@@ -2637,6 +2669,10 @@ fn multi_owed_events(grounded: bool) -> ClassEvents {
             vec![],
             vec![],
         ],
+        threads_back_edge: false,
+        container_held: false,
+        externally_funded: false,
+        books_runtime_grounded: grounded,
     }
 }
 
@@ -4912,7 +4948,7 @@ fn seeded_view_with_two_handoffs_funds_both() {
         &classification,
         &mut partition,
         view,
-        true,
+        super::events::EventFunding::ExtractionOwned,
     );
     let preds = crate::graph::compute_predecessors(&func);
     let regions = super::emit::CycleRegions::compute(&func);

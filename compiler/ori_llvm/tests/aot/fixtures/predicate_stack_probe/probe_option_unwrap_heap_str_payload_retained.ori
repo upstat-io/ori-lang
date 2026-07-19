@@ -1,0 +1,7 @@
+@make () -> Option<str> = Some("hello world this is a long heap string");
+
+@main () -> int = {
+    let o = make();
+    let v = o.unwrap();
+    if v == "hello world this is a long heap string" then 0 else 1
+}

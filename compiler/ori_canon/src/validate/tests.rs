@@ -2,9 +2,9 @@
 //!
 //! The validator is the sole enforcer of the Canon -> All output contract:
 //! no `TypeId::INFER` survives,
-//! every `CanId` child reference is in-bounds, every `CanExpr::Match` carries
-//! an in-bounds `DecisionTreeId`, and every `ConstantId` resolves. It runs
-//! under `#[cfg(debug_assertions)]` and panics on the first violation.
+//! every `CanId` child and result-entry reference is in-bounds, every
+//! `CanExpr::Match` carries an in-bounds `DecisionTreeId`, and every
+//! `ConstantId` resolves. It panics on the first violation.
 //!
 //! Positive pins assert a well-formed result validates cleanly; negative pins
 //! assert each invariant class panics, so the validator cannot be neutered to
@@ -12,9 +12,10 @@
 
 use ori_ir::canon::tree::DecisionTree;
 use ori_ir::canon::{
-    CanArena, CanExpr, CanId, CanNode, CanonResult, ConstantPool, DecisionTreeId, DecisionTreePool,
+    CanArena, CanExpr, CanId, CanNode, CanonResult, CanonRoot, ConstantPool, DecisionTreeId,
+    DecisionTreePool, MethodRoot, MonoInstanceId,
 };
-use ori_ir::{Span, TypeId};
+use ori_ir::{ExprId, Name, Span, TypeId};
 
 use super::validate;
 
@@ -103,10 +104,123 @@ fn valid_constant_with_in_bounds_id_passes() {
 }
 
 #[test]
-fn invalid_root_short_circuits_without_panic() {
-    // An error-recovery result (INVALID root) validates to a no-op, never panics.
+fn empty_recovery_result_with_invalid_root_passes() {
+    // A genuinely empty error-recovery result has no canonical nodes to validate.
     let result = CanonResult::empty();
     validate(&result);
+}
+
+#[test]
+fn invalid_root_with_valid_nonempty_arena_still_validates() {
+    let mut arena = CanArena::new();
+    arena.push(CanNode::new(CanExpr::Int(1), Span::DUMMY, TypeId::INT));
+    let result = result_with(
+        arena,
+        CanId::INVALID,
+        ConstantPool::new(),
+        DecisionTreePool::new(),
+    );
+
+    validate(&result);
+}
+
+#[test]
+#[should_panic(expected = "has unresolved type INFER")]
+fn invalid_root_does_not_skip_nonempty_arena_validation() {
+    let mut arena = CanArena::new();
+    arena.push(CanNode::new(CanExpr::Int(1), Span::DUMMY, TypeId::INFER));
+    let result = result_with(
+        arena,
+        CanId::INVALID,
+        ConstantPool::new(),
+        DecisionTreePool::new(),
+    );
+
+    validate(&result);
+}
+
+#[test]
+fn valid_module_entry_carriers_pass() {
+    let mut arena = CanArena::new();
+    let body = arena.push(CanNode::new(CanExpr::Int(1), Span::DUMMY, TypeId::INT));
+    let mut result = result_with(
+        arena,
+        CanId::INVALID,
+        ConstantPool::new(),
+        DecisionTreePool::new(),
+    );
+    result.roots.push(CanonRoot {
+        name: Name::from_raw(1),
+        body,
+        defaults: vec![Some(body)],
+        param_names: Vec::new(),
+    });
+    result.method_roots.push(MethodRoot {
+        type_name: Name::from_raw(2),
+        method_name: Name::from_raw(3),
+        source_body: ExprId::new(0),
+        body,
+    });
+    result
+        .mono_dispatch_map_can
+        .push((body, MonoInstanceId::new(0)));
+
+    validate(&result);
+}
+
+#[test]
+fn result_entry_carriers_reject_out_of_bounds_ids() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    fn assert_rejected(result: &CanonResult, label: &str) {
+        let failure = catch_unwind(AssertUnwindSafe(|| validate(result)));
+        assert!(
+            failure.is_err(),
+            "{label} must reject an out-of-bounds CanId"
+        );
+    }
+
+    let mut arena = CanArena::new();
+    let body = arena.push(CanNode::new(CanExpr::Int(1), Span::DUMMY, TypeId::INT));
+    let base = result_with(
+        arena,
+        CanId::INVALID,
+        ConstantPool::new(),
+        DecisionTreePool::new(),
+    );
+
+    let mut named_body = base.clone();
+    named_body.roots.push(CanonRoot {
+        name: Name::from_raw(1),
+        body: CanId::new(1),
+        defaults: Vec::new(),
+        param_names: Vec::new(),
+    });
+    assert_rejected(&named_body, "named root body");
+
+    let mut default = base.clone();
+    default.roots.push(CanonRoot {
+        name: Name::from_raw(1),
+        body,
+        defaults: vec![Some(CanId::new(1))],
+        param_names: Vec::new(),
+    });
+    assert_rejected(&default, "named root default");
+
+    let mut method_body = base.clone();
+    method_body.method_roots.push(MethodRoot {
+        type_name: Name::from_raw(2),
+        method_name: Name::from_raw(3),
+        source_body: ExprId::new(0),
+        body: CanId::new(1),
+    });
+    assert_rejected(&method_body, "method root body");
+
+    let mut mono_site = base;
+    mono_site
+        .mono_dispatch_map_can
+        .push((CanId::new(1), MonoInstanceId::new(0)));
+    assert_rejected(&mono_site, "monomorphization dispatch site");
 }
 
 // Negative pins — each Canon -> All invariant violation panics.

@@ -29,7 +29,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// subject-first colon form `impl Type: Trait[<args>]` (grammar.ebnf `trait_impl`)
     /// followed by any where-clauses. Shared by both formatting paths.
     fn format_impl_header(&mut self, impl_def: &ImplDef) {
-        // Item-level conditional attributes (Spec §25.4)
+        // Spec: Clause 25.4.
         if let Some(ref target) = impl_def.target_attr {
             self.emit_item_target_attr(target);
         }

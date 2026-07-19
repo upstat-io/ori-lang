@@ -765,9 +765,10 @@ extern "C-unwind" fn count_fold_acc_dec(_value: *mut u8) {
 
 extern "C-unwind" fn panic_once_fold_acc_dec(value: *mut u8) {
     count_fold_acc_dec(value);
-    if FOLD_ACC_DEC_PANIC_ONCE.swap(false, std::sync::atomic::Ordering::SeqCst) {
-        panic!("fold accumulator destructor panic");
-    }
+    assert!(
+        !FOLD_ACC_DEC_PANIC_ONCE.swap(false, std::sync::atomic::Ordering::SeqCst),
+        "fold accumulator destructor panic"
+    );
 }
 
 extern "C-unwind" fn retain_fold_acc(

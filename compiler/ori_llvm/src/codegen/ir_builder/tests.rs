@@ -1,6 +1,9 @@
 use super::*;
 use crate::codegen::eh_model::EhModel;
+use crate::codegen::value_id::{BlockId, FunctionId};
+use crate::context::SimpleCx;
 use inkwell::context::Context;
+use inkwell::values::BasicValueEnum;
 
 /// Helper: create a `SimpleCx` for testing.
 fn test_scx(ctx: &Context) -> SimpleCx<'_> {
@@ -941,7 +944,7 @@ fn setup_seh_builder(irb: &mut IrBuilder<'_, '_>) -> (FunctionId, BlockId) {
         .set_triple(&TargetTriple::create("x86_64-pc-windows-msvc"));
     let i32_ty = irb.i32_type();
     let func = irb.declare_function("test_fn", &[], i32_ty);
-    // __CxxFrameHandler3 personality (i32 return, matches runtime_functions.rs)
+    // The `__CxxFrameHandler3` personality uses the runtime's `i32` signature.
     let personality = irb.declare_function("__CxxFrameHandler3", &[], i32_ty);
     irb.set_personality(func, personality);
     let entry = irb.append_block(func, "entry");
@@ -1378,12 +1381,12 @@ fn global_string_ptr_unnamed_addr() {
 
 /// Drift guard: `emit_panic_block` is the SINGLE `ori_panic_cstr`
 /// carrier for every checked-op panic site. Its invoke-when-caught path is what
-/// routes a same-frame checked-op panic to the catch landing pad. A future edit
-/// that reintroduces an inline `ori_panic_cstr` call would bypass that
-/// threading and silently make that op's panic un-catchable again. Assert
-/// exactly one `ori_panic_cstr` reference across the `checked_ops` module
-/// family — the one inside `checked_ops::panic::emit_panic_block` — and zero
-/// in every sibling file.
+/// routes a same-frame checked-op panic to the catch landing pad. Any inline
+/// `ori_panic_cstr` call would bypass that threading and make the panic
+/// uncatchable. Exactly one `ori_panic_cstr` reference may exist across the
+/// `checked_ops` module family — the one inside
+/// `checked_ops::panic::emit_panic_block` — and zero
+/// in every other `checked_ops` file.
 #[test]
 fn checked_ops_has_single_ori_panic_cstr_carrier() {
     let carrier = include_str!("checked_ops/panic.rs");

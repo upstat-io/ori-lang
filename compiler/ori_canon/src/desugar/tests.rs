@@ -1,7 +1,7 @@
-use super::*;
 use crate::lower::lower;
 use ori_ir::ast::{CallArg, Expr, TemplatePart};
-use ori_ir::{ExprArena, ExprId, ExprKind, SharedInterner, Span};
+use ori_ir::canon::CanExpr;
+use ori_ir::{ExprArena, ExprId, ExprKind, Name, SharedInterner, Span};
 use ori_types::{Idx, TypeCheckResult, TypedModule};
 
 fn test_type_result(expr_types: Vec<Idx>) -> TypeCheckResult {
@@ -261,8 +261,8 @@ fn desugar_explicit_formattable_format_with_emits_format_call() {
     let mut pool = ori_types::Pool::new();
     let non_primitive = pool.named(interner.intern("ExplicitFormattable"));
     let mut typed = TypedModule::new();
-    typed.expr_types.push(non_primitive); // [0]=Ident(x)
-    typed.expr_types.push(Idx::STR); // [1]=TemplateLiteral
+    // Expression types follow arena order: `Ident(x)`, then `TemplateLiteral`.
+    typed.expr_types.extend([non_primitive, Idx::STR]);
     typed.formattable_impl_types.push(non_primitive);
     let type_result = TypeCheckResult::ok(typed);
     let result = lower_single_format_with(&mut arena, &interner, &type_result, &pool);
@@ -389,9 +389,8 @@ fn desugar_struct_with_spread_flattens_to_struct() {
     let point_body = pool.struct_type(point, &[(fx, Idx::INT), (fy, text_alias_idx)]);
     pool.set_resolution(point_idx, point_body);
     let mut typed = TypedModule::new();
-    typed.expr_types.push(point_idx); // [0] base
-    typed.expr_types.push(Idx::INT); // [1] ten
-    typed.expr_types.push(point_idx); // [2] StructWithSpread root
+    // Expression types follow arena order: base, field value, then spread root.
+    typed.expr_types.extend([point_idx, Idx::INT, point_idx]);
     typed.types.push(ori_types::TypeEntry {
         name: point,
         idx: point_idx,
@@ -556,7 +555,7 @@ fn desugar_list_with_spread_simple() {
 // Index/Field-Assignment Desugar
 
 use ori_ir::AccessStep;
-use ori_types::AssignDesugar;
+use ori_types::{AssignDesugar, AssignStepRoute};
 
 /// Build a `TypeCheckResult` with `expr_types` sized to `n` (all `Idx::INT`)
 /// and one `assign_desugar_map` entry keyed by `target` with the given
@@ -566,9 +565,16 @@ fn assign_type_result(n: usize, target: ExprId, level_types: Vec<Idx>) -> TypeCh
     for _ in 0..n {
         typed.expr_types.push(Idx::INT);
     }
-    typed
-        .assign_desugar_map
-        .insert(target, AssignDesugar { level_types });
+    let step_routes = (1..level_types.len())
+        .map(|_| AssignStepRoute::Index(ori_ir::canon::IndexDispatch::Builtin))
+        .collect();
+    typed.assign_desugar_map.insert(
+        target,
+        AssignDesugar {
+            level_types,
+            step_routes,
+        },
+    );
     TypeCheckResult::ok(typed)
 }
 
@@ -650,6 +656,7 @@ fn desugar_field_assign_types_projection_from_concrete_applied_receiver() {
         target,
         AssignDesugar {
             level_types: vec![point_idx, Idx::INT],
+            step_routes: vec![AssignStepRoute::Field],
         },
     );
     typed.types.push(ori_types::TypeEntry {
@@ -862,9 +869,8 @@ fn module_alias_qualified_call_lowers_to_function_ref_call() {
     ));
 
     let mut typed = TypedModule::new();
-    typed.expr_types.push(Idx::INT); // [0] recv (namespace placeholder)
-    typed.expr_types.push(Idx::INT); // [1] arg value
-    typed.expr_types.push(Idx::INT); // [2] MethodCallNamed root
+    // Expression types follow arena order: receiver, argument, then call root.
+    typed.expr_types.extend([Idx::INT; 3]);
     typed.module_alias_call_map.insert(root, qualified);
     let type_result = TypeCheckResult::ok(typed);
 
@@ -887,10 +893,8 @@ fn module_alias_qualified_call_lowers_to_function_ref_call() {
 fn module_alias_positional_call_lowers_to_function_ref_call() {
     // Positive pin (positional calling convention): an alias-qualified
     // positional call `math.add(5)` whose typeck side-table records the
-    // resolved qualified name lowers to a free `Call(FunctionRef("math.add"))`
-    // via the `lower/collections.rs` MethodCall rewrite — the parallel branch
-    // to the named-arg rewrite (`desugar/calls.rs`) pinned above. Fails if the
-    // positional module-alias rewrite branch is reverted.
+    // resolved qualified name lowers to a free `Call(FunctionRef("math.add"))`,
+    // matching the named-argument rewrite contract.
     let mut arena = ExprArena::new();
     let interner = test_interner();
 
@@ -911,9 +915,8 @@ fn module_alias_positional_call_lowers_to_function_ref_call() {
     ));
 
     let mut typed = TypedModule::new();
-    typed.expr_types.push(Idx::INT); // [0] recv (namespace placeholder)
-    typed.expr_types.push(Idx::INT); // [1] arg value
-    typed.expr_types.push(Idx::INT); // [2] MethodCall root
+    // Expression types follow arena order: receiver, argument, then call root.
+    typed.expr_types.extend([Idx::INT; 3]);
     typed.module_alias_call_map.insert(root, qualified);
     let type_result = TypeCheckResult::ok(typed);
 

@@ -2,14 +2,20 @@
 //!
 //! Uses index-permutation for unique buffers, copy-in-sorted-order for shared.
 
-use crate::rc::{ori_rc_alloc, ori_rc_is_unique};
-use crate::slice_encoding::is_slice_cap;
+use crate::list::cow_context::{CowMode, ElementOps, ListBuffer};
+use crate::list::{dec_list_buffer, inc_copied_elements, write_list_output};
+use crate::rc::ori_rc_alloc;
 
-use super::propagate_header;
-use crate::list::{dec_list_buffer, inc_copied_elements};
+use super::header::propagate_header;
 
 /// Maximum element size for stack-allocated swap buffers (covers int, float, str).
 const STACK_MAX: usize = 24;
+
+#[derive(Clone, Copy)]
+enum SortStability {
+    Stable,
+    Unstable,
+}
 
 /// COW-aware list sort with consuming semantics.
 ///
@@ -45,7 +51,16 @@ pub extern "C" fn ori_list_sort_cow(
     out_ptr: *mut u8,
 ) {
     list_sort_cow_impl(
-        data, len, cap, elem_size, elem_align, compare_fn, inc_fn, cow_mode, out_ptr, false,
+        ListBuffer::new(data, len, cap),
+        ElementOps::new(
+            elem_size.max(1) as usize,
+            elem_align.max(1) as usize,
+            inc_fn,
+        ),
+        compare_fn,
+        cow_mode,
+        out_ptr,
+        SortStability::Unstable,
     );
 }
 
@@ -64,94 +79,86 @@ pub extern "C" fn ori_list_sort_stable_cow(
     out_ptr: *mut u8,
 ) {
     list_sort_cow_impl(
-        data, len, cap, elem_size, elem_align, compare_fn, inc_fn, cow_mode, out_ptr, true,
+        ListBuffer::new(data, len, cap),
+        ElementOps::new(
+            elem_size.max(1) as usize,
+            elem_align.max(1) as usize,
+            inc_fn,
+        ),
+        compare_fn,
+        cow_mode,
+        out_ptr,
+        SortStability::Stable,
     );
 }
 
 /// Shared implementation for COW list sort (unstable and stable variants).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "C FFI parameters from two sort entry points"
-)]
 fn list_sort_cow_impl(
-    data: *mut u8,
-    len: i64,
-    cap: i64,
-    elem_size: i64,
-    elem_align: i64,
+    list: ListBuffer,
+    elements: ElementOps,
     compare_fn: extern "C" fn(*const u8, *const u8) -> i32,
-    inc_fn: Option<extern "C" fn(*mut u8)>,
     cow_mode: i32,
     out_ptr: *mut u8,
-    stable: bool,
+    stability: SortStability,
 ) {
     if out_ptr.is_null() {
         return;
     }
 
-    let es = elem_size.max(1) as usize;
-    let ea = elem_align.max(1) as usize;
-    let n = len.max(0) as usize;
+    let n = list.len.max(0) as usize;
 
-    // Empty or single-element — already sorted
-    if data.is_null() || n <= 1 {
-        unsafe {
-            out_ptr.cast::<i64>().write(len);
-            out_ptr.cast::<i64>().add(1).write(cap);
-            out_ptr.add(16).cast::<*mut u8>().write(data);
-        }
+    if list.data.is_null() || n <= 1 {
+        // SAFETY: The non-null ABI output slot is writable and aligned for the list triple.
+        unsafe { write_list_output(out_ptr, list.len, list.cap, list.data) };
         return;
     }
 
-    // Build sorted index array — works for both paths
     let mut indices: Vec<usize> = (0..n).collect();
     let cmp = |&a: &usize, &b: &usize| {
-        let c = compare_fn(unsafe { data.add(a * es) }, unsafe { data.add(b * es) });
+        // SAFETY: Both indices come from `0..n`, whose elements are initialized in `list.data`.
+        let a_ptr = unsafe { list.data.add(a * elements.size) };
+        // SAFETY: Both indices come from `0..n`, whose elements are initialized in `list.data`.
+        let b_ptr = unsafe { list.data.add(b * elements.size) };
+        let c = compare_fn(a_ptr, b_ptr);
         c.cmp(&0)
     };
-    if stable {
-        indices.sort_by(cmp);
-    } else {
-        indices.sort_unstable_by(cmp);
+    match stability {
+        SortStability::Stable => indices.sort_by(cmp),
+        SortStability::Unstable => indices.sort_unstable_by(cmp),
     }
 
-    // FAST PATH: unique owner, non-slice — permute in place
-    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
-    let is_unique =
-        !is_slice_cap(cap) && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data)));
+    let is_unique = CowMode::from_abi(cow_mode).allows_in_place(list.data, list.cap);
     if is_unique {
-        apply_permutation_in_place(data, &indices, es);
-        unsafe {
-            out_ptr.cast::<i64>().write(len);
-            out_ptr.cast::<i64>().add(1).write(cap);
-            out_ptr.add(16).cast::<*mut u8>().write(data);
-        }
+        apply_permutation_in_place(list.data, &indices, elements.size);
+        // SAFETY: The non-null ABI output slot is writable and aligned for the list triple.
+        unsafe { write_list_output(out_ptr, list.len, list.cap, list.data) };
         return;
     }
 
-    // SLOW PATH: shared — copy in sorted order to new buffer
-    let new_data = ori_rc_alloc(n * es, ea);
+    let new_data = ori_rc_alloc(n * elements.size, elements.align);
 
     for (dst_idx, &src_idx) in indices.iter().enumerate() {
+        // SAFETY:
+        // - Both indices are below `n`, and both allocations hold `n` elements.
+        // - The source and newly allocated destination do not overlap.
         unsafe {
-            std::ptr::copy_nonoverlapping(data.add(src_idx * es), new_data.add(dst_idx * es), es);
+            std::ptr::copy_nonoverlapping(
+                list.data.add(src_idx * elements.size),
+                new_data.add(dst_idx * elements.size),
+                elements.size,
+            );
         }
     }
 
-    // Inc RC for all copied elements
-    inc_copied_elements(new_data, n, es, inc_fn);
+    inc_copied_elements(new_data, n, elements.size, elements.inc);
 
-    // Propagate header from source
-    unsafe { propagate_header(data, cap, new_data, n as i64) };
+    // SAFETY: Both pointers address RC allocations with accessible list headers.
+    unsafe { propagate_header(list.data, list.cap, new_data, n as i64) };
 
-    // Release old buffer (slice-aware)
-    dec_list_buffer(data, len, cap, elem_size);
+    dec_list_buffer(list.data, list.len, list.cap, elements.size as i64);
 
-    unsafe {
-        out_ptr.cast::<i64>().write(n as i64);
-        out_ptr.cast::<i64>().add(1).write(n as i64); // cap = len (tight)
-        out_ptr.add(16).cast::<*mut u8>().write(new_data);
-    }
+    // SAFETY: The non-null ABI output slot is writable and aligned for the list triple.
+    unsafe { write_list_output(out_ptr, n as i64, n as i64, new_data) };
 }
 
 /// Apply a permutation in place using cycle-following.
@@ -161,8 +168,6 @@ fn list_sort_cow_impl(
 fn apply_permutation_in_place(data: *mut u8, indices: &[usize], elem_size: usize) {
     let n = indices.len();
     let mut placed = vec![false; n];
-    // Stack buffer for common element sizes (8, 16, 24 bytes),
-    // heap fallback for larger elements.
     let mut stack_buf = [0u8; STACK_MAX];
     let mut heap_buf = Vec::new();
     let tmp: &mut [u8] = if elem_size <= STACK_MAX {
@@ -178,7 +183,7 @@ fn apply_permutation_in_place(data: *mut u8, indices: &[usize], elem_size: usize
             continue;
         }
 
-        // Follow the cycle starting at `start`
+        // SAFETY: `start < n`, and `data` contains `n` elements of `elem_size` bytes.
         unsafe {
             std::ptr::copy_nonoverlapping(data.add(start * elem_size), tmp.as_mut_ptr(), elem_size);
         }
@@ -189,7 +194,7 @@ fn apply_permutation_in_place(data: *mut u8, indices: &[usize], elem_size: usize
             placed[current] = true;
 
             if next == start {
-                // Close the cycle — write tmp to current position
+                // SAFETY: `current < n`, and `tmp` contains exactly one element.
                 unsafe {
                     std::ptr::copy_nonoverlapping(
                         tmp.as_ptr(),
@@ -200,7 +205,9 @@ fn apply_permutation_in_place(data: *mut u8, indices: &[usize], elem_size: usize
                 break;
             }
 
-            // Move element from `next` to `current`
+            // SAFETY:
+            // - `indices` is a permutation of `0..n`, so both positions are in bounds.
+            // - This branch excludes the cycle-closing position, so the elements do not overlap.
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     data.add(next * elem_size),

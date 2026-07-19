@@ -1,24 +1,14 @@
-//! Structural type equality — SSOT.
+//! Canonical structural type equality.
 //!
-//! Two `Idx` are structurally equal when they denote the same type STRUCTURE
-//! (same [`Tag`] and same shape/children), even when they were interned to
-//! distinct `Idx` values. Distinct interning of structurally-equal types is an
-//! expected, load-bearing property of the content-addressed pool (e.g. a type
-//! re-interned during cross-module merging, per `pool/re_intern`): two `[int]`
-//! can carry distinct `Idx` in the same merged pool. `Idx`-identity equality
-//! (`a == b`) answers a STRICTER question than structural equality and is
-//! sound only as a fast path.
-//!
-//! This predicate is the canonical home for structural type comparison.
-//! Consumers (mono-dispatch fallback resolution in `ori_llvm`, alias
-//! propagation in `ori_repr`) call [`Pool::structural_eq`]; they SHALL NOT
-//! maintain a private recursive `Tag`+children comparison (one canonical
-//! home for structural type comparison).
-//!
-//! The tested invariant `merkle_hash == structural_eq` (see `pool/tests.rs`)
-//! makes a per-`Idx` Merkle-hash comparison an equivalent answer, but this
-//! predicate uses the direct recursive comparison so a hash collision can
-//! never silently select the wrong monomorphized specialization.
+//! Structurally equal types may have distinct [`Idx`] values after cross-module
+//! re-interning, so identity is only a fast path. Consumers use
+//! [`Pool::structural_eq`] instead of maintaining private recursive comparisons.
+//! The direct comparison deliberately avoids relying on the equivalent Merkle
+//! hashes, preventing collisions from selecting the wrong specialization.
+
+use std::hash::{Hash, Hasher};
+
+use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
 use crate::{Idx, Tag};
 
@@ -39,6 +29,23 @@ impl Pool {
     /// otherwise children are compared recursively per the type's [`Tag`].
     pub fn structural_eq(&self, a: Idx, b: Idx) -> bool {
         self.type_eq(a, b, EnumComparison::Nominal)
+    }
+
+    /// Hash the fully-resolved structural identity used by [`Self::structural_eq`].
+    ///
+    /// Unlike [`Self::hash`], this follows resolution links before hashing each
+    /// child. It is therefore suitable as a candidate index when two aliases
+    /// resolve to the same structure but retain different pool-local Merkle
+    /// hashes. Hash equality is only a prefilter; callers must still confirm a
+    /// candidate with [`Self::structural_eq`] so collisions cannot select a
+    /// semantically different type.
+    #[must_use]
+    pub fn resolved_structural_hash(&self, idx: Idx) -> u64 {
+        self.resolved_structural_hash_inner(
+            idx,
+            &mut FxHashMap::default(),
+            &mut FxHashSet::default(),
+        )
     }
 
     /// Physical representation equality after resolving semantic carriers.
@@ -84,76 +91,15 @@ impl Pool {
                 self.type_eq(self.result_ok(a), self.result_ok(b), enum_comparison)
                     && self.type_eq(self.result_err(a), self.result_err(b), enum_comparison)
             }
-            Tag::Borrowed => {
-                self.borrowed_lifetime(a) == self.borrowed_lifetime(b)
-                    && self.type_eq(
-                        self.borrowed_inner(a),
-                        self.borrowed_inner(b),
-                        enum_comparison,
-                    )
-            }
-
-            Tag::Function => {
-                self.type_eq_slices(
-                    &self.function_params(a),
-                    &self.function_params(b),
-                    enum_comparison,
-                ) && self.type_eq(
-                    self.function_return(a),
-                    self.function_return(b),
-                    enum_comparison,
-                )
-            }
+            Tag::Borrowed => self.borrowed_type_eq(a, b, enum_comparison),
+            Tag::Function => self.function_type_eq(a, b, enum_comparison),
             Tag::Tuple => {
                 self.type_eq_slices(&self.tuple_elems(a), &self.tuple_elems(b), enum_comparison)
             }
-
-            Tag::Struct => {
-                if self.struct_name(a) != self.struct_name(b) {
-                    return false;
-                }
-                let fa = self.struct_fields(a);
-                let fb = self.struct_fields(b);
-                fa.len() == fb.len()
-                    && fa.iter().zip(&fb).all(|((na, ta), (nb, tb))| {
-                        na == nb && self.type_eq(*ta, *tb, enum_comparison)
-                    })
-            }
-            // Nominal identity (TI-5): an enum's identity is its name. Two
-            // distinctly-interned `Tag::Enum` entries denote the same nominal
-            // type iff they carry the same name. Generic instantiations are
-            // `Tag::Applied`, handled above; a bare `Tag::Enum` is the nominal
-            // declaration.
-            Tag::Enum => {
-                if self.enum_name(a) != self.enum_name(b) {
-                    return false;
-                }
-                match enum_comparison {
-                    EnumComparison::Nominal => true,
-                    EnumComparison::Representation => {
-                        let variants_a = self.enum_variants(a);
-                        let variants_b = self.enum_variants(b);
-                        variants_a.len() == variants_b.len()
-                            && variants_a.iter().zip(&variants_b).all(
-                                |((name_a, fields_a), (name_b, fields_b))| {
-                                    name_a == name_b
-                                        && self.type_eq_slices(fields_a, fields_b, enum_comparison)
-                                },
-                            )
-                    }
-                }
-            }
-
+            Tag::Struct => self.struct_type_eq(a, b, enum_comparison),
+            Tag::Enum => self.enum_type_eq(a, b, enum_comparison),
             Tag::Named => self.named_name(a) == self.named_name(b),
-            Tag::Applied => {
-                self.applied_name(a) == self.applied_name(b)
-                    && self.type_eq_slices(
-                        &self.applied_args(a),
-                        &self.applied_args(b),
-                        enum_comparison,
-                    )
-            }
-
+            Tag::Applied => self.applied_type_eq(a, b, enum_comparison),
             Tag::Scheme => {
                 self.scheme_vars(a) == self.scheme_vars(b)
                     && self.type_eq(self.scheme_body(a), self.scheme_body(b), enum_comparison)
@@ -166,6 +112,71 @@ impl Pool {
         }
     }
 
+    fn borrowed_type_eq(&self, a: Idx, b: Idx, enum_comparison: EnumComparison) -> bool {
+        self.borrowed_lifetime(a) == self.borrowed_lifetime(b)
+            && self.type_eq(
+                self.borrowed_inner(a),
+                self.borrowed_inner(b),
+                enum_comparison,
+            )
+    }
+
+    fn function_type_eq(&self, a: Idx, b: Idx, enum_comparison: EnumComparison) -> bool {
+        self.type_eq_slices(
+            &self.function_params(a),
+            &self.function_params(b),
+            enum_comparison,
+        ) && self.type_eq(
+            self.function_return(a),
+            self.function_return(b),
+            enum_comparison,
+        )
+    }
+
+    fn struct_type_eq(&self, a: Idx, b: Idx, enum_comparison: EnumComparison) -> bool {
+        if self.struct_name(a) != self.struct_name(b) {
+            return false;
+        }
+        let fields_a = self.struct_fields(a);
+        let fields_b = self.struct_fields(b);
+        fields_a.len() == fields_b.len()
+            && fields_a
+                .iter()
+                .zip(&fields_b)
+                .all(|((name_a, ty_a), (name_b, ty_b))| {
+                    name_a == name_b && self.type_eq(*ty_a, *ty_b, enum_comparison)
+                })
+    }
+
+    fn enum_type_eq(&self, a: Idx, b: Idx, enum_comparison: EnumComparison) -> bool {
+        if self.enum_name(a) != self.enum_name(b) {
+            return false;
+        }
+        match enum_comparison {
+            EnumComparison::Nominal => true,
+            EnumComparison::Representation => {
+                let variants_a = self.enum_variants(a);
+                let variants_b = self.enum_variants(b);
+                variants_a.len() == variants_b.len()
+                    && variants_a.iter().zip(&variants_b).all(
+                        |((name_a, fields_a), (name_b, fields_b))| {
+                            name_a == name_b
+                                && self.type_eq_slices(fields_a, fields_b, enum_comparison)
+                        },
+                    )
+            }
+        }
+    }
+
+    fn applied_type_eq(&self, a: Idx, b: Idx, enum_comparison: EnumComparison) -> bool {
+        self.applied_name(a) == self.applied_name(b)
+            && self.type_eq_slices(
+                &self.applied_args(a),
+                &self.applied_args(b),
+                enum_comparison,
+            )
+    }
+
     /// Structural equality over two parallel `Idx` slices.
     fn type_eq_slices(&self, sa: &[Idx], sb: &[Idx], enum_comparison: EnumComparison) -> bool {
         sa.len() == sb.len()
@@ -173,6 +184,121 @@ impl Pool {
                 .iter()
                 .zip(sb)
                 .all(|(a, b)| self.type_eq(*a, *b, enum_comparison))
+    }
+
+    fn resolved_structural_hash_inner(
+        &self,
+        idx: Idx,
+        memo: &mut FxHashMap<Idx, u64>,
+        visiting: &mut FxHashSet<Idx>,
+    ) -> u64 {
+        let idx = self.resolve_fully(idx);
+        if let Some(&hash) = memo.get(&idx) {
+            return hash;
+        }
+        if !visiting.insert(idx) {
+            return self.resolved_cycle_hash(idx);
+        }
+
+        let tag = self.tag(idx);
+        let mut hasher = FxHasher::default();
+        tag.hash(&mut hasher);
+        match tag {
+            tag if tag.is_primitive() => {}
+            tag if tag.has_child_in_data() => {
+                self.resolved_structural_hash_inner(Idx::from_raw(self.data(idx)), memo, visiting)
+                    .hash(&mut hasher);
+            }
+            Tag::Map => self.hash_resolved_children(
+                [self.map_key(idx), self.map_value(idx)],
+                memo,
+                visiting,
+                &mut hasher,
+            ),
+            Tag::Result => self.hash_resolved_children(
+                [self.result_ok(idx), self.result_err(idx)],
+                memo,
+                visiting,
+                &mut hasher,
+            ),
+            Tag::Borrowed => {
+                self.borrowed_lifetime(idx).hash(&mut hasher);
+                self.hash_resolved_children(
+                    [self.borrowed_inner(idx)],
+                    memo,
+                    visiting,
+                    &mut hasher,
+                );
+            }
+            Tag::Function => {
+                self.hash_resolved_children(self.function_params(idx), memo, visiting, &mut hasher);
+                self.resolved_structural_hash_inner(self.function_return(idx), memo, visiting)
+                    .hash(&mut hasher);
+            }
+            Tag::Tuple => {
+                self.hash_resolved_children(self.tuple_elems(idx), memo, visiting, &mut hasher);
+            }
+            Tag::Struct => {
+                self.struct_name(idx).hash(&mut hasher);
+                let fields = self.struct_fields(idx);
+                fields.len().hash(&mut hasher);
+                for (name, ty) in fields {
+                    name.hash(&mut hasher);
+                    self.resolved_structural_hash_inner(ty, memo, visiting)
+                        .hash(&mut hasher);
+                }
+            }
+            Tag::Enum => self.enum_name(idx).hash(&mut hasher),
+            Tag::Named => self.named_name(idx).hash(&mut hasher),
+            Tag::Applied => {
+                self.applied_name(idx).hash(&mut hasher);
+                self.hash_resolved_children(self.applied_args(idx), memo, visiting, &mut hasher);
+            }
+            Tag::Scheme => {
+                self.scheme_vars(idx).hash(&mut hasher);
+                self.resolved_structural_hash_inner(self.scheme_body(idx), memo, visiting)
+                    .hash(&mut hasher);
+            }
+            _ => self.data(idx).hash(&mut hasher),
+        }
+
+        visiting.remove(&idx);
+        let hash = hasher.finish();
+        memo.insert(idx, hash);
+        hash
+    }
+
+    fn hash_resolved_children<I>(
+        &self,
+        children: I,
+        memo: &mut FxHashMap<Idx, u64>,
+        visiting: &mut FxHashSet<Idx>,
+        hasher: &mut FxHasher,
+    ) where
+        I: IntoIterator<Item = Idx>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        let children = children.into_iter();
+        children.len().hash(hasher);
+        for child in children {
+            self.resolved_structural_hash_inner(child, memo, visiting)
+                .hash(hasher);
+        }
+    }
+
+    fn resolved_cycle_hash(&self, idx: Idx) -> u64 {
+        let mut hasher = FxHasher::default();
+        "recursive-type".hash(&mut hasher);
+        let tag = self.tag(idx);
+        tag.hash(&mut hasher);
+        match tag {
+            Tag::Struct => self.struct_name(idx).hash(&mut hasher),
+            Tag::Enum => self.enum_name(idx).hash(&mut hasher),
+            Tag::Named => self.named_name(idx).hash(&mut hasher),
+            Tag::Applied => self.applied_name(idx).hash(&mut hasher),
+            _ => self.data(idx).hash(&mut hasher),
+        }
+        hasher.finish()
     }
 }
 

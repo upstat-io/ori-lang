@@ -6,6 +6,7 @@ use ori_types::Pool;
 
 use super::{CallPosition, RealizationError};
 
+#[must_use = "success or failure must be handled"]
 pub(super) fn validate_function_metadata(
     functions: &[ArcFunction],
     pool: &Pool,

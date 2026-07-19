@@ -1,5 +1,6 @@
 use std::mem;
 
+use crate::canon::CanId;
 use crate::Name;
 
 use super::*;

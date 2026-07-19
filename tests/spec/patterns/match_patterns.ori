@@ -1,13 +1,10 @@
-// Spec: 10-patterns.md § match - Pattern Types
+// Spec: Clause 10 - match pattern types.
 // Tests for all match pattern types: literal, identifier, wildcard, variant,
 // struct, tuple, list, range, or, at patterns
 
 use std.testing { assert, assert_eq }
 
-// =============================================================================
 // Literal Patterns
-// =============================================================================
-
 @test_literal_int tests @literal_int () -> void = {
     assert_eq(actual: literal_int(0), expected: "zero");
     assert_eq(actual: literal_int(1), expected: "one");
@@ -70,10 +67,7 @@ use std.testing { assert, assert_eq }
     _ -> "other"
 }
 
-// =============================================================================
 // Identifier Patterns (Binding)
-// =============================================================================
-
 @test_identifier_binding tests @identifier_binding () -> void = {
     assert_eq(actual: identifier_binding(5), expected: 10);
     assert_eq(actual: identifier_binding(10), expected: 20)
@@ -93,10 +87,7 @@ use std.testing { assert, assert_eq }
     None -> 0
 }
 
-// =============================================================================
 // Wildcard Patterns
-// =============================================================================
-
 @test_wildcard tests @wildcard () -> void = {
     assert_eq(actual: wildcard(1), expected: "one");
     assert_eq(actual: wildcard(2), expected: "two");
@@ -128,10 +119,7 @@ use std.testing { assert, assert_eq }
     Err(_) -> "err"
 }
 
-// =============================================================================
 // Variant Patterns (Option, Result, Sum Types)
-// =============================================================================
-
 @test_option_patterns tests @option_patterns () -> void = {
     assert_eq(actual: option_patterns(Some(42)), expected: 42);
     assert_eq(actual: option_patterns(None), expected: -1)
@@ -178,10 +166,7 @@ type Status = Pending | Running(progress: int) | Done;
     None -> -2
 }
 
-// =============================================================================
 // Struct Patterns
-// =============================================================================
-
 type Point = { x: int, y: int }
 
 @test_struct_pattern tests @struct_pattern () -> void = {
@@ -212,10 +197,7 @@ type Person = { name: str, age: int }
     { name, age: _ } -> name
 }
 
-// =============================================================================
 // Struct Rest Patterns ({ x, .. })
-// =============================================================================
-
 type Rect = { x: int, y: int, width: int, height: int }
 
 type ReorderedPoint = { y: int, x: int }
@@ -278,10 +260,7 @@ type ReorderedPoint = { y: int, x: int }
     { x, .. } -> "x=" + str(x)
 }
 
-// =============================================================================
 // Tuple Patterns
-// =============================================================================
-
 @test_tuple_pattern tests @tuple_pattern () -> void = {
     assert_eq(actual: tuple_pattern((1, 2)), expected: 3);
     assert_eq(actual: tuple_pattern((10, 20)), expected: 30)
@@ -327,10 +306,7 @@ type ReorderedPoint = { y: int, x: int }
     (None, None) -> 0
 }
 
-// =============================================================================
 // List Patterns
-// =============================================================================
-
 @test_list_empty tests @list_empty () -> void = {
     assert_eq(actual: list_empty([]), expected: "empty");
     assert_eq(actual: list_empty([1]), expected: "nonempty")
@@ -387,10 +363,7 @@ type ReorderedPoint = { y: int, x: int }
     [..all] -> all.len()
 }
 
-// =============================================================================
 // Range Patterns
-// =============================================================================
-
 @test_range_pattern tests @range_pattern () -> void = {
     assert_eq(actual: range_pattern(0), expected: "zero");
     assert_eq(actual: range_pattern(5), expected: "small");
@@ -418,10 +391,7 @@ type ReorderedPoint = { y: int, x: int }
     _ -> "other"
 }
 
-// =============================================================================
 // Or-Patterns (Alternatives)
-// =============================================================================
-
 @test_or_pattern tests @or_pattern () -> void = {
     assert_eq(actual: or_pattern(1), expected: "one or two");
     assert_eq(actual: or_pattern(2), expected: "one or two");
@@ -459,10 +429,7 @@ type ReorderedPoint = { y: int, x: int }
     None -> "empty"
 }
 
-// =============================================================================
 // At-Patterns (Binding While Matching)
-// =============================================================================
-
 @test_at_pattern tests @at_pattern () -> void = {
     let (value, msg) = at_pattern(opt: Some(42));
     assert_eq(actual: value, expected: 42)
@@ -484,10 +451,7 @@ type ReorderedPoint = { y: int, x: int }
     [] -> (0, 0)
 }
 
-// =============================================================================
 // Guards (x.match(condition))
-// =============================================================================
-
 @test_guard tests @guard () -> void = {
     assert_eq(actual: guard(15), expected: "large positive");
     assert_eq(actual: guard(5), expected: "small positive");
@@ -519,7 +483,7 @@ type ReorderedPoint = { y: int, x: int }
     let result = match 5 {
         x.match(x > 0) -> "positive",
         x.match(x < 0) -> "negative",
-        _ -> "zero",  // Required catch-all
+        _ -> "zero",
     };
     assert_eq(actual: result, expected: "positive")
 }
@@ -529,10 +493,7 @@ type ReorderedPoint = { y: int, x: int }
     _ -> "other"
 }
 
-// =============================================================================
 // Complex Combined Patterns
-// =============================================================================
-
 @test_combined_patterns tests @combined_patterns () -> void = {
     let result = combined_patterns((Some(5), [1, 2, 3]));
     assert_eq(actual: result, expected: "some with nonempty list")

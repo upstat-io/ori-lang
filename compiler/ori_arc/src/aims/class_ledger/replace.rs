@@ -41,7 +41,7 @@ use crate::ir::{ArcFunction, ArcVarId};
 use crate::lower::burden_lookup::type_has_user_drop;
 
 use super::apply::apply_plan;
-use super::emit::{ClassOutcome, PlannedOp};
+use super::emit::{AliasFlowGraph, ClassOutcome, PlannedOp};
 use super::placement::ops_placeable;
 use super::{analyze_from_state_map, ClassLedgerAnalysis};
 
@@ -282,26 +282,24 @@ fn gate_rejection(
     // allocation, so any member's whole-var release covers the parameter.
     let mut owned_alias_dec_covered: rustc_hash::FxHashSet<crate::ir::ArcVarId> =
         rustc_hash::FxHashSet::default();
+    let alias_flow = AliasFlowGraph::new(func);
     for param in func
         .params
         .iter()
         .filter(|p| p.ownership == crate::ownership::Ownership::Owned)
     {
-        let closure =
-            super::emit::close_over_let_aliases(func, std::iter::once(param.var).collect());
+        let closure = alias_flow.close_let_aliases(std::iter::once(param.var));
         if closure.iter().any(|&member| var_has_own_dec(member)) {
             owned_alias_dec_covered.extend(closure);
         }
     }
     // Let aliases and projections rooted at a borrowed parameter remain views
     // of the caller-released allocation tree.
-    let borrowed_rooted = super::emit::close_over_borrow_views(
-        func,
+    let borrowed_rooted = alias_flow.close_borrow_views(
         func.params
             .iter()
             .filter(|p| p.ownership == crate::ownership::Ownership::Borrowed)
-            .map(|p| p.var)
-            .collect(),
+            .map(|p| p.var),
     );
     if (0..func.var_types.len()).any(|i| {
         let var = crate::ir::ArcVarId::new(
@@ -422,16 +420,10 @@ fn has_context_hole(func: &ArcFunction, state_map: &AimsStateMap) -> bool {
 
 #[cfg(test)]
 mod toggle_tests {
-    #[test]
-    fn trmc_context_ledger_toggle_reports_effect() {
-        crate::test_helpers::assert_ablation_env_event(
-            concat!(
-                module_path!(),
-                "::trmc_context_ledger_toggle_reports_effect"
-            ),
-            "ORI_DISABLE_TRMC_CONTEXT_LEDGER",
-            "decline class-ledger replacement for TRMC context-hole functions",
-            super::trmc_context_ledger_disabled,
-        );
-    }
+    crate::test_helpers::ablation_env_event_test!(
+        trmc_context_ledger_toggle_reports_effect,
+        "ORI_DISABLE_TRMC_CONTEXT_LEDGER",
+        "decline class-ledger replacement for TRMC context-hole functions",
+        super::trmc_context_ledger_disabled,
+    );
 }

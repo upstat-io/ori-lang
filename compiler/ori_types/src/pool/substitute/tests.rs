@@ -2,8 +2,8 @@
 
 use rustc_hash::FxHashMap;
 
-use super::substitute_in_pool;
-use crate::{GeneralizedVarState, Idx, Pool, Tag};
+use super::{substitute_in_existing_pool, substitute_in_pool};
+use crate::{EnumVariant, GeneralizedVarState, Idx, LifetimeId, Pool, Tag};
 
 /// Helper: build a `var_subst` map from `[(var_id, concrete_idx)]` pairs.
 fn subst(pairs: &[(u32, Idx)]) -> FxHashMap<u32, Idx> {
@@ -60,6 +60,115 @@ fn list_of_var_substituted() {
     assert_eq!(pool.tag(result), Tag::List);
     let child = Idx::from_raw(pool.data(result));
     assert_eq!(child, Idx::STR);
+}
+
+#[test]
+fn existing_substitution_selects_type_phase_identity_without_pool_growth() {
+    let mut pool = Pool::new();
+    let var = pool.fresh_var();
+    let var_id = pool.data(var);
+    let list_var = pool.list(var);
+    let list_str = pool.list(Idx::STR);
+    let pool_len = pool.len();
+
+    let result = substitute_in_existing_pool(&pool, list_var, &subst(&[(var_id, Idx::STR)]));
+
+    assert_eq!(result, Ok(list_str));
+    assert_eq!(pool.len(), pool_len);
+}
+
+#[test]
+fn existing_substitution_rejects_identity_missing_from_type_phase() {
+    let mut pool = Pool::new();
+    let var = pool.fresh_var();
+    let var_id = pool.data(var);
+    let list_var = pool.list(var);
+    let pool_len = pool.len();
+
+    let Err(error) = substitute_in_existing_pool(&pool, list_var, &subst(&[(var_id, Idx::STR)]))
+    else {
+        panic!("an identity absent from the type phase must fail closed");
+    };
+
+    assert_eq!(error.source(), list_var);
+    assert_eq!(pool.len(), pool_len);
+}
+
+#[test]
+fn existing_substitution_resolves_every_compound_layout_without_pool_growth() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let var = pool.fresh_var();
+    let var_id = pool.data(var);
+    let lifetime = LifetimeId::STATIC;
+    let applied_name = interner.intern("Applied");
+    let record_name = interner.intern("Record");
+    let field_name = interner.intern("field");
+    let enum_name = interner.intern("Choice");
+    let variant_name = interner.intern("Some");
+
+    let cases = [
+        (pool.list(var), pool.list(Idx::STR)),
+        (pool.option(var), pool.option(Idx::STR)),
+        (pool.set(var), pool.set(Idx::STR)),
+        (pool.channel(var), pool.channel(Idx::STR)),
+        (pool.range(var), pool.range(Idx::STR)),
+        (pool.iterator(var), pool.iterator(Idx::STR)),
+        (
+            pool.double_ended_iterator(var),
+            pool.double_ended_iterator(Idx::STR),
+        ),
+        (pool.map(var, Idx::INT), pool.map(Idx::STR, Idx::INT)),
+        (pool.result(Idx::INT, var), pool.result(Idx::INT, Idx::STR)),
+        (
+            pool.borrowed(var, lifetime),
+            pool.borrowed(Idx::STR, lifetime),
+        ),
+        (
+            pool.function(&[var, Idx::INT], var),
+            pool.function(&[Idx::STR, Idx::INT], Idx::STR),
+        ),
+        (
+            pool.tuple(&[Idx::INT, var, var]),
+            pool.tuple(&[Idx::INT, Idx::STR, Idx::STR]),
+        ),
+        (
+            pool.applied(applied_name, &[var, Idx::INT]),
+            pool.applied(applied_name, &[Idx::STR, Idx::INT]),
+        ),
+        (
+            pool.struct_type(record_name, &[(field_name, var)]),
+            pool.struct_type(record_name, &[(field_name, Idx::STR)]),
+        ),
+        (
+            pool.enum_type(
+                enum_name,
+                &[EnumVariant {
+                    name: variant_name,
+                    field_types: vec![var, Idx::INT],
+                }],
+            ),
+            pool.enum_type(
+                enum_name,
+                &[EnumVariant {
+                    name: variant_name,
+                    field_types: vec![Idx::STR, Idx::INT],
+                }],
+            ),
+        ),
+    ];
+    let pool_len = pool.len();
+    let map = subst(&[(var_id, Idx::STR)]);
+
+    for (source, expected) in cases {
+        assert_eq!(
+            substitute_in_existing_pool(&pool, source, &map),
+            Ok(expected),
+            "failed to resolve existing {:?} identity",
+            pool.tag(source)
+        );
+    }
+    assert_eq!(pool.len(), pool_len);
 }
 
 #[test]

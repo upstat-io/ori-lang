@@ -1,0 +1,11 @@
+type Logged = { tag: str }
+
+impl Logged: Drop {
+    @drop (self) -> void = print(msg: `drop-{self.tag}`);
+}
+
+type Doc = { content: Logged }
+
+@main () -> void = {
+    let a = Doc { content: Logged { tag: "S" } }
+}

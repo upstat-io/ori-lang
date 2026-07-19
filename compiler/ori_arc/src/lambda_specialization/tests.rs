@@ -92,7 +92,7 @@ fn single_instantiation_preserves_nominal_callable_component_identity() {
     );
     let mut lambdas = vec![lambda];
 
-    let result = specialize_polymorphic_lambdas(&mut parent, &mut lambdas, &mut pool, &interner);
+    let result = specialize_polymorphic_lambdas(&mut parent, &mut lambdas, &pool, &interner);
 
     assert!(
         result.is_ok(),
@@ -162,7 +162,7 @@ fn unused_non_capturing_polymorphic_template_is_eliminated_exactly() {
     );
     let mut lambdas = vec![lambda];
 
-    let result = specialize_polymorphic_lambdas(&mut parent, &mut lambdas, &mut pool, &interner);
+    let result = specialize_polymorphic_lambdas(&mut parent, &mut lambdas, &pool, &interner);
 
     assert!(result.is_ok());
     assert!(lambdas.is_empty());
@@ -239,7 +239,7 @@ fn unused_capturing_polymorphic_template_is_not_eliminated() {
     lambda.num_captures = 1;
     let mut lambdas = vec![lambda];
 
-    let result = specialize_polymorphic_lambdas(&mut parent, &mut lambdas, &mut pool, &interner);
+    let result = specialize_polymorphic_lambdas(&mut parent, &mut lambdas, &pool, &interner);
 
     assert!(result.is_err());
     assert_eq!(lambdas.len(), 1);
@@ -247,4 +247,81 @@ fn unused_capturing_polymorphic_template_is_not_eliminated() {
         parent.blocks[0].body[0],
         ArcInstr::PartialApply { func, .. } if func == lambda_name
     ));
+}
+
+#[test]
+fn specialization_rejects_compound_identity_missing_from_type_phase() {
+    let mut pool = Pool::new();
+    let interner = StringInterner::new();
+    let parent_name = interner.intern("parent");
+    let lambda_name = interner.intern("parent.__lambda0");
+    let bound = pool.intern(Tag::BoundVar, 29);
+    let list_bound = pool.list(bound);
+    let schema_function = pool.function1(bound, bound);
+    let concrete_function = pool.function1(Idx::INT, Idx::INT);
+
+    let mut parent = make_func_named(
+        parent_name,
+        Vec::new(),
+        Idx::UNIT,
+        vec![ArcBlock {
+            id: b(0),
+            params: Vec::new(),
+            body: vec![
+                ArcInstr::PartialApply {
+                    dst: v(0),
+                    ty: schema_function,
+                    func: lambda_name,
+                    args: Vec::new(),
+                },
+                ArcInstr::Let {
+                    dst: v(1),
+                    ty: concrete_function,
+                    value: ArcValue::Var(v(0)),
+                },
+                ArcInstr::Let {
+                    dst: v(2),
+                    ty: Idx::UNIT,
+                    value: ArcValue::Literal(crate::LitValue::Unit),
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        vec![schema_function, concrete_function, Idx::UNIT],
+    );
+    let lambda = make_func_named(
+        lambda_name,
+        vec![ArcParam {
+            var: v(0),
+            ty: bound,
+            ownership: Ownership::Owned,
+        }],
+        bound,
+        vec![ArcBlock {
+            id: b(0),
+            params: Vec::new(),
+            body: Vec::new(),
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![bound, list_bound],
+    );
+    let mut lambdas = vec![lambda];
+    let pool_len = pool.len();
+
+    let Err(error) = specialize_polymorphic_lambdas(&mut parent, &mut lambdas, &pool, &interner)
+    else {
+        panic!("a compound identity absent from the type phase must fail closed");
+    };
+
+    let Some(missing) = error
+        .missing_materializations()
+        .iter()
+        .find(|missing| missing.source() == list_bound)
+        .copied()
+    else {
+        panic!("the missing compound identity must retain its ARC provenance");
+    };
+    assert_eq!(missing.function(), lambda_name);
+    assert_eq!(missing.var_id(), v(1));
+    assert_eq!(pool.len(), pool_len);
 }

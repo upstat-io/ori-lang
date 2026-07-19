@@ -14,7 +14,7 @@ use super::type_predicates::has_concrete_params;
 use super::type_resolve::{
     apply_bound_var_map, apply_concrete_param_types, build_bound_var_map,
     find_all_instantiation_types, find_partial_apply_args, find_partial_apply_dst,
-    is_concrete_function, is_polymorphic_lambda, resolve_lambda_return_types,
+    is_concrete_function, is_polymorphic_lambda, resolve_lambda_return_types, TypeResolution,
 };
 
 /// Phase 1: Detect multi-instantiation and handle it by cloning lambdas.
@@ -23,9 +23,10 @@ use super::type_resolve::{
 pub(super) fn detect_and_clone_multi_inst(
     parent: &mut crate::ArcFunction,
     lambdas: &mut Vec<crate::ArcFunction>,
-    pool: &mut ori_types::Pool,
     interner: &ori_ir::StringInterner,
+    resolution: &mut TypeResolution<'_>,
 ) -> FxHashSet<usize> {
+    let pool = resolution.pool();
     let orig_len = lambdas.len();
     let mut multi_inst_lambdas = FxHashSet::<usize>::default();
 
@@ -46,7 +47,7 @@ pub(super) fn detect_and_clone_multi_inst(
                 lambda_name,
                 &instantiations,
                 interner,
-                pool,
+                resolution,
             );
             multi_inst_lambdas.insert(i);
         }
@@ -96,8 +97,9 @@ fn clone_multi_inst_lambda(
     lambda_name: Name,
     instantiations: &[Idx],
     interner: &ori_ir::StringInterner,
-    pool: &mut ori_types::Pool,
+    resolution: &mut TypeResolution<'_>,
 ) {
+    let pool = resolution.pool();
     let pa_args = find_partial_apply_args(parent, lambda_name);
     let pa_dst = find_partial_apply_dst(parent, lambda_name);
     let schema_ret = lambdas[orig_idx].return_type;
@@ -115,7 +117,7 @@ fn clone_multi_inst_lambda(
             clone.return_type,
             &mut inst_map,
         );
-        apply_bound_var_map(&mut clone, &inst_map, pool);
+        apply_bound_var_map(&mut clone, &inst_map, resolution);
 
         // Resolve concrete return type. If the function type has a concrete return,
         // use it directly. For Scheme/Var returns (let-polymorphic lambdas), extract
@@ -135,7 +137,7 @@ fn clone_multi_inst_lambda(
         resolve_lambda_return_types(&mut clone, schema_ret, concrete_ret);
 
         // Direct param substitution for container types with nested vars.
-        apply_concrete_param_types(&mut clone, *concrete_fn_ty, pool);
+        apply_concrete_param_types(&mut clone, *concrete_fn_ty, resolution);
 
         lambdas.push(clone);
     }

@@ -1,21 +1,22 @@
-//! Method dispatch for scalar variant types (bool, char, byte, newtype).
-
 use ori_ir::Name;
 use ori_patterns::{no_such_method, EvalError, EvalResult, Value};
 
-use super::super::compare::ordering_to_value;
-use super::super::helpers::{
-    escape_debug_char, require_args, require_bool_arg, require_byte_arg, require_char_arg,
-    require_scalar_int_arg,
+use crate::function_val::char_to_byte;
+
+use super::super::arguments::{
+    require_args, require_bool_arg, require_byte_arg, require_char_arg, require_scalar_int_arg,
 };
+use super::super::compare::ordering_to_value;
+use super::super::debug_format::escape_debug_char;
 use super::super::DispatchCtx;
 
-/// Dispatch operator methods on bool values.
+/// Evaluate a built-in Boolean operation after validating its arguments.
 #[expect(
     clippy::needless_pass_by_value,
-    reason = "Consistent method dispatch signature"
+    reason = "dispatch consumes the owned receiver and argument vector; Clone returns that receiver directly"
 )]
-pub fn dispatch_bool_method(
+#[must_use = "success or failure must be handled"]
+pub(in crate::methods) fn dispatch_bool_method(
     receiver: Value,
     method: Name,
     args: Vec<Value>,
@@ -30,29 +31,23 @@ pub fn dispatch_bool_method(
     if method == n.not {
         require_args("not", 0, args.len())?;
         Ok(Value::Bool(!a))
-    // Comparable trait - false < true
     } else if method == n.compare {
         require_args("compare", 1, args.len())?;
         let b = require_bool_arg("compare", &args, 0)?;
         Ok(ordering_to_value(a.cmp(&b)))
-    // Eq trait
     } else if method == n.equals {
         require_args("equals", 1, args.len())?;
         let b = require_bool_arg("equals", &args, 0)?;
         Ok(Value::Bool(a == b))
-    // Clone trait
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
         Ok(receiver)
-    // Printable and Debug traits
     } else if method == n.to_str || method == n.debug {
         require_args("to_str", 0, args.len())?;
         Ok(Value::string(if a { "true" } else { "false" }))
-    // Hashable trait
     } else if method == n.hash {
         require_args("hash", 0, args.len())?;
         Ok(Value::int(i64::from(a)))
-    // Conversion: to_int
     } else if method == n.to_int {
         require_args("to_int", 0, args.len())?;
         Ok(Value::int(i64::from(a)))
@@ -61,12 +56,13 @@ pub fn dispatch_bool_method(
     }
 }
 
-/// Dispatch methods on char values.
+/// Evaluate a built-in character operation after validating its arguments.
 #[expect(
     clippy::needless_pass_by_value,
-    reason = "Consistent method dispatch signature"
+    reason = "dispatch consumes the owned receiver and argument vector; Clone returns that receiver directly"
 )]
-pub fn dispatch_char_method(
+#[must_use = "success or failure must be handled"]
+pub(in crate::methods) fn dispatch_char_method(
     receiver: Value,
     method: Name,
     args: Vec<Value>,
@@ -78,33 +74,26 @@ pub fn dispatch_char_method(
 
     let n = ctx.names;
 
-    // Comparable trait - Unicode codepoint order
     if method == n.compare {
         require_args("compare", 1, args.len())?;
         let other = require_char_arg("compare", &args, 0)?;
         Ok(ordering_to_value(c.cmp(&other)))
-    // Eq trait
     } else if method == n.equals {
         require_args("equals", 1, args.len())?;
         let other = require_char_arg("equals", &args, 0)?;
         Ok(Value::Bool(c == other))
-    // Clone trait
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
         Ok(receiver)
-    // Printable trait
     } else if method == n.to_str {
         require_args("to_str", 0, args.len())?;
         Ok(Value::string(c.to_string()))
-    // Debug trait - shows escaped char with quotes
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
         Ok(Value::string(format!("'{}'", escape_debug_char(c))))
-    // Hashable trait
     } else if method == n.hash {
         require_args("hash", 0, args.len())?;
         Ok(Value::int(i64::from(c as u32)))
-    // Predicates
     } else if method == n.is_alpha {
         require_args("is_alpha", 0, args.len())?;
         Ok(Value::Bool(c.is_alphabetic()))
@@ -123,16 +112,12 @@ pub fn dispatch_char_method(
     } else if method == n.is_whitespace {
         require_args("is_whitespace", 0, args.len())?;
         Ok(Value::Bool(c.is_whitespace()))
-    // Conversions
     } else if method == n.to_byte {
         require_args("to_byte", 0, args.len())?;
-        let code = c as u32;
-        u8::try_from(code).map(Value::Byte).map_err(|_| {
-            EvalError::new(format!(
-                "char '{c}' (U+{code:04X}) cannot be converted to byte (> 127)"
-            ))
-            .into()
-        })
+        match char_to_byte(c) {
+            Ok(byte) => Ok(Value::Byte(byte)),
+            Err(error) => Err(error.into()),
+        }
     } else if method == n.to_int {
         require_args("to_int", 0, args.len())?;
         Ok(Value::int(i64::from(c as u32)))
@@ -151,12 +136,13 @@ pub fn dispatch_char_method(
     }
 }
 
-/// Dispatch methods on byte values.
+/// Evaluate a built-in byte operation after validating its arguments.
 #[expect(
     clippy::needless_pass_by_value,
-    reason = "Consistent method dispatch signature"
+    reason = "dispatch consumes the owned receiver and argument vector; Clone returns that receiver directly"
 )]
-pub fn dispatch_byte_method(
+#[must_use = "success or failure must be handled"]
+pub(in crate::methods) fn dispatch_byte_method(
     receiver: Value,
     method: Name,
     args: Vec<Value>,
@@ -168,33 +154,26 @@ pub fn dispatch_byte_method(
 
     let n = ctx.names;
 
-    // Comparable trait - numeric order
     if method == n.compare {
         require_args("compare", 1, args.len())?;
         let other = require_byte_arg("compare", &args, 0)?;
         Ok(ordering_to_value(b.cmp(&other)))
-    // Eq trait
     } else if method == n.equals {
         require_args("equals", 1, args.len())?;
         let other = require_byte_arg("equals", &args, 0)?;
         Ok(Value::Bool(b == other))
-    // Clone trait
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
         Ok(receiver)
-    // Printable trait
     } else if method == n.to_str {
         require_args("to_str", 0, args.len())?;
         Ok(Value::string(format!("0x{b:02x}")))
-    // Debug trait
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
         Ok(Value::string(b.to_string()))
-    // Hashable trait
     } else if method == n.hash {
         require_args("hash", 0, args.len())?;
         Ok(Value::int(i64::from(b)))
-    // Arithmetic operators
     } else if method == n.add {
         require_args("add", 1, args.len())?;
         let other = require_byte_arg("add", &args, 0)?;
@@ -219,7 +198,6 @@ pub fn dispatch_byte_method(
         if other == 0 {
             Err(EvalError::new("division by zero").into())
         } else {
-            // SAFETY(arithmetic): other != 0 verified above — u8 division cannot overflow
             #[expect(clippy::arithmetic_side_effects, reason = "divisor != 0 checked above")]
             Ok(Value::Byte(b / other))
         }
@@ -229,7 +207,6 @@ pub fn dispatch_byte_method(
         if other == 0 {
             Err(EvalError::new("modulo by zero").into())
         } else {
-            // SAFETY(arithmetic): other != 0 verified above — u8 remainder cannot overflow
             #[expect(clippy::arithmetic_side_effects, reason = "divisor != 0 checked above")]
             Ok(Value::Byte(b % other))
         }
@@ -284,12 +261,13 @@ fn dispatch_byte_tail(byte: u8, method: Name, args: &[Value], ctx: &DispatchCtx<
     }
 }
 
-/// Dispatch methods on newtype values.
+/// Evaluate `unwrap`; other newtype methods return a missing-method error.
 #[expect(
     clippy::needless_pass_by_value,
-    reason = "Consistent method dispatch signature"
+    reason = "dispatch consumes the owned receiver and argument vector; unwrap returns data owned by that receiver"
 )]
-pub fn dispatch_newtype_method(
+#[must_use = "success or failure must be handled"]
+pub(in crate::methods) fn dispatch_newtype_method(
     receiver: Value,
     method: Name,
     args: Vec<Value>,
@@ -309,7 +287,7 @@ pub fn dispatch_newtype_method(
     }
 }
 
-/// Byte left shift with range validation.
+/// Return an error unless the left shift is in `0..8`.
 fn byte_shift_left(b: u8, shift_val: i64) -> EvalResult {
     if let Ok(shift_u32) = u32::try_from(shift_val) {
         if shift_u32 < 8 {
@@ -319,7 +297,7 @@ fn byte_shift_left(b: u8, shift_val: i64) -> EvalResult {
     Err(EvalError::new(format!("shift amount {shift_val} out of range (0-7)")).into())
 }
 
-/// Byte right shift with range validation.
+/// Return an error unless the right shift is in `0..8`.
 fn byte_shift_right(b: u8, shift_val: i64) -> EvalResult {
     if let Ok(shift_u32) = u32::try_from(shift_val) {
         if shift_u32 < 8 {
@@ -328,3 +306,6 @@ fn byte_shift_right(b: u8, shift_val: i64) -> EvalResult {
     }
     Err(EvalError::new(format!("shift amount {shift_val} out of range (0-7)")).into())
 }
+
+#[cfg(test)]
+mod tests;

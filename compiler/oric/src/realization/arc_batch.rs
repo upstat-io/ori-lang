@@ -43,6 +43,7 @@ impl ArcFunctionGroup {
         std::iter::once(&self.parent).chain(&self.lambdas)
     }
 
+    /// Returns the stable identity used to key this lowering family.
     pub(crate) fn parent_name(&self) -> Name {
         self.parent.name
     }
@@ -117,6 +118,7 @@ impl LoweredArcBatch {
     }
 
     /// Wrap independently lowered families without losing duplicate evidence.
+    #[must_use = "success or failure must be handled"]
     pub(crate) fn try_from_groups(
         groups: impl IntoIterator<Item = ArcFunctionGroup>,
         interner: &StringInterner,
@@ -129,6 +131,7 @@ impl LoweredArcBatch {
     }
 
     /// Add one independently lowered parent/lambda group without overwriting.
+    #[must_use = "success or failure must be handled"]
     pub(crate) fn insert(
         &mut self,
         group: ArcFunctionGroup,
@@ -160,13 +163,14 @@ impl LoweredArcBatch {
     /// executors: mono target rewrite, grouped lambda specialization, typed
     /// operator resolution, and exact impl-target rewrite. Flattening is only
     /// exposed by the returned prepared state.
+    #[must_use = "success or failure must be handled"]
     pub(crate) fn prepare(
         mut self,
         mono_functions: &[ori_repr::monomorphize::MonoFunction],
         impl_targets: &MethodTargetMap,
         impl_producer_targets: &FxHashMap<MethodProducer, Name>,
         method_producers: &[MethodProducer],
-        pool: &mut Pool,
+        pool: &Pool,
         interner: &StringInterner,
     ) -> Result<PreparedArcBatch, ArcBatchPreparationError> {
         self.groups.sort_by(|left, right| {
@@ -177,36 +181,12 @@ impl LoweredArcBatch {
         });
         validate_family_identities(&self.groups, interner)?;
 
-        let producer_errors = resolve_selected_method_producers(&mut self.groups, method_producers);
-        if !producer_errors.is_empty() {
-            return Err(ArcBatchPreparationError::SelectedMethodProducerResolution {
-                count: producer_errors.len(),
-                errors: producer_errors,
-            });
-        }
-
-        let mut specialization_errors = Vec::new();
-        for group in &mut self.groups {
-            if let Err(error) = ori_arc::specialize_polymorphic_lambdas(
-                &mut group.parent,
-                &mut group.lambdas,
-                pool,
-                interner,
-            ) {
-                specialization_errors.push(error);
-            }
-        }
-        if !specialization_errors.is_empty() {
-            return Err(ArcBatchPreparationError::LambdaSpecialization {
-                count: specialization_errors.len(),
-                errors: specialization_errors,
-            });
-        }
+        resolve_selected_method_producers(&mut self.groups, method_producers)?;
+        specialize_lambdas(&mut self.groups, pool, interner)?;
         validate_family_identities(&self.groups, interner)?;
 
-        // Lambda specialization is the producer of the exact concrete types
-        // used by signature fallback. The mono inventory is closed before this
-        // seam, but target rewriting must consume the specialized bodies.
+        // Signature fallback requires the exact concrete types produced by
+        // lambda specialization, so target rewriting consumes specialized bodies.
         if !mono_functions.is_empty() {
             let maps = ori_repr::monomorphize::MonoTargetMaps::new(mono_functions, pool);
             for group in &mut self.groups {
@@ -214,36 +194,7 @@ impl LoweredArcBatch {
             }
         }
 
-        let resolve_operator_target = |receiver, method| {
-            impl_targets
-                .get(&(super::method_receiver_key(pool, receiver), method))
-                .copied()
-        };
-        let mut operator_errors = Vec::new();
-        for group in &mut self.groups {
-            if let Err(mut errors) = ori_arc::rewrite_operator_trait_calls(
-                std::slice::from_mut(&mut group.parent),
-                pool,
-                interner,
-                &resolve_operator_target,
-            ) {
-                operator_errors.append(&mut errors);
-            }
-            if let Err(mut errors) = ori_arc::rewrite_operator_trait_calls(
-                &mut group.lambdas,
-                pool,
-                interner,
-                &resolve_operator_target,
-            ) {
-                operator_errors.append(&mut errors);
-            }
-        }
-        if !operator_errors.is_empty() {
-            return Err(ArcBatchPreparationError::OperatorCallResolution {
-                count: operator_errors.len(),
-                errors: operator_errors,
-            });
-        }
+        rewrite_operator_calls(&mut self.groups, impl_targets, pool, interner)?;
 
         for group in &mut self.groups {
             super::program::rewrite_impl_targets(
@@ -281,46 +232,131 @@ impl LoweredArcBatch {
     }
 }
 
+fn specialize_lambdas(
+    groups: &mut [ArcFunctionGroup],
+    pool: &Pool,
+    interner: &StringInterner,
+) -> Result<(), ArcBatchPreparationError> {
+    let mut errors = Vec::new();
+    for group in groups {
+        if let Err(error) = ori_arc::specialize_polymorphic_lambdas(
+            &mut group.parent,
+            &mut group.lambdas,
+            pool,
+            interner,
+        ) {
+            errors.push(error);
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(ArcBatchPreparationError::LambdaSpecialization {
+            count: errors.len(),
+            errors,
+        })
+    }
+}
+
+fn rewrite_operator_calls(
+    groups: &mut [ArcFunctionGroup],
+    impl_targets: &MethodTargetMap,
+    pool: &Pool,
+    interner: &StringInterner,
+) -> Result<(), ArcBatchPreparationError> {
+    let resolve_target = |receiver, method| {
+        impl_targets
+            .get(&(super::method_receiver_key(pool, receiver), method))
+            .copied()
+    };
+    let mut errors = Vec::new();
+    for group in groups {
+        if let Err(mut group_errors) = ori_arc::rewrite_operator_trait_calls(
+            std::slice::from_mut(&mut group.parent),
+            pool,
+            interner,
+            &resolve_target,
+        ) {
+            errors.append(&mut group_errors);
+        }
+        if let Err(mut group_errors) = ori_arc::rewrite_operator_trait_calls(
+            &mut group.lambdas,
+            pool,
+            interner,
+            &resolve_target,
+        ) {
+            errors.append(&mut group_errors);
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(ArcBatchPreparationError::OperatorCallResolution {
+            count: errors.len(),
+            errors,
+        })
+    }
+}
+
 fn resolve_selected_method_producers(
     groups: &mut [ArcFunctionGroup],
     method_producers: &[MethodProducer],
-) -> Vec<String> {
+) -> Result<(), ArcBatchPreparationError> {
     let mut errors = Vec::new();
     for function in groups
         .iter_mut()
         .flat_map(|group| std::iter::once(&mut group.parent).chain(group.lambdas.iter_mut()))
     {
         for fact in &mut function.method_call_facts {
-            let Some(selected) = fact.selected_producer else {
-                continue;
-            };
-            let Some(producer) = method_producers.get(selected.index()) else {
-                errors.push(format!(
-                    "function {:?} call result {:?} references producer id {} outside the {}-entry table",
-                    function.name,
-                    fact.destination,
-                    selected.raw(),
-                    method_producers.len(),
-                ));
-                continue;
-            };
-            if let Some(existing) = &fact.producer {
-                if existing != producer {
-                    errors.push(format!(
-                        "function {:?} call result {:?} carries conflicting selected producers {:?} and {:?}",
-                        function.name, fact.destination, existing, producer,
-                    ));
-                }
-                continue;
+            if let Err(error) =
+                resolve_selected_method_producer(function.name, fact, method_producers)
+            {
+                errors.push(error);
             }
-            fact.producer = Some(producer.clone());
         }
     }
-    errors
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(ArcBatchPreparationError::SelectedMethodProducerResolution {
+            count: errors.len(),
+            errors,
+        })
+    }
+}
+
+fn resolve_selected_method_producer(
+    function: Name,
+    fact: &mut ori_arc::MethodCallFact,
+    method_producers: &[MethodProducer],
+) -> Result<(), String> {
+    let Some(selected) = fact.selected_producer else {
+        return Ok(());
+    };
+    let producer = method_producers.get(selected.index()).ok_or_else(|| {
+        format!(
+            "function {:?} call result {:?} references producer id {} outside the {}-entry table",
+            function,
+            fact.destination,
+            selected.raw(),
+            method_producers.len(),
+        )
+    })?;
+    match &fact.producer {
+        Some(existing) if existing != producer => Err(format!(
+            "function {:?} call result {:?} carries conflicting selected producers {:?} and {:?}",
+            function, fact.destination, existing, producer,
+        )),
+        Some(_) => Ok(()),
+        None => {
+            fact.producer = Some(producer.clone());
+            Ok(())
+        }
+    }
 }
 
 impl PreparedArcBatch {
-    /// Borrow the single deterministic body inventory used by repr planning.
+    /// Borrow the deterministic body inventory.
     #[must_use]
     pub(crate) fn functions(&self) -> &[ArcFunction] {
         &self.functions

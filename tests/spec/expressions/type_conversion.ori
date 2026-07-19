@@ -293,6 +293,18 @@ use std.testing { assert, assert_eq };
     assert_eq(actual: b as int, expected: 65)
 }
 
+@test_char_to_byte_method_ascii_boundary_converts tests _ () -> void = {
+    let b = '\u{7f}'.to_byte();
+
+    assert_eq(actual: b as int, expected: 127)
+}
+
+@test_int_to_byte_method_boundary_converts tests _ () -> void = {
+    let b = 255.to_byte();
+
+    assert_eq(actual: b as int, expected: 255)
+}
+
 #fail("out of range (0-255)")
 @test_byte_fn_int_above_range_panics tests _ () -> void = {
     let b = byte(300);
@@ -307,15 +319,30 @@ use std.testing { assert, assert_eq };
     assert_eq(actual: b as int, expected: 0)
 }
 
-@test_byte_fn_latin1_char_converts tests _ () -> void = {
+#fail("accepts only ASCII (U+0000..U+007F)")
+@test_byte_fn_non_ascii_char_panics tests _ () -> void = {
     let b = byte('ß');
 
-    assert_eq(actual: b as int, expected: 223)
+    assert_eq(actual: b as int, expected: 0)
 }
 
-#fail("out of byte range (0-255)")
+#fail("accepts only ASCII (U+0000..U+007F)")
 @test_byte_fn_wide_char_panics tests _ () -> void = {
     let b = byte('€');
+
+    assert_eq(actual: b as int, expected: 0)
+}
+
+#fail("accepts only ASCII (U+0000..U+007F)")
+@test_char_to_byte_method_non_ascii_panics tests _ () -> void = {
+    let b = '\u{80}'.to_byte();
+
+    assert_eq(actual: b as int, expected: 0)
+}
+
+#fail("range (0-255)")
+@test_int_to_byte_method_above_range_panics tests _ () -> void = {
+    let b = 256.to_byte();
 
     assert_eq(actual: b as int, expected: 0)
 }

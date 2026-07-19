@@ -294,7 +294,7 @@ fn specialization_probe_leaves_canonical_group_and_pool_unmodified() {
     let canonical_bodies: Vec<_> = groups[0].bodies().cloned().collect();
     let canonical_pool_len = pool.len();
 
-    let (probe, probe_pool) = specialized_probe(&groups, &pool, &interner)
+    let probe = specialized_probe(&groups, &pool, &interner)
         .unwrap_or_else(|e| panic!("specialized_probe must succeed: {e:?}"));
 
     assert_eq!(
@@ -306,10 +306,7 @@ fn specialization_probe_leaves_canonical_group_and_pool_unmodified() {
         .bodies()
         .nth(1)
         .unwrap_or_else(|| panic!("lambda must survive"));
-    assert_eq!(
-        probe_pool.resolve_fully(probe_lambda.params[0].ty),
-        Idx::STR
-    );
+    assert_eq!(pool.resolve_fully(probe_lambda.params[0].ty), Idx::STR);
     assert_eq!(
         pool.tag(
             groups[0]
@@ -492,21 +489,14 @@ fn imported_alias_materializes_under_the_local_call_identity() {
     let mut pool = Pool::new();
     let bound = pool.intern(Tag::BoundVar, 82);
     let signature = generic_signature(provider_name, bound, 82);
-    let probe_pool = pool.clone();
     let generic_use = GenericUse {
         callee: local_alias,
         param_types: vec![Idx::INT],
         return_type: Idx::INT,
     };
 
-    let instance = materialize_instance(
-        &signature,
-        &generic_use,
-        &probe_pool,
-        &mut pool,
-        &FxHashMap::default(),
-    )
-    .unwrap_or_else(|| panic!("concrete alias use must materialize"));
+    let instance = materialize_instance(&signature, &generic_use, &mut pool, &FxHashMap::default())
+        .unwrap_or_else(|| panic!("concrete alias use must materialize"));
 
     assert_eq!(instance.fn_name, local_alias);
 }
@@ -531,7 +521,6 @@ fn realization_discovery_registers_concrete_generic_composite_bodies() {
     assert!(pool.resolve(concrete).is_none());
 
     let signature = generic_signature(generic, schema, 85);
-    let probe_pool = pool.clone();
     let generic_use = GenericUse {
         callee: generic,
         param_types: vec![concrete],
@@ -539,14 +528,8 @@ fn realization_discovery_registers_concrete_generic_composite_bodies() {
     };
     let generic_type_params = FxHashMap::from_iter([(wrapper, vec![parameter])]);
 
-    let instance = materialize_instance(
-        &signature,
-        &generic_use,
-        &probe_pool,
-        &mut pool,
-        &generic_type_params,
-    )
-    .unwrap_or_else(|| panic!("concrete generic-composite use must materialize"));
+    let instance = materialize_instance(&signature, &generic_use, &mut pool, &generic_type_params)
+        .unwrap_or_else(|| panic!("concrete generic-composite use must materialize"));
 
     assert!(instance
         .body_type_map
@@ -607,21 +590,14 @@ fn projected_return_materialization_uses_the_checked_function_value_return() {
     let mut signature = generic_signature(generic, bound, 84);
     signature.return_type = Idx::ERROR;
     signature.return_projection = Some((parameter_name, associated_name));
-    let probe_pool = pool.clone();
     let generic_use = GenericUse {
         callee: generic,
         param_types: vec![Idx::INT],
         return_type: Idx::STR,
     };
 
-    let instance = materialize_instance(
-        &signature,
-        &generic_use,
-        &probe_pool,
-        &mut pool,
-        &FxHashMap::default(),
-    )
-    .unwrap_or_else(|| panic!("the checked projected return is concrete realization evidence"));
+    let instance = materialize_instance(&signature, &generic_use, &mut pool, &FxHashMap::default())
+        .unwrap_or_else(|| panic!("the checked projected return is concrete realization evidence"));
 
     assert_eq!(instance.concrete_param_types, vec![Idx::INT]);
     assert_eq!(instance.concrete_return_type, Idx::STR);

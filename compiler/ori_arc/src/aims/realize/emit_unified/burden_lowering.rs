@@ -250,29 +250,73 @@ fn remove_elided_fresh_inc_sites(func: &mut ArcFunction, sites: &[(usize, usize)
 
 #[cfg(test)]
 mod toggle_tests {
-    #[test]
-    fn elided_fresh_inc_removal_toggle_reports_effect() {
-        crate::test_helpers::assert_ablation_env_event(
-            concat!(
-                module_path!(),
-                "::elided_fresh_inc_removal_toggle_reports_effect"
-            ),
-            "ORI_DISABLE_ELIDED_FRESH_INC_REMOVAL",
-            "retain elided fresh-site BurdenInc markers",
-            super::elided_fresh_inc_removal_disabled,
-        );
-    }
+    crate::test_helpers::ablation_env_event_test!(
+        elided_fresh_inc_removal_reproduces_marker_retention,
+        "ORI_DISABLE_ELIDED_FRESH_INC_REMOVAL",
+        "retain elided fresh-site BurdenInc markers",
+        || {
+            let var = crate::test_helpers::v(0);
+            let mut func = crate::test_helpers::make_func(
+                Vec::new(),
+                ori_types::Idx::UNIT,
+                vec![crate::test_helpers::make_block(
+                    crate::test_helpers::b(0),
+                    vec![crate::ArcInstr::BurdenInc { var }],
+                    crate::ArcTerminator::Unreachable,
+                )],
+                vec![ori_types::Idx::STR],
+            );
+            let elidable = std::iter::once(var).collect();
 
-    #[test]
-    fn field_grain_dec_lowering_toggle_reports_effect() {
-        crate::test_helpers::assert_ablation_env_event(
-            concat!(
-                module_path!(),
-                "::field_grain_dec_lowering_toggle_reports_effect"
-            ),
-            "ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING",
-            "retain field-grain decrements in burden spelling",
-            super::field_grain_dec_lowering_disabled,
-        );
-    }
+            super::lower_burden_ops_to_rc(
+                &mut func,
+                &ori_types::Pool::default(),
+                &ori_types::TypeRegistry::default(),
+                &elidable,
+            );
+
+            assert!(matches!(
+                func.blocks[0].body.as_slice(),
+                [crate::ArcInstr::BurdenInc { var: retained }] if *retained == var
+            ));
+            super::elided_fresh_inc_removal_disabled()
+        },
+    );
+
+    crate::test_helpers::ablation_env_event_test!(
+        field_grain_dec_lowering_reproduces_burden_spelling,
+        "ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING",
+        "retain field-grain decrements in burden spelling",
+        || {
+            let var = crate::test_helpers::v(0);
+            let mut func = crate::test_helpers::make_func(
+                Vec::new(),
+                ori_types::Idx::UNIT,
+                vec![crate::test_helpers::make_block(
+                    crate::test_helpers::b(0),
+                    vec![crate::ArcInstr::BurdenDecPartial {
+                        var,
+                        skip_fields: vec![0],
+                    }],
+                    crate::ArcTerminator::Unreachable,
+                )],
+                vec![ori_types::Idx::STR],
+            );
+            func.var_reprs = vec![crate::ValueRepr::RcPointer];
+
+            super::lower_burden_ops_to_rc(
+                &mut func,
+                &ori_types::Pool::default(),
+                &ori_types::TypeRegistry::default(),
+                &rustc_hash::FxHashSet::default(),
+            );
+
+            assert!(matches!(
+                func.blocks[0].body.as_slice(),
+                [crate::ArcInstr::BurdenDecPartial { var: retained, skip_fields }]
+                    if *retained == var && skip_fields == &[0]
+            ));
+            super::field_grain_dec_lowering_disabled()
+        },
+    );
 }

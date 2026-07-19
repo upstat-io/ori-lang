@@ -1,6 +1,7 @@
 //! Skip-authority derivation for the field-decomposition cure: HOW a
 //! container's `DecPartial` skip set is keyed (variant ordinal vs positional
 //! field indices), from construct uniformity or the type's burden table.
+//! Trace events share the `ori_arc::aims::class_ledger` target across the cure ladder.
 
 use crate::aims::intraprocedural::birth_site_partition::{BirthSitePartition, NodeIdx};
 use crate::ir::ArcFunction;
@@ -95,6 +96,7 @@ impl SkipAuthority {
     }
 
     /// The variant ordinal for tag-exclusion; `None` for positional skips.
+    #[must_use = "the absence of a value must be handled"]
     pub(super) fn variant_ordinal(&self) -> Option<u32> {
         match self {
             Self::Variant(skip) => skip.first().copied(),
@@ -109,7 +111,7 @@ impl SkipAuthority {
 /// every consume-marked view path names one of its owned-field ordinals, so
 /// the skip IS the hazard's own field set (`FD_skipset_sound` — the moved
 /// mark is field-unique by position; `FD_per_site_skipset_sound` gates each
-/// release site by extraction domination downstream).
+/// release site through extraction domination).
 fn derive_constructless_positional_skip(
     func: &ArcFunction,
     partition: &mut BirthSitePartition,
@@ -235,8 +237,9 @@ fn view_projections_all_move_out(
             }
         }
     }
+    let alias_flow = super::emit::AliasFlowGraph::new(func);
     projection_dsts.iter().all(|&dst| {
-        let closure = super::emit::close_over_let_aliases(func, std::iter::once(dst).collect());
+        let closure = alias_flow.close_let_aliases(std::iter::once(dst));
         let transferred_in_body = func.blocks.iter().any(|arc_block| {
             arc_block.body.iter().any(|instr| match instr {
                 ArcInstr::Apply {
@@ -293,6 +296,7 @@ fn view_projections_all_move_out(
 /// variant ordinal required by variant-sensitive logical cleanup. A CONSTRUCTLESS
 /// container derives the variant from the type's burden table instead
 /// (`derive_constructless_enum_variant`).
+#[must_use = "success or failure must be handled"]
 pub(super) fn derive_sum_skip(
     func: &ArcFunction,
     partition: &mut BirthSitePartition,

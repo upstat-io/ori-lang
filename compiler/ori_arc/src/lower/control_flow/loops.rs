@@ -27,7 +27,7 @@ impl ArcLowerer<'_> {
         let mut header_params = Vec::new();
 
         for (name, var) in pre_scope.mutable_bindings() {
-            let var_ty = self.builder.var_type_or_unit(var);
+            let var_ty = self.builder.var_type(var);
             let param_var = self.builder.add_block_param(header_block, var_ty);
             header_params.push((name, var, param_var));
         }
@@ -98,7 +98,7 @@ impl ArcLowerer<'_> {
         let result_param = self.builder.add_block_param(exit_block, ty);
         self.scope = pre_scope;
         for &(name, pre_var, _) in &header_params {
-            let var_ty = self.builder.var_type_or_unit(pre_var);
+            let var_ty = self.builder.var_type(pre_var);
             let exit_param = self.builder.add_block_param(exit_block, var_ty);
             tracing::trace!(
                 name = self.name_str(name),

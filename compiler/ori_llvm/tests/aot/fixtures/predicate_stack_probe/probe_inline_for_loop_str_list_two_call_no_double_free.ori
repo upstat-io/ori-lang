@@ -1,0 +1,11 @@
+@main () -> int = {
+    let items = [
+        "this string exceeds SSO threshold by being very long indeed",
+        "second string also exceeds the SSO threshold of twenty three bytes"
+    ];
+    let count1 = 0;
+    for s in items do count1 = count1 + 1;
+    let count2 = 0;
+    for s in items do count2 = count2 + 1;
+    if count1 == 2 && count2 == 2 then 0 else 1
+}

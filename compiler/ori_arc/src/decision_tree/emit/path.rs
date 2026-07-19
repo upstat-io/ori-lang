@@ -100,10 +100,6 @@ pub(in crate::decision_tree) fn resolve_path(
     current
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "struct field counts fit in the u32 ARC projection index"
-)]
 fn lookup_struct_field(pool: &ori_types::Pool, struct_ty: Idx, field: Name) -> Option<(u32, Idx)> {
     let resolved = pool.resolve_fully(struct_ty);
     if pool.tag(resolved) != Tag::Struct {
@@ -112,7 +108,11 @@ fn lookup_struct_field(pool: &ori_types::Pool, struct_ty: Idx, field: Name) -> O
 
     (0..pool.struct_field_count(resolved)).find_map(|index| {
         let (candidate, field_ty) = pool.struct_field(resolved, index);
-        (candidate == field).then_some((index as u32, field_ty))
+        if candidate != field {
+            return None;
+        }
+        let index = u32::try_from(index).ok()?;
+        Some((index, field_ty))
     })
 }
 

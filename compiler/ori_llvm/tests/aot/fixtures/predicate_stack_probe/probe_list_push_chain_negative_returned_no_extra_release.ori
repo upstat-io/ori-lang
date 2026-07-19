@@ -1,0 +1,8 @@
+@build () -> [int] = {
+    [1].push(2).push(3)
+}
+
+@main () -> int = {
+    let ys = build();
+    if ys.length() == 3 then 0 else 1
+}

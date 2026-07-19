@@ -1,0 +1,6 @@
+@main () -> int = {
+    let s: Set<int> = [1, 2, 3, 2, 1].iter().collect();
+    let n = s.len();
+    print(msg: `{n}`);
+    0
+}

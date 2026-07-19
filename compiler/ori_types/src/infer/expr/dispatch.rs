@@ -22,7 +22,7 @@ use super::{
 /// This is the main entry point for expression type inference.
 /// It dispatches to specialized handlers based on expression kind.
 #[tracing::instrument(level = "trace", skip(engine, arena))]
-pub fn infer_expr(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: ExprId) -> Idx {
+pub(crate) fn infer_expr(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: ExprId) -> Idx {
     ensure_sufficient_stack(|| infer_expr_inner(engine, arena, expr_id))
 }
 
@@ -87,7 +87,41 @@ fn infer_lit_ident_op_call(
             MethodCallSite::new(expr_id, *receiver, *method, span, None),
             *args,
         ),
-        unexpected => unreachable!(
+        unexpected @ (ExprKind::If { .. }
+        | ExprKind::Match { .. }
+        | ExprKind::For { .. }
+        | ExprKind::Loop { .. }
+        | ExprKind::While { .. }
+        | ExprKind::Block { .. }
+        | ExprKind::Let { .. }
+        | ExprKind::Lambda { .. }
+        | ExprKind::List(_)
+        | ExprKind::ListWithSpread(_)
+        | ExprKind::Tuple(_)
+        | ExprKind::Map(_)
+        | ExprKind::MapWithSpread(_)
+        | ExprKind::Range { .. }
+        | ExprKind::Struct { .. }
+        | ExprKind::StructWithSpread { .. }
+        | ExprKind::Ok(_)
+        | ExprKind::Err(_)
+        | ExprKind::Some(_)
+        | ExprKind::None
+        | ExprKind::Field { .. }
+        | ExprKind::Index { .. }
+        | ExprKind::Break { .. }
+        | ExprKind::Continue { .. }
+        | ExprKind::Unsafe(_)
+        | ExprKind::Try(_)
+        | ExprKind::Await(_)
+        | ExprKind::Cast { .. }
+        | ExprKind::Assign { .. }
+        | ExprKind::AssignTarget { .. }
+        | ExprKind::WithCapability { .. }
+        | ExprKind::FunctionSeq(_)
+        | ExprKind::FunctionExp(_)
+        | ExprKind::TemplateLiteral { .. }
+        | ExprKind::Error) => unreachable!(
             "expression kind routed to literal/operator/call inference: {unexpected:?}"
         ),
     }
@@ -141,7 +175,53 @@ fn infer_control_block_lambda(
             infer_lambda(engine, arena, *params, ret_ty_ref, *body, span)
         }
 
-        unexpected => {
+        unexpected @ (ExprKind::Int(_)
+        | ExprKind::HashLength
+        | ExprKind::Float(_)
+        | ExprKind::Bool(_)
+        | ExprKind::String(_)
+        | ExprKind::TemplateFull(_)
+        | ExprKind::Char(_)
+        | ExprKind::Duration { .. }
+        | ExprKind::Size { .. }
+        | ExprKind::Unit
+        | ExprKind::Ident(_)
+        | ExprKind::FunctionRef(_)
+        | ExprKind::SelfRef
+        | ExprKind::Const(_)
+        | ExprKind::Binary { .. }
+        | ExprKind::Unary { .. }
+        | ExprKind::Call { .. }
+        | ExprKind::CallNamed { .. }
+        | ExprKind::MethodCall { .. }
+        | ExprKind::MethodCallNamed { .. }
+        | ExprKind::List(_)
+        | ExprKind::ListWithSpread(_)
+        | ExprKind::Tuple(_)
+        | ExprKind::Map(_)
+        | ExprKind::MapWithSpread(_)
+        | ExprKind::Range { .. }
+        | ExprKind::Struct { .. }
+        | ExprKind::StructWithSpread { .. }
+        | ExprKind::Ok(_)
+        | ExprKind::Err(_)
+        | ExprKind::Some(_)
+        | ExprKind::None
+        | ExprKind::Field { .. }
+        | ExprKind::Index { .. }
+        | ExprKind::Break { .. }
+        | ExprKind::Continue { .. }
+        | ExprKind::Unsafe(_)
+        | ExprKind::Try(_)
+        | ExprKind::Await(_)
+        | ExprKind::Cast { .. }
+        | ExprKind::Assign { .. }
+        | ExprKind::AssignTarget { .. }
+        | ExprKind::WithCapability { .. }
+        | ExprKind::FunctionSeq(_)
+        | ExprKind::FunctionExp(_)
+        | ExprKind::TemplateLiteral { .. }
+        | ExprKind::Error) => {
             unreachable!("expression kind routed to control-flow inference: {unexpected:?}")
         }
     }
@@ -178,7 +258,47 @@ fn infer_collection_struct_misc(
         ExprKind::Index { receiver, index } => {
             infer_index(engine, arena, expr_id, *receiver, *index, span)
         }
-        unexpected => {
+        unexpected @ (ExprKind::Int(_)
+        | ExprKind::HashLength
+        | ExprKind::Float(_)
+        | ExprKind::Bool(_)
+        | ExprKind::String(_)
+        | ExprKind::TemplateFull(_)
+        | ExprKind::Char(_)
+        | ExprKind::Duration { .. }
+        | ExprKind::Size { .. }
+        | ExprKind::Unit
+        | ExprKind::Ident(_)
+        | ExprKind::FunctionRef(_)
+        | ExprKind::SelfRef
+        | ExprKind::Const(_)
+        | ExprKind::Binary { .. }
+        | ExprKind::Unary { .. }
+        | ExprKind::Call { .. }
+        | ExprKind::CallNamed { .. }
+        | ExprKind::MethodCall { .. }
+        | ExprKind::MethodCallNamed { .. }
+        | ExprKind::If { .. }
+        | ExprKind::Match { .. }
+        | ExprKind::For { .. }
+        | ExprKind::Loop { .. }
+        | ExprKind::While { .. }
+        | ExprKind::Block { .. }
+        | ExprKind::Let { .. }
+        | ExprKind::Lambda { .. }
+        | ExprKind::Break { .. }
+        | ExprKind::Continue { .. }
+        | ExprKind::Unsafe(_)
+        | ExprKind::Try(_)
+        | ExprKind::Await(_)
+        | ExprKind::Cast { .. }
+        | ExprKind::Assign { .. }
+        | ExprKind::AssignTarget { .. }
+        | ExprKind::WithCapability { .. }
+        | ExprKind::FunctionSeq(_)
+        | ExprKind::FunctionExp(_)
+        | ExprKind::TemplateLiteral { .. }
+        | ExprKind::Error) => {
             unreachable!("expression kind routed to collection/struct inference: {unexpected:?}")
         }
     }
@@ -253,22 +373,15 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
         ),
         ExprKind::Assign { target, value } => infer_assign(engine, arena, *target, *value, span),
         ExprKind::AssignTarget { root, steps } => {
-            let _ = infer_assign_target(engine, arena, expr_id, *root, *steps);
-            Idx::UNIT
+            infer_assign_target_unit(engine, arena, expr_id, *root, *steps)
         }
         ExprKind::WithCapability {
             capability,
             provider,
             body,
         } => infer_with_capability(engine, arena, *capability, *provider, *body, span),
-        ExprKind::FunctionSeq(seq_id) => {
-            let func_seq = arena.get_function_seq(*seq_id);
-            infer_function_seq(engine, arena, func_seq, span)
-        }
-        ExprKind::FunctionExp(exp_id) => {
-            let func_exp = arena.get_function_exp(*exp_id);
-            infer_function_exp(engine, arena, func_exp)
-        }
+        ExprKind::FunctionSeq(seq_id) => infer_function_seq_expr(engine, arena, *seq_id, span),
+        ExprKind::FunctionExp(exp_id) => infer_function_exp_expr(engine, arena, *exp_id),
         ExprKind::TemplateLiteral { parts, .. } => {
             infer_template_literal(engine, arena, *parts, span)
         }
@@ -277,4 +390,32 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
 
     engine.store_type(expr_id.raw() as usize, ty);
     ty
+}
+
+fn infer_assign_target_unit(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    expr_id: ExprId,
+    root: ExprId,
+    steps: ori_ir::AccessStepRange,
+) -> Idx {
+    let _ = infer_assign_target(engine, arena, expr_id, root, steps);
+    Idx::UNIT
+}
+
+fn infer_function_seq_expr(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    seq_id: ori_ir::FunctionSeqId,
+    span: ori_ir::Span,
+) -> Idx {
+    infer_function_seq(engine, arena, arena.get_function_seq(seq_id), span)
+}
+
+fn infer_function_exp_expr(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    exp_id: ori_ir::FunctionExpId,
+) -> Idx {
+    infer_function_exp(engine, arena, arena.get_function_exp(exp_id))
 }

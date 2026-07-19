@@ -1,0 +1,8 @@
+@main () -> int = {
+    let m = {"seed": 0};
+    let keys = ["a", "b", "c", "d"];
+    for k in keys do {
+        m = m.insert(key: k, value: 1);
+    };
+    if m.len() == 5 then 0 else 1
+}

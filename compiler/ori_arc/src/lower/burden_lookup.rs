@@ -45,7 +45,7 @@ pub fn lookup_burden(ty: TypeRef, type_registry: &TypeRegistry) -> Option<Burden
             if idx.is_none() {
                 return None;
             }
-            debug_assert!(
+            assert!(
                 idx.raw() < TYPE_PARAM_E_RAW,
                 "user type pool would collide with TYPE_PARAM sentinel space \
                  (idx={}, TYPE_PARAM_E={})",

@@ -34,10 +34,14 @@ impl IrBuilder<'_, '_> {
             .get(&source)
             .cloned()
             .unwrap_or_default();
-        let component_index =
-            usize::try_from(index).expect("aggregate component index must fit host usize");
-        if components.len() <= component_index {
-            components.resize(component_index + 1, None);
+        let Ok(component_index) = usize::try_from(index) else {
+            unreachable!("aggregate component index does not fit the host index carrier");
+        };
+        let Some(required_len) = component_index.checked_add(1) else {
+            unreachable!("aggregate component index cannot be advanced to a vector length");
+        };
+        if components.len() < required_len {
+            components.resize(required_len, None);
         }
         components[component_index] = Some(component);
         self.jit_aggregate_components.insert(result, components);
@@ -51,6 +55,7 @@ impl IrBuilder<'_, '_> {
     }
 
     /// Extract a value from an aggregate (struct/array) by index.
+    #[must_use = "the absence of a value must be handled"]
     pub fn extract_value(&mut self, agg: ValueId, index: u32, name: &str) -> Option<ValueId> {
         if let Some(component) = self.known_aggregate_component(agg, index) {
             return Some(component);
@@ -120,7 +125,7 @@ impl IrBuilder<'_, '_> {
     ///
     /// LLVM's `insertvalue` supports multi-index paths (e.g., `insertvalue %agg, val, 1, 0`
     /// to insert into `{ i64, [M x i64] }` at field 1, element 0). inkwell only exposes
-    /// single-index `build_insert_value`, so for multi-index paths we decompose into:
+    /// single-index `build_insert_value`, so multi-index paths decompose into:
     /// extract inner → insert into inner → insert modified inner back.
     ///
     /// For single-index paths, delegates directly to [`Self::insert_value`].
@@ -139,19 +144,11 @@ impl IrBuilder<'_, '_> {
             0 => unreachable!("empty index path rejected above"),
             1 => self.insert_value(agg, val, indices[0], name),
             _ => {
-                // Multi-index: extract the inner aggregate, insert into it, re-insert.
-                // For path [1, i]: extract field 1 (the array), insert val at index i,
-                // then insert the modified array back at field 1.
                 let outer_idx = indices[0];
                 let inner_indices = &indices[1..];
 
-                // Extract the inner aggregate (e.g., the [M x i64] payload array).
                 let inner = self.extract_value_any(agg, outer_idx, name);
-
-                // Recursively insert into the inner aggregate.
                 let modified_inner = self.insert_value_nested_raw(inner, val, inner_indices, name);
-
-                // Re-insert the modified inner aggregate at the outer index.
                 self.insert_value(agg, modified_inner, outer_idx, name)
             }
         }

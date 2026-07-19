@@ -12,6 +12,7 @@ impl Lowerer<'_> {
     /// substitutions for an applied generic such as `Box<int>`. The registry
     /// fallback preserves error recovery for incomplete synthetic test state,
     /// while still resolving aliases recorded in declaration field types.
+    #[must_use = "the absence of a value must be handled"]
     pub(crate) fn resolve_struct_fields(
         &self,
         name: Name,

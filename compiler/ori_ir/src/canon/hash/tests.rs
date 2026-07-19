@@ -1,7 +1,7 @@
-use crate::canon::{CanField, CanMapEntry, CanNode, CanParam};
+use crate::canon::{CanArena, CanExpr, CanField, CanId, CanMapEntry, CanNode, CanParam};
 use crate::{Name, Span, TypeId};
 
-use super::*;
+use super::hash_canonical_subtree;
 
 /// Build a simple arena with a single Int node.
 fn arena_with_int(value: i64) -> (CanArena, CanId) {

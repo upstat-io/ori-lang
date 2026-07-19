@@ -1,0 +1,13 @@
+type Item = Named(description: str, count: int) | Anon(count: int);
+
+@desc_len (i: Item) -> int =
+    match i {
+        Named(description, count) -> description.length() + count,
+        Anon(count) -> count,
+    };
+
+@main () -> int = {
+    let heap = "this is a long string that exceeds SSO threshold!!!";
+    let r = desc_len(i: Named(description: heap, count: 7));
+    if r == 58 then 0 else 1
+}

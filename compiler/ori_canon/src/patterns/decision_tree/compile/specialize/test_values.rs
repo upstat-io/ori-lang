@@ -11,7 +11,10 @@ use ori_ir::canon::tree::{FlatPattern, PatternMatrix, TestKind, TestValue};
 /// Collect all distinct test values at a given column.
 ///
 /// Preserves source order for deterministic output.
-pub(crate) fn collect_test_values(matrix: &PatternMatrix, col: usize) -> Vec<TestValue> {
+pub(in crate::patterns::decision_tree::compile) fn collect_test_values(
+    matrix: &PatternMatrix,
+    col: usize,
+) -> Vec<TestValue> {
     let mut seen = FxHashSet::default();
     let mut values = Vec::new();
 
@@ -105,7 +108,9 @@ fn constructor_key_for_test_value(tv: &TestValue) -> u64 {
 /// forces the comparison-chain path (an int `Switch` cannot represent a range —
 /// every range collapses to a duplicate case); the chain handles exact-equality
 /// and range edges together.
-pub(crate) fn infer_test_kind(values: &[TestValue]) -> TestKind {
+pub(in crate::patterns::decision_tree::compile) fn infer_test_kind(
+    values: &[TestValue],
+) -> TestKind {
     if values
         .iter()
         .any(|v| matches!(v, TestValue::IntRange { .. }))

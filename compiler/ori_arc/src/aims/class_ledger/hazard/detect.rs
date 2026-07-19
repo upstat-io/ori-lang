@@ -80,8 +80,8 @@ fn rename_alias_roots(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
 /// Demand endangers ONLY a view whose floors ride the container's reference:
 /// a self-funded Clean view's demand is covered by its own acquired
 /// reference, and a Clean BORROWED-rooted view's demand rides the CALLER's
-/// reference with every store hand-off funded
-/// (see `ClassHazardFacts::borrowed_rooted_clean`). A birth CONSUMED at a
+/// reference with every store hand-off funded, as recorded by
+/// [`ClassHazardFacts::borrowed_rooted_clean`]. A birth CONSUMED at a
 /// SUM container's own construct site is NOT self-funding — the reference
 /// moved INTO the container (the multi-payload match shape); nested STRUCT
 /// chains interleave fund-before-release per level and stay balanced.

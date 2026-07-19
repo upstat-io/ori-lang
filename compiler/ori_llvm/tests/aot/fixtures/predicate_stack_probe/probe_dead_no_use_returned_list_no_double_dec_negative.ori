@@ -1,0 +1,9 @@
+@build () -> [int] = {
+    let xs = [10, 20, 30];
+    xs
+}
+
+@main () -> int = {
+    let ys = build();
+    if ys.length() == 3 then 0 else 1
+}

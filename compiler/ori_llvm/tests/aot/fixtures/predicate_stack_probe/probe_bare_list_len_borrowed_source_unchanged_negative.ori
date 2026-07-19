@@ -1,0 +1,4 @@
+@main () -> int = {
+    let nums: [int] = [1, 2, 3];
+    if nums.len() == 3 then 0 else 1
+}

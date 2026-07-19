@@ -1,15 +1,15 @@
 //! Canonical-expression to ARC-expression dispatch.
 
-use super::{ArcLowerer, ArcValue, ArcVarId, CanExpr, CanId, CtorKind, ForLoop, LitValue};
+use ori_ir::canon::{CanExpr, CanId};
+
+use crate::ir::{ArcValue, ArcVarId, CtorKind, LitValue};
+
+use super::{ArcLowerer, ForLoop};
 
 impl ArcLowerer<'_> {
     // Main dispatch
 
     /// Lower a single canonical expression, returning the `ArcVarId` of the result.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive CanExpr → ARC lowering router"
-    )]
     pub(crate) fn lower_expr(&mut self, id: CanId) -> ArcVarId {
         if !id.is_valid() {
             return self.emit_unit();
@@ -25,92 +25,155 @@ impl ArcLowerer<'_> {
         );
 
         match kind {
-            // Literals
-            CanExpr::Int(n) => {
-                self.builder
-                    .emit_let(ty, ArcValue::Literal(LitValue::Int(n)), Some(span))
-            }
-            CanExpr::Float(bits) => {
-                self.builder
-                    .emit_let(ty, ArcValue::Literal(LitValue::Float(bits)), Some(span))
-            }
-            CanExpr::Bool(b) => {
-                self.builder
-                    .emit_let(ty, ArcValue::Literal(LitValue::Bool(b)), Some(span))
-            }
-            CanExpr::Str(name) => {
-                self.builder
-                    .emit_let(ty, ArcValue::Literal(LitValue::String(name)), Some(span))
-            }
-            CanExpr::Char(c) => {
-                self.builder
-                    .emit_let(ty, ArcValue::Literal(LitValue::Char(c)), Some(span))
-            }
-            CanExpr::Duration { value, unit } => self.builder.emit_let(
-                ty,
-                ArcValue::Literal(LitValue::Duration { value, unit }),
-                Some(span),
-            ),
-            CanExpr::Size { value, unit } => self.builder.emit_let(
-                ty,
-                ArcValue::Literal(LitValue::Size { value, unit }),
-                Some(span),
-            ),
-            CanExpr::Unit => {
-                self.builder
-                    .emit_let(ty, ArcValue::Literal(LitValue::Unit), Some(span))
-            }
-            CanExpr::HashLength => {
-                if let Some(len) = self.hash_length {
-                    self.builder.emit_let(ty, ArcValue::Var(len), Some(span))
-                } else {
-                    tracing::warn!("HashLength (#) used outside index expression");
-                    self.emit_unit()
-                }
-            }
-            CanExpr::FunctionRef(name) => {
-                // Unit variant used as value (e.g., `let x = None` or `let c = Red`)
-                if let Some(&(enum_name, variant_idx, field_count)) = self.variant_ctors.get(&name)
-                {
-                    if field_count == 0 {
-                        return self.builder.emit_construct(
-                            ty,
-                            CtorKind::EnumVariant {
-                                enum_name,
-                                variant: variant_idx,
-                            },
-                            vec![],
-                            Some(span),
-                        );
-                    }
-                }
-                // Zero-capture closure: PartialApply with empty captures
-                self.builder
-                    .emit_partial_apply(ty, name, vec![], Some(span))
-            }
+            CanExpr::Int(_)
+            | CanExpr::Float(_)
+            | CanExpr::Bool(_)
+            | CanExpr::Str(_)
+            | CanExpr::Char(_)
+            | CanExpr::Duration { .. }
+            | CanExpr::Size { .. }
+            | CanExpr::Unit
+            | CanExpr::HashLength
+            | CanExpr::FunctionRef(_)
+            | CanExpr::Constant(_)
+            | CanExpr::Ident(_)
+            | CanExpr::TypeRef(_)
+            | CanExpr::Const(_)
+            | CanExpr::SelfRef => self.lower_value_expr(kind, ty, span),
 
-            // Compile-time constants
-            CanExpr::Constant(const_id) => self.lower_constant(const_id, ty, span),
-
-            // Identifiers
-            CanExpr::Ident(name) | CanExpr::TypeRef(name) => self.lower_ident(name, ty, span),
-            CanExpr::Const(name) => self.lower_const_reference(name, ty, span),
-            CanExpr::SelfRef => {
-                // In impl methods, `self` is a parameter — look it up in scope.
-                // In recurse() patterns, `self` means the enclosing function.
-                let self_name = self.interner.intern("self");
-                if self.scope.lookup(self_name).is_some() {
-                    self.lower_ident(self_name, ty, span)
-                } else {
-                    self.lower_ident(self.func_name, ty, span)
-                }
-            }
-
-            // Binary / Unary operators
             CanExpr::Binary { op, left, right } => self.lower_binary(op, left, right, ty, span),
             CanExpr::Unary { op, operand } => self.lower_unary(op, operand, ty, span),
 
-            // Control flow
+            CanExpr::Block { .. }
+            | CanExpr::Let { .. }
+            | CanExpr::If { .. }
+            | CanExpr::Match { .. }
+            | CanExpr::Loop { .. }
+            | CanExpr::For { .. }
+            | CanExpr::Break { .. }
+            | CanExpr::Continue { .. }
+            | CanExpr::Assign { .. } => self.lower_control_expr(kind, ty, span),
+
+            CanExpr::Tuple(_)
+            | CanExpr::List(_)
+            | CanExpr::Map(_)
+            | CanExpr::Struct { .. }
+            | CanExpr::Ok(_)
+            | CanExpr::Err(_)
+            | CanExpr::Some(_)
+            | CanExpr::None
+            | CanExpr::Field { .. }
+            | CanExpr::Index { .. }
+            | CanExpr::Range { .. } => self.lower_collection_expr(kind, ty, span),
+
+            CanExpr::Unsafe(inner) | CanExpr::Await(inner) => self.lower_expr(inner),
+            CanExpr::WithCapability {
+                capability,
+                provider,
+                body,
+            } => self.lower_with_capability(capability, provider, body),
+
+            CanExpr::Try(inner) => self.lower_try(inner, ty, span),
+            CanExpr::Cast {
+                expr,
+                target: _,
+                fallible,
+            } => self.lower_cast(expr, fallible, ty, span),
+
+            CanExpr::Call { func, args } => self.lower_call(id, func, args, ty, span),
+            CanExpr::MethodCall {
+                receiver,
+                method,
+                args,
+            } => self.lower_method_call(id, receiver, method, args, ty, span),
+            CanExpr::Lambda { params, body } => self.lower_lambda(params, body, ty, span),
+
+            CanExpr::FunctionExp { kind, props } => self.lower_function_exp(kind, props, ty, span),
+            CanExpr::FormatWith { expr, spec } => self.lower_format_with(expr, spec, ty, span),
+            CanExpr::Error => self.emit_unit(),
+        }
+    }
+
+    fn lower_value_expr(
+        &mut self,
+        kind: CanExpr,
+        ty: ori_types::Idx,
+        span: ori_ir::Span,
+    ) -> ArcVarId {
+        let literal = match kind {
+            CanExpr::Int(value) => Some(LitValue::Int(value)),
+            CanExpr::Float(value) => Some(LitValue::Float(value)),
+            CanExpr::Bool(value) => Some(LitValue::Bool(value)),
+            CanExpr::Str(value) => Some(LitValue::String(value)),
+            CanExpr::Char(value) => Some(LitValue::Char(value)),
+            CanExpr::Duration { value, unit } => Some(LitValue::Duration { value, unit }),
+            CanExpr::Size { value, unit } => Some(LitValue::Size { value, unit }),
+            CanExpr::Unit => Some(LitValue::Unit),
+            _ => None,
+        };
+        if let Some(literal) = literal {
+            return self
+                .builder
+                .emit_let(ty, ArcValue::Literal(literal), Some(span));
+        }
+
+        match kind {
+            CanExpr::HashLength => self.lower_hash_length(ty, span),
+            CanExpr::FunctionRef(name) => self.lower_function_reference(name, ty, span),
+            CanExpr::Constant(const_id) => self.lower_constant(const_id, ty, span),
+            CanExpr::Ident(name) | CanExpr::TypeRef(name) => self.lower_ident(name, ty, span),
+            CanExpr::Const(name) => self.lower_const_reference(name, ty, span),
+            CanExpr::SelfRef => self.lower_self_reference(ty, span),
+            _ => unreachable!("lower_value_expr called with non-value expression"),
+        }
+    }
+
+    fn lower_hash_length(&mut self, ty: ori_types::Idx, span: ori_ir::Span) -> ArcVarId {
+        if let Some(len) = self.hash_length {
+            self.builder.emit_let(ty, ArcValue::Var(len), Some(span))
+        } else {
+            tracing::warn!("HashLength (#) used outside index expression");
+            self.emit_unit()
+        }
+    }
+
+    fn lower_self_reference(&mut self, ty: ori_types::Idx, span: ori_ir::Span) -> ArcVarId {
+        let self_name = self.interner.intern("self");
+        let name = if self.scope.lookup(self_name).is_some() {
+            self_name
+        } else {
+            self.func_name
+        };
+        self.lower_ident(name, ty, span)
+    }
+
+    fn lower_function_reference(
+        &mut self,
+        name: ori_ir::Name,
+        ty: ori_types::Idx,
+        span: ori_ir::Span,
+    ) -> ArcVarId {
+        if let Some(&(enum_name, variant, field_count)) = self.variant_ctors.get(&name) {
+            if field_count == 0 {
+                return self.builder.emit_construct(
+                    ty,
+                    CtorKind::EnumVariant { enum_name, variant },
+                    vec![],
+                    Some(span),
+                );
+            }
+        }
+        self.builder
+            .emit_partial_apply(ty, name, vec![], Some(span))
+    }
+
+    fn lower_control_expr(
+        &mut self,
+        kind: CanExpr,
+        ty: ori_types::Idx,
+        span: ori_ir::Span,
+    ) -> ArcVarId {
+        match kind {
             CanExpr::Block { stmts, result } => self.lower_block(stmts, result, ty),
             CanExpr::Let { pattern, init, .. } => self.lower_let(pattern, init),
             CanExpr::If {
@@ -144,8 +207,17 @@ impl ArcLowerer<'_> {
             CanExpr::Break { value, label, .. } => self.lower_break(value, label),
             CanExpr::Continue { value, label, .. } => self.lower_continue(value, label),
             CanExpr::Assign { target, value } => self.lower_assign(target, value, span),
+            _ => unreachable!("lower_control_expr called with non-control expression"),
+        }
+    }
 
-            // Collections & constructors
+    fn lower_collection_expr(
+        &mut self,
+        kind: CanExpr,
+        ty: ori_types::Idx,
+        span: ori_ir::Span,
+    ) -> ArcVarId {
+        match kind {
             CanExpr::Tuple(exprs) => self.lower_tuple(exprs, ty, span),
             CanExpr::List(exprs) => self.lower_list(exprs, ty, span),
             CanExpr::Map(entries) => self.lower_map(entries, ty, span),
@@ -158,72 +230,36 @@ impl ArcLowerer<'_> {
             CanExpr::Index {
                 receiver,
                 index,
-                producer,
-            } => self.lower_index(receiver, index, producer, ty, span),
+                dispatch,
+            } => self.lower_index(receiver, index, dispatch, ty, span),
             CanExpr::Range {
                 start,
                 end,
                 step,
                 inclusive,
             } => self.lower_range(start, end, step, inclusive, ty, span),
-            // Transparent wrappers (sync runtime — just evaluate inner expression)
-            CanExpr::Unsafe(inner) | CanExpr::Await(inner) => self.lower_expr(inner),
-            // `with Cap = provider in body` — bind the capability name to the
-            // lowered provider for the body so the body's `Cap` references
-            // resolve, mirroring the evaluator's `with_binding`. The provider
-            // is bound via the ordinary lowering path (emit_let); its drop is
-            // the downstream ARC realization's job — no hand-rolled RcDec here.
-            CanExpr::WithCapability {
-                capability,
-                provider,
-                body,
-            } => {
-                let provider_var = self.lower_expr(provider);
-                // Surgical save/restore of the capability slot only: a nested
-                // same-named `with` restores the outer binding on exit, and
-                // body-internal reassignments to other (outer) vars survive.
-                // Capture the prior binding's mutability so a shadowed mutable
-                // outer var restores with its SSA-merge tracking intact.
-                let prior = self.scope.lookup(capability);
-                let prior_mutable = prior.is_some() && self.scope.is_mutable(capability);
-                self.scope.bind(capability, provider_var);
-                let result = self.lower_expr(body);
-                match prior {
-                    Some(p) if prior_mutable => self.scope.bind_mutable(capability, p),
-                    Some(p) => self.scope.bind(capability, p),
-                    None => {
-                        self.scope.remove(capability);
-                    }
-                }
-                result
-            }
-
-            CanExpr::Try(inner) => self.lower_try(inner, ty, span),
-            CanExpr::Cast {
-                expr,
-                target: _,
-                fallible,
-            } => self.lower_cast(expr, fallible, ty, span),
-
-            // Calls — `id` is the call expression's own CanId, used as the
-            // key into `CanonResult.mono_dispatch_map_can` to recover the
-            // abstract dispatch index for generic-instantiated calls.
-            CanExpr::Call { func, args } => self.lower_call(id, func, args, ty, span),
-            CanExpr::MethodCall {
-                receiver,
-                method,
-                args,
-            } => self.lower_method_call(id, receiver, method, args, ty, span),
-            CanExpr::Lambda { params, body } => self.lower_lambda(params, body, ty, span),
-
-            // Special forms
-            CanExpr::FunctionExp { kind, props } => self.lower_function_exp(kind, props, ty, span),
-
-            // Formatting — dispatches to type-specific ori_format_* runtime functions
-            CanExpr::FormatWith { expr, spec } => self.lower_format_with(expr, spec, ty, span),
-
-            // Error recovery
-            CanExpr::Error => self.emit_unit(),
+            _ => unreachable!("lower_collection_expr called with non-collection expression"),
         }
+    }
+
+    fn lower_with_capability(
+        &mut self,
+        capability: ori_ir::Name,
+        provider: CanId,
+        body: CanId,
+    ) -> ArcVarId {
+        let provider_var = self.lower_expr(provider);
+        let prior = self.scope.lookup(capability);
+        let prior_mutable = prior.is_some() && self.scope.is_mutable(capability);
+        self.scope.bind(capability, provider_var);
+        let result = self.lower_expr(body);
+        match prior {
+            Some(value) if prior_mutable => self.scope.bind_mutable(capability, value),
+            Some(value) => self.scope.bind(capability, value),
+            None => {
+                self.scope.remove(capability);
+            }
+        }
+        result
     }
 }

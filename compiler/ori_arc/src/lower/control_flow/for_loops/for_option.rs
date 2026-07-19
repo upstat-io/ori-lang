@@ -177,7 +177,7 @@ impl ArcLowerer<'_> {
     ) -> OptionMergeParams {
         let mut mut_info: Vec<(Name, ArcVarId, Idx)> = Vec::new();
         for (name, var) in self.scope.mutable_bindings() {
-            let var_ty = self.builder.var_type_or_unit(var);
+            let var_ty = self.builder.var_type(var);
             mut_info.push((name, var, var_ty));
         }
 

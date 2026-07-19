@@ -22,6 +22,7 @@ impl InferEngine<'_> {
     }
 
     /// Get the inferred type for an expression.
+    #[must_use = "the absence of a value must be handled"]
     pub fn get_type(&self, expr: ExprIndex) -> Option<Idx> {
         self.expr_types.get(&expr).copied()
     }
@@ -56,18 +57,11 @@ impl InferEngine<'_> {
         self.mono_instances.push(instance);
     }
 
-    /// Record a concrete instantiation tied to a call-site `ExprId`.
+    /// Records a concrete mono instance and its pre-dedup call-site dispatch.
     ///
-    /// Pushes the instance into `mono_instances` and emits a parallel
-    /// `(call_expr_id, MonoInstanceId)` entry into `mono_dispatch_pre_dedup`
-    /// for later remap-and-publish in [`crate::TypedModule::mono_dispatch_map`].
-    /// The [`MonoInstanceId`] is the pre-push length of `mono_instances`
-    /// (this body's local index space). Body finalization absorbs both vectors
-    /// together, offsets the local index into module-wide position, then module
-    /// finalization remaps once more across deduplication and sorting.
-    ///
-    /// Eager call sites publish dispatch immediately; deferred calls remain
-    /// body-only demands until they acquire a call-site `ExprId`.
+    /// The [`MonoInstanceId`] uses body-local insertion order and is remapped
+    /// during module finalization. Deferred calls publish only after acquiring
+    /// an `ExprId`.
     pub(super) fn record_mono_with_dispatch(
         &mut self,
         call_expr_id: ExprId,
@@ -104,9 +98,19 @@ impl InferEngine<'_> {
     /// `level_types` are the resolved receiver-read types per chain level
     /// (length `steps + 1`). Canonical lowering consumes the plan to synthesize
     /// the pure-reassignment form.
-    pub fn record_assign_desugar(&mut self, key: ExprId, level_types: Vec<Idx>) {
-        self.assign_desugars
-            .push((key, crate::AssignDesugar { level_types }));
+    pub fn record_assign_desugar(
+        &mut self,
+        key: ExprId,
+        level_types: Vec<Idx>,
+        step_routes: Vec<crate::AssignStepRoute>,
+    ) {
+        self.assign_desugars.push((
+            key,
+            crate::AssignDesugar {
+                level_types,
+                step_routes,
+            },
+        ));
     }
 
     /// Take assignment-target desugar plans, leaving an empty vector.
@@ -146,13 +150,19 @@ impl InferEngine<'_> {
         std::mem::take(&mut self.mono_dispatch_pre_dedup)
     }
 
-    /// Freeze the exact producer selected for one user-defined index site.
-    pub fn record_index_dispatch(&mut self, expr: ExprId, producer: crate::MethodProducer) {
-        self.index_dispatch_selections.push((expr, producer));
+    /// Freeze the exact dispatch route selected for one index site.
+    pub(crate) fn record_index_dispatch(
+        &mut self,
+        expr: ExprId,
+        selection: crate::IndexDispatchSelection,
+    ) {
+        self.index_dispatch_selections.push((expr, selection));
     }
 
-    /// Take user-defined index selections, leaving an empty vector.
-    pub fn take_index_dispatch_selections(&mut self) -> Vec<(ExprId, crate::MethodProducer)> {
+    /// Take index dispatch selections, leaving an empty vector.
+    pub(crate) fn take_index_dispatch_selections(
+        &mut self,
+    ) -> Vec<(ExprId, crate::IndexDispatchSelection)> {
         std::mem::take(&mut self.index_dispatch_selections)
     }
 
@@ -179,23 +189,15 @@ impl InferEngine<'_> {
         self.composed_burdens.push((idx, spec));
     }
 
-    /// Take composed-burden entries, leaving an empty vector. Body
-    /// finalization registers each drained entry in the `TypeRegistry`, where
-    /// codegen reads it via `TypeRegistry::burden(idx)`.
+    /// Drain burdens composed from materialized body type sites.
     ///
-    /// Runs a final pool sweep (`compose_builtin_burdens_for_resolved_types`)
-    /// before draining so that collection instances minted by literals
-    /// (`["a", "b"]`, `{k: v}`, `Set` builders) — which never flow through a
-    /// generic free-function monomorphization — also get their
-    /// `UserBurdenSpec` composed. Without the sweep, a body that constructs a
-    /// `[str]` but calls no generic function would leak the backing buffer in
-    /// the standalone burden ledger (Spec: Annex E §AIMS, RL-2 — dec at
-    /// last-use). The accumulator dedups against entries already pushed by the
-    /// per-monomorphization site, so the sweep is idempotent in effect.
+    /// Body finalization visits exact expression identities, including
+    /// literal-created collections that bypass generic monomorphization.
+    /// Deduplication keeps repeated type sites idempotent before registration
+    /// (Spec: Annex E §AIMS, RL-2).
     pub fn take_composed_burdens(
         &mut self,
     ) -> Vec<(crate::Idx, crate::registry::burden::UserBurdenSpec)> {
-        crate::infer::expr::compose_builtin_burdens_for_resolved_types(self);
         std::mem::take(&mut self.composed_burdens)
     }
 
@@ -210,6 +212,7 @@ impl InferEngine<'_> {
     }
 
     /// Get the current deferred-call owner and its ordered type-binder roots.
+    #[must_use = "the absence of a value must be handled"]
     pub fn deferred_mono_caller(&self) -> Option<(crate::DeferredMonoCaller, &[Idx])> {
         self.deferred_mono_caller
             .as_ref()

@@ -23,6 +23,25 @@ use crate::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
 use crate::codegen::type_registration;
 use crate::context::SimpleCx;
 
+struct JitCompilationInputs<'input, 'test, 'import> {
+    module: &'input Module,
+    tests: &'input [&'test TestDef],
+    canon: &'input CanonResult,
+    interner: &'input StringInterner,
+    function_sigs: &'input [FunctionSig],
+    user_types: &'input [TypeEntry],
+    impl_sigs: &'input [ImplSig],
+    imported_functions: &'input [ImportedFunctionForCodegen<'import>],
+    mono_functions: &'input [ori_repr::monomorphize::MonoFunction],
+    executable: &'input ori_repr::executable::ExecutableProgram,
+    impl_emission_names: &'input [Option<Name>],
+}
+
+/// Env: `ORI_VERIFY_ARC` — enables expensive ARC checks during JIT compilation, debug-only.
+fn jit_verify_arc_enabled() -> bool {
+    std::env::var("ORI_VERIFY_ARC").is_ok_and(|value| value != "0")
+}
+
 impl super::OwnedLLVMEvaluator {
     /// Compile an entire module with all its tests using the V2 pipeline.
     ///
@@ -32,9 +51,7 @@ impl super::OwnedLLVMEvaluator {
     ///
     /// # Performance
     ///
-    /// For a module with N functions and M tests:
-    /// - Old approach: O(M × N) function compilations (each test recompiles all)
-    /// - This approach: O(N + M) function compilations (compile once, run many)
+    /// A module with N functions and M tests requires O(N + M) compilations.
     ///
     /// # Arguments
     ///
@@ -56,7 +73,7 @@ impl super::OwnedLLVMEvaluator {
     ))]
     #[expect(
         clippy::too_many_arguments,
-        reason = "JIT compilation pipeline — all params are required data flow inputs"
+        reason = "the public evaluator boundary receives independently owned frontend artifacts; a public JIT-only carrier would widen the API without reducing coupling"
     )]
     pub fn compile_module_with_tests<'a>(
         &'a self,
@@ -72,41 +89,41 @@ impl super::OwnedLLVMEvaluator {
         executable: &ori_repr::executable::ExecutableProgram,
         impl_emission_names: &[Option<Name>],
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
-        // V2 pipeline
-
-        // 1. Create LLVM module context.
-        //
-        // We use ManuallyDrop + raw-pointer reborrow to work around a borrow
+        // ManuallyDrop plus a raw-pointer reborrow works around a borrow
         // checker limitation: FunctionCompiler's lifetime parameters tie the
         // compilation block's borrow of `scx` to the return lifetime, preventing
-        // us from creating the ExecutionEngine afterward. The raw-pointer
+        // ExecutionEngine creation afterward. The raw-pointer
         // roundtrip (`scx_ref`) creates a detached reference whose borrow
         // doesn't leak out of the block. This is sound because:
         //
         // - `scx` lives for the entire function (ManuallyDrop suppresses drop)
         // - The compilation block's borrows genuinely end at the block boundary
         // - `create_jit_execution_engine` takes C-level ownership of the module
-        //   (the Rust `Module` becomes a shell — see inkwell's `owned_by_ee`)
+        //   and leaves the Rust `Module` as a non-owning shell
         //   and returns `ExecutionEngine<'ctx>` tied to the Context lifetime
         let scx = ManuallyDrop::new(SimpleCx::new(&self.context, "test_module"));
 
         let (test_wrappers, codegen_errors, codegen_error_descriptions) = {
-            // SAFETY: Detached reference to scx — see comment above.
+            // SAFETY: `scx` remains alive for the returned engine lifetime;
+            // compilation borrows end before engine creation, and ManuallyDrop
+            // prevents Rust from disposing the module after MCJIT takes ownership.
             let scx_ref: &SimpleCx<'_> = unsafe { &*std::ptr::from_ref(&*scx) };
 
             Self::compile_all_functions(
                 scx_ref,
-                module,
-                tests,
-                canon,
-                interner,
-                function_sigs,
-                user_types,
-                impl_sigs,
-                imported_functions,
-                mono_functions,
-                executable,
-                impl_emission_names,
+                JitCompilationInputs {
+                    module,
+                    tests,
+                    canon,
+                    interner,
+                    function_sigs,
+                    user_types,
+                    impl_sigs,
+                    imported_functions,
+                    mono_functions,
+                    executable,
+                    impl_emission_names,
+                },
             )
         };
 
@@ -121,24 +138,24 @@ impl super::OwnedLLVMEvaluator {
     /// Compile all functions, impls, derives, and test wrappers into the LLVM module.
     ///
     /// Returns `(test_wrappers, codegen_error_count, codegen_error_descriptions)`.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "JIT compilation — all params are required data flow inputs"
-    )]
     fn compile_all_functions<'ctx>(
         scx_ref: &'ctx SimpleCx<'ctx>,
-        module: &Module,
-        tests: &[&TestDef],
-        canon: &CanonResult,
-        interner: &StringInterner,
-        function_sigs: &[FunctionSig],
-        user_types: &[TypeEntry],
-        impl_sigs: &[ImplSig],
-        imported_functions: &[ImportedFunctionForCodegen<'_>],
-        mono_functions: &[ori_repr::monomorphize::MonoFunction],
-        executable: &ori_repr::executable::ExecutableProgram,
-        impl_emission_names: &[Option<Name>],
+        input: JitCompilationInputs<'_, '_, '_>,
     ) -> (FxHashMap<Name, String>, u32, Vec<String>) {
+        let JitCompilationInputs {
+            module,
+            tests,
+            canon,
+            interner,
+            function_sigs,
+            user_types,
+            impl_sigs,
+            imported_functions,
+            mono_functions,
+            executable,
+            impl_emission_names,
+        } = input;
+
         // Type/layout infrastructure is a physical projection of the same
         // closed program; LLVM does not rebuild semantic analysis inputs.
         let pool = executable.pool();
@@ -151,7 +168,6 @@ impl super::OwnedLLVMEvaluator {
 
         let annotated_sigs = Self::collect_annotated_sigs(executable);
 
-        // Two-pass function compilation
         debug!("declaring functions (phase 1)");
         let mut fc = FunctionCompiler::new(
             &mut builder,
@@ -163,12 +179,11 @@ impl super::OwnedLLVMEvaluator {
             &annotated_sigs,
             &classifier,
             None, // No debug info for JIT
-            std::env::var("ORI_VERIFY_ARC").is_ok_and(|v| v != "0"),
+            jit_verify_arc_enabled(),
         );
         fc.bind_executable_program(executable);
         fc.declare_all(&module.functions, function_sigs);
 
-        // Declare imported functions
         if !imported_functions.is_empty() {
             debug!(
                 count = imported_functions.len(),
@@ -182,7 +197,6 @@ impl super::OwnedLLVMEvaluator {
             }
         }
 
-        // Declare monomorphized generic functions
         if !mono_functions.is_empty() {
             debug!(
                 count = mono_functions.len(),
@@ -203,7 +217,6 @@ impl super::OwnedLLVMEvaluator {
             .collect();
         let artifact_remainder = fc.declare_artifact_remainder(&deferred_artifact_parents);
 
-        // Compile impl methods
         if !module.impls.is_empty() || !module.extends.is_empty() {
             debug!("compiling impl methods");
             fc.compile_impls_from_artifact(
@@ -218,7 +231,6 @@ impl super::OwnedLLVMEvaluator {
         fc.bind_executable_method_targets();
         fc.bind_user_drop_targets();
 
-        // Prepare bodies (ARC pipeline), compute nounwind set, emit LLVM IR
         debug!("preparing function bodies (phase 2a, ARC pipeline)");
         let mut prepared = fc.prepare_all_from_artifact(&module.functions, function_sigs);
 
@@ -245,10 +257,9 @@ impl super::OwnedLLVMEvaluator {
 
         prepared.extend(fc.prepare_artifact_remainder_from_artifact(&artifact_remainder));
 
-        fc.compute_nounwind_set(&prepared);
-        fc.emit_prepared_functions(prepared);
+        let analyzed = fc.compute_nounwind_set(prepared);
+        fc.emit_prepared_functions(analyzed);
 
-        // Compile test wrappers
         debug!("compiling test wrappers");
         let wrappers = fc.compile_tests(tests);
 
@@ -312,13 +323,11 @@ impl super::OwnedLLVMEvaluator {
             )));
         }
 
-        // Debug: print IR if requested
         if llvm_dump_requested() {
             eprintln!("LLVM IR:");
             eprintln!("{}", scx.llmod.print_to_string());
         }
 
-        // Verify IR
         if let Err(msg) = scx.llmod.verify() {
             drop(ManuallyDrop::into_inner(scx));
             return Err(LLVMEvalError::new(format!(
@@ -337,13 +346,12 @@ impl super::OwnedLLVMEvaluator {
             }
         }
 
-        // Register runtime symbols + create JIT execution engine.
-        // Symbols must be registered BEFORE engine creation so MCJIT's
+        // Symbols must be registered before engine creation so MCJIT's
         // RuntimeDyld can resolve them during module compilation.
         runtime_mappings::ensure_runtime_symbols_registered();
 
-        // SAFETY: Detached reference to scx.llmod — the Module was created
-        // from a Context that is still alive. See compile_module_with_tests.
+        // SAFETY: `scx.llmod` was created from the still-live context and is
+        // held in ManuallyDrop because MCJIT takes ownership during this call.
         debug!("creating JIT execution engine");
         let engine = unsafe {
             let module = &*std::ptr::addr_of!(scx.llmod);
@@ -356,5 +364,35 @@ impl super::OwnedLLVMEvaluator {
             engine,
             test_wrappers,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::jit_verify_arc_enabled;
+
+    #[test]
+    fn ori_verify_arc_enables_jit_verification() {
+        const CHILD: &str = "LLVM_VERIFY_ARC_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new(
+                std::env::current_exe().expect("test executable path must be available"),
+            )
+            .arg("ori_verify_arc_enables_jit_verification")
+            .arg("--nocapture")
+            .env(CHILD, "1")
+            .env("ORI_VERIFY_ARC", "1")
+            .output()
+            .expect("JIT verification behavior child must start");
+            assert!(
+                output.status.success(),
+                "JIT verification behavior child failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+            return;
+        }
+
+        assert!(jit_verify_arc_enabled());
     }
 }

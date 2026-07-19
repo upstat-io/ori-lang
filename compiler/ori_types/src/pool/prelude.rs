@@ -8,5 +8,6 @@ pub use super::re_intern::{
 };
 pub use super::substitute::{
     build_finalized_body_type_map, build_impl_mono_body_type_map, build_mono_body_type_map,
-    extend_var_subst_with_roots, extract_var_from_types, substitute_in_pool, BodyTypeMapSink,
+    extend_var_subst_with_roots, extract_var_from_types, substitute_in_existing_pool,
+    substitute_in_pool, BodyTypeMapSink, MissingSubstitution,
 };

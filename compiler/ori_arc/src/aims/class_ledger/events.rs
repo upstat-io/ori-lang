@@ -2,8 +2,10 @@
 //! classifier's per-block streams — the placement-ready view the emitter
 //! and the per-class verifier consume.
 
+mod demand;
 mod full_move;
 mod liveness;
+mod reachability;
 mod resolve;
 
 use rustc_hash::FxHashSet;
@@ -12,9 +14,11 @@ use crate::aims::intraprocedural::birth_site_partition::{BirthSitePartition, Fie
 use crate::aims::intraprocedural::ledger_events::{
     sib_read_count, ClassInstr, ClassOrigin, EventSite, LedgerClassification,
 };
-use crate::graph::successor_block_ids;
 use crate::ir::{ArcFunction, ArcTerminator, ArcVarId};
 
+pub(crate) use demand::{
+    demand_blocks_excluding_seeded, demand_blocks_of_vars, entry_credit_blocks, event_blocks,
+};
 pub(crate) use full_move::{
     apply_full_move_rebook, detect_full_move_arms, full_move_credit_sites, FullMoveArm,
 };
@@ -22,6 +26,9 @@ pub(crate) use liveness::{
     live_from, live_from_forward, live_from_forward_killing, live_from_killing, live_out,
     live_out_forward, live_out_forward_killing, live_out_killing,
 };
+pub(crate) use reachability::successors_of;
+
+use reachability::reachable_from;
 use resolve::resolve_event_var;
 
 /// Event vocabulary of one class-resolved instruction, placement-ready.
@@ -59,6 +66,8 @@ pub(crate) struct ClassEvent {
 )]
 pub(crate) struct ClassEvents {
     pub(crate) origin: Option<ClassOrigin>,
+    /// Indexed by block position; stream order preserved within a block.
+    pub(crate) per_block: Vec<Vec<ClassEvent>>,
     /// A member reference crosses a BACK-edge silently (a same-class jump
     /// arg into a same-class loop param): the SAME reference persists into
     /// the next iteration, so liveness must include the back-edge. A class
@@ -66,22 +75,20 @@ pub(crate) struct ClassEvents {
     /// iteration's ledger (forward-only liveness).
     pub(crate) threads_back_edge: bool,
     /// The class is birth-less, has no independent birth-site witness, and
-    /// holds a field-path member: its reference lives in a container's field
+    /// holds a field-path member: its reference is stored in a container's field
     /// slot (a param/foreign aggregate's field), released by the CONTAINER's
     /// class, never this one.
     pub(crate) container_held: bool,
-    /// Whether the class's tracked reference is owned ELSEWHERE — a
+    /// Whether the class's tracked reference has external ownership — a
     /// borrowed function param (the caller retains ownership) or a
     /// container-held field slot (the aggregate retains ownership). Either
     /// way the class owes nothing at entry and every hand-off needs its own
     /// funded reference (the borrowed-rooted discipline of the boundary
     /// calculus, with the container in the caller's role). FALSE for a
-    /// `force_owned` (extraction-funded) re-extraction: the seed inc IS the
+    /// `ExtractionOwned` re-extraction: the seed inc IS the
     /// class's own reference, so its hand-offs are RL-2 transfers, never
     /// duplications needing borrowed-rooted funding.
     pub(crate) externally_funded: bool,
-    /// Indexed by block position; stream order preserved within a block.
-    pub(crate) per_block: Vec<Vec<ClassEvent>>,
     /// Every positive entry in these books is a REAL runtime acquisition
     /// (a classifier-booked Birth or Credit from the PLAIN extraction).
     /// FALSE for force-owned / credited / rebooked cure re-extractions,
@@ -92,11 +99,26 @@ pub(crate) struct ClassEvents {
 }
 
 impl ClassEvents {
-    /// The stored external-funding classification (see the field). A
-    /// birth-less WHOLE-VAR class is NOT externally funded — that shape is
+    /// Return the stored external-funding classification. A birth-less
+    /// WHOLE-VAR class is NOT externally funded — that shape is
     /// a classification gap and stays fail-closed at the read floor.
     pub(crate) fn is_externally_funded(&self) -> bool {
         self.externally_funded
+    }
+}
+
+/// Ownership basis used while extracting a class's ledger events.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EventFunding {
+    /// Preserve the ownership classification established by the ledger.
+    Classified,
+    /// Treat an extraction-site increment as the class's owned reference.
+    ExtractionOwned,
+}
+
+impl EventFunding {
+    const fn is_extraction_owned(self) -> bool {
+        matches!(self, Self::ExtractionOwned)
     }
 }
 
@@ -143,10 +165,16 @@ pub(crate) fn extract_class_events(
     partition: &mut BirthSitePartition,
     class: NodeIdx,
 ) -> ClassEvents {
-    extract_class_events_with(func, classification, partition, class, false)
+    extract_class_events_with(
+        func,
+        classification,
+        partition,
+        class,
+        EventFunding::Classified,
+    )
 }
 
-/// [`extract_class_events`] with `force_owned`: a funded-at-extraction view
+/// [`extract_class_events`] with an explicit ownership basis: a funded-at-extraction view
 /// class re-extracts under OWNED semantics (reads floor 1 against its
 /// extraction inc) instead of the container-held floor-0 discipline.
 pub(crate) fn extract_class_events_with(
@@ -154,9 +182,9 @@ pub(crate) fn extract_class_events_with(
     classification: &LedgerClassification,
     partition: &mut BirthSitePartition,
     class: NodeIdx,
-    force_owned: bool,
+    funding: EventFunding,
 ) -> ClassEvents {
-    extract_class_events_inner(func, classification, partition, class, force_owned, &[])
+    extract_class_events_inner(func, classification, partition, class, funding, &[])
 }
 
 /// [`extract_class_events`] with a CREDIT injected at each extraction site
@@ -164,7 +192,7 @@ pub(crate) fn extract_class_events_with(
 /// consume is KEPT — a whole-var release site pays it recursively on the
 /// bypass path — and each extraction re-acquires the reference the store
 /// gave the container (+1), so the extraction path balances through its
-/// own downstream consume. Extraction sites are `(block, body_index)` of
+/// own subsequent consume. Extraction sites are `(block, body_index)` of
 /// the member-defining Projects.
 pub(crate) fn extract_class_events_with_extraction_credits(
     func: &ArcFunction,
@@ -172,10 +200,10 @@ pub(crate) fn extract_class_events_with_extraction_credits(
     partition: &mut BirthSitePartition,
     class: NodeIdx,
     extraction_sites: &[(usize, usize)],
-    force_owned: bool,
+    funding: EventFunding,
 ) -> ClassEvents {
     let mut events =
-        extract_class_events_inner(func, classification, partition, class, force_owned, &[]);
+        extract_class_events_inner(func, classification, partition, class, funding, &[]);
     events.books_runtime_grounded = false;
     for &(block, index) in extraction_sites {
         let Some(evs) = events.per_block.get_mut(block) else {
@@ -235,7 +263,7 @@ pub(crate) fn extract_class_events_rebooked(
         classification,
         partition,
         class,
-        false,
+        EventFunding::Classified,
         skip_consume_sites,
     )
 }
@@ -245,7 +273,7 @@ fn extract_class_events_inner(
     classification: &LedgerClassification,
     partition: &mut BirthSitePartition,
     class: NodeIdx,
-    force_owned: bool,
+    funding: EventFunding,
     skip_consume_sites: &[(usize, EventSite)],
 ) -> ClassEvents {
     let origin = classification.class_origins.get(&class).copied();
@@ -257,7 +285,7 @@ fn extract_class_events_inner(
         && partition.site(class).is_none()
         && partition.class_has_field_path_member(class);
     let externally_funded =
-        !force_owned && (origin == Some(ClassOrigin::Borrowed) || container_held);
+        !funding.is_extraction_owned() && (origin == Some(ClassOrigin::Borrowed) || container_held);
     let threads_back_edge = class_threads_back_edge(func, partition, class);
     let mut per_block: Vec<Vec<ClassEvent>> = vec![Vec::new(); func.blocks.len()];
     for (block, stream) in classification.blocks.iter().enumerate() {
@@ -294,11 +322,11 @@ fn extract_class_events_inner(
     }
     ClassEvents {
         origin,
+        per_block,
         threads_back_edge,
         container_held,
         externally_funded,
-        per_block,
-        books_runtime_grounded: !force_owned && skip_consume_sites.is_empty(),
+        books_runtime_grounded: !funding.is_extraction_owned() && skip_consume_sites.is_empty(),
     }
 }
 
@@ -366,9 +394,13 @@ fn event_shape(
         ClassInstr::Mutate { value, .. } => {
             let siblings =
                 suffix_sibling_reads(func, classification, class, block, position, value);
-            (EventKind::Mutate, 0, owned_unit + siblings)
+            (EventKind::Mutate, 0, mutate_floor(owned_unit, siblings))
         }
     }
+}
+
+pub(super) fn mutate_floor(owned_unit: i64, sibling_reads: i64) -> i64 {
+    owned_unit.saturating_add(sibling_reads)
 }
 
 /// Distinct OTHER same-class values read after the mutate — the block-stream
@@ -396,105 +428,4 @@ fn suffix_sibling_reads(
         }
     }
     i64::try_from(sib_read_count(class, value, &suffix)).unwrap_or(i64::MAX)
-}
-
-/// Blocks reachable from `block`'s successors (transitively; includes
-/// `block` itself on a cycle), ascending order.
-fn reachable_from(func: &ArcFunction, block: usize) -> Vec<usize> {
-    let mut reachable = FxHashSet::default();
-    let mut stack = successors_of(func, block);
-    while let Some(next) = stack.pop() {
-        if reachable.insert(next) {
-            stack.extend(successors_of(func, next));
-        }
-    }
-    let mut ordered: Vec<usize> = reachable.into_iter().collect();
-    ordered.sort_unstable();
-    ordered
-}
-
-/// Distinct in-range successor indices of `block`.
-pub(crate) fn successors_of(func: &ArcFunction, block: usize) -> Vec<usize> {
-    let Some(arc_block) = func.blocks.get(block) else {
-        return Vec::new();
-    };
-    let mut seen = FxHashSet::default();
-    successor_block_ids(&arc_block.terminator)
-        .iter()
-        .map(|id| id.index())
-        .filter(|&idx| idx < func.blocks.len() && seen.insert(idx))
-        .collect()
-}
-
-/// Demand blocks EXCLUDING seed-funded member reads: an extraction-funded
-/// (seeded) member var's demand is paid by its own RL-1 inc at the `Project`
-/// site, so it never counts as surviving demand on the pre-consume reference.
-pub(crate) fn demand_blocks_excluding_seeded(
-    events: &ClassEvents,
-    seed_vars: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,
-) -> Vec<bool> {
-    events
-        .per_block
-        .iter()
-        .map(|evs| {
-            evs.iter().any(|ev| {
-                matches!(
-                    ev.kind,
-                    EventKind::Read | EventKind::Mutate | EventKind::Consume
-                ) && !ev.var.is_some_and(|v| seed_vars.contains(&v))
-            })
-        })
-        .collect()
-}
-
-/// Demand blocks restricted to the given vars (a seeded member's own alias
-/// closure): only same-reference demand — a different seeded extraction is a
-/// different iteration's reference and never keeps THIS one alive.
-pub(crate) fn demand_blocks_of_vars(
-    events: &ClassEvents,
-    vars: &rustc_hash::FxHashSet<crate::ir::ArcVarId>,
-) -> Vec<bool> {
-    events
-        .per_block
-        .iter()
-        .map(|evs| {
-            evs.iter().any(|ev| {
-                matches!(
-                    ev.kind,
-                    EventKind::Read | EventKind::Mutate | EventKind::Consume
-                ) && ev.var.is_some_and(|v| vars.contains(&v))
-            })
-        })
-        .collect()
-}
-
-/// Blocks whose ENTRY carries a Credit re-acquisition: demand at/after such
-/// a block is credit-funded and never propagates back past it.
-pub(crate) fn entry_credit_blocks(events: &ClassEvents) -> Vec<bool> {
-    events
-        .per_block
-        .iter()
-        .map(|evs| {
-            evs.iter()
-                .any(|ev| ev.kind == EventKind::Credit && ev.site == EventSite::BlockEntry)
-        })
-        .collect()
-}
-
-/// Per-block seed flags: with `demand_only`, blocks holding a value use
-/// (Read / Mutate / Consume); otherwise blocks holding ANY event.
-pub(crate) fn event_blocks(events: &ClassEvents, demand_only: bool) -> Vec<bool> {
-    events
-        .per_block
-        .iter()
-        .map(|evs| {
-            evs.iter().any(|ev| {
-                !demand_only
-                    || matches!(
-                        ev.kind,
-                        EventKind::Read | EventKind::Mutate | EventKind::Consume
-                    )
-            })
-        })
-        .collect()
 }

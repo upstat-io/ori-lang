@@ -11,10 +11,8 @@ use super::{method_receiver_key, DerivedMethodAnalysis};
 
 /// Build shared ARC bodies for supported accepted non-generic derives.
 ///
-/// This is deliberately downstream of type checking and upstream of the one
-/// grouped preparation/AIMS seam. It consumes only accepted facts, emits no
-/// ownership instructions. Generated Canon roots may eventually become the
-/// producer for the same shared ARC/AIMS seam.
+/// Accepts only validated derive facts and emits no ownership instructions.
+#[must_use = "success or failure must be handled"]
 pub(crate) fn lower_non_generic_derived_methods_for_analysis(
     accepted_derives: &[AcceptedDerivedImpl],
     derived_call_plans: &[DerivedCallPlan],
@@ -93,6 +91,7 @@ pub(crate) fn lower_non_generic_derived_methods_for_analysis(
 /// Returning `None` for an unsupported derived origin intentionally leaves
 /// that target unresolved. The closed executable validator remains the
 /// fail-closed coverage gate while shared body coverage is expanded.
+#[must_use = "the absence of a value must be handled"]
 pub(crate) fn lower_mono_function_for_analysis(
     mono: &MonoFunction,
     mono_targets: &MonoTargetMaps,
@@ -192,6 +191,7 @@ pub(crate) fn lower_mono_function_for_analysis(
     }
 }
 
+#[must_use = "the absence of a value must be handled"]
 pub(super) fn build_supported_derived_body(
     accepted: &AcceptedDerivedImpl,
     plan: &DerivedCallPlan,

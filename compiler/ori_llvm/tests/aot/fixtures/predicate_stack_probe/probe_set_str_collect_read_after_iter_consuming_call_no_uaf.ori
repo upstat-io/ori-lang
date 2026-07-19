@@ -1,0 +1,11 @@
+@count_explicit<T> (c: Set<T>) -> int = c.iter().count();
+
+@main () -> int = {
+    let s: Set<str> = [
+        "a very long set element string exceeding the sso threshold for sure",
+        "another long set element string for generic iter parameter cleanup"
+    ].iter().collect();
+    let n = count_explicit(c: s);
+    let m = s.len();
+    if n == 2 && m == 2 then 0 else 1
+}

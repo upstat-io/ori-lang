@@ -1,0 +1,11 @@
+@use_twice (xs: [str]) -> [str] = {
+    print(msg: `len: {xs.len()}`);
+    print(msg: `first: {xs[0]}`);
+    xs
+};
+
+@main () -> int = {
+    let original = ["a", "bb", "ccc"];
+    let returned = use_twice(xs: original);
+    if returned.len() == 3 && returned[0].len() == 1 && returned[2].len() == 3 then 0 else 1
+}

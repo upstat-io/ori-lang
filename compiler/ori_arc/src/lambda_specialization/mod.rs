@@ -20,14 +20,55 @@ use type_predicates::{contains_bound_var, contains_var, first_bound_var};
 use type_resolve::{
     apply_bound_var_map, apply_call_site_types, apply_concrete_param_types,
     apply_parent_partial_apply_type, find_all_instantiation_types, find_concrete_types_from_calls,
-    find_partial_apply_dst, is_polymorphic_lambda, materialize_type_sites,
-    resolve_lambda_return_types,
+    find_partial_apply_dst, is_polymorphic_lambda, resolve_lambda_return_types, resolve_type_sites,
+    TypeResolution,
 };
 
-/// Failure to eliminate every bound type variable before AIMS.
+/// One substituted compound identity that the type phase did not intern.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MissingTypeMaterialization {
+    function: ori_ir::Name,
+    var_id: crate::ArcVarId,
+    source: ori_types::Idx,
+}
+
+impl MissingTypeMaterialization {
+    pub(super) const fn new(
+        function: ori_ir::Name,
+        var_id: crate::ArcVarId,
+        source: ori_types::Idx,
+    ) -> Self {
+        Self {
+            function,
+            var_id,
+            source,
+        }
+    }
+
+    /// Return the ARC function containing the missing type site.
+    #[must_use]
+    pub const fn function(self) -> ori_ir::Name {
+        self.function
+    }
+
+    /// Return the ARC variable owning the missing site.
+    #[must_use]
+    pub const fn var_id(self) -> crate::ArcVarId {
+        self.var_id
+    }
+
+    /// Return the source type whose concrete identity was absent.
+    #[must_use]
+    pub const fn source(self) -> ori_types::Idx {
+        self.source
+    }
+}
+
+/// Failure to close every lambda type before AIMS.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LambdaSpecializationError {
     unresolved: Vec<crate::UnresolvedBoundVar>,
+    missing_materializations: Vec<MissingTypeMaterialization>,
 }
 
 impl LambdaSpecializationError {
@@ -36,15 +77,17 @@ impl LambdaSpecializationError {
     pub fn unresolved(&self) -> &[crate::UnresolvedBoundVar] {
         &self.unresolved
     }
+
+    /// Return type identities that the owning type phase failed to intern.
+    #[must_use]
+    pub fn missing_materializations(&self) -> &[MissingTypeMaterialization] {
+        &self.missing_materializations
+    }
 }
 
 impl std::fmt::Display for LambdaSpecializationError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "lambda specialization left {} unresolved bound type variable(s)",
-            self.unresolved.len()
-        )
+        write!(formatter, "lambda specialization left {} unresolved bound type variable(s) and found {} concrete type identity/identities missing from the type-checker pool", self.unresolved.len(), self.missing_materializations.len())
     }
 }
 
@@ -59,7 +102,7 @@ impl std::error::Error for LambdaSpecializationError {}
 pub fn specialize_polymorphic_lambdas(
     parent: &mut crate::ArcFunction,
     lambdas: &mut Vec<crate::ArcFunction>,
-    pool: &mut ori_types::Pool,
+    pool: &ori_types::Pool,
     interner: &ori_ir::StringInterner,
 ) -> Result<(), LambdaSpecializationError> {
     // This is the sole sanctioned pre-AIMS type rewrite. Lowering-derived
@@ -71,15 +114,17 @@ pub fn specialize_polymorphic_lambdas(
         lambda.invalidate_variable_metadata_for_type_rewrite();
     }
 
-    // Canonicalize every type site before deciding whether specialization is
-    // needed. A compound function type may contain linked inference variables
-    // even when its target lambda parameters have already resolved; raw Idx
-    // equality at artifact closure requires both surfaces to share the exact
-    // materialized pool identity.
+    // Resolve every type site to identities already materialized by the type
+    // phase before deciding whether specialization is needed. ARC may select
+    // those identities but cannot extend the canonical Pool.
+    let mut resolution = TypeResolution::new(pool);
     let empty = rustc_hash::FxHashMap::default();
-    materialize_type_sites(parent, &empty, pool);
+    resolve_type_sites(parent, &empty, &mut resolution);
     for lambda in lambdas.iter_mut() {
-        materialize_type_sites(lambda, &empty, pool);
+        resolve_type_sites(lambda, &empty, &mut resolution);
+    }
+    if resolution.has_missing() {
+        return validate_specialized_batch(parent, lambdas, pool, resolution.into_missing());
     }
 
     remove_dead_non_capturing_templates(parent, lambdas, pool);
@@ -92,18 +137,19 @@ pub fn specialize_polymorphic_lambdas(
             .iter()
             .any(|lambda| find_all_instantiation_types(parent, lambda.name, pool).len() > 1);
     if !any_polymorphic && !any_multi_inst {
-        return validate_specialized_batch(parent, lambdas, pool);
+        return validate_specialized_batch(parent, lambdas, pool, resolution.into_missing());
     }
 
     let original_count = lambdas.len();
-    let multi_inst_lambdas = detect_and_clone_multi_inst(parent, lambdas, pool, interner);
+    let multi_inst_lambdas =
+        detect_and_clone_multi_inst(parent, lambdas, interner, &mut resolution);
     let (global_map, return_types, concrete_function_types) =
         build_single_inst_mappings(parent, lambdas, original_count, &multi_inst_lambdas, pool);
 
     // Parent closure construction/copy sites carry the same quantified
-    // children as their targets. Materialize them from the exact global map so
+    // children as their targets. Resolve them from the exact global map so
     // callable-fact validation sees one shared residual signature identity.
-    apply_bound_var_map(parent, &global_map, pool);
+    apply_bound_var_map(parent, &global_map, &mut resolution);
 
     for (&index, &concrete_function) in &concrete_function_types {
         apply_parent_partial_apply_type(parent, lambdas[index].name, concrete_function);
@@ -113,12 +159,12 @@ pub fn specialize_polymorphic_lambdas(
         if index < original_count && multi_inst_lambdas.contains(&index) {
             continue;
         }
-        apply_bound_var_map(lambda, &global_map, pool);
+        apply_bound_var_map(lambda, &global_map, &mut resolution);
         if let Some(&(schema, concrete)) = return_types.get(&index) {
             resolve_lambda_return_types(lambda, schema, concrete);
         }
         if let Some(&concrete_function) = concrete_function_types.get(&index) {
-            apply_concrete_param_types(lambda, concrete_function, pool);
+            apply_concrete_param_types(lambda, concrete_function, &mut resolution);
         }
     }
 
@@ -142,21 +188,21 @@ pub fn specialize_polymorphic_lambdas(
             if let Some((arguments, result)) =
                 find_concrete_types_from_calls(parent, partial_apply, pool)
             {
-                apply_call_site_types(&mut lambdas[index], &arguments, result, pool);
+                apply_call_site_types(&mut lambdas[index], &arguments, result, &mut resolution);
             }
         }
     }
 
     remove_multi_inst_originals(lambdas, multi_inst_lambdas);
 
-    // Follow any links exposed by return/call-site resolution and intern the
-    // final compound identities before the closed artifact freezes facts.
+    // Follow any links exposed by return/call-site resolution through concrete
+    // identities the type phase already interned.
     let empty = rustc_hash::FxHashMap::default();
-    materialize_type_sites(parent, &empty, pool);
+    resolve_type_sites(parent, &empty, &mut resolution);
     for lambda in lambdas.iter_mut() {
-        materialize_type_sites(lambda, &empty, pool);
+        resolve_type_sites(lambda, &empty, &mut resolution);
     }
-    validate_specialized_batch(parent, lambdas, pool)
+    validate_specialized_batch(parent, lambdas, pool, resolution.into_missing())
 }
 
 /// Remove an uninstantiated closure template only when its construction has
@@ -301,6 +347,7 @@ fn validate_specialized_batch(
     parent: &crate::ArcFunction,
     lambdas: &[crate::ArcFunction],
     pool: &ori_types::Pool,
+    missing_materializations: Vec<MissingTypeMaterialization>,
 ) -> Result<(), LambdaSpecializationError> {
     let mut unresolved = Vec::new();
     for function in std::iter::once(parent).chain(lambdas.iter()) {
@@ -308,10 +355,13 @@ fn validate_specialized_batch(
             unresolved.push(error);
         }
     }
-    if unresolved.is_empty() {
+    if unresolved.is_empty() && missing_materializations.is_empty() {
         Ok(())
     } else {
-        Err(LambdaSpecializationError { unresolved })
+        Err(LambdaSpecializationError {
+            unresolved,
+            missing_materializations,
+        })
     }
 }
 

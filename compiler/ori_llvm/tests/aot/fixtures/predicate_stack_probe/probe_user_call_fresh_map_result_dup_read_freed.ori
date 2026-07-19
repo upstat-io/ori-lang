@@ -1,0 +1,10 @@
+@pair_map (a: int, b: int) -> {int: int} = {
+    let m: {int: int} = {};
+    let m2 = m.insert(a, a * 10);
+    m2.insert(b, b * 10)
+};
+
+@main () -> int = {
+    let m = pair_map(a: 1, b: 2);
+    if m.len() == 2 && m.get(1).unwrap() == 10 then 0 else 1
+}

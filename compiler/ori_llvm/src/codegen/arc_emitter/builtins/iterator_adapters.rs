@@ -218,9 +218,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// The runtime contract: outer source yields 8-byte iterator handles; the
     /// `inner_elem_size` argument is `sizeof(inner element)` — the byte size
-    /// of elements yielded by each inner iterator. See
-    /// `ori_rt/src/iterator/adapters.rs` `ori_iter_flatten` and
-    /// `ori_rt/src/iterator/next.rs::next_flattened`.
+    /// of elements yielded by each inner iterator. Both `ori_iter_flatten`
+    /// and `next_flattened` consume that exact stride.
     ///
     /// `outer_elem_ty` MUST be an iterator type — `Iterator<T>` or
     /// `DoubleEndedIterator<T>`. The returned size is the canonical byte size
@@ -276,11 +275,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // The mapped iterator's element type is the closure's RETURN type —
         // an iterator handle (`Iterator<U>` or `DoubleEndedIterator<U>`).
-        // resolve_fully chases binding-chain aliases;
-        // Tag::Function guard mirrors `emit_iter_map:360` defensive pattern
-        // for unresolved-type cases that shouldn't reach codegen but are
-        // returned as None rather than asserted (consistency with sibling
-        // emitter precedent).
+        // `resolve_fully` chases binding-chain aliases. Unresolved non-function
+        // types fail closed with `None` instead of reaching codegen assertions.
         let closure_ty = self.pool.resolve_fully(arc_func.var_type(args[1]));
         let closure_return = if self.pool.tag(closure_ty) == ori_types::Tag::Function {
             self.pool.function_return(closure_ty)
@@ -313,7 +309,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         // The replay buffer OWNS its element copies: pass the element inc/dec fns
         // (null for scalar elements) so next_cycled incs on store and Drop decs
-        // each stored master. Mirrors how Map threads key/val_dec_fn.
+        // each stored master.
         let elem_inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
         let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
         let func_id = self.builder.runtime_fn("ori_iter_cycle");

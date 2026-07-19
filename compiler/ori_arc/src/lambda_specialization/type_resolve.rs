@@ -11,6 +11,41 @@ use super::type_predicates::{
     contains_bound_var, contains_var, has_concrete_params, map_types_structural,
 };
 
+/// Read-only type-pool access plus fail-closed materialization evidence for one
+/// lambda-specialization run.
+pub(super) struct TypeResolution<'pool> {
+    pool: &'pool ori_types::Pool,
+    missing: Vec<super::MissingTypeMaterialization>,
+}
+
+impl<'pool> TypeResolution<'pool> {
+    pub(super) fn new(pool: &'pool ori_types::Pool) -> Self {
+        Self {
+            pool,
+            missing: Vec::new(),
+        }
+    }
+
+    pub(super) const fn pool(&self) -> &'pool ori_types::Pool {
+        self.pool
+    }
+
+    pub(super) fn has_missing(&self) -> bool {
+        !self.missing.is_empty()
+    }
+
+    pub(super) fn into_missing(self) -> Vec<super::MissingTypeMaterialization> {
+        self.missing
+    }
+
+    fn record_missing(&mut self, function: Name, var_id: crate::ArcVarId, source: Idx) {
+        let failure = super::MissingTypeMaterialization::new(function, var_id, source);
+        if !self.missing.contains(&failure) {
+            self.missing.push(failure);
+        }
+    }
+}
+
 /// Find the `PartialApply` dst variable for a lambda in a function's blocks.
 pub(super) fn find_partial_apply_dst(
     func: &crate::ArcFunction,
@@ -143,27 +178,36 @@ pub(super) fn find_partial_apply_concrete_type(
 pub(super) fn apply_bound_var_map(
     lambda: &mut crate::ArcFunction,
     map: &rustc_hash::FxHashMap<u32, Idx>,
-    pool: &mut ori_types::Pool,
+    resolution: &mut TypeResolution<'_>,
 ) {
-    materialize_type_sites(lambda, map, pool);
+    resolve_type_sites(lambda, map, resolution);
 }
 
-/// Materialize every ARC type site through the canonical pool substitution
-/// recursion. Schemes are instantiated at this executable-lambda seam; the
+/// Resolve every ARC type site through the type phase's existing canonical
+/// identities. Schemes are instantiated at this executable-lambda seam; the
 /// general pool helper deliberately leaves them opaque because it cannot know
-/// whether a caller owns their binders.
-pub(super) fn materialize_type_sites(
+/// whether a caller owns their binders. Missing identities fail closed instead
+/// of granting ARC authority to extend the type pool.
+pub(super) fn resolve_type_sites(
     function: &mut crate::ArcFunction,
     substitutions: &rustc_hash::FxHashMap<u32, Idx>,
-    pool: &mut ori_types::Pool,
+    resolution: &mut TypeResolution<'_>,
 ) {
-    crate::ir::validate::rewrite_type_sites(function, |ty, _| {
+    let function_name = function.name;
+    crate::ir::validate::rewrite_type_sites(function, |ty, var_id| {
+        let pool = resolution.pool();
         let materialized = if pool.tag(ty) == Tag::Scheme {
             pool.scheme_body(ty)
         } else {
             ty
         };
-        ori_types::substitute_in_pool(pool, materialized, substitutions)
+        match ori_types::substitute_in_existing_pool(pool, materialized, substitutions) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                resolution.record_missing(function_name, var_id, error.source());
+                ty
+            }
+        }
     });
 }
 
@@ -171,12 +215,15 @@ pub(super) fn materialize_type_sites(
 fn apply_exact_type_map(
     function: &mut crate::ArcFunction,
     substitutions: &rustc_hash::FxHashMap<Idx, Idx>,
-    pool: &mut ori_types::Pool,
+    resolution: &mut TypeResolution<'_>,
 ) {
     if substitutions.is_empty() {
         return;
     }
-    crate::ir::validate::rewrite_type_sites(function, |ty, _| {
+    let function_name = function.name;
+    let empty = rustc_hash::FxHashMap::default();
+    crate::ir::validate::rewrite_type_sites(function, |ty, var_id| {
+        let pool = resolution.pool();
         let replacement = substitutions
             .get(&ty)
             .or_else(|| substitutions.get(&pool.resolve_fully(ty)))
@@ -187,7 +234,13 @@ fn apply_exact_type_map(
         } else {
             replacement
         };
-        ori_types::substitute_in_pool(pool, replacement, &rustc_hash::FxHashMap::default())
+        match ori_types::substitute_in_existing_pool(pool, replacement, &empty) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                resolution.record_missing(function_name, var_id, error.source());
+                ty
+            }
+        }
     });
 }
 
@@ -202,8 +255,9 @@ fn apply_exact_type_map(
 pub(super) fn apply_concrete_param_types(
     lambda: &mut crate::ArcFunction,
     concrete_fn_ty: Idx,
-    pool: &mut ori_types::Pool,
+    resolution: &mut TypeResolution<'_>,
 ) {
+    let pool = resolution.pool();
     if pool.tag(concrete_fn_ty) != Tag::Function {
         return;
     }
@@ -228,7 +282,7 @@ pub(super) fn apply_concrete_param_types(
         }
     }
 
-    apply_exact_type_map(lambda, &idx_subst, pool);
+    apply_exact_type_map(lambda, &idx_subst, resolution);
 }
 
 /// Extract concrete param types from `ApplyIndirect` call sites in the parent.
@@ -333,8 +387,9 @@ pub(super) fn apply_call_site_types(
     lambda: &mut crate::ArcFunction,
     arg_types: &[Idx],
     result_ty: Idx,
-    pool: &mut ori_types::Pool,
+    resolution: &mut TypeResolution<'_>,
 ) {
+    let pool = resolution.pool();
     let num_captures = lambda.params.len().saturating_sub(arg_types.len());
     let mut idx_subst: rustc_hash::FxHashMap<Idx, Idx> = rustc_hash::FxHashMap::default();
 
@@ -362,7 +417,7 @@ pub(super) fn apply_call_site_types(
         idx_subst.insert(schema_ret, result_ty);
     }
 
-    apply_exact_type_map(lambda, &idx_subst, pool);
+    apply_exact_type_map(lambda, &idx_subst, resolution);
 }
 
 /// Resolve a lambda's return type at every shared ARC type position.

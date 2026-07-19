@@ -93,7 +93,7 @@ pub use ir::{
 };
 pub use lambda_specialization::{
     first_unresolved_bound_var, specialize_polymorphic_lambdas, type_contains_bound_var,
-    LambdaSpecializationError,
+    LambdaSpecializationError, MissingTypeMaterialization,
 };
 pub use liveness::{
     compute_liveness, compute_refined_liveness, BlockLiveness, LiveSet, RefinedLiveness,

@@ -17,8 +17,6 @@
 //! # Submodule dispatch
 //!
 //! Each submodule declares its builtin methods via `declare_builtins!`.
-//! No legacy dispatch remains -- all types are covered by submodule
-//! declarations.
 
 // declare_builtins! macro — MUST appear before submodule `mod` declarations
 // for textual scoping (macro_rules! follow source order in Rust).
@@ -74,6 +72,7 @@ macro_rules! declare_builtins {
 
 mod associated;
 mod collections;
+mod compound_elements;
 mod compound_traits;
 mod compound_type_impls;
 mod debug_compound;
@@ -97,9 +96,6 @@ mod structural_eq;
 mod traceable;
 mod traits;
 mod trampolines;
-
-#[cfg(test)]
-pub(in crate::codegen::arc_emitter) use collections::push_result_elem_header_store_disabled;
 
 pub(super) use traits::CmpPredicate;
 

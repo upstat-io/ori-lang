@@ -14,7 +14,7 @@ mod deferred;
 mod method;
 
 pub(crate) use applied::register_concrete_applied_resolutions;
-pub(crate) use burden::{compose_builtin_burdens_for_resolved_types, compose_for_idx};
+pub(crate) use burden::compose_for_idx;
 pub use burden::{compose_burden_for_idx, register_resolved_collection_burdens};
 pub(in crate::infer::expr::calls) use method::{
     maybe_record_method_mono_instance, resolve_method_call_generic_args,

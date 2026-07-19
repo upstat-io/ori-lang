@@ -1,0 +1,11 @@
+@fallible () -> Result<int, str> = Err("fail");
+
+@propagate () -> Result<int, str> = {
+    let v = fallible()?;
+    Ok(v + 1)
+}
+
+@main () -> int = {
+    let r = propagate();
+    if r.is_err() then 0 else 1
+}

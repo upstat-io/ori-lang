@@ -1,6 +1,7 @@
 //! Field-decomposition cure (PV-6): decompose a released container's
 //! whole-var releases per named owned field — uniformly, or per release
 //! site when a bypass edge keeps the recursive whole-var drop.
+//! Trace events share the `ori_arc::aims::class_ledger` target across the cure ladder.
 
 use crate::aims::intraprocedural::birth_site_partition::NodeIdx;
 
@@ -67,22 +68,40 @@ fn constructless_boundary_credit_sites(
         authority.variant_ordinal(),
     );
     let dom = crate::graph::DominatorTree::build(inputs.func);
+    let mut first_extraction: Vec<Option<usize>> = vec![None; inputs.func.blocks.len()];
+    for &(block, index) in &ctx.extractions {
+        let first = &mut first_extraction[block];
+        *first = Some(first.map_or(index, |prior| prior.min(index)));
+    }
+    let mut dominated = vec![None; inputs.func.blocks.len()];
     ctx.extractions
         .iter()
         .copied()
         .filter(|&(block, index)| {
-            !ctx.extractions.iter().any(|&(prior_block, prior_index)| {
-                if prior_block == block {
-                    prior_index < index
-                } else {
-                    dom.dominates(
-                        inputs.func.blocks[prior_block].id,
-                        inputs.func.blocks[block].id,
-                    )
-                }
-            })
+            first_extraction[block] == Some(index)
+                && !has_extraction_ancestor(block, &dom.idom, &first_extraction, &mut dominated)
         })
         .collect()
+}
+
+fn has_extraction_ancestor(
+    block: usize,
+    immediate_dominators: &[Option<usize>],
+    first_extraction: &[Option<usize>],
+    memo: &mut [Option<bool>],
+) -> bool {
+    if let Some(result) = memo[block] {
+        return result;
+    }
+    let result = match immediate_dominators[block] {
+        Some(parent) if parent != block => {
+            first_extraction[parent].is_some()
+                || has_extraction_ancestor(parent, immediate_dominators, first_extraction, memo)
+        }
+        _ => false,
+    };
+    memo[block] = Some(result);
+    result
 }
 
 /// The per-SITE decomposition attempt (`FD_site_uniform_projection`):
@@ -134,7 +153,7 @@ fn try_per_site_decomposition(
         state.partition,
         hazard.view,
         &extractions,
-        true,
+        events::EventFunding::ExtractionOwned,
     );
     let outcome_opt = plan_and_verify_cure(
         inputs,
@@ -246,7 +265,7 @@ fn rebook_or_credit_and_commit(
         if credit_sites.is_empty() {
             return false;
         }
-        let force_owned = credit_sites.iter().any(|&(block, index)| {
+        let funding = if credit_sites.iter().any(|&(block, index)| {
             let extraction = inputs
                 .func
                 .blocks
@@ -259,14 +278,18 @@ fn rebook_or_credit_and_commit(
             extraction.is_none_or(|var| {
                 !super::increment_is_materializable(inputs.func, var, inputs.type_registry)
             })
-        });
+        }) {
+            events::EventFunding::ExtractionOwned
+        } else {
+            events::EventFunding::Classified
+        };
         events::extract_class_events_with_extraction_credits(
             inputs.func,
             inputs.classification,
             state.partition,
             hazard.view,
             &credit_sites,
-            force_owned,
+            funding,
         )
     } else {
         events::extract_class_events_rebooked(

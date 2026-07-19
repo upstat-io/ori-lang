@@ -8,7 +8,7 @@ use crate::ir::{compute_var_reprs, ArcFunction, ArcParam};
 use crate::lower::ArcIrBuilder;
 use crate::Ownership;
 
-use super::validation::{validate_concrete_type, ConcreteTypeError, RETURN_TYPE, SELF_PARAMETER};
+use super::validation::{validate_concrete_type, RETURN_TYPE, SELF_PARAMETER};
 
 /// Invalid input to a compiler-derived Clone identity body.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -49,6 +49,8 @@ pub enum DerivedCloneBodyError {
         return_type: Idx,
     },
 }
+
+crate::derived_body::impl_concrete_type_error_conversion!(DerivedCloneBodyError);
 
 impl std::fmt::Display for DerivedCloneBodyError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -115,9 +117,9 @@ pub fn build_derived_clone_identity(
     }
 
     let self_type = signature.param_types[0];
-    validate_concrete_type(pool, SELF_PARAMETER, self_type).map_err(map_clone_type_error)?;
+    validate_concrete_type(pool, SELF_PARAMETER, self_type).map_err(DerivedCloneBodyError::from)?;
     validate_concrete_type(pool, RETURN_TYPE, signature.return_type)
-        .map_err(map_clone_type_error)?;
+        .map_err(DerivedCloneBodyError::from)?;
     if !pool.structural_eq(self_type, signature.return_type) {
         return Err(DerivedCloneBodyError::ReturnTypeMismatch {
             self_type,
@@ -145,15 +147,4 @@ pub fn build_derived_clone_identity(
     let representations = compute_var_reprs(&function, &classifier, pool);
     function.replace_variable_representations(representations);
     Ok(function)
-}
-
-fn map_clone_type_error(error: ConcreteTypeError) -> DerivedCloneBodyError {
-    match error {
-        ConcreteTypeError::InvalidTypeIndex { position, ty } => {
-            DerivedCloneBodyError::InvalidTypeIndex { position, ty }
-        }
-        ConcreteTypeError::NonConcreteType { position, ty } => {
-            DerivedCloneBodyError::NonConcreteType { position, ty }
-        }
-    }
 }

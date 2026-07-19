@@ -1,0 +1,6 @@
+type Container = { items: [int] }
+
+@main () -> int = {
+    let c = Container { items: [10, 20, 30] };
+    if c.items.length() == 3 then 0 else 1
+}

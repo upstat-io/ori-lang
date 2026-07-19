@@ -1,13 +1,10 @@
-// Spec: 13-variables.md §13.6.2 — built-in `updated` method on [T] / {K:V} / [T, max N]
+// Spec: Clause 13.6.2 - built-in `updated` method on [T] / {K:V} / [T, max N].
 // `updated` is the desugar target for index assignment, callable functionally.
 // [T].updated panics out-of-bounds; {K:V}.updated inserts-or-replaces.
 
 use std.testing { assert, assert_eq, assert_panics }
 
-// =============================================================================
 // [T].updated — in-bounds replacement (parallels list.set)
-// =============================================================================
-
 @list_updated_middle () -> [int] = [1, 2, 3].updated(key: 1, value: 9);
 
 @test_list_updated_middle tests @list_updated_middle () -> void =
@@ -29,10 +26,7 @@ use std.testing { assert, assert_eq, assert_panics }
 @test_list_str_updated tests @list_str_updated () -> void =
     assert_eq(actual: list_str_updated(), expected: ["a", "X", "c"]);
 
-// =============================================================================
 // [T].updated — out-of-bounds panics (matches Index<int, T> semantics)
-// =============================================================================
-
 @test_list_updated_oob_panics tests _ () -> void =
     assert_panics(f: () -> [1, 2, 3].updated(key: 5, value: 0));
 
@@ -54,10 +48,7 @@ use std.testing { assert, assert_eq, assert_panics }
         ),
     );
 
-// =============================================================================
 // {K:V}.updated — insert-or-replace, never panics
-// =============================================================================
-
 // Replace an existing key.
 @map_updated_replace () -> Option<int> = {
     let m = { "a": 1, "b": 2 };

@@ -1,0 +1,8 @@
+type Holder = { name: str }
+
+@main () -> int = {
+    let h = Holder { name: "a string long enough to exceed inline SSO storage by a wide margin" };
+    let s = h.name;
+    let n = s.split(sep: " ").count();
+    if n == 13 then 0 else 1
+}

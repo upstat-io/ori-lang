@@ -1,0 +1,8 @@
+@main () -> int = {
+    let words = [
+        "this is a very long string that exceeds SSO threshold here",
+        "another very long string that also exceeds the SSO bound"
+    ];
+    let copy = for w in words yield w;
+    if copy[0].length() == 58 && copy[1].length() == 56 then 0 else 1
+}

@@ -1,7 +1,7 @@
 use ori_ir::ast::patterns::MatchPattern;
 use ori_ir::ast::Expr;
 use ori_ir::canon::tree::{DecisionTree, TestKind};
-use ori_ir::{ExprArena, ExprKind, SharedInterner, Span};
+use ori_ir::{ExprArena, ExprKind, MatchPatternRange, SharedInterner, Span};
 use ori_types::{Idx, TypeCheckResult, TypedModule};
 
 use crate::lower;
@@ -286,4 +286,48 @@ fn match_with_guard() {
         matches!(tree, DecisionTree::Guard { arm_index: 0, .. }),
         "expected Guard, got {tree:?}"
     );
+}
+
+#[test]
+fn unknown_closed_type_variants_panic_before_decision_tree_compilation() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    use super::decision_tree::flatten::FlattenCtx;
+
+    let arena = ExprArena::new();
+    let interner = test_interner();
+    let unknown = interner.intern("Unknown");
+    let known = interner.intern("Known");
+    let enum_name = interner.intern("Choice");
+    let pattern = MatchPattern::Variant {
+        name: unknown,
+        inner: MatchPatternRange::EMPTY,
+    };
+    let mut pool = ori_types::Pool::new();
+    let enum_type = pool.enum_type(
+        enum_name,
+        &[ori_types::EnumVariant {
+            name: known,
+            field_types: Vec::new(),
+        }],
+    );
+    let option_type = pool.option(Idx::INT);
+    let result_type = pool.result(Idx::INT, Idx::STR);
+
+    for (label, scrutinee_type) in [
+        ("user enum", enum_type),
+        ("Option", option_type),
+        ("Result", result_type),
+        ("Ordering", Idx::ORDERING),
+        ("non-variant", Idx::INT),
+    ] {
+        let ctx = FlattenCtx::new(&arena, &pool, &interner);
+        let failure = catch_unwind(AssertUnwindSafe(|| {
+            ctx.to_flat_pattern(&pattern, scrutinee_type)
+        }));
+        assert!(
+            failure.is_err(),
+            "{label} must reject a variant absent from its closed set"
+        );
+    }
 }

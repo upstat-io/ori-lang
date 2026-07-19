@@ -143,11 +143,9 @@ fn supports_sum_types_correctness() {
     assert!(DerivedTrait::Hashable.supports_sum_types());
     assert!(DerivedTrait::Printable.supports_sum_types());
     assert!(DerivedTrait::Debug.supports_sum_types());
-    assert!(!DerivedTrait::Default.supports_sum_types()); // Default cannot be derived for sum types
+    assert!(!DerivedTrait::Default.supports_sum_types());
     assert!(DerivedTrait::Comparable.supports_sum_types());
 }
-
-// Cross-crate sync enforcement
 
 #[test]
 fn all_derived_traits_round_trip() {

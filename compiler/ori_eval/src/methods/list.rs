@@ -3,10 +3,10 @@
 use ori_ir::Name;
 use ori_patterns::{no_such_method, EvalResult, IteratorValue, ListData, Value};
 
+use super::arguments::{nonnegative_usize, require_args, require_int_arg, require_list_arg};
 use super::compare::{compare_lists, compare_values, equals_values, hash_value, ordering_to_value};
-use super::helpers::{
-    debug_value, len_to_value, nonnegative_usize, require_args, require_int_arg, require_list_arg,
-};
+use super::debug_format::debug_value;
+use super::length::len_to_value;
 use super::DispatchCtx;
 
 /// Dispatch methods on list values.

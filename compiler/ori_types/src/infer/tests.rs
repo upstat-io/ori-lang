@@ -1,5 +1,5 @@
 use super::*;
-use crate::{Expected, ExpectedOrigin, Pool, TypeErrorKind};
+use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Pool, TypeErrorKind};
 
 #[test]
 fn primitive_literal_helpers_return_builtin_types() {

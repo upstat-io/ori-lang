@@ -1,150 +1,10 @@
-//! Argument validation and shared utility functions.
-
-use std::fmt::Write;
+//! Debug-format rendering for evaluator values.
 
 use ori_ir::StringLookup;
-use ori_patterns::{wrong_arg_count, wrong_arg_type, EvalError, EvalResult, ScalarInt, Value};
-
-/// Validate expected argument count.
-#[inline]
-pub fn require_args(method: &str, expected: usize, actual: usize) -> Result<(), EvalError> {
-    if actual == expected {
-        Ok(())
-    } else {
-        Err(wrong_arg_count(method, expected, actual))
-    }
-}
-
-/// Extract a string argument at the given index.
-#[inline]
-pub fn require_str_arg<'a>(
-    method: &str,
-    args: &'a [Value],
-    index: usize,
-) -> Result<&'a str, EvalError> {
-    match args.get(index) {
-        Some(Value::Str(s)) => Ok(&**s),
-        _ => Err(wrong_arg_type(method, "string")),
-    }
-}
-
-/// Extract an integer argument at the given index.
-#[inline]
-pub fn require_int_arg(method: &str, args: &[Value], index: usize) -> Result<i64, EvalError> {
-    match args.get(index) {
-        Some(Value::Int(n)) => Ok(n.raw()),
-        _ => Err(wrong_arg_type(method, "int")),
-    }
-}
-
-/// Convert an Ori integer to a host index after validating the non-negative
-/// index domain.
-#[inline]
-pub fn nonnegative_usize(
-    value: i64,
-    method: &str,
-    expected: &'static str,
-) -> Result<usize, EvalError> {
-    if value < 0 {
-        return Err(wrong_arg_type(method, expected));
-    }
-    match usize::try_from(value) {
-        Ok(index) => Ok(index),
-        Err(_) => Err(wrong_arg_type(method, expected)),
-    }
-}
-
-/// Extract a `ScalarInt` argument at the given index.
-#[inline]
-pub fn require_scalar_int_arg(
-    method: &str,
-    args: &[Value],
-    index: usize,
-) -> Result<ScalarInt, EvalError> {
-    match args.get(index) {
-        Some(Value::Int(n)) => Ok(*n),
-        _ => Err(wrong_arg_type(method, "int")),
-    }
-}
-
-/// Extract a float argument at the given index.
-#[inline]
-pub fn require_float_arg(method: &str, args: &[Value], index: usize) -> Result<f64, EvalError> {
-    match args.get(index) {
-        Some(Value::Float(f)) => Ok(*f),
-        _ => Err(wrong_arg_type(method, "float")),
-    }
-}
-
-/// Extract a list argument at the given index.
-#[inline]
-pub fn require_list_arg<'a>(
-    method: &str,
-    args: &'a [Value],
-    index: usize,
-) -> Result<&'a [Value], EvalError> {
-    match args.get(index) {
-        Some(Value::List(l)) => Ok(l),
-        _ => Err(wrong_arg_type(method, "list")),
-    }
-}
-
-/// Extract a Duration argument at the given index.
-#[inline]
-pub fn require_duration_arg(method: &str, args: &[Value], index: usize) -> Result<i64, EvalError> {
-    match args.get(index) {
-        Some(Value::Duration(d)) => Ok(*d),
-        _ => Err(wrong_arg_type(method, "Duration")),
-    }
-}
-
-/// Extract a Size argument at the given index.
-#[inline]
-pub fn require_size_arg(method: &str, args: &[Value], index: usize) -> Result<u64, EvalError> {
-    match args.get(index) {
-        Some(Value::Size(s)) => Ok(*s),
-        _ => Err(wrong_arg_type(method, "Size")),
-    }
-}
-
-/// Extract a bool argument at the given index.
-#[inline]
-pub fn require_bool_arg(method: &str, args: &[Value], index: usize) -> Result<bool, EvalError> {
-    match args.get(index) {
-        Some(Value::Bool(b)) => Ok(*b),
-        _ => Err(wrong_arg_type(method, "bool")),
-    }
-}
-
-/// Extract a char argument at the given index.
-#[inline]
-pub fn require_char_arg(method: &str, args: &[Value], index: usize) -> Result<char, EvalError> {
-    match args.get(index) {
-        Some(Value::Char(c)) => Ok(*c),
-        _ => Err(wrong_arg_type(method, "char")),
-    }
-}
-
-/// Extract a byte argument at the given index.
-#[inline]
-pub fn require_byte_arg(method: &str, args: &[Value], index: usize) -> Result<u8, EvalError> {
-    match args.get(index) {
-        Some(Value::Byte(b)) => Ok(*b),
-        _ => Err(wrong_arg_type(method, "byte")),
-    }
-}
-
-/// Convert a collection length to a Value, with overflow check.
-#[inline]
-pub fn len_to_value(len: usize, collection_type: &str) -> EvalResult {
-    match i64::try_from(len) {
-        Ok(length) => Ok(Value::int(length)),
-        Err(error) => Err(EvalError::new(format!("{collection_type} too large: {error}")).into()),
-    }
-}
+use ori_patterns::Value;
 
 /// Escape a string for Debug output (newlines, tabs, quotes, backslashes, null).
-pub fn escape_debug_str(s: &str) -> String {
+pub(crate) fn escape_debug_str(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     for c in s.chars() {
         match c {
@@ -161,7 +21,7 @@ pub fn escape_debug_str(s: &str) -> String {
 }
 
 /// Escape a char for Debug output.
-pub fn escape_debug_char(c: char) -> String {
+pub(crate) fn escape_debug_char(c: char) -> String {
     match c {
         '\n' => "\\n".to_string(),
         '\r' => "\\r".to_string(),
@@ -179,7 +39,9 @@ pub fn escape_debug_char(c: char) -> String {
 /// tuples, structs, and variants. Each value is formatted as it would appear in
 /// a `.debug()` call. The `interner` parameter enables proper formatting of
 /// struct/variant field and type names.
-pub fn debug_value(val: &Value, interner: &dyn StringLookup) -> String {
+pub(crate) fn debug_value(val: &Value, interner: &dyn StringLookup) -> String {
+    use std::fmt::Write;
+
     match val {
         Value::Int(n) => n.raw().to_string(),
         Value::Float(f) => f.to_string(),
@@ -208,12 +70,15 @@ pub fn debug_value(val: &Value, interner: &dyn StringLookup) -> String {
                 // Debug semantics (`{"x": 1}`): str keys are quoted, like every
                 // other Debug position. Keys and values both go through
                 // `debug_value`.
-                let _ = write!(
+                // Why: `String`'s `fmt::Write` implementation is infallible.
+                if let Err(error) = write!(
                     result,
                     "{}: {}",
                     debug_value(k, interner),
                     debug_value(v, interner)
-                );
+                ) {
+                    unreachable!("writing debug output to a String failed: {error}");
+                }
             }
             result.push('}');
             result

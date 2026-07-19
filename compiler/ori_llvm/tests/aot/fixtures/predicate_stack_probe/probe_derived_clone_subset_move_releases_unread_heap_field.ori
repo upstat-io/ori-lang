@@ -1,0 +1,16 @@
+#derive(Clone)
+type Pair = { kept: str, unread: str }
+
+@clone_kept () -> str = {
+    let original = Pair {
+        kept: "kept heap field ".concat(other: "abcdefghijklmnopqrstuvwxyz"),
+        unread: "unread heap field ".concat(other: "zyxwvutsrqponmlkjihgfedcba"),
+    };
+    let copy = original.clone();
+    copy.kept
+}
+
+@main () -> int = {
+    let kept = clone_kept();
+    if kept.starts_with(prefix: "kept heap field ") then 0 else 1
+}

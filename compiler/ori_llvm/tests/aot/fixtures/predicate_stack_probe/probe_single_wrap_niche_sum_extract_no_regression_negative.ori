@@ -1,0 +1,8 @@
+@main () -> int = {
+    let r = catch(expr: panic(msg: "single catch panic message that is reasonably long"));
+    let msg = match r {
+        Err(e) -> e,
+        Ok(_) -> "no panic",
+    };
+    if msg.contains(substr: "single") then 0 else 1
+}

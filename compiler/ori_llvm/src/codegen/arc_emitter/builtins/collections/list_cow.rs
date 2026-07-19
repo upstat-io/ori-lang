@@ -12,7 +12,7 @@ use crate::codegen::value_id::{FunctionId, ValueId};
 use super::super::super::ArcIrEmitter;
 
 /// Read and report the result-buffer metadata-store ablation toggle.
-pub(in crate::codegen::arc_emitter) fn push_result_elem_header_store_disabled() -> bool {
+fn push_result_elem_header_store_disabled() -> bool {
     let disabled = std::env::var_os("ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE").is_some();
     if disabled {
         tracing::info!(

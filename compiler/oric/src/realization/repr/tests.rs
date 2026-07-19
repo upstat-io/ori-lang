@@ -110,10 +110,10 @@ fn call_plan(
             receiver_type,
             trait_type: accepted.trait_type,
             method_name: accepted.method_name,
-            has_self: true,
             producer: MethodProducer::Registry(RegistryMethodIdentity::from_registered(
                 method_identity,
             )),
+            has_self: true,
         }]
     };
     let direct_calls = if accepted.trait_kind == DerivedTrait::Hashable

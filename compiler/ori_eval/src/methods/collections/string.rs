@@ -5,11 +5,10 @@
 use ori_ir::Name;
 use ori_patterns::{no_such_method, EvalResult, IteratorValue, Value};
 
+use super::super::arguments::{nonnegative_usize, require_args, require_int_arg, require_str_arg};
 use super::super::compare::{fnv1a_hash, ordering_to_value};
-use super::super::helpers::{
-    escape_debug_str, len_to_value, nonnegative_usize, require_args, require_int_arg,
-    require_str_arg,
-};
+use super::super::debug_format::escape_debug_str;
+use super::super::length::len_to_value;
 use super::super::DispatchCtx;
 
 #[derive(Clone, Copy)]

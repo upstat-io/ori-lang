@@ -1,0 +1,8 @@
+type Holder = { f: (int) -> int }
+
+@main () -> int = {
+    let n = 5;
+    let $h = Holder { f: x -> x + n };
+    let $r = (h.f)(10);
+    if r == 15 then 0 else 1
+}

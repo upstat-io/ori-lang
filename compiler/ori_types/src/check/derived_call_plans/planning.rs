@@ -160,8 +160,8 @@ fn build_plan_from_positions(
                 receiver_type: nested_receiver,
                 trait_type: accepted.trait_type,
                 method_name: accepted.method_name,
-                has_self: selection.has_self,
                 producer: selection.producer,
+                has_self: selection.has_self,
             }),
             SelectionOutcome::Missing => errors.push(TypeCheckError::unknown_method(
                 accepted.span,

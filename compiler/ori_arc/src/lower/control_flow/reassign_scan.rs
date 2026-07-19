@@ -1,6 +1,6 @@
 //! Pre-traversal reassignment scan for `lower_match` merge-param pruning.
 //!
-//! `lower_match` allocates its merge block-params UPFRONT (the decision-tree
+//! `lower_match` allocates its merge block parameters before arm lowering (the decision-tree
 //! `EmitContext` needs the merge signature before any arm lowers), so the
 //! post-hoc `merge_mutable_vars` divergence filter `lower_if` uses cannot
 //! apply. This scan pre-traverses the arm bodies plus every decision-tree
@@ -21,11 +21,11 @@ use ori_ir::canon::{CanArena, CanExpr, CanId, CanonResult, DecisionTree};
 use ori_ir::Name;
 use rustc_hash::FxHashSet;
 
-/// `ORI_DISABLE_MATCH_PARAM_PRUNING=1` reverts the merge-param pruning:
-/// `lower_match` threads EVERY in-scope mutable binding into the merge
-/// block-params (the pre-cure arrangement). Bisection surface: isolates a
-/// dead-merge-param leak / wrong-post-merge-value to the pruning vs the
-/// RL-5 dead-param release machinery. Spec: Annex E §AIMS RL-4 + RL-5.
+/// `ORI_DISABLE_MATCH_PARAM_PRUNING=1` disables merge-param pruning:
+/// `lower_match` threads every in-scope mutable binding into the merge block
+/// parameters. The toggle isolates merge pruning from RL-5 dead-parameter
+/// release behavior (Spec: Annex E §AIMS RL-4 + RL-5).
+// Env: ORI_DISABLE_MATCH_PARAM_PRUNING - disables match merge-param pruning, debug-only.
 static MATCH_PARAM_PRUNING_DISABLED: LazyLock<bool> = LazyLock::new(|| {
     report_match_param_pruning_toggle(
         std::env::var("ORI_DISABLE_MATCH_PARAM_PRUNING").as_deref() == Ok("1"),
@@ -68,71 +68,88 @@ pub(super) fn collect_reassigned_mutable_names(
         if !id.is_valid() || !visited.insert(id) {
             continue;
         }
-        match *arena.kind(id) {
-            // Leaf nodes — no child expressions.
-            CanExpr::Int(_)
-            | CanExpr::Float(_)
-            | CanExpr::Bool(_)
-            | CanExpr::Str(_)
-            | CanExpr::Char(_)
-            | CanExpr::Duration { .. }
-            | CanExpr::Size { .. }
-            | CanExpr::Unit
-            | CanExpr::Constant(_)
-            | CanExpr::Ident(_)
-            | CanExpr::Const(_)
-            | CanExpr::SelfRef
-            | CanExpr::FunctionRef(_)
-            | CanExpr::TypeRef(_)
-            | CanExpr::HashLength
-            | CanExpr::None
-            | CanExpr::Error => {}
-
-            CanExpr::Assign { target, value } => {
-                if let Some(name) = assign_root_name(arena, target) {
-                    reassigned.insert(name);
-                }
-                stack.push(target);
-                stack.push(value);
-            }
-
-            expr @ (CanExpr::Binary { .. }
-            | CanExpr::Unary { .. }
-            | CanExpr::Cast { .. }
-            | CanExpr::FormatWith { .. }
-            | CanExpr::Call { .. }
-            | CanExpr::MethodCall { .. }
-            | CanExpr::Field { .. }
-            | CanExpr::Index { .. }) => push_operator_children(expr, arena, &mut stack),
-            expr @ (CanExpr::If { .. }
-            | CanExpr::Match { .. }
-            | CanExpr::For { .. }
-            | CanExpr::Loop { .. }
-            | CanExpr::Break { .. }
-            | CanExpr::Continue { .. }
-            | CanExpr::Block { .. }
-            | CanExpr::Let { .. }
-            | CanExpr::Lambda { .. }) => push_control_flow_children(expr, arena, canon, &mut stack),
-            expr @ (CanExpr::List(_)
-            | CanExpr::Tuple(_)
-            | CanExpr::Map(_)
-            | CanExpr::Struct { .. }
-            | CanExpr::Range { .. }
-            | CanExpr::Ok(_)
-            | CanExpr::Err(_)
-            | CanExpr::Some(_)
-            | CanExpr::Try(_)
-            | CanExpr::Await(_)
-            | CanExpr::Unsafe(_)
-            | CanExpr::WithCapability { .. }
-            | CanExpr::FunctionExp { .. }) => push_aggregate_children(expr, arena, &mut stack),
-        }
+        visit_expr(arena, canon, id, &mut stack, &mut reassigned);
     }
     reassigned
 }
 
-fn push_operator_children(expr: CanExpr, arena: &CanArena, stack: &mut Vec<CanId>) {
-    match expr {
+fn visit_expr(
+    arena: &CanArena,
+    canon: &CanonResult,
+    id: CanId,
+    stack: &mut Vec<CanId>,
+    reassigned: &mut FxHashSet<Name>,
+) {
+    let kind = *arena.kind(id);
+    match kind {
+        CanExpr::Int(_)
+        | CanExpr::Float(_)
+        | CanExpr::Bool(_)
+        | CanExpr::Str(_)
+        | CanExpr::Char(_)
+        | CanExpr::Duration { .. }
+        | CanExpr::Size { .. }
+        | CanExpr::Unit
+        | CanExpr::Constant(_)
+        | CanExpr::Ident(_)
+        | CanExpr::Const(_)
+        | CanExpr::SelfRef
+        | CanExpr::FunctionRef(_)
+        | CanExpr::TypeRef(_)
+        | CanExpr::HashLength
+        | CanExpr::None
+        | CanExpr::Error => {}
+        CanExpr::Assign { target, value } => {
+            visit_assignment(arena, target, value, stack, reassigned);
+        }
+        CanExpr::Binary { .. }
+        | CanExpr::Unary { .. }
+        | CanExpr::Cast { .. }
+        | CanExpr::FormatWith { .. }
+        | CanExpr::Call { .. }
+        | CanExpr::MethodCall { .. }
+        | CanExpr::Field { .. }
+        | CanExpr::Index { .. } => push_simple_children(arena, kind, stack),
+        CanExpr::If { .. }
+        | CanExpr::Match { .. }
+        | CanExpr::For { .. }
+        | CanExpr::Loop { .. }
+        | CanExpr::Break { .. }
+        | CanExpr::Continue { .. }
+        | CanExpr::Block { .. }
+        | CanExpr::Let { .. }
+        | CanExpr::Lambda { .. }
+        | CanExpr::WithCapability { .. } => push_control_children(arena, canon, kind, stack),
+        CanExpr::List(_)
+        | CanExpr::Tuple(_)
+        | CanExpr::Map(_)
+        | CanExpr::Struct { .. }
+        | CanExpr::Range { .. }
+        | CanExpr::Ok(_)
+        | CanExpr::Err(_)
+        | CanExpr::Some(_)
+        | CanExpr::Try(_)
+        | CanExpr::Await(_)
+        | CanExpr::Unsafe(_)
+        | CanExpr::FunctionExp { .. } => push_container_children(arena, kind, stack),
+    }
+}
+
+fn visit_assignment(
+    arena: &CanArena,
+    target: CanId,
+    value: CanId,
+    stack: &mut Vec<CanId>,
+    reassigned: &mut FxHashSet<Name>,
+) {
+    if let Some(name) = assign_root_name(arena, target) {
+        reassigned.insert(name);
+    }
+    stack.extend([target, value]);
+}
+
+fn push_simple_children(arena: &CanArena, kind: CanExpr, stack: &mut Vec<CanId>) {
+    match kind {
         CanExpr::Binary { left, right, .. } => stack.extend([left, right]),
         CanExpr::Unary { operand, .. } => stack.push(operand),
         CanExpr::Cast { expr, .. } | CanExpr::FormatWith { expr, .. } => stack.push(expr),
@@ -148,17 +165,17 @@ fn push_operator_children(expr: CanExpr, arena: &CanArena, stack: &mut Vec<CanId
         CanExpr::Index {
             receiver, index, ..
         } => stack.extend([receiver, index]),
-        _ => unreachable!("operator child dispatch received a non-operator expression"),
+        _ => unreachable!("push_simple_children called with non-simple expression"),
     }
 }
 
-fn push_control_flow_children(
-    expr: CanExpr,
+fn push_control_children(
     arena: &CanArena,
     canon: &CanonResult,
+    kind: CanExpr,
     stack: &mut Vec<CanId>,
 ) {
-    match expr {
+    match kind {
         CanExpr::If {
             cond,
             then_branch,
@@ -187,12 +204,13 @@ fn push_control_flow_children(
             stack.extend(arena.get_params(params).iter().map(|param| param.default));
             stack.push(body);
         }
-        _ => unreachable!("control-flow child dispatch received a non-control expression"),
+        CanExpr::WithCapability { provider, body, .. } => stack.extend([provider, body]),
+        _ => unreachable!("push_control_children called with non-control expression"),
     }
 }
 
-fn push_aggregate_children(expr: CanExpr, arena: &CanArena, stack: &mut Vec<CanId>) {
-    match expr {
+fn push_container_children(arena: &CanArena, kind: CanExpr, stack: &mut Vec<CanId>) {
+    match kind {
         CanExpr::List(range) | CanExpr::Tuple(range) => {
             stack.extend(arena.get_expr_list(range).iter().copied());
         }
@@ -213,11 +231,10 @@ fn push_aggregate_children(expr: CanExpr, arena: &CanArena, stack: &mut Vec<CanI
         | CanExpr::Try(inner)
         | CanExpr::Await(inner)
         | CanExpr::Unsafe(inner) => stack.push(inner),
-        CanExpr::WithCapability { provider, body, .. } => stack.extend([provider, body]),
         CanExpr::FunctionExp { props, .. } => {
             stack.extend(arena.get_named_exprs(props).iter().map(|prop| prop.value));
         }
-        _ => unreachable!("aggregate child dispatch received a non-aggregate expression"),
+        _ => unreachable!("push_container_children called with non-container expression"),
     }
 }
 
@@ -264,16 +281,10 @@ fn push_tree_guards(tree: &DecisionTree, stack: &mut Vec<CanId>) {
 
 #[cfg(test)]
 mod toggle_tests {
-    #[test]
-    fn match_param_pruning_toggle_reports_effect() {
-        crate::test_helpers::assert_ablation_env_event(
-            concat!(
-                module_path!(),
-                "::match_param_pruning_toggle_reports_effect"
-            ),
-            "ORI_DISABLE_MATCH_PARAM_PRUNING",
-            "thread every in-scope mutable binding through match merges",
-            super::match_param_pruning_disabled,
-        );
-    }
+    crate::test_helpers::ablation_env_event_test!(
+        match_param_pruning_toggle_reports_effect,
+        "ORI_DISABLE_MATCH_PARAM_PRUNING",
+        "thread every in-scope mutable binding through match merges",
+        super::match_param_pruning_disabled,
+    );
 }

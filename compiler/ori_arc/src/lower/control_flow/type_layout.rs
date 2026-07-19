@@ -114,12 +114,11 @@ pub fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) -> i64 
         | Tag::Applied
         | Tag::Alias
         | Tag::Borrowed => {
-            debug_assert!(
-                false,
+            // Why: type checking resolves meta-types before ARC for-yield lowering.
+            unreachable!(
                 "pool_type_store_size: unexpected meta-type tag {tag:?} — \
                  this type should not appear in for-yield element positions"
-            );
-            8
+            )
         }
     }
 }

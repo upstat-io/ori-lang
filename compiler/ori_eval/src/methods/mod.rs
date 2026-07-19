@@ -6,7 +6,8 @@
 //!
 //! # Module Structure
 //!
-//! - [`helpers`]: Argument validation and shared utilities
+//! - [`arguments`]: Argument validation
+//! - [`debug_format`]: Structural Debug rendering
 //! - [`numeric`]: Methods on `int` and `float` types
 //! - [`list`]: Methods on `list` type
 //! - [`collections`]: Methods on `str`, `map`, `range`, and `set` types
@@ -15,11 +16,13 @@
 //! - [`ordering`]: Methods on `Ordering` type
 //! - [`compare`]: Value comparison utilities
 
+pub(crate) mod arguments;
 mod collections;
 pub(crate) mod compare;
+pub(crate) mod debug_format;
 mod dispatch_check;
 mod error;
-pub(crate) mod helpers;
+pub(crate) mod length;
 mod list;
 mod names;
 mod numeric;
@@ -57,7 +60,7 @@ pub(crate) fn dispatch_associated_function(
     let method_str = ctx.interner.lookup(method);
     if type_name == ctx.names.void {
         if method_str == "default" {
-            helpers::require_args("default", 0, args.len())?;
+            arguments::require_args("default", 0, args.len())?;
             Ok(Value::Void)
         } else {
             Err(no_such_method(method_str, "void").into())
@@ -85,17 +88,17 @@ fn dispatch_tuple_method(
 ) -> EvalResult {
     let n = ctx.names;
     if method == n.clone_ {
-        helpers::require_args("clone", 0, args.len())?;
+        arguments::require_args("clone", 0, args.len())?;
         Ok(receiver)
     } else if method == n.len {
-        helpers::require_args("len", 0, args.len())?;
+        arguments::require_args("len", 0, args.len())?;
         let Value::Tuple(elems) = &receiver else {
             unreachable!("dispatch_tuple_method called with non-tuple receiver")
         };
-        helpers::len_to_value(elems.len(), "tuple")
+        length::len_to_value(elems.len(), "tuple")
     // Comparable trait - lexicographic element comparison
     } else if method == n.compare {
-        helpers::require_args("compare", 1, args.len())?;
+        arguments::require_args("compare", 1, args.len())?;
         let Value::Tuple(a_elems) = &receiver else {
             unreachable!("dispatch_tuple_method called with non-tuple receiver")
         };
@@ -115,17 +118,20 @@ fn dispatch_tuple_method(
         ))
     // Eq trait - element-wise equality
     } else if method == n.equals {
-        helpers::require_args("equals", 1, args.len())?;
+        arguments::require_args("equals", 1, args.len())?;
         let eq = compare::equals_values(&receiver, &args[0], ctx.interner)?;
         Ok(Value::Bool(eq))
     // Hashable trait - recursive element hash
     } else if method == n.hash {
-        helpers::require_args("hash", 0, args.len())?;
+        arguments::require_args("hash", 0, args.len())?;
         Ok(Value::int(compare::hash_value(&receiver, ctx.interner)?))
     // Debug trait - structural representation
     } else if method == n.debug {
-        helpers::require_args("debug", 0, args.len())?;
-        Ok(Value::string(helpers::debug_value(&receiver, ctx.interner)))
+        arguments::require_args("debug", 0, args.len())?;
+        Ok(Value::string(debug_format::debug_value(
+            &receiver,
+            ctx.interner,
+        )))
     } else {
         let method_str = ctx.interner.lookup(method);
         Err(no_such_method(method_str, "tuple").into())
@@ -174,7 +180,7 @@ pub(crate) fn dispatch_builtin_method(
     // LLVM backend's `emit_element_to_str` for dual-execution parity. Primitive
     // receivers keep their own `to_str` (they fall through this guard).
     if method == ctx.names.to_str && is_compound_printable(&receiver) {
-        helpers::require_args("to_str", 0, args.len())?;
+        arguments::require_args("to_str", 0, args.len())?;
         return Ok(Value::string(receiver.display_value()));
     }
     match &receiver {
@@ -218,26 +224,26 @@ pub(crate) fn dispatch_builtin_method(
 fn dispatch_unit_method(method: Name, args: &[Value], ctx: &DispatchCtx<'_>) -> EvalResult {
     let names = ctx.names;
     if method == names.clone_ {
-        helpers::require_args("clone", 0, args.len())?;
+        arguments::require_args("clone", 0, args.len())?;
         Ok(Value::Void)
     } else if method == names.equals {
-        helpers::require_args("equals", 1, args.len())?;
+        arguments::require_args("equals", 1, args.len())?;
         Ok(Value::Bool(matches!(args.first(), Some(Value::Void))))
     } else if method == names.compare {
-        helpers::require_args("compare", 1, args.len())?;
+        arguments::require_args("compare", 1, args.len())?;
         if matches!(args.first(), Some(Value::Void)) {
             Ok(compare::ordering_to_value(std::cmp::Ordering::Equal))
         } else {
             Err(ori_patterns::wrong_arg_type("compare", "void").into())
         }
     } else if method == names.hash {
-        helpers::require_args("hash", 0, args.len())?;
+        arguments::require_args("hash", 0, args.len())?;
         Ok(Value::int(0))
     } else if method == names.debug {
-        helpers::require_args("debug", 0, args.len())?;
+        arguments::require_args("debug", 0, args.len())?;
         Ok(Value::string("()"))
     } else if ctx.interner.lookup(method) == "default" {
-        helpers::require_args("default", 0, args.len())?;
+        arguments::require_args("default", 0, args.len())?;
         Ok(Value::Void)
     } else {
         let method_str = ctx.interner.lookup(method);

@@ -1,31 +1,38 @@
 //! Closed-program realization over explicit immutable frontend facts.
 
+mod aims;
+mod error;
 mod error_mapping;
 mod impl_targets;
+mod user_drop;
 
-use ori_arc::ArcFunction;
 use ori_ir::canon::CanonResult;
 use ori_ir::{Name, SharedInterner, StringInterner};
 use ori_parse::ParseOutput;
 use ori_repr::executable::{
-    ExecutableProgram, ExecutableProgramParts, ExternalCallable, RealizationError, UserDropBinding,
+    ExecutableProgram, ExecutableProgramParts, ExternalCallable, UserDropBinding,
     EXECUTABLE_PROGRAM_VERSION,
 };
-use ori_types::{FunctionSig, Idx, Pool, TypeCheckResult, TypeRegistry};
+use ori_types::{FunctionSig, Pool, TypeCheckResult, TypeRegistry};
 use rustc_hash::FxHashMap;
+
+use crate::realization::arc_batch::MethodTargetMap;
 
 use super::{
     close_generic_mono_targets, compute_module_repr_plan, extend_mono_method_targets,
     generic_type_param_map, lower_impl_methods_for_analysis,
     lower_non_generic_derived_methods_for_analysis, ArcFunctionGroup, CallableCensusBuilder,
-    CallableCensusError, GenericMonoClosureInput, ImplMethodAnalysis, LoweredArcBatch,
-    ModuleReprInput,
+    GenericMonoClosureInput, ImplMethodAnalysis, LoweredArcBatch, ModuleReprInput,
 };
-use crate::realization::arc_batch::MethodTargetMap;
+use aims::run_aims;
 use error_mapping::{arc_lowering_error, map_arc_batch_error, map_generic_mono_closure_error};
+
+pub use error::ProgramRealizationError;
 pub(crate) use impl_targets::rewrite_impl_targets;
+pub(crate) use user_drop::collect_user_drop_bindings;
 
 /// Explicit inputs to backend-neutral local-module realization.
+#[derive(Debug)]
 pub struct ProgramRealizationInput<'a> {
     /// Parsed module and arena.
     pub parse: &'a ParseOutput,
@@ -33,7 +40,7 @@ pub struct ProgramRealizationInput<'a> {
     pub types: &'a TypeCheckResult,
     /// Canonical IR shared with the independent evaluator oracle.
     pub canon: &'a CanonResult,
-    /// Type pool used by every downstream artifact.
+    /// Type pool for the realized artifact.
     pub pool: Pool,
     /// Shared symbol storage retained without a compiler database.
     pub symbols: SharedInterner,
@@ -47,7 +54,7 @@ pub struct ProgramRealizationInput<'a> {
 pub(crate) struct ArcProgramRealizationInput {
     /// The only prepared body inventory and its exact parent/lambda topology.
     pub prepared: super::PreparedArcBatch,
-    /// Shared type pool used by all bodies and imported callable facts.
+    /// Type pool for bodies and imported callable facts.
     pub pool: Pool,
     /// Immutable symbol storage retained by the resulting artifact.
     pub symbols: SharedInterner,
@@ -61,7 +68,7 @@ pub(crate) struct ArcProgramRealizationInput {
     pub user_drop_bindings: Vec<UserDropBinding>,
     /// Representation plan computed from this exact body batch.
     pub repr_plan: ori_repr::ReprPlan,
-    /// Closed type and burden metadata used by realization and projections.
+    /// Closed type and burden metadata for projections.
     pub type_registry: TypeRegistry,
     /// Run the optional ARC consistency oracle while freezing the artifact.
     pub verify_arc: bool,
@@ -72,116 +79,6 @@ struct TopLevelMonoSources<'a> {
     functions: &'a [ori_repr::monomorphize::MonoFunction],
     accepted_derives: &'a [ori_types::AcceptedDerivedImpl],
     derived_call_plans: &'a [ori_types::DerivedCallPlan],
-}
-
-/// A typed failure in frontend-to-executable realization.
-#[derive(Debug, thiserror::Error)]
-pub enum ProgramRealizationError {
-    /// Raw declarations could not form one semantic callable seed inventory.
-    #[error(transparent)]
-    CallableCensus(#[from] CallableCensusError),
-    /// ARC lowering rejected one or more ordinary or monomorphized bodies.
-    #[error("ARC lowering produced {count} problem(s): {problems:?}")]
-    ArcLowering {
-        /// Number of lowering problems.
-        count: usize,
-        /// Structured lowering problems.
-        problems: Vec<ori_arc::ArcProblem>,
-    },
-    /// Shared pre-AIMS lambda specialization could not make every body concrete.
-    #[error("lambda specialization produced {count} error(s): {errors:?}")]
-    LambdaSpecialization {
-        /// Number of parent/lambda batches that could not be specialized.
-        count: usize,
-        /// Structured specialization failures.
-        errors: Vec<ori_arc::LambdaSpecializationError>,
-    },
-    /// A user-defined operator lacked one exact callable identity.
-    #[error("operator-call resolution produced {count} error(s): {errors:?}")]
-    OperatorCallResolution {
-        /// Number of unresolved operator sites.
-        count: usize,
-        /// Structured resolution failures.
-        errors: Vec<ori_arc::OperatorCallResolutionError>,
-    },
-    /// A source-selected method handle did not resolve against typed producer
-    /// metadata before callable closure.
-    #[error(
-        "selected-method producer resolution produced {count} error(s): {errors:?}. This is an internal compiler error; report this complete message"
-    )]
-    SelectedMethodProducerResolution {
-        /// Number of invalid selected call sites.
-        count: usize,
-        /// Exact invalid handle/conflict descriptions.
-        errors: Vec<String>,
-    },
-    /// The pre-AIMS generic callable census could not reach a closed inventory.
-    #[error("generic target census failed: {message}")]
-    GenericMonoClosure {
-        /// Exact closure failure retained without erasing its actionable context.
-        message: String,
-    },
-    /// Two lowering sources claimed the same parent callable identity.
-    #[error(
-        "ARC batch contains duplicate parent callable `{parent}` because multiple lowering sources claimed one executable body. Run with `ORI_LOG=oric::realization::arc_batch=debug` and report this compiler error"
-    )]
-    DuplicateArcParent { parent: String },
-    /// One body identity appeared in more than one parent/lambda position.
-    #[error(
-        "ARC batch body `{body}` appears under both `{first_parent}` and `{second_parent}`; every executable body must belong to exactly one family. Run with `ORI_LOG=oric::realization::arc_batch=debug` and report this compiler error"
-    )]
-    DuplicateArcBody {
-        body: String,
-        first_parent: String,
-        second_parent: String,
-    },
-    /// More than one realized impl body claimed the same user-drop operation.
-    #[error("user-drop target resolution for type {ty:?} found {targets} callable bodies")]
-    AmbiguousUserDropTarget {
-        /// Canonical type carrying the user-drop burden.
-        ty: Idx,
-        /// Number of candidate qualified impl bodies.
-        targets: usize,
-    },
-    /// A type declares a user-drop burden but no exact realized implementation
-    /// body was bound before AIMS.
-    #[error("user-drop target resolution for type {ty:?} found no callable body")]
-    MissingUserDropTarget { ty: Idx },
-    /// A typed impl role claimed user-drop semantics for a type whose burden
-    /// has no such logical operation.
-    #[error("user-drop impl role for type {ty:?} has no matching burden identity")]
-    UnexpectedUserDropRole { ty: Idx },
-    /// The typed impl role and burden registry disagree on logical identity.
-    #[error(
-        "user-drop impl role for type {ty:?} carries logical identity {found:?}, expected {expected:?}"
-    )]
-    UserDropLogicalIdentityMismatch {
-        ty: Idx,
-        expected: ori_registry::burden::FnSym,
-        found: ori_registry::burden::FnSym,
-    },
-    /// ARC verification rejected post-AIMS IR.
-    #[error("post-AIMS verification produced {count} error(s): {errors:?}")]
-    ArcVerification {
-        /// Number of verification failures.
-        count: usize,
-        /// Structured verifier failures.
-        errors: Vec<ori_arc::verify::VerifyError>,
-    },
-    /// AIMS completed but reported semantic lowering problems.
-    #[error("post-AIMS realization produced {count} problem(s): {problems:?}")]
-    Aims {
-        /// Number of AIMS problems.
-        count: usize,
-        /// Structured AIMS problems.
-        problems: Vec<ori_arc::ArcProblem>,
-    },
-    /// The immutable string interner could not allocate the entry-point name.
-    #[error(transparent)]
-    Intern(#[from] ori_ir::InternError),
-    /// Closed-program validation failed.
-    #[error(transparent)]
-    Executable(#[from] RealizationError),
 }
 
 /// Realize one checked module into the closed artifact executable backends consume.
@@ -264,6 +161,7 @@ fn lower_all_callable_groups(
     })
 }
 
+#[must_use = "success or failure must be handled"]
 pub fn realize_local_program(
     mut input: ProgramRealizationInput<'_>,
 ) -> Result<ExecutableProgram, ProgramRealizationError> {
@@ -305,7 +203,7 @@ pub fn realize_local_program(
             &impl_targets,
             &impl_producer_targets,
             &input.types.typed.method_producers,
-            &mut input.pool,
+            &input.pool,
             interner,
         )
         .map_err(map_arc_batch_error)?;
@@ -342,6 +240,7 @@ pub fn realize_local_program(
 }
 
 /// Run the backend-neutral calculus exactly once and close its artifact.
+#[must_use = "success or failure must be handled"]
 pub(crate) fn realize_arc_program(
     input: ArcProgramRealizationInput,
 ) -> Result<ExecutableProgram, ProgramRealizationError> {
@@ -409,63 +308,6 @@ pub(crate) fn realize_arc_program(
     .map_err(ProgramRealizationError::from)
 }
 
-pub(crate) fn collect_user_drop_bindings(
-    registry: &TypeRegistry,
-    typed_bindings: &[UserDropBinding],
-    pool: &Pool,
-) -> Result<Vec<UserDropBinding>, ProgramRealizationError> {
-    let mut expected = FxHashMap::default();
-    for entry in registry.iter() {
-        let Some(logical) = registry
-            .burden(entry.idx)
-            .and_then(|burden| burden.user_drop)
-        else {
-            continue;
-        };
-        expected.insert(pool.resolve_fully(entry.idx), (entry.idx, logical));
-    }
-
-    let mut seen = FxHashMap::default();
-    let mut bindings = Vec::with_capacity(typed_bindings.len());
-    for &binding in typed_bindings {
-        if !pool.is_valid_idx(binding.ty()) {
-            return Err(RealizationError::InvalidUserDropType { ty: binding.ty() }.into());
-        }
-        let canonical = pool.resolve_fully(binding.ty());
-        let Some(&(expected_ty, expected_logical)) = expected.get(&canonical) else {
-            return Err(ProgramRealizationError::UnexpectedUserDropRole { ty: binding.ty() });
-        };
-        if binding.logical() != expected_logical {
-            return Err(ProgramRealizationError::UserDropLogicalIdentityMismatch {
-                ty: expected_ty,
-                expected: expected_logical,
-                found: binding.logical(),
-            });
-        }
-        let count = seen.entry(canonical).or_insert(0usize);
-        *count += 1;
-        if *count > 1 {
-            return Err(ProgramRealizationError::AmbiguousUserDropTarget {
-                ty: expected_ty,
-                targets: *count,
-            });
-        }
-        bindings.push(UserDropBinding::new(
-            expected_ty,
-            expected_logical,
-            binding.target(),
-        ));
-    }
-    if let Some((_, &(ty, _))) = expected
-        .iter()
-        .find(|(canonical, _)| !seen.contains_key(canonical))
-    {
-        return Err(ProgramRealizationError::MissingUserDropTarget { ty });
-    }
-    bindings.sort_by_key(|binding| binding.ty().raw());
-    Ok(bindings)
-}
-
 fn lower_top_level_functions(
     parse: &ParseOutput,
     canon: &CanonResult,
@@ -515,44 +357,6 @@ fn lower_top_level_functions(
         Ok(groups)
     } else {
         Err(arc_lowering_error(problems))
-    }
-}
-
-fn run_aims(
-    functions: &mut [ArcFunction],
-    pool: &Pool,
-    interner: &StringInterner,
-    type_registry: &TypeRegistry,
-    external_contracts: &FxHashMap<Name, ori_arc::MemoryContract>,
-    callable_boundaries: &ori_arc::CallableBoundaryFacts,
-    verify_arc: bool,
-) -> Result<ori_arc::ArcPipelineBatchOutcome, ProgramRealizationError> {
-    let classifier = ori_arc::ArcClassifier::new(pool);
-    let builtins = ori_arc::BuiltinOwnershipSets::new(interner);
-    let outcome = ori_arc::realize_closed_program(
-        functions,
-        &ori_arc::ArcPipelineContext {
-            classifier: &classifier,
-            interner,
-            pool,
-            builtins: &builtins,
-            type_registry,
-            callable_boundaries,
-            verify_arc,
-            external_contracts,
-        },
-    )
-    .map_err(|errors| ProgramRealizationError::ArcVerification {
-        count: errors.len(),
-        errors,
-    })?;
-    if outcome.problems.is_empty() {
-        Ok(outcome)
-    } else {
-        Err(ProgramRealizationError::Aims {
-            count: outcome.problems.len(),
-            problems: outcome.problems,
-        })
     }
 }
 
