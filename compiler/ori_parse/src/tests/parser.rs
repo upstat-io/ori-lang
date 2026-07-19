@@ -164,6 +164,24 @@ fn test_parse_block_expr() {
 }
 
 #[test]
+fn block_boundary_diagnostic_names_cause_and_fix() {
+    let result = parse_source("@f () -> int = { 1 2 }");
+
+    assert!(result.has_errors());
+    let error = &result.errors[0];
+    assert!(
+        error.message.contains("expected a statement boundary"),
+        "diagnostic should name the missing boundary: {}",
+        error.message
+    );
+    let help = error.help.join(" ");
+    assert!(
+        help.contains("Add `;` before") && help.contains("Spec: Clause 11.12"),
+        "diagnostic should name the concrete fix and governing clause: {help}"
+    );
+}
+
+#[test]
 fn test_parse_let_expression() {
     let result = parse_source(fixture_without_trailing_newline(include_str!(
         "fixtures/parser/parse_let_expression.ori"

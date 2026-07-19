@@ -70,14 +70,17 @@ impl Parser<'_> {
                     // Expression at end without `;` → this is the result
                     last_expr = Some(expr);
                 } else {
+                    let unexpected = self.cursor.current_kind().display_name();
                     return ParseOutcome::consumed_err(
                         ParseError::new(
                             ori_diagnostic::ErrorCode::E1002,
-                            format!("expected `;` or `}}` after expression in {block_name}"),
+                            format!(
+                                "expected a statement boundary after expression in {block_name}, found {unexpected}"
+                            ),
                             self.cursor.current_span(),
                         )
                         .with_help(format!(
-                            "Add `;` to make this a statement, or `}}` to end the {block_name}"
+                            "Add `;` before {unexpected} to start another statement, or make `}}` immediately follow the final expression (Spec: Clause 11.12)"
                         )),
                         item_span,
                     );

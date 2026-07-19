@@ -305,33 +305,21 @@ impl ParamContract {
         may_share: true,
         locality_bound: Locality::Unknown,
         uniqueness: Uniqueness::MaybeShared,
-        // Conservative default: emit scope-exit dec. The fixpoint
-        // promotes to `true` only when extract_contract proves the
-        // param flows to Return.
+        // Default false; extraction sets true only for params that flow to Return.
         transfers_through_return: false,
-        // No alias claim: Apply dst is fresh until extraction proves the param
-        // or one of its projections flows to Return.
+        // Fresh Apply destinations claim no alias until extraction proves Return flow.
         return_alias: None,
-        // Conservative default: no containment claim. Promoted by
-        // extract_contract when the param flows into a transitive-drop
-        // variant payload that is returned.
+        // Extraction claims containment only for returned transitive-drop payloads.
         return_payload_contains_param: false,
-        // Conservative default: caller keeps its dec. Promoted by
-        // extract_contract when the borrowed param iter-consumes-and-frees.
+        // The caller keeps its dec unless extraction proves iter-consume-and-free.
         iter_consumes: false,
-        // Conservative default: caller keeps its exclusion (no read-only claim).
-        // AND-join bottom is `false` for the conservative contract — an unknown
-        // callee is assumed to consume the param, so the carve-out never fires.
+        // Unknown callees make no read-only claim, so the caller keeps its exclusion.
         borrowed_read_only: false,
-        // Conservative default: no funding obligation claimed — the
-        // owned-call-arg duplication admission never fires on an unknown
-        // callee.
+        // Unknown callees claim no funding obligation for owned-call-arg duplication.
         borrowed_cow_consumed: false,
-        // Conservative default: no mutator claim — the lineage gate (c3) never
-        // declines on an unknown callee.
+        // Unknown callees claim no mutation, so lineage gate c3 never declines.
         borrowed_cow_mutated: false,
-        // Conservative default: no field-grained iter-consume claim — an unknown
-        // callee never feeds the caller-side aggregate-field iter-consume scan.
+        // Unknown callees make no field-grained iter-consume claim.
         iter_consumes_projected_field: None,
     };
 
@@ -348,29 +336,21 @@ impl ParamContract {
         may_share: false,
         locality_bound: Locality::BlockLocal,
         uniqueness: Uniqueness::Unique,
-        // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
-        // any path's structural Return-flow alias fact fires.
+        // IC-2 OR-join starts false and rises on any structural Return-flow fact.
         transfers_through_return: false,
-        // IC-2 starts most-optimistic at the BOTTOM of the chain
-        // `None < Some(Project) < Some(Direct)`. Join promotes upward as
-        // structural Return-aliasing facts fire across paths.
+        // IC-2 return-alias BOTTOM rises along None < Project < Direct.
         return_alias: None,
-        // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
-        // any path's structural payload-containment fact fires.
+        // IC-2 OR-join rises on any structural payload-containment fact.
         return_payload_contains_param: false,
-        // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
-        // any path's iter-consume-and-free fact fires.
+        // IC-2 OR-join rises on any iter-consume-and-free fact.
         iter_consumes: false,
-        // IC-2 AND-join TOP; owned use demotes to false. Extraction replaces
-        // this fixpoint seed with the body-derived per-param fact.
+        // IC-2 AND-join TOP; owned use demotes the body-derived fact to false.
         borrowed_read_only: true,
-        // IC-2 starts most-optimistic at the OR-join bottom (`false`). Join
-        // (OR) promotes when a path's COW-consume-at-death fact fires.
+        // IC-2 OR-join rises when any path consumes COW storage at death.
         borrowed_cow_consumed: false,
         // IC-2 OR-join bottom; promotes when a path's MUTATOR consume fires.
         borrowed_cow_mutated: false,
-        // IC-2 seed: no claim. `extract_contract` overrides per-param from the
-        // body's projected-field iter-consume scan; a single callee computes it once.
+        // IC-2 seed has no claim; extraction replaces it from the per-param scan.
         iter_consumes_projected_field: None,
     };
 
@@ -396,33 +376,23 @@ impl ParamContract {
             may_share: self.may_share || other.may_share,
             locality_bound: self.locality_bound.join(other.locality_bound),
             uniqueness: self.uniqueness.join(other.uniqueness),
-            // OR (conservative direction): once true on any path, stays true.
-            // Matches IC-3 componentwise-max semantics for boolean dimensions.
+            // IC-3 boolean max: true on any path remains true.
             transfers_through_return: self.transfers_through_return
                 || other.transfers_through_return,
-            // Lattice chain `None < Some(Project) < Some(Direct)` (height 2).
-            // Direct is TOP — absorbs Project. Incomparable Project paths
-            // join to Direct. Per `ReturnAliasShape::join`.
+            // ReturnAliasShape::join implements None < Project < Direct.
             return_alias: ReturnAliasShape::join(self.return_alias, other.return_alias),
-            // OR (conservative direction): once true on any path, stays true.
-            // Matches IC-3 componentwise-max semantics for boolean dimensions.
+            // IC-3 boolean max: true on any path remains true.
             return_payload_contains_param: self.return_payload_contains_param
                 || other.return_payload_contains_param,
-            // OR (conservative direction): once true on any path, stays true.
-            // Matches IC-3 componentwise-max semantics for boolean dimensions.
+            // IC-3 boolean max: true on any path remains true.
             iter_consumes: self.iter_consumes || other.iter_consumes,
-            // AND (conservative direction): the read-only guarantee holds only if
-            // it holds on EVERY joined path — any owned-position use clears it.
+            // Read-only survives only when every joined path preserves it.
             borrowed_read_only: self.borrowed_read_only && other.borrowed_read_only,
-            // OR (conservative direction): a consuming path obligates the
-            // caller's funding.
+            // Any consuming path obligates caller funding.
             borrowed_cow_consumed: self.borrowed_cow_consumed || other.borrowed_cow_consumed,
-            // OR (conservative direction): a mutating path obligates the
-            // caller's funding (the lineage gate declines).
+            // Any mutating path obligates caller funding and declines lineage.
             borrowed_cow_mutated: self.borrowed_cow_mutated || other.borrowed_cow_mutated,
-            // Equal `Some` survives; disagreement (different consumed field)
-            // poisons to `None`. A single callee computes its own field-grained
-            // iter-consume shape once.
+            // Equal fields survive; disagreement poisons the field claim to None.
             iter_consumes_projected_field: match (
                 self.iter_consumes_projected_field,
                 other.iter_consumes_projected_field,
