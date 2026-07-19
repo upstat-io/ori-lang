@@ -6,11 +6,12 @@
 
 use crate::{Ownership, ParamDef, ReturnTag, TypeTag};
 
-/// `(f: closure)` — higher-order closure param.
+/// `(f: closure)` — higher-order callback borrowed for the duration of the call.
+/// A callee that stores the callback must retain its own closure-environment credit.
 pub static CLOSURE_PARAM: [ParamDef; 1] = [ParamDef {
     name: "f",
     ty: ReturnTag::Fresh,
-    ownership: Ownership::Owned,
+    ownership: Ownership::Borrow,
 }];
 
 /// `(count: int)` — integer count param.

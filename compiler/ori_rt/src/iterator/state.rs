@@ -90,6 +90,12 @@ pub(crate) type FoldFn = extern "C-unwind" fn(*mut u8, *const u8, *const u8, *mu
 /// Null at the ABI boundary means the value has no RC children.
 pub(crate) type ElemDecFn = extern "C" fn(*mut u8);
 
+/// Releases the RC children owned by a fold accumulator.
+///
+/// Unlike collection buffer teardown, a fold accumulator can contain a user
+/// `Drop` implementation whose generated element-dec thunk unwinds on Itanium.
+pub(crate) type AccumulatorDecFn = extern "C-unwind" fn(*mut u8);
+
 /// Retains the RC children of one byte-copied value.
 ///
 /// Selection consumers use this before discharging a dynamic source yield;

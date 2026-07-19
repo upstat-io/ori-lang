@@ -34,14 +34,14 @@ static STEP_PARAM: [ParamDef; 1] = [ParamDef {
 static PREDICATE_PARAM: [ParamDef; 1] = [ParamDef {
     name: "predicate",
     ty: ReturnTag::Fresh,
-    ownership: Ownership::Owned,
+    ownership: Ownership::Borrow,
 }];
 
 /// `(transform: (T) -> U)` — closure param for eager `map`.
 static TRANSFORM_PARAM: [ParamDef; 1] = [ParamDef {
     name: "transform",
     ty: ReturnTag::Fresh,
-    ownership: Ownership::Owned,
+    ownership: Ownership::Borrow,
 }];
 
 /// `(initial: U, op: (U, T) -> U)` — accumulator and closure for eager `fold`.
@@ -54,7 +54,7 @@ static FOLD_PARAMS: [ParamDef; 2] = [
     ParamDef {
         name: "op",
         ty: ReturnTag::Fresh,
-        ownership: Ownership::Owned,
+        ownership: Ownership::Borrow,
     },
 ];
 

@@ -42,6 +42,16 @@ pub(super) fn accumulate_instr_effects(
             }
         }
 
+        // An escaping managed projection needs its own logical owner credit so
+        // it can outlive the borrowed aggregate that supplied the field.
+        crate::ir::ArcInstr::Project { dst, .. } => {
+            if !state_map.is_excluded(*dst)
+                && dst_demand.is_some_and(|demand| demand.locality > Locality::FunctionLocal)
+            {
+                effects.may_share = true;
+            }
+        }
+
         // Why: Partial application allocates a closure environment on the heap.
         crate::ir::ArcInstr::PartialApply { dst, .. } => {
             if !state_map.is_excluded(*dst) {

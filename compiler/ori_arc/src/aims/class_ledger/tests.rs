@@ -84,6 +84,18 @@ fn invoke(dst: u32, args: Vec<(u32, ArgOwnership)>, normal: u32, unwind: u32) ->
     }
 }
 
+fn invoke_indirect(dst: u32, closure: u32, normal: u32, unwind: u32) -> ArcTerminator {
+    ArcTerminator::InvokeIndirect {
+        dst: v(dst),
+        ty: ty(0),
+        closure: v(closure),
+        args: vec![],
+        arg_ownership: vec![],
+        normal: ArcBlockId::new(normal),
+        unwind: ArcBlockId::new(unwind),
+    }
+}
+
 fn block(id: u32, params: Vec<u32>, body: Vec<ArcInstr>, terminator: ArcTerminator) -> ArcBlock {
     ArcBlock {
         id: ArcBlockId::new(id),
@@ -861,6 +873,71 @@ fn passthrough_refund_needs_no_inc() {
     assert!(ops_for(&analysis, class).is_empty());
     assert_eq!(verdict_for(&analysis, class), ClassVerdict::Clean);
     assert!(analysis.readiness.all_classes_clean);
+}
+
+/// A sharing-view result enters through a CREDIT, is COW-consumed, and is
+/// later stored in the returned tuple. The tuple's future field-path member
+/// does not make the view container-funded before that store: its own credit
+/// must be duplicated before the earlier COW hand-off.
+#[test]
+fn credit_only_view_surviving_consume_is_duplicated_before_handoff() {
+    let slice = Name::from_raw(11);
+    let push = Name::from_raw(12);
+    let mut func = one_block_func(
+        4,
+        vec![
+            construct(0, vec![]),
+            apply_to(1, slice, vec![(0, ArgOwnership::Borrowed)]),
+            apply_to(2, push, vec![(1, ArgOwnership::Owned)]),
+            construct(3, vec![1, 2]),
+        ],
+        ret(3),
+    );
+    let state_map = AimsStateMap::new(&func);
+    let pool = ori_types::Pool::new();
+    let classifier = crate::ArcClassifier::new(&pool);
+    crate::aims::freeze_primitive_facts(std::slice::from_mut(&mut func), &classifier)
+        .unwrap_or_else(|errors| panic!("class-ledger primitive facts should freeze: {errors:?}"));
+    let mut facts: FxHashMap<Name, BoundaryFacts> = FxHashMap::default();
+    facts.insert(
+        slice,
+        BoundaryFacts {
+            returns_sharing_view: true,
+            ..BoundaryFacts::default()
+        },
+    );
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+    let classification =
+        classify_function(&func, &state_map, &mut partition, &facts, &test_interner());
+    let view = class_rep(&mut partition, 1);
+    assert!(
+        partition.site(view).is_some(),
+        "the direct call result carries its own birth-site witness"
+    );
+    let events = super::events::extract_class_events(&func, &classification, &mut partition, view);
+    assert!(
+        !events.container_held && !events.is_externally_funded(),
+        "a later tuple field must not retroactively fund the view"
+    );
+    let preds = crate::graph::compute_predecessors(&func);
+    let regions = super::emit::CycleRegions::compute(&func);
+    let ClassOutcome::Planned(ops) = super::emit::plan_class(&func, &preds, &regions, &events, &[])
+    else {
+        panic!("credit-only view plan unexpectedly declined");
+    };
+
+    assert!(
+        ops.iter().any(|op| {
+            op.kind == PlannedOpKind::Inc
+                && op.slot == PlanSlot::BeforeBody { block: 0, index: 2 }
+                && op.var == v(1)
+        }),
+        "the sole sharing-view credit must survive the first hand-off: {ops:?}"
+    );
+    assert_eq!(
+        verify_class(&func, &preds, &events, &ops),
+        ClassVerdict::Clean
+    );
 }
 
 // Replacement seam (`replace::attempt_replacement`)
@@ -1973,6 +2050,57 @@ fn funded_consume_then_terminator_read_releases_at_successor_fronts() {
         .count();
     assert_eq!(incs, 1, "one funding inc: {ops:?}");
     assert_eq!(front_decs, 2, "front dec at each successor: {ops:?}");
+}
+
+/// A fresh capture-bearing closure is caller-owned and only borrowed by an
+/// indirect invoke. Its final READ precedes successor selection, so the one
+/// retained owner must be released on both the normal and unwind successors.
+#[test]
+fn partial_apply_invoke_indirect_releases_closure_on_both_successors() {
+    let func = func_with_blocks(
+        4,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![
+                    construct(0, vec![]),
+                    ArcInstr::PartialApply {
+                        dst: v(1),
+                        ty: ty(0),
+                        func: Name::from_raw(8),
+                        args: vec![v(0)],
+                    },
+                ],
+                invoke_indirect(2, 1, 1, 2),
+            ),
+            block(1, vec![], vec![], ret(3)),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(2));
+    state_map.set_permanent_scalar(v(3));
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let closure = class_rep(&mut partition, 1);
+    assert_eq!(verdict_for(&analysis, closure), ClassVerdict::Clean);
+    let ops = ops_for(&analysis, closure);
+    let successor_decs = ops
+        .iter()
+        .filter(|op| {
+            op.kind == PlannedOpKind::Dec
+                && matches!(op.slot, PlanSlot::BlockFront { block } if block == 1 || block == 2)
+        })
+        .count();
+    assert_eq!(
+        successor_decs, 2,
+        "one closure release on each exit: {ops:?}"
+    );
+    assert!(
+        ops.iter().all(|op| op.kind != PlannedOpKind::Inc),
+        "a borrowed closure receiver must not acquire a second owner: {ops:?}"
+    );
 }
 
 /// A `Select` over two REAL allocations acquires the selected reference:

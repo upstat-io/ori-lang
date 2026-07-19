@@ -37,21 +37,21 @@ const IDX_PAIRS: ReturnTag = ReturnTag::IteratorOfTupleIntElement;
 static PREDICATE_PARAM: [ParamDef; 1] = [ParamDef {
     name: "predicate",
     ty: ReturnTag::Fresh,
-    ownership: Ownership::Owned,
+    ownership: Ownership::Borrow,
 }];
 
 /// `(transform: (T) -> U)` — closure param for map, `flat_map`.
 static TRANSFORM_PARAM: [ParamDef; 1] = [ParamDef {
     name: "transform",
     ty: ReturnTag::Fresh,
-    ownership: Ownership::Owned,
+    ownership: Ownership::Borrow,
 }];
 
 /// `(f: (T) -> void)` — closure param for `for_each`.
 static ACTION_PARAM: [ParamDef; 1] = [ParamDef {
     name: "f",
     ty: ReturnTag::Fresh,
-    ownership: Ownership::Owned,
+    ownership: Ownership::Borrow,
 }];
 
 /// `(other: Iterator<U>)` — iterator param for chain, zip.
@@ -71,7 +71,7 @@ static FOLD_PARAMS: [ParamDef; 2] = [
     ParamDef {
         name: "op",
         ty: ReturnTag::Fresh,
-        ownership: Ownership::Owned,
+        ownership: Ownership::Borrow,
     },
 ];
 

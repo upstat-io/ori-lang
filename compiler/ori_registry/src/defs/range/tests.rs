@@ -84,6 +84,7 @@ fn range_eager_higher_order_methods_match_annex_c() {
     assert_eq!(map.params.len(), 1);
     assert_eq!(map.params[0].name, "transform");
     assert_eq!(map.params[0].ty, ReturnTag::Fresh);
+    assert_eq!(map.params[0].ownership, Ownership::Borrow);
     assert_eq!(map.returns, ReturnTag::Fresh);
 
     let filter = RANGE
@@ -94,6 +95,7 @@ fn range_eager_higher_order_methods_match_annex_c() {
     assert_eq!(filter.params.len(), 1);
     assert_eq!(filter.params[0].name, "predicate");
     assert_eq!(filter.params[0].ty, ReturnTag::Fresh);
+    assert_eq!(filter.params[0].ownership, Ownership::Borrow);
     assert_eq!(filter.returns, ReturnTag::ListOf(TypeProjection::Element));
 
     let fold = RANGE
@@ -105,6 +107,8 @@ fn range_eager_higher_order_methods_match_annex_c() {
     assert_eq!(fold.params[0].name, "initial");
     assert_eq!(fold.params[1].name, "op");
     assert!(fold.params.iter().all(|param| param.ty == ReturnTag::Fresh));
+    assert_eq!(fold.params[0].ownership, Ownership::Owned);
+    assert_eq!(fold.params[1].ownership, Ownership::Borrow);
     assert_eq!(fold.returns, ReturnTag::Fresh);
 }
 

@@ -65,9 +65,10 @@ pub(crate) struct ClassEvents {
     /// without silent back-edge threading treats back-edges as the next
     /// iteration's ledger (forward-only liveness).
     pub(crate) threads_back_edge: bool,
-    /// The class is birth-less but holds a field-path member: its reference
-    /// lives in a container's field slot (a param/foreign aggregate's
-    /// field), released by the CONTAINER's class, never this one.
+    /// The class is birth-less, has no independent birth-site witness, and
+    /// holds a field-path member: its reference lives in a container's field
+    /// slot (a param/foreign aggregate's field), released by the CONTAINER's
+    /// class, never this one.
     pub(crate) container_held: bool,
     /// Whether the class's tracked reference is owned ELSEWHERE — a
     /// borrowed function param (the caller retains ownership) or a
@@ -248,7 +249,13 @@ fn extract_class_events_inner(
     skip_consume_sites: &[(usize, EventSite)],
 ) -> ClassEvents {
     let origin = classification.class_origins.get(&class).copied();
-    let container_held = origin.is_none() && partition.class_has_field_path_member(class);
+    // A field-path member alone is not temporal ownership evidence: a later
+    // Construct can add the class to a container after earlier uses. A class
+    // with its own birth-site witness (notably a sharing-view call result)
+    // owns its credited reference until that store actually consumes it.
+    let container_held = origin.is_none()
+        && partition.site(class).is_none()
+        && partition.class_has_field_path_member(class);
     let externally_funded =
         !force_owned && (origin == Some(ClassOrigin::Borrowed) || container_held);
     let threads_back_edge = class_threads_back_edge(func, partition, class);

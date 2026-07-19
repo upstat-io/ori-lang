@@ -736,6 +736,71 @@ extern "C-unwind" fn append_digit_fold(
     }
 }
 
+static FOLD_ACC_INC_COUNT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+static FOLD_ACC_DEC_COUNT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+static FOLD_ACC_DEC_PANIC_ONCE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+type FoldConsumer = extern "C-unwind" fn(
+    *mut u8,
+    *const u8,
+    FoldFn,
+    *mut u8,
+    i64,
+    i64,
+    Option<AccumulatorDecFn>,
+    *mut u8,
+);
+
+fn fold_consumers() -> [(&'static str, FoldConsumer); 2] {
+    [
+        ("fold", ori_iter_fold as FoldConsumer),
+        ("rfold", ori_iter_rfold as FoldConsumer),
+    ]
+}
+
+extern "C-unwind" fn count_fold_acc_dec(_value: *mut u8) {
+    FOLD_ACC_DEC_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+}
+
+extern "C-unwind" fn panic_once_fold_acc_dec(value: *mut u8) {
+    count_fold_acc_dec(value);
+    if FOLD_ACC_DEC_PANIC_ONCE.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        panic!("fold accumulator destructor panic");
+    }
+}
+
+extern "C-unwind" fn retain_fold_acc(
+    _env: *mut u8,
+    acc_ptr: *const u8,
+    _elem_ptr: *const u8,
+    out_ptr: *mut u8,
+) {
+    FOLD_ACC_INC_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    // Generated fold wrappers retain an owned accumulator argument before the
+    // user callback returns that credit into the next accumulator slot.
+    unsafe { ptr::copy_nonoverlapping(acc_ptr, out_ptr, size_of::<i64>()) };
+}
+
+struct FoldOwnedArgCleanup(*mut u8);
+
+impl Drop for FoldOwnedArgCleanup {
+    fn drop(&mut self) {
+        count_fold_acc_dec(self.0);
+    }
+}
+
+extern "C-unwind" fn panic_after_retaining_fold_acc(
+    _env: *mut u8,
+    acc_ptr: *const u8,
+    _elem_ptr: *const u8,
+    _out_ptr: *mut u8,
+) {
+    FOLD_ACC_INC_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let _owned_arg = FoldOwnedArgCleanup(acc_ptr.cast_mut());
+    panic!("fold callback panic");
+}
+
 extern "C" fn i64_to_ori_str(_env: *mut u8, elem_ptr: *const u8, out_ptr: *mut u8) {
     // SAFETY: The join conversion ABI supplies an aligned initialized `i64`.
     let value = unsafe { elem_ptr.cast::<i64>().read() };
@@ -759,9 +824,201 @@ fn fold_sum() {
         ptr::null_mut(),
         8,
         8,
+        None,
         (&raw mut result).cast(),
     );
     assert_eq!(result, 10);
+}
+
+#[test]
+fn fold_directions_release_each_superseded_managed_accumulator() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    for (name, consume) in fold_consumers() {
+        FOLD_ACC_INC_COUNT.store(0, SeqCst);
+        FOLD_ACC_DEC_COUNT.store(0, SeqCst);
+
+        let iter = ori_iter_from_range(0, 3, 1, false);
+        let init = 7_i64;
+        let mut result = 0_i64;
+        consume(
+            iter,
+            (&raw const init).cast(),
+            retain_fold_acc,
+            ptr::null_mut(),
+            8,
+            8,
+            Some(count_fold_acc_dec),
+            (&raw mut result).cast(),
+        );
+
+        assert_eq!(result, init, "{name}");
+        assert_eq!(FOLD_ACC_INC_COUNT.load(SeqCst), 3, "{name}");
+        assert_eq!(
+            FOLD_ACC_DEC_COUNT.load(SeqCst),
+            3,
+            "{name} must replace, not accumulate beside, each prior owner"
+        );
+
+        count_fold_acc_dec((&raw mut result).cast());
+        assert_eq!(FOLD_ACC_DEC_COUNT.load(SeqCst), 4, "{name}");
+    }
+}
+
+#[test]
+fn fold_directions_release_managed_accumulator_when_callback_unwinds() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    for (name, consume) in fold_consumers() {
+        FOLD_ACC_INC_COUNT.store(0, SeqCst);
+        FOLD_ACC_DEC_COUNT.store(0, SeqCst);
+
+        let iter = ori_iter_from_range(0, 1, 1, false);
+        let init = 7_i64;
+        let mut result = 0_i64;
+        let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            consume(
+                iter,
+                (&raw const init).cast(),
+                panic_after_retaining_fold_acc,
+                ptr::null_mut(),
+                8,
+                8,
+                Some(count_fold_acc_dec),
+                (&raw mut result).cast(),
+            );
+        }));
+
+        assert!(
+            unwind.is_err(),
+            "{name} callback panic must reach the caller"
+        );
+        assert_eq!(FOLD_ACC_INC_COUNT.load(SeqCst), 1, "{name}");
+        assert_eq!(
+            FOLD_ACC_DEC_COUNT.load(SeqCst),
+            2,
+            "{name} must unwind the callback-owned and runtime-owned credits"
+        );
+    }
+}
+
+#[test]
+fn fold_directions_guard_new_accumulator_when_previous_destructor_unwinds() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    for (name, consume) in fold_consumers() {
+        FOLD_ACC_INC_COUNT.store(0, SeqCst);
+        FOLD_ACC_DEC_COUNT.store(0, SeqCst);
+        FOLD_ACC_DEC_PANIC_ONCE.store(true, SeqCst);
+
+        let iter = ori_iter_from_range(0, 1, 1, false);
+        let init = 7_i64;
+        let mut result = 0_i64;
+        let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            consume(
+                iter,
+                (&raw const init).cast(),
+                retain_fold_acc,
+                ptr::null_mut(),
+                8,
+                8,
+                Some(panic_once_fold_acc_dec),
+                (&raw mut result).cast(),
+            );
+        }));
+
+        assert!(
+            unwind.is_err(),
+            "{name} destructor panic must reach the caller"
+        );
+        assert_eq!(FOLD_ACC_INC_COUNT.load(SeqCst), 1, "{name}");
+        assert_eq!(
+            FOLD_ACC_DEC_COUNT.load(SeqCst),
+            2,
+            "{name} must release the newly produced accumulator during unwind"
+        );
+    }
+}
+
+#[test]
+fn fold_directions_transfer_empty_managed_accumulator_to_output() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    for (name, consume) in fold_consumers() {
+        FOLD_ACC_DEC_COUNT.store(0, SeqCst);
+        let init = 7_i64;
+        let mut result = 0_i64;
+        consume(
+            ori_iter_from_range(0, 0, 1, false),
+            (&raw const init).cast(),
+            retain_fold_acc,
+            ptr::null_mut(),
+            8,
+            8,
+            Some(count_fold_acc_dec),
+            (&raw mut result).cast(),
+        );
+
+        assert_eq!(result, init, "{name}");
+        assert_eq!(FOLD_ACC_DEC_COUNT.load(SeqCst), 0, "{name}");
+        count_fold_acc_dec((&raw mut result).cast());
+        assert_eq!(FOLD_ACC_DEC_COUNT.load(SeqCst), 1, "{name}");
+    }
+}
+
+#[test]
+fn fold_directions_guard_iterator_when_null_output_teardown_unwinds() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let _g = crate::test_support::lock_rc();
+    for (name, consume) in fold_consumers() {
+        CALLBACK_ENV_INC_COUNT.store(0, SeqCst);
+        CALLBACK_ENV_DEC_COUNT.store(0, SeqCst);
+        FOLD_ACC_DEC_COUNT.store(0, SeqCst);
+        FOLD_ACC_DEC_PANIC_ONCE.store(true, SeqCst);
+
+        let mut captured = 7_usize;
+        let mut callback_env: [*mut u8; 2] =
+            [ptr::null_mut(), std::ptr::from_mut(&mut captured).cast()];
+        let iter = ori_iter_map(
+            ori_iter_from_range(0, 1, 1, false),
+            add_copied_env_word,
+            callback_env.as_mut_ptr().cast(),
+            Some(count_callback_env_inc),
+            Some(count_callback_env_dec),
+            8,
+            None,
+        );
+        let init = 7_i64;
+        let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            consume(
+                iter,
+                (&raw const init).cast(),
+                retain_fold_acc,
+                ptr::null_mut(),
+                8,
+                8,
+                Some(panic_once_fold_acc_dec),
+                ptr::null_mut(),
+            );
+        }));
+
+        assert!(
+            unwind.is_err(),
+            "{name} destructor panic must reach the caller"
+        );
+        assert_eq!(FOLD_ACC_DEC_COUNT.load(SeqCst), 1, "{name}");
+        assert_eq!(CALLBACK_ENV_INC_COUNT.load(SeqCst), 1, "{name}");
+        assert_eq!(
+            CALLBACK_ENV_DEC_COUNT.load(SeqCst),
+            1,
+            "{name} must release the owned iterator during accumulator unwind"
+        );
+    }
 }
 
 #[test]
@@ -780,6 +1037,7 @@ fn fold_releases_each_mapped_output_after_the_callback() {
         ptr::null_mut(),
         8,
         8,
+        None,
         (&raw mut result).cast(),
     );
 
@@ -800,6 +1058,7 @@ fn fold_empty() {
         ptr::null_mut(),
         8,
         8,
+        None,
         (&raw mut result).cast(),
     );
     assert_eq!(result, 42); // returns init when empty
@@ -821,6 +1080,7 @@ fn fold_with_filter() {
         ptr::null_mut(),
         8,
         8,
+        None,
         (&raw mut result).cast(),
     );
     assert_eq!(result, 12);
@@ -911,6 +1171,7 @@ fn rfold_advances_from_back_and_releases_each_mapped_yield() {
         ptr::null_mut(),
         8,
         8,
+        None,
         (&raw mut result).cast(),
     );
 

@@ -3,9 +3,61 @@
 use std::ptr;
 
 use super::super::state::{assert_elem_size, YieldGuard};
-use super::super::{ElemBuf, ElemIncFn, FoldFn};
+use super::super::{AccumulatorDecFn, ElemBuf, ElemIncFn, FoldFn};
 use super::take_iter;
 use crate::{OPTION_TAG_NONE, OPTION_TAG_SOME};
+
+/// Owns the accumulator credit held by the runtime's current scratch slot.
+///
+/// Generated fold wrappers retain the pointer-loaded accumulator before passing
+/// it to an owned callback parameter. After a successful callback, its returned
+/// credit lives in the next slot and the runtime must release the prior one.
+pub(super) struct AccumulatorOwner {
+    ptr: *mut u8,
+    dec_fn: Option<AccumulatorDecFn>,
+    armed: bool,
+}
+
+impl AccumulatorOwner {
+    pub(super) fn new(ptr: *mut u8, dec_fn: Option<AccumulatorDecFn>, armed: bool) -> Self {
+        Self { ptr, dec_fn, armed }
+    }
+
+    pub(super) fn replace_with(&mut self, next: *mut u8) {
+        let previous = self.ptr;
+        let previous_was_armed = self.armed;
+        // Arm the callback-produced value before releasing the previous one.
+        // If a user-defined accumulator destructor unwinds, `Drop` must still
+        // protect the newly produced credit.
+        self.ptr = next;
+        self.armed = true;
+        if previous_was_armed {
+            if let Some(dec) = self.dec_fn {
+                dec(previous);
+            }
+        }
+    }
+
+    pub(super) fn transfer_to_output(&mut self) {
+        self.armed = false;
+    }
+
+    fn release(&mut self) {
+        if !self.armed {
+            return;
+        }
+        self.armed = false;
+        if let Some(dec) = self.dec_fn {
+            dec(self.ptr);
+        }
+    }
+}
+
+impl Drop for AccumulatorOwner {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
 
 // Fold
 
@@ -13,6 +65,7 @@ use crate::{OPTION_TAG_NONE, OPTION_TAG_SOME};
 ///
 /// `init_ptr` points to the initial accumulator value (`acc_size` bytes).
 /// `fold_fn` is a trampoline: `(env, acc_ptr, elem_ptr, out_ptr) -> void`.
+/// `acc_dec_fn` releases superseded managed accumulator values and is null for scalars.
 /// The final accumulator is written to `out_ptr` (`acc_size` bytes).
 #[no_mangle]
 pub extern "C-unwind" fn ori_iter_fold(
@@ -22,12 +75,18 @@ pub extern "C-unwind" fn ori_iter_fold(
     fold_env: *mut u8,
     elem_size: i64,
     acc_size: i64,
+    acc_dec_fn: Option<AccumulatorDecFn>,
     out_ptr: *mut u8,
 ) {
     assert_elem_size(elem_size, "ori_iter_fold");
     assert_elem_size(acc_size, "ori_iter_fold(acc)");
     if out_ptr.is_null() {
-        drop(take_iter(iter));
+        // Acquire the iterator guard before running potentially-unwinding
+        // accumulator teardown so both owned inputs remain protected.
+        let _state = take_iter(iter);
+        if let (Some(dec), false) = (acc_dec_fn, init_ptr.is_null()) {
+            dec(init_ptr.cast_mut());
+        }
         return;
     }
 
@@ -55,6 +114,9 @@ pub extern "C-unwind" fn ori_iter_fold(
         unsafe { ptr::copy_nonoverlapping(init_ptr, acc_a.as_mut_ptr(), as_) };
     }
 
+    let mut accumulator =
+        AccumulatorOwner::new(acc_a.as_mut_ptr(), acc_dec_fn, !init_ptr.is_null());
+
     let mut current = &mut acc_a;
     let mut next = &mut acc_b;
 
@@ -67,11 +129,13 @@ pub extern "C-unwind" fn ori_iter_fold(
             elem_buf.as_ptr(),
             next.as_mut_ptr(),
         );
+        accumulator.replace_with(next.as_mut_ptr());
         std::mem::swap(&mut current, &mut next);
     }
 
     // Copy final accumulator to output
     unsafe { ptr::copy_nonoverlapping(current.as_ptr(), out_ptr, as_) };
+    accumulator.transfer_to_output();
 }
 
 // Last

@@ -175,7 +175,7 @@ impl ArcLowerer<'_> {
         // For list/string receivers, extract length for `#` resolution.
         // Set hash_length so `#` resolves to collection length in the index expression.
         let old_hash = self.hash_length.take();
-        let recv_ty = self.expr_type(receiver);
+        let recv_ty = self.pool.resolve_fully(self.expr_type(receiver));
         // List / str index panics on OOB; map / set index returns `Option<V>`
         // and never panics. Only the panic-carrier receivers route through an
         // Invoke carrier (Spec: Clause 17.2.3); a map index stays an `Apply`.
@@ -205,8 +205,12 @@ impl ArcLowerer<'_> {
         let idx_var = self.lower_expr(index);
         self.hash_length = old_hash;
 
-        let builtin_index =
-            recv_ty == Idx::STR || matches!(self.pool.tag(recv_ty), Tag::List | Tag::Map);
+        // A polymorphic lambda's receiver remains a quantified leaf here; its
+        // builtin Index implementation is selected when the lambda specializes.
+        let deferred_builtin_index = producer.is_none() && self.pool.tag(recv_ty) == Tag::BoundVar;
+        let builtin_index = deferred_builtin_index
+            || recv_ty == Idx::STR
+            || matches!(self.pool.tag(recv_ty), Tag::List | Tag::Map);
         if !builtin_index {
             let Some(producer) = producer else {
                 self.problems.push(super::ArcProblem::InternalError {
@@ -239,7 +243,7 @@ impl ArcLowerer<'_> {
         // an Invoke carrier: even when the catch lives in a caller, this frame
         // must run cleanup for values live across `__index` before resuming the
         // unwind. A non-panicking map / set index keeps the Apply carrier.
-        if panics_on_oob {
+        if panics_on_oob || deferred_builtin_index {
             self.builder
                 .emit_invoke(ty, index_fn, vec![recv, idx_var], Some(span), None)
         } else {

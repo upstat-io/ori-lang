@@ -3,7 +3,8 @@
 use std::ptr;
 
 use super::super::state::{assert_elem_size, YieldGuard};
-use super::super::{ElemBuf, ElemIncFn, FoldFn, PredicateFn};
+use super::super::{AccumulatorDecFn, ElemBuf, ElemIncFn, FoldFn, PredicateFn};
+use super::fold::AccumulatorOwner;
 use super::take_iter;
 use crate::{OPTION_TAG_NONE, OPTION_TAG_SOME};
 
@@ -20,12 +21,16 @@ pub extern "C-unwind" fn ori_iter_rfold(
     fold_env: *mut u8,
     elem_size: i64,
     acc_size: i64,
+    acc_dec_fn: Option<AccumulatorDecFn>,
     out_ptr: *mut u8,
 ) {
     assert_elem_size(elem_size, "ori_iter_rfold");
     assert_elem_size(acc_size, "ori_iter_rfold(acc)");
     if out_ptr.is_null() {
-        drop(take_iter(iter));
+        let _state = take_iter(iter);
+        if let (Some(dec), false) = (acc_dec_fn, init_ptr.is_null()) {
+            dec(init_ptr.cast_mut());
+        }
         return;
     }
 
@@ -49,6 +54,9 @@ pub extern "C-unwind" fn ori_iter_rfold(
         unsafe { ptr::copy_nonoverlapping(init_ptr, acc_a.as_mut_ptr(), as_) };
     }
 
+    let mut accumulator =
+        AccumulatorOwner::new(acc_a.as_mut_ptr(), acc_dec_fn, !init_ptr.is_null());
+
     let mut current = &mut acc_a;
     let mut next = &mut acc_b;
     while unsafe { state.next_back(elem_buf.as_mut_ptr(), elem_size) } {
@@ -59,10 +67,12 @@ pub extern "C-unwind" fn ori_iter_rfold(
             elem_buf.as_ptr(),
             next.as_mut_ptr(),
         );
+        accumulator.replace_with(next.as_mut_ptr());
         std::mem::swap(&mut current, &mut next);
     }
 
     unsafe { ptr::copy_nonoverlapping(current.as_ptr(), out_ptr, as_) };
+    accumulator.transfer_to_output();
 }
 
 // Rfind

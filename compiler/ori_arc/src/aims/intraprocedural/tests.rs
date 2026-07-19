@@ -3039,6 +3039,74 @@ fn effect_summary_moved_alias_does_not_set_may_share() {
     );
 }
 
+/// Returning a managed projection creates a logical owner credit for the
+/// projected value so it can outlive the borrowed aggregate.
+#[test]
+fn effect_summary_projection_escape_sets_may_share() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(0)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![ArcInstr::Project {
+                dst: var(1),
+                ty: ty(0),
+                value: var(0),
+                field: 0,
+            }],
+            terminator: ArcTerminator::Return { value: var(1) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(1);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    assert!(
+        state_map.effect_summary().may_share,
+        "an escaping managed projection requires an additional logical owner credit"
+    );
+}
+
+/// Reading through a block-local managed projection does not itself create a
+/// second logical owner.
+#[test]
+fn effect_summary_projection_block_local_stays_non_sharing() {
+    let func = ArcFunction {
+        var_types: vec![ty(0), ty(1), ty(2)],
+        params: vec![crate::test_helpers::owned_param(0, ty(0))],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(1),
+                    value: var(0),
+                    field: 0,
+                },
+                ArcInstr::Project {
+                    dst: var(2),
+                    ty: ty(2),
+                    value: var(1),
+                    field: 0,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(2) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(3).with_scalar(2);
+    let state_map = super::analyze_function(&func, &classifier, &no_sigs(), &[], Vec::new());
+
+    assert!(
+        !state_map.effect_summary().may_share,
+        "a block-local projection read must preserve the non-sharing effect"
+    );
+}
+
 /// `Construct` storing an argument with non-`BlockLocal` locality sets
 /// `may_share = true` — `HeapEscaping` → `may_share` rule.
 #[test]

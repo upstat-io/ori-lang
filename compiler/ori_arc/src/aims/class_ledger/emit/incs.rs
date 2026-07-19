@@ -10,6 +10,7 @@ use super::super::events::{
     ClassEvent, ClassEvents, EventKind,
 };
 use super::{DeclineReason, PlanSlot, PlannedOp, PlannedOpKind};
+use crate::aims::intraprocedural::ledger_events::ClassOrigin;
 
 /// `BurdenInc` before every CONSUME that duplicates: the class stays live
 /// past the hand-off (a later Read / Mutate / Consume in the stream or a
@@ -39,6 +40,15 @@ pub(super) fn plan_incs(input: &IncPlanningInput<'_>) -> Result<Vec<PlannedOp>, 
         dom,
     } = input;
     let borrowed = events.is_externally_funded();
+    // A preceding credit is surplus only when an independently established
+    // origin remains after that credit is handed off. Refined container-held
+    // classes have an external owner; credit-only sharing views and merge
+    // classes do not, so their first credit is the reference itself.
+    let has_independent_owner = borrowed
+        || matches!(
+            events.origin,
+            Some(ClassOrigin::Fresh | ClassOrigin::Foreign | ClassOrigin::Opaque)
+        );
     // Per-seed same-reference closures: a consumed alias belongs to the
     // SEED whose downstream Let-alias closure contains it (the closure
     // grows from the extraction root, never from an alias).
@@ -87,10 +97,10 @@ pub(super) fn plan_incs(input: &IncPlanningInput<'_>) -> Result<Vec<PlannedOp>, 
                 };
                 (demand_out, suffix_has_demand(evs, position, seed_vars))
             };
-            // A credit-funded consume takes no inc regardless of the
-            // class's funding origin: the preceding in-block credit mints
-            // the very reference this consume hands off.
-            if preceding_credit_funds(evs, position) {
+            // A surplus credit can fund this hand-off while an independent
+            // owner survives. A credit-only class must instead duplicate
+            // before any consume that it survives.
+            if preceding_credit_funds(evs, position, has_independent_owner) {
                 continue;
             }
             if !borrowed
@@ -175,11 +185,17 @@ fn invoke_refund_credit_follows(
     })
 }
 
-/// Whether an UNPAIRED in-block CREDIT precedes `position`: each preceding
-/// credit funds one subsequent consume in order (the per-site extraction
-/// credit re-acquires the reference the store gave the container), so a
-/// credit-funded consume takes no duplication inc.
-fn preceding_credit_funds(evs: &[ClassEvent], position: usize) -> bool {
+/// Whether an UNPAIRED in-block CREDIT precedes `position` while a separate
+/// owner survives the hand-off. Each surplus credit funds one subsequent
+/// consume in order; a credit-only class's first acquisition is not surplus.
+fn preceding_credit_funds(
+    evs: &[ClassEvent],
+    position: usize,
+    has_independent_owner: bool,
+) -> bool {
+    if !has_independent_owner {
+        return false;
+    }
     let credits = evs[..position]
         .iter()
         .filter(|ev| ev.kind == EventKind::Credit)

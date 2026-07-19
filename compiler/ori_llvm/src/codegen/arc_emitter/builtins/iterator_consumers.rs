@@ -296,6 +296,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let acc_size = self.element_store_size(acc_ty);
         let acc_size_val = self.builder.const_i64(acc_size as i64);
+        let acc_dec_fn = self.get_or_generate_elem_dec_fn(acc_ty);
 
         let init_alloca =
             self.builder
@@ -316,6 +317,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 closure_env,
                 elem_size_val,
                 acc_size_val,
+                acc_dec_fn,
                 out_alloca,
             ],
             "",
