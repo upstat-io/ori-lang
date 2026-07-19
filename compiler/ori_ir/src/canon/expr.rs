@@ -17,6 +17,7 @@ use crate::{
 use super::ids::{CanBindingPatternId, CanFieldRange, CanId, CanMapEntryRange, CanRange};
 use super::patterns::{CanNamedExprRange, CanParamRange};
 use super::pools::{ConstantId, DecisionTreeId};
+use super::result::MethodProducerId;
 
 /// Canonical expression node — sugar-free, type-annotated, pattern-compiled.
 ///
@@ -122,8 +123,16 @@ pub enum CanExpr {
     // Access
     /// Field access: `receiver.field`
     Field { receiver: CanId, field: Name },
-    /// Index access: `receiver[index]`
-    Index { receiver: CanId, index: CanId },
+    /// Index access: `receiver[index]`.
+    ///
+    /// `producer` is present for user-defined `Index` dispatch and absent for
+    /// primitive List/Map/str indexing. It is a module-local handle into the
+    /// type checker's exact producer table, not a backend symbol.
+    Index {
+        receiver: CanId,
+        index: CanId,
+        producer: Option<MethodProducerId>,
+    },
 
     // Control Flow
     /// Conditional: `if cond then else`. INVALID `else_branch` = unit block.
@@ -343,8 +352,12 @@ fn fmt_basic_expr(expr: &CanExpr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         CanExpr::Field { receiver, field } => {
             write!(f, "Field({receiver:?}, {field:?})")
         }
-        CanExpr::Index { receiver, index } => {
-            write!(f, "Index({receiver:?}, {index:?})")
+        CanExpr::Index {
+            receiver,
+            index,
+            producer,
+        } => {
+            write!(f, "Index({receiver:?}, {index:?}, {producer:?})")
         }
         _ => unreachable!("basic expression classifier is exhaustive"),
     }

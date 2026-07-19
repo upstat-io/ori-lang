@@ -180,6 +180,14 @@ pub(crate) fn extract_class_events_with_extraction_credits(
         let Some(evs) = events.per_block.get_mut(block) else {
             continue;
         };
+        let extraction_var = func
+            .blocks
+            .get(block)
+            .and_then(|arc_block| arc_block.body.get(index))
+            .and_then(|instr| match instr {
+                crate::ir::ArcInstr::Project { dst, .. } => Some(*dst),
+                _ => None,
+            });
         let site = EventSite::Body(index);
         // Insert in site order: after every event at an earlier body index
         // or block entry, before later ones.
@@ -196,7 +204,11 @@ pub(crate) fn extract_class_events_with_extraction_credits(
             ClassEvent {
                 site,
                 kind: EventKind::Credit,
-                var: None,
+                // The credit transfers the container-held field reference to
+                // this Project result. Naming that result is load-bearing on
+                // a later bypass/unwind edge: it is the only field-view alias
+                // whose definition reaches the edge-local release slot.
+                var: extraction_var,
                 delta: 1,
                 floor: 0,
             },

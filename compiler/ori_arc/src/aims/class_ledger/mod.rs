@@ -159,11 +159,11 @@ fn hazard_facts_for(
             events::EventKind::Read | events::EventKind::Mutate | events::EventKind::SelectCredit
         )
     });
-    let mut consume_sites: Vec<(usize, EventSite)> = Vec::new();
+    let mut consume_events = Vec::new();
     for (block, evs) in class_events.per_block.iter().enumerate() {
         for ev in evs {
             if ev.kind == events::EventKind::Consume {
-                consume_sites.push((block, ev.site));
+                consume_events.push((block, ev.site, ev.var));
             }
         }
     }
@@ -192,9 +192,10 @@ fn hazard_facts_for(
             .with_demand(has_demand)
             .with_self_funded_clean(self_funded_clean)
             .with_credit(has_credit)
-            .with_borrowed_rooted_clean(borrowed_rooted_clean),
+            .with_borrowed_rooted_clean(borrowed_rooted_clean)
+            .with_verified_clean(verdict == ClassVerdict::Clean),
         planned_inc_count,
-        consume_sites,
+        consume_events,
     )
 }
 

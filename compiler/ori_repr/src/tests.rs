@@ -3597,6 +3597,95 @@ fn no_imported_metadata_allows_narrowing() {
 }
 
 #[test]
+fn direct_test_body_constructs_join_field_ranges_before_narrowing() {
+    use ori_arc::ir::{
+        ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue, ValueRepr,
+    };
+    use ori_arc::{ArcBlockId, ArcVarId};
+
+    fn test_body(name: Name, struct_name: Name, struct_idx: Idx, x: i64, y: i64) -> ArcFunction {
+        let x_var = ArcVarId::new(0);
+        let y_var = ArcVarId::new(1);
+        let struct_var = ArcVarId::new(2);
+        ArcFunction {
+            name,
+            return_type: struct_idx,
+            blocks: vec![ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![
+                    ArcInstr::Let {
+                        dst: x_var,
+                        ty: Idx::INT,
+                        value: ArcValue::Literal(LitValue::Int(x)),
+                    },
+                    ArcInstr::Let {
+                        dst: y_var,
+                        ty: Idx::INT,
+                        value: ArcValue::Literal(LitValue::Int(y)),
+                    },
+                    ArcInstr::Construct {
+                        dst: struct_var,
+                        ty: struct_idx,
+                        ctor: CtorKind::Struct(struct_name),
+                        args: vec![x_var, y_var],
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: struct_var },
+            }],
+            entry: ArcBlockId::new(0),
+            var_types: vec![Idx::INT, Idx::INT, struct_idx],
+            var_reprs: vec![ValueRepr::Scalar, ValueRepr::Scalar, ValueRepr::Scalar],
+            spans: vec![vec![None; 3]],
+            ..ArcFunction::default()
+        }
+    }
+
+    let mut pool = Pool::new();
+    let struct_name = Name::new(0, 960);
+    let field_x = Name::new(0, 961);
+    let field_y = Name::new(0, 962);
+    let struct_idx = pool.struct_type(struct_name, &[(field_x, Idx::INT), (field_y, Idx::INT)]);
+    let bodies = [
+        test_body(Name::new(0, 963), struct_name, struct_idx, 1, 2),
+        test_body(Name::new(0, 964), struct_name, struct_idx, 100, 20),
+        test_body(Name::new(0, 965), struct_name, struct_idx, 999, 200),
+    ];
+
+    let plan = crate::compute_repr_plan_with_interner(
+        &pool,
+        &bodies,
+        NarrowingPolicy::Aggressive,
+        &[],
+        None,
+        &[],
+        &[],
+        &[],
+        &[],
+        false,
+    );
+
+    let Some(MachineRepr::Struct(repr)) = plan.get_repr(struct_idx) else {
+        panic!("direct test-body struct must have a representation");
+    };
+    for field_name in [field_x, field_y] {
+        let field = repr
+            .fields
+            .iter()
+            .find(|field| field.name == field_name)
+            .unwrap_or_else(|| panic!("direct test-body struct field must be retained"));
+        assert_eq!(
+            field.repr,
+            MachineRepr::Int {
+                width: IntWidth::I16,
+                signed: true,
+            },
+            "all direct test-body construction sites must contribute before narrowing"
+        );
+    }
+}
+
+#[test]
 fn imported_metadata_hash_not_in_pool_ignored() {
     // Edge case: Imported metadata with a hash that doesn't
     // exist in the local pool is silently ignored (no panic, no effect).

@@ -205,6 +205,7 @@ pub(crate) fn lookup_struct_field_types(
 pub(crate) fn infer_index(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
+    expr_id: ExprId,
     receiver: ExprId,
     index: ExprId,
     span: Span,
@@ -240,8 +241,15 @@ pub(crate) fn infer_index(
         Tag::Error => Idx::ERROR,
 
         // All other types: try Index trait dispatch
-        _ => resolve_index_via_trait(engine, arena, resolved, index_ty, index, span),
+        _ => resolve_index_via_trait(engine, arena, expr_id, resolved, index_ty, index, span),
     }
+}
+
+#[derive(Clone)]
+struct IndexCandidate {
+    signature: Idx,
+    has_self: bool,
+    producer: crate::MethodProducer,
 }
 
 /// Try to resolve subscript indexing via `Index` trait dispatch.
@@ -255,6 +263,7 @@ pub(crate) fn infer_index(
 fn resolve_index_via_trait(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
+    expr_id: ExprId,
     receiver_ty: Idx,
     index_ty: Idx,
     index: ExprId,
@@ -264,16 +273,23 @@ fn resolve_index_via_trait(
         return Idx::ERROR;
     };
 
-    // Scoped borrow: collect all Index impl candidates (signature, has_self).
-    let candidates: Vec<(Idx, bool)> = {
+    // Scoped borrow: collect signatures together with their exact registered
+    // producer. Keeping only `(signature, has_self)` here previously erased the
+    // key-specific impl identity selected by this expression.
+    let candidates: Vec<IndexCandidate> = {
         let Some(trait_registry) = engine.trait_registry() else {
             return Idx::ERROR;
         };
         trait_registry
-            .impls_for_type(receiver_ty)
-            .filter_map(|impl_entry| {
+            .indexed_impls_for_type(receiver_ty)
+            .filter_map(|(impl_index, impl_entry)| {
                 let method = impl_entry.methods.get(&name)?;
-                Some((method.signature, method.has_self))
+                let producer = trait_registry.method_producer(impl_index, method)?;
+                Some(IndexCandidate {
+                    signature: method.signature,
+                    has_self: method.has_self,
+                    producer,
+                })
             })
             .collect()
     };
@@ -285,22 +301,30 @@ fn resolve_index_via_trait(
 
     // Single candidate — use directly without key-type filtering
     if candidates.len() == 1 {
-        return check_index_signature(engine, arena, candidates[0], index_ty, index, span);
+        return check_index_signature(
+            engine,
+            arena,
+            expr_id,
+            candidates[0].clone(),
+            index_ty,
+            index,
+            span,
+        );
     }
 
     // Multiple candidates — disambiguate by matching key type tags.
     let resolved_index = engine.resolve(index_ty);
     let index_tag = engine.pool().tag(resolved_index);
 
-    let matching: Vec<(Idx, bool)> = candidates
+    let matching: Vec<IndexCandidate> = candidates
         .into_iter()
-        .filter(|&(sig_ty, has_self)| {
-            let resolved_sig = engine.resolve(sig_ty);
+        .filter(|candidate| {
+            let resolved_sig = engine.resolve(candidate.signature);
             if engine.pool().tag(resolved_sig) != Tag::Function {
                 return false;
             }
             let params = engine.pool().function_params(resolved_sig);
-            let skip = usize::from(has_self);
+            let skip = usize::from(candidate.has_self);
             let key_params = &params[skip..];
             if key_params.len() != 1 {
                 return false;
@@ -317,7 +341,15 @@ fn resolve_index_via_trait(
             engine.push_error(TypeCheckError::not_indexable(span, receiver_ty));
             Idx::ERROR
         }
-        1 => check_index_signature(engine, arena, matching[0], index_ty, index, span),
+        1 => check_index_signature(
+            engine,
+            arena,
+            expr_id,
+            matching[0].clone(),
+            index_ty,
+            index,
+            span,
+        ),
         _ => {
             engine.push_error(TypeCheckError::ambiguous_index(span, receiver_ty));
             Idx::ERROR
@@ -333,13 +365,13 @@ fn resolve_index_via_trait(
 fn check_index_signature(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
-    candidate: (Idx, bool),
+    expr_id: ExprId,
+    candidate: IndexCandidate,
     index_ty: Idx,
     index: ExprId,
     span: Span,
 ) -> Idx {
-    let (sig_ty, has_self) = candidate;
-    let resolved_sig = engine.resolve(sig_ty);
+    let resolved_sig = engine.resolve(candidate.signature);
     if engine.pool().tag(resolved_sig) != Tag::Function {
         return Idx::ERROR;
     }
@@ -347,7 +379,7 @@ fn check_index_signature(
     let params = engine.pool().function_params(resolved_sig);
     let ret = engine.pool().function_return(resolved_sig);
 
-    let skip = usize::from(has_self);
+    let skip = usize::from(candidate.has_self);
     let method_params = &params[skip..];
 
     if method_params.len() != 1 {
@@ -362,6 +394,8 @@ fn check_index_signature(
         },
     };
     let _ = engine.check_type(index_ty, &expected, arena.get_expr(index).span);
+
+    engine.record_index_dispatch(expr_id, candidate.producer);
 
     ret
 }

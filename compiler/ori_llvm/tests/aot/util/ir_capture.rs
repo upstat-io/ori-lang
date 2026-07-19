@@ -7,6 +7,7 @@ use std::fs;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use ori_llvm::aot::mangle::Mangler;
 use tempfile::TempDir;
 
 use super::binary::{ir_capture_binary, ori_binary, stdlib_path};
@@ -50,31 +51,90 @@ pub fn compile_and_capture_ir(source: &str) -> String {
 
 /// Extract a single function's LLVM IR from a full module dump.
 ///
-/// Finds `define ... @func_name(` and returns everything up to the next
-/// `define` or end of IR. Panics if the function is not found.
+/// Finds the exact `define ... @func_name(` line and returns that function's
+/// body. Calls and declarations using the same symbol do not match.
 pub fn extract_function_ir<'a>(full_ir: &'a str, func_name: &str) -> &'a str {
-    let search = format!("@{func_name}(");
-    let start = full_ir.find(&search).unwrap_or_else(|| {
-        panic!(
-            "function {func_name} not found in IR.\n\
+    let mut offset = 0;
+    let define_start = full_ir
+        .split_inclusive('\n')
+        .find_map(|line| {
+            let line_start = offset;
+            offset += line.len();
+            (line.trim_start().starts_with("define ")
+                && llvm_function_symbol(line) == Some(func_name))
+            .then(|| line_start + line.find("define ").unwrap_or(0))
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "function {func_name} not found in IR.\n\
              Available functions: {:?}",
-            full_ir
-                .lines()
-                .filter(|l| l.starts_with("define "))
-                .collect::<Vec<_>>()
-        );
-    });
+                full_ir
+                    .lines()
+                    .filter_map(llvm_function_symbol)
+                    .collect::<Vec<_>>()
+            )
+        });
 
-    // Find the "define" line containing this function
-    let define_start = full_ir[..start].rfind("define ").unwrap_or(start);
-
-    // Find the next "define" or end of IR section
     let rest = &full_ir[define_start..];
-    let end = rest[1..]
-        .find("\ndefine ")
-        .map_or(rest.len(), |pos| pos + 1);
+    let end = rest.find("\n}").map_or(rest.len(), |pos| pos + 2);
 
     &full_ir[define_start..define_start + end]
+}
+
+/// Resolve the unique closed-executable body for a derived method.
+///
+/// Derived methods use collision-safe artifact identities such as
+/// `eq$derived$0`; they do not retain the source-level `Type.eq` symbol. The
+/// fixtures using this helper must therefore contain exactly one realized
+/// derived body for `method_name`.
+pub fn resolve_derived_function_name<'a>(ir: &'a str, method_name: &str) -> &'a str {
+    let artifact_prefix = Mangler::new().mangle_function("", &format!("{method_name}$derived$"));
+    let mut resolved = None;
+
+    for symbol in ir.lines().filter_map(llvm_function_symbol) {
+        let Some(id) = symbol.strip_prefix(&artifact_prefix) else {
+            continue;
+        };
+        if id.is_empty() || !id.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        if let Some(previous) = resolved {
+            if previous != symbol {
+                panic!(
+                    "multiple derived {method_name} functions found in IR: \
+                     {previous} and {symbol}"
+                );
+            }
+        } else {
+            resolved = Some(symbol);
+        }
+    }
+
+    resolved.unwrap_or_else(|| {
+        panic!(
+            "derived {method_name} function not found in IR.\n\
+             Available functions: {:?}",
+            ir.lines()
+                .filter_map(llvm_function_symbol)
+                .collect::<Vec<_>>()
+        )
+    })
+}
+
+fn llvm_function_symbol(line: &str) -> Option<&str> {
+    let line = line.trim_start();
+    if !line.starts_with("define ") && !line.starts_with("declare ") {
+        return None;
+    }
+
+    let symbol = line.split_once('@')?.1;
+    if let Some(quoted) = symbol.strip_prefix('"') {
+        let end = quoted.find("\"(")?;
+        Some(&quoted[..end])
+    } else {
+        let end = symbol.find('(')?;
+        Some(&symbol[..end])
+    }
 }
 
 /// Resolve a function's attributes through its LLVM `#N` attribute group.
@@ -280,4 +340,35 @@ pub fn compile_to_llvm_ir(source: &str) -> Result<String, String> {
     }
 
     fs::read_to_string(&ir_path).map_err(|e| format!("Failed to read IR file: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_function_ir, resolve_derived_function_name, resolve_function_attrs};
+
+    #[test]
+    fn derived_function_lookup_reaches_quoted_artifact_body_and_attributes() {
+        let ir = r#"
+define i1 @_ori_main() #0 {
+entry:
+  %result = call fastcc i1 @"_ori_eq$24derived$240"(ptr null, ptr null)
+  ret i1 %result
+}
+
+define fastcc i1 @"_ori_eq$24derived$240"(ptr %left, ptr %right) #1 {
+entry:
+  ret i1 true
+}
+
+attributes #0 = { nounwind }
+attributes #1 = { nounwind }
+"#;
+
+        let symbol = resolve_derived_function_name(ir, "eq");
+        assert_eq!(symbol, "_ori_eq$24derived$240");
+        let body = extract_function_ir(ir, symbol);
+        assert!(body.contains("ret i1 true"));
+        assert!(!body.contains("call fastcc"));
+        assert!(resolve_function_attrs(ir, symbol).contains("nounwind"));
+    }
 }

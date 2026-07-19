@@ -145,7 +145,9 @@ fn push_operator_children(expr: CanExpr, arena: &CanArena, stack: &mut Vec<CanId
             stack.extend(arena.get_expr_list(args).iter().copied());
         }
         CanExpr::Field { receiver, .. } => stack.push(receiver),
-        CanExpr::Index { receiver, index } => stack.extend([receiver, index]),
+        CanExpr::Index {
+            receiver, index, ..
+        } => stack.extend([receiver, index]),
         _ => unreachable!("operator child dispatch received a non-operator expression"),
     }
 }

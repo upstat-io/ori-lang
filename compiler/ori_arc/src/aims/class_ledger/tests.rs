@@ -138,6 +138,16 @@ fn analyze_with_registry(
     state_map: &AimsStateMap,
     registry: &ori_types::TypeRegistry,
 ) -> (ClassLedgerAnalysis, BirthSitePartition) {
+    let interner = test_interner();
+    analyze_with_registry_and_interner(func, state_map, registry, &interner)
+}
+
+fn analyze_with_registry_and_interner(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    registry: &ori_types::TypeRegistry,
+    interner: &ori_ir::StringInterner,
+) -> (ClassLedgerAnalysis, BirthSitePartition) {
     // These unit fixtures bypass whole-program AIMS setup. Route
     // their synthetic bodies through the same strict primitive-fact producer
     // before any ledger consumer reads the frozen table.
@@ -148,10 +158,8 @@ fn analyze_with_registry(
         .unwrap_or_else(|errors| panic!("class-ledger primitive facts should freeze: {errors:?}"));
     let facts: FxHashMap<Name, BoundaryFacts> = FxHashMap::default();
     let mut partition = compute_birth_site_partition(&func, state_map);
-    let interner = test_interner();
-    let classification = classify_function(&func, state_map, &mut partition, &facts, &interner);
-    let analysis =
-        analyze_class_ledger(&func, &classification, &mut partition, registry, &interner);
+    let classification = classify_function(&func, state_map, &mut partition, &facts, interner);
+    let analysis = analyze_class_ledger(&func, &classification, &mut partition, registry, interner);
     (analysis, partition)
 }
 
@@ -2218,6 +2226,86 @@ fn extract_then_move_out_via_second_container_funds_itself_at_extraction() {
     );
 }
 
+/// A fresh managed value stored in a released `Option` and also handed to an
+/// owned call has two independently funded owners. The class plan's duplicate
+/// credit funds the call; it is not a field move-out that may steal the
+/// borrowed option receiver's retained payload credit.
+#[test]
+fn funded_alias_owned_call_preserves_released_option_payload_credit() {
+    let interner = test_interner();
+    let option_name = interner.intern("Option");
+    let mut pool = ori_types::Pool::new();
+    let option_str = pool.option(Idx::STR);
+    let mut registry = ori_types::TypeRegistry::new();
+    ori_types::register_resolved_collection_burdens(&pool, &mut registry);
+    let mut func = one_block_func(
+        5,
+        vec![
+            ArcInstr::Construct {
+                dst: v(0),
+                ty: Idx::STR,
+                ctor: CtorKind::Tuple,
+                args: vec![],
+            },
+            ArcInstr::Construct {
+                dst: v(1),
+                ty: option_str,
+                ctor: CtorKind::EnumVariant {
+                    enum_name: option_name,
+                    variant: 1,
+                },
+                args: vec![v(0)],
+            },
+            apply(2, vec![(0, ArgOwnership::Owned)]),
+            ArcInstr::Let {
+                dst: v(3),
+                ty: option_str,
+                value: ArcValue::Var(v(1)),
+            },
+            is_shared(4, 3),
+        ],
+        ret(4),
+    );
+    func.params = vec![];
+    func.var_types = vec![Idx::STR, option_str, Idx::UNIT, option_str, Idx::BOOL];
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(2));
+    state_map.set_permanent_scalar(v(4));
+
+    let (analysis, mut partition) =
+        analyze_with_registry_and_interner(&func, &state_map, &registry, &interner);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "the plan-funded owned call must not become a field move-out hazard"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+
+    let payload = class_rep(&mut partition, 0);
+    let payload_ops = ops_for(&analysis, payload);
+    assert_eq!(
+        payload_ops
+            .iter()
+            .filter(|op| op.kind == PlannedOpKind::Inc)
+            .count(),
+        1,
+        "one duplicate credit funds the owned call: {payload_ops:?}"
+    );
+
+    let container = class_rep(&mut partition, 1);
+    let container_ops = ops_for(&analysis, container);
+    assert!(
+        container_ops.iter().any(|op| op.kind == PlannedOpKind::Dec),
+        "the option retains its whole-container release: {container_ops:?}"
+    );
+    assert!(
+        container_ops
+            .iter()
+            .all(|op| !matches!(op.kind, PlannedOpKind::DecPartial { .. })),
+        "the retained payload credit must not be decomposed away: {container_ops:?}"
+    );
+}
+
 /// The branch-exclusive FULL MOVE: one arm projects the aggregate's ONLY
 /// owned field into a new `Construct` (the rebuild), the other arm hands
 /// the aggregate itself to an owned consumer. Without the full-move rebook
@@ -3405,13 +3493,15 @@ fn registered_call_result_two_field_moves_keep_one_duplication_increment() {
     assert!(!analysis.field_view_hazard);
     assert!(analysis.readiness.all_classes_clean);
     let view = class_rep(&mut partition, 1);
+    let view_ops = ops_for(&analysis, view);
     assert_eq!(
-        ops_for(&analysis, view)
+        view_ops
             .iter()
             .filter(|op| op.kind == PlannedOpKind::Inc)
             .count(),
         1,
-        "one inherited field credit funds the first move; the duplicate still increments"
+        "one inherited field credit funds the first move; the duplicate still increments: \
+         {view_ops:?}"
     );
 }
 
@@ -3911,26 +4001,15 @@ fn constructless_invoke_result_tuple_func() -> ArcFunction {
 /// moved field, while the bypass release remains whole.
 #[test]
 fn constructless_invoke_result_tuple_decomposes_release_per_site() {
-    use crate::lower::test_utils::registered_struct_with_burden;
-    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
-
     let mut func = constructless_invoke_result_tuple_func();
-    let tuple_idx = ty(64);
+    let mut pool = ori_types::Pool::new();
+    let option = pool.option(ori_types::Idx::INT);
+    let iterator = pool.iterator(ori_types::Idx::INT);
+    let tuple_idx = pool.tuple(&[option, iterator]);
     let mut registry = ori_types::TypeRegistry::new();
-    registered_struct_with_burden(
-        &mut registry,
-        "NextPair",
-        tuple_idx,
-        Some(UserBurdenSpec {
-            self_owned_identity: false,
-            owned_fields: vec![UserOwnedField {
-                field_path: vec![1],
-                field_type: ty(70),
-            }],
-            ..Default::default()
-        }),
-    );
+    ori_types::register_resolved_collection_burdens(&pool, &mut registry);
     func.var_types[1] = tuple_idx;
+    func.var_types[3] = iterator;
     let mut state_map = AimsStateMap::new(&func);
     for scalar in [2u32, 4, 5, 6, 7] {
         state_map.set_permanent_scalar(v(scalar));
@@ -3965,6 +4044,83 @@ fn constructless_invoke_result_tuple_decomposes_release_per_site() {
     assert!(
         has_whole_op,
         "bypass-arm release keeps the whole field-wise dec: {ops:?}"
+    );
+}
+
+/// A constructless tuple field is extracted before a may-unwind call and
+/// transferred only on the normal edge. The extraction credit is an OWNED
+/// transfer from the container: the normal-edge consume needs no synthetic
+/// increment, while the unwind edge drops the projected iterator alias.
+#[test]
+fn constructless_tuple_field_transfer_survives_intervening_unwind() {
+    let mut func = func_with_blocks(
+        5,
+        vec![
+            block(0, vec![], vec![], invoke(0, vec![], 1, 2)),
+            block(
+                1,
+                vec![],
+                vec![ArcInstr::Project {
+                    dst: v(1),
+                    ty: ty(70),
+                    value: v(0),
+                    field: 1,
+                }],
+                invoke(2, vec![], 3, 4),
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+            block(
+                3,
+                vec![],
+                vec![
+                    apply(3, vec![(1, ArgOwnership::Owned)]),
+                    ArcInstr::Let {
+                        dst: v(4),
+                        ty: Idx::BOOL,
+                        value: ArcValue::Literal(crate::ir::LitValue::Bool(true)),
+                    },
+                ],
+                ret(4),
+            ),
+            block(4, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    let mut pool = ori_types::Pool::new();
+    let option = pool.option(ori_types::Idx::INT);
+    let iterator = pool.iterator(ori_types::Idx::INT);
+    let tuple_idx = pool.tuple(&[option, iterator]);
+    let mut registry = ori_types::TypeRegistry::new();
+    ori_types::register_resolved_collection_burdens(&pool, &mut registry);
+    func.var_types[0] = tuple_idx;
+    func.var_types[1] = iterator;
+    func.var_types[2] = Idx::UNIT;
+    func.var_types[3] = Idx::UNIT;
+    func.var_types[4] = Idx::BOOL;
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [2u32, 3, 4] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+
+    let (analysis, mut partition) = analyze_with_registry(&func, &state_map, &registry);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "the projected iterator must transfer cleanly across the intervening unwind"
+    );
+    assert!(analysis.readiness.all_classes_clean);
+    let view = class_rep(&mut partition, 1);
+    let view_ops = ops_for(&analysis, view);
+    assert!(
+        view_ops.iter().all(|op| op.kind != PlannedOpKind::Inc),
+        "a linear iterator transfer cannot be funded by a no-op increment: {view_ops:?}"
+    );
+    assert!(
+        view_ops.iter().any(|op| {
+            op.kind == PlannedOpKind::Dec
+                && matches!(op.slot, PlanSlot::BlockFront { block: 4 })
+                && op.var == v(1)
+        }),
+        "the unwind edge must drop the Project result that owns the transferred field: {view_ops:?}"
     );
 }
 

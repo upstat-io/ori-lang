@@ -61,3 +61,27 @@ use std.testing { assert_eq }
 @test_ok_or_chain tests @ok_or_chain () -> void = {
     assert_eq(actual: ok_or_chain(), expected: 10)
 }
+
+// Ownership pin: Some borrows its payload, transfers a retained payload to Ok,
+// and releases the unused owned error.
+@ok_or_managed_some () -> Result<str, str> = {
+    let payload = "managed ".concat(other: "ok_or payload");
+    let error = "unused ".concat(other: "ok_or error");
+    let option: Option<str> = Some(payload);
+    option.ok_or(err: error)
+}
+
+@test_ok_or_managed_some tests @ok_or_managed_some () -> void = {
+    assert_eq(actual: ok_or_managed_some(), expected: Ok("managed ok_or payload"))
+}
+
+// Ownership pin: None transfers the owned error into Err without releasing it.
+@ok_or_managed_none () -> Result<str, str> = {
+    let option: Option<str> = None;
+    let error = "managed ".concat(other: "ok_or error");
+    option.ok_or(err: error)
+}
+
+@test_ok_or_managed_none tests @ok_or_managed_none () -> void = {
+    assert_eq(actual: ok_or_managed_none(), expected: Err("managed ok_or error"))
+}

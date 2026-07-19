@@ -14,6 +14,8 @@ pub mod strategy;
 use crate::Name;
 use strategy::{CombineOp, DeriveStrategy, FieldOp, FormatOpen, StructBody, SumBody};
 
+const DERIVED_BODY_MARKER: &str = "$derived$";
+
 /// Stable module-local identity of one accepted derived implementation.
 ///
 /// The type checker mints these only after validation and coherence succeed.
@@ -98,6 +100,7 @@ impl DerivedMethodShape {
 /// Generates:
 /// - `DerivedTrait` enum with all variants
 /// - `from_name(&str) -> Option<DerivedTrait>` — parse trait name
+/// - `from_method_name(&str) -> Option<DerivedTrait>` — parse method name
 /// - `method_name(&self) -> &'static str` — method identifier
 /// - `trait_name(&self) -> &'static str` — trait name string
 /// - `shape(&self) -> DerivedMethodShape` — parameter/return shape
@@ -127,6 +130,14 @@ macro_rules! define_derived_traits {
             pub fn from_name(s: &str) -> Option<DerivedTrait> {
                 match s {
                     $( $trait_name => Some(DerivedTrait::$variant), )+
+                    _ => None,
+                }
+            }
+
+            /// Parse a derived method name into its owning trait.
+            pub fn from_method_name(s: &str) -> Option<DerivedTrait> {
+                match s {
+                    $( $method_name => Some(DerivedTrait::$variant), )+
                     _ => None,
                 }
             }
@@ -183,6 +194,24 @@ define_derived_traits! {
 }
 
 impl DerivedTrait {
+    /// Build the stable non-generic executable body name for this derive.
+    #[must_use]
+    pub fn executable_body_name(&self, id: DerivedImplId) -> String {
+        format!("{}{DERIVED_BODY_MARKER}{}", self.method_name(), id.raw())
+    }
+
+    /// Recover the derive kind and identity from a non-generic body name.
+    #[must_use]
+    pub fn from_executable_body_name(name: &str) -> Option<(Self, DerivedImplId)> {
+        let (method, raw_id) = name.rsplit_once(DERIVED_BODY_MARKER)?;
+        if raw_id.is_empty() || !raw_id.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        let trait_kind = Self::from_method_name(method)?;
+        let id = DerivedImplId::new(raw_id.parse().ok()?);
+        Some((trait_kind, id))
+    }
+
     /// Get the derivation strategy for this trait.
     ///
     /// The strategy describes the composition logic (field iteration, result

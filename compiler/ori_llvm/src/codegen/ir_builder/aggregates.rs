@@ -7,8 +7,54 @@ use super::IrBuilder;
 use crate::codegen::value_id::{LLVMTypeId, ValueId};
 
 impl IrBuilder<'_, '_> {
+    fn known_aggregate_component(&self, aggregate: ValueId, index: u32) -> Option<ValueId> {
+        if !self.is_jit() {
+            return None;
+        }
+        let component_index = usize::try_from(index).ok()?;
+        self.jit_aggregate_components
+            .get(&aggregate)
+            .and_then(|components| components.get(component_index))
+            .copied()
+            .flatten()
+    }
+
+    fn record_inserted_component(
+        &mut self,
+        source: ValueId,
+        result: ValueId,
+        index: u32,
+        component: ValueId,
+    ) {
+        if !self.is_jit() {
+            return;
+        }
+        let mut components = self
+            .jit_aggregate_components
+            .get(&source)
+            .cloned()
+            .unwrap_or_default();
+        let component_index =
+            usize::try_from(index).expect("aggregate component index must fit host usize");
+        if components.len() <= component_index {
+            components.resize(component_index + 1, None);
+        }
+        components[component_index] = Some(component);
+        self.jit_aggregate_components.insert(result, components);
+    }
+
+    fn record_built_components(&mut self, aggregate: ValueId, components: &[ValueId]) {
+        if self.is_jit() {
+            self.jit_aggregate_components
+                .insert(aggregate, components.iter().copied().map(Some).collect());
+        }
+    }
+
     /// Extract a value from an aggregate (struct/array) by index.
     pub fn extract_value(&mut self, agg: ValueId, index: u32, name: &str) -> Option<ValueId> {
+        if let Some(component) = self.known_aggregate_component(agg, index) {
+            return Some(component);
+        }
         let raw = self.arena.get_value(agg);
         let result = match raw {
             BasicValueEnum::StructValue(value) => {
@@ -60,12 +106,14 @@ impl IrBuilder<'_, '_> {
         let Ok(result) = result else {
             panic!("insert_value index and value type must match the aggregate");
         };
-        match result {
+        let result_id = match result {
             inkwell::values::AggregateValueEnum::StructValue(sv) => {
                 self.arena.push_value(sv.into())
             }
             inkwell::values::AggregateValueEnum::ArrayValue(av) => self.arena.push_value(av.into()),
-        }
+        };
+        self.record_inserted_component(agg, result_id, index, val);
+        result_id
     }
 
     /// Insert a value into a nested aggregate at a multi-index path.
@@ -114,6 +162,9 @@ impl IrBuilder<'_, '_> {
     /// Unlike [`Self::extract_value`], this works on any aggregate (struct or array),
     /// returning the raw value without requiring the outer to be a struct.
     pub fn extract_value_any(&mut self, agg: ValueId, index: u32, name: &str) -> ValueId {
+        if let Some(component) = self.known_aggregate_component(agg, index) {
+            return component;
+        }
         let raw = self.arena.get_value(agg);
         match raw {
             BasicValueEnum::StructValue(v) => {
@@ -179,14 +230,16 @@ impl IrBuilder<'_, '_> {
                     panic!("insert_value_nested_raw requires an aggregate value");
                 }
             };
-            match result {
+            let result_id = match result {
                 inkwell::values::AggregateValueEnum::StructValue(sv) => {
                     self.arena.push_value(sv.into())
                 }
                 inkwell::values::AggregateValueEnum::ArrayValue(av) => {
                     self.arena.push_value(av.into())
                 }
-            }
+            };
+            self.record_inserted_component(agg, result_id, indices[0], val);
+            result_id
         } else {
             // Recursive case: extract, recurse, re-insert.
             let inner = self.extract_value_any(agg, indices[0], name);
@@ -234,6 +287,8 @@ impl IrBuilder<'_, '_> {
                 }
             }
         }
-        self.arena.push_value(result.into())
+        let result_id = self.arena.push_value(result.into());
+        self.record_built_components(result_id, values);
+        result_id
     }
 }

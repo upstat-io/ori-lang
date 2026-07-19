@@ -71,6 +71,81 @@ fn credit_before_transfer_is_borrowed_but_transfer_before_credit_is_owned() {
 }
 
 #[test]
+fn caller_funded_borrowed_cow_terminal_consume_is_borrowed() {
+    let interner = StringInterner::new();
+    let push = interner.intern("push");
+    let func = func_with_body(
+        vec![borrowed_param(0, Idx::UNIT)],
+        vec![owned_call(1, push, v(0))],
+    );
+
+    let realized = derive_param_contracts_with_context(&func, &FxHashMap::default(), &interner);
+
+    assert_eq!(
+        realized[0].access,
+        AccessClass::Borrowed,
+        "the caller-supplied COW credit must fund the terminal owned transfer"
+    );
+}
+
+#[test]
+fn closure_capture_credit_funds_target_release() {
+    let mut func = func_with_body(
+        vec![borrowed_param(0, Idx::UNIT)],
+        vec![ArcInstr::RcDec {
+            var: v(0),
+            strategy: RcStrategy::HeapPointer,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
+        }],
+    );
+    func.num_captures = 1;
+
+    assert_eq!(
+        derive_param_contracts(&func)[0].access,
+        AccessClass::Borrowed,
+        "the closure adapter supplies the captured value's target credit"
+    );
+}
+
+#[test]
+fn ordinary_borrowed_param_release_remains_unfunded() {
+    let func = func_with_body(
+        vec![borrowed_param(0, Idx::UNIT)],
+        vec![ArcInstr::RcDec {
+            var: v(0),
+            strategy: RcStrategy::HeapPointer,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
+        }],
+    );
+
+    assert_eq!(
+        derive_param_contracts(&func)[0].access,
+        AccessClass::Owned,
+        "a non-capture borrowed parameter has no implicit entry credit"
+    );
+}
+
+#[test]
+fn ordinary_borrowed_param_owned_transfer_remains_rejected() {
+    let func = func_with_body(
+        vec![borrowed_param(0, Idx::UNIT)],
+        vec![owned_call(1, ori_ir::Name::from_raw(100), v(0))],
+    );
+    let inferred = make_contract(vec![param(AccessClass::Borrowed, Consumption::Linear)]);
+
+    let mismatches = verify_isolated(&func, &inferred, 0);
+
+    assert!(mismatches.iter().any(|mismatch| matches!(
+        mismatch,
+        CoherenceMismatch::ParamAccess {
+            inferred: AccessClass::Borrowed,
+            realized: AccessClass::Owned,
+            ..
+        }
+    )));
+}
+
+#[test]
 fn one_unfunded_branch_cannot_be_masked_by_a_funded_branch() {
     let cond = ArcInstr::Let {
         dst: v(10),

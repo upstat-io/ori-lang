@@ -112,6 +112,7 @@ fn product_folds_non_unit_fields_from_zero_with_exact_method_facts() {
                 receiver_type: Idx::INT,
                 form: MethodCallForm::Instance,
                 producer: None,
+                selected_producer: None,
                 derived_position: None,
             },
             MethodCallFact {
@@ -119,6 +120,7 @@ fn product_folds_non_unit_fields_from_zero_with_exact_method_facts() {
                 receiver_type: Idx::STR,
                 form: MethodCallForm::Instance,
                 producer: None,
+                selected_producer: None,
                 derived_position: None,
             },
         ]
@@ -238,6 +240,7 @@ fn newtype_delegates_to_underlying_hash_without_combining() {
             receiver_type: Idx::STR,
             form: MethodCallForm::Instance,
             producer: None,
+            selected_producer: None,
             derived_position: None,
         }]
     );

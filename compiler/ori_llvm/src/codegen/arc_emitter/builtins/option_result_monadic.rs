@@ -282,6 +282,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Some: Ok(payload) in Result<T, E> layout
         self.builder.position_at_end(some_bb);
         let payload = self.builder.extract_value(receiver, 1, "opt.val")?;
+        // The receiver is borrowed, so Ok needs an independent payload credit.
+        // The owned fallback is unused on this branch and must be discharged.
+        self.inc_value_rc(payload, inner, 1);
+        self.dec_value_rc(err_val, err_ty);
         let ok_result = self.build_result_struct(
             ori_ir::RESULT_TAG_OK,
             payload,

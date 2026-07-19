@@ -220,6 +220,7 @@ impl Lowerer<'_> {
                         CanExpr::Index {
                             receiver: node,
                             index: key,
+                            producer: None,
                         },
                         span,
                         level_types[j + 1],
@@ -261,26 +262,29 @@ impl Lowerer<'_> {
             _ => return self.push(CanExpr::Error, span, struct_ty),
         };
 
-        let Some(field_names) = self.resolve_struct_fields(struct_name) else {
+        let Some(field_defs) = self.resolve_struct_fields(struct_name, struct_ty) else {
             return self.push(CanExpr::Error, span, struct_ty);
         };
 
-        let can_fields: Vec<CanField> = field_names
+        let can_fields: Vec<CanField> = field_defs
             .iter()
-            .map(|&fname| {
-                let value = if fname == field {
+            .map(|&(field_name, field_ty)| {
+                let value = if field_name == field {
                     new_value
                 } else {
                     self.push(
                         CanExpr::Field {
                             receiver,
-                            field: fname,
+                            field: field_name,
                         },
                         span,
-                        TypeId::ERROR,
+                        field_ty,
                     )
                 };
-                CanField { name: fname, value }
+                CanField {
+                    name: field_name,
+                    value,
+                }
             })
             .collect();
 
@@ -385,6 +389,7 @@ impl Lowerer<'_> {
                         CanExpr::Index {
                             receiver: node,
                             index,
+                            producer: None,
                         },
                         span,
                         ty,

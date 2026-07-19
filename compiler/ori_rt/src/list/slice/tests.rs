@@ -2,6 +2,7 @@
 
 use crate::rc::{
     ori_buffer_rc_dec, ori_list_rc_inc, ori_rc_alloc, ori_rc_count, ori_rc_data_size, ori_rc_free,
+    ori_rc_live_count,
 };
 use crate::slice_encoding::{is_slice_cap, make_slice_cap, slice_byte_offset, slice_original_data};
 
@@ -658,6 +659,70 @@ fn cow_concat_with_slice_list1() {
     ori_rc_free(r_data, r_cap as usize * ELEM_SIZE as usize, 8);
     ori_rc_free(data1, 4 * ELEM_SIZE as usize, 8);
     // data2 was consumed by concat (unique → moved)
+}
+
+#[test]
+fn cow_concat_frees_last_slice_receiver_owner() {
+    let _g = crate::test_support::lock_rc();
+    let before = ori_rc_live_count();
+    let (data1, len1, cap1) = alloc_list(&[10, 20, 30, 40]);
+    let (data2, len2, cap2) = alloc_list(&[50]);
+    let mut slice_out = [0u8; 24];
+    ori_list_slice(data1, len1, cap1, 1, 3, ELEM_SIZE, slice_out.as_mut_ptr());
+    let (slice_len, slice_cap, slice_data) = read_result(&slice_out);
+    ori_buffer_rc_dec(data1, len1, cap1, ELEM_SIZE, None);
+
+    let mut concat_out = [0u8; 24];
+    crate::list::cow_sort::ori_list_concat_cow(
+        slice_data,
+        slice_len,
+        slice_cap,
+        data2,
+        len2,
+        cap2,
+        ELEM_SIZE,
+        8,
+        None,
+        0,
+        concat_out.as_mut_ptr(),
+    );
+
+    let (result_len, result_cap, result_data) = read_result(&concat_out);
+    assert_eq!(read_elements(result_data, 3), vec![20, 30, 50]);
+    ori_buffer_rc_dec(result_data, result_len, result_cap, ELEM_SIZE, None);
+    assert_eq!(ori_rc_live_count(), before, "slice receiver must be freed");
+}
+
+#[test]
+fn cow_concat_frees_last_slice_argument_owner() {
+    let _g = crate::test_support::lock_rc();
+    let before = ori_rc_live_count();
+    let (data1, len1, cap1) = alloc_list(&[1, 2]);
+    let (data2, len2, cap2) = alloc_list(&[10, 20, 30, 40]);
+    let mut slice_out = [0u8; 24];
+    ori_list_slice(data2, len2, cap2, 1, 3, ELEM_SIZE, slice_out.as_mut_ptr());
+    let (slice_len, slice_cap, slice_data) = read_result(&slice_out);
+    ori_buffer_rc_dec(data2, len2, cap2, ELEM_SIZE, None);
+
+    let mut concat_out = [0u8; 24];
+    crate::list::cow_sort::ori_list_concat_cow(
+        data1,
+        len1,
+        cap1,
+        slice_data,
+        slice_len,
+        slice_cap,
+        ELEM_SIZE,
+        8,
+        None,
+        0,
+        concat_out.as_mut_ptr(),
+    );
+
+    let (result_len, result_cap, result_data) = read_result(&concat_out);
+    assert_eq!(read_elements(result_data, 4), vec![1, 2, 20, 30]);
+    ori_buffer_rc_dec(result_data, result_len, result_cap, ELEM_SIZE, None);
+    assert_eq!(ori_rc_live_count(), before, "slice argument must be freed");
 }
 
 #[test]

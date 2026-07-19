@@ -200,7 +200,12 @@ declare_builtins! { emitter, ctx;
     ("tuple", "debug") => {
         if let TypeInfo::Tuple { elements } = ctx.type_info {
             let elements = elements.clone();
-            emitter.emit_tuple_debug(ctx.arg_vals[0], &elements, RenderStyle::Debug)
+            emitter.emit_tuple_debug(
+                ctx.arg_vals[0],
+                &elements,
+                ctx.receiver_ty,
+                RenderStyle::Debug,
+            )
         } else {
             None
         }
@@ -208,7 +213,12 @@ declare_builtins! { emitter, ctx;
     ("tuple", "to_str") => {
         if let TypeInfo::Tuple { elements } = ctx.type_info {
             let elements = elements.clone();
-            emitter.emit_tuple_debug(ctx.arg_vals[0], &elements, RenderStyle::Printable)
+            emitter.emit_tuple_debug(
+                ctx.arg_vals[0],
+                &elements,
+                ctx.receiver_ty,
+                RenderStyle::Printable,
+            )
         } else {
             None
         }

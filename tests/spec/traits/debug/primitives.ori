@@ -76,13 +76,17 @@ use std.testing { assert_eq }
 // =============================================================================
 // Byte Debug
 // =============================================================================
-// Note: byte values are currently stored as Value::Int in the evaluator,
-// so byte.debug() behaves like int.debug(). When byte storage is fixed,
-// it should show hex format (e.g. "0x2a").
 
 @test_byte_debug tests @byte_debug () -> void = {
-    let b: byte = 42;
-    assert_eq(actual: b.debug(), expected: "42")
+    let zero: byte = 0;
+    let forty_two: byte = 42;
+    let max: byte = 255;
+    assert_eq(actual: zero.debug(), expected: "0");
+    assert_eq(actual: forty_two.debug(), expected: "42");
+    assert_eq(actual: max.debug(), expected: "255");
+    assert_eq(actual: (0 as byte).debug(), expected: "0");
+    assert_eq(actual: (42 as byte).debug(), expected: "42");
+    assert_eq(actual: (255 as byte).debug(), expected: "255")
 }
 
 @byte_debug () -> str = {

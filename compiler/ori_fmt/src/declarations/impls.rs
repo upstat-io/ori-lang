@@ -109,10 +109,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         }
 
         // Methods
-        for (i, method) in impl_def.methods.iter().enumerate() {
-            if i > 0 {
-                self.ctx.emit_newline();
-            }
+        for method in &impl_def.methods {
             if let (Some(comments), Some(comment_index)) = (comments, comment_index.as_deref_mut())
             {
                 self.emit_comments_before_indented(method.span.start, comments, comment_index);

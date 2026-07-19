@@ -5,7 +5,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::contract::MemoryContract;
 use crate::aims::interprocedural::{
-    build_subject_independent_alias_to_param_map, find_iter_consume_call_args,
+    build_subject_independent_alias_to_param_map, find_borrowed_cow_consumed_params,
+    find_iter_consume_call_args, CowConsumeScope,
 };
 use crate::aims::lattice::AccessClass;
 use crate::graph::successor_block_ids;
@@ -49,6 +50,13 @@ pub(super) fn derive_param_contracts(
         .map(|(index, param)| (param.var, index))
         .collect();
     let aliases = build_subject_independent_alias_to_param_map(func, &param_vars, contracts);
+    let incoming_borrowed_cow_credits = find_borrowed_cow_consumed_params(
+        func,
+        contracts,
+        &aliases,
+        interner,
+        CowConsumeScope::AnyConsume,
+    );
     let iter_calls = find_iter_consume_call_args(func, contracts, interner, Some(func.name));
     let reachable = reachable_blocks(func);
     let consumptions = derive_param_consumptions(func);
@@ -84,15 +92,21 @@ pub(super) fn derive_param_contracts(
     evidence
         .iter()
         .enumerate()
-        .map(|(index, param)| RealizedParamContract {
-            access: if locally_funded(func, &param.block_events) {
-                AccessClass::Borrowed
-            } else {
-                AccessClass::Owned
-            },
-            consumption: consumptions[index],
-            may_share: param.may_share,
-            iter_transfers: param.iter_transfers,
+        .map(|(index, param)| {
+            // The closure ABI stores captures in the leading parameter prefix;
+            // that environment edge remains live while the target executes.
+            let has_boundary_credit =
+                index < func.num_captures || incoming_borrowed_cow_credits.contains(&index);
+            RealizedParamContract {
+                access: if locally_funded(func, &param.block_events, has_boundary_credit) {
+                    AccessClass::Borrowed
+                } else {
+                    AccessClass::Owned
+                },
+                consumption: consumptions[index],
+                may_share: param.may_share,
+                iter_transfers: param.iter_transfers,
+            }
         })
         .collect()
 }
@@ -379,7 +393,11 @@ fn reachable_blocks(func: &ArcFunction) -> Vec<bool> {
     reachable
 }
 
-fn locally_funded(func: &ArcFunction, events: &[Vec<FundingEvent>]) -> bool {
+fn locally_funded(
+    func: &ArcFunction,
+    events: &[Vec<FundingEvent>],
+    incoming_whole_value_credit: bool,
+) -> bool {
     if func.blocks.is_empty() {
         return true;
     }
@@ -389,7 +407,7 @@ fn locally_funded(func: &ArcFunction, events: &[Vec<FundingEvent>]) -> bool {
     if entry >= func.blocks.len() {
         return true;
     }
-    incoming[entry] = Some(0_i128);
+    incoming[entry] = Some(i128::from(incoming_whole_value_credit));
     for round in 0..func.blocks.len() {
         let prior = incoming.clone();
         let mut changed = false;

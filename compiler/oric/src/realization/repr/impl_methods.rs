@@ -71,6 +71,7 @@ pub(crate) fn lower_impl_methods_for_analysis(
         Ok(ImplMethodAnalysis {
             groups: outputs.groups,
             targets: outputs.dispatch.targets,
+            producer_targets: outputs.producer_targets,
             user_drop_bindings: outputs.user_drop_bindings,
             emission_names: outputs.emission_names,
         })
@@ -125,6 +126,7 @@ fn lower_extension_methods(
             method.name,
             qualified_name,
         );
+        record_producer_target(outputs, method_id, qualified_name, method.span);
         outputs.emission_names.push(Some(qualified_name));
         let mut context = crate::arc_lowering::ArcLoweringContext {
             canon: inputs.canon,
@@ -195,6 +197,7 @@ fn lower_declared_impl_methods(
             qualified_name,
             impl_def.trait_path.is_none(),
         );
+        record_producer_target(outputs, method_id, qualified_name, method.span);
         outputs.emission_names.push(Some(qualified_name));
         let mut context = crate::arc_lowering::ArcLoweringContext {
             canon: inputs.canon,
@@ -320,6 +323,7 @@ fn lower_default_trait_methods(
                 outputs
                     .dispatch
                     .record(recv_key, default.name, qualified_name, false);
+                record_producer_target(outputs, method_id, qualified_name, default.span);
                 outputs.emission_names.push(Some(qualified_name));
                 let mut context = crate::arc_lowering::ArcLoweringContext {
                     canon: inputs.canon,
@@ -350,6 +354,25 @@ fn lower_default_trait_methods(
                     .groups
                     .push(super::super::ArcFunctionGroup::new(arc_fn, lambdas));
             }
+        }
+    }
+}
+
+fn record_producer_target(
+    outputs: &mut ImplLoweringOutputs,
+    method: ImplMethodId,
+    target: Name,
+    span: ori_ir::Span,
+) {
+    let producer = ori_types::MethodProducer::Impl(method);
+    if let Some(existing) = outputs.producer_targets.insert(producer, target) {
+        if existing != target {
+            outputs.problems.push(ori_arc::ArcProblem::InternalError {
+                message: format!(
+                    "impl-method producer {method:?} has conflicting realized targets {existing:?} and {target:?}"
+                ),
+                span,
+            });
         }
     }
 }

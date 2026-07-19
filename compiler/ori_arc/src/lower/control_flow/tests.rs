@@ -375,7 +375,11 @@ fn lower_index_assignment_reports_internal_error_instead_of_panicking() {
         TypeId::from_raw(Idx::INT.raw()),
     ));
     let target = arena.push(CanNode::new(
-        CanExpr::Index { receiver, index },
+        CanExpr::Index {
+            receiver,
+            index,
+            producer: None,
+        },
         Span::new(0, 3),
         TypeId::from_raw(Idx::INT.raw()),
     ));

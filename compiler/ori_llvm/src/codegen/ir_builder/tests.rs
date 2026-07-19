@@ -335,6 +335,73 @@ fn select_instruction() {
     drop(irb);
 }
 
+fn assert_known_aggregate_component_extraction(jit: bool) {
+    let ctx = Context::create();
+    let scx = test_scx(&ctx);
+    let mut irb = if jit {
+        IrBuilder::new_jit(&scx)
+    } else {
+        IrBuilder::new(&scx)
+    };
+    let i64_ty = irb.i64_type();
+    let ptr_ty = irb.ptr_type();
+    let function_name = if jit {
+        "jit_component_provenance"
+    } else {
+        "aot_component_control"
+    };
+    let func = irb.declare_function(function_name, &[i64_ty, i64_ty, ptr_ty], i64_ty);
+    let entry = irb.append_block(func, "entry");
+    irb.set_current_function(func);
+    irb.position_at_end(entry);
+
+    let first = irb.get_param(func, 0);
+    let second = irb.get_param(func, 1);
+    let third = irb.get_param(func, 2);
+    let aggregate_ty = irb.register_type(
+        scx.type_struct(
+            &[
+                scx.type_i64().into(),
+                scx.type_i64().into(),
+                scx.type_ptr().into(),
+            ],
+            false,
+        )
+        .into(),
+    );
+    let aggregate = irb.const_zero_ty(aggregate_ty);
+    let aggregate = irb.insert_value(aggregate, first, 0, "aggregate.first");
+    let aggregate = irb.insert_value(aggregate, second, 1, "aggregate.second");
+    let aggregate = irb.insert_value(aggregate, third, 2, "aggregate.third");
+
+    let inserted_component = irb.extract_value(aggregate, 1, "component");
+    let built = irb.build_struct(aggregate_ty, &[first, second, third], "built");
+    let built_component = irb.extract_value(built, 0, "built.component");
+    let ir = scx.llmod.print_to_string().to_string();
+    if jit {
+        assert_eq!(inserted_component, Some(second));
+        assert_eq!(built_component, Some(first));
+        assert!(
+            !ir.contains("extractvalue"),
+            "JIT known-component extraction must not emit extractvalue:\n{ir}"
+        );
+    } else {
+        assert_ne!(inserted_component, Some(second));
+        assert_ne!(built_component, Some(first));
+        assert!(
+            ir.contains("extractvalue"),
+            "AOT known-component extraction must retain extractvalue:\n{ir}"
+        );
+    }
+    drop(irb);
+}
+
+#[test]
+fn jit_extract_value_reuses_known_aggregate_component_only_in_jit() {
+    assert_known_aggregate_component_extraction(true);
+    assert_known_aggregate_component_extraction(false);
+}
+
 // Function management
 
 #[test]

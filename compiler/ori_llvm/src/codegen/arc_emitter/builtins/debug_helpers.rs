@@ -115,9 +115,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let i64_ty = self
                     .builder
                     .register_type(self.builder.scx().type_i64().into());
-                let as_i64 = self.builder.sext(val, i64_ty, "tstr.byte.sext");
+                let as_i64 = self.builder.zext(val, i64_ty, "tstr.byte.zext");
                 let str_ty = self.resolve_type(ori_types::Idx::STR);
-                let func_id = self.builder.runtime_fn("ori_byte_debug_format");
+                let func_id = self.builder.runtime_fn("ori_byte_printable_format");
                 self.builder
                     .call_with_sret(func_id, &[as_i64], str_ty, "tstr.byte")
             }
@@ -153,7 +153,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // Tuple: field-wise Printable
             TypeInfo::Tuple { elements } => {
                 let elements = elements.clone();
-                self.emit_tuple_debug(val, &elements, RenderStyle::Printable)
+                self.emit_tuple_debug(val, &elements, ty, RenderStyle::Printable)
             }
 
             // Map: entry-wise Printable as `{key: value, ...}`
@@ -221,14 +221,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .call_with_sret(func_id, &[val], str_ty, "dbg.char.fmt")
             }
 
-            // Byte Debug is the same two-digit hexadecimal form as Printable.
+            // Debug follows the specified `(self as int) as str` semantics.
             TypeInfo::Byte => {
                 let i64_ty = self
                     .builder
                     .register_type(self.builder.scx().type_i64().into());
-                let as_i64 = self.builder.sext(val, i64_ty, "dbg.byte.sext");
+                let as_i64 = self.builder.zext(val, i64_ty, "dbg.byte.zext");
                 let str_ty = self.resolve_type(ori_types::Idx::STR);
-                let func_id = self.builder.runtime_fn("ori_byte_debug_format");
+                let func_id = self.builder.runtime_fn("ori_str_from_int");
                 self.builder
                     .call_with_sret(func_id, &[as_i64], str_ty, "dbg.byte")
             }
@@ -264,7 +264,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // Tuple: field-wise Debug
             TypeInfo::Tuple { elements } => {
                 let elements = elements.clone();
-                self.emit_tuple_debug(val, &elements, RenderStyle::Debug)
+                self.emit_tuple_debug(val, &elements, ty, RenderStyle::Debug)
             }
 
             // Map: entry-wise Debug as `{key: value, ...}`

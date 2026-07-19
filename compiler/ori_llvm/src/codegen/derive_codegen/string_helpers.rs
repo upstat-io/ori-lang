@@ -175,13 +175,17 @@ pub(super) fn emit_field_to_string<'a>(
                 .call_with_sret(f, &[val], str_ty_id, name)
                 .unwrap_or_else(|| emit_str_literal(fc, "<char>", name, str_ty_id))
         }
-        // Why: a byte field renders as hex (`0x41`) for BOTH Printable and Debug
-        // to match the evaluator — NOT the raw decimal. `ori_byte_debug_format`
-        // masks to the u8 range, so the sext is harmless.
+        // Printable keeps the byte-specific hexadecimal representation. Debug
+        // follows `(self as int) as str`, using the shared integer formatter.
         TypeInfo::Byte => {
             let i64_ty = fc.builder_mut().i64_type();
-            let as_i64 = fc.builder_mut().sext(val, i64_ty, &format!("{name}.sext"));
-            let f = fc.builder_mut().runtime_fn("ori_byte_debug_format");
+            let as_i64 = fc.builder_mut().zext(val, i64_ty, &format!("{name}.zext"));
+            let rt_name = if trait_kind == DerivedTrait::Debug {
+                "ori_str_from_int"
+            } else {
+                "ori_byte_printable_format"
+            };
+            let f = fc.builder_mut().runtime_fn(rt_name);
             fc.builder_mut()
                 .call_with_sret(f, &[as_i64], str_ty_id, name)
                 .unwrap_or_else(|| emit_str_literal(fc, "<byte>", name, str_ty_id))

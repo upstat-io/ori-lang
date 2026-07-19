@@ -3,7 +3,7 @@ use ori_arc::{
     MethodCallFact, MethodCallForm,
 };
 use ori_ir::{Name, StringInterner};
-use ori_types::{Idx, Pool};
+use ori_types::{Idx, ImplMethodId, MethodProducer, Pool};
 use rustc_hash::FxHashMap;
 
 use super::rewrite_impl_targets;
@@ -32,6 +32,7 @@ fn hash_call(function_name: Name, hash: Name, receiver_type: Idx) -> ArcFunction
             receiver_type,
             form: MethodCallForm::Instance,
             producer: None,
+            selected_producer: None,
             derived_position: None,
         }],
         ..ArcFunction::default()
@@ -60,7 +61,7 @@ fn newtype_hash_calls_rewrite_by_nominal_receiver() {
         hash_call(interner.intern("hash_right"), hash, right),
     ];
 
-    rewrite_impl_targets(&mut functions, &targets, &pool);
+    rewrite_impl_targets(&mut functions, &targets, &FxHashMap::default(), &pool);
 
     let rewritten_targets: Vec<Name> = functions
         .iter()
@@ -70,4 +71,42 @@ fn newtype_hash_calls_rewrite_by_nominal_receiver() {
         })
         .collect();
     assert_eq!(rewritten_targets, vec![left_target, right_target]);
+}
+
+#[test]
+fn same_receiver_same_name_impls_rewrite_by_exact_producer() {
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+    let receiver_name = interner.intern("JsonValue");
+    let field_name = interner.intern("data");
+    let receiver = pool.struct_type(receiver_name, &[(field_name, Idx::STR)]);
+    let index = interner.intern("index");
+    let int_target = interner.intern("__impl_json_index_int");
+    let str_target = interner.intern("__impl_json_index_str");
+    let int_producer = MethodProducer::Impl(ImplMethodId::new(0, ori_ir::ExprId::new(10)));
+    let str_producer = MethodProducer::Impl(ImplMethodId::new(1, ori_ir::ExprId::new(20)));
+    let mut functions = vec![
+        hash_call(interner.intern("read_int"), index, receiver),
+        hash_call(interner.intern("read_str"), index, receiver),
+    ];
+    functions[0].method_call_facts[0].producer = Some(int_producer.clone());
+    functions[1].method_call_facts[0].producer = Some(str_producer.clone());
+    let producer_targets =
+        FxHashMap::from_iter([(int_producer, int_target), (str_producer, str_target)]);
+
+    rewrite_impl_targets(
+        &mut functions,
+        &FxHashMap::default(),
+        &producer_targets,
+        &pool,
+    );
+
+    let rewritten: Vec<_> = functions
+        .iter()
+        .map(|function| match function.blocks[0].body[0] {
+            ArcInstr::Apply { func, .. } => func,
+            ref instruction => panic!("expected rewritten index call, found {instruction:?}"),
+        })
+        .collect();
+    assert_eq!(rewritten, [int_target, str_target]);
 }

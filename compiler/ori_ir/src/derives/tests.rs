@@ -35,6 +35,24 @@ fn test_derived_trait_method_name() {
     assert_eq!(DerivedTrait::Comparable.method_name(), "compare");
 }
 
+#[test]
+fn executable_body_names_round_trip_through_derive_metadata() {
+    let id = DerivedImplId::new(17);
+    for &trait_kind in DerivedTrait::ALL {
+        let body_name = trait_kind.executable_body_name(id);
+        assert_eq!(
+            DerivedTrait::from_executable_body_name(&body_name),
+            Some((trait_kind, id))
+        );
+    }
+
+    assert_eq!(DerivedTrait::from_executable_body_name("to_str"), None);
+    assert_eq!(
+        DerivedTrait::from_executable_body_name("to_str$derived$invalid"),
+        None
+    );
+}
+
 // Macro-generated metadata tests
 
 #[test]

@@ -183,11 +183,11 @@ impl Lowerer<'_> {
         }
 
         // Look up the struct definition for field ordering.
-        let struct_field_names = self.resolve_struct_fields(name);
+        let struct_fields = self.resolve_struct_fields(name, ty);
 
-        if let Some(field_names) = struct_field_names {
+        if let Some(field_defs) = struct_fields {
             // We know the struct layout — build a fully resolved field list.
-            let mut field_values: Vec<Option<CanId>> = vec![None; field_names.len()];
+            let mut field_values: Vec<Option<CanId>> = vec![None; field_defs.len()];
 
             for field in &field_data {
                 match field {
@@ -198,12 +198,13 @@ impl Lowerer<'_> {
                     } => {
                         let field_name = *field_name;
                         let field_span = *field_span;
-                        if let Some(pos) = field_names.iter().position(|n| *n == field_name) {
+                        if let Some(pos) =
+                            field_defs.iter().position(|(name, _)| *name == field_name)
+                        {
+                            let field_ty = field_defs[pos].1;
                             let val = match value {
                                 Some(expr_id) => self.lower_expr(*expr_id),
-                                None => {
-                                    self.push(CanExpr::Ident(field_name), field_span, TypeId::ERROR)
-                                }
+                                None => self.push(CanExpr::Ident(field_name), field_span, field_ty),
                             };
                             field_values[pos] = Some(val);
                         }
@@ -213,14 +214,14 @@ impl Lowerer<'_> {
                         span: spread_span,
                     } => {
                         let spread = self.lower_expr(*spread_expr);
-                        for (i, field_name) in field_names.iter().enumerate() {
+                        for (i, &(field_name, field_ty)) in field_defs.iter().enumerate() {
                             let field_access = self.push(
                                 CanExpr::Field {
                                     receiver: spread,
-                                    field: *field_name,
+                                    field: field_name,
                                 },
                                 *spread_span,
-                                TypeId::ERROR,
+                                field_ty,
                             );
                             field_values[i] = Some(field_access);
                         }
@@ -229,16 +230,16 @@ impl Lowerer<'_> {
             }
 
             // Build the canonical fields.
-            let can_fields: Vec<CanField> = field_names
+            let can_fields: Vec<CanField> = field_defs
                 .iter()
                 .zip(field_values)
-                .map(|(fname, value)| {
+                .map(|(&(field_name, _), value)| {
                     let value = value.unwrap_or_else(|| {
                         // Missing field — emit Error (type checker should catch this).
                         self.push(CanExpr::Error, span, TypeId::ERROR)
                     });
                     CanField {
-                        name: *fname,
+                        name: field_name,
                         value,
                     }
                 })
@@ -328,14 +329,5 @@ impl Lowerer<'_> {
                 ty,
             )
         })
-    }
-
-    /// Look up struct field names in order from the type registry.
-    pub(crate) fn resolve_struct_fields(&self, name: Name) -> Option<Vec<Name>> {
-        let type_entry = self.typed.type_def(name)?;
-        match &type_entry.kind {
-            ori_types::TypeKind::Struct(def) => Some(def.fields.iter().map(|f| f.name).collect()),
-            _ => None,
-        }
     }
 }

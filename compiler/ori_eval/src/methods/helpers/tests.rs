@@ -111,7 +111,9 @@ fn debug_value_char_escapes() {
 
 #[test]
 fn debug_value_byte() {
-    assert_eq!(debug_value(&Value::Byte(0x2a), &interner()), "0x2a");
+    assert_eq!(debug_value(&Value::Byte(0), &interner()), "0");
+    assert_eq!(debug_value(&Value::Byte(42), &interner()), "42");
+    assert_eq!(debug_value(&Value::Byte(255), &interner()), "255");
 }
 
 #[test]

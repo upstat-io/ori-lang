@@ -155,7 +155,7 @@ fn borrowed_ro_arg_forward_safe(
 /// excludes it — the two scopes feed two distinct contract fields
 /// (`borrowed_cow_consumed` vs `borrowed_cow_mutated`), never one boolean mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::aims::interprocedural::extract) enum CowConsumeScope {
+pub(crate) enum CowConsumeScope {
     /// Any COW-consuming position, including the builtin `iter` — feeds
     /// `ParamContract.borrowed_cow_consumed`.
     AnyConsume,
@@ -179,7 +179,7 @@ pub(in crate::aims::interprocedural::extract) enum CowConsumeScope {
 /// release declines too — net 0, no funding obligation). Aggregate STORES are
 /// NOT COW consumes (the borrowed-store dup inc + container drop net 0).
 /// Spec: Annex E §AIMS RL-1 + RL-2.
-pub(in crate::aims::interprocedural::extract) fn find_borrowed_cow_consumed_params(
+pub(crate) fn find_borrowed_cow_consumed_params(
     func: &ArcFunction,
     sigs: &FxHashMap<Name, MemoryContract>,
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,

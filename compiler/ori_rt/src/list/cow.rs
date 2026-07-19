@@ -167,7 +167,7 @@ pub extern "C" fn ori_list_push_cow(
     // this decrements without triggering deallocation. For empty (null), this
     // is a no-op. For slices, this decs the original buffer's RC.
     // Element RC was already handled by inc_copied_elements above.
-    dec_list_buffer(data, cap);
+    dec_list_buffer(data, len, cap, elem_size);
 
     // Write result
     // SAFETY: out_ptr validated non-null at function entry; writing {len, cap, data} triple.
@@ -259,7 +259,7 @@ pub extern "C" fn ori_list_pop_cow(
     // SLOW PATH: shared or slice — allocate new buffer with len-1 elements
     if new_len == 0 {
         // Popping last element from shared/slice list → empty sentinel
-        dec_list_buffer(data, cap);
+        dec_list_buffer(data, len, cap, elem_size);
         // SAFETY: out_ptr validated non-null; writing empty list triple.
         unsafe {
             out_ptr.cast::<i64>().write(0);
@@ -287,7 +287,7 @@ pub extern "C" fn ori_list_pop_cow(
     unsafe { propagate_elem_header(data, cap, new_data, new_len as i64) };
 
     // Release our reference to the old buffer (slice-aware)
-    dec_list_buffer(data, cap);
+    dec_list_buffer(data, len, cap, elem_size);
 
     // SAFETY: out_ptr validated non-null; writing {len, cap, data} triple.
     unsafe {
@@ -420,7 +420,7 @@ pub(super) fn slow_copy_replace_element(
     unsafe { propagate_elem_header(data, cap, new_data, old_len as i64) };
 
     // Release our reference to the old buffer (slice-aware)
-    dec_list_buffer(data, cap);
+    dec_list_buffer(data, len, cap, es as i64);
 
     // SAFETY: out_ptr validated non-null; writing {len, cap, data} triple.
     unsafe {

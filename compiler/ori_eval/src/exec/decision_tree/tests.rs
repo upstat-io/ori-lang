@@ -1,7 +1,8 @@
 use ori_ir::canon::tree::{DecisionTree, PathInstruction, TestKind, TestValue};
 use ori_ir::canon::CanId;
 use ori_ir::{Name, SharedInterner};
-use ori_patterns::Value;
+use ori_patterns::{StructValue, Value};
+use rustc_hash::FxHashMap;
 
 use super::{eval_decision_tree, resolve_path, test_tag_by_name};
 
@@ -41,6 +42,23 @@ fn resolve_nested_tuple() {
         PathInstruction::TupleIndex(1),
     ];
     let result = resolve_path(&outer, &path).expect("should resolve");
+    assert_eq!(result.as_int(), Some(20));
+}
+
+#[test]
+fn resolve_struct_field_name_with_sorted_runtime_layout_returns_named_value() {
+    let type_name = Name::from_raw(100);
+    let first_by_name = Name::from_raw(1);
+    let second_by_name = Name::from_raw(2);
+    let mut fields = FxHashMap::default();
+    fields.insert(second_by_name, Value::int(20));
+    fields.insert(first_by_name, Value::int(10));
+    let value = Value::Struct(StructValue::new(type_name, fields));
+    let path = vec![PathInstruction::StructField(second_by_name)];
+
+    let result = resolve_path(&value, &path)
+        .unwrap_or_else(|error| panic!("named struct field should resolve: {error:?}"));
+
     assert_eq!(result.as_int(), Some(20));
 }
 

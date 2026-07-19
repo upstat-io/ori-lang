@@ -3,18 +3,20 @@
 use super::collect_consumed_bindings;
 use super::Specialized;
 use ori_ir::canon::tree::{FlatPattern, PathInstruction, PatternMatrix, PatternRow, ScrutineePath};
+use ori_ir::Name;
 use rustc_hash::FxHashSet;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum SingleConstructorColumn {
     Tuple { fields: usize },
-    Struct { fields: usize },
+    Struct { field_names: Vec<Name> },
 }
 
 impl SingleConstructorColumn {
-    fn field_count(self) -> usize {
+    fn field_count(&self) -> usize {
         match self {
-            Self::Tuple { fields } | Self::Struct { fields } => fields,
+            Self::Tuple { fields } => *fields,
+            Self::Struct { field_names } => field_names.len(),
         }
     }
 
@@ -22,10 +24,10 @@ impl SingleConstructorColumn {
         clippy::cast_possible_truncation,
         reason = "field indices are always < u32::MAX"
     )]
-    fn path_instruction(self, index: usize) -> PathInstruction {
+    fn path_instruction(&self, index: usize) -> PathInstruction {
         match self {
             Self::Tuple { .. } => PathInstruction::TupleIndex(index as u32),
-            Self::Struct { .. } => PathInstruction::StructField(index as u32),
+            Self::Struct { field_names } => PathInstruction::StructField(field_names[index]),
         }
     }
 }
@@ -43,14 +45,14 @@ pub(super) fn single_constructor_column(
                 fields: elements.len(),
             }),
             FlatPattern::Struct { fields } => Some(SingleConstructorColumn::Struct {
-                fields: fields.len(),
+                field_names: fields.iter().map(|(name, _)| *name).collect(),
             }),
             FlatPattern::Wildcard | FlatPattern::Binding(_) => None,
             _ => return None,
         };
         if let Some(candidate) = candidate {
-            match shape {
-                Some(existing) if existing != candidate => return None,
+            match &shape {
+                Some(existing) if existing != &candidate => return None,
                 Some(_) => {}
                 None => shape = Some(candidate),
             }

@@ -228,6 +228,9 @@ pub struct ModuleChecker<'a> {
     /// and stores the result in [`crate::TypedModule::mono_dispatch_map`].
     mono_dispatch_pre_dedup: Vec<(ori_ir::ExprId, crate::MonoInstanceId)>,
 
+    /// Module-wide exact producer selections for user-defined index sites.
+    index_dispatch_selections: Vec<(ExprId, crate::MethodProducer)>,
+
     /// Deferred mono calls (generic calling generic).
     ///
     /// Accumulated from `InferEngine` after each function body is checked.
@@ -301,6 +304,7 @@ impl<'a> ModuleChecker<'a> {
             trait_impl_fn_names: Vec::new(),
             mono_instances: Vec::new(),
             mono_dispatch_pre_dedup: Vec::new(),
+            index_dispatch_selections: Vec::new(),
             deferred_mono_calls: Vec::new(),
             imported_type_metadata: Vec::new(),
             imported_collection_surfaces: Vec::new(),

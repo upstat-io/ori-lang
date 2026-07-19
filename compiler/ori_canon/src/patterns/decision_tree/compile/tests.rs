@@ -1,4 +1,4 @@
-use ori_ir::canon::tree::{FlatPattern, PathInstruction, PatternRow};
+use ori_ir::canon::tree::{DecisionTree, FlatPattern, PathInstruction, PatternRow};
 use ori_ir::Name;
 
 use super::compile;
@@ -47,6 +47,34 @@ fn ancestor_at_binding_suppresses_descendant_wildcard_cleanup() {
 
     assert_eq!(compiled.leaf_discard_paths.len(), 1);
     assert!(compiled.leaf_discard_paths[0].is_empty());
+}
+
+#[test]
+fn struct_fields_preserve_names_in_binding_and_discard_paths() {
+    let discarded_field = Name::from_raw(17);
+    let bound_field = Name::from_raw(5);
+    let binding = Name::from_raw(29);
+    let compiled = compile(
+        vec![row(FlatPattern::Struct {
+            fields: vec![
+                (discarded_field, FlatPattern::Wildcard),
+                (bound_field, FlatPattern::Binding(binding)),
+            ],
+        })],
+        vec![vec![]],
+    );
+
+    assert_eq!(
+        compiled.leaf_discard_paths,
+        vec![vec![vec![PathInstruction::StructField(discarded_field)]]]
+    );
+    assert_eq!(
+        compiled.tree,
+        DecisionTree::Leaf {
+            arm_index: 0,
+            bindings: vec![(binding, vec![PathInstruction::StructField(bound_field)])],
+        }
+    );
 }
 
 #[test]

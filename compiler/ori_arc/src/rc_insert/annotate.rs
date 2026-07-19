@@ -19,7 +19,7 @@ use ori_types::Pool;
 
 /// Compute per-argument ownership from a frozen signature or builtin policy.
 /// Unknown Ori callees default to owned; external runtime and borrowing
-/// builtins default to borrowed. Type-qualified collection policy is applied
+/// builtins default to borrowed. Type-qualified builtin policy is applied
 /// after this baseline.
 fn compute_arg_ownership(
     callee: ori_ir::Name,
@@ -109,13 +109,14 @@ pub(crate) fn annotate_arg_ownership(
                         &builtins.protocol,
                     );
                     if !exact_callables.contains(callee) {
-                        apply_type_qualified_consuming_positions(
+                        apply_type_qualified_builtin_ownership(
                             *callee,
                             args,
                             arg_ownership,
                             builtins,
                             var_types,
                             pool,
+                            interner,
                         );
                     }
                 }
@@ -146,13 +147,14 @@ pub(crate) fn annotate_arg_ownership(
                     &builtins.protocol,
                 );
                 if !exact_callables.contains(callee) {
-                    apply_type_qualified_consuming_positions(
+                    apply_type_qualified_builtin_ownership(
                         *callee,
                         args,
                         arg_ownership,
                         builtins,
                         var_types,
                         pool,
+                        interner,
                     );
                 }
             }
@@ -168,13 +170,14 @@ pub(crate) fn annotate_arg_ownership(
     }
 }
 
-fn apply_type_qualified_consuming_positions(
+fn apply_type_qualified_builtin_ownership(
     callee: ori_ir::Name,
     args: &[ArcVarId],
     arg_ownership: &mut [ArgOwnership],
     builtins: &crate::BuiltinOwnershipSets,
     var_types: &[ori_types::Idx],
     pool: &Pool,
+    interner: &ori_ir::StringInterner,
 ) {
     if args.is_empty() || arg_ownership.is_empty() {
         return;
@@ -187,6 +190,9 @@ fn apply_type_qualified_consuming_positions(
             pool.builtin_type_tag(resolved)
         })
         .collect();
+
+    apply_registry_method_ownership(callee, &arg_tags, arg_ownership, interner);
+
     let positions = builtins.type_qualified_consuming_positions(callee, &arg_tags);
     if positions.is_empty() {
         return;
@@ -204,5 +210,39 @@ fn apply_type_qualified_consuming_positions(
         if let Some(ownership) = arg_ownership.get_mut(position) {
             *ownership = ArgOwnership::Owned;
         }
+    }
+}
+
+fn apply_registry_method_ownership(
+    callee: ori_ir::Name,
+    arg_tags: &[Option<ori_registry::TypeTag>],
+    arg_ownership: &mut [ArgOwnership],
+    interner: &ori_ir::StringInterner,
+) {
+    let Some(Some(receiver_tag)) = arg_tags.first().copied() else {
+        return;
+    };
+    let Some(callee_name) = interner.try_lookup(callee) else {
+        return;
+    };
+    let Some(method) = ori_registry::find_method(receiver_tag, callee_name) else {
+        return;
+    };
+    if method.kind != ori_registry::MethodKind::Instance
+        || method.params.len().saturating_add(1) != arg_ownership.len()
+    {
+        return;
+    }
+
+    arg_ownership[0] = registry_ownership(method.receiver);
+    for (ownership, param) in arg_ownership[1..].iter_mut().zip(method.params) {
+        *ownership = registry_ownership(param.ownership);
+    }
+}
+
+fn registry_ownership(ownership: ori_registry::Ownership) -> ArgOwnership {
+    match ownership {
+        ori_registry::Ownership::Owned => ArgOwnership::Owned,
+        ori_registry::Ownership::Borrow | ori_registry::Ownership::Copy => ArgOwnership::Borrowed,
     }
 }

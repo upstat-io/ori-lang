@@ -75,6 +75,20 @@ impl TraitRegistry {
             .filter_map(|&i| self.impls.get(i))
     }
 
+    /// Iterate implementations for a receiver together with their registry
+    /// coordinate. The coordinate is required when a caller must freeze the
+    /// exact semantic producer rather than merely inspect its signature.
+    pub(crate) fn indexed_impls_for_type(
+        &self,
+        self_type: Idx,
+    ) -> impl Iterator<Item = (usize, &ImplEntry)> {
+        self.impls_by_type
+            .get(&self_type)
+            .into_iter()
+            .flat_map(|indices| indices.iter())
+            .filter_map(|&i| self.impls.get(i).map(|implementation| (i, implementation)))
+    }
+
     /// Get all implementations of a specific trait.
     pub fn impls_of_trait(&self, trait_idx: Idx) -> impl Iterator<Item = &ImplEntry> {
         self.impls_by_trait

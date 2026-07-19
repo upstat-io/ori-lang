@@ -23,6 +23,22 @@ use super::events;
 use super::verify::{self, ClassVerdict};
 use super::ClassPlan;
 
+/// Whether a planned increment for `var` has a physical runtime carrier.
+/// Fat values retain the compatibility carrier used by unresolved specialized
+/// aliases; every other value requires a registered burden.
+fn increment_is_materializable(
+    func: &ArcFunction,
+    var: crate::ir::ArcVarId,
+    type_registry: &ori_types::TypeRegistry,
+) -> bool {
+    use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
+
+    matches!(func.var_repr(var), Some(crate::ir::ValueRepr::FatValue))
+        || func.var_types.get(var.index()).is_some_and(|&ty| {
+            lookup_burden(idx_to_type_ref(ty, type_registry), type_registry).is_some()
+        })
+}
+
 /// Compact storage for independent analysis facts carried together in hot
 /// per-class and per-hazard records.
 #[derive(Clone, Copy, Debug, Default)]
@@ -59,6 +75,7 @@ impl ClassHazardFlags {
     const SELF_FUNDED_CLEAN: u8 = 0b0000_0100;
     const HAS_CREDIT: u8 = 0b0000_1000;
     const BORROWED_ROOTED_CLEAN: u8 = 0b0001_0000;
+    const VERIFIED_CLEAN: u8 = 0b0010_0000;
 
     pub(crate) const EMPTY: Self = Self(CompactFlags::EMPTY);
 
@@ -86,6 +103,11 @@ impl ClassHazardFlags {
         self.0 = self
             .0
             .with(Self::BORROWED_ROOTED_CLEAN, borrowed_rooted_clean);
+        self
+    }
+
+    pub(crate) const fn with_verified_clean(mut self, verified_clean: bool) -> Self {
+        self.0 = self.0.with(Self::VERIFIED_CLEAN, verified_clean);
         self
     }
 }
@@ -121,7 +143,10 @@ pub(crate) struct ClassHazardFacts {
     /// Planned funding `Inc` ops in the class's own outcome — each covers
     /// one consume beyond the birth-funded one (RL-1 duplication funding).
     pub(crate) planned_inc_count: usize,
-    pub(crate) consume_sites: Vec<(usize, EventSite)>,
+    /// Consume provenance: block, site, and the resolved member variable.
+    /// The variable distinguishes a pre-store source alias from an extracted
+    /// `Project` lineage when both belong to the same field-view class.
+    pub(crate) consume_events: Vec<(usize, EventSite, Option<crate::ir::ArcVarId>)>,
 }
 
 /// Immutable facts shared by every rung of the field-view cure ladder.
@@ -247,13 +272,13 @@ impl ClassHazardFacts {
         class: NodeIdx,
         flags: ClassHazardFlags,
         planned_inc_count: usize,
-        consume_sites: Vec<(usize, EventSite)>,
+        consume_events: Vec<(usize, EventSite, Option<crate::ir::ArcVarId>)>,
     ) -> Self {
         Self {
             class,
             flags,
             planned_inc_count,
-            consume_sites,
+            consume_events,
         }
     }
 
@@ -277,6 +302,10 @@ impl ClassHazardFacts {
         self.flags
             .0
             .contains(ClassHazardFlags::BORROWED_ROOTED_CLEAN)
+    }
+
+    fn is_verified_clean(&self) -> bool {
+        self.flags.0.contains(ClassHazardFlags::VERIFIED_CLEAN)
     }
 }
 

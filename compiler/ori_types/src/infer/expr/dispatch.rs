@@ -150,6 +150,7 @@ fn infer_control_block_lambda(
 fn infer_collection_struct_misc(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
+    expr_id: ExprId,
     kind: &ExprKind,
     span: Span,
 ) -> Idx {
@@ -174,7 +175,9 @@ fn infer_collection_struct_misc(
         ExprKind::Some(inner) => infer_some(engine, arena, *inner, span),
         ExprKind::None => infer_none(engine),
         ExprKind::Field { receiver, field } => infer_field(engine, arena, *receiver, *field, span),
-        ExprKind::Index { receiver, index } => infer_index(engine, arena, *receiver, *index, span),
+        ExprKind::Index { receiver, index } => {
+            infer_index(engine, arena, expr_id, *receiver, *index, span)
+        }
         unexpected => {
             unreachable!("expression kind routed to collection/struct inference: {unexpected:?}")
         }
@@ -231,7 +234,9 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
         | ExprKind::Some(_)
         | ExprKind::None
         | ExprKind::Field { .. }
-        | ExprKind::Index { .. } => infer_collection_struct_misc(engine, arena, &expr.kind, span),
+        | ExprKind::Index { .. } => {
+            infer_collection_struct_misc(engine, arena, expr_id, &expr.kind, span)
+        }
 
         ExprKind::Break { label, value } => infer_break(engine, arena, *label, *value, span),
         ExprKind::Continue { label, value } => infer_continue(engine, arena, *label, *value, span),

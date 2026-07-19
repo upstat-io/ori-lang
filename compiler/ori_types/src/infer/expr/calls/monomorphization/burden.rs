@@ -93,13 +93,14 @@ fn collect_candidate_indices(pool: &Pool) -> Vec<Idx> {
     let mut out = Vec::new();
     for idx in pool.iter_indices() {
         let tag = pool.tag(idx);
-        // Builtin generic templates always candidate; a user-composite
+        // Builtin generic templates and concrete positional tuples are always
+        // candidates; a user-composite
         // `Applied` candidates ONLY once materialized (a concrete resolution is
         // recorded) so `compose_for_idx`'s struct/enum arm reads the concrete
         // body. A generic (unmaterialized) `Applied` is skipped.
         let is_candidate = matches!(
             tag,
-            Tag::Option | Tag::Result | Tag::List | Tag::Map | Tag::Set | Tag::Range
+            Tag::Option | Tag::Result | Tag::List | Tag::Map | Tag::Set | Tag::Range | Tag::Tuple
         ) || (tag == Tag::Applied && pool.resolve(idx).is_some());
         if !is_candidate {
             continue;

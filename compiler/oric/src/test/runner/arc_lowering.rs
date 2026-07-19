@@ -98,6 +98,7 @@ struct SpecializedBodies {
     impl_groups: Vec<crate::realization::ArcFunctionGroup>,
     derived_groups: Vec<crate::realization::ArcFunctionGroup>,
     impl_targets: FxHashMap<(ori_types::Idx, Name), Name>,
+    impl_producer_targets: FxHashMap<ori_types::MethodProducer, Name>,
     user_drop_bindings: Vec<ori_repr::executable::UserDropBinding>,
     impl_emission_names: Vec<Option<Name>>,
     mono_groups: Vec<crate::realization::ArcFunctionGroup>,
@@ -251,6 +252,7 @@ fn lower_specialized_bodies(
     let crate::realization::ImplMethodAnalysis {
         groups: impl_groups,
         targets: mut impl_targets,
+        producer_targets: impl_producer_targets,
         user_drop_bindings,
         emission_names: impl_emission_names,
         ..
@@ -267,6 +269,7 @@ fn lower_specialized_bodies(
             crate::realization::ImplMethodAnalysis {
                 groups: Vec::new(),
                 targets: FxHashMap::default(),
+                producer_targets: FxHashMap::default(),
                 user_drop_bindings: Vec::new(),
                 emission_names: Vec::new(),
             }
@@ -331,6 +334,7 @@ fn lower_specialized_bodies(
         impl_groups,
         derived_groups: derived.groups,
         impl_targets,
+        impl_producer_targets,
         user_drop_bindings,
         impl_emission_names,
         mono_groups,
@@ -353,6 +357,7 @@ struct LoweredJitBodies {
     impl_groups: Vec<crate::realization::ArcFunctionGroup>,
     derived_groups: Vec<crate::realization::ArcFunctionGroup>,
     impl_targets: FxHashMap<(ori_types::Idx, Name), Name>,
+    impl_producer_targets: FxHashMap<ori_types::MethodProducer, Name>,
     user_drop_bindings: Vec<ori_repr::executable::UserDropBinding>,
     impl_emission_names: Vec<Option<Name>>,
     mono_inventory: crate::realization::MonoFunctionInventory,
@@ -371,6 +376,7 @@ fn lower_every_jit_body_source(
         impl_groups,
         derived_groups,
         impl_targets,
+        impl_producer_targets,
         user_drop_bindings,
         impl_emission_names,
         mono_groups,
@@ -390,6 +396,7 @@ fn lower_every_jit_body_source(
         impl_groups,
         derived_groups,
         impl_targets,
+        impl_producer_targets,
         user_drop_bindings,
         impl_emission_names,
         mono_inventory,
@@ -476,6 +483,7 @@ pub(crate) fn lower_jit_arc_program(
         impl_groups,
         derived_groups,
         mut impl_targets,
+        impl_producer_targets,
         user_drop_bindings,
         impl_emission_names,
         mono_inventory,
@@ -547,11 +555,15 @@ pub(crate) fn lower_jit_arc_program(
         input.imported_generic_templates,
         input.imported_target_maps,
     );
-    let prepared_batch = crate::realization::LoweredArcBatch::try_from_groups(
-        closed_groups,
-        interner,
-    )?
-    .prepare(&closed.mono_functions, &impl_targets, pool, interner)?;
+    let prepared_batch =
+        crate::realization::LoweredArcBatch::try_from_groups(closed_groups, interner)?.prepare(
+            &closed.mono_functions,
+            &impl_targets,
+            &impl_producer_targets,
+            &input.typed.typed.method_producers,
+            pool,
+            interner,
+        )?;
     let mono_functions = closed.mono_functions;
 
     Ok(JitArcLowering {

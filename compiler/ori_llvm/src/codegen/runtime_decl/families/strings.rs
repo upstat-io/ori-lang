@@ -210,7 +210,7 @@ pub(in crate::codegen::runtime_decl) static STRINGS: &[RtFn] = &[
         jit_allowed: true,
     },
     RtFn {
-        name: "ori_byte_debug_format",
+        name: "ori_byte_printable_format",
         params: &[Ty::I64],
         ret: Some(Ty::Str),
         attrs: &[Attr::Nounwind],

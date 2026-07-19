@@ -218,12 +218,26 @@ type Person = { name: str, age: int }
 
 type Rect = { x: int, y: int, width: int, height: int }
 
+type ReorderedPoint = { y: int, x: int }
+
 @test_struct_rest tests @struct_rest () -> void = {
     assert_eq(actual: struct_rest(Point { x: 42, y: 99 }), expected: 42);
     assert_eq(actual: struct_rest(Point { x: 0, y: 5 }), expected: 0)
 }
 
 @struct_rest (p: Point) -> int = match p {
+    { x, .. } -> x
+}
+
+// Struct-rest binding follows the field name when declaration and runtime
+// orders differ.
+@test_struct_rest_reordered_declaration tests @struct_rest_reordered_declaration () -> void = {
+    let point = ReorderedPoint { y: 99, x: 42 };
+
+    assert_eq(actual: struct_rest_reordered_declaration(point), expected: 42)
+}
+
+@struct_rest_reordered_declaration (p: ReorderedPoint) -> int = match p {
     { x, .. } -> x
 }
 

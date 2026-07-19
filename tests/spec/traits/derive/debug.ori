@@ -74,8 +74,7 @@ type Token = Sym(ch: char) | Pair(a: char, b: char);
 }
 @variant_char () -> str = Sym(ch: 'x').debug();
 
-// Regression: a byte field renders as hex (0x41) for Debug, matching the
-// evaluator — NOT the raw decimal codepoint.
+// Regression: a byte field uses its decimal Debug representation.
 #[derive(Debug)]
 type ByteBox = { b: byte }
 
@@ -83,11 +82,15 @@ type ByteBox = { b: byte }
 type ByteTok = BSym(b: byte) | BPair(a: byte, b: byte);
 
 @test_struct_byte_field tests @struct_byte () -> void = {
-    assert_eq(actual: ByteBox { b: 65 as byte }.debug(), expected: "ByteBox { b: 0x41 }")
+    assert_eq(actual: ByteBox { b: 255 as byte }.debug(), expected: "ByteBox { b: 255 }")
 }
-@struct_byte () -> str = ByteBox { b: 65 as byte }.debug();
+@struct_byte () -> str = ByteBox { b: 255 as byte }.debug();
 
 @test_variant_byte_field tests @variant_byte () -> void = {
-    assert_eq(actual: BSym(b: 65 as byte).debug(), expected: "BSym(0x41)")
+    assert_eq(actual: BSym(b: 42 as byte).debug(), expected: "BSym(42)");
+    assert_eq(
+        actual: BPair(a: 0 as byte, b: 255 as byte).debug(),
+        expected: "BPair(0, 255)",
+    )
 }
-@variant_byte () -> str = BSym(b: 65 as byte).debug();
+@variant_byte () -> str = BSym(b: 42 as byte).debug();

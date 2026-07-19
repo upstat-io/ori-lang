@@ -237,11 +237,11 @@ pub extern "C" fn ori_char_debug_format(ch: u32) -> OriStr {
     OriStr::from_owned(&result)
 }
 
-/// Format a byte with Debug semantics: `0x{:02x}`.
+/// Format a byte with Printable semantics: `0x{:02x}`.
 ///
 /// `65` → `"0x41"`, `0` → `"0x00"`.
 #[no_mangle]
-pub extern "C" fn ori_byte_debug_format(b: i64) -> OriStr {
+pub extern "C" fn ori_byte_printable_format(b: i64) -> OriStr {
     // Truncate to u8 range
     let byte = (b & 0xFF) as u8;
     let result = format!("0x{byte:02x}");

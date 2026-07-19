@@ -3,7 +3,10 @@
 //! Verify correct `nounwind`, `noreturn`, and `noundef` attribute placement
 //! on LLVM IR function declarations and definitions.
 
-use crate::util::{compile_and_capture_ir, extract_function_ir, resolve_function_attrs};
+use crate::util::{
+    compile_and_capture_ir, extract_function_ir, resolve_derived_function_name,
+    resolve_function_attrs,
+};
 
 // Pre-banner ignored tests (nounwind + dead block pruning)
 
@@ -327,9 +330,10 @@ fn test_pure_derived_methods_have_nounwind() {
         "fixtures/ir_quality_attributes/pure_derived_methods_have_nounwind.ori"
     ));
 
-    assert_fn_has_attr(&ir, "_ori_Shape$eq", "nounwind");
-    assert_fn_has_attr(&ir, "_ori_Shape$compare", "nounwind");
-    assert_fn_has_attr(&ir, "_ori_Shape$hash", "nounwind");
+    for method in ["eq", "compare", "hash"] {
+        let symbol = resolve_derived_function_name(&ir, method);
+        assert_fn_has_attr(&ir, symbol, "nounwind");
+    }
 }
 
 /// Derived equality should test cheap scalar fields before managed fields.
@@ -338,39 +342,19 @@ fn test_derived_eq_checks_scalar_fields_before_managed_fields() {
     let ir = compile_and_capture_ir(include_str!(
         "fixtures/ir_quality_attributes/derived_eq_scalar_field_first.ori"
     ));
-    let eq_ir = extract_function_ir(&ir, "\"_ori_Mixed$eq\"");
+    let eq_symbol = resolve_derived_function_name(&ir, "eq");
+    let eq_ir = extract_function_ir(&ir, eq_symbol);
     let scalar_projection = eq_ir
-        .find("%eq.self.key")
+        .find("%proj.1")
         .expect("derived Eq should project the scalar field");
 
     let managed_projection = eq_ir
-        .find("%eq.self.text")
+        .find("%proj.0")
         .expect("derived Eq should project the managed field");
 
     assert!(
         scalar_projection < managed_projection,
         "derived Eq should compare the scalar field before the managed field:\n{eq_ir}"
-    );
-
-    let shared_start = ir
-        .find("; --- eq/")
-        .expect("shared ARC-derived Eq should be present");
-    let shared_tail = &ir[shared_start..];
-    let shared_end = shared_tail[1..]
-        .find("\n; Function Attrs:")
-        .map_or(shared_tail.len(), |offset| offset + 1);
-    let shared_eq_ir = &shared_tail[..shared_end];
-    let shared_scalar_projection = shared_eq_ir
-        .find("%proj.1")
-        .expect("shared derived Eq should project the scalar field");
-
-    let shared_managed_projection = shared_eq_ir
-        .find("%proj.0")
-        .expect("shared derived Eq should project the managed field");
-
-    assert!(
-        shared_scalar_projection < shared_managed_projection,
-        "shared derived Eq should compare the scalar field before the managed field:\n{shared_eq_ir}"
     );
 }
 
@@ -383,8 +367,10 @@ fn test_impure_derived_methods_lack_nounwind() {
         "fixtures/ir_quality_attributes/impure_derived_methods_lack_nounwind.ori"
     ));
 
-    assert_fn_lacks_attr(&ir, "_ori_Point$to_str", "nounwind");
-    assert_fn_lacks_attr(&ir, "_ori_Point$debug", "nounwind");
+    for method in ["to_str", "debug"] {
+        let symbol = resolve_derived_function_name(&ir, method);
+        assert_fn_lacks_attr(&ir, symbol, "nounwind");
+    }
 }
 
 // noreturn on panic functions

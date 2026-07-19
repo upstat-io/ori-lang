@@ -127,6 +127,7 @@ fn lexical_rewrite_preserves_typed_method_dispatch() {
         receiver_type: Idx::INT,
         form: MethodCallForm::Instance,
         producer: None,
+        selected_producer: None,
         derived_position: None,
     }];
     let targets = FxHashMap::from_iter([(source, target)]);
@@ -165,6 +166,7 @@ fn lexical_rewrite_preserves_typed_method_invoke_dispatch() {
         receiver_type: Idx::INT,
         form: MethodCallForm::Instance,
         producer: None,
+        selected_producer: None,
         derived_position: None,
     }];
     let targets = FxHashMap::from_iter([(source, target)]);

@@ -107,7 +107,9 @@ impl Interpreter<'_> {
                 args,
             } => self.eval_can_method_call(can_id, receiver, method, args),
             CanExpr::Field { receiver, field } => self.eval_can_field(can_id, receiver, field),
-            CanExpr::Index { receiver, index } => self.eval_can_index(can_id, receiver, index),
+            CanExpr::Index {
+                receiver, index, ..
+            } => self.eval_can_index(can_id, receiver, index),
             CanExpr::If {
                 cond,
                 then_branch,
@@ -139,10 +141,7 @@ impl Interpreter<'_> {
             CanExpr::Continue { value, label, .. } => self.eval_can_continue(value, label),
             CanExpr::Block { stmts, result } => self.eval_can_block(stmts, result),
             CanExpr::Let { pattern, init, .. } => self.eval_can_let(pattern, init),
-            CanExpr::Assign { target, value } => {
-                let val = self.eval_can(value)?;
-                self.eval_can_assign(target, val)
-            }
+            CanExpr::Assign { target, value } => self.eval_can_assignment(target, value),
             CanExpr::Lambda { params, body } => self.eval_can_lambda_expr(can_id, params, body),
             CanExpr::List(range) => Ok(Value::list(self.eval_can_expr_list(range)?)),
             CanExpr::Tuple(range) => Ok(Value::tuple(self.eval_can_expr_list(range)?)),
@@ -172,6 +171,11 @@ impl Interpreter<'_> {
             CanExpr::FormatWith { expr, spec } => self.eval_format_with(can_id, expr, spec),
             CanExpr::Error => self.eval_can_error(can_id),
         }
+    }
+
+    fn eval_can_assignment(&mut self, target: CanId, value: CanId) -> EvalResult {
+        let value = self.eval_can(value)?;
+        self.eval_can_assign(target, value)
     }
 
     fn eval_can_constant(&self, id: ConstantId) -> Value {

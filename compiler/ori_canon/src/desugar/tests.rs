@@ -356,6 +356,7 @@ fn desugar_struct_with_spread_flattens_to_struct() {
     let base_name = interner.intern("base");
     let fx = interner.intern("x");
     let fy = interner.intern("y");
+    let text_alias = interner.intern("TextAlias");
 
     let base = arena.alloc_expr(Expr::new(ExprKind::Ident(base_name), Span::new(11, 15)));
     let ten = arena.alloc_expr(Expr::new(ExprKind::Int(10), Span::new(20, 22)));
@@ -381,11 +382,16 @@ fn desugar_struct_with_spread_flattens_to_struct() {
     ));
 
     // Register the Point struct so resolve_struct_fields returns [x, y].
+    let mut pool = ori_types::Pool::new();
+    let text_alias_idx = pool.named(text_alias);
+    pool.set_resolution(text_alias_idx, Idx::STR);
+    let point_idx = pool.named(point);
+    let point_body = pool.struct_type(point, &[(fx, Idx::INT), (fy, text_alias_idx)]);
+    pool.set_resolution(point_idx, point_body);
     let mut typed = TypedModule::new();
-    typed.expr_types.push(Idx::INT); // [0] base -> int placeholder
+    typed.expr_types.push(point_idx); // [0] base
     typed.expr_types.push(Idx::INT); // [1] ten
-    typed.expr_types.push(Idx::INT); // [2] StructWithSpread root
-    let point_idx = Idx::from_raw(64);
+    typed.expr_types.push(point_idx); // [2] StructWithSpread root
     typed.types.push(ori_types::TypeEntry {
         name: point,
         idx: point_idx,
@@ -399,7 +405,7 @@ fn desugar_struct_with_spread_flattens_to_struct() {
                 },
                 ori_types::FieldDef {
                     name: fy,
-                    ty: Idx::INT,
+                    ty: text_alias_idx,
                     span: Span::DUMMY,
                     visibility: ori_types::Visibility::Public,
                 },
@@ -415,7 +421,6 @@ fn desugar_struct_with_spread_flattens_to_struct() {
     });
     let type_result = TypeCheckResult::ok(typed);
 
-    let pool = ori_types::Pool::new();
     let result = lower(&arena, &type_result, &pool, root, &interner);
     assert!(result.root.is_valid());
 
@@ -434,7 +439,11 @@ fn desugar_struct_with_spread_flattens_to_struct() {
             // Field y: from the spread -> base.y Field access.
             assert_eq!(field_list[1].name, fy);
             match result.arena.kind(field_list[1].value) {
-                CanExpr::Field { field, .. } => assert_eq!(*field, fy),
+                CanExpr::Field { field, .. } => {
+                    assert_eq!(*field, fy);
+                    assert_eq!(result.arena.ty(field_list[1].value), ori_ir::TypeId::STR);
+                    assert_ne!(result.arena.ty(field_list[1].value), ori_ir::TypeId::ERROR);
+                }
                 other => panic!("expected Field(base.y), got {other:?}"),
             }
         }
@@ -605,6 +614,92 @@ fn desugar_index_assign_rewrites_to_updated_reassignment() {
         }
         other => panic!("expected Assign reassignment, got {other:?}"),
     }
+}
+
+#[test]
+fn desugar_field_assign_types_projection_from_concrete_applied_receiver() {
+    let mut arena = ExprArena::new();
+    let interner = test_interner();
+    let point = interner.intern("Point");
+    let state = interner.intern("state");
+    let fx = interner.intern("x");
+    let fy = interner.intern("y");
+    let generic_param = interner.intern("T");
+
+    let root = arena.alloc_expr(Expr::new(ExprKind::Ident(state), Span::new(0, 5)));
+    let value = arena.alloc_expr(Expr::new(ExprKind::Int(10), Span::new(10, 12)));
+    let steps = arena.alloc_access_steps([AccessStep::Field(fx)]);
+    let target = arena.alloc_expr(Expr::new(
+        ExprKind::AssignTarget { root, steps },
+        Span::new(0, 7),
+    ));
+    let assign = arena.alloc_expr(Expr::new(
+        ExprKind::Assign { target, value },
+        Span::new(0, 12),
+    ));
+
+    let mut pool = ori_types::Pool::new();
+    let generic_field_ty = pool.named(generic_param);
+    let point_decl_idx = pool.named(point);
+    let point_idx = pool.applied(point, &[Idx::STR]);
+    let point_body = pool.struct_type(point, &[(fx, Idx::INT), (fy, Idx::STR)]);
+    pool.set_resolution(point_idx, point_body);
+    let mut typed = TypedModule::new();
+    typed.expr_types = vec![point_idx, Idx::INT, Idx::INT, Idx::UNIT];
+    typed.assign_desugar_map.insert(
+        target,
+        AssignDesugar {
+            level_types: vec![point_idx, Idx::INT],
+        },
+    );
+    typed.types.push(ori_types::TypeEntry {
+        name: point,
+        idx: point_decl_idx,
+        kind: ori_types::TypeKind::Struct(ori_types::StructDef {
+            fields: vec![
+                ori_types::FieldDef {
+                    name: fx,
+                    ty: Idx::INT,
+                    span: Span::DUMMY,
+                    visibility: ori_types::Visibility::Public,
+                },
+                ori_types::FieldDef {
+                    name: fy,
+                    ty: generic_field_ty,
+                    span: Span::DUMMY,
+                    visibility: ori_types::Visibility::Public,
+                },
+            ],
+            category: ori_types::ValueCategory::default(),
+        }),
+        span: Span::DUMMY,
+        type_params: vec![generic_param],
+        visibility: ori_types::Visibility::Public,
+        merkle_hash: 0,
+        repr: None,
+        burden: None,
+    });
+    let type_result = TypeCheckResult::ok(typed);
+
+    let result = lower(&arena, &type_result, &pool, assign, &interner);
+    let update = match result.arena.kind(result.root) {
+        CanExpr::Assign { value, .. } => *value,
+        other => panic!("expected Assign reassignment, got {other:?}"),
+    };
+    let fields = match result.arena.kind(update) {
+        CanExpr::Struct { fields, .. } => result.arena.get_fields(*fields),
+        other => panic!("expected synthesized Struct update, got {other:?}"),
+    };
+    let projection = fields
+        .iter()
+        .find(|field| field.name == fy)
+        .unwrap_or_else(|| panic!("synthesized update must retain Point.y"));
+    assert!(matches!(
+        result.arena.kind(projection.value),
+        CanExpr::Field { field, .. } if *field == fy
+    ));
+    assert_eq!(result.arena.ty(projection.value), ori_ir::TypeId::STR);
+    assert_ne!(result.arena.ty(projection.value), ori_ir::TypeId::ERROR);
 }
 
 #[test]

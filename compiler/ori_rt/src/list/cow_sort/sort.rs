@@ -145,7 +145,7 @@ fn list_sort_cow_impl(
     unsafe { propagate_header(data, cap, new_data, n as i64) };
 
     // Release old buffer (slice-aware)
-    dec_list_buffer(data, cap);
+    dec_list_buffer(data, len, cap, elem_size);
 
     unsafe {
         out_ptr.cast::<i64>().write(n as i64);

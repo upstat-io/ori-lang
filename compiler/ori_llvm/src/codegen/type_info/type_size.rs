@@ -3,6 +3,8 @@
 //! Store size calculation for LLVM types including alignment padding.
 //! Must stay in sync with `pool_type_store_size()` in `ori_arc`.
 
+use std::cmp::Ordering;
+
 use inkwell::types::BasicTypeEnum;
 use ori_types::{Idx, Pool};
 
@@ -45,6 +47,34 @@ pub(crate) fn max_variant_payload_bytes(
 /// this logic at the Pool level. Both must agree on sizes for all types.
 pub(crate) fn type_store_size(ty: BasicTypeEnum<'_>) -> u64 {
     type_store_size_inner(ty, 0)
+}
+
+/// Arm supplying the LLVM type for a shared payload slot.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SharedPayloadArm {
+    First,
+    Second,
+}
+
+/// Selects the arm whose LLVM type can represent a shared payload slot.
+///
+/// Store size wins; equal-size integer types use the greater LLVM bit width.
+pub(crate) fn select_shared_payload_arm(
+    first: BasicTypeEnum<'_>,
+    second: BasicTypeEnum<'_>,
+) -> SharedPayloadArm {
+    match type_store_size(first).cmp(&type_store_size(second)) {
+        Ordering::Greater => SharedPayloadArm::First,
+        Ordering::Less => SharedPayloadArm::Second,
+        Ordering::Equal => match (first, second) {
+            (BasicTypeEnum::IntType(first), BasicTypeEnum::IntType(second))
+                if first.get_bit_width() < second.get_bit_width() =>
+            {
+                SharedPayloadArm::Second
+            }
+            _ => SharedPayloadArm::First,
+        },
+    }
 }
 
 /// Inner implementation with depth tracking for recursive struct types.

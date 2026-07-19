@@ -554,6 +554,7 @@ mod tests {
                     receiver_type: Idx::INT,
                     form: MethodCallForm::Instance,
                     producer: None,
+                    selected_producer: None,
                     derived_position: None,
                 },
                 MethodCallFact {
@@ -561,6 +562,7 @@ mod tests {
                     receiver_type: Idx::STR,
                     form: MethodCallForm::Instance,
                     producer: None,
+                    selected_producer: None,
                     derived_position: None,
                 },
             ]
@@ -616,6 +618,7 @@ mod tests {
                     receiver_type: Idx::INT,
                     form: MethodCallForm::Instance,
                     producer: None,
+                    selected_producer: None,
                     derived_position: None,
                 },
                 MethodCallFact {
@@ -623,6 +626,7 @@ mod tests {
                     receiver_type: Idx::INT,
                     form: MethodCallForm::Instance,
                     producer: None,
+                    selected_producer: None,
                     derived_position: None,
                 },
                 MethodCallFact {
@@ -630,6 +634,7 @@ mod tests {
                     receiver_type: Idx::BOOL,
                     form: MethodCallForm::Instance,
                     producer: None,
+                    selected_producer: None,
                     derived_position: None,
                 },
             ]

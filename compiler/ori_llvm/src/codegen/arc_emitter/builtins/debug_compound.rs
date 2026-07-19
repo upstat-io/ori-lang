@@ -356,6 +356,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         tuple: ValueId,
         elements: &[Idx],
+        tuple_ty: Idx,
         style: RenderStyle,
     ) -> Option<ValueId> {
         if elements.is_empty() {
@@ -363,6 +364,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         let mut acc = self.emit_literal_ori_str("(")?;
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "tuple field count fits u32"
+        )]
         for (i, &elem_ty) in elements.iter().enumerate() {
             if i > 0 {
                 let sep = self.emit_literal_ori_str(", ")?;
@@ -370,9 +375,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.dec_intermediate_str(acc);
                 acc = new_acc;
             }
+            let memory_field = self.remap_struct_field(tuple_ty, i as u32);
             let field = self
                 .builder
-                .extract_value(tuple, i as u32, &format!("tdbg.f{i}"))?;
+                .extract_value(tuple, memory_field, &format!("tdbg.f{i}"))?;
             let field_str = if style.is_debug() {
                 self.emit_element_debug(field, elem_ty)?
             } else {

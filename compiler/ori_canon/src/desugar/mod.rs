@@ -17,6 +17,7 @@ mod assign_target;
 mod calls;
 mod format;
 mod spread;
+mod struct_fields;
 
 use ori_ir::canon::CanExpr;
 use ori_ir::{Name, Span, TemplatePartRange, TypeId};

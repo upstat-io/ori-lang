@@ -110,6 +110,7 @@ fn generated_method_fact_is_reserved_for_exact_receiver_rewrite() {
             receiver_type: Idx::INT,
             form: MethodCallForm::Instance,
             producer: None,
+            selected_producer: None,
             derived_position: None,
         }],
         ..ArcFunction::default()
@@ -171,6 +172,7 @@ fn method_generic_targets_dispatch_only_by_exact_instance_id() {
             receiver_type: Idx::INT,
             form: MethodCallForm::Instance,
             producer: Some(producer.clone()),
+            selected_producer: None,
             derived_position: None,
         }],
         ..ArcFunction::default()

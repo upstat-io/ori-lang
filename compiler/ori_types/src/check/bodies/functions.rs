@@ -262,6 +262,7 @@ fn finish_function_inference(
         pat_resolutions: engine.take_pattern_resolutions(),
         mono_instances: engine.take_mono_instances(),
         mono_dispatch_pre_dedup: engine.take_mono_dispatch_pre_dedup(),
+        index_dispatch_selections: engine.take_index_dispatch_selections(),
         deferred_mono_calls: engine.take_deferred_mono_calls(),
         composed_burdens: engine.take_composed_burdens(),
         capability_exempt_var_ids: capability_var_ids,
@@ -357,6 +358,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     let pat_resolutions = engine.take_pattern_resolutions();
     let mono_instances = engine.take_mono_instances();
     let mono_dispatch_pre_dedup = engine.take_mono_dispatch_pre_dedup();
+    let index_dispatch_selections = engine.take_index_dispatch_selections();
     let deferred_mono_calls = engine.take_deferred_mono_calls();
     let composed_burdens = engine.take_composed_burdens();
     let assign_desugars = engine.take_assign_desugars();
@@ -377,6 +379,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
             pat_resolutions,
             mono_instances,
             mono_dispatch_pre_dedup,
+            index_dispatch_selections,
             deferred_mono_calls,
             composed_burdens,
             capability_exempt_var_ids: Vec::new(),

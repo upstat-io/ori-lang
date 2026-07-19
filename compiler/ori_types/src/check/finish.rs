@@ -133,6 +133,8 @@ impl ModuleChecker<'_> {
         let module_alias_call_map = self.module_alias_calls;
         let iter_route_map = self.iter_route_desugars;
         let capability_call_map = self.capability_calls;
+        let (method_producers, index_dispatch_map) =
+            normalize_index_dispatch(self.index_dispatch_selections);
 
         // Resolve transitive mono calls (generic calling generic) before dedup.
         // The deferred resolver publishes dispatch entries into
@@ -220,6 +222,8 @@ impl ModuleChecker<'_> {
             // alongside eager-path instantiations. Both flow through the
             // same dedup-remap pipeline.
             mono_dispatch_map: SparseSideTable::from_unsorted(mono_dispatch_map),
+            method_producers,
+            index_dispatch_map: SparseSideTable::from_unsorted(index_dispatch_map),
             capability_call_map: SparseSideTable::from_unsorted(capability_call_map),
             type_descriptors,
             exported_type_metadata,
@@ -234,6 +238,47 @@ impl ModuleChecker<'_> {
 
         (TypeCheckResult::from_typed(typed), pool)
     }
+}
+
+/// Assign deterministic dense handles to the exact producers selected by
+/// user-defined index expressions.
+///
+/// Source `ExprId` order is stable for a parsed module, so first occurrence in
+/// that order gives deterministic producer IDs without requiring an artificial
+/// ordering over imported symbols and registry projections.
+fn normalize_index_dispatch(
+    mut selections: Vec<(ori_ir::ExprId, crate::MethodProducer)>,
+) -> (
+    Vec<crate::MethodProducer>,
+    Vec<(ori_ir::ExprId, crate::MethodProducerId)>,
+) {
+    selections.sort_by_key(|(expr, _)| *expr);
+    for pair in selections.windows(2) {
+        assert!(
+            pair[0].0 != pair[1].0 || pair[0].1 == pair[1].1,
+            "one index expression cannot select two semantic method producers"
+        );
+    }
+    selections.dedup_by(|left, right| left.0 == right.0);
+
+    let mut producers = Vec::new();
+    let mut ids = rustc_hash::FxHashMap::default();
+    let mut dispatch = Vec::with_capacity(selections.len());
+    for (expr, producer) in selections {
+        let id = if let Some(&id) = ids.get(&producer) {
+            id
+        } else {
+            let Ok(raw) = u32::try_from(producers.len()) else {
+                unreachable!("method-producer table exceeds MethodProducerId capacity");
+            };
+            let id = crate::MethodProducerId::new(raw);
+            producers.push(producer.clone());
+            ids.insert(producer, id);
+            id
+        };
+        dispatch.push((expr, id));
+    }
+    (producers, dispatch)
 }
 
 /// Sort accepted derived-impl identities for deterministic output and assert

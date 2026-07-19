@@ -158,6 +158,7 @@ fn printable_struct_uses_semantic_owner_method_and_exact_field_facts() {
                 receiver_type: Idx::INT,
                 form: MethodCallForm::Instance,
                 producer: None,
+                selected_producer: None,
                 derived_position: None,
             },
             MethodCallFact {
@@ -165,6 +166,7 @@ fn printable_struct_uses_semantic_owner_method_and_exact_field_facts() {
                 receiver_type: Idx::STR,
                 form: MethodCallForm::Instance,
                 producer: None,
+                selected_producer: None,
                 derived_position: None,
             },
         ]
@@ -294,6 +296,7 @@ fn debug_enum_switches_variants_and_formats_payloads_without_struct_labels() {
                 receiver_type: Idx::STR,
                 form: MethodCallForm::Instance,
                 producer: None,
+                selected_producer: None,
                 derived_position: None,
             },
             MethodCallFact {
@@ -301,6 +304,7 @@ fn debug_enum_switches_variants_and_formats_payloads_without_struct_labels() {
                 receiver_type: Idx::INT,
                 form: MethodCallForm::Instance,
                 producer: None,
+                selected_producer: None,
                 derived_position: None,
             },
         ]

@@ -208,6 +208,32 @@ impl ArcIrBuilder {
             receiver_type,
             form,
             producer: None,
+            selected_producer: None,
+            derived_position: None,
+        });
+    }
+
+    /// Preserve a type-checker-selected source method until realization can
+    /// resolve its module-local producer handle against `TypedModule`.
+    pub fn note_selected_method_call(
+        &mut self,
+        destination: ArcVarId,
+        receiver_type: Idx,
+        form: MethodCallForm,
+        producer: ori_ir::canon::MethodProducerId,
+    ) {
+        assert!(
+            self.method_call_facts
+                .iter()
+                .all(|fact| fact.destination != destination),
+            "a direct call result may carry only one method provenance fact"
+        );
+        self.method_call_facts.push(MethodCallFact {
+            destination,
+            receiver_type,
+            form,
+            producer: None,
+            selected_producer: Some(producer),
             derived_position: None,
         });
     }

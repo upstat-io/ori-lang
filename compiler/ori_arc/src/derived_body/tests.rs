@@ -364,6 +364,7 @@ fn nested_user_field_is_an_exact_rewriteable_invoke() {
             receiver_type: inner,
             form: MethodCallForm::Instance,
             producer: None,
+            selected_producer: None,
             derived_position: None,
         }]
     );
@@ -460,6 +461,7 @@ fn newtype_eq_with_user_underlying_keeps_exact_method_dispatch() {
             receiver_type: underlying,
             form: MethodCallForm::Instance,
             producer: None,
+            selected_producer: None,
             derived_position: None,
         }]
     );
@@ -747,6 +749,7 @@ fn nested_default_is_an_exact_associated_call() {
             receiver_type: inner,
             form: MethodCallForm::Associated,
             producer: None,
+            selected_producer: None,
             derived_position: None,
         }]
     );

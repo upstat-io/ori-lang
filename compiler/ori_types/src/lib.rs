@@ -57,9 +57,9 @@ pub use output::{
     DeferredMonoCall, DeferredMonoCaller, DeferredVarBinding, DerivedCallPlan, DerivedCallPosition,
     DerivedCallSelection, DerivedDirectCallSelection, EffectClass, ExportedTypeMetadata,
     FnWhereClause, FormatSpecTypes, FunctionSig, GenericArg, ImplMethodId, ImplMethodRole, ImplSig,
-    ImportedImplSig, IterMethodRoute, MethodProducer, MonoConstBinding, MonoInstance,
-    MonoInstanceId, RegistryMethodIdentity, RegistryPreludeIdentity, TypeCheckResult, TypedModule,
-    IMPORTED_METHOD_PRODUCER_SCHEMA, REGISTRY_PRODUCER_SCHEMA,
+    ImportedImplSig, IterMethodRoute, MethodProducer, MethodProducerId, MonoConstBinding,
+    MonoInstance, MonoInstanceId, RegistryMethodIdentity, RegistryPreludeIdentity, TypeCheckResult,
+    TypedModule, IMPORTED_METHOD_PRODUCER_SCHEMA, REGISTRY_PRODUCER_SCHEMA,
 };
 pub use pool::{
     build_finalized_body_type_map, build_impl_mono_body_type_map, build_mono_body_type_map,

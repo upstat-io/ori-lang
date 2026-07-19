@@ -185,15 +185,12 @@ fn probe_closure_capture_last_use_str() {
 }
 
 /// Negative pin (the matrix-clamping counterpart of
-/// `probe_closure_capture_last_use_str`): `ORI_DISABLE_BURDEN_OPS=1` skips
-/// class-ledger Step-4b emission entirely, so the closure-env last-use release
-/// (`burden_dec` on the `PartialApply` result after the closure's single
-/// invocation) never lands. Under sole-emitter Phase-7 lowering there is then
-/// no release for the closure's captured string, leaking it. A heap-carrying
-/// captured string (>23 bytes, defeats SSO) makes the leak observable via
-/// `ORI_CHECK_LEAKS=1`. Spec: Annex E §AIMS RL-2.
+/// `probe_closure_capture_last_use_str`): `ORI_DISABLE_BURDEN_OPS=1` declines
+/// class-ledger Step-4b emission. Because the class ledger is the sole emitter,
+/// realization must fail loud instead of synthesizing a fallback or producing
+/// an under-released executable. Spec: Annex E §AIMS RL-2.
 #[test]
-fn probe_closure_capture_last_use_str_burden_ops_disabled_leaks_negative() {
+fn probe_closure_capture_last_use_str_burden_ops_disabled_fails_loud() {
     use crate::util::compile_and_run_with_build_env;
     let src = r#"
 @make_greeter (name: str) -> () -> str = {
@@ -222,16 +219,21 @@ fn probe_closure_capture_last_use_str_burden_ops_disabled_leaks_negative() {
          clean (no leak, no double-free)\nstderr:\n{control_stderr}"
     );
 
-    // Forced: burden-op emission disabled — the closure-env last-use release
-    // never lands, leaking the captured heap string.
+    // Forced: burden-op emission disabled — sole-emitter realization must
+    // reject the unreplaced function before codegen.
     let mut forced: Vec<(&str, &str)> = probe.to_vec();
     forced.push(("ORI_DISABLE_BURDEN_OPS", "1"));
     let (forced_exit, _stdout, forced_stderr) = compile_and_run_with_build_env(src, &forced);
-    assert_ne!(
-        forced_exit, 0,
-        "disabling Phase-5 burden-op emission must leak the closure's captured \
-         allocation (exit != 0) — proves the positive pin actively catches the \
-         under-emission regression\nstderr:\n{forced_stderr}"
+    assert_eq!(
+        forced_exit, -1,
+        "disabling the sole class-ledger emitter must fail during compilation\n\
+         stderr:\n{forced_stderr}"
+    );
+    assert!(
+        forced_stderr.contains("realize reached a non-class-ledger function")
+            && forced_stderr.contains("class-ledger plan admits only replaced functions"),
+        "the forced leg must reach the intentional sole-emitter fail-loud gate, \
+         not fail for an unrelated reason\nstderr:\n{forced_stderr}"
     );
 }
 

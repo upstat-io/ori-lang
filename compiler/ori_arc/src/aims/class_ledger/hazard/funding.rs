@@ -137,7 +137,6 @@ fn collect_extraction_seeds(
 ) -> Option<(Vec<PlannedOp>, Vec<(usize, usize)>)> {
     use crate::aims::intraprocedural::birth_site_partition::FieldPath;
     use crate::ir::ArcInstr;
-    use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
 
     let mut seeds = Vec::new();
     let mut credit_sites: Vec<(usize, usize)> = Vec::new();
@@ -169,10 +168,7 @@ fn collect_extraction_seeds(
             // credit that the shipped adapter will not realize. `FatValue`
             // is retained here only as compatibility evidence for unresolved
             // monomorphized str/closure aliases; it is not an AIMS fact.
-            let fundable = matches!(func.var_repr(*dst), Some(crate::ir::ValueRepr::FatValue))
-                || func.var_types.get(dst.index()).is_some_and(|&ty| {
-                    lookup_burden(idx_to_type_ref(ty, type_registry), type_registry).is_some()
-                });
+            let fundable = super::increment_is_materializable(func, *dst, type_registry);
             if !fundable {
                 tracing::trace!(
                     target: "ori_arc::aims::class_ledger",

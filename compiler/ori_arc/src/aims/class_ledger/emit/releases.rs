@@ -444,7 +444,21 @@ fn release_var_for_slot(
     };
     // Prefer an existing verifier-safe alias. Fall back to the credited ABI
     // parameter only when no such member dominates the release slot.
-    resolve(false)
-        .or_else(|| resolve(true))
-        .ok_or(DeclineReason::UnresolvedOpVar)
+    let resolved = resolve(false).or_else(|| resolve(true));
+    if resolved.is_none() {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            block,
+            slot = ?slot,
+            event_vars = ?events
+                .per_block
+                .iter()
+                .flatten()
+                .filter_map(|event| event.var)
+                .collect::<Vec<_>>(),
+            planned_vars = ?ops.iter().map(|op| op.var).collect::<Vec<_>>(),
+            "release placement declined: no class member reaches the release slot"
+        );
+    }
+    resolved.ok_or(DeclineReason::UnresolvedOpVar)
 }

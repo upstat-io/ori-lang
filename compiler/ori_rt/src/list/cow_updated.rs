@@ -7,7 +7,7 @@
 //!   (the new element is moved in; ownership transfers from the caller).
 
 use crate::io::panic_index_out_of_bounds;
-use crate::rc::ori_rc_is_unique;
+use crate::rc::{ori_buffer_rc_dec, ori_rc_is_unique};
 use crate::slice_encoding::is_slice_cap;
 
 use super::cow::slow_copy_replace_element;
@@ -21,7 +21,9 @@ use super::cow::slow_copy_replace_element;
 /// # Panics
 ///
 /// Panics if `index < 0 || index >= len` — same bounds contract as
-/// `ori_list_get` (`list[index]`).
+/// `ori_list_get` (`list[index]`). Because ownership transfers at call entry,
+/// the panicking path releases both the consumed receiver and moved-in value
+/// before unwinding.
 ///
 /// # Element RC
 ///
@@ -56,6 +58,10 @@ pub extern "C-unwind" fn ori_list_updated_cow(
     // Bounds check — panics like `list[index]` (a null buffer is the empty
     // sentinel, so every index is out of bounds for it).
     if data.is_null() || index < 0 || index >= len {
+        if let Some(dec) = dec_fn {
+            dec(elem_ptr.cast_mut());
+        }
+        ori_buffer_rc_dec(data, len, cap, elem_size, dec_fn);
         panic_index_out_of_bounds(index, len.max(0));
     }
 

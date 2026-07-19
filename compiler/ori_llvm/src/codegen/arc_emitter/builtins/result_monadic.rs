@@ -6,7 +6,10 @@
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_types::Idx;
 
-use crate::codegen::type_info::TypeInfo;
+use crate::codegen::type_info::{
+    type_size::{select_shared_payload_arm, SharedPayloadArm},
+    TypeInfo,
+};
 use crate::codegen::value_id::ValueId;
 
 use super::super::ArcIrEmitter;
@@ -337,12 +340,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         err_ty: Idx,
         label: &str,
     ) -> Option<ValueId> {
-        let ok_size = crate::codegen::abi::abi_size(ok_ty, self.type_info, self.repr_plan);
-        let err_size = crate::codegen::abi::abi_size(err_ty, self.type_info, self.repr_plan);
-        let slot_ty_idx = if ok_size >= err_size { ok_ty } else { err_ty };
-
         let payload_llvm = self.resolve_type(payload_ty);
-        let slot_llvm = self.resolve_type(slot_ty_idx);
+        let slot_llvm = self.resolve_result_payload_type(ok_ty, err_ty);
 
         let scx = self.builder.scx();
         let i64_ty = scx.type_i64();
@@ -371,15 +370,29 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ok_ty: Idx,
         err_ty: Idx,
     ) -> crate::codegen::value_id::LLVMTypeId {
-        let ok_size = crate::codegen::abi::abi_size(ok_ty, self.type_info, self.repr_plan);
-        let err_size = crate::codegen::abi::abi_size(err_ty, self.type_info, self.repr_plan);
-        let slot_ty = if ok_size >= err_size { ok_ty } else { err_ty };
-        let slot_llvm = self.resolve_type(slot_ty);
+        let slot_llvm = self.resolve_result_payload_type(ok_ty, err_ty);
         let scx = self.builder.scx();
         let i64_ty = scx.type_i64();
         let slot_raw = self.builder.raw_type(slot_llvm);
         let res = scx.llcx.struct_type(&[i64_ty.into(), slot_raw], false);
         self.builder.register_type(res.into())
+    }
+
+    fn resolve_result_payload_type(
+        &mut self,
+        ok_ty: Idx,
+        err_ty: Idx,
+    ) -> crate::codegen::value_id::LLVMTypeId {
+        let ok_llvm = self.resolve_type(ok_ty);
+        let err_llvm = self.resolve_type(err_ty);
+
+        match select_shared_payload_arm(
+            self.builder.raw_type(ok_llvm),
+            self.builder.raw_type(err_llvm),
+        ) {
+            SharedPayloadArm::First => ok_llvm,
+            SharedPayloadArm::Second => err_llvm,
+        }
     }
 
     // Niche-encoded stub

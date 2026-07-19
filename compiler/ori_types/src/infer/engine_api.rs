@@ -54,6 +54,7 @@ impl<'pool> InferEngine<'pool> {
             method_rigid_bounds: FxHashMap::default(),
             mono_instances: Vec::new(),
             mono_dispatch_pre_dedup: Vec::new(),
+            index_dispatch_selections: Vec::new(),
             assign_desugars: Vec::new(),
             module_alias_calls: Vec::new(),
             iter_route_desugars: Vec::new(),

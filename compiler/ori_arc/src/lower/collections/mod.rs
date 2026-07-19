@@ -6,7 +6,7 @@
 //! Spread variants (`ListWithSpread`, `MapWithSpread`, `StructWithSpread`)
 //! and template strings are eliminated during canonicalization.
 
-use ori_ir::canon::{CanFieldRange, CanId, CanMapEntryRange, CanRange};
+use ori_ir::canon::{CanFieldRange, CanId, CanMapEntryRange, CanRange, MethodProducerId};
 use ori_ir::{Name, Span, StringInterner};
 use ori_types::{Idx, Tag};
 
@@ -166,6 +166,7 @@ impl ArcLowerer<'_> {
         &mut self,
         receiver: CanId,
         index: CanId,
+        producer: Option<MethodProducerId>,
         ty: Idx,
         span: Span,
     ) -> ArcVarId {
@@ -203,6 +204,33 @@ impl ArcLowerer<'_> {
 
         let idx_var = self.lower_expr(index);
         self.hash_length = old_hash;
+
+        let builtin_index =
+            recv_ty == Idx::STR || matches!(self.pool.tag(recv_ty), Tag::List | Tag::Map);
+        if !builtin_index {
+            let Some(producer) = producer else {
+                self.problems.push(super::ArcProblem::InternalError {
+                    message: format!(
+                        "user-defined index on receiver type {recv_ty:?} has no type-checker-selected method producer"
+                    ),
+                    span,
+                });
+                return self
+                    .builder
+                    .emit_let(ty, ArcValue::Literal(LitValue::Unit), Some(span));
+            };
+            let index_fn = self.interner.intern("index");
+            let result =
+                self.builder
+                    .emit_invoke(ty, index_fn, vec![recv, idx_var], Some(span), None);
+            self.builder.note_selected_method_call(
+                result,
+                recv_ty,
+                MethodCallForm::Instance,
+                producer,
+            );
+            return result;
+        }
 
         let index_fn = self
             .interner

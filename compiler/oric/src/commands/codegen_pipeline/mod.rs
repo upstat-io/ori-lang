@@ -211,6 +211,7 @@ fn prepare_analysis_products(
     let crate::realization::ImplMethodAnalysis {
         groups: impl_groups,
         targets: mut method_targets,
+        producer_targets: impl_producer_targets,
         user_drop_bindings,
         emission_names: impl_emission_names,
         ..
@@ -273,7 +274,14 @@ fn prepare_analysis_products(
     let lowered = crate::realization::LoweredArcBatch::try_from_groups(groups, interner)
         .map_err(|error| error.to_string())?;
     let prepared = lowered
-        .prepare(&mono_functions, &method_targets, pool, interner)
+        .prepare(
+            &mono_functions,
+            &method_targets,
+            &impl_producer_targets,
+            &input.typed.typed.method_producers,
+            pool,
+            interner,
+        )
         .map_err(|error| error.to_string())?;
     Ok(AnalysisProducts {
         prepared,

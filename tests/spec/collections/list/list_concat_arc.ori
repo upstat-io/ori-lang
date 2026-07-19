@@ -2,12 +2,14 @@
 //
 // `[T].concat()` is a dual-consuming PrimOp: the runtime owns consuming BOTH
 // the receiver and the argument buffers (ARC realization emits no operand dec).
-// On the JIT/`--backend=llvm` path a FastISel fat-pointer `cap` mis-load made
-// `is_slice_cap(cap1)` read spuriously true, which both forced the slow path
-// AND mis-directed `dec_list_buffer`, leaking the receiver. These cells pin:
+// Two lifecycle boundaries are pinned here. On the JIT/`--backend=llvm` path,
+// FastISel could mis-load a known fat-pointer `cap` and choose the wrong COW
+// path. For real slices, concat also must release the original allocation via
+// the canonical slice-aware buffer decrement when the slice is its last owner.
+// These cells pin:
 //   - behavioral correctness (assert_eq result oracle), and
 //   - leak-freedom (the --backend=llvm runner reports `ARC leak` per cell).
-// They FAIL (leak) on the unfixed JIT path; the interp path is already clean.
+// The interpreter supplies the behavioral parity oracle; LLVM also checks ARC.
 //
 // Matrix dimensions:
 //   element type:  [int] [float] [bool] [str] [[int]] [Option<int>]
@@ -16,8 +18,8 @@
 //   interaction:   loop back-edge | closure capture | error path (`?` in try)
 // The shared-receiver, slice-receiver, and slice-argument cells are the CLAMPS:
 // they legitimately take the slow path / set is_slice_cap on cap1 OR cap2, so
-// they distinguish the correct fix (both caps load correctly) from a wrong
-// "force fast path always" or "harden only the receiver" fix.
+// they distinguish correct field extraction and buffer disposal from a wrong
+// "force fast path always" or receiver-only fix.
 
 use std.testing { assert_eq }
 
@@ -169,8 +171,8 @@ type Holder = { tag: str, items: [int] }
 // =============================================================================
 // Slice-receiver CLAMP — a real seamless slice legitimately sets is_slice_cap
 // and legitimately takes the slow path. Must produce the correct result and be
-// leak-free: distinguishes the correct fix (cap loads correctly: true for a
-// real slice) from a wrong "force fast path always" fix that would break this.
+// leak-free: the cap must load as a real slice and its consumed reference must
+// release the original buffer through the slice-aware lifecycle.
 // =============================================================================
 
 @concat_slice_receiver () -> [int] = {
@@ -186,8 +188,8 @@ type Holder = { tag: str, items: [int] }
 
 // =============================================================================
 // Slice-argument CLAMP — the `other` operand is a real slice. Symmetric to the
-// slice-receiver clamp: `cap2` extracts through the same extract_list_fields
-// path as `cap1`, so a fix hardening only the receiver leaves cap2 mis-loaded.
+// slice-receiver clamp: `cap2` extracts through the same aggregate path as
+// `cap1`, and consuming it must also release the original slice allocation.
 // =============================================================================
 
 @concat_slice_arg () -> [int] = {

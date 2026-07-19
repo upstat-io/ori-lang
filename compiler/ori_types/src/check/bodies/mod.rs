@@ -44,6 +44,8 @@ pub(super) struct BodyOutputs {
     /// `InferEngine`. Indices are body-local positions into `mono_instances`;
     /// the finalization spine re-anchors both vectors together.
     pub mono_dispatch_pre_dedup: Vec<(ExprId, MonoInstanceId)>,
+    /// Exact semantic producer selected for each user-defined index site.
+    pub index_dispatch_selections: Vec<(ExprId, crate::MethodProducer)>,
     pub deferred_mono_calls: Vec<DeferredMonoCall>,
     /// Composed `UserBurdenSpec` entries produced by this body's
     /// monomorphization sites (one per first-instantiation of a
@@ -96,6 +98,7 @@ pub(super) fn finalize_body_and_export(
         pat_resolutions,
         mono_instances,
         mono_dispatch_pre_dedup,
+        index_dispatch_selections,
         deferred_mono_calls,
         composed_burdens,
         capability_exempt_var_ids,
@@ -138,6 +141,9 @@ pub(super) fn finalize_body_and_export(
     // together. The remaining outputs already use module-wide coordinates.
     checker.pattern_resolutions.extend(pat_resolutions);
     checker.accumulate_mono_session(mono_instances, mono_dispatch_pre_dedup);
+    checker
+        .index_dispatch_selections
+        .extend(index_dispatch_selections);
     checker.deferred_mono_calls.extend(deferred_mono_calls);
     checker.assign_desugars.extend(assign_desugars);
     checker.module_alias_calls.extend(module_alias_calls);

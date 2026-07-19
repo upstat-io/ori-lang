@@ -23,8 +23,10 @@ use super::super::intraprocedural::AimsStateMap;
 use super::super::lattice::{AccessClass, Uniqueness};
 
 pub(crate) use alias_flow::build_subject_independent_alias_to_param_map;
-pub(crate) use param_facts::find_iter_consume_call_args;
 use param_facts::{detect_param_facts, ParamFacts};
+pub(crate) use param_facts::{
+    find_borrowed_cow_consumed_params, find_iter_consume_call_args, CowConsumeScope,
+};
 use return_contract::extract_return_info;
 
 /// Complete converged state and callable authority needed for one contract.

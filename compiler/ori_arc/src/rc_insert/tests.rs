@@ -112,6 +112,130 @@ fn list_insert_still_consumes_value_after_map_insert_disambiguation() {
     );
 }
 
+#[test]
+fn option_ok_or_uses_receiver_qualified_registry_ownership_for_apply_and_invoke() {
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+    let option_str = pool.option(Idx::STR);
+    let ok_or = interner.intern("ok_or");
+    let caller = interner.intern("caller");
+    let builtins = BuiltinOwnershipSets::new(&interner);
+    let args = vec![ArcVarId::new(0), ArcVarId::new(1)];
+
+    let blocks = vec![
+        ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![make_apply(
+                ArcVarId::new(2),
+                Idx::NONE,
+                ok_or,
+                args.clone(),
+                Vec::new(),
+            )],
+            terminator: ArcTerminator::Invoke {
+                dst: ArcVarId::new(3),
+                ty: Idx::NONE,
+                func: ok_or,
+                args,
+                arg_ownership: Vec::new(),
+                normal: ArcBlockId::new(1),
+                unwind: ArcBlockId::new(2),
+                mono_instance_id: None,
+            },
+        },
+        make_block(
+            ArcBlockId::new(1),
+            vec![],
+            ArcTerminator::Return {
+                value: ArcVarId::new(3),
+            },
+        ),
+        make_block(ArcBlockId::new(2), vec![], ArcTerminator::Unreachable),
+    ];
+    let mut func = make_func_named(
+        caller,
+        vec![],
+        Idx::NONE,
+        blocks,
+        vec![option_str, Idx::STR, Idx::NONE, Idx::NONE],
+    );
+
+    annotate_arg_ownership(
+        &mut func,
+        &FxHashMap::default(),
+        &interner,
+        &builtins,
+        &pool,
+    );
+
+    let ArcInstr::Apply { arg_ownership, .. } = &func.blocks[0].body[0] else {
+        panic!("expected Apply");
+    };
+    assert_eq!(
+        arg_ownership,
+        &[ArgOwnership::Borrowed, ArgOwnership::Owned]
+    );
+    let ArcTerminator::Invoke { arg_ownership, .. } = &func.blocks[0].terminator else {
+        panic!("expected Invoke");
+    };
+    assert_eq!(
+        arg_ownership,
+        &[ArgOwnership::Borrowed, ArgOwnership::Owned]
+    );
+}
+
+#[test]
+fn exact_callable_named_ok_or_outranks_receiver_qualified_registry_ownership() {
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+    let option_str = pool.option(Idx::STR);
+    let ok_or = interner.intern("ok_or");
+    let caller = interner.intern("caller");
+    let builtins = BuiltinOwnershipSets::new(&interner);
+    let blocks = vec![make_block(
+        ArcBlockId::new(0),
+        vec![make_apply(
+            ArcVarId::new(2),
+            Idx::NONE,
+            ok_or,
+            vec![ArcVarId::new(0), ArcVarId::new(1)],
+            Vec::new(),
+        )],
+        ArcTerminator::Return {
+            value: ArcVarId::new(2),
+        },
+    )];
+    let mut func = make_func_named(
+        caller,
+        vec![],
+        Idx::NONE,
+        blocks,
+        vec![option_str, Idx::STR, Idx::NONE],
+    );
+    let sigs = [(ok_or, make_sig(&[Ownership::Owned, Ownership::Borrowed]))]
+        .into_iter()
+        .collect();
+    let exact_callables = [ok_or].into_iter().collect();
+
+    super::annotate_arg_ownership(
+        &mut func,
+        &sigs,
+        &interner,
+        &builtins,
+        &pool,
+        &exact_callables,
+    );
+
+    let ArcInstr::Apply { arg_ownership, .. } = &func.blocks[0].body[0] else {
+        panic!("expected Apply");
+    };
+    assert_eq!(
+        arg_ownership,
+        &[ArgOwnership::Owned, ArgOwnership::Borrowed]
+    );
+}
+
 // Residual indirect-call ABI tests
 
 #[test]

@@ -40,6 +40,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
                 // Check parent function
                 if !self.codegen_ctx.nounwind_functions.contains(&func.name)
+                    && super::derived_artifact_allows_nounwind(self.interner.lookup(func.name))
                     && self.is_arc_function_nounwind(&func.arc_func)
                 {
                     self.codegen_ctx.nounwind_functions.insert(func.name);

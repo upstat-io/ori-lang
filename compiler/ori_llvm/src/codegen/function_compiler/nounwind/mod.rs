@@ -18,13 +18,12 @@
 //! This is safe (using `invoke` is always correct) but generates unnecessary
 //! overhead. A future refactor could fold impl methods into the two-pass batch.
 //!
-//! # NOTE: Derived methods handled separately
+//! # Derived methods
 //!
-//! Derived trait methods (`$eq`, `$compare`, `$hash`, `$clone`, `$default`)
-//! are emitted by `derive_codegen` outside this two-pass pipeline. Pure
-//! derives are marked `nounwind` directly in `setup_derive_function()` using
-//! `DerivedTrait::is_nounwind_derived()`. Impure derives (`$to_str`, `$debug`)
-//! are left unmarked.
+//! Legacy derived methods are emitted by `derive_codegen`; closed-executable
+//! derived artifact bodies enter this two-pass pipeline. Both paths use
+//! `DerivedTrait::is_nounwind_derived()` so Printable and Debug stay
+//! conservatively may-unwind.
 //!
 //! # Submodules
 //!
@@ -39,3 +38,21 @@ mod prepare;
 mod types;
 
 pub use types::PreparedFunction;
+
+fn derived_artifact_allows_nounwind(name: &str) -> bool {
+    ori_ir::DerivedTrait::from_executable_body_name(name)
+        .is_none_or(|(trait_kind, _)| trait_kind.is_nounwind_derived())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::derived_artifact_allows_nounwind;
+
+    #[test]
+    fn derived_artifact_nounwind_policy_uses_trait_metadata() {
+        assert!(derived_artifact_allows_nounwind("eq$derived$0"));
+        assert!(!derived_artifact_allows_nounwind("to_str$derived$1"));
+        assert!(!derived_artifact_allows_nounwind("debug$derived$2"));
+        assert!(derived_artifact_allows_nounwind("ordinary_function"));
+    }
+}

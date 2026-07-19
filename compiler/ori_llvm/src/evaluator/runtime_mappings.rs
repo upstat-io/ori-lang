@@ -202,7 +202,7 @@ fn lookup_string_address(name: &str) -> usize {
         "ori_str_debug_format" => runtime::ori_str_debug_format as *const () as usize,
         "ori_str_escape_control" => runtime::ori_str_escape_control as *const () as usize,
         "ori_char_debug_format" => runtime::ori_char_debug_format as *const () as usize,
-        "ori_byte_debug_format" => runtime::ori_byte_debug_format as *const () as usize,
+        "ori_byte_printable_format" => runtime::ori_byte_printable_format as *const () as usize,
         "ori_str_chars" => runtime::ori_str_chars as *const () as usize,
         "ori_str_split" => runtime::ori_str_split as *const () as usize,
         "ori_str_contains" => runtime::ori_str_contains as *const () as usize,

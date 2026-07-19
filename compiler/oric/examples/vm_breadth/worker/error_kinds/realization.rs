@@ -20,6 +20,9 @@ pub(super) fn program_realization_error_kind(
         ProgramRealizationError::OperatorCallResolution { .. } => {
             RealizationErrorKind::OperatorCallResolution
         }
+        ProgramRealizationError::SelectedMethodProducerResolution { .. } => {
+            RealizationErrorKind::OperatorCallResolution
+        }
         ProgramRealizationError::DuplicateArcParent { .. } => {
             RealizationErrorKind::DuplicateArcParent
         }

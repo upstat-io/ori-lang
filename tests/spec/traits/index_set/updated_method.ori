@@ -44,6 +44,16 @@ use std.testing { assert, assert_eq, assert_panics }
 @test_list_str_updated_oob_panics tests _ () -> void =
     assert_panics(f: () -> ["a", "b"].updated(key: 9, value: "X"));
 
+// The panicking runtime owns both operands at call entry. Heap-backed list
+// elements and the moved replacement must all be released before unwinding.
+@test_list_str_updated_oob_heap_inputs_panics tests _ () -> void =
+    assert_panics(
+        f: () -> ["receiver element exceeds sso"].updated(
+            key: 9,
+            value: "replacement exceeds sso",
+        ),
+    );
+
 // =============================================================================
 // {K:V}.updated — insert-or-replace, never panics
 // =============================================================================

@@ -187,6 +187,7 @@ impl ArcLowerer<'_> {
             | CanExpr::Index {
                 receiver: first,
                 index: second,
+                ..
             }
             | CanExpr::Assign {
                 target: first,

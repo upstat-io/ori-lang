@@ -134,8 +134,12 @@ fn validate_method_call_facts(
                 destination: fact.destination,
             }
         })?;
-        match (&fact.producer, fact.derived_position) {
-            (Some(ori_types::MethodProducer::Prelude(_)), Some(_)) => {
+        match (
+            &fact.producer,
+            fact.selected_producer,
+            fact.derived_position,
+        ) {
+            (Some(ori_types::MethodProducer::Prelude(_)), _, Some(_)) => {
                 return Err(RealizationError::InvalidGeneratedCallProvenance {
                     function: function.name,
                     function_symbol: function_symbol.into(),
@@ -146,7 +150,7 @@ fn validate_method_call_facts(
                     .into_boxed_str(),
                 });
             }
-            (Some(_), Some(position)) => {
+            (Some(_), None, Some(position)) => {
                 if !positions.insert(position) {
                     return Err(RealizationError::InvalidGeneratedCallProvenance {
                         function: function.name,
@@ -158,7 +162,7 @@ fn validate_method_call_facts(
                     });
                 }
             }
-            (None, None) => {}
+            (Some(_), Some(_), None) | (None, None, None) => {}
             _ => {
                 return Err(RealizationError::InvalidGeneratedCallProvenance {
                     function: function.name,

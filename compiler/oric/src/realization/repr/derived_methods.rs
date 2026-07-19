@@ -359,9 +359,5 @@ fn mono_binder_substitutions(
 }
 
 fn derived_body_name(accepted: &AcceptedDerivedImpl, interner: &StringInterner) -> Name {
-    interner.intern(&format!(
-        "{}$derived${}",
-        interner.lookup(accepted.method_name),
-        accepted.id.raw(),
-    ))
+    interner.intern(&accepted.trait_kind.executable_body_name(accepted.id))
 }

@@ -120,6 +120,13 @@ pub struct IrBuilder<'scx, 'ctx> {
     /// attributes (e.g., `noalias` on a specific parameter for `StaticUnique`
     /// COW operations). Updated on every call; `None` before any call.
     pub(super) last_call_site: Option<CallSiteValue<'ctx>>,
+    /// Components known to have been inserted into aggregate SSA values.
+    ///
+    /// JIT extraction reuses these values directly because FastISel can
+    /// miscompile `extractvalue` from a large reconstructed aggregate. The map
+    /// stays empty in AOT mode, where LLVM's full backend handles the aggregate
+    /// instruction sequence correctly.
+    jit_aggregate_components: FxHashMap<ValueId, Vec<Option<ValueId>>>,
     /// Whether this builder is compiling for JIT or AOT.
     mode: CompilationMode,
     /// Exception handling model (Itanium vs SEH).
@@ -219,6 +226,7 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
             codegen_error_descriptions: RefCell::new(Vec::new()),
             runtime_cache: FxHashMap::default(),
             last_call_site: None,
+            jit_aggregate_components: FxHashMap::default(),
             mode,
             eh_model,
             target_data: None,

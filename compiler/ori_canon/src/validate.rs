@@ -151,7 +151,9 @@ fn validate_operator_expr(arena: &CanArena, id: ori_ir::canon::CanId, kind: &Can
             validate_can_id(arena, id, *expr, "expr");
         }
         CanExpr::Field { receiver, .. } => validate_can_id(arena, id, *receiver, "receiver"),
-        CanExpr::Index { receiver, index } => {
+        CanExpr::Index {
+            receiver, index, ..
+        } => {
             validate_can_id(arena, id, *receiver, "receiver");
             validate_can_id(arena, id, *index, "index");
         }

@@ -139,7 +139,7 @@ pub extern "C" fn ori_list_insert_cow(
         }
     }
 
-    dec_list_buffer(data, cap);
+    dec_list_buffer(data, len, cap, elem_size);
 
     unsafe {
         write_list_output(out_ptr, new_len as i64, new_cap as i64, new_data);
@@ -216,7 +216,7 @@ pub extern "C" fn ori_list_remove_cow(
 
     // SLOW PATH: shared or slice — allocate new buffer
     if new_len == 0 {
-        dec_list_buffer(data, cap);
+        dec_list_buffer(data, len, cap, elem_size);
         unsafe {
             write_list_output(out_ptr, 0, 0, std::ptr::null_mut());
         }
@@ -256,7 +256,7 @@ pub extern "C" fn ori_list_remove_cow(
         store_elem_count(new_data, new_len as i64);
     }
 
-    dec_list_buffer(data, cap);
+    dec_list_buffer(data, len, cap, elem_size);
 
     unsafe {
         write_list_output(out_ptr, new_len as i64, new_len as i64, new_data);

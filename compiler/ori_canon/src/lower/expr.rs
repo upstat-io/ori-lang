@@ -164,7 +164,16 @@ impl Lowerer<'_> {
             ExprKind::Index { receiver, index } => {
                 let receiver = self.lower_expr(receiver);
                 let index = self.lower_expr(index);
-                self.push(CanExpr::Index { receiver, index }, span, ty)
+                let producer = self.typed.index_dispatch_map.get(id).copied();
+                self.push(
+                    CanExpr::Index {
+                        receiver,
+                        index,
+                        producer,
+                    },
+                    span,
+                    ty,
+                )
             }
             ExprKind::Assign { target, value } => {
                 // Type-directed index/field-assignment desugar: when `target`

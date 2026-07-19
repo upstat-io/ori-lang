@@ -123,16 +123,54 @@ fn derive_constructless_positional_skip(
         || hazard.is_nested_path()
         || hazard.skip_fields.is_empty()
     {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            view = ?partition.node_key(hazard.view),
+            construct_sites = hazard.construct_sites.len(),
+            nested_path = hazard.is_nested_path(),
+            skip_fields = ?hazard.skip_fields,
+            "constructless positional skip declined: hazard shape is not positional"
+        );
         return None;
     }
-    let (var, _) = partition.node_key(hazard.container)?;
-    let &ty = func.var_types.get(var.index())?;
+    let Some((var, _)) = partition.node_key(hazard.container) else {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            view = ?partition.node_key(hazard.view),
+            "constructless positional skip declined: container has no partition key"
+        );
+        return None;
+    };
+    let Some(&ty) = func.var_types.get(var.index()) else {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            view = ?partition.node_key(hazard.view),
+            container_var = ?var,
+            "constructless positional skip declined: container has no type"
+        );
+        return None;
+    };
     let Some(BurdenRef::User(user)) =
         lookup_burden(idx_to_type_ref(ty, type_registry), type_registry)
     else {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            view = ?partition.node_key(hazard.view),
+            container_var = ?var,
+            container_type = ?ty,
+            "constructless positional skip declined: container type has no user burden"
+        );
         return None;
     };
     if !user.variant_burdens.is_empty() {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            view = ?partition.node_key(hazard.view),
+            container_var = ?var,
+            container_type = ?ty,
+            variant_burdens = user.variant_burdens.len(),
+            "constructless positional skip declined: container burden is variant-shaped"
+        );
         return None;
     }
     let owned: Vec<u32> = user
@@ -141,9 +179,26 @@ fn derive_constructless_positional_skip(
         .filter_map(|field| field.field_path.first().copied())
         .collect();
     if !hazard.skip_fields.iter().all(|field| owned.contains(field)) {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            view = ?partition.node_key(hazard.view),
+            container_var = ?var,
+            container_type = ?ty,
+            skip_fields = ?hazard.skip_fields,
+            owned_fields = ?owned,
+            "constructless positional skip declined: moved fields are not owned"
+        );
         return None;
     }
     if !view_projections_all_move_out(func, partition, hazard.view) {
+        tracing::trace!(
+            target: "ori_arc::aims::class_ledger",
+            view = ?partition.node_key(hazard.view),
+            container_var = ?var,
+            container_type = ?ty,
+            skip_fields = ?hazard.skip_fields,
+            "constructless positional skip declined: a projected field remains borrowed"
+        );
         return None;
     }
     let mut skip = hazard.skip_fields.clone();

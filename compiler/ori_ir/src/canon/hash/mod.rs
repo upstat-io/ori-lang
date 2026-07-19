@@ -170,7 +170,12 @@ fn hash_value_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
             field.raw().hash(state);
             hash_node(arena, receiver, state);
         }
-        CanExpr::Index { receiver, index } => {
+        CanExpr::Index {
+            receiver,
+            index,
+            producer,
+        } => {
+            producer.hash(state);
             hash_node(arena, receiver, state);
             hash_node(arena, index, state);
         }

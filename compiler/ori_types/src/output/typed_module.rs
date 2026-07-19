@@ -152,6 +152,21 @@ pub struct TypedModule {
     /// callee is instantiated with concrete arguments at the call site.
     pub mono_dispatch_map: SparseSideTable<ExprId, MonoInstanceId>,
 
+    /// Exact semantic method producers selected at source call sites.
+    ///
+    /// Canonical IR carries only a [`crate::MethodProducerId`] into this dense
+    /// table, keeping the leaf `ori_ir` crate independent of type checking.
+    /// Realization resolves the handle before generic/local/imported callable
+    /// target closure; no backend reconstructs a producer from method spelling.
+    pub method_producers: Vec<crate::MethodProducer>,
+
+    /// Key-specific producer selected for each user-defined index expression.
+    ///
+    /// Built-in List/Map/str indexes have no entry. Values index
+    /// [`Self::method_producers`] and are translated directly onto canonical
+    /// `CanExpr::Index` nodes.
+    pub index_dispatch_map: SparseSideTable<ExprId, crate::MethodProducerId>,
+
     /// Ordered provider selections for capability-bearing free calls.
     ///
     /// Canon consumes this sidecar to append source-erased implicit provider
@@ -283,6 +298,8 @@ impl TypedModule {
             trait_impl_fn_names: Vec::new(),
             mono_instances: Vec::new(),
             mono_dispatch_map: SparseSideTable::new(),
+            method_producers: Vec::new(),
+            index_dispatch_map: SparseSideTable::new(),
             capability_call_map: SparseSideTable::new(),
             assign_desugar_map: SparseSideTable::new(),
             module_alias_call_map: SparseSideTable::new(),

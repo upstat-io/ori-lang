@@ -472,6 +472,37 @@ fn lower_call_positional() {
 }
 
 #[test]
+fn lower_index_preserves_selected_method_producer_handle() {
+    let mut arena = ExprArena::new();
+    let interner = test_interner();
+    let receiver_name = interner.intern("value");
+    let receiver = arena.alloc_expr(Expr::new(ExprKind::Ident(receiver_name), Span::DUMMY));
+    let index = arena.alloc_expr(Expr::new(ExprKind::Int(0), Span::DUMMY));
+    let root = arena.alloc_expr(Expr::new(ExprKind::Index { receiver, index }, Span::DUMMY));
+    let producer = ori_ir::canon::MethodProducerId::new(0);
+    let mut typed = TypedModule::new();
+    typed.expr_types.extend([Idx::INT, Idx::INT, Idx::STR]);
+    typed.index_dispatch_map.insert(root, producer);
+    let type_result = TypeCheckResult::ok(typed);
+
+    let result = lower(
+        &arena,
+        &type_result,
+        &ori_types::Pool::new(),
+        root,
+        &interner,
+    );
+
+    assert!(matches!(
+        result.arena.kind(result.root),
+        CanExpr::Index {
+            producer: Some(selected),
+            ..
+        } if *selected == producer
+    ));
+}
+
+#[test]
 fn lower_range_eager_map_materializes_adapter_and_collect() {
     let mut arena = ExprArena::new();
     let interner = test_interner();

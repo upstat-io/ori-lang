@@ -7,7 +7,7 @@ use crate::aims::contract::{
 };
 use crate::aims::lattice::{AccessClass, Cardinality, Consumption, Locality, Uniqueness};
 use crate::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcTerminator, RcStrategy};
-use crate::test_helpers::{make_func, owned_param, v};
+use crate::test_helpers::{borrowed_param, make_func, owned_param, v};
 use crate::ArgOwnership;
 use ori_types::Idx;
 

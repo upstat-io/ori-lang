@@ -723,6 +723,37 @@ fn triviality_caching() {
 
 // TypeLayoutResolver tests
 
+fn assert_result_payload_is_i8(ok: Idx, err: Idx) {
+    let mut pool = Pool::new();
+    let result = pool.result(ok, err);
+
+    let store = TypeInfoStore::new(&pool);
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "test");
+    let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
+
+    let BasicTypeEnum::StructType(result_type) = resolver.resolve(result) else {
+        panic!("expected Result to resolve to an LLVM struct");
+    };
+    let Some(payload) = result_type.get_field_type_at_index(1) else {
+        panic!("expected Result struct to contain a payload field");
+    };
+
+    assert_eq!(payload, scx.type_i8().into());
+}
+
+/// Regression: Equal-byte payload arms retain the widest integer value range.
+#[test]
+fn resolver_result_bool_ordering_equal_store_size_uses_i8_payload() {
+    assert_result_payload_is_i8(Idx::BOOL, Idx::ORDERING);
+}
+
+/// Regression: Payload selection is independent of Result arm order.
+#[test]
+fn resolver_result_ordering_bool_equal_store_size_uses_i8_payload() {
+    assert_result_payload_is_i8(Idx::ORDERING, Idx::BOOL);
+}
+
 #[test]
 fn resolver_primitive_types() {
     let pool = test_pool();

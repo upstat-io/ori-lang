@@ -105,6 +105,36 @@ impl MonoInstanceId {
     }
 }
 
+/// Dense module-local handle for one type-checker-selected method producer.
+///
+/// The semantic producer itself remains in `TypedModule.method_producers` so
+/// this leaf crate does not depend on `ori_types`. Canonical IR carries this
+/// handle at source-selected call sites; realization resolves it against the
+/// matching typed-module table before executable target closure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
+pub struct MethodProducerId(u32);
+
+impl MethodProducerId {
+    /// Create a handle from an index into `TypedModule.method_producers`.
+    #[inline]
+    pub const fn new(index: u32) -> Self {
+        Self(index)
+    }
+
+    /// Return the raw table index.
+    #[inline]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+
+    /// Return the table index as `usize`.
+    #[inline]
+    pub const fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
 /// Output of the canonicalization pass.
 ///
 /// Contains everything needed by both backends: the canonical expression

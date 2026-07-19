@@ -41,7 +41,7 @@ fn scrutinee_path_multiple_elements() {
     let path: ScrutineePath = vec![
         PathInstruction::TagPayload(0),
         PathInstruction::TupleIndex(1),
-        PathInstruction::StructField(2),
+        PathInstruction::StructField(Name::from_raw(2)),
         PathInstruction::ListElement(3),
     ];
     assert_eq!(path.len(), 4);
@@ -466,15 +466,18 @@ fn extract_bindings_struct() {
     let path: ScrutineePath = Vec::new();
     let bindings = pat.extract_bindings(&path);
     assert_eq!(bindings.len(), 2);
-    // x at [StructField(0)]
+    // x at [StructField(field 10)]
     assert_eq!(bindings[0].0, name_x);
-    assert_eq!(bindings[0].1.as_slice(), &[PathInstruction::StructField(0)]);
-    // a at [StructField(1), TupleIndex(0)]
+    assert_eq!(
+        bindings[0].1.as_slice(),
+        &[PathInstruction::StructField(Name::from_raw(10))]
+    );
+    // a at [StructField(y), TupleIndex(0)]
     assert_eq!(bindings[1].0, name_a);
     assert_eq!(
         bindings[1].1.as_slice(),
         &[
-            PathInstruction::StructField(1),
+            PathInstruction::StructField(name_y),
             PathInstruction::TupleIndex(0)
         ]
     );

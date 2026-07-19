@@ -1325,6 +1325,7 @@ fn iterator_fixture(pool: &mut Pool, iter: Name) -> RcValueFixture {
             receiver_type: range_type,
             form: ori_arc::MethodCallForm::Instance,
             producer: None,
+            selected_producer: None,
             derived_position: None,
         }],
     }

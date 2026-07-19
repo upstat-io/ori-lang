@@ -102,6 +102,9 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 if self.codegen_ctx.nounwind_functions.contains(&name) {
                     continue;
                 }
+                if !super::derived_artifact_allows_nounwind(self.interner.lookup(name)) {
+                    continue;
+                }
                 if self.builder.function_has_no_invoke(func_id) {
                     self.builder.add_nounwind_attribute(func_id);
                     self.codegen_ctx.nounwind_functions.insert(name);

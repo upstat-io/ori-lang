@@ -169,6 +169,7 @@ fn verified_iterator_unwind_program() -> VerifiedProgram {
         receiver_type: list_type,
         form: ori_arc::MethodCallForm::Instance,
         producer: None,
+        selected_producer: None,
         derived_position: None,
     }];
     verified_program(symbols, pool, vec![function], main)

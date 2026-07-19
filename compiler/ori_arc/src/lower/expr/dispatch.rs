@@ -155,7 +155,11 @@ impl ArcLowerer<'_> {
             CanExpr::Some(inner) => self.lower_some(inner, ty, span),
             CanExpr::None => self.lower_none(ty, span),
             CanExpr::Field { receiver, field } => self.lower_field(receiver, field, ty, span),
-            CanExpr::Index { receiver, index } => self.lower_index(receiver, index, ty, span),
+            CanExpr::Index {
+                receiver,
+                index,
+                producer,
+            } => self.lower_index(receiver, index, producer, ty, span),
             CanExpr::Range {
                 start,
                 end,

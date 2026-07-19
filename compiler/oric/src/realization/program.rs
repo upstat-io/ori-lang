@@ -104,6 +104,17 @@ pub enum ProgramRealizationError {
         /// Structured resolution failures.
         errors: Vec<ori_arc::OperatorCallResolutionError>,
     },
+    /// A source-selected method handle did not resolve against typed producer
+    /// metadata before callable closure.
+    #[error(
+        "selected-method producer resolution produced {count} error(s): {errors:?}. This is an internal compiler error; report this complete message"
+    )]
+    SelectedMethodProducerResolution {
+        /// Number of invalid selected call sites.
+        count: usize,
+        /// Exact invalid handle/conflict descriptions.
+        errors: Vec<String>,
+    },
     /// The pre-AIMS generic callable census could not reach a closed inventory.
     #[error("generic target census failed: {message}")]
     GenericMonoClosure {
@@ -180,6 +191,7 @@ struct LoweredCallableAssembly {
     groups: Vec<ArcFunctionGroup>,
     mono_functions: Vec<ori_repr::monomorphize::MonoFunction>,
     impl_targets: MethodTargetMap,
+    impl_producer_targets: FxHashMap<ori_types::MethodProducer, Name>,
     typed_user_drop_bindings: Vec<UserDropBinding>,
     function_sigs: Vec<FunctionSig>,
 }
@@ -203,6 +215,7 @@ fn lower_all_callable_groups(
     let ImplMethodAnalysis {
         groups: impl_groups,
         targets: mut impl_targets,
+        producer_targets: impl_producer_targets,
         user_drop_bindings: typed_user_drop_bindings,
         ..
     } = lower_impl_methods_for_analysis(
@@ -245,6 +258,7 @@ fn lower_all_callable_groups(
         groups,
         mono_functions,
         impl_targets,
+        impl_producer_targets,
         typed_user_drop_bindings,
         function_sigs,
     })
@@ -258,6 +272,7 @@ pub fn realize_local_program(
         groups,
         mono_functions,
         mut impl_targets,
+        impl_producer_targets,
         typed_user_drop_bindings,
         function_sigs,
     } = lower_all_callable_groups(&input)?;
@@ -285,7 +300,14 @@ pub fn realize_local_program(
         .map_err(arc_lowering_error)?;
     let batch = LoweredArcBatch::try_from_groups(groups, interner).map_err(map_arc_batch_error)?;
     let prepared = batch
-        .prepare(&mono_functions, &impl_targets, &mut input.pool, interner)
+        .prepare(
+            &mono_functions,
+            &impl_targets,
+            &impl_producer_targets,
+            &input.types.typed.method_producers,
+            &mut input.pool,
+            interner,
+        )
         .map_err(map_arc_batch_error)?;
     let mut type_registry = TypeRegistry::from_typed_exports(
         input.types.typed.types.clone(),

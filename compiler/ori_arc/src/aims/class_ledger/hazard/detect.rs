@@ -12,29 +12,68 @@ use crate::ir::{ArcFunction, ArcVarId};
 use super::{ClassHazardFacts, FieldViewHazard};
 
 /// Whether one view class's consumes mark it moved-OUT relative to a
-/// container with `construct_sites`: a Consume that is neither this
-/// container's own move-in store nor a FUNDED move-in at another released
-/// container's Construct (one birth + one planned `Inc` per consume beyond
-/// the first — the two-wrappers-share-one-inner shape; an unfunded
-/// extract-then-restore stays marked).
+/// container with `construct_sites`. A funded hand-off is not a move-out when
+/// it either enters another released container or consumes the same rename-
+/// only source lineage that entered this container. A `Project` starts a new
+/// lineage, so explicit extraction remains marked for PV-6 decomposition.
 fn facts_consume_marked(
     facts: &ClassHazardFacts,
     construct_sites: &FxHashSet<(usize, EventSite)>,
     released_construct_union: &FxHashSet<(usize, EventSite)>,
+    rename_roots: &FxHashMap<ArcVarId, ArcVarId>,
 ) -> bool {
     let mut extra = facts
-        .consume_sites
+        .consume_events
         .iter()
-        .filter(|site| !construct_sites.contains(site))
+        .filter(|(block, site, _)| !construct_sites.contains(&(*block, *site)))
         .peekable();
 
     if extra.peek().is_none() {
         return false;
     }
-    let all_extra_at_released_constructs =
-        extra.all(|site| released_construct_union.contains(site));
-    let funded = facts.consume_sites.len() <= facts.planned_inc_count.saturating_add(1);
-    !(all_extra_at_released_constructs && funded)
+    let construct_source_roots: FxHashSet<ArcVarId> = facts
+        .consume_events
+        .iter()
+        .filter(|(block, site, _)| construct_sites.contains(&(*block, *site)))
+        .filter_map(|(_, _, var)| var.map(|var| rename_root(rename_roots, var)))
+        .collect();
+    let all_extra_covered = extra.all(|(block, site, var)| {
+        released_construct_union.contains(&(*block, *site))
+            || (facts.is_verified_clean()
+                && var.is_some_and(|var| {
+                    construct_source_roots.contains(&rename_root(rename_roots, var))
+                }))
+    });
+    let funded = facts.consume_events.len() <= facts.planned_inc_count.saturating_add(1);
+    !(all_extra_covered && funded)
+}
+
+fn rename_root(rename_roots: &FxHashMap<ArcVarId, ArcVarId>, var: ArcVarId) -> ArcVarId {
+    rename_roots.get(&var).copied().unwrap_or(var)
+}
+
+/// Rename-only provenance for local SSA aliases. `Project` deliberately does
+/// not participate: it denotes extraction from a container, not another name
+/// for the pre-store source credit.
+fn rename_alias_roots(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
+    use crate::ir::{ArcInstr, ArcValue};
+
+    let mut roots = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            else {
+                continue;
+            };
+            let root = rename_root(&roots, *src);
+            roots.insert(*dst, root);
+        }
+    }
+    roots
 }
 
 /// Whether a view class's DEMAND is endangered by a released container.
@@ -61,9 +100,9 @@ fn view_demand_endangered(
         let funding_moved_in = sum_container
             && !facts.has_credit()
             && facts
-                .consume_sites
+                .consume_events
                 .iter()
-                .any(|site| construct_sites.contains(site));
+                .any(|(block, site, _)| construct_sites.contains(&(*block, *site)));
         !facts.is_self_funded_clean() || funding_moved_in
     })
 }
@@ -138,6 +177,7 @@ pub(crate) fn field_view_hazard_classes(
         .collect();
     let mut hazards: Vec<FieldViewHazard> = Vec::new();
     let mut hazard_indices: FxHashMap<(NodeIdx, NodeIdx), usize> = FxHashMap::default();
+    let rename_roots = rename_alias_roots(func);
     for (container, member_vars, scan) in &scans {
         if is_admitted_scalar_container(member_vars, user_drop_admitted) {
             continue;
@@ -145,7 +185,7 @@ pub(crate) fn field_view_hazard_classes(
         let container_rep = partition.rep_of(*container);
         let container_transferred_out = facts_by_rep
             .get(&container_rep)
-            .is_some_and(|facts| facts.iter().any(|facts| !facts.consume_sites.is_empty()));
+            .is_some_and(|facts| facts.iter().any(|facts| !facts.consume_events.is_empty()));
         let all_payloadless = scan.is_all_payloadless();
         let (construct_sites, sum_container, uniform_variant) = (
             scan.sites.clone(),
@@ -165,7 +205,12 @@ pub(crate) fn field_view_hazard_classes(
             }
             let view_facts = facts_by_rep.get(&view_rep).map_or(&[][..], Vec::as_slice);
             let consume_marked = view_facts.iter().any(|facts| {
-                facts_consume_marked(facts, &construct_site_set, &released_construct_union)
+                facts_consume_marked(
+                    facts,
+                    &construct_site_set,
+                    &released_construct_union,
+                    &rename_roots,
+                )
             });
             // INVARIANT: Self-funded views survive container release, but a
             // construct-consumed birth still rides the container's reference.
@@ -212,12 +257,16 @@ pub(crate) fn field_view_hazard_classes(
             hazard_indices.insert(key, hazard_index);
         }
     }
-    for hazard in &mut hazards {
+    normalize_hazards(&mut hazards);
+    hazards
+}
+
+fn normalize_hazards(hazards: &mut [FieldViewHazard]) {
+    for hazard in &mut *hazards {
         hazard.skip_fields.sort_unstable();
         hazard.skip_fields.dedup();
     }
     hazards.sort_unstable_by_key(|hazard| (hazard.view, hazard.container));
-    hazards
 }
 
 /// Whether the container class roots in an ADMITTED user-drop SCALAR var:

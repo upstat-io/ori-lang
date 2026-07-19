@@ -24,6 +24,9 @@ pub(super) fn map_arc_batch_error(error: ArcBatchPreparationError) -> ProgramRea
         ArcBatchPreparationError::OperatorCallResolution { count, errors } => {
             ProgramRealizationError::OperatorCallResolution { count, errors }
         }
+        ArcBatchPreparationError::SelectedMethodProducerResolution { count, errors } => {
+            ProgramRealizationError::SelectedMethodProducerResolution { count, errors }
+        }
     }
 }
 

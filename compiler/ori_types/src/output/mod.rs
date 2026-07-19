@@ -25,8 +25,9 @@ pub use mono::{
 };
 pub use producer::{
     imported_method_producer, imported_method_signature_hash, DerivedCallPlan, DerivedCallPosition,
-    DerivedCallSelection, DerivedDirectCallSelection, MethodProducer, RegistryMethodIdentity,
-    RegistryPreludeIdentity, IMPORTED_METHOD_PRODUCER_SCHEMA, REGISTRY_PRODUCER_SCHEMA,
+    DerivedCallSelection, DerivedDirectCallSelection, MethodProducer, MethodProducerId,
+    RegistryMethodIdentity, RegistryPreludeIdentity, IMPORTED_METHOD_PRODUCER_SCHEMA,
+    REGISTRY_PRODUCER_SCHEMA,
 };
 pub use result::TypeCheckResult;
 pub use sig::{

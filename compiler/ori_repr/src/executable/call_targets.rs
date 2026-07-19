@@ -218,24 +218,25 @@ fn resolve_callable(
     symbols: &StringInterner,
     pool: &Pool,
 ) -> Result<CallableTarget, RealizationError> {
+    let missing_callable = || RealizationError::MissingCallable {
+        caller: caller.name,
+        callee,
+        caller_symbol: symbols
+            .try_lookup(caller.name)
+            .unwrap_or("<unknown caller>")
+            .into(),
+        callee_symbol: symbols
+            .try_lookup(callee)
+            .unwrap_or("<unknown callee>")
+            .into(),
+    };
     if let Some(destination) = destination {
         if let Some(fact) = caller.direct_call_fact(destination) {
             if let ori_types::MethodProducer::Prelude(identity) = fact.producer {
                 let runtime = identity
                     .resolve()
                     .map(RuntimeCall::RegistryPrelude)
-                    .ok_or_else(|| RealizationError::MissingCallable {
-                        caller: caller.name,
-                        callee,
-                        caller_symbol: symbols
-                            .try_lookup(caller.name)
-                            .unwrap_or("<unknown caller>")
-                            .into(),
-                        callee_symbol: symbols
-                            .try_lookup(callee)
-                            .unwrap_or("<unknown callee>")
-                            .into(),
-                    })?;
+                    .ok_or_else(&missing_callable)?;
                 return Ok(CallableTarget::Runtime(runtime));
             }
         }
@@ -244,19 +245,35 @@ fn resolve_callable(
                 let runtime = identity
                     .resolve()
                     .map(RuntimeCall::RegistryMethod)
-                    .ok_or_else(|| RealizationError::MissingCallable {
-                        caller: caller.name,
-                        callee,
-                        caller_symbol: symbols
-                            .try_lookup(caller.name)
-                            .unwrap_or("<unknown caller>")
-                            .into(),
-                        callee_symbol: symbols
-                            .try_lookup(callee)
-                            .unwrap_or("<unknown callee>")
-                            .into(),
-                    })?;
+                    .ok_or_else(&missing_callable)?;
                 return Ok(CallableTarget::Runtime(runtime));
+            }
+            // A source builtin method has no frozen producer yet, but its
+            // receiver-qualified registry identity is still exact. Resolve
+            // that identity before consulting same-spelled free functions;
+            // otherwise `Error.trace()` can bind an unrelated global
+            // `@trace`. A closed producerless user/derived/imported target,
+            // however, already carries an exact function or external `Name`;
+            // when no registry method owns that symbol, let the identity
+            // tables below resolve it.
+            if fact.producer.is_none() {
+                let receiver = if pool.is_error_struct_receiver(fact.receiver_type) {
+                    Some(ori_registry::TypeTag::Error)
+                } else {
+                    pool.builtin_method_type_tag(fact.receiver_type)
+                };
+                let symbol = symbols.try_lookup(callee);
+                if let Some(runtime) =
+                    symbol.and_then(|symbol| RuntimeCall::resolve(symbol, receiver))
+                {
+                    return Ok(CallableTarget::Runtime(runtime));
+                }
+                if receiver
+                    .zip(symbol)
+                    .is_some_and(|(receiver, symbol)| ori_registry::has_method(receiver, symbol))
+                {
+                    return Err(missing_callable());
+                }
             }
         }
     }
@@ -266,30 +283,16 @@ fn resolve_callable(
     if let Some(&external) = external_ids.get(&callee) {
         return Ok(CallableTarget::External(external));
     }
-    let receiver = destination
-        .and_then(|destination| caller.method_call_fact(destination))
-        .and_then(|fact| {
-            if pool.is_error_struct_receiver(fact.receiver_type) {
-                Some(ori_registry::TypeTag::Error)
-            } else {
-                pool.builtin_method_type_tag(fact.receiver_type)
-            }
-        });
+    // A producer-qualified user/derived/imported method must have been
+    // rewritten to an exact function or external identity above. Never let a
+    // stale method spelling bind an unrelated runtime/free callable.
+    if destination.is_some_and(|destination| caller.method_call_fact(destination).is_some()) {
+        return Err(missing_callable());
+    }
     let runtime = symbols
         .try_lookup(callee)
-        .and_then(|symbol| RuntimeCall::resolve(symbol, receiver))
-        .ok_or_else(|| RealizationError::MissingCallable {
-            caller: caller.name,
-            callee,
-            caller_symbol: symbols
-                .try_lookup(caller.name)
-                .unwrap_or("<unknown caller>")
-                .into(),
-            callee_symbol: symbols
-                .try_lookup(callee)
-                .unwrap_or("<unknown callee>")
-                .into(),
-        })?;
+        .and_then(|symbol| RuntimeCall::resolve(symbol, None))
+        .ok_or_else(missing_callable)?;
     Ok(CallableTarget::Runtime(runtime))
 }
 

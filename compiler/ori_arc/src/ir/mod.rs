@@ -34,6 +34,7 @@ pub use repr::{
     RcStrategy, ValueRepr,
 };
 
+use ori_ir::canon::MethodProducerId;
 use ori_ir::{BinaryOp, DurationUnit, Name, SizeUnit, Span, UnaryOp};
 use ori_types::{DerivedCallPosition, Idx, MethodProducer};
 
@@ -478,6 +479,11 @@ pub struct MethodCallFact {
     /// Source calls not yet frozen at this seam carry `None`; every generated
     /// call must carry `Some` before executable closure.
     pub producer: Option<MethodProducer>,
+    /// Type-checker table handle for a source-selected method producer.
+    ///
+    /// Realization resolves this handle against the matching `TypedModule`
+    /// before mono/local/imported target closure and fills [`Self::producer`].
+    pub selected_producer: Option<MethodProducerId>,
     /// Structural generated-body position paired with [`Self::producer`].
     pub derived_position: Option<DerivedCallPosition>,
 }

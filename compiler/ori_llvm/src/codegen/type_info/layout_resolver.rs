@@ -12,6 +12,7 @@ use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Tag};
 
 use super::store::TypeInfoStore;
+use super::type_size::{select_shared_payload_arm, SharedPayloadArm};
 use super::TypeInfo;
 use crate::context::SimpleCx;
 
@@ -264,10 +265,9 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         };
         self.resolving.borrow_mut().remove(&idx);
 
-        let payload = if Self::type_store_size(ok_type) >= Self::type_store_size(err_type) {
-            ok_type
-        } else {
-            err_type
+        let payload = match select_shared_payload_arm(ok_type, err_type) {
+            SharedPayloadArm::First => ok_type,
+            SharedPayloadArm::Second => err_type,
         };
         if uses_niche {
             payload

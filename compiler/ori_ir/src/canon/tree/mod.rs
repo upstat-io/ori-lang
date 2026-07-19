@@ -43,9 +43,8 @@ pub enum PathInstruction {
     TagPayload(u32),
     /// Extract element at index from a tuple.
     TupleIndex(u32),
-    /// Extract a named field from a struct (by position, since struct
-    /// field order is fixed after type checking).
-    StructField(u32),
+    /// Extract a named field from a struct.
+    StructField(Name),
     /// Extract element at index from a list (for list pattern matching).
     ListElement(u32),
     /// Extract the sub-list starting at the given index (for `..rest` patterns).
@@ -312,9 +311,9 @@ impl FlatPattern {
                 }
             }
             FlatPattern::Struct { fields } => {
-                for (i, (_name, sub)) in fields.iter().enumerate() {
+                for (name, sub) in fields {
                     let mut child_path = path.clone();
-                    child_path.push(PathInstruction::StructField(i as u32));
+                    child_path.push(PathInstruction::StructField(*name));
                     sub.collect_bindings(&child_path, out);
                 }
             }

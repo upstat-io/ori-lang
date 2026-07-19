@@ -3,7 +3,7 @@
 use ori_arc::ArcFunction;
 use ori_ir::{Name, StringInterner};
 use ori_repr::executable::FunctionFamilyTopology;
-use ori_types::{Idx, Pool};
+use ori_types::{Idx, MethodProducer, Pool};
 use rustc_hash::FxHashMap;
 
 /// Realized concrete-receiver method dispatch targets, keyed by receiver type and method name.
@@ -101,6 +101,12 @@ pub(crate) enum ArcBatchPreparationError {
         count: usize,
         errors: Vec<ori_arc::OperatorCallResolutionError>,
     },
+    /// A canonical source-method handle did not resolve against the matching
+    /// typed-module producer table.
+    #[error(
+        "ARC batch selected-method producer resolution failed at {count} site(s): {errors:?}. This is an internal compiler error; report this complete message"
+    )]
+    SelectedMethodProducerResolution { count: usize, errors: Vec<String> },
 }
 
 impl LoweredArcBatch {
@@ -158,6 +164,8 @@ impl LoweredArcBatch {
         mut self,
         mono_functions: &[ori_repr::monomorphize::MonoFunction],
         impl_targets: &MethodTargetMap,
+        impl_producer_targets: &FxHashMap<MethodProducer, Name>,
+        method_producers: &[MethodProducer],
         pool: &mut Pool,
         interner: &StringInterner,
     ) -> Result<PreparedArcBatch, ArcBatchPreparationError> {
@@ -168,6 +176,14 @@ impl LoweredArcBatch {
                 .then_with(|| left.parent_name().raw().cmp(&right.parent_name().raw()))
         });
         validate_family_identities(&self.groups, interner)?;
+
+        let producer_errors = resolve_selected_method_producers(&mut self.groups, method_producers);
+        if !producer_errors.is_empty() {
+            return Err(ArcBatchPreparationError::SelectedMethodProducerResolution {
+                count: producer_errors.len(),
+                errors: producer_errors,
+            });
+        }
 
         let mut specialization_errors = Vec::new();
         for group in &mut self.groups {
@@ -233,9 +249,15 @@ impl LoweredArcBatch {
             super::program::rewrite_impl_targets(
                 std::slice::from_mut(&mut group.parent),
                 impl_targets,
+                impl_producer_targets,
                 pool,
             );
-            super::program::rewrite_impl_targets(&mut group.lambdas, impl_targets, pool);
+            super::program::rewrite_impl_targets(
+                &mut group.lambdas,
+                impl_targets,
+                impl_producer_targets,
+                pool,
+            );
         }
 
         let mut functions = Vec::new();
@@ -257,6 +279,44 @@ impl LoweredArcBatch {
             method_targets: impl_targets.clone(),
         })
     }
+}
+
+fn resolve_selected_method_producers(
+    groups: &mut [ArcFunctionGroup],
+    method_producers: &[MethodProducer],
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    for function in groups
+        .iter_mut()
+        .flat_map(|group| std::iter::once(&mut group.parent).chain(group.lambdas.iter_mut()))
+    {
+        for fact in &mut function.method_call_facts {
+            let Some(selected) = fact.selected_producer else {
+                continue;
+            };
+            let Some(producer) = method_producers.get(selected.index()) else {
+                errors.push(format!(
+                    "function {:?} call result {:?} references producer id {} outside the {}-entry table",
+                    function.name,
+                    fact.destination,
+                    selected.raw(),
+                    method_producers.len(),
+                ));
+                continue;
+            };
+            if let Some(existing) = &fact.producer {
+                if existing != producer {
+                    errors.push(format!(
+                        "function {:?} call result {:?} carries conflicting selected producers {:?} and {:?}",
+                        function.name, fact.destination, existing, producer,
+                    ));
+                }
+                continue;
+            }
+            fact.producer = Some(producer.clone());
+        }
+    }
+    errors
 }
 
 impl PreparedArcBatch {

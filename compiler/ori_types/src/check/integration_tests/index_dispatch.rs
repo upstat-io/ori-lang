@@ -6,6 +6,10 @@ fn index_sites_freeze_the_key_specific_impl_producer() {
         r#"
 type JsonValue = { data: str }
 
+trait Index<Key, Value> {
+    @index (self, key: Key) -> Value
+}
+
 impl JsonValue: Index<int, str> {
     @index (self, key: int) -> str = self.data;
 }

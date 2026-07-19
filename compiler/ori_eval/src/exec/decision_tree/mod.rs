@@ -190,20 +190,15 @@ fn step_path_ref(value: &Value, instruction: PathInstruction) -> Result<Resolved
             }
         }
 
-        PathInstruction::StructField(field_idx) => {
-            let idx = field_idx as usize;
-            match value {
-                Value::Struct(sv) => sv.fields.get(idx).map(Resolved::Ref).ok_or_else(|| {
-                    EvalError::new(format!(
-                        "struct field index {idx} out of bounds (struct has {} fields)",
-                        sv.fields.len()
-                    ))
-                }),
-                _ => Err(EvalError::new(format!(
-                    "cannot extract struct field from {value:?}"
-                ))),
-            }
-        }
+        PathInstruction::StructField(field_name) => match value {
+            Value::Struct(sv) => sv
+                .get_field(field_name)
+                .map(Resolved::Ref)
+                .ok_or_else(|| EvalError::new(format!("struct field {field_name:?} not found"))),
+            _ => Err(EvalError::new(format!(
+                "cannot extract struct field from {value:?}"
+            ))),
+        },
 
         PathInstruction::ListElement(elem_idx) => {
             let idx = elem_idx as usize;

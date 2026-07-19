@@ -331,7 +331,11 @@ fn list_index_retains_unwind_carrier_without_lexical_catch() {
         TypeId::from_raw(Idx::INT.raw()),
     ));
     let root = arena.push(CanNode::new(
-        CanExpr::Index { receiver, index },
+        CanExpr::Index {
+            receiver,
+            index,
+            producer: None,
+        },
         Span::new(0, 12),
         TypeId::from_raw(Idx::INT.raw()),
     ));
@@ -364,6 +368,73 @@ fn list_index_retains_unwind_carrier_without_lexical_catch() {
         .blocks
         .iter()
         .any(|block| matches!(block.terminator, ArcTerminator::Resume)));
+}
+
+#[test]
+fn user_index_lowers_as_may_unwind_call_with_selected_producer() {
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+    let receiver_name = interner.intern("value");
+    let type_name = interner.intern("Indexable");
+    let field_name = interner.intern("value");
+    let receiver_ty = pool.struct_type(type_name, &[(field_name, Idx::INT)]);
+    let selected = ori_ir::canon::MethodProducerId::new(7);
+    let mut arena = CanArena::with_capacity(3);
+    let receiver = arena.push(CanNode::new(
+        CanExpr::Ident(receiver_name),
+        Span::DUMMY,
+        TypeId::from_raw(receiver_ty.raw()),
+    ));
+    let index = arena.push(CanNode::new(
+        CanExpr::Int(0),
+        Span::DUMMY,
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let root = arena.push(CanNode::new(
+        CanExpr::Index {
+            receiver,
+            index,
+            producer: Some(selected),
+        },
+        Span::DUMMY,
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let canon = CanonResult::new(arena, root);
+    let params = [(receiver_name, receiver_ty)];
+    let mut problems = Vec::new();
+
+    let (function, _) = super::super::super::lower_function_can(
+        ArcLoweringInput {
+            name: interner.intern("read"),
+            params: &params,
+            return_type: Idx::INT,
+            body: root,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
+        &mut problems,
+    );
+
+    assert!(
+        problems.is_empty(),
+        "unexpected lowering problems: {problems:?}"
+    );
+    let index_name = interner.intern("index");
+    assert!(function.blocks.iter().any(|block| matches!(
+        block.terminator,
+        ArcTerminator::Invoke { func, .. } if func == index_name
+    )));
+    assert!(matches!(
+        function.method_call_facts.as_slice(),
+        [fact]
+            if fact.receiver_type == receiver_ty
+                && fact.producer.is_none()
+                && fact.selected_producer == Some(selected)
+    ));
 }
 
 #[test]

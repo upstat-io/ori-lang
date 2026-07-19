@@ -1,4 +1,4 @@
-use ori_ir::Span;
+use ori_ir::{Name, Span};
 use ori_types::{Idx, Tag};
 
 use crate::ir::ArcVarId;
@@ -54,20 +54,13 @@ pub(in crate::decision_tree) fn resolve_path(
                 };
                 (*index, element_ty)
             }
-            PathInstruction::StructField(index) => {
-                let resolved = pool.resolve_fully(current_ty);
-                let field_ty = if pool.tag(resolved) == Tag::Struct {
-                    let count = pool.struct_field_count(resolved);
-                    if (*index as usize) < count {
-                        let (_, ty) = pool.struct_field(resolved, *index as usize);
-                        ty
-                    } else {
-                        Idx::UNIT
-                    }
-                } else {
-                    Idx::UNIT
-                };
-                (*index, field_ty)
+            PathInstruction::StructField(field_name) => {
+                lookup_struct_field(pool, current_ty, *field_name).unwrap_or_else(|| {
+                    unreachable!(
+                        "decision-tree field `{}` is absent from struct type {current_ty:?}",
+                        lowerer.interner.lookup(*field_name)
+                    )
+                })
             }
             PathInstruction::ListElement(index) => {
                 let resolved = pool.resolve_fully(current_ty);
@@ -107,6 +100,22 @@ pub(in crate::decision_tree) fn resolve_path(
     current
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "struct field counts fit in the u32 ARC projection index"
+)]
+fn lookup_struct_field(pool: &ori_types::Pool, struct_ty: Idx, field: Name) -> Option<(u32, Idx)> {
+    let resolved = pool.resolve_fully(struct_ty);
+    if pool.tag(resolved) != Tag::Struct {
+        return None;
+    }
+
+    (0..pool.struct_field_count(resolved)).find_map(|index| {
+        let (candidate, field_ty) = pool.struct_field(resolved, index);
+        (candidate == field).then_some((index as u32, field_ty))
+    })
+}
+
 fn lookup_variant_field_type(
     pool: &ori_types::Pool,
     enum_type: Idx,
@@ -141,3 +150,6 @@ fn lookup_variant_field_type(
     }
     Idx::UNIT
 }
+
+#[cfg(test)]
+mod tests;

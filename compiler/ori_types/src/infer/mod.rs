@@ -196,6 +196,13 @@ pub struct InferEngine<'pool> {
     /// type variables resolve to a concrete instance.
     mono_dispatch_pre_dedup: Vec<(ExprId, MonoInstanceId)>,
 
+    /// Exact producer selected for each user-defined `receiver[index]` site.
+    ///
+    /// These semantic identities are drained with the body and normalized into
+    /// a dense producer table plus `ExprId -> MethodProducerId` side-table at
+    /// module finalization. Primitive List/Map/str indexes never enter here.
+    index_dispatch_selections: Vec<(ExprId, crate::MethodProducer)>,
+
     /// Type-directed desugar plans for `ExprKind::AssignTarget` chains.
     ///
     /// Populated by `record_assign_desugar()` during `infer_assign_target`

@@ -146,6 +146,16 @@ impl InferEngine<'_> {
         std::mem::take(&mut self.mono_dispatch_pre_dedup)
     }
 
+    /// Freeze the exact producer selected for one user-defined index site.
+    pub fn record_index_dispatch(&mut self, expr: ExprId, producer: crate::MethodProducer) {
+        self.index_dispatch_selections.push((expr, producer));
+    }
+
+    /// Take user-defined index selections, leaving an empty vector.
+    pub fn take_index_dispatch_selections(&mut self) -> Vec<(ExprId, crate::MethodProducer)> {
+        std::mem::take(&mut self.index_dispatch_selections)
+    }
+
     /// Record a deferred mono call (generic calling generic).
     pub fn record_deferred_mono_call(&mut self, call: crate::DeferredMonoCall) {
         self.deferred_mono_calls.push(call);

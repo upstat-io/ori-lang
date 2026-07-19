@@ -122,9 +122,9 @@ impl<'a> FlattenCtx<'a> {
                     }
                 }
 
-                // Sort by Name to match StructValue's layout order.
-                // StructValue::new sorts field names, so StructField(i) indices
-                // must correspond to sorted-by-Name positions.
+                // Keep struct columns deterministic and aligned with evaluator values.
+                // Decision-tree paths retain each field name so other consumers can
+                // resolve their own layout order.
                 flat_fields.sort_by_key(|(name, _)| *name);
 
                 FlatPattern::Struct {

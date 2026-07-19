@@ -182,10 +182,14 @@ pub fn dispatch_byte_method(
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
         Ok(receiver)
-    // Printable and Debug traits
-    } else if method == n.to_str || method == n.debug {
+    // Printable trait
+    } else if method == n.to_str {
         require_args("to_str", 0, args.len())?;
         Ok(Value::string(format!("0x{b:02x}")))
+    // Debug trait
+    } else if method == n.debug {
+        require_args("debug", 0, args.len())?;
+        Ok(Value::string(b.to_string()))
     // Hashable trait
     } else if method == n.hash {
         require_args("hash", 0, args.len())?;

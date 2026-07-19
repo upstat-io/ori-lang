@@ -354,9 +354,27 @@ pub(super) fn read_file(path: &str) -> String {
 
 fn read_file_error_message(path: &str, e: &std::io::Error) -> String {
     match e.kind() {
-        std::io::ErrorKind::NotFound => format!("cannot find file '{path}'"),
+        std::io::ErrorKind::NotFound => format!(
+            "cannot find source file '{path}'. Check the path and try again, or run 'ori help' \
+             for command usage."
+        ),
         std::io::ErrorKind::PermissionDenied => format!("permission denied reading '{path}'"),
         std::io::ErrorKind::InvalidData => format!("'{path}' contains invalid UTF-8 data"),
         _ => format!("error reading '{path}': {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_file_error_message;
+
+    #[test]
+    fn missing_source_message_names_cause_and_fix() {
+        let error = std::io::Error::from(std::io::ErrorKind::NotFound);
+        let message = read_file_error_message("missing.ori", &error);
+
+        assert!(message.contains("cannot find source file 'missing.ori'"));
+        assert!(message.contains("Check the path and try again"));
+        assert!(message.contains("run 'ori help' for command usage"));
     }
 }

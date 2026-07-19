@@ -1297,6 +1297,7 @@ fn resolves_list_set_before_backend_selection() {
         receiver_type: list,
         form: MethodCallForm::Instance,
         producer: None,
+        selected_producer: None,
         derived_position: None,
     }];
     input.pool = pool;
@@ -1355,6 +1356,7 @@ fn resolves_registered_error_method_before_backend_selection() {
         receiver_type: error,
         form: MethodCallForm::Instance,
         producer: None,
+        selected_producer: None,
         derived_position: None,
     }];
     populate_metadata(&mut input.functions[0], &pool);
@@ -1379,6 +1381,153 @@ fn resolves_registered_error_method_before_backend_selection() {
         panic!("Error.trace_entries must retain its registry method identity, got {target:?}");
     };
     assert_eq!(method.receiver(), ori_registry::TypeTag::Error);
+}
+
+#[test]
+fn receiver_qualified_method_wins_over_same_spelled_free_function() {
+    let symbols = SharedInterner::new();
+    let mut input = parts(&symbols);
+    let trace = symbols.intern("trace");
+    let error_name = symbols.intern("Error");
+    let message_name = symbols.intern("message");
+    let trace_name = symbols.intern("trace_entries");
+    let mut pool = Pool::new();
+    let error = pool.named(error_name);
+    let trace_list = pool.list(Idx::UNIT);
+    let error_struct = pool.struct_type(
+        error_name,
+        &[(message_name, Idx::STR), (trace_name, trace_list)],
+    );
+    pool.set_resolution(error, error_struct);
+    pool.set_error_struct_idx(error);
+
+    input.functions[0].return_type = Idx::BOOL;
+    input.functions[0].var_types = vec![error, Idx::BOOL];
+    input.functions[0].blocks[0].body.push(ArcInstr::Apply {
+        dst: ArcVarId::new(1),
+        ty: Idx::BOOL,
+        func: trace,
+        args: vec![ArcVarId::new(0)],
+        arg_ownership: vec![ArgOwnership::Borrowed],
+        mono_instance_id: None,
+    });
+    input.functions[0].blocks[0].terminator = ArcTerminator::Return {
+        value: ArcVarId::new(1),
+    };
+    input.functions[0].method_call_facts = vec![MethodCallFact {
+        destination: ArcVarId::new(1),
+        receiver_type: error,
+        form: MethodCallForm::Instance,
+        producer: None,
+        selected_producer: None,
+        derived_position: None,
+    }];
+    populate_metadata(&mut input.functions[0], &pool);
+
+    let mut free_trace = empty_function(trace);
+    populate_metadata(&mut free_trace, &pool);
+    let contract = MemoryContract::conservative(free_trace.params.len());
+    input
+        .function_effects
+        .insert(trace, contract.function_effect_facts(&free_trace));
+    input
+        .fresh_return_facts
+        .insert(trace, contract.fresh_self_allocation_facts());
+    input
+        .param_disjointness
+        .insert(trace, prove_param_disjointness(&[], &pool));
+    input.contracts.insert(trace, contract);
+    input.functions.push(free_trace);
+    input
+        .function_families
+        .push(FunctionFamilyTopology::new(trace, Vec::new()));
+    input.pool = pool;
+    input.callable_facts = ori_arc::freeze_function_callable_facts(&input.functions, &input.pool);
+
+    let program = ExecutableProgram::validate(input).unwrap_or_else(|error| {
+        panic!("Error.trace should resolve by receiver before free-function spelling: {error}")
+    });
+    let entry = program
+        .cli_entry()
+        .unwrap_or_else(|| panic!("fixture must have a CLI entry"));
+    let function = program.functions()[entry.index()].name;
+    let block = BlockIndex::new(0, function)
+        .unwrap_or_else(|error| panic!("test block should be representable: {error}"));
+    let position = CallPosition::instruction(0, function)
+        .unwrap_or_else(|error| panic!("test instruction should be representable: {error}"));
+    let target = program
+        .call_target(CallSite::new(entry, block, position))
+        .unwrap_or_else(|| panic!("Error.trace must have a callable target"));
+    let CallableTarget::Runtime(RuntimeCall::RegistryMethod(method)) = target else {
+        panic!("Error.trace must not bind the same-spelled free function, got {target:?}");
+    };
+    assert_eq!(method.receiver(), ori_registry::TypeTag::Error);
+}
+
+#[test]
+fn producerless_method_fact_accepts_an_exact_closed_function_target() {
+    let symbols = SharedInterner::new();
+    let mut input = parts(&symbols);
+    let exact_target = symbols.intern("debug$m$Pair_int_str$im$");
+    input.functions[0].blocks[0].body.push(ArcInstr::Apply {
+        dst: ArcVarId::new(0),
+        ty: Idx::UNIT,
+        func: exact_target,
+        args: vec![ArcVarId::new(0)],
+        arg_ownership: vec![ArgOwnership::Borrowed],
+        mono_instance_id: None,
+    });
+    input.functions[0].method_call_facts = vec![MethodCallFact {
+        destination: ArcVarId::new(0),
+        receiver_type: Idx::UNIT,
+        form: MethodCallForm::Instance,
+        producer: None,
+        selected_producer: None,
+        derived_position: None,
+    }];
+
+    let mut exact_function = empty_function(exact_target);
+    exact_function.params.push(ArcParam {
+        var: ArcVarId::new(0),
+        ty: Idx::UNIT,
+        ownership: Ownership::Borrowed,
+    });
+    let contract = MemoryContract::conservative(exact_function.params.len());
+    input.function_effects.insert(
+        exact_target,
+        contract.function_effect_facts(&exact_function),
+    );
+    input
+        .fresh_return_facts
+        .insert(exact_target, contract.fresh_self_allocation_facts());
+    input.param_disjointness.insert(
+        exact_target,
+        prove_param_disjointness(&[Idx::UNIT], &input.pool),
+    );
+    input.contracts.insert(exact_target, contract);
+    input.functions.push(exact_function);
+    input
+        .function_families
+        .push(FunctionFamilyTopology::new(exact_target, Vec::new()));
+    input.callable_facts = ori_arc::freeze_function_callable_facts(&input.functions, &input.pool);
+
+    let program = ExecutableProgram::validate(input)
+        .unwrap_or_else(|error| panic!("exact rewritten method target should validate: {error}"));
+    let entry = program
+        .cli_entry()
+        .unwrap_or_else(|| panic!("fixture must have a CLI entry"));
+    let function = program.functions()[entry.index()].name;
+    let block = BlockIndex::new(0, function)
+        .unwrap_or_else(|error| panic!("test block should be representable: {error}"));
+    let position = CallPosition::instruction(0, function)
+        .unwrap_or_else(|error| panic!("test instruction should be representable: {error}"));
+    let target = program
+        .call_target(CallSite::new(entry, block, position))
+        .unwrap_or_else(|| panic!("exact rewritten method must have a callable target"));
+    let exact_id = program
+        .function_id(exact_target)
+        .unwrap_or_else(|| panic!("exact target must have a frozen function identity"));
+    assert_eq!(target, CallableTarget::Function(exact_id));
 }
 
 #[test]
@@ -1507,6 +1656,7 @@ fn resolves_len_protocol_aliases_from_receiver_registry_evidence() {
                 receiver_type,
                 form: MethodCallForm::Instance,
                 producer: None,
+                selected_producer: None,
                 derived_position: None,
             }];
             populate_metadata(&mut input.functions[0], &pool);

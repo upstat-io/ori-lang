@@ -12,6 +12,8 @@ use ori_ir::{DerivedImplId, Name};
 
 use crate::{Idx, ImplMethodId};
 
+pub use ori_ir::canon::MethodProducerId;
+
 /// Exact semantic producer selected by type checking for a direct method call.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]

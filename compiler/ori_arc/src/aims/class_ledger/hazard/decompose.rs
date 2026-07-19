@@ -134,7 +134,7 @@ fn try_per_site_decomposition(
         state.partition,
         hazard.view,
         &extractions,
-        false,
+        true,
     );
     let outcome_opt = plan_and_verify_cure(
         inputs,
@@ -246,13 +246,27 @@ fn rebook_or_credit_and_commit(
         if credit_sites.is_empty() {
             return false;
         }
+        let force_owned = credit_sites.iter().any(|&(block, index)| {
+            let extraction = inputs
+                .func
+                .blocks
+                .get(block)
+                .and_then(|arc_block| arc_block.body.get(index))
+                .and_then(|instr| match instr {
+                    crate::ir::ArcInstr::Project { dst, .. } => Some(*dst),
+                    _ => None,
+                });
+            extraction.is_none_or(|var| {
+                !super::increment_is_materializable(inputs.func, var, inputs.type_registry)
+            })
+        });
         events::extract_class_events_with_extraction_credits(
             inputs.func,
             inputs.classification,
             state.partition,
             hazard.view,
             &credit_sites,
-            false,
+            force_owned,
         )
     } else {
         events::extract_class_events_rebooked(

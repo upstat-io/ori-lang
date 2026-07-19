@@ -996,3 +996,25 @@ fn register_resolved_collection_burdens_fills_pool_collection_gap() {
         "the pool-walk must NOT register a burden for a scalar primitive",
     );
 }
+
+#[test]
+fn resolved_tuple_with_iterator_registers_positional_owned_field() {
+    let mut pool = Pool::new();
+    let option = pool.option(Idx::INT);
+    let iterator = pool.iterator(Idx::INT);
+    let tuple = pool.tuple(&[option, iterator]);
+    let mut registry = TypeRegistry::from_typed_exports(vec![], vec![]);
+
+    crate::register_resolved_collection_burdens(&pool, &mut registry);
+
+    let burden = registry
+        .burden(tuple)
+        .expect("the final-pool tuple sweep must retain iterator field ownership");
+    assert_eq!(burden.owned_fields.len(), 1);
+    assert_eq!(burden.owned_fields[0].field_path, vec![1]);
+    assert_eq!(burden.owned_fields[0].field_type, iterator);
+    assert!(
+        registry.burden(iterator).is_none(),
+        "the destructor-freed iterator handle itself is not a refcount burden"
+    );
+}

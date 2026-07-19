@@ -29,6 +29,8 @@ pub(crate) struct ImplMethodAnalysis {
     /// Impl bodies retain their owned lambdas until shared batch preparation.
     pub(crate) groups: Vec<super::ArcFunctionGroup>,
     pub(crate) targets: FxHashMap<(Idx, Name), Name>,
+    /// Exact non-generic local impl body targets keyed by semantic producer.
+    pub(crate) producer_targets: FxHashMap<ori_types::MethodProducer, Name>,
     /// Exact semantic user-drop roles projected by the type checker and bound
     /// to their realized bodies before ordinary dispatch precedence is applied.
     pub(crate) user_drop_bindings: Vec<ori_repr::executable::UserDropBinding>,
@@ -45,6 +47,7 @@ impl std::fmt::Debug for ImplMethodAnalysis {
         f.debug_struct("ImplMethodAnalysis")
             .field("group_count", &self.groups.len())
             .field("targets", &self.targets)
+            .field("producer_targets", &self.producer_targets)
             .field("user_drop_binding_count", &self.user_drop_bindings.len())
             .field("emission_names", &self.emission_names)
             .finish_non_exhaustive()
@@ -142,6 +145,7 @@ struct ImplLoweringOutputs {
     emission_names: Vec<Option<Name>>,
     user_drop_bindings: Vec<ori_repr::executable::UserDropBinding>,
     dispatch: ReceiverDispatch,
+    producer_targets: FxHashMap<ori_types::MethodProducer, Name>,
     consumed_sig_ids: FxHashSet<ImplMethodId>,
     method_ordinals: FxHashMap<(Idx, Name), usize>,
     problems: Vec<ori_arc::ArcProblem>,
