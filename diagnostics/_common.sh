@@ -11,6 +11,11 @@
 #   ORI               — set by find_ori_bin to the path of the chosen LLVM binary
 #   ORI_INTERP        — set by find_any_ori_bin to the path of any ori binary
 
+# Print a monotonic nanosecond timestamp for elapsed-time measurements.
+monotonic_now_ns() {
+    python3 -c 'import time; print(time.monotonic_ns())'
+}
+
 # Test whether a binary has LLVM support.
 # Returns 0 if LLVM is available, 1 otherwise.
 # Note: uses variable capture instead of pipeline to avoid pipefail interaction.

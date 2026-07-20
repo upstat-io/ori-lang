@@ -266,6 +266,17 @@ run_test "simple.ori passes all checks" \
     "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/simple.ori"
 run_test "clean.ori passes all checks" \
     "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/clean.ori"
+run_test "cow_sharing.ori warnings remain non-gating" \
+    "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/cow_sharing.ori"
+run_test_output_contains "RC heuristic warning has a truthful terminal verdict" \
+    "Checks completed with warnings; no gating check failed." \
+    "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/cow_sharing.ori"
+run_test_output_contains "RC heuristic warning names the confirmation probes" \
+    "--rc-trace --valgrind or rc-stats.sh --rc-remarks" \
+    "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/cow_sharing.ori"
+run_test_output_not_contains "diagnose-aot.sh never reports a negative build duration" \
+    "Built in -" \
+    "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/simple.ori"
 run_test_output_contains "diagnose-aot.sh --help shows --release" "--release" \
     "$SCRIPT_DIR/diagnose-aot.sh" --help
 run_test_output_contains "diagnose-aot.sh --help shows --both-builds" "--both-builds" \
@@ -295,6 +306,9 @@ run_test "simple.ori interpreter == AOT" \
     "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/simple.ori"
 run_test "clean.ori interpreter == AOT" \
     "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/clean.ori"
+run_test_output_not_contains "dual-exec-debug.sh never reports a negative duration" \
+    "(-" \
+    "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/simple.ori"
 
 # Mismatch path: verify auto-diagnostics output (uses ORI_BIN wrapper for deterministic divergence)
 SAVED_ORI_BIN="${ORI_BIN:-}"

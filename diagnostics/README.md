@@ -42,6 +42,8 @@ diagnostics/diagnose-aot.sh --both-builds file.ori # Full battery on BOTH debug 
 
 Runs 5-7 checks in sequence: compilation, execution, leak check (`ORI_CHECK_LEAKS=1`), RC stats, LLVM IR dump, and optionally Valgrind and disassembly. With `--both-builds`, runs the full battery twice (debug then release) and shows a per-section comparison table.
 
+RC Stats is a static heuristic, not a memory-safety verdict. A WARN keeps the command successful when all gating checks pass, but the terminal summary preserves the warning and names the confirmation probes: `--rc-trace --valgrind` for runtime safety and `rc-stats.sh --rc-remarks` for burden-sole survivors. Reported durations use a monotonic clock.
+
 ### dual-exec-debug.sh — Backend Comparison
 
 ```bash
