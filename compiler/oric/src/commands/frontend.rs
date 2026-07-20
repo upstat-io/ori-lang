@@ -304,6 +304,11 @@ pub(crate) fn read_file(path: &str) -> String {
 
 fn read_file_error_message(path: &str, e: &std::io::Error) -> String {
     match e.kind() {
+        std::io::ErrorKind::NotFound if path.starts_with('-') => format!(
+            "'{path}' looks like a flag, but ori expects the source file first: \
+             ori <command> <file> [options]. Check the argument order and try again, or run \
+             'ori help' for command usage."
+        ),
         std::io::ErrorKind::NotFound => format!(
             "cannot find source file '{path}'. Check the path and try again, or run 'ori help' \
              for command usage."
