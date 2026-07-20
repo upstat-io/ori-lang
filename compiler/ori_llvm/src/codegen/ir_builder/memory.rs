@@ -53,6 +53,37 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         self.arena.push_value(ptr.into())
     }
 
+    /// Build an explicitly aligned entry-block alloca.
+    pub fn create_entry_alloca_aligned(
+        &mut self,
+        function: FunctionId,
+        name: &str,
+        ty: LLVMTypeId,
+        align: u32,
+    ) -> ValueId {
+        let func_val = self.arena.get_function(function);
+        let llvm_ty = self.arena.get_type(ty);
+        let entry = func_val
+            .get_first_basic_block()
+            .expect("function has entry block");
+        let saved_block = self.current_block;
+        if let Some(first_instr) = entry.get_first_instruction() {
+            self.builder.position_before(&first_instr);
+        } else {
+            self.builder.position_at_end(entry);
+        }
+        let ptr = self.builder.build_alloca(llvm_ty, name).expect("alloca");
+        let _ = ptr
+            .as_instruction_value()
+            .expect("alloca is an instruction")
+            .set_alignment(align);
+        if let Some(block_id) = saved_block {
+            let bb = self.arena.get_block(block_id);
+            self.builder.position_at_end(bb);
+        }
+        self.arena.push_value(ptr.into())
+    }
+
     /// Build a load from a pointer.
     ///
     /// In JIT mode, struct types are decomposed into per-field GEP + load +

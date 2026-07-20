@@ -137,6 +137,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         lhs_ty: Idx,
         rhs_ty: Idx,
         result_ty: Idx,
+        arc_func: &ori_arc::ir::ArcFunction,
+        arc_args: &[ori_arc::ir::ArcVarId],
     ) -> ValueId {
         let lhs_is_size = matches!(self.type_info.get(lhs_ty), TypeInfo::Size);
         let rhs_is_size = matches!(self.type_info.get(rhs_ty), TypeInfo::Size);
@@ -153,6 +155,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         };
 
         match op {
+            BinaryOp::Add
+                if arc_args.len() >= 2
+                    && self.repr_plan.is_some_and(|plan| {
+                        addition_range_proves_no_overflow(
+                            plan.var_range(arc_func.name, arc_args[0]),
+                            plan.var_range(arc_func.name, arc_args[1]),
+                        )
+                    }) =>
+            {
+                self.builder.add(lhs, rhs, "add.proven")
+            }
             BinaryOp::Add => self.builder.checked_add_msg(
                 lhs,
                 rhs,
@@ -356,5 +369,52 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
             _ => unreachable!("runtime operation {runtime:?} does not implement {op:?}"),
         }
+    }
+}
+
+/// Whether adding any pair from two whole-function interval facts fits i64.
+///
+/// The range plan is an over-approximation, so successful checked endpoint
+/// sums prove the language's overflow branch unreachable at this site.
+fn addition_range_proves_no_overflow(lhs: ori_repr::ValueRange, rhs: ori_repr::ValueRange) -> bool {
+    let (
+        ori_repr::ValueRange::Bounded {
+            lo: lhs_lo,
+            hi: lhs_hi,
+        },
+        ori_repr::ValueRange::Bounded {
+            lo: rhs_lo,
+            hi: rhs_hi,
+        },
+    ) = (lhs, rhs)
+    else {
+        return false;
+    };
+    lhs_lo.checked_add(rhs_lo).is_some() && lhs_hi.checked_add(rhs_hi).is_some()
+}
+
+#[cfg(test)]
+mod addition_range_tests {
+    use ori_repr::ValueRange;
+
+    use super::addition_range_proves_no_overflow;
+
+    #[test]
+    fn bounded_addition_elides_only_impossible_overflow() {
+        assert!(addition_range_proves_no_overflow(
+            ValueRange::Bounded { lo: 0, hi: 99 },
+            ValueRange::Bounded { lo: 1, hi: 100 },
+        ));
+        assert!(!addition_range_proves_no_overflow(
+            ValueRange::Bounded {
+                lo: i64::MAX - 1,
+                hi: i64::MAX,
+            },
+            ValueRange::Bounded { lo: 1, hi: 1 },
+        ));
+        assert!(!addition_range_proves_no_overflow(
+            ValueRange::Top,
+            ValueRange::Bounded { lo: 1, hi: 1 },
+        ));
     }
 }

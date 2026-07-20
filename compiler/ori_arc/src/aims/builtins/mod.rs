@@ -261,7 +261,10 @@ const PARAM_OWNED_LINEAR: ParamContract = ParamContract {
 const RETURN_UNIQUE: ReturnContract = ReturnContract {
     uniqueness: Uniqueness::Unique,
     preserves_freshness: true,
-    locality: Locality::Unknown,
+    // A COW result is born at the call site. Downstream demand may widen its
+    // lifetime, but seeding it as Unknown here would trigger CN-6 immediately
+    // and erase the Unique guarantee this contract exists to carry.
+    locality: Locality::BlockLocal,
     shape: super::lattice::ShapeClass::NonReusable,
     // Builtin COW-method results are fresh, but the fresh-self-alloc admission
     // is scoped to USER for-yield finalizers (`@ori_list_take`) extracted from

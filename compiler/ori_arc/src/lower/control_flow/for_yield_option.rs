@@ -5,7 +5,7 @@
 use ori_ir::Name;
 use ori_types::{Idx, Tag};
 
-use crate::ir::{ArcBlockId, ArcValue, ArcVarId, LitValue, PrimOp};
+use crate::ir::{ArcBlockId, ArcValue, ArcVarId, LitValue, PrimOp, YieldExtent};
 use crate::lower::scope::ArcScope;
 
 use super::super::expr::{ArcLowerer, ForYieldContext, ForYieldShape, LoopContext};
@@ -21,6 +21,8 @@ struct YieldOptionSetup {
     exit_mut_params: Vec<(Name, ArcVarId)>,
     list_ptr: ArcVarId,
     elem_size_var: ArcVarId,
+    elem_ty: Idx,
+    elem_size: u64,
 }
 
 impl ArcLowerer<'_> {
@@ -68,7 +70,9 @@ impl ArcLowerer<'_> {
         } else {
             fallback_elem_ty
         };
-        let (list_ptr, elem_size_var) = self.allocate_option_yield_list(body_elem_ty);
+        let elem_size = self.compute_elem_size(body_elem_ty).cast_unsigned();
+        let (list_ptr, elem_size_var) =
+            self.allocate_yield_list(body_elem_ty, YieldExtent::StaticExact(1));
         let exit_mut_params = mutable_bindings
             .iter()
             .map(|&(name, _, ty)| (name, self.builder.add_block_param(exit_block, ty)))
@@ -82,22 +86,9 @@ impl ArcLowerer<'_> {
             exit_mut_params,
             list_ptr,
             elem_size_var,
+            elem_ty: body_elem_ty,
+            elem_size,
         }
-    }
-
-    fn allocate_option_yield_list(&mut self, elem_ty: Idx) -> (ArcVarId, ArcVarId) {
-        let list_new = self.interner.intern("ori_list_new");
-        let eight = self
-            .builder
-            .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(8)), None);
-        let elem_size = self.compute_elem_size(elem_ty);
-        let elem_size_var =
-            self.builder
-                .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(elem_size)), None);
-        let list_ptr =
-            self.builder
-                .emit_apply(Idx::INT, list_new, vec![eight, elem_size_var], None, None);
-        (list_ptr, elem_size_var)
     }
 
     fn branch_yield_option(
@@ -218,7 +209,16 @@ impl ArcLowerer<'_> {
         }
 
         let list_take = self.interner.intern("ori_list_take");
-        self.builder
-            .emit_apply(result_ty, list_take, vec![setup.list_ptr], None, None)
+        let result =
+            self.builder
+                .emit_apply(result_ty, list_take, vec![setup.list_ptr], None, None);
+        self.builder.note_yield_allocation(
+            setup.list_ptr,
+            result,
+            setup.elem_ty,
+            setup.elem_size,
+            YieldExtent::StaticExact(1),
+        );
+        result
     }
 }

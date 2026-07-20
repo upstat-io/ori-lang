@@ -22,6 +22,22 @@ pub fn push_receiver_lineage_returned(func: &ArcFunction, recv: ArcVarId) -> boo
     collection_receiver_returned(rep_of(recv), func, &rep_of)
 }
 
+/// Find the lowering-owned yield result that shares `recv`'s jump-threaded
+/// list lineage.
+///
+/// This exposes stable allocation identity, not a physical placement choice.
+/// Consumers must still consult the representation plan before selecting a
+/// stack or heap projection.
+pub fn yield_result_for_receiver_lineage(func: &ArcFunction, recv: ArcVarId) -> Option<ArcVarId> {
+    let jt_reps = compute_jump_threaded_reps(func, None);
+    let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
+    let recv_rep = rep_of(recv);
+    func.yield_allocations
+        .iter()
+        .find(|fact| rep_of(fact.result) == recv_rep)
+        .map(|fact| fact.result)
+}
+
 /// Whether collection-receiver lineage `recv_rep` (a jump-threaded rep of a
 /// `@push`/`ori_list_push` arg-0 collection) is RETURNED from the function — its
 /// lineage flows to a `Return` value.

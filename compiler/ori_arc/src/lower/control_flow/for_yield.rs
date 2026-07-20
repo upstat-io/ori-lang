@@ -4,13 +4,13 @@
 //! element and collecting results. Three strategies based on iterable type:
 //!
 //! - **Option**: 0-or-1 element list via `Construct(ListLiteral, [])` or `[body_val]`.
-//! - **Range**: Iterator-based loop with `ori_list_new` + `ori_list_push`.
-//! - **Iterator/Collection**: Same as range — convert to iterator, loop, push.
+//! - **Range**: Direct counter loop with `ori_list_new` + `ori_list_push`.
+//! - **Iterator/Collection**: Convert to an iterator, loop, and push.
 
 use ori_ir::Name;
 use ori_types::{Idx, Tag};
 
-use crate::ir::{ArcValue, ArcVarId, LitValue, MethodCallForm};
+use crate::ir::{ArcValue, ArcVarId, LitValue, MethodCallForm, YieldExtent};
 
 use super::super::expr::{ArcLowerer, ForYieldContext, ForYieldShape};
 use super::iterator_flow::IteratorFlowSetup;
@@ -19,6 +19,9 @@ struct YieldIteratorSetup {
     flow: IteratorFlowSetup,
     list_ptr: ArcVarId,
     elem_size_var: ArcVarId,
+    elem_ty: Idx,
+    elem_size: u64,
+    extent: YieldExtent,
 }
 
 impl ArcLowerer<'_> {
@@ -40,10 +43,13 @@ impl ArcLowerer<'_> {
         if tag == Tag::Option {
             let elem_ty = self.pool.option_inner(iter_ty);
             self.lower_for_yield_option(shape, iter_val, elem_ty, label)
+        } else if tag == Tag::Range {
+            let extent = self.yield_extent(shape.iter, iter_val, iter_ty, tag);
+            self.lower_for_yield_range(shape, iter_val, extent, label)
         } else {
-            // Range, Iterator, List, Set, Str, Map — all go through iterator loop.
+            let extent = self.yield_extent(shape.iter, iter_val, iter_ty, tag);
             let (iter_handle, elem_ty) = self.prepare_iterator(iter_val, iter_ty, tag);
-            self.lower_for_yield_iterator(shape, iter_handle, elem_ty, label)
+            self.lower_for_yield_iterator(shape, iter_handle, elem_ty, extent, label)
         }
     }
 
@@ -104,9 +110,10 @@ impl ArcLowerer<'_> {
         shape: ForYieldShape,
         iter_val: ArcVarId,
         elem_ty: Idx,
+        extent: YieldExtent,
         label: ori_ir::Name,
     ) -> ArcVarId {
-        let setup = self.prepare_yield_iterator_loop(shape.result_ty, elem_ty);
+        let setup = self.prepare_yield_iterator_loop(shape.result_ty, elem_ty, extent);
 
         tracing::debug!(
             pattern = ?shape.pattern,
@@ -147,34 +154,92 @@ impl ArcLowerer<'_> {
         &mut self,
         result_ty: Idx,
         fallback_elem_ty: Idx,
+        extent: YieldExtent,
     ) -> YieldIteratorSetup {
         let body_elem_ty = if self.pool.tag(result_ty) == Tag::List {
             self.pool.list_elem(result_ty)
         } else {
             fallback_elem_ty
         };
-        let (list_ptr, elem_size_var) = self.allocate_yield_list(body_elem_ty);
+        let elem_size = self.compute_elem_size(body_elem_ty).cast_unsigned();
+        let (list_ptr, elem_size_var) = self.allocate_yield_list(body_elem_ty, extent);
         let flow = self.prepare_iterator_flow(None);
         YieldIteratorSetup {
             flow,
             list_ptr,
             elem_size_var,
+            elem_ty: body_elem_ty,
+            elem_size,
+            extent,
         }
     }
 
-    fn allocate_yield_list(&mut self, elem_ty: Idx) -> (ArcVarId, ArcVarId) {
+    pub(super) fn allocate_yield_list(
+        &mut self,
+        elem_ty: Idx,
+        extent: YieldExtent,
+    ) -> (ArcVarId, ArcVarId) {
         let list_new = self.interner.intern("ori_list_new");
-        let eight = self
-            .builder
-            .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(8)), None);
+        let capacity = match extent {
+            YieldExtent::StaticExact(exact) => {
+                let exact = i64::try_from(exact).unwrap_or(8);
+                self.builder
+                    .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(exact)), None)
+            }
+            YieldExtent::RuntimeExact(var) => var,
+            YieldExtent::Unknown => {
+                self.builder
+                    .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(8)), None)
+            }
+        };
         let elem_size = self.compute_elem_size(elem_ty);
         let elem_size_var =
             self.builder
                 .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(elem_size)), None);
-        let list_ptr =
-            self.builder
-                .emit_apply(Idx::INT, list_new, vec![eight, elem_size_var], None, None);
+        let list_ptr = self.builder.emit_apply(
+            Idx::INT,
+            list_new,
+            vec![capacity, elem_size_var],
+            None,
+            None,
+        );
         (list_ptr, elem_size_var)
+    }
+
+    fn yield_extent(
+        &mut self,
+        iter_expr: ori_ir::canon::CanId,
+        iter_val: ArcVarId,
+        iter_ty: Idx,
+        tag: Tag,
+    ) -> YieldExtent {
+        if tag != Tag::Range {
+            return YieldExtent::Unknown;
+        }
+        let ori_ir::canon::CanExpr::Range { end, .. } = *self.arena.kind(iter_expr) else {
+            return YieldExtent::Unknown;
+        };
+        if !end.is_valid() {
+            return YieldExtent::Unknown;
+        }
+
+        let start = self.builder.get_field_literal_int(iter_val, 0);
+        let end = self.builder.get_field_literal_int(iter_val, 1);
+        let step = self.builder.get_field_literal_int(iter_val, 2);
+        let inclusive = self.builder.get_field_literal_int(iter_val, 3);
+        if let (Some(start), Some(end), Some(step), Some(inclusive)) = (start, end, step, inclusive)
+        {
+            return range_cardinality(start, end, step, inclusive != 0)
+                .map_or(YieldExtent::Unknown, YieldExtent::StaticExact);
+        }
+
+        let len_name = self.interner.intern("len");
+        let len = self
+            .builder
+            .emit_apply(Idx::INT, len_name, vec![iter_val], None, None);
+        self.builder
+            .note_method_call(len, iter_ty, MethodCallForm::Instance);
+        YieldExtent::RuntimeExact(len)
     }
 
     fn lower_yield_iterator_body(
@@ -234,8 +299,17 @@ impl ArcLowerer<'_> {
             self.scope.bind_mutable(name, param);
         }
         let list_take = self.interner.intern("ori_list_take");
-        self.builder
-            .emit_apply(result_ty, list_take, vec![setup.list_ptr], None, None)
+        let result =
+            self.builder
+                .emit_apply(result_ty, list_take, vec![setup.list_ptr], None, None);
+        self.builder.note_yield_allocation(
+            setup.list_ptr,
+            result,
+            setup.elem_ty,
+            setup.elem_size,
+            setup.extent,
+        );
+        result
     }
 
     /// Computes the LLVM/runtime ABI element size for list allocation and push.
@@ -248,4 +322,23 @@ impl ArcLowerer<'_> {
     fn type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) -> i64 {
         super::type_layout::pool_type_store_size(ty, pool, depth)
     }
+}
+
+fn range_cardinality(start: i64, end: i64, step: i64, inclusive: bool) -> Option<u64> {
+    if step == 0 {
+        return None;
+    }
+    let start = i128::from(start);
+    let end = i128::from(end);
+    let step = i128::from(step);
+    let span = if step > 0 {
+        let end = end + i128::from(inclusive);
+        (end - start).max(0)
+    } else {
+        let end = end - i128::from(inclusive);
+        (start - end).max(0)
+    };
+    let step_abs = step.abs();
+    let count = (span + step_abs - 1) / step_abs;
+    u64::try_from(count).ok()
 }

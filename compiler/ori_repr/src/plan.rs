@@ -11,10 +11,12 @@
 //! - **Safe defaults**: queries return canonical (un-narrowed) values
 //!   when no decision has been recorded — the canonical pass alone causes zero
 //!   behavioral change.
-//! - **Placeholder fields**: `escape_info` uses a stub type until escape
-//!   analysis replaces it.
+//! - **Safe escape defaults**: only AIMS-proven local identities are eligible
+//!   for a compiled local allocation mechanism.
 
-use ori_arc::ArcVarId;
+use ori_arc::ir::{
+    AllocationSiteId, ArcVarId, YieldAllocationFact, YieldAllocationLocality, YieldExtent,
+};
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -29,6 +31,29 @@ use crate::repr::MachineRepr;
 pub use self::decision::{DecisionReason, DecisionSource, ReprDecision};
 pub use self::query::{NarrowingPolicy, RcStrategy};
 pub use self::repr_attr::ReprAttribute;
+
+/// Concrete storage mechanism selected for one yield allocation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CompiledAllocationMechanism {
+    /// Existing growable RC-managed runtime allocation.
+    RuntimeHeap,
+    /// Bounded function-lifetime storage emitted in the owning stack frame.
+    StackSlot,
+}
+
+/// Representation-layer allocation projection for one stable site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CompiledAllocationDecision {
+    pub site: AllocationSiteId,
+    pub builder: ArcVarId,
+    pub result: ArcVarId,
+    pub elem_size: u64,
+    pub extent: YieldExtent,
+    pub mechanism: CompiledAllocationMechanism,
+}
+
+/// Maximum element bytes admitted to function-lifetime stack storage.
+pub const MAX_LOCAL_YIELD_BYTES: u64 = 4 * 1024;
 
 mod decision;
 pub(crate) mod query;
@@ -69,10 +94,6 @@ mod repr_attr;
 /// [`compute_repr_plan()`]: crate::compute_repr_plan
 /// [`TypeInfoStore`]: https://docs.rs/ori_llvm (internal)
 #[derive(Debug)]
-#[expect(
-    clippy::zero_sized_map_values,
-    reason = "EscapeInfo is placeholder ZST — replaced when escape analysis is implemented"
-)]
 pub struct ReprPlan {
     /// Per-type decisions (indexed by Pool `Idx`).
     decisions: FxHashMap<Idx, ReprDecision>,
@@ -90,6 +111,8 @@ pub struct ReprPlan {
     ///
     /// Empty until escape analysis populates it.
     escape_info: FxHashMap<Name, EscapeInfo>,
+    /// Compiled allocation projections keyed by function and stable site.
+    yield_allocations: FxHashMap<(Name, AllocationSiteId), CompiledAllocationDecision>,
     /// Per-function, per-variable ranges from range analysis.
     ///
     /// Key: function `Name` → (`ArcVarId` → `ValueRange`).
@@ -146,16 +169,13 @@ pub struct ReprPlan {
 impl ReprPlan {
     /// Create a new empty `ReprPlan` with the given narrowing policy.
     #[must_use]
-    #[expect(
-        clippy::zero_sized_map_values,
-        reason = "EscapeInfo is placeholder ZST — replaced when escape analysis is implemented"
-    )]
     pub fn new(policy: NarrowingPolicy) -> Self {
         Self {
             decisions: FxHashMap::default(),
             repr_attrs: FxHashMap::default(),
             rc_strategies: FxHashMap::default(),
             escape_info: FxHashMap::default(),
+            yield_allocations: FxHashMap::default(),
             function_var_ranges: FxHashMap::default(),
             field_range_summaries: FxHashMap::default(),
             element_range_summaries: FxHashMap::default(),
@@ -433,6 +453,58 @@ impl ReprPlan {
         self.escape_info.insert(func, info);
     }
 
+    /// Freeze AIMS yield facts into conservative compiled allocation choices.
+    pub fn freeze_yield_allocations(
+        &mut self,
+        facts_by_function: &FxHashMap<Name, Vec<YieldAllocationFact>>,
+    ) {
+        self.yield_allocations.clear();
+        for (&function, facts) in facts_by_function {
+            for fact in facts {
+                let mechanism = select_yield_mechanism(*fact);
+                self.yield_allocations.insert(
+                    (function, fact.site),
+                    CompiledAllocationDecision {
+                        site: fact.site,
+                        builder: fact.builder,
+                        result: fact.result,
+                        elem_size: fact.elem_size,
+                        extent: fact.extent,
+                        mechanism,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Query the allocation projection by the scratch builder identity.
+    #[must_use]
+    pub fn yield_allocation_for_builder(
+        &self,
+        function: Name,
+        builder: ArcVarId,
+    ) -> Option<CompiledAllocationDecision> {
+        self.yield_allocations
+            .iter()
+            .find_map(|(&(owner, _), decision)| {
+                (owner == function && decision.builder == builder).then_some(*decision)
+            })
+    }
+
+    /// Query the allocation projection by the final list result identity.
+    #[must_use]
+    pub fn yield_allocation_for_result(
+        &self,
+        function: Name,
+        result: ArcVarId,
+    ) -> Option<CompiledAllocationDecision> {
+        self.yield_allocations
+            .iter()
+            .find_map(|(&(owner, _), decision)| {
+                (owner == function && decision.result == result).then_some(*decision)
+            })
+    }
+
     /// Record an RC strategy decision for a type.
     ///
     /// Stores the strategy in a **separate map** so the type's `MachineRepr`
@@ -476,6 +548,20 @@ impl ReprPlan {
             let _ = writeln!(out, "[{i}] {tag:?} <- {:?}: {:?}", d.source, d.reason);
         }
         out
+    }
+}
+
+fn select_yield_mechanism(fact: YieldAllocationFact) -> CompiledAllocationMechanism {
+    let YieldExtent::StaticExact(capacity) = fact.extent else {
+        return CompiledAllocationMechanism::RuntimeHeap;
+    };
+    let Some(bytes) = capacity.checked_mul(fact.elem_size.max(1)) else {
+        return CompiledAllocationMechanism::RuntimeHeap;
+    };
+    if fact.locality == YieldAllocationLocality::Local && bytes <= MAX_LOCAL_YIELD_BYTES {
+        CompiledAllocationMechanism::StackSlot
+    } else {
+        CompiledAllocationMechanism::RuntimeHeap
     }
 }
 

@@ -257,6 +257,10 @@ fn freeze_batch_outcome(
             )
         })
         .collect();
+    let yield_allocations = functions
+        .iter()
+        .map(|function| (function.name, function.yield_allocations.clone()))
+        .collect();
     let frozen_closure_adapters =
         crate::freeze_closure_adapter_plans(functions, &contracts, pool, type_registry).map_err(
             |errors| {
@@ -276,6 +280,7 @@ fn freeze_batch_outcome(
         closure_adapters: frozen_closure_adapters.adapters,
         retain_plans: frozen_closure_adapters.retain_plans,
         callable_facts: frozen_closure_adapters.callable_facts,
+        yield_allocations,
     })
 }
 

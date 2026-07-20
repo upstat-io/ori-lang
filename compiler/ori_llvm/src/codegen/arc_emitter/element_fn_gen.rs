@@ -320,8 +320,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Returns null for scalar types or types whose elements have no RC children.
     pub(super) fn get_or_generate_elem_dec_fn(&mut self, element_type: Idx) -> ValueId {
-        // Scalar elements — no RC children to dec
-        if self.classifier.is_scalar(element_type) {
+        // Scalar-shaped elements have no compiler-managed RC children, but a
+        // user `Drop` implementation still requires an element teardown thunk.
+        if self.classifier.is_scalar(element_type) && self.user_drop_method(element_type).is_none()
+        {
             return self.builder.const_null_ptr();
         }
 

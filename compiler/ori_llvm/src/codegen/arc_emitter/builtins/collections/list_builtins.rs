@@ -211,8 +211,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `list[index]` — bounds-checked element access, returns `T` directly.
     ///
-    /// Calls `ori_list_get(data, len, index, elem_size, out_ptr)`.
-    /// Panics on out-of-bounds (no Option wrapper — direct element return).
+    /// Emits the in-bounds load directly and retains `ori_list_get` only on
+    /// the cold out-of-bounds edge. This keeps the runtime's panic/unwind
+    /// contract while exposing ordinary indexed loads to LLVM's loop passes.
     ///
     /// `list_ty` is the collection type (e.g., `List<int>`) used for
     /// Phase C narrowed element size/type lookup.
@@ -223,33 +224,82 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         elem_ty: Idx,
         list_ty: Idx,
     ) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_list_get");
-
         let (data_ptr, len) = self.extract_list_data_and_len(receiver)?;
 
         // Use narrowed element size/type if available.
         let collection_idx = self.pool.resolve_fully(list_ty);
+        let bool_elem = self.pool.tag(self.pool.resolve_fully(elem_ty)) == Tag::Bool;
         let elem_size_val = self
             .builder
             .const_i64(self.collection_elem_size(collection_idx, elem_ty) as i64);
-        let elem_llvm_ty = self.collection_elem_llvm_type(collection_idx, elem_ty);
+        // Lists store bools in one addressable byte. Loading through i1 makes
+        // LLVM preserve sub-byte value semantics with masks and blocks the
+        // load/xor/store combine used by ordinary byte-backed Boolean arrays.
+        let elem_llvm_ty = if bool_elem {
+            self.builder
+                .register_type(self.builder.scx().type_i8().into())
+        } else {
+            self.collection_elem_llvm_type(collection_idx, elem_ty)
+        };
 
-        // Alloca for the element (uses narrowed type if applicable)
+        // The fallback writes through the established runtime ABI. It exists
+        // only on the cold edge so the common path is an ordinary typed load.
         let out_alloca =
             self.builder
                 .create_entry_alloca(self.current_function, "index.out", elem_llvm_ty);
+        let direct = self
+            .builder
+            .append_block(self.current_function, "index.direct");
+        let fallback = self
+            .builder
+            .append_block(self.current_function, "index.fallback");
+        let merge = self
+            .builder
+            .append_block(self.current_function, "index.merge");
+        // An unsigned comparison rejects negative indices as well as indices
+        // at or beyond len without a separate signed check.
+        let in_bounds = self.builder.icmp_ult(index, len, "index.in_bounds");
+        self.builder.cond_br(in_bounds, direct, fallback);
 
+        self.builder.position_at_end(direct);
+        let elem_ptr = self
+            .builder
+            .gep(elem_llvm_ty, data_ptr, &[index], "index.elem_ptr");
+        let direct_val = self
+            .builder
+            .load(elem_llvm_ty, elem_ptr, "index.direct_val");
+        let direct_end = self.builder.current_block().expect("direct index block");
+        self.builder.br(merge);
+
+        self.builder.position_at_end(fallback);
+        let func_id = self.builder.runtime_fn("ori_list_get");
         self.emit_rt_call(
             func_id,
             &[data_ptr, len, index, elem_size_val, out_alloca],
             "index",
         );
+        let fallback_val = self
+            .builder
+            .load(elem_llvm_ty, out_alloca, "index.fallback_val");
+        let fallback_end = self.builder.current_block().expect("fallback index block");
+        self.builder.br(merge);
 
-        let elem_val = self.builder.load(elem_llvm_ty, out_alloca, "index.val");
+        self.builder.position_at_end(merge);
+        let elem_val = self.builder.phi(elem_llvm_ty, "index.val");
+        self.builder.add_phi_incoming(
+            elem_val,
+            &[(direct_val, direct_end), (fallback_val, fallback_end)],
+        );
 
         // Sign-extend narrowed element back to canonical i64.
-        let elem_val =
-            self.sext_narrowed_collection_element(elem_val, collection_idx, "index.sext");
+        let elem_val = if bool_elem {
+            let bool_ty = self
+                .builder
+                .register_type(self.builder.scx().type_i1().into());
+            self.builder.trunc(elem_val, bool_ty, "index.bool")
+        } else {
+            self.sext_narrowed_collection_element(elem_val, collection_idx, "index.sext")
+        };
 
         // ori_list_get does a raw memcpy — the extracted element shares
         // the collection's RC children (e.g., str data pointers) without

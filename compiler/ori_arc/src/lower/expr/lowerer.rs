@@ -45,6 +45,7 @@ pub(crate) struct LoopContext {
 /// both its `_option` / `_iterator` strategy methods.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ForYieldShape {
+    pub iter: CanId,
     pub pattern: ori_ir::canon::CanBindingPatternId,
     pub guard: CanId,
     pub body: CanId,

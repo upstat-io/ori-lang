@@ -78,6 +78,8 @@ pub(super) struct ListRtNames {
     pub new: Name,
     /// `ori_list_take` — real runtime fn with special sret handling (non-protocol).
     pub take: Name,
+    /// `ori_list_free` — scratch-builder unwind cleanup.
+    pub free: Name,
     /// `ori_list_slice_drop` — list rest-pattern expansion (non-protocol).
     pub slice_drop: Name,
 }
@@ -88,6 +90,7 @@ impl ListRtNames {
             push: interner.intern("ori_list_push"),
             new: interner.intern("ori_list_new"),
             take: interner.intern("ori_list_take"),
+            free: interner.intern("ori_list_free"),
             slice_drop: interner.intern("ori_list_slice_drop"),
         }
     }

@@ -660,6 +660,7 @@ fn compile_result_for_value(
         method_call_facts,
         operator_call_facts: Vec::new(),
         direct_call_facts: Vec::new(),
+        yield_allocations: Vec::new(),
         class_ledger_emission: false,
     };
     let classifier = ArcClassifier::new(&pool);
@@ -1147,6 +1148,7 @@ fn list_concat_executable() -> ExecutableProgram {
         method_call_facts: Vec::new(),
         operator_call_facts: Vec::new(),
         direct_call_facts: Vec::new(),
+        yield_allocations: Vec::new(),
         class_ledger_emission: false,
     };
     let mut functions = vec![function];

@@ -89,6 +89,19 @@ pub(crate) fn populate_borrow_sources(state_map: &mut AimsStateMap, func: &ArcFu
 /// results without `PlacementEligibilityCandidate` events even when their contract
 /// narrowed locality.
 pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFunction) {
+    let yield_results: FxHashSet<_> = func
+        .yield_allocations
+        .iter()
+        .map(|fact| fact.result)
+        .collect();
+    let returned_vars: FxHashSet<_> = func
+        .blocks
+        .iter()
+        .filter_map(|block| match block.terminator {
+            ArcTerminator::Return { value } => Some(value),
+            _ => None,
+        })
+        .collect();
     for (block_idx, block) in func.blocks.iter().enumerate() {
         #[expect(
             clippy::cast_possible_truncation,
@@ -124,7 +137,18 @@ pub(crate) fn populate_sparse_events(state_map: &mut AimsStateMap, func: &ArcFun
                 if state_map.is_excluded(dst) {
                     continue;
                 }
-                let effective_loc = state_map.effective_locality_at_block_exit(blk, dst);
+                // `ori_list_take` is an internal ownership transfer from an
+                // untyped scratch handle to the typed list result. It has no
+                // user-call contract; applying TF-5's unknown-call override
+                // would erase the backward lifetime proof for this compiler-
+                // generated identity. Stable lowering facts authorize the raw
+                // lattice result only for that exact internal transfer.
+                let effective_loc = if yield_results.contains(&dst) && !returned_vars.contains(&dst)
+                {
+                    state_map.var_state_at_block_exit(blk, dst).locality
+                } else {
+                    state_map.effective_locality_at_block_exit(blk, dst)
+                };
                 if matches!(
                     effective_loc,
                     Locality::FunctionLocal | Locality::BlockLocal

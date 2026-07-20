@@ -10,8 +10,9 @@ use ori_ir::{Name, Span};
 use ori_types::Idx;
 
 use crate::ir::{
-    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, MethodCallFact,
-    MethodCallForm,
+    AllocationSiteId, ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator,
+    ArcVarId, MethodCallFact, MethodCallForm, YieldAllocationFact, YieldAllocationLocality,
+    YieldExtent,
 };
 
 /// Routing metadata for `Invoke`-family terminators: CFG successors plus the
@@ -94,6 +95,8 @@ pub(crate) struct ArcIrBuilder {
     pub(in crate::lower) method_call_facts: Vec<MethodCallFact>,
     /// User-defined operator calls awaiting exact pre-AIMS target closure.
     pub(in crate::lower) operator_call_facts: Vec<crate::ir::OperatorCallFact>,
+    /// Stable yield-comprehension allocations in lowering order.
+    pub(in crate::lower) yield_allocations: Vec<YieldAllocationFact>,
 }
 
 impl Default for ArcIrBuilder {
@@ -117,6 +120,7 @@ impl ArcIrBuilder {
             catch_scoped_checked_ops: Vec::new(),
             method_call_facts: Vec::new(),
             operator_call_facts: Vec::new(),
+            yield_allocations: Vec::new(),
         }
     }
 
@@ -271,6 +275,29 @@ impl ArcIrBuilder {
         });
     }
 
+    /// Record one completed yield accumulator allocation.
+    pub(crate) fn note_yield_allocation(
+        &mut self,
+        builder: ArcVarId,
+        result: ArcVarId,
+        elem_ty: Idx,
+        elem_size: u64,
+        extent: YieldExtent,
+    ) {
+        let Ok(raw_site) = u32::try_from(self.yield_allocations.len()) else {
+            unreachable!("yield allocation table exceeded AllocationSiteId capacity");
+        };
+        self.yield_allocations.push(YieldAllocationFact {
+            site: AllocationSiteId::new(raw_site),
+            builder,
+            result,
+            elem_ty,
+            elem_size,
+            extent,
+            locality: YieldAllocationLocality::Unknown,
+        });
+    }
+
     // Finalization
 
     /// Consume the builder and produce a finished [`ArcFunction`].
@@ -333,6 +360,7 @@ impl ArcIrBuilder {
             method_call_facts: self.method_call_facts,
             operator_call_facts: self.operator_call_facts,
             direct_call_facts: Vec::new(),
+            yield_allocations: self.yield_allocations,
             class_ledger_emission: false,
         }
     }

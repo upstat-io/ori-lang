@@ -150,6 +150,7 @@ impl ArcLowerer<'_> {
 
         if is_yield {
             let shape = ForYieldShape {
+                iter,
                 pattern,
                 guard,
                 body,

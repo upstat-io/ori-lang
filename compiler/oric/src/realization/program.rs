@@ -252,7 +252,7 @@ pub(crate) fn realize_arc_program(
         cli_entry,
         externals,
         user_drop_bindings,
-        repr_plan,
+        mut repr_plan,
         type_registry,
         verify_arc,
     } = input;
@@ -284,6 +284,7 @@ pub(crate) fn realize_arc_program(
         &callable_boundaries,
         verify_arc,
     )?;
+    repr_plan.freeze_yield_allocations(&aims.yield_allocations);
     ExecutableProgram::validate(ExecutableProgramParts {
         version: EXECUTABLE_PROGRAM_VERSION,
         symbols,

@@ -50,6 +50,7 @@ fn empty_function(name: ori_ir::Name) -> ArcFunction {
         method_call_facts: Vec::new(),
         operator_call_facts: Vec::new(),
         direct_call_facts: Vec::new(),
+        yield_allocations: Vec::new(),
         class_ledger_emission: false,
     }
 }
@@ -1714,6 +1715,14 @@ fn length_resolution_requires_a_registered_len_receiver() {
             None
         );
     }
+}
+
+#[test]
+fn range_len_keeps_receiver_specific_runtime_identity() {
+    assert_eq!(
+        RuntimeCall::resolve("len", Some(ori_registry::TypeTag::Range)),
+        Some(RuntimeCall::RangeLength)
+    );
 }
 
 #[test]

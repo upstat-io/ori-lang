@@ -345,6 +345,7 @@ fn validate_vm_call_target(
             | RuntimeCall::Index
             | RuntimeCall::ListSet
             | RuntimeCall::Length
+            | RuntimeCall::RangeLength
             | RuntimeCall::ToString
             | RuntimeCall::Concat
             | RuntimeCall::StringContains

@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 use super::{
     sharing_return_contract, ContextBehavior, EffectSummary, FipContract, FxHashMap,
     MemoryContract, Name, ParamContract, ReturnAliasShape, ReturnContract, StringInterner,
-    PARAM_BORROWED, PARAM_BORROWED_READ_ONLY, PARAM_OWNED_LINEAR,
+    PARAM_BORROWED, PARAM_BORROWED_READ_ONLY, PARAM_OWNED_LINEAR, RETURN_UNIQUE,
 };
 
 /// `ORI_DISABLE_PANIC_MSG_TRANSFER=1` skips the `ori_panic` Owned message
@@ -53,6 +53,24 @@ pub(super) fn seed_internal_runtime_contracts(
     sigs.entry(ori_list_push).or_insert_with(|| MemoryContract {
         params: vec![PARAM_BORROWED, PARAM_OWNED_LINEAR, PARAM_BORROWED],
         return_info: ReturnContract::CONSERVATIVE,
+        effects: EffectSummary::default(),
+        context_behavior: ContextBehavior::default(),
+        fip: FipContract::Never,
+        is_fbip: false,
+    });
+
+    // `ori_list_take` moves a compiler-owned yield buffer out of its untyped
+    // scratch handle. The result is born unique at this call site; downstream
+    // demand remains responsible for widening locality or uniqueness. Leaving
+    // this internal finalizer without a contract applies TF-5 CONSERVATIVE and
+    // loses the fresh lineage before a loop can carry it through COW updates.
+    let ori_list_take = interner.intern("ori_list_take");
+    sigs.entry(ori_list_take).or_insert_with(|| MemoryContract {
+        params: vec![PARAM_BORROWED],
+        return_info: ReturnContract {
+            returns_fresh_self_alloc: true,
+            ..RETURN_UNIQUE
+        },
         effects: EffectSummary::default(),
         context_behavior: ContextBehavior::default(),
         fip: FipContract::Never,

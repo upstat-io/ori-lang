@@ -32,10 +32,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         result_ty: Idx,
         strategy: OpStrategy,
         arc_func: &ori_arc::ir::ArcFunction,
+        arc_args: &[ori_arc::ir::ArcVarId],
     ) -> ValueId {
         match strategy {
             OpStrategy::SignedInteger => {
-                self.emit_int_binary_op(op, lhs, rhs, lhs_ty, rhs_ty, result_ty)
+                self.emit_int_binary_op(op, lhs, rhs, lhs_ty, rhs_ty, result_ty, arc_func, arc_args)
             }
             OpStrategy::FloatingPoint => self.emit_float_binary_op(op, lhs, rhs),
             OpStrategy::UnsignedComparison => self.emit_unsigned_binary_op(op, lhs, rhs),

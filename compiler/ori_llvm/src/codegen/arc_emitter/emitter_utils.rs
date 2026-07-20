@@ -74,15 +74,37 @@ pub(crate) fn field_rc_walk_order<T: Copy>(decl_order: &[T], order: FieldRcWalkO
 }
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
+    /// Read the current instruction's frozen logical COW decision.
+    pub(crate) fn cow_mode(&self, arc_func: &ArcFunction) -> CowMode {
+        arc_func
+            .cow_annotations
+            .get(self.current_block_idx, self.current_instr_idx)
+    }
+
+    /// Whether `receiver` belongs to a yield lineage whose frozen compiled
+    /// allocation mechanism is a stack slot.
+    pub(crate) fn is_stack_slot_yield_receiver(
+        &self,
+        arc_func: &ArcFunction,
+        receiver: ArcVarId,
+    ) -> bool {
+        let Some(result) = ori_arc::yield_result_for_receiver_lineage(arc_func, receiver) else {
+            return false;
+        };
+        self.repr_plan
+            .and_then(|plan| plan.yield_allocation_for_result(arc_func.name, result))
+            .is_some_and(|decision| {
+                decision.mechanism == ori_repr::CompiledAllocationMechanism::StackSlot
+            })
+    }
+
     /// Get the current instruction's COW mode as an LLVM `i32` constant.
     ///
     /// Queries the `ArcFunction`'s `cow_annotations` for the current
     /// `(block_idx, instr_idx)` coordinate. Returns `Dynamic` (0) when
     /// no annotation exists — this is the safe default (runtime RC check).
     pub(crate) fn cow_mode_const(&mut self, arc_func: &ArcFunction) -> ValueId {
-        let mode = arc_func
-            .cow_annotations
-            .get(self.current_block_idx, self.current_instr_idx);
+        let mode = self.cow_mode(arc_func);
         tracing::debug!(
             block = self.current_block_idx,
             instr = self.current_instr_idx,

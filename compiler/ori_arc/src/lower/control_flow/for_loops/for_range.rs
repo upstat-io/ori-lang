@@ -2,10 +2,10 @@
 
 use ori_ir::canon::{CanBindingPatternId, CanId};
 use ori_ir::Name;
-use ori_types::Idx;
+use ori_types::{Idx, Tag};
 
-use crate::ir::{ArcBlockId, ArcValue, ArcVarId, LitValue, PrimOp};
-use crate::lower::expr::{ArcLowerer, LoopContext};
+use crate::ir::{ArcBlockId, ArcValue, ArcVarId, LitValue, PrimOp, YieldExtent};
+use crate::lower::expr::{ArcLowerer, ForYieldContext, ForYieldShape, LoopContext};
 use crate::lower::scope::ArcScope;
 
 type MutableBinding = (Name, ArcVarId, Idx);
@@ -22,7 +22,7 @@ struct RangeLoopSetup {
     header_mut_params: Vec<HeaderMutableParam>,
     latch_mut_params: Vec<(Name, ArcVarId)>,
     exit_mut_params: Vec<(Name, ArcVarId)>,
-    result_param: ArcVarId,
+    result_param: Option<ArcVarId>,
 }
 
 impl ArcLowerer<'_> {
@@ -39,7 +39,7 @@ impl ArcLowerer<'_> {
         body: CanId,
         label: ori_ir::Name,
     ) -> ArcVarId {
-        let setup = self.prepare_range_loop();
+        let setup = self.prepare_range_loop(false);
 
         tracing::debug!(
             pattern = ?pattern,
@@ -60,7 +60,48 @@ impl ArcLowerer<'_> {
         self.finish_range_loop(setup)
     }
 
-    fn prepare_range_loop(&mut self) -> RangeLoopSetup {
+    /// Lower a range-backed comprehension without materializing an iterator.
+    pub(in crate::lower) fn lower_for_yield_range(
+        &mut self,
+        shape: ForYieldShape,
+        iter_val: ArcVarId,
+        extent: YieldExtent,
+        label: Name,
+    ) -> ArcVarId {
+        let elem_ty = if self.pool.tag(shape.result_ty) == Tag::List {
+            self.pool.list_elem(shape.result_ty)
+        } else {
+            Idx::INT
+        };
+        let elem_size = self.compute_elem_size(elem_ty).cast_unsigned();
+        let (list_ptr, elem_size_var) = self.allocate_yield_list(elem_ty, extent);
+        let setup = self.prepare_range_loop(true);
+        let (step, in_bounds) = self.enter_range_header(iter_val, &setup);
+        let list_push = self.interner.intern("ori_list_push");
+        self.push_range_yield_context(
+            label,
+            &setup,
+            ForYieldContext {
+                list_ptr,
+                elem_size: elem_size_var,
+                list_push_name: list_push,
+            },
+        );
+        self.lower_range_guard(shape.pattern, shape.guard, in_bounds, &setup);
+        self.lower_range_yield_body(
+            shape.pattern,
+            shape.body,
+            list_push,
+            list_ptr,
+            elem_size_var,
+            &setup,
+        );
+        self.loop_ctx_stack.pop();
+        self.emit_range_latch(step, &setup);
+        self.finish_range_yield_loop(shape.result_ty, list_ptr, elem_ty, elem_size, extent, setup)
+    }
+
+    fn prepare_range_loop(&mut self, for_yield: bool) -> RangeLoopSetup {
         let header_block = self.builder.new_block();
         let body_block = self.builder.new_block();
         let latch_block = self.builder.new_block();
@@ -87,7 +128,8 @@ impl ArcLowerer<'_> {
             .iter()
             .map(|&(name, _, ty)| (name, self.builder.add_block_param(latch_block, ty)))
             .collect();
-        let result_param = self.builder.add_block_param(exit_block, Idx::UNIT);
+        let result_param =
+            (!for_yield).then(|| self.builder.add_block_param(exit_block, Idx::UNIT));
         let exit_mut_params = mutable_bindings
             .iter()
             .map(|&(name, _, ty)| (name, self.builder.add_block_param(exit_block, ty)))
@@ -193,6 +235,27 @@ impl ArcLowerer<'_> {
         });
     }
 
+    fn push_range_yield_context(
+        &mut self,
+        label: Name,
+        setup: &RangeLoopSetup,
+        yield_ctx: ForYieldContext,
+    ) {
+        let mutable_vars = setup
+            .header_mut_params
+            .iter()
+            .map(|&(name, _, param)| (name, param))
+            .collect();
+        self.loop_ctx_stack.push(LoopContext {
+            label,
+            exit_block: setup.exit_block,
+            continue_block: setup.latch_block,
+            mutable_vars,
+            abandon_iter: None,
+            yield_ctx: Some(yield_ctx),
+        });
+    }
+
     fn lower_range_guard(
         &mut self,
         pattern: CanBindingPatternId,
@@ -245,6 +308,36 @@ impl ArcLowerer<'_> {
         }
     }
 
+    fn lower_range_yield_body(
+        &mut self,
+        pattern: CanBindingPatternId,
+        body: CanId,
+        list_push: Name,
+        list_ptr: ArcVarId,
+        elem_size: ArcVarId,
+        setup: &RangeLoopSetup,
+    ) {
+        self.builder.position_at(setup.body_block);
+        self.bind_for_pattern(pattern, setup.i_var, Idx::INT);
+        let body_val = self.lower_expr(body);
+        if self.builder.is_terminated() {
+            return;
+        }
+        self.builder.emit_apply(
+            Idx::UNIT,
+            list_push,
+            vec![list_ptr, body_val, elem_size],
+            None,
+            None,
+        );
+        let body_args = setup
+            .header_mut_params
+            .iter()
+            .map(|&(name, _, param)| self.scope.lookup(name).unwrap_or(param))
+            .collect();
+        self.builder.terminate_jump(setup.latch_block, body_args);
+    }
+
     fn emit_range_latch(&mut self, step: ArcVarId, setup: &RangeLoopSetup) {
         self.builder.position_at(setup.latch_block);
         let next = self.builder.emit_let(
@@ -272,7 +365,40 @@ impl ArcLowerer<'_> {
         for &(name, param) in &setup.exit_mut_params {
             self.scope.bind_mutable(name, param);
         }
-        setup.result_param
+        setup
+            .result_param
+            .expect("ordinary range loop has a unit result parameter")
+    }
+
+    fn finish_range_yield_loop(
+        &mut self,
+        result_ty: Idx,
+        list_ptr: ArcVarId,
+        elem_ty: Idx,
+        elem_size: u64,
+        extent: YieldExtent,
+        setup: RangeLoopSetup,
+    ) -> ArcVarId {
+        self.builder.position_at(setup.exit_prep_block);
+        let prep_args = setup
+            .header_mut_params
+            .iter()
+            .map(|&(_, _, param)| param)
+            .collect();
+        self.builder.terminate_jump(setup.exit_block, prep_args);
+
+        self.builder.position_at(setup.exit_block);
+        self.scope = setup.pre_scope;
+        for &(name, param) in &setup.exit_mut_params {
+            self.scope.bind_mutable(name, param);
+        }
+        let list_take = self.interner.intern("ori_list_take");
+        let result = self
+            .builder
+            .emit_apply(result_ty, list_take, vec![list_ptr], None, None);
+        self.builder
+            .note_yield_allocation(list_ptr, result, elem_ty, elem_size, extent);
+        result
     }
 
     /// Emit a zero-step guard: panic at runtime if `step == 0`.

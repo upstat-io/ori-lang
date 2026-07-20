@@ -68,8 +68,8 @@ pub use narrowing::abi::{
 pub use narrowing::overflow::OverflowStrategy;
 pub use pipeline::{compute_repr_plan, compute_repr_plan_with_interner};
 pub use plan::{
-    DecisionReason, DecisionSource, NarrowingPolicy, RcStrategy, ReprAttribute, ReprDecision,
-    ReprPlan,
+    CompiledAllocationDecision, CompiledAllocationMechanism, DecisionReason, DecisionSource,
+    NarrowingPolicy, RcStrategy, ReprAttribute, ReprDecision, ReprPlan, MAX_LOCAL_YIELD_BYTES,
 };
 pub use primitive::{
     binary_primitive_strategy, unary_primitive_strategy, BuiltinType, PrimitiveStrategy,

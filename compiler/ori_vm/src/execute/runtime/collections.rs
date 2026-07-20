@@ -252,6 +252,43 @@ impl Interpreter<'_> {
             }),
         }
     }
+
+    pub(super) fn range_length_value(&self, value: VmValue) -> Result<VmValue, ExecutionError> {
+        let aggregate = self.aggregate(value)?;
+        if aggregate.length != 4 {
+            return Err(ExecutionError::AggregateFieldOutOfBounds {
+                field: 3,
+                length: usize::from(aggregate.length),
+            });
+        }
+        let start = aggregate.fields[0].as_int()?;
+        let end = aggregate.fields[1].as_int()?;
+        let step = aggregate.fields[2].as_int()?;
+        let inclusive = aggregate.fields[3].as_int()? != 0;
+        Ok(VmValue::int(range_length(start, end, step, inclusive)))
+    }
+}
+
+fn range_length(start: i64, end: i64, step: i64, inclusive: bool) -> i64 {
+    if step == 0 {
+        return 0;
+    }
+    let adjusted_end = if inclusive {
+        if step > 0 {
+            end.saturating_add(1)
+        } else {
+            end.saturating_sub(1)
+        }
+    } else {
+        end
+    };
+    let span = if step > 0 {
+        adjusted_end.saturating_sub(start).max(0)
+    } else {
+        start.saturating_sub(adjusted_end).max(0)
+    };
+    let magnitude = step.saturating_abs();
+    span.saturating_add(magnitude).saturating_sub(1) / magnitude
 }
 
 fn next_vector_capacity(current: usize, required: usize, limit: usize) -> usize {

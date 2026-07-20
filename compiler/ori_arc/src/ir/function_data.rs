@@ -108,6 +108,70 @@ pub struct DirectCallFact {
     pub derived_position: DerivedCallPosition,
 }
 
+/// Stable identity for one yield-comprehension accumulator allocation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
+pub struct AllocationSiteId(u32);
+
+impl AllocationSiteId {
+    /// Construct an allocation-site identity from its deterministic function-local index.
+    #[must_use]
+    pub const fn new(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    /// Return the function-local allocation-site index.
+    #[must_use]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+/// Neutral upper-bound evidence for a yield-comprehension allocation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
+pub enum YieldExtent {
+    /// The lowering seam proved an exact constant element bound.
+    StaticExact(u64),
+    /// The bound is computed at runtime from the iterable's own length contract.
+    RuntimeExact(ArcVarId),
+    /// No safe bound is available; the growable fallback remains required.
+    Unknown,
+}
+
+/// AIMS' frozen lifetime verdict for one yield allocation result.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
+pub enum YieldAllocationLocality {
+    /// Analysis has not frozen a verdict yet; physical consumers fail closed.
+    #[default]
+    Unknown,
+    /// The result is bounded by the owning function or a nested block.
+    Local,
+    /// The result may outlive the owning function or otherwise lacks proof.
+    Escaping,
+}
+
+/// A lowering-owned yield allocation, keyed independently of instruction position.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
+pub struct YieldAllocationFact {
+    /// Stable identity within the owning function.
+    pub site: AllocationSiteId,
+    /// Scratch `ori_list_new` result consumed by push/take operations.
+    pub builder: ArcVarId,
+    /// List value produced by `ori_list_take`.
+    pub result: ArcVarId,
+    /// Semantic list element type.
+    pub elem_ty: Idx,
+    /// Physical compatibility size passed to the current list runtime ABI.
+    pub elem_size: u64,
+    /// Backend-neutral capacity evidence.
+    pub extent: YieldExtent,
+    /// AIMS-owned lifetime verdict, frozen after convergence.
+    pub locality: YieldAllocationLocality,
+}
+
 /// A complete function in the ARC IR.
 ///
 /// Contains everything needed for ARC analysis: the function signature
@@ -298,6 +362,12 @@ pub struct ArcFunction {
     /// Exact compiler-generated free-call producer facts.
     #[cfg_attr(feature = "cache", serde(default))]
     pub direct_call_facts: Vec<DirectCallFact>,
+    /// Stable yield-comprehension allocation facts recorded during lowering.
+    ///
+    /// AIMS and representation planning consume these identities without
+    /// rediscovering syntax or depending on mutable instruction positions.
+    #[cfg_attr(feature = "cache", serde(default))]
+    pub yield_allocations: Vec<YieldAllocationFact>,
     /// Whether the class-ledger emitter committed its verified Step-4b plan for
     /// this function.
     ///

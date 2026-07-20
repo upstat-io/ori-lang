@@ -1358,6 +1358,7 @@ fn test_function_with_blocks(
         method_call_facts: Vec::new(),
         operator_call_facts: Vec::new(),
         direct_call_facts: Vec::new(),
+        yield_allocations: Vec::new(),
         class_ledger_emission: false,
     }
 }

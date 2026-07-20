@@ -116,6 +116,7 @@ pub mod unit_factories;
 pub mod value_empty_burden;
 pub mod wasm;
 pub mod wrapper_rc_retain;
+pub mod yield_allocation;
 
 // Re-export test utilities
 pub mod util;

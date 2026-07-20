@@ -17,6 +17,15 @@ use super::{rc_trace_enabled, RC_HEADER_SIZE, RC_LIVE_COUNT};
 use std::sync::atomic::AtomicI64;
 use std::sync::atomic::Ordering;
 
+/// `data_size` marker for compiler-proven function-lifetime backing storage.
+pub const LOCAL_DATA_SIZE: i64 = -1;
+
+/// Whether an RC-compatible header describes local rather than heap storage.
+#[inline]
+pub fn is_local_storage(data_ptr: *const u8) -> bool {
+    ori_rc_data_size(data_ptr) == LOCAL_DATA_SIZE
+}
+
 /// Allocate a new reference-counted object.
 ///
 /// Allocates `size + 32` bytes with the given alignment, initializes
@@ -92,6 +101,9 @@ pub extern "C" fn ori_rc_free(data_ptr: *mut u8, size: usize, align: usize) {
     if data_ptr.is_null() {
         return;
     }
+    if is_local_storage(data_ptr.cast_const()) {
+        return;
+    }
 
     #[cfg(debug_assertions)]
     rt_debug_register_freed(data_ptr.cast_const());
@@ -138,6 +150,23 @@ pub extern "C" fn ori_rc_realloc(
 ) -> *mut u8 {
     if data_ptr.is_null() {
         return std::ptr::null_mut();
+    }
+
+    if is_local_storage(data_ptr.cast_const()) {
+        let new_data = ori_rc_alloc(new_data_size, align);
+        if new_data.is_null() {
+            return std::ptr::null_mut();
+        }
+        // SAFETY: both buffers are valid for the copied initialized prefix;
+        // the caller supplies the current byte sizes.
+        unsafe {
+            std::ptr::copy_nonoverlapping(data_ptr, new_data, old_data_size.min(new_data_size));
+            let old_base = data_ptr.sub(RC_HEADER_SIZE);
+            let new_base = new_data.sub(RC_HEADER_SIZE);
+            std::ptr::copy_nonoverlapping(old_base.add(8), new_base.add(8), 16);
+            old_base.add(16).cast::<i64>().write(0);
+        }
+        return new_data;
     }
 
     let align = align.max(8);

@@ -155,6 +155,8 @@ pub(crate) fn run_aims_pipeline(
         config.observer,
     );
 
+    freeze_yield_allocation_locality(func, &state_map);
+
     // INVARIANT: Converged state fixes the birth-site partition before burden emission.
     let birth_site_partition =
         crate::aims::intraprocedural::birth_site_population::compute_birth_site_partition(
@@ -241,6 +243,41 @@ pub(crate) fn run_aims_pipeline(
         missed_reuses,
         was_trmc_rewritten: trmc_rewrite_survived,
     })
+}
+
+/// Freeze AIMS placement eligibility onto stable yield-allocation identities.
+fn freeze_yield_allocation_locality(
+    func: &mut ArcFunction,
+    state_map: &crate::aims::intraprocedural::AimsStateMap,
+) {
+    let returned_vars: FxHashSet<_> = func
+        .blocks
+        .iter()
+        .filter_map(|block| match block.terminator {
+            crate::ir::ArcTerminator::Return { value } => Some(value),
+            _ => None,
+        })
+        .collect();
+    let mut eligible = FxHashSet::default();
+    for block in &func.blocks {
+        for event in state_map.events_in_block(block.id) {
+            if let crate::aims::intraprocedural::AimsEvent::PlacementEligibilityCandidate {
+                var,
+                ..
+            } = event
+            {
+                eligible.insert(*var);
+            }
+        }
+    }
+    for fact in &mut func.yield_allocations {
+        fact.locality = if eligible.contains(&fact.result) && !returned_vars.contains(&fact.result)
+        {
+            crate::ir::YieldAllocationLocality::Local
+        } else {
+            crate::ir::YieldAllocationLocality::Escaping
+        };
+    }
 }
 
 pub(super) fn validate_variable_metadata(

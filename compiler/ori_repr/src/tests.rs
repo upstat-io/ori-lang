@@ -9,8 +9,12 @@ use crate::struct_repr::{ClosureRepr, FatRepr, FieldRepr, RcRepr, StructRepr, Tu
 use crate::ReprAttribute;
 use crate::ReprPlan;
 
+use ori_arc::ir::{
+    AllocationSiteId, ArcVarId, YieldAllocationFact, YieldAllocationLocality, YieldExtent,
+};
 use ori_ir::Name;
 use ori_types::ExportedTypeMetadata;
+use rustc_hash::FxHashMap;
 
 // IntWidth / FloatWidth
 
@@ -302,9 +306,106 @@ fn value_range_is_interval_lattice() {
     );
 }
 
+fn yield_fact(
+    site: u32,
+    builder: u32,
+    result: u32,
+    elem_size: u64,
+    extent: YieldExtent,
+    locality: YieldAllocationLocality,
+) -> YieldAllocationFact {
+    YieldAllocationFact {
+        site: AllocationSiteId::new(site),
+        builder: ArcVarId::new(builder),
+        result: ArcVarId::new(result),
+        elem_ty: ori_types::Idx::BOOL,
+        elem_size,
+        extent,
+        locality,
+    }
+}
+
 #[test]
-fn escape_info_has_no_runtime_storage() {
-    assert_eq!(std::mem::size_of::<EscapeInfo>(), 0);
+fn escape_info_only_admits_aims_proven_local_identities() {
+    let local = yield_fact(
+        0,
+        1,
+        2,
+        1,
+        YieldExtent::StaticExact(4),
+        YieldAllocationLocality::Local,
+    );
+    let escaping = yield_fact(
+        1,
+        3,
+        4,
+        1,
+        YieldExtent::StaticExact(4),
+        YieldAllocationLocality::Escaping,
+    );
+    let info = EscapeInfo::from_yield_allocations(&[local, escaping]);
+
+    assert!(!info.escapes(local.builder));
+    assert!(!info.escapes(local.result));
+    assert!(info.escapes(escaping.builder));
+    assert!(info.escapes(escaping.result));
+    assert!(info.escapes(ArcVarId::new(99)));
+}
+
+#[test]
+fn yield_allocation_selection_is_exact_bounded_and_fail_closed() {
+    let function = Name::new(0, 91);
+    let local = yield_fact(
+        0,
+        1,
+        2,
+        8,
+        YieldExtent::StaticExact(32),
+        YieldAllocationLocality::Local,
+    );
+    let oversized = yield_fact(
+        1,
+        3,
+        4,
+        8,
+        YieldExtent::StaticExact(513),
+        YieldAllocationLocality::Local,
+    );
+    let dynamic = yield_fact(
+        2,
+        5,
+        6,
+        8,
+        YieldExtent::RuntimeExact(ArcVarId::new(7)),
+        YieldAllocationLocality::Local,
+    );
+    let escaping = yield_fact(
+        3,
+        8,
+        9,
+        8,
+        YieldExtent::StaticExact(32),
+        YieldAllocationLocality::Escaping,
+    );
+    let mut facts = FxHashMap::default();
+    facts.insert(function, vec![local, oversized, dynamic, escaping]);
+    let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
+    plan.freeze_yield_allocations(&facts);
+
+    assert_eq!(
+        plan.yield_allocation_for_builder(function, local.builder)
+            .expect("local allocation decision")
+            .mechanism,
+        crate::CompiledAllocationMechanism::StackSlot
+    );
+    for fact in [oversized, dynamic, escaping] {
+        assert_eq!(
+            plan.yield_allocation_for_result(function, fact.result)
+                .expect("managed allocation decision")
+                .mechanism,
+            crate::CompiledAllocationMechanism::RuntimeHeap
+        );
+    }
 }
 
 // Semantic Pin Tests

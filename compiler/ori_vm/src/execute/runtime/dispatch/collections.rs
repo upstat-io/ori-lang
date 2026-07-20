@@ -121,4 +121,13 @@ impl Interpreter<'_> {
         let [value] = self.runtime_values::<1>(site.frame, site.operands, site.call, operands)?;
         self.length_value(value)
     }
+
+    pub(super) fn runtime_range_length(
+        &mut self,
+        site: RuntimeSite,
+        operands: &mut impl OperandAccess,
+    ) -> Result<VmValue, ExecutionError> {
+        let [value] = self.runtime_values::<1>(site.frame, site.operands, site.call, operands)?;
+        self.range_length_value(value)
+    }
 }

@@ -122,6 +122,34 @@ fn fixed_capacity_conversions_are_direct_identity_transfers() {
 }
 
 #[test]
+fn indexed_cow_result_is_born_unique_and_block_local() {
+    let interner = StringInterner::new();
+    let builtins = BuiltinOwnershipSets::new(&interner);
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+
+    let contract = sigs
+        .get(&interner.intern("updated"))
+        .expect("missing indexed COW contract");
+    assert_eq!(contract.return_info.uniqueness, Uniqueness::Unique);
+    assert_eq!(contract.return_info.locality, Locality::BlockLocal);
+    assert!(contract.return_info.preserves_freshness);
+}
+
+#[test]
+fn yield_finalizer_result_is_born_unique_and_fresh() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+
+    let contract = &sigs[&interner.intern("ori_list_take")];
+    assert_eq!(contract.return_info.uniqueness, Uniqueness::Unique);
+    assert_eq!(contract.return_info.locality, Locality::BlockLocal);
+    assert!(contract.return_info.preserves_freshness);
+    assert!(contract.return_info.returns_fresh_self_alloc);
+}
+
+#[test]
 fn seed_does_not_overwrite_existing() {
     let (interner, builtins) = setup();
     let mut sigs = FxHashMap::default();
