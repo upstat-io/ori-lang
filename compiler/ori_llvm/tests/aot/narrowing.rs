@@ -64,7 +64,7 @@ fn test_narrowed_struct_i8_boundaries() {
 
 // Multi-file AOT semantic pin tests for cross-module type metadata are blocked on multi-file
 // AOT compilation being incomplete (modules support). The ARC IR
-// emitter currently cannot resolve cross-module function calls. The plumbing
+// Why: the emitter cannot resolve cross-module function calls. The plumbing
 // for ExportedTypeMetadata is verified by:
 // 1. Unit tests in compiler/oric/src/commands/build/tests.rs
 //    (collect_imported_type_metadata correctness)
@@ -195,7 +195,7 @@ fn test_non_narrowed_struct_ir_pin_wide_range() {
 // These tests exercise derived hash(), to_str(), and debug() on narrowed structs
 // with NEGATIVE field values. A zext (instead of sext) bug when widening i8 fields
 // to canonical i64 for runtime functions would corrupt negative values (e.g., -50
-// becomes 206). Previous derive tests only used positive values and would not
+// becomes 206). Positive-only derive inputs would not
 // catch this.
 
 /// Semantic pin: derived `hash()` on narrowed struct with negative i8 field values.

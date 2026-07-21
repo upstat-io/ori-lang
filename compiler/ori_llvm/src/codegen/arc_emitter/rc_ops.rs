@@ -2,7 +2,7 @@
 //!
 //! Each [`RcStrategy`] variant has a dedicated `emit_rc_inc_*` and
 //! `emit_rc_dec_*` function. These replace the monolithic Pool-querying
-//! handlers that previously lived inline in `emit_instr`.
+//! handlers emitted from `emit_instr`.
 //!
 //! # Strategy → handler mapping
 //!

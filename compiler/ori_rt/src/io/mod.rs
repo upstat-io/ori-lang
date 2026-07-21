@@ -5,7 +5,7 @@
 //! - **Panic**: `ori_panic`, `ori_panic_cstr`, bounds panic helpers
 //! - **Assert**: `ori_assert`, `ori_assert_eq_*`
 //! - **Catch/recover**: `ori_catch_cleanup`, `ori_catch_recover`
-//! - **JIT recovery**: LLVM `invoke`/`landingpad` for test wrappers; legacy `setjmp`/`longjmp` fallback in `jit_run_protected` (`jit_recovery`)
+//! - **JIT recovery**: LLVM `invoke`/`landingpad` for test wrappers; `setjmp`/`longjmp` fallback in `jit_run_protected` (`jit_recovery`)
 //! - **Panic handler**: `ori_register_panic_handler` for user `@panic` functions (`panic_state`)
 
 pub(crate) mod jit_recovery;
@@ -185,10 +185,7 @@ pub extern "C-unwind" fn ori_panic_index_out_of_bounds(index: i64, length: i64) 
     reason = "C-unwind ABI is for unwind semantics, not actual C interop — String stays in Rust frames"
 )]
 extern "C-unwind" fn dispatch_panic(msg: String) -> ! {
-    // Nested drop-panic: a panic raised while a drop-cleanup region is active
-    // (a codegen cleanup landing pad running drop work on the unwind path) is
-    // the double-panic case — abort instead of unwinding further
-    // (drop-trait-proposal.md §Drop and panic).
+    // Why: a second panic during drop cleanup cannot unwind safely.
     if super::rc::drop_cleanup_active() {
         super::rc::ori_drop_double_panic_abort();
     }

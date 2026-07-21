@@ -11,7 +11,7 @@ use crate::uniqueness::CowMode;
 /// Whether `recv`'s jump-threaded collection lineage is RETURNED from `func` —
 /// the SAME discriminator the element-escape keep-alive gates on
 /// ([`collection_receiver_returned`]). This is a logical element-ownership fact
-/// for every physical projection. LLVM currently maps it to the paired
+/// for every physical projection. LLVM maps it to the paired
 /// elem-header store on push results: the keep-alive inc's balancing release is
 /// the receiving collection's `elem_dec_fn`, which exists only when the result
 /// buffer's header is populated; an in-scope (non-returned) receiver holds

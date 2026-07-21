@@ -12,7 +12,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// Source functions, monomorphized functions, imports, and impl methods have
     /// role-specific symbol or dispatch registration and are declared before
     /// this pass. `deferred_parents` names roles which are intentionally emitted
-    /// later through a custom projection, currently impl methods and JIT test
+    /// later through a custom projection, including impl methods and JIT test
     /// wrappers. Every remaining parent is a compiler-generated executable body
     /// and uses its exact artifact shape plus frozen AIMS ownership contract to
     /// derive one physical ABI.
@@ -250,10 +250,8 @@ mod tests {
     use ori_types::{Idx, Pool, TypeRegistry};
     use rustc_hash::{FxHashMap, FxHashSet};
 
-    use super::{match_executable_function, same_physical_abi, unclaimed_artifact_parents};
-    use crate::codegen::abi::{
-        CallConv, FunctionAbi, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing,
-    };
+    use super::{match_executable_function, unclaimed_artifact_parents};
+    use crate::codegen::abi::{CallConv, FunctionAbi, ReturnAbi, ReturnPassing};
 
     fn fixture() -> (ExecutableProgram, SharedInterner, ori_ir::Name) {
         let symbols = SharedInterner::new();
@@ -404,22 +402,6 @@ mod tests {
         (program, source, generated, deferred_impl, deferred_test)
     }
 
-    fn parameterized_abi(name: ori_ir::Name) -> FunctionAbi {
-        FunctionAbi {
-            params: vec![ParamAbi {
-                name,
-                ty: Idx::INT,
-                passing: ParamPassing::Direct,
-                readonly: false,
-            }],
-            return_abi: ReturnAbi {
-                ty: Idx::INT,
-                passing: ReturnPassing::Direct,
-            },
-            call_conv: CallConv::Fast,
-        }
-    }
-
     #[test]
     fn exact_artifact_identity_binds_stable_function_id() {
         let (program, symbols, main) = fixture();
@@ -456,63 +438,7 @@ mod tests {
             vec![generated_id]
         );
     }
-
-    #[test]
-    fn same_physical_abi_different_parameter_names_matches() {
-        let symbols = SharedInterner::new();
-        let left = parameterized_abi(symbols.intern("left_display_name"));
-        let right = parameterized_abi(symbols.intern("right_display_name"));
-
-        assert!(same_physical_abi(&left, &right));
-    }
-
-    #[test]
-    fn same_physical_abi_parameter_passing_mismatch_rejects() {
-        let symbols = SharedInterner::new();
-        let left = parameterized_abi(symbols.intern("parameter"));
-        let mut right = left.clone();
-        right.params[0].passing = ParamPassing::Reference;
-
-        assert!(!same_physical_abi(&left, &right));
-    }
-
-    #[test]
-    fn same_physical_abi_parameter_readonly_mismatch_rejects() {
-        let symbols = SharedInterner::new();
-        let left = parameterized_abi(symbols.intern("parameter"));
-        let mut right = left.clone();
-        right.params[0].readonly = true;
-
-        assert!(!same_physical_abi(&left, &right));
-    }
-
-    #[test]
-    fn same_physical_abi_parameter_type_mismatch_rejects() {
-        let symbols = SharedInterner::new();
-        let left = parameterized_abi(symbols.intern("parameter"));
-        let mut right = left.clone();
-        right.params[0].ty = Idx::BOOL;
-
-        assert!(!same_physical_abi(&left, &right));
-    }
-
-    #[test]
-    fn same_physical_abi_return_type_mismatch_rejects() {
-        let symbols = SharedInterner::new();
-        let left = parameterized_abi(symbols.intern("parameter"));
-        let mut right = left.clone();
-        right.return_abi.ty = Idx::BOOL;
-
-        assert!(!same_physical_abi(&left, &right));
-    }
-
-    #[test]
-    fn same_physical_abi_return_passing_mismatch_rejects() {
-        let symbols = SharedInterner::new();
-        let left = parameterized_abi(symbols.intern("parameter"));
-        let mut right = left.clone();
-        right.return_abi.passing = ReturnPassing::Sret { alignment: 8 };
-
-        assert!(!same_physical_abi(&left, &right));
-    }
 }
+
+#[cfg(test)]
+mod abi_tests;
