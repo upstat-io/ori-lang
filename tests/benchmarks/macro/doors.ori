@@ -1,0 +1,23 @@
+// 100 doors simulation (mutation-heavy: each .set copies the list under COW).
+// Uses .set(index:, value:), the functional list-element update.
+@simulate () -> int = {
+    let doors = for _ in 0..100 yield false;
+    for pass in 1..=100 do {
+        for idx in (pass - 1)..100 by pass do {
+            doors = doors.set(index: idx, value: !doors[idx]);
+        };
+    };
+    let open = 0;
+    for i in 0..100 do {
+        if doors[i] then open = open + 1;
+    };
+    open
+}
+
+@main () -> int = {
+    let total = 0;
+    for _ in 0..200 do {
+        total = total + simulate();
+    };
+    total
+}
