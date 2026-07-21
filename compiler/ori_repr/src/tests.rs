@@ -408,17 +408,19 @@ fn yield_allocation_selection_is_exact_bounded_and_fail_closed() {
     let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
     plan.freeze_yield_allocations(&facts);
 
+    let Some(local_decision) = plan.yield_allocation_for_builder(function, local.builder) else {
+        panic!("local allocation decision");
+    };
     assert_eq!(
-        plan.yield_allocation_for_builder(function, local.builder)
-            .expect("local allocation decision")
-            .mechanism,
+        local_decision.mechanism,
         crate::CompiledAllocationMechanism::StackSlot
     );
     for fact in [oversized, dynamic, escaping, repeated] {
+        let Some(decision) = plan.yield_allocation_for_result(function, fact.result) else {
+            panic!("managed allocation decision");
+        };
         assert_eq!(
-            plan.yield_allocation_for_result(function, fact.result)
-                .expect("managed allocation decision")
-                .mechanism,
+            decision.mechanism,
             crate::CompiledAllocationMechanism::RuntimeHeap
         );
     }
@@ -470,21 +472,20 @@ fn yield_header_elision_requires_exact_runtime_call_targets() {
         .close_yield_runtime_header_requirements(std::slice::from_ref(&function), |_, dst| {
             dst == observed
         });
-    assert!(
-        !runtime_plan
-            .yield_allocation_for_result(function_name, result)
-            .expect("runtime-target yield decision")
-            .requires_runtime_header
-    );
+    let Some(runtime_decision) = runtime_plan.yield_allocation_for_result(function_name, result)
+    else {
+        panic!("runtime-target yield decision");
+    };
+    assert!(!runtime_decision.requires_runtime_header);
 
     let mut exact_plan = ReprPlan::new(NarrowingPolicy::Disabled);
     exact_plan.freeze_yield_allocations(&facts);
     exact_plan.close_yield_runtime_header_requirements(&[function], |_, _| false);
+    let Some(exact_decision) = exact_plan.yield_allocation_for_result(function_name, result) else {
+        panic!("exact-target yield decision");
+    };
     assert!(
-        exact_plan
-            .yield_allocation_for_result(function_name, result)
-            .expect("exact-target yield decision")
-            .requires_runtime_header,
+        exact_decision.requires_runtime_header,
         "same-spelled local/imported callables must fail closed to headerful storage"
     );
 }

@@ -365,9 +365,10 @@ impl ArcLowerer<'_> {
         for &(name, param) in &setup.exit_mut_params {
             self.scope.bind_mutable(name, param);
         }
-        setup
-            .result_param
-            .expect("ordinary range loop has a unit result parameter")
+        let Some(result_param) = setup.result_param else {
+            unreachable!("ordinary range loop has a unit result parameter");
+        };
+        result_param
     }
 
     fn finish_range_yield_loop(

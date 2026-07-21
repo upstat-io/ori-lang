@@ -128,9 +128,7 @@ fn indexed_cow_result_is_born_unique_and_block_local() {
     let mut sigs = FxHashMap::default();
     seed_builtin_contracts(&mut sigs, &builtins, &interner);
 
-    let contract = sigs
-        .get(&interner.intern("updated"))
-        .expect("missing indexed COW contract");
+    let contract = &sigs[&interner.intern("updated")];
     assert_eq!(contract.return_info.uniqueness, Uniqueness::Unique);
     assert_eq!(contract.return_info.locality, Locality::BlockLocal);
     assert!(contract.return_info.preserves_freshness);
