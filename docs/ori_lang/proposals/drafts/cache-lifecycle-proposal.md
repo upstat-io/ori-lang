@@ -6,13 +6,13 @@
 **Affects:** Build system, compiler driver (`oric`), CI, release packaging, developer disk footprint
 **Depends On:** toolchain-philosophy-proposal.md (approved)
 **Amends:** aot-compilation-proposal.md (approved) — its Incremental Compilation Cache decision
-**Related:** multi-file-aot-proposal.md (approved), self-contained-toolchain-proposal.md (draft)
+**Related:** multi-file-aot-proposal.md (approved), self-contained-toolchain-proposal.md (draft), binary-generation-lifecycle-proposal.md (successor — owns final-binary publication and reclaim)
 
 ---
 
 ## Summary
 
-Ori's build cache gains an **automatic, bounded eviction lifecycle** it does not have today. This proposal migrates the existing single-source object cache — already global, already content-addressed, already atomic — into the general build-artifact cache, adds the garbage collection it currently lacks, publishes each final binary as an immutable generation with an atomic pointer switch, and separates debug information through the platform-native mechanisms the AOT proposal already chose. Cache administration becomes `ori cache` subcommands.
+Ori's build cache gains an **automatic, bounded eviction lifecycle** it does not have today. This proposal migrates the existing single-source object cache — already global, already content-addressed, already atomic — into the general build-artifact cache, adds the garbage collection it currently lacks, and separates debug information so a shipped artifact is code rather than symbols. Cache administration becomes `ori cache` subcommands. Scope is deliberately bounded to **content-addressed, hermetically regenerable entries**, where eviction is safe by construction; final-binary publication and reclaim — which need supersession and live-reader coordination, not content-addressing — are the successor proposal `binary-generation-lifecycle-proposal.md`.
 
 This proposal owns the **mechanism** for invariant **T4 ("The Creator Owns the Lifecycle")** of the approved `toolchain-philosophy-proposal.md`, which states the outcome contract: the cache is bounded and self-evicting, debug info is separable, and a per-project never-evicted cache is the explicitly rejected anti-pattern.
 
@@ -27,10 +27,12 @@ It **amends** the approved `aot-compilation-proposal.md`, whose Incremental Comp
 Ori already ships a cross-invocation, content-addressed object cache for the single-source `ori build` path:
 
 - `oric/src/commands/build/incremental_cache.rs` — `CacheProbe::{Hit, Miss, Bypass}` over a `CacheKey { source_hash, deps_hash, flags_hash }`, publishing an `ObjectManifest { schema, request_sha256, object_sha256, object_size }` under `CACHE_FORMAT_VERSION = "ori-build-object-v2"`.
-- `ori_llvm/src/aot/incremental/cache/` — `ArtifactCache` with atomic write-then-rename publication (`atomic.rs`) and generation-based retention.
+- `ori_llvm/src/aot/incremental/cache/` — `ArtifactCache` with a two-step publication discipline in `atomic.rs`: generation *content* is written to an exclusively-created path (`publish_generation_bytes` / `publish_generation_file`, `create_new`, no rename), and the *metadata* that makes a generation discoverable is published by write-then-rename (`publish_bytes_atomically` → `fs::rename`). Content creation and visibility are already distinct steps.
 - The cache root is already **global and per-user** (`$XDG_CACHE_HOME/ori/build/<version>`, falling back to `~/.cache/ori/build/<version>`), and already **rejects a relative `XDG_CACHE_HOME`** with an explicit diagnostic.
 
-So the foundation this proposal needs is largely built. What is missing is the **lifecycle**: there is no eviction, no budget, no `gc`, and `clear()` is a blunt directory removal whose own doc comment records the hazard it does not solve — a concurrent linker may still hold an object path a reclaim would delete.
+So the foundation this proposal needs is largely built. What is missing is the **lifecycle**: there is no eviction, no budget, and no `gc`. `ArtifactCache::remove`'s doc comment records the residual reclaim hazard — "a concurrent linker may still hold the object path returned by `get_verified`" — and directs reclaim to `clear`, which is a blunt directory removal.
+
+*Absence-claim grounding:* the "no eviction / no budget / no `gc`" claim was established by reading `oric/src/commands/build/incremental_cache.rs` and `ori_llvm/src/aot/incremental/cache/{mod,atomic,tests}.rs` in full and searching `compiler/` for eviction, budget, and collection entry points; no such surface exists. This is a claim about implementation, verified against implementation.
 
 ### The gap this closes
 
@@ -38,16 +40,16 @@ Nothing bounds the cache. Ori is early enough that no user has hit the wall yet,
 
 ```
 63G     target/
-40G     target/debug/incremental/     # ~71% — incremental cache, never pruned
+40G     target/debug/incremental/     # ~63% — incremental cache, never pruned
 215 MB  target/debug/ori              # of which ~185 MB is DWARF; ~25 MB is code
         target/debug/deps/            # 10 hash-suffixed copies of the same binary, none collected
 ```
 
-Across a dozen workspaces that reaches 200–400 GB. The root cause is not *having* a cache — it is that **no component owns the cache's eviction lifecycle**, so "disposable" never becomes "automatically disposed". Ori has the same structural exposure today: an unbounded global cache plus a not-yet-written multi-file cache.
+This is not one pathological workspace. Enumerating every Rust `target/` directory on the same machine (`du -s --block-size=1M` over `find ~/projects -maxdepth 3 -type d -name target`) gives 65159 + 63636 + 29375 + 3902 + 12 MiB across five workspaces — **158.3 GiB** (`(65159+63636+29375+3902+12)/1024` → `158.3`) held by a single toolchain's build caches, none of it reclaimed by anything. The root cause is not *having* a cache — it is that **no component owns the cache's eviction lifecycle**, so "disposable" never becomes "automatically disposed". Ori has the same structural exposure today: an unbounded global cache plus a not-yet-written multi-file cache.
 
 ### Why now
 
-The multi-file build path has no on-disk artifact cache yet. Extending the existing single-source cache to cover it is imminent work. Establishing eviction, generation-based publication, and debug-info separation **as part of that extension** avoids retrofitting a lifecycle onto a format that did not plan for one — precisely the position Cargo is in.
+The multi-file build path has no on-disk artifact cache yet. Extending the existing single-source cache to cover it is imminent work. Establishing eviction and debug-info separation **as part of that extension** avoids retrofitting a lifecycle onto a format that did not plan for one — precisely the position Cargo is in.
 
 ---
 
@@ -57,7 +59,6 @@ The multi-file build path has no on-disk artifact cache yet. Extending the exist
 
 - Migrate the existing single-source object cache into the general build-artifact cache, preserving its content-addressing, atomicity, and absolute-path discipline.
 - Add eviction that is **on by default** and bounded, with a policy that does not depend on unreliable filesystem metadata.
-- Publish large artifacts as immutable generations with atomic pointer switching, so N rebuilds do not retain N copies **and** never mutate a binary another process is reading.
 - Separate debug information via the **platform-native** mechanisms the AOT proposal already chose.
 - Expose cache administration as `ori cache` subcommands (per T1/T2).
 - Amend the approved project-local `build/cache/` decision explicitly, addressing its stated rationale.
@@ -69,6 +70,7 @@ The multi-file build path has no on-disk artifact cache yet. Extending the exist
 - Not a package/registry download-cache policy.
 - Not a change to `build/obj/` or the AOT output layout — deliverables stay where `aot-compilation-proposal.md` puts them; only the *cache* moves.
 - Does not re-decide T4's outcome contract, which the approved umbrella owns.
+- **Not the final-binary publication and reclaim mechanism.** Generation identity, current-pointer switching, cross-platform replace semantics, deliverable materialization, and live-reader coordination belong to `binary-generation-lifecycle-proposal.md`. This proposal states the outcome those must satisfy (D4) and stops there.
 
 ---
 
@@ -95,8 +97,9 @@ The existing cache root, key, manifest, and atomic publication are adopted as th
 
 ### D2 — Eviction on by default, budget + recency, never `atime`
 
-- **Budget:** the cache targets a configurable maximum total size. Exceeding it triggers collection.
-- **Recency floor:** entries used within a recency window are never evicted, so the active working set survives.
+- **Budget:** the cache targets a configurable maximum total size. Exceeding it triggers collection. **The budget is hard and always wins** (see below).
+- **Recency floor:** entries used within a recency window are preferentially retained, so the active working set survives ordinary collection. The floor is a *preference*, never an unconditional exemption.
+- **Budget-vs-floor interaction — the budget is authoritative.** When the recency-protected set *alone* would exceed the budget, collection does not stop at the floor: it (a) narrows the recency window until the protected set fits, evicting the oldest protected entries first, and (b) stops admitting new entries for that build if the budget still cannot be met. A cache that stayed over budget because everything was recently used would not be bounded, and T4 requires bounded. The floor bounds *surprise*, the budget bounds *size*, and size wins.
 - **Use-stamping is tool-owned.** Each entry's manifest records last-use, stamped by the build tool when it reads the entry. `atime` is **not** consulted — it is disabled or coarsened on most Linux mounts (`relatime`/`noatime`).
 - **When it runs:** opportunistically after a build when over budget, doing bounded work per invocation; and on demand via `ori cache gc`.
 - **Order:** least-recently-used within artifact class, respecting the recency floor.
@@ -110,30 +113,38 @@ This is the property that lets collection be on by default, and it is **scoped d
 | Class | Safe to evict freely? | Why |
 |---|---|---|
 | Intermediate objects, IR, metadata, incremental state | **Yes** | Content-addressed, hermetic, regenerable from their key |
-| Final binaries (D4) | **No — pointer-switched, not freely evicted** | Keyed by build identity, not content; a live reader may hold the prior generation |
-| Debug sidecars (D5) | **No — lifetime-bound to their artifact** | Not independently regenerable once its artifact's inputs are gone |
+| Final binaries | **Out of scope** | Keyed by build identity, not content; needs supersession + live-reader coordination (successor proposal) |
+| Debug sidecars for cached intermediates (D5) | **Yes — jointly with their object** | Same content-addressed key, so they cannot be orphaned |
 | Installation-managed components (bundled linker/SDK per `self-contained-toolchain`) | **No — excluded from GC entirely** | Installed, not built; not regenerable from a cache key |
 
-Where a per-project non-content-addressed layout must reason about which artifacts a future configuration might still need, Ori's regenerable classes avoid that problem rather than solving it. The non-regenerable classes get explicit mechanisms below instead of inheriting a safety argument that does not cover them.
+Where a per-project non-content-addressed layout must reason about which artifacts a future configuration might still need, Ori's regenerable classes avoid that problem rather than solving it: eviction is safe *by construction*, because the key that named the entry also reconstructs it. **This is the seam the proposal is scoped to.** Classes that do not have that property — final binaries, installed components — do not inherit the safety argument and are therefore excluded rather than covered by prose.
 
-### D4 — Per-artifact-class retention; final binaries publish as immutable generations
+### D4 — Per-artifact-class retention
 
 | Artifact class | Storage | Rationale |
 |---|---|---|
 | Intermediate objects, IR, metadata | Content-addressed, retained under budget | Small, high reuse across projects and configurations |
 | Incremental-compilation state | Content-addressed, retained under budget, evicted first | Large and regenerable; the dominant term in the motivating failure |
-| Final binaries | **Immutable generation + atomic identity-pointer switch**, retained per (project, profile, target) | Prevents N rebuilds retaining N copies without ever mutating a file in place |
-| Debug sidecars | Published with their generation; reclaimed with it | Co-lifetime is structural, not asserted (see below) |
+| Debug sidecars for cached intermediates | Content-addressed with their object; reclaimed with it | Same key, same lifetime — no cross-key orphaning |
+| **Final binaries and their sidecars** | **Out of scope — mechanism owned by `binary-generation-lifecycle-proposal.md`** | See below |
 
-**"Updated in place" is not the mechanism.** A rebuild publishes a **new immutable generation** (content written to a fresh path, then atomically renamed — the discipline `atomic.rs` already implements for objects) and then **atomically switches the identity pointer** for that (project, profile, target). The prior generation is reclaimed only once no live reader holds it. Literally overwriting a binary is banned: a running or being-linked executable must never be mutated underneath its reader — the hazard `ArtifactCache::remove`'s own doc comment records ("a concurrent linker may still hold the object path returned by `get_verified`") and which today's blunt `clear()` does not honor.
+**Final-binary retention is deliberately out of scope.** This proposal states the *outcome* T4 requires and defers the mechanism:
 
-**Sidecar co-lifetime is mechanical, not asserted.** A debug sidecar is published *inside its artifact's generation*, so it shares that generation's identity and reclaim. It is not a separately content-addressed entry that could be evicted while its binary survives — the previous framing asserted "never orphaned" across two different retention keys with no mechanism to enforce it.
+> A rebuild MUST NOT cause the cache to accumulate one retained copy per build. A final binary MUST NOT be mutated underneath a process reading or executing it. A binary's debug sidecar MUST share its artifact's lifetime.
 
-History is not a build-cache responsibility; version control owns history. Generation retention exists to protect live readers, not to preserve past builds.
+The mechanism satisfying that outcome — generation identity (which must distinguish `--lib` / `--dylib` / `--wasm` / `--emit` / `-o` outputs, not merely project/profile/target), current-pointer publication with correct cross-platform replace semantics, deliverable materialization for a path a user may be executing, reclaim coordination against live readers, and the budget interaction for the set of current generations — is owned by `binary-generation-lifecycle-proposal.md`.
+
+That split is deliberate. Those problems are a concurrent-systems design with real platform divergence (Windows locks in-use executables and its `rename` does not replace); they are not settled by prose in a cache-policy proposal. Keeping them here produced three successive rounds of second-order races. Everything above this row is content-addressed and idempotent, where the existing publication primitive is already sound — which is precisely why the seam falls here.
+
+One principle does stay here, because it governs eviction policy for every class: **history is not a build-cache responsibility.** Version control owns history. Retention exists to make the next build fast and to protect live readers — never to preserve past builds. An entry no build will ask for again has no claim on disk.
 
 ### D5 — Debug info separated via platform-native mechanisms
 
-`aot-compilation-proposal.md` already decided the debug formats: **DWARF + dSYM on macOS** (an explicit Design Decision), **CodeView/PDB on Windows**, and split-DWARF (`.dwo`) on Linux. This proposal adopts those and does **not** introduce a parallel discovery mechanism.
+D5 governs what the compiler **emits**, not how a binary is retained. It stays here because "debug information is separable" is a T4 outcome about artifact composition, and because it is settled by adopting existing platform conventions rather than by a concurrency design. Where a separated sidecar is then *stored and reclaimed* alongside a final binary is the successor proposal's concern.
+
+`aot-compilation-proposal.md`'s Debug Format table decides: **Linux — DWARF 4, default (embedded)**; **macOS — DWARF 4 + dSYM, split** (also an explicit Design Decision, "Separate dSYM files by default on macOS"); **Windows — CodeView/PDB**; **WASM — DWARF 4**. This proposal adopts macOS and Windows unchanged and does **not** introduce a parallel discovery mechanism.
+
+**Linux is a new decision this proposal makes, not one it inherits.** The approved table has Linux at embedded DWARF 4, which does not satisfy T4's "debug information is separable" outcome — macOS and Windows already do by construction, Linux does not. This proposal therefore **amends the Linux row** to default to split debug info (`.dwo` / `.debug` companion located by the platform's own `build-id` / `.gnu_debuglink` linkage). That amendment is stated here explicitly rather than presented as an existing decision; the `Amends:` header covers it.
 
 - Debug info is emitted into the **platform-native** sidecar and located by the platform's own linkage (build ID / `.gnu_debuglink` on Linux, the dSYM bundle convention on macOS, the PDB path record on Windows).
 - **The cache manifest is never the debugger's discovery path.** An external `gdb`/`lldb` cannot consult an Ori-internal manifest; the earlier "located through the cache manifest" mechanism was incompatible with both the approved decision and standard tooling interop.
@@ -146,12 +157,12 @@ Per T1 (one tool) and T2 (canonical defaults, operational flags permitted):
 
 - `ori cache info` — location, total size, budget, entry counts by class, reclaimable amount.
 - `ori cache gc [--dry-run]` — force collection; `--dry-run` reports without removing.
-- `ori cache clean` — remove everything (the blunt escape hatch), honoring the same live-reader safety as D4.
+- `ori cache clean` — remove everything (the blunt escape hatch). Scoped to this proposal's classes; it does not reach installation-managed components (D3) and does not reach final-binary storage, which the successor proposal governs.
 
 ### Concurrency and error handling
 
 - **Entry publication** is atomic write-then-rename (the shipped `atomic.rs` discipline); readers never observe a partial entry, and no lock is required on the read path.
-- **Collection and `clean`** coordinate with live readers and writers through a cache-wide **lease**: a generation is reclaimed only when unleased. This is the gap `ArtifactCache::remove` documents and `clear()`'s `remove_dir_all` does not honor today. `go#43645` ("build cache not safe for concurrent builds") is the north star shipping this bug class, and `zig#9258` ("Shared Cache Locking") is the prior art for the lock design.
+- **Reclaim coordination is scoped to content-addressed entries.** Collection here reclaims content-addressed entries, which are idempotent: a reader that loses a race simply re-resolves or rebuilds, and no reader depends on a *particular* copy being the current one. `ArtifactCache::remove`'s doc comment records the residual hazard for object generations — "a concurrent linker may still hold the object path returned by `get_verified`" — and directs reclaim of retained generations to `clear`. Closing that hazard for **final binaries**, where a reader does depend on a specific current generation, requires the lease protocol owned by `binary-generation-lifecycle-proposal.md`; `go#43645` ("build cache not safe for concurrent builds") is the north-star precedent and `zig#9258` ("Shared Cache Locking") the prior art it must answer.
 - **Lock contention** is non-blocking: a build that cannot acquire the collection lock skips collection for that invocation and proceeds, never stalls.
 - Cache directory unwritable or full → the build proceeds without caching, emitting a diagnostic naming the path and the `ORI_CACHE` override.
 - Corrupt or truncated entry (digest mismatch on read) → treated as a miss, entry removed, artifact rebuilt. A corrupt cache never yields a wrong build.
@@ -162,9 +173,8 @@ Per T1 (one tool) and T2 (canonical defaults, operational flags permitted):
 
 - **This amends an approved decision.** `aot-compilation-proposal.md` chose project-local caching deliberately; overturning it costs churn and requires the migration path above. The trade is accepted because per-project lifetime is the specific property that produces unbounded growth and cross-project duplication.
 - **A global cache is a shared failure domain.** Corruption or a bad eviction affects every project on the machine. Mitigated by digest-verified reads and atomic writes, but the blast radius is genuinely wider than per-project isolation.
-- **Lease-based reclaim is real complexity.** Correct coordination between collection and concurrent readers/linkers is where the north stars shipped bugs. This is the highest-risk part of the proposal and the reason the design names leases explicitly rather than "a lock".
 - **Eviction can surprise.** A collection between two builds turns an expected fast rebuild slow. Bounded by the recency floor and budget, but the experience is a real cost of any automatic GC.
-- **Generation retention is not free.** Protecting live readers means the prior generation may briefly persist; the cache is bounded, not minimal.
+- **The T4 outcome is only partly delivered here.** Bounding the cache does not by itself stop N rebuilds retaining N binaries; that half waits on the successor proposal. Splitting the work is what makes each half reviewable, but it does mean T4 is satisfied by the pair, not by this proposal alone.
 - **Split debug info adds a moving part.** A lost or mismatched sidecar degrades debuggability; embedding stays available for workflows that need it.
 
 ---
@@ -183,13 +193,15 @@ Provide `ori cache gc` but leave it off by default. **Rejected:** this is the fa
 
 Use filesystem access time to drive LRU. **Rejected:** `atime` is disabled or coarsened on most modern Linux mounts (`relatime`/`noatime`). Tool-owned use-stamping gives an accurate, portable record — and the shipped cache already owns its manifest.
 
-### Alternative 4: Content-address everything, including final binaries
+### Alternative 4: Content-address everything, and keep final binaries in scope
 
-Uniform content-addressing for all classes. **Rejected for final binaries:** it reproduces the "N rebuilds retain N copies" failure, the second-largest term in the motivating measurement. Generation-plus-pointer keeps one live binary per build identity while still never mutating a file a reader holds.
+Extend the content-addressed scheme to final binaries and let this proposal cover them too. **Rejected — and the rejection is what defines this proposal's boundary.** Content-addressing is a *naming* scheme: it gives no "this generation supersedes that one" signal, because two builds with different content are simply two valid entries. Retention then has nothing to prune against, and every distinct-content build coexists — exactly the "N rebuilds retain N copies" term in the motivating measurement.
 
-### Alternative 5: True in-place binary overwrite
+Final binaries need supersession and live-reader coordination, which are a different problem with different failure modes (platform-divergent replace semantics, in-use executable locks, resolve-then-acquire races). Three review rounds on a combined draft produced findings concentrated entirely in that half. Splitting is therefore not deferral — it separates a problem where eviction is safe by construction from one where safety must be *established*, and lets each be reviewed against its own hazards.
 
-Write the new binary directly over the old path. **Rejected:** it corrupts any process currently executing or linking that file, and it makes the reclaim hazard `ArtifactCache::remove` documents unavoidable rather than solvable.
+### Alternative 5: Solve final-binary retention here with in-place overwrite
+
+Write each new binary directly over the old path, avoiding generations entirely. **Rejected:** it corrupts any process currently executing or linking that file, and it converts the reclaim hazard `ArtifactCache::remove` documents from solvable into unavoidable. Rejecting it does not make the problem this proposal's, though — it establishes that the problem needs a real concurrency design, which is the successor proposal's subject.
 
 ---
 
@@ -197,7 +209,7 @@ Write the new binary directly over the old path. **Rejected:** it corrupts any p
 
 **Can be pure Ori?** NO.
 
-**If not, why:** This governs the compiler driver's on-disk artifact storage, cache-key derivation from compilation inputs, artifact emission (including debug-info separation at the codegen/link boundary), and process-level lease coordination. It lives in `oric` and the `ori_llvm` AOT/incremental layer.
+**If not, why:** This governs the compiler driver's on-disk artifact storage, cache-key derivation from compilation inputs, and artifact emission (including debug-info separation at the codegen/link boundary). It lives in `oric` and the `ori_llvm` AOT/incremental layer.
 
 **Missing features that would enable purity:** N/A — build-artifact storage is toolchain infrastructure by nature.
 
@@ -219,7 +231,7 @@ Write the new binary directly over the old path. **Rejected:** it corrupts any p
 - **Go — the primary north star.** One shared build cache (`$GOCACHE`) reused across all projects, content-addressed, automatically trimmed. Go instrumented cache age and reuse distribution to inform policy (`go#22990`), evidence that eviction policy should be measured rather than guessed. Go also shipped the concurrency bug this design must avoid (`go#43645`, "build cache not safe for concurrent builds") and the relative-path bug (`go#69997`, `go clean -cache` silently ignoring a relative `GOCACHE`). Sandboxed environments losing the shared cache degrade to slow compiles (`go#64721`), bearing on the CI question below. *Verified against the `go` issue corpus indexed in the intelligence graph.*
 - **Zig — content-addressed manifest, in-place incremental direction, and the locking design.** Zig's cache is content-addressed with an explicit manifest; shared-cache concurrency is a recognized design concern (`zig#9258`, "Shared Cache Locking"). Zig also shipped the relative-cache-path family this proposal preempts (`zig#20129`, `zig#19284`, fixed by `zig#20073` "use absolute paths to local and global cache dirs", plus `zig#25307`, `zig#9215`). *Verified against the `zig` issue corpus indexed in the intelligence graph.*
 - **Rust / Cargo — the anti-pattern.** Per-project `target/`, never automatically collected, retaining the incremental cache, full debug info, and every historical build artifact. Cargo's *global registry* cache gained scheduled automatic collection before per-`target/` collection did — evidence that the eviction problem is tractable and that the per-project, non-content-addressed layout is what made `target/` hard. `cargo-sweep` exists to fill the missing lifecycle owner. *Verified against the `rust` issue corpus and the measured `target/` breakdown above.*
-- **Ori's own shipped cache.** `oric/src/commands/build/incremental_cache.rs` + `ori_llvm/src/aot/incremental/cache/` already implement the global root, content-addressed key, atomic publication, and absolute-path enforcement this proposal builds on — and `ArtifactCache::remove`'s doc comment already records the concurrent-reader hazard the lease design closes. *Verified by direct source read.*
+- **Ori's own shipped cache.** `oric/src/commands/build/incremental_cache.rs` + `ori_llvm/src/aot/incremental/cache/` already implement the global root, content-addressed key, atomic publication, and absolute-path enforcement this proposal builds on. `ArtifactCache::remove`'s doc comment records the concurrent-reader hazard verbatim — "a concurrent linker may still hold the object path returned by `get_verified`" — and directs reclaim of retained generations to `clear`. The hazard note is on `remove`, not on `clear`; both are named here because the split matters to who must close it. *Verified by direct source read of `cache/mod.rs`, `cache/atomic.rs`, and `incremental_cache.rs`.*
 
 ---
 
@@ -227,7 +239,7 @@ Write the new binary directly over the old path. **Rejected:** it corrupts any p
 
 - **Default budget value.** Should be derived from measured reuse distribution (the data Go gathered in `go#22990`) rather than guessed; the concrete default and whether it scales with available disk resolve during implementation.
 - **Recency-floor window.** Needs an empirical value; too short reintroduces surprise rebuilds, too long weakens the budget.
-- **Lease granularity.** Whether leases are per-generation, per-artifact-class, or cache-wide — and how a crashed process's lease expires — resolves during implementation against the `zig#9258` design.
 - **Incremental-state granularity.** Per-crate, per-module, or per-function caching of incremental state determines both reuse rate and eviction granularity; resolves with the incremental design.
-- **CI/hermetic mode.** Whether CI defaults to a project-local cache with collection disabled (favoring reproducibility and external cache restore, per `go#64721`) or shares the global cache, and how that interacts with container image layering.
+- **CI cache locality.** Whether CI shares the global cache or uses a project-local root (favoring reproducibility and external cache restore, per `go#64721`) is open. What is **not** open: whichever root CI uses stays bounded and self-evicting per T4, unless the CI environment is provably ephemeral (a container discarded per job) or a named external owner bounds it. "Collection disabled" is not an available CI default.
 - **Migration of existing caches.** Whether an existing `ori-build-object-v2` cache is adopted in place, re-keyed, or cold-started when the multi-file cache format lands.
+- **Ordering against the successor.** Whether `binary-generation-lifecycle-proposal.md` must be approved before this one implements, or the two implement independently. This proposal has no dependency on the successor's mechanism; the successor depends on this proposal's cache root and budget. Approval order is therefore free, implementation order is not.
