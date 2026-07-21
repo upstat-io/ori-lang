@@ -80,9 +80,21 @@ The multi-file build path has no on-disk artifact cache yet. Extending the exist
 
 `aot-compilation-proposal.md` decided a **project-local cache in `build/cache/`**, on three stated grounds: simpler cache invalidation, no cross-project coherency issues, and per-project cache lifetime. This proposal supersedes that decision, addressing each ground:
 
-- **Invalidation simplicity** — content-addressing already provides it. The live `CacheKey { source_hash, deps_hash, flags_hash }` makes an entry's identity its inputs; there is no invalidation logic to get wrong, project-local or not. The shipped global cache demonstrates this in production today.
-- **Cross-project coherency** — content-addressing removes the coherency question by construction: two projects resolving to the same key resolved to the same inputs, so sharing the entry is correct, not risky. A differing input yields a different key, not a conflict.
-- **Per-project cache lifetime** — this is the property being deliberately traded. Per-project lifetime is exactly what produces N copies of one dependency across N projects and what leaves each project's cache unbounded. Lifetime moves to the budget-and-recency policy in D2.
+- **Invalidation simplicity** — input-addressing already provides it. The live `CacheKey { source_hash, deps_hash, flags_hash, combined }` derives from a digest over the entry's inputs, so an entry's identity *is* its inputs; there is no invalidation logic to get wrong, project-local or not. This holds today and is unaffected by the move.
+- **Cross-project coherency** — coherency is not the obstacle; **reachability is**, and it is a change this proposal must make rather than a property it inherits. Two projects resolving to the same key did resolve to the same inputs, so sharing is correct. But under the shipped digest they *cannot* resolve to the same key: `request_digest` folds **`source-spelling`** (the path as written) and **`canonical-source`** (the canonicalized absolute path) into the hash, so byte-identical source at two paths yields two keys. Cross-project reuse is therefore a **required change** — see D1a — not a demonstrated capability.
+- **Per-project cache lifetime** — this is the property being deliberately traded. Per-project lifetime is exactly what leaves each project's cache unbounded, and — once D1a lands — what would produce N copies of one dependency across N projects. Lifetime moves to the budget-and-recency policy in D2.
+
+**What the amendment buys today, stated honestly.** Moving the cache out of `build/cache/` delivers **bounded, self-evicting storage under one owner** immediately; that alone satisfies T4 and is the amendment's load-bearing justification. Cross-project *sharing* is a second benefit that arrives only with D1a, and it is not reachable at all until multi-file caching lands: `has_unfingerprinted_imports` currently bypasses the cache for any source carrying `use` imports, so the shipped cache is single-file-only and the shared-dependency duplication Alternative 1 rejects is not yet expressible.
+
+### D1a — Path-independent keying (required for cross-project reuse)
+
+Cross-project reuse requires removing `source-spelling` and `canonical-source` from the request digest. That is a real behavioral change with consequences this proposal must own rather than discover later:
+
+- **DWARF path embedding.** Debug info records source paths. An object shared across projects carries whichever path first produced it unless paths are normalized at emission (a `-fdebug-prefix-map`-shaped rewrite) or excluded from the shared artifact.
+- **Diagnostic rendering.** A diagnostic resolved against a shared object must render the *consuming* project's path, not the producing one.
+- **Reproducibility interaction.** `SOURCE_DATE_EPOCH` is already in the unfingerprinted-environment bypass list; path normalization is the same class of concern and the two must agree on what a reproducible artifact means.
+
+Until D1a lands, the global cache is correct and bounded but **not shared**: each project's entries are distinct by path. That is strictly better than the approved project-local layout (one owner, one budget, one collector) and it is the state the rest of this proposal describes. D1a is sequenced after the multi-file cache, since sharing has no expressible benefit before it.
 
 **Unchanged:** `build/obj/` and the AOT output layout stay exactly as approved. A project directory holds its *deliverables*; the cache holds *reusable intermediate work*. Deleting a project never destroys reusable work; deleting the cache never destroys deliverables.
 
