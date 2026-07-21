@@ -175,11 +175,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         program: &'a ori_repr::executable::ExecutableProgram,
     ) {
         self.executable_program = Some(program);
-        let projections = length_projection::analyze_length_projections(program, self.interner);
-        self.length_projection_calls = projections.calls;
-        self.length_projection_clones = projections
-            .yields
-            .into_iter()
+        self.length_projection_calls = program.repr_plan().length_projection_calls().collect();
+        self.length_projection_clones = program
+            .repr_plan()
+            .length_projection_yields()
             .map(|(callee, result)| {
                 (
                     callee,

@@ -278,9 +278,12 @@ fn run_post_fixpoint_narrowing(
     propagate_refinements_through_jump_chains(func, predecessors, &mut state.block_refinements);
 
     // Alternate structural induction recovery with ordinary transfer
-    // narrowing. Outer-loop body facts can bound the start/step of a nested
-    // direct Range, so later rounds intentionally consume earlier results.
-    for _ in 0..4 {
+    // narrowing until both monotone fact tables stabilize. Outer-loop body
+    // facts can bound the start/step of a nested direct Range, so later rounds
+    // intentionally consume earlier results without an arbitrary pass budget.
+    loop {
+        let ranges_before = state.ranges.clone();
+        let refinements_before = state.block_refinements.clone();
         refine_direct_range_inductions(
             func,
             pool,
@@ -301,6 +304,9 @@ fn run_post_fixpoint_narrowing(
             known_builtins,
             crn,
         );
+        if state.ranges == ranges_before && state.block_refinements == refinements_before {
+            break;
+        }
     }
 
     recompute_field_summaries(

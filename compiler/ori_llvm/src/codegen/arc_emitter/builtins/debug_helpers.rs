@@ -131,7 +131,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             TypeInfo::List { element } => {
                 let element = *element;
-                self.emit_list_debug(val, element, RenderStyle::Printable)
+                self.emit_list_debug(val, ty, element, RenderStyle::Printable)
             }
 
             TypeInfo::Tuple { elements } => {
@@ -224,7 +224,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             TypeInfo::List { element } => {
                 let element = *element;
-                self.emit_list_debug(val, element, RenderStyle::Debug)
+                self.emit_list_debug(val, ty, element, RenderStyle::Debug)
             }
 
             TypeInfo::Tuple { elements } => {

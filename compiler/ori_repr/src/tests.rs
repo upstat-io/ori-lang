@@ -325,7 +325,6 @@ fn yield_fact(
         extent,
         locality,
         execution: YieldAllocationExecution::SingleExecution,
-        requires_runtime_header: true,
     }
 }
 
@@ -432,7 +431,7 @@ fn yield_header_elision_requires_exact_runtime_call_targets() {
     let observer_name = Name::new(0, 96);
     let result = ArcVarId::new(0);
     let observed = ArcVarId::new(1);
-    let mut fact = yield_fact(
+    let fact = yield_fact(
         0,
         2,
         result.raw(),
@@ -440,7 +439,6 @@ fn yield_header_elision_requires_exact_runtime_call_targets() {
         YieldExtent::StaticExact(4),
         YieldAllocationLocality::Local,
     );
-    fact.requires_runtime_header = false;
     let function = ArcFunction {
         name: function_name,
         return_type: ori_types::Idx::INT,
@@ -465,13 +463,15 @@ fn yield_header_elision_requires_exact_runtime_call_targets() {
         ..ArcFunction::default()
     };
     let facts = FxHashMap::from_iter([(function_name, vec![fact])]);
+    let pool = ori_types::Pool::new();
 
     let mut runtime_plan = ReprPlan::new(NarrowingPolicy::Disabled);
     runtime_plan.freeze_yield_allocations(&facts);
-    runtime_plan
-        .close_yield_runtime_header_requirements(std::slice::from_ref(&function), |_, dst| {
-            dst == observed
-        });
+    runtime_plan.close_yield_runtime_header_requirements(
+        std::slice::from_ref(&function),
+        &pool,
+        |_, dst| (dst == observed).then_some(crate::plan::YieldLineageRuntimeCall::BorrowedRead),
+    );
     let Some(runtime_decision) = runtime_plan.yield_allocation_for_result(function_name, result)
     else {
         panic!("runtime-target yield decision");
@@ -480,7 +480,7 @@ fn yield_header_elision_requires_exact_runtime_call_targets() {
 
     let mut exact_plan = ReprPlan::new(NarrowingPolicy::Disabled);
     exact_plan.freeze_yield_allocations(&facts);
-    exact_plan.close_yield_runtime_header_requirements(&[function], |_, _| false);
+    exact_plan.close_yield_runtime_header_requirements(&[function], &pool, |_, _| None);
     let Some(exact_decision) = exact_plan.yield_allocation_for_result(function_name, result) else {
         panic!("exact-target yield decision");
     };

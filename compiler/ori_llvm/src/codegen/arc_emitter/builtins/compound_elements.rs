@@ -47,7 +47,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             TypeInfo::Tuple { elements } => self.emit_tuple_equals(lhs, rhs, elements, elem_ty),
             TypeInfo::List { element } => {
                 let elem = *element;
-                self.emit_list_equals(lhs, rhs, elem)
+                self.emit_list_equals(lhs, rhs, elem_ty, elem)
             }
             TypeInfo::Map { key, value } => {
                 let key = *key;
@@ -145,7 +145,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             TypeInfo::Tuple { elements } => self.emit_tuple_compare(lhs, rhs, elements, elem_ty),
             TypeInfo::List { element } => {
                 let elem = *element;
-                self.emit_list_compare(lhs, rhs, elem)
+                self.emit_list_compare(lhs, rhs, elem_ty, elem)
             }
             TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => {
                 self.emit_derived_compare_call(lhs, rhs, elem_ty)
@@ -200,7 +200,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             TypeInfo::Tuple { elements } => self.emit_tuple_hash(val, elements, elem_ty),
             TypeInfo::List { element } => {
                 let elem = *element;
-                self.emit_list_hash(val, elem)
+                self.emit_list_hash(val, elem_ty, elem)
             }
             TypeInfo::Map { key, value } => {
                 let key = *key;

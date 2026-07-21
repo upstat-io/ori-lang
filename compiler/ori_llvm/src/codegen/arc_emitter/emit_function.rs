@@ -115,16 +115,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         self.var_map.resize(func.var_types.len(), None);
         self.for_yield_elem_size_types = scan_for_yield_elem_size_types(func, self.interner);
-        if self.narrowed_int_collection_element_width().is_some() {
-            self.for_yield_int_elem_sizes = self
-                .for_yield_elem_size_types
-                .iter()
-                .filter(|&(_, &elem_ty)| {
-                    self.pool.tag(self.pool.resolve_fully(elem_ty)) == ori_types::Tag::Int
-                })
-                .map(|(&var, _)| var)
-                .collect();
-        }
 
         let used_fields = scan_used_fields(func);
         let pointer_only = self.find_pointer_only_params(func);

@@ -184,13 +184,6 @@ pub struct YieldAllocationFact {
     pub locality: YieldAllocationLocality,
     /// Dynamic execution verdict, frozen from the final post-AIMS CFG.
     pub execution: YieldAllocationExecution,
-    /// Whether the physical collection backing must retain the runtime RC
-    /// header immediately before its element data.
-    ///
-    /// Lowering initializes this conservatively. AIMS may clear it only for a
-    /// closed primitive-scalar lineage whose complete use set needs neither
-    /// sharing state nor element cleanup.
-    pub requires_runtime_header: bool,
 }
 
 /// A complete function in the ARC IR.

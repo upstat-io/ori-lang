@@ -67,9 +67,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let elem = self
                 .builder
                 .load(elem_llvm_ty, scratch_ptr, &format!("proj.{field}"));
-            // Sign-extend narrowed int element back to canonical i64.
-            let dst_ty = func.var_type(dst);
-            let elem = self.sext_narrowed_int_element(elem, dst_ty, "iter_next.sext");
             self.def_var_repr(dst, elem, func);
             // Register scratch pointer for borrowed-parameter forwarding:
             // downstream calls (e.g., ori_str_len) can forward the scratch
@@ -627,7 +624,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     fn emit_let_instr(&mut self, dst: ArcVarId, ty: Idx, value: &ArcValue, func: &ArcFunction) {
-        let emitted = if let Some(&element_type) = self.for_yield_elem_size_types.get(&dst) {
+        let emitted = if let Some(&(_, element_type)) = self.for_yield_elem_size_types.get(&dst) {
             let llvm_size = self.element_store_size(element_type);
             self.builder.const_i64(llvm_size as i64)
         } else {

@@ -296,7 +296,6 @@ impl ArcIrBuilder {
             extent,
             locality: YieldAllocationLocality::Unknown,
             execution: YieldAllocationExecution::RepeatedOrUnknown,
-            requires_runtime_header: true,
         });
     }
 

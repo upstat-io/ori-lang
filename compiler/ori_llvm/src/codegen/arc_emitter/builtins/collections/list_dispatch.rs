@@ -249,14 +249,14 @@ declare_builtins! { emitter, ctx;
     },
     ("list", "debug") => {
         if let TypeInfo::List { element } = ctx.type_info {
-            emitter.emit_list_debug(ctx.arg_vals[0], *element, RenderStyle::Debug)
+            emitter.emit_list_debug(ctx.arg_vals[0], ctx.receiver_ty, *element, RenderStyle::Debug)
         } else {
             None
         }
     },
     ("list", "to_str") => {
         if let TypeInfo::List { element } = ctx.type_info {
-            emitter.emit_list_debug(ctx.arg_vals[0], *element, RenderStyle::Printable)
+            emitter.emit_list_debug(ctx.arg_vals[0], ctx.receiver_ty, *element, RenderStyle::Printable)
         } else {
             None
         }

@@ -15,9 +15,10 @@
 //!   for a compiled local allocation mechanism.
 
 use ori_arc::ir::{
-    AllocationSiteId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, YieldAllocationExecution,
-    YieldAllocationFact, YieldAllocationLocality, YieldExtent,
+    AllocationSiteId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership,
+    YieldAllocationExecution, YieldAllocationFact, YieldAllocationLocality, YieldExtent,
 };
+use ori_arc::ArcClassification;
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -48,6 +49,7 @@ pub struct CompiledAllocationDecision {
     pub site: AllocationSiteId,
     pub builder: ArcVarId,
     pub result: ArcVarId,
+    pub elem_ty: Idx,
     pub elem_size: u64,
     pub extent: YieldExtent,
     pub mechanism: CompiledAllocationMechanism,
@@ -116,6 +118,10 @@ pub struct ReprPlan {
     escape_info: FxHashMap<Name, EscapeInfo>,
     /// Compiled allocation projections keyed by function and stable site.
     yield_allocations: FxHashMap<(Name, AllocationSiteId), CompiledAllocationDecision>,
+    /// Qualified call sites redirected to private length-only physical clones.
+    length_projection_calls: FxHashMap<(Name, ArcVarId), Name>,
+    /// Qualified callees and the returned yield virtualized by their clones.
+    length_projection_yields: FxHashMap<Name, ArcVarId>,
     /// Per-function, per-variable ranges from range analysis.
     ///
     /// Key: function `Name` → (`ArcVarId` → `ValueRange`).
@@ -179,6 +185,8 @@ impl ReprPlan {
             rc_strategies: FxHashMap::default(),
             escape_info: FxHashMap::default(),
             yield_allocations: FxHashMap::default(),
+            length_projection_calls: FxHashMap::default(),
+            length_projection_yields: FxHashMap::default(),
             function_var_ranges: FxHashMap::default(),
             field_range_summaries: FxHashMap::default(),
             element_range_summaries: FxHashMap::default(),
@@ -471,70 +479,45 @@ impl ReprPlan {
                         site: fact.site,
                         builder: fact.builder,
                         result: fact.result,
+                        elem_ty: fact.elem_ty,
                         elem_size: fact.elem_size,
                         extent: fact.extent,
                         mechanism,
-                        requires_runtime_header: fact.requires_runtime_header,
+                        requires_runtime_header: true,
                     },
                 );
             }
         }
     }
 
-    /// Close candidate header elisions against exact executable call targets.
+    /// Select compact backing only from closed executable call identities.
     ///
-    /// AIMS proves that a local scalar lineage uses only header-independent
-    /// builtin operation shapes. This final target-identity gate rejects a
-    /// same-spelled local/imported callable before physical layout is frozen.
+    /// ARC contributes neutral extent, locality, execution, and lineage facts.
+    /// This compiled-plan step owns the physical header decision and therefore
+    /// evaluates the complete realized use set after exact call closure.
     pub(crate) fn close_yield_runtime_header_requirements(
         &mut self,
         functions: &[ArcFunction],
-        mut is_runtime_call: impl FnMut(Name, ArcVarId) -> bool,
+        pool: &Pool,
+        mut runtime_call: impl FnMut(Name, ArcVarId) -> Option<YieldLineageRuntimeCall>,
     ) {
-        let mut retain_headers = Vec::new();
-        for (&key, decision) in &self.yield_allocations {
-            if decision.requires_runtime_header {
-                continue;
-            }
-            let Some(function) = functions.iter().find(|function| function.name == key.0) else {
-                retain_headers.push(key);
-                continue;
-            };
-            let in_lineage = |var| {
-                ori_arc::yield_result_for_receiver_lineage(function, var)
-                    .is_some_and(|result| result == decision.result)
-            };
-            let mut has_non_runtime_call = false;
-            for block in &function.blocks {
-                for instruction in &block.body {
-                    if let ArcInstr::Apply { dst, args, .. } = instruction {
-                        if args.iter().copied().any(&in_lineage)
-                            && !is_runtime_call(function.name, *dst)
-                        {
-                            has_non_runtime_call = true;
-                            break;
-                        }
-                    }
-                }
-                if has_non_runtime_call {
-                    break;
-                }
-                if let ArcTerminator::Invoke { dst, args, .. } = &block.terminator {
-                    if args.iter().copied().any(&in_lineage)
-                        && !is_runtime_call(function.name, *dst)
-                    {
-                        has_non_runtime_call = true;
-                        break;
-                    }
-                }
-            }
-            if has_non_runtime_call {
-                retain_headers.push(key);
-            }
-        }
-        for key in retain_headers {
-            if let Some(decision) = self.yield_allocations.get_mut(&key) {
-                decision.requires_runtime_header = true;
+        let decisions: Vec<_> = self
+            .yield_allocations
+            .iter()
+            .map(|(&key, &decision)| (key, decision))
+            .collect();
+        for (key, decision) in decisions {
+            let elidable = functions
+                .iter()
+                .find(|function| function.name == key.0)
+                .is_some_and(|function| {
+                    yield_runtime_header_is_elidable(function, decision, pool, &mut runtime_call)
+                });
+            if elidable {
+                self.yield_allocations
+                    .get_mut(&key)
+                    .unwrap_or_else(|| unreachable!("compiled allocation disappeared"))
+                    .requires_runtime_header = false;
             }
         }
     }
@@ -565,6 +548,30 @@ impl ReprPlan {
             .find_map(|(&(owner, _), decision)| {
                 (owner == function && decision.result == result).then_some(*decision)
             })
+    }
+
+    /// Freeze the closed program's physical length-only clone decisions.
+    pub(crate) fn set_length_projections(
+        &mut self,
+        calls: FxHashMap<(Name, ArcVarId), Name>,
+        yields: FxHashMap<Name, ArcVarId>,
+    ) {
+        self.length_projection_calls = calls;
+        self.length_projection_yields = yields;
+    }
+
+    /// Iterate qualified call-site redirects selected by the compiled plan.
+    pub fn length_projection_calls(&self) -> impl Iterator<Item = ((Name, ArcVarId), Name)> + '_ {
+        self.length_projection_calls
+            .iter()
+            .map(|(&site, &callee)| (site, callee))
+    }
+
+    /// Iterate qualified callees and their virtualized yield result.
+    pub fn length_projection_yields(&self) -> impl Iterator<Item = (Name, ArcVarId)> + '_ {
+        self.length_projection_yields
+            .iter()
+            .map(|(&callee, &result)| (callee, result))
     }
 
     /// Record an RC strategy decision for a type.
@@ -610,6 +617,153 @@ impl ReprPlan {
             let _ = writeln!(out, "[{i}] {tag:?} <- {:?}: {:?}", d.source, d.reason);
         }
         out
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum YieldLineageRuntimeCall {
+    BorrowedRead,
+    StaticUniqueListSet,
+}
+
+#[derive(Clone, Copy)]
+struct YieldLineageCall<'a> {
+    args: &'a [ArcVarId],
+    arg_ownership: &'a [ArgOwnership],
+    dst: ArcVarId,
+    position: (usize, usize),
+}
+
+fn yield_runtime_header_is_elidable(
+    function: &ArcFunction,
+    decision: CompiledAllocationDecision,
+    pool: &Pool,
+    runtime_call: &mut impl FnMut(Name, ArcVarId) -> Option<YieldLineageRuntimeCall>,
+) -> bool {
+    use ori_registry::TypeTag;
+
+    let classifier = ori_arc::ArcClassifier::new(pool);
+    if decision.mechanism != CompiledAllocationMechanism::StackSlot
+        || !classifier.is_scalar(decision.elem_ty)
+        || !matches!(
+            classifier.builtin_type_tag(decision.elem_ty),
+            Some(
+                TypeTag::Int
+                    | TypeTag::Float
+                    | TypeTag::Bool
+                    | TypeTag::Char
+                    | TypeTag::Byte
+                    | TypeTag::Unit
+                    | TypeTag::Never
+                    | TypeTag::Duration
+                    | TypeTag::Size
+                    | TypeTag::Ordering
+            )
+        )
+    {
+        return false;
+    }
+
+    let in_lineage = |var| {
+        ori_arc::yield_result_for_receiver_lineage(function, var)
+            .is_some_and(|result| result == decision.result)
+    };
+    for (block_idx, block) in function.blocks.iter().enumerate() {
+        for (instr_idx, instruction) in block.body.iter().enumerate() {
+            if !instruction.used_vars().iter().copied().any(&in_lineage) {
+                continue;
+            }
+            let allowed = match instruction {
+                ArcInstr::Let {
+                    value: ori_arc::ir::ArcValue::Var(source),
+                    ..
+                } => in_lineage(*source),
+                ArcInstr::Project {
+                    value, field: 0, ..
+                } => in_lineage(*value),
+                ArcInstr::RcDec { var, .. } => in_lineage(*var),
+                ArcInstr::Apply {
+                    dst,
+                    args,
+                    arg_ownership,
+                    ..
+                } => yield_lineage_call_is_header_independent(
+                    function,
+                    YieldLineageCall {
+                        args,
+                        arg_ownership,
+                        dst: *dst,
+                        position: (block_idx, instr_idx),
+                    },
+                    runtime_call(function.name, *dst),
+                    &in_lineage,
+                ),
+                _ => false,
+            };
+            if !allowed {
+                return false;
+            }
+        }
+
+        if !block
+            .terminator
+            .used_vars()
+            .iter()
+            .copied()
+            .any(&in_lineage)
+        {
+            continue;
+        }
+        let allowed = match &block.terminator {
+            ArcTerminator::Jump { .. } => true,
+            ArcTerminator::Invoke {
+                dst,
+                args,
+                arg_ownership,
+                ..
+            } => yield_lineage_call_is_header_independent(
+                function,
+                YieldLineageCall {
+                    args,
+                    arg_ownership,
+                    dst: *dst,
+                    position: (block_idx, block.body.len()),
+                },
+                runtime_call(function.name, *dst),
+                &in_lineage,
+            ),
+            _ => false,
+        };
+        if !allowed {
+            return false;
+        }
+    }
+    true
+}
+
+fn yield_lineage_call_is_header_independent(
+    function: &ArcFunction,
+    call: YieldLineageCall<'_>,
+    operation: Option<YieldLineageRuntimeCall>,
+    in_lineage: &impl Fn(ArcVarId) -> bool,
+) -> bool {
+    if !call.args.first().copied().is_some_and(in_lineage)
+        || call.args.iter().skip(1).copied().any(in_lineage)
+    {
+        return false;
+    }
+    match operation {
+        Some(YieldLineageRuntimeCall::BorrowedRead) => {
+            call.arg_ownership.first() == Some(&ArgOwnership::Borrowed)
+        }
+        Some(YieldLineageRuntimeCall::StaticUniqueListSet) => {
+            in_lineage(call.dst)
+                && function
+                    .cow_annotations
+                    .get(call.position.0, call.position.1)
+                    == ori_arc::CowMode::StaticUnique
+        }
+        None => false,
     }
 }
 

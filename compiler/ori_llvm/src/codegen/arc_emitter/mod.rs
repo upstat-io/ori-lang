@@ -317,22 +317,13 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// `[-128, 127]` uses `i8` element storage instead of `i64`).
     repr_plan: Option<&'a ori_repr::ReprPlan>,
 
-    /// `elem_size` `ArcVarId`s for int-element for-yield loops.
-    ///
-    /// Pre-scanned from `ori_list_push` calls: when a push's element arg
-    /// has type `Tag::Int`, the `elem_size` arg (shared between `ori_list_new`
-    /// and `ori_list_push` in the same for-yield) is added to this set.
-    /// The for-yield narrowing override only fires for variables in this set,
-    /// preventing non-int accumulators (e.g., `[str]`) from being corrupted.
-    for_yield_int_elem_sizes: FxHashSet<ArcVarId>,
-
-    /// Elem-size `ArcVarId` → element `Idx` for all for-yield loops.
+    /// Elem-size `ArcVarId` → (collection `Idx`, element `Idx`) for yields.
     ///
     /// Used to override ARC-emitted `pool_type_store_size` values with
     /// the LLVM struct store size (which accounts for field reordering).
     /// Without this, reordered structs/tuples get a size mismatch between
     /// the runtime list stride and LLVM GEP stride.
-    for_yield_elem_size_types: FxHashMap<ArcVarId, Idx>,
+    for_yield_elem_size_types: FxHashMap<ArcVarId, (Idx, Idx)>,
 
     /// Niche-encoded enum tag tracking.
     ///
@@ -420,7 +411,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             sret_forwarded_result: None,
             narrowed_vars: FxHashMap::default(),
             repr_plan: type_resolver.repr_plan(),
-            for_yield_int_elem_sizes: FxHashSet::default(),
             for_yield_elem_size_types: FxHashMap::default(),
             niche_scrutinees: FxHashMap::default(),
             verify_arc: false,

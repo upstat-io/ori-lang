@@ -361,6 +361,41 @@ fn production_length_projection_preserves_checksum() {
 }
 
 #[test]
+fn scalar_user_drop_result_fails_closed_to_ordinary_callee() {
+    let source = r#"
+type Logged = { value: int }
+
+impl Logged: Drop {
+    @drop (self) -> void = print(msg: `drop-{self.value}`);
+}
+
+@observe (values: [Logged]) -> int = values.length();
+@make () -> [Logged] = for i in 0..3 yield Logged { value: i };
+@main () -> void = print(msg: `{observe(values: make())}`);
+"#;
+    let ir = compile_and_capture_ir(source);
+    assert!(
+        !ir.contains("_ori_make$24length_only"),
+        "a yielded user-drop value must not qualify for the non-materializing clone:\n{ir}"
+    );
+
+    let (exit, stdout, stderr) = compile_and_run_capture(source);
+    assert_eq!(exit, 0, "user-drop yield execution failed: {stderr}");
+    for expected in ["drop-0", "drop-1", "drop-2"] {
+        assert_eq!(
+            stdout.matches(expected).count(),
+            1,
+            "{expected} must run exactly once; stdout={stdout:?}"
+        );
+    }
+    assert_eq!(
+        stdout.lines().last(),
+        Some("3"),
+        "observer result must remain 3: {stdout:?}"
+    );
+}
+
+#[test]
 fn local_string_yield_with_break_uses_local_storage_and_stays_leak_clean() {
     let source = r#"
 @local_words () -> int = {

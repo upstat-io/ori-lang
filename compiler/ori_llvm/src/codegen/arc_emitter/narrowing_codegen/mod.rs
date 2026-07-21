@@ -126,43 +126,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.sext(val, i64_ty, label)
     }
 
-    /// Check if int elements in any collection are narrowed.
-    ///
-    /// Used in list trait operations (equals, compare, hash) and debug formatting
-    /// where the source collection index is not directly available. Scans the
-    /// `ReprPlan` for any collection type with narrowed int elements.
-    ///
-    /// LIMITATION: This is a global heuristic — it applies to ALL `List<int>` in
-    /// the function, including those created by `collect()` which may have
-    /// canonical (non-narrowed) stride, a collect-output boundary mismatch.
-    pub(super) fn narrowed_int_collection_element_width(&self) -> Option<ori_repr::IntWidth> {
-        use ori_repr::{FatRepr, IntWidth, MachineRepr};
-        let plan = self.repr_plan?;
-        for idx in plan.decision_indices() {
-            if let Some(MachineRepr::FatPointer(FatRepr::Collection { ref element_repr })) =
-                plan.get_repr(idx)
-            {
-                if let MachineRepr::Int { width, .. } = element_repr.as_ref() {
-                    if *width != IntWidth::I64 {
-                        return Some(*width);
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    // NOTE: `int_element_store_size` was removed here. It was a
-    // global heuristic that applied per-collection narrowing to any `int` type,
-    // causing memory corruption in the iterator pipeline (trampolines, scratch
-    // buffers, collect allocation). Narrowing is now confined to the list
-    // storage boundary (emit_list_iter injects a sext widening trampoline).
-    // For list-specific narrowing, use `collection_elem_size(collection_idx, elem_ty)`.
-
-    /// Get narrowed LLVM type for int-typed elements, with no collection context.
-    pub(super) fn int_element_llvm_type(&mut self, elem_ty: Idx) -> LLVMTypeId {
+    /// Get the element type for one exact collection representation.
+    pub(super) fn int_element_llvm_type(
+        &mut self,
+        collection_idx: Idx,
+        elem_ty: Idx,
+    ) -> LLVMTypeId {
         if self.pool.tag(self.pool.resolve_fully(elem_ty)) == ori_types::Tag::Int {
-            if let Some(width) = self.narrowed_int_collection_element_width() {
+            if let Some(width) = self.narrowed_collection_element_width(collection_idx) {
                 return self.llvm_type_for_int_width(width);
             }
         }
@@ -175,11 +146,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(super) fn sext_narrowed_int_element(
         &mut self,
         val: ValueId,
+        collection_idx: Idx,
         elem_ty: Idx,
         label: &str,
     ) -> ValueId {
         if self.pool.tag(self.pool.resolve_fully(elem_ty)) == ori_types::Tag::Int
-            && self.narrowed_int_collection_element_width().is_some()
+            && self
+                .narrowed_collection_element_width(collection_idx)
+                .is_some()
         {
             let i64_ty = self
                 .builder

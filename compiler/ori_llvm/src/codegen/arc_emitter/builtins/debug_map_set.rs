@@ -8,10 +8,9 @@
 //! helpers (`ori_map_keys_to_list`, `ori_set_to_list`), iterate to build
 //! the formatted string, then dec the temporary list buffers.
 //!
-//! IMPORTANT: Temporary lists use the map/set's collection-level element
-//! sizes (via `collection_elem_size`), NOT the function-level narrowing
-//! (via `int_element_llvm_type`). Using the wrong narrowing context causes
-//! GEP stride mismatches and value corruption.
+//! IMPORTANT: Temporary lists use the map/set's exact collection-level
+//! element representation for both sizing and widening. Mixing collection
+//! identities causes GEP stride mismatches and value corruption.
 
 use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
@@ -124,6 +123,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             zero,
             key_ty,
             val_ty,
+            collection_idx,
             key_llvm_ty,
             val_llvm_ty,
             key_narrowed,
@@ -162,6 +162,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             idx_phi,
             key_ty,
             val_ty,
+            collection_idx,
             key_llvm_ty,
             val_llvm_ty,
             key_narrowed,
@@ -212,6 +213,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         idx: ValueId,
         key_ty: Idx,
         val_ty: Idx,
+        collection_idx: Idx,
         key_llvm_ty: LLVMTypeId,
         val_llvm_ty: LLVMTypeId,
         key_narrowed: bool,
@@ -222,14 +224,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let key_ptr = self.builder.gep(key_llvm_ty, key_data, &[idx], "mdbg.kp");
         let key = self.builder.load(key_llvm_ty, key_ptr, "mdbg.k");
         let key = if key_narrowed {
-            self.sext_narrowed_int_element(key, key_ty, "mdbg.k.sext")
+            self.sext_narrowed_int_element(key, collection_idx, key_ty, "mdbg.k.sext")
         } else {
             key
         };
         let val_ptr = self.builder.gep(val_llvm_ty, val_data, &[idx], "mdbg.vp");
         let val = self.builder.load(val_llvm_ty, val_ptr, "mdbg.v");
         let val = if val_narrowed {
-            self.sext_narrowed_int_element(val, val_ty, "mdbg.v.sext")
+            self.sext_narrowed_int_element(val, collection_idx, val_ty, "mdbg.v.sext")
         } else {
             val
         };

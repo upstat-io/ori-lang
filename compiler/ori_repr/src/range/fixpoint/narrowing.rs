@@ -10,7 +10,7 @@ use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, PrimOp};
 use ori_arc::ArcVarId;
 use ori_ir::BinaryOp;
 use ori_types::Pool;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::super::field_summary::{
     update_element_summaries, update_element_summaries_from_terminator, update_field_summaries,
@@ -121,7 +121,8 @@ pub(super) fn refine_direct_range_inductions(
 }
 
 fn resolve_alias(mut var: ArcVarId, definitions: &FxHashMap<ArcVarId, &ArcInstr>) -> ArcVarId {
-    for _ in 0..32 {
+    let mut seen = FxHashSet::default();
+    while seen.insert(var) {
         let Some(ArcInstr::Let {
             value: ArcValue::Var(next),
             ..

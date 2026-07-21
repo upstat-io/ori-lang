@@ -669,6 +669,19 @@ fn compile_result_for_value(
     function.var_rc_strategies = compute_var_rc_strategies(&function, &pool);
     function.var_metadata_state = ori_arc::VariableMetadataState::Realized;
     let contract = MemoryContract::conservative(function.params.len());
+
+    let executable = validate_rc_value_executable(symbols, pool, function, main, contract);
+
+    (main, compile(&executable))
+}
+
+fn validate_rc_value_executable(
+    symbols: SharedInterner,
+    pool: Pool,
+    function: ArcFunction,
+    main: Name,
+    contract: MemoryContract,
+) -> ExecutableProgram {
     let function_effects = [(main, contract.function_effect_facts(&function))]
         .into_iter()
         .collect();
@@ -681,7 +694,7 @@ fn compile_result_for_value(
     let contracts = [(main, contract)].into_iter().collect();
     let functions = vec![function];
     let callable_facts = ori_arc::freeze_function_callable_facts(&functions, &pool);
-    let executable = match ExecutableProgram::validate(ExecutableProgramParts {
+    match ExecutableProgram::validate(ExecutableProgramParts {
         version: EXECUTABLE_PROGRAM_VERSION,
         symbols,
         pool,
@@ -704,9 +717,7 @@ fn compile_result_for_value(
     }) {
         Ok(program) => program,
         Err(error) => panic!("test executable should validate: {error}"),
-    };
-
-    (main, compile(&executable))
+    }
 }
 
 fn closure_executable() -> (ExecutableProgram, Name, Name) {
@@ -1097,7 +1108,55 @@ fn list_concat_executable() -> ExecutableProgram {
     let main = symbols.intern("main");
     let mut pool = Pool::new();
     let list_type = pool.list(Idx::INT);
-    let function = ArcFunction {
+
+    let mut functions = vec![list_concat_function(main, list_type)];
+    let classifier = ArcClassifier::new(&pool);
+    let builtins = BuiltinOwnershipSets::new(&symbols);
+    let type_registry = TypeRegistry::new();
+    let external_contracts: std::collections::HashMap<ori_ir::Name, ori_arc::MemoryContract> =
+        std::collections::HashMap::default();
+    let callable_boundaries = ori_arc::CallableBoundaryFacts::default();
+    let realization = realize_closed_program(
+        &mut functions,
+        &ori_arc::ArcPipelineContext {
+            classifier: &classifier,
+            interner: &symbols,
+            pool: &pool,
+            builtins: &builtins,
+            type_registry: &type_registry,
+            callable_boundaries: &callable_boundaries,
+            verify_arc: true,
+            external_contracts: &external_contracts,
+        },
+    )
+    .unwrap_or_else(|errors| panic!("list concat realization should succeed: {errors:?}"));
+
+    ExecutableProgram::validate(ExecutableProgramParts {
+        version: EXECUTABLE_PROGRAM_VERSION,
+        symbols,
+        pool,
+        functions,
+        function_families: vec![FunctionFamilyTopology::new(main, Vec::new())],
+        contracts: realization.contracts,
+        function_effects: realization.function_effects,
+        fresh_return_facts: realization.fresh_return_facts,
+        param_disjointness: realization.param_disjointness,
+        callable_facts: realization.callable_facts,
+        closure_adapters: realization.closure_adapters,
+        retain_plans: realization.retain_plans,
+        roots: vec![main],
+        cli_entry: Some(main),
+        externals: Vec::new(),
+        method_targets: FxHashMap::default(),
+        user_drop_bindings: Vec::new(),
+        repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
+        type_registry,
+    })
+    .unwrap_or_else(|error| panic!("list concat executable should validate: {error}"))
+}
+
+fn list_concat_function(main: Name, list_type: Idx) -> ArcFunction {
+    ArcFunction {
         name: main,
         params: Vec::new(),
         return_type: list_type,
@@ -1150,51 +1209,7 @@ fn list_concat_executable() -> ExecutableProgram {
         direct_call_facts: Vec::new(),
         yield_allocations: Vec::new(),
         class_ledger_emission: false,
-    };
-    let mut functions = vec![function];
-    let classifier = ArcClassifier::new(&pool);
-    let builtins = BuiltinOwnershipSets::new(&symbols);
-    let type_registry = TypeRegistry::new();
-    let external_contracts: std::collections::HashMap<ori_ir::Name, ori_arc::MemoryContract> =
-        std::collections::HashMap::default();
-    let callable_boundaries = ori_arc::CallableBoundaryFacts::default();
-    let realization = realize_closed_program(
-        &mut functions,
-        &ori_arc::ArcPipelineContext {
-            classifier: &classifier,
-            interner: &symbols,
-            pool: &pool,
-            builtins: &builtins,
-            type_registry: &type_registry,
-            callable_boundaries: &callable_boundaries,
-            verify_arc: true,
-            external_contracts: &external_contracts,
-        },
-    )
-    .unwrap_or_else(|errors| panic!("list concat realization should succeed: {errors:?}"));
-
-    ExecutableProgram::validate(ExecutableProgramParts {
-        version: EXECUTABLE_PROGRAM_VERSION,
-        symbols,
-        pool,
-        functions,
-        function_families: vec![FunctionFamilyTopology::new(main, Vec::new())],
-        contracts: realization.contracts,
-        function_effects: realization.function_effects,
-        fresh_return_facts: realization.fresh_return_facts,
-        param_disjointness: realization.param_disjointness,
-        callable_facts: realization.callable_facts,
-        closure_adapters: realization.closure_adapters,
-        retain_plans: realization.retain_plans,
-        roots: vec![main],
-        cli_entry: Some(main),
-        externals: Vec::new(),
-        method_targets: FxHashMap::default(),
-        user_drop_bindings: Vec::new(),
-        repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
-        type_registry,
-    })
-    .unwrap_or_else(|error| panic!("list concat executable should validate: {error}"))
+    }
 }
 
 struct RcValueFixture {

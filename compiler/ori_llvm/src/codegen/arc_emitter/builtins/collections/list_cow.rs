@@ -554,7 +554,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         // Use narrowed compare thunk for narrowed int lists.
         let compare_fn_ptr = self
-            .get_or_create_narrowed_compare_thunk(elem_ty)
+            .get_or_create_narrowed_compare_thunk(list_ty)
             .or_else(|| self.get_or_create_compare_thunk(elem_ty))?;
 
         let func_id = self.builder.runtime_fn("ori_list_sort_cow");
@@ -590,7 +590,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         // Use narrowed compare thunk for narrowed int lists.
         let compare_fn_ptr = self
-            .get_or_create_narrowed_compare_thunk(elem_ty)
+            .get_or_create_narrowed_compare_thunk(list_ty)
             .or_else(|| self.get_or_create_compare_thunk(elem_ty))?;
 
         let func_id = self.builder.runtime_fn("ori_list_sort_stable_cow");

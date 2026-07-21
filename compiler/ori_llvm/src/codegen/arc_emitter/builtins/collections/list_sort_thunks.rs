@@ -146,9 +146,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// canonical compare thunk instead).
     pub(in crate::codegen::arc_emitter::builtins::collections) fn get_or_create_narrowed_compare_thunk(
         &mut self,
-        _elem_ty: Idx,
+        list_ty: Idx,
     ) -> Option<ValueId> {
-        let width = self.narrowed_int_collection_element_width()?;
+        let width = self.narrowed_collection_element_width(list_ty)?;
 
         let width_suffix = match width {
             ori_repr::IntWidth::I8 => "i8",

@@ -225,6 +225,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.emit_local_yield_push(
                 self.var(args[0]),
                 self.var(args[1]),
+                func.var_type(decision.result),
                 func.var_type(args[1]),
                 decision.elem_size,
                 decision.requires_runtime_header,
@@ -366,6 +367,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         builder: ValueId,
         elem: ValueId,
+        collection_ty: Idx,
         elem_ty: Idx,
         elem_size: u64,
         requires_runtime_header: bool,
@@ -402,7 +404,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "yield.local.push.capacity",
         )
         .expect("local yield capacity guard emits its continuation");
-        let elem_llvm_ty = self.int_element_llvm_type(elem_ty);
+        let elem_llvm_ty = self.int_element_llvm_type(collection_ty, elem_ty);
         let stored = if self.pool.tag(self.pool.resolve_fully(elem_ty)) == ori_types::Tag::Int
             && elem_size < 8
         {

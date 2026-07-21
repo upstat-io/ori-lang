@@ -70,17 +70,30 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             })
             .collect();
 
-        if let Some(width) = self.narrowed_int_collection_element_width() {
+        let elem_size_var = if is_list_new && arc_args.len() == 2 {
+            Some(arc_args[1])
+        } else if is_list_push && arc_args.len() == 3 {
+            Some(arc_args[2])
+        } else {
+            None
+        };
+        if let Some((elem_size_var, (collection_ty, elem_ty))) = elem_size_var.and_then(|var| {
+            self.for_yield_elem_size_types
+                .get(&var)
+                .copied()
+                .map(|types| (var, types))
+        }) {
+            let narrowed = self.pool.tag(self.pool.resolve_fully(elem_ty)) == Tag::Int;
+            let Some(width) = narrowed
+                .then(|| self.narrowed_collection_element_width(collection_ty))
+                .flatten()
+            else {
+                return coerced_args;
+            };
             let narrowed_size = self.builder.const_i64(i64::from(width.size_bytes()));
-            if is_list_new
-                && arc_args.len() == 2
-                && self.for_yield_int_elem_sizes.contains(&arc_args[1])
-            {
+            if is_list_new && arc_args[1] == elem_size_var {
                 coerced_args[1] = narrowed_size;
-            } else if is_list_push
-                && arc_args.len() == 3
-                && self.for_yield_int_elem_sizes.contains(&arc_args[2])
-            {
+            } else if is_list_push && arc_args[2] == elem_size_var {
                 coerced_args[2] = narrowed_size;
             }
         }

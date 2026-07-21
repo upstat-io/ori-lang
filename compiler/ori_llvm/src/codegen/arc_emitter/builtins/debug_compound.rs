@@ -224,6 +224,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(super) fn emit_list_debug(
         &mut self,
         list: ValueId,
+        list_ty: Idx,
         elem_ty: Idx,
         style: RenderStyle,
     ) -> Option<ValueId> {
@@ -253,10 +254,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.position_at_end(first_bb);
         let open = self.emit_literal_ori_str("[")?;
-        let elem_llvm_ty = self.int_element_llvm_type(elem_ty);
+        let elem_llvm_ty = self.int_element_llvm_type(list_ty, elem_ty);
         let ptr0 = self.builder.gep(elem_llvm_ty, data, &[zero], "ldbg.ep0");
         let elem0 = self.builder.load(elem_llvm_ty, ptr0, "ldbg.e0");
-        let elem0 = self.sext_narrowed_int_element(elem0, elem_ty, "ldbg.e0.sext");
+        let elem0 = self.sext_narrowed_int_element(elem0, list_ty, elem_ty, "ldbg.e0.sext");
         let elem0_str = if style.is_debug() {
             self.emit_element_debug(elem0, elem_ty)?
         } else {
@@ -283,7 +284,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.dec_intermediate_str(acc_phi);
         let ptr_i = self.builder.gep(elem_llvm_ty, data, &[idx_phi], "ldbg.epi");
         let elem_i = self.builder.load(elem_llvm_ty, ptr_i, "ldbg.ei");
-        let elem_i = self.sext_narrowed_int_element(elem_i, elem_ty, "ldbg.ei.sext");
+        let elem_i = self.sext_narrowed_int_element(elem_i, list_ty, elem_ty, "ldbg.ei.sext");
         let elem_i_str = if style.is_debug() {
             self.emit_element_debug(elem_i, elem_ty)?
         } else {
