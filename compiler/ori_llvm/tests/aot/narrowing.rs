@@ -62,14 +62,8 @@ fn test_narrowed_struct_i8_boundaries() {
     );
 }
 
-// Multi-file AOT semantic pin tests for cross-module type metadata are blocked on multi-file
-// AOT compilation being incomplete (modules support). The ARC IR
-// Why: the emitter cannot resolve cross-module function calls. The plumbing
-// for ExportedTypeMetadata is verified by:
-// 1. Unit tests in compiler/oric/src/commands/build/tests.rs
-//    (collect_imported_type_metadata correctness)
-// 2. Existing ori_repr tests (imported metadata prevents narrowing)
-// 3. Compilation succeeds with the new parameter threading
+// Why: multi-file AOT compilation cannot resolve cross-module function calls.
+// Exported-type metadata is covered by build-command and representation tests.
 
 /// Negative semantic pin: struct with Top-range fields must NOT be narrowed.
 /// Fields used with values spanning the full i64 range stay at i64.
@@ -81,7 +75,7 @@ fn test_non_narrowed_struct_wide_range() {
     );
 }
 
-// ---- IR semantic pin tests (IR-PIN-04-018) ----
+// IR semantic pin tests
 //
 // These tests inspect the actual LLVM IR to verify narrowing produces
 // the expected type layouts and trunc/sext boundary instructions.
@@ -190,13 +184,10 @@ fn test_non_narrowed_struct_ir_pin_wide_range() {
     );
 }
 
-// ---- DERIVE-PIN-04-020: Negative-value derive semantic pins ----
+// Negative-value derive semantic pins
 //
-// These tests exercise derived hash(), to_str(), and debug() on narrowed structs
-// with NEGATIVE field values. A zext (instead of sext) bug when widening i8 fields
-// to canonical i64 for runtime functions would corrupt negative values (e.g., -50
-// becomes 206). Positive-only derive inputs would not
-// catch this.
+// Why: zero-extension would turn a negative i8 into a positive runtime argument.
+// Derived hash, to_str, and debug must preserve negative narrowed fields.
 
 /// Semantic pin: derived `hash()` on narrowed struct with negative i8 field values.
 ///
@@ -263,7 +254,7 @@ fn test_narrowed_derive_ir_pin_sext_in_hash() {
     );
 }
 
-// ---- MIXED-PIN-04-019: Mixed-field struct rejection pin ----
+// Mixed-field struct rejection pin
 
 /// Negative IR semantic pin: mixed-field struct (str + narrowed int) must NOT
 /// be lowered through the narrowed aggregate path.
@@ -292,7 +283,7 @@ fn test_mixed_field_struct_ir_pin_no_narrowing() {
     );
 }
 
-// ---- Local-variable narrowing tests ----
+// Local-variable narrowing tests
 
 // Behavioral test: manual loop (loop+break) with bounded counter and accumulator.
 // The program must produce correct results regardless of narrowing.
@@ -374,7 +365,7 @@ fn test_wide_range_local_ir_pin_no_i8_narrowing() {
     );
 }
 
-// ---- Comparison operations on narrowed fields ----
+// Comparison operations on narrowed fields
 //
 // Narrowed struct fields are sign-extended (sext) to i64 before any use,
 // including comparisons. This guarantees signed comparison semantics are
@@ -415,7 +406,7 @@ fn test_narrowed_comparison_ordering_chain() {
     );
 }
 
-// ---- Phase B: Straight-Line Local Variable Narrowing Tests ----
+// Straight-line local-variable narrowing tests
 //
 // These IR-inspection tests verify that non-phi local variables are narrowed
 // to smaller LLVM types when their value range fits (the repr pipeline's
@@ -903,7 +894,7 @@ fn test_mixed_for_yield_int_and_str() {
     );
 }
 
-// ---- Float Narrowing AOT Tests ----
+// Float narrowing AOT tests
 //
 // These tests verify that float field narrowing (f64→f32 for f32-exact literals)
 // produces correct runtime behavior and LLVM IR patterns. They are the float
@@ -1083,7 +1074,7 @@ fn test_float_repr_c_not_narrowed() {
     );
 }
 
-// ---- Derive Semantic Pins for Float Narrowing ----
+// Derive semantic pins for float narrowing
 //
 // These tests verify that derived traits (Printable, Debug, Hashable) work
 // correctly with narrowed float struct fields. The derive codegen must extend
@@ -1163,7 +1154,7 @@ fn test_float_narrowed_derive_ir_pin_fpext_in_printable() {
     );
 }
 
-// ---- Float Narrowing LLVM Parity Tests ----
+// Float narrowing LLVM parity tests
 //
 // These tests close the LLVM coverage gap for scenarios that the Ori spec tests
 // (tests/spec/repr/float_narrowing/) cover via the interpreter but cannot run
