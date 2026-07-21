@@ -367,7 +367,128 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             (RuntimeOperator::ListConcat, BinaryOp::Add) => {
                 unreachable!("list concat is emitted by the ownership-aware operator projection")
             }
-            _ => unreachable!("runtime operation {runtime:?} does not implement {op:?}"),
+            (
+                RuntimeOperator::StringConcat,
+                BinaryOp::Sub
+                | BinaryOp::Mul
+                | BinaryOp::Div
+                | BinaryOp::Mod
+                | BinaryOp::FloorDiv
+                | BinaryOp::MatMul
+                | BinaryOp::Eq
+                | BinaryOp::NotEq
+                | BinaryOp::Lt
+                | BinaryOp::Gt
+                | BinaryOp::LtEq
+                | BinaryOp::GtEq
+                | BinaryOp::And
+                | BinaryOp::Or
+                | BinaryOp::BitAnd
+                | BinaryOp::BitOr
+                | BinaryOp::BitXor
+                | BinaryOp::Shl
+                | BinaryOp::Shr
+                | BinaryOp::Range
+                | BinaryOp::RangeInclusive
+                | BinaryOp::Coalesce,
+            )
+            | (
+                RuntimeOperator::StringEqual,
+                BinaryOp::Add
+                | BinaryOp::Sub
+                | BinaryOp::Mul
+                | BinaryOp::Div
+                | BinaryOp::Mod
+                | BinaryOp::FloorDiv
+                | BinaryOp::MatMul
+                | BinaryOp::NotEq
+                | BinaryOp::Lt
+                | BinaryOp::Gt
+                | BinaryOp::LtEq
+                | BinaryOp::GtEq
+                | BinaryOp::And
+                | BinaryOp::Or
+                | BinaryOp::BitAnd
+                | BinaryOp::BitOr
+                | BinaryOp::BitXor
+                | BinaryOp::Shl
+                | BinaryOp::Shr
+                | BinaryOp::Range
+                | BinaryOp::RangeInclusive
+                | BinaryOp::Coalesce,
+            )
+            | (
+                RuntimeOperator::StringNotEqual,
+                BinaryOp::Add
+                | BinaryOp::Sub
+                | BinaryOp::Mul
+                | BinaryOp::Div
+                | BinaryOp::Mod
+                | BinaryOp::FloorDiv
+                | BinaryOp::MatMul
+                | BinaryOp::Eq
+                | BinaryOp::Lt
+                | BinaryOp::Gt
+                | BinaryOp::LtEq
+                | BinaryOp::GtEq
+                | BinaryOp::And
+                | BinaryOp::Or
+                | BinaryOp::BitAnd
+                | BinaryOp::BitOr
+                | BinaryOp::BitXor
+                | BinaryOp::Shl
+                | BinaryOp::Shr
+                | BinaryOp::Range
+                | BinaryOp::RangeInclusive
+                | BinaryOp::Coalesce,
+            )
+            | (
+                RuntimeOperator::StringCompare,
+                BinaryOp::Add
+                | BinaryOp::Sub
+                | BinaryOp::Mul
+                | BinaryOp::Div
+                | BinaryOp::Mod
+                | BinaryOp::FloorDiv
+                | BinaryOp::MatMul
+                | BinaryOp::Eq
+                | BinaryOp::NotEq
+                | BinaryOp::And
+                | BinaryOp::Or
+                | BinaryOp::BitAnd
+                | BinaryOp::BitOr
+                | BinaryOp::BitXor
+                | BinaryOp::Shl
+                | BinaryOp::Shr
+                | BinaryOp::Range
+                | BinaryOp::RangeInclusive
+                | BinaryOp::Coalesce,
+            )
+            | (
+                RuntimeOperator::ListConcat,
+                BinaryOp::Sub
+                | BinaryOp::Mul
+                | BinaryOp::Div
+                | BinaryOp::Mod
+                | BinaryOp::FloorDiv
+                | BinaryOp::MatMul
+                | BinaryOp::Eq
+                | BinaryOp::NotEq
+                | BinaryOp::Lt
+                | BinaryOp::Gt
+                | BinaryOp::LtEq
+                | BinaryOp::GtEq
+                | BinaryOp::And
+                | BinaryOp::Or
+                | BinaryOp::BitAnd
+                | BinaryOp::BitOr
+                | BinaryOp::BitXor
+                | BinaryOp::Shl
+                | BinaryOp::Shr
+                | BinaryOp::Range
+                | BinaryOp::RangeInclusive
+                | BinaryOp::Coalesce,
+            ) => unreachable!("runtime operation {runtime:?} does not implement {op:?}"),
         }
     }
 }
