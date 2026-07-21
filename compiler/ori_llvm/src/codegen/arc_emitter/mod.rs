@@ -325,6 +325,9 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// the runtime list stride and LLVM GEP stride.
     for_yield_elem_size_types: FxHashMap<ArcVarId, (Idx, Idx)>,
 
+    /// Closed yield-allocation lineage index for the function being emitted.
+    yield_lineages: ori_arc::YieldLineageIndex,
+
     /// Niche-encoded enum tag tracking.
     ///
     /// When `Project { field: 0 }` extracts a tag from a niche-encoded enum,
@@ -412,6 +415,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             narrowed_vars: FxHashMap::default(),
             repr_plan: type_resolver.repr_plan(),
             for_yield_elem_size_types: FxHashMap::default(),
+            yield_lineages: ori_arc::YieldLineageIndex::default(),
             niche_scrutinees: FxHashMap::default(),
             verify_arc: false,
         }

@@ -162,7 +162,7 @@ impl ArcLowerer<'_> {
             fallback_elem_ty
         };
         let elem_size = self.compute_elem_size(body_elem_ty).cast_unsigned();
-        let (list_ptr, elem_size_var) = self.allocate_yield_list(body_elem_ty, extent);
+        let (list_ptr, elem_size_var, extent) = self.allocate_yield_list(body_elem_ty, extent);
         let flow = self.prepare_iterator_flow(None);
         YieldIteratorSetup {
             flow,
@@ -178,11 +178,13 @@ impl ArcLowerer<'_> {
         &mut self,
         elem_ty: Idx,
         extent: YieldExtent,
-    ) -> (ArcVarId, ArcVarId) {
+    ) -> (ArcVarId, ArcVarId, YieldExtent) {
         let list_new = self.interner.intern("ori_list_new");
+        let extent = representable_yield_extent(extent);
         let capacity = match extent {
             YieldExtent::StaticExact(exact) => {
-                let exact = i64::try_from(exact).unwrap_or(8);
+                let exact = i64::try_from(exact)
+                    .unwrap_or_else(|_| unreachable!("yield extent was normalized above"));
                 self.builder
                     .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(exact)), None)
             }
@@ -203,7 +205,7 @@ impl ArcLowerer<'_> {
             None,
             None,
         );
-        (list_ptr, elem_size_var)
+        (list_ptr, elem_size_var, extent)
     }
 
     fn yield_extent(
@@ -341,4 +343,29 @@ fn range_cardinality(start: i64, end: i64, step: i64, inclusive: bool) -> Option
     let step_abs = step.abs();
     let count = (span + step_abs - 1) / step_abs;
     u64::try_from(count).ok()
+}
+
+fn representable_yield_extent(extent: YieldExtent) -> YieldExtent {
+    match extent {
+        YieldExtent::StaticExact(exact) if i64::try_from(exact).is_err() => YieldExtent::Unknown,
+        representable => representable,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::representable_yield_extent;
+    use crate::ir::YieldExtent;
+
+    #[test]
+    fn static_yield_extent_fails_closed_above_runtime_capacity_range() {
+        assert_eq!(
+            representable_yield_extent(YieldExtent::StaticExact(i64::MAX.cast_unsigned())),
+            YieldExtent::StaticExact(i64::MAX.cast_unsigned())
+        );
+        assert_eq!(
+            representable_yield_extent(YieldExtent::StaticExact(i64::MAX.cast_unsigned() + 1)),
+            YieldExtent::Unknown
+        );
+    }
 }

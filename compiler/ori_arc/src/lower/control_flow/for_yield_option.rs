@@ -23,6 +23,7 @@ struct YieldOptionSetup {
     elem_size_var: ArcVarId,
     elem_ty: Idx,
     elem_size: u64,
+    extent: YieldExtent,
 }
 
 impl ArcLowerer<'_> {
@@ -71,7 +72,7 @@ impl ArcLowerer<'_> {
             fallback_elem_ty
         };
         let elem_size = self.compute_elem_size(body_elem_ty).cast_unsigned();
-        let (list_ptr, elem_size_var) =
+        let (list_ptr, elem_size_var, extent) =
             self.allocate_yield_list(body_elem_ty, YieldExtent::StaticExact(1));
         let exit_mut_params = mutable_bindings
             .iter()
@@ -88,6 +89,7 @@ impl ArcLowerer<'_> {
             elem_size_var,
             elem_ty: body_elem_ty,
             elem_size,
+            extent,
         }
     }
 
@@ -217,7 +219,7 @@ impl ArcLowerer<'_> {
             result,
             setup.elem_ty,
             setup.elem_size,
-            YieldExtent::StaticExact(1),
+            setup.extent,
         );
         result
     }

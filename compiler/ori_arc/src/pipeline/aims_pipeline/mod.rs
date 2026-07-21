@@ -259,6 +259,7 @@ fn freeze_yield_allocation_locality(
     func: &mut ArcFunction,
     state_map: &crate::aims::intraprocedural::AimsStateMap,
 ) {
+    let yield_lineages = crate::YieldLineageIndex::for_function(func);
     let returned_yield_results: FxHashSet<_> = func
         .blocks
         .iter()
@@ -266,7 +267,7 @@ fn freeze_yield_allocation_locality(
             crate::ir::ArcTerminator::Return { value } => Some(value),
             _ => None,
         })
-        .filter_map(|returned| crate::yield_result_for_receiver_lineage(func, returned))
+        .filter_map(|returned| yield_lineages.result_for_receiver(returned))
         .collect();
     let mut eligible = FxHashSet::default();
     for block in &func.blocks {

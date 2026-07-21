@@ -89,7 +89,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         arc_func: &ArcFunction,
         receiver: ArcVarId,
     ) -> bool {
-        let Some(result) = ori_arc::yield_result_for_receiver_lineage(arc_func, receiver) else {
+        let Some(result) = self.yield_lineages.result_for_receiver(receiver) else {
             return false;
         };
         self.repr_plan
@@ -105,7 +105,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         arc_func: &ArcFunction,
         receiver: ArcVarId,
     ) -> bool {
-        let Some(result) = ori_arc::yield_result_for_receiver_lineage(arc_func, receiver) else {
+        let Some(result) = self.yield_lineages.result_for_receiver(receiver) else {
             return false;
         };
         self.repr_plan
@@ -128,7 +128,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if !self.is_stack_slot_yield_receiver(arc_func, receiver) {
             return false;
         }
-        let Some(result) = ori_arc::yield_result_for_receiver_lineage(arc_func, receiver) else {
+        let Some(result) = self.yield_lineages.result_for_receiver(receiver) else {
             return false;
         };
         arc_func

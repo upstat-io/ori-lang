@@ -501,18 +501,33 @@ impl ReprPlan {
         pool: &Pool,
         mut runtime_call: impl FnMut(Name, ArcVarId) -> Option<YieldLineageRuntimeCall>,
     ) {
+        let functions_by_name: FxHashMap<_, _> = functions
+            .iter()
+            .map(|function| {
+                (
+                    function.name,
+                    (function, ori_arc::YieldLineageIndex::for_function(function)),
+                )
+            })
+            .collect();
         let decisions: Vec<_> = self
             .yield_allocations
             .iter()
             .map(|(&key, &decision)| (key, decision))
             .collect();
         for (key, decision) in decisions {
-            let elidable = functions
-                .iter()
-                .find(|function| function.name == key.0)
-                .is_some_and(|function| {
-                    yield_runtime_header_is_elidable(function, decision, pool, &mut runtime_call)
-                });
+            let elidable =
+                functions_by_name
+                    .get(&key.0)
+                    .is_some_and(|(function, yield_lineages)| {
+                        yield_runtime_header_is_elidable(
+                            function,
+                            yield_lineages,
+                            decision,
+                            pool,
+                            &mut runtime_call,
+                        )
+                    });
             if elidable {
                 self.yield_allocations
                     .get_mut(&key)
@@ -636,6 +651,7 @@ struct YieldLineageCall<'a> {
 
 fn yield_runtime_header_is_elidable(
     function: &ArcFunction,
+    yield_lineages: &ori_arc::YieldLineageIndex,
     decision: CompiledAllocationDecision,
     pool: &Pool,
     runtime_call: &mut impl FnMut(Name, ArcVarId) -> Option<YieldLineageRuntimeCall>,
@@ -665,7 +681,8 @@ fn yield_runtime_header_is_elidable(
     }
 
     let in_lineage = |var| {
-        ori_arc::yield_result_for_receiver_lineage(function, var)
+        yield_lineages
+            .result_for_receiver(var)
             .is_some_and(|result| result == decision.result)
     };
     for (block_idx, block) in function.blocks.iter().enumerate() {

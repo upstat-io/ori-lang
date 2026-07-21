@@ -24,7 +24,9 @@ use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
 use super::metrics;
 use burden_lowering::lower_burden_ops_to_rc;
 
-pub use jump_threaded_reps::{push_receiver_lineage_returned, yield_result_for_receiver_lineage};
+pub use jump_threaded_reps::{
+    push_receiver_lineage_returned, yield_result_for_receiver_lineage, YieldLineageIndex,
+};
 
 /// Per-phase snapshot of the current counter-shaped carrier for post-walk
 /// adapter debugging.

@@ -43,7 +43,9 @@ pub use aims::contract::{
 };
 pub use aims::realize::rc_remark::write_rc_remarks_header;
 pub use aims::realize::rl31_disjoint::{prove_param_disjointness, ParamDisjointnessFacts};
-pub use aims::realize::{push_receiver_lineage_returned, yield_result_for_receiver_lineage};
+pub use aims::realize::{
+    push_receiver_lineage_returned, yield_result_for_receiver_lineage, YieldLineageIndex,
+};
 pub use aims::{freeze_primitive_facts, validate_primitive_facts};
 pub use pipeline::{
     realize_closed_program, realize_closed_program_with_observer, ArcPipelineBatchOutcome,

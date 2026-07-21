@@ -70,6 +70,7 @@ impl BlockLabel {
 pub(super) fn scan_for_yield_elem_size_types(
     func: &ArcFunction,
     interner: &ori_ir::StringInterner,
+    yield_lineages: &ori_arc::YieldLineageIndex,
 ) -> FxHashMap<ArcVarId, (Idx, Idx)> {
     // The for-yield lowerer interns the runtime symbol as a `Name`; compare
     // interned Names instead of per-instruction string lookups.
@@ -84,11 +85,10 @@ pub(super) fn scan_for_yield_elem_size_types(
                 // ori_list_push(list_ptr, elem_val, elem_size_var)
                 if *callee == list_push && args.len() == 3 {
                     let elem_ty = func.var_type(args[1]);
-                    let collection_ty = ori_arc::yield_result_for_receiver_lineage(func, args[0])
-                        .map_or_else(
-                            || func.var_type(args[0]),
-                            |yield_result| func.var_type(yield_result),
-                        );
+                    let collection_ty = yield_lineages.result_for_receiver(args[0]).map_or_else(
+                        || func.var_type(args[0]),
+                        |yield_result| func.var_type(yield_result),
+                    );
                     result.insert(args[2], (collection_ty, elem_ty));
                 }
             }

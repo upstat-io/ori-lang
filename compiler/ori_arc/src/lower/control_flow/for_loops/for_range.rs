@@ -74,7 +74,7 @@ impl ArcLowerer<'_> {
             Idx::INT
         };
         let elem_size = self.compute_elem_size(elem_ty).cast_unsigned();
-        let (list_ptr, elem_size_var) = self.allocate_yield_list(elem_ty, extent);
+        let (list_ptr, elem_size_var, extent) = self.allocate_yield_list(elem_ty, extent);
         let setup = self.prepare_range_loop(true);
         let (step, in_bounds) = self.enter_range_header(iter_val, &setup);
         let list_push = self.interner.intern("ori_list_push");

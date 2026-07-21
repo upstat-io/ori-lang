@@ -114,7 +114,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .insert(checked_var, self.block(handler));
         }
         self.var_map.resize(func.var_types.len(), None);
-        self.for_yield_elem_size_types = scan_for_yield_elem_size_types(func, self.interner);
+        self.yield_lineages = ori_arc::YieldLineageIndex::for_function(func);
+        self.for_yield_elem_size_types =
+            scan_for_yield_elem_size_types(func, self.interner, &self.yield_lineages);
 
         let used_fields = scan_used_fields(func);
         let pointer_only = self.find_pointer_only_params(func);
