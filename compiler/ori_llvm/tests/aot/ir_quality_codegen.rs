@@ -3,7 +3,10 @@
 //! Verify sum type payload extraction, surgical struct field loading,
 //! and skip-codegen-after-noreturn optimizations.
 
-use crate::util::{compile_and_capture_ir, compile_and_run, extract_function_ir};
+use crate::util::{
+    compile_and_capture_ir, compile_and_capture_ir_no_repr_opt, compile_and_run,
+    extract_function_ir,
+};
 
 // Sum type payload extraction
 
@@ -324,7 +327,7 @@ fn test_tail_recursive_gcd_has_no_self_call() {
 /// per operation site.
 #[test]
 fn test_overflow_string_dedup_single_global_per_message() {
-    let ir = compile_and_capture_ir(include_str!(
+    let ir = compile_and_capture_ir_no_repr_opt(include_str!(
         "fixtures/ir_quality_codegen/overflow_string_dedup_single_global_per_message.ori"
     ));
 

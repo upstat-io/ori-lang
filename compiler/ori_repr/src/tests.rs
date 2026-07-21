@@ -10,8 +10,10 @@ use crate::ReprAttribute;
 use crate::ReprPlan;
 
 use ori_arc::ir::{
-    AllocationSiteId, ArcVarId, YieldAllocationFact, YieldAllocationLocality, YieldExtent,
+    AllocationSiteId, ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership,
+    ValueRepr, YieldAllocationExecution, YieldAllocationFact, YieldAllocationLocality, YieldExtent,
 };
+use ori_arc::ArcBlockId;
 use ori_ir::Name;
 use ori_types::ExportedTypeMetadata;
 use rustc_hash::FxHashMap;
@@ -322,6 +324,8 @@ fn yield_fact(
         elem_size,
         extent,
         locality,
+        execution: YieldAllocationExecution::SingleExecution,
+        requires_runtime_header: true,
     }
 }
 
@@ -387,8 +391,20 @@ fn yield_allocation_selection_is_exact_bounded_and_fail_closed() {
         YieldExtent::StaticExact(32),
         YieldAllocationLocality::Escaping,
     );
+    let mut repeated = yield_fact(
+        4,
+        10,
+        11,
+        8,
+        YieldExtent::StaticExact(32),
+        YieldAllocationLocality::Local,
+    );
+    repeated.execution = YieldAllocationExecution::RepeatedOrUnknown;
     let mut facts = FxHashMap::default();
-    facts.insert(function, vec![local, oversized, dynamic, escaping]);
+    facts.insert(
+        function,
+        vec![local, oversized, dynamic, escaping, repeated],
+    );
     let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
     plan.freeze_yield_allocations(&facts);
 
@@ -398,7 +414,7 @@ fn yield_allocation_selection_is_exact_bounded_and_fail_closed() {
             .mechanism,
         crate::CompiledAllocationMechanism::StackSlot
     );
-    for fact in [oversized, dynamic, escaping] {
+    for fact in [oversized, dynamic, escaping, repeated] {
         assert_eq!(
             plan.yield_allocation_for_result(function, fact.result)
                 .expect("managed allocation decision")
@@ -406,6 +422,71 @@ fn yield_allocation_selection_is_exact_bounded_and_fail_closed() {
             crate::CompiledAllocationMechanism::RuntimeHeap
         );
     }
+}
+
+#[test]
+fn yield_header_elision_requires_exact_runtime_call_targets() {
+    let function_name = Name::new(0, 95);
+    let observer_name = Name::new(0, 96);
+    let result = ArcVarId::new(0);
+    let observed = ArcVarId::new(1);
+    let mut fact = yield_fact(
+        0,
+        2,
+        result.raw(),
+        1,
+        YieldExtent::StaticExact(4),
+        YieldAllocationLocality::Local,
+    );
+    fact.requires_runtime_header = false;
+    let function = ArcFunction {
+        name: function_name,
+        return_type: ori_types::Idx::INT,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: Vec::new(),
+            body: vec![ArcInstr::Apply {
+                dst: observed,
+                ty: ori_types::Idx::INT,
+                func: observer_name,
+                args: vec![result],
+                arg_ownership: vec![ArgOwnership::Borrowed],
+                mono_instance_id: None,
+            }],
+            terminator: ArcTerminator::Return { value: observed },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![ori_types::Idx::BOOL, ori_types::Idx::INT],
+        var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
+        spans: vec![vec![None]],
+        yield_allocations: vec![fact],
+        ..ArcFunction::default()
+    };
+    let facts = FxHashMap::from_iter([(function_name, vec![fact])]);
+
+    let mut runtime_plan = ReprPlan::new(NarrowingPolicy::Disabled);
+    runtime_plan.freeze_yield_allocations(&facts);
+    runtime_plan
+        .close_yield_runtime_header_requirements(std::slice::from_ref(&function), |_, dst| {
+            dst == observed
+        });
+    assert!(
+        !runtime_plan
+            .yield_allocation_for_result(function_name, result)
+            .expect("runtime-target yield decision")
+            .requires_runtime_header
+    );
+
+    let mut exact_plan = ReprPlan::new(NarrowingPolicy::Disabled);
+    exact_plan.freeze_yield_allocations(&facts);
+    exact_plan.close_yield_runtime_header_requirements(&[function], |_, _| false);
+    assert!(
+        exact_plan
+            .yield_allocation_for_result(function_name, result)
+            .expect("exact-target yield decision")
+            .requires_runtime_header,
+        "same-spelled local/imported callables must fail closed to headerful storage"
+    );
 }
 
 // Semantic Pin Tests

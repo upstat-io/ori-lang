@@ -129,6 +129,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
+        // Qualified length projections return a header-only physical value
+        // with null data, and scalar stack yields own neither a heap buffer nor
+        // element destructors. Their logical release therefore has no physical
+        // operation; non-scalar stack yields retain the ordinary drop walk.
+        if self.is_length_projection_result(func, var)
+            || self.is_scalar_stack_slot_yield_receiver(func, var)
+        {
+            return;
+        }
+
         // Why: debug-only cross-check that the instruction's strategy matches the
         // Pool-derived expectation; `UserDrop` is excluded because `from_repr`
         // rejects Scalar repr and never produces it.

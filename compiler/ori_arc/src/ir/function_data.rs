@@ -152,6 +152,18 @@ pub enum YieldAllocationLocality {
     Escaping,
 }
 
+/// Representation-owned dynamic execution evidence for one allocation site.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
+pub enum YieldAllocationExecution {
+    /// Analysis has not proved that one physical slot represents every dynamic
+    /// instance. This includes allocation sites inside CFG cycles.
+    #[default]
+    RepeatedOrUnknown,
+    /// The defining block cannot execute more than once per function call.
+    SingleExecution,
+}
+
 /// A lowering-owned yield allocation, keyed independently of instruction position.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
@@ -170,6 +182,15 @@ pub struct YieldAllocationFact {
     pub extent: YieldExtent,
     /// AIMS-owned lifetime verdict, frozen after convergence.
     pub locality: YieldAllocationLocality,
+    /// Dynamic execution verdict, frozen from the final post-AIMS CFG.
+    pub execution: YieldAllocationExecution,
+    /// Whether the physical collection backing must retain the runtime RC
+    /// header immediately before its element data.
+    ///
+    /// Lowering initializes this conservatively. AIMS may clear it only for a
+    /// closed primitive-scalar lineage whose complete use set needs neither
+    /// sharing state nor element cleanup.
+    pub requires_runtime_header: bool,
 }
 
 /// A complete function in the ARC IR.

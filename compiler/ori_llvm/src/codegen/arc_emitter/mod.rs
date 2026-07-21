@@ -258,6 +258,8 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// The current function's interprocedural `MemoryContract`, when available.
     /// Read by `compute_borrowed_rooted_vars` to seed `iter_owns_rooted_vars`.
     func_contract: Option<&'a MemoryContract>,
+    /// Returned yield result whose private clone materializes only its length.
+    length_only_yield_result: Option<ArcVarId>,
     /// Variables rooted at a parameter whose final contract demands a whole-
     /// value ownership credit. For such a `.iter()` receiver the iterator owns
     /// the backing buffer even when borrow inference selected a reference ABI.
@@ -409,6 +411,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             same_frame_catch_landing_pads: FxHashMap::default(),
             borrowed_rooted_vars: FxHashSet::default(),
             func_contract: None,
+            length_only_yield_result: None,
             iter_owns_rooted_vars: FxHashSet::default(),
             borrowed_param_ptrs: FxHashMap::default(),
             pointer_only_params: FxHashSet::default(),
@@ -448,6 +451,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// low-level emitter tests that do not bind a closed executable artifact.
     pub(super) fn set_func_contract(&mut self, contract: Option<&'a MemoryContract>) {
         self.func_contract = contract;
+    }
+
+    /// Select the single returned-yield payload virtualized in a private clone.
+    pub(super) fn set_length_only_yield_result(&mut self, result: Option<ArcVarId>) {
+        self.length_only_yield_result = result;
     }
 
     /// Whether the `.iter()` receiver `var` roots to a parameter whose final

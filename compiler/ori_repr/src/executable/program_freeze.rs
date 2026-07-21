@@ -10,8 +10,8 @@ use rustc_hash::FxHashMap;
 use super::{
     call_targets, callable_facts, closure_adapters, drop_plan, effect_facts, external,
     function_contracts, function_families, method_targets, parameter_facts, return_facts,
-    validation, ExecutableDropPlan, ExecutableProgram, ExecutableProgramParts, FunctionId,
-    RealizationError, EXECUTABLE_PROGRAM_VERSION,
+    validation, CallableTarget, ExecutableDropPlan, ExecutableProgram, ExecutableProgramParts,
+    FunctionId, RealizationError, EXECUTABLE_PROGRAM_VERSION,
 };
 
 pub(super) fn validate(
@@ -83,6 +83,17 @@ fn freeze_executable_program(
         &parts.symbols,
         &parts.pool,
     )?;
+    parts.repr_plan.close_yield_runtime_header_requirements(
+        &parts.functions,
+        |function, destination| {
+            function_ids.get(&function).is_some_and(|function_id| {
+                matches!(
+                    direct_call_targets.get(&(*function_id, destination)),
+                    Some(CallableTarget::Runtime(_))
+                )
+            })
+        },
+    );
     Ok(ExecutableProgram {
         version: parts.version,
         symbols: parts.symbols,

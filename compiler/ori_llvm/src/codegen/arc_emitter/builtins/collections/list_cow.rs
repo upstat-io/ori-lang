@@ -8,9 +8,24 @@ use ori_arc::CowMode;
 use ori_ir::{FIELD_DATA, FIELD_LEN};
 use ori_types::{Idx, Tag};
 
-use crate::codegen::value_id::{FunctionId, ValueId};
+use crate::codegen::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
 
 use super::super::super::ArcIrEmitter;
+
+struct ScalarUpdatedArgs {
+    receiver: ValueId,
+    key: ValueId,
+    elem: ValueId,
+    data_ptr: ValueId,
+    len: ValueId,
+    cap: ValueId,
+    elem_ty: Idx,
+    cow_mode: CowMode,
+    list_ty: Idx,
+    stack_slot_receiver: bool,
+    compact_stack_receiver: bool,
+    func_id: FunctionId,
+}
 
 /// Read and report the result-buffer metadata-store ablation toggle.
 fn push_result_elem_header_store_disabled() -> bool {
@@ -154,134 +169,52 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         cow_mode: CowMode,
         list_ty: Idx,
         stack_slot_receiver: bool,
+        compact_stack_receiver: bool,
+        negated_same_index: bool,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_updated_cow");
 
         let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
+        let bool_elem = self.pool.tag(self.pool.resolve_fully(elem_ty)) == Tag::Bool;
+        if bool_elem
+            && stack_slot_receiver
+            && cow_mode == CowMode::StaticUnique
+            && negated_same_index
+        {
+            let elem_llvm_ty = self
+                .builder
+                .register_type(self.builder.scx().type_i8().into());
+            let elem_ptr =
+                self.builder
+                    .gep(elem_llvm_ty, data_ptr, &[key], "updated.toggle.elem_ptr");
+            let old = self
+                .builder
+                .load(elem_llvm_ty, elem_ptr, "updated.toggle.old");
+            let one = self.builder.const_i8(1);
+            let toggled = self.builder.xor(old, one, "updated.toggle.value");
+            self.builder.store(toggled, elem_ptr);
+            return Some(receiver);
+        }
         // Scalar replacement needs no element retain/release callbacks. Emit
         // the dynamic uniqueness check and the unique overwrite in LLVM so a
         // loop does not cross the runtime ABI for every element. Slices,
         // shared buffers, and out-of-bounds indices retain the exact runtime
         // path (including its panic and unwind behavior).
         if self.classifier.is_scalar(elem_ty) {
-            let list_struct_ty = self.list_struct_type();
-            let out = self.builder.create_entry_alloca(
-                self.current_function,
-                "list.updated.fallback",
-                list_struct_ty,
-            );
-            let check_unique = self
-                .builder
-                .append_block(self.current_function, "updated.check_unique");
-            let direct = self
-                .builder
-                .append_block(self.current_function, "updated.direct");
-            let fallback = self
-                .builder
-                .append_block(self.current_function, "updated.fallback");
-            let merge = self
-                .builder
-                .append_block(self.current_function, "updated.merge");
-
-            let zero = self.builder.const_i64(0);
-            let in_bounds = self.builder.icmp_ult(key, len, "updated.in_bounds");
-            let may_update = if stack_slot_receiver && cow_mode == CowMode::StaticUnique {
-                in_bounds
-            } else {
-                let regular = self.builder.icmp_sge(cap, zero, "updated.regular");
-                self.builder.and(regular, in_bounds, "updated.may_update")
-            };
-            self.builder.cond_br(may_update, check_unique, fallback);
-
-            self.builder.position_at_end(check_unique);
-            match cow_mode {
-                CowMode::StaticUnique => self.builder.br(direct),
-                CowMode::StaticShared => self.builder.br(fallback),
-                CowMode::Dynamic => {
-                    let i8_ty = self.builder.i8_type();
-                    let rc_offset = self.builder.const_i64(-8);
-                    let rc_ptr = self
-                        .builder
-                        .gep(i8_ty, data_ptr, &[rc_offset], "updated.rc_ptr");
-                    let i64_ty = self.builder.i64_type();
-                    let rc = self.builder.load(i64_ty, rc_ptr, "updated.rc");
-                    let one = self.builder.const_i64(1);
-                    let unique = self.builder.icmp_eq(rc, one, "updated.unique");
-                    self.builder.cond_br(unique, direct, fallback);
-                }
-            }
-
-            self.builder.position_at_end(direct);
-            let collection_idx = self.pool.resolve_fully(list_ty);
-            let bool_elem = self.pool.tag(self.pool.resolve_fully(elem_ty)) == Tag::Bool;
-            let elem_llvm_ty = if bool_elem {
-                self.builder
-                    .register_type(self.builder.scx().type_i8().into())
-            } else {
-                self.collection_elem_llvm_type(collection_idx, elem_ty)
-            };
-            let stored = if bool_elem {
-                self.builder.zext(elem, elem_llvm_ty, "updated.elem.bool")
-            } else {
-                self.trunc_for_narrowed_collection_element(
-                    elem,
-                    collection_idx,
-                    "updated.elem.trunc",
-                )
-            };
-            let dst = self
-                .builder
-                .gep(elem_llvm_ty, data_ptr, &[key], "updated.elem_ptr");
-            self.builder.store(stored, dst);
-            let direct_end = self.builder.current_block().expect("direct update block");
-            self.builder.br(merge);
-
-            self.builder.position_at_end(fallback);
-            // Materialize the runtime ABI operands only on the cold edge. In
-            // particular, keeping elem_to_ptr out of the direct block avoids
-            // an otherwise unconditional scalar spill on every update.
-            let elem_ptr = self.elem_to_ptr(elem, elem_ty, "updated.elem");
-            let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
-            let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
-            let dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
-            let cow_mode_value = self.builder.const_i32(cow_mode as i32);
-            self.emit_rt_call(
+            return self.emit_scalar_list_updated_cow(&ScalarUpdatedArgs {
+                receiver,
+                key,
+                elem,
+                data_ptr,
+                len,
+                cap,
+                elem_ty,
+                cow_mode,
+                list_ty,
+                stack_slot_receiver,
+                compact_stack_receiver,
                 func_id,
-                &[
-                    data_ptr,
-                    len,
-                    cap,
-                    key,
-                    elem_ptr,
-                    elem_size_val,
-                    elem_align_val,
-                    inc_fn,
-                    dec_fn,
-                    cow_mode_value,
-                    out,
-                ],
-                "updated",
-            );
-            let fallback_value = if stack_slot_receiver && cow_mode == CowMode::StaticUnique {
-                // The plan proves a positive-capacity stack backing. The sole
-                // fallback edge is therefore OOB and the runtime unwinds; keep
-                // the original SSA identity on its unreachable normal edge so
-                // it cannot poison the loop-carried len/cap proof.
-                receiver
-            } else {
-                self.builder
-                    .load(list_struct_ty, out, "updated.fallback_value")
-            };
-            let fallback_end = self.builder.current_block().expect("fallback update block");
-            self.builder.br(merge);
-
-            self.builder.position_at_end(merge);
-            let result = self.builder.phi(list_struct_ty, "updated.value");
-            self.builder.add_phi_incoming(
-                result,
-                &[(receiver, direct_end), (fallback_value, fallback_end)],
-            );
-            return Some(result);
+            });
         }
 
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "updated.elem");
@@ -306,6 +239,148 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 cow_mode,
             ],
         )
+    }
+
+    fn emit_scalar_list_updated_cow(&mut self, args: &ScalarUpdatedArgs) -> Option<ValueId> {
+        let list_struct_ty = self.list_struct_type();
+        let out = self.builder.create_entry_alloca(
+            self.current_function,
+            "list.updated.fallback",
+            list_struct_ty,
+        );
+        let check_unique = self
+            .builder
+            .append_block(self.current_function, "updated.check_unique");
+        let direct = self
+            .builder
+            .append_block(self.current_function, "updated.direct");
+        let fallback = self
+            .builder
+            .append_block(self.current_function, "updated.fallback");
+        let merge = self
+            .builder
+            .append_block(self.current_function, "updated.merge");
+
+        let zero = self.builder.const_i64(0);
+        let in_bounds = self
+            .builder
+            .icmp_ult(args.key, args.len, "updated.in_bounds");
+        let may_update = if args.stack_slot_receiver && args.cow_mode == CowMode::StaticUnique {
+            in_bounds
+        } else {
+            let regular = self.builder.icmp_sge(args.cap, zero, "updated.regular");
+            self.builder.and(regular, in_bounds, "updated.may_update")
+        };
+        self.builder.cond_br(may_update, check_unique, fallback);
+
+        self.emit_scalar_updated_uniqueness_branch(args, check_unique, direct, fallback);
+
+        self.builder.position_at_end(direct);
+        let collection_idx = self.pool.resolve_fully(args.list_ty);
+        let bool_elem = self.pool.tag(self.pool.resolve_fully(args.elem_ty)) == Tag::Bool;
+        let elem_llvm_ty = if bool_elem {
+            self.builder
+                .register_type(self.builder.scx().type_i8().into())
+        } else {
+            self.collection_elem_llvm_type(collection_idx, args.elem_ty)
+        };
+        let stored = if bool_elem {
+            self.builder
+                .zext(args.elem, elem_llvm_ty, "updated.elem.bool")
+        } else {
+            self.trunc_for_narrowed_collection_element(
+                args.elem,
+                collection_idx,
+                "updated.elem.trunc",
+            )
+        };
+        let dst = self
+            .builder
+            .gep(elem_llvm_ty, args.data_ptr, &[args.key], "updated.elem_ptr");
+        self.builder.store(stored, dst);
+        let direct_end = self.builder.current_block().expect("direct update block");
+        self.builder.br(merge);
+
+        self.builder.position_at_end(fallback);
+        let fallback_value = self.emit_scalar_updated_fallback(args, out, list_struct_ty);
+        let fallback_end = self.builder.current_block().expect("fallback update block");
+        self.builder.br(merge);
+
+        self.builder.position_at_end(merge);
+        let result = self.builder.phi(list_struct_ty, "updated.value");
+        self.builder.add_phi_incoming(
+            result,
+            &[(args.receiver, direct_end), (fallback_value, fallback_end)],
+        );
+        Some(result)
+    }
+
+    fn emit_scalar_updated_uniqueness_branch(
+        &mut self,
+        args: &ScalarUpdatedArgs,
+        check_unique: BlockId,
+        direct: BlockId,
+        fallback: BlockId,
+    ) {
+        self.builder.position_at_end(check_unique);
+        match args.cow_mode {
+            CowMode::StaticUnique => self.builder.br(direct),
+            CowMode::StaticShared => self.builder.br(fallback),
+            CowMode::Dynamic => {
+                let i8_ty = self.builder.i8_type();
+                let rc_offset = self.builder.const_i64(-8);
+                let rc_ptr = self
+                    .builder
+                    .gep(i8_ty, args.data_ptr, &[rc_offset], "updated.rc_ptr");
+                let i64_ty = self.builder.i64_type();
+                let rc = self.builder.load(i64_ty, rc_ptr, "updated.rc");
+                let one = self.builder.const_i64(1);
+                let unique = self.builder.icmp_eq(rc, one, "updated.unique");
+                self.builder.cond_br(unique, direct, fallback);
+            }
+        }
+    }
+
+    fn emit_scalar_updated_fallback(
+        &mut self,
+        args: &ScalarUpdatedArgs,
+        out: ValueId,
+        list_struct_ty: LLVMTypeId,
+    ) -> ValueId {
+        if args.compact_stack_receiver {
+            let panic_fn = self.builder.runtime_fn("ori_panic_index_out_of_bounds");
+            self.emit_rt_call(panic_fn, &[args.key, args.len], "updated.oob");
+        } else {
+            let elem_ptr = self.elem_to_ptr(args.elem, args.elem_ty, "updated.elem");
+            let (elem_size_val, elem_align_val) =
+                self.elem_size_and_align(args.elem_ty, Some(args.list_ty));
+            let inc_fn = self.get_or_generate_elem_inc_fn(args.elem_ty);
+            let dec_fn = self.get_or_generate_elem_dec_fn(args.elem_ty);
+            let cow_mode = self.builder.const_i32(args.cow_mode as i32);
+            self.emit_rt_call(
+                args.func_id,
+                &[
+                    args.data_ptr,
+                    args.len,
+                    args.cap,
+                    args.key,
+                    elem_ptr,
+                    elem_size_val,
+                    elem_align_val,
+                    inc_fn,
+                    dec_fn,
+                    cow_mode,
+                    out,
+                ],
+                "updated",
+            );
+        }
+        if args.stack_slot_receiver && args.cow_mode == CowMode::StaticUnique {
+            args.receiver
+        } else {
+            self.builder
+                .load(list_struct_ty, out, "updated.fallback_value")
+        }
     }
 
     /// Emit `list.insert(index, value)` — COW insert returning modified list.

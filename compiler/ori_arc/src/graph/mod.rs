@@ -13,10 +13,12 @@
 //! - [`post_dominator`] — post-dominator tree (CHK on reverse CFG)
 
 pub mod call_graph;
+mod cycle_regions;
 mod dominator;
 mod post_dominator;
 pub mod scc;
 
+pub(crate) use cycle_regions::CycleRegions;
 pub use dominator::DominatorTree;
 pub use post_dominator::PostDominatorTree;
 

@@ -167,8 +167,17 @@ declare_builtins! { emitter, ctx;
             if let TypeInfo::List { element } = ctx.type_info {
                 let cm = emitter.cow_mode(ctx.arc_func);
                 let stack_slot_receiver = emitter.is_stack_slot_yield_receiver(ctx.arc_func, ctx.arc_args[0]);
-                let r = emitter.emit_list_updated_cow(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element, cm, ctx.receiver_ty, stack_slot_receiver);
-                if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
+                let compact_stack_receiver = emitter.is_compact_stack_slot_yield_receiver(ctx.arc_func, ctx.arc_args[0]);
+                let negated_same_index = emitter.is_negated_same_index_update(
+                    ctx.arc_func,
+                    ctx.arc_args[0],
+                    ctx.arc_args[1],
+                    ctx.arc_args[2],
+                );
+                let r = emitter.emit_list_updated_cow(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element, cm, ctx.receiver_ty, stack_slot_receiver, compact_stack_receiver, negated_same_index);
+                if r.is_some() && !compact_stack_receiver {
+                    emitter.mark_cow_data_noalias_if_unique(ctx.arc_func);
+                }
                 r
             } else {
                 None

@@ -19,7 +19,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::contract::{ContractMapExt, MemoryContract};
 use crate::borrow::BuiltinOwnershipSets;
-use crate::ir::{ArcFunction, ArcInstr};
+use crate::ir::{ArcFunction, ArcInstr, ArcVarId, ArgOwnership};
 use crate::lower::ArcProblem;
 use crate::pipeline::rc_count;
 use crate::ArcClassification;
@@ -236,7 +236,7 @@ pub(crate) fn run_aims_pipeline(
 
     apply_phase_2_annotations(func, &state_map, config, &mut result);
 
-    let problems = postprocess::emit_postprocess(func, config)?;
+    let problems = finish_postprocess(func, config)?;
 
     Ok(AimsPipelineResult {
         problems,
@@ -245,18 +245,29 @@ pub(crate) fn run_aims_pipeline(
     })
 }
 
+fn finish_postprocess(
+    func: &mut ArcFunction,
+    config: &AimsPipelineConfig<'_>,
+) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
+    let problems = postprocess::emit_postprocess(func, config)?;
+    freeze_yield_allocation_execution(func);
+    freeze_yield_runtime_header_requirements(func, config);
+    Ok(problems)
+}
+
 /// Freeze AIMS placement eligibility onto stable yield-allocation identities.
 fn freeze_yield_allocation_locality(
     func: &mut ArcFunction,
     state_map: &crate::aims::intraprocedural::AimsStateMap,
 ) {
-    let returned_vars: FxHashSet<_> = func
+    let returned_yield_results: FxHashSet<_> = func
         .blocks
         .iter()
         .filter_map(|block| match block.terminator {
             crate::ir::ArcTerminator::Return { value } => Some(value),
             _ => None,
         })
+        .filter_map(|returned| crate::yield_result_for_receiver_lineage(func, returned))
         .collect();
     let mut eligible = FxHashSet::default();
     for block in &func.blocks {
@@ -271,12 +282,263 @@ fn freeze_yield_allocation_locality(
         }
     }
     for fact in &mut func.yield_allocations {
-        fact.locality = if eligible.contains(&fact.result) && !returned_vars.contains(&fact.result)
-        {
-            crate::ir::YieldAllocationLocality::Local
-        } else {
-            crate::ir::YieldAllocationLocality::Escaping
+        fact.locality =
+            if eligible.contains(&fact.result) && !returned_yield_results.contains(&fact.result) {
+                crate::ir::YieldAllocationLocality::Local
+            } else {
+                crate::ir::YieldAllocationLocality::Escaping
+            };
+    }
+}
+
+/// Freeze representation-owned execution evidence from the final CFG.
+///
+/// A function-entry stack slot has one physical identity. It can represent a
+/// yield allocation only when the builder's defining block cannot be revisited
+/// in the same invocation; otherwise separate dynamic results may overlap. This
+/// projection fact does not alter AIMS locality or logical event identities.
+fn freeze_yield_allocation_execution(func: &mut ArcFunction) {
+    let cycle_regions = crate::graph::CycleRegions::compute(func);
+    let definition_blocks: Vec<Option<usize>> = func
+        .yield_allocations
+        .iter()
+        .map(|fact| {
+            func.blocks.iter().position(|block| {
+                block
+                    .body
+                    .iter()
+                    .any(|instruction| instruction.defined_var() == Some(fact.builder))
+            })
+        })
+        .collect();
+    for (fact, definition_block) in func.yield_allocations.iter_mut().zip(definition_blocks) {
+        fact.execution = match definition_block {
+            Some(block) if !cycle_regions.is_in_cycle(block) => {
+                crate::ir::YieldAllocationExecution::SingleExecution
+            }
+            _ => crate::ir::YieldAllocationExecution::RepeatedOrUnknown,
         };
+    }
+}
+
+/// Clear the runtime-header requirement only for a closed, header-independent
+/// primitive-scalar lineage.
+///
+/// This is ownership evidence, not a backend layout choice: a physical plan
+/// may use compact storage only when no realized use can observe sharing state,
+/// invoke a header-dependent collection operation, or require element cleanup.
+fn freeze_yield_runtime_header_requirements(
+    func: &mut ArcFunction,
+    config: &AimsPipelineConfig<'_>,
+) {
+    let elidable: Vec<bool> = func
+        .yield_allocations
+        .iter()
+        .map(|fact| runtime_header_is_elidable(func, *fact, config))
+        .collect();
+    for (fact, elidable) in func.yield_allocations.iter_mut().zip(elidable) {
+        fact.requires_runtime_header = !elidable;
+    }
+}
+
+fn runtime_header_is_elidable(
+    func: &ArcFunction,
+    fact: crate::ir::YieldAllocationFact,
+    config: &AimsPipelineConfig<'_>,
+) -> bool {
+    use ori_registry::TypeTag;
+
+    if fact.locality != crate::ir::YieldAllocationLocality::Local
+        || !config.classifier.is_scalar(fact.elem_ty)
+        || !matches!(
+            config.classifier.builtin_type_tag(fact.elem_ty),
+            Some(
+                TypeTag::Int
+                    | TypeTag::Float
+                    | TypeTag::Bool
+                    | TypeTag::Char
+                    | TypeTag::Byte
+                    | TypeTag::Unit
+                    | TypeTag::Never
+                    | TypeTag::Duration
+                    | TypeTag::Size
+                    | TypeTag::Ordering
+            )
+        )
+    {
+        return false;
+    }
+
+    let in_lineage = |var| {
+        crate::yield_result_for_receiver_lineage(func, var)
+            .is_some_and(|result| result == fact.result)
+    };
+
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            if !instr.used_vars().iter().copied().any(&in_lineage) {
+                continue;
+            }
+            let allowed = match instr {
+                ArcInstr::Let {
+                    value: crate::ir::ArcValue::Var(source),
+                    ..
+                } => in_lineage(*source),
+                // The ARC list projection at field zero is the logical length.
+                // Its scalar result carries neither the data pointer nor an RC
+                // header address, so later uses cannot escape the lineage.
+                ArcInstr::Project {
+                    value, field: 0, ..
+                } => in_lineage(*value),
+                ArcInstr::RcDec { var, .. } => in_lineage(*var),
+                ArcInstr::Apply {
+                    dst,
+                    func: callee,
+                    args,
+                    arg_ownership,
+                    ..
+                } => header_independent_lineage_call(
+                    func,
+                    config,
+                    HeaderIndependentCall {
+                        callee: *callee,
+                        args,
+                        arg_ownership,
+                        dst: *dst,
+                        position: (block_idx, instr_idx),
+                    },
+                    &in_lineage,
+                ),
+                _ => false,
+            };
+            if !allowed {
+                return false;
+            }
+        }
+
+        if !block
+            .terminator
+            .used_vars()
+            .iter()
+            .copied()
+            .any(&in_lineage)
+        {
+            continue;
+        }
+        let allowed = match &block.terminator {
+            crate::ir::ArcTerminator::Jump { .. } => true,
+            crate::ir::ArcTerminator::Invoke {
+                dst,
+                func: callee,
+                args,
+                arg_ownership,
+                ..
+            } => header_independent_lineage_call(
+                func,
+                config,
+                HeaderIndependentCall {
+                    callee: *callee,
+                    args,
+                    arg_ownership,
+                    dst: *dst,
+                    position: (block_idx, block.body.len()),
+                },
+                &in_lineage,
+            ),
+            _ => false,
+        };
+        if !allowed {
+            return false;
+        }
+    }
+
+    true
+}
+
+#[derive(Clone, Copy)]
+struct HeaderIndependentCall<'a> {
+    callee: Name,
+    args: &'a [ArcVarId],
+    arg_ownership: &'a [ArgOwnership],
+    dst: ArcVarId,
+    position: (usize, usize),
+}
+
+fn header_independent_lineage_call(
+    func: &ArcFunction,
+    config: &AimsPipelineConfig<'_>,
+    call: HeaderIndependentCall<'_>,
+    in_lineage: &impl Fn(ArcVarId) -> bool,
+) -> bool {
+    // This phase proves the operation shape and ownership behavior. The closed
+    // executable artifact subsequently verifies that every admitted spelling
+    // resolves to a Runtime target, preventing same-named user/imported calls
+    // from authorizing compact storage.
+    if !call.args.first().copied().is_some_and(in_lineage)
+        || call.args.iter().skip(1).copied().any(in_lineage)
+    {
+        return false;
+    }
+
+    match header_independent_operation(func, config, call) {
+        Some(HeaderIndependentOperation::BorrowedRead) => {
+            call.arg_ownership.first() == Some(&ArgOwnership::Borrowed)
+        }
+        Some(HeaderIndependentOperation::StaticUniqueListSet) => {
+            in_lineage(call.dst)
+                && func.cow_annotations.get(call.position.0, call.position.1)
+                    == crate::CowMode::StaticUnique
+        }
+        None => false,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HeaderIndependentOperation {
+    BorrowedRead,
+    StaticUniqueListSet,
+}
+
+fn header_independent_operation(
+    func: &ArcFunction,
+    config: &AimsPipelineConfig<'_>,
+    call: HeaderIndependentCall<'_>,
+) -> Option<HeaderIndependentOperation> {
+    let receiver = call.args.first().copied()?;
+    let callee = config.interner.try_lookup(call.callee)?;
+
+    if ori_ir::builtin_constants::protocol::ProtocolBuiltin::from_name(callee)
+        == Some(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index)
+    {
+        return (call.args.len()
+            == ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index.arg_count())
+        .then_some(HeaderIndependentOperation::BorrowedRead);
+    }
+
+    let receiver_tag = config
+        .pool
+        .builtin_method_type_tag(func.var_type(receiver))?;
+    registered_header_independent_operation(receiver_tag, callee, call.args.len())
+}
+
+fn registered_header_independent_operation(
+    receiver_tag: ori_registry::TypeTag,
+    callee: &str,
+    arg_count: usize,
+) -> Option<HeaderIndependentOperation> {
+    let method = ori_registry::find_method(receiver_tag, callee)?;
+    if method.kind != ori_registry::MethodKind::Instance
+        || method.params.len().saturating_add(1) != arg_count
+    {
+        return None;
+    }
+
+    match method.runtime {
+        Some(ori_registry::MethodRuntime::Length) => Some(HeaderIndependentOperation::BorrowedRead),
+        Some(ori_registry::MethodRuntime::ListSet) => {
+            Some(HeaderIndependentOperation::StaticUniqueListSet)
+        }
+        _ => None,
     }
 }
 
@@ -449,5 +711,38 @@ fn fip_precheck(
         Ok(())
     } else {
         Err(structural_errors)
+    }
+}
+
+#[cfg(test)]
+mod header_independent_operation_tests {
+    use super::{registered_header_independent_operation, HeaderIndependentOperation};
+
+    #[test]
+    fn registry_runtime_identity_classifies_all_list_aliases() {
+        for name in ["len", "length"] {
+            assert_eq!(
+                registered_header_independent_operation(ori_registry::TypeTag::List, name, 1),
+                Some(HeaderIndependentOperation::BorrowedRead),
+            );
+        }
+        for name in ["set", "updated"] {
+            assert_eq!(
+                registered_header_independent_operation(ori_registry::TypeTag::List, name, 3),
+                Some(HeaderIndependentOperation::StaticUniqueListSet),
+            );
+        }
+    }
+
+    #[test]
+    fn registry_runtime_identity_rejects_wrong_shape_and_unrelated_methods() {
+        assert_eq!(
+            registered_header_independent_operation(ori_registry::TypeTag::List, "length", 2),
+            None,
+        );
+        assert_eq!(
+            registered_header_independent_operation(ori_registry::TypeTag::List, "push", 2),
+            None,
+        );
     }
 }

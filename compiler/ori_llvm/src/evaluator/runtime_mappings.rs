@@ -99,6 +99,9 @@ fn lookup_misc_address(name: &str) -> usize {
         // Panic / assert
         "ori_panic" => runtime::ori_panic as *const () as usize,
         "ori_panic_cstr" => runtime::ori_panic_cstr as *const () as usize,
+        "ori_panic_index_out_of_bounds" => {
+            runtime::ori_panic_index_out_of_bounds as *const () as usize
+        }
         "ori_assert" => runtime::ori_assert as *const () as usize,
         "ori_assert_eq_int" => runtime::ori_assert_eq_int as *const () as usize,
         "ori_assert_eq_bool" => runtime::ori_assert_eq_bool as *const () as usize,

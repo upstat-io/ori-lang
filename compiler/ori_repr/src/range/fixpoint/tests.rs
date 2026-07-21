@@ -106,6 +106,275 @@ fn narrow_bottom_stays_bottom() {
     );
 }
 
+#[test]
+fn direct_range_intervals_distinguish_header_overshoot_from_body() {
+    use super::narrowing::direct_range_intervals;
+
+    assert_eq!(
+        direct_range_intervals(
+            ValueRange::Bounded { lo: 0, hi: 0 },
+            ValueRange::Bounded { lo: 100, hi: 100 },
+            ValueRange::Bounded { lo: 1, hi: 1 },
+            Some(0),
+        ),
+        Some((
+            ValueRange::Bounded { lo: 0, hi: 100 },
+            ValueRange::Bounded { lo: 0, hi: 99 },
+        ))
+    );
+    assert_eq!(
+        direct_range_intervals(
+            ValueRange::Bounded { lo: 10, hi: 10 },
+            ValueRange::Bounded { lo: 0, hi: 0 },
+            ValueRange::Bounded { lo: -2, hi: -2 },
+            Some(0),
+        ),
+        Some((
+            ValueRange::Bounded { lo: -1, hi: 10 },
+            ValueRange::Bounded { lo: 1, hi: 10 },
+        ))
+    );
+}
+
+#[test]
+fn fixpoint_direct_range_projection_does_not_join_other_range_values() {
+    use ori_arc::ir::{
+        ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue, ValueRepr,
+    };
+    use ori_arc::ArcBlockId;
+
+    let mut pool = ori_types::Pool::new();
+    let range_ty = pool.range(ori_types::Idx::INT);
+    let vars: Vec<_> = (0..11).map(ArcVarId::new).collect();
+    let ints = [0, 10, 1, 0, 50, 100, 1, 0];
+    let mut body: Vec<_> = ints
+        .iter()
+        .enumerate()
+        .map(|(index, value)| ArcInstr::Let {
+            dst: vars[index],
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(*value)),
+        })
+        .collect();
+    body.extend([
+        ArcInstr::Construct {
+            dst: vars[8],
+            ty: range_ty,
+            ctor: CtorKind::Tuple,
+            args: vars[0..4].to_vec(),
+        },
+        ArcInstr::Construct {
+            dst: vars[9],
+            ty: range_ty,
+            ctor: CtorKind::Tuple,
+            args: vars[4..8].to_vec(),
+        },
+        ArcInstr::Project {
+            dst: vars[10],
+            ty: ori_types::Idx::INT,
+            value: vars[8],
+            field: 1,
+        },
+    ]);
+    let func = ArcFunction {
+        name: ori_ir::Name::from_raw(50_001),
+        return_type: ori_types::Idx::INT,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body,
+            terminator: ArcTerminator::Return { value: vars[10] },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: [
+            vec![ori_types::Idx::INT; 8],
+            vec![range_ty; 2],
+            vec![ori_types::Idx::INT],
+        ]
+        .concat(),
+        var_reprs: vec![ValueRepr::Scalar; 11],
+        spans: vec![vec![None; 11]],
+        ..Default::default()
+    };
+
+    let result = range_fixpoint(&func, &pool, &RangeAnalysisConfig::default(), None, None);
+    assert_eq!(
+        result.var_ranges.get(&vars[10]),
+        Some(&ValueRange::Bounded { lo: 10, hi: 10 })
+    );
+}
+
+fn direct_range_entry_block(vars: &[ArcVarId], range_ty: ori_types::Idx) -> ori_arc::ir::ArcBlock {
+    use ori_arc::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue};
+    use ori_arc::ArcBlockId;
+
+    ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: vars[0],
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(0)),
+            },
+            ArcInstr::Let {
+                dst: vars[1],
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(100)),
+            },
+            ArcInstr::Let {
+                dst: vars[2],
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(1)),
+            },
+            ArcInstr::Let {
+                dst: vars[3],
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(0)),
+            },
+            ArcInstr::Construct {
+                dst: vars[4],
+                ty: range_ty,
+                ctor: CtorKind::Tuple,
+                args: vars[0..4].to_vec(),
+            },
+            ArcInstr::Project {
+                dst: vars[5],
+                ty: ori_types::Idx::INT,
+                value: vars[4],
+                field: 0,
+            },
+            ArcInstr::Project {
+                dst: vars[6],
+                ty: ori_types::Idx::INT,
+                value: vars[4],
+                field: 1,
+            },
+            ArcInstr::Project {
+                dst: vars[7],
+                ty: ori_types::Idx::INT,
+                value: vars[4],
+                field: 2,
+            },
+        ],
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: vec![vars[5]],
+        },
+    }
+}
+
+fn direct_range_header_block(vars: &[ArcVarId]) -> ori_arc::ir::ArcBlock {
+    use ori_arc::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, PrimOp};
+    use ori_arc::ArcBlockId;
+    use ori_ir::BinaryOp;
+
+    ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![(vars[8], ori_types::Idx::INT)],
+        body: vec![ArcInstr::Let {
+            dst: vars[9],
+            ty: ori_types::Idx::BOOL,
+            value: ArcValue::PrimOp {
+                op: PrimOp::Binary(BinaryOp::Lt),
+                args: vec![vars[8], vars[6]],
+            },
+        }],
+        terminator: ArcTerminator::Branch {
+            cond: vars[9],
+            then_block: ArcBlockId::new(2),
+            else_block: ArcBlockId::new(3),
+        },
+    }
+}
+
+fn direct_range_body_block(vars: &[ArcVarId]) -> ori_arc::ir::ArcBlock {
+    use ori_arc::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, PrimOp};
+    use ori_arc::ArcBlockId;
+    use ori_ir::BinaryOp;
+
+    ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: vars[10],
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(vars[8]),
+            },
+            ArcInstr::Let {
+                dst: vars[11],
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Add),
+                    args: vec![vars[8], vars[7]],
+                },
+            },
+        ],
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: vec![vars[11]],
+        },
+    }
+}
+
+fn direct_range_exit_block(vars: &[ArcVarId]) -> ori_arc::ir::ArcBlock {
+    ori_arc::ir::ArcBlock {
+        id: ori_arc::ArcBlockId::new(3),
+        params: vec![],
+        body: vec![],
+        terminator: ori_arc::ir::ArcTerminator::Return { value: vars[8] },
+    }
+}
+
+#[test]
+fn fixpoint_direct_range_loop_refines_only_the_body_to_endpoint() {
+    use ori_arc::ir::{ArcFunction, ValueRepr};
+    use ori_arc::ArcBlockId;
+
+    let mut pool = ori_types::Pool::new();
+    let range_ty = pool.range(ori_types::Idx::INT);
+    let vars: Vec<_> = (0..12).map(ArcVarId::new).collect();
+    let func = ArcFunction {
+        name: ori_ir::Name::from_raw(50_002),
+        return_type: ori_types::Idx::INT,
+        blocks: vec![
+            direct_range_entry_block(&vars, range_ty),
+            direct_range_header_block(&vars),
+            direct_range_body_block(&vars),
+            direct_range_exit_block(&vars),
+        ],
+        entry: ArcBlockId::new(0),
+        var_types: vec![
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+            range_ty,
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+            ori_types::Idx::BOOL,
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+        ],
+        var_reprs: vec![ValueRepr::Scalar; 12],
+        spans: vec![vec![None; 8], vec![None], vec![None; 2], vec![]],
+        ..Default::default()
+    };
+
+    let result = range_fixpoint(&func, &pool, &RangeAnalysisConfig::default(), None, None);
+    assert_eq!(
+        result.var_ranges.get(&vars[8]),
+        Some(&ValueRange::Bounded { lo: 0, hi: 100 })
+    );
+    assert_eq!(
+        result.var_ranges.get(&vars[10]),
+        Some(&ValueRange::Bounded { lo: 0, hi: 99 })
+    );
+}
+
 // range_fixpoint
 
 /// Budget exceeded: function with too many blocks returns all-Top.

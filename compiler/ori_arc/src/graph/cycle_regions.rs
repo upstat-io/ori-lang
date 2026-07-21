@@ -1,14 +1,13 @@
-//! Per-function CFG cycle regions, computed once per plan run.
+//! Per-function CFG cycle regions.
 //!
-//! One iterative Tarjan SCC pass answers every cycle query the planner
-//! needs: whether a block sits inside a cycle (loop-invariance
-//! discrimination) and the exit frontier of the cycle region containing a
-//! block (loop-threaded credit release placement). Spec: Annex E §AIMS
-//! RL-4 + RL-5.
+//! One iterative Tarjan SCC pass answers whether a block can execute more than
+//! once in one function invocation and computes the exit frontier of its cycle
+//! region. Consumers use the same neutral CFG fact for ownership planning and
+//! physical allocation eligibility.
 
 use crate::ir::ArcFunction;
 
-use super::super::events::successors_of;
+use super::successor_block_ids;
 
 /// Cycle facts for one function: SCC ids, per-block cycle membership, and
 /// per-SCC exit frontiers.
@@ -19,19 +18,26 @@ pub(crate) struct CycleRegions {
 }
 
 impl CycleRegions {
-    /// One Tarjan pass over `func`'s successor graph.
+    /// Compute all cycle regions in one Tarjan pass over `func`.
     pub(crate) fn compute(func: &ArcFunction) -> Self {
         let n = func.blocks.len();
-        let successors: Vec<Vec<usize>> = (0..n)
-            .map(|b| {
-                successors_of(func, b)
+        let successors: Vec<Vec<usize>> = func
+            .blocks
+            .iter()
+            .map(|block| {
+                successor_block_ids(&block.terminator)
                     .into_iter()
-                    .filter(|&s| s < n)
+                    .map(crate::ir::ArcBlockId::index)
+                    .filter(|&successor| successor < n)
                     .collect()
             })
             .collect();
         let scc_id = tarjan_scc(n, &successors);
-        let scc_count = scc_id.iter().copied().max().map_or(0, |m| m + 1);
+        let scc_count = scc_id
+            .iter()
+            .copied()
+            .max()
+            .map_or(0, |maximum| maximum + 1);
         let mut scc_size = vec![0usize; scc_count];
         for &id in &scc_id {
             scc_size[id] += 1;
@@ -44,9 +50,9 @@ impl CycleRegions {
         let mut frontiers: Vec<Vec<usize>> = vec![Vec::new(); scc_count];
         for block in 0..n {
             let id = scc_id[block];
-            for &succ in &successors[block] {
-                if scc_id[succ] != id && !frontiers[id].contains(&succ) {
-                    frontiers[id].push(succ);
+            for &successor in &successors[block] {
+                if scc_id[successor] != id && !frontiers[id].contains(&successor) {
+                    frontiers[id].push(successor);
                 }
             }
         }
@@ -65,8 +71,7 @@ impl CycleRegions {
         self.in_cycle.get(block).copied().unwrap_or(false)
     }
 
-    /// The exit frontier of the cycle region containing `block`: every
-    /// successor outside the region of a block inside it, sorted.
+    /// Every successor outside the cycle region containing `block`, sorted.
     pub(crate) fn exit_frontier(&self, block: usize) -> &[usize] {
         self.scc_id
             .get(block)
@@ -74,7 +79,7 @@ impl CycleRegions {
     }
 }
 
-/// Iterative Tarjan strongly-connected components; returns per-node SCC id.
+/// Iterative Tarjan strongly-connected components; returns one SCC id per node.
 fn tarjan_scc(n: usize, successors: &[Vec<usize>]) -> Vec<usize> {
     const UNVISITED: usize = usize::MAX;
     let mut index = vec![UNVISITED; n];
@@ -84,7 +89,6 @@ fn tarjan_scc(n: usize, successors: &[Vec<usize>]) -> Vec<usize> {
     let mut stack: Vec<usize> = Vec::new();
     let mut next_index = 0usize;
     let mut next_scc = 0usize;
-    // Explicit DFS frames: (node, next-successor position).
     let mut frames: Vec<(usize, usize)> = Vec::new();
     for root in 0..n {
         if index[root] != UNVISITED {
@@ -96,19 +100,19 @@ fn tarjan_scc(n: usize, successors: &[Vec<usize>]) -> Vec<usize> {
         next_index += 1;
         stack.push(root);
         on_stack[root] = true;
-        while let Some(&mut (node, ref mut pos)) = frames.last_mut() {
-            if *pos < successors[node].len() {
-                let succ = successors[node][*pos];
-                *pos += 1;
-                if index[succ] == UNVISITED {
-                    index[succ] = next_index;
-                    lowlink[succ] = next_index;
+        while let Some(&mut (node, ref mut position)) = frames.last_mut() {
+            if *position < successors[node].len() {
+                let successor = successors[node][*position];
+                *position += 1;
+                if index[successor] == UNVISITED {
+                    index[successor] = next_index;
+                    lowlink[successor] = next_index;
                     next_index += 1;
-                    stack.push(succ);
-                    on_stack[succ] = true;
-                    frames.push((succ, 0));
-                } else if on_stack[succ] {
-                    lowlink[node] = lowlink[node].min(index[succ]);
+                    stack.push(successor);
+                    on_stack[successor] = true;
+                    frames.push((successor, 0));
+                } else if on_stack[successor] {
+                    lowlink[node] = lowlink[node].min(index[successor]);
                 }
             } else {
                 frames.pop();

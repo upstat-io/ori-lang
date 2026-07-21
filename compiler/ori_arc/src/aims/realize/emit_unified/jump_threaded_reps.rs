@@ -6,6 +6,7 @@
 use rustc_hash::FxHashMap;
 
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
+use crate::uniqueness::CowMode;
 
 /// Whether `recv`'s jump-threaded collection lineage is RETURNED from `func` —
 /// the SAME discriminator the element-escape keep-alive gates on
@@ -29,13 +30,48 @@ pub fn push_receiver_lineage_returned(func: &ArcFunction, recv: ArcVarId) -> boo
 /// Consumers must still consult the representation plan before selecting a
 /// stack or heap projection.
 pub fn yield_result_for_receiver_lineage(func: &ArcFunction, recv: ArcVarId) -> Option<ArcVarId> {
-    let jt_reps = compute_jump_threaded_reps(func, None);
+    let cow_reps = static_unique_cow_reps(func);
+    let jt_reps = compute_jump_threaded_reps(func, Some(&cow_reps));
     let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
     let recv_rep = rep_of(recv);
     func.yield_allocations
         .iter()
         .find(|fact| rep_of(fact.result) == recv_rep)
         .map(|fact| fact.result)
+}
+
+/// Same-allocation edges frozen by the COW projection.
+///
+/// A `StaticUnique` COW operation is guaranteed to select its in-place path,
+/// so its collection result has the receiver's physical allocation identity.
+/// Keep these edges local to allocation-lineage queries: the broader AIMS
+/// analyses intentionally retain their existing merge discipline.
+fn static_unique_cow_reps(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
+    let mut reps = FxHashMap::default();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            if func.cow_annotations.get(block_idx, instr_idx) != CowMode::StaticUnique {
+                continue;
+            }
+            if let ArcInstr::Apply { dst, ty, args, .. } = instr {
+                if let Some(&receiver) = args.first() {
+                    if func.var_type(receiver) == *ty {
+                        reps.insert(*dst, receiver);
+                    }
+                }
+            }
+        }
+        if func.cow_annotations.get(block_idx, block.body.len()) == CowMode::StaticUnique {
+            if let ArcTerminator::Invoke { dst, ty, args, .. } = &block.terminator {
+                if let Some(&receiver) = args.first() {
+                    if func.var_type(receiver) == *ty {
+                        reps.insert(*dst, receiver);
+                    }
+                }
+            }
+        }
+    }
+    reps
 }
 
 /// Whether collection-receiver lineage `recv_rep` (a jump-threaded rep of a

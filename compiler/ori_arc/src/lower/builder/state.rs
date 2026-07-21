@@ -11,8 +11,8 @@ use ori_types::Idx;
 
 use crate::ir::{
     AllocationSiteId, ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator,
-    ArcVarId, MethodCallFact, MethodCallForm, YieldAllocationFact, YieldAllocationLocality,
-    YieldExtent,
+    ArcVarId, MethodCallFact, MethodCallForm, YieldAllocationExecution, YieldAllocationFact,
+    YieldAllocationLocality, YieldExtent,
 };
 
 /// Routing metadata for `Invoke`-family terminators: CFG successors plus the
@@ -295,6 +295,8 @@ impl ArcIrBuilder {
             elem_size,
             extent,
             locality: YieldAllocationLocality::Unknown,
+            execution: YieldAllocationExecution::RepeatedOrUnknown,
+            requires_runtime_header: true,
         });
     }
 

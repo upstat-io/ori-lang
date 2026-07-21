@@ -3,51 +3,13 @@
 //! Tests that struct field integer narrowing produces correct runtime behavior:
 //! trunc at construction + sext at extraction = identical semantics to canonical i64.
 
-use crate::util::{assert_aot_success, compile_and_capture_ir, extract_function_ir, stdlib_path};
+use crate::util::{
+    assert_aot_success, compile_and_capture_ir, compile_and_capture_ir_no_repr_opt,
+    extract_function_ir, stdlib_path,
+};
 
 use std::process::Command;
-use std::sync::atomic::{AtomicU64, Ordering};
 use tempfile::TempDir;
-
-/// Compile with `ORI_NO_REPR_OPT=1` and capture LLVM IR.
-/// Used for `NarrowingPolicy::Disabled` verification tests.
-fn compile_and_capture_ir_no_repr_opt(source: &str) -> String {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let source_path = temp_dir.path().join(format!("test_nro_{id}.ori"));
-    let binary_path = temp_dir
-        .path()
-        .join(format!("test_nro_{id}{}", std::env::consts::EXE_SUFFIX));
-
-    std::fs::write(&source_path, source).expect("Failed to write source");
-
-    // Resolve through the staged snapshot — never the mutable shared
-    // target/debug path a concurrent build can swap mid-suite.
-    let binary = crate::util::ir_capture_binary();
-
-    let result = Command::new(binary)
-        .args([
-            "build",
-            source_path.to_str().unwrap(),
-            "-o",
-            binary_path.to_str().unwrap(),
-        ])
-        .env("ORI_STDLIB", stdlib_path())
-        .env("ORI_DEBUG_LLVM", "1")
-        .env("ORI_NO_REPR_OPT", "1")
-        .output()
-        .expect("Failed to execute ori build");
-
-    assert!(
-        result.status.success(),
-        "Compilation failed:\n{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-
-    String::from_utf8_lossy(&result.stderr).to_string()
-}
 
 /// Semantic pin: struct with all fields in [-128, 127] range.
 /// Field values must survive trunc (i64→i8 at construction) and
@@ -360,47 +322,34 @@ fn test_narrowed_local_loop_negative_i8_range_correct_output() {
     );
 }
 
-// IR semantic pin: loop counter phi in a manual loop should use i8.
-// Range [0, 9] fits in signed i8 [-128, 127].
-// This test ONLY passes with Phase B local variable narrowing.
+// IR cost-model pin: loop-carried values stay at canonical width.
 #[test]
-fn test_narrowed_local_ir_pin_loop_counter_phi_i8() {
+fn test_loop_carried_local_ir_pin_phi_stays_i64() {
     let ir = compile_and_capture_ir(include_str!(
         "fixtures/narrowing/local_narrowing_ir_pin_loop_counter_phi.ori"
     ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_loop");
 
-    // With local variable narrowing, loop counter `i` (range [0, 9]) and
-    // accumulator `sum` (range [0, 45]) should both produce i8 phi nodes
-    // instead of i64 phi nodes.
     assert!(
-        fn_ir.contains("phi i8"),
-        "expected `phi i8` for narrowed loop counter/accumulator in _ori_sum_loop — \
-         ranges [0,9] and [0,45] both fit in signed i8.\n\
-         Phase B semantic pin: ONLY passes with local variable narrowing.\n\
-         Got IR:\n{fn_ir}"
+        fn_ir.contains("phi i64") && !fn_ir.contains("phi i8"),
+        "loop-carried counter and accumulator must stay canonical-width so the \
+         hot loop avoids narrow/widen churn.\nGot IR:\n{fn_ir}"
     );
 }
 
-// IR semantic pin: sext must be present to widen narrowed loop variables
-// before canonical-width arithmetic (overflow-checked i64 add).
+// IR cost-model pin: canonical loop values need no narrow/widen boundary.
 #[test]
-fn test_narrowed_local_ir_pin_loop_sext_to_canonical() {
+fn test_loop_carried_local_ir_pin_has_no_trunc_sext_churn() {
     let ir = compile_and_capture_ir(include_str!(
         "fixtures/narrowing/local_narrowing_ir_pin_loop_sext.ori"
     ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_loop");
 
-    // With narrowed i8 loop variables, arithmetic requires sign-extending
-    // to i64 before the overflow-checked add. This sext is the boundary
-    // between narrow storage and canonical computation.
     assert!(
-        fn_ir.contains("sext i8"),
-        "expected `sext i8 ... to i64` in _ori_sum_loop — narrowed loop variables \
-         must be widened before overflow-checked arithmetic.\n\
-         Phase B semantic pin: ONLY passes with local variable narrowing.\n\
+        !fn_ir.contains("trunc i64") && !fn_ir.contains("sext i8"),
+        "loop-carried values must not add trunc/sext work to the hot loop.\n\
          Got IR:\n{fn_ir}"
     );
 }

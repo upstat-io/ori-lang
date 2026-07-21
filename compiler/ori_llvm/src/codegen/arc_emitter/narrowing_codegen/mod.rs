@@ -246,6 +246,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Collect parameter variable IDs for exclusion.
         let param_vars: rustc_hash::FxHashSet<ArcVarId> =
             func.params.iter().map(|p| p.var).collect();
+        let loop_carried = loop_carried_narrowing_exclusions(func);
 
         // Build defining-instruction map for local range derivation.
         // Block-merge creates fresh variables (Select destinations, renamed
@@ -271,7 +272,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let var = ArcVarId::new(raw_idx as u32);
 
             // Skip function parameters (can't distinguish pub from private).
-            if param_vars.contains(&var) {
+            if param_vars.contains(&var) || loop_carried.contains(&var) {
                 continue;
             }
 
@@ -499,5 +500,109 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         extracted
+    }
+}
+
+/// Values carried by a CFG cycle stay at the canonical integer width.
+///
+/// Narrowing a loop induction from i64 to i8/i16 does not narrow any memory
+/// object. It instead inserts truncation/sign-extension pairs around the phi
+/// and every dependent arithmetic operation, which is strictly more work in
+/// the hot loop and can obstruct LLVM's induction-variable simplification.
+/// Tainting SSA dependents also covers the aliases introduced by ARC range
+/// lowering while leaving unrelated bounded locals eligible for narrowing.
+fn loop_carried_narrowing_exclusions(func: &ArcFunction) -> rustc_hash::FxHashSet<ArcVarId> {
+    let dominators = ori_arc::graph::DominatorTree::build(func);
+    let predecessors = ori_arc::graph::compute_predecessors(func);
+    let mut excluded = rustc_hash::FxHashSet::default();
+
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        let is_loop_header = predecessors[block_idx]
+            .iter()
+            .any(|&pred_idx| dominators.dominates(block.id, func.blocks[pred_idx].id));
+        if is_loop_header {
+            excluded.extend(block.params.iter().map(|&(var, _)| var));
+        }
+    }
+
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for instruction in func.blocks.iter().flat_map(|block| &block.body) {
+            let Some(dst) = instruction.defined_var() else {
+                continue;
+            };
+            if instruction
+                .used_vars()
+                .iter()
+                .any(|source| excluded.contains(source))
+            {
+                changed |= excluded.insert(dst);
+            }
+        }
+    }
+
+    excluded
+}
+
+#[cfg(test)]
+mod loop_narrowing_tests {
+    use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, LitValue};
+    use ori_arc::{ArcBlockId, ArcVarId};
+
+    use super::loop_carried_narrowing_exclusions;
+
+    #[test]
+    fn loop_carried_values_and_dependents_keep_canonical_width() {
+        let initial = ArcVarId::new(0);
+        let induction = ArcVarId::new(1);
+        let dependent = ArcVarId::new(2);
+        let unrelated = ArcVarId::new(3);
+        let function = ArcFunction {
+            blocks: vec![
+                ArcBlock {
+                    id: ArcBlockId::new(0),
+                    params: vec![],
+                    body: vec![
+                        ArcInstr::Let {
+                            dst: initial,
+                            ty: ori_types::Idx::INT,
+                            value: ArcValue::Literal(LitValue::Int(0)),
+                        },
+                        ArcInstr::Let {
+                            dst: unrelated,
+                            ty: ori_types::Idx::INT,
+                            value: ArcValue::Literal(LitValue::Int(7)),
+                        },
+                    ],
+                    terminator: ArcTerminator::Jump {
+                        target: ArcBlockId::new(1),
+                        args: vec![initial],
+                    },
+                },
+                ArcBlock {
+                    id: ArcBlockId::new(1),
+                    params: vec![(induction, ori_types::Idx::INT)],
+                    body: vec![ArcInstr::Let {
+                        dst: dependent,
+                        ty: ori_types::Idx::INT,
+                        value: ArcValue::Var(induction),
+                    }],
+                    terminator: ArcTerminator::Jump {
+                        target: ArcBlockId::new(1),
+                        args: vec![dependent],
+                    },
+                },
+            ],
+            entry: ArcBlockId::new(0),
+            var_types: vec![ori_types::Idx::INT; 4],
+            spans: vec![vec![None; 2], vec![None]],
+            ..Default::default()
+        };
+
+        let excluded = loop_carried_narrowing_exclusions(&function);
+        assert!(excluded.contains(&induction));
+        assert!(excluded.contains(&dependent));
+        assert!(!excluded.contains(&unrelated));
     }
 }

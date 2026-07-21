@@ -15,7 +15,8 @@
 //!   for a compiled local allocation mechanism.
 
 use ori_arc::ir::{
-    AllocationSiteId, ArcVarId, YieldAllocationFact, YieldAllocationLocality, YieldExtent,
+    AllocationSiteId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, YieldAllocationExecution,
+    YieldAllocationFact, YieldAllocationLocality, YieldExtent,
 };
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
@@ -50,6 +51,8 @@ pub struct CompiledAllocationDecision {
     pub elem_size: u64,
     pub extent: YieldExtent,
     pub mechanism: CompiledAllocationMechanism,
+    /// Preserve the runtime RC header immediately before the element data.
+    pub requires_runtime_header: bool,
 }
 
 /// Maximum element bytes admitted to function-lifetime stack storage.
@@ -471,8 +474,67 @@ impl ReprPlan {
                         elem_size: fact.elem_size,
                         extent: fact.extent,
                         mechanism,
+                        requires_runtime_header: fact.requires_runtime_header,
                     },
                 );
+            }
+        }
+    }
+
+    /// Close candidate header elisions against exact executable call targets.
+    ///
+    /// AIMS proves that a local scalar lineage uses only header-independent
+    /// builtin operation shapes. This final target-identity gate rejects a
+    /// same-spelled local/imported callable before physical layout is frozen.
+    pub(crate) fn close_yield_runtime_header_requirements(
+        &mut self,
+        functions: &[ArcFunction],
+        mut is_runtime_call: impl FnMut(Name, ArcVarId) -> bool,
+    ) {
+        let mut retain_headers = Vec::new();
+        for (&key, decision) in &self.yield_allocations {
+            if decision.requires_runtime_header {
+                continue;
+            }
+            let Some(function) = functions.iter().find(|function| function.name == key.0) else {
+                retain_headers.push(key);
+                continue;
+            };
+            let in_lineage = |var| {
+                ori_arc::yield_result_for_receiver_lineage(function, var)
+                    .is_some_and(|result| result == decision.result)
+            };
+            let mut has_non_runtime_call = false;
+            for block in &function.blocks {
+                for instruction in &block.body {
+                    if let ArcInstr::Apply { dst, args, .. } = instruction {
+                        if args.iter().copied().any(&in_lineage)
+                            && !is_runtime_call(function.name, *dst)
+                        {
+                            has_non_runtime_call = true;
+                            break;
+                        }
+                    }
+                }
+                if has_non_runtime_call {
+                    break;
+                }
+                if let ArcTerminator::Invoke { dst, args, .. } = &block.terminator {
+                    if args.iter().copied().any(&in_lineage)
+                        && !is_runtime_call(function.name, *dst)
+                    {
+                        has_non_runtime_call = true;
+                        break;
+                    }
+                }
+            }
+            if has_non_runtime_call {
+                retain_headers.push(key);
+            }
+        }
+        for key in retain_headers {
+            if let Some(decision) = self.yield_allocations.get_mut(&key) {
+                decision.requires_runtime_header = true;
             }
         }
     }
@@ -558,7 +620,10 @@ fn select_yield_mechanism(fact: YieldAllocationFact) -> CompiledAllocationMechan
     let Some(bytes) = capacity.checked_mul(fact.elem_size.max(1)) else {
         return CompiledAllocationMechanism::RuntimeHeap;
     };
-    if fact.locality == YieldAllocationLocality::Local && bytes <= MAX_LOCAL_YIELD_BYTES {
+    if fact.locality == YieldAllocationLocality::Local
+        && fact.execution == YieldAllocationExecution::SingleExecution
+        && bytes <= MAX_LOCAL_YIELD_BYTES
+    {
         CompiledAllocationMechanism::StackSlot
     } else {
         CompiledAllocationMechanism::RuntimeHeap

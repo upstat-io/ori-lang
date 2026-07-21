@@ -148,6 +148,52 @@ fn local_static_bool_yield_uses_bounded_local_storage() {
 }
 
 #[test]
+fn registered_list_set_alias_preserves_compact_local_storage() {
+    let source = r#"
+@local_doors () -> int = {
+    let doors = for _ in 0..4 yield false;
+    let changed = doors.set(index: 1, value: true);
+    if changed[1] then changed.length() else 0
+}
+@main () -> int = if local_doors() == 4 then 0 else 1;
+"#;
+    assert_bounded_local(source, "_ori_local_doors");
+    assert_aot_success(source, "yield_local_registered_list_set");
+}
+
+#[test]
+fn compact_local_updated_oob_uses_storage_independent_panic() {
+    let source = r#"
+@compact_oob () -> int = {
+    let doors = for _ in 0..4 yield false;
+    doors[4] = true;
+    0
+}
+@main () -> int = compact_oob();
+"#;
+    let ir = function_ir(source, "_ori_compact_oob");
+    assert!(
+        ir.contains("%yield.local.data = alloca [4 x i8]"),
+        "fixture must exercise compact headerless backing:\n{ir}"
+    );
+    assert!(
+        ir.contains("call void @ori_panic_index_out_of_bounds"),
+        "compact OOB must avoid the header-reading COW runtime:\n{ir}"
+    );
+    assert!(
+        !ir.contains("call void @ori_list_updated_cow"),
+        "compact OOB must not pass headerless data to general COW cleanup:\n{ir}"
+    );
+
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(source);
+    assert_ne!(exit_code, 0, "OOB update must panic");
+    assert!(
+        stderr.contains("index out of bounds: index 4, length 4"),
+        "compact OOB must preserve the actionable bounds diagnostic:\n{stderr}"
+    );
+}
+
+#[test]
 fn returned_static_yield_remains_exact_managed_storage() {
     let source = r#"
 @make () -> [int] = for i in 0..100 yield i;
@@ -155,6 +201,22 @@ fn returned_static_yield_remains_exact_managed_storage() {
 "#;
     assert_exact_heap_capacity(source, "_ori_make", 100, 8);
     assert_aot_success(source, "yield_returned_must_not_stack");
+}
+
+#[test]
+fn jump_threaded_returned_option_yield_remains_managed() {
+    let source = r#"
+@make () -> [int] = {
+    loop {
+        let opt = Some(5);
+        let values = for x in opt if (if x == 5 then break else true) yield x * 10;
+        break values
+    }
+}
+@main () -> int = if make().length() == 0 then 0 else 1;
+"#;
+    assert_exact_heap_capacity(source, "_ori_make", 1, 8);
+    assert_aot_success(source, "yield_jump_threaded_return_must_not_stack");
 }
 
 #[test]
@@ -204,6 +266,98 @@ fn production_simulate_has_one_exact_heap_yield_and_local_doors() {
         ir.contains("%yield.local.data = alloca"),
         "simulate must expose bounded local doors storage:\n{ir}"
     );
+}
+
+#[test]
+fn production_length_observer_uses_private_count_projection() {
+    let source = include_str!("../../../../tests/run-pass/rosetta/001_100_doors/ori/100_doors.ori");
+    let ir = compile_and_capture_ir(source);
+    let clone = extract_function_ir(&ir, "_ori_simulate$24length_only");
+    assert!(
+        clone.starts_with("define internal fastcc"),
+        "length projection must remain module-local:\n{clone}"
+    );
+    assert!(
+        clone.contains("%yield.length_only.count = alloca i32"),
+        "small bounded length projection must use a vectorizable i32 count:\n{clone}"
+    );
+    assert!(
+        !clone.contains("call ptr @ori_list_new"),
+        "length-only projection must not materialize its returned list:\n{clone}"
+    );
+    assert!(
+        !clone.contains("yield.length_only.push.has_capacity"),
+        "header-only count projection must not retain a memory-capacity branch:\n{clone}"
+    );
+    assert!(
+        !clone.contains("call void @ori_buffer_drop_unique"),
+        "trivial scalar local storage must not retain a runtime buffer teardown:\n{clone}"
+    );
+    assert!(
+        clone.contains("%yield.local.data = alloca [100 x i8]"),
+        "closed primitive-scalar lineage must use compact element-only backing:\n{clone}"
+    );
+
+    let main = extract_function_ir(&ir, "_ori_main");
+    assert!(
+        main.contains("@\"_ori_simulate$24length_only\""),
+        "qualified length-only call site must target the private clone:\n{main}"
+    );
+    assert!(
+        !main.contains("call fastcc void @_ori_simulate("),
+        "length-only call site must not materialize the ordinary result:\n{main}"
+    );
+}
+
+#[test]
+fn non_length_result_use_fails_closed_to_ordinary_callee() {
+    let source = r#"
+@make () -> [int] = for i in 0..4 yield i + 1;
+@main () -> int = {
+    let values = make();
+    values.length() + values[0]
+}
+"#;
+    let ir = compile_and_capture_ir(source);
+    assert!(
+        !ir.contains("_ori_make$24length_only"),
+        "an indexed result must not qualify for the length-only clone:\n{ir}"
+    );
+    let main = extract_function_ir(&ir, "_ori_main");
+    assert!(
+        main.contains("call fastcc void @_ori_make("),
+        "non-length result use must retain the ordinary managed callee:\n{main}"
+    );
+}
+
+#[test]
+fn element_reading_observer_fails_closed_to_ordinary_callee() {
+    let source = r#"
+@observe (values: [int]) -> int = {
+    let first = values[0];
+    values.length()
+}
+@make () -> [int] = for i in 0..4 yield i + 1;
+@main () -> int = observe(values: make());
+"#;
+    let ir = compile_and_capture_ir(source);
+    assert!(
+        !ir.contains("_ori_make$24length_only"),
+        "an observer that reads an element must not qualify for the length-only clone:\n{ir}"
+    );
+    let main = extract_function_ir(&ir, "_ori_main");
+    assert!(
+        main.contains("call fastcc void @_ori_make("),
+        "element-reading observer must retain the ordinary managed callee:\n{main}"
+    );
+}
+
+#[test]
+fn production_length_projection_preserves_checksum() {
+    let source = include_str!("../../../../tests/run-pass/rosetta/001_100_doors/ori/100_doors.ori");
+    let (exit, stdout, stderr) = compile_and_run_capture(source);
+    assert_eq!(exit, 0, "projected production workload failed: {stderr}");
+    assert_eq!(stdout.trim(), "540000");
 }
 
 #[test]
@@ -275,4 +429,33 @@ type Item = { name: str, value: int }
 "#;
     assert_bounded_local(source, "_ori_build_then_panic");
     assert_aot_success(source, "yield_local_unwind_cleanup");
+}
+
+#[test]
+fn nested_range_yield_reentrant_inner_allocation_stays_managed() {
+    let source = r#"
+@exercise (salt: int) -> int = {
+    let acc = 0;
+    let rows = for i in 0..10 yield (for j in 0..10 yield i * j);
+    for row in rows do { for value in row do { acc = acc + value } };
+    acc + (salt % 100)
+}
+
+@main () -> int = {
+    let total = 0;
+    for n in 0..100 do { total = total + exercise(salt: n) };
+    if total == 207450 then 0 else 1
+}
+"#;
+    let ir = function_ir(source, "_ori_exercise");
+    assert_eq!(
+        ir.matches("call ptr @ori_list_new(i64 10, i64 8)").count(),
+        1,
+        "the loop-reentered inner allocation must retain one managed builder site:\n{ir}"
+    );
+    assert!(
+        ir.contains("%yield.local.builder = alloca"),
+        "the single-execution outer allocation should remain bounded local storage:\n{ir}"
+    );
+    assert_aot_success(source, "yield_nested_range_reentrant_inner");
 }

@@ -342,6 +342,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         crate::codegen::abi::ReturnAbi,
     )> {
         if self.ctx.executable_facts_bound {
+            if let Some(clone) = self
+                .ctx
+                .length_projection_call_targets
+                .get(&(func.name, dst))
+            {
+                return self
+                    .ctx
+                    .functions
+                    .get(clone)
+                    .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi));
+            }
             let target = self.ctx.executable_call_targets.get(&(func.name, dst))?;
             return match target {
                 ori_repr::executable::CallableTarget::Function(function) => {

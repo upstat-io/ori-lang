@@ -468,6 +468,7 @@ fn all_non_unwinding_functions_have_nounwind() {
         "ori_str_index",
         "ori_panic",
         "ori_panic_cstr",
+        "ori_panic_index_out_of_bounds",
         // extern "C-unwind": drop fn called directly so a user-@drop foreign
         // exception unwinds through to the caller's cleanup pad.
         "ori_rc_dec_unwind",

@@ -103,6 +103,14 @@ pub struct TransferContext<'a> {
     /// Field-summary table: `(struct_idx, field_index)` → joined range.
     /// Populated by `Construct` instructions, queried by `Project`.
     pub field_summaries: &'a FxHashMap<(Idx, u32), ValueRange>,
+    /// Exact SSA source for fields projected from a locally constructed Range.
+    ///
+    /// Field summaries join every construction of the same structural type.
+    /// That is required for projections whose concrete source is unknown, but
+    /// needlessly loses precision when a `Project` names a specific immutable
+    /// Range `Construct`. Direct sources take precedence over the aggregate
+    /// summary; mutable aggregate types deliberately stay on the summary path.
+    pub direct_field_sources: &'a FxHashMap<(ArcVarId, u32), ArcVarId>,
     /// Pre-interned builtin names for `transfer_known_call`.
     pub known_builtins: &'a super::KnownBuiltins,
 }
@@ -118,6 +126,7 @@ pub fn transfer(instr: &ArcInstr, ctx: &TransferContext<'_>) -> ValueRange {
         pool,
         var_types,
         field_summaries,
+        direct_field_sources,
         known_builtins,
     } = ctx;
     match instr {
@@ -161,6 +170,9 @@ pub fn transfer(instr: &ArcInstr, ctx: &TransferContext<'_>) -> ValueRange {
         } => {
             if !is_int_typed(*ty, pool) {
                 return Top;
+            }
+            if let Some(source) = direct_field_sources.get(&(*value, *field)) {
+                return ranges.get(source).copied().unwrap_or(Top);
             }
             let struct_idx = var_types.get(value.index()).copied();
             match struct_idx {

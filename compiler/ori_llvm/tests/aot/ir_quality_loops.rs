@@ -3,7 +3,9 @@
 //! Verify range specialization (single icmp), compound assignment CSE,
 //! and loop-invariant block param elimination.
 
-use crate::util::{compile_and_capture_ir, extract_function_ir};
+use crate::util::{
+    compile_and_capture_ir, compile_and_capture_ir_no_repr_opt, extract_function_ir,
+};
 
 // Range specialization
 
@@ -139,7 +141,7 @@ fn test_range_variable_step_general_condition() {
 /// `emit_checked_binop` should detect the duplicate and reuse the result.
 #[test]
 fn test_cse_loop_duplicate_add_eliminated() {
-    let ir = compile_and_capture_ir(include_str!(
+    let ir = compile_and_capture_ir_no_repr_opt(include_str!(
         "fixtures/ir_quality_loops/cse_loop_duplicate_add_eliminated.ori"
     ));
 
@@ -162,7 +164,7 @@ fn test_cse_loop_duplicate_add_eliminated() {
 /// the same ARC block.
 #[test]
 fn test_cse_different_operands_not_eliminated() {
-    let ir = compile_and_capture_ir(include_str!(
+    let ir = compile_and_capture_ir_no_repr_opt(include_str!(
         "fixtures/ir_quality_loops/cse_different_operands_not_eliminated.ori"
     ));
 
@@ -184,7 +186,7 @@ fn test_cse_different_operands_not_eliminated() {
 /// (sadd vs ssub), so they must not be merged.
 #[test]
 fn test_cse_different_intrinsics_not_merged() {
-    let ir = compile_and_capture_ir(include_str!(
+    let ir = compile_and_capture_ir_no_repr_opt(include_str!(
         "fixtures/ir_quality_loops/cse_different_intrinsics_not_merged.ori"
     ));
 
@@ -209,7 +211,7 @@ fn test_cse_different_intrinsics_not_merged() {
 /// separate `const_i64(1)` calls should match in the cache.
 #[test]
 fn test_cse_identical_constant_operands() {
-    let ir = compile_and_capture_ir(include_str!(
+    let ir = compile_and_capture_ir_no_repr_opt(include_str!(
         "fixtures/ir_quality_loops/cse_identical_constant_operands.ori"
     ));
 

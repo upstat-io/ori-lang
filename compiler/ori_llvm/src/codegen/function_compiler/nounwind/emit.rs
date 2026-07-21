@@ -71,8 +71,55 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.apply_effect_attributes(func.name, func.func_id, &func.abi);
             self.apply_return_attributes(func.name, func.func_id, &func.abi);
 
+            self.emit_length_projection_clone(&func);
+
             self.exit_debug_scope();
         }
+    }
+
+    /// Emit the private ABI-compatible clone used by qualified length-only calls.
+    fn emit_length_projection_clone(&mut self, function: &super::types::PreparedFunction) {
+        let Some(&(clone_name, result)) = self.length_projection_clones.get(&function.name) else {
+            return;
+        };
+        let Some(&(clone_id, ref clone_abi)) = self.codegen_ctx.functions.get(&clone_name) else {
+            self.builder.record_codegen_error_with_msg(format!(
+                "length-only projection clone for {} was not declared",
+                self.interner.lookup(function.name)
+            ));
+            return;
+        };
+        let clone_abi = clone_abi.clone();
+        self.builder.set_current_function(clone_id);
+        let mut emitter = ArcIrEmitter::new(
+            self.builder,
+            self.type_info,
+            self.type_resolver,
+            self.interner,
+            self.pool,
+            self.arc_classifier as &dyn ori_arc::ArcClassification,
+            clone_id,
+            &self.codegen_ctx,
+            self.debug_context,
+        );
+        emitter.set_verify_arc(self.verify_arc);
+        emitter.set_func_contract(self.aims_contracts.get(&function.arc_func.name));
+        emitter.set_length_only_yield_result(Some(result));
+        emitter.emit_function(&function.arc_func, &clone_abi);
+
+        let fn_val = self.builder.get_function_value(clone_id);
+        crate::codegen::ir_builder::cfg_simplify::simplify_cfg(fn_val);
+        if self.verify_arc && !fn_val.verify(true) {
+            tracing::error!(
+                name = %self.interner.lookup(clone_name),
+                "LLVM IR verification failed after length-only projection"
+            );
+            self.builder.record_codegen_error();
+        }
+        if self.codegen_ctx.nounwind_functions.contains(&function.name) {
+            self.builder.add_nounwind_attribute(clone_id);
+        }
+        self.builder.add_alwaysinline_attribute(clone_id);
     }
 
     /// Mark emitted functions `nounwind` when they contain no `invoke`.

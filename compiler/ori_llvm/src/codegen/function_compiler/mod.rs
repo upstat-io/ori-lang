@@ -28,6 +28,7 @@ mod entry_point;
 mod error_ctor;
 mod impls;
 mod lambda_rewrite;
+mod length_projection;
 mod nounwind;
 mod panic_trampoline;
 mod return_projection;
@@ -117,6 +118,10 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Closed backend-neutral facts consumed by the physical LLVM projection.
     /// Production body emission fails closed when this is absent.
     executable_program: Option<&'a ori_repr::executable::ExecutableProgram>,
+    /// Qualified ordinary callee → (private clone identity, returned yield result).
+    length_projection_clones: FxHashMap<Name, (Name, ori_arc::ArcVarId)>,
+    /// Qualified call site → ordinary callee, pending clone declaration.
+    length_projection_calls: FxHashMap<(Name, ori_arc::ArcVarId), Name>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
@@ -156,6 +161,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             aims_contracts: FxHashMap::default(),
             verify_arc,
             executable_program: None,
+            length_projection_clones: FxHashMap::default(),
+            length_projection_calls: FxHashMap::default(),
         }
     }
 
@@ -168,11 +175,27 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         program: &'a ori_repr::executable::ExecutableProgram,
     ) {
         self.executable_program = Some(program);
+        let projections = length_projection::analyze_length_projections(program, self.interner);
+        self.length_projection_calls = projections.calls;
+        self.length_projection_clones = projections
+            .yields
+            .into_iter()
+            .map(|(callee, result)| {
+                (
+                    callee,
+                    (
+                        length_projection::projection_name(self.interner, callee),
+                        result,
+                    ),
+                )
+            })
+            .collect();
         self.aims_contracts.clear();
         self.codegen_ctx.closure_adapters.clear();
         self.codegen_ctx.user_drop_functions.clear();
         self.codegen_ctx.exact_method_functions.clear();
         self.codegen_ctx.executable_call_targets.clear();
+        self.codegen_ctx.length_projection_call_targets.clear();
         self.codegen_ctx.executable_function_names = program
             .functions()
             .iter()

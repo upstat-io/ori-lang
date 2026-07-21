@@ -84,7 +84,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 .mangler
                 .mangle_function(self.module_path, self.interner.lookup(name));
             let function = self.declare_function_llvm(&symbol, &abi);
-            self.codegen_ctx.functions.insert(name, (function, abi));
+            self.codegen_ctx
+                .functions
+                .insert(name, (function, abi.clone()));
+            self.declare_length_projection_clone(name, &abi);
             declared_remainder.push(function_id);
         }
         declared_remainder

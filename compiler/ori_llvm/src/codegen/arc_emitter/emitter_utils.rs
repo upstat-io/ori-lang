@@ -8,8 +8,9 @@
 //! - **COW annotations**: `cow_mode_const()`, `mark_cow_data_noalias_if_unique()`
 //! - **RC allocation**: `rc_alloc()`
 
-use ori_arc::ir::{ArcFunction, ArcVarId, ValueRepr};
+use ori_arc::ir::{ArcFunction, ArcTerminator, ArcValue, ArcVarId, PrimOp, ValueRepr};
 use ori_arc::CowMode;
+use ori_ir::UnaryOp;
 use ori_types::Idx;
 
 use super::context::EmittedValue;
@@ -96,6 +97,114 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .is_some_and(|decision| {
                 decision.mechanism == ori_repr::CompiledAllocationMechanism::StackSlot
             })
+    }
+
+    /// Whether `receiver` uses compact stack backing with no preceding RC header.
+    pub(crate) fn is_compact_stack_slot_yield_receiver(
+        &self,
+        arc_func: &ArcFunction,
+        receiver: ArcVarId,
+    ) -> bool {
+        let Some(result) = ori_arc::yield_result_for_receiver_lineage(arc_func, receiver) else {
+            return false;
+        };
+        self.repr_plan
+            .and_then(|plan| plan.yield_allocation_for_result(arc_func.name, result))
+            .is_some_and(|decision| {
+                decision.mechanism == ori_repr::CompiledAllocationMechanism::StackSlot
+                    && !decision.requires_runtime_header
+            })
+    }
+
+    /// Whether a stack-backed yield receiver contains only trivial scalar elements.
+    ///
+    /// Such a receiver has neither a managed allocation to release nor
+    /// element destructors to run, so its physical release is empty.
+    pub(crate) fn is_scalar_stack_slot_yield_receiver(
+        &self,
+        arc_func: &ArcFunction,
+        receiver: ArcVarId,
+    ) -> bool {
+        if !self.is_stack_slot_yield_receiver(arc_func, receiver) {
+            return false;
+        }
+        let Some(result) = ori_arc::yield_result_for_receiver_lineage(arc_func, receiver) else {
+            return false;
+        };
+        arc_func
+            .yield_allocations
+            .iter()
+            .find(|fact| fact.result == result)
+            .is_some_and(|fact| {
+                self.classifier.is_scalar(fact.elem_ty)
+                    && self.user_drop_method(fact.elem_ty).is_none()
+            })
+    }
+
+    /// Whether `receiver` is the result of a call redirected to a private
+    /// length-only physical clone.
+    pub(crate) fn is_length_projection_result(
+        &self,
+        arc_func: &ArcFunction,
+        receiver: ArcVarId,
+    ) -> bool {
+        let root = let_alias_root(arc_func, receiver);
+        self.ctx
+            .length_projection_call_targets
+            .contains_key(&(arc_func.name, root))
+    }
+
+    /// Whether the current `updated` call is the normal-edge half of
+    /// `xs[i] = !xs[i]` for the same receiver and index.
+    ///
+    /// The preceding checked index invoke owns the panic edge. On its normal
+    /// continuation, replacing the second checked COW update with one byte xor
+    /// preserves both bounds semantics and the frozen unique stack identity.
+    pub(crate) fn is_negated_same_index_update(
+        &self,
+        arc_func: &ArcFunction,
+        receiver: ArcVarId,
+        index: ArcVarId,
+        value: ArcVarId,
+    ) -> bool {
+        let Some(index_result) = arc_func
+            .blocks
+            .iter()
+            .flat_map(|block| &block.body)
+            .find_map(|instruction| match instruction {
+                ori_arc::ArcInstr::Let {
+                    dst,
+                    value:
+                        ArcValue::PrimOp {
+                            op: PrimOp::Unary(UnaryOp::Not),
+                            args,
+                        },
+                    ..
+                } if *dst == value && args.len() == 1 => Some(args[0]),
+                _ => None,
+            })
+        else {
+            return false;
+        };
+
+        arc_func.blocks.iter().any(|block| {
+            let ArcTerminator::Invoke {
+                dst,
+                func,
+                args,
+                normal,
+                ..
+            } = &block.terminator
+            else {
+                return false;
+            };
+            *dst == index_result
+                && normal.index() == self.current_block_idx
+                && self.interner.lookup(*func) == "__index"
+                && args.len() == 2
+                && let_alias_root(arc_func, args[0]) == let_alias_root(arc_func, receiver)
+                && let_alias_root(arc_func, args[1]) == let_alias_root(arc_func, index)
+        })
     }
 
     /// Get the current instruction's COW mode as an LLVM `i32` constant.
@@ -355,6 +464,27 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // This avoids creating a dedicated poison block (which would trigger
             // IR quality assertions about unreachable blocks).
             self.block_map[0].expect("entry block must always exist in block_map")
+        }
+    }
+}
+
+fn let_alias_root(function: &ArcFunction, mut value: ArcVarId) -> ArcVarId {
+    loop {
+        let source = function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.body)
+            .find_map(|instruction| match instruction {
+                ori_arc::ArcInstr::Let {
+                    dst,
+                    value: ArcValue::Var(source),
+                    ..
+                } if *dst == value => Some(*source),
+                _ => None,
+            });
+        match source {
+            Some(source) if source != value => value = source,
+            _ => return value,
         }
     }
 }

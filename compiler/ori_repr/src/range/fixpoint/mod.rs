@@ -40,7 +40,7 @@ use iteration::{
 };
 use narrowing::{
     recompute_element_summaries, recompute_field_summaries, recompute_return_range,
-    run_narrowing_pass,
+    refine_direct_range_inductions, run_narrowing_pass,
 };
 use terminator::process_terminator;
 use widen::update_range;
@@ -112,6 +112,7 @@ pub(super) fn restore_block_refinements(
 /// Mutable state threaded through the fixpoint loop.
 struct FixpointState {
     ranges: FxHashMap<ArcVarId, ValueRange>,
+    direct_field_sources: FxHashMap<(ArcVarId, u32), ArcVarId>,
     field_summary_table: FieldSummaryTable,
     element_summary_table: ElementSummaryTable,
     block_refinements: FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
@@ -207,6 +208,7 @@ fn run_forward_iteration(
                 pool,
                 var_types: &func.var_types,
                 field_summaries: state.field_summary_table.as_map(),
+                direct_field_sources: &state.direct_field_sources,
                 known_builtins,
             };
             let mut new_range = transfer(instr, &ctx);
@@ -275,16 +277,25 @@ fn run_post_fixpoint_narrowing(
 ) -> RangeFixpointResult {
     propagate_refinements_through_jump_chains(func, predecessors, &mut state.block_refinements);
 
-    // Run 2 narrowing passes: the second allows block-param ranges
-    // (narrowed in pass 1 via body variables) to propagate back through
-    // the predecessor merge. This recovers bounded loop variables.
-    for _ in 0..2 {
+    // Alternate structural induction recovery with ordinary transfer
+    // narrowing. Outer-loop body facts can bound the start/step of a nested
+    // direct Range, so later rounds intentionally consume earlier results.
+    for _ in 0..4 {
+        refine_direct_range_inductions(
+            func,
+            pool,
+            &mut state.ranges,
+            predecessors,
+            &mut state.block_refinements,
+        );
+        propagate_refinements_through_jump_chains(func, predecessors, &mut state.block_refinements);
         run_narrowing_pass(
             rpo,
             func,
             pool,
             &mut state.ranges,
             &state.field_summary_table,
+            &state.direct_field_sources,
             predecessors,
             &state.block_refinements,
             known_builtins,
@@ -314,6 +325,7 @@ fn run_post_fixpoint_narrowing(
         pool,
         &mut state.ranges,
         &state.field_summary_table,
+        &state.direct_field_sources,
         predecessors,
         &state.block_refinements,
         known_builtins,
@@ -381,8 +393,32 @@ pub fn range_fixpoint(
         po
     };
     let predecessors = compute_predecessors(func);
+    let direct_field_sources = func
+        .blocks
+        .iter()
+        .flat_map(|block| &block.body)
+        .filter_map(|instr| match instr {
+            ori_arc::ir::ArcInstr::Construct { dst, ty, args, .. }
+                if pool.tag(pool.resolve_fully(*ty)) == ori_types::Tag::Range =>
+            {
+                Some(
+                    args.iter()
+                        .enumerate()
+                        .filter_map(|(field, source)| {
+                            u32::try_from(field)
+                                .ok()
+                                .map(|field| ((*dst, field), *source))
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            }
+            _ => None,
+        })
+        .flatten()
+        .collect();
     let mut state = FixpointState {
         ranges: FxHashMap::default(),
+        direct_field_sources,
         field_summary_table: FieldSummaryTable::new(),
         element_summary_table: ElementSummaryTable::new(),
         block_refinements: FxHashMap::default(),
