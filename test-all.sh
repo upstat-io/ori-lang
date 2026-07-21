@@ -98,10 +98,10 @@ fi
 TARGET_DIR="$CARGO_TARGET_DIR"
 
 # Always log full output to a fixed file (cleared on each run)
-LOG_FILE="test-all.log"
+LOG_FILE="$TEST_ALL_DIR/test-all.log"
 initialize_test_all_log "$LOG_FILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
-echo "LOGGING ALL OUTPUT TO $(pwd)/$LOG_FILE"
+echo "LOGGING ALL OUTPUT TO $LOG_FILE"
 echo ""
 
 # Colors for output

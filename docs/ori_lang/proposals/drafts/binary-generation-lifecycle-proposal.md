@@ -4,7 +4,7 @@
 **Author:** Eric (with AI assistance)
 **Created:** 2026-07-21
 **Affects:** Build system, compiler driver (`oric`), `ori_llvm` AOT/incremental layer, CI, release packaging
-**Depends On:** cache-lifecycle-proposal.md (draft — supplies the cache root, budget, and collection pass)
+**Depends On:** cache-lifecycle-proposal.md (draft — supplies the cache root, the budget, the collection pass, and the D3a in-flight-reference primitive this proposal extends)
 **Amends:** aot-compilation-proposal.md (approved) — its build-output publication behavior
 **Related:** toolchain-philosophy-proposal.md (approved — T4 is the outcome contract), multi-file-aot-proposal.md (approved)
 
@@ -22,11 +22,17 @@
 
 The approved umbrella states T4 at outcome level:
 
-> The build/cache is bounded and automatically self-evicting: the tool that wrote it reclaims it under a defined policy, ON BY DEFAULT, so cache never accumulates without limit.
+> The build/cache is **bounded and automatically self-evicting** — the tool that wrote it reclaims it under a defined policy on by default, so cache never accumulates without limit.
 
 `cache-lifecycle-proposal.md` delivers that for **content-addressed, hermetically regenerable** entries — intermediate objects, IR, metadata, incremental state — where eviction is safe by construction because the key that named an entry also reconstructs it. It explicitly excludes final binaries and states the residual outcome they must satisfy:
 
-> A rebuild MUST NOT cause the cache to accumulate one retained copy per build. A final binary MUST NOT be mutated underneath a process reading or executing it. A binary's debug sidecar MUST share its artifact's lifetime.
+> 1. A rebuild MUST NOT cause the cache to accumulate one retained copy per build.
+> 2. **The set of retained final-binary generations MUST itself be bounded, and every generation in it MUST be reclaimable under budget pressure — including current ones.** No class may be permanently exempt from the collector; a budget that cannot reach its largest class is not a bound.
+> 3. Final-binary storage counts against **this proposal's budget**. There is one budget over one cache root, not two.
+> 4. A final binary MUST NOT be mutated underneath a process reading or executing it.
+> 5. A binary's debug sidecar MUST share its artifact's lifetime AND remain discoverable from the materialized deliverable (see D5a).
+
+Clause 2 is the binding constraint on D4 below; clause 5 is the binding constraint on D5/D6.
 
 That is this proposal's charter.
 
@@ -53,16 +59,18 @@ fn publish_temp_file(temp: &Path, destination: &Path) -> Result<(), CacheError> 
         ...
 ```
 
-For a content-addressed destination this is **correct**: both writers computed the same content for the same key, so the loser discarding its temp loses nothing. For a **current pointer** it is **unsound in two distinct ways**:
+For the shipped content-addressed path this is **tolerable**, though not for the reason it first appears. Same key does **not** imply same content: `concurrent_publication_keeps_object_manifest_pairs_coherent` (`cache/tests.rs`) publishes two *different* objects under one `CacheKey` with distinct object ids, and asserts **both** generation files survive (`read_dir(objects).count() == 2`). The real shipped contract is **object-manifest pair coherence** — a reader always sees one complete, self-consistent pair — not content equality. The loser of a metadata race loses only its *pointer*, while its generation persists and stays reachable if re-published.
+
+For a **current pointer** the same arm is **unsound in two distinct ways**, and the pair-coherence contract is exactly why:
 
 1. The two writers wrote *different* content. Discarding the loser's temp and reporting `Ok` silently drops a newer generation — a rebuild appears to succeed while the pointer still names the old binary. This is a wrong-artifact bug that no test of the content-addressed path can catch.
-2. The guard is `Err(_) if destination.exists()`, which swallows **every** rename failure whenever the destination happens to exist — permission denied, cross-device link, an I/O error — and reports success. On the content-addressed path the destination existing is genuine evidence the work is done; on the pointer path it is not evidence of anything.
+2. The guard is `Err(_) if destination.exists()`, which swallows **every** rename failure whenever the destination happens to exist — permission denied, cross-device link, an I/O error — and reports success. On the content-addressed path a published destination is genuine evidence that *some complete, self-consistent pair* is readable, which is all that path promises. On the pointer path the promise is stronger — *this* generation is current — and destination-exists is no evidence of it at all.
 
 *Verified by direct source read of `cache/atomic.rs`.*
 
 ### Problem 2 — a current generation cannot be evicted, so the current set is unbounded
 
-Any correct design must refuse to reclaim the *current* generation for a build identity, or the next `ori run` finds nothing. But that makes the set of current generations structurally exempt from the budget: one per (project × profile × target × output kind × output path), retained indefinitely, growing with every distinct configuration a developer ever builds. A budget that cannot touch its largest class is not a bound.
+The obvious design refuses to reclaim the *current* generation for a build identity, since the next `ori run` would otherwise find nothing. But that exempts the current-generation set from the budget: one per (project × profile × target × output kind × output path), retained indefinitely, growing with every distinct configuration a developer ever builds. A budget that cannot touch its largest class is not a bound, so the obvious design is wrong. D4 keeps current generations reclaimable and ranks them last instead.
 
 This is the failure the cache-side budget does not reach, and stating "the cache is bounded" without resolving it would be false.
 
@@ -70,7 +78,7 @@ This is the failure the cache-side budget does not reach, and stating "the cache
 
 A reader resolves a build identity to a generation, then uses it. Collection can run between those two steps. Any lease taken *after* resolution closes nothing — the window is exactly the gap the lease was meant to cover.
 
-Materialization has an independent hazard. Placing the deliverable by hard link or copy means the user's `./build/app` is a *second* reference to generation content; POSIX symlink-swap semantics, which would make the switch atomic, do not carry to Windows, where an in-use executable is locked against both replacement and deletion. A design that specifies one mechanism and assumes the other platform follows is the shape that produced this proposal.
+Materialization has an independent hazard, and it is platform-divergent in the design, not merely the implementation. POSIX symlink-swap semantics, which would make the switch atomic, do not carry to Windows, where an in-use executable is locked against both replacement and deletion; and a macOS debug sidecar is a directory bundle rather than a file, so a mechanism stated for one artifact shape does not carry to the other. A design that specifies one mechanism and assumes the rest follow is the shape that produced this proposal.
 
 ---
 
@@ -130,29 +138,72 @@ The distinction from the existing primitive is that **failure is reported**. `Er
 
 ### D3 — Reclaim: acquire-then-verify, never resolve-then-acquire
 
+This **extends** `cache-lifecycle-proposal.md` D3a's in-flight-reference primitive; it does not introduce a second mechanism. D3a establishes that an unreferenced entry is reclaimable and a referenced one is not, with the check inside the removing critical section — sufficient for content-addressed entries, where a loser simply rebuilds. A final binary needs one thing more: a reader depends on a *specific* generation being **current**, so the reference must be verified against the current pointer, not merely held.
+
 Reclaim must never remove a generation a live process holds. The ordering is the whole design:
 
 1. Reader **acquires** a lease on the generation it intends to use.
 2. Reader **re-reads** the current pointer and verifies it still names that generation.
 3. On mismatch, the reader releases and retries from step 1.
 
-Acquiring before verifying is what closes the window; resolve-then-acquire leaves exactly the gap it was introduced to cover. Collection takes the mirror discipline: it may reclaim a generation only after observing it is both non-current **and** unleased, with the lease check inside the same critical section that removes it.
+Acquiring before verifying is what closes the window; resolve-then-acquire leaves exactly the gap it was introduced to cover. Collection takes the mirror discipline: it may reclaim a generation only after observing it is unleased, with the lease check inside the same critical section that removes it.
+
+**Two reclaim cases, not one — and conflating them makes D4 clause 2 unenforceable.**
+
+| Case | Precondition | Pointer action |
+|---|---|---|
+| **Superseded** generation | A newer generation is already current | None. D2's atomic switch retired it at publication; reclaim only removes storage |
+| **Current** generation (D4 LIVE tier) | Budget unmet after the DEAD and COLD tiers | **Retire the pointer as part of the same critical section that removes the generation** |
+
+An earlier draft gated *all* reclaim on "non-current **and** unleased". That gate can never admit a never-superseded generation — a single-build identity has no successor to make it non-current — so its storage would be permanently unreclaimable regardless of budget pressure, and clause 2's "including current ones" would be a promise the mechanism cannot keep.
+
+The current-generation case therefore performs a **retire-and-remove** transition atomically: clear the identity's current-pointer record and remove the generation inside one critical section, using D2's replace-or-fail primitive against the pointer. Afterwards the identity resolves to **no current generation** — a legitimate, explicitly-representable state meaning "this identity must rebuild before it can run". `ori run` on such an identity rebuilds rather than erroring, which is the full-rebuild cost D4's LIVE tier already names.
 
 Leases are **per-generation, never cache-wide**. A cache-wide lease would let one live reader anywhere block reclaim of every unrelated generation, which cannot satisfy a bounded contract on a busy machine.
 
-**Crash recovery:** a lease records an owning process identity and an expiry. A lease whose owner is gone, or whose expiry has passed, is reclaimable — a crashed build never permanently pins a generation. Expiry alone is insufficient (a long link can outlive a conservative expiry); owner-liveness alone is insufficient (a PID can be recycled). Both are required, and the interaction is a prototype target.
+**Crash recovery:** a lease records an owning process identity (PID plus start time) and an expiry. A lease is reclaimable only when the owner is proven gone **AND** the expiry has passed — never on either signal alone. Expiry alone is insufficient (a long link can outlive a conservative expiry); owner-liveness alone is insufficient (a PID can be recycled). This is `cache-lifecycle-proposal.md` D3a's criterion unchanged; the portable detection mechanism is a prototype target, the conjunction is not. A crashed build therefore never permanently pins a generation, and a slow one is never reclaimed underneath.
 
 `go#43645` ("build cache not safe for concurrent builds") and `zig#9258` ("Shared Cache Locking") are the precedents this protocol must answer; both north stars shipped bugs in exactly this area, which is the argument for prototyping rather than specifying from first principles.
 
 ### D4 — Bounding the current-generation set
 
-The current generation for an identity is exempt from reclaim while that identity is live. The set of *identities* is therefore what must be bounded, and it is bounded by retiring identities rather than by evicting current generations:
+**No generation is permanently exempt** — required by `cache-lifecycle-proposal.md` D4 clause 2, which admits no permanently-exempt class. Current generations are ranked *last*, never excluded.
 
-- An identity whose project root no longer exists is **dead**; its current generation is reclaimable immediately. This alone collects the dominant term, since deleted and moved workspaces are what accumulate.
-- An identity not built within the cache's recency floor is **cold**; its current generation becomes eligible for reclaim under budget pressure, ranked after every non-current generation and every regenerable entry.
-- Reclaiming a cold identity's current generation costs a full rebuild, which is why it ranks last. It is never *forbidden*, because a class that can never be reclaimed is the unbounded-growth failure this whole workstream exists to prevent.
+**One global reclaim order, spanning both proposals' classes.** Because there is a single budget over a single cache root (clause 3), "evicted last" cannot mean two different things in two documents. The total order under budget pressure is:
 
-`ori cache info` reports the current-generation set separately from reclaimable entries, so the exempt-by-default portion is visible rather than implicit.
+| Rank | Class | Owner |
+|---|---|---|
+| 1 | Prior-version cache roots | cache-lifecycle D2 |
+| 2 | Dead final-binary generations (project root gone) | this D4 |
+| 3 | Superseded (non-current) generations | this D3 |
+| 4 | Incremental-compilation state, then intermediate objects / IR / metadata, LRU within class | cache-lifecycle D2 / D4 |
+| 5 | Cold final-binary generations (identity past the recency floor) | this D4 |
+| 6 | Measured profile data | cache-lifecycle D3 / D4 |
+| 7 | **Live** final-binary generations, least-recently-built first | this D4 |
+
+Ranks 6 and 7 are where the two proposals' local "evicted last" claims meet: profile data is reclaimed *before* a live current generation because re-measuring a profile costs test execution while losing a live binary costs a full rebuild *and* leaves the identity unrunnable until it happens. Both remain reclaimable; neither is exempt.
+
+The three final-binary tiers, **named rather than numbered** — the global table above owns the numbering, and reusing local numbers for different classes is how "rank 3" came to mean two things:
+
+- **DEAD tier** — the identity's project root no longer exists. Reclaimable immediately, ahead of everything (global rank 2). Deleted and moved workspaces are a monotonically-discoverable class that nothing else reclaims, which is why they go first. How large a share they represent is unmeasured and is **not** claimed here; the ranking rests on their being free to reclaim (zero rebuild cost), not on an asserted share.
+- **COLD tier** — the identity has not been built within the recency floor. Reclaimed after every superseded generation and every regenerable entry (global rank 5).
+- **LIVE tier** — the identity was built recently. Reclaimed **last of everything** (global rank 7), and only when the budget cannot be met by exhausting the DEAD and COLD tiers and every class ranked above them. Reclaiming a live current generation costs that identity a full rebuild, which is why it is last; it is not forbidden.
+
+An earlier draft exempted live identities from reclaim entirely. That is the loophole `cache-lifecycle-proposal.md` D4 clause 2 exists to close: a developer holding N configurations warm would pin N generations permanently, and a budget that cannot reach them is not a bound. The exemption is withdrawn.
+
+**Thrash guard.** Reclaiming a live current generation the next build immediately rebuilds is churn, not bounding. The LIVE tier therefore reclaims only when the budget remains unmet after the DEAD and COLD tiers are exhausted, and it reclaims the least-recently-built live identity first.
+
+The guard **defers** reclaim; it never **cancels** it. The LIVE tier proceeds down to the budget even when every remaining generation is live — the alternative would be a de-facto exemption for a degenerate case, which clause 2 forbids.
+
+**This proposal states no separate bound.** The budget invariant for the whole cache root is `cache-lifecycle-proposal.md` D2's composed bound — `max(budget, OVERSIZED + LEASED)` — which already carries this proposal's contribution as its `LEASED` term. Restating it here as a second `max(budget, X)` formula was how the two documents came to disagree: each named one exception as if it were the only one, when both are independently triggerable within the single budget clause 3 mandates.
+
+What this proposal contributes to that invariant is the `LEASED` term's shape. Leases are per-generation (never cache-wide) precisely so concurrent builds do not block each other — so N concurrent builds hold N distinct leases and none of those generations is reclaimable while leased; a CI matrix fanning out N builds is the ordinary way to reach it. The set is nonetheless self-limiting: a lease is held only for the window in which a build may still hand a path to a subprocess, and it expires under D3's owner-gone-AND-expiry-passed rule, so `LEASED` is bounded by concurrent in-flight builds rather than by history.
+
+There is no per-class allocation and no final-binary sub-budget — `cache-lifecycle-proposal.md` D4 clause 3 forbids a second budget ("one budget over one cache root, not two"). Final-binary generations compete for the same single budget as every other class; what distinguishes them is only their *rank* in the reclaim order, not a reserved share. The leased-generation floor and D2's oversized-entry floor are **not alternatives** — both can be active at once, which is precisely why the composed bound sums them rather than taking a maximum over them.
+
+One generation may exceed the budget (refusing it would leave a build with no output); an accumulating *set* may not. A budget so small that steady-state work does not fit is reported by `ori cache info` as sustained LIVE-tier reclaim, so the user sees rebuild churn as a budget signal rather than as unexplained slowness.
+
+`ori cache info` reports the current-generation set separately from other reclaimable entries, so its size and rank are visible rather than implicit.
 
 ### D5 — Deliverable materialization
 
@@ -163,7 +214,27 @@ The deliverable at the user's output path is materialized from the current gener
 | POSIX | Hard link where the cache and output share a filesystem, copy otherwise | An executing process holds an inode, not a path; replacing the link does not disturb it |
 | Windows | Copy, published via the D2 replace primitive | An in-use executable is locked; a build targeting a running binary must fail with an actionable diagnostic naming the holding process, never partially overwrite |
 
-A hard link makes the deliverable a second reference to generation content, so reclaim must treat an outstanding materialized link as a reference — the link count, not the cache's own bookkeeping, is the authority on POSIX. Whether that is sufficient on every supported filesystem is a prototype target.
+**A materialized deliverable NEVER blocks reclaim, and this is what keeps clause 2's bound achievable.** An earlier draft said reclaim "must treat an outstanding materialized link as a reference." That is wrong, and wrong in the direction that breaks the bound: a deliverable at `./build/app` is a file the user keeps and may run at any time, with no expiry and no liveness signal — unlike a D3 lease, which is bounded by both. Treating it as a blocking reference would let any retained deliverable pin its generation indefinitely, re-creating the permanently-exempt class clause 2 forbids.
+
+The correct model follows POSIX link semantics exactly:
+
+- Reclaim removes **the cache's own directory entry**, always, unconditionally. That operation is safe with any number of outstanding deliverable links: `unlink` on one name never disturbs another name for the same inode, and an executing process holds the inode regardless.
+- Once the cache's entry is gone, the generation is **no longer cache-accounted**. If the user's deliverable holds the last link, those blocks are the user's build output — the same as any file `ori build` wrote — and they are outside the cache budget by definition. The budget bounds the *cache*, not the user's output directory.
+- Consequently `ori cache gc` can always reach the bound, and disk that survives is disk the user is deliberately holding.
+
+**Windows diverges and must be stated separately**: with copy-based materialization the deliverable is an independent file from the start, so reclaim of the cache's copy is trivially unblocked. No link-count reasoning applies.
+
+The prototype obligation is therefore *not* "does link counting suffice" (the cache no longer depends on it) but the narrower question of whether any supported filesystem fails to free blocks on the cache's own unlink once its entry is the last cache-side name.
+
+**The debug sidecar is materialized with the deliverable**, per `cache-lifecycle-proposal.md` D4 clause 5 and D5a. A sidecar left only inside the generation is unreachable from the binary a debugger actually opens: `.gnu_debuglink` and the Windows PDB path record resolve against the deliverable's location, and a PDB path fixed at link time would otherwise point into reclaimable cache storage. Build-ID lookup is preferred on Linux precisely because it is location-independent.
+
+**"By the same mechanism" is insufficient — the pair needs a transactional protocol, and one platform's sidecar is not a file.**
+
+- **The sidecar is not always file-shaped.** A macOS `.dSYM` is a *directory bundle*, which cannot be hard-linked as a unit. Per-platform mechanism: POSIX single-file sidecars (`.dwo` / `.debug`) hard-link like the binary; a `.dSYM` bundle is materialized by recursive link-or-copy into a staging directory; Windows `.pdb` copies.
+- **Materialization is two writes and must not be observable half-done — but it does NOT rename a directory onto the output location.** The deliverable stays a plain file at its documented path (`aot-compilation-proposal.md`'s output layout is unchanged per this proposal's Non-Goals); renaming a staging *directory* onto that path would turn the executable into a directory, and renaming it onto the enclosing directory would clobber unrelated sibling artifacts. Neither is intended. The protocol is: stage binary and sidecar into a temporary sibling directory, `fsync` both, then publish with **per-object atomic renames from the staging directory onto their final paths** — binary first, sidecar second — each using D2's replace-or-fail primitive.
+- **The ordering is what makes the pair safe, since two renames are not one transaction.** Publishing the binary first would briefly pair a new binary with an old sidecar; publishing the **sidecar first** pairs an old binary with a new sidecar, which the discovery mechanisms reject rather than mis-resolve (build-ID and PDB signature both fail to match, so a debugger reports missing symbols instead of showing wrong ones). Sidecar-then-binary is therefore the required order, and the residual window degrades to *no* debug info rather than *wrong* debug info.
+- **Failure is all-or-nothing.** If the sidecar step fails, the staged pair is discarded and the previously-materialized pair is left untouched; the build reports the failure rather than publishing a binary whose sidecar is stale or missing. Silently shipping a binary with a mismatched sidecar is worse than failing the materialization, because the mismatch surfaces later as wrong debug info.
+- **Consequence for D4 clause 5**: "shares its artifact's lifetime" is enforced by the pair being published and reclaimed as one unit, not by two independent operations that usually agree.
 
 ### D6 — Sidecar co-lifetime
 
@@ -181,7 +252,8 @@ Per `.claude/rules/prototype_strategy.md`, the concurrency protocol is validated
 | Acquire-then-verify closes the reclaim race | Any observed reclaim of a leased generation under adversarial interleaving |
 | Owner-liveness + expiry never permanently pins a generation | Any leaked lease surviving a killed build |
 | Owner-liveness + expiry never reclaims a live generation | Any reclaim under a link slower than the expiry, or under PID reuse |
-| Hard-link reference counting suffices on POSIX | Any supported filesystem where the link count does not reflect an outstanding deliverable |
+| The cache's own `unlink` always frees its accounting, regardless of outstanding deliverable links | Any supported filesystem where removing the cache-side name fails or does not release cache-accounted space |
+| Binary+sidecar materialization is atomic, including a directory-shaped `.dSYM` | Any observed half-published pair, or a debugger resolving a sidecar that does not match its binary |
 
 Correctness is the admission gate; a mechanism that fails any row is replaced, not accommodated.
 
@@ -241,7 +313,7 @@ Write each new binary directly over the old path. **Rejected:** it corrupts any 
 
 - **No grammar changes.** No new productions, keywords, or syntax.
 - **No normative language-spec clause changes.** Artifact publication is toolchain behavior.
-- **No new CLI surface.** `ori cache info` gains a current-generation line; the subcommand family itself is `cache-lifecycle-proposal.md`'s.
+- **No new CLI surface.** `ori cache info` gains a current-generation line; the subcommand family itself is `cache-lifecycle-proposal.md`'s. `ori cache gc` and `ori cache clean` reach final-binary generations through D3's reference check — no separate command exists or is needed, and none is withheld.
 - **Amendment:** on approval, `aot-compilation-proposal.md` receives an errata entry recording that final-binary publication goes through generations rather than direct output writes, per the errata format in the proposals rule.
 
 ---
