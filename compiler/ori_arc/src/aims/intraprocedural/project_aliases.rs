@@ -131,19 +131,7 @@ fn compute_project_alias_table_filtered(
     apply_result_aliases: &FxHashMap<ArcVarId, ApplyAliasSource>,
     include_project: impl Fn(ArcVarId) -> bool,
 ) -> ProjectAliasTable {
-    // Step 1: Direct Project destinations → sources.
-    //
-    // Note: take-projects (unique-owned payloads moved out of logical
-    // sum carriers) could also be skipped here to avoid keeping the parent
-    // alive, but that would require plumbing a `Pool` through the
-    // public `analyze_function` API. Instead, is fixed downstream: the
-    // class-ledger's birth-site partition (aims/intraprocedural/
-    // birth_site_partition.rs) unifies the take-project's view into the
-    // source's own field-path class rather than tracking a per-instruction
-    // ownership-transfer flag, so no spurious `RcInc` fires at the owned-arg
-    // call site, and the class's own per-class release plan
-    // (aims/class_ledger/emit/releases.rs) places the source enum's release
-    // at the class's real death point instead of the projection site.
+    // Why: Borrow demand starts from projections; take-project ownership is resolved by the birth-site partition.
     let mut alias_sources: FxHashMap<ArcVarId, ProjectSources> = FxHashMap::default();
     for block in &func.blocks {
         for instr in &block.body {
@@ -156,66 +144,25 @@ fn compute_project_alias_table_filtered(
     }
     let borrow_alias_sources = alias_sources.clone();
 
-    // Step 1b: seed alias graph with Apply-result allocation-identity
-    // entries. Each `apply_result_aliases[apply_dst]` records that `apply_dst`
-    // shares an allocation with one or more consumed args; representing those
-    // arg(s) as the alias source lets Step 2's Let/Jump/CFG-merge transitivity
-    // propagate the alias through downstream chains without re-coding the
-    // worklist. Variants:
-    //   - Direct(arg) → seed alias_sources[apply_dst] = [arg]
-    //   - Project { arg,.. } → seed alias_sources[apply_dst] = [arg]
-    //                          (variable-level only — field info not tracked
-    //                          here; field-level discrimination happens at
-    //                          `realize/walk.rs`)
-    //   - Conditional { candidates } → seed alias_sources[apply_dst] = candidates
-    //                          (multi-root union — dst aliases ONE of N at
-    //                          runtime; analysis keeps ALL parents alive)
+    // INVARIANT: Apply-result roots extend safety aliases without implying borrow demand.
     for (apply_dst, alias_source) in apply_result_aliases {
         let roots: ProjectSources = match alias_source {
             ApplyAliasSource::Direct(arg) | ApplyAliasSource::Project { arg, .. } => {
                 smallvec![*arg]
             }
             ApplyAliasSource::Wrapped(_) => {
-                // Wrapped is NOT seeded into
-                // project_alias_sources. Containment (`wrap_ok(m) = Ok(m)`)
-                // is NOT a projection-derived alias chain — `extracted = inner
-                // = Project result.payload[0]` accesses dst's payload via
-                // structural projection, but `extracted`'s class must NOT
-                // inherit `m`'s alias chain (which would over-suppress
-                // extracted's canonical dec, the failure mode).
-                // Wrapped's only effect is per-var dec-suppression on arg
-                // via `should_suppress_apply_aliased_dec`; downstream
-                // projections of dst follow Step 1 (Project-from-dst → dst)
-                // and Step 2 (Let alias) without a Step 1b containment seed.
+                // Why: Containment is not projection aliasing; inheritance would suppress the inner value's decrement.
                 continue;
             }
             ApplyAliasSource::Conditional { candidates } => SmallVec::from_slice(candidates),
         };
-        // SSA invariant: each var defined exactly once. An Apply-defined dst
-        // cannot also be a Project dst, so this insert never collides with a
-        // Step 1 entry. Defensive merge anyway in case of unforeseen overlap.
+        // INVARIANT: SSA destinations cannot be defined by both `Apply` and `Project`.
         merge_sources(&mut alias_sources, *apply_dst, &roots);
     }
 
-    // Step 2 runs the transitive fixed point over two provenance domains:
-    //
-    //  - `demand_sources` (seed_r2gen = false, no R5): the ORIGINAL §1.9
-    //    backward-demand table (R1 Project, R3 Jump-arg, R4 CFG-merge, R6
-    //    nested-Project), seeded only by Step-1 Project edges. Apply allocation
-    //    aliases are not borrows and cannot trigger TF-14. R2-gen whole-var
-    //    identity is DELIBERATELY ABSENT:
-    //    a whole-var alias of a non-projected parent threaded through a CFG merge
-    //    reaches the merge param as a same-alloc source, but the field was MOVED
-    //    out (not borrowed), so keeping the parent alive at the merge would
-    //    suppress the untaken parent's branch-edge dec (the merge-edge
-    //    scoped-cleanup leak). The backward-demand table must stay borrow-scoped.
-    //
-    //  - `sources` (seed_r2gen = true, + R5): the UNIFIED same-allocation alias
-    //    closure — adds R2 generalized to whole-var Let identity of non-projected
-    //    roots + R5 Select. Consumed by the DP-5 safety check, the
-    //    post-convergence witness extension, and the cross-block same-allocation
-    //    cure. Spec: Annex E §AIMS — alias closure.
+    // INVARIANT: Borrow demand excludes whole-value and `Select` aliases to preserve branch-local releases.
     let demand_sources = run_alias_fixpoint(func, borrow_alias_sources, false).0;
+    // Spec: Annex E §AIMS — DP-5 alias closure.
     let (sources, select_alias_dsts) = run_alias_fixpoint(func, alias_sources, true);
 
     ProjectAliasTable {

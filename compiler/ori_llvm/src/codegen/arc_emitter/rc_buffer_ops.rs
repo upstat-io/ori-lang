@@ -22,10 +22,8 @@ struct MapDropState {
     cap: ValueId,
     key_size: ValueId,
     value_size: ValueId,
-    key_dec: Option<FunctionId>,
-    value_dec: Option<FunctionId>,
-    key_may_unwind: bool,
-    value_may_unwind: bool,
+    key_drop: DropChannel,
+    value_drop: DropChannel,
     function: FunctionId,
     i64_type: LLVMTypeId,
     i8_type: LLVMTypeId,
@@ -49,6 +47,37 @@ struct MapDropState {
     continuation: BlockId,
     cleanup: BlockId,
     done: BlockId,
+}
+
+#[derive(Clone, Copy)]
+enum DropChannel {
+    None,
+    Plain(FunctionId),
+    MayUnwind(FunctionId),
+}
+
+impl DropChannel {
+    fn from_facts(function: Option<FunctionId>, may_unwind: bool) -> Self {
+        match (function, may_unwind) {
+            (None, false) => Self::None,
+            (Some(function), false) => Self::Plain(function),
+            (Some(function), true) => Self::MayUnwind(function),
+            (None, true) => {
+                unreachable!("a may-unwind drop channel must have a generated drop function")
+            }
+        }
+    }
+
+    const fn may_unwind(self) -> bool {
+        matches!(self, Self::MayUnwind(_))
+    }
+
+    const fn function(self) -> Option<FunctionId> {
+        match self {
+            Self::None => None,
+            Self::Plain(function) | Self::MayUnwind(function) => Some(function),
+        }
+    }
 }
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
@@ -172,6 +201,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let _ = self.get_or_generate_elem_dec_fn(val_type);
             let key_dec_fid = self.elem_dec_fn_cache.get(&key_type).copied();
             let val_dec_fid = self.elem_dec_fn_cache.get(&val_type).copied();
+            let key_drop = DropChannel::from_facts(key_dec_fid, key_may_unwind);
+            let value_drop = DropChannel::from_facts(val_dec_fid, val_may_unwind);
             let cur = self.current_function;
             let dec_fn = self.builder.runtime_fn("ori_rc_dec_to_zero");
             let hit = self
@@ -185,14 +216,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder.cond_br(is_zero, cleanup_bb, after_bb);
             self.builder.position_at_end(cleanup_bb);
             self.emit_codegen_buffer_drop_map_unwind(
-                data,
-                cap,
-                key_size,
-                val_size,
-                key_dec_fid,
-                val_dec_fid,
-                key_may_unwind,
-                val_may_unwind,
+                data, cap, key_size, val_size, key_drop, value_drop,
             );
             // emit_codegen_buffer_drop_map_unwind leaves the builder at its
             // post-free `done` block; rejoin the non-zero path.
@@ -421,10 +445,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         cap: super::ValueId,
         key_size: u64,
         val_size: u64,
-        key_dec_fid: Option<crate::codegen::value_id::FunctionId>,
-        val_dec_fid: Option<crate::codegen::value_id::FunctionId>,
-        key_may_unwind: bool,
-        val_may_unwind: bool,
+        key_drop: DropChannel,
+        value_drop: DropChannel,
     ) {
         let cur = self.current_function;
         let i64_ty = self.builder.i64_type();
@@ -479,10 +501,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             cap,
             key_size: key_size_v,
             value_size: val_size_v,
-            key_dec: key_dec_fid,
-            value_dec: val_dec_fid,
-            key_may_unwind,
-            value_may_unwind: val_may_unwind,
+            key_drop,
+            value_drop,
             function: cur,
             i64_type: i64_ty,
             i8_type: i8_ty,
@@ -536,14 +556,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .cond_br(is_occupied, state.live, state.continuation);
 
         self.builder.position_at_end(state.live);
-        if let Some(value_dec) = state.value_dec {
+        if let Some(value_dec) = state.value_drop.function() {
             let index = self.builder.load(state.i64_type, state.index, "mdrop.iv");
             let scaled = self.builder.mul(index, state.value_size, "mdrop.vmul");
             let offset = self.builder.add(state.values_offset, scaled, "mdrop.vadd");
             let value_ptr = self
                 .builder
                 .gep(state.i8_type, state.data, &[offset], "mdrop.vptr");
-            if state.value_may_unwind {
+            if state.value_drop.may_unwind() {
                 self.builder.store(state.one8, state.pending_key);
                 let after_value = self.builder.append_block(state.function, "mdrop.afterval");
                 self.builder
@@ -554,14 +574,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         }
 
-        if let Some(key_dec) = state.key_dec {
+        if let Some(key_dec) = state.key_drop.function() {
             let index = self.builder.load(state.i64_type, state.index, "mdrop.ik");
             let scaled = self.builder.mul(index, state.key_size, "mdrop.kmul");
             let offset = self.builder.add(state.keys_offset, scaled, "mdrop.kadd");
             let key_ptr = self
                 .builder
                 .gep(state.i8_type, state.data, &[offset], "mdrop.kptr");
-            if state.key_may_unwind {
+            if state.key_drop.may_unwind() {
                 self.builder.store(state.zero8, state.pending_key);
                 self.builder
                     .invoke(key_dec, &[key_ptr], state.continuation, state.cleanup, "");
@@ -595,7 +615,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.cond_br(key_pending, clean_key, advance);
 
         self.builder.position_at_end(clean_key);
-        if let Some(key_dec) = state.key_dec {
+        if let Some(key_dec) = state.key_drop.function() {
             let index = self
                 .builder
                 .load(state.i64_type, state.index, "mdrop.cl.ci");
@@ -664,7 +684,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     fn emit_map_drop_drain_bucket(&mut self, state: &MapDropState) {
-        if let Some(value_dec) = state.value_dec {
+        if let Some(value_dec) = state.value_drop.function() {
             let index = self.builder.load(state.i64_type, state.index, "mdrop.dvi");
             let scaled = self.builder.mul(index, state.value_size, "mdrop.dvmul");
             let offset = self.builder.add(state.values_offset, scaled, "mdrop.dvadd");
@@ -673,7 +693,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .gep(state.i8_type, state.data, &[offset], "mdrop.dvptr");
             self.builder.call(value_dec, &[value_ptr], "");
         }
-        if let Some(key_dec) = state.key_dec {
+        if let Some(key_dec) = state.key_drop.function() {
             let index = self.builder.load(state.i64_type, state.index, "mdrop.dki");
             let scaled = self.builder.mul(index, state.key_size, "mdrop.dkmul");
             let offset = self.builder.add(state.keys_offset, scaled, "mdrop.dkadd");
@@ -727,15 +747,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let _ = self.get_or_generate_elem_dec_fn(val_type);
             let key_dec_fid = self.elem_dec_fn_cache.get(&key_type).copied();
             let val_dec_fid = self.elem_dec_fn_cache.get(&val_type).copied();
+            let key_drop = DropChannel::from_facts(key_dec_fid, key_may_unwind);
+            let value_drop = DropChannel::from_facts(val_dec_fid, val_may_unwind);
             self.emit_codegen_buffer_drop_map_unwind(
-                data,
-                cap,
-                key_size,
-                val_size,
-                key_dec_fid,
-                val_dec_fid,
-                key_may_unwind,
-                val_may_unwind,
+                data, cap, key_size, val_size, key_drop, value_drop,
             );
             return;
         }

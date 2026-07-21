@@ -121,7 +121,7 @@ The same manifest produces identical builds; resolution is deterministic and nev
 |---|---|---|---|
 | Unified `ori` tool + canonical defaults | T1, T2 | **this proposal** | defines |
 | Semantic authority (one engine) | T3 | single-semantic-authority-tooling (draft) | cite only — do not duplicate |
-| Cache / build-state GC lifecycle | T4 | *new proposal to follow (no owner yet)* | this umbrella is its stated outcome contract |
+| Cache / build-state GC lifecycle | T4 | `cache-lifecycle-proposal.md` (approved) + `binary-generation-lifecycle-proposal.md` (approved) | this umbrella is their stated outcome contract; see Errata |
 | Self-contained packaging | T5 | self-contained-toolchain (draft) | facet |
 | Build orchestration (capability) | T6 | task-runner-tooling (draft) → successor for a richer model | permitted capability; successor supersedes, does not extend |
 | Versioning / resolution | T7 | package-version-resolution (approved); policy reconsideration → forthcoming amendment | determinism cited; any policy change amended by a forthcoming proposal |
@@ -190,3 +190,9 @@ An earlier framing had the umbrella pre-declare a "pluggable versioning semantic
 - **Versioning reconciliation (T7).** Whether and how the resolution policy is reconsidered is owned entirely by the forthcoming versioning amendment, which will carry the `Amends:` linkage. Out of scope for this umbrella.
 - **Global cache location and sharing model (T4).** Per-user global cache directory, its path/override convention, and cross-project sharing semantics — owned by the cache-lifecycle facet proposal.
 - **Enforcement of T3 for future tooling.** How a new tool is prevented from standing up a parallel analyzer — owned by single-semantic-authority-tooling-proposal.md, referenced here.
+
+---
+
+## Errata (added 2026-07-21)
+
+> **T4 facet owner resolved to a pair**: the facet map originally recorded T4's owner as "new proposal to follow (no owner yet)", singular. T4 is satisfied by two proposals together: [cache-lifecycle-proposal.md](cache-lifecycle-proposal.md) owns the bounded, self-evicting cache lifecycle (budget, eviction policy, project-neutral keying, debug-info separation, the in-flight-reference reclaim primitive), and [binary-generation-lifecycle-proposal.md](binary-generation-lifecycle-proposal.md) owns final-binary publication and reclaim (generation identity, atomic current-pointer switch, cross-platform replace semantics, deliverable materialization). The facet-map row is updated accordingly. T4's outcome remains this umbrella's contract; neither proposal weakens it.

@@ -77,7 +77,7 @@ pub(super) fn accumulate_instr_effects(
 
         crate::ir::ArcInstr::Apply { func: callee, .. } => {
             if let Some(contract) = sigs.get(callee) {
-                *effects = effects.join(&contract.effects);
+                *effects = effects.join(contract.effects);
             }
         }
 
@@ -94,7 +94,7 @@ pub(super) fn accumulate_terminator_effects(
     if let ArcTerminator::Invoke { func: callee, .. } = term {
         effects.may_throw = true;
         if let Some(contract) = sigs.get(callee) {
-            *effects = effects.join(&contract.effects);
+            *effects = effects.join(contract.effects);
         }
     }
 }

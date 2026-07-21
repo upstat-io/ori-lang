@@ -96,7 +96,7 @@ impl RcRemarkStreamEnvelope {
     /// Build a header for the current schema version. `burden_path` is derived
     /// from [`on_burden_sole_path`] so `burden_path: true` is truthful — the
     /// stream is a valid current-adapter RC verdict only on the burden-sole path.
-    pub fn new(compiler_sha: String, source_file: String) -> Self {
+    fn new(compiler_sha: String, source_file: String) -> Self {
         Self {
             schema_version: RC_SCHEMA_VERSION,
             compiler_sha,

@@ -104,7 +104,7 @@ impl MemoryContract {
     /// Used in SCC fixed-point iteration: if `join(old, new) == old`, the
     /// contract has converged.
     #[must_use]
-    pub fn join(&self, other: &Self) -> Self {
+    pub(crate) fn join(&self, other: &Self) -> Self {
         assert_eq!(
             self.params.len(),
             other.params.len(),
@@ -117,8 +117,8 @@ impl MemoryContract {
                 .zip(other.params.iter())
                 .map(|(a, b)| a.join(b))
                 .collect(),
-            return_info: self.return_info.join(&other.return_info),
-            effects: self.effects.join(&other.effects),
+            return_info: self.return_info.join(other.return_info),
+            effects: self.effects.join(other.effects),
             context_behavior: self.context_behavior.join(&other.context_behavior),
             fip: self.fip.join(&other.fip),
             // is_fbip: AND (conservative direction — if either side allocates,
@@ -315,7 +315,7 @@ impl ReturnContract {
 
     /// Componentwise join toward conservative.
     #[must_use]
-    pub fn join(&self, other: &Self) -> Self {
+    pub(crate) fn join(self, other: Self) -> Self {
         Self {
             uniqueness: self.uniqueness.join(other.uniqueness),
             preserves_freshness: self.preserves_freshness && other.preserves_freshness,
@@ -404,7 +404,7 @@ impl EffectSummary {
 
     /// Componentwise join (OR for effect flags, AND for slow-path-only).
     #[must_use]
-    pub fn join(&self, other: &Self) -> Self {
+    pub(crate) fn join(self, other: Self) -> Self {
         Self {
             may_allocate: self.may_allocate || other.may_allocate,
             // Both sides must be slow-path-only for the join to be slow-path-only.

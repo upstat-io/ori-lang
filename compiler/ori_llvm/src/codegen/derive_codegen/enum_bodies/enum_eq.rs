@@ -96,8 +96,7 @@ fn emit_enum_payload_eq<'a>(
     let func_id = setup.func_id;
     let str_ty_id = setup.str_ty_id.expect("Eq needs str_ty_id");
 
-    // Check if all variant fields are single-slot scalars. If so, we can
-    // use extractvalue chains (no alloca+store+GEP needed).
+    // Why: Single-slot scalar payloads permit `extractvalue` without stack materialization.
     let all_single_slot = fc.builder_mut().is_struct_value(self_val)
         && fc.builder_mut().is_struct_value(other_val)
         && variants.iter().all(|v| {

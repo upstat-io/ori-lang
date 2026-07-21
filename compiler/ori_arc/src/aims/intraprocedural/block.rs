@@ -98,9 +98,7 @@ pub(crate) fn compute_block_exit_state(
     let successors = successor_block_ids(&block.terminator);
 
     if successors.is_empty() {
-        // Terminal block (Return, Resume, Unreachable) — no successor demand.
-        // On Return, the return value's demand is added by the terminator
-        // transfer function during entry state computation.
+        // Why: Terminal demand enters during backward terminator transfer, not from a successor.
         return BlockExitState {
             demands: FxHashMap::default(),
             live_scalars: FxHashSet::default(),
@@ -294,9 +292,7 @@ pub(crate) fn compute_block_entry_state(
         current.remove(param_var);
     }
 
-    // INVARIANT: Invoke-defined dsts act like block params (removed from
-    // entry state so demand stops at the def point), but captured FIRST —
-    // predecessor FIP queries need the post-def demand this removal erases.
+    // INVARIANT: Capture invoke destinations before removal so predecessor FIP queries retain post-def demand.
     let mut invoke_def_demand: FxHashMap<ArcVarId, AimsState> = FxHashMap::default();
     if let Some(vars) = invoke_defs.get(&block_id) {
         for &var in vars {

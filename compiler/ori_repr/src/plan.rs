@@ -231,9 +231,6 @@ impl ReprPlan {
     }
 
     /// Record the canonical [`EnumLayoutInfo`] for an enum type.
-    ///
-    /// Written by the `populate_enum_layouts` pass after all repr-optimization
-    /// passes have finalized the type's `EnumRepr`.
     pub fn set_enum_layout(&mut self, idx: Idx, info: EnumLayoutInfo) {
         self.enum_layouts.insert(idx, info);
     }

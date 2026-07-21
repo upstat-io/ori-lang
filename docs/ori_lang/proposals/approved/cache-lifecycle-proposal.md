@@ -1,12 +1,13 @@
 # Proposal: Build Cache Lifecycle and Garbage Collection
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-07-21
+**Approved:** 2026-07-21
 **Affects:** Build system, compiler driver (`oric`), CI, release packaging, developer disk footprint
 **Depends On:** toolchain-philosophy-proposal.md (approved)
 **Amends:** aot-compilation-proposal.md (approved) — its Incremental Compilation Cache decision AND its Debug Format table (Linux row)
-**Related:** multi-file-aot-proposal.md (approved), self-contained-toolchain-proposal.md (draft — its installed components are excluded from GC by D3; the exclusion stands on its own terms and does not depend on that draft's approval), test-driven-pgo-proposal.md (draft — its profile cache is classified by D3), binary-generation-lifecycle-proposal.md (successor — depends on this proposal's cache root, budget, and D3a reference primitive; extends them to final-binary generations)
+**Related:** multi-file-aot-proposal.md (approved), self-contained-toolchain-proposal.md (draft — its installed components are excluded from GC by D3; the exclusion stands on its own terms and does not depend on that draft's approval), test-driven-pgo-proposal.md (draft — its profile cache is classified by D3), binary-generation-lifecycle-proposal.md (approved successor — depends on this proposal's cache root, budget, and D3a reference primitive; extends them to final-binary generations)
 
 ---
 

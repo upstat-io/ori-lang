@@ -46,6 +46,19 @@ pub enum ReturnAliasShape {
 }
 
 impl ReturnAliasShape {
+    /// Join two present return-alias shapes.
+    #[must_use]
+    pub(crate) fn join(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Project { field: left }, Self::Project { field: right }) if left == right => {
+                Self::Project { field: left }
+            }
+            (Self::Direct, _)
+            | (_, Self::Direct)
+            | (Self::Project { .. }, Self::Project { .. }) => Self::Direct,
+        }
+    }
+
     /// IC-3 join for `Option<ReturnAliasShape>`.
     ///
     /// Lattice chain: `None < Some(Project) < Some(Direct)` (height 2).
@@ -57,21 +70,11 @@ impl ReturnAliasShape {
     /// Incomparable Project paths (different field indices) join to Direct
     /// per the same rationale.
     #[must_use]
-    pub fn join(a: Option<Self>, b: Option<Self>) -> Option<Self> {
+    pub fn join_optional(a: Option<Self>, b: Option<Self>) -> Option<Self> {
         match (a, b) {
             (None, None) => None,
             (Some(s), None) | (None, Some(s)) => Some(s),
-            // Same Project field on both paths: preserve the field-level shape.
-            (Some(Self::Project { field: f1 }), Some(Self::Project { field: f2 })) if f1 == f2 => {
-                Some(Self::Project { field: f1 })
-            }
-            // Direct is TOP (absorbs Project); incomparable Project paths
-            // (different field indices) also widen to Direct. Both cases
-            // resolve to `Some(Direct)` per the lattice-monotonicity rule
-            // `join(TOP, x) = TOP`.
-            (Some(Self::Direct), _)
-            | (_, Some(Self::Direct))
-            | (Some(Self::Project { .. }), Some(Self::Project { .. })) => Some(Self::Direct),
+            (Some(left), Some(right)) => Some(left.join(right)),
         }
     }
 }
@@ -337,7 +340,7 @@ impl ParamContract {
     /// `compute_ttr_iter_consume_dup_aliases`) and must not double-count as a
     /// plain iter-consume here.
     #[must_use]
-    pub fn is_rl2_consume(&self) -> bool {
+    fn is_rl2_consume(&self) -> bool {
         self.iter_consumes && !self.transfers_through_return
     }
 
@@ -355,8 +358,8 @@ impl ParamContract {
             // IC-3 boolean max: true on any path remains true.
             transfers_through_return: self.transfers_through_return
                 || other.transfers_through_return,
-            // ReturnAliasShape::join implements None < Project < Direct.
-            return_alias: ReturnAliasShape::join(self.return_alias, other.return_alias),
+            // ReturnAliasShape::join_optional implements None < Project < Direct.
+            return_alias: ReturnAliasShape::join_optional(self.return_alias, other.return_alias),
             // IC-3 boolean max: true on any path remains true.
             return_payload_contains_param: self.return_payload_contains_param
                 || other.return_payload_contains_param,

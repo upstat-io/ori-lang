@@ -115,22 +115,16 @@ pub fn propagate_ranges(
     let func_map: FxHashMap<Name, &ArcFunction> =
         arc_functions.iter().map(|f| (f.name, f)).collect();
 
-    // Phase 1: Intraprocedural analysis for each function (no seeds).
     let mut results: FxHashMap<Name, super::fixpoint::RangeFixpointResult> = FxHashMap::default();
     for func in arc_functions {
         let result = range_fixpoint(func, pool, config, None, None);
         results.insert(func.name, result);
     }
 
-    // Phase 2: Build call graph and compute SCCs.
     let call_graph = CallGraph::build(arc_functions);
     let sccs = compute_sccs(&call_graph);
 
-    // Phase 3: Process SCCs in reverse topological order (callers first).
-    // Parameter ranges flow top-down (caller → callee), so callers must be
-    // processed first: when callee C's fixpoint is seeded, all callers of C
-    // must already have their final ranges so C's param seed is accurate.
-    // `compute_sccs()` returns forward order (leaves first); reverse it here.
+    // Why: Parameter seeds require completed caller ranges, while `compute_sccs` returns callees first.
     let mut func_infos: FxHashMap<Name, FunctionRangeInfo> = FxHashMap::default();
     let mut recursive_scc_iters: usize = 0;
     let mut exhausted_recursive_sccs: usize = 0;
@@ -191,11 +185,7 @@ pub fn propagate_ranges(
         );
     }
 
-    // Phase 3.5: Return-range feedback.
-    // Phase 3 processes callers first (reverse topo) for parameter propagation,
-    // so callee return ranges aren't in callers' var_ranges. This pass feeds
-    // callee return ranges back into results, then re-collects parameter ranges
-    // and re-runs fixpoints for functions whose seeds changed.
+    // Why: Caller-first parameter propagation initially lacks callee return ranges.
     feedback::feed_return_ranges_and_reprocess(
         &sccs,
         &call_graph,
@@ -208,11 +198,8 @@ pub fn propagate_ranges(
         plan,
     );
 
-    // Phase 4: Store results in ReprPlan.
-    // Per-variable ranges are only stored when narrowing is safe for codegen.
-    // The ARC emitter reads var_range() to insert trunc/sext for local variables —
-    // without ABI widening and overflow guards, applying narrowed widths to locals
-    // is unsound. Field-range summaries are always stored because they are consumed
+    // INVARIANT: Local narrowing requires ABI widening and overflow guards; field summaries remain safe.
+    // Field-range summaries are always stored because they are consumed
     // by integer narrowing itself, not by codegen directly.
     if plan.is_narrowing_safe_for_codegen() {
         for (name, result) in &results {
@@ -224,7 +211,6 @@ pub fn propagate_ranges(
         result.element_summaries.flush_to_repr_plan(plan);
     }
 
-    // Phase 5: Merge interprocedural parameter ranges into ReprPlan.
     merge_param_ranges_into_plan(plan, &func_infos, &func_map);
 
     tracing::debug!(

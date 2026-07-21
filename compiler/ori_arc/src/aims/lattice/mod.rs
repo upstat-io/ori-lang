@@ -420,7 +420,7 @@ impl AimsState {
     /// The analysis should widen all non-converged variables to `TOP`
     /// and emit a `tracing::warn!`.
     #[must_use]
-    pub fn iteration_limit(num_variables: usize, num_blocks: usize) -> usize {
+    pub(crate) fn iteration_limit(num_variables: usize, num_blocks: usize) -> usize {
         Self::CHAIN_HEIGHT
             .saturating_mul(num_variables)
             .saturating_mul(num_blocks)

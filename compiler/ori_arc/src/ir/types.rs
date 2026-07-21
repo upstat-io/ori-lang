@@ -194,10 +194,7 @@ pub enum LitValue {
 
 // Primitive operations
 
-/// Primitive operation — wraps `BinaryOp`/`UnaryOp` from `ori_ir`.
-///
-/// By wrapping rather than duplicating, we stay in sync automatically
-/// when new operators are added to the language.
+/// Primitive operation backed by the canonical `ori_ir` operator types.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum PrimOp {

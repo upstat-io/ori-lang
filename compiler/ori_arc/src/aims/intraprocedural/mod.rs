@@ -136,14 +136,10 @@ fn initialize_analysis(
         }
     }
 
-    // Compute postorder for backward traversal: successors appear before
-    // predecessors, so demand from successors is available when we compute
-    // a block's exit/entry state.
+    // Why: Backward demand traversal requires successors before predecessors.
     let postorder = crate::graph::compute_postorder(func);
 
-    // Collect invoke definitions: Invoke { dst, normal,.. } defines `dst`
-    // at the entry of the `normal` successor only (not unwind). We need to
-    // remove these from the normal successor's entry state.
+    // INVARIANT: `Invoke` defines its destination only at the normal successor entry.
     let invoke_defs = crate::graph::collect_invoke_defs(func);
 
     // SSA uniqueness lets pre-strip invoke-result demand route from its normal
@@ -318,8 +314,6 @@ fn finish_analysis(
     mut state_map: AimsStateMap,
     iteration: usize,
 ) -> AimsStateMap {
-    // Post-convergence: verify canonical fixed point and detect
-    // cross-dimension chaining (Convergence Feedback).
     verify_canonical_fixed_point(&mut state_map, func);
 
     tracing::debug!(
@@ -331,9 +325,7 @@ fn finish_analysis(
         "AIMS intraprocedural analysis converged"
     );
 
-    // Materialize singleton transitive-drop classes first. Call-result state
-    // must precede sparse events so placement candidates see effective exit
-    // locality.
+    // Why: Placement candidates require effective exit locality before sparse events are populated.
     post_convergence::materialize_transitive_drop_singleton_classes(func, sigs, &mut state_map);
     post_convergence::populate_borrow_sources(&mut state_map, func);
     post_convergence::populate_call_result_states(&mut state_map, func, sigs);
@@ -342,8 +334,6 @@ fn finish_analysis(
     // TF-2 alias inheritance requires call-result and shape tables first.
     post_convergence::propagate_alias_forward_state(&mut state_map, func);
 
-    // effect_summary.may_share is available post-convergence.
-    // Passed to TRMC gates for logging (not enforced in v1).
     let may_share = state_map.effect_summary().may_share;
     post_convergence::detect_trmc_candidates(&mut state_map, func, may_share);
     post_convergence::populate_context_events(&mut state_map, func, context_regions, may_share);

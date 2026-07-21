@@ -72,9 +72,7 @@ pub fn check_function(func: &ArcFunction) -> Vec<VerifyError> {
 /// it will not catch use-before-def where the definition exists but does not
 /// dominate the use.
 ///
-// NOTE: Flat global defined-set is intentionally over-approximate for SSA-form IR.
-// Dominator-based scope checking would catch more bugs but the current check is
-// sufficient for the invariants we need to maintain (use-before-def for SSA vars).
+// Why: This check targets SSA use-before-def; dominance validation belongs to the CFG verifier.
 fn check_variable_scope(func: &ArcFunction, errors: &mut Vec<VerifyError>) {
     let defined = collect_defined_vars(func);
     for (block_idx, block) in func.blocks.iter().enumerate() {

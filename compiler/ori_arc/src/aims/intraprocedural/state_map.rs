@@ -357,7 +357,7 @@ impl AimsStateMap {
     /// reuse facts.
     /// This is irreversible — once marked, the variable returns `SCALAR`
     /// from all state queries.
-    pub fn set_permanent_scalar(&mut self, var: ArcVarId) {
+    pub(crate) fn set_permanent_scalar(&mut self, var: ArcVarId) {
         if let Some(entry) = self.scalars.get_mut(var.index()) {
             *entry = true;
         }
@@ -376,7 +376,7 @@ impl AimsStateMap {
     /// Called after [`detect_immortals`](crate::aims::immortal::detect_immortals)
     /// in the pipeline, before analysis begins. Immortal variables are excluded
     /// from analysis (same treatment as scalars) and from all emission phases.
-    pub fn set_immortals(&mut self, immortals: Vec<bool>) {
+    pub(crate) fn set_immortals(&mut self, immortals: Vec<bool>) {
         self.immortals = immortals;
     }
 
@@ -390,7 +390,7 @@ impl AimsStateMap {
     /// Whether a variable should be excluded from analysis and emission
     /// (either SCALAR or IMMORTAL).
     #[inline]
-    pub fn is_excluded(&self, var: ArcVarId) -> bool {
+    pub(crate) fn is_excluded(&self, var: ArcVarId) -> bool {
         self.is_scalar(var) || self.is_immortal(var)
     }
 

@@ -72,54 +72,6 @@ fn visit_expr(
         CanExpr::Assign { target, value } => {
             visit_assignment(arena, target, value, stack, reassigned);
         }
-        CanExpr::Binary { .. }
-        | CanExpr::Unary { .. }
-        | CanExpr::Cast { .. }
-        | CanExpr::FormatWith { .. }
-        | CanExpr::Call { .. }
-        | CanExpr::MethodCall { .. }
-        | CanExpr::Field { .. }
-        | CanExpr::Index { .. } => push_simple_children(arena, kind, stack),
-        CanExpr::If { .. }
-        | CanExpr::Match { .. }
-        | CanExpr::For { .. }
-        | CanExpr::Loop { .. }
-        | CanExpr::Break { .. }
-        | CanExpr::Continue { .. }
-        | CanExpr::Block { .. }
-        | CanExpr::Let { .. }
-        | CanExpr::Lambda { .. }
-        | CanExpr::WithCapability { .. } => push_control_children(arena, canon, kind, stack),
-        CanExpr::List(_)
-        | CanExpr::Tuple(_)
-        | CanExpr::Map(_)
-        | CanExpr::Struct { .. }
-        | CanExpr::Range { .. }
-        | CanExpr::Ok(_)
-        | CanExpr::Err(_)
-        | CanExpr::Some(_)
-        | CanExpr::Try(_)
-        | CanExpr::Await(_)
-        | CanExpr::Unsafe(_)
-        | CanExpr::FunctionExp { .. } => push_container_children(arena, kind, stack),
-    }
-}
-
-fn visit_assignment(
-    arena: &CanArena,
-    target: CanId,
-    value: CanId,
-    stack: &mut Vec<CanId>,
-    reassigned: &mut FxHashSet<Name>,
-) {
-    if let Some(name) = assign_root_name(arena, target) {
-        reassigned.insert(name);
-    }
-    stack.extend([target, value]);
-}
-
-fn push_simple_children(arena: &CanArena, kind: CanExpr, stack: &mut Vec<CanId>) {
-    match kind {
         CanExpr::Binary { left, right, .. } => stack.extend([left, right]),
         CanExpr::Unary { operand, .. } => stack.push(operand),
         CanExpr::Cast { expr, .. } | CanExpr::FormatWith { expr, .. } => stack.push(expr),
@@ -135,17 +87,6 @@ fn push_simple_children(arena: &CanArena, kind: CanExpr, stack: &mut Vec<CanId>)
         CanExpr::Index {
             receiver, index, ..
         } => stack.extend([receiver, index]),
-        _ => unreachable!("push_simple_children called with non-simple expression"),
-    }
-}
-
-fn push_control_children(
-    arena: &CanArena,
-    canon: &CanonResult,
-    kind: CanExpr,
-    stack: &mut Vec<CanId>,
-) {
-    match kind {
         CanExpr::If {
             cond,
             then_branch,
@@ -175,12 +116,6 @@ fn push_control_children(
             stack.push(body);
         }
         CanExpr::WithCapability { provider, body, .. } => stack.extend([provider, body]),
-        _ => unreachable!("push_control_children called with non-control expression"),
-    }
-}
-
-fn push_container_children(arena: &CanArena, kind: CanExpr, stack: &mut Vec<CanId>) {
-    match kind {
         CanExpr::List(range) | CanExpr::Tuple(range) => {
             stack.extend(arena.get_expr_list(range).iter().copied());
         }
@@ -204,8 +139,20 @@ fn push_container_children(arena: &CanArena, kind: CanExpr, stack: &mut Vec<CanI
         CanExpr::FunctionExp { props, .. } => {
             stack.extend(arena.get_named_exprs(props).iter().map(|prop| prop.value));
         }
-        _ => unreachable!("push_container_children called with non-container expression"),
     }
+}
+
+fn visit_assignment(
+    arena: &CanArena,
+    target: CanId,
+    value: CanId,
+    stack: &mut Vec<CanId>,
+    reassigned: &mut FxHashSet<Name>,
+) {
+    if let Some(name) = assign_root_name(arena, target) {
+        reassigned.insert(name);
+    }
+    stack.extend([target, value]);
 }
 
 /// Root identifier of an assignment target chain: `x` for `x = v`,

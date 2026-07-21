@@ -422,8 +422,8 @@ fn join_shape_into(
     idx: usize,
     new: ReturnAliasShape,
 ) {
-    let prev = shapes.get(&idx).copied();
-    if let Some(joined) = ReturnAliasShape::join(prev, Some(new)) {
-        shapes.insert(idx, joined);
-    }
+    shapes
+        .entry(idx)
+        .and_modify(|previous| *previous = previous.join(new))
+        .or_insert(new);
 }

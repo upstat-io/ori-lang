@@ -76,13 +76,9 @@ pub fn compute_liveness(func: &ArcFunction, classifier: &dyn ArcClassification) 
 
     tracing::debug!(function = func.name.raw(), num_blocks, "computing liveness");
 
-    // Step 0.5: Build Invoke dst mapping.
-    // An Invoke terminator defines `dst` at the normal successor's entry,
-    // not at the invoking block. Precompute which blocks receive Invoke
-    // definitions so gen/kill can account for them.
+    // INVARIANT: `Invoke` destinations enter scope only at their normal successors.
     let invoke_defs = crate::graph::collect_invoke_defs(func);
 
-    // Step 1: Precompute gen/kill for each block.
     let mut gen: Vec<LiveSet> = Vec::with_capacity(num_blocks);
     let mut kill: Vec<LiveSet> = Vec::with_capacity(num_blocks);
 
@@ -92,10 +88,8 @@ pub fn compute_liveness(func: &ArcFunction, classifier: &dyn ArcClassification) 
         kill.push(block_kill);
     }
 
-    // Step 2: Compute postorder for convergence ordering.
     let postorder = compute_postorder(func);
 
-    // Step 3: Fixed-point iteration.
     let mut live_in: Vec<LiveSet> = (0..num_blocks).map(|_| LiveSet::default()).collect();
     let mut live_out: Vec<LiveSet> = (0..num_blocks).map(|_| LiveSet::default()).collect();
 
@@ -252,7 +246,7 @@ pub struct RefinedLiveness {
 /// - **`live_for_drop`**: the variable only appears in `RcDec` instructions.
 ///
 /// At join points (blocks with multiple predecessors), `live_for_use` wins
-/// conservatively — if any successor path reads the variable, we treat it
+/// conservatively — a read on any successor path classifies the variable
 /// as live-for-use at the join.
 ///
 /// Returns both the refined classification and the standard `BlockLiveness`
@@ -265,37 +259,20 @@ pub fn compute_refined_liveness(
     let standard = compute_liveness(func, classifier);
     let num_blocks = func.blocks.len();
 
-    // For each block, classify each live_out variable.
-    // We do a backward walk per block: a var is "use" if we see it used
-    // as a real operand, "drop" if we only see it in RcDec.
     let mut refined: Vec<RefinedLiveness> = Vec::with_capacity(num_blocks);
 
     for block_idx in 0..num_blocks {
         let block = &func.blocks[block_idx];
         let live_out = &standard.live_out[block_idx];
 
-        // Start from live_out classification of successors.
-        // At joins, live_for_use wins (conservative).
         let mut use_set = LiveSet::default();
         let mut drop_set = LiveSet::default();
 
-        // Seed from successor blocks' refined classification.
-        // Since we process in block order (not RPO), we use the standard
-        // live_out and then classify within this block.
+        // Why: Block-order traversal starts conservatively; operand uses promote values below.
         for &var in live_out {
-            // Default: check if successors use this var as an operand.
-            // We approximate conservatively: anything in live_out that
-            // appears in a successor's gen set as a real operand → use.
-            // This is a simplified approach; for full precision we'd need
-            // backward dataflow on the classification itself.
             drop_set.insert(var);
         }
 
-        // Backward walk through the block body.
-        // If we see a real use of a var, promote it from drop to use.
-        // If we see only RcDec, it stays in drop.
-
-        // Check terminator first (backward walk: terminator is "last").
         for var in block.terminator.used_vars() {
             if live_out.contains(&var) || standard.live_in[block_idx].contains(&var) {
                 drop_set.remove(&var);
@@ -303,7 +280,6 @@ pub fn compute_refined_liveness(
             }
         }
 
-        // Walk instructions backward.
         for instr in block.body.iter().rev() {
             match instr {
                 crate::ir::ArcInstr::RcDec { var, .. } => {

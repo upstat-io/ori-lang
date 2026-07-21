@@ -69,40 +69,24 @@ use crate::uniqueness::DropHints;
 /// instr_idx)` coordinates that merge invalidates. This function
 /// defensively clears `func.drop_hints` at entry.
 pub(crate) fn merge_blocks(func: &mut ArcFunction) {
-    // Defensive: clear stale drop hints (they'll be recomputed after us).
+    // Why: Block rewrites invalidate coordinate-based drop hints.
     func.drop_hints = DropHints::default();
 
-    // Phase 1: remove unreachable blocks so predecessor counts are accurate.
     compact::compact_blocks(func);
 
-    // Phase 2: downgrade trivial invokes to Apply + Jump.
     downgrade::downgrade_trivial_invokes(func);
 
-    // Phase 3a: fold trivial if/else diamonds into Select instructions.
     select::fold_select_diamonds(func);
 
-    // Phase 3b: remove dead then/else blocks left by select folding.
     compact::compact_blocks(func);
 
-    // Phase 4: merge single-predecessor Jump chains (fixed point).
     merge::merge_jump_chains(func);
 
-    // Phase 5: eliminate params on single-predecessor blocks.
-    // Safety net — Phase 4 handles Jump→single-pred merges, but non-Jump
-    // predecessors and ordering artifacts may leave blocks with dead params
-    // that would produce redundant LLVM phis.
+    // Why: Non-Jump predecessors can leave redundant single-predecessor phis.
     single_pred_phi::eliminate_single_pred_params(func);
 
-    // Phase 6: eliminate dead block params on multi-predecessor blocks.
-    // Loop exit blocks receive mutable variable values via break jumps,
-    // but those variables may be unused after the loop. Remove the dead
-    // params and their corresponding Jump args.
     dead_param::eliminate_dead_params(func);
 
-    // Phase 7: eliminate invariant block params on loop headers.
-    // A param is invariant when all non-self incoming values agree on a
-    // single ArcVarId — the mutable binding was never modified inside
-    // the loop. Replace uses with the common value, remove the param.
     invariant_param::eliminate_invariant_params(func);
 
     // Structural compaction can remove dead PrimOp definitions. Their frozen

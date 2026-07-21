@@ -117,7 +117,29 @@ pub(super) fn lower_burden_ops_to_rc(
                     strategy,
                     atomicity,
                 },
-                _ => unreachable!("filtered to whole-var burden ops above"),
+                ArcInstr::Let { .. }
+                | ArcInstr::Apply { .. }
+                | ArcInstr::ApplyIndirect { .. }
+                | ArcInstr::PartialApply { .. }
+                | ArcInstr::Project { .. }
+                | ArcInstr::Construct { .. }
+                | ArcInstr::RcInc { .. }
+                | ArcInstr::RcDec { .. }
+                | ArcInstr::RcDecPartial { .. }
+                | ArcInstr::RcDecField { .. }
+                | ArcInstr::RcDecVariant { .. }
+                | ArcInstr::BurdenDecPartial { .. }
+                | ArcInstr::BurdenDecField { .. }
+                | ArcInstr::BurdenDecVariant { .. }
+                | ArcInstr::IsShared { .. }
+                | ArcInstr::Set { .. }
+                | ArcInstr::SetTag { .. }
+                | ArcInstr::Reset { .. }
+                | ArcInstr::Reuse { .. }
+                | ArcInstr::CollectionReuse { .. }
+                | ArcInstr::Select { .. } => {
+                    unreachable!("filtered to whole-var burden ops above")
+                }
             };
             func.blocks[block_idx].body[instr_idx] = lowered;
         }

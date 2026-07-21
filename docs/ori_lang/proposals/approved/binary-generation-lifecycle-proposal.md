@@ -1,10 +1,11 @@
 # Proposal: Final-Binary Generation Lifecycle
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric (with AI assistance)
 **Created:** 2026-07-21
+**Approved:** 2026-07-21
 **Affects:** Build system, compiler driver (`oric`), `ori_llvm` AOT/incremental layer, CI, release packaging
-**Depends On:** cache-lifecycle-proposal.md (draft — supplies the cache root, the budget, the collection pass, and the D3a in-flight-reference primitive this proposal extends)
+**Depends On:** cache-lifecycle-proposal.md (approved — supplies the cache root, the budget, the collection pass, and the D3a in-flight-reference primitive this proposal extends)
 **Amends:** aot-compilation-proposal.md (approved) — its build-output publication behavior
 **Related:** toolchain-philosophy-proposal.md (approved — T4 is the outcome contract), multi-file-aot-proposal.md (approved)
 

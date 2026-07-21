@@ -211,13 +211,19 @@ impl BuiltinTable {
         {
             for reg in source {
                 let methods = entries.entry(reg.type_name).or_default();
-                debug_assert!(
-                    !methods.contains_key(reg.method_name),
-                    "duplicate builtin registration: ({}, {})",
-                    reg.type_name,
-                    reg.method_name,
-                );
-                methods.insert(reg.method_name, reg);
+                match methods.entry(reg.method_name) {
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(reg);
+                    }
+                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                        debug_assert!(
+                            false,
+                            "duplicate builtin registration: ({}, {})",
+                            reg.type_name, reg.method_name,
+                        );
+                        entry.insert(reg);
+                    }
+                }
             }
         }
 

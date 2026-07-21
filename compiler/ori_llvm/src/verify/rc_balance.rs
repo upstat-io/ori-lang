@@ -60,25 +60,20 @@ impl RcTracker {
     }
 
     fn record_dec(&mut self, name: &str) -> Option<PtrState> {
-        let prev = self.states.get(name).cloned();
-        self.states.insert(name.to_owned(), PtrState::Decremented);
-        prev
+        self.states.insert(name.to_owned(), PtrState::Decremented)
     }
 
     fn record_cow_consumed(&mut self, name: &str, cow_fn: &str) {
         // Only transition if we're tracking this pointer
-        if self.states.contains_key(name) {
-            if self.strict {
+        if let Some(state) = self.states.get_mut(name) {
+            *state = if self.strict {
                 // Strict mode: treat COW as freeing — go directly to Decremented
-                self.states.insert(name.to_owned(), PtrState::Decremented);
+                PtrState::Decremented
             } else {
-                self.states.insert(
-                    name.to_owned(),
-                    PtrState::CowConsumed {
-                        cow_fn: cow_fn.to_owned(),
-                    },
-                );
-            }
+                PtrState::CowConsumed {
+                    cow_fn: cow_fn.to_owned(),
+                }
+            };
         }
     }
 }
@@ -173,8 +168,8 @@ fn check_function(
                     // Embedding a tracked pointer into a struct (e.g., for
                     // closure return) transfers ownership — not a leak.
                     if let Some(ptr_name) = operand_name(i, 1) {
-                        if tracker.states.contains_key(&ptr_name) {
-                            tracker.states.insert(ptr_name, PtrState::Decremented);
+                        if let Some(state) = tracker.states.get_mut(&ptr_name) {
+                            *state = PtrState::Decremented;
                         }
                     }
                 }

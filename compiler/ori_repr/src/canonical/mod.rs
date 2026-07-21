@@ -225,20 +225,12 @@ pub(crate) fn canonical_cached(
     canonical_inner(pool, idx, &mut FxHashSet::default(), cache)
 }
 
-/// Inner canonicalization with cycle detection via `visiting` set and
-/// cross-call memoization via `cache`.
+/// Canonicalizes with cycle detection and cross-call memoization.
 ///
-/// Returns `None` for types that cannot be canonicalized: unresolved
-/// type variables, error types, internal-only types (Scheme, Projection,
-/// etc.), and unresolved Named/Applied/Alias. Composite types whose
-/// children return `None` also return `None` (fallibility propagates).
-///
-/// When a type is encountered that is already being canonicalized
-/// (i.e., present in `visiting`), we return an `RcPointer` — recursive
-/// positions in Ori are always behind ARC pointers at runtime.
-///
-/// The `cache` persists across calls in `populate_canonical()` so that
-/// mutually recursive types get consistent representations.
+/// Unresolved, erroneous, and internal-only types return `None`, including
+/// composites containing them. Recursive re-entry through `visiting` returns
+/// an [`MachineRepr::RcPointer`]. The shared `cache` keeps mutually recursive
+/// representations consistent across calls.
 fn canonical_inner(
     pool: &Pool,
     idx: Idx,
@@ -247,7 +239,6 @@ fn canonical_inner(
 ) -> Option<MachineRepr> {
     let resolved = pool.resolve_fully(idx);
 
-    // Cache hit — return previously computed representation.
     if let Some(repr) = cache.get(&resolved) {
         return Some(repr.clone());
     }

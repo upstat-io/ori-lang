@@ -52,15 +52,10 @@ impl AimsStateMap {
     ///
     /// Same source → keep `Exact`; different sources → `Unknown`.
     pub fn join_borrow_sources(&mut self, var: ArcVarId, other: BorrowSource) {
-        match self.borrow_sources.get(&var) {
-            Some(existing) => {
-                let joined = existing.join(other);
-                self.borrow_sources.insert(var, joined);
-            }
-            None => {
-                self.borrow_sources.insert(var, other);
-            }
-        }
+        self.borrow_sources
+            .entry(var)
+            .and_modify(|existing| *existing = existing.join(other))
+            .or_insert(other);
     }
 
     // Apply-result allocation-identity provenance
@@ -175,14 +170,14 @@ impl AimsStateMap {
     /// `class_members(class_id)` lookups in the realize walk
     /// (`cleanup_redundant.rs`) succeed for singleton parents/children.
     pub(crate) fn ensure_singleton_class(&mut self, class_id: u32) {
-        if self.class_members.contains_key(&class_id) {
-            return;
+        if let std::collections::hash_map::Entry::Vacant(entry) = self.class_members.entry(class_id)
+        {
+            let var = ArcVarId::new(class_id);
+            let mut singleton: FxHashSet<ArcVarId> = FxHashSet::default();
+            singleton.insert(var);
+            entry.insert(singleton);
+            self.ssa_alias_classes.entry(var).or_insert(class_id);
         }
-        let var = ArcVarId::new(class_id);
-        let mut singleton: FxHashSet<ArcVarId> = FxHashSet::default();
-        singleton.insert(var);
-        self.class_members.insert(class_id, singleton);
-        self.ssa_alias_classes.entry(var).or_insert(class_id);
     }
 
     /// Resolve a var's class id, falling back to its raw u32 (singleton id).
