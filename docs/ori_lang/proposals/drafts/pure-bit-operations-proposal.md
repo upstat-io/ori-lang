@@ -1,11 +1,39 @@
 # Proposal: Pure Bit Operations
 
-**Status:** Draft
+**Status:** WITHDRAWN — superseded by three successor drafts
 **Author:** Eric (with AI assistance)
 **Created:** 2026-07-21
+**Withdrawn:** 2026-07-21
+**Superseded By:** logical-shift-operator-proposal.md, wide-integer-literals-proposal.md, std-math-bit-operations-proposal.md
 **Affects:** spec (Clause 7, Clause 14, Clause 20, Annex B, Annex E), stdlib, capabilities
 **Depends On:** overflow-behavior-proposal.md (approved — supplies `wrapping_add` / `wrapping_sub` / `wrapping_mul`; this proposal consumes them and does not redefine them)
 **Related:** intrinsics-capability-proposal.md (approved — currently owns the bit operations), stdlib-random-rng-proposal.md (draft — the motivating consumer)
+
+---
+
+## WITHDRAWAL NOTICE
+
+This draft is **withdrawn and must not be approved, implemented, or cited as a design**. Three independent cold reviewers returned NEEDS-REVISION, NEEDS-REVISION, and UNSOUND, with six distinct criticals. All three independently recommended splitting its three items, because only item 2 was breaking and the three carried unrelated risk profiles.
+
+Successors — each item became its own draft:
+
+| Original item | Successor | What changed |
+|---|---|---|
+| 2. Pin `>>` as logical | `logical-shift-operator-proposal.md` | **Reversed.** `>>` stays arithmetic (its actual behavior, pinned by `tests/spec/expressions/operators_bitwise.ori:234-239`); a distinct `>>>` supplies the logical shift. Non-breaking. |
+| 3. `$int.from_bits(0x...)` | `wide-integer-literals-proposal.md` | **Replaced.** A lexical relaxation permitting `hex_lit` / `bin_lit` to carry a full 64-bit pattern, instead of a const constructor that could not receive its own argument. |
+| 1. Bit ops out of `Intrinsics` | `std-math-bit-operations-proposal.md` | **Re-argued.** The case is performance (intrinsic lowering) and effect-honesty, not expressibility. The five are removed from `Intrinsics` outright rather than retained as forwarders. |
+
+Errors of fact in the text below, recorded so they are not propagated:
+
+- "`>>` fill behavior unstated" / "this is a clarification, not a behavior change" (`:39-40`, `:58`, `:119`, `:128`) — FALSE. `>>` is arithmetic in the evaluator (`compiler/ori_eval/src/operators/mod.rs:255-258`), in LLVM codegen (`compiler/ori_llvm/src/codegen/ir_builder/checked_ops/shift.rs:156`, `ashr`), and is pinned by `tests/spec/expressions/operators_bitwise.ori:234-239` (`-16 >> 3 == -2`, comment "Arithmetic right shift preserves sign").
+- "`hash_combine` is a compiler built-in specifically because wrapping arithmetic was unreachable" (`:198`) — FALSE. It is ordinary Ori, written out at `comparable-hashable-traits-proposal.md:228-234` using `<<` and `>>`.
+- "`0xBF58476D1CE4E5B9` is expressible today as `-4658895280553007687`" (`:174`) — the stated value is correct, but the paragraph's own account of the first draft's error is the live hazard; the wrong value it names was `-4688729468158715975`.
+- Errata plan targeted only `intrinsics-capability-proposal.md` (`:213`); the GOVERNING declaration is `intrinsics-v2-byte-simd-proposal.md:113-118`.
+- Alternative 5 dismissed `>>>` in four lines. `>>>` is the settled mainstream answer for a language with one signed integer type (Java, JavaScript, C# 11) and is now the successor design.
+- `go#44664` (`:222`) is mis-cited: a closed PR about shift COUNTS, not fill mode.
+- The motivating example (`:26-50`) has a fifth unlisted failure (`wrapping_mul` called with no import) and its `@next` returns the unmodified generator, which never advances.
+
+Everything below this notice is retained verbatim for the record.
 
 ---
 
