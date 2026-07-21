@@ -131,7 +131,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let gt_or_eq = self.builder.select(gt, pos1, zero, "gt_or_eq");
                 self.builder.select(lt, neg1, gt_or_eq, "cmp")
             }
-            _ => unreachable!("non-primitive passed to gen_primitive_compare"),
+            TypeInfo::Unit
+            | TypeInfo::Never
+            | TypeInfo::Str
+            | TypeInfo::Ordering
+            | TypeInfo::List { .. }
+            | TypeInfo::Map { .. }
+            | TypeInfo::Set { .. }
+            | TypeInfo::Tuple { .. }
+            | TypeInfo::Option { .. }
+            | TypeInfo::Result { .. }
+            | TypeInfo::Range
+            | TypeInfo::Struct { .. }
+            | TypeInfo::Enum { .. }
+            | TypeInfo::Iterator { .. }
+            | TypeInfo::Channel { .. }
+            | TypeInfo::Function { .. }
+            | TypeInfo::Error => {
+                unreachable!("non-primitive passed to gen_primitive_compare")
+            }
         }
     }
 

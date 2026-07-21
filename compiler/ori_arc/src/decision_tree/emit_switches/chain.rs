@@ -132,7 +132,14 @@ pub(in crate::decision_tree) fn emit_range_chain(
             // INVARIANT: infer_test_kind routes only Int/IntRange edges to the
             // range chain. A different variant here is a decision-tree-compilation
             // bug — surface it visibly rather than silently dropping the subtree.
-            _ => unreachable!("non-range TestValue {tv:?} reached the range chain"),
+            TestValue::Tag { .. }
+            | TestValue::Str(_)
+            | TestValue::Bool(_)
+            | TestValue::Float(_)
+            | TestValue::Char(_)
+            | TestValue::ListLen { .. } => {
+                unreachable!("non-range TestValue {tv:?} reached the range chain")
+            }
         };
 
         let match_block = lowerer.builder.new_block();
@@ -170,43 +177,48 @@ pub(in crate::decision_tree) fn emit_list_len_chain(
     ctx: &mut EmitContext,
 ) {
     for (tv, subtree) in edges {
-        if let TestValue::ListLen { len, is_exact } = tv {
-            let len_val = lowerer.builder.emit_let(
-                Idx::INT,
-                ArcValue::Literal(LitValue::Int(i64::from(*len))),
-                None,
-            );
-            // Exact length: `len == N`. Rest pattern: `len >= N`.
-            let op = if *is_exact {
-                PrimOp::Binary(ori_ir::BinaryOp::Eq)
-            } else {
-                PrimOp::Binary(ori_ir::BinaryOp::GtEq)
-            };
-            let matches = lowerer.builder.emit_let(
-                Idx::BOOL,
-                ArcValue::PrimOp {
-                    op,
-                    args: vec![scrutinee, len_val],
-                },
-                Some(ctx.span),
-            );
-
-            let match_block = lowerer.builder.new_block();
-            let next_block = lowerer.builder.new_block();
-            lowerer
-                .builder
-                .terminate_branch(matches, match_block, next_block);
-
-            lowerer.builder.position_at(match_block);
-            emit_tree(lowerer, subtree, ctx);
-
-            lowerer.builder.position_at(next_block);
+        let (len, is_exact) = match tv {
+            TestValue::ListLen { len, is_exact } => (len, is_exact),
+            TestValue::Tag { .. }
+            | TestValue::Int(_)
+            | TestValue::Str(_)
+            | TestValue::Bool(_)
+            | TestValue::Float(_)
+            | TestValue::Char(_)
+            | TestValue::IntRange { .. } => {
+                unreachable!("non-ListLen TestValue {tv:?} reached the list-length chain")
+            }
+        };
+        let len_val = lowerer.builder.emit_let(
+            Idx::INT,
+            ArcValue::Literal(LitValue::Int(i64::from(*len))),
+            None,
+        );
+        // Exact length: `len == N`. Rest pattern: `len >= N`.
+        let op = if *is_exact {
+            PrimOp::Binary(ori_ir::BinaryOp::Eq)
         } else {
-            // INVARIANT: infer_test_kind routes only ListLen edges to the
-            // list-length chain. A different variant here is a decision-tree-
-            // compilation bug — surface it visibly, never silently drop the subtree.
-            unreachable!("non-ListLen TestValue {tv:?} reached the list-length chain");
-        }
+            PrimOp::Binary(ori_ir::BinaryOp::GtEq)
+        };
+        let matches = lowerer.builder.emit_let(
+            Idx::BOOL,
+            ArcValue::PrimOp {
+                op,
+                args: vec![scrutinee, len_val],
+            },
+            Some(ctx.span),
+        );
+
+        let match_block = lowerer.builder.new_block();
+        let next_block = lowerer.builder.new_block();
+        lowerer
+            .builder
+            .terminate_branch(matches, match_block, next_block);
+
+        lowerer.builder.position_at(match_block);
+        emit_tree(lowerer, subtree, ctx);
+
+        lowerer.builder.position_at(next_block);
     }
 
     if let Some(default_tree) = default {

@@ -13,7 +13,13 @@ impl IrBuilder<'_, '_> {
     /// Defensive: if either operand is not an integer, returns `false` (i1 0)
     /// instead of panicking. This prevents process-killing crashes when type
     /// mismatches reach codegen (e.g., comparing str values with `icmp`).
-    fn icmp_impl(&mut self, pred: IntPredicate, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
+    pub(crate) fn icmp(
+        &mut self,
+        pred: IntPredicate,
+        lhs: ValueId,
+        rhs: ValueId,
+        name: &str,
+    ) -> ValueId {
         let l = self.arena.get_value(lhs);
         let r = self.arena.get_value(rhs);
         if !l.is_int_value() || !r.is_int_value() {
@@ -34,52 +40,52 @@ impl IrBuilder<'_, '_> {
 
     /// Integer equal.
     pub fn icmp_eq(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.icmp_impl(IntPredicate::EQ, lhs, rhs, name)
+        self.icmp(IntPredicate::EQ, lhs, rhs, name)
     }
 
     /// Integer not equal.
     pub fn icmp_ne(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.icmp_impl(IntPredicate::NE, lhs, rhs, name)
+        self.icmp(IntPredicate::NE, lhs, rhs, name)
     }
 
     /// Signed less than.
     pub fn icmp_slt(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.icmp_impl(IntPredicate::SLT, lhs, rhs, name)
+        self.icmp(IntPredicate::SLT, lhs, rhs, name)
     }
 
     /// Signed greater than.
     pub fn icmp_sgt(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.icmp_impl(IntPredicate::SGT, lhs, rhs, name)
+        self.icmp(IntPredicate::SGT, lhs, rhs, name)
     }
 
     /// Signed less than or equal.
     pub fn icmp_sle(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.icmp_impl(IntPredicate::SLE, lhs, rhs, name)
+        self.icmp(IntPredicate::SLE, lhs, rhs, name)
     }
 
     /// Signed greater than or equal.
     pub fn icmp_sge(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.icmp_impl(IntPredicate::SGE, lhs, rhs, name)
+        self.icmp(IntPredicate::SGE, lhs, rhs, name)
     }
 
     /// Unsigned less than.
     pub fn icmp_ult(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.icmp_impl(IntPredicate::ULT, lhs, rhs, name)
+        self.icmp(IntPredicate::ULT, lhs, rhs, name)
     }
 
     /// Unsigned greater than.
     pub fn icmp_ugt(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.icmp_impl(IntPredicate::UGT, lhs, rhs, name)
+        self.icmp(IntPredicate::UGT, lhs, rhs, name)
     }
 
     /// Unsigned less than or equal.
     pub fn icmp_ule(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.icmp_impl(IntPredicate::ULE, lhs, rhs, name)
+        self.icmp(IntPredicate::ULE, lhs, rhs, name)
     }
 
     /// Unsigned greater than or equal.
     pub fn icmp_uge(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.icmp_impl(IntPredicate::UGE, lhs, rhs, name)
+        self.icmp(IntPredicate::UGE, lhs, rhs, name)
     }
 
     // Pointer comparisons
@@ -110,7 +116,7 @@ impl IrBuilder<'_, '_> {
     ///
     /// Defensive: if either operand is not a float, returns `false` (i1 0)
     /// instead of panicking. Prevents crashes from type mismatches.
-    fn fcmp_impl(
+    pub(crate) fn fcmp(
         &mut self,
         pred: FloatPredicate,
         lhs: ValueId,
@@ -137,48 +143,48 @@ impl IrBuilder<'_, '_> {
 
     /// Ordered equal.
     pub fn fcmp_oeq(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.fcmp_impl(FloatPredicate::OEQ, lhs, rhs, name)
+        self.fcmp(FloatPredicate::OEQ, lhs, rhs, name)
     }
 
     /// Ordered less than.
     pub fn fcmp_olt(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.fcmp_impl(FloatPredicate::OLT, lhs, rhs, name)
+        self.fcmp(FloatPredicate::OLT, lhs, rhs, name)
     }
 
     /// Ordered greater than.
     pub fn fcmp_ogt(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.fcmp_impl(FloatPredicate::OGT, lhs, rhs, name)
+        self.fcmp(FloatPredicate::OGT, lhs, rhs, name)
     }
 
     /// Ordered less than or equal.
     pub fn fcmp_ole(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.fcmp_impl(FloatPredicate::OLE, lhs, rhs, name)
+        self.fcmp(FloatPredicate::OLE, lhs, rhs, name)
     }
 
     /// Ordered greater than or equal.
     pub fn fcmp_oge(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.fcmp_impl(FloatPredicate::OGE, lhs, rhs, name)
+        self.fcmp(FloatPredicate::OGE, lhs, rhs, name)
     }
 
     /// Ordered not equal (false if either is NaN).
     pub fn fcmp_one(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.fcmp_impl(FloatPredicate::ONE, lhs, rhs, name)
+        self.fcmp(FloatPredicate::ONE, lhs, rhs, name)
     }
 
     /// Unordered not equal (true if either is NaN or values differ).
     /// This is the correct IEEE 754 `!=` — NaN != NaN returns true.
     pub fn fcmp_une(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.fcmp_impl(FloatPredicate::UNE, lhs, rhs, name)
+        self.fcmp(FloatPredicate::UNE, lhs, rhs, name)
     }
 
     /// Ordered (both non-NaN).
     pub fn fcmp_ord(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.fcmp_impl(FloatPredicate::ORD, lhs, rhs, name)
+        self.fcmp(FloatPredicate::ORD, lhs, rhs, name)
     }
 
     /// Unordered (either NaN).
     pub fn fcmp_uno(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
-        self.fcmp_impl(FloatPredicate::UNO, lhs, rhs, name)
+        self.fcmp(FloatPredicate::UNO, lhs, rhs, name)
     }
 
     // Ordering emission helpers

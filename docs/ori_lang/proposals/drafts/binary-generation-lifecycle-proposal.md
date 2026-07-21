@@ -153,11 +153,13 @@ Acquiring before verifying is what closes the window; resolve-then-acquire leave
 | Case | Precondition | Pointer action |
 |---|---|---|
 | **Superseded** generation | A newer generation is already current | None. D2's atomic switch retired it at publication; reclaim only removes storage |
-| **Current** generation (D4 LIVE tier) | Budget unmet after the DEAD and COLD tiers | **Retire the pointer as part of the same critical section that removes the generation** |
+| **Current** generation (any of D4's DEAD / COLD / RECENT tiers) | The generation the identity's pointer still names is being reclaimed | **Retire the pointer as part of the same critical section that removes the generation** |
+
+The distinction is **superseded vs still-pointed-to**, not which tier. A superseded generation was de-pointed at publication, so reclaim only frees storage. Every one of D4's three tiers reclaims a generation an identity's pointer *still names* — a DEAD identity's root is gone but its pointer record persists, a COLD identity's is stale, a RECENT identity's is fresh — so all three perform the identical retire-and-remove transition. The tiers set reclaim *rank*, never reclaim *mechanism*. Removing a still-pointed-to generation's storage without atomically retiring its pointer would leave a dangling pointer into freed storage, which is the bug this row exists to prevent.
 
 An earlier draft gated *all* reclaim on "non-current **and** unleased". That gate can never admit a never-superseded generation — a single-build identity has no successor to make it non-current — so its storage would be permanently unreclaimable regardless of budget pressure, and clause 2's "including current ones" would be a promise the mechanism cannot keep.
 
-The current-generation case therefore performs a **retire-and-remove** transition atomically: clear the identity's current-pointer record and remove the generation inside one critical section, using D2's replace-or-fail primitive against the pointer. Afterwards the identity resolves to **no current generation** — a legitimate, explicitly-representable state meaning "this identity must rebuild before it can run". `ori run` on such an identity rebuilds rather than erroring, which is the full-rebuild cost D4's LIVE tier already names.
+The current-generation case therefore performs a **retire-and-remove** transition atomically: clear the identity's current-pointer record and remove the generation inside one critical section, using D2's replace-or-fail primitive against the pointer. Afterwards the identity resolves to **no current generation** — a legitimate, explicitly-representable state meaning "this identity must rebuild before it can run". `ori run` on such an identity rebuilds rather than erroring, which is the full-rebuild cost D4's RECENT tier already names.
 
 Leases are **per-generation, never cache-wide**. A cache-wide lease would let one live reader anywhere block reclaim of every unrelated generation, which cannot satisfy a bounded contract on a busy machine.
 
@@ -179,21 +181,21 @@ Leases are **per-generation, never cache-wide**. A cache-wide lease would let on
 | 4 | Incremental-compilation state, then intermediate objects / IR / metadata, LRU within class | cache-lifecycle D2 / D4 |
 | 5 | Cold final-binary generations (identity past the recency floor) | this D4 |
 | 6 | Measured profile data | cache-lifecycle D3 / D4 |
-| 7 | **Live** final-binary generations, least-recently-built first | this D4 |
+| 7 | **Recent** final-binary generations, least-recently-built first | this D4 |
 
-Ranks 6 and 7 are where the two proposals' local "evicted last" claims meet: profile data is reclaimed *before* a live current generation because re-measuring a profile costs test execution while losing a live binary costs a full rebuild *and* leaves the identity unrunnable until it happens. Both remain reclaimable; neither is exempt.
+Ranks 6 and 7 are where the two proposals' local "evicted last" claims meet: profile data is reclaimed *before* a recent current generation because re-measuring a profile costs test execution while losing a recently-built binary costs a full rebuild *and* leaves the identity unrunnable until it happens. Both remain reclaimable; neither is exempt.
 
 The three final-binary tiers, **named rather than numbered** — the global table above owns the numbering, and reusing local numbers for different classes is how "rank 3" came to mean two things:
 
 - **DEAD tier** — the identity's project root no longer exists. Reclaimable immediately, ahead of everything (global rank 2). Deleted and moved workspaces are a monotonically-discoverable class that nothing else reclaims, which is why they go first. How large a share they represent is unmeasured and is **not** claimed here; the ranking rests on their being free to reclaim (zero rebuild cost), not on an asserted share.
 - **COLD tier** — the identity has not been built within the recency floor. Reclaimed after every superseded generation and every regenerable entry (global rank 5).
-- **LIVE tier** — the identity was built recently. Reclaimed **last of everything** (global rank 7), and only when the budget cannot be met by exhausting the DEAD and COLD tiers and every class ranked above them. Reclaiming a live current generation costs that identity a full rebuild, which is why it is last; it is not forbidden.
+- **RECENT tier** — the identity was built recently. Reclaimed **last of everything** (global rank 7), and only when the budget cannot be met by exhausting the DEAD and COLD tiers and every class ranked above them. Reclaiming a recently-built current generation costs that identity a full rebuild, which is why it is last; it is not forbidden. ("RECENT", not "LIVE" — "live" is reserved throughout D3 for a live *reader/process* holding a lease, an unrelated sense.)
 
-An earlier draft exempted live identities from reclaim entirely. That is the loophole `cache-lifecycle-proposal.md` D4 clause 2 exists to close: a developer holding N configurations warm would pin N generations permanently, and a budget that cannot reach them is not a bound. The exemption is withdrawn.
+An earlier draft exempted recently-built identities from reclaim entirely. That is the loophole `cache-lifecycle-proposal.md` D4 clause 2 exists to close: a developer holding N configurations warm would pin N generations permanently, and a budget that cannot reach them is not a bound. The exemption is withdrawn.
 
-**Thrash guard.** Reclaiming a live current generation the next build immediately rebuilds is churn, not bounding. The LIVE tier therefore reclaims only when the budget remains unmet after the DEAD and COLD tiers are exhausted, and it reclaims the least-recently-built live identity first.
+**Thrash guard.** Reclaiming a recent current generation the next build immediately rebuilds is churn, not bounding. The RECENT tier therefore reclaims only when the budget remains unmet after the DEAD and COLD tiers are exhausted, and it reclaims the least-recently-built recent identity first.
 
-The guard **defers** reclaim; it never **cancels** it. The LIVE tier proceeds down to the budget even when every remaining generation is live — the alternative would be a de-facto exemption for a degenerate case, which clause 2 forbids.
+The guard **defers** reclaim; it never **cancels** it. The RECENT tier proceeds down to the budget even when every remaining generation is recently-built — the alternative would be a de-facto exemption for a degenerate case, which clause 2 forbids.
 
 **This proposal states no separate bound.** The budget invariant for the whole cache root is `cache-lifecycle-proposal.md` D2's composed bound — `max(budget, OVERSIZED + LEASED)` — which already carries this proposal's contribution as its `LEASED` term. Restating it here as a second `max(budget, X)` formula was how the two documents came to disagree: each named one exception as if it were the only one, when both are independently triggerable within the single budget clause 3 mandates.
 
@@ -201,7 +203,7 @@ What this proposal contributes to that invariant is the `LEASED` term's shape. L
 
 There is no per-class allocation and no final-binary sub-budget — `cache-lifecycle-proposal.md` D4 clause 3 forbids a second budget ("one budget over one cache root, not two"). Final-binary generations compete for the same single budget as every other class; what distinguishes them is only their *rank* in the reclaim order, not a reserved share. The leased-generation floor and D2's oversized-entry floor are **not alternatives** — both can be active at once, which is precisely why the composed bound sums them rather than taking a maximum over them.
 
-One generation may exceed the budget (refusing it would leave a build with no output); an accumulating *set* may not. A budget so small that steady-state work does not fit is reported by `ori cache info` as sustained LIVE-tier reclaim, so the user sees rebuild churn as a budget signal rather than as unexplained slowness.
+One generation may exceed the budget (refusing it would leave a build with no output); an accumulating *set* may not. A budget so small that steady-state work does not fit is reported by `ori cache info` as sustained RECENT-tier reclaim, so the user sees rebuild churn as a budget signal rather than as unexplained slowness.
 
 `ori cache info` reports the current-generation set separately from other reclaimable entries, so its size and rank are visible rather than implicit.
 

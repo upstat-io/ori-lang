@@ -105,6 +105,8 @@ declare_builtins! { emitter, ctx;
     ("Ordering", "reverse") => emitter.emit_ordering_method(ctx.method, ctx.arg_vals),
 }
 
+use inkwell::{FloatPredicate, IntPredicate};
+
 use crate::codegen::ir_builder::IntegerSignedness;
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
@@ -298,62 +300,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         let lhs = arg_vals[0];
         let rhs = arg_vals[1];
+        let (signed, unsigned, float, label) = predicate.llvm_predicates();
 
         match type_info {
             TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
-                Some(self.emit_int_predicate(lhs, rhs, predicate))
+                Some(self.builder.icmp(signed, lhs, rhs, label))
             }
-            TypeInfo::Float => Some(self.emit_float_predicate(lhs, rhs, predicate)),
-            TypeInfo::Bool | TypeInfo::Byte => {
-                Some(self.emit_unsigned_predicate(lhs, rhs, predicate))
+            TypeInfo::Float => Some(self.builder.fcmp(float, lhs, rhs, label)),
+            TypeInfo::Bool | TypeInfo::Byte | TypeInfo::Char => {
+                Some(self.builder.icmp(unsigned, lhs, rhs, label))
             }
-            TypeInfo::Char => Some(self.emit_unsigned_predicate(lhs, rhs, predicate)),
             _ => None,
-        }
-    }
-
-    /// Signed integer comparison predicate.
-    fn emit_int_predicate(
-        &mut self,
-        lhs: ValueId,
-        rhs: ValueId,
-        predicate: CmpPredicate,
-    ) -> ValueId {
-        match predicate {
-            CmpPredicate::Less => self.builder.icmp_slt(lhs, rhs, "is_less"),
-            CmpPredicate::Greater => self.builder.icmp_sgt(lhs, rhs, "is_greater"),
-            CmpPredicate::LessOrEqual => self.builder.icmp_sle(lhs, rhs, "is_le"),
-            CmpPredicate::GreaterOrEqual => self.builder.icmp_sge(lhs, rhs, "is_ge"),
-        }
-    }
-
-    /// Float comparison predicate (ordered).
-    fn emit_float_predicate(
-        &mut self,
-        lhs: ValueId,
-        rhs: ValueId,
-        predicate: CmpPredicate,
-    ) -> ValueId {
-        match predicate {
-            CmpPredicate::Less => self.builder.fcmp_olt(lhs, rhs, "is_less"),
-            CmpPredicate::Greater => self.builder.fcmp_ogt(lhs, rhs, "is_greater"),
-            CmpPredicate::LessOrEqual => self.builder.fcmp_ole(lhs, rhs, "is_le"),
-            CmpPredicate::GreaterOrEqual => self.builder.fcmp_oge(lhs, rhs, "is_ge"),
-        }
-    }
-
-    /// Unsigned comparison predicate (bool, byte, char).
-    fn emit_unsigned_predicate(
-        &mut self,
-        lhs: ValueId,
-        rhs: ValueId,
-        predicate: CmpPredicate,
-    ) -> ValueId {
-        match predicate {
-            CmpPredicate::Less => self.builder.icmp_ult(lhs, rhs, "is_less"),
-            CmpPredicate::Greater => self.builder.icmp_ugt(lhs, rhs, "is_greater"),
-            CmpPredicate::LessOrEqual => self.builder.icmp_ule(lhs, rhs, "is_le"),
-            CmpPredicate::GreaterOrEqual => self.builder.icmp_uge(lhs, rhs, "is_ge"),
         }
     }
 
@@ -431,4 +388,35 @@ pub(in crate::codegen::arc_emitter) enum CmpPredicate {
     Greater,
     LessOrEqual,
     GreaterOrEqual,
+}
+
+impl CmpPredicate {
+    const fn llvm_predicates(self) -> (IntPredicate, IntPredicate, FloatPredicate, &'static str) {
+        match self {
+            Self::Less => (
+                IntPredicate::SLT,
+                IntPredicate::ULT,
+                FloatPredicate::OLT,
+                "is_less",
+            ),
+            Self::Greater => (
+                IntPredicate::SGT,
+                IntPredicate::UGT,
+                FloatPredicate::OGT,
+                "is_greater",
+            ),
+            Self::LessOrEqual => (
+                IntPredicate::SLE,
+                IntPredicate::ULE,
+                FloatPredicate::OLE,
+                "is_le",
+            ),
+            Self::GreaterOrEqual => (
+                IntPredicate::SGE,
+                IntPredicate::UGE,
+                FloatPredicate::OGE,
+                "is_ge",
+            ),
+        }
+    }
 }

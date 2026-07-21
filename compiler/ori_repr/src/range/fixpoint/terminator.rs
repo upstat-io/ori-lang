@@ -78,13 +78,14 @@ pub(super) fn process_terminator(
         } => {
             // JOIN case values per (block, scrutinee) — not overwrite.
             for &(case_val, case_block) in cases {
-                if let Ok(val) = i64::try_from(case_val) {
-                    let exact = Bounded { lo: val, hi: val };
-                    block_refinements
-                        .entry((case_block, *scrutinee))
-                        .and_modify(|existing| *existing = existing.join(exact))
-                        .or_insert(exact);
-                }
+                let Some(val) = i64::try_from(case_val).ok() else {
+                    continue;
+                };
+                let exact = Bounded { lo: val, hi: val };
+                block_refinements
+                    .entry((case_block, *scrutinee))
+                    .and_modify(|existing| *existing = existing.join(exact))
+                    .or_insert(exact);
             }
             // default block gets complement refinement.
             // use JOIN (not meet) when multiple predecessors

@@ -73,10 +73,10 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             self.builder.position_at_end(entry);
         }
         let ptr = self.builder.build_alloca(llvm_ty, name).expect("alloca");
-        let _ = ptr
-            .as_instruction_value()
+        ptr.as_instruction_value()
             .expect("alloca is an instruction")
-            .set_alignment(align);
+            .set_alignment(align)
+            .expect("alloca alignment is valid");
         if let Some(block_id) = saved_block {
             let bb = self.arena.get_block(block_id);
             self.builder.position_at_end(bb);
@@ -123,7 +123,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .build_load(llvm_ty, raw.into_pointer_value(), name)
             .expect("load");
         if let Some(inst) = v.as_instruction_value() {
-            let _ = inst.set_alignment(align);
+            inst.set_alignment(align).expect("load alignment is valid");
         }
         self.arena.push_value(v)
     }
@@ -251,7 +251,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .builder
             .build_store(p.into_pointer_value(), v)
             .expect("store");
-        let _ = inst.set_alignment(align);
+        inst.set_alignment(align).expect("store alignment is valid");
     }
 
     /// Build a GEP (get element pointer) with arbitrary indices.

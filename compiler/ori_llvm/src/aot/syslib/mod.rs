@@ -393,15 +393,14 @@ impl SysLibConfig {
         // macOS SDK locations
         if target.is_macos() {
             // Xcode SDK paths
-            if let Ok(output) = std::process::Command::new("xcrun")
+            let xcode_sdk = std::process::Command::new("xcrun")
                 .args(["--sdk", "macosx", "--show-sdk-path"])
                 .output()
-            {
-                if output.status.success() {
-                    if let Ok(path) = String::from_utf8(output.stdout) {
-                        candidates.push(PathBuf::from(path.trim()));
-                    }
-                }
+                .ok()
+                .filter(|output| output.status.success())
+                .and_then(|output| String::from_utf8(output.stdout).ok());
+            if let Some(path) = xcode_sdk {
+                candidates.push(PathBuf::from(path.trim()));
             }
 
             // Common SDK locations

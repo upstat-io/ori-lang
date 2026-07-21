@@ -1,13 +1,69 @@
 //! Type conversion operations (casts, extensions, truncations) for `IrBuilder`.
 
 use inkwell::builder::Builder as InkwellBuilder;
-use inkwell::types::{FloatType, IntType};
-use inkwell::values::{FloatValue, IntValue};
+use inkwell::types::BasicTypeEnum;
+use inkwell::values::BasicValueEnum;
 
 use super::IrBuilder;
 use crate::codegen::value_id::{LLVMTypeId, ValueId};
 
+#[derive(Clone, Copy)]
+enum ConversionValueKind {
+    Int,
+    Float,
+}
+
+impl ConversionValueKind {
+    fn accepts(self, value: BasicValueEnum<'_>) -> bool {
+        match self {
+            Self::Int => value.is_int_value(),
+            Self::Float => value.is_float_value(),
+        }
+    }
+
+    fn zero(self, builder: &mut IrBuilder<'_, '_>) -> ValueId {
+        match self {
+            Self::Int => builder.const_i64(0),
+            Self::Float => builder.const_f64(0.0),
+        }
+    }
+}
+
 impl<'ctx> IrBuilder<'_, 'ctx> {
+    /// Emit a typed conversion after validating the operand kind.
+    fn typed_conversion(
+        &mut self,
+        val: ValueId,
+        ty: LLVMTypeId,
+        name: &str,
+        op: &str,
+        source: ConversionValueKind,
+        target: ConversionValueKind,
+        build: impl FnOnce(
+            &InkwellBuilder<'ctx>,
+            BasicValueEnum<'ctx>,
+            BasicTypeEnum<'ctx>,
+            &str,
+        ) -> BasicValueEnum<'ctx>,
+    ) -> ValueId {
+        let value = self.arena.get_value(val);
+        let target_ty = self.arena.get_type(ty);
+        if !source.accepts(value) {
+            match source {
+                ConversionValueKind::Int => {
+                    tracing::error!(val_type = ?value.get_type(), "{op} on non-int operand");
+                }
+                ConversionValueKind::Float => {
+                    tracing::error!(val_type = ?value.get_type(), "{op} on non-float operand");
+                }
+            }
+            self.record_codegen_error();
+            return target.zero(self);
+        }
+        let result = build(&self.builder, value, target_ty, name);
+        self.arena.push_value(result)
+    }
+
     /// Emit an int→int conversion after checking the operand is an int.
     /// On a non-int operand records a codegen error and returns `const_i64(0)`.
     fn int_to_int_conv(
@@ -16,17 +72,30 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         ty: LLVMTypeId,
         name: &str,
         op: &str,
-        build: impl FnOnce(&InkwellBuilder<'ctx>, IntValue<'ctx>, IntType<'ctx>, &str) -> IntValue<'ctx>,
+        build: impl FnOnce(
+            &InkwellBuilder<'ctx>,
+            inkwell::values::IntValue<'ctx>,
+            inkwell::types::IntType<'ctx>,
+            &str,
+        ) -> inkwell::values::IntValue<'ctx>,
     ) -> ValueId {
-        let v = self.arena.get_value(val);
-        let target = self.arena.get_type(ty).into_int_type();
-        if !v.is_int_value() {
-            tracing::error!(val_type = ?v.get_type(), "{op} on non-int operand");
-            self.record_codegen_error();
-            return self.const_i64(0);
-        }
-        let result = build(&self.builder, v.into_int_value(), target, name);
-        self.arena.push_value(result.into())
+        self.typed_conversion(
+            val,
+            ty,
+            name,
+            op,
+            ConversionValueKind::Int,
+            ConversionValueKind::Int,
+            |builder, value, target, label| {
+                build(
+                    builder,
+                    value.into_int_value(),
+                    target.into_int_type(),
+                    label,
+                )
+                .into()
+            },
+        )
     }
 
     /// Emit an int→float conversion after checking the operand is an int.
@@ -39,20 +108,28 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         op: &str,
         build: impl FnOnce(
             &InkwellBuilder<'ctx>,
-            IntValue<'ctx>,
-            FloatType<'ctx>,
+            inkwell::values::IntValue<'ctx>,
+            inkwell::types::FloatType<'ctx>,
             &str,
-        ) -> FloatValue<'ctx>,
+        ) -> inkwell::values::FloatValue<'ctx>,
     ) -> ValueId {
-        let v = self.arena.get_value(val);
-        let target = self.arena.get_type(ty).into_float_type();
-        if !v.is_int_value() {
-            tracing::error!(val_type = ?v.get_type(), "{op} on non-int operand");
-            self.record_codegen_error();
-            return self.const_f64(0.0);
-        }
-        let result = build(&self.builder, v.into_int_value(), target, name);
-        self.arena.push_value(result.into())
+        self.typed_conversion(
+            val,
+            ty,
+            name,
+            op,
+            ConversionValueKind::Int,
+            ConversionValueKind::Float,
+            |builder, value, target, label| {
+                build(
+                    builder,
+                    value.into_int_value(),
+                    target.into_float_type(),
+                    label,
+                )
+                .into()
+            },
+        )
     }
 
     /// Emit a float→int conversion after checking the operand is a float.
@@ -65,20 +142,28 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         op: &str,
         build: impl FnOnce(
             &InkwellBuilder<'ctx>,
-            FloatValue<'ctx>,
-            IntType<'ctx>,
+            inkwell::values::FloatValue<'ctx>,
+            inkwell::types::IntType<'ctx>,
             &str,
-        ) -> IntValue<'ctx>,
+        ) -> inkwell::values::IntValue<'ctx>,
     ) -> ValueId {
-        let v = self.arena.get_value(val);
-        let target = self.arena.get_type(ty).into_int_type();
-        if !v.is_float_value() {
-            tracing::error!(val_type = ?v.get_type(), "{op} on non-float operand");
-            self.record_codegen_error();
-            return self.const_i64(0);
-        }
-        let result = build(&self.builder, v.into_float_value(), target, name);
-        self.arena.push_value(result.into())
+        self.typed_conversion(
+            val,
+            ty,
+            name,
+            op,
+            ConversionValueKind::Float,
+            ConversionValueKind::Int,
+            |builder, value, target, label| {
+                build(
+                    builder,
+                    value.into_float_value(),
+                    target.into_int_type(),
+                    label,
+                )
+                .into()
+            },
+        )
     }
 
     /// Emit a float→float conversion after checking the operand is a float.
@@ -91,20 +176,28 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         op: &str,
         build: impl FnOnce(
             &InkwellBuilder<'ctx>,
-            FloatValue<'ctx>,
-            FloatType<'ctx>,
+            inkwell::values::FloatValue<'ctx>,
+            inkwell::types::FloatType<'ctx>,
             &str,
-        ) -> FloatValue<'ctx>,
+        ) -> inkwell::values::FloatValue<'ctx>,
     ) -> ValueId {
-        let v = self.arena.get_value(val);
-        let target = self.arena.get_type(ty).into_float_type();
-        if !v.is_float_value() {
-            tracing::error!(val_type = ?v.get_type(), "{op} on non-float operand");
-            self.record_codegen_error();
-            return self.const_f64(0.0);
-        }
-        let result = build(&self.builder, v.into_float_value(), target, name);
-        self.arena.push_value(result.into())
+        self.typed_conversion(
+            val,
+            ty,
+            name,
+            op,
+            ConversionValueKind::Float,
+            ConversionValueKind::Float,
+            |builder, value, target, label| {
+                build(
+                    builder,
+                    value.into_float_value(),
+                    target.into_float_type(),
+                    label,
+                )
+                .into()
+            },
+        )
     }
 
     /// Build a bitcast.

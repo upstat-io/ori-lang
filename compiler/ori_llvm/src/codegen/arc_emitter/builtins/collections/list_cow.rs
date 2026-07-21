@@ -552,30 +552,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         cow_mode: ValueId,
         list_ty: Idx,
     ) -> Option<ValueId> {
-        // Use narrowed compare thunk for narrowed int lists.
-        let compare_fn_ptr = self
-            .get_or_create_narrowed_compare_thunk(list_ty)
-            .or_else(|| self.get_or_create_compare_thunk(elem_ty))?;
-
-        let func_id = self.builder.runtime_fn("ori_list_sort_cow");
-
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
-        let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
-        let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
-
-        self.emit_list_cow_call(
-            func_id,
+        self.emit_list_sort_with(
+            "ori_list_sort_cow",
             "sort",
-            vec![
-                data_ptr,
-                len,
-                cap,
-                elem_size_val,
-                elem_align_val,
-                compare_fn_ptr,
-                inc_fn,
-                cow_mode,
-            ],
+            receiver,
+            elem_ty,
+            cow_mode,
+            list_ty,
         )
     }
 
@@ -588,12 +571,31 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         cow_mode: ValueId,
         list_ty: Idx,
     ) -> Option<ValueId> {
+        self.emit_list_sort_with(
+            "ori_list_sort_stable_cow",
+            "sort_stable",
+            receiver,
+            elem_ty,
+            cow_mode,
+            list_ty,
+        )
+    }
+
+    fn emit_list_sort_with(
+        &mut self,
+        runtime_fn: &'static str,
+        label: &'static str,
+        receiver: ValueId,
+        elem_ty: Idx,
+        cow_mode: ValueId,
+        list_ty: Idx,
+    ) -> Option<ValueId> {
         // Use narrowed compare thunk for narrowed int lists.
         let compare_fn_ptr = self
             .get_or_create_narrowed_compare_thunk(list_ty)
             .or_else(|| self.get_or_create_compare_thunk(elem_ty))?;
 
-        let func_id = self.builder.runtime_fn("ori_list_sort_stable_cow");
+        let func_id = self.builder.runtime_fn(runtime_fn);
 
         let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
@@ -601,7 +603,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.emit_list_cow_call(
             func_id,
-            "sort_stable",
+            label,
             vec![
                 data_ptr,
                 len,

@@ -202,7 +202,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | TypeInfo::Byte => self.builder.icmp_eq(a_val, b_val, "eq"),
             // Float equality (ordered — NaN != NaN)
             TypeInfo::Float => self.builder.fcmp_oeq(a_val, b_val, "eq"),
-            _ => unreachable!("non-primitive passed to gen_primitive_eq"),
+            TypeInfo::Unit
+            | TypeInfo::Never
+            | TypeInfo::Str
+            | TypeInfo::Ordering
+            | TypeInfo::List { .. }
+            | TypeInfo::Map { .. }
+            | TypeInfo::Set { .. }
+            | TypeInfo::Tuple { .. }
+            | TypeInfo::Option { .. }
+            | TypeInfo::Result { .. }
+            | TypeInfo::Range
+            | TypeInfo::Struct { .. }
+            | TypeInfo::Enum { .. }
+            | TypeInfo::Iterator { .. }
+            | TypeInfo::Channel { .. }
+            | TypeInfo::Function { .. }
+            | TypeInfo::Error => unreachable!("non-primitive passed to gen_primitive_eq"),
         }
     }
 
@@ -382,7 +398,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
             // f64 — bitcast to i64
             TypeInfo::Float => self.builder.bitcast(a_val, i64_ty, "hash.bits"),
-            _ => unreachable!("non-primitive passed to gen_primitive_hash"),
+            TypeInfo::Unit
+            | TypeInfo::Never
+            | TypeInfo::Str
+            | TypeInfo::Ordering
+            | TypeInfo::List { .. }
+            | TypeInfo::Map { .. }
+            | TypeInfo::Set { .. }
+            | TypeInfo::Tuple { .. }
+            | TypeInfo::Option { .. }
+            | TypeInfo::Result { .. }
+            | TypeInfo::Range
+            | TypeInfo::Struct { .. }
+            | TypeInfo::Enum { .. }
+            | TypeInfo::Iterator { .. }
+            | TypeInfo::Channel { .. }
+            | TypeInfo::Function { .. }
+            | TypeInfo::Error => unreachable!("non-primitive passed to gen_primitive_hash"),
         }
     }
 

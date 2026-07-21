@@ -200,6 +200,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         _arc_func: &ArcFunction,
         elem_ty: Idx,
     ) -> Option<ValueId> {
+        self.emit_iter_find_with(
+            iter_ptr,
+            arg_vals,
+            elem_ty,
+            "ori_iter_find",
+            "find.out",
+            "find.result",
+        )
+    }
+
+    pub(super) fn emit_iter_find_with(
+        &mut self,
+        iter_ptr: ValueId,
+        arg_vals: &[ValueId],
+        elem_ty: Idx,
+        runtime_fn: &'static str,
+        out_name: &'static str,
+        result_name: &'static str,
+    ) -> Option<ValueId> {
         if arg_vals.len() < 2 {
             return None;
         }
@@ -212,7 +231,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let elem_inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
-        let func_id = self.builder.runtime_fn("ori_iter_find");
+        let func_id = self.builder.runtime_fn(runtime_fn);
 
         let tag_llvm = self.builder.scx().type_i64().into();
         let payload_llvm = self.type_resolver.resolve(elem_ty);
@@ -224,7 +243,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let out_ptr =
             self.builder
-                .create_entry_alloca(self.current_function, "find.out", opt_struct_ty);
+                .create_entry_alloca(self.current_function, out_name, opt_struct_ty);
 
         self.emit_rt_call(
             func_id,
@@ -239,7 +258,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "",
         );
 
-        Some(self.builder.load(opt_struct_ty, out_ptr, "find.result"))
+        Some(self.builder.load(opt_struct_ty, out_ptr, result_name))
     }
 
     pub(in crate::codegen) fn emit_iter_for_each(
@@ -280,6 +299,31 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         arc_func: &ArcFunction,
         elem_ty: Idx,
     ) -> Option<ValueId> {
+        self.emit_iter_fold_with(
+            iter_ptr,
+            arg_vals,
+            args,
+            arc_func,
+            elem_ty,
+            "ori_iter_fold",
+            "fold.init",
+            "fold.out",
+            "fold.result",
+        )
+    }
+
+    pub(super) fn emit_iter_fold_with(
+        &mut self,
+        iter_ptr: ValueId,
+        arg_vals: &[ValueId],
+        args: &[ArcVarId],
+        arc_func: &ArcFunction,
+        elem_ty: Idx,
+        runtime_fn: &'static str,
+        init_name: &'static str,
+        out_name: &'static str,
+        result_name: &'static str,
+    ) -> Option<ValueId> {
         if arg_vals.len() < 3 {
             return None;
         }
@@ -300,14 +344,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let init_alloca =
             self.builder
-                .create_entry_alloca(self.current_function, "fold.init", acc_llvm_ty);
+                .create_entry_alloca(self.current_function, init_name, acc_llvm_ty);
         self.builder.store(init_val, init_alloca);
 
         let out_alloca =
             self.builder
-                .create_entry_alloca(self.current_function, "fold.out", acc_llvm_ty);
+                .create_entry_alloca(self.current_function, out_name, acc_llvm_ty);
 
-        let func_id = self.builder.runtime_fn("ori_iter_fold");
+        let func_id = self.builder.runtime_fn(runtime_fn);
         self.emit_rt_call(
             func_id,
             &[
@@ -323,6 +367,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "",
         );
 
-        Some(self.builder.load(acc_llvm_ty, out_alloca, "fold.result"))
+        Some(self.builder.load(acc_llvm_ty, out_alloca, result_name))
     }
 }

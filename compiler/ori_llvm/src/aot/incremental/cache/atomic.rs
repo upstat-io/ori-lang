@@ -16,7 +16,7 @@ pub(super) fn publish_bytes_atomically(destination: &Path, bytes: &[u8]) -> Resu
         .write_all(bytes)
         .and_then(|()| temp_file.sync_all())
     {
-        let _ = fs::remove_file(&temp_path);
+        remove_temp_file(&temp_path);
         return Err(CacheError::IoError {
             path: destination.to_path_buf(),
             message: error.to_string(),
@@ -34,7 +34,7 @@ pub(super) fn publish_generation_bytes(
     // published, so writing the exclusively-created final path is safe.
     let (file_name, path, mut file) = create_generation_file(directory, object_stem)?;
     if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
-        let _ = fs::remove_file(&path);
+        remove_temp_file(&path);
         return Err(CacheError::IoError {
             path,
             message: error.to_string(),
@@ -54,7 +54,7 @@ pub(super) fn publish_generation_file(
     })?;
     let (file_name, path, mut file) = create_generation_file(directory, object_stem)?;
     if let Err(error) = std::io::copy(&mut source_file, &mut file).and_then(|_| file.sync_all()) {
-        let _ = fs::remove_file(&path);
+        remove_temp_file(&path);
         return Err(CacheError::IoError {
             path,
             message: error.to_string(),
@@ -112,15 +112,23 @@ fn publish_temp_file(temp: &Path, destination: &Path) -> Result<(), CacheError> 
         // Windows does not replace an existing destination. A writer that won
         // the race has already published a complete destination.
         Err(_) if destination.exists() => {
-            let _ = fs::remove_file(temp);
+            remove_temp_file(temp);
             Ok(())
         }
         Err(error) => {
-            let _ = fs::remove_file(temp);
+            remove_temp_file(temp);
             Err(CacheError::IoError {
                 path: destination.to_path_buf(),
                 message: error.to_string(),
             })
+        }
+    }
+}
+
+fn remove_temp_file(path: &Path) {
+    if let Err(error) = fs::remove_file(path) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            tracing::warn!(path = %path.display(), %error, "failed to remove cache temp file");
         }
     }
 }
