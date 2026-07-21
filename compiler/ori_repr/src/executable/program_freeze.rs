@@ -87,43 +87,14 @@ fn freeze_executable_program(
         &parts.symbols,
         &parts.pool,
     )?;
-    parts.repr_plan.close_yield_runtime_header_requirements(
-        &parts.functions,
-        &parts.pool,
-        |function, destination| {
-            let function_id = function_ids.get(&function)?;
-            let CallableTarget::Runtime(operation) =
-                direct_call_targets.get(&(*function_id, destination))?
-            else {
-                return None;
-            };
-            match operation {
-                super::RuntimeCall::Index
-                | super::RuntimeCall::Length
-                | super::RuntimeCall::Protocol(
-                    ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index,
-                )
-                | super::RuntimeCall::RegisteredMethod(ori_registry::MethodRuntime::Length) => {
-                    Some(crate::plan::YieldLineageRuntimeCall::BorrowedRead)
-                }
-                super::RuntimeCall::ListSet
-                | super::RuntimeCall::RegisteredMethod(ori_registry::MethodRuntime::ListSet) => {
-                    Some(crate::plan::YieldLineageRuntimeCall::StaticUniqueListSet)
-                }
-                _ => None,
-            }
-        },
-    );
-    let (length_projection_calls, length_projection_yields) = analyze_length_projections(
+    close_yield_lineage_facts(
+        &mut parts.repr_plan,
         &parts.functions,
         &parts.pool,
         &user_drop_plan,
         &function_ids,
         &direct_call_targets,
     );
-    parts
-        .repr_plan
-        .set_length_projections(length_projection_calls, length_projection_yields);
     Ok(ExecutableProgram {
         version: parts.version,
         symbols: parts.symbols,
@@ -149,6 +120,56 @@ fn freeze_executable_program(
         repr_plan: parts.repr_plan,
         type_registry: parts.type_registry,
     })
+}
+
+/// Close the repr plan's yield-lineage facts: runtime-header requirements for
+/// escaping yield allocations, then the length-projection call/yield pair.
+fn close_yield_lineage_facts(
+    repr_plan: &mut crate::plan::ReprPlan,
+    functions: &[ArcFunction],
+    pool: &ori_types::Pool,
+    user_drop_plan: &ExecutableDropPlan,
+    function_ids: &FxHashMap<Name, FunctionId>,
+    direct_call_targets: &FxHashMap<(FunctionId, ArcVarId), CallableTarget>,
+) {
+    repr_plan.close_yield_runtime_header_requirements(functions, pool, |function, destination| {
+        let function_id = function_ids.get(&function)?;
+        let CallableTarget::Runtime(operation) =
+            direct_call_targets.get(&(*function_id, destination))?
+        else {
+            return None;
+        };
+        yield_lineage_runtime_call(*operation)
+    });
+    let (length_projection_calls, length_projection_yields) = analyze_length_projections(
+        functions,
+        pool,
+        user_drop_plan,
+        function_ids,
+        direct_call_targets,
+    );
+    repr_plan.set_length_projections(length_projection_calls, length_projection_yields);
+}
+
+/// Classify a resolved runtime call for yield-lineage header accounting.
+fn yield_lineage_runtime_call(
+    operation: super::RuntimeCall,
+) -> Option<crate::plan::YieldLineageRuntimeCall> {
+    match operation {
+        super::RuntimeCall::Index
+        | super::RuntimeCall::Length
+        | super::RuntimeCall::Protocol(
+            ori_ir::builtin_constants::protocol::ProtocolBuiltin::Index,
+        )
+        | super::RuntimeCall::RegisteredMethod(ori_registry::MethodRuntime::Length) => {
+            Some(crate::plan::YieldLineageRuntimeCall::BorrowedRead)
+        }
+        super::RuntimeCall::ListSet
+        | super::RuntimeCall::RegisteredMethod(ori_registry::MethodRuntime::ListSet) => {
+            Some(crate::plan::YieldLineageRuntimeCall::StaticUniqueListSet)
+        }
+        _ => None,
+    }
 }
 
 fn analyze_length_projections(

@@ -861,6 +861,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ori_codegen"
+version = "2026.7.21-alpha.1"
+dependencies = [
+ "ori_ir",
+ "ori_repr",
+ "ori_types",
+]
+
+[[package]]
 name = "ori_compiler"
 version = "2026.7.21-alpha.1"
 dependencies = [
@@ -1086,6 +1095,7 @@ dependencies = [
  "notify",
  "ori_arc",
  "ori_canon",
+ "ori_codegen",
  "ori_diagnostic",
  "ori_eval",
  "ori_fmt",

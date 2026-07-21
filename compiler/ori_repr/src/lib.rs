@@ -39,7 +39,6 @@
 
 #![deny(unsafe_code)]
 
-mod backend;
 mod canonical;
 mod enum_repr;
 pub mod escape;
@@ -58,7 +57,6 @@ mod unconstrained_fns;
 #[cfg(test)]
 mod tests;
 
-pub use backend::{BackendError, CodegenBackend, RealizedProgram};
 pub use canonical::canonical_enum_for_type;
 pub use enum_repr::{min_tag_width, EnumRepr, EnumTag, VariantRepr};
 pub use layout::{compute_enum_layout_info, slot_count, slot_padded_size, EnumLayoutInfo};

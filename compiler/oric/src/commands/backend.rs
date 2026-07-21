@@ -1,5 +1,5 @@
-//! Codegen backend dispatch — the `BackendChoice` enum wrapping the LLVM
-//! backend behind `ori_repr::CodegenBackend`.
+//! Codegen backend dispatch — the `CodegenBackendChoice` enum wrapping the
+//! LLVM backend behind `ori_codegen::CodegenBackend`.
 //!
 //! Single-variant today (`Llvm`); routes both `compile_common.rs` entry
 //! points through `run_codegen_pipeline` unchanged. The fixed backend set uses
@@ -12,7 +12,7 @@ use ori_llvm::inkwell::context::Context;
 use ori_repr::monomorphize::ImportSig;
 
 #[cfg(feature = "llvm")]
-use ori_repr::{BackendError, CodegenBackend, RealizedProgram};
+use ori_codegen::{BackendError, CodegenBackend, CodegenInput};
 
 #[cfg(feature = "llvm")]
 use oric::parser::ParseOutput;
@@ -27,7 +27,7 @@ use super::codegen_pipeline::{run_codegen_pipeline, CodegenPipelineInput, LlvmCo
 use super::ImportedSurfaces;
 
 /// The LLVM codegen backend — wraps the existing `run_codegen_pipeline`
-/// with the driver-side inputs `RealizedProgram` does not carry (the LLVM
+/// with the driver-side inputs `CodegenInput` does not carry (the LLVM
 /// `Context`, the Salsa `CompilerDb`, cross-module import linkage).
 #[cfg(feature = "llvm")]
 pub(super) struct LlvmBackend<'ctx, 'a> {
@@ -44,7 +44,7 @@ impl<'ctx> CodegenBackend<'ctx> for LlvmBackend<'ctx, '_> {
 
     fn compile<'p>(
         &self,
-        program: &RealizedProgram<'ctx, 'p>,
+        program: &CodegenInput<'ctx, 'p>,
     ) -> Result<Self::Artifact, BackendError> {
         run_codegen_pipeline(CodegenPipelineInput {
             context: self.context,
@@ -71,18 +71,18 @@ impl<'ctx> CodegenBackend<'ctx> for LlvmBackend<'ctx, '_> {
 ///
 /// This is single-variant today; enum dispatch keeps the closed set explicit.
 #[cfg(feature = "llvm")]
-pub(super) enum BackendChoice<'ctx, 'a> {
+pub(super) enum CodegenBackendChoice<'ctx, 'a> {
     Llvm(LlvmBackend<'ctx, 'a>),
 }
 
 #[cfg(feature = "llvm")]
-impl<'ctx> BackendChoice<'ctx, '_> {
+impl<'ctx> CodegenBackendChoice<'ctx, '_> {
     pub(super) fn compile<'p>(
         &self,
-        program: &RealizedProgram<'ctx, 'p>,
+        program: &CodegenInput<'ctx, 'p>,
     ) -> Result<LlvmCodegenOutput<'ctx>, BackendError> {
         match self {
-            BackendChoice::Llvm(backend) => backend.compile(program),
+            CodegenBackendChoice::Llvm(backend) => backend.compile(program),
         }
     }
 }

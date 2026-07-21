@@ -6,16 +6,16 @@
 
 use std::path::Path;
 
+use ori_codegen::CodegenInput;
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
 use ori_ir::canon::CanonResult;
 use ori_llvm::inkwell::context::Context;
-use ori_repr::RealizedProgram;
 use ori_types::{FunctionSig, Idx, Pool, TypeCheckResult};
 use oric::ir::Name;
 use oric::parser::ParseOutput;
 use oric::{CompilerDb, Db, SourceFile};
 
-use super::backend::{BackendChoice, LlvmBackend};
+use super::backend::{CodegenBackendChoice, LlvmBackend};
 
 /// Information about an imported function for codegen.
 #[derive(Debug, Clone)]
@@ -140,7 +140,7 @@ pub fn compile_to_llvm_with_imported_monos<'ctx>(
         .and_then(|s| s.to_str())
         .unwrap_or("module");
 
-    let program = RealizedProgram {
+    let program = CodegenInput {
         type_result,
         pool: merged_pool,
         canon,
@@ -152,7 +152,7 @@ pub fn compile_to_llvm_with_imported_monos<'ctx>(
         imported_type_metadata: &[],
         imported_collection_surfaces: &[],
     };
-    let backend = BackendChoice::Llvm(LlvmBackend {
+    let backend = CodegenBackendChoice::Llvm(LlvmBackend {
         context,
         db,
         parse_result,
@@ -256,7 +256,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         })
         .collect();
 
-    let program = RealizedProgram {
+    let program = CodegenInput {
         pool,
         type_result,
         canon,
@@ -268,7 +268,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         imported_type_metadata,
         imported_collection_surfaces,
     };
-    let backend = BackendChoice::Llvm(LlvmBackend {
+    let backend = CodegenBackendChoice::Llvm(LlvmBackend {
         context,
         db,
         parse_result,

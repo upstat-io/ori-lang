@@ -1,16 +1,32 @@
-//! Backend-agnostic codegen dispatch boundary.
+//! Backend-agnostic codegen contract.
 //!
 //! [`CodegenBackend`] is the trait every codegen backend implements;
-//! [`RealizedProgram`] is the backend-agnostic bundle of realized-IR inputs
-//! every backend consumes. `ori_repr` depends on neither `ori_llvm` nor
-//! `oric`, so this boundary cannot name a concrete backend type.
+//! [`CodegenInput`] is the backend-agnostic bundle of inputs every backend
+//! consumes. This crate owns only the input contract, the error type, and the
+//! trait. It owns no semantic analysis, layout computation, target policy,
+//! linker, or concrete backend, and it names no concrete backend type.
+//!
+//! # Contract scope
+//!
+//! [`CodegenInput`] currently carries the frontend inputs a backend receives
+//! today. The backend-neutral executable artifact, the explicit target
+//! description, and the matching compiled layout plan are not yet expressible:
+//! the executable artifact is still constructed inside the backend call, and
+//! neither a target-description type nor a compiled-layout-plan type exists in
+//! the workspace. Widening this struct is gated on those types landing; until
+//! then a field named for one of them would misname a transitional carrier.
+//!
+//! Artifact finalization (`finalize`, a typed artifact request, and a
+//! backend-neutral emitted artifact) is likewise absent: today a backend's
+//! `compile` returns its own artifact and the driver consumes it directly.
+
+#![deny(unsafe_code)]
 
 use ori_ir::canon::CanonResult;
+use ori_repr::NarrowingPolicy;
 use ori_types::{ExportedTypeMetadata, Pool, TypeCheckResult};
 
-use crate::plan::NarrowingPolicy;
-
-/// A codegen backend's failure to compile a [`RealizedProgram`].
+/// A codegen backend's failure to compile a [`CodegenInput`].
 ///
 /// Backend-agnostic by construction (a `String` message, not a concrete
 /// backend's error type) so an outside crate can implement
@@ -33,8 +49,7 @@ impl From<String> for BackendError {
     }
 }
 
-/// The backend-agnostic subset of a realized program a [`CodegenBackend`]
-/// compiles.
+/// The backend-agnostic input a [`CodegenBackend`] compiles.
 ///
 /// Contains only inputs whose types belong to the backend-independent compiler
 /// layers. Backend contexts, databases, and linkage state remain owned by each
@@ -44,10 +59,10 @@ impl From<String> for BackendError {
 /// outlive an LLVM `Module<'ctx>` built from it); `'p` is the call-scoped
 /// lifetime of every other borrow, independent of `'ctx`.
 #[derive(Clone, Copy)]
-pub struct RealizedProgram<'ctx, 'p> {
+pub struct CodegenInput<'ctx, 'p> {
     /// Monomorphized type pool that outlives the compiled artifact.
     pub pool: &'ctx Pool,
-    /// Type-checking facts for the realized module.
+    /// Type-checking facts for the module under compilation.
     pub type_result: &'p TypeCheckResult,
     /// Canonical expression arena and function bodies.
     pub canon: &'p CanonResult,
@@ -67,20 +82,17 @@ pub struct RealizedProgram<'ctx, 'p> {
     pub imported_collection_surfaces: &'p [u64],
 }
 
-/// A codegen backend: compiles a [`RealizedProgram`] into a backend-owned
+/// A codegen backend: compiles a [`CodegenInput`] into a backend-owned
 /// artifact.
 ///
-/// `'ctx` is the artifact's own lifetime (see [`RealizedProgram`]);
-/// `Artifact` is the backend's own output type (an LLVM `Module<'ctx>`, native
-/// object file, or bytecode chunk). Backend selection uses a closed enum because
-/// Ori does not load out-of-tree code generators.
+/// `'ctx` is the artifact's own lifetime (see [`CodegenInput`]); `Artifact` is
+/// the backend's own output type (an LLVM `Module<'ctx>`, native object file,
+/// or bytecode chunk). Backend selection uses a closed enum because Ori does
+/// not load out-of-tree code generators.
 pub trait CodegenBackend<'ctx> {
     /// This backend's compiled output type.
     type Artifact;
 
-    /// Compile `program` into this backend's artifact.
-    fn compile<'p>(
-        &self,
-        program: &RealizedProgram<'ctx, 'p>,
-    ) -> Result<Self::Artifact, BackendError>;
+    /// Compile `input` into this backend's artifact.
+    fn compile<'p>(&self, input: &CodegenInput<'ctx, 'p>) -> Result<Self::Artifact, BackendError>;
 }
