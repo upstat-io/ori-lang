@@ -49,6 +49,43 @@ const fn native_runtime_symbol(runtime: RuntimeOperator) -> Option<&'static str>
     }
 }
 
+#[derive(Clone, Copy)]
+pub(in crate::codegen::arc_emitter) enum RuntimeBinaryOperation {
+    Concat,
+    Equal,
+    NotEqual,
+    Less,
+    Greater,
+    LessOrEqual,
+    GreaterOrEqual,
+}
+
+impl RuntimeBinaryOperation {
+    pub(super) fn from_parts(runtime: RuntimeOperator, operation: BinaryOp) -> Self {
+        match (runtime, operation) {
+            (RuntimeOperator::StringConcat, BinaryOp::Add) => Self::Concat,
+            (RuntimeOperator::StringEqual, BinaryOp::Eq) => Self::Equal,
+            (RuntimeOperator::StringNotEqual, BinaryOp::NotEq) => Self::NotEqual,
+            (RuntimeOperator::StringCompare, BinaryOp::Lt) => Self::Less,
+            (RuntimeOperator::StringCompare, BinaryOp::Gt) => Self::Greater,
+            (RuntimeOperator::StringCompare, BinaryOp::LtEq) => Self::LessOrEqual,
+            (RuntimeOperator::StringCompare, BinaryOp::GtEq) => Self::GreaterOrEqual,
+            _ => unreachable!("registry supplied an invalid runtime binary-operation pair"),
+        }
+    }
+
+    const fn runtime(self) -> RuntimeOperator {
+        match self {
+            Self::Concat => RuntimeOperator::StringConcat,
+            Self::Equal => RuntimeOperator::StringEqual,
+            Self::NotEqual => RuntimeOperator::StringNotEqual,
+            Self::Less | Self::Greater | Self::LessOrEqual | Self::GreaterOrEqual => {
+                RuntimeOperator::StringCompare
+            }
+        }
+    }
+}
+
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     fn emit_checked_int_sub(
         &mut self,
@@ -331,164 +368,38 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `Ordering` (i8) and is post-processed into a bool predicate.
     pub(in crate::codegen::arc_emitter) fn emit_runtime_binary_op(
         &mut self,
-        runtime: RuntimeOperator,
-        op: BinaryOp,
+        operation: RuntimeBinaryOperation,
         lhs: ValueId,
         rhs: ValueId,
     ) -> ValueId {
-        match (runtime, op) {
-            (RuntimeOperator::StringConcat, BinaryOp::Add) => self.emit_str_runtime_call(
-                native_runtime_symbol(runtime)
+        match operation {
+            RuntimeBinaryOperation::Concat => self.emit_str_runtime_call(
+                native_runtime_symbol(operation.runtime())
                     .expect("string runtime identity has a native ABI symbol"),
                 lhs,
                 rhs,
                 StringRuntimeReturnAbi::StringSret,
             ),
-            (RuntimeOperator::StringEqual, BinaryOp::Eq)
-            | (RuntimeOperator::StringNotEqual, BinaryOp::NotEq) => self.emit_str_runtime_call(
-                native_runtime_symbol(runtime)
-                    .expect("string runtime identity has a native ABI symbol"),
-                lhs,
-                rhs,
-                StringRuntimeReturnAbi::BoolDirect,
-            ),
-            (RuntimeOperator::StringCompare, BinaryOp::Lt) => self
+            RuntimeBinaryOperation::Equal | RuntimeBinaryOperation::NotEqual => self
+                .emit_str_runtime_call(
+                    native_runtime_symbol(operation.runtime())
+                        .expect("string runtime identity has a native ABI symbol"),
+                    lhs,
+                    rhs,
+                    StringRuntimeReturnAbi::BoolDirect,
+                ),
+            RuntimeBinaryOperation::Less => self
                 .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::Less)
                 .expect("str Lt comparison should always succeed"),
-            (RuntimeOperator::StringCompare, BinaryOp::Gt) => self
+            RuntimeBinaryOperation::Greater => self
                 .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::Greater)
                 .expect("str Gt comparison should always succeed"),
-            (RuntimeOperator::StringCompare, BinaryOp::LtEq) => self
+            RuntimeBinaryOperation::LessOrEqual => self
                 .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::LessOrEqual)
                 .expect("str LtEq comparison should always succeed"),
-            (RuntimeOperator::StringCompare, BinaryOp::GtEq) => self
+            RuntimeBinaryOperation::GreaterOrEqual => self
                 .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::GreaterOrEqual)
                 .expect("str GtEq comparison should always succeed"),
-            (RuntimeOperator::ListConcat, BinaryOp::Add) => {
-                unreachable!("list concat is emitted by the ownership-aware operator projection")
-            }
-            (
-                RuntimeOperator::StringConcat,
-                BinaryOp::Sub
-                | BinaryOp::Mul
-                | BinaryOp::Div
-                | BinaryOp::Mod
-                | BinaryOp::FloorDiv
-                | BinaryOp::MatMul
-                | BinaryOp::Eq
-                | BinaryOp::NotEq
-                | BinaryOp::Lt
-                | BinaryOp::Gt
-                | BinaryOp::LtEq
-                | BinaryOp::GtEq
-                | BinaryOp::And
-                | BinaryOp::Or
-                | BinaryOp::BitAnd
-                | BinaryOp::BitOr
-                | BinaryOp::BitXor
-                | BinaryOp::Shl
-                | BinaryOp::Shr
-                | BinaryOp::Range
-                | BinaryOp::RangeInclusive
-                | BinaryOp::Coalesce,
-            )
-            | (
-                RuntimeOperator::StringEqual,
-                BinaryOp::Add
-                | BinaryOp::Sub
-                | BinaryOp::Mul
-                | BinaryOp::Div
-                | BinaryOp::Mod
-                | BinaryOp::FloorDiv
-                | BinaryOp::MatMul
-                | BinaryOp::NotEq
-                | BinaryOp::Lt
-                | BinaryOp::Gt
-                | BinaryOp::LtEq
-                | BinaryOp::GtEq
-                | BinaryOp::And
-                | BinaryOp::Or
-                | BinaryOp::BitAnd
-                | BinaryOp::BitOr
-                | BinaryOp::BitXor
-                | BinaryOp::Shl
-                | BinaryOp::Shr
-                | BinaryOp::Range
-                | BinaryOp::RangeInclusive
-                | BinaryOp::Coalesce,
-            )
-            | (
-                RuntimeOperator::StringNotEqual,
-                BinaryOp::Add
-                | BinaryOp::Sub
-                | BinaryOp::Mul
-                | BinaryOp::Div
-                | BinaryOp::Mod
-                | BinaryOp::FloorDiv
-                | BinaryOp::MatMul
-                | BinaryOp::Eq
-                | BinaryOp::Lt
-                | BinaryOp::Gt
-                | BinaryOp::LtEq
-                | BinaryOp::GtEq
-                | BinaryOp::And
-                | BinaryOp::Or
-                | BinaryOp::BitAnd
-                | BinaryOp::BitOr
-                | BinaryOp::BitXor
-                | BinaryOp::Shl
-                | BinaryOp::Shr
-                | BinaryOp::Range
-                | BinaryOp::RangeInclusive
-                | BinaryOp::Coalesce,
-            )
-            | (
-                RuntimeOperator::StringCompare,
-                BinaryOp::Add
-                | BinaryOp::Sub
-                | BinaryOp::Mul
-                | BinaryOp::Div
-                | BinaryOp::Mod
-                | BinaryOp::FloorDiv
-                | BinaryOp::MatMul
-                | BinaryOp::Eq
-                | BinaryOp::NotEq
-                | BinaryOp::And
-                | BinaryOp::Or
-                | BinaryOp::BitAnd
-                | BinaryOp::BitOr
-                | BinaryOp::BitXor
-                | BinaryOp::Shl
-                | BinaryOp::Shr
-                | BinaryOp::Range
-                | BinaryOp::RangeInclusive
-                | BinaryOp::Coalesce,
-            )
-            | (
-                RuntimeOperator::ListConcat,
-                BinaryOp::Sub
-                | BinaryOp::Mul
-                | BinaryOp::Div
-                | BinaryOp::Mod
-                | BinaryOp::FloorDiv
-                | BinaryOp::MatMul
-                | BinaryOp::Eq
-                | BinaryOp::NotEq
-                | BinaryOp::Lt
-                | BinaryOp::Gt
-                | BinaryOp::LtEq
-                | BinaryOp::GtEq
-                | BinaryOp::And
-                | BinaryOp::Or
-                | BinaryOp::BitAnd
-                | BinaryOp::BitOr
-                | BinaryOp::BitXor
-                | BinaryOp::Shl
-                | BinaryOp::Shr
-                | BinaryOp::Range
-                | BinaryOp::RangeInclusive
-                | BinaryOp::Coalesce,
-            ) => unreachable!("runtime operation {runtime:?} does not implement {op:?}"),
         }
     }
 }

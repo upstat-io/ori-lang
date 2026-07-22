@@ -62,7 +62,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_list_concat_cow(lhs, rhs, element, cm, lhs_ty)
                     .expect("list concat runtime returns one list value")
             }
-            OpStrategy::RuntimeCall(runtime) => self.emit_runtime_binary_op(runtime, op, lhs, rhs),
+            OpStrategy::RuntimeCall(runtime) => self.emit_runtime_binary_op(
+                strategy::RuntimeBinaryOperation::from_parts(runtime, op),
+                lhs,
+                rhs,
+            ),
             OpStrategy::Unsupported => {
                 unreachable!("validated primitive has Unsupported strategy")
             }
@@ -112,8 +116,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 unreachable!("unary op {op:?} has a structural binary strategy")
             }
             OpStrategy::Unsupported => {
-                // Try is desugared before reaching ARC IR. If it slips
-                // through, warn and return a zero constant.
                 unreachable!("validated primitive has Unsupported strategy")
             }
             OpStrategy::RuntimeCall(_) => {
@@ -132,8 +134,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let ordering = self.emit_element_compare(lhs, rhs, lhs_ty)?;
 
-        // Ordering is i8: 0=Less, 1=Equal, 2=Greater
-        // Map comparison operators to equality/inequality checks on the ordering value.
+        // Ordering uses 0=Less and 2=Greater.
         let less = self.builder.const_i8(0);
         let greater = self.builder.const_i8(2);
         let result = match op {
