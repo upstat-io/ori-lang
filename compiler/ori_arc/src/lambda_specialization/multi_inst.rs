@@ -17,9 +17,10 @@ use super::type_resolve::{
     is_concrete_function, is_polymorphic_lambda, resolve_lambda_return_types, TypeResolution,
 };
 
-/// Phase 1: Detect multi-instantiation and handle it by cloning lambdas.
-/// Must run before the global map build because multi-inst lambdas get
-/// specialized clones that are resolved independently.
+/// Clone lambdas used at multiple concrete instantiations.
+///
+/// The clones must exist before the global bound-variable map is built because
+/// each clone has an independent concrete type resolution.
 pub(super) fn detect_and_clone_multi_inst(
     parent: &mut crate::ArcFunction,
     lambdas: &mut Vec<crate::ArcFunction>,
@@ -51,18 +52,15 @@ pub(super) fn detect_and_clone_multi_inst(
             );
             multi_inst_lambdas.insert(i);
         }
-        // Lambdas with Scheme return types are now handled: find_all_instantiation_types
-        // accepts has_concrete_params, clone_multi_inst_lambda resolves return types
-        // from call sites, and rewrite_parent_for_multi_inst matches by params only.
     }
 
     multi_inst_lambdas
 }
 
-/// Remove original multi-instantiated lambdas from the vec. These have been
-/// replaced by specialized clones — if left in, `emit_arc_function` compiles
-/// them with unresolved type variables. Removes in reverse index order so
-/// earlier indices remain valid after each removal.
+/// Remove polymorphic originals after their specialized clones are created.
+///
+/// Retaining an original lets `emit_arc_function` observe unresolved type
+/// variables. Reverse-index removal keeps every remaining index valid.
 pub(super) fn remove_multi_inst_originals(
     lambdas: &mut Vec<crate::ArcFunction>,
     multi_inst_indices: FxHashSet<usize>,

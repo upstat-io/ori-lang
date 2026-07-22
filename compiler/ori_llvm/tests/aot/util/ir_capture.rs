@@ -329,6 +329,16 @@ fn is_ssa_var_used_in(var_name: &str, line: &str) -> bool {
 /// Returns `Ok(ir_text)` on success, `Err(stderr)` on compilation failure.
 #[must_use = "success or failure must be handled"]
 pub fn compile_to_llvm_ir(source: &str) -> Result<String, String> {
+    compile_to_llvm_ir_with_target(source, None)
+}
+
+/// Compile an Ori program to LLVM IR for an explicit non-host target.
+#[must_use = "success or failure must be handled"]
+pub fn compile_to_llvm_ir_for_target(source: &str, target: &str) -> Result<String, String> {
+    compile_to_llvm_ir_with_target(source, Some(target))
+}
+
+fn compile_to_llvm_ir_with_target(source: &str, target: Option<&str>) -> Result<String, String> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
     let id = COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -338,14 +348,18 @@ pub fn compile_to_llvm_ir(source: &str) -> Result<String, String> {
 
     fs::write(&source_path, source).expect("Failed to write source");
 
-    let compile_result = Command::new(ori_binary())
-        .args([
-            "build",
-            source_path.to_str().unwrap(),
-            "--emit=llvm-ir",
-            "-o",
-            ir_path.to_str().unwrap(),
-        ])
+    let mut command = Command::new(ori_binary());
+    command.args([
+        "build",
+        source_path.to_str().unwrap(),
+        "--emit=llvm-ir",
+        "-o",
+        ir_path.to_str().unwrap(),
+    ]);
+    if let Some(target) = target {
+        command.arg(format!("--target={target}"));
+    }
+    let compile_result = command
         .env("ORI_STDLIB", stdlib_path())
         .output()
         .expect("Failed to execute ori build");

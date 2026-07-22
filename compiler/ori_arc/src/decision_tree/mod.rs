@@ -11,9 +11,9 @@
 //!
 //! # Architecture
 //!
-//! Type definitions live in `ori_ir::canon::tree` (shared across crates).
-//! The compilation algorithm lives in `ori_canon::patterns::decision_tree`.
-//! The ARC IR emission logic lives here in `ori_arc`.
+//! `ori_ir::canon::tree` defines the shared tree types,
+//! `ori_canon::patterns::decision_tree` compiles the pattern matrix, and this
+//! module emits the resulting ARC IR.
 //!
 //! # References
 //!

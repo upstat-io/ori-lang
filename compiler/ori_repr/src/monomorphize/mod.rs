@@ -21,6 +21,7 @@ use ori_types::{
 
 use crate::executable::{
     validate_external_callables, ExternalCallable, ExternalCallableMetadata, RealizationError,
+    ValidatedExternalCallables,
 };
 
 pub use collect::collect_mono_functions;
@@ -69,10 +70,9 @@ impl ImportSig {
 pub fn realize_imported_callables(
     imports: &[ImportSig],
     pool: &Pool,
-) -> Result<Vec<ExternalCallable>, RealizationError> {
+) -> Result<ValidatedExternalCallables, RealizationError> {
     let callables: Vec<_> = imports.iter().map(ImportSig::external_callable).collect();
-    validate_external_callables(&callables, pool)?;
-    Ok(callables)
+    validate_external_callables(callables, pool)
 }
 
 // MonoFunction

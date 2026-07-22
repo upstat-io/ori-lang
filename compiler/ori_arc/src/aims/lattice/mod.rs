@@ -215,7 +215,7 @@ impl AimsState {
     /// Like [`canonicalize`](Self::canonicalize) but returns feedback about
     /// the convergence process.
     #[must_use]
-    pub fn canonicalize_with_feedback(&mut self) -> CanonicalizeFeedback {
+    pub(crate) fn canonicalize_with_feedback(&mut self) -> CanonicalizeFeedback {
         const MAX_ROUNDS: u8 = 3;
         let mut rounds: u8 = 0;
         let mut total_cross_fires: u16 = 0;

@@ -233,9 +233,11 @@ fn infer_expr_collection_or_struct(
             step,
             inclusive,
         } => infer_range(engine, arena, *start, *end, *step, *inclusive, span),
-        ExprKind::Struct { name, fields } => infer_struct(engine, arena, *name, *fields, span),
-        ExprKind::StructWithSpread { name, fields } => {
-            infer_struct_spread(engine, arena, *name, *fields, span)
+        ExprKind::Struct { type_path, fields } => {
+            infer_struct(engine, arena, *type_path, *fields, span)
+        }
+        ExprKind::StructWithSpread { type_path, fields } => {
+            infer_struct_spread(engine, arena, *type_path, *fields, span)
         }
         ExprKind::Ok(inner) => infer_ok(engine, arena, *inner, span),
         ExprKind::Err(inner) => infer_err(engine, arena, *inner, span),

@@ -327,6 +327,13 @@ fn register_imported_metadata(
     module_results: &[Option<TypeCheckResult>],
     checker: &mut ori_types::ModuleChecker<'_>,
 ) {
+    debug_assert!(
+        resolved
+            .imported_types
+            .iter()
+            .all(|imported| imported.module_index < resolved.modules.len()),
+        "resolved type imports must reference an imported module"
+    );
     let prelude_result = resolved
         .prelude
         .as_ref()
@@ -346,6 +353,80 @@ fn register_imported_metadata(
 
 /// Register every explicitly-imported function (or whole-module alias)
 /// against its resolved source module and cached signature.
+/// Collect every nominal type name reachable from a parsed type annotation.
+fn collect_named_type_names(
+    arena: &ori_ir::ExprArena,
+    ty: &ori_ir::ParsedType,
+    out: &mut Vec<ori_ir::Name>,
+) {
+    let walk_id = |id: ori_ir::ParsedTypeId, out: &mut Vec<ori_ir::Name>| {
+        collect_named_type_names(arena, arena.get_parsed_type(id), out);
+    };
+    let walk_range = |range: ori_ir::ParsedTypeRange, out: &mut Vec<ori_ir::Name>| {
+        for &id in arena.get_parsed_type_list(range) {
+            collect_named_type_names(arena, arena.get_parsed_type(id), out);
+        }
+    };
+    match ty {
+        ori_ir::ParsedType::Named { name, type_args } => {
+            if !out.contains(name) {
+                out.push(*name);
+            }
+            walk_range(*type_args, out);
+        }
+        ori_ir::ParsedType::List(elem) | ori_ir::ParsedType::FixedList { elem, .. } => {
+            walk_id(*elem, out);
+        }
+        ori_ir::ParsedType::Tuple(elems) | ori_ir::ParsedType::TraitBounds(elems) => {
+            walk_range(*elems, out);
+        }
+        ori_ir::ParsedType::Function { params, ret } => {
+            walk_range(*params, out);
+            walk_id(*ret, out);
+        }
+        ori_ir::ParsedType::Map { key, value } => {
+            walk_id(*key, out);
+            walk_id(*value, out);
+        }
+        ori_ir::ParsedType::AssociatedType { base, .. } => walk_id(*base, out),
+        ori_ir::ParsedType::Primitive(_)
+        | ori_ir::ParsedType::Infer
+        | ori_ir::ParsedType::SelfType
+        | ori_ir::ParsedType::ConstExpr(_) => {}
+    }
+}
+
+/// Register the provider's nominal types that an imported function's signature
+/// references.
+///
+/// A type reaching the consumer only through an imported signature is absent
+/// from `resolved.imported_types`, so field access on such a value resolves to
+/// `Tag::Error`. Error poison suppresses the diagnostic, so the program
+/// type-checks and the evaluator runs while the compiled backend cannot realize
+/// the body. Registration goes through the same `register_imported_type`
+/// primitive the explicit-import path uses.
+fn register_signature_types(
+    func: &ori_ir::Function,
+    imported_module: &ori_ir::Module,
+    foreign_arena: &ori_ir::ExprArena,
+    checker: &mut ori_types::ModuleChecker<'_>,
+) {
+    let mut names: Vec<ori_ir::Name> = Vec::new();
+    for param in foreign_arena.get_params(func.params) {
+        if let Some(ty) = &param.ty {
+            collect_named_type_names(foreign_arena, ty, &mut names);
+        }
+    }
+    if let Some(ty) = &func.return_ty {
+        collect_named_type_names(foreign_arena, ty, &mut names);
+    }
+    for name in names {
+        if let Some(decl) = imported_module.types.iter().find(|decl| decl.name == name) {
+            checker.register_imported_type(decl, foreign_arena);
+        }
+    }
+}
+
 fn register_imported_functions(
     resolved: &imports::ResolvedImports,
     module_results: &[Option<TypeCheckResult>],
@@ -357,6 +438,19 @@ fn register_imported_functions(
         let imported_parsed = &module.parse_output;
 
         if func_ref.is_module_alias {
+            // A qualified call returns the provider's type under its own name,
+            // so the alias's public signatures need the same transitive
+            // registration the selected-import path performs.
+            for func in &imported_parsed.module.functions {
+                if func.visibility == ori_ir::Visibility::Public {
+                    register_signature_types(
+                        func,
+                        &imported_parsed.module,
+                        &imported_parsed.arena,
+                        checker,
+                    );
+                }
+            }
             checker.register_module_alias(
                 func_ref.local_name,
                 &imported_parsed.module,
@@ -384,6 +478,13 @@ fn register_imported_functions(
                     .find(|s| s.name == func_ref.original_name)
             });
 
+        register_signature_types(
+            func,
+            &imported_parsed.module,
+            &imported_parsed.arena,
+            checker,
+        );
+
         if func_ref.local_name == func_ref.original_name {
             checker.register_imported_function(func, &imported_parsed.arena, imported_sig);
         } else {
@@ -393,6 +494,57 @@ fn register_imported_functions(
                 func_ref.local_name,
                 imported_sig,
             );
+        }
+    }
+}
+
+/// Register each selected type import into the consumer's `TypeRegistry`.
+///
+/// A type import inserts a `TypeEntry` under the local (possibly aliased) name so
+/// `get_by_name` resolves it for struct-literal / field / variant typing — the
+/// type-namespace analogue of `register_imported_functions`. Visibility is
+/// enforced like the constant path: a non-`pub` type is a private-access error
+/// unless a parent-test import grants access. `resolved.imported_types` only
+/// carries names present in the provider's `types`, so the lookup always finds
+/// its declaration.
+fn register_imported_types(
+    resolved: &imports::ResolvedImports,
+    current_file: &Path,
+    checker: &mut ori_types::ModuleChecker<'_>,
+    interner: &StringInterner,
+) {
+    for type_ref in &resolved.imported_types {
+        let module = &resolved.modules[type_ref.module_index];
+        let imported_module = &module.parse_output.module;
+
+        let Some(type_decl) = imported_module
+            .types
+            .iter()
+            .find(|decl| decl.name == type_ref.original_name)
+        else {
+            continue;
+        };
+
+        let parent_test_access = imports::is_test_module(current_file)
+            && imports::is_parent_module_import(current_file, &module.module_path);
+        if !type_decl.visibility.is_public() && !parent_test_access {
+            let name = interner.lookup(type_ref.original_name);
+            checker.push_error(ori_types::TypeCheckError::import_error(
+                format!(
+                    "type '{name}' is private in module '{}'; add `pub` to the type definition before importing it",
+                    module.module_path.display()
+                ),
+                type_ref.span,
+                ori_types::ImportErrorKind::PrivateAccess,
+            ));
+            continue;
+        }
+
+        let foreign_arena = &module.parse_output.arena;
+        if type_ref.local_name == type_ref.original_name {
+            checker.register_imported_type(type_decl, foreign_arena);
+        } else {
+            checker.register_imported_type_as(type_decl, foreign_arena, type_ref.local_name);
         }
     }
 }
@@ -425,6 +577,8 @@ fn register_resolved_imports(
     );
 
     register_imported_functions(resolved, &module_results, checker, interner);
+
+    register_imported_types(resolved, current_file, checker, interner);
 }
 
 /// Register selected constant types in the consumer pool.

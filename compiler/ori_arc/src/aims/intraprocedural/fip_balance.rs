@@ -139,11 +139,9 @@ pub(crate) fn compute_requires_unique_params(
         .collect()
 }
 
-/// Record per-branch allocation credit balance at Switch terminators.
+/// Records allocation credit balance for each `Switch` successor.
 ///
-/// For each Switch successor, computes the per-block allocation vs death count
-/// and records an `AllocCreditBalance` event. FIP certification requires each
-/// branch to independently maintain non-negative credit balance (`FIPTree` DMATCH! rule).
+/// FIP certification requires every branch to maintain non-negative credit.
 fn record_per_branch_balance(state_map: &mut AimsStateMap, func: &ArcFunction) {
     for (block_idx, block) in func.blocks.iter().enumerate() {
         let ArcTerminator::Switch { cases, default, .. } = &block.terminator else {

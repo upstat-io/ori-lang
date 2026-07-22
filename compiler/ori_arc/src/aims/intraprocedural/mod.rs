@@ -142,17 +142,14 @@ fn initialize_analysis(
     // INVARIANT: `Invoke` defines its destination only at the normal successor entry.
     let invoke_defs = crate::graph::collect_invoke_defs(func);
 
-    // SSA uniqueness lets pre-strip invoke-result demand route from its normal
-    // successor back to the defining invoke's exit-state side table.
+    // INVARIANT: SSA uniqueness gives each invoke result one defining exit-state entry.
     let invoke_dst_to_owner = build_invoke_dst_to_owner(func);
 
-    // PL-5 requires apply-result identities before project-alias sources so
-    // the latter's seed sees the complete map.
+    // PL-5: Project-alias seeding requires the complete apply-result identity map.
     let apply_result_aliases = apply_aliases::populate_apply_result_aliases(func, sigs);
     state_map.set_apply_result_aliases(apply_result_aliases);
 
-    // Build SSA alias classes after apply-result identities are available and
-    // before the worklist begins its read-only use.
+    // INVARIANT: SSA alias classes consume the complete, immutable apply-result map.
     let ssa_alias_output =
         ssa_alias_classes::compute_ssa_alias_classes(func, state_map.apply_result_aliases());
     state_map.set_ssa_alias_output(
@@ -161,8 +158,7 @@ fn initialize_analysis(
         ssa_alias_output.class_apply_alias_source_candidates,
     );
 
-    // Precompute the static same-allocation closure across projections, Let
-    // aliases, jumps, merges, and selects; select origins gate §1.9 demand.
+    // Spec: Annex E §1.9.
     let project_alias_table = project_aliases::compute_project_alias_table_for_state(
         func,
         state_map.apply_result_aliases(),
@@ -172,9 +168,7 @@ fn initialize_analysis(
     let demand_sources = project_alias_table.demand_sources;
     let select_alias_dsts = project_alias_table.select_alias_dsts;
 
-    // Persist the full alias closure for realization, while backward demand
-    // uses the narrower §1.9 sources; whole-var/select demand would overextend
-    // merge-edge lifetimes. PL-5 makes this pre-pass state read-only thereafter.
+    // Why: Whole-var/select demand would extend merge-edge lifetimes beyond §1.9 sources.
     state_map.set_project_alias_sources(project_alias_sources);
 
     AnalysisSetup {

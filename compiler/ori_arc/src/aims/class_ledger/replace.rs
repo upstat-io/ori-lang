@@ -391,7 +391,7 @@ fn has_reuse_shape(func: &ArcFunction) -> bool {
     })
 }
 
-/// Whether any variable carries the TRMC `ContextHole` shape.
+// Env: ORI_DISABLE_TRMC_CONTEXT_LEDGER — declines TRMC context-ledger replacement, debug-only.
 fn trmc_context_ledger_disabled() -> bool {
     report_trmc_context_ledger_toggle(
         std::env::var("ORI_DISABLE_TRMC_CONTEXT_LEDGER").as_deref() == Ok("1"),

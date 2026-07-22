@@ -48,13 +48,14 @@ impl FieldPath {
     }
 
     /// Append one projection hop in place.
+    #[cfg(test)]
     pub(crate) fn push(&mut self, field: u32) {
         self.0.push(field);
     }
 
     /// A copy of this path with one more projection hop appended.
     #[must_use]
-    #[cfg_attr(not(test), expect(dead_code, reason = "read only in tests"))]
+    #[cfg(test)]
     pub(crate) fn extended(&self, field: u32) -> Self {
         let mut path = self.clone();
         path.push(field);
@@ -177,7 +178,7 @@ impl BirthSitePartition {
     /// REFUSED release-active (the class keeps its original site; a flipped
     /// site would launder two allocations into one class, the corruption
     /// `samerep_birthsite_sound` forbids).
-    pub(crate) fn set(&mut self, node: NodeIdx, site: BirthSiteId) {
+    pub(crate) fn set_site(&mut self, node: NodeIdx, site: BirthSiteId) {
         let root = self.find(node.0);
         let slot = &mut self.birth_site[root as usize];
         if let Some(existing) = *slot {
@@ -244,7 +245,7 @@ impl BirthSitePartition {
     }
 
     /// Whether `node`'s class carries the COW-boundary taint.
-    #[cfg_attr(not(test), expect(dead_code, reason = "read only in tests"))]
+    #[cfg(test)]
     pub(crate) fn is_cow_boundary(&mut self, node: NodeIdx) -> bool {
         let root = self.find(node.0);
         self.cow_boundary[root as usize]
@@ -272,7 +273,7 @@ impl BirthSitePartition {
     }
 
     /// Whether no node has been interned.
-    #[cfg_attr(not(test), expect(dead_code, reason = "read only in tests"))]
+    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.parent.is_empty()
     }

@@ -134,7 +134,7 @@ fn empty_executable(symbols: &SharedInterner) -> ExecutableProgram {
         retain_plans: Default::default(),
         roots: vec![main],
         cli_entry: None,
-        externals: Vec::new(),
+        externals: ori_repr::executable::ValidatedExternalCallables::empty(),
         method_targets: Default::default(),
         user_drop_bindings: Vec::new(),
         repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),

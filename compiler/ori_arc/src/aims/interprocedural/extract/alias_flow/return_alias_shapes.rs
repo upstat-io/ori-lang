@@ -1,8 +1,5 @@
 //! Return-alias shape detection: [`find_return_alias_shapes`] and its
 //! private resolution helpers.
-//!
-//! Split out of [`super`] to keep the alias-flow module under the 500-line
-//! hygiene cap.
 
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};

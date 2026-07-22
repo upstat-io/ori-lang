@@ -1,33 +1,18 @@
 //! `ReprPlan` — the central decision document for representation optimization.
 //!
-//! Each optimization pass writes narrowing decisions into the
-//! `ReprPlan` with full provenance tracking. Codegen reads the final
-//! plan to determine the machine representation of every type.
-//!
-//! # Design
-//!
-//! - **Audit trail**: every decision is recorded in order, even when
-//!   overridden — useful for debugging why a type was narrowed.
-//! - **Safe defaults**: queries return canonical (un-narrowed) values
-//!   when no decision has been recorded — the canonical pass alone causes zero
-//!   behavioral change.
-//! - **Safe escape defaults**: only AIMS-proven local identities are eligible
-//!   for a compiled local allocation mechanism.
-
-use ori_arc::ir::{
-    AllocationSiteId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership,
-    YieldAllocationExecution, YieldAllocationFact, YieldAllocationLocality, YieldExtent,
-};
-use ori_arc::ArcClassification;
-use ori_ir::Name;
-use ori_types::{Idx, Pool};
-use rustc_hash::{FxHashMap, FxHashSet};
+//! Optimization passes record narrowing decisions with provenance; codegen
+//! reads the closed plan. Missing decisions stay canonical, and only
+//! AIMS-proven local identities admit local allocation mechanisms.
 
 use crate::enum_repr::EnumRepr;
 use crate::escape::EscapeInfo;
 use crate::layout::EnumLayoutInfo;
 use crate::range::ValueRange;
 use crate::repr::MachineRepr;
+use ori_arc::ir::{AllocationSiteId, ArcVarId, YieldExtent};
+use ori_ir::Name;
+use ori_types::{Idx, Pool};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 // Re-export sub-types for plan consumers.
 pub use self::decision::{DecisionReason, DecisionSource, ReprDecision};
@@ -57,19 +42,27 @@ pub struct CompiledAllocationDecision {
     pub requires_runtime_header: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum YieldAllocationIdentity {
+    Builder(ArcVarId),
+    Result(ArcVarId),
+}
+
 /// Maximum element bytes admitted to function-lifetime stack storage.
 pub const MAX_LOCAL_YIELD_BYTES: u64 = 4 * 1024;
 
 mod decision;
 pub(crate) mod query;
+mod range_plan;
 mod repr_attr;
+mod yield_plan;
+
+pub(crate) use yield_plan::YieldLineageRuntimeCall;
 
 /// The central data structure recording all narrowing decisions.
 ///
 /// Computed after type checking and before LLVM codegen. The type checker
 /// never sees `ReprPlan`; codegen reads from it but never writes.
-///
-/// # Salsa Integration
 ///
 /// `ReprPlan` is **not** a Salsa tracked struct. It is computed imperatively
 /// by [`compute_repr_plan()`] as a forward pass that mutates state across
@@ -118,6 +111,8 @@ pub struct ReprPlan {
     escape_info: FxHashMap<Name, EscapeInfo>,
     /// Compiled allocation projections keyed by function and stable site.
     yield_allocations: FxHashMap<(Name, AllocationSiteId), CompiledAllocationDecision>,
+    /// Stable allocation sites indexed by the ARC identities used during emission.
+    yield_allocation_sites: FxHashMap<(Name, YieldAllocationIdentity), AllocationSiteId>,
     /// Qualified call sites redirected to private length-only physical clones.
     length_projection_calls: FxHashMap<(Name, ArcVarId), Name>,
     /// Qualified callees and the returned yield virtualized by their clones.
@@ -185,6 +180,7 @@ impl ReprPlan {
             rc_strategies: FxHashMap::default(),
             escape_info: FxHashMap::default(),
             yield_allocations: FxHashMap::default(),
+            yield_allocation_sites: FxHashMap::default(),
             length_projection_calls: FxHashMap::default(),
             length_projection_yields: FxHashMap::default(),
             function_var_ranges: FxHashMap::default(),
@@ -223,7 +219,7 @@ impl ReprPlan {
     /// This is the canonical query — all consumers should use this instead
     /// of pattern-matching `get_repr()` into `MachineRepr::Enum`.
     #[must_use]
-    pub fn get_enum_repr(&self, idx: Idx) -> Option<&EnumRepr> {
+    pub fn enum_repr(&self, idx: Idx) -> Option<&EnumRepr> {
         match self.get_repr(idx)? {
             MachineRepr::Enum(e) => Some(e),
             _ => None,
@@ -263,7 +259,7 @@ impl ReprPlan {
     ) -> Option<std::borrow::Cow<'p, EnumRepr>> {
         let resolved = pool.resolve_fully(idx);
 
-        if let Some(enum_repr) = self.get_enum_repr(resolved) {
+        if let Some(enum_repr) = self.enum_repr(resolved) {
             return Some(std::borrow::Cow::Borrowed(enum_repr));
         }
 
@@ -277,84 +273,6 @@ impl ReprPlan {
         }
 
         None
-    }
-
-    /// Record per-variable range analysis results for a function.
-    ///
-    /// Called by range analysis after `range_fixpoint()` completes for a function.
-    pub fn set_var_ranges(&mut self, func: Name, ranges: FxHashMap<ArcVarId, ValueRange>) {
-        self.function_var_ranges.insert(func, ranges);
-    }
-
-    /// Get the range for a variable in a function.
-    ///
-    /// Returns the default `ValueRange` (unconstrained) if no range was
-    /// recorded for this function or variable.
-    #[must_use]
-    pub fn var_range(&self, func: Name, var: ArcVarId) -> ValueRange {
-        self.function_var_ranges
-            .get(&func)
-            .and_then(|m| m.get(&var))
-            .copied()
-            .unwrap_or_default()
-    }
-
-    /// Get mutable access to a function's per-variable range map.
-    ///
-    /// Returns `None` if no ranges have been recorded for this function.
-    /// Used by interprocedural propagation to merge parameter ranges into
-    /// existing intraprocedural results.
-    pub fn function_var_ranges_mut(
-        &mut self,
-        func: Name,
-    ) -> Option<&mut FxHashMap<ArcVarId, ValueRange>> {
-        self.function_var_ranges.get_mut(&func)
-    }
-
-    /// Join a field range into the persistent summary.
-    ///
-    /// Called by `FieldSummaryTable::flush_to_repr_plan()` after the
-    /// fixpoint completes for each function. Multiple functions accumulate
-    /// evidence by joining (not overwriting).
-    pub fn join_field_range(&mut self, idx: Idx, field: u32, range: ValueRange) {
-        self.field_range_summaries
-            .entry((idx, field))
-            .and_modify(|existing| *existing = existing.join(range))
-            .or_insert(range);
-    }
-
-    /// Query the aggregated field range for a struct/tuple field.
-    ///
-    /// Returns `Top` if no construction sites were observed for this field.
-    #[must_use]
-    pub fn field_range(&self, idx: Idx, field: u32) -> ValueRange {
-        self.field_range_summaries
-            .get(&(idx, field))
-            .copied()
-            .unwrap_or_default()
-    }
-
-    /// Join an element range into the persistent summary for a collection type.
-    ///
-    /// Called by `ElementSummaryTable::flush_to_repr_plan()` after the
-    /// fixpoint completes for each function. Multiple functions accumulate
-    /// evidence by joining (not overwriting).
-    pub fn join_element_range(&mut self, collection_idx: Idx, range: ValueRange) {
-        self.element_range_summaries
-            .entry(collection_idx)
-            .and_modify(|existing| *existing = existing.join(range))
-            .or_insert(range);
-    }
-
-    /// Query the aggregated element range for a collection type.
-    ///
-    /// Returns `Top` if no construction sites were observed for this collection.
-    #[must_use]
-    pub fn element_range(&self, collection_idx: Idx) -> ValueRange {
-        self.element_range_summaries
-            .get(&collection_idx)
-            .copied()
-            .unwrap_or_default()
     }
 
     /// Store a `#repr` attribute for a type.
@@ -461,133 +379,7 @@ impl ReprPlan {
         self.escape_info.insert(func, info);
     }
 
-    /// Freeze AIMS yield facts into conservative compiled allocation choices.
-    pub fn freeze_yield_allocations(
-        &mut self,
-        facts_by_function: &FxHashMap<Name, Vec<YieldAllocationFact>>,
-    ) {
-        self.yield_allocations.clear();
-        for (&function, facts) in facts_by_function {
-            for fact in facts {
-                let mechanism = select_yield_mechanism(*fact);
-                self.yield_allocations.insert(
-                    (function, fact.site),
-                    CompiledAllocationDecision {
-                        site: fact.site,
-                        builder: fact.builder,
-                        result: fact.result,
-                        elem_ty: fact.elem_ty,
-                        elem_size: fact.elem_size,
-                        extent: fact.extent,
-                        mechanism,
-                        requires_runtime_header: true,
-                    },
-                );
-            }
-        }
-    }
-
-    /// Select compact backing only from closed executable call identities.
-    ///
-    /// ARC contributes neutral extent, locality, execution, and lineage facts.
-    /// This compiled-plan step owns the physical header decision and therefore
-    /// evaluates the complete realized use set after exact call closure.
-    pub(crate) fn close_yield_runtime_header_requirements(
-        &mut self,
-        functions: &[ArcFunction],
-        pool: &Pool,
-        mut runtime_call: impl FnMut(Name, ArcVarId) -> Option<YieldLineageRuntimeCall>,
-    ) {
-        let functions_by_name: FxHashMap<_, _> = functions
-            .iter()
-            .map(|function| {
-                (
-                    function.name,
-                    (function, ori_arc::YieldLineageIndex::for_function(function)),
-                )
-            })
-            .collect();
-        let decisions: Vec<_> = self
-            .yield_allocations
-            .iter()
-            .map(|(&key, &decision)| (key, decision))
-            .collect();
-        for (key, decision) in decisions {
-            let elidable =
-                functions_by_name
-                    .get(&key.0)
-                    .is_some_and(|(function, yield_lineages)| {
-                        yield_runtime_header_is_elidable(
-                            function,
-                            yield_lineages,
-                            decision,
-                            pool,
-                            &mut runtime_call,
-                        )
-                    });
-            if elidable {
-                self.yield_allocations
-                    .get_mut(&key)
-                    .unwrap_or_else(|| unreachable!("compiled allocation disappeared"))
-                    .requires_runtime_header = false;
-            }
-        }
-    }
-
-    /// Query the allocation projection by the scratch builder identity.
-    #[must_use]
-    pub fn yield_allocation_for_builder(
-        &self,
-        function: Name,
-        builder: ArcVarId,
-    ) -> Option<CompiledAllocationDecision> {
-        self.yield_allocations
-            .iter()
-            .find_map(|(&(owner, _), decision)| {
-                (owner == function && decision.builder == builder).then_some(*decision)
-            })
-    }
-
-    /// Query the allocation projection by the final list result identity.
-    #[must_use]
-    pub fn yield_allocation_for_result(
-        &self,
-        function: Name,
-        result: ArcVarId,
-    ) -> Option<CompiledAllocationDecision> {
-        self.yield_allocations
-            .iter()
-            .find_map(|(&(owner, _), decision)| {
-                (owner == function && decision.result == result).then_some(*decision)
-            })
-    }
-
-    /// Freeze the closed program's physical length-only clone decisions.
-    pub(crate) fn set_length_projections(
-        &mut self,
-        calls: FxHashMap<(Name, ArcVarId), Name>,
-        yields: FxHashMap<Name, ArcVarId>,
-    ) {
-        self.length_projection_calls = calls;
-        self.length_projection_yields = yields;
-    }
-
-    /// Iterate qualified call-site redirects selected by the compiled plan.
-    pub fn length_projection_calls(&self) -> impl Iterator<Item = ((Name, ArcVarId), Name)> + '_ {
-        self.length_projection_calls
-            .iter()
-            .map(|(&site, &callee)| (site, callee))
-    }
-
-    /// Iterate qualified callees and their virtualized yield result.
-    pub fn length_projection_yields(&self) -> impl Iterator<Item = (Name, ArcVarId)> + '_ {
-        self.length_projection_yields
-            .iter()
-            .map(|(&callee, &result)| (callee, result))
-    }
-
     /// Record an RC strategy decision for a type.
-    ///
     /// Stores the strategy in a **separate map** so the type's `MachineRepr`
     /// layout is preserved. The audit trail records the decision for debugging.
     pub fn set_rc_strategy(&mut self, idx: Idx, strategy: RcStrategy, source: DecisionSource) {
@@ -597,7 +389,6 @@ impl ReprPlan {
             RcStrategy::Atomic { .. } => DecisionReason::Canonical,
         };
         self.rc_strategies.insert(idx, strategy);
-        // Record in audit trail for debugging without overwriting the repr.
         self.audit.push(ReprDecision {
             source,
             type_idx: idx,
@@ -618,7 +409,6 @@ impl ReprPlan {
     }
 
     /// Dump the audit trail for debugging.
-    ///
     /// Returns a human-readable string with all decisions in insertion order.
     #[must_use]
     pub fn dump_audit(&self, pool: &Pool) -> String {
@@ -632,176 +422,6 @@ impl ReprPlan {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum YieldLineageRuntimeCall {
-    BorrowedRead,
-    StaticUniqueListSet,
-}
-
-#[derive(Clone, Copy)]
-struct YieldLineageCall<'a> {
-    args: &'a [ArcVarId],
-    arg_ownership: &'a [ArgOwnership],
-    dst: ArcVarId,
-    position: (usize, usize),
-}
-
-fn yield_runtime_header_is_elidable(
-    function: &ArcFunction,
-    yield_lineages: &ori_arc::YieldLineageIndex,
-    decision: CompiledAllocationDecision,
-    pool: &Pool,
-    runtime_call: &mut impl FnMut(Name, ArcVarId) -> Option<YieldLineageRuntimeCall>,
-) -> bool {
-    use ori_registry::TypeTag;
-
-    let classifier = ori_arc::ArcClassifier::new(pool);
-    if decision.mechanism != CompiledAllocationMechanism::StackSlot
-        || !classifier.is_scalar(decision.elem_ty)
-        || !matches!(
-            classifier.builtin_type_tag(decision.elem_ty),
-            Some(
-                TypeTag::Int
-                    | TypeTag::Float
-                    | TypeTag::Bool
-                    | TypeTag::Char
-                    | TypeTag::Byte
-                    | TypeTag::Unit
-                    | TypeTag::Never
-                    | TypeTag::Duration
-                    | TypeTag::Size
-                    | TypeTag::Ordering
-            )
-        )
-    {
-        return false;
-    }
-
-    let in_lineage = |var| {
-        yield_lineages
-            .result_for_receiver(var)
-            .is_some_and(|result| result == decision.result)
-    };
-    for (block_idx, block) in function.blocks.iter().enumerate() {
-        for (instr_idx, instruction) in block.body.iter().enumerate() {
-            if !instruction.used_vars().iter().copied().any(&in_lineage) {
-                continue;
-            }
-            let allowed = match instruction {
-                ArcInstr::Let {
-                    value: ori_arc::ir::ArcValue::Var(source),
-                    ..
-                } => in_lineage(*source),
-                ArcInstr::Project {
-                    value, field: 0, ..
-                } => in_lineage(*value),
-                ArcInstr::RcDec { var, .. } => in_lineage(*var),
-                ArcInstr::Apply {
-                    dst,
-                    args,
-                    arg_ownership,
-                    ..
-                } => yield_lineage_call_is_header_independent(
-                    function,
-                    YieldLineageCall {
-                        args,
-                        arg_ownership,
-                        dst: *dst,
-                        position: (block_idx, instr_idx),
-                    },
-                    runtime_call(function.name, *dst),
-                    &in_lineage,
-                ),
-                _ => false,
-            };
-            if !allowed {
-                return false;
-            }
-        }
-
-        if !block
-            .terminator
-            .used_vars()
-            .iter()
-            .copied()
-            .any(&in_lineage)
-        {
-            continue;
-        }
-        let allowed = match &block.terminator {
-            ArcTerminator::Jump { .. } => true,
-            ArcTerminator::Invoke {
-                dst,
-                args,
-                arg_ownership,
-                ..
-            } => yield_lineage_call_is_header_independent(
-                function,
-                YieldLineageCall {
-                    args,
-                    arg_ownership,
-                    dst: *dst,
-                    position: (block_idx, block.body.len()),
-                },
-                runtime_call(function.name, *dst),
-                &in_lineage,
-            ),
-            _ => false,
-        };
-        if !allowed {
-            return false;
-        }
-    }
-    true
-}
-
-fn yield_lineage_call_is_header_independent(
-    function: &ArcFunction,
-    call: YieldLineageCall<'_>,
-    operation: Option<YieldLineageRuntimeCall>,
-    in_lineage: &impl Fn(ArcVarId) -> bool,
-) -> bool {
-    if !call.args.first().copied().is_some_and(in_lineage)
-        || call.args.iter().skip(1).copied().any(in_lineage)
-    {
-        return false;
-    }
-    match operation {
-        Some(YieldLineageRuntimeCall::BorrowedRead) => {
-            call.arg_ownership.first() == Some(&ArgOwnership::Borrowed)
-        }
-        Some(YieldLineageRuntimeCall::StaticUniqueListSet) => {
-            in_lineage(call.dst)
-                && function
-                    .cow_annotations
-                    .get(call.position.0, call.position.1)
-                    == ori_arc::CowMode::StaticUnique
-        }
-        None => false,
-    }
-}
-
-fn select_yield_mechanism(fact: YieldAllocationFact) -> CompiledAllocationMechanism {
-    let YieldExtent::StaticExact(capacity) = fact.extent else {
-        return CompiledAllocationMechanism::RuntimeHeap;
-    };
-    let Some(bytes) = capacity.checked_mul(fact.elem_size.max(1)) else {
-        return CompiledAllocationMechanism::RuntimeHeap;
-    };
-    if fact.locality == YieldAllocationLocality::Local
-        && fact.execution == YieldAllocationExecution::SingleExecution
-        && bytes <= MAX_LOCAL_YIELD_BYTES
-    {
-        CompiledAllocationMechanism::StackSlot
-    } else {
-        CompiledAllocationMechanism::RuntimeHeap
-    }
-}
-
-// Thread safety: compile-time assertion that ReprPlan is Send + Sync.
-// ReprPlan has no interior mutability (no RefCell, no Mutex), so &ReprPlan
-// can be safely shared across threads. This assertion catches regressions
-// if a future field introduces non-Send/Sync types.
 const _: () = {
     const fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<ReprPlan>();

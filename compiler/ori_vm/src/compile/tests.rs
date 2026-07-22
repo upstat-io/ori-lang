@@ -1,3 +1,10 @@
+use super::{compile, compile_with_options, CompileOptions};
+use crate::bytecode::{
+    BytecodeProgram, CallArgument, Op, Register, VmClosureAdapterAction, VmRetainPlanId,
+};
+use crate::{
+    execute_report, verify, CompileError, ExecutionConfig, ExitValue, IndexKind, VerifyError,
+};
 use ori_arc::ir::{compute_var_rc_strategies, PrimitiveFacts};
 use ori_arc::uniqueness::{CowAnnotations, DropHints};
 use ori_arc::{
@@ -9,21 +16,13 @@ use ori_arc::{
 use ori_ir::{BinaryOp, Name, SharedInterner};
 use ori_registry::RuntimeOperator;
 use ori_repr::executable::{
-    CallableTarget, CompilerOperation, ExecutableProgram, ExecutableProgramParts, ExternalCallable,
-    ExternalUnwind, FunctionFamilyTopology, RuntimeCall, EXECUTABLE_PROGRAM_VERSION,
+    validate_external_callables, CallableTarget, CompilerOperation, ExecutableProgram,
+    ExecutableProgramParts, ExternalCallable, ExternalUnwind, FunctionFamilyTopology, RuntimeCall,
+    EXECUTABLE_PROGRAM_VERSION,
 };
 use ori_repr::{NarrowingPolicy, ReprPlan};
 use ori_types::{Idx, Pool, TypeRegistry};
 use rustc_hash::FxHashMap;
-
-use crate::bytecode::{
-    BytecodeProgram, CallArgument, Op, Register, VmClosureAdapterAction, VmRetainPlanId,
-};
-use crate::{
-    execute_report, verify, CompileError, ExecutionConfig, ExitValue, IndexKind, VerifyError,
-};
-
-use super::{compile, compile_with_options, CompileOptions};
 
 const ADMITTED_STRATEGIES: [RcStrategy; 5] = [
     RcStrategy::HeapPointer,
@@ -709,7 +708,7 @@ fn validate_rc_value_executable(
         retain_plans: RetainPlanTable::default(),
         roots: vec![main],
         cli_entry: Some(main),
-        externals: Vec::new(),
+        externals: ori_repr::executable::ValidatedExternalCallables::empty(),
         method_targets: FxHashMap::default(),
         user_drop_bindings: Vec::new(),
         repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
@@ -980,6 +979,8 @@ fn close_test_artifact(
     let frozen_closure_adapters =
         ori_arc::freeze_closure_adapter_plans(&functions, &contracts, &pool, &type_registry)
             .unwrap_or_else(|errors| panic!("closure adapter facts should freeze: {errors:?}"));
+    let externals = validate_external_callables(externals, &pool)
+        .unwrap_or_else(|error| panic!("test external callables should validate: {error}"));
 
     ExecutableProgram::validate(ExecutableProgramParts {
         version: EXECUTABLE_PROGRAM_VERSION,
@@ -1146,7 +1147,7 @@ fn list_concat_executable() -> ExecutableProgram {
         retain_plans: realization.retain_plans,
         roots: vec![main],
         cli_entry: Some(main),
-        externals: Vec::new(),
+        externals: ori_repr::executable::ValidatedExternalCallables::empty(),
         method_targets: FxHashMap::default(),
         user_drop_bindings: Vec::new(),
         repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),

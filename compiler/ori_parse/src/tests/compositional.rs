@@ -338,6 +338,70 @@ mod expression_context {
         );
     }
 
+    // BUG-01-032: qualified struct literals `module.Type { .. }` — the grammar
+    // defines `struct_literal = type_path "{" ...` with `type_path = identifier
+    // { "." identifier }`, so a dotted head before `{` is grammar-valid. These
+    // pins FAIL on the unfixed parser (the `PostfixOp::StructLit` arm only fires
+    // for a bare-`Ident` head) and pass once the head accepts a `type_path`.
+
+    #[test]
+    fn test_qualified_struct_literal_parses() {
+        // Single-dot qualified head: `geom.P { x: 1 }`.
+        let result = parse_source("@test () -> int = geom.P { x: 1 }.x;");
+        assert!(
+            !result.has_errors(),
+            "Qualified struct literal `geom.P {{ x: 1 }}` should parse; errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_multi_segment_qualified_struct_literal_parses() {
+        // Multi-dot qualified head: `a.b.P { x: 1 }`.
+        let result = parse_source("@test () -> int = a.b.P { x: 1 }.x;");
+        assert!(
+            !result.has_errors(),
+            "Multi-segment qualified struct literal `a.b.P {{ x: 1 }}` should parse; errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_qualified_struct_literal_spread_parses() {
+        // Qualified head with spread: `geom.P { ...base, x: 1 }`.
+        let result = parse_source("@test () -> int = geom.P { ...base, x: 1 }.x;");
+        assert!(
+            !result.has_errors(),
+            "Qualified struct-literal spread `geom.P {{ ...base, x: 1 }}` should parse; errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_qualified_struct_literal_in_if_condition_still_suppressed() {
+        // FLOW-123 clamp: a dotted head followed by `{` in `if`-CONDITION
+        // position must STAY suppressed (NO_STRUCT_LIT), exactly like the
+        // bare-name form above — the fix must not re-open the block ambiguity.
+        let result = parse_source("@test () -> int = if geom.P { x: 1 }.x > 0 then 1 else 0;");
+        assert!(
+            result.has_errors(),
+            "Qualified struct literal in if condition must stay suppressed (FLOW-123)"
+        );
+    }
+
+    #[test]
+    fn test_multi_segment_type_annotation_parses() {
+        // BUG-01-032 in-scope latent bug: `parse_named_type` handles only ONE
+        // dot, so a multi-segment `type_path` in annotation position fails to
+        // parse. `type_path = identifier { "." identifier }` admits N segments.
+        let result = parse_source("@test () -> a.b.C = todo();");
+        assert!(
+            !result.has_errors(),
+            "Multi-segment type path `a.b.C` in annotation position should parse; errors: {:?}",
+            result.errors
+        );
+    }
+
     #[test]
     fn test_lambda_contexts() {
         let lambdas = &[

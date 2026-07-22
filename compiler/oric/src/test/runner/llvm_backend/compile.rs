@@ -27,6 +27,10 @@ struct CompilationInput<'a, 'test, 'import> {
     imported_type_metadata: &'a [ExportedTypeMetadata],
     imported_collection_surfaces: &'a [u64],
     lowering: JitArcLowering,
+    /// Source path used by the realized-artifact observation gates.
+    source_path: &'a str,
+    /// Narrowing and ARC-oracle policy resolved once by this driver.
+    policy: crate::realization::RealizationPolicy,
 }
 
 pub(super) fn compile_and_run(
@@ -104,7 +108,8 @@ pub(super) fn compile_and_run(
         .into_iter()
         .filter(|imported| lowering.reachable_imports.contains(&imported.function.name))
         .collect::<Vec<_>>();
-    let evaluator = OwnedLLVMEvaluator::new();
+    let policy = crate::realization::RealizationPolicy::from_env();
+    let evaluator = OwnedLLVMEvaluator::with_verify_arc(policy.verify_arc);
     let compiled = compile_program(
         &evaluator,
         CompilationInput {
@@ -120,6 +125,8 @@ pub(super) fn compile_and_run(
             imported_type_metadata: &type_metadata,
             imported_collection_surfaces: &collection_surfaces,
             lowering,
+            source_path: &path.to_string_lossy(),
+            policy,
         },
     )?;
 
@@ -197,6 +204,8 @@ fn compile_program_inner<'llvm>(
         imported_type_metadata,
         imported_collection_surfaces,
         lowering,
+        source_path,
+        policy,
     } = input;
     let JitArcLowering {
         prepared_batch,
@@ -205,63 +214,29 @@ fn compile_program_inner<'llvm>(
         impl_emission_names,
         reachable_imports: _,
     } = lowering;
-    let mut type_registry = ori_types::TypeRegistry::from_typed_exports(
-        typed.typed.types.clone(),
-        typed.typed.collection_burdens.clone(),
-    );
-    ori_types::register_resolved_collection_burdens(pool, &mut type_registry);
-    let policy = if ori_repr::NarrowingPolicy::env_disabled() {
-        ori_repr::NarrowingPolicy::Disabled
-    } else {
-        ori_repr::NarrowingPolicy::Aggressive
-    };
-    let repr_plan =
-        crate::realization::compute_module_repr_plan(crate::realization::ModuleReprInput {
-            pool,
-            arc_functions: prepared_batch.functions(),
-            narrowing_policy: policy,
-            type_result: typed,
-            interner: Some(interner),
-            imported_type_metadata,
-            imported_collection_surfaces,
-            has_analysis_only_functions: typed
-                .typed
-                .impl_sigs
-                .iter()
-                .any(|entry| !entry.sig.is_generic()),
-        });
-    let user_drop_bindings = crate::realization::collect_user_drop_bindings(
-        &type_registry,
-        &typed_user_drop_bindings,
-        pool,
-    )
-    .map_err(|error| {
-        LLVMEvalError::new(format!("user-drop callable realization failed: {error}"))
-    })?;
-    let roots = prepared_batch.parent_roots();
-    let cli_entry = parse
-        .module
-        .functions
-        .iter()
-        .zip(function_sigs)
-        .find_map(|(function, signature)| signature.is_main.then_some(function.name));
     let executable =
         crate::realization::realize_arc_program(crate::realization::ArcProgramRealizationInput {
             prepared: prepared_batch,
             pool: pool.clone(),
             symbols: db.shared_interner(),
-            roots,
-            cli_entry,
-            externals: Vec::new(),
-            user_drop_bindings,
-            repr_plan,
-            type_registry,
-            verify_arc: std::env::var(crate::debug_flags::ORI_VERIFY_ARC)
-                .is_ok_and(|value| value != "0"),
+            facts: crate::realization::CheckedModuleFacts {
+                parse,
+                types: typed,
+                function_sigs,
+                interner,
+                imported_repr: crate::realization::ImportedReprSurfaces {
+                    type_metadata: imported_type_metadata,
+                    collection_surfaces: imported_collection_surfaces,
+                },
+            },
+            externals: ori_repr::executable::ValidatedExternalCallables::empty(),
+            typed_user_drop_bindings: &typed_user_drop_bindings,
+            policy,
         })
         .map_err(|error| {
             LLVMEvalError::new(format!("closed JIT executable realization failed: {error}"))
         })?;
+    crate::dump_orchestrator::dump_realized_arc(&executable, interner, source_path);
 
     evaluator.compile_module_with_tests(
         &parse.module,

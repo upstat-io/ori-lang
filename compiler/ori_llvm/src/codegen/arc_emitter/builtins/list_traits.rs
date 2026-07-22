@@ -9,13 +9,11 @@
 //! `List<T>`: `{i64 len, i64 cap, ptr data}` — element-wise iteration
 //! via GEP into the data pointer.
 
-use ori_ir::{FIELD_DATA, FIELD_LEN};
-use ori_types::Idx;
-
+use super::super::ArcIrEmitter;
 use crate::codegen::ir_builder::IntegerSignedness;
 use crate::codegen::value_id::ValueId;
-
-use super::super::ArcIrEmitter;
+use ori_ir::{FIELD_DATA, FIELD_LEN};
+use ori_types::Idx;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `List<T>.equals(other) -> bool`
@@ -36,6 +34,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let lhs_data = self
             .builder
             .extract_value(lhs, FIELD_DATA, "list.lhs.data")?;
+
         let rhs_data = self
             .builder
             .extract_value(rhs, FIELD_DATA, "list.rhs.data")?;
@@ -115,6 +114,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let lhs_data = self
             .builder
             .extract_value(lhs, FIELD_DATA, "list.lhs.data")?;
+
         let rhs_data = self
             .builder
             .extract_value(rhs, FIELD_DATA, "list.rhs.data")?;

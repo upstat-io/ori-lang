@@ -366,8 +366,6 @@ pub(crate) fn apply_class_ledger_replacement(
         burden_ops_enabled,
     );
     report_readiness(func, interner, &outcome);
-    // No fallback planner remains, so any production decline is an ICE naming
-    // the function and failed gate.
     assert!(
         !burden_ops_enabled || outcome.mode == EmissionMode::Replaced,
         "class-ledger replacement declined for `{}`: {} — every production shape must replace (the legacy Phase-5/6 walk was deleted; no fallback emitter exists)",

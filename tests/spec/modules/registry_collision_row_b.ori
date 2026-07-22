@@ -1,0 +1,18 @@
+// Spec: 18-modules.md § Imports; Annex E § AIMS (typed registry)
+//
+// Lib B for BUG-04-296: `Row` is structurally identical to registry_collision_row_a.ori's
+// `Row` but nominally distinct (different module). The from_typed_exports merge keys
+// per-type metadata by the shared structural Idx, so the second-registered entry
+// clobbers the first's UserBurdenSpec/repr/kind. The consumer entry test pins the fix.
+
+use std.testing { assert_eq }
+
+pub type Row = { values: [str] }
+
+pub @make_b () -> Row = Row { values: ["c", "d", "e"] };
+
+// Standalone (single-module, no cross-module collision) sanity for this lib.
+@test_make_b_standalone tests @make_b () -> void = {
+    let $r = make_b();
+    assert_eq(actual: r.values.len(), expected: 3)
+}

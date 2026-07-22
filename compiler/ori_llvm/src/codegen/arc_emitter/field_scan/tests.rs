@@ -138,7 +138,7 @@ fn runtime_invoke_target_requires_borrowed_parameter_load() {
 
 /// Single `Project` instruction records the field index for its source var.
 #[test]
-fn test_basic_field_projection() {
+fn single_project_records_source_field_index() {
     // v1 = project v0, field 2
     let func = make_test_func(vec![ArcBlock {
         id: b(0),

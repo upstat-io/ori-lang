@@ -77,7 +77,7 @@ pub(crate) fn verify_trmc_rewrite(
     errors
 }
 
-/// Context variables extracted from the rewritten function structure.
+/// Block and variable identities required to verify the normalized loop.
 struct RewriteContext {
     /// The prologue block (current function entry).
     prologue: ArcBlockId,
@@ -116,7 +116,7 @@ fn find_context_vars(func: &ArcFunction) -> Option<RewriteContext> {
     // params + 3 context block params (ctx_has, ctx_res, ctx_hole_obj).
     // The rewrite sets this exact shape; any other count is a rewrite bug.
     let params = &func.blocks[loop_header_idx].params;
-    let expected = func.params.len() + 3;
+    let expected = func.params.len().checked_add(3)?;
     if params.len() != expected {
         return None;
     }

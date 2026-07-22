@@ -1,8 +1,5 @@
 //! Per-parameter memory contract ([`ParamContract`]) and the caller-side
 //! return-alias shape it carries ([`ReturnAliasShape`]).
-//!
-//! Split out of [`super`] to keep the contract module under the 500-line
-//! hygiene cap.
 
 use super::super::lattice::{AccessClass, Cardinality, Consumption, Locality, Uniqueness};
 
@@ -18,18 +15,15 @@ pub enum CalleeOwnerDemand {
 
 /// Shape of how a parameter aliases the callee's return value.
 ///
-/// Caller-side carrier for BUG-04-090's `apply_result_aliases` side-table
-/// population. Distinct in role from `transfers_through_return: bool`:
+/// Distinct in role from `transfers_through_return`:
 /// `transfers_through_return` is the callee-side gate (suppress callee's
 /// scope-exit dec when the param flows to Return); `return_alias` is the
 /// caller-side shape carrier (record what the callee's return aliases so
 /// the caller's Apply site can populate the `apply_result_aliases` map).
 ///
 /// Invariant: `transfers_through_return == true` IFF `return_alias ==
-/// Some(ReturnAliasShape::Direct)`. The bool is a derived special case of
-/// the enum, kept as a separate field to avoid breaking the existing
-/// callee-side consumers (`helpers.rs::should_suppress_return_transfer_dec`,
-/// `walk.rs`, `walk_dec.rs`, `dead_cleanup/mod.rs`, `forward_walk.rs`).
+/// Some(ReturnAliasShape::Direct)`. The boolean is the direct-alias projection
+/// consumed by callee-side release decisions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReturnAliasShape {
     /// Callee returns the parameter unchanged (e.g., `@id<T>(x: T) -> T = x`).
@@ -39,9 +33,8 @@ pub enum ReturnAliasShape {
     /// Callee returns a field projection of the parameter
     /// (e.g., `@unwrap<T>(b: Box<T>) -> T = b.inner`). At the caller,
     /// `Apply dst = @callee(arg)` makes `dst` the same allocation as
-    /// `arg.field`. Single field index — nested projections not yet
-    /// supported (matches the existing `BorrowSource::Exact { field:
-    /// Option<u32> }` precedent).
+    /// `arg.field`. A single field index matches the precision carried by
+    /// `BorrowSource::Exact { field: Option<u32> }`.
     Project { field: u32 },
 }
 
@@ -70,7 +63,7 @@ impl ReturnAliasShape {
     /// Incomparable Project paths (different field indices) join to Direct
     /// per the same rationale.
     #[must_use]
-    pub fn join_optional(a: Option<Self>, b: Option<Self>) -> Option<Self> {
+    fn join_optional(a: Option<Self>, b: Option<Self>) -> Option<Self> {
         match (a, b) {
             (None, None) => None,
             (Some(s), None) | (None, Some(s)) => Some(s),
@@ -83,8 +76,8 @@ impl ReturnAliasShape {
 #[expect(
     clippy::struct_excessive_bools,
     reason = "Each bool encodes a distinct AIMS facet not derivable from \
-        the others: `may_escape` (legacy escape flag retained until \
-        Locality SSOT migration), `may_share` (per-param sharing flag), \
+        the others: `may_escape` (escape observation), \
+        `may_share` (per-param sharing flag), \
         `transfers_through_return` (Return-flow alias), \
         `return_payload_contains_param` (transitive-drop containment), \
         `iter_consumes` (iter-consume inward-transfer, RL-2). \
@@ -116,15 +109,14 @@ pub struct ParamContract {
     ///
     /// Default: `MaybeShared` (no caller guarantee).
     pub uniqueness: Uniqueness,
-    /// Whether this parameter flows directly to a `Return { value }`
-    /// terminator (BUG-04-090 fix).
+    /// Whether this parameter flows directly to a `Return { value }` terminator.
     ///
     /// When `true`, ownership of the parameter transfers through the return
     /// to the caller — the callee MUST NOT discharge the parameter's ownership
     /// credit at scope exit, because the caller owns the bound result's eventual
-    /// release. The current carrier spells that release `RcDec`. Computed from the structural Return-flow alias
-    /// fact in `detect_consumed_params` (NOT from `preserves_freshness`,
-    /// which is currently spec-inverted).
+    /// release. The compiled carrier spells that release `RcDec`. This fact
+    /// comes from structural return-flow aliasing in `detect_consumed_params`,
+    /// not from `preserves_freshness`.
     ///
     /// Completes the logical `ownParamsUsingArgs` pattern: event-pair
     /// elimination on owned-arg → owned-callee-param transfer applies to
@@ -132,8 +124,7 @@ pub struct ParamContract {
     ///
     /// Default: `false` (conservative — retain the release obligation).
     pub transfers_through_return: bool,
-    /// Shape of how this parameter aliases the callee's return value
-    /// (BUG-04-090 fix — caller-side carrier for `apply_result_aliases`).
+    /// Shape of how this parameter aliases the callee's return value.
     ///
     /// Direct case: callee returns the param unchanged (`@id<T>(x: T) -> T
     /// = x`). Project case: callee returns a field projection

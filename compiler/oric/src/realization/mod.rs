@@ -9,10 +9,12 @@ mod mono_inventory;
 mod program;
 mod repr;
 
-pub use program::{realize_local_program, ProgramRealizationError, ProgramRealizationInput};
+pub use program::{
+    realize_local_program, ProgramRealizationError, ProgramRealizationInput, RealizationPolicy,
+};
 
 pub(crate) use program::{
-    collect_user_drop_bindings, realize_arc_program, ArcProgramRealizationInput,
+    realize_arc_program, ArcProgramRealizationInput, CheckedModuleFacts, ImportedReprSurfaces,
 };
 
 pub(crate) use arc_batch::{

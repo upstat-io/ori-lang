@@ -1,0 +1,20 @@
+// Spec: 18-modules.md § Imports; Annex E § AIMS (typed registry)
+//
+// Lib A for BUG-04-296: a public struct `Row` structurally identical to the one
+// in registry_collision_row_b.ori. Ori interns types STRUCTURALLY (Pool hash ->
+// Idx dedup), so two structurally-identical structs from different modules
+// collapse to ONE Idx. The consumer entry test imports make_a + make_b and pins
+// that each nominal type keeps its OWN per-type registry metadata despite the
+// shared structural Idx (the from_typed_exports blind-overwrite bug).
+
+use std.testing { assert_eq }
+
+pub type Row = { values: [str] }
+
+pub @make_a () -> Row = Row { values: ["a", "b"] };
+
+// Standalone (single-module, no cross-module collision) sanity for this lib.
+@test_make_a_standalone tests @make_a () -> void = {
+    let $r = make_a();
+    assert_eq(actual: r.values.len(), expected: 2)
+}

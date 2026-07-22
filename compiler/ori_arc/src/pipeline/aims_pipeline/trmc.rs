@@ -1,7 +1,7 @@
 //! TRMC normalization and soundness verification.
 //!
-//! Contains the TRMC rewrite loop (steps 3–3a), semantic soundness
-//! verification (step 4a), and immortal variable detection (step 3.5).
+//! Owns TRMC normalization, immortal-variable detection, semantic verification,
+//! and rollback when a rewrite fails its soundness gates.
 
 use super::AimsPipelineConfig;
 use crate::aims::contract::ContractMapExt;
@@ -14,7 +14,7 @@ type NormalizationOutput = (
     Option<ArcFunction>,
 );
 
-/// Steps 3–3a: compute `var_reprs`, detect immortals, normalize with TRMC.
+/// Computes variable representations and immortals, then normalizes TRMC regions.
 ///
 /// When TRMC rewrite fires, re-run from step 3 because new variables need
 /// `ValueRepr` entries and immortal detection. The rewrite is idempotent —
@@ -30,7 +30,6 @@ pub(crate) fn normalize_with_trmc(
     let mut trmc_iterations: u32 = 0;
 
     let (norm_result, immortals) = loop {
-        // Step 3: validate and complete variable metadata.
         {
             let _span = tracing::info_span!("compute_var_reprs").entered();
             validate_or_realize_variable_metadata(func, config.classifier, config.pool)?;
@@ -42,7 +41,6 @@ pub(crate) fn normalize_with_trmc(
             config.observer,
         );
 
-        // Step 3.5: detect immortal variables.
         let immortals = detect_immortals(func, config);
         super::trace_pipeline_checkpoint(
             func,
@@ -51,10 +49,7 @@ pub(crate) fn normalize_with_trmc(
             config.observer,
         );
 
-        // Step 3a: normalize — detect + rewrite TRMC context regions.
-        // Save pre-rewrite state for semantic rollback. Only clone on
-        // the first iteration — subsequent iterations already have the
-        // pre-TRMC state saved.
+        // Why: Soundness rollback requires the original function, not an intermediate rewrite.
         let saved = if pre_trmc_func.is_none() {
             Some(func.clone())
         } else {
@@ -97,7 +92,7 @@ pub(crate) fn normalize_with_trmc(
     Ok((norm_result, immortals, did_trmc_transform, pre_trmc_func))
 }
 
-/// Step 4a: TRMC semantic soundness verification.
+/// Verifies TRMC semantic soundness after analysis converges.
 ///
 /// After analysis converges, verify that context variables are Unique
 /// at all Set sites. On failure, roll back to pre-rewrite function and

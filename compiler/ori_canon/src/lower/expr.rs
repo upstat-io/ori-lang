@@ -8,7 +8,7 @@ mod basic;
 mod ranges;
 
 use ori_ir::canon::{CanExpr, CanId};
-use ori_ir::{ExprId, ExprKind, TypeId};
+use ori_ir::{ExprArena, ExprId, ExprKind, Name, ParsedType, ParsedTypeId, TypeId};
 use tracing::trace;
 
 use super::Lowerer;
@@ -333,7 +333,10 @@ impl Lowerer<'_> {
             ExprKind::List(exprs) => self.lower_list(exprs, span, ty),
             ExprKind::Tuple(exprs) => self.lower_tuple(exprs, span, ty),
             ExprKind::Map(entries) => self.lower_map(entries, span, ty),
-            ExprKind::Struct { name, fields } => self.lower_struct(name, fields, span, ty),
+            ExprKind::Struct { type_path, fields } => {
+                let name = struct_literal_name(self.src, type_path);
+                self.lower_struct(name, fields, span, ty)
+            }
             ExprKind::Range {
                 start,
                 end,
@@ -422,7 +425,8 @@ impl Lowerer<'_> {
             } => self.desugar_method_call_named(id, receiver, method, args, span, ty),
             ExprKind::ListWithSpread(elements) => self.desugar_list_with_spread(elements, span, ty),
             ExprKind::MapWithSpread(elements) => self.desugar_map_with_spread(elements, span, ty),
-            ExprKind::StructWithSpread { name, fields } => {
+            ExprKind::StructWithSpread { type_path, fields } => {
+                let name = struct_literal_name(self.src, type_path);
                 self.desugar_struct_with_spread(name, fields, span, ty)
             }
             _ => unreachable!("lower_sugar_kind called with non-sugar expression"),
@@ -432,5 +436,13 @@ impl Lowerer<'_> {
     fn push_foldable(&mut self, kind: CanExpr, span: ori_ir::Span, ty: TypeId) -> CanId {
         let id = self.push(kind, span, ty);
         crate::const_fold::try_fold(&mut self.arena, &mut self.constants, id).unwrap_or(id)
+    }
+}
+
+fn struct_literal_name(arena: &ExprArena, type_path: ParsedTypeId) -> Name {
+    match arena.get_parsed_type(type_path) {
+        ParsedType::Named { name, .. } => *name,
+        ParsedType::AssociatedType { assoc_name, .. } => *assoc_name,
+        _ => Name::EMPTY,
     }
 }

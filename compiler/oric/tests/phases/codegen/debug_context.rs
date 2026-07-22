@@ -237,13 +237,13 @@ mod tests {
             .expect("debug info should be enabled");
 
         // Create function with type info
-        let int_ty = ctx.di().int_type().unwrap().as_type();
-        let subroutine = ctx.di().create_subroutine_type(
+        let int_ty = ctx.builder().int_type().unwrap().as_type();
+        let subroutine = ctx.builder().create_subroutine_type(
             Some(int_ty),      // return type
             &[int_ty, int_ty], // parameters
         );
         let _subprogram = ctx
-            .di()
+            .builder()
             .create_function("add", None, 1, subroutine, false, true);
 
         ctx.finalize();
@@ -277,7 +277,7 @@ mod tests {
 
         // Set and then clear location
         ctx.set_location_from_offset_in_current_scope(&ir_builder, 4);
-        ctx.di().clear_location(&ir_builder);
+        ctx.builder().clear_location(&ir_builder);
 
         ir_builder.build_return(None).unwrap();
 

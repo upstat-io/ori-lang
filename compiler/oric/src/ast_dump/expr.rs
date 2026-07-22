@@ -435,8 +435,9 @@ fn dump_basic_collection(
                 dump_expr(out, entry.value, arena, interner, depth + 1);
             }
         }
-        ExprKind::Struct { name, fields } => {
-            writeln!(out, "{indent}Struct {}", interner.lookup(*name))?;
+        ExprKind::Struct { type_path, fields } => {
+            let path = format_parsed_type(arena.get_parsed_type(*type_path), arena, interner);
+            writeln!(out, "{indent}Struct {path}")?;
             for init in arena.get_field_inits(*fields) {
                 let field = interner.lookup(init.name);
                 if let Some(value) = init.value {
@@ -461,8 +462,9 @@ fn dump_spread_collection(
     indent: &str,
 ) -> fmt::Result {
     match kind {
-        ExprKind::StructWithSpread { name, fields } => {
-            writeln!(out, "{indent}StructWithSpread {}", interner.lookup(*name))?;
+        ExprKind::StructWithSpread { type_path, fields } => {
+            let path = format_parsed_type(arena.get_parsed_type(*type_path), arena, interner);
+            writeln!(out, "{indent}StructWithSpread {path}")?;
             for field in arena.get_struct_lit_fields(*fields) {
                 match field {
                     StructLitField::Field(init) => {

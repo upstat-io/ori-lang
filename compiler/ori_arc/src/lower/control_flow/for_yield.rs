@@ -24,6 +24,22 @@ struct YieldIteratorSetup {
     extent: YieldExtent,
 }
 
+#[derive(Clone, Copy)]
+enum RangeEnd {
+    Exclusive,
+    Inclusive,
+}
+
+/// Carries allocation identity and normalized extent evidence between yield strategies.
+pub(super) struct YieldListAllocation {
+    /// Builder identity used by list mutation and realization.
+    pub(super) list_ptr: ArcVarId,
+    /// Lowered element-size operand for runtime list operations.
+    pub(super) elem_size_var: ArcVarId,
+    /// Extent normalized to the runtime capacity ABI.
+    pub(super) extent: YieldExtent,
+}
+
 impl ArcLowerer<'_> {
     /// Dispatch for-yield to the appropriate strategy based on iterable type.
     pub(crate) fn lower_for_yield(
@@ -162,23 +178,24 @@ impl ArcLowerer<'_> {
             fallback_elem_ty
         };
         let elem_size = self.compute_elem_size(body_elem_ty).cast_unsigned();
-        let (list_ptr, elem_size_var, extent) = self.allocate_yield_list(body_elem_ty, extent);
+        let allocation = self.allocate_yield_list(body_elem_ty, extent);
         let flow = self.prepare_iterator_flow(None);
         YieldIteratorSetup {
             flow,
-            list_ptr,
-            elem_size_var,
+            list_ptr: allocation.list_ptr,
+            elem_size_var: allocation.elem_size_var,
             elem_ty: body_elem_ty,
             elem_size,
-            extent,
+            extent: allocation.extent,
         }
     }
 
+    /// Allocate a list builder while preserving normalized extent evidence.
     pub(super) fn allocate_yield_list(
         &mut self,
         elem_ty: Idx,
         extent: YieldExtent,
-    ) -> (ArcVarId, ArcVarId, YieldExtent) {
+    ) -> YieldListAllocation {
         let list_new = self.interner.intern("ori_list_new");
         let extent = representable_yield_extent(extent);
         let capacity = match extent {
@@ -205,7 +222,11 @@ impl ArcLowerer<'_> {
             None,
             None,
         );
-        (list_ptr, elem_size_var, extent)
+        YieldListAllocation {
+            list_ptr,
+            elem_size_var,
+            extent,
+        }
     }
 
     fn yield_extent(
@@ -231,7 +252,12 @@ impl ArcLowerer<'_> {
         let inclusive = self.builder.get_field_literal_int(iter_val, 3);
         if let (Some(start), Some(end), Some(step), Some(inclusive)) = (start, end, step, inclusive)
         {
-            return range_cardinality(start, end, step, inclusive != 0)
+            let end_kind = if inclusive == 0 {
+                RangeEnd::Exclusive
+            } else {
+                RangeEnd::Inclusive
+            };
+            return range_cardinality(start, end, step, end_kind)
                 .map_or(YieldExtent::Unknown, YieldExtent::StaticExact);
         }
 
@@ -326,18 +352,19 @@ impl ArcLowerer<'_> {
     }
 }
 
-fn range_cardinality(start: i64, end: i64, step: i64, inclusive: bool) -> Option<u64> {
+fn range_cardinality(start: i64, end: i64, step: i64, end_kind: RangeEnd) -> Option<u64> {
     if step == 0 {
         return None;
     }
     let start = i128::from(start);
     let end = i128::from(end);
     let step = i128::from(step);
+    let inclusive = i128::from(matches!(end_kind, RangeEnd::Inclusive));
     let span = if step > 0 {
-        let end = end + i128::from(inclusive);
+        let end = end + inclusive;
         (end - start).max(0)
     } else {
-        let end = end - i128::from(inclusive);
+        let end = end - inclusive;
         (start - end).max(0)
     };
     let step_abs = step.abs();
@@ -354,8 +381,33 @@ fn representable_yield_extent(extent: YieldExtent) -> YieldExtent {
 
 #[cfg(test)]
 mod tests {
-    use super::representable_yield_extent;
+    use super::{range_cardinality, representable_yield_extent, RangeEnd};
     use crate::ir::YieldExtent;
+
+    #[test]
+    fn range_cardinality_handles_full_width_signed_boundaries() {
+        assert_eq!(
+            range_cardinality(i64::MIN, i64::MAX, 1, RangeEnd::Exclusive),
+            Some(u64::MAX)
+        );
+        assert_eq!(
+            range_cardinality(i64::MAX, i64::MIN, -1, RangeEnd::Exclusive),
+            Some(u64::MAX)
+        );
+        assert_eq!(
+            range_cardinality(i64::MIN, i64::MAX, 1, RangeEnd::Inclusive),
+            None
+        );
+        assert_eq!(
+            range_cardinality(i64::MAX, i64::MIN, -1, RangeEnd::Inclusive),
+            None
+        );
+    }
+
+    #[test]
+    fn range_cardinality_fails_closed_for_zero_step() {
+        assert_eq!(range_cardinality(0, 10, 0, RangeEnd::Exclusive), None);
+    }
 
     #[test]
     fn static_yield_extent_fails_closed_above_runtime_capacity_range() {

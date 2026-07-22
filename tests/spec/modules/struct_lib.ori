@@ -1,0 +1,15 @@
+// Spec: 18-modules.md Module Alias — qualified struct literal
+//
+// Helper module exporting `pub type` structs, for testing qualified struct
+// literals `alias.Type { .. }`. `math_lib.ori` only exports functions; this lib
+// provides the public struct surface a qualified struct literal constructs
+// through a module alias. Tests live in `_test/`, never in a provider fixture.
+
+// Public struct — constructed via `alias.Point { .. }` from a consumer.
+pub type Point = { x: int, y: int }
+
+// Public struct with a single field — spread/base coverage.
+pub type Wrapped = { value: int }
+
+// A public constructor, for the associated-function sibling that already works.
+pub @origin () -> Point = Point { x: 0, y: 0 };

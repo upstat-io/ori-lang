@@ -4,6 +4,14 @@ use inkwell::module::Module;
 
 use super::*;
 
+#[test]
+fn basic_type_creation_error_preserves_inkwell_source() {
+    let error =
+        super::config::basic_type_creation_error("int", inkwell::error::Error::EmptyNameError);
+
+    assert!(std::error::Error::source(&error).is_some());
+}
+
 /// Test that `to_emission_kind` correctly maps `DebugLevel` variants.
 /// This test must remain inline as it tests a private method.
 #[test]
@@ -166,7 +174,7 @@ fn debug_context_set_location_from_offset() {
     let fn_ty = void_ty.fn_type(&[], false);
     let func = module.add_function("test_fn", fn_ty, None);
     let subprogram = dc.create_function_at_offset("test_fn", 0).unwrap();
-    dc.di().attach_function(func, subprogram);
+    dc.builder().attach_function(func, subprogram);
 
     let entry = ctx.append_basic_block(func, "entry");
     builder.position_at_end(entry);
@@ -208,7 +216,7 @@ fn debug_context_emit_declare_for_alloca_convenience() {
     let fn_ty = void_ty.fn_type(&[], false);
     let func = module.add_function("test_fn", fn_ty, None);
     let subprogram = dc.create_function_at_offset("test_fn", 0).unwrap();
-    dc.di().attach_function(func, subprogram);
+    dc.builder().attach_function(func, subprogram);
 
     let entry = ctx.append_basic_block(func, "entry");
     builder.position_at_end(entry);
@@ -217,7 +225,7 @@ fn debug_context_emit_declare_for_alloca_convenience() {
     // Alloca + convenience declare
     let i64_ty = ctx.i64_type();
     let alloca = builder.build_alloca(i64_ty, "x").unwrap();
-    let int_di_ty = dc.di().int_type().unwrap().as_type();
+    let int_di_ty = dc.builder().int_type().unwrap().as_type();
     dc.emit_declare_for_alloca(alloca, "x", int_di_ty, 0, entry);
 
     // Return with location

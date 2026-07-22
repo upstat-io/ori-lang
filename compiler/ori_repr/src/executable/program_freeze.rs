@@ -3,15 +3,14 @@
 mod length_projection;
 mod metadata;
 
-use ori_arc::ir::ArcVarId;
-use ori_arc::ArcFunction;
-use ori_ir::Name;
-use rustc_hash::FxHashMap;
-
 use super::{
     call_targets, external, method_targets, validation, CallableTarget, ExecutableDropPlan,
     ExecutableProgram, ExecutableProgramParts, FunctionId, RealizationError,
 };
+use ori_arc::ir::ArcVarId;
+use ori_arc::ArcFunction;
+use ori_ir::Name;
+use rustc_hash::FxHashMap;
 
 pub(super) fn validate(
     mut parts: ExecutableProgramParts,
@@ -45,12 +44,14 @@ fn freeze_executable_program(
         closure_adapters,
         retain_plans,
     } = metadata::freeze_function_metadata(&mut parts, &function_ids)?;
+
     let roots = metadata::freeze_roots(
         &parts.roots,
         parts.cli_entry,
         &function_ids,
         &function_families,
     )?;
+
     let cli_entry = parts
         .cli_entry
         .map(|name| {
@@ -60,8 +61,7 @@ fn freeze_executable_program(
                 .ok_or(RealizationError::MissingEntryPoint { name })
         })
         .transpose()?;
-    let (external_functions, external_ids) =
-        external::freeze_external_callables(parts.externals, &parts.pool)?;
+    let (external_functions, external_ids) = external::freeze_external_callables(parts.externals)?;
     call_targets::validate_external_symbols(&external_functions, &parts.symbols, &function_ids)?;
     let method_targets = method_targets::freeze_method_targets(
         std::mem::take(&mut parts.method_targets),
@@ -71,6 +71,7 @@ fn freeze_executable_program(
         &external_ids,
         &function_families,
     )?;
+
     let call_targets::ResolvedCallTargets {
         call_targets,
         direct_call_targets,
@@ -82,6 +83,7 @@ fn freeze_executable_program(
         &parts.symbols,
         &parts.pool,
     )?;
+
     close_yield_lineage_facts(
         &mut parts.repr_plan,
         &parts.functions,

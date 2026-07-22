@@ -187,15 +187,29 @@ impl CompiledTestModule<'_> {
 /// Uses the V2 codegen pipeline (`TypeInfoStore` → `IrBuilder` → `FunctionCompiler`).
 pub struct OwnedLLVMEvaluator {
     context: Context,
+    /// Whether ARC/LLVM IR verification runs during JIT compilation.
+    ///
+    /// The driver resolves this alongside the gate the bound artifact was
+    /// realized under, so verification cannot disagree with realization.
+    pub(crate) verify_arc: bool,
 }
 
 impl OwnedLLVMEvaluator {
-    /// Create an evaluator. The bound executable artifact owns all semantic
-    /// type identities used during physical projection.
+    /// Create an evaluator resolving the verification gate from the
+    /// environment. The bound executable artifact owns all semantic type
+    /// identities used during physical projection.
     #[must_use]
     pub fn new() -> Self {
+        Self::with_verify_arc(super::evaluator::compile::jit_verify_arc_enabled())
+    }
+
+    /// Create an evaluator whose verification gate matches the one its caller
+    /// realized the bound artifact under.
+    #[must_use]
+    pub fn with_verify_arc(verify_arc: bool) -> Self {
         OwnedLLVMEvaluator {
             context: Context::create(),
+            verify_arc,
         }
     }
 }

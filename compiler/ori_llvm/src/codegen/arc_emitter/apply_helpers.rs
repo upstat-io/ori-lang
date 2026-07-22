@@ -10,12 +10,11 @@
 //! - **Aggregate coercion**: Runtime functions expect `ptr` but ARC IR passes
 //!   aggregates (Str, List, Map, Set) by value — alloca + store + pass pointer.
 
+use super::ArcIrEmitter;
+use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
 use ori_arc::ir::ArcVarId;
 use ori_ir::Name;
 use ori_types::{Idx, Tag};
-
-use super::ArcIrEmitter;
-use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Coerce runtime-function (`ori_*`) arguments to pointers and apply the
@@ -35,11 +34,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///   not a fresh copy.
     /// - Other aggregates are spilled to an alloca and passed by pointer.
     ///
-    /// The elem-size override replaces canonical `elem_size=8` baked at ARC
-    /// lowering time (before the `ReprPlan` exists) with the narrowed size for
-    /// int-element for-yield lists. Only `elem_size` vars identified by the
-    /// pre-scan are overridden (prevents corrupting non-int accumulators
-    /// like `[str]` when a narrowed `[int]` exists in the program).
+    /// Uses the exact narrowed element size for for-yield integer lists.
+    /// Other element-size arguments remain canonical.
     pub(super) fn coerce_runtime_fn_args(
         &mut self,
         callee: Name,
@@ -77,6 +73,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         } else {
             None
         };
+
         if let Some((elem_size_var, (collection_ty, elem_ty))) = elem_size_var.and_then(|var| {
             self.for_yield_elem_size_types
                 .get(&var)
@@ -207,6 +204,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .same_llvm_type(current_ty, ret_ty)
                 .then_some(ptr)
         });
+
         let sret_alloca = if let Some(sret_ptr) = forward_ptr {
             self.current_sret = None;
             sret_ptr

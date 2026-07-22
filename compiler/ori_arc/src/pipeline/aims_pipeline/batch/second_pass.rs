@@ -41,17 +41,12 @@ pub(super) fn run_second_pass(
         callable_boundaries,
     } = context;
 
-    // Phase 1: full contract refresh for TRMC-rewritten functions.
-    // Re-run analysis + extraction on the rewritten IR to get accurate
-    // ContextBehavior, FipContract, and EffectSummary.
     if !trmc_rewritten.is_empty() {
         let _span = tracing::info_span!("trmc_contract_refresh").entered();
         for &name in trmc_rewritten {
-            // Find the rewritten function.
             let Some(func) = functions.iter().find(|f| f.name == name) else {
                 continue;
             };
-            // Re-analyze with current contracts as peer context.
             let state_map = crate::aims::intraprocedural::analyze_function(
                 func,
                 classifier,
@@ -60,8 +55,6 @@ pub(super) fn run_second_pass(
                 Vec::new(),
             );
             let context_regions = crate::aims::normalize::detect_context_regions(func);
-            // No SCC peers needed — TRMC rewrite is per-function and
-            // the function's own contract is already in `contracts`.
             let mut new_contract =
                 crate::aims::interprocedural::extract_contract_with_call_ownership(
                     &crate::aims::interprocedural::ContractExtractionInput {
@@ -88,8 +81,6 @@ pub(super) fn run_second_pass(
         }
     }
 
-    // Phase 2: join post-emission may_deallocate facts, close the joined fact
-    // over direct calls, then recompute every affected local FIP contract.
     {
         let _span = tracing::info_span!("post_emission_fip_update").entered();
         let downgrades =
@@ -102,7 +93,6 @@ pub(super) fn run_second_pass(
         }
     }
 
-    // Phase 3: re-verify FIP contracts with corrected data.
     {
         let _span = tracing::info_span!("post_emission_fip_verify").entered();
         debug_assert_eq!(

@@ -50,22 +50,14 @@ pub(super) fn tighten_uniqueness_from_callers(
     sigs: &mut FxHashMap<Name, MemoryContract>,
     immutable_callees: &FxHashSet<Name>,
 ) {
-    // Re-analyze each function with final contracts and collect call-site
-    // argument states.
-    //
-    // For each (callee, param_idx), track whether ALL callers satisfy the
-    // fresh-Construct + single-use condition. Start optimistically at `true`
-    // and flip to `false` on any violation.
     let mut all_satisfy: FxHashMap<(Name, usize), bool> = FxHashMap::default();
 
     for func in functions {
         let state_map = analyze_function(func, classifier, sigs, &[], Vec::new());
 
-        // Pre-compute Construct-defined vars for O(1) lookups in
-        // arg_satisfies_uniqueness (avoids O(blocks×instrs) per argument).
+        // Why: Precomputing constructor definitions avoids repeated block scans per argument.
         let construct_vars = build_construct_set(func);
 
-        // Walk blocks to find Apply instructions.
         for block in &func.blocks {
             for instr in &block.body {
                 if let ArcInstr::Apply {

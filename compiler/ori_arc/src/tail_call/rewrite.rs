@@ -11,14 +11,8 @@ use std::sync::LazyLock;
 use super::TailCallKind;
 use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 
-/// `ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP=1` restores the base
-/// behavior of moving EVERY normal-continuation RC op into the call block when
-/// a recursive `Invoke` tail call is rewritten to a loop back-edge — including
-/// the RC ops on the Invoke's now-eliminated result var. Default (unset): drop
-/// the RC ops whose operand is the eliminated result var (a forbidden post-call
-/// dec on the transferred tail-call result; the result is never materialized
-/// post-rewrite, so the op is a use-before-def). Spec: Annex E §AIMS RL-34
-/// (`RL34_never_post_call_dec`).
+// Env: ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP - retains RC ops on eliminated
+// recursive Invoke results for RL-34 ablation, debug-only.
 static TRMC_TRANSFERRED_RESULT_DEC_DROP_DISABLED: LazyLock<bool> = LazyLock::new(|| {
     report_transferred_result_dec_drop_toggle(
         std::env::var("ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP").as_deref() == Ok("1"),
@@ -46,9 +40,8 @@ fn transferred_result_dec_drop_disabled() -> bool {
 /// [`detect_tail_calls`](super::detect_tail_calls)) and rewrites
 /// the ARC IR to use loops instead of recursive calls.
 ///
-/// After this pass, self-recursive tail calls are replaced by
-/// `Jump(header, new_args)` back-edges, achieving O(1) stack space.
-/// The function's `tail_calls` field is emptied (consumed).
+/// Self-recursive tail calls become `Jump(header, new_args)` back-edges with
+/// O(1) stack use. The rewrite consumes the function's `tail_calls` entries.
 #[tracing::instrument(skip_all, fields(func = ?func.name))]
 pub(crate) fn rewrite_tail_calls(func: &mut ArcFunction) {
     let tail_calls = std::mem::take(&mut func.tail_calls);

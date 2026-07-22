@@ -65,13 +65,7 @@ pub enum DropKind {
     /// field walk.
     Fields {
         fields: Vec<(u32, Idx)>,
-        // FnSym does not implement serde; the `cache` feature
-        // serializes drop info via `#[cfg_attr]` on `DropKind`, and
-        // `user_drop` is still a build-time `FnSym`, so the transitional cache
-        // cannot preserve it. A production executable replaces this with a
-        // stable callable/drop-plan identity and rejects incomplete cached
-        // facts. Current LLVM-side re-derivation is migration debt, not a
-        // sanctioned consumer behavior.
+        // Why: `FnSym` is not serializable, so cached drop facts omit this callable identity.
         #[cfg_attr(feature = "cache", serde(skip))]
         user_drop: Option<ori_registry::burden::FnSym>,
     },

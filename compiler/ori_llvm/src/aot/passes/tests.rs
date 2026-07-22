@@ -6,7 +6,16 @@ use inkwell::context::Context;
 use crate::aot::target::TargetConfig;
 use crate::aot::{OptimizationConfig, SanitizerMode};
 
-use super::run_optimization_passes;
+use super::{pipeline_c_string, run_optimization_passes};
+
+#[test]
+fn invalid_pipeline_preserves_nul_source() {
+    let Err(error) = pipeline_c_string("invalid\0pipeline".to_owned()) else {
+        panic!("an embedded null byte must be rejected");
+    };
+
+    assert!(std::error::Error::source(&error).is_some());
+}
 
 /// Create a minimal valid LLVM module with a single void function.
 fn create_minimal_module(context: &Context) -> inkwell::module::Module<'_> {

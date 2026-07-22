@@ -1,7 +1,7 @@
 //! Audit report types for the RC verification pass.
 //!
-//! All fields are `String` (not `&str`) because the report must outlive
-//! inkwell's LLVM context — we extract names during the walk and own them.
+//! All fields own their strings because reports outlive the LLVM context that
+//! supplies names during the audit walk.
 
 use std::fmt;
 

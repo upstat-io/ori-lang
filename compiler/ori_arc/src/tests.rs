@@ -148,9 +148,7 @@ fn full_pipeline_on_reuse_pattern() {
     );
 
     // Run FBIP analysis on the result
-    let dom_tree = crate::DominatorTree::build(&func);
-    let (refined, _) = crate::compute_refined_liveness(&func, &classifier);
-    let _fbip_report = analyze_fbip(&func, &classifier, &dom_tree, &refined);
+    let _fbip_report = analyze_fbip(&func, &classifier);
 }
 
 /// Pipeline output must be identical across multiple runs on the same input.

@@ -357,6 +357,10 @@ fn desugar_struct_with_spread_flattens_to_struct() {
     let fx = interner.intern("x");
     let fy = interner.intern("y");
     let text_alias = interner.intern("TextAlias");
+    let point_type_path = arena.alloc_parsed_type(ori_ir::ParsedType::Named {
+        name: point,
+        type_args: ori_ir::ParsedTypeRange::EMPTY,
+    });
 
     let base = arena.alloc_expr(Expr::new(ExprKind::Ident(base_name), Span::new(11, 15)));
     let ten = arena.alloc_expr(Expr::new(ExprKind::Int(10), Span::new(20, 22)));
@@ -375,7 +379,7 @@ fn desugar_struct_with_spread_flattens_to_struct() {
 
     let root = arena.alloc_expr(Expr::new(
         ExprKind::StructWithSpread {
-            name: point,
+            type_path: point_type_path,
             fields,
         },
         Span::new(0, 24),

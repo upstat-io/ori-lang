@@ -55,6 +55,7 @@ pub enum DerivedEqBodyError {
         receiver_type: Idx,
         index_kind: &'static str,
         index: usize,
+        source: Option<std::num::TryFromIntError>,
     },
 }
 
@@ -111,6 +112,7 @@ impl std::fmt::Display for DerivedEqBodyError {
                 receiver_type,
                 index_kind,
                 index,
+                ..
             } => write!(
                 formatter,
                 "derived Eq body for {receiver_type:?} has {index_kind} index {index}, which exceeds the ARC IR index range"
@@ -119,7 +121,17 @@ impl std::fmt::Display for DerivedEqBodyError {
     }
 }
 
-impl std::error::Error for DerivedEqBodyError {}
+impl std::error::Error for DerivedEqBodyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::IndexOverflow {
+                source: Some(source),
+                ..
+            } => Some(source),
+            _ => None,
+        }
+    }
+}
 
 /// Build one concrete derived Eq body as ordinary shared ARC control/data flow.
 ///
@@ -300,12 +312,14 @@ impl BodyEmitter<'_, '_, '_> {
         let mut cases = Vec::with_capacity(variants.len());
         let mut variant_blocks = Vec::with_capacity(variants.len());
         for (variant_index, (_, fields)) in variants.iter().enumerate() {
-            let switch_index =
-                u64::try_from(variant_index).map_err(|_| DerivedEqBodyError::IndexOverflow {
+            let switch_index = u64::try_from(variant_index).map_err(|source| {
+                DerivedEqBodyError::IndexOverflow {
                     receiver_type: self.receiver_type,
                     index_kind: "variant",
                     index: variant_index,
-                })?;
+                    source: Some(source),
+                }
+            })?;
             let block = self.builder.new_block();
             cases.push((switch_index, block));
             variant_blocks.push((block, fields.as_slice()));
@@ -336,10 +350,11 @@ impl BodyEmitter<'_, '_, '_> {
 
         for (position, (field_index, field_type)) in comparison_order.iter().copied().enumerate() {
             let offset =
-                u32::try_from(field_index).map_err(|_| DerivedEqBodyError::IndexOverflow {
+                u32::try_from(field_index).map_err(|source| DerivedEqBodyError::IndexOverflow {
                     receiver_type: self.receiver_type,
                     index_kind: "field",
                     index: field_index,
+                    source: Some(source),
                 })?;
             let projection =
                 field_base
@@ -348,6 +363,7 @@ impl BodyEmitter<'_, '_, '_> {
                         receiver_type: self.receiver_type,
                         index_kind: "field",
                         index: field_index,
+                        source: None,
                     })?;
 
             let receiver_field =

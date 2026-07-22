@@ -1,13 +1,11 @@
 //! Compound-aggregate `debug`/`to_str` LLVM emission: Option, Result, List,
 //! Tuple.
 
-use ori_ir::{FIELD_DATA, FIELD_LEN};
-use ori_types::Idx;
-
+use super::{super::ArcIrEmitter, RenderStyle};
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
-
-use super::{super::ArcIrEmitter, RenderStyle};
+use ori_ir::{FIELD_DATA, FIELD_LEN};
+use ori_types::Idx;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `Option.debug()` / `Option.to_str()` with branching.
@@ -45,6 +43,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         } else {
             payload
         };
+
         let inner_str = if style.is_debug() {
             self.emit_element_debug(payload, inner_ty)?
         } else {
@@ -85,12 +84,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         style: RenderStyle,
     ) -> Option<ValueId> {
         let receiver = arg_vals[0];
-        let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
-        let ok_const = self
-            .builder
-            .const_int_matching(tag, ori_ir::RESULT_TAG_OK as u64);
-        let is_ok = self.builder.icmp_eq(tag, ok_const, "is_ok");
-
         let TypeInfo::Result {
             ok: ok_ty,
             err: err_ty,
@@ -98,51 +91,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         else {
             return None;
         };
-
-        let ok_bb = self.builder.append_block(self.current_function, "rdbg.ok");
-        let err_bb = self.builder.append_block(self.current_function, "rdbg.err");
-        let merge_bb = self
-            .builder
-            .append_block(self.current_function, "rdbg.merge");
-
-        self.builder.cond_br(is_ok, ok_bb, err_bb);
-
-        self.builder.position_at_end(ok_bb);
-        let ok_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
-        let ok_str = if style.is_debug() {
-            self.emit_element_debug(ok_payload, ok_ty)?
-        } else {
-            self.emit_element_to_str(ok_payload, ok_ty)?
-        };
-        let ok_prefix = self.emit_literal_ori_str("Ok(")?;
-        let ok_suffix = self.emit_literal_ori_str(")")?;
-        let ok_tmp = self.emit_str_concat(ok_prefix, ok_str)?;
-        let ok_result = self.emit_str_concat(ok_tmp, ok_suffix)?;
-        self.dec_intermediate_str(ok_tmp);
-        let ok_bb_final = self.builder.current_block().unwrap();
-        self.builder.br(merge_bb);
-
-        self.builder.position_at_end(err_bb);
-        let err_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
-        let err_str = if style.is_debug() {
-            self.emit_element_debug(err_payload, err_ty)?
-        } else {
-            self.emit_element_to_str(err_payload, err_ty)?
-        };
-        let err_prefix = self.emit_literal_ori_str("Err(")?;
-        let err_suffix = self.emit_literal_ori_str(")")?;
-        let err_tmp = self.emit_str_concat(err_prefix, err_str)?;
-        let err_result = self.emit_str_concat(err_tmp, err_suffix)?;
-        self.dec_intermediate_str(err_tmp);
-        let err_bb_final = self.builder.current_block().unwrap();
-        self.builder.br(merge_bb);
-
-        self.builder.position_at_end(merge_bb);
-        let str_ty = self.resolve_type(ori_types::Idx::STR);
-        let phi = self.builder.phi(str_ty, "rdbg.result");
-        self.builder
-            .add_phi_incoming(phi, &[(ok_result, ok_bb_final), (err_result, err_bb_final)]);
-        Some(phi)
+        self.emit_nested_result_render(receiver, receiver_ty, ok_ty, err_ty, style)
     }
 
     /// Render a nested `Result` from pre-resolved payload types.
@@ -167,9 +116,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let ok_bb = self
             .builder
             .append_block(self.current_function, "rdbg.n.ok");
+
         let err_bb = self
             .builder
             .append_block(self.current_function, "rdbg.n.err");
+
         let merge_bb = self
             .builder
             .append_block(self.current_function, "rdbg.n.merge");
@@ -349,6 +300,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let field = self
                 .builder
                 .extract_value(tuple, memory_field, &format!("tdbg.f{i}"))?;
+
             let field_str = if style.is_debug() {
                 self.emit_element_debug(field, elem_ty)?
             } else {

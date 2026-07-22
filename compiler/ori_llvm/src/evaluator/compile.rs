@@ -35,10 +35,16 @@ struct JitCompilationInputs<'input, 'test, 'import> {
     mono_functions: &'input [ori_repr::monomorphize::MonoFunction],
     executable: &'input ori_repr::executable::ExecutableProgram,
     impl_emission_names: &'input [Option<Name>],
+    /// The gate the caller realized `executable` under.
+    verify_arc: bool,
 }
 
 /// Env: `ORI_VERIFY_ARC` — enables expensive ARC checks during JIT compilation, debug-only.
-fn jit_verify_arc_enabled() -> bool {
+///
+/// Only the environment-defaulting `OwnedLLVMEvaluator::new` reads this; a
+/// driver that realized the artifact under a resolved gate passes that gate
+/// through `OwnedLLVMEvaluator::with_verify_arc` instead.
+pub(crate) fn jit_verify_arc_enabled() -> bool {
     std::env::var("ORI_VERIFY_ARC").is_ok_and(|value| value != "0")
 }
 
@@ -123,6 +129,7 @@ impl super::OwnedLLVMEvaluator {
                     mono_functions,
                     executable,
                     impl_emission_names,
+                    verify_arc: self.verify_arc,
                 },
             )
         };
@@ -154,6 +161,7 @@ impl super::OwnedLLVMEvaluator {
             mono_functions,
             executable,
             impl_emission_names,
+            verify_arc,
         } = input;
 
         // Type/layout infrastructure is a physical projection of the same
@@ -179,7 +187,7 @@ impl super::OwnedLLVMEvaluator {
             &annotated_sigs,
             &classifier,
             None, // No debug info for JIT
-            jit_verify_arc_enabled(),
+            verify_arc,
         );
         fc.bind_executable_program(executable);
         fc.declare_all(&module.functions, function_sigs);

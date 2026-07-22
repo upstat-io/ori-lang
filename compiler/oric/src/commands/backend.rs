@@ -59,7 +59,9 @@ impl<'ctx> CodegenBackend<'ctx> for LlvmBackend<'ctx, '_> {
             import_sigs: self.import_sigs,
             imported: self.imported,
             target_triple: program.target_triple,
-            narrowing_policy: program.narrowing_policy,
+            realization_policy: oric::realization::RealizationPolicy::with_narrowing(
+                program.narrowing_policy,
+            ),
             imported_type_metadata: program.imported_type_metadata,
             imported_collection_surfaces: program.imported_collection_surfaces,
         })

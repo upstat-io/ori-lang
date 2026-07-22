@@ -21,7 +21,11 @@
 )]
 mod tests;
 
-use smallvec::SmallVec;
+mod capture;
+mod demand;
+
+pub(crate) use capture::capture_state_update;
+pub(crate) use demand::{backward_demands, backward_terminator_demands, BackwardDemand};
 
 use crate::ir::{
     ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind, PrimitiveFact,
@@ -73,7 +77,7 @@ impl DefTransfer {
 /// The `get_state` closure retrieves the current state of any variable.
 /// For unconstrained variables, it should return [`AimsState::TOP`].
 #[cfg(test)]
-pub fn transfer_def(
+pub(crate) fn transfer_def(
     instr: &ArcInstr,
     get_state: &impl Fn(ArcVarId) -> AimsState,
 ) -> Option<DefTransfer> {
@@ -360,188 +364,6 @@ pub fn transfer_terminator_def(term: &ArcTerminator) -> Option<DefTransfer> {
     }
 }
 
-// Backward demand
-
-/// One explicit TF-11 operand demand.
-///
-/// Cardinality and consumption are independent lattice dimensions. Keeping
-/// both in the carrier prevents consumers from reconstructing one from the
-/// other and preserves valid states such as `Many + Affine`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct BackwardDemand {
-    /// Operand receiving the demand.
-    pub var: ArcVarId,
-    /// Quantitative use count contributed by this instruction.
-    pub cardinality: Cardinality,
-    /// Ownership-consumption mode contributed by this instruction.
-    pub consumption: Consumption,
-}
-
-impl BackwardDemand {
-    fn linear_once(var: ArcVarId) -> Self {
-        Self {
-            var,
-            cardinality: Cardinality::Once,
-            consumption: Consumption::Linear,
-        }
-    }
-}
-
-/// Compute backward demand contributions for an instruction.
-///
-/// Each returned value carries both TF-11 demand dimensions. The analysis
-/// engine composes each dimension with its own `seq_add` operation.
-///
-/// Historical influence: GHC demand analysis SHAPE (Sergey et al., POPL 2014):
-/// - Sequential: `seq_add` along one execution path
-/// - Alternative: `alt_join` at control-flow merge points
-pub fn backward_demands(instr: &ArcInstr) -> SmallVec<[BackwardDemand; 4]> {
-    match instr {
-        ArcInstr::Let { value, .. } => match value {
-            // Var: transparent-alias transfer — dst's accumulated demand
-            // transfers to v in block.rs::analyze_block before dst is removed;
-            // returning (v, Once) here would double-count. Literal: no var demand.
-            ArcValue::Var(_) | ArcValue::Literal(_) => SmallVec::new(),
-            ArcValue::PrimOp { args, .. } => args
-                .iter()
-                .map(|&var| BackwardDemand::linear_once(var))
-                .collect(),
-        },
-
-        // Construct/Apply: each arg consumed once.
-        ArcInstr::Construct { args, .. } | ArcInstr::Apply { args, .. } => {
-            args.iter()
-                .map(|&var| BackwardDemand::linear_once(var))
-                .collect()
-        }
-
-        // ApplyIndirect: closure + all args demanded once.
-        ArcInstr::ApplyIndirect { closure, args, .. } => {
-            let mut d = SmallVec::with_capacity(1 + args.len());
-            d.push(BackwardDemand::linear_once(*closure));
-            d.extend(
-                args.iter()
-                    .map(|&var| BackwardDemand::linear_once(var)),
-            );
-            d
-        }
-
-        // PartialApply: captured arg demand is handled entirely by
-        // `capture_state_update` in block.rs, which sets precise
-        // access/consumption/cardinality/locality based on the closure's
-        // own demand state. Returning demand here would double-count.
-        // Current-carrier RC/burden operations are already-realized ownership
-        // events, not user-code uses. The AIMS lattice does not consume them,
-        // and their counter-shaped spelling belongs to the compiled adapter.
-        // No backward demand is contributed.
-        ArcInstr::PartialApply { .. }
-        | ArcInstr::RcInc { .. }
-        | ArcInstr::RcDec { .. }
-        | ArcInstr::RcDecPartial { .. }
-        | ArcInstr::RcDecField { .. }
-        | ArcInstr::RcDecVariant { .. }
-        | ArcInstr::BurdenInc { .. }
-        | ArcInstr::BurdenDec { .. }
-        | ArcInstr::BurdenDecPartial { .. }
-        | ArcInstr::BurdenDecField { .. }
-        | ArcInstr::BurdenDecVariant { .. }
-        // Project is a borrow whose destination demand transfers through
-        // TF-14. Adding a standard demand here would double-count it.
-        | ArcInstr::Project { .. } => SmallVec::new(),
-
-        // Select operands are conditional aliases. Only the condition has a
-        // standard demand; destination demand transfers to both values in
-        // IA-5 step (1).
-        ArcInstr::Select { cond, .. } => SmallVec::from_buf_and_len(
-            [BackwardDemand::linear_once(*cond); 4],
-            1,
-        ),
-
-        // CollectionReuse: old_var consumed + args consumed once.
-        ArcInstr::CollectionReuse { old_var, args, .. } => {
-            let mut d = SmallVec::with_capacity(1 + args.len());
-            d.push(BackwardDemand::linear_once(*old_var));
-            d.extend(
-                args.iter()
-                    .map(|&var| BackwardDemand::linear_once(var)),
-            );
-            d
-        }
-
-        // IsShared observes logical sharing; Reset consumes the source owner.
-        ArcInstr::IsShared { var, .. } | ArcInstr::Reset { var, .. } => {
-            SmallVec::from_buf_and_len([BackwardDemand::linear_once(*var); 4], 1)
-        }
-
-        // Set: base + value each read once.
-        ArcInstr::Set { base, value, .. } => {
-            let mut d = SmallVec::new();
-            d.push(BackwardDemand::linear_once(*base));
-            d.push(BackwardDemand::linear_once(*value));
-            d
-        }
-
-        // SetTag: base read once.
-        ArcInstr::SetTag { base, .. } => {
-            SmallVec::from_buf_and_len([BackwardDemand::linear_once(*base); 4], 1)
-        }
-
-        // Reuse: token consumed + args consumed once.
-        ArcInstr::Reuse { token, args, .. } => {
-            let mut d = SmallVec::with_capacity(1 + args.len());
-            d.push(BackwardDemand::linear_once(*token));
-            d.extend(
-                args.iter()
-                    .map(|&var| BackwardDemand::linear_once(var)),
-            );
-            d
-        }
-    }
-}
-
-/// Compute backward demand contributions for a terminator.
-pub fn backward_terminator_demands(term: &ArcTerminator) -> SmallVec<[BackwardDemand; 4]> {
-    match term {
-        // Return: value demanded once.
-        ArcTerminator::Return { value } => {
-            SmallVec::from_buf_and_len([BackwardDemand::linear_once(*value); 4], 1)
-        }
-
-        // Jump: args flow to target block params.
-        ArcTerminator::Jump { args, .. } => args
-            .iter()
-            .map(|&var| BackwardDemand::linear_once(var))
-            .collect(),
-
-        // Branch: cond read once.
-        ArcTerminator::Branch { cond, .. } => {
-            SmallVec::from_buf_and_len([BackwardDemand::linear_once(*cond); 4], 1)
-        }
-
-        // Switch: scrutinee read once (tag check).
-        ArcTerminator::Switch { scrutinee, .. } => {
-            SmallVec::from_buf_and_len([BackwardDemand::linear_once(*scrutinee); 4], 1)
-        }
-
-        // Invoke: all args demanded once (conservative).
-        ArcTerminator::Invoke { args, .. } => args
-            .iter()
-            .map(|&var| BackwardDemand::linear_once(var))
-            .collect(),
-
-        // InvokeIndirect: closure + all args demanded once.
-        ArcTerminator::InvokeIndirect { closure, args, .. } => {
-            let mut d = SmallVec::with_capacity(1 + args.len());
-            d.push(BackwardDemand::linear_once(*closure));
-            d.extend(args.iter().map(|&var| BackwardDemand::linear_once(var)));
-            d
-        }
-
-        // Terminal: no uses.
-        ArcTerminator::Resume | ArcTerminator::Unreachable => SmallVec::new(),
-    }
-}
-
 // Logical ownership-event predicates
 
 /// Whether a logical release event is unnecessary at this program point.
@@ -608,65 +430,6 @@ pub enum CowMutationObligation {
 /// in-place mutation.
 pub fn is_owned_and_unique(state: &AimsState) -> bool {
     state.access == AccessClass::Owned && state.uniqueness == Uniqueness::Unique
-}
-
-// State update helpers
-
-/// Update a captured variable's state for `PartialApply`.
-///
-/// Locality is closure-aware (effect computation): captured args inherit the
-/// closure's own locality — if the closure stays function-local, captured
-/// args need only `FunctionLocal`; if it escapes to the heap, captured
-/// args get `HeapEscaping`. The closure's state comes from the backward
-/// analysis (how the closure variable is demanded downstream).
-///
-/// If the closure is invoked at most once (`cardinality <= Once`),
-/// captured values preserve uniqueness — this is the `OxCaml` "lock"
-/// mechanism (LAM rule). A once-closure invokes captured values exactly
-/// once, so no duplication occurs. The consumption dimension is
-/// orthogonal: a closure with `Affine` consumption (may be dropped
-/// without use) still only invokes captured values at most once.
-///
-/// Returns the input unchanged for scalar variables.
-pub fn capture_state_update(current: &AimsState, closure_state: &AimsState) -> AimsState {
-    if current.is_scalar() {
-        return *current;
-    }
-    let mut state = *current;
-    state.access = AccessClass::Owned;
-
-    // Once-closure optimization (OxCaml LAM rule): if the closure is
-    // invoked at most once (cardinality <= Once), captured variables are
-    // used at most once through the closure, preserving linearity and
-    // uniqueness. The consumption dimension (whether the closure may be
-    // dropped) is orthogonal — a dropped closure uses captured vars
-    // zero times, not additionally.
-    if closure_state.cardinality <= Cardinality::Once {
-        // Captured var is used through the closure at most once.
-        // Keep consumption/cardinality from current state (don't widen).
-        // Only ensure at least Affine (may be dropped if closure is dropped).
-        if state.consumption < Consumption::Affine {
-            state.consumption = Consumption::Affine;
-        }
-        if state.cardinality < Cardinality::Once {
-            state.cardinality = Cardinality::Once;
-        }
-    } else {
-        // Multi-use closure: captured values may be used many times.
-        state.consumption = Consumption::Unrestricted;
-        state.cardinality = Cardinality::Many;
-    }
-
-    // Closure-aware locality: captured vars inherit the closure's locality.
-    // No artificial FunctionLocal floor — a block-local closure capturing a
-    // block-local variable preserves BlockLocal (both scoped to the same block).
-    // Per TF-13.
-    if state.locality < closure_state.locality {
-        state.locality = closure_state.locality;
-    }
-
-    state.canonicalize();
-    state
 }
 
 /// State for a consumed variable (after `CollectionReuse` consumes `old_var`,

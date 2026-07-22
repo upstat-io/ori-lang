@@ -23,11 +23,12 @@ mod narrowing;
 mod terminator;
 mod widen;
 
+use core::fmt;
 use ori_arc::graph::{compute_postorder, compute_predecessors};
-use ori_arc::ir::{ArcBlock, ArcFunction};
+use ori_arc::ir::ArcFunction;
 use ori_arc::{ArcBlockId, ArcVarId};
 use ori_types::Pool;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
 use super::field_summary::{
     update_element_summaries, update_element_summaries_from_terminator, update_field_summaries,
@@ -67,48 +68,6 @@ pub struct RangeFixpointResult {
     pub block_refinements: FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
 }
 
-/// Apply block-entry refinements to non-parameter variables as a temporary
-/// overlay. Returns a vec of `(var, original_range)` pairs for later restoration.
-///
-/// Branch/Switch terminators produce refinements for specific variables in
-/// successor blocks. Block parameters get refined during `merge_block_params`,
-/// but non-parameter variables that are live across the branch also need
-/// refinement during body processing. Since non-param variables share a
-/// single global range entry, we apply the refinement temporarily and restore
-/// afterward.
-pub(super) fn apply_block_refinements(
-    block: &ArcBlock,
-    ranges: &mut FxHashMap<ArcVarId, ValueRange>,
-    block_refinements: &FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
-) -> Vec<(ArcVarId, ValueRange)> {
-    let mut saved: Vec<(ArcVarId, ValueRange)> = Vec::new();
-    let param_vars: FxHashSet<ArcVarId> = block.params.iter().map(|(v, _)| *v).collect();
-
-    for (&(ref_block, ref_var), &refinement) in block_refinements {
-        if ref_block != block.id || param_vars.contains(&ref_var) {
-            continue;
-        }
-        if let Some(&current) = ranges.get(&ref_var) {
-            let refined = current.meet(refinement);
-            if refined != current {
-                saved.push((ref_var, current));
-                ranges.insert(ref_var, refined);
-            }
-        }
-    }
-    saved
-}
-
-/// Restore ranges that were temporarily refined for a block.
-pub(super) fn restore_block_refinements(
-    ranges: &mut FxHashMap<ArcVarId, ValueRange>,
-    saved: Vec<(ArcVarId, ValueRange)>,
-) {
-    for (var, original) in saved {
-        ranges.insert(var, original);
-    }
-}
-
 /// Mutable state threaded through the fixpoint loop.
 struct FixpointState {
     ranges: FxHashMap<ArcVarId, ValueRange>,
@@ -119,6 +78,32 @@ struct FixpointState {
     return_range: ValueRange,
 }
 
+/// Separates stable CFG/type inputs from mutable convergence state.
+pub(super) struct FixpointContext<'a> {
+    rpo: &'a [usize],
+    func: &'a ArcFunction,
+    pool: &'a Pool,
+    predecessors: &'a [Vec<usize>],
+    known_builtins: &'a super::KnownBuiltins,
+    call_result_narrowings: &'a FxHashMap<ArcVarId, ValueRange>,
+}
+
+// Why: The context retains whole CFG and type tables; report identity and cardinalities only.
+impl fmt::Debug for FixpointContext<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("FixpointContext")
+            .field("function", &self.func.name)
+            .field("block_count", &self.func.blocks.len())
+            .field("rpo_len", &self.rpo.len())
+            .field(
+                "call_result_narrowing_count",
+                &self.call_result_narrowings.len(),
+            )
+            .finish()
+    }
+}
+
 /// Run one forward iteration of the fixpoint loop over all blocks in RPO.
 ///
 /// Returns `true` if any range changed during this iteration.
@@ -127,19 +112,10 @@ struct FixpointState {
 /// are narrowed (via `meet`) with the callee return range after the transfer
 /// function runs. This enables derived locals downstream of call results
 /// to propagate the callee return range through the fixpoint.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "fixpoint infrastructure — bundling would add indirection for one extra map ref"
-)]
 fn run_forward_iteration(
-    rpo: &[usize],
-    func: &ArcFunction,
-    pool: &Pool,
-    predecessors: &[Vec<usize>],
+    context: &FixpointContext<'_>,
     state: &mut FixpointState,
     iteration: usize,
-    known_builtins: &super::KnownBuiltins,
-    call_result_narrowings: &FxHashMap<ArcVarId, ValueRange>,
     thresholds: &[i64],
 ) -> bool {
     // Clear stale refinements from prior iterations.
@@ -149,14 +125,13 @@ fn run_forward_iteration(
     state.block_refinements.clear();
 
     let mut changed = false;
-    for &block_idx in rpo {
-        let block = &func.blocks[block_idx];
+    for &block_idx in context.rpo {
+        let block = &context.func.blocks[block_idx];
 
         changed |= merge_block_params(
+            context,
             block,
             block_idx,
-            predecessors,
-            func,
             &mut state.ranges,
             &state.block_refinements,
             iteration,
@@ -170,66 +145,55 @@ fn run_forward_iteration(
         // the forward iteration, causing body computations to use the widened
         // phi range instead of the refined range. This makes i+1 overshoot
         // the comparison threshold, preventing convergence.
-        if predecessors[block_idx].len() == 1 {
-            let pred_idx = predecessors[block_idx][0];
-            let pred_id = func.blocks[pred_idx].id;
+        if context.predecessors[block_idx].len() == 1 {
+            let pred_idx = context.predecessors[block_idx][0];
+            let pred_id = context.func.blocks[pred_idx].id;
             let inherited: Vec<_> = state
                 .block_refinements
                 .iter()
-                .filter(|&(&(rb, rv), _)| {
-                    rb == pred_id && !state.block_refinements.contains_key(&(block.id, rv))
-                })
+                .filter(|&(&(rb, _), _)| rb == pred_id)
                 .map(|(&(_, rv), &range)| (block.id, rv, range))
                 .collect();
             for (bid, var, range) in inherited {
-                state.block_refinements.insert((bid, var), range);
+                state.block_refinements.entry((bid, var)).or_insert(range);
             }
         }
 
-        let saved = apply_block_refinements(block, &mut state.ranges, &state.block_refinements);
+        let saved =
+            iteration::apply_block_refinements(block, &mut state.ranges, &state.block_refinements);
 
         for instr in &block.body {
             update_field_summaries(
                 instr,
                 &state.ranges,
-                &func.var_types,
-                pool,
+                &context.func.var_types,
+                context.pool,
                 &mut state.field_summary_table,
             );
+
             update_element_summaries(
                 instr,
                 &state.ranges,
-                &func.var_types,
-                pool,
+                &context.func.var_types,
+                context.pool,
                 &mut state.element_summary_table,
             );
+
             let ctx = TransferContext {
                 ranges: &state.ranges,
-                pool,
-                var_types: &func.var_types,
+                pool: context.pool,
+                var_types: &context.func.var_types,
                 field_summaries: state.field_summary_table.as_map(),
                 direct_field_sources: &state.direct_field_sources,
-                known_builtins,
+                known_builtins: context.known_builtins,
             };
             let mut new_range = transfer(instr, &ctx);
             if let Some(var) = instr.defined_var() {
-                // Apply callee return-range narrowing to call-result
-                // variables. The transfer function for Apply/Invoke returns Top
-                // (unknown function), but the callee's return range is available
-                // from interprocedural analysis. Applying `meet` here lets the narrowed
-                // value propagate to derived locals through subsequent iterations.
-                if let Some(&narrowing) = call_result_narrowings.get(&var) {
+                // Why: `Apply`/`Invoke` transfer yields `Top`, so callee ranges narrow results here.
+                if let Some(&narrowing) = context.call_result_narrowings.get(&var) {
                     new_range = new_range.meet(narrowing);
                 }
-                // Body variables are SSA: defined exactly once per block. Their
-                // range is fully determined by the transfer function — no need to
-                // join with prior iterations or apply widening. Using join+widening
-                // on body variables (especially copies of loop counter phis like
-                // `%6 = %4`) causes spurious widening that poisons the back-edge
-                // contribution, preventing loop counter convergence.
-                //
-                // Only block parameters (phi nodes) need join+widening, which is
-                // handled by merge_block_params() above.
+                // INVARIANT: Only block parameters join and widen; body variables are SSA definitions.
                 let old = state.ranges.get(&var).copied().unwrap_or(Bottom);
                 if new_range != old {
                     tracing::trace!(var = var.index(), ?old, ?new_range, "body var updated");
@@ -239,25 +203,22 @@ fn run_forward_iteration(
             }
         }
 
-        restore_block_refinements(&mut state.ranges, saved);
+        iteration::restore_block_refinements(&mut state.ranges, saved);
 
         // check terminators for Invoke calls returning collections.
         update_element_summaries_from_terminator(
             &block.terminator,
-            pool,
+            context.pool,
             &mut state.element_summary_table,
         );
 
         changed |= process_terminator(
+            context,
             block,
-            func,
-            pool,
             &mut state.ranges,
             &mut state.block_refinements,
             &mut state.return_range,
             iteration,
-            known_builtins,
-            call_result_narrowings,
             thresholds,
         );
     }
@@ -267,15 +228,14 @@ fn run_forward_iteration(
 /// Post-fixpoint narrowing: propagate refinements, run narrowing passes,
 /// recompute field summaries, and finalize return range.
 fn run_post_fixpoint_narrowing(
-    rpo: &[usize],
-    func: &ArcFunction,
-    pool: &Pool,
-    predecessors: &[Vec<usize>],
+    context: &FixpointContext<'_>,
     state: &mut FixpointState,
-    known_builtins: &super::KnownBuiltins,
-    crn: &FxHashMap<ArcVarId, ValueRange>,
 ) -> RangeFixpointResult {
-    propagate_refinements_through_jump_chains(func, predecessors, &mut state.block_refinements);
+    propagate_refinements_through_jump_chains(
+        context.func,
+        context.predecessors,
+        &mut state.block_refinements,
+    );
 
     // Alternate structural induction recovery with ordinary transfer
     // narrowing until both monotone fact tables stabilize. Outer-loop body
@@ -285,24 +245,23 @@ fn run_post_fixpoint_narrowing(
         let ranges_before = state.ranges.clone();
         let refinements_before = state.block_refinements.clone();
         refine_direct_range_inductions(
-            func,
-            pool,
+            context.func,
+            context.pool,
             &mut state.ranges,
-            predecessors,
+            context.predecessors,
             &mut state.block_refinements,
         );
-        propagate_refinements_through_jump_chains(func, predecessors, &mut state.block_refinements);
+        propagate_refinements_through_jump_chains(
+            context.func,
+            context.predecessors,
+            &mut state.block_refinements,
+        );
         run_narrowing_pass(
-            rpo,
-            func,
-            pool,
+            context,
             &mut state.ranges,
             &state.field_summary_table,
             &state.direct_field_sources,
-            predecessors,
             &state.block_refinements,
-            known_builtins,
-            crn,
         );
         if state.ranges == ranges_before && state.block_refinements == refinements_before {
             break;
@@ -310,36 +269,33 @@ fn run_post_fixpoint_narrowing(
     }
 
     recompute_field_summaries(
-        rpo,
-        func,
-        pool,
+        context.rpo,
+        context.func,
+        context.pool,
         &state.ranges,
         &mut state.field_summary_table,
     );
+
     recompute_element_summaries(
-        rpo,
-        func,
-        pool,
+        context.rpo,
+        context.func,
+        context.pool,
         &state.ranges,
         &mut state.element_summary_table,
     );
 
     // Final narrowing pass with recomputed field summaries.
     run_narrowing_pass(
-        rpo,
-        func,
-        pool,
+        context,
         &mut state.ranges,
         &state.field_summary_table,
         &state.direct_field_sources,
-        predecessors,
         &state.block_refinements,
-        known_builtins,
-        crn,
     );
 
     // Recompute return_range from final narrowed ranges.
-    let return_range = recompute_return_range(rpo, func, pool, &state.ranges);
+    let return_range =
+        recompute_return_range(context.rpo, context.func, context.pool, &state.ranges);
 
     RangeFixpointResult {
         var_ranges: state.ranges.clone(),
@@ -367,11 +323,7 @@ fn run_post_fixpoint_narrowing(
 /// are narrowed (via `meet`) with callee return ranges after the transfer
 /// function runs, enabling derived locals to propagate.
 #[tracing::instrument(skip_all)]
-#[expect(
-    clippy::implicit_hasher,
-    reason = "FxHashMap is the only hasher used in range analysis"
-)]
-pub fn range_fixpoint(
+pub(crate) fn range_fixpoint(
     func: &ArcFunction,
     pool: &Pool,
     config: &RangeAnalysisConfig,
@@ -422,6 +374,7 @@ pub fn range_fixpoint(
         })
         .flatten()
         .collect();
+
     let mut state = FixpointState {
         ranges: FxHashMap::default(),
         direct_field_sources,
@@ -443,23 +396,21 @@ pub fn range_fixpoint(
 
     let empty_narrowings = FxHashMap::default();
     let crn = call_result_narrowings.unwrap_or(&empty_narrowings);
+    let context = FixpointContext {
+        rpo: &rpo,
+        func,
+        pool,
+        predecessors: &predecessors,
+        known_builtins: &config.known_builtins,
+        call_result_narrowings: crn,
+    };
 
     // Thresholds for guided widening, populated after iteration 0.
     let mut thresholds: Vec<i64> = Vec::new();
 
     let mut iteration = 0;
     loop {
-        let changed = run_forward_iteration(
-            &rpo,
-            func,
-            pool,
-            &predecessors,
-            &mut state,
-            iteration,
-            &config.known_builtins,
-            crn,
-            &thresholds,
-        );
+        let changed = run_forward_iteration(&context, &mut state, iteration, &thresholds);
 
         // After the first iteration, constant ranges are populated.
         // Collect comparison thresholds for guided widening before
@@ -483,15 +434,7 @@ pub fn range_fixpoint(
         "range analysis complete"
     );
 
-    run_post_fixpoint_narrowing(
-        &rpo,
-        func,
-        pool,
-        &predecessors,
-        &mut state,
-        &config.known_builtins,
-        crn,
-    )
+    run_post_fixpoint_narrowing(&context, &mut state)
 }
 
 #[cfg(test)]

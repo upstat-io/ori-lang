@@ -49,7 +49,7 @@ pub(in crate::commands) struct CodegenPipelineInput<'ctx, 'a> {
     pub(in crate::commands) import_sigs: &'a [ori_repr::monomorphize::ImportSig],
     pub(in crate::commands) imported: ImportedSurfaces<'a>,
     pub(in crate::commands) target_triple: Option<&'a str>,
-    pub(in crate::commands) narrowing_policy: ori_repr::NarrowingPolicy,
+    pub(in crate::commands) realization_policy: crate::realization::RealizationPolicy,
     pub(in crate::commands) imported_type_metadata: &'a [ori_types::ExportedTypeMetadata],
     pub(in crate::commands) imported_collection_surfaces: &'a [u64],
 }
@@ -87,6 +87,7 @@ pub(in crate::commands) fn run_codegen_pipeline<'ctx>(
     let mut realization_pool = input.pool.clone();
     let scx = ManuallyDrop::new(SimpleCx::new(input.context, input.module_name));
     let realized = realize_codegen_program(&input, &mut realization_pool, interner)?;
+    crate::dump_orchestrator::dump_realized_arc(&realized.executable, interner, input.source_path);
 
     let (codegen_errors, codegen_descriptions, exports) = {
         // SAFETY: ManuallyDrop keeps scx at a stable address through emission;
@@ -119,56 +120,26 @@ fn realize_codegen_program(
         impl_emission_names,
     } = prepare_analysis_products(input, pool, interner, &function_sigs)?;
 
-    let mut type_registry = ori_types::TypeRegistry::from_typed_exports(
-        input.typed.typed.types.clone(),
-        input.typed.typed.collection_burdens.clone(),
-    );
-    ori_types::register_resolved_collection_burdens(pool, &mut type_registry);
-    let has_impl_methods = input
-        .typed
-        .typed
-        .impl_sigs
-        .iter()
-        .any(|entry| !entry.sig.is_generic());
-    let repr_plan =
-        crate::realization::compute_module_repr_plan(crate::realization::ModuleReprInput {
-            pool,
-            arc_functions: prepared.functions(),
-            narrowing_policy: input.narrowing_policy,
-            type_result: input.typed,
-            interner: Some(interner),
-            imported_type_metadata: input.imported_type_metadata,
-            imported_collection_surfaces: input.imported_collection_surfaces,
-            has_analysis_only_functions: has_impl_methods,
-        });
     let externals = ori_repr::monomorphize::realize_imported_callables(input.import_sigs, pool)
         .map_err(|error| format!("imported callable realization failed: {error}"))?;
-    let user_drop_bindings = crate::realization::collect_user_drop_bindings(
-        &type_registry,
-        &typed_user_drop_bindings,
-        pool,
-    )
-    .map_err(|error| format!("user-drop callable realization failed: {error}"))?;
-    let roots = prepared.parent_roots();
-    let cli_entry = input
-        .parse
-        .module
-        .functions
-        .iter()
-        .zip(&function_sigs)
-        .find_map(|(function, signature)| signature.is_main.then_some(function.name));
     let executable =
         crate::realization::realize_arc_program(crate::realization::ArcProgramRealizationInput {
             prepared,
             pool: pool.clone(),
             symbols: input.db.shared_interner(),
-            roots,
-            cli_entry,
+            facts: crate::realization::CheckedModuleFacts {
+                parse: input.parse,
+                types: input.typed,
+                function_sigs: &function_sigs,
+                interner,
+                imported_repr: crate::realization::ImportedReprSurfaces {
+                    type_metadata: input.imported_type_metadata,
+                    collection_surfaces: input.imported_collection_surfaces,
+                },
+            },
             externals,
-            user_drop_bindings,
-            repr_plan,
-            type_registry,
-            verify_arc: verify_arc_enabled(),
+            typed_user_drop_bindings: &typed_user_drop_bindings,
+            policy: input.realization_policy,
         })
         .map_err(|error| format!("closed executable realization failed: {error}"))?;
 
@@ -337,7 +308,6 @@ fn emit_realized_program<'ctx>(
     let artifact_pool = realized.executable.pool();
     let repr_plan = realized.executable.repr_plan();
     let classifier = ori_arc::ArcClassifier::new(artifact_pool);
-    finalize::dump_arc_phases(&realized.executable, interner, input.source_path);
     let annotated_sigs =
         exports::artifact_annotated_signatures(&realized.executable, input.import_sigs)?;
     let store = TypeInfoStore::new_with_plan(artifact_pool, repr_plan);
@@ -354,7 +324,7 @@ fn emit_realized_program<'ctx>(
         &annotated_sigs,
         &classifier,
         None,
-        verify_arc_enabled(),
+        input.realization_policy.verify_arc,
     );
     compiler.bind_executable_program(&realized.executable);
     emit_all_functions(&mut compiler, input, realized, interner);
@@ -431,9 +401,4 @@ fn emit_all_functions<'a, 'scx: 'ctx, 'ctx, 'tcx>(
     {
         compiler.generate_main_wrapper(function.name, signature, panic_name);
     }
-}
-
-/// Env: `ORI_VERIFY_ARC` — enables expensive ARC correctness checks, debug-only.
-fn verify_arc_enabled() -> bool {
-    std::env::var(crate::debug_flags::ORI_VERIFY_ARC).is_ok_and(|value| value != "0")
 }

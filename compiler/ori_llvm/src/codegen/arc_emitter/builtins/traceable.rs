@@ -95,7 +95,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .flatten()
             .unwrap_or(ori_ir::Span::DUMMY);
         let (line, col) = dc.offset_to_line_col(span.start);
-        (dc.source_path.clone(), i64::from(line), i64::from(col))
+        (dc.source_path().to_owned(), i64::from(line), i64::from(col))
     }
 
     fn emit_trace_injection(

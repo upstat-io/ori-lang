@@ -19,6 +19,7 @@ target | ori_arc::aims::interprocedural | compiler/ori_arc/src/aims/interprocedu
 target | ori_arc::aims::interprocedural | compiler/ori_arc/src/aims/interprocedural/scc_driver.rs
 target | ori_arc::aims::intraprocedural | compiler/ori_arc/src/aims/intraprocedural/birth_site_partition.rs
 target | ori_arc::aims::intraprocedural | compiler/ori_arc/src/aims/intraprocedural/birth_site_population.rs
+target | ori_arc::aims::intraprocedural | compiler/ori_arc/src/aims/intraprocedural/birth_site_population/merge_family.rs
 target | ori_arc::aims::pipeline | compiler/ori_arc/src/pipeline/aims_pipeline/mod.rs
 target | ori_arc::aims::realize | compiler/ori_arc/src/aims/realize/emit_unified.rs
 target | ori_arc::aims::realize | compiler/ori_arc/src/aims/realize/rc_remark.rs

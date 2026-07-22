@@ -4,10 +4,13 @@ use crate::{ParseError, Parser};
 use ori_ir::{CallArg, Expr, ExprId, ExprKind, FieldInit, StructLitField, TokenKind};
 
 impl Parser<'_> {
-    /// Parse a struct literal after `{` has been consumed.
+    /// Parse a struct literal after `{` has been consumed. `type_path` is the
+    /// parsed type-path head (`type_path = identifier { "." identifier }`):
+    /// `Named` for a bare name, `AssociatedType`-chain for a module-qualified
+    /// path.
     pub(super) fn parse_postfix_struct_lit(
         &mut self,
-        struct_name: ori_ir::Name,
+        type_path: ori_ir::ParsedTypeId,
         start_span: ori_ir::Span,
     ) -> Result<ExprId, ParseError> {
         // Struct literal fields use a Vec because nested struct literals
@@ -63,7 +66,7 @@ impl Parser<'_> {
             let fields_range = self.arena.alloc_struct_lit_fields(fields);
             Ok(self.arena.alloc_expr(Expr::new(
                 ExprKind::StructWithSpread {
-                    name: struct_name,
+                    type_path,
                     fields: fields_range,
                 },
                 start_span.merge(end_span),
@@ -79,7 +82,7 @@ impl Parser<'_> {
             let fields_range = self.arena.alloc_field_inits(field_inits);
             Ok(self.arena.alloc_expr(Expr::new(
                 ExprKind::Struct {
-                    name: struct_name,
+                    type_path,
                     fields: fields_range,
                 },
                 start_span.merge(end_span),

@@ -4,18 +4,19 @@
 //! liveness of field-path views. The result identifies any uncured view.
 //! Trace events share the `ori_arc::aims::class_ledger` target across the cure ladder.
 
+mod decompose;
+mod detect;
+mod funding;
+mod skip_derive;
+mod sum_arm;
+mod unmanaged_tuple;
+
 use ori_ir::Name;
 use rustc_hash::FxHashSet;
 
 use crate::aims::intraprocedural::birth_site_partition::{BirthSitePartition, NodeIdx};
 use crate::aims::intraprocedural::ledger_events::{EventSite, LedgerClassification};
 use crate::ir::ArcFunction;
-
-mod decompose;
-mod detect;
-mod funding;
-mod skip_derive;
-mod sum_arm;
 
 pub(crate) use detect::field_view_hazard_classes;
 #[cfg(test)]
@@ -26,19 +27,29 @@ use super::events;
 use super::verify::{self, ClassVerdict};
 use super::ClassPlan;
 
-/// Whether a planned increment for `var` has a physical runtime carrier.
-/// Fat values retain the compatibility carrier used by unresolved specialized
-/// aliases; every other value requires a registered burden.
+/// Whether a planned increment for `var` has a physical reference-count
+/// carrier. Fat values and registered non-user-drop burdens retain the
+/// compatibility admission used by unresolved specialized aliases. A burden
+/// carrying user cleanup must also describe a counted identity or recursively
+/// counted storage; user-drop-only burdens have no count for an increment to
+/// fund.
 fn increment_is_materializable(
     func: &ArcFunction,
     var: crate::ir::ArcVarId,
     type_registry: &ori_types::TypeRegistry,
 ) -> bool {
+    use crate::lower::burden::Burden;
     use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
 
     matches!(func.var_repr(var), Some(crate::ir::ValueRepr::FatValue))
         || func.var_types.get(var.index()).is_some_and(|&ty| {
-            lookup_burden(idx_to_type_ref(ty, type_registry), type_registry).is_some()
+            lookup_burden(idx_to_type_ref(ty, type_registry), type_registry).is_some_and(|burden| {
+                burden.user_drop().is_none()
+                    || burden.self_owned_identity()
+                    || burden.element_burden().is_some()
+                    || burden.variant_burdens().next().is_some()
+                    || burden.owned_fields().next().is_some()
+            })
         })
 }
 
@@ -366,6 +377,14 @@ pub(crate) fn cure_endangered_views(
             continue;
         }
         if funding::cure_view_with_extraction_funding(inputs, state, hazard.view) {
+            cured_views.insert(hazard.view);
+            continue;
+        }
+        let view_hazards: Vec<&FieldViewHazard> = hazards
+            .iter()
+            .filter(|candidate| candidate.view == hazard.view)
+            .collect();
+        if unmanaged_tuple::chain_has_no_recursive_field_release(inputs, state, &view_hazards) {
             cured_views.insert(hazard.view);
             continue;
         }

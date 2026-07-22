@@ -5,20 +5,16 @@
 //! terminate" pattern as LLVM's `IRBuilder`, but uses block parameters
 //! instead of phi nodes for SSA merge.
 
-use ori_ir::canon::MonoInstanceId;
-use ori_ir::{Name, Span};
-use ori_types::Idx;
-
 use crate::ir::{
     AllocationSiteId, ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator,
     ArcVarId, MethodCallFact, MethodCallForm, YieldAllocationExecution, YieldAllocationFact,
     YieldAllocationLocality, YieldExtent,
 };
+use ori_ir::canon::MonoInstanceId;
+use ori_ir::{Name, Span};
+use ori_types::Idx;
 
-/// Routing metadata for `Invoke`-family terminators: CFG successors plus the
-/// abstract dispatch index. Bundled so `terminate_invoke` stays under the
-/// `clippy::too_many_arguments` threshold. All fields are `Copy`, so the struct itself
-/// is `Copy` — passing by value is zero-cost and satisfies clippy.
+/// Groups CFG successors with the abstract dispatch index for an invoke.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct InvokeTargets {
     pub(crate) normal: ArcBlockId,
@@ -47,9 +43,12 @@ impl BlockBuilder {
     }
 }
 
+/// Identifies one instruction within the builder's block table.
 #[derive(Clone, Copy)]
 pub(super) struct InstructionLocation {
+    /// Owning block.
     pub(super) block: ArcBlockId,
+    /// Zero-based position within the block body.
     pub(super) instruction: u32,
 }
 
@@ -60,17 +59,9 @@ impl InstructionLocation {
     };
 }
 
-/// Builder for an in-progress ARC IR function.
-///
 /// Owns block and variable state while the function is being lowered.
 /// Consumed by [`finish`](ArcIrBuilder::finish) to produce the final
 /// [`ArcFunction`].
-///
-/// # Design
-///
-/// Follows the same "position at a block, emit instructions, terminate"
-/// pattern as LLVM's `IRBuilder`. The key difference is that ARC IR uses
-/// block parameters instead of phi nodes for SSA merge.
 pub(crate) struct ArcIrBuilder {
     pub(in crate::lower) blocks: Vec<BlockBuilder>,
     pub(in crate::lower) current_block: ArcBlockId,
@@ -81,15 +72,9 @@ pub(crate) struct ArcIrBuilder {
     /// target instead of `Resume`. Used by `catch(expr:)` lowering to
     /// redirect panics to a shared catch handler block.
     pub(in crate::lower) catch_unwind_target: Option<ArcBlockId>,
-    /// Mutable-`Ident` reassignment death points `(old_var, new_var)` recorded
-    /// by `lower_assign`. Threaded into `ArcFunction::reassign_deaths` by
-    /// [`finish`](Self::finish) for the burden Phase-5 reassign-release scan.
+    /// Mutable-identifier reassignment pairs requiring old-binding release.
     pub(in crate::lower) reassign_deaths: Vec<(ArcVarId, ArcVarId)>,
-    /// `(checked-op result var, catch handler block)` pairs for inline
-    /// checked-op `PrimOp`s lowered inside a `catch(expr:)` body. Threaded into
-    /// `ArcFunction::catch_scoped_checked_ops` by [`finish`](Self::finish); see
-    /// that field for the full emission-side contract. `note_checked_op` appends
-    /// when a `catch_unwind_target` is active (pairing with that target).
+    /// Checked-operation results paired with their active catch handler.
     pub(in crate::lower) catch_scoped_checked_ops: Vec<(ArcVarId, ArcBlockId)>,
     /// Exact owner/form facts for direct method calls, keyed by result register.
     pub(in crate::lower) method_call_facts: Vec<MethodCallFact>,
@@ -124,11 +109,11 @@ impl ArcIrBuilder {
         }
     }
 
-    // Block management
+    // Block management.
 
     /// Allocate a new empty block and return its ID.
     pub(crate) fn new_block(&mut self) -> ArcBlockId {
-        // Why: allocating enough blocks to exhaust `ArcBlockId` is not
+        // Why: Allocating enough blocks to exhaust `ArcBlockId` is not
         // representable in memory.
         let Ok(raw) = u32::try_from(self.blocks.len()) else {
             unreachable!("ARC block table exceeded ArcBlockId capacity");
@@ -165,18 +150,18 @@ impl ArcIrBuilder {
     #[inline]
     #[expect(
         clippy::unused_self,
-        reason = "method API: callers use builder.entry_block()"
+        reason = "method syntax keeps the builder-independent entry ID with block queries"
     )]
     pub(crate) fn entry_block(&self) -> ArcBlockId {
         ArcBlockId::new(0)
     }
 
-    // Variable allocation
+    // Variable allocation.
 
     /// Allocate a fresh variable with the given type.
     pub(crate) fn fresh_var(&mut self, ty: Idx) -> ArcVarId {
         let id = ArcVarId::new(self.next_var);
-        // Why: allocating enough variables to exhaust `ArcVarId` is not
+        // Why: Allocating enough variables to exhaust `ArcVarId` is not
         // representable in memory.
         let Some(next_var) = self.next_var.checked_add(1) else {
             unreachable!("ARC variable table exceeded ArcVarId capacity");
@@ -299,7 +284,7 @@ impl ArcIrBuilder {
         });
     }
 
-    // Finalization
+    // Finalization.
 
     /// Consume the builder and produce a finished [`ArcFunction`].
     ///
@@ -321,7 +306,7 @@ impl ArcIrBuilder {
                 "ARC block {} must be terminated before finish",
                 bb.id.raw()
             );
-            // Why: the always-on assertion above established the terminator's presence.
+            // Why: The always-on assertion establishes the terminator's presence.
             let Some(terminator) = bb.terminator.take() else {
                 unreachable!("validated ARC terminator disappeared before finalization");
             };

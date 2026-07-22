@@ -101,7 +101,7 @@ struct TarjanState {
 ///
 /// Avoids recursion depth issues on deeply connected call graphs.
 /// Each frame tracks the current node, its callee iterator position,
-/// and whether we're resuming after a recursive call.
+/// and whether traversal resumes after a recursive call.
 fn strongconnect(root: Name, graph: &CallGraph, state: &mut TarjanState) {
     // Frame for the explicit call stack.
     struct Frame {

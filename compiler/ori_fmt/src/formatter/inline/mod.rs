@@ -84,9 +84,8 @@ impl<I: StringLookup> Formatter<'_, I> {
             ExprKind::ListWithSpread(elements) => self.emit_inline_list_with_spread(*elements),
             ExprKind::Map(entries) => self.emit_inline_map(*entries),
             ExprKind::MapWithSpread(elements) => self.emit_inline_map_with_spread(*elements),
-            ExprKind::Struct { name, fields } => self.emit_inline_struct(*name, *fields),
-            ExprKind::StructWithSpread { name, fields } => {
-                self.emit_inline_struct_with_spread(*name, *fields);
+            kind @ (ExprKind::Struct { .. } | ExprKind::StructWithSpread { .. }) => {
+                self.emit_inline_struct_kind(kind);
             }
             ExprKind::Tuple(items) => self.emit_inline_tuple(*items),
             ExprKind::Range {
@@ -255,8 +254,8 @@ impl<I: StringLookup> Formatter<'_, I> {
         self.ctx.emit("}");
     }
 
-    fn emit_inline_struct(&mut self, name: Name, fields: FieldInitRange) {
-        self.ctx.emit(self.interner.lookup(name));
+    fn emit_inline_struct(&mut self, type_path: ParsedTypeId, fields: FieldInitRange) {
+        self.emit_type(self.arena.get_parsed_type(type_path));
         let fields = self.arena.get_field_inits(fields);
         if fields.is_empty() {
             self.ctx.emit(" {}");
@@ -273,8 +272,24 @@ impl<I: StringLookup> Formatter<'_, I> {
         self.ctx.emit(" }");
     }
 
-    fn emit_inline_struct_with_spread(&mut self, name: Name, fields: StructLitFieldRange) {
-        self.ctx.emit(self.interner.lookup(name));
+    fn emit_inline_struct_kind(&mut self, kind: &ExprKind) {
+        match kind {
+            ExprKind::Struct { type_path, fields } => {
+                self.emit_inline_struct(*type_path, *fields);
+            }
+            ExprKind::StructWithSpread { type_path, fields } => {
+                self.emit_inline_struct_with_spread(*type_path, *fields);
+            }
+            unexpected => unreachable!("unexpected inline struct kind: {unexpected:?}"),
+        }
+    }
+
+    fn emit_inline_struct_with_spread(
+        &mut self,
+        type_path: ParsedTypeId,
+        fields: StructLitFieldRange,
+    ) {
+        self.emit_type(self.arena.get_parsed_type(type_path));
         let fields = self.arena.get_struct_lit_fields(fields);
         if fields.is_empty() {
             self.ctx.emit(" {}");

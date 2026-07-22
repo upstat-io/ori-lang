@@ -75,7 +75,10 @@ pub enum OptimizationError {
     PassesFailed { message: String },
 
     /// Invalid pass pipeline string.
-    InvalidPipeline { pipeline: String, message: String },
+    InvalidPipeline {
+        pipeline: String,
+        source: std::ffi::NulError,
+    },
 
     /// Failed to write bitcode file during LTO pre-link phase.
     BitcodeWriteFailed { path: String },
@@ -93,8 +96,11 @@ impl fmt::Display for OptimizationError {
             Self::PassesFailed { message } => {
                 write!(f, "optimization passes failed: {message}")
             }
-            Self::InvalidPipeline { pipeline, message } => {
-                write!(f, "invalid pipeline '{pipeline}': {message}")
+            Self::InvalidPipeline { pipeline, .. } => {
+                write!(
+                    f,
+                    "invalid pipeline '{pipeline}': pipeline contains null bytes"
+                )
             }
             Self::BitcodeWriteFailed { path } => {
                 write!(f, "failed to write bitcode file '{path}'")
@@ -103,7 +109,19 @@ impl fmt::Display for OptimizationError {
     }
 }
 
-impl std::error::Error for OptimizationError {}
+impl std::error::Error for OptimizationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::InvalidPipeline { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+}
+
+fn pipeline_c_string(pipeline: String) -> Result<CString, OptimizationError> {
+    CString::new(pipeline.clone())
+        .map_err(|source| OptimizationError::InvalidPipeline { pipeline, source })
+}
 
 /// Extract error message from LLVM error, disposing the error.
 ///
@@ -183,14 +201,12 @@ pub fn optimize_module(
     target_machine: &TargetMachine,
     config: &OptimizationConfig,
 ) -> Result<(), OptimizationError> {
-    // Step 1: Verify module (unconditional)
     if let Err(msg) = module.verify() {
         return Err(OptimizationError::VerificationFailed {
             message: msg.to_string(),
         });
     }
 
-    // Step 2: Run optimization passes
     run_optimization_passes(module, target_machine, config)
 }
 
@@ -293,10 +309,7 @@ pub fn run_optimization_passes(
         pipeline.push_str(extra);
     }
 
-    let pipeline_cstr = CString::new(pipeline).map_err(|e| OptimizationError::InvalidPipeline {
-        pipeline: String::from_utf8_lossy(&e.into_vec()).into_owned(),
-        message: "pipeline contains null bytes".to_string(),
-    })?;
+    let pipeline_cstr = pipeline_c_string(pipeline)?;
 
     // Get raw pointers for LLVM C API
     let module_ref = module.as_mut_ptr();
@@ -361,10 +374,7 @@ pub fn run_custom_pipeline(
     let guard = PassBuilderOptionsGuard::new()
         .ok_or(OptimizationError::PassBuilderOptionsCreationFailed)?;
 
-    let pipeline_cstr = CString::new(pipeline).map_err(|_| OptimizationError::InvalidPipeline {
-        pipeline: pipeline.to_string(),
-        message: "pipeline contains null bytes".to_string(),
-    })?;
+    let pipeline_cstr = pipeline_c_string(pipeline.to_owned())?;
 
     let module_ref = module.as_mut_ptr();
     let tm_ref = target_machine.as_mut_ptr();

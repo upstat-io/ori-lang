@@ -13,11 +13,48 @@
       "direction": "lower-is-better",
       "unit": "s",
       "samples": 3,
+      "work_count": {
+        "command": "./target/release/ori run tests/run-pass/rosetta/001_100_doors/ori/100_doors_work.ori"
+      },
+      "characterization": {
+        "command": "./target/release/ori run tests/run-pass/rosetta/001_100_doors/ori/100_doors_profile.ori"
+      },
       "external_baseline": {
         "label": "python3",
-        "command": "python3 tests/run-pass/rosetta/001_100_doors/python/100_doors.py"
+        "command": "python3 tests/run-pass/rosetta/001_100_doors/python/100_doors.py",
+        "work_count": {
+          "command": "python3 tests/run-pass/rosetta/001_100_doors/python/100_doors_work.py"
+        },
+        "characterization": {
+          "command": "python3 tests/run-pass/rosetta/001_100_doors/python/100_doors_profile.py"
+        }
+      },
+      "external_baselines": {
+        "python3": {
+          "role": "floor",
+          "max_ratio": 0.5,
+          "command": "python3 tests/run-pass/rosetta/001_100_doors/python/100_doors.py",
+          "work_count": {
+            "command": "python3 tests/run-pass/rosetta/001_100_doors/python/100_doors_work.py"
+          },
+          "characterization": {
+            "command": "python3 tests/run-pass/rosetta/001_100_doors/python/100_doors_profile.py"
+          }
+        },
+        "luajit": {
+          "role": "north-star",
+          "max_ratio": 1.0,
+          "command": "luajit -joff tests/run-pass/rosetta/001_100_doors/lua/100_doors.lua",
+          "work_count": {
+            "command": "luajit -joff tests/run-pass/rosetta/001_100_doors/lua/100_doors_work.lua"
+          },
+          "characterization": {
+            "command": "luajit -joff tests/run-pass/rosetta/001_100_doors/lua/100_doors_profile.lua"
+          }
+        }
       }
     }
   },
-  "noise_threshold_pct": 5.0
+  "noise_threshold_pct": 5.0,
+  "min_profile_distance": 0.2
 }

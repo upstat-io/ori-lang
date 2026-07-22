@@ -81,6 +81,28 @@ pub fn resolve_parsed_type(
             .unwrap_or_else(|| engine.fresh_var()),
 
         ParsedType::AssociatedType { base, assoc_name } => {
+            // Module-qualified type (`geom.Point`): a bare `Named(alias)` base
+            // whose name is a registered module alias resolves against the
+            // aliased module's public types, which `register_module_alias`
+            // registers under their qualified name. Every other base falls
+            // through to the associated-type projection below, unchanged.
+            if let ParsedType::Named {
+                name: alias,
+                type_args,
+            } = arena.get_parsed_type(*base)
+            {
+                if type_args.is_empty() && engine.is_module_alias(*alias) {
+                    if let Some(qualified) = engine.qualified_type_name(*alias, *assoc_name) {
+                        if engine
+                            .type_registry()
+                            .is_some_and(|registry| registry.get_by_name(qualified).is_some())
+                        {
+                            return engine.pool_mut().named(qualified);
+                        }
+                    }
+                }
+            }
+
             let base_parsed = arena.get_parsed_type(*base);
             let base_ty = resolve_parsed_type(engine, arena, base_parsed);
             let resolved_base = engine.resolve(base_ty);

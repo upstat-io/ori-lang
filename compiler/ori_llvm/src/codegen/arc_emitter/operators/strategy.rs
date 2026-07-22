@@ -1,13 +1,18 @@
 //! LLVM instruction-family emitters for shared primitive strategies.
 
 use ori_ir::BinaryOp;
-use ori_registry::RuntimeOperator;
 use ori_types::Idx;
+
+use crate::codegen::type_info::TypeInfo;
+use crate::codegen::value_id::ValueId;
 
 use super::super::builtins;
 use super::super::{ArcIrEmitter, StringRuntimeReturnAbi};
-use crate::codegen::type_info::TypeInfo;
-use crate::codegen::value_id::ValueId;
+
+mod runtime;
+
+use runtime::native_runtime_symbol;
+pub(in crate::codegen::arc_emitter) use runtime::RuntimeBinaryOperation;
 
 #[derive(Clone, Copy)]
 enum CheckedIntSemantics {
@@ -39,52 +44,8 @@ impl CheckedIntSemantics {
     }
 }
 
-const fn native_runtime_symbol(runtime: RuntimeOperator) -> Option<&'static str> {
-    match runtime {
-        RuntimeOperator::StringConcat => Some("ori_str_concat"),
-        RuntimeOperator::StringEqual => Some("ori_str_eq"),
-        RuntimeOperator::StringNotEqual => Some("ori_str_ne"),
-        RuntimeOperator::StringCompare => Some("ori_str_compare"),
-        RuntimeOperator::ListConcat => None,
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(in crate::codegen::arc_emitter) enum RuntimeBinaryOperation {
-    Concat,
-    Equal,
-    NotEqual,
-    Less,
-    Greater,
-    LessOrEqual,
-    GreaterOrEqual,
-}
-
-impl RuntimeBinaryOperation {
-    pub(super) fn from_parts(runtime: RuntimeOperator, operation: BinaryOp) -> Self {
-        match (runtime, operation) {
-            (RuntimeOperator::StringConcat, BinaryOp::Add) => Self::Concat,
-            (RuntimeOperator::StringEqual, BinaryOp::Eq) => Self::Equal,
-            (RuntimeOperator::StringNotEqual, BinaryOp::NotEq) => Self::NotEqual,
-            (RuntimeOperator::StringCompare, BinaryOp::Lt) => Self::Less,
-            (RuntimeOperator::StringCompare, BinaryOp::Gt) => Self::Greater,
-            (RuntimeOperator::StringCompare, BinaryOp::LtEq) => Self::LessOrEqual,
-            (RuntimeOperator::StringCompare, BinaryOp::GtEq) => Self::GreaterOrEqual,
-            _ => unreachable!("registry supplied an invalid runtime binary-operation pair"),
-        }
-    }
-
-    const fn runtime(self) -> RuntimeOperator {
-        match self {
-            Self::Concat => RuntimeOperator::StringConcat,
-            Self::Equal => RuntimeOperator::StringEqual,
-            Self::NotEqual => RuntimeOperator::StringNotEqual,
-            Self::Less | Self::Greater | Self::LessOrEqual | Self::GreaterOrEqual => {
-                RuntimeOperator::StringCompare
-            }
-        }
-    }
-}
+#[cfg(test)]
+mod tests;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     fn emit_checked_int_sub(
@@ -232,7 +193,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::GtEq => self.builder.icmp_sge(lhs, rhs, "ge"),
             BinaryOp::And => self.builder.and(lhs, rhs, "and"),
             BinaryOp::Or => self.builder.or(lhs, rhs, "or"),
-            // Coalesce is always lowered to control flow by ori_arc.
             BinaryOp::Coalesce => unreachable!(
                 "Coalesce is lowered to control flow by ori_arc and should never reach emit_int_binary_op"
             ),
@@ -266,8 +226,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::Gt => self.builder.fcmp_ogt(lhs, rhs, "gt"),
             BinaryOp::LtEq => self.builder.fcmp_ole(lhs, rhs, "le"),
             BinaryOp::GtEq => self.builder.fcmp_oge(lhs, rhs, "ge"),
-            // Registry assigns FloatingPoint only to the arms above for float;
-            // every other op is Unsupported or never reaches strategy lookup.
             BinaryOp::FloorDiv
             | BinaryOp::MatMul
             | BinaryOp::And
@@ -302,8 +260,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::GtEq => self.builder.icmp_uge(lhs, rhs, "ge"),
             BinaryOp::And => self.builder.and(lhs, rhs, "and"),
             BinaryOp::Or => self.builder.or(lhs, rhs, "or"),
-            // UnsignedComparison covers byte/char/bool comparison plus And/Or only;
-            // arithmetic/bitwise on those types uses SignedInteger or Unsupported.
             BinaryOp::Add
             | BinaryOp::Sub
             | BinaryOp::Mul
@@ -337,8 +293,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::NotEq => self.builder.icmp_ne(lhs, rhs, "ne"),
             BinaryOp::And => self.builder.and(lhs, rhs, "and"),
             BinaryOp::Or => self.builder.or(lhs, rhs, "or"),
-            // BooleanLogic covers Eq/NotEq/And/Or only; bool ordering routes
-            // through UnsignedComparison and everything else is Unsupported.
             BinaryOp::Add
             | BinaryOp::Sub
             | BinaryOp::Mul

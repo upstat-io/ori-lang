@@ -266,9 +266,7 @@ const RETURN_UNIQUE: ReturnContract = ReturnContract {
     // and erase the Unique guarantee this contract exists to carry.
     locality: Locality::BlockLocal,
     shape: super::lattice::ShapeClass::NonReusable,
-    // Builtin COW-method results are fresh, but the fresh-self-alloc admission
-    // is scoped to USER for-yield finalizers (`@ori_list_take`) extracted from
-    // the body; builtins keep `false` to preserve the status-quo store-dup path.
+    // Why: Only user for-yield finalizers prove that the fresh result is the receiver allocation.
     returns_fresh_self_alloc: false,
     returns_sharing_view: false,
 };

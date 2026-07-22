@@ -302,3 +302,20 @@ fn borrowed_iter_consume_demands_a_whole_value_credit() {
     assert_eq!(slot.demand, CalleeOwnerDemand::WholeValue);
     assert!(matches!(slot.action, ClosureAdapterAction::Retain(_)));
 }
+
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn owned_parameter_failure_preserves_index_conversion_source() {
+    let overflow = (u32::MAX as usize).saturating_add(1);
+    let Err(source) = u32::try_from(overflow) else {
+        panic!("a retain-plan index above u32::MAX must be rejected");
+    };
+    let error = ClosureAbiError::OwnedParameterNotShareable {
+        target: Name::from_raw(1),
+        parameter: 0,
+        ty: Idx::INT,
+        failure: DuplicationFailure::RetainPlanIndexOverflow(source),
+    };
+
+    assert!(std::error::Error::source(&error).is_some());
+}

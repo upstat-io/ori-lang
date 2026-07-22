@@ -98,7 +98,7 @@ impl std::fmt::Display for FipVerificationError {
 /// 2. **`Bounded(n)`**: net allocation count (from evidence) <= n.
 /// 3. **`Conditional`**: no additional checks (params are checked at call sites).
 /// 4. **`Never`**: always passes (no FIP claim to verify).
-pub fn verify_fip_contract(
+pub(crate) fn verify_fip_contract(
     func_name: Name,
     contract: &MemoryContract,
     evidence: &FipEvidence,
@@ -188,7 +188,7 @@ fn verify_bounded(
 /// - `Never` — already bottom, no change
 ///
 /// Returns `true` if the contract was downgraded.
-pub fn recompute_fip_for_may_deallocate(contract: &mut MemoryContract) -> bool {
+pub(crate) fn recompute_fip_for_may_deallocate(contract: &mut MemoryContract) -> bool {
     if !contract.effects.may_deallocate {
         return false;
     }

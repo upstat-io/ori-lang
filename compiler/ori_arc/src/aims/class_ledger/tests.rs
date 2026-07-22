@@ -4727,6 +4727,313 @@ fn multi_container_view_declines_field_decomposition() {
     }
 }
 
+fn multi_container_unfundable_seed_func() -> ArcFunction {
+    let mut func = one_block_func(
+        9,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![0]),
+            ArcInstr::Project {
+                dst: v(2),
+                ty: ty(0),
+                value: v(1),
+                field: 0,
+            },
+            construct(3, vec![2]),
+            ArcInstr::Project {
+                dst: v(4),
+                ty: ty(0),
+                value: v(3),
+                field: 0,
+            },
+            ArcInstr::Let {
+                dst: v(5),
+                ty: ty(0),
+                value: ArcValue::Var(v(1)),
+            },
+            is_shared(6, 5),
+            ArcInstr::Let {
+                dst: v(7),
+                ty: ty(0),
+                value: ArcValue::Var(v(3)),
+            },
+            is_shared(8, 7),
+        ],
+        ret(4),
+    );
+    func.params = vec![];
+    func.var_types[2] = ty(64);
+    func.var_types[4] = ty(64);
+    func
+}
+
+fn multi_container_unfundable_seed_state(func: &ArcFunction) -> AimsStateMap {
+    let mut state_map = AimsStateMap::new(func);
+    state_map.set_permanent_scalar(v(6));
+    state_map.set_permanent_scalar(v(8));
+    state_map
+}
+
+#[test]
+fn multi_container_view_with_unfundable_seed_is_cured() {
+    let func = multi_container_unfundable_seed_func();
+    let state_map = multi_container_unfundable_seed_state(&func);
+    let (analysis, _partition) = analyze(&func, &state_map);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "a multi-container view whose seed increment carries no burden must \
+         still be cured: {:?}",
+        analysis.readiness.declined
+    );
+    assert!(
+        analysis.readiness.all_classes_clean,
+        "the cured plan must verify Clean: {:?}",
+        analysis.readiness.declined
+    );
+}
+
+#[test]
+fn multi_container_view_with_unfundable_seed_keeps_container_releases_whole() {
+    let func = multi_container_unfundable_seed_func();
+    let state_map = multi_container_unfundable_seed_state(&func);
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let container_a = class_rep(&mut partition, 1);
+    let container_b = class_rep(&mut partition, 3);
+    assert_ne!(
+        container_a, container_b,
+        "the two containers stay distinct classes"
+    );
+    for plan in &analysis.plan.classes {
+        let ClassOutcome::Planned(ops) = &plan.outcome else {
+            continue;
+        };
+        let rep = partition.rep_of(plan.class);
+        if rep != container_a && rep != container_b {
+            continue;
+        }
+        assert!(
+            ops.iter()
+                .all(|op| !matches!(op.kind, PlannedOpKind::DecPartial { .. })),
+            "unmanaged tuple containers retain whole releases: {ops:?}"
+        );
+    }
+}
+
+#[test]
+fn multi_container_tuple_container_with_user_drop_declines_no_release_cure() {
+    use core::num::NonZeroU32;
+    use ori_registry::burden::FnSym;
+    use ori_types::burden::UserBurdenSpec;
+
+    let mut func = multi_container_unfundable_seed_func();
+    func.var_types[1] = ty(65);
+    func.var_types[3] = ty(65);
+    let state_map = multi_container_unfundable_seed_state(&func);
+    let mut registry = ori_types::TypeRegistry::new();
+    crate::lower::test_utils::registered_struct_with_burden(
+        &mut registry,
+        "GuardedContainer",
+        ty(65),
+        Some(UserBurdenSpec {
+            user_drop: Some(FnSym::new(NonZeroU32::MIN)),
+            ..UserBurdenSpec::default()
+        }),
+    );
+    assert!(
+        crate::lower::type_has_user_drop(ty(65), &registry),
+        "the negative pin requires cleanup on both tuple containers"
+    );
+    assert!(
+        !crate::lower::type_has_user_drop(ty(64), &registry),
+        "the member type stays unregistered so only the container guard can decline"
+    );
+
+    let (analysis, _partition) = analyze_with_registry(&func, &state_map, &registry);
+    assert!(
+        analysis.field_view_hazard,
+        "a released container carrying its own cleanup must retain the hazard"
+    );
+}
+
+#[test]
+fn multi_container_tuple_member_with_user_drop_declines_no_release_cure() {
+    use core::num::NonZeroU32;
+    use ori_registry::burden::FnSym;
+    use ori_types::burden::UserBurdenSpec;
+
+    let func = multi_container_unfundable_seed_func();
+    let state_map = multi_container_unfundable_seed_state(&func);
+    let mut registry = ori_types::TypeRegistry::new();
+    crate::lower::test_utils::registered_struct_with_burden(
+        &mut registry,
+        "GuardedMember",
+        ty(64),
+        Some(UserBurdenSpec {
+            user_drop: Some(FnSym::new(NonZeroU32::MIN)),
+            ..UserBurdenSpec::default()
+        }),
+    );
+    assert!(
+        crate::lower::type_has_user_drop(ty(64), &registry),
+        "the negative pin requires cleanup on projected tuple members"
+    );
+    assert!(
+        func.blocks[0]
+            .body
+            .iter()
+            .filter(|instr| matches!(
+                instr,
+                ArcInstr::Construct {
+                    ctor: CtorKind::Tuple,
+                    args,
+                    ..
+                } if !args.is_empty()
+            ))
+            .count()
+            == 2,
+        "the negative pin reaches the multi-container non-sum rung"
+    );
+
+    let (analysis, _partition) = analyze_with_registry(&func, &state_map, &registry);
+    assert!(
+        analysis.field_view_hazard,
+        "a non-sum tuple chain must retain the hazard when member cleanup is registered"
+    );
+}
+
+#[test]
+fn single_container_unfundable_demand_declines_no_release_cure() {
+    let mut func = func_with_blocks(
+        6,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![
+                    construct(0, vec![]),
+                    construct(1, vec![0]),
+                    ArcInstr::Project {
+                        dst: v(2),
+                        ty: ty(70),
+                        value: v(1),
+                        field: 0,
+                    },
+                ],
+                invoke(3, vec![(2, ArgOwnership::Owned)], 1, 2),
+            ),
+            block(
+                1,
+                vec![],
+                vec![construct(4, vec![3]), construct(5, vec![1, 4])],
+                ret(5),
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    func.params = vec![];
+    func.var_types[2] = ty(70);
+    func.var_types[3] = ty(70);
+    let state_map = AimsStateMap::new(&func);
+
+    let (analysis, _partition) = analyze(&func, &state_map);
+    assert!(
+        analysis.field_view_hazard,
+        "one non-sum container cannot justify the unmanaged tuple-chain cure"
+    );
+}
+
+#[test]
+fn multi_container_sum_view_declines_no_release_cure() {
+    let mut func = multi_container_unfundable_seed_func();
+    for instr in &mut func.blocks[0].body {
+        let ArcInstr::Construct { ctor, args, .. } = instr else {
+            continue;
+        };
+        if args.is_empty() {
+            continue;
+        }
+        *ctor = CtorKind::EnumVariant {
+            enum_name: Name::from_raw(9),
+            variant: 0,
+        };
+    }
+    let state_map = multi_container_unfundable_seed_state(&func);
+
+    let (analysis, _partition) = analyze(&func, &state_map);
+    assert!(
+        analysis.field_view_hazard,
+        "recursive sum-container cleanup must retain the shared-view hazard"
+    );
+}
+
+#[test]
+fn production_replacement_covers_multi_container_unfundable_view() {
+    let mut func = multi_container_unfundable_seed_func();
+    let state_map = multi_container_unfundable_seed_state(&func);
+
+    let pool = ori_types::Pool::new();
+    let classifier = crate::ArcClassifier::new(&pool);
+    crate::aims::freeze_primitive_facts(std::slice::from_mut(&mut func), &classifier)
+        .unwrap_or_else(|errors| panic!("primitive facts should freeze: {errors:?}"));
+    let interner = test_interner();
+    let registry = ori_types::TypeRegistry::default();
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+
+    let replaced = crate::aims::class_ledger::apply_class_ledger_replacement(
+        &mut func, &state_map, &contracts, &registry, &interner, true,
+    );
+    assert!(
+        replaced,
+        "the production replacement gate must cover a multi-container view \
+         whose extraction seed carries no burden"
+    );
+}
+
+#[test]
+fn single_container_view_with_unfundable_seed_is_cured() {
+    let mut func = one_block_func(
+        7,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![0]),
+            ArcInstr::Project {
+                dst: v(2),
+                ty: ty(0),
+                value: v(1),
+                field: 0,
+            },
+            construct(3, vec![2]),
+            ArcInstr::Let {
+                dst: v(4),
+                ty: ty(0),
+                value: ArcValue::Var(v(1)),
+            },
+            is_shared(5, 4),
+            is_shared(6, 3),
+        ],
+        ret(3),
+    );
+    func.params = vec![];
+    func.var_types[2] = ty(64);
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(5));
+    state_map.set_permanent_scalar(v(6));
+    let (analysis, _partition) = analyze(&func, &state_map);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "a single-container view is cured by field decomposition even when \
+         its extraction seed carries no burden: {:?}",
+        analysis.readiness.declined
+    );
+    assert!(
+        analysis.readiness.all_classes_clean,
+        "field decomposition must leave every single-container class clean"
+    );
+}
+
 /// A release planned for a class containing a BORROWED function param names
 /// a same-class alias, never the param var itself (VF-1 rejects an `RcDec` on
 /// a borrowed param; the alias is the same allocation).

@@ -1,0 +1,28 @@
+// Spec: 18-modules.md § Imports; 20-collections.md § List methods
+// Regression: BUG-04-296 Mechanism B — a builtin method (.len()) on a SINGLE imported
+// struct's field (no collision) fails executable-program realization with E5001
+// "cannot resolve call to 'len' ... no realized function body or runtime operation is
+// registered". Import-specific: the same .field.len() on a LOCAL struct realizes fine.
+// The class is all builtin runtime-ops on imported-struct-derived values (len, ToString),
+// not len-specific. Pins that ori_repr executable-closure runtime-op resolution maps
+// builtin ops on receivers tracing to an imported struct field, matching local-struct
+// coverage. Dual-backend (interpreter + LLVM).
+
+use std.testing { assert_eq }
+use "../registry_collision_row_a" { make_a }
+
+@helper () -> int = 0;
+
+// Core deliverable: .len() on an imported struct's list field realizes.
+@test_imported_field_len tests @helper () -> void = {
+    let $r = make_a();
+    assert_eq(actual: r.values.len(), expected: 2)
+}
+
+// The broader class: string interpolation (ToString) on an imported struct's
+// field realizes too — not len-specific.
+@test_imported_field_tostring tests @helper () -> void = {
+    let $r = make_a();
+    let $joined = r.values.join(sep: ",");
+    assert_eq(actual: `{joined}`, expected: "a,b")
+}

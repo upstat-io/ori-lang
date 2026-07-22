@@ -1,12 +1,9 @@
-//! Phase 3: Fold trivial if/else diamond patterns into `Select` instructions.
+//! Folding of trivial if/else diamonds into `Select` instructions.
 //!
-//! For each `Branch { cond, then_block, else_block }` where both arm blocks
-//! are trivial (empty or only `Let { Literal | Var }` bindings) and jump to
-//! the same merge block, we:
-//! 1. Move arm-local definitions into the branch block with fresh names
-//! 2. Emit `Select` instructions for each merge-block parameter
-//! 3. Replace the `Branch` with a `Jump` to the merge block
-//! 4. Mark arm blocks as `Unreachable` (cleaned up by `compact_blocks`)
+//! Eligible arms contain only literal or variable bindings and converge at
+//! one merge block. The fold preserves arm-local definitions with fresh names,
+//! emits one `Select` per merge parameter, and leaves unreachable arms for
+//! block compaction.
 
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -16,7 +13,7 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueR
 
 use super::usize_to_block_id;
 
-/// Information extracted from a select-eligible diamond pattern.
+/// Owned data for a select-eligible diamond.
 ///
 /// All fields are owned (cloned from block data) so that `apply_select_fold`
 /// can mutate blocks freely without borrow conflicts.
@@ -211,22 +208,19 @@ fn detect_select_diamond(
 
 /// Apply the select fold transformation to a detected diamond.
 ///
-/// Moves arm-local definitions into the branch block with fresh names,
-/// emits `Select` instructions for each merge parameter, replaces the
-/// `Branch` with a `Jump`, and marks arm blocks as `Unreachable`.
+/// Move arm-local definitions into the branch block and emit merge selects.
+///
+/// The resulting jump targets the merge block; both arm blocks are unreachable.
 fn apply_select_fold(func: &mut ArcFunction, branch_idx: usize, diamond: &SelectDiamond) {
-    // Step 1: Drain arm bodies and spans into local Vecs.
-    // This avoids borrow conflicts when mutating the branch block.
+    // Why: Draining both arms avoids overlapping borrows of the branch block.
     let then_body: Vec<ArcInstr> = func.blocks[diamond.then_idx].body.drain(..).collect();
     let then_spans: Vec<_> = func.spans[diamond.then_idx].drain(..).collect();
     let else_body: Vec<ArcInstr> = func.blocks[diamond.else_idx].body.drain(..).collect();
     let else_spans: Vec<_> = func.spans[diamond.else_idx].drain(..).collect();
 
-    // Step 2: Fresh-rename arm-local definitions into the branch block.
     let then_renames = move_arm_body(func, branch_idx, &then_body, &then_spans);
     let else_renames = move_arm_body(func, branch_idx, &else_body, &else_spans);
 
-    // Step 3: Resolve jump args through rename maps.
     let resolved_then: Vec<ArcVarId> = diamond
         .then_args
         .iter()
@@ -238,7 +232,6 @@ fn apply_select_fold(func: &mut ArcFunction, branch_idx: usize, diamond: &Select
         .map(|a| else_renames.get(a).copied().unwrap_or(*a))
         .collect();
 
-    // Step 4: Emit Select (or Var passthrough) for each merge param.
     let merge_params: Vec<(ArcVarId, ori_types::Idx)> =
         func.blocks[diamond.merge_idx].params.clone();
     let mut select_results = Vec::with_capacity(merge_params.len());
@@ -249,7 +242,6 @@ fn apply_select_fold(func: &mut ArcFunction, branch_idx: usize, diamond: &Select
         let dst = func.fresh_var_like_typed(*merge_param, *ty);
 
         if then_val == else_val {
-            // Both arms produce the same value — no need for select.
             func.blocks[branch_idx].body.push(ArcInstr::Let {
                 dst,
                 ty: *ty,
@@ -268,13 +260,11 @@ fn apply_select_fold(func: &mut ArcFunction, branch_idx: usize, diamond: &Select
         select_results.push(dst);
     }
 
-    // Step 5: Replace Branch with Jump to merge block.
     func.blocks[branch_idx].terminator = ArcTerminator::Jump {
         target: usize_to_block_id(diamond.merge_idx),
         args: select_results,
     };
 
-    // Step 6: Mark arm blocks as unreachable (bodies already drained).
     func.blocks[diamond.then_idx].terminator = ArcTerminator::Unreachable;
     func.blocks[diamond.else_idx].terminator = ArcTerminator::Unreachable;
 }

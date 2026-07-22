@@ -3,11 +3,11 @@
 //! Handles list, tuple, map, and struct literals.
 
 use ori_ir::{
-    ExprId, ExprRange, FieldInitRange, ListElementRange, MapElementRange, MapEntryRange, Name,
-    StringLookup, StructLitFieldRange,
+    ExprId, ExprRange, FieldInitRange, ListElementRange, MapElementRange, MapEntryRange,
+    ParsedTypeId, StringLookup, StructLitFieldRange,
 };
 
-use super::{WidthCalculator, ALWAYS_STACKED};
+use super::{lambda, WidthCalculator, ALWAYS_STACKED};
 
 /// Calculate width of a list literal: `[items]`.
 pub(super) fn list_width<I: StringLookup>(
@@ -109,15 +109,15 @@ pub(super) fn map_with_spread_width<I: StringLookup>(
 /// Calculate width of a struct literal: `Name { fields }`.
 pub(super) fn struct_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
-    name: Name,
+    type_path: ParsedTypeId,
     fields: FieldInitRange,
 ) -> usize {
-    let name_w = calc.interner.lookup(name).len();
+    let type_path_w = lambda::type_width(calc, calc.arena, type_path);
     let fields_list = calc.arena.get_field_inits(fields);
 
     if fields_list.is_empty() {
         // "Name {}"
-        return name_w + 3;
+        return type_path_w + 3;
     }
 
     let fields_w = calc.width_of_field_inits(fields_list);
@@ -126,21 +126,21 @@ pub(super) fn struct_width<I: StringLookup>(
     }
 
     // "Name { " + fields + " }"
-    name_w + 3 + fields_w + 2
+    type_path_w + 3 + fields_w + 2
 }
 
 /// Calculate width of a struct literal with spread: `Name { ...base, x: 10 }`.
 pub(super) fn struct_with_spread_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
-    name: Name,
+    type_path: ParsedTypeId,
     fields: StructLitFieldRange,
 ) -> usize {
-    let name_w = calc.interner.lookup(name).len();
+    let type_path_w = lambda::type_width(calc, calc.arena, type_path);
     let fields_list = calc.arena.get_struct_lit_fields(fields);
 
     if fields_list.is_empty() {
         // "Name {}"
-        return name_w + 3;
+        return type_path_w + 3;
     }
 
     let fields_w = calc.width_of_struct_lit_fields(fields_list);
@@ -149,7 +149,7 @@ pub(super) fn struct_with_spread_width<I: StringLookup>(
     }
 
     // "Name { " + fields + " }"
-    name_w + 3 + fields_w + 2
+    type_path_w + 3 + fields_w + 2
 }
 
 /// Calculate width of a range expression: `start..end` or `start..=end` or `start..end by step`.

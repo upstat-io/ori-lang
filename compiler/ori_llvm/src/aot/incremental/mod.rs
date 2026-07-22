@@ -28,7 +28,6 @@
 pub mod arc_cache;
 pub mod cache;
 pub mod deps;
-pub mod function_deps;
 pub mod function_hash;
 pub mod hash;
 
@@ -36,7 +35,6 @@ pub mod hash;
 pub use arc_cache::ArcIrCache;
 pub use cache::{ArtifactCache, CacheConfig, CacheKey};
 pub use deps::{DependencyGraph, DependencyTracker};
-pub use function_deps::FunctionDependencyGraph;
 pub use function_hash::{
     compute_module_hash, extract_function_hashes, extract_function_hashes_with_canon,
     FunctionContentHash,

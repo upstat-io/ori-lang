@@ -58,6 +58,7 @@ pub enum DerivedFormatBodyError {
         receiver_type: Idx,
         index_kind: &'static str,
         index: usize,
+        source: Option<std::num::TryFromIntError>,
     },
 }
 
@@ -115,6 +116,7 @@ impl std::fmt::Display for DerivedFormatBodyError {
                 receiver_type,
                 index_kind,
                 index,
+                ..
             } => write!(
                 formatter,
                 "derived format body for {receiver_type:?} has {index_kind} index {index}, which exceeds the ARC IR index range"
@@ -123,7 +125,17 @@ impl std::fmt::Display for DerivedFormatBodyError {
     }
 }
 
-impl std::error::Error for DerivedFormatBodyError {}
+impl std::error::Error for DerivedFormatBodyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::IndexOverflow {
+                source: Some(source),
+                ..
+            } => Some(source),
+            _ => None,
+        }
+    }
+}
 
 /// Build a concrete derived `Printable` or `Debug` body.
 pub fn build_derived_format(
@@ -258,10 +270,11 @@ fn emit_struct_format(
     let fields = pool.struct_fields(receiver_type);
     for (field_index, (field_name, field_type)) in fields.iter().copied().enumerate() {
         let projection =
-            u32::try_from(field_index).map_err(|_| DerivedFormatBodyError::IndexOverflow {
+            u32::try_from(field_index).map_err(|source| DerivedFormatBodyError::IndexOverflow {
                 receiver_type,
                 index_kind: "field",
                 index: field_index,
+                source: Some(source),
             })?;
         if spec.include_names {
             let field_text = lookup_name(interner, field_name, "field")?;
@@ -295,12 +308,14 @@ fn emit_enum_format(
     let mut cases = Vec::with_capacity(variants.len());
     let mut arms = Vec::with_capacity(variants.len());
     for (variant_index, (variant_name, fields)) in variants.into_iter().enumerate() {
-        let switch_index =
-            u64::try_from(variant_index).map_err(|_| DerivedFormatBodyError::IndexOverflow {
+        let switch_index = u64::try_from(variant_index).map_err(|source| {
+            DerivedFormatBodyError::IndexOverflow {
                 receiver_type,
                 index_kind: "variant",
                 index: variant_index,
-            })?;
+                source: Some(source),
+            }
+        })?;
         let block = builder.new_block();
         cases.push((switch_index, block));
         arms.push((block, variant_name, fields));
@@ -350,10 +365,11 @@ fn emit_enum_payload(
     let mut result = emit_string_literal(builder, &format!("{variant_text}("), interner);
     for (field_index, field_type) in fields.iter().copied().enumerate() {
         let offset =
-            u32::try_from(field_index).map_err(|_| DerivedFormatBodyError::IndexOverflow {
+            u32::try_from(field_index).map_err(|source| DerivedFormatBodyError::IndexOverflow {
                 receiver_type,
                 index_kind: "field",
                 index: field_index,
+                source: Some(source),
             })?;
         let projection =
             1_u32
@@ -362,6 +378,7 @@ fn emit_enum_payload(
                     receiver_type,
                     index_kind: "field",
                     index: field_index,
+                    source: None,
                 })?;
         let field = builder.emit_project(field_type, receiver, projection, None);
         let formatted = emit_field_format(builder, field, field_type, method_name, pool);

@@ -14,6 +14,8 @@ use crate::digest::{ByteArtifact, EncodedBytes};
 use crate::manifest::{self, ManifestError};
 use crate::values::{EvaluatorValue, VmValue};
 
+#[path = "tests/classification.rs"]
+mod classification;
 #[path = "tests/protocol.rs"]
 mod protocol;
 

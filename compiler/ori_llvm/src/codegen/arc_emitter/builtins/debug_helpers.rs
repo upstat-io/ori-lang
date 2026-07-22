@@ -1,12 +1,10 @@
 //! Leaf `debug`/`to_str` LLVM emission: per-element formatting, the element
 //! dispatchers, derived-method calls, and string literal/concat utilities.
 
-use ori_types::Idx;
-
+use super::{super::ArcIrEmitter, RenderStyle};
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
-
-use super::{super::ArcIrEmitter, RenderStyle};
+use ori_types::Idx;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Materialize a runtime-owned `OriStr` from a compiler literal.

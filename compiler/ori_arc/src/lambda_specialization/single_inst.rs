@@ -23,9 +23,10 @@ pub(super) type SingleInstMappings = (
     FxHashMap<usize, Idx>,
 );
 
-/// Phase 2: Build global `BoundVar` -> concrete map for single-inst lambdas.
-/// Returns the global map, per-lambda return type resolutions, and per-lambda
-/// concrete function types (for direct param substitution of container types).
+/// Build concrete type mappings for singly instantiated lambdas.
+///
+/// Returns the global `BoundVar` map, per-lambda return resolutions, and
+/// concrete function types used to substitute container parameters.
 pub(super) fn build_single_inst_mappings(
     parent: &crate::ArcFunction,
     lambdas: &[crate::ArcFunction],

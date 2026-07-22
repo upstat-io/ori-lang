@@ -1,21 +1,21 @@
 //! Tests for `ori_repr` types.
 
+use crate::canonical::{canonical, canonical_cached};
 use crate::enum_repr::{EnumTag, VariantRepr};
 use crate::escape::EscapeInfo;
-use crate::plan::{DecisionReason, DecisionSource, NarrowingPolicy, ReprDecision};
+use crate::plan::{DecisionReason, DecisionSource, NarrowingPolicy, RcStrategy, ReprDecision};
 use crate::range::ValueRange;
 use crate::repr::{FloatWidth, IntWidth, MachineRepr};
 use crate::struct_repr::{ClosureRepr, FatRepr, FieldRepr, RcRepr, StructRepr, TupleRepr};
 use crate::ReprAttribute;
 use crate::ReprPlan;
-
 use ori_arc::ir::{
     AllocationSiteId, ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership,
     ValueRepr, YieldAllocationExecution, YieldAllocationFact, YieldAllocationLocality, YieldExtent,
 };
 use ori_arc::ArcBlockId;
 use ori_ir::Name;
-use ori_types::ExportedTypeMetadata;
+use ori_types::{ExportedTypeMetadata, Idx, Pool};
 use rustc_hash::FxHashMap;
 
 // IntWidth / FloatWidth
@@ -109,7 +109,7 @@ fn fat_repr_str_vs_collection() {
 // ClosureRepr
 
 #[test]
-fn closure_repr_basic() {
+fn closure_repr_preserves_parameter_and_return_shapes() {
     let closure = ClosureRepr {
         params: vec![MachineRepr::Int {
             width: IntWidth::I64,
@@ -346,12 +346,22 @@ fn escape_info_only_admits_aims_proven_local_identities() {
         YieldExtent::StaticExact(4),
         YieldAllocationLocality::Escaping,
     );
-    let info = EscapeInfo::from_yield_allocations(&[local, escaping]);
+    let unknown = yield_fact(
+        2,
+        5,
+        6,
+        1,
+        YieldExtent::StaticExact(4),
+        YieldAllocationLocality::Unknown,
+    );
+    let info = EscapeInfo::from_yield_allocations(&[local, escaping, unknown]);
 
     assert!(!info.escapes(local.builder));
     assert!(!info.escapes(local.result));
     assert!(info.escapes(escaping.builder));
     assert!(info.escapes(escaping.result));
+    assert!(info.escapes(unknown.builder));
+    assert!(info.escapes(unknown.result));
     assert!(info.escapes(ArcVarId::new(99)));
 }
 
@@ -390,6 +400,14 @@ fn yield_allocation_selection_is_exact_bounded_and_fail_closed() {
         YieldExtent::StaticExact(32),
         YieldAllocationLocality::Escaping,
     );
+    let unknown = yield_fact(
+        5,
+        12,
+        13,
+        8,
+        YieldExtent::StaticExact(32),
+        YieldAllocationLocality::Unknown,
+    );
     let mut repeated = yield_fact(
         4,
         10,
@@ -402,7 +420,7 @@ fn yield_allocation_selection_is_exact_bounded_and_fail_closed() {
     let mut facts = FxHashMap::default();
     facts.insert(
         function,
-        vec![local, oversized, dynamic, escaping, repeated],
+        vec![local, oversized, dynamic, escaping, unknown, repeated],
     );
     let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
     plan.freeze_yield_allocations(&facts);
@@ -414,7 +432,7 @@ fn yield_allocation_selection_is_exact_bounded_and_fail_closed() {
         local_decision.mechanism,
         crate::CompiledAllocationMechanism::StackSlot
     );
-    for fact in [oversized, dynamic, escaping, repeated] {
+    for fact in [oversized, dynamic, escaping, unknown, repeated] {
         let Some(decision) = plan.yield_allocation_for_result(function, fact.result) else {
             panic!("managed allocation decision");
         };
@@ -526,9 +544,6 @@ fn semantic_pin_canonical_float_is_f64() {
 }
 
 // Canonical Mapping Tests
-
-use crate::canonical::{canonical, canonical_cached};
-use ori_types::{Idx, Pool};
 
 /// Test canonical mapping for all 12 primitive types.
 #[test]
@@ -1762,8 +1777,6 @@ fn escapes_default_returns_true() {
 
 // RC strategy
 
-use crate::plan::RcStrategy;
-
 #[test]
 fn rc_strategy_default_is_atomic_i64() {
     // Semantic pin: rc_strategy() must return Atomic { I64 } when no decision
@@ -1923,24 +1936,24 @@ fn compute_repr_plan_populates_primitives() {
 }
 
 #[test]
-fn compute_repr_plan_disabled_policy_skips_stubs() {
-    // NarrowingPolicy::Disabled returns after populate_canonical()
-    // without calling any narrowing stubs.
+fn compute_repr_plan_disabled_policy_preserves_canonical_repr() {
     let pool = ori_types::Pool::new();
     let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Disabled, &[]);
-    // Same primitives should be populated (canonical-only).
-    assert!(plan.get_repr(Idx::INT).is_some());
+    assert_eq!(
+        plan.get_repr(Idx::INT),
+        Some(&MachineRepr::Int {
+            width: IntWidth::I64,
+            signed: true,
+        })
+    );
     assert_eq!(plan.narrowing_policy(), NarrowingPolicy::Disabled);
 }
 
 #[test]
-fn compute_repr_plan_aggressive_is_default_behavior() {
-    // NarrowingPolicy::Aggressive is the default — building
-    // without --no-repr-opt results in Aggressive.
+fn compute_repr_plan_aggressive_policy_preserves_canonical_repr() {
     let pool = ori_types::Pool::new();
     let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &[]);
     assert_eq!(plan.narrowing_policy(), NarrowingPolicy::Aggressive);
-    // Same primitives, same canonical results — no stubs are active yet.
     assert_eq!(
         plan.get_repr(Idx::INT),
         Some(&MachineRepr::Int {
@@ -2307,21 +2320,16 @@ fn canonical_returns_none_for_self_type() {
     );
 }
 
-/// `FatPointer` structural layout assertion.
-/// Both `FatRepr::Str` and `FatRepr::Collection` produce the same
-/// `{i64, i64, ptr}` structural layout.
 #[test]
-fn fat_pointer_str_and_collection_same_llvm_shape() {
+fn canonical_fat_pointer_variants_cover_str_list_and_map() {
     let mut pool = Pool::new();
 
-    // Str → FatPointer(Str)
     let str_repr = canonical(&pool, Idx::STR);
     assert!(
         matches!(str_repr, MachineRepr::FatPointer(FatRepr::Str)),
         "str must be FatPointer(Str)"
     );
 
-    // [int] → FatPointer(Collection { element_repr: Int })
     let list_idx = pool.list(Idx::INT);
     let list_repr = canonical(&pool, list_idx);
     assert!(
@@ -2332,27 +2340,18 @@ fn fat_pointer_str_and_collection_same_llvm_shape() {
         "list must be FatPointer(Collection)"
     );
 
-    // {str: int} → FatPointer(Map { key, value })
     let map_idx = pool.map(Idx::STR, Idx::INT);
     let map_repr = canonical(&pool, map_idx);
     assert!(
         matches!(map_repr, MachineRepr::FatPointer(FatRepr::Map { .. })),
         "map must be FatPointer(Map)"
     );
-
-    // Semantic pin: all three are FatPointer variants, ensuring identical
-    // LLVM lowering ({i64, i64, ptr}) via try_repr_to_llvm_type.
 }
 
-/// Storage type equivalence — containers and opaque types.
-///
-/// Covers 7 simple containers + 2 two-child containers + `DoubleEndedIterator`.
-/// (Borrowed panics in `canonical()` — not a codegen type.)
 #[test]
-fn storage_equivalence_containers() {
+fn canonical_container_representations() {
     let mut pool = Pool::new();
 
-    // Simple containers (7)
     let list_idx = pool.list(Idx::INT);
     assert!(
         matches!(
@@ -2399,7 +2398,6 @@ fn storage_equivalence_containers() {
         "DoubleEndedIterator"
     );
 
-    // Two-child containers (2 of 3 — Borrowed is non-codegen)
     let map_idx = pool.map(Idx::STR, Idx::INT);
     assert!(
         matches!(
@@ -2415,16 +2413,12 @@ fn storage_equivalence_containers() {
     );
 }
 
-/// Storage type equivalence — complex types and resolved names.
-///
-/// Covers Function, Tuple, Struct, Enum + Named/Applied/Alias resolution.
 #[test]
-fn storage_equivalence_complex_and_resolved() {
+fn canonical_complex_and_resolved_representations() {
     use ori_types::EnumVariant;
 
     let mut pool = Pool::new();
 
-    // Complex types (4)
     let fn_idx = pool.function1(Idx::INT, Idx::BOOL);
     assert!(
         matches!(canonical(&pool, fn_idx), MachineRepr::Closure(_)),
@@ -2459,7 +2453,6 @@ fn storage_equivalence_complex_and_resolved() {
         "Enum canonical"
     );
 
-    // Named/resolved (3)
     let named_idx = pool.named(Name::new(0, 700));
     pool.set_resolution(named_idx, struct_idx);
     assert!(
@@ -2484,18 +2477,12 @@ fn storage_equivalence_complex_and_resolved() {
     );
 }
 
-/// Storage type equivalence — ZST-divergence cases.
-///
-/// `canonical()` correctly uses zero-sized fields for `Unit`/`Never` in
-/// aggregates. `TypeInfoStore` uses `i64` for these; the canonical zero-sized
-/// representation is authoritative.
 #[test]
-fn storage_equivalence_zst_divergence() {
+fn canonical_zst_aggregate_layouts() {
     let mut pool = Pool::new();
 
     let opt_unit = pool.option(Idx::UNIT);
     if let MachineRepr::Enum(ref e) = canonical(&pool, opt_unit) {
-        // Option uses i64 tag (not narrowed for runtime compat), zero payload → 8 bytes
         assert_eq!(
             e.size, 8,
             "Option<()> = 8 bytes (i64 tag, not narrowed for runtime compat)"
@@ -2578,29 +2565,16 @@ fn canonical_returns_none_for_module_ns() {
     );
 }
 
-/// Storage type equivalence — 29-type matrix.
-///
-/// Verifies that `canonical()` produces the correct `MachineRepr` for every
-/// type kind in the matrix. Each assertion documents the expected
-/// LLVM storage type that `TypeInfo::storage_type()` or `TypeLayoutResolver`
-/// would produce for the same type. This is the parity contract between
-/// `ori_repr` (representation-agnostic) and `ori_llvm` (LLVM-specific).
-///
-/// Matrix:
-///   Primitives (12) | Containers (7) | Two-child (3) | Complex (4)
-///   Named (3)       | Variables (3)  | Scheme/Special (5)
-///
-/// Divergences from `TypeInfoStore` are documented inline.
 #[test]
-fn storage_type_equivalence_full_29_type_matrix() {
+fn canonical_repr_type_kind_matrix() {
     let mut pool = Pool::new();
-    assert_primitive_storage_reprs(&pool);
-    assert_container_storage_reprs(&mut pool);
-    assert_complex_storage_reprs(&mut pool);
+    assert_primitive_canonical_reprs(&pool);
+    assert_container_canonical_reprs(&mut pool);
+    assert_complex_canonical_reprs(&mut pool);
     assert_non_codegen_reprs(&mut pool);
 }
 
-fn assert_primitive_storage_reprs(pool: &Pool) {
+fn assert_primitive_canonical_reprs(pool: &Pool) {
     let cases = [
         (
             Idx::INT,
@@ -2608,35 +2582,35 @@ fn assert_primitive_storage_reprs(pool: &Pool) {
                 width: IntWidth::I64,
                 signed: true,
             },
-            "[1/29] Int → i64",
+            "Int canonical repr",
         ),
         (
             Idx::FLOAT,
             MachineRepr::Float {
                 width: FloatWidth::F64,
             },
-            "[2/29] Float → f64",
+            "Float canonical repr",
         ),
-        (Idx::BOOL, MachineRepr::Bool, "[3/29] Bool → i1"),
+        (Idx::BOOL, MachineRepr::Bool, "Bool canonical repr"),
         (
             Idx::STR,
             MachineRepr::FatPointer(FatRepr::Str),
-            "[4/29] Str → {i64, i64, ptr}",
+            "Str canonical repr",
         ),
-        (Idx::CHAR, MachineRepr::Char, "[5/29] Char → i32"),
-        (Idx::BYTE, MachineRepr::Byte, "[6/29] Byte → i8"),
-        (Idx::UNIT, MachineRepr::Unit, "[7/29] Unit → ZST"),
-        (Idx::NEVER, MachineRepr::Never, "[8/29] Never → ZST"),
+        (Idx::CHAR, MachineRepr::Char, "Char canonical repr"),
+        (Idx::BYTE, MachineRepr::Byte, "Byte canonical repr"),
+        (Idx::UNIT, MachineRepr::Unit, "Unit canonical repr"),
+        (Idx::NEVER, MachineRepr::Never, "Never canonical repr"),
         (
             Idx::DURATION,
             MachineRepr::Duration,
-            "[10/29] Duration → i64",
+            "Duration canonical repr",
         ),
-        (Idx::SIZE, MachineRepr::Size, "[11/29] Size → i64"),
+        (Idx::SIZE, MachineRepr::Size, "Size canonical repr"),
         (
             Idx::ORDERING,
             MachineRepr::Ordering,
-            "[12/29] Ordering → i8",
+            "Ordering canonical repr",
         ),
     ];
     for (idx, expected, message) in cases {
@@ -2645,11 +2619,11 @@ fn assert_primitive_storage_reprs(pool: &Pool) {
     let mut cache = rustc_hash::FxHashMap::default();
     assert!(
         canonical_cached(pool, Idx::ERROR, &mut cache).is_none(),
-        "[9/29] Error → None"
+        "Error has no canonical repr"
     );
 }
 
-fn assert_container_storage_reprs(pool: &mut Pool) {
+fn assert_container_canonical_reprs(pool: &mut Pool) {
     use ori_types::LifetimeId;
 
     let list = pool.list(Idx::INT);
@@ -2684,7 +2658,7 @@ fn assert_container_storage_reprs(pool: &mut Pool) {
     assert!(canonical_cached(pool, borrowed, &mut cache).is_none());
 }
 
-fn assert_complex_storage_reprs(pool: &mut Pool) {
+fn assert_complex_canonical_reprs(pool: &mut Pool) {
     use ori_types::EnumVariant;
 
     let function = pool.function1(Idx::INT, Idx::BOOL);
@@ -4105,7 +4079,7 @@ fn enum_repr_with_fallback_plan_miss_recomputes_canonical_option() {
 
     // Empty plan: direct lookup misses.
     let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
-    assert!(plan.get_enum_repr(opt_str).is_none());
+    assert!(plan.enum_repr(opt_str).is_none());
 
     // The ladder falls back to the canonical computation.
     let via_ladder = plan

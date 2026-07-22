@@ -4,9 +4,8 @@
 //! exit must pass through A. Computed via CHK on the reverse CFG with
 //! a virtual exit node unifying all exit blocks (`Return`/`Resume`/`Unreachable`).
 //!
-//! Used by cross-block reset/reuse detection to verify that a `Construct`
-//! block always executes after the `RcDec` block — preventing memory leaks
-//! when the `Construct` is on only one branch of a conditional.
+//! Cross-block reset/reuse requires a `Construct` block to post-dominate the
+//! `RcDec` block; otherwise one conditional branch can omit reconstruction.
 //!
 //! Reference: Cooper, Harvey, Kennedy — "A Simple, Fast Dominance Algorithm" (2001)
 

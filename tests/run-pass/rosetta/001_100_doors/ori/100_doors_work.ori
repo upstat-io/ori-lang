@@ -1,0 +1,59 @@
+// 100 Doors — work-count mirror of ../ori/100_doors.ori for the comparator pin.
+//
+// Runs the SAME algorithm as simulate() with a counter incremented at every
+// counted operation site, over a reduced iteration count, and emits one
+// `work <key> <count>` line per counter. The harness runs this program in its
+// own untimed invocation (`measure.sh <subject> --metric work`), so the
+// counters never enter a timed measurement.
+//
+// Every counter must equal its Python and LuaJIT sibling exactly; a divergence
+// in loop bounds, an early exit, or a closed-form shortcut moves a counter and
+// the harness withholds the triple's timing ratios.
+
+@simulate_counted (salt: int) -> (int, int, int, int) = {
+    let doors = for _ in 0..100 yield false;
+    let passes = 0;
+    let toggles = 0;
+    let reads = 0;
+    for pass in 1..=100 do {
+        passes = passes + 1;
+        for idx in (pass - 1)..100 by pass do {
+            toggles = toggles + 1;
+            doors[idx] = !doors[idx]
+        }
+    };
+    let s = salt % 100;
+    toggles = toggles + 1;
+    doors[s] = !doors[s];
+
+    let open = 0;
+    for i in 0..100 do {
+        reads = reads + 1;
+        open = open + (if doors[i] then 1 else 0)
+    };
+
+    (passes, toggles, reads, open)
+}
+
+@main () -> void = {
+    let $iterations = 500;
+    let calls = 0;
+    let passes = 0;
+    let toggles = 0;
+    let reads = 0;
+    let checksum = 0;
+    for n in 0..iterations do {
+        let r = simulate_counted(salt: n);
+        calls = calls + 1;
+        passes = passes + r.0;
+        toggles = toggles + r.1;
+        reads = reads + r.2;
+        checksum = checksum + r.3
+    };
+
+    print(msg: `work calls {calls}`);
+    print(msg: `work passes {passes}`);
+    print(msg: `work toggles {toggles}`);
+    print(msg: `work reads {reads}`);
+    print(msg: `work checksum {checksum}`)
+}

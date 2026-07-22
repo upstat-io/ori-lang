@@ -3,33 +3,25 @@
 //! Handles `Invoke` (defines a variable), `Branch`/`Switch` (produce
 //! conditional refinements), and `Return` (accumulates return range).
 
-use ori_arc::ir::{ArcBlock, ArcFunction, ArcTerminator};
+use ori_arc::ir::{ArcBlock, ArcTerminator};
 use ori_arc::{ArcBlockId, ArcVarId};
-use ori_types::Pool;
 use rustc_hash::FxHashMap;
 
 use super::super::conditional::refine_from_branch;
 use super::super::transfer::transfer_known_call;
-use super::super::{is_int_typed, KnownBuiltins, ValueRange};
-use super::update_range;
+use super::super::{is_int_typed, ValueRange};
+use super::{update_range, FixpointContext};
 use ValueRange::{Bottom, Bounded, Top};
 
 /// Process a block's terminator: `Invoke` defines a variable,
 /// `Branch`/`Switch` produce refinements, `Return` accumulates return range.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "fixpoint infrastructure passes — bundling would add indirection"
-)]
 pub(super) fn process_terminator(
+    context: &FixpointContext<'_>,
     block: &ArcBlock,
-    func: &ArcFunction,
-    pool: &Pool,
     ranges: &mut FxHashMap<ArcVarId, ValueRange>,
     block_refinements: &mut FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
     return_range: &mut ValueRange,
     iteration: usize,
-    known_builtins: &KnownBuiltins,
-    call_result_narrowings: &FxHashMap<ArcVarId, ValueRange>,
     thresholds: &[i64],
 ) -> bool {
     let mut changed = false;
@@ -40,12 +32,13 @@ pub(super) fn process_terminator(
             func: callee,
             ..
         } => {
-            if is_int_typed(*ty, pool) {
-                let mut new_range = transfer_known_call(*callee, known_builtins).unwrap_or(Top);
+            if is_int_typed(*ty, context.pool) {
+                let mut new_range =
+                    transfer_known_call(*callee, context.known_builtins).unwrap_or(Top);
                 // Apply callee return-range narrowing to Invoke dst,
                 // matching the Apply handling in run_forward_iteration(). Without
                 // this, Invoke dst vars miss interprocedural return-range facts.
-                if let Some(&narrowing) = call_result_narrowings.get(dst) {
+                if let Some(&narrowing) = context.call_result_narrowings.get(dst) {
                     new_range = new_range.meet(narrowing);
                 }
                 changed |= update_range(ranges, *dst, new_range, iteration, thresholds);
@@ -100,16 +93,16 @@ pub(super) fn process_terminator(
             }
         }
         ArcTerminator::Return { value } => {
-            if is_int_typed(func.return_type, pool) {
+            if is_int_typed(context.func.return_type, context.pool) {
                 let ret_range = ranges.get(value).copied().unwrap_or(Top);
                 *return_range = return_range.join(ret_range);
             }
         }
         ArcTerminator::InvokeIndirect { dst, ty, .. } => {
             // Indirect calls have no known callee — use Top range.
-            if is_int_typed(*ty, pool) {
+            if is_int_typed(*ty, context.pool) {
                 let mut new_range = Top;
-                if let Some(&narrowing) = call_result_narrowings.get(dst) {
+                if let Some(&narrowing) = context.call_result_narrowings.get(dst) {
                     new_range = new_range.meet(narrowing);
                 }
                 changed |= update_range(ranges, *dst, new_range, iteration, thresholds);

@@ -598,7 +598,7 @@ fn main_function_id() -> FunctionId {
         retain_plans: RetainPlanTable::default(),
         roots: vec![main],
         cli_entry: Some(main),
-        externals: Vec::new(),
+        externals: ori_repr::executable::ValidatedExternalCallables::empty(),
         method_targets: FxHashMap::default(),
         user_drop_bindings: Vec::new(),
         repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),

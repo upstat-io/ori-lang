@@ -8,12 +8,8 @@ use super::{
     PARAM_BORROWED, PARAM_BORROWED_READ_ONLY, PARAM_OWNED_LINEAR, RETURN_UNIQUE,
 };
 
-/// `ORI_DISABLE_PANIC_MSG_TRANSFER=1` skips the `ori_panic` Owned message
-/// contract, restoring the all-borrowed default (the pre-transfer caller-side
-/// no-release arrangement — the message buffer leaks on every caught-panic
-/// path). Bisection surface: isolates a panic-path leak / double-free to the
-/// panic-message ownership transfer vs the rest of the contract seeding.
-/// Spec: Annex E §AIMS RL-2 (ownership-transferring terminal use).
+// Env: ORI_DISABLE_PANIC_MSG_TRANSFER - restores the borrowed panic-message contract,
+// debug-only. Spec: Annex E §AIMS RL-2.
 static PANIC_MSG_TRANSFER_DISABLED: LazyLock<bool> = LazyLock::new(|| {
     report_panic_msg_transfer_toggle(
         std::env::var("ORI_DISABLE_PANIC_MSG_TRANSFER").as_deref() == Ok("1"),

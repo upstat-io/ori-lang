@@ -279,16 +279,24 @@ pub enum ExprKind {
     /// in order, with later values overwriting earlier ones.
     MapWithSpread(MapElementRange),
 
-    /// Struct literal: Point { x: 0, y: 0 }
-    Struct { name: Name, fields: FieldInitRange },
+    /// Struct literal: Point { x: 0, y: 0 } or module-qualified geom.Point { .. }.
+    ///
+    /// `type_path` is the parsed type-path head (`type_path = identifier
+    /// { "." identifier }`): `Named` for a bare name, `AssociatedType`-chain for
+    /// a module-qualified path. Shared with the type-annotation representation so
+    /// one resolver serves both positions.
+    Struct {
+        type_path: ParsedTypeId,
+        fields: FieldInitRange,
+    },
 
-    /// Struct literal with spread: Point { ...base, x: 10 }
+    /// Struct literal with spread: Point { ...base, x: 10 } or geom.Point { ...base }.
     ///
     /// Uses `StructLitFieldRange` which can contain both field inits and spreads.
     /// The "later wins" semantics means spreads and explicit fields are applied
     /// in order, with later values overwriting earlier ones.
     StructWithSpread {
-        name: Name,
+        type_path: ParsedTypeId,
         fields: StructLitFieldRange,
     },
 

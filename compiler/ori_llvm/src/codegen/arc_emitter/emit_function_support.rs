@@ -12,48 +12,30 @@ pub(super) struct BlockLabel {
 
 impl BlockLabel {
     pub(super) fn new(mut index: usize) -> Self {
+        const PREFIX_LEN: usize = 2;
+        const DIGITS: &[u8; 10] = b"0123456789";
+
         let mut bytes = [0; 32];
         let mut cursor = bytes.len();
         loop {
-            let Some(next_cursor) = cursor.checked_sub(1) else {
-                panic!("block index decimal representation must fit label buffer");
-            };
-            cursor = next_cursor;
-            let Ok(digit) = u8::try_from(index % 10) else {
-                unreachable!("decimal digit must fit u8");
-            };
-            let Some(ascii_digit) = b'0'.checked_add(digit) else {
-                unreachable!("decimal digit must fit ASCII digit range");
-            };
-            let Some(slot) = bytes.get_mut(cursor) else {
-                unreachable!("checked label cursor must stay within the buffer");
-            };
-            *slot = ascii_digit;
+            cursor -= 1;
+            bytes[cursor] = DIGITS[index % 10];
             index /= 10;
             if index == 0 {
                 break;
             }
         }
 
-        let Some(digit_count) = bytes.len().checked_sub(cursor) else {
-            unreachable!("digit cursor must stay within label buffer");
-        };
-        let Some(len) = 2usize.checked_add(digit_count) else {
-            unreachable!("block label length must fit usize");
-        };
-        bytes.copy_within(cursor.., 2);
-        bytes[..2].copy_from_slice(b"bb");
+        let digit_count = bytes.len() - cursor;
+        let len = PREFIX_LEN + digit_count;
+        bytes.copy_within(cursor.., PREFIX_LEN);
+        bytes[..PREFIX_LEN].copy_from_slice(b"bb");
         Self { bytes, len }
     }
 
     pub(super) fn as_str(&self) -> &str {
-        let Some(label) = self.bytes.get(..self.len) else {
-            unreachable!("block label length must stay within its buffer");
-        };
-        let Ok(label) = std::str::from_utf8(label) else {
-            unreachable!("block label must contain only ASCII bytes");
-        };
-        label
+        // SAFETY: Every byte in `bytes[..len]` is initialized with ASCII text.
+        unsafe { std::str::from_utf8_unchecked(&self.bytes[..self.len]) }
     }
 }
 
@@ -72,8 +54,7 @@ pub(super) fn scan_for_yield_elem_size_types(
     interner: &ori_ir::StringInterner,
     yield_lineages: &ori_arc::YieldLineageIndex,
 ) -> FxHashMap<ArcVarId, (Idx, Idx)> {
-    // The for-yield lowerer interns the runtime symbol as a `Name`; compare
-    // interned Names instead of per-instruction string lookups.
+    // Why: Comparing interned names avoids a per-instruction interner lookup.
     let list_push = interner.intern("ori_list_push");
     let mut result = FxHashMap::default();
     for block in &func.blocks {
@@ -82,7 +63,6 @@ pub(super) fn scan_for_yield_elem_size_types(
                 func: callee, args, ..
             } = instr
             {
-                // ori_list_push(list_ptr, elem_val, elem_size_var)
                 if *callee == list_push && args.len() == 3 {
                     let elem_ty = func.var_type(args[1]);
                     let collection_ty = yield_lineages.result_for_receiver(args[0]).map_or_else(

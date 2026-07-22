@@ -137,10 +137,10 @@ fn from_optimization_passes_failed() {
 
 #[test]
 fn from_optimization_invalid_pipeline() {
-    let err = ori_llvm::aot::OptimizationError::InvalidPipeline {
-        pipeline: "default<O99>".into(),
-        message: "unknown opt level".into(),
-    };
+    let pipeline = "default<O99>\0".to_string();
+    let source = std::ffi::CString::new(pipeline.as_str())
+        .expect_err("embedded null byte must reject the pipeline");
+    let err = ori_llvm::aot::OptimizationError::InvalidPipeline { pipeline, source };
     let problem: CodegenProblem = err.into();
     let diag = problem.into_diagnostic();
 

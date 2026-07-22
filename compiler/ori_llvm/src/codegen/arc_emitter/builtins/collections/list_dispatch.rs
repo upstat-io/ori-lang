@@ -1,10 +1,34 @@
 //! Collection builtin dispatch declarations.
 
+use super::super::RenderStyle;
+use super::list_cow::YieldReceiverStorage;
+use crate::codegen::type_info::TypeInfo;
+use crate::codegen::value_id::ValueId;
 use ori_arc::ir::ArgOwnership;
 
-use crate::codegen::type_info::TypeInfo;
-
-use super::super::RenderStyle;
+fn emit_list_concat<'scx: 'ctx, 'ctx>(
+    emitter: &mut crate::codegen::arc_emitter::ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+    ctx: &super::super::BuiltinCtx<'_>,
+) -> Option<ValueId> {
+    if ctx.arg_vals.len() < 2 {
+        return None;
+    }
+    let TypeInfo::List { element } = ctx.type_info else {
+        return None;
+    };
+    let cow_mode = emitter.cow_mode_const(ctx.arc_func);
+    let result = emitter.emit_list_concat_cow(
+        ctx.arg_vals[0],
+        ctx.arg_vals[1],
+        *element,
+        cow_mode,
+        ctx.receiver_ty,
+    );
+    if result.is_some() {
+        emitter.mark_cow_data_noalias_if_unique(ctx.arc_func);
+    }
+    result
+}
 
 declare_builtins! { emitter, ctx;
     // list
@@ -13,34 +37,8 @@ declare_builtins! { emitter, ctx;
     ("list", "length") => emitter.emit_collection_length_forwarded(ctx.arg_vals[0], ctx.arc_args[0], "list.len"),
     ("list", "len") => emitter.emit_collection_length_forwarded(ctx.arg_vals[0], ctx.arc_args[0], "list.len"),
     ("list", "is_empty") => emitter.emit_collection_is_empty_forwarded(ctx.arg_vals[0], ctx.arc_args[0], "list.is_empty"),
-    ("list", "concat") => {
-        if ctx.arg_vals.len() >= 2 {
-            if let TypeInfo::List { element } = ctx.type_info {
-                let cm = emitter.cow_mode_const(ctx.arc_func);
-                let r = emitter.emit_list_concat_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm, ctx.receiver_ty);
-                if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
-                r
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    },
-    ("list", "add") => {
-        if ctx.arg_vals.len() >= 2 {
-            if let TypeInfo::List { element } = ctx.type_info {
-                let cm = emitter.cow_mode_const(ctx.arc_func);
-                let r = emitter.emit_list_concat_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm, ctx.receiver_ty);
-                if r.is_some() { emitter.mark_cow_data_noalias_if_unique(ctx.arc_func); }
-                r
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    },
+    ("list", "concat") => emit_list_concat(emitter, ctx),
+    ("list", "add") => emit_list_concat(emitter, ctx),
     ("list", "push") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
@@ -168,13 +166,20 @@ declare_builtins! { emitter, ctx;
                 let cm = emitter.cow_mode(ctx.arc_func);
                 let stack_slot_receiver = emitter.is_stack_slot_yield_receiver(ctx.arc_func, ctx.arc_args[0]);
                 let compact_stack_receiver = emitter.is_compact_stack_slot_yield_receiver(ctx.arc_func, ctx.arc_args[0]);
+                let receiver_storage = if compact_stack_receiver {
+                    YieldReceiverStorage::CompactStack
+                } else if stack_slot_receiver {
+                    YieldReceiverStorage::ManagedStack
+                } else {
+                    YieldReceiverStorage::Runtime
+                };
                 let negated_same_index = emitter.is_negated_same_index_update(
                     ctx.arc_func,
                     ctx.arc_args[0],
                     ctx.arc_args[1],
                     ctx.arc_args[2],
                 );
-                let r = emitter.emit_list_updated_cow(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element, cm, ctx.receiver_ty, stack_slot_receiver, compact_stack_receiver, negated_same_index);
+                let r = emitter.emit_list_updated_cow(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element, cm, ctx.receiver_ty, receiver_storage, negated_same_index);
                 if r.is_some() && !compact_stack_receiver {
                     emitter.mark_cow_data_noalias_if_unique(ctx.arc_func);
                 }
@@ -274,6 +279,7 @@ declare_builtins! { emitter, ctx;
             } else {
                 ArgOwnership::Borrowed
             };
+
             tracing::trace!(
                 receiver = ctx.arc_args[0].index(),
                 ?ownership,

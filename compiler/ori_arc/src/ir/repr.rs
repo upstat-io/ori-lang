@@ -1,15 +1,13 @@
-//! Transitional executable value-shape and RC-adapter classifications.
+//! Executable value-shape and RC-adapter classifications.
 //!
 //! [`ValueRepr`] refines ARC's three-way classification ([`ArcClass`]) into
-//! ownership-relevant shapes carried by the current executable plan.
-//! [`RcStrategy`] then selects the shipped compiled adapter behavior. Names
-//! such as pointer, fat value, and atomicity are migration-era physical
-//! vocabulary, not backend-neutral AIMS facts.
+//! ownership-relevant shapes carried by the executable plan. [`RcStrategy`]
+//! selects compiled adapter behavior. Pointer, fat-value, and atomicity choices
+//! describe that physical adapter rather than backend-neutral AIMS facts.
 //!
-//! Both are computed once and embedded in ARC IR today, preventing repeated
-//! [`Pool`] queries during migration. Production replaces them with stable
-//! logical value/drop facts plus separate VM and compiled physical plans;
-//! no projection may re-derive AIMS policy from these transitional shapes.
+//! Both values are computed once and embedded in ARC IR, preventing repeated
+//! [`Pool`] queries. No physical projection may re-derive AIMS policy from
+//! these compiled shapes.
 
 use ori_types::{Idx, Pool, Tag};
 
@@ -17,12 +15,10 @@ use crate::{ArcClass, ArcClassification};
 
 use super::ArcFunction;
 
-/// Transitional ownership-relevant executable value shape.
+/// Ownership-relevant executable value shape.
 ///
-/// Records the compiled-shaped approximation currently embedded in ARC IR.
-/// It carries useful logical topology, but its pointer-oriented variants do
-/// not require every physical projection to use the same storage encoding.
-/// Production consumers use stable value/drop-plan identities instead.
+/// Records the compiled shape embedded in ARC IR. Pointer-oriented variants
+/// do not require every physical projection to use the same storage encoding.
 ///
 /// - [`Scalar`](Self::Scalar) — scalar semantics, no RC.
 /// - [`RcPointer`](Self::RcPointer) — one RC-managed reference.
@@ -76,11 +72,7 @@ impl ValueRepr {
             // Reference-bearing values with inline metadata.
             Tag::Str | Tag::Function => Self::FatValue,
 
-            // Aggregates: multi-field compound types. Range is a fixed
-            // 4-field scalar-only value (start, end, step, inclusive —
-            // `codegen-rules.md TR-1`), never a single heap pointer; its
-            // field traversal is handled by the `AggregateFields` strategy
-            // via `rc_value_traversal.rs`'s explicit `Tag::Range` no-op arm.
+            // INVARIANT: Range is an inline scalar aggregate; it never carries one heap identity.
             Tag::Tuple | Tag::Struct | Tag::Enum | Tag::Result | Tag::Option | Tag::Range => {
                 Self::Aggregate
             }

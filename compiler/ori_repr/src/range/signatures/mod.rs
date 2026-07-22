@@ -23,6 +23,7 @@
 //! - `max_scc_iterations` (default 10) caps each recursive SCC independently.
 //! - A recursive SCC that reaches its cap gets `Top` summaries (safe fallback).
 
+mod analysis_context;
 mod feedback;
 mod scc;
 
@@ -34,9 +35,11 @@ use ori_ir::Name;
 use ori_types::Pool;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::{is_int_typed, RangeAnalysisConfig, ValueRange};
 use crate::plan::ReprPlan;
 use crate::range::fixpoint::range_fixpoint;
+
+use super::{is_int_typed, RangeAnalysisConfig, ValueRange};
+use analysis_context::{RangePropagationContext, RangePropagationState};
 
 /// Reason a function's parameters are unconstrained (all params → Top).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,19 +133,22 @@ pub fn propagate_ranges(
     let mut exhausted_recursive_sccs: usize = 0;
     let mut exhausted_functions: FxHashSet<Name> = FxHashSet::default();
 
+    let analysis = RangePropagationContext {
+        sccs: &sccs,
+        call_graph: &call_graph,
+        func_map: &func_map,
+        pool,
+        config,
+        plan,
+    };
+
     for scc in sccs.iter().rev() {
         if scc.is_recursive(&call_graph) {
-            // Recursive SCC: iterate to fixpoint with parameter seeding.
-            let outcome = scc::process_recursive_scc(
-                scc,
-                &call_graph,
-                &func_map,
-                pool,
-                config,
-                &mut results,
-                &mut func_infos,
-                plan,
-            );
+            let mut state = RangePropagationState {
+                results: &mut results,
+                func_infos: &mut func_infos,
+            };
+            let outcome = scc::process_recursive_scc(scc, analysis, &mut state);
             recursive_scc_iters += outcome.iterations;
             if outcome.exhausted {
                 exhausted_recursive_sccs += 1;
@@ -187,15 +193,12 @@ pub fn propagate_ranges(
 
     // Why: Caller-first parameter propagation initially lacks callee return ranges.
     feedback::feed_return_ranges_and_reprocess(
-        &sccs,
-        &call_graph,
-        &func_map,
-        pool,
-        config,
-        &mut results,
-        &mut func_infos,
+        analysis,
+        RangePropagationState {
+            results: &mut results,
+            func_infos: &mut func_infos,
+        },
         &exhausted_functions,
-        plan,
     );
 
     // INVARIANT: Local narrowing requires ABI widening and overflow guards; field summaries remain safe.
@@ -243,10 +246,7 @@ fn merge_param_ranges_into_plan(
     }
 }
 
-/// Collect parameter ranges for a single function from all call sites.
-///
-/// For each call site targeting this function, joins the argument ranges
-/// into the corresponding parameter range.
+/// Join every call-site argument range into the target parameter range.
 fn collect_param_ranges(
     target_func: &ArcFunction,
     results: &FxHashMap<Name, super::fixpoint::RangeFixpointResult>,

@@ -7,7 +7,9 @@ mod struct_lit;
 use crate::context::ParseContext;
 use crate::error::ErrorContext;
 use crate::{chain, committed, ParseError, ParseOutcome, Parser};
-use ori_ir::{Expr, ExprId, ExprKind, Param, ParsedTypeId, ParsedTypeRange, TokenKind};
+use ori_ir::{
+    Expr, ExprId, ExprKind, Name, Param, ParsedType, ParsedTypeId, ParsedTypeRange, TokenKind,
+};
 
 /// A postfix operator, identified by the token that starts it. Single source of
 /// truth for the postfix-token set: `POSTFIX_BITSET` (the O(1) fast-exit gate) is
@@ -175,13 +177,15 @@ impl Parser<'_> {
                     if !self.allows_struct_lit() {
                         break;
                     }
-                    let expr_data = self.arena.get_expr(expr);
-                    if let ExprKind::Ident(name) = &expr_data.kind {
-                        let struct_name = *name;
-                        let start_span = expr_data.span;
+                    // Accept a type_path head (bare `Ident` OR a dotted
+                    // `Field`-chain of identifiers), not only a bare identifier —
+                    // `struct_literal = type_path "{" ...`. A non-type_path head
+                    // (call, index, method call) is not a struct literal.
+                    let start_span = self.arena.get_expr(expr).span;
+                    if let Some(type_path) = self.expr_head_to_type_path(expr) {
                         self.cursor.advance();
                         expr = self.in_error_context_result(ErrorContext::StructLiteral, |p| {
-                            p.parse_postfix_struct_lit(struct_name, start_span)
+                            p.parse_postfix_struct_lit(type_path, start_span)
                         })?;
                     } else {
                         break;
@@ -218,6 +222,40 @@ impl Parser<'_> {
         }
 
         Ok(expr)
+    }
+
+    /// Convert an accumulated postfix head expression into a parsed type-path
+    /// (`type_path = identifier { "." identifier }`): a bare `Ident` becomes
+    /// `ParsedType::Named`; a `Field`-chain of identifiers becomes a nested
+    /// `AssociatedType`. Returns `None` when the head is not a `type_path` (a call,
+    /// index, or method call), so a following `{` is not a struct literal.
+    fn expr_head_to_type_path(&mut self, head: ExprId) -> Option<ParsedTypeId> {
+        // Extract the head shape (fields are `Copy`) before any mutable arena use.
+        enum Head {
+            Named(Name),
+            Field { receiver: ExprId, field: Name },
+        }
+        let shape = match &self.arena.get_expr(head).kind {
+            ExprKind::Ident(name) => Head::Named(*name),
+            ExprKind::Field { receiver, field } => Head::Field {
+                receiver: *receiver,
+                field: *field,
+            },
+            _ => return None,
+        };
+        match shape {
+            Head::Named(name) => Some(self.arena.alloc_parsed_type(ParsedType::Named {
+                name,
+                type_args: ParsedTypeRange::EMPTY,
+            })),
+            Head::Field { receiver, field } => {
+                let base = self.expr_head_to_type_path(receiver)?;
+                Some(
+                    self.arena
+                        .alloc_parsed_type(ParsedType::associated_type(base, field)),
+                )
+            }
+        }
     }
 
     /// Parse a function call after the opening `(` has been consumed.

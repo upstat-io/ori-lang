@@ -175,9 +175,9 @@ pub enum LitValue {
     },
     Unit,
     /// Typed null reference — a zero-valued placeholder for reference fields
-    /// that will be overwritten by `Set` before any read.
+    /// that `Set` overwrites before any read.
     ///
-    /// Used by the TRMC rewrite to fill constructor hole fields.
+    /// TRMC constructor holes carry this placeholder until field initialization.
     /// The variable carrying this value has the field's declared type, but the
     /// physical value is null (zero) and carries no logical ownership event.
     /// The shipped counter-backed runtime preserves that rule by making its
@@ -187,7 +187,7 @@ pub enum LitValue {
     /// # Contract
     ///
     /// A `Null` literal **must** be consumed by a `Construct` instruction whose
-    /// corresponding field is overwritten by `Set` before any read of that field.
+    /// corresponding field is overwritten by `Set` before that field is read.
     /// The post-rewrite verifier enforces this invariant.
     Null,
 }

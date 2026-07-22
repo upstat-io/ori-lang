@@ -13,7 +13,8 @@ mod summary;
 
 pub(crate) use output::{write_jsonl, RunnerError};
 pub(crate) use parity::backend_parity;
-use parity::{classify_plan, unavailable_parity};
+pub(crate) use parity::classify_plan;
+use parity::unavailable_parity;
 #[cfg(test)]
 pub(crate) use parity::{classify_runtime, parity_for};
 use process::{failed_termination_error, termination_succeeded};
@@ -166,20 +167,27 @@ fn oracle_observation(supervised: Supervised<OracleWorkerRecord>) -> OracleObser
     if record.schema_version != SCHEMA_VERSION {
         return internal_oracle(process, output, Some(schema_error(record.schema_version)));
     }
-    let status = match record.disposition {
-        OracleWorkerDisposition::Success => OracleStatus::Success,
-        OracleWorkerDisposition::FrontendRejected => OracleStatus::FrontendRejected,
-        OracleWorkerDisposition::RuntimeError => OracleStatus::RuntimeError,
-        OracleWorkerDisposition::InternalError => OracleStatus::InternalError,
-    };
     OracleObservation {
-        status,
+        status: oracle_status_for(record.disposition),
         frontend_status: record.frontend_status,
         phase: record.phase,
         result: record.result,
         output,
         error: record.error,
         process: Availability::available(process),
+    }
+}
+
+/// Closed evaluator-lane mapping from a worker disposition to its supervised status.
+///
+/// The evaluator reaches neither bytecode compilation, verification, realization,
+/// nor physical preparation, so this lane classifies exactly four outcomes.
+pub(crate) const fn oracle_status_for(disposition: OracleWorkerDisposition) -> OracleStatus {
+    match disposition {
+        OracleWorkerDisposition::Success => OracleStatus::Success,
+        OracleWorkerDisposition::FrontendRejected => OracleStatus::FrontendRejected,
+        OracleWorkerDisposition::RuntimeError => OracleStatus::RuntimeError,
+        OracleWorkerDisposition::InternalError => OracleStatus::InternalError,
     }
 }
 

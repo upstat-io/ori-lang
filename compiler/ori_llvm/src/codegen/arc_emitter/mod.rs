@@ -24,6 +24,7 @@ mod element_fn_gen;
 mod emit_function;
 mod emit_function_setup;
 mod emit_function_support;
+mod emitter_context;
 mod emitter_utils;
 mod field_scan;
 mod field_walk;
@@ -43,11 +44,6 @@ mod terminators;
 mod value_emission;
 mod variant_construction;
 
-pub use context::CodegenContext;
-use context::EmittedValue;
-pub(crate) use narrowing_codegen::narrowed_collection_element_width;
-
-use crate::aot::debug::DebugContext;
 use ori_arc::ir::ArcVarId;
 use ori_arc::ArcClassification;
 use ori_arc::MemoryContract;
@@ -55,9 +51,15 @@ use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Pool};
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::aot::debug::DebugContext;
+
 use super::ir_builder::IrBuilder;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
 use super::value_id::{BlockId, FunctionId, LLVMTypeId, TokenId, ValueId};
+pub use context::CodegenContext;
+use context::EmittedValue;
+pub(crate) use emitter_context::ArcEmitterFunctionContext;
+pub(crate) use narrowing_codegen::narrowed_collection_element_width;
 
 /// Return ABI used by a binary string runtime helper.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -364,16 +366,14 @@ impl std::fmt::Debug for ArcIrEmitter<'_, '_, '_, '_> {
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Create a new ARC IR emitter.
-    pub fn new(
+    pub(crate) fn new(
         builder: &'a mut IrBuilder<'scx, 'ctx>,
         type_info: &'a TypeInfoStore<'tcx>,
         type_resolver: &'a TypeLayoutResolver<'a, 'ctx, 'tcx>,
         interner: &'a StringInterner,
         pool: &'a Pool,
         classifier: &'a dyn ArcClassification,
-        current_function: FunctionId,
-        ctx: &'a CodegenContext,
-        debug_context: Option<&'a DebugContext<'ctx>>,
+        function: ArcEmitterFunctionContext<'a, 'ctx>,
     ) -> Self {
         Self {
             builder,
@@ -390,9 +390,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             compare_thunk_cache: FxHashMap::default(),
             eq_thunk_cache: FxHashMap::default(),
             hash_thunk_cache: FxHashMap::default(),
-            current_function,
-            ctx,
-            debug_context,
+            current_function: function.current_function,
+            ctx: function.codegen,
+            debug_context: function.debug,
             partial_apply_counter: 0,
             catch_thunk_counter: 0,
             var_map: Vec::new(),

@@ -2,13 +2,14 @@
 //!
 //! Salsa-first incremental compiler.
 
+mod test_command;
+
 use oric::commands::{
     accumulate_build_options, add_target, build_file, check_file, demangle_symbol,
     emit_aims_state_file, emit_scip_file, explain_error, explain_idx, lex_file,
     list_installed_targets, list_targets, parse_file, remove_target, run_file, run_file_compiled,
-    run_format, run_tests, watch_file, TargetFilter, TargetSubcommand, TestEnforcement,
+    run_format, watch_file, TargetFilter, TargetSubcommand, TestEnforcement,
 };
-use oric::test::TestRunnerConfig;
 
 #[cfg(not(feature = "llvm"))]
 compile_error!(
@@ -55,7 +56,7 @@ fn dispatch_command(command: &str, args: &[String]) {
     match command {
         "build" => run_build_command(args),
         "run" => run_run_command(args),
-        "test" => run_test_command(args),
+        "test" => test_command::run(args),
         "check" => run_check_command(args),
         "emit-scip" => run_emit_scip_command(args),
         "emit-aims-state" => run_emit_aims_state_command(args),
@@ -336,84 +337,6 @@ fn run_run_command(args: &[String]) {
     }
 }
 
-fn run_test_command(args: &[String]) {
-    let mut paths = Vec::new();
-    let mut config = TestRunnerConfig::default();
-    let mut expect_format_value = false;
-    for arg in args.iter().skip(2) {
-        if parse_test_arg(arg, &mut config, &mut paths, &mut expect_format_value) {
-            print_test_usage();
-            return;
-        }
-    }
-    if expect_format_value {
-        eprintln!("error: --format requires a value (json|text)");
-        eprintln!("Run `ori test --help` for usage.");
-        std::process::exit(2);
-    }
-    if paths.is_empty() {
-        paths.push(".".to_string());
-    }
-    let exit_code = run_tests(&paths, &config);
-    if exit_code != 0 {
-        std::process::exit(exit_code);
-    }
-}
-
-fn parse_test_arg(
-    arg: &str,
-    config: &mut TestRunnerConfig,
-    paths: &mut Vec<String>,
-    expect_format_value: &mut bool,
-) -> bool {
-    if *expect_format_value {
-        *expect_format_value = false;
-        config.format = match arg {
-            "json" => oric::test::OutputFormat::Json,
-            "text" => oric::test::OutputFormat::Text,
-            other => {
-                eprintln!("error: invalid --format value '{other}' (expected json|text)");
-                eprintln!("Run `ori test --help` for usage.");
-                std::process::exit(2);
-            }
-        };
-        return false;
-    }
-    match arg {
-        "--help" | "-h" => return true,
-        "--verbose" | "-v" => config.verbose = true,
-        "--no-parallel" => config.parallel = false,
-        "--coverage" => config.coverage = true,
-        "--backend=llvm" => config.backend = oric::test::Backend::LLVM,
-        "--backend=interpreter" => config.backend = oric::test::Backend::Interpreter,
-        "--incremental" => config.incremental = true,
-        "--format=json" => config.format = oric::test::OutputFormat::Json,
-        "--format=text" => config.format = oric::test::OutputFormat::Text,
-        "--format" => *expect_format_value = true,
-        "--__worker" => config.worker_protocol = true,
-        _ => parse_test_arg_value(arg, config, paths),
-    }
-    false
-}
-
-fn parse_test_arg_value(arg: &str, config: &mut TestRunnerConfig, paths: &mut Vec<String>) {
-    if let Some(filter) = arg.strip_prefix("--filter=") {
-        config.filter = Some(filter.to_string());
-    } else if let Some(names) = arg.strip_prefix("--__skip-unchanged=") {
-        config.skip_unchanged = names
-            .split(',')
-            .filter(|name| !name.is_empty())
-            .map(str::to_string)
-            .collect();
-    } else if arg.starts_with('-') {
-        eprintln!("error: unknown flag '{arg}' for `ori test`");
-        eprintln!("Run `ori test --help` for usage.");
-        std::process::exit(2);
-    } else {
-        paths.push(arg.to_string());
-    }
-}
-
 fn print_usage() {
     println!("Ori Compiler {}", oric::version::report_version());
     println!();
@@ -458,7 +381,7 @@ fn print_usage() {
     println!("Check/Watch options:");
     println!("  --test-enforcement=<level>  Test enforcement: off (default), warn, error");
     println!();
-    print_test_options();
+    test_command::print_options();
     println!();
     println!("Format options:");
     println!("  --check             Check if files are formatted (exit 1 if not)");
@@ -478,7 +401,7 @@ fn print_usage() {
     println!("  ori build main.ori --wasm       # WebAssembly output");
     println!("  ori test                        # Run all spec tests");
     println!("  ori test tests/spec/patterns/");
-    println!("  ori test --filter=map");
+    println!("  ori test --filter map");
     println!("  ori check lib.ori");
     println!("  ori check lib.ori --test-enforcement=error");
     println!("  ori targets                     # List supported targets");
@@ -488,27 +411,4 @@ fn print_usage() {
     println!("  ori fmt                         # Format all files");
     println!("  ori fmt --check                 # Check formatting (for CI)");
     println!("  ori --explain E2001             # Explain type mismatch");
-}
-
-/// Print usage for the `test` subcommand (`ori test --help`).
-fn print_test_usage() {
-    println!("Usage: ori test [paths...] [options]");
-    println!();
-    println!("Run Ori spec tests in the given paths (default: current directory).");
-    println!();
-    print_test_options();
-}
-
-/// Print the `test` subcommand's option list (shared by `ori help` and
-/// `ori test --help`).
-fn print_test_options() {
-    println!("Test options:");
-    println!("  --filter=<pattern>  Only run tests matching pattern");
-    println!("  --verbose, -v       Show detailed output");
-    println!("  --no-parallel       Run tests sequentially");
-    println!("  --coverage          Report which functions have tests");
-    println!("  --backend=<name>    Use backend: interpreter (default), llvm");
-    println!("  --incremental       Skip tests for unchanged functions");
-    println!("  --format <name>     Summary format: text (default), json (also --format=<name>)");
-    println!("  --help, -h          Show this help");
 }

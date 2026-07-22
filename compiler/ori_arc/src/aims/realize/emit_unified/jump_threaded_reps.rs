@@ -1,7 +1,5 @@
 //! Local jump-threaded same-allocation rep tracking, consumed by codegen's
 //! push-result element-escape keep-alive gate.
-//!
-//! Split out of [`super`] to keep both files under the 500-line hygiene cap.
 
 use rustc_hash::FxHashMap;
 
@@ -38,7 +36,7 @@ pub fn yield_result_for_receiver_lineage(func: &ArcFunction, recv: ArcVarId) -> 
 /// Construct this once when a consumer queries multiple variables. Building the
 /// index scans the function to close static-unique COW and jump-threaded alias
 /// edges; each subsequent lookup is constant-time.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct YieldLineageIndex {
     representatives: FxHashMap<ArcVarId, ArcVarId>,
     results_by_representative: FxHashMap<ArcVarId, ArcVarId>,

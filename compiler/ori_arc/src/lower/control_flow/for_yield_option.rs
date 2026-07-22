@@ -72,8 +72,7 @@ impl ArcLowerer<'_> {
             fallback_elem_ty
         };
         let elem_size = self.compute_elem_size(body_elem_ty).cast_unsigned();
-        let (list_ptr, elem_size_var, extent) =
-            self.allocate_yield_list(body_elem_ty, YieldExtent::StaticExact(1));
+        let allocation = self.allocate_yield_list(body_elem_ty, YieldExtent::StaticExact(1));
         let exit_mut_params = mutable_bindings
             .iter()
             .map(|&(name, _, ty)| (name, self.builder.add_block_param(exit_block, ty)))
@@ -85,11 +84,11 @@ impl ArcLowerer<'_> {
             pre_scope,
             mutable_bindings,
             exit_mut_params,
-            list_ptr,
-            elem_size_var,
+            list_ptr: allocation.list_ptr,
+            elem_size_var: allocation.elem_size_var,
             elem_ty: body_elem_ty,
             elem_size,
-            extent,
+            extent: allocation.extent,
         }
     }
 

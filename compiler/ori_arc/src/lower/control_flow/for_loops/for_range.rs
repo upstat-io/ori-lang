@@ -4,9 +4,11 @@ use ori_ir::canon::{CanBindingPatternId, CanId};
 use ori_ir::Name;
 use ori_types::{Idx, Tag};
 
-use crate::ir::{ArcBlockId, ArcValue, ArcVarId, LitValue, PrimOp, YieldExtent};
+use crate::ir::{ArcBlockId, ArcValue, ArcVarId, PrimOp, YieldExtent};
 use crate::lower::expr::{ArcLowerer, ForYieldContext, ForYieldShape, LoopContext};
 use crate::lower::scope::ArcScope;
+
+mod condition;
 
 type MutableBinding = (Name, ArcVarId, Idx);
 type HeaderMutableParam = (Name, ArcVarId, ArcVarId);
@@ -25,6 +27,12 @@ struct RangeLoopSetup {
     result_param: Option<ArcVarId>,
 }
 
+#[derive(Clone, Copy)]
+enum RangeLoopKind {
+    Plain,
+    Yield,
+}
+
 impl ArcLowerer<'_> {
     /// Lowers a range loop from its logical `start`, `end`, `step`, and inclusive flag.
     ///
@@ -39,7 +47,7 @@ impl ArcLowerer<'_> {
         body: CanId,
         label: ori_ir::Name,
     ) -> ArcVarId {
-        let setup = self.prepare_range_loop(false);
+        let setup = self.prepare_range_loop(RangeLoopKind::Plain);
 
         tracing::debug!(
             pattern = ?pattern,
@@ -74,16 +82,16 @@ impl ArcLowerer<'_> {
             Idx::INT
         };
         let elem_size = self.compute_elem_size(elem_ty).cast_unsigned();
-        let (list_ptr, elem_size_var, extent) = self.allocate_yield_list(elem_ty, extent);
-        let setup = self.prepare_range_loop(true);
+        let allocation = self.allocate_yield_list(elem_ty, extent);
+        let setup = self.prepare_range_loop(RangeLoopKind::Yield);
         let (step, in_bounds) = self.enter_range_header(iter_val, &setup);
         let list_push = self.interner.intern("ori_list_push");
         self.push_range_yield_context(
             label,
             &setup,
             ForYieldContext {
-                list_ptr,
-                elem_size: elem_size_var,
+                list_ptr: allocation.list_ptr,
+                elem_size: allocation.elem_size_var,
                 list_push_name: list_push,
             },
         );
@@ -92,16 +100,23 @@ impl ArcLowerer<'_> {
             shape.pattern,
             shape.body,
             list_push,
-            list_ptr,
-            elem_size_var,
+            allocation.list_ptr,
+            allocation.elem_size_var,
             &setup,
         );
         self.loop_ctx_stack.pop();
         self.emit_range_latch(step, &setup);
-        self.finish_range_yield_loop(shape.result_ty, list_ptr, elem_ty, elem_size, extent, setup)
+        self.finish_range_yield_loop(
+            shape.result_ty,
+            allocation.list_ptr,
+            elem_ty,
+            elem_size,
+            allocation.extent,
+            setup,
+        )
     }
 
-    fn prepare_range_loop(&mut self, for_yield: bool) -> RangeLoopSetup {
+    fn prepare_range_loop(&mut self, kind: RangeLoopKind) -> RangeLoopSetup {
         let header_block = self.builder.new_block();
         let body_block = self.builder.new_block();
         let latch_block = self.builder.new_block();
@@ -128,8 +143,8 @@ impl ArcLowerer<'_> {
             .iter()
             .map(|&(name, _, ty)| (name, self.builder.add_block_param(latch_block, ty)))
             .collect();
-        let result_param =
-            (!for_yield).then(|| self.builder.add_block_param(exit_block, Idx::UNIT));
+        let result_param = matches!(kind, RangeLoopKind::Plain)
+            .then(|| self.builder.add_block_param(exit_block, Idx::UNIT));
         let exit_mut_params = mutable_bindings
             .iter()
             .map(|&(name, _, ty)| (name, self.builder.add_block_param(exit_block, ty)))
@@ -400,153 +415,5 @@ impl ArcLowerer<'_> {
         self.builder
             .note_yield_allocation(list_ptr, result, elem_ty, elem_size, extent);
         result
-    }
-
-    /// Emit a zero-step guard: panic at runtime if `step == 0`.
-    ///
-    /// Creates a branch: if step is zero, jump to a panic block;
-    /// otherwise continue to a new loop-entry block. Positions the
-    /// builder at the loop-entry block on return.
-    fn emit_zero_step_guard(&mut self, step: ArcVarId) {
-        let zero = self
-            .builder
-            .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(0)), None);
-        let step_is_zero = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Eq),
-                args: vec![step, zero],
-            },
-            None,
-        );
-        let panic_block = self.builder.new_block();
-        let loop_entry_block = self.builder.new_block();
-        self.builder
-            .terminate_branch(step_is_zero, panic_block, loop_entry_block);
-
-        // Panic block: emit "range step cannot be zero" and halt.
-        self.builder.position_at(panic_block);
-        let panic_msg = self.interner.intern("range step cannot be zero");
-        let msg_var = self.builder.emit_let(
-            Idx::STR,
-            ArcValue::Literal(LitValue::String(panic_msg)),
-            None,
-        );
-        let panic_fn = self.interner.intern("ori_panic");
-        self.builder
-            .emit_apply(Idx::UNIT, panic_fn, vec![msg_var], None, None);
-        self.builder.terminate_unreachable();
-
-        // Continue in loop entry block.
-        self.builder.position_at(loop_entry_block);
-    }
-
-    /// Emit the general 8-instruction sign-aware range condition.
-    ///
-    /// ```text
-    /// asc_part  = (step > 0) && (i < end)
-    /// desc_part = (step < 0) && (i > end)
-    /// base      = asc_part || desc_part
-    /// incl_part = (inclusive > 0) && (i == end)
-    /// in_bounds = base || incl_part
-    /// ```
-    fn emit_general_range_condition(
-        &mut self,
-        i_var: ArcVarId,
-        end: ArcVarId,
-        step: ArcVarId,
-        inclusive: ArcVarId,
-    ) -> ArcVarId {
-        let zero = self
-            .builder
-            .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(0)), None);
-        let step_pos = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Gt),
-                args: vec![step, zero],
-            },
-            None,
-        );
-        let step_neg = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Lt),
-                args: vec![step, zero],
-            },
-            None,
-        );
-        let is_incl = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Gt),
-                args: vec![inclusive, zero],
-            },
-            None,
-        );
-        let lt_val = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Lt),
-                args: vec![i_var, end],
-            },
-            None,
-        );
-        let gt_val = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Gt),
-                args: vec![i_var, end],
-            },
-            None,
-        );
-        let eq_val = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Eq),
-                args: vec![i_var, end],
-            },
-            None,
-        );
-        let asc_part = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::And),
-                args: vec![step_pos, lt_val],
-            },
-            None,
-        );
-        let desc_part = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::And),
-                args: vec![step_neg, gt_val],
-            },
-            None,
-        );
-        let base = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Or),
-                args: vec![asc_part, desc_part],
-            },
-            None,
-        );
-        let incl_part = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::And),
-                args: vec![is_incl, eq_val],
-            },
-            None,
-        );
-        self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Or),
-                args: vec![base, incl_part],
-            },
-            None,
-        )
     }
 }

@@ -22,11 +22,11 @@ use super::line_map::LineMap;
 /// convenient span-based location setting.
 pub struct DebugContext<'ctx> {
     /// The debug info builder.
-    pub builder: DebugInfoBuilder<'ctx>,
+    builder: DebugInfoBuilder<'ctx>,
     /// Line map for span-to-location conversion.
-    pub line_map: LineMap,
+    line_map: LineMap,
     /// Absolute or relative path to the source file.
-    pub source_path: String,
+    source_path: String,
 }
 
 impl<'ctx> DebugContext<'ctx> {
@@ -145,8 +145,14 @@ impl<'ctx> DebugContext<'ctx> {
 
     /// Get the debug info builder.
     #[must_use]
-    pub fn di(&self) -> &DebugInfoBuilder<'ctx> {
+    pub fn builder(&self) -> &DebugInfoBuilder<'ctx> {
         &self.builder
+    }
+
+    /// Get the source path used by emitted debug locations.
+    #[must_use]
+    pub fn source_path(&self) -> &str {
+        &self.source_path
     }
 
     /// Get the debug level.

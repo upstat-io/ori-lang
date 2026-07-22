@@ -1,8 +1,7 @@
 //! Alias-to-parameter flow: return-alias shapes, the alias map, and
 //! callee-mediated consumption/containment detection.
 //!
-//! Return-alias shape detection lives in [`return_alias_shapes`] — split out
-//! to keep this module under the 500-line hygiene cap.
+//! [`return_alias_shapes`] provides return-alias shape detection.
 
 mod return_alias_shapes;
 
@@ -384,17 +383,8 @@ pub(super) fn find_payload_containment_params(
                 ArcInstr::Construct {
                     dst, ctor, args, ..
                 } => {
-                    // Phase ordering: var_rc_strategies is not populated
-                    // during interprocedural contract extraction (it's
-                    // computed later in the per-function pipeline).
-                    // We use CtorKind as a structural proxy: EnumVariant
-                    // is the ctor that yields transitive-drop variant
-                    // payloads. The consumer
-                    // (`post_convergence.rs::materialize_transitive_drop_singleton_classes`)
-                    // re-checks is_transitive_drop_strategy on the call dst at
-                    // the caller's site, so being permissive here only
-                    // populates the contract field; the consumer guards real
-                    // class materialization.
+                    // Why: RC strategies are unavailable here, while `EnumVariant` identifies
+                    // transitive-drop candidates whose callers recheck the concrete strategy.
                     let is_variant = matches!(ctor, crate::ir::CtorKind::EnumVariant { .. });
                     tracing::debug!(
                         func = ?func.name,

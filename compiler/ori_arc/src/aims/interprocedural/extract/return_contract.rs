@@ -104,6 +104,7 @@ fn report_fresh_lineage_return_trace_toggle(disabled: bool) -> bool {
     disabled
 }
 
+// Env: ORI_DISABLE_FRESH_LINEAGE_RETURN_TRACE - declines fresh-lineage certification, debug-only.
 fn fresh_lineage_return_trace_disabled() -> bool {
     report_fresh_lineage_return_trace_toggle(
         std::env::var_os("ORI_DISABLE_FRESH_LINEAGE_RETURN_TRACE").is_some(),

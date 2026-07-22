@@ -19,8 +19,8 @@ fn tier1_view_edge_unifies_and_classes_stay_disjoint() {
     let extra_view = whole(&mut partition, 13);
     let agg_root = whole(&mut partition, 30);
     let agg_alias = whole(&mut partition, 31);
-    partition.set(items_ctor, BirthSiteId::new(100));
-    partition.set(agg_root, BirthSiteId::new(300));
+    partition.set_site(items_ctor, BirthSiteId::new(100));
+    partition.set_site(agg_root, BirthSiteId::new(300));
 
     partition.union_tier1(items_view, items_ctor);
     partition.union_tier1(agg_alias, agg_root);
@@ -46,7 +46,7 @@ fn loop_invariant_merge_admitted_under_singleton_witness() {
     let items_ctor = whole(&mut partition, 10);
     let items_view = whole(&mut partition, 11);
     let items_hdr = whole(&mut partition, 12);
-    partition.set(items_ctor, BirthSiteId::new(100));
+    partition.set_site(items_ctor, BirthSiteId::new(100));
     partition.union_tier1(items_view, items_ctor);
 
     // Entry and latch predecessors both resolve to the items class.
@@ -67,8 +67,8 @@ fn loop_varying_merge_refused_over_distinct_birth_sites() {
     let label_b0 = whole(&mut partition, 20);
     let label_b1 = whole(&mut partition, 21);
     let label_hdr = whole(&mut partition, 22);
-    partition.set(label_b0, BirthSiteId::new(200));
-    partition.set(label_b1, BirthSiteId::new(201));
+    partition.set_site(label_b0, BirthSiteId::new(200));
+    partition.set_site(label_b1, BirthSiteId::new(201));
 
     assert!(!partition.union_phi_witnessed(label_hdr, &[label_b0, label_b1]));
 
@@ -104,7 +104,7 @@ fn unknown_birth_site_pred_refuses_phi_witness() {
     let known = whole(&mut partition, 20);
     let unknown = whole(&mut partition, 21);
     let merge = whole(&mut partition, 22);
-    partition.set(known, BirthSiteId::new(200));
+    partition.set_site(known, BirthSiteId::new(200));
 
     assert!(!partition.union_phi_witnessed(merge, &[known, unknown]));
     assert!(!partition.union_phi_witnessed(merge, &[unknown, known]));
@@ -168,8 +168,8 @@ fn distinct_site_tier1_union_refused_release_active() {
     let mut partition = BirthSitePartition::new();
     let a = whole(&mut partition, 1);
     let b = whole(&mut partition, 2);
-    partition.set(a, BirthSiteId::new(10));
-    partition.set(b, BirthSiteId::new(20));
+    partition.set_site(a, BirthSiteId::new(10));
+    partition.set_site(b, BirthSiteId::new(20));
 
     assert!(!partition.union_tier1(a, b));
     assert!(!partition.same_rep(a, b));
@@ -188,11 +188,11 @@ fn distinct_site_tier1_union_refused_release_active() {
 fn distinct_site_reassignment_refused_keeps_original() {
     let mut partition = BirthSitePartition::new();
     let a = whole(&mut partition, 1);
-    partition.set(a, BirthSiteId::new(10));
-    partition.set(a, BirthSiteId::new(99));
+    partition.set_site(a, BirthSiteId::new(10));
+    partition.set_site(a, BirthSiteId::new(99));
     assert_eq!(partition.site(a), Some(BirthSiteId::new(10)));
     // Same-site re-record stays a no-op.
-    partition.set(a, BirthSiteId::new(10));
+    partition.set_site(a, BirthSiteId::new(10));
     assert_eq!(partition.site(a), Some(BirthSiteId::new(10)));
 }
 

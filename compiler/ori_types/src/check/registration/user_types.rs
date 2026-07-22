@@ -6,10 +6,13 @@
 
 mod repr;
 
+use ori_ir::{ExprArena, Name};
 use rustc_hash::FxHashSet;
 
 use super::burden_compute::{compute_enum_burden, compute_newtype_burden, compute_struct_burden};
-use super::type_resolution::{collect_generic_params, convert_visibility, resolve_field_type};
+use super::type_resolution::{
+    collect_generic_params, convert_visibility, resolve_field_type, resolve_parsed_type_simple,
+};
 use crate::registry::burden::UserBurdenSpec;
 use crate::{
     EnumVariant, FieldDef, Idx, ModuleChecker, Pool, Tag, TypeCheckError, TypeRegistry, VariantDef,
@@ -24,13 +27,30 @@ pub fn register_user_types(checker: &mut ModuleChecker<'_>, module: &ori_ir::Mod
     }
 }
 
-/// Register a single type declaration.
+/// Register a single local type declaration (resolves against the checker's own arena).
 fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) {
+    let arena = checker.arena();
+    register_type_decl_with(checker, decl, arena, decl.name);
+}
+
+/// Register a type declaration under an explicit local `name`, resolving its
+/// field / generic types against `arena`.
+///
+/// Local declarations pass the checker's own arena and the declaration's own
+/// name; imported types pass the PROVIDER module's arena and the local (possibly
+/// aliased) import name, so an exported type binds into the consumer's
+/// `TypeRegistry` under the name the importing module sees it by.
+pub(crate) fn register_type_decl_with(
+    checker: &mut ModuleChecker<'_>,
+    decl: &ori_ir::TypeDecl,
+    arena: &ExprArena,
+    name: Name,
+) {
     // Collect generic parameters
-    let type_params = collect_generic_params(checker.arena(), decl.generics);
+    let type_params = collect_generic_params(arena, decl.generics);
 
     // Create pool index for this type
-    let idx = checker.pool_mut().named(decl.name);
+    let idx = checker.pool_mut().named(name);
 
     // Convert visibility
     let visibility = convert_visibility(decl.visibility);
@@ -38,13 +58,13 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
     // Build and register based on declaration kind
     match &decl.kind {
         ori_ir::TypeDeclKind::Struct(_) => {
-            register_struct_decl(checker, decl, idx, type_params, visibility);
+            register_struct_decl(checker, decl, arena, name, idx, type_params, visibility);
         }
         ori_ir::TypeDeclKind::Sum(_) => {
-            register_enum_decl(checker, decl, idx, type_params, visibility);
+            register_enum_decl(checker, decl, arena, name, idx, type_params, visibility);
         }
         ori_ir::TypeDeclKind::Newtype(_) => {
-            register_newtype_decl(checker, decl, idx, type_params, visibility);
+            register_newtype_decl(checker, decl, arena, name, idx, type_params, visibility);
         }
     }
 
@@ -77,6 +97,8 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
 fn register_struct_decl(
     checker: &mut ModuleChecker<'_>,
     decl: &ori_ir::TypeDecl,
+    arena: &ExprArena,
+    name: Name,
     idx: Idx,
     type_params: Vec<ori_ir::Name>,
     visibility: Visibility,
@@ -88,7 +110,7 @@ fn register_struct_decl(
         .iter()
         .map(|field| FieldDef {
             name: field.name,
-            ty: resolve_field_type(checker, &field.ty),
+            ty: resolve_parsed_type_simple(checker, &field.ty, arena),
             span: field.span,
             visibility: Visibility::Public,
         })
@@ -96,7 +118,7 @@ fn register_struct_decl(
     for field in &field_defs {
         if field.ty == Idx::NEVER {
             checker.push_error(TypeCheckError::uninhabited_struct_field(
-                field.span, decl.name, field.name,
+                field.span, name, field.name,
             ));
         }
     }
@@ -104,12 +126,12 @@ fn register_struct_decl(
         .iter()
         .map(|field| (field.name, field.ty))
         .collect();
-    let struct_idx = checker.pool_mut().struct_type(decl.name, &pool_fields);
+    let struct_idx = checker.pool_mut().struct_type(name, &pool_fields);
     checker.pool_mut().set_resolution(idx, struct_idx);
     let hash = checker.pool().hash(idx);
     let burden = compute_struct_burden(&field_defs, checker.pool());
     checker.type_registry_mut().register_struct(
-        decl.name,
+        name,
         idx,
         type_params,
         field_defs,
@@ -129,6 +151,8 @@ fn register_struct_decl(
 fn register_enum_decl(
     checker: &mut ModuleChecker<'_>,
     decl: &ori_ir::TypeDecl,
+    arena: &ExprArena,
+    name: Name,
     idx: Idx,
     type_params: Vec<ori_ir::Name>,
     visibility: Visibility,
@@ -148,7 +172,7 @@ fn register_enum_decl(
                         .iter()
                         .map(|field| FieldDef {
                             name: field.name,
-                            ty: resolve_field_type(checker, &field.ty),
+                            ty: resolve_parsed_type_simple(checker, &field.ty, arena),
                             span: field.span,
                             visibility: Visibility::Public,
                         })
@@ -173,12 +197,12 @@ fn register_enum_decl(
             },
         })
         .collect();
-    let enum_idx = checker.pool_mut().enum_type(decl.name, &pool_variants);
+    let enum_idx = checker.pool_mut().enum_type(name, &pool_variants);
     checker.pool_mut().set_resolution(idx, enum_idx);
     let hash = checker.pool().hash(idx);
     let burden = compute_enum_burden(&variant_defs, checker.pool());
     checker.type_registry_mut().register_enum(
-        decl.name,
+        name,
         idx,
         type_params,
         variant_defs,
@@ -198,6 +222,8 @@ fn register_enum_decl(
 fn register_newtype_decl(
     checker: &mut ModuleChecker<'_>,
     decl: &ori_ir::TypeDecl,
+    arena: &ExprArena,
+    name: Name,
     idx: Idx,
     type_params: Vec<ori_ir::Name>,
     visibility: Visibility,
@@ -205,11 +231,11 @@ fn register_newtype_decl(
     let ori_ir::TypeDeclKind::Newtype(underlying) = &decl.kind else {
         unreachable!("newtype registration called for other declaration");
     };
-    let underlying_ty = resolve_field_type(checker, underlying);
+    let underlying_ty = resolve_parsed_type_simple(checker, underlying, arena);
     let hash = checker.pool().hash(idx);
     let burden = compute_newtype_burden(underlying_ty, checker.pool(), checker.type_registry());
     checker.type_registry_mut().register_newtype(
-        decl.name,
+        name,
         idx,
         type_params,
         underlying_ty,
@@ -221,7 +247,7 @@ fn register_newtype_decl(
     );
     checker
         .pool_mut()
-        .register_newtype_ctor(decl.name, underlying_ty);
+        .register_newtype_ctor(name, underlying_ty);
     checker.pool_mut().set_resolution(idx, underlying_ty);
 }
 

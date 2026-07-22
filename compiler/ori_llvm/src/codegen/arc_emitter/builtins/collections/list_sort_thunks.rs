@@ -6,14 +6,53 @@
 //! Each thunk has signature `fn(*const u8, *const u8) -> i32` and returns
 //! -1 (less), 0 (equal), or 1 (greater).
 
+use super::super::super::ArcIrEmitter;
+use crate::codegen::type_info::TypeInfo;
+use crate::codegen::value_id::{BlockId, FunctionId, ValueId};
 use ori_types::Idx;
 
-use crate::codegen::type_info::TypeInfo;
-use crate::codegen::value_id::ValueId;
-
-use super::super::super::ArcIrEmitter;
-
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
+    fn begin_compare_thunk(
+        &mut self,
+        func_id: FunctionId,
+    ) -> (Option<BlockId>, Option<FunctionId>, ValueId, ValueId) {
+        let saved_pos = self.builder.save_position();
+        let saved_func = self.builder.current_function();
+
+        self.builder.set_ccc(func_id);
+        self.builder.add_nounwind_attribute(func_id);
+        let entry = self.builder.append_block(func_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(func_id);
+
+        let a_ptr = self.builder.get_param(func_id, 0);
+        let b_ptr = self.builder.get_param(func_id, 1);
+        (saved_pos, saved_func, a_ptr, b_ptr)
+    }
+
+    fn finish_compare_thunk(
+        &mut self,
+        func_id: FunctionId,
+        result: ValueId,
+        saved_pos: Option<BlockId>,
+        saved_func: Option<FunctionId>,
+    ) -> ValueId {
+        self.builder.ret(result);
+        self.builder.restore_position(saved_pos);
+        if let Some(function) = saved_func {
+            self.builder.set_current_function(function);
+        }
+        self.builder.get_function_ptr(func_id)
+    }
+
+    fn emit_compare_result(&mut self, less: ValueId, greater: ValueId) -> ValueId {
+        let negative = self.builder.const_i32(-1);
+        let equal = self.builder.const_i32(0);
+        let positive = self.builder.const_i32(1);
+        let greater_or_equal = self.builder.select(greater, positive, equal, "gt_or_eq");
+        self.builder.select(less, negative, greater_or_equal, "cmp")
+    }
+
     /// Get or generate an LLVM comparison thunk for sorting elements of `elem_ty`.
     ///
     /// The thunk has signature `fn(*const u8, *const u8) -> i32` and returns
@@ -58,20 +97,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return Some(self.builder.get_function_ptr(func_id));
         }
 
-        // Save builder position
-        let saved_pos = self.builder.save_position();
-        let saved_func = self.builder.current_function();
-
-        // Set up the function
-        self.builder.set_ccc(func_id);
-        self.builder.add_nounwind_attribute(func_id);
-
-        let entry = self.builder.append_block(func_id, "entry");
-        self.builder.position_at_end(entry);
-        self.builder.set_current_function(func_id);
-
-        let a_ptr = self.builder.get_param(func_id, 0);
-        let b_ptr = self.builder.get_param(func_id, 1);
+        let (saved_pos, saved_func, a_ptr, b_ptr) = self.begin_compare_thunk(func_id);
 
         // Generate the comparison body based on element type
         let result = match &elem_info {
@@ -79,16 +105,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             _ => self.gen_primitive_compare(a_ptr, b_ptr, elem_ty, &elem_info),
         };
 
-        self.builder.ret(result);
-
-        // Restore builder position
-        self.builder.restore_position(saved_pos);
-        if let Some(f) = saved_func {
-            self.builder.set_current_function(f);
-        }
-
         self.compare_thunk_cache.insert(elem_ty, func_id);
-        Some(self.builder.get_function_ptr(func_id))
+        Some(self.finish_compare_thunk(func_id, result, saved_pos, saved_func))
     }
 
     pub(super) fn gen_primitive_compare(
@@ -102,24 +120,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let a_val = self.builder.load(llvm_ty, a_ptr, "a");
         let b_val = self.builder.load(llvm_ty, b_ptr, "b");
 
-        let neg1 = self.builder.const_i32(-1);
-        let zero = self.builder.const_i32(0);
-        let pos1 = self.builder.const_i32(1);
-
         match elem_info {
             // Signed integer comparison (int, Duration, Size)
             TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
                 let lt = self.builder.icmp_slt(a_val, b_val, "lt");
                 let gt = self.builder.icmp_sgt(a_val, b_val, "gt");
-                let gt_or_eq = self.builder.select(gt, pos1, zero, "gt_or_eq");
-                self.builder.select(lt, neg1, gt_or_eq, "cmp")
+                self.emit_compare_result(lt, gt)
             }
             // Float comparison (ordered)
             TypeInfo::Float => {
                 let lt = self.builder.fcmp_olt(a_val, b_val, "lt");
                 let gt = self.builder.fcmp_ogt(a_val, b_val, "gt");
-                let gt_or_eq = self.builder.select(gt, pos1, zero, "gt_or_eq");
-                self.builder.select(lt, neg1, gt_or_eq, "cmp")
+                self.emit_compare_result(lt, gt)
             }
             // Unsigned comparison (bool, char, byte) — zext to i32 first
             TypeInfo::Bool | TypeInfo::Char | TypeInfo::Byte => {
@@ -128,8 +140,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let b_ext = self.builder.zext(b_val, i32_ty, "b.ext");
                 let lt = self.builder.icmp_ult(a_ext, b_ext, "lt");
                 let gt = self.builder.icmp_ugt(a_ext, b_ext, "gt");
-                let gt_or_eq = self.builder.select(gt, pos1, zero, "gt_or_eq");
-                self.builder.select(lt, neg1, gt_or_eq, "cmp")
+                self.emit_compare_result(lt, gt)
             }
             TypeInfo::Unit
             | TypeInfo::Never
@@ -186,18 +197,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return Some(self.builder.get_function_ptr(func_id));
         }
 
-        let saved_pos = self.builder.save_position();
-        let saved_func = self.builder.current_function();
-
-        self.builder.set_ccc(func_id);
-        self.builder.add_nounwind_attribute(func_id);
-
-        let entry = self.builder.append_block(func_id, "entry");
-        self.builder.position_at_end(entry);
-        self.builder.set_current_function(func_id);
-
-        let a_ptr = self.builder.get_param(func_id, 0);
-        let b_ptr = self.builder.get_param(func_id, 1);
+        let (saved_pos, saved_func, a_ptr, b_ptr) = self.begin_compare_thunk(func_id);
 
         // Load at narrowed width, sign-extend to i64 for comparison.
         let narrow_ty = self.llvm_type_for_int_width(width);
@@ -207,22 +207,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let b_raw = self.builder.load(narrow_ty, b_ptr, "b");
         let b_val = self.builder.sext(b_raw, i64_ty, "b.sext");
 
-        let neg1 = self.builder.const_i32(-1);
-        let zero = self.builder.const_i32(0);
-        let pos1 = self.builder.const_i32(1);
-
         let lt = self.builder.icmp_slt(a_val, b_val, "lt");
         let gt = self.builder.icmp_sgt(a_val, b_val, "gt");
-        let gt_or_eq = self.builder.select(gt, pos1, zero, "gt_or_eq");
-        let result = self.builder.select(lt, neg1, gt_or_eq, "cmp");
-        self.builder.ret(result);
-
-        self.builder.restore_position(saved_pos);
-        if let Some(f) = saved_func {
-            self.builder.set_current_function(f);
-        }
-
-        Some(self.builder.get_function_ptr(func_id))
+        let result = self.emit_compare_result(lt, gt);
+        Some(self.finish_compare_thunk(func_id, result, saved_pos, saved_func))
     }
 
     /// Generate comparison body for strings.

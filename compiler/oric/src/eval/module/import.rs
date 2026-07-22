@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
 
-use ori_ir::{canon::SharedCanonResult, ImportCycleGuard};
+use ori_ir::{canon::SharedCanonResult, ImportCycleGuard, UseItem};
 
 use crate::eval::{Environment, FunctionValue, Mutability, Value};
 use crate::imports::{self, is_parent_module_import, is_test_module, ImportError, ImportErrorKind};
@@ -318,40 +318,15 @@ pub(crate) fn register_imports(
 
     for item in &import.items {
         if item.is_constant {
-            let Some(constant) = imported
-                .result
-                .module
-                .consts
-                .iter()
-                .find(|constant| constant.name == item.name)
-            else {
-                errors.push(ImportError::with_span(
-                    ImportErrorKind::ItemNotFound,
-                    format!(
-                        "constant '${}' not found in '{}'",
-                        interner.lookup(item.name),
-                        import_path.display()
-                    ),
-                    import.span,
-                ));
-                continue;
-            };
-
-            if !constant.visibility.is_public() && !allow_private_access {
-                let name = interner.lookup(item.name);
-                errors.push(ImportError::with_span(
-                    ImportErrorKind::PrivateAccess,
-                    format!(
-                        "constant '${name}' is private in '{}'; add `pub` to the constant definition before importing it",
-                        import_path.display()
-                    ),
-                    import.span,
-                ));
-            }
-
-            // Canon replaced every successful module-constant reference with
-            // `CanExpr::Constant`; there is intentionally no runtime binding
-            // and no second evaluator at this import boundary.
+            validate_imported_constant(
+                import,
+                item,
+                imported,
+                interner,
+                import_path,
+                allow_private_access,
+                &mut errors,
+            );
             continue;
         }
 
@@ -380,6 +355,41 @@ pub(crate) fn register_imports(
                     unreachable!("imported function inventory must cover every parsed function")
                 });
             env.define(bind_name, value, Mutability::Immutable);
+        } else if let Some(type_decl) = imported
+            .result
+            .module
+            .types
+            .iter()
+            .find(|decl| decl.name == item.name)
+        {
+            // Type import: enforce visibility, then bind a runtime constructor
+            // only for the call-shaped newtype form. A struct/sum type carries
+            // no call-shaped constructor here — struct literals resolve through
+            // the canon-resolved type (like a module constant needs no runtime
+            // binding), and sum-variant construction on a selected type import
+            // is out of this import path's scope.
+            let accessible =
+                type_decl.visibility.is_public() || item.is_private || allow_private_access;
+            if accessible {
+                if let ori_ir::TypeDeclKind::Newtype(_) = &type_decl.kind {
+                    let bind_name = item.alias.unwrap_or(item.name);
+                    env.define(
+                        bind_name,
+                        Value::newtype_constructor(type_decl.name),
+                        Mutability::Immutable,
+                    );
+                }
+            } else {
+                let name_str = interner.lookup(item.name);
+                errors.push(ImportError::with_span(
+                    ImportErrorKind::PrivateAccess,
+                    format!(
+                        "type '{name_str}' is private in '{}'. Use '::{name_str}' to import private items.",
+                        import_path.display(),
+                    ),
+                    import.span,
+                ));
+            }
         } else {
             errors.push(ImportError::with_span(
                 ImportErrorKind::ItemNotFound,
@@ -398,6 +408,50 @@ pub(crate) fn register_imports(
     } else {
         Err(errors)
     }
+}
+
+fn validate_imported_constant(
+    import: &crate::ir::UseDef,
+    item: &UseItem,
+    imported: &ImportedModule<'_>,
+    interner: &StringInterner,
+    import_path: &Path,
+    allow_private_access: bool,
+    errors: &mut Vec<ImportError>,
+) {
+    let Some(constant) = imported
+        .result
+        .module
+        .consts
+        .iter()
+        .find(|constant| constant.name == item.name)
+    else {
+        errors.push(ImportError::with_span(
+            ImportErrorKind::ItemNotFound,
+            format!(
+                "constant '${}' not found in '{}'",
+                interner.lookup(item.name),
+                import_path.display()
+            ),
+            import.span,
+        ));
+        return;
+    };
+
+    if !constant.visibility.is_public() && !allow_private_access {
+        let name = interner.lookup(item.name);
+        errors.push(ImportError::with_span(
+            ImportErrorKind::PrivateAccess,
+            format!(
+                "constant '${name}' is private in '{}'; add `pub` to the constant definition before importing it",
+                import_path.display()
+            ),
+            import.span,
+        ));
+    }
+
+    // Canon replaced every successful module-constant reference with
+    // `CanExpr::Constant`; no runtime binding exists at this boundary.
 }
 
 /// Register a module alias import.

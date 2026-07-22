@@ -7,6 +7,7 @@
 //! - **Return range recomputation**: rebuilds from final narrowed variables
 
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, PrimOp};
+use ori_arc::ArcBlockId;
 use ori_arc::ArcVarId;
 use ori_ir::BinaryOp;
 use ori_types::Pool;
@@ -18,8 +19,8 @@ use super::super::field_summary::{
 };
 use super::super::transfer::{transfer, transfer_known_call, TransferContext};
 use super::super::{is_int_typed, ValueRange};
-use super::{apply_block_refinements, narrow, restore_block_refinements};
-use ori_arc::ArcBlockId;
+use super::iteration::{apply_block_refinements, restore_block_refinements};
+use super::{narrow, FixpointContext};
 use ValueRange::{Bottom, Top};
 
 /// Recover the two intervals carried by a directly lowered `Range` loop.
@@ -245,36 +246,27 @@ fn bounded_or_bottom(lo: i64, hi: i64) -> ValueRange {
 /// also re-merges block parameters from predecessors, applies
 /// block refinements (branch/switch), and narrows invoke terminators.
 /// This allows widened loop-header parameters to recover bounded ranges.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "fixpoint infrastructure passes — bundling would add indirection"
-)]
 pub(super) fn run_narrowing_pass(
-    rpo: &[usize],
-    func: &ArcFunction,
-    pool: &Pool,
+    context: &FixpointContext<'_>,
     ranges: &mut FxHashMap<ArcVarId, ValueRange>,
     field_summary_table: &FieldSummaryTable,
     direct_field_sources: &FxHashMap<(ArcVarId, u32), ArcVarId>,
-    predecessors: &[Vec<usize>],
     block_refinements: &FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
-    known_builtins: &super::super::KnownBuiltins,
-    call_result_narrowings: &FxHashMap<ArcVarId, super::super::ValueRange>,
 ) {
-    for &block_idx in rpo {
-        let block = &func.blocks[block_idx];
+    for &block_idx in context.rpo {
+        let block = &context.func.blocks[block_idx];
 
         // Narrow block parameters from predecessor jump args.
         // Skip entry block parameters with no predecessors — they may be seeded
         // from interprocedural analysis, and narrowing against Bottom
         // (which means "no info from predecessors") would destroy those seeds.
         for (param_idx, (param_var, _)) in block.params.iter().enumerate() {
-            if predecessors[block_idx].is_empty() {
+            if context.predecessors[block_idx].is_empty() {
                 continue; // Entry block — preserve interprocedural seeds.
             }
             let mut merged = Bottom;
-            for &pred_idx in &predecessors[block_idx] {
-                let pred = &func.blocks[pred_idx];
+            for &pred_idx in &context.predecessors[block_idx] {
+                let pred = &context.func.blocks[pred_idx];
                 if let ArcTerminator::Jump { target, args, .. } = &pred.terminator {
                     if target.index() == block_idx {
                         if let Some(&arg_var) = args.get(param_idx) {
@@ -307,11 +299,11 @@ pub(super) fn run_narrowing_pass(
             let computed = {
                 let ctx = TransferContext {
                     ranges: &*ranges,
-                    pool,
-                    var_types: &func.var_types,
+                    pool: context.pool,
+                    var_types: &context.func.var_types,
                     field_summaries,
                     direct_field_sources,
-                    known_builtins,
+                    known_builtins: context.known_builtins,
                 };
                 transfer(instr, &ctx)
             };
@@ -339,9 +331,10 @@ pub(super) fn run_narrowing_pass(
             ..
         } = &block.terminator
         {
-            if is_int_typed(*ty, pool) {
-                let mut computed = transfer_known_call(*callee, known_builtins).unwrap_or(Top);
-                if let Some(&crn) = call_result_narrowings.get(dst) {
+            if is_int_typed(*ty, context.pool) {
+                let mut computed =
+                    transfer_known_call(*callee, context.known_builtins).unwrap_or(Top);
+                if let Some(&crn) = context.call_result_narrowings.get(dst) {
                     computed = computed.meet(crn);
                 }
                 if let Some(&widened) = ranges.get(dst) {

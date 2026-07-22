@@ -82,6 +82,25 @@ impl<'pool> InferEngine<'pool> {
             .map(Vec::as_slice)
     }
 
+    /// Whether `name` is a registered module-alias namespace. Distinguishes a
+    /// module-qualified type path (`geom.Point`) from an associated-type
+    /// projection (`Self.Item`), which share the `AssociatedType` shape.
+    pub fn is_module_alias(&self, name: Name) -> bool {
+        self.module_aliases
+            .is_some_and(|aliases| aliases.contains_key(&name))
+    }
+
+    /// Intern the module-qualified type name `alias.type_name` — the key the
+    /// aliased module's public types are registered under. Returns `None`
+    /// without an interner.
+    pub fn qualified_type_name(&self, alias: Name, type_name: Name) -> Option<Name> {
+        let interner = self.interner?;
+        Some(interner.intern_owned(ori_ir::qualified_alias_name(
+            interner.lookup(alias),
+            interner.lookup(type_name),
+        )))
+    }
+
     /// Set the type registry for struct/enum/newtype lookup.
     pub fn set_type_registry(&mut self, registry: &'pool TypeRegistry) {
         self.type_registry = Some(registry);

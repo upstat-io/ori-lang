@@ -401,8 +401,8 @@ pub(super) fn compile_format_fields<'a>(
 /// Generate `clone(self: Self) -> Self`.
 ///
 /// Clone returns the same struct value (shallow copy). For fields that are
-/// heap-allocated (str, list, map, set, closures, nested fat structs), we
-/// must RC-increment the field's data pointer so the original and clone
+/// heap-allocated (str, list, map, set, closures, nested fat structs), cloning
+/// RC-increments the field's data pointer so the original and clone
 /// have independent RC lifecycles.
 pub(super) fn compile_clone_fields<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,

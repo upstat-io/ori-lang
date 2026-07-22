@@ -24,7 +24,8 @@ pub use callable_facts::{
 };
 use retain_plan::{Duplication, RetainPlanBuilder};
 pub use retain_plan::{
-    RetainPlanEdge, RetainPlanId, RetainPlanKind, RetainPlanNode, RetainPlanTable,
+    DuplicationFailure, RetainPlanEdge, RetainPlanId, RetainPlanKind, RetainPlanNode,
+    RetainPlanTable,
 };
 
 /// Where an adapter obtains a target parameter value.
@@ -144,7 +145,7 @@ pub enum ClosureAbiError {
         target: Name,
         parameter: usize,
         ty: Idx,
-        reason: &'static str,
+        failure: DuplicationFailure,
     },
     MissingContract {
         target: Name,
@@ -153,9 +154,6 @@ pub enum ClosureAbiError {
         target: Name,
         parameters: usize,
         contract_parameters: usize,
-    },
-    TooManyRetainPlans {
-        count: usize,
     },
 }
 
@@ -206,12 +204,14 @@ impl fmt::Display for ClosureAbiError {
                 target,
                 parameter,
                 ty,
-                reason,
+                failure,
+                ..
             } => write!(
                 f,
-                "closure target name_id={} owned parameter {parameter} (type idx {}) cannot cross the borrowed closure ABI: {reason}",
+                "closure target name_id={} owned parameter {parameter} (type idx {}) cannot cross the borrowed closure ABI: {}",
                 target.raw(),
-                ty.raw()
+                ty.raw(),
+                failure.reason()
             ),
             Self::MissingContract { target } => write!(
                 f,
@@ -227,14 +227,20 @@ impl fmt::Display for ClosureAbiError {
                 "closure target name_id={} has {parameters} parameters but {contract_parameters} final contract entries",
                 target.raw()
             ),
-            Self::TooManyRetainPlans { count } => {
-                write!(f, "closure retain topology contains too many nodes: {count}")
-            }
         }
     }
 }
 
-impl std::error::Error for ClosureAbiError {}
+impl std::error::Error for ClosureAbiError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::OwnedParameterNotShareable { failure, .. } => failure
+                .conversion_source()
+                .map(|source| source as &(dyn std::error::Error + 'static)),
+            _ => None,
+        }
+    }
+}
 
 /// Freeze adapter plans for exactly the functions used as closure targets.
 ///
@@ -385,12 +391,12 @@ fn freeze_closure_adapter_plan(
             CalleeOwnerDemand::WholeValue => match builder.duplication_for(param.ty) {
                 Ok(Duplication::Copy) => ClosureAdapterAction::Copy,
                 Ok(Duplication::Retain(plan)) => ClosureAdapterAction::Retain(plan),
-                Err(reason) => {
+                Err(failure) => {
                     return Err(ClosureAbiError::OwnedParameterNotShareable {
                         target: function.name,
                         parameter,
                         ty: param.ty,
-                        reason,
+                        failure,
                     });
                 }
             },

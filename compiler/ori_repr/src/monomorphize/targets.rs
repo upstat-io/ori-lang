@@ -230,14 +230,14 @@ fn collect_target_updates(
                     args,
                     mono_instance_id,
                     ..
-                } => resolver.changed_target(*dst, *func, args, *mono_instance_id, function),
+                } => resolver.changed(*dst, *func, args, *mono_instance_id, function),
                 ArcInstr::PartialApply { ty, func, args, .. }
                 | ArcInstr::Construct {
                     ty,
                     ctor: CtorKind::Closure { func },
                     args,
                     ..
-                } => resolver.changed_function_value_target(*func, *ty, args, function),
+                } => resolver.changed_function_value(*func, *ty, args, function),
                 _ => None,
             };
             if let Some(target) = target {
@@ -256,9 +256,7 @@ fn collect_target_updates(
             ..
         } = &block.terminator
         {
-            if let Some(target) =
-                resolver.changed_target(*dst, *func, args, *mono_instance_id, function)
-            {
+            if let Some(target) = resolver.changed(*dst, *func, args, *mono_instance_id, function) {
                 updates.push(TargetUpdate {
                     block: block_index,
                     instruction: None,
@@ -279,7 +277,7 @@ struct TargetResolver<'a> {
 }
 
 impl TargetResolver<'_> {
-    fn changed_target(
+    fn changed(
         &self,
         destination: ArcVarId,
         callee: Name,
@@ -287,11 +285,11 @@ impl TargetResolver<'_> {
         instance_id: Option<MonoInstanceId>,
         function: &ArcFunction,
     ) -> Option<Name> {
-        let target = self.resolve_target(destination, callee, arguments, instance_id, function)?;
+        let target = self.resolve(destination, callee, arguments, instance_id, function)?;
         (target != callee).then_some(target)
     }
 
-    fn resolve_target(
+    fn resolve(
         &self,
         destination: ArcVarId,
         callee: Name,
@@ -343,7 +341,7 @@ impl TargetResolver<'_> {
         )
     }
 
-    fn changed_function_value_target(
+    fn changed_function_value(
         &self,
         callee: Name,
         function_type: Idx,

@@ -175,9 +175,9 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
             ExprKind::ListWithSpread(elements) => list_with_spread_width(self, *elements),
             ExprKind::Map(entries) => map_width(self, *entries),
             ExprKind::MapWithSpread(elements) => map_with_spread_width(self, *elements),
-            ExprKind::Struct { name, fields } => struct_width(self, *name, *fields),
-            ExprKind::StructWithSpread { name, fields } => {
-                struct_with_spread_width(self, *name, *fields)
+            ExprKind::Struct { type_path, fields } => struct_width(self, *type_path, *fields),
+            ExprKind::StructWithSpread { type_path, fields } => {
+                struct_with_spread_width(self, *type_path, *fields)
             }
             ExprKind::Tuple(items) => tuple_width(self, *items),
             ExprKind::Range {

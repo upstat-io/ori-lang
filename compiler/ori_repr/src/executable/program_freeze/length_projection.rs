@@ -19,7 +19,7 @@ pub(super) fn analyze_length_projections(
     let mut yields = FxHashMap::default();
     for function in functions {
         let returned = function.yield_allocations.iter().filter(|fact| {
-            fact.locality == YieldAllocationLocality::Escaping
+            yield_allocation_is_known_escaping(fact.locality)
                 && matches!(fact.extent, YieldExtent::StaticExact(_))
                 && classifier.is_scalar(fact.elem_ty)
                 && user_drop_plan.get(fact.elem_ty, pool).is_none()
@@ -76,6 +76,13 @@ pub(super) fn analyze_length_projections(
 
     yields.retain(|callee, _| calls.values().any(|target| target == callee));
     (calls, yields)
+}
+
+fn yield_allocation_is_known_escaping(locality: YieldAllocationLocality) -> bool {
+    match locality {
+        YieldAllocationLocality::Escaping => true,
+        YieldAllocationLocality::Unknown | YieldAllocationLocality::Local => false,
+    }
 }
 
 fn length_observers(

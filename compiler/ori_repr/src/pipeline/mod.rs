@@ -252,11 +252,7 @@ fn analyze_ranges(
     range::propagate_ranges(plan, pool, arc_functions, &config);
 }
 
-/// Integer narrowing (i64 → i32/i16/i8 when range fits).
-///
-/// Phase A: Struct/tuple field narrowing from field-range summaries.
-/// Phase B: Local variable narrowing + overflow guards.
-/// Phase C: Collection element narrowing.
+/// Narrow integer storage when range evidence proves the smaller width safe.
 fn apply_integer_narrowing(plan: &mut ReprPlan, pool: &Pool) {
     // Gate: only narrow when the full integer narrowing pipeline is safe for codegen.
     // Narrowing produces MachineRepr::Int widths that codegen consumes for
@@ -270,10 +266,9 @@ fn apply_integer_narrowing(plan: &mut ReprPlan, pool: &Pool) {
     narrowing::int::narrow_collection_elements(plan, pool);
 }
 
-/// Float narrowing (f64 → f32 when precision is exact).
+/// Narrow struct-field storage when every observed value is exactly representable as `f32`.
 ///
-/// Phase A: Storage-only narrowing — struct fields where ALL observed
-/// values are f32-exact literals. Arithmetic results are never narrowed.
+/// Arithmetic results retain `f64` representation.
 fn apply_float_narrowing(plan: &mut ReprPlan, pool: &Pool, arc_functions: &[ArcFunction]) {
     if plan.narrowing_policy() == NarrowingPolicy::Disabled {
         return;
@@ -409,7 +404,7 @@ fn populate_enum_layouts(plan: &mut ReprPlan, pool: &Pool) {
     let updates: Vec<(Idx, crate::EnumLayoutInfo)> = plan
         .decision_indices()
         .filter_map(|idx| {
-            let repr = plan.get_enum_repr(idx)?;
+            let repr = plan.enum_repr(idx)?;
             let is_runtime_abi =
                 matches!(pool.tag(pool.resolve_fully(idx)), Tag::Option | Tag::Result);
             Some((idx, crate::compute_enum_layout_info(repr, is_runtime_abi)))

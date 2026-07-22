@@ -1,8 +1,6 @@
 use ori_types::{Idx, Pool, Tag, TypeRegistry};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::ClosureAbiError;
-
 /// Stable index into a [`RetainPlanTable`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct RetainPlanId(u32);
@@ -27,10 +25,8 @@ impl RetainPlanId {
         self.0 as usize
     }
 
-    fn from_index(index: usize) -> Result<Self, ClosureAbiError> {
-        u32::try_from(index)
-            .map(Self)
-            .map_err(|_| ClosureAbiError::TooManyRetainPlans { count: index })
+    fn from_index(index: usize) -> Result<Self, std::num::TryFromIntError> {
+        u32::try_from(index).map(Self)
     }
 }
 
@@ -101,6 +97,55 @@ pub(super) enum Duplication {
     Retain(RetainPlanId),
 }
 
+/// Why an owned closure argument has no total duplication operation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DuplicationFailure {
+    /// The parameter type has not reached a resolved executable form.
+    UnresolvedType,
+    /// The type's user-defined drop prevents a synthesized duplication plan.
+    UserDefinedDrop,
+    /// Iterator values are affine and cannot be duplicated.
+    AffineIterator,
+    /// The retain-plan table cannot represent another stable identity.
+    RetainPlanIndexOverflow(std::num::TryFromIntError),
+    /// Inline ownership traversal encountered an unsupported cycle.
+    CyclicInlineTopology,
+    /// A range endpoint carries ownership that has no frozen retain topology.
+    OwnershipBearingRange,
+    /// The resolved type has no supported duplication operation.
+    NotDuplicable,
+    /// An aggregate field index exceeds the stable edge representation.
+    LogicalFieldIndexOverflow(std::num::TryFromIntError),
+}
+
+impl DuplicationFailure {
+    pub(super) const fn reason(&self) -> &'static str {
+        match self {
+            Self::UnresolvedType => "the parameter type is unresolved",
+            Self::UserDefinedDrop => "the type has user-defined drop behavior",
+            Self::AffineIterator => "iterators are affine and have no duplication operation",
+            Self::RetainPlanIndexOverflow(_) => {
+                "the retain-plan table exceeds its stable identity range"
+            }
+            Self::CyclicInlineTopology => "the inline ownership topology is cyclic",
+            Self::OwnershipBearingRange => {
+                "a range with ownership-bearing endpoints has no frozen retain topology"
+            }
+            Self::NotDuplicable => "the parameter type is unresolved or not duplicable",
+            Self::LogicalFieldIndexOverflow(_) => "an aggregate has too many logical fields",
+        }
+    }
+
+    pub(super) const fn conversion_source(&self) -> Option<&std::num::TryFromIntError> {
+        match self {
+            Self::RetainPlanIndexOverflow(source) | Self::LogicalFieldIndexOverflow(source) => {
+                Some(source)
+            }
+            _ => None,
+        }
+    }
+}
+
 pub(super) struct RetainPlanBuilder<'a> {
     pool: &'a Pool,
     type_registry: &'a TypeRegistry,
@@ -126,33 +171,33 @@ impl<'a> RetainPlanBuilder<'a> {
         }
     }
 
-    pub(super) fn duplication_for(&mut self, ty: Idx) -> Result<Duplication, &'static str> {
+    pub(super) fn duplication_for(&mut self, ty: Idx) -> Result<Duplication, DuplicationFailure> {
         // Retain `ty` as the frozen semantic identity. Resolution supplies the
         // topology view only; it may cross a nominal-to-layout boundary.
         let resolved = self.pool.resolve_fully(ty);
         if resolved == Idx::NONE || resolved.raw() as usize >= self.pool.len() {
-            return Err("the parameter type is unresolved");
+            return Err(DuplicationFailure::UnresolvedType);
         }
         if crate::lower::type_has_user_drop(ty, self.type_registry)
             || crate::lower::type_has_user_drop(resolved, self.type_registry)
         {
-            return Err("the type has user-defined drop behavior");
+            return Err(DuplicationFailure::UserDefinedDrop);
         }
 
         let tag = self.pool.tag(resolved);
         if matches!(tag, Tag::Iterator | Tag::DoubleEndedIterator) {
-            return Err("iterators are affine and have no duplication operation");
+            return Err(DuplicationFailure::AffineIterator);
         }
         if matches!(tag, Tag::Struct | Tag::Enum) && self.pool.aggregate_type_is_recursive(resolved)
         {
             return self
                 .intern(ty, RetainPlanKind::SelfOwnedIdentity)
                 .map(Duplication::Retain)
-                .map_err(|_| "the retain-plan table exceeds its stable identity range");
+                .map_err(DuplicationFailure::RetainPlanIndexOverflow);
         }
 
         if !self.visiting.insert(resolved) {
-            return Err("the inline ownership topology is cyclic");
+            return Err(DuplicationFailure::CyclicInlineTopology);
         }
         let duplication = self.duplication_for_resolved(ty, resolved, tag);
         self.visiting.remove(&resolved);
@@ -164,7 +209,7 @@ impl<'a> RetainPlanBuilder<'a> {
         identity: Idx,
         resolved: Idx,
         tag: Tag,
-    ) -> Result<Duplication, &'static str> {
+    ) -> Result<Duplication, DuplicationFailure> {
         match tag {
             Tag::Int
             | Tag::Float
@@ -179,7 +224,7 @@ impl<'a> RetainPlanBuilder<'a> {
             Tag::Str | Tag::List | Tag::Map | Tag::Set | Tag::Channel | Tag::Function => self
                 .intern(identity, RetainPlanKind::SelfOwnedIdentity)
                 .map(Duplication::Retain)
-                .map_err(|_| "the retain-plan table exceeds its stable identity range"),
+                .map_err(DuplicationFailure::RetainPlanIndexOverflow),
             Tag::Tuple => self.product_duplication(identity, self.pool.tuple_elems(resolved)),
             Tag::Struct => {
                 let fields = self
@@ -212,13 +257,9 @@ impl<'a> RetainPlanBuilder<'a> {
             }
             Tag::Range => match self.duplication_for(self.pool.range_elem(resolved))? {
                 Duplication::Copy => Ok(Duplication::Copy),
-                Duplication::Retain(_) => {
-                    Err("a range with ownership-bearing endpoints has no frozen retain topology")
-                }
+                Duplication::Retain(_) => Err(DuplicationFailure::OwnershipBearingRange),
             },
-            Tag::Iterator | Tag::DoubleEndedIterator => {
-                Err("iterators are affine and have no duplication operation")
-            }
+            Tag::Iterator | Tag::DoubleEndedIterator => Err(DuplicationFailure::AffineIterator),
             Tag::Error
             | Tag::Borrowed
             | Tag::Named
@@ -231,7 +272,7 @@ impl<'a> RetainPlanBuilder<'a> {
             | Tag::Projection
             | Tag::ModuleNs
             | Tag::Infer
-            | Tag::SelfType => Err("the parameter type is unresolved or not duplicable"),
+            | Tag::SelfType => Err(DuplicationFailure::NotDuplicable),
         }
     }
 
@@ -239,14 +280,14 @@ impl<'a> RetainPlanBuilder<'a> {
         &mut self,
         ty: Idx,
         fields: Vec<Idx>,
-    ) -> Result<Duplication, &'static str> {
+    ) -> Result<Duplication, DuplicationFailure> {
         let edges = self.field_edges(fields)?;
         if edges.is_empty() {
             Ok(Duplication::Copy)
         } else {
             self.intern(ty, RetainPlanKind::OwnedFields(edges.into_boxed_slice()))
                 .map(Duplication::Retain)
-                .map_err(|_| "the retain-plan table exceeds its stable identity range")
+                .map_err(DuplicationFailure::RetainPlanIndexOverflow)
         }
     }
 
@@ -254,7 +295,7 @@ impl<'a> RetainPlanBuilder<'a> {
         &mut self,
         ty: Idx,
         variants: Vec<Vec<Idx>>,
-    ) -> Result<Duplication, &'static str> {
+    ) -> Result<Duplication, DuplicationFailure> {
         let mut any_retain = false;
         let mut plans = Vec::with_capacity(variants.len());
         for fields in variants {
@@ -265,25 +306,29 @@ impl<'a> RetainPlanBuilder<'a> {
         if any_retain {
             self.intern(ty, RetainPlanKind::OwnedVariants(plans.into_boxed_slice()))
                 .map(Duplication::Retain)
-                .map_err(|_| "the retain-plan table exceeds its stable identity range")
+                .map_err(DuplicationFailure::RetainPlanIndexOverflow)
         } else {
             Ok(Duplication::Copy)
         }
     }
 
-    fn field_edges(&mut self, fields: Vec<Idx>) -> Result<Vec<RetainPlanEdge>, &'static str> {
+    fn field_edges(&mut self, fields: Vec<Idx>) -> Result<Vec<RetainPlanEdge>, DuplicationFailure> {
         let mut edges = Vec::new();
         for (field, field_ty) in fields.into_iter().enumerate() {
             if let Duplication::Retain(child) = self.duplication_for(field_ty)? {
                 let field =
-                    u32::try_from(field).map_err(|_| "an aggregate has too many logical fields")?;
+                    u32::try_from(field).map_err(DuplicationFailure::LogicalFieldIndexOverflow)?;
                 edges.push(RetainPlanEdge { field, child });
             }
         }
         Ok(edges)
     }
 
-    fn intern(&mut self, ty: Idx, kind: RetainPlanKind) -> Result<RetainPlanId, ClosureAbiError> {
+    fn intern(
+        &mut self,
+        ty: Idx,
+        kind: RetainPlanKind,
+    ) -> Result<RetainPlanId, std::num::TryFromIntError> {
         let node = RetainPlanNode { ty, kind };
         if let Some(&id) = self.interned.get(&node) {
             return Ok(id);

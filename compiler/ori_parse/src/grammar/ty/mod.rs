@@ -82,20 +82,21 @@ impl Parser<'_> {
         let name = *name;
         self.cursor.advance();
         let type_args = self.parse_optional_generic_args_range();
-        let base = ParsedType::Named { name, type_args };
-        let head = if self.cursor.check(&TokenKind::Dot) {
+        // type_path = identifier { "." identifier }: consume EVERY dotted
+        // segment, nesting one AssociatedType per segment. A single `.` handled
+        // only the first dot, dropping the tail of a multi-segment path like
+        // `a.b.C` (Spec: grammar.ebnf type_path).
+        let mut head = ParsedType::Named { name, type_args };
+        while self.cursor.check(&TokenKind::Dot) {
             self.cursor.advance();
-            if let TokenKind::Ident(associated) = self.cursor.current_kind() {
-                let associated = *associated;
-                self.cursor.advance();
-                let base = self.arena.alloc_parsed_type(base);
-                ParsedType::associated_type(base, associated)
-            } else {
-                base
-            }
-        } else {
-            base
-        };
+            let TokenKind::Ident(associated) = self.cursor.current_kind() else {
+                break;
+            };
+            let associated = *associated;
+            self.cursor.advance();
+            let base = self.arena.alloc_parsed_type(head);
+            head = ParsedType::associated_type(base, associated);
+        }
         if !self.cursor.check(&TokenKind::Plus) {
             return Some(head);
         }

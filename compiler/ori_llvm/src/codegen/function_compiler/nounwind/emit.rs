@@ -3,7 +3,7 @@
 use tracing::{debug, trace};
 
 use super::types::{NounwindAnalyzedFunctions, PreparedLambda};
-use crate::codegen::arc_emitter::ArcIrEmitter;
+use crate::codegen::arc_emitter::{ArcEmitterFunctionContext, ArcIrEmitter};
 use crate::codegen::function_compiler::FunctionCompiler;
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
@@ -40,9 +40,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 self.interner,
                 self.pool,
                 self.arc_classifier as &dyn ori_arc::ArcClassification,
-                func.func_id,
-                &self.codegen_ctx,
-                self.debug_context,
+                ArcEmitterFunctionContext::new(func.func_id, &self.codegen_ctx, self.debug_context),
             );
             emitter.set_verify_arc(self.verify_arc);
             emitter.set_func_contract(self.aims_contracts.get(&func.arc_func.name));
@@ -98,9 +96,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.interner,
             self.pool,
             self.arc_classifier as &dyn ori_arc::ArcClassification,
-            clone_id,
-            &self.codegen_ctx,
-            self.debug_context,
+            ArcEmitterFunctionContext::new(clone_id, &self.codegen_ctx, self.debug_context),
         );
         emitter.set_verify_arc(self.verify_arc);
         emitter.set_func_contract(self.aims_contracts.get(&function.arc_func.name));
@@ -174,9 +170,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.interner,
             self.pool,
             self.arc_classifier as &dyn ori_arc::ArcClassification,
-            lambda.func_id,
-            &self.codegen_ctx,
-            self.debug_context,
+            ArcEmitterFunctionContext::new(lambda.func_id, &self.codegen_ctx, self.debug_context),
         );
         emitter.set_verify_arc(self.verify_arc);
         emitter.set_func_contract(self.aims_contracts.get(&lambda.arc_func.name));

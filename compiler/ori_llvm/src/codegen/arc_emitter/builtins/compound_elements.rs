@@ -1,14 +1,12 @@
 //! Recursive structural-trait dispatch for compound elements.
 
-use ori_ir::Name;
-use ori_types::Idx;
-
+use super::super::{ArcIrEmitter, StringRuntimeReturnAbi};
 use crate::codegen::abi::{FunctionAbi, ParamAbi};
 use crate::codegen::ir_builder::IntegerSignedness;
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::{FunctionId, ValueId};
-
-use super::super::{ArcIrEmitter, StringRuntimeReturnAbi};
+use ori_ir::Name;
+use ori_types::Idx;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `lhs.equals(rhs)` for any type, dispatching recursively.
@@ -104,11 +102,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Call a compiled derived `eq` method for a user-defined type.
     fn emit_derived_eq_call(&mut self, lhs: ValueId, rhs: ValueId, ty: Idx) -> Option<ValueId> {
-        let interned_eq = self.interner.intern("eq");
-        let (func_id, params) = self.derived_method_for(ty, interned_eq)?;
-        let raw_args = [lhs, rhs];
-        let passed_args = self.apply_param_passing(&raw_args, None, &params);
-        self.emit_rt_call(func_id, &passed_args, "derived_eq")
+        self.emit_derived_method_call(ty, "eq", &[lhs, rhs], "derived_eq")
+    }
+
+    fn emit_derived_method_call(
+        &mut self,
+        ty: Idx,
+        method: &str,
+        raw_args: &[ValueId],
+        label: &str,
+    ) -> Option<ValueId> {
+        let method = self.interner.intern(method);
+        let (func_id, params) = self.derived_method_for(ty, method)?;
+        let passed_args = self.apply_param_passing(raw_args, None, &params);
+        self.emit_rt_call(func_id, &passed_args, label)
     }
 
     /// Emit `lhs.compare(rhs)` for any type, dispatching recursively.
@@ -165,11 +172,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         rhs: ValueId,
         ty: Idx,
     ) -> Option<ValueId> {
-        let interned_compare = self.interner.intern("compare");
-        let (func_id, params) = self.derived_method_for(ty, interned_compare)?;
-        let raw_args = [lhs, rhs];
-        let passed_args = self.apply_param_passing(&raw_args, None, &params);
-        self.emit_rt_call(func_id, &passed_args, "derived_cmp")
+        self.emit_derived_method_call(ty, "compare", &[lhs, rhs], "derived_cmp")
     }
 
     /// Emit `val.hash()` for any type, dispatching recursively.
@@ -220,10 +223,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Call a compiled derived `hash` method for a user-defined type.
     fn emit_derived_hash_call(&mut self, val: ValueId, ty: Idx) -> Option<ValueId> {
-        let interned_hash = self.interner.intern("hash");
-        let (func_id, params) = self.derived_method_for(ty, interned_hash)?;
-        let raw_args = [val];
-        let passed_args = self.apply_param_passing(&raw_args, None, &params);
-        self.emit_rt_call(func_id, &passed_args, "derived_hash")
+        self.emit_derived_method_call(ty, "hash", &[val], "derived_hash")
     }
 }

@@ -18,9 +18,12 @@ impl EscapeInfo {
     pub fn from_yield_allocations(facts: &[YieldAllocationFact]) -> Self {
         let mut local_vars = FxHashSet::default();
         for fact in facts {
-            if fact.locality == YieldAllocationLocality::Local {
-                local_vars.insert(fact.builder);
-                local_vars.insert(fact.result);
+            match fact.locality {
+                YieldAllocationLocality::Local => {
+                    local_vars.insert(fact.builder);
+                    local_vars.insert(fact.result);
+                }
+                YieldAllocationLocality::Unknown | YieldAllocationLocality::Escaping => {}
             }
         }
         Self { local_vars }

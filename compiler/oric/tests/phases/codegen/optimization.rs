@@ -299,10 +299,10 @@ mod tests {
         };
         assert!(format!("{err}").contains("test error"));
 
-        let err = OptimizationError::InvalidPipeline {
-            pipeline: "bad".to_string(),
-            message: "invalid".to_string(),
-        };
+        let pipeline = "bad\0".to_string();
+        let source = std::ffi::CString::new(pipeline.as_str())
+            .expect_err("embedded null byte must reject the pipeline");
+        let err = OptimizationError::InvalidPipeline { pipeline, source };
         assert!(format!("{err}").contains("bad"));
 
         let err = OptimizationError::VerificationFailed {

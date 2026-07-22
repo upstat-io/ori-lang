@@ -8,7 +8,7 @@ LLVM_SYS_211_PREFIX = "/usr/lib/llvm-21"
 # Ori language tests
 st = "run -p oric --bin ori -- test tests/"
 stv = "run -p oric --bin ori -- test --verbose"
-stf = "run -p oric --bin ori -- test --filter"
+stf = "run -p oric --bin ori -- test tests/ --filter"
 
 # Rust unit tests (all crates including ori_llvm)
 t = "test --workspace"

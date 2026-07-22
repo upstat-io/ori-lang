@@ -286,7 +286,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 match dc.create_function_at_offset(name_str, span.start) {
                     Ok(subprogram) => {
                         let func_val = self.builder.get_function_value(func_id);
-                        dc.di().attach_function(func_val, subprogram);
+                        dc.builder().attach_function(func_val, subprogram);
                     }
                     Err(err) => {
                         // Debug info is best-effort; the function still

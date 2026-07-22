@@ -47,38 +47,40 @@ impl AstCopier<'_> {
         ExprKind::Map(new_arena.alloc_map_entries(new_entries))
     }
 
-    /// Copy a Struct expression's name and fields.
+    /// Copy a Struct expression's type-path head and fields.
     pub(super) fn copy_struct_kind(
         &self,
-        name: Name,
+        type_path: ori_ir::ParsedTypeId,
         fields: ori_ir::FieldInitRange,
         new_arena: &mut ExprArena,
     ) -> ExprKind {
+        let type_path = self.copy_parsed_type_id(type_path, new_arena);
         let old_fields = self.old_arena.get_field_inits(fields);
         let new_fields: Vec<_> = old_fields
             .iter()
             .map(|f| self.copy_field_init(f, new_arena))
             .collect();
         ExprKind::Struct {
-            name,
+            type_path,
             fields: new_arena.alloc_field_inits(new_fields),
         }
     }
 
-    /// Copy a `StructWithSpread` expression's name and fields.
+    /// Copy a `StructWithSpread` expression's type-path head and fields.
     pub(super) fn copy_struct_with_spread_kind(
         &self,
-        name: Name,
+        type_path: ori_ir::ParsedTypeId,
         fields: ori_ir::StructLitFieldRange,
         new_arena: &mut ExprArena,
     ) -> ExprKind {
+        let type_path = self.copy_parsed_type_id(type_path, new_arena);
         let old_fields = self.old_arena.get_struct_lit_fields(fields);
         let new_fields: Vec<_> = old_fields
             .iter()
             .map(|f| self.copy_struct_lit_field(f, new_arena))
             .collect();
         ExprKind::StructWithSpread {
-            name,
+            type_path,
             fields: new_arena.alloc_struct_lit_fields(new_fields),
         }
     }
