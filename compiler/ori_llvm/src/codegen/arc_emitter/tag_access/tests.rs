@@ -73,8 +73,7 @@ fn niche_field_and_value() {
         },
         2,
     );
-    assert_eq!(enc.niche_field_index(), Some(2));
-    assert_eq!(enc.niche_value(), Some(0));
+    assert_eq!(enc.niche_fields(), Some((2, 0, 1)));
 }
 
 // Niche at index 0 (Option<bool> with type-checker ordering: None=0, Some=1)
@@ -117,9 +116,7 @@ fn niche_at_index_zero_accessors() {
         },
         2,
     );
-    assert_eq!(enc.niche_variant_idx(), Some(0));
-    assert_eq!(enc.niche_field_index(), Some(0));
-    assert_eq!(enc.niche_value(), Some(2));
+    assert_eq!(enc.niche_fields(), Some((0, 2, 0)));
 }
 
 // TagEncoding from None (single-variant / newtype erasure)

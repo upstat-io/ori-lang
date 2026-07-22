@@ -19,7 +19,7 @@ mod post_dominator;
 pub mod scc;
 mod traversal;
 
-pub(crate) use cycle_regions::CycleRegions;
+pub use cycle_regions::CycleRegions;
 pub use dominator::DominatorTree;
 pub use post_dominator::PostDominatorTree;
 pub(crate) use traversal::{chk_intersect, collect_invoke_defs, compute_pred_counts};

@@ -24,6 +24,13 @@ use ori_repr::{NarrowingPolicy, ReprPlan};
 use ori_types::{Idx, Pool, TypeRegistry};
 use rustc_hash::FxHashMap;
 
+struct RcValueFixture {
+    body: Vec<ArcInstr>,
+    rc_var: ArcVarId,
+    var_types: Vec<Idx>,
+    method_call_facts: Vec<ori_arc::MethodCallFact>,
+}
+
 const ADMITTED_STRATEGIES: [RcStrategy; 5] = [
     RcStrategy::HeapPointer,
     RcStrategy::FatPointer,
@@ -1211,13 +1218,6 @@ fn list_concat_function(main: Name, list_type: Idx) -> ArcFunction {
         yield_allocations: Vec::new(),
         class_ledger_emission: false,
     }
-}
-
-struct RcValueFixture {
-    body: Vec<ArcInstr>,
-    rc_var: ArcVarId,
-    var_types: Vec<Idx>,
-    method_call_facts: Vec<ori_arc::MethodCallFact>,
 }
 
 fn rc_value_fixture(

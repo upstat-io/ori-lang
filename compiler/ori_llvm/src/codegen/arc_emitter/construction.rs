@@ -222,7 +222,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .call(alloc, &[cap, elem_size_value], "list.data")
         else {
-            panic!("ori_list_alloc_data must return a data pointer");
+            // Why: The registered ori_list_alloc_data ABI returns a data pointer.
+            unreachable!("ori_list_alloc_data must return a data pointer")
         };
 
         for (index, &value) in arg_vals.iter().enumerate() {
@@ -282,7 +283,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             &[count_value, key_size, value_size, out_cap],
             "map.data",
         ) else {
-            panic!("ori_map_literal_alloc must return a data pointer");
+            // Why: The registered ori_map_literal_alloc ABI returns a data pointer.
+            unreachable!("ori_map_literal_alloc must return a data pointer")
         };
         let cap = self.builder.load(i64_ty, out_cap, "map.cap");
         if count == 0 {
@@ -292,10 +294,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .build_struct(llvm_ty, &[len, cap, data_ptr], "map");
         }
         let Some(eq) = self.get_or_create_eq_thunk(key_idx) else {
-            panic!("type-checked map key must have an equality implementation");
+            // Why: Map-key validation proves an Eq implementation before ARC emission.
+            unreachable!("type-checked map key must have an equality implementation")
         };
         let Some(hash) = self.get_or_create_hash_thunk(key_idx) else {
-            panic!("type-checked map key must have a hash implementation");
+            // Why: Map-key validation proves a Hashable implementation before ARC emission.
+            unreachable!("type-checked map key must have a hash implementation")
         };
         let key_dec = self.get_or_generate_elem_dec_fn(key_idx);
         let value_dec = self.get_or_generate_elem_dec_fn(value_idx);
@@ -315,7 +319,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 ],
                 "map.put",
             ) else {
-                panic!("ori_map_literal_put must return an insertion flag");
+                // Why: The registered ori_map_literal_put ABI returns an insertion flag.
+                unreachable!("ori_map_literal_put must return an insertion flag")
             };
             actual_count = self.builder.add(actual_count, inserted, "map.len");
         }
@@ -347,11 +352,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder
                 .call(alloc, &[count_value, elem_size, out_cap], "set.data")
         else {
-            panic!("ori_set_literal_alloc must return a data pointer");
+            // Why: The registered ori_set_literal_alloc ABI returns a data pointer.
+            unreachable!("ori_set_literal_alloc must return a data pointer")
         };
         let cap = self.builder.load(i64_ty, out_cap, "set.cap");
         let Some(hash) = self.get_or_create_hash_thunk(elem_idx) else {
-            panic!("type-checked set element must have a hash implementation");
+            // Why: Set-element validation proves a Hashable implementation before ARC emission.
+            unreachable!("type-checked set element must have a hash implementation")
         };
         let elem_tmp = self.builder.alloca(elem_llvm_ty, "set.elem_tmp");
         let put = self.builder.runtime_fn("ori_set_literal_put");
@@ -382,7 +389,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if encoding.needs_tag_store(variant) {
             // Why: Storing the niche directly avoids a GEP on an SSA register.
             let Some(niche_idx) = encoding.niche_field_index() else {
-                panic!("niche variant requiring a tag store must name its niche field");
+                // Why: Only EnumTag::Niche can require a niche tag store.
+                unreachable!("niche variant requiring a tag store must name its niche field")
             };
             let niche_value = encoding.variant_to_tag_value(variant);
             let niche_const =
@@ -394,7 +402,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         for (i, &val) in arg_vals.iter().enumerate() {
             let Ok(idx) = u32::try_from(i) else {
-                panic!("niche payload field index must fit u32");
+                // Why: A materialized enum cannot contain more than u32::MAX payload fields.
+                unreachable!("niche payload field index must fit u32")
             };
             result = self.builder.insert_value(result, val, idx, "niche.val");
         }

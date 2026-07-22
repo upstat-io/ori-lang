@@ -142,15 +142,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // Field extraction is WRONG for SSO strings (field 0 = inline bytes, not len).
         let spec_str_ptr = self.str_to_ptr(spec_str, "fmt.spec");
         let len_fn = self.builder.runtime_fn("ori_str_len");
-        let spec_len = self
-            .builder
-            .call(len_fn, &[spec_str_ptr], "fmt.spec_len")
-            .expect("ori_str_len is non-void; builder.call returns Some");
+        let spec_len = self.builder.call(len_fn, &[spec_str_ptr], "fmt.spec_len")?;
         let data_fn = self.builder.runtime_fn("ori_str_data");
         let spec_ptr = self
             .builder
-            .call(data_fn, &[spec_str_ptr], "fmt.spec_ptr")
-            .expect("ori_str_data is non-void; builder.call returns Some");
+            .call(data_fn, &[spec_str_ptr], "fmt.spec_ptr")?;
 
         // Call runtime: ori_format_*(value, spec_ptr, spec_len) → Str via sret
         let str_ty = self.resolve_type(ori_types::Idx::STR);

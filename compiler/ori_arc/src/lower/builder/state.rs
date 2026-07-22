@@ -7,8 +7,8 @@
 
 use crate::ir::{
     AllocationSiteId, ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator,
-    ArcVarId, MethodCallFact, MethodCallForm, YieldAllocationExecution, YieldAllocationFact,
-    YieldAllocationLocality, YieldExtent,
+    ArcVarId, MethodCallFact, MethodCallForm, YieldAllocationFact, YieldAllocationLocality,
+    YieldExtent,
 };
 use ori_ir::canon::MonoInstanceId;
 use ori_ir::{Name, Span};
@@ -31,18 +31,6 @@ pub(in crate::lower) struct BlockBuilder {
     pub(in crate::lower) terminator: Option<ArcTerminator>,
 }
 
-impl BlockBuilder {
-    fn new(id: ArcBlockId) -> Self {
-        Self {
-            id,
-            params: Vec::new(),
-            body: Vec::new(),
-            spans: Vec::new(),
-            terminator: None,
-        }
-    }
-}
-
 /// Identifies one instruction within the builder's block table.
 #[derive(Clone, Copy)]
 pub(super) struct InstructionLocation {
@@ -50,13 +38,6 @@ pub(super) struct InstructionLocation {
     pub(super) block: ArcBlockId,
     /// Zero-based position within the block body.
     pub(super) instruction: u32,
-}
-
-impl InstructionLocation {
-    const UNDEFINED: Self = Self {
-        block: ArcBlockId::INVALID,
-        instruction: u32::MAX,
-    };
 }
 
 /// Owns block and variable state while the function is being lowered.
@@ -84,10 +65,23 @@ pub(crate) struct ArcIrBuilder {
     pub(in crate::lower) yield_allocations: Vec<YieldAllocationFact>,
 }
 
-impl Default for ArcIrBuilder {
-    fn default() -> Self {
-        Self::new()
+impl BlockBuilder {
+    fn new(id: ArcBlockId) -> Self {
+        Self {
+            id,
+            params: Vec::new(),
+            body: Vec::new(),
+            spans: Vec::new(),
+            terminator: None,
+        }
     }
+}
+
+impl InstructionLocation {
+    const UNDEFINED: Self = Self {
+        block: ArcBlockId::INVALID,
+        instruction: u32::MAX,
+    };
 }
 
 impl ArcIrBuilder {
@@ -280,7 +274,6 @@ impl ArcIrBuilder {
             elem_size,
             extent,
             locality: YieldAllocationLocality::Unknown,
-            execution: YieldAllocationExecution::RepeatedOrUnknown,
         });
     }
 
@@ -349,5 +342,11 @@ impl ArcIrBuilder {
             yield_allocations: self.yield_allocations,
             class_ledger_emission: false,
         }
+    }
+}
+
+impl Default for ArcIrBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }

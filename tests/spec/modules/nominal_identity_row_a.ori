@@ -1,0 +1,21 @@
+// Spec: 08-types.md 8.7 Nominal Typing; 18-modules.md Imports
+//
+// Provider A. Declares its OWN `Row` and a consumer `accept_a` taking that
+// declaration. Module B (nominal_identity_row_b.ori) independently declares a
+// same-spelled, same-shaped `Row`. Per 8.7 "User-defined types are nominally
+// typed. Identical structure does not imply same type", A::Row and B::Row are
+// DISTINCT types, so `accept_a(make_b())` must be rejected E2001.
+
+use std.testing { assert_eq }
+
+pub type Row = { values: [str] }
+
+pub @make_a () -> Row = Row { values: ["a", "b"] };
+
+// The nominal-identity probe: only A::Row is assignable here.
+pub @accept_a (row: Row) -> int = row.values.len();
+
+// Same-module construction and consumption stay valid.
+@test_accept_a_same_module tests @accept_a () -> void = {
+    assert_eq(actual: accept_a(row: make_a()), expected: 2)
+}

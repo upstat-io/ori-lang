@@ -16,7 +16,7 @@ use rustc_hash::FxHashMap;
 use crate::aims::contract::{FreshSelfAllocationFacts, FunctionEffectFacts, MemoryContract};
 use crate::aims::realize::rl31_disjoint::ParamDisjointnessFacts;
 use crate::borrow::BuiltinOwnershipSets;
-use crate::ir::{ArcFunction, YieldAllocationFact};
+use crate::ir::ArcFunction;
 use crate::lower::ArcProblem;
 use crate::{ArcClassification, ClosureAdapterPlan, FunctionCallableFacts, RetainPlanTable};
 
@@ -57,8 +57,6 @@ pub struct ArcPipelineBatchOutcome {
     /// Semantic callable signatures parallel to every realized function's SSA
     /// register table. Backends consume these facts without querying `Pool`.
     pub callable_facts: FxHashMap<Name, FunctionCallableFacts>,
-    /// AIMS-frozen yield allocation facts keyed by semantic function identity.
-    pub yield_allocations: FxHashMap<Name, Vec<YieldAllocationFact>>,
 }
 
 /// Immutable inputs for one closed-program AIMS realization.

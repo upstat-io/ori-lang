@@ -31,7 +31,6 @@ fn emit_list_concat<'scx: 'ctx, 'ctx>(
 }
 
 declare_builtins! { emitter, ctx;
-    // list
     ("list", "clone") => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
     ("list", "count") => emitter.emit_collection_length_forwarded(ctx.arg_vals[0], ctx.arc_args[0], "list.len"),
     ("list", "length") => emitter.emit_collection_length_forwarded(ctx.arg_vals[0], ctx.arc_args[0], "list.len"),
@@ -43,9 +42,7 @@ declare_builtins! { emitter, ctx;
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 let cm = emitter.cow_mode_const(ctx.arc_func);
-                // Same discriminator as the element-escape keep-alive:
-                // a RETURNED receiver's result buffer carries the elem header (its
-                // elem_dec_fn is the keep-alive's balancing release in the caller).
+                // INVARIANT: A returned receiver's result buffer owns the element header.
                 let receiver_returned = ori_arc::push_receiver_lineage_returned(
                     ctx.arc_func,
                     ctx.arc_args[0],

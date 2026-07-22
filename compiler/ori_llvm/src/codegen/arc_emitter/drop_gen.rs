@@ -408,7 +408,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let i64_ty = self.builder.i64_type();
         let elem_llvm_ty = self.resolve_type(element_type);
 
-        let entry_block = self.builder.current_block().expect("current block");
+        let Some(entry_block) = self.builder.current_block() else {
+            self.builder
+                .record_codegen_error_with_msg("drop-element loop requires an insertion block");
+            return;
+        };
         let loop_header = self
             .builder
             .append_block(func_id, &format!("{prefix}.loop.hdr"));
@@ -519,6 +523,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .extract_value(closure_val, CLOSURE_FIELD_ENV, "clos.env")
         else {
+            self.builder.record_codegen_error_with_msg(
+                "closure RC input is missing its canonical environment field",
+            );
             return;
         };
 

@@ -53,20 +53,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.select(less, negative, greater_or_equal, "cmp")
     }
 
-    /// Get or generate an LLVM comparison thunk for sorting elements of `elem_ty`.
+    /// Returns a comparison thunk specialized for `elem_ty`.
     ///
-    /// The thunk has signature `fn(*const u8, *const u8) -> i32` and returns
-    /// -1 (less), 0 (equal), or 1 (greater). Each element type gets a
-    /// specialized function that loads elements by their native LLVM type
-    /// before comparing.
-    ///
-    /// Returns a function pointer `ValueId`, or `None` if the element type
-    /// is not yet supported for sorting.
+    /// The thunk maps two element pointers to -1, 0, or 1. Unsupported element
+    /// types return `None`.
     pub(in crate::codegen::arc_emitter::builtins::collections) fn get_or_create_compare_thunk(
         &mut self,
         elem_ty: Idx,
     ) -> Option<ValueId> {
-        // Check cache first
         if let Some(&func_id) = self.compare_thunk_cache.get(&elem_ty) {
             return Some(self.builder.get_function_ptr(func_id));
         }
@@ -84,14 +78,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let func_name = format!("_ori_cmp_{type_suffix}");
 
-        // Check if already declared in the module (shared across emitters)
         let ptr_ty = self.builder.ptr_type();
         let i32_ty = self.builder.i32_type();
         let func_id = self
             .builder
             .get_or_declare_function(&func_name, &[ptr_ty, ptr_ty], i32_ty);
 
-        // If the function already has a body, just cache and return
         if self.builder.function_has_body(func_id) {
             self.compare_thunk_cache.insert(elem_ty, func_id);
             return Some(self.builder.get_function_ptr(func_id));
@@ -99,7 +91,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let (saved_pos, saved_func, a_ptr, b_ptr) = self.begin_compare_thunk(func_id);
 
-        // Generate the comparison body based on element type
         let result = match &elem_info {
             TypeInfo::Str => self.gen_str_compare(a_ptr, b_ptr),
             _ => self.gen_primitive_compare(a_ptr, b_ptr, elem_ty, &elem_info),
@@ -121,19 +112,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let b_val = self.builder.load(llvm_ty, b_ptr, "b");
 
         match elem_info {
-            // Signed integer comparison (int, Duration, Size)
             TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
                 let lt = self.builder.icmp_slt(a_val, b_val, "lt");
                 let gt = self.builder.icmp_sgt(a_val, b_val, "gt");
                 self.emit_compare_result(lt, gt)
             }
-            // Float comparison (ordered)
             TypeInfo::Float => {
                 let lt = self.builder.fcmp_olt(a_val, b_val, "lt");
                 let gt = self.builder.fcmp_ogt(a_val, b_val, "gt");
                 self.emit_compare_result(lt, gt)
             }
-            // Unsigned comparison (bool, char, byte) — zext to i32 first
             TypeInfo::Bool | TypeInfo::Char | TypeInfo::Byte => {
                 let i32_ty = self.builder.i32_type();
                 let a_ext = self.builder.zext(a_val, i32_ty, "a.ext");
@@ -164,15 +152,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Get or generate a narrowed compare thunk for sorting.
+    /// Returns a comparison thunk for a narrowed integer list.
     ///
-    /// Like `get_or_create_compare_thunk`, but loads elements at the narrowed
-    /// width (i8/i16/i32) and sign-extends to i64 before comparing. Used for
-    /// sort operations on narrowed `[int]` lists where the buffer elements are
-    /// stored at sub-i64 widths.
-    ///
-    /// Returns `None` if int elements are not narrowed (caller should use the
-    /// canonical compare thunk instead).
+    /// Elements load at their stored width and compare after sign extension.
+    /// A canonical-width list returns `None`.
     pub(in crate::codegen::arc_emitter::builtins::collections) fn get_or_create_narrowed_compare_thunk(
         &mut self,
         list_ty: Idx,
@@ -199,7 +182,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let (saved_pos, saved_func, a_ptr, b_ptr) = self.begin_compare_thunk(func_id);
 
-        // Load at narrowed width, sign-extend to i64 for comparison.
         let narrow_ty = self.llvm_type_for_int_width(width);
         let i64_ty = self.builder.i64_type();
         let a_raw = self.builder.load(narrow_ty, a_ptr, "a");
@@ -213,21 +195,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.finish_compare_thunk(func_id, result, saved_pos, saved_func))
     }
 
-    /// Generate comparison body for strings.
-    ///
     /// Calls `ori_str_compare(a, b) -> i8` (returns Ori Ordering: 0=Less,
-    /// 1=Equal, 2=Greater) and converts to i32 (-1/0/1) via `result - 1`.
+    /// 1=Equal, 2=Greater) and converts to `i32` (-1/0/1) via `result - 1`.
     pub(super) fn gen_str_compare(&mut self, a_ptr: ValueId, b_ptr: ValueId) -> ValueId {
         let cmp_fn = self.builder.runtime_fn("ori_str_compare");
         let Some(ord) = self.builder.call(cmp_fn, &[a_ptr, b_ptr], "ord") else {
-            panic!("ori_str_compare must return an Ordering tag");
+            // Why: The registered `ori_str_compare` ABI returns an Ordering tag.
+            unreachable!("ori_str_compare returned no Ordering tag");
         };
 
-        // Convert Ordering (0,1,2) to sort convention (-1,0,1): subtract 1
         let one = self.builder.const_i8(1);
         let shifted = self.builder.sub(ord, one, "shifted");
 
-        // Sign-extend i8 → i32
         let i32_ty = self.builder.i32_type();
         self.builder.sext(shifted, i32_ty, "cmp")
     }

@@ -29,8 +29,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver_ty: Idx,
         encoding: &TagEncoding,
     ) -> Option<ValueId> {
-        let niche_idx = encoding.niche_field_index().unwrap();
-        let niche_value = encoding.niche_value().unwrap();
+        let (niche_idx, niche_value, _) = encoding.niche_fields()?;
         match method {
             "is_some" => {
                 let is_some = self.compute_option_is_some(receiver, niche_idx, niche_value)?;
@@ -166,9 +165,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver_ty: Idx,
         encoding: &TagEncoding,
     ) -> Option<ValueId> {
-        let niche_idx = encoding.niche_field_index().unwrap();
-        let niche_value = encoding.niche_value().unwrap();
-        let niche_variant_idx = encoding.niche_variant_idx().unwrap();
+        let (niche_idx, niche_value, niche_variant_idx) = encoding.niche_fields()?;
         match method {
             "is_ok" => {
                 self.compute_result_is_ok(receiver, niche_idx, niche_value, niche_variant_idx)

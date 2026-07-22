@@ -136,10 +136,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             && self.builder.is_single_slot_type(result_ty)
             && byte_offset % 8 == 0
         {
-            let payload = self
-                .builder
-                .extract_value(val, 1, "proj.payload")
-                .expect("enum value should be a struct");
+            let Some(payload) = self.builder.extract_value(val, 1, "proj.payload") else {
+                self.builder.record_codegen_error_with_msg(
+                    "general-enum scalar projection requires a struct payload",
+                );
+                return true;
+            };
 
             #[expect(clippy::cast_possible_truncation, reason = "slot index fits u32")]
             let raw = self.builder.extract_value_any(
@@ -258,7 +260,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let Some(encoding) = self.get_niche_encoding(val_ty) else {
             return false;
         };
-        let niche_idx = encoding.niche_field_index().unwrap();
+        let Some((niche_idx, _, _)) = encoding.niche_fields() else {
+            self.builder
+                .record_codegen_error_with_msg("niche projection requires a niche tag encoding");
+            return true;
+        };
         let v = self.var(value);
         let llvm_ty = self.resolve_type(val_ty);
         let niche_val =
@@ -266,10 +272,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 extracted
             } else {
                 // Pointer-based access: GEP + load.
-                let field_ty = self
-                    .builder
-                    .struct_field_type(llvm_ty, niche_idx)
-                    .unwrap_or_else(|| self.builder.i64_type());
+                let Some(field_ty) = self.builder.struct_field_type(llvm_ty, niche_idx) else {
+                    self.builder.record_codegen_error_with_msg(
+                        "niche projection layout is missing its sentinel field",
+                    );
+                    return true;
+                };
 
                 let gep = self
                     .builder

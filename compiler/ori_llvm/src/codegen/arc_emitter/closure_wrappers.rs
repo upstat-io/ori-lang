@@ -343,15 +343,21 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             });
 
             if let Some(plan) = retain_plan {
-                self.emit_frozen_closure_retain_plan(
-                    semantic_value.expect("retain bridge requires a semantic value"),
-                    plan,
-                );
+                let Some(value) = semantic_value else {
+                    // Why: A retain plan makes needs_semantic_value true above.
+                    unreachable!("retain bridge requires a semantic value")
+                };
+                self.emit_frozen_closure_retain_plan(value, plan);
             }
 
             match target_param.passing {
-                ParamPassing::Direct => callee_args
-                    .push(semantic_value.expect("direct target requires a semantic value")),
+                ParamPassing::Direct => {
+                    let Some(value) = semantic_value else {
+                        // Why: Direct target passing makes needs_semantic_value true above.
+                        unreachable!("direct target requires a semantic value")
+                    };
+                    callee_args.push(value);
+                }
                 ParamPassing::Indirect { .. } | ParamPassing::Reference => {
                     if source_is_pointer {
                         callee_args.push(incoming);
@@ -360,10 +366,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         let slot = self
                             .builder
                             .alloca(value_type, &format!("arg.{residual_index}.bridge"));
-                        self.builder.store(
-                            semantic_value.expect("pointer target requires a semantic value"),
-                            slot,
-                        );
+                        let Some(value) = semantic_value else {
+                            // Why: Bridging a direct source to a pointer target needs the value.
+                            unreachable!("pointer target requires a semantic value")
+                        };
+                        self.builder.store(value, slot);
                         callee_args.push(slot);
                     }
                 }
@@ -419,6 +426,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                             memory_field,
                             &format!("closure.retain.f.{}", edge.field),
                         ) else {
+                            self.builder.record_codegen_error_with_msg(format!(
+                                "closure retain plan {} references absent field {}",
+                                plan.index(),
+                                edge.field,
+                            ));
                             return;
                         };
                         if is_boxed_enum_field(self.pool, owner, child.ty) {

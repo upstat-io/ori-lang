@@ -140,10 +140,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_map_get(recv, idx, *key, *value, Some(receiver_ty))
             }
             TypeInfo::Str => self.emit_str_index(recv, idx),
-            unsupported => panic!(
-                "LLVM `__index` received non-indexable receiver {unsupported:?}; restrict index \
-                 protocol lowering to List, Map, or Str before ARC code generation"
-            ),
+            unsupported => {
+                self.builder.record_codegen_error_with_msg(format!(
+                    "LLVM `__index` received non-indexable receiver {unsupported:?}; restrict \
+                     index protocol lowering to List, Map, or Str before ARC code generation"
+                ));
+                None
+            }
         }
     }
 
@@ -247,9 +250,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let out_alloca =
             self.builder
                 .create_entry_alloca(self.current_function, "manual.sret.out", result_ty);
-        let Some(full_arity) = args.len().checked_add(1) else {
-            panic!("manual-sret argument count must fit usize");
-        };
+        let full_arity = args.len().checked_add(1)?;
         let mut full_args = Vec::with_capacity(full_arity);
         full_args.extend_from_slice(args);
         full_args.push(out_alloca);
@@ -260,7 +261,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
 fn require_protocol_result<T>(protocol: &str, result: Option<T>) -> T {
     let Some(result) = result else {
-        panic!(
+        // Why: Intercepted protocols are validated with a concrete result layout before codegen.
+        unreachable!(
             "LLVM `{protocol}` protocol emission produced no result; verify its receiver type and \
              result layout before ARC code generation"
         );

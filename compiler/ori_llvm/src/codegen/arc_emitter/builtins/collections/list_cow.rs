@@ -27,16 +27,16 @@ pub(crate) enum YieldReceiverStorage {
     CompactStack,
 }
 
-impl YieldReceiverStorage {
-    const fn is_stack(self) -> bool {
-        matches!(self, Self::ManagedStack | Self::CompactStack)
-    }
-}
-
 #[derive(Clone, Copy)]
 enum IndexedListCowOperation {
     Set,
     Insert,
+}
+
+impl YieldReceiverStorage {
+    const fn is_stack(self) -> bool {
+        matches!(self, Self::ManagedStack | Self::CompactStack)
+    }
 }
 
 impl IndexedListCowOperation {
@@ -53,19 +53,6 @@ impl IndexedListCowOperation {
             Self::Insert => "insert",
         }
     }
-}
-
-// Env: ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE — skips result metadata stores, debug-only.
-fn push_result_elem_header_store_disabled() -> bool {
-    let disabled = std::env::var_os("ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE").is_some();
-    if disabled {
-        tracing::info!(
-            toggle = "ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE",
-            effect = "skip result-buffer element destructor metadata stores",
-            "ablation toggle fired"
-        );
-    }
-    disabled
 }
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
@@ -194,15 +181,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         )
     }
 
-    /// Emit `list.updated(key, value)` — COW replacement returning modified list
-    /// (`IndexSet.updated`).
-    ///
-    /// Fast path (unique): releases the replaced element, overwrites in place.
-    /// Slow path (shared): copies buffer, overwrites target index.
-    /// Out-of-bounds keys PANIC in the runtime (matching `list[key]`).
-    ///
-    /// The value is MOVED into the list (`arg_ownership` marks it `Owned`, the
-    /// runtime takes the caller's reference) — no caller-side `RcDec` follows.
+    /// Emits COW replacement for `list.updated(key, value)`. Unique lists update
+    /// in place; shared lists copy first. The runtime panics on out-of-bounds keys
+    /// and consumes the value's owned reference.
     pub(crate) fn emit_list_updated_cow(
         &mut self,
         receiver: ValueId,
@@ -348,6 +329,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ],
         )
     }
+}
+
+// Env: ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE — skips result metadata stores, debug-only.
+fn push_result_elem_header_store_disabled() -> bool {
+    let disabled = std::env::var_os("ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE").is_some();
+    if disabled {
+        tracing::info!(
+            toggle = "ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE",
+            effect = "skip result-buffer element destructor metadata stores",
+            "ablation toggle fired"
+        );
+    }
+    disabled
 }
 
 const fn cow_mode_code(mode: CowMode) -> i32 {

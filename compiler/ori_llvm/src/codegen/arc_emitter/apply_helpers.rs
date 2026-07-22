@@ -17,25 +17,9 @@ use ori_ir::Name;
 use ori_types::{Idx, Tag};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Coerce runtime-function (`ori_*`) arguments to pointers and apply the
-    /// for-yield narrowed elem-size override. Shared by `Apply` emission and
-    /// the `Invoke` terminator's `emit_runtime_fn_call` so the two call
-    /// shapes cannot drift.
-    ///
-    /// Runtime functions take `ptr` params, but ARC IR passes aggregate
-    /// structs (Str, List, etc.) by value:
-    ///
-    /// - `ori_list_push` arg 1 is the element value — coerced to a pointer
-    ///   regardless of its type (even scalars).
-    /// - Borrowed parameters with a known source pointer forward that
-    ///   pointer directly (no alloca+store copy) on call AND invoke paths —
-    ///   the source pointer is a function parameter that outlives the call,
-    ///   and the runtime must observe the original buffer (COW uniqueness),
-    ///   not a fresh copy.
-    /// - Other aggregates are spilled to an alloca and passed by pointer.
-    ///
-    /// Uses the exact narrowed element size for for-yield integer lists.
-    /// Other element-size arguments remain canonical.
+    /// Coerces runtime arguments to their pointer ABI and applies for-yield
+    /// element-size narrowing. Borrowed aggregates forward their original
+    /// buffer so COW observes its ownership; other aggregates are spilled.
     pub(super) fn coerce_runtime_fn_args(
         &mut self,
         callee: Name,
@@ -98,17 +82,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         coerced_args
     }
 
-    /// Apply parameter passing modes to argument values.
-    ///
-    /// Apply param passing: `Indirect`/`Reference` (alloca+store+pass ptr),
-    /// `Direct` (pass through), `Void` (skip).
-    ///
-    /// When `arc_vars` is `Some`, borrowed pointer FORWARDING is active: a
-    /// `Reference`/`Indirect` callee parameter whose argument was itself
-    /// received as a borrowed parameter pointer forwards the original
-    /// pointer directly — eliminating the `ptr → load → alloca → store →
-    /// ptr` round-trip. Callers without ARC-variable context pass `None`
-    /// (every Indirect/Reference arg is spilled to a fresh alloca).
+    /// Applies ABI passing modes, forwarding known borrowed pointers for
+    /// `Reference` and `Indirect` parameters and omitting `Void` parameters.
     pub(super) fn apply_param_passing(
         &mut self,
         args: &[ValueId],
@@ -126,8 +101,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             match &param_abi.passing {
                 crate::codegen::abi::ParamPassing::Indirect { .. }
                 | crate::codegen::abi::ParamPassing::Reference => {
-                    // Forwarding: this argument has a known source pointer
-                    // from a borrowed parameter — forward it directly.
                     let forwarded = arc_vars
                         .and_then(|vars| vars.get(arg_idx))
                         .and_then(|var| self.borrowed_param_ptrs.get(var))
@@ -147,12 +120,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     arg_idx += 1;
                 }
                 crate::codegen::abi::ParamPassing::Direct => {
-                    // A Direct (by-value) parameter needs the materialized
-                    // aggregate. When the argument is a borrowed `Reference`/
-                    // `Indirect` parameter whose entry load was elided
-                    // (pointer-only), its value slot is a zero placeholder —
-                    // load the aggregate from the source pointer (Direct
-                    // passing is <=16 bytes, so a single load is FastISel-safe).
+                    // INVARIANT: Direct ABI passage materializes pointer-only borrowed values.
                     let elided_ptr = arc_vars
                         .and_then(|vars| vars.get(arg_idx))
                         .filter(|var| self.pointer_only_params.contains(var))
@@ -167,13 +135,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     }
                     arg_idx += 1;
                 }
-                crate::codegen::abi::ParamPassing::Void => {
-                    // Void params are not physically passed — skip
-                }
+                crate::codegen::abi::ParamPassing::Void => {}
             }
         }
 
-        // Pass remaining args directly (shouldn't happen in well-typed code)
         while arg_idx < args.len() {
             result.push(args[arg_idx]);
             arg_idx += 1;
@@ -195,10 +160,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ret_ty: LLVMTypeId,
         name: &str,
     ) -> Option<ValueId> {
-        // LLVM pointers are opaque, so forwarding without comparing the
-        // pointee types can let a larger nested return overwrite the caller's
-        // smaller result slot. Compare the registered LLVM types rather than
-        // arena IDs because resolving the same type may register it twice.
+        // Why: Registered LLVM types prevent forwarding a larger return into a smaller opaque slot.
         let forward_ptr = self.current_sret.and_then(|(ptr, current_ty)| {
             self.builder
                 .same_llvm_type(current_ty, ret_ty)
@@ -218,9 +180,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.emit_rt_call(func_id, &full_args, name);
         let result = self.builder.load(ret_ty, sret_alloca, "sret.load");
 
-        // Track the forwarded result: if this value is returned directly,
-        // the Return terminator can skip the identity store (value is
-        // already at the sret destination).
+        // INVARIANT: A forwarded result already occupies the current sret destination.
         if forward_ptr.is_some() {
             self.sret_forwarded_result = Some(result);
         }

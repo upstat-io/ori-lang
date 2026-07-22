@@ -98,12 +98,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .gep(elem_llvm_ty, args.data_ptr, &[args.key], "updated.elem_ptr");
         self.builder.store(stored, dst);
-        let direct_end = self.builder.current_block().expect("direct update block");
+        let direct_end = self.builder.current_block()?;
         self.builder.br(merge);
 
         self.builder.position_at_end(fallback);
         let fallback_value = self.emit_scalar_updated_fallback(args, out, list_struct_ty);
-        let fallback_end = self.builder.current_block().expect("fallback update block");
+        let fallback_end = self.builder.current_block()?;
         self.builder.br(merge);
 
         self.builder.position_at_end(merge);

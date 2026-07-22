@@ -11,7 +11,7 @@ use super::successor_block_ids;
 
 /// Cycle facts for one function: SCC ids, per-block cycle membership, and
 /// per-SCC exit frontiers.
-pub(crate) struct CycleRegions {
+pub struct CycleRegions {
     scc_id: Vec<usize>,
     in_cycle: Vec<bool>,
     frontiers: Vec<Vec<usize>>,
@@ -19,7 +19,7 @@ pub(crate) struct CycleRegions {
 
 impl CycleRegions {
     /// Compute all cycle regions in one Tarjan pass over `func`.
-    pub(crate) fn compute(func: &ArcFunction) -> Self {
+    pub fn compute(func: &ArcFunction) -> Self {
         let n = func.blocks.len();
         let successors: Vec<Vec<usize>> = func
             .blocks
@@ -67,7 +67,7 @@ impl CycleRegions {
     }
 
     /// Whether `block` can reach itself via successor edges.
-    pub(crate) fn is_in_cycle(&self, block: usize) -> bool {
+    pub fn is_in_cycle(&self, block: usize) -> bool {
         self.in_cycle.get(block).copied().unwrap_or(false)
     }
 

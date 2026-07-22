@@ -248,8 +248,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         cases: &[(u64, ori_arc::ir::ArcBlockId)],
         default: ori_arc::ir::ArcBlockId,
     ) {
-        let niche_value = encoding.niche_value().unwrap();
-        let niche_variant_idx = encoding.niche_variant_idx().unwrap();
+        let Some((_, niche_value, niche_variant_idx)) = encoding.niche_fields() else {
+            self.builder
+                .record_codegen_error_with_msg("niche switch requires a niche tag encoding");
+            self.builder.br(self.block(default));
+            return;
+        };
 
         // Find blocks for each logical variant.
         let niche_block = cases

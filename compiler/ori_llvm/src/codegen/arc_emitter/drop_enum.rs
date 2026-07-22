@@ -303,10 +303,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let enum_llvm_ty = self.resolve_type(ty);
 
         // Load tag (narrowed type at field 0 — discriminant narrowing)
-        let tag_ty = self
-            .builder
-            .struct_field_type(enum_llvm_ty, 0)
-            .unwrap_or_else(|| self.builder.i64_type());
+        let Some(tag_ty) = self.builder.struct_field_type(enum_llvm_ty, 0) else {
+            self.builder
+                .record_codegen_error_with_msg("enum drop layout is missing its tag field");
+            return;
+        };
         let tag_ptr = self
             .builder
             .struct_gep(enum_llvm_ty, data_ptr, 0, "tag.ptr");
@@ -436,15 +437,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         encoding: &super::tag_access::TagEncoding,
     ) {
         let enum_llvm_ty = self.resolve_type(ty);
-        let niche_idx = encoding.niche_field_index().unwrap();
-        let niche_value = encoding.niche_value().unwrap();
-        let niche_variant_idx = encoding.niche_variant_idx().unwrap() as usize;
+        let Some((niche_idx, niche_value, niche_variant_idx)) = encoding.niche_fields() else {
+            self.builder
+                .record_codegen_error_with_msg("niche drop requires a niche tag encoding");
+            return;
+        };
+        let niche_variant_idx = niche_variant_idx as usize;
 
         // Load niche field
-        let field_ty = self
-            .builder
-            .struct_field_type(enum_llvm_ty, niche_idx)
-            .unwrap_or_else(|| self.builder.i64_type());
+        let Some(field_ty) = self.builder.struct_field_type(enum_llvm_ty, niche_idx) else {
+            self.builder
+                .record_codegen_error_with_msg("niche drop layout is missing its sentinel field");
+            return;
+        };
         let field_ptr = self
             .builder
             .struct_gep(enum_llvm_ty, data_ptr, niche_idx, "niche.ptr");

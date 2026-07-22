@@ -23,8 +23,11 @@ use crate::codegen::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
 /// A missing entry means AIMS handed codegen an unrealized function. LLVM
 /// cannot safely substitute a physical representation for that missing fact.
 pub(super) fn required_var_repr(var: ArcVarId, func: &ArcFunction) -> ValueRepr {
-    func.var_repr(var)
-        .expect("LLVM emission requires realized variable representations")
+    let Some(repr) = func.var_repr(var) else {
+        // Why: AIMS realization assigns every variable representation before LLVM emission.
+        unreachable!("LLVM emission requires realized variable representations")
+    };
+    repr
 }
 
 /// Canonical home for the field/variant RC-walk ORDER decision.
@@ -333,8 +336,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let size_val = self.builder.const_i64(size as i64);
         let align_val = self.builder.const_i64(align as i64);
         let rc_alloc_func = self.builder.runtime_fn("ori_rc_alloc");
-        self.emit_rt_call(rc_alloc_func, &[size_val, align_val], "rc.alloc")
-            .unwrap_or_else(|| self.builder.const_null_ptr())
+        let Some(allocation) = self.emit_rt_call(rc_alloc_func, &[size_val, align_val], "rc.alloc")
+        else {
+            // Why: The registered ori_rc_alloc ABI returns a non-void data pointer.
+            unreachable!("ori_rc_alloc must produce its registered return value")
+        };
+        allocation
     }
 
     /// Compute the store size in bytes for a type index.
@@ -472,7 +479,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // semantically wrong, but record_codegen_error() prevents execution.
             // This avoids creating a dedicated poison block (which would trigger
             // IR quality assertions about unreachable blocks).
-            self.block_map[0].expect("entry block must always exist in block_map")
+            let Some(entry) = self.block_map.first().copied().flatten() else {
+                // Why: Function emission installs the entry block before mapping ARC blocks.
+                unreachable!("entry block must always exist in block_map")
+            };
+            entry
         }
     }
 }

@@ -39,16 +39,9 @@ impl BlockLabel {
     }
 }
 
-/// Pre-scan: map ALL for-yield `elem_size` `ArcVarId`s to their element type.
-///
-/// For reordered structs/tuples, `pool_type_store_size` (used by ARC lowering)
-/// returns the ORIGINAL layout size, but LLVM's struct layout uses the
-/// REORDERED size. The LLVM emitter overrides the literal with
-/// `element_store_size(elem_ty)` to ensure the runtime list stride matches
-/// LLVM's GEP stride.
-///
-/// The int-element accumulator subset (safe for narrowed-size overrides) is
-/// derived from this map at `emit_arc_function` — one scan feeds both.
+/// Maps for-yield element-size variables to their collection and element types.
+/// LLVM uses the map to replace source-layout sizes for reordered aggregates and
+/// to derive the integer subset eligible for narrowed-size overrides.
 pub(super) fn scan_for_yield_elem_size_types(
     func: &ArcFunction,
     interner: &ori_ir::StringInterner,

@@ -119,7 +119,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let file_ptr = self.builder.alloca(str_ty, "trace.file.ptr");
         self.builder.store(file_const, file_ptr);
 
-        let error_struct_idx = self.pool.error_struct_idx().unwrap();
+        let error_struct_idx = self.pool.error_struct_idx()?;
         let error_struct_ty = self.resolve_type(error_struct_idx);
         let alloca = self.error_receiver_ptr(receiver_val, error_struct_idx);
 
@@ -234,7 +234,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let is_null = self.builder.is_null_ptr(error_ptr, "is_null");
         let is_not_null = self.builder.not(is_null, "is_not_null");
 
-        let entry_bb = self.builder.current_block().unwrap();
+        let entry_bb = self.builder.current_block()?;
         let then_bb = self
             .builder
             .append_block(self.current_function, "has_trace.then");
@@ -260,17 +260,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let zero = self.builder.const_i64(0);
         let has_trace_val = self.builder.icmp_sgt(len_val, zero, "has_trace");
         self.builder.br(merge_bb);
-        let then_end_bb = self.builder.current_block().unwrap();
+        let then_end_bb = self.builder.current_block()?;
 
         self.builder.position_at_end(merge_bb);
         let false_val = self.builder.const_bool(false);
         let bool_ty = self.builder.bool_type();
-        let has_trace_res = self.builder.phi_from_incoming(
+        self.builder.phi_from_incoming(
             bool_ty,
             &[(has_trace_val, then_end_bb), (false_val, entry_bb)],
             "has_trace_res",
-        );
-        Some(has_trace_res.unwrap())
+        )
     }
 
     fn emit_trace_entries_accessor(
@@ -287,7 +286,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let list_llvm = self.resolve_type(dst_ty);
         let zero_list = self.builder.const_zero_ty(list_llvm);
 
-        let entry_bb = self.builder.current_block().unwrap();
+        let entry_bb = self.builder.current_block()?;
         let then_bb = self
             .builder
             .append_block(self.current_function, "trace_entries.then");
@@ -303,28 +302,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .struct_gep(error_struct_ty, error_ptr, mem_trace_field, "trace_ptr");
         let loaded = self.builder.load(list_llvm, trace_ptr, "trace_entries");
         self.builder.br(merge_bb);
-        let then_end_bb = self.builder.current_block().unwrap();
+        let then_end_bb = self.builder.current_block()?;
 
         self.builder.position_at_end(merge_bb);
-        let trace_entries_res = self.builder.phi_from_incoming(
+        self.builder.phi_from_incoming(
             list_llvm,
             &[(loaded, then_end_bb), (zero_list, entry_bb)],
             "trace_entries_res",
-        );
-        Some(trace_entries_res.unwrap())
+        )
     }
 
     fn emit_trace_string_accessor(&mut self, error_ptr: ValueId, dst_ty: Idx) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("_ori_format_error_trace");
         let llvm_dst_ty = self.resolve_type(dst_ty);
-        Some(
-            self.call_with_sret(
-                func_id,
-                &[error_ptr],
-                llvm_dst_ty,
-                "_ori_format_error_trace",
-            )
-            .expect("sret call returns value"),
+        self.call_with_sret(
+            func_id,
+            &[error_ptr],
+            llvm_dst_ty,
+            "_ori_format_error_trace",
         )
     }
 

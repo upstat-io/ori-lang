@@ -10,13 +10,12 @@ use crate::struct_repr::{ClosureRepr, FatRepr, FieldRepr, RcRepr, StructRepr, Tu
 use crate::ReprAttribute;
 use crate::ReprPlan;
 use ori_arc::ir::{
-    AllocationSiteId, ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership,
-    ValueRepr, YieldAllocationExecution, YieldAllocationFact, YieldAllocationLocality, YieldExtent,
+    AllocationSiteId, ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId,
+    ArgOwnership, LitValue, ValueRepr, YieldAllocationFact, YieldAllocationLocality, YieldExtent,
 };
 use ori_arc::ArcBlockId;
 use ori_ir::Name;
 use ori_types::{ExportedTypeMetadata, Idx, Pool};
-use rustc_hash::FxHashMap;
 
 // IntWidth / FloatWidth
 
@@ -324,7 +323,54 @@ fn yield_fact(
         elem_size,
         extent,
         locality,
-        execution: YieldAllocationExecution::SingleExecution,
+    }
+}
+
+fn yield_allocation_function(
+    name: Name,
+    facts: Vec<YieldAllocationFact>,
+    repeated_builder: ArcVarId,
+) -> ArcFunction {
+    let body = facts
+        .iter()
+        .filter(|fact| fact.builder != repeated_builder)
+        .map(|fact| ArcInstr::Let {
+            dst: fact.builder,
+            ty: Idx::UNIT,
+            value: ArcValue::Literal(LitValue::Unit),
+        })
+        .collect::<Vec<_>>();
+    ArcFunction {
+        name,
+        return_type: Idx::UNIT,
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body,
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: Vec::new(),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: Vec::new(),
+                body: vec![ArcInstr::Let {
+                    dst: repeated_builder,
+                    ty: Idx::UNIT,
+                    value: ArcValue::Literal(LitValue::Unit),
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: ArcBlockId::new(1),
+                    args: Vec::new(),
+                },
+            },
+        ],
+        entry: ArcBlockId::new(0),
+        var_types: vec![Idx::UNIT; 18],
+        yield_allocations: facts,
+        ..ArcFunction::default()
     }
 }
 
@@ -431,7 +477,7 @@ fn yield_allocation_selection_is_exact_bounded_and_fail_closed() {
         YieldAllocationLocality::Local,
     );
 
-    let mut repeated = yield_fact(
+    let repeated = yield_fact(
         4,
         10,
         11,
@@ -439,16 +485,15 @@ fn yield_allocation_selection_is_exact_bounded_and_fail_closed() {
         YieldExtent::StaticExact(32),
         YieldAllocationLocality::Local,
     );
-    repeated.execution = YieldAllocationExecution::RepeatedOrUnknown;
-    let mut facts = FxHashMap::default();
-    facts.insert(
+    let function_ir = yield_allocation_function(
         function,
         vec![
             local, oversized, dynamic, escaping, unknown, at_limit, overflow, repeated,
         ],
+        repeated.builder,
     );
     let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
-    plan.freeze_yield_allocations(&facts);
+    plan.freeze_yield_allocations(&[function_ir]);
 
     let Some(local_decision) = plan.yield_allocation_for_builder(function, local.builder) else {
         panic!("local allocation decision");
@@ -501,28 +546,34 @@ fn yield_header_elision_requires_exact_runtime_call_targets() {
         blocks: vec![ArcBlock {
             id: ArcBlockId::new(0),
             params: Vec::new(),
-            body: vec![ArcInstr::Apply {
-                dst: observed,
-                ty: ori_types::Idx::INT,
-                func: observer_name,
-                args: vec![result],
-                arg_ownership: vec![ArgOwnership::Borrowed],
-                mono_instance_id: None,
-            }],
+            body: vec![
+                ArcInstr::Let {
+                    dst: fact.builder,
+                    ty: Idx::UNIT,
+                    value: ArcValue::Literal(LitValue::Unit),
+                },
+                ArcInstr::Apply {
+                    dst: observed,
+                    ty: ori_types::Idx::INT,
+                    func: observer_name,
+                    args: vec![result],
+                    arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                },
+            ],
             terminator: ArcTerminator::Return { value: observed },
         }],
         entry: ArcBlockId::new(0),
-        var_types: vec![ori_types::Idx::BOOL, ori_types::Idx::INT],
-        var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
-        spans: vec![vec![None]],
+        var_types: vec![ori_types::Idx::BOOL, ori_types::Idx::INT, Idx::UNIT],
+        var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar, ValueRepr::Scalar],
+        spans: vec![vec![None; 2]],
         yield_allocations: vec![fact],
         ..ArcFunction::default()
     };
-    let facts = FxHashMap::from_iter([(function_name, vec![fact])]);
     let pool = ori_types::Pool::new();
 
     let mut runtime_plan = ReprPlan::new(NarrowingPolicy::Disabled);
-    runtime_plan.freeze_yield_allocations(&facts);
+    runtime_plan.freeze_yield_allocations(std::slice::from_ref(&function));
     runtime_plan.close_yield_runtime_header_requirements(
         std::slice::from_ref(&function),
         &pool,
@@ -535,7 +586,7 @@ fn yield_header_elision_requires_exact_runtime_call_targets() {
     assert!(!runtime_decision.requires_runtime_header);
 
     let mut exact_plan = ReprPlan::new(NarrowingPolicy::Disabled);
-    exact_plan.freeze_yield_allocations(&facts);
+    exact_plan.freeze_yield_allocations(std::slice::from_ref(&function));
     exact_plan.close_yield_runtime_header_requirements(&[function], &pool, |_, _| None);
     let Some(exact_decision) = exact_plan.yield_allocation_for_result(function_name, result) else {
         panic!("exact-target yield decision");
@@ -2215,24 +2266,15 @@ fn repr_convert_c_aligned_roundtrip() {
     assert_eq!(attr, ReprAttribute::CAligned(32));
 }
 
-// Named-type Idx storage contract
-
 #[test]
 fn repr_attr_stored_via_named_idx() {
-    // The live pipeline stores #repr attrs keyed by the Named Idx
-    // from TypeEntry, not by a concrete struct_type Idx. This test pins that
-    // the storage and retrieval contract works with Named Idx values, matching
-    // the production codegen_pipeline path.
     let mut pool = ori_types::Pool::new();
 
-    // Create a Named Idx (as the type registry and codegen pipeline would produce).
     let named_idx = pool.named(ori_ir::Name::from_raw(500));
 
-    // Store #repr("c") under the Named Idx.
     let repr_attrs = [(named_idx, ori_ir::ReprAttrKind::C)];
     let plan = crate::compute_repr_plan(&pool, &[], NarrowingPolicy::Aggressive, &repr_attrs);
 
-    // Verify retrieval works via the same Named Idx.
     assert_eq!(
         plan.repr_attr(named_idx),
         Some(&ReprAttribute::C),
@@ -3124,19 +3166,9 @@ fn pub_resolved_idx_not_narrowed_semantic_pin() {
     }
 }
 
-// Applied → concrete Struct resolutions must inherit repr/pub
-// exemptions from the parent Named type.
-//
-// IMPORTANT: Pool deduplicates struct types with identical (name, fields).
-// Tests use DIFFERENT field types for base vs monomorphized structs to ensure
-// distinct pool indices (the same shape produced when type parameters
-// are substituted with concrete types).
-
 #[test]
 fn repr_attr_propagates_through_applied_to_concrete_struct() {
-    // A Named type with #repr("c") whose Applied instantiation
-    // resolves to a monomorphized concrete struct — the concrete struct idx
-    // must also have the repr attr.
+    // Why: Distinct field types prevent Pool deduplication from collapsing the two structs.
     let mut pool = ori_types::Pool::new();
     let type_name = Name::new(0, 900);
     let field_a = Name::new(0, 901);

@@ -110,18 +110,15 @@ impl fmt::Debug for FixpointContext<'_> {
 ///
 /// When `call_result_narrowings` is non-empty, Apply/Invoke dst variables
 /// are narrowed (via `meet`) with the callee return range after the transfer
-/// function runs. This enables derived locals downstream of call results
-/// to propagate the callee return range through the fixpoint.
+/// function runs. Derived locals depending on call results then propagate the
+/// callee return range through the fixpoint.
 fn run_forward_iteration(
     context: &FixpointContext<'_>,
     state: &mut FixpointState,
     iteration: usize,
     thresholds: &[i64],
 ) -> bool {
-    // Clear stale refinements from prior iterations.
-    // Refinements are recomputed fresh each iteration from the current ranges,
-    // preventing widened scrutinee ranges from preserving overly-tight
-    // refinements computed in earlier iterations.
+    // INVARIANT: Each iteration recomputes refinements from its current ranges.
     state.block_refinements.clear();
 
     let mut changed = false;
@@ -138,13 +135,8 @@ fn run_forward_iteration(
             thresholds,
         );
 
-        // Propagate refinements from single-predecessor parents to this block.
-        // The AIMS pipeline may split the loop body (e.g., bb3 → bb4 → bb5),
-        // so the branch refinement targets bb4 but the actual body is in bb5.
-        // Without inline propagation, bb5 doesn't see the refinement during
-        // the forward iteration, causing body computations to use the widened
-        // phi range instead of the refined range. This makes i+1 overshoot
-        // the comparison threshold, preventing convergence.
+        // INVARIANT: Single-predecessor jump chains preserve the parent's branch
+        // refinement so split loop bodies do not consume a widened phi range.
         if context.predecessors[block_idx].len() == 1 {
             let pred_idx = context.predecessors[block_idx][0];
             let pred_id = context.func.blocks[pred_idx].id;
@@ -189,11 +181,11 @@ fn run_forward_iteration(
             };
             let mut new_range = transfer(instr, &ctx);
             if let Some(var) = instr.defined_var() {
-                // Why: `Apply`/`Invoke` transfer yields `Top`, so callee ranges narrow results here.
+                // Why: Apply transfer yields Top; callee ranges narrow call results here.
                 if let Some(&narrowing) = context.call_result_narrowings.get(&var) {
                     new_range = new_range.meet(narrowing);
                 }
-                // INVARIANT: Only block parameters join and widen; body variables are SSA definitions.
+                // INVARIANT: Only block parameters join and widen; body variables are SSA.
                 let old = state.ranges.get(&var).copied().unwrap_or(Bottom);
                 if new_range != old {
                     tracing::trace!(var = var.index(), ?old, ?new_range, "body var updated");
@@ -205,7 +197,6 @@ fn run_forward_iteration(
 
         iteration::restore_block_refinements(&mut state.ranges, saved);
 
-        // check terminators for Invoke calls returning collections.
         update_element_summaries_from_terminator(
             &block.terminator,
             context.pool,
@@ -237,10 +228,8 @@ fn run_post_fixpoint_narrowing(
         &mut state.block_refinements,
     );
 
-    // Alternate structural induction recovery with ordinary transfer
-    // narrowing until both monotone fact tables stabilize. Outer-loop body
-    // facts can bound the start/step of a nested direct Range, so later rounds
-    // intentionally consume earlier results without an arbitrary pass budget.
+    // INVARIANT: Structural induction and transfer narrowing alternate until
+    // both monotone fact tables stabilize, allowing nested ranges to consume outer facts.
     loop {
         let ranges_before = state.ranges.clone();
         let refinements_before = state.block_refinements.clone();
@@ -284,7 +273,6 @@ fn run_post_fixpoint_narrowing(
         &mut state.element_summary_table,
     );
 
-    // Final narrowing pass with recomputed field summaries.
     run_narrowing_pass(
         context,
         &mut state.ranges,
@@ -293,7 +281,6 @@ fn run_post_fixpoint_narrowing(
         &state.block_refinements,
     );
 
-    // Recompute return_range from final narrowed ranges.
     let return_range =
         recompute_return_range(context.rpo, context.func, context.pool, &state.ranges);
 
@@ -306,22 +293,10 @@ fn run_post_fixpoint_narrowing(
     }
 }
 
-/// Run intraprocedural range analysis on a single function.
-///
-/// Computes `ValueRange` for every int-typed variable by iterating over
-/// basic blocks in RPO until convergence (or `max_iterations` reached).
-/// Uses widening to guarantee termination for loops, then narrowing
-/// passes to recover precision.
-///
-/// When `initial_param_ranges` is `Some`, entry block parameters are seeded
-/// from the provided map instead of starting at `Bottom`. This enables
-/// interprocedural propagation: call-site argument ranges (collected by interprocedural analysis)
-/// constrain the callee's parameters, yielding tighter results than the
-/// standalone intraprocedural pass.
-///
-/// When `call_result_narrowings` is `Some`, Apply/Invoke dst variables
-/// are narrowed (via `meet`) with callee return ranges after the transfer
-/// function runs, enabling derived locals to propagate.
+/// Computes intraprocedural integer ranges to convergence in RPO, widening
+/// loops for termination and narrowing afterward for precision. Optional
+/// parameter and call-result ranges carry interprocedural constraints into
+/// the local fixpoint.
 #[tracing::instrument(skip_all)]
 pub(crate) fn range_fixpoint(
     func: &ArcFunction,
@@ -384,10 +359,7 @@ pub(crate) fn range_fixpoint(
         return_range: Bottom,
     };
 
-    // Seed entry block parameters from interprocedural constraints if provided.
-    // This is the key mechanism for when interprocedural analysis collects call-site
-    // argument ranges and passes them here, the fixpoint starts with tighter
-    // initial bounds instead of Bottom, enabling transitive propagation.
+    // INVARIANT: Interprocedural seeds replace Bottom before local propagation.
     if let Some(seeds) = initial_param_ranges {
         for (var, &range) in seeds {
             state.ranges.insert(*var, range);
@@ -405,16 +377,13 @@ pub(crate) fn range_fixpoint(
         call_result_narrowings: crn,
     };
 
-    // Thresholds for guided widening, populated after iteration 0.
     let mut thresholds: Vec<i64> = Vec::new();
 
     let mut iteration = 0;
     loop {
         let changed = run_forward_iteration(&context, &mut state, iteration, &thresholds);
 
-        // After the first iteration, constant ranges are populated.
-        // Collect comparison thresholds for guided widening before
-        // widening triggers (at WIDEN_THRESHOLD).
+        // Why: The first transfer round discovers constants needed by guided widening.
         if iteration == 0 {
             thresholds = collect_comparison_thresholds(func, &state.ranges);
             if !thresholds.is_empty() {

@@ -3,7 +3,6 @@
 //! Unique-drop entry points skip the atomic decrement when static analysis has
 //! proved the collection uniquely owned.
 
-use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
 use ori_types::Tag;
 
 use super::ArcIrEmitter;
@@ -27,14 +26,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         resolved: ori_types::Idx,
         tag: Tag,
     ) {
-        let Some(data) = self.builder.extract_value(val, FIELD_DATA, "rc.data_ptr") else {
-            return;
-        };
-        let Some(len) = self.builder.extract_value(val, FIELD_LEN, "rc.len") else {
-            return;
-        };
-        let Some(cap) = self.builder.extract_value(val, FIELD_CAP, "rc.cap") else {
-            return;
+        let Some((data, len, cap)) =
+            self.extract_collection_fields(val, "rc.data_ptr", "rc.len", "rc.cap")
+        else {
+            // Why: ARC routes only canonical list/set values to buffer RC emission.
+            unreachable!("list/set RC input must have the canonical collection layout")
         };
 
         let elem_type = if tag == Tag::List {
@@ -62,10 +58,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let elem_dec_fid = self.elem_dec_fn_cache[&elem_type];
             let cur = self.current_function;
             let dec_fn = self.builder.runtime_fn("ori_rc_dec_to_zero");
-            let hit = self
-                .builder
-                .call(dec_fn, &[data], "ldec.hz")
-                .expect("ori_rc_dec_to_zero returns i8");
+            let Some(hit) = self.builder.call(dec_fn, &[data], "ldec.hz") else {
+                // Why: The registered ori_rc_dec_to_zero ABI returns an i8 flag.
+                unreachable!("ori_rc_dec_to_zero must produce its registered return value")
+            };
             let zero8 = self.builder.const_i8(0);
             let is_zero = self.builder.icmp_ne(hit, zero8, "ldec.zero");
             let cleanup_bb = self.builder.append_block(cur, "ldec.cleanup");
@@ -102,17 +98,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         resolved: ori_types::Idx,
         tag: Tag,
     ) {
-        let Some(data) = self
-            .builder
-            .extract_value(val, FIELD_DATA, "udrop.data_ptr")
+        let Some((data, len, cap)) =
+            self.extract_collection_fields(val, "udrop.data_ptr", "udrop.len", "udrop.cap")
         else {
-            return;
-        };
-        let Some(len) = self.builder.extract_value(val, FIELD_LEN, "udrop.len") else {
-            return;
-        };
-        let Some(cap) = self.builder.extract_value(val, FIELD_CAP, "udrop.cap") else {
-            return;
+            // Why: ARC routes only canonical list/set values to unique-drop emission.
+            unreachable!("list/set unique-drop input must have the canonical collection layout")
         };
 
         let elem_type = if tag == Tag::List {
@@ -257,16 +247,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// in cap and finds the original buffer for slices.
     pub(super) fn emit_rc_inc_fat(&mut self, var: ori_arc::ir::ArcVarId, count: u32) {
         let val = self.var(var);
-        let Some(data_ptr) = self
-            .builder
-            .extract_value(val, FIELD_DATA, "rc_inc.fat_data")
-        else {
-            return;
+        let Some((data_ptr, _, cap)) = self.extract_collection_fields(
+            val,
+            "rc_inc.fat_data",
+            "rc_inc.fat_len",
+            "rc_inc.fat_cap",
+        ) else {
+            // Why: ARC routes only canonical Str values to fat-pointer RC emission.
+            unreachable!("string RC input must have the canonical fat-pointer layout")
         };
-        let cap = self
-            .builder
-            .extract_value(val, FIELD_CAP, "rc_inc.fat_cap")
-            .unwrap_or_else(|| self.builder.const_i64(0));
         self.call_str_rc_inc(data_ptr, cap, count);
     }
 
@@ -282,16 +271,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) {
         let val = self.var(var);
         let ty = func.var_type(var);
-        let Some(data_ptr) = self
-            .builder
-            .extract_value(val, FIELD_DATA, "rc_dec.fat_data")
-        else {
-            return;
+        let Some((data_ptr, _, cap)) = self.extract_collection_fields(
+            val,
+            "rc_dec.fat_data",
+            "rc_dec.fat_len",
+            "rc_dec.fat_cap",
+        ) else {
+            // Why: ARC routes only canonical Str values to fat-pointer RC emission.
+            unreachable!("string RC input must have the canonical fat-pointer layout")
         };
-        let cap = self
-            .builder
-            .extract_value(val, FIELD_CAP, "rc_dec.fat_cap")
-            .unwrap_or_else(|| self.builder.const_i64(0));
         let drop_fn = self.get_or_generate_drop_fn(ty);
         self.call_str_rc_dec(data_ptr, cap, drop_fn);
     }

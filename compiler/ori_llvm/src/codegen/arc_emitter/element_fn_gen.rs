@@ -485,10 +485,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
                 self.builder.position_at_end(do_dec);
                 let drop_fn = self.get_or_generate_drop_fn(element_type);
-                let cap = self
-                    .builder
-                    .extract_value(elem_val, FIELD_CAP, "elem.cap")
-                    .expect("str must have cap field");
+                let Some(cap) = self.builder.extract_value(elem_val, FIELD_CAP, "elem.cap") else {
+                    // Why: Tag::Str always resolves to the canonical three-field string layout.
+                    unreachable!("string element requires a capacity field")
+                };
                 self.call_str_rc_dec(dp, cap, drop_fn);
                 self.builder.br(skip);
 

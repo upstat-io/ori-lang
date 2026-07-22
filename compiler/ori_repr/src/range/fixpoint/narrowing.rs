@@ -25,13 +25,9 @@ use ValueRange::{Bottom, Top};
 
 /// Recover the two intervals carried by a directly lowered `Range` loop.
 ///
-/// A loop header sees both body values and the final value that failed the
-/// bounds test. The latter may overshoot the endpoint by one step, so using a
-/// single interval either loses the body bound or becomes unsound. ARC range
-/// lowering has an explicit SSA shape: the header parameter receives the
-/// range's start from the preheader and `header_param + range.step` from the
-/// latch. Recognizing that shape lets analysis retain a conservative header
-/// interval while attaching the tighter semantic interval to the body edge.
+/// The header parameter merges the range start with `header_param + step`.
+/// The failed bound may overshoot by one step, so the header retains a
+/// conservative interval while the body edge receives the semantic interval.
 pub(super) fn refine_direct_range_inductions(
     func: &ArcFunction,
     pool: &Pool,
@@ -371,7 +367,6 @@ pub(super) fn recompute_element_summaries(
         for instr in &func.blocks[block_idx].body {
             update_element_summaries(instr, ranges, &func.var_types, pool, element_summary_table);
         }
-        // also check terminators for Invoke calls returning collections.
         update_element_summaries_from_terminator(
             &func.blocks[block_idx].terminator,
             pool,
@@ -380,15 +375,9 @@ pub(super) fn recompute_element_summaries(
     }
 }
 
-/// Recompute `return_range` from the final narrowed variable ranges.
-///
-/// During forward iterations, `return_range` accumulates pre-narrowing values.
-/// After narrowing recovers precision for loop variables, `return_range` must
-/// be recomputed so the interprocedural handoff uses the tightened ranges.
-///
-/// Only iterates reachable blocks (via `rpo`). Unreachable blocks
-/// contain variables that were never analyzed, so `ranges.get()` returns `None`
-/// and the `unwrap_or(Top)` fallback would pollute the return range.
+/// Recomputes the return range after loop narrowing. Only RPO-reachable blocks
+/// contribute; including unanalyzed unreachable variables would introduce
+/// `Top` through the missing-range fallback.
 pub(super) fn recompute_return_range(
     rpo: &[usize],
     func: &ArcFunction,

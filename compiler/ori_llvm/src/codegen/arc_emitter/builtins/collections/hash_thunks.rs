@@ -161,8 +161,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let a_val = self.builder.load(elem_llvm_ty, a_ptr, "eq.a");
         let b_val = self.builder.load(elem_llvm_ty, b_ptr, "eq.b");
         let result =
-            ori_stack::ensure_sufficient_stack(|| self.emit_element_equals(a_val, b_val, elem_ty))
-                .expect("compound Eq callback type has structural equality emission");
+            ori_stack::ensure_sufficient_stack(|| self.emit_element_equals(a_val, b_val, elem_ty))?;
         self.builder.ret(result);
 
         self.intercepted_unwind = saved_intercepted_unwind;
@@ -269,9 +268,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ParamPassing::Direct => self.builder.load(self_ty, b_ptr, "eq.b"),
             _ => b_ptr,
         };
-        let Some(result) = self.builder.call(eq_fid, &[a_arg, b_arg], "eq.r") else {
-            panic!("Eq implementation must return bool");
-        };
+        let result = self.builder.call(eq_fid, &[a_arg, b_arg], "eq.r")?;
         self.builder.ret(result);
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
@@ -458,9 +455,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ParamPassing::Direct => self.builder.load(self_ty, key_ptr, "hash.self"),
             _ => key_ptr,
         };
-        let Some(result) = self.builder.call(hash_fid, &[arg], "hash.r") else {
-            panic!("Hashable implementation must return int");
-        };
+        let result = self.builder.call(hash_fid, &[arg], "hash.r")?;
         self.builder.ret(result);
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {

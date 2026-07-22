@@ -65,18 +65,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 args,
             } => self.emit_collection_reuse_instr(*old_var, *dst, *ty, ctor, args, func),
 
-            // RC operations — dispatched by strategy (no Pool queries)
             ArcInstr::RcInc {
                 var,
                 count,
                 strategy,
                 atomicity: _,
             } => {
-                // `atomicity` is `RcAtomicity::Atomic` at every construction
-                // site today (the shipped runtime RC primitives are
-                // unconditionally atomic). The atomicity-selecting branch +
-                // non-atomic runtime path land with the thread-local-ARC
-                // dispatch (RL-19/20/21); until then this arm ignores it.
+                // Why: Production ARC emission and the compiled runtime expose only atomic RC.
                 self.emit_rc_inc(*var, *count, *strategy, func);
             }
 
@@ -88,17 +83,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_rc_dec(*var, *strategy, func);
             }
 
-            // BurdenInc / BurdenDec — no-op codegen markers. Phase 5
-            // trivial-burden lowering uses these for IR-level dataflow +
-            // emission ordering; the LLVM backend treats them as zero-cost
-            // annotations.
-            ArcInstr::BurdenInc { var: _ } | ArcInstr::BurdenDec { var: _ } => {
-                // No LLVM IR emitted.
-            }
+            // INVARIANT: Unrealized burden markers have no compiled runtime effect.
+            ArcInstr::BurdenInc { var: _ } | ArcInstr::BurdenDec { var: _ } => {}
 
-            // Burden spelling = legacy pre-lowering survivor
-            // (`ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING=1`); Rc spelling = the
-            // Phase-7 realized form. One canonical glue body for both.
+            // INVARIANT: Burden and realized RC spellings share partial-drop glue.
             ArcInstr::BurdenDecPartial { var, skip_fields }
             | ArcInstr::RcDecPartial { var, skip_fields } => {
                 self.emit_burden_dec_partial(*var, skip_fields, func);
@@ -115,9 +103,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ArcInstr::IsShared { dst, var } => self.emit_is_shared(*dst, *var, func),
 
             ArcInstr::Reset { var, token } => {
-                // Reset marks a value for potential reuse. After reuse expansion,
-                // this becomes IsShared + conditional.
-                // The token IS the variable (reuse its memory if unique).
+                // INVARIANT: A reset token aliases its source until reuse expansion.
                 let emitted = self.var_emitted(*var);
                 self.def_var(*token, emitted);
             }
@@ -210,8 +196,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             emitted
         };
 
-        // Narrow computations only. Narrowing copies creates distinct SSA
-        // extensions that prevent equivalent expressions from sharing CSE keys.
+        // Why: Narrowing copies creates distinct SSA extensions that inhibit CSE.
         if matches!(value, ArcValue::PrimOp { .. }) {
             self.def_var_repr(dst, emitted, func);
         } else {

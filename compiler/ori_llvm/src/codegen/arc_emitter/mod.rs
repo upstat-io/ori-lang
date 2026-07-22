@@ -198,16 +198,9 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// (the value is already at the sret destination).
     sret_forwarded_result: Option<ValueId>,
 
-    /// Per-function narrowed local variable widths.
-    ///
-    /// Maps `ArcVarId` → `IntWidth` for local `int` variables whose value
-    /// range fits in a narrower integer type. Function parameters are excluded
-    /// (no visibility info in ARC IR — conservative safety).
-    ///
-    /// When a variable is in this map:
-    /// - `def_var_repr` inserts `trunc i64 %val to i<width>` at definition
-    /// - `var` inserts `sext i<width> %val to i64` at each use
-    /// - Phi nodes use the narrow type
+    /// Narrowed widths for local integer variables. Definitions truncate to the
+    /// stored width, uses extend to `i64`, and phi nodes retain the narrow type.
+    /// Parameters remain canonical because ARC IR exposes no ABI visibility.
     narrowed_vars: FxHashMap<ArcVarId, ori_repr::IntWidth>,
 
     /// Repr plan for collection element narrowing.
@@ -241,25 +234,6 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Set via [`set_verify_arc`] after construction; defaults to `false`.
     /// SSOT: plumbed from `FunctionCompiler::verify_arc` — do NOT re-read env var.
     verify_arc: bool,
-}
-
-// LLVM builders, layout services, and the classification trait object own
-// separate diagnostic surfaces. Report this emitter's stable cache and cursor
-// state without duplicating those internals.
-impl std::fmt::Debug for ArcIrEmitter<'_, '_, '_, '_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ArcIrEmitter")
-            .field("current_function", &self.current_function)
-            .field("drop_fn_cache_size", &self.drop_fn_cache.len())
-            .field("elem_dec_fn_cache_size", &self.elem_dec_fn_cache.len())
-            .field("elem_inc_fn_cache_size", &self.elem_inc_fn_cache.len())
-            .field("current_block_idx", &self.current_block_idx)
-            .field("current_instr_idx", &self.current_instr_idx)
-            .field("var_count", &self.var_map.len())
-            .field("block_count", &self.block_map.len())
-            .field("verify_arc", &self.verify_arc)
-            .finish_non_exhaustive()
-    }
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
@@ -355,6 +329,25 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// that credit (`owns_data=true`) even when the physical ABI is borrowed.
     pub(super) fn iter_receiver_owns_via_contract(&self, var: ArcVarId) -> bool {
         self.iter_owns_rooted_vars.contains(&var)
+    }
+}
+
+// LLVM builders, layout services, and the classification trait object own
+// separate diagnostic surfaces. Report this emitter's stable cache and cursor
+// state without duplicating those internals.
+impl std::fmt::Debug for ArcIrEmitter<'_, '_, '_, '_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArcIrEmitter")
+            .field("current_function", &self.current_function)
+            .field("drop_fn_cache_size", &self.drop_fn_cache.len())
+            .field("elem_dec_fn_cache_size", &self.elem_dec_fn_cache.len())
+            .field("elem_inc_fn_cache_size", &self.elem_inc_fn_cache.len())
+            .field("current_block_idx", &self.current_block_idx)
+            .field("current_instr_idx", &self.current_instr_idx)
+            .field("var_count", &self.var_map.len())
+            .field("block_count", &self.block_map.len())
+            .field("verify_arc", &self.verify_arc)
+            .finish_non_exhaustive()
     }
 }
 

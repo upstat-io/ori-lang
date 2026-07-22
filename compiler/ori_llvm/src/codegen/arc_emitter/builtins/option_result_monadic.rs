@@ -88,12 +88,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let mapped = self.call_closure_single_arg(closure, payload, inner, return_ty)?;
         let some_tag = self.builder.const_i64(ori_ir::OPTION_TAG_SOME);
         let some_result = self.build_option_struct(some_tag, mapped, return_ty)?;
-        let some_bb_final = self.builder.current_block().unwrap();
+        let some_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(none_bb);
         let none_result = self.build_none(return_ty)?;
-        let none_bb_final = self.builder.current_block().unwrap();
+        let none_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(merge_bb);
@@ -131,7 +131,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.position_at_end(some_bb);
         let payload = self.builder.extract_value(receiver, 1, "opt.val")?;
         let some_result = self.call_closure_single_arg(closure, payload, inner, return_ty)?;
-        let some_bb_final = self.builder.current_block().unwrap();
+        let some_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(none_bb);
@@ -139,7 +139,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let zero = self.builder.const_zero_ty(result_llvm);
         let none_tag = self.builder.const_i64(ori_ir::OPTION_TAG_NONE);
         let none_result = self.builder.insert_value(zero, none_tag, 0, "at.none");
-        let none_bb_final = self.builder.current_block().unwrap();
+        let none_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(merge_bb);
@@ -178,11 +178,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let pred_i1 = self.builder.icmp_ne(pred_result, zero_i8, "flt.pred");
         let none_val = self.build_none(inner)?;
         let keep_result = self.builder.select(pred_i1, receiver, none_val, "flt.sel");
-        let some_bb_final = self.builder.current_block().unwrap();
+        let some_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(none_bb);
-        let none_bb_final = self.builder.current_block().unwrap();
+        let none_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(merge_bb);
@@ -218,12 +218,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.cond_br(is_some, some_bb, none_bb);
 
         self.builder.position_at_end(some_bb);
-        let some_bb_final = self.builder.current_block().unwrap();
+        let some_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(none_bb);
         let none_result = self.call_closure_no_args(closure, return_ty)?;
-        let none_bb_final = self.builder.current_block().unwrap();
+        let none_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(merge_bb);
@@ -275,7 +275,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             err_ty,
             "okor.ok",
         )?;
-        let some_bb_final = self.builder.current_block().unwrap();
+        let some_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(none_bb);
@@ -287,7 +287,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             err_ty,
             "okor.err",
         )?;
-        let none_bb_final = self.builder.current_block().unwrap();
+        let none_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(merge_bb);

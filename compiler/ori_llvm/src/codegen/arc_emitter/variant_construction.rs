@@ -149,10 +149,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .gep(i8_ty, payload_ptr, &[idx], "variant.field");
 
                 let field_ty = variant_field_types.get(i).copied();
-                if field_ty.is_some_and(|ft| is_boxed_enum_field(self.pool, ty, ft)) {
+                if let Some(field_ty) =
+                    field_ty.filter(|&field_ty| is_boxed_enum_field(self.pool, ty, field_ty))
+                {
                     // Size the box by the FIELD (boxed payload) type, not the
                     // enum/Option wrapper `ty` — the box holds the payload value.
-                    let size = self.element_store_size(field_ty.expect("field type present"));
+                    let size = self.element_store_size(field_ty);
                     let rc_ptr = self.rc_alloc(size, 8);
                     self.builder.store(val, rc_ptr);
                     self.builder.store(rc_ptr, slot);
@@ -164,8 +166,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     // `box_recursive_field` for the struct-field boxing path.
                     if let Some(&arc_var) = arc_args.get(i) {
                         if self.is_var_borrowed_rooted(arc_var) {
-                            let ft = field_ty.expect("field type present");
-                            self.inc_value_rc(val, ft, 1);
+                            self.inc_value_rc(val, field_ty, 1);
                         }
                     }
                 } else {

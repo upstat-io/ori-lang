@@ -111,20 +111,6 @@ pub struct DirectCallFact {
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct AllocationSiteId(u32);
 
-impl AllocationSiteId {
-    /// Construct an allocation-site identity from its deterministic function-local index.
-    #[must_use]
-    pub const fn new(raw: u32) -> Self {
-        Self(raw)
-    }
-
-    /// Return the function-local allocation-site index.
-    #[must_use]
-    pub const fn raw(self) -> u32 {
-        self.0
-    }
-}
-
 /// Neutral upper-bound evidence for a yield-comprehension allocation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
@@ -150,18 +136,6 @@ pub enum YieldAllocationLocality {
     Escaping,
 }
 
-/// Representation-owned dynamic execution evidence for one allocation site.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
-pub enum YieldAllocationExecution {
-    /// Analysis has not proved that one physical slot represents every dynamic
-    /// instance. This includes allocation sites inside CFG cycles.
-    #[default]
-    RepeatedOrUnknown,
-    /// The defining block cannot execute more than once per function call.
-    SingleExecution,
-}
-
 /// A lowering-owned yield allocation, keyed independently of instruction position.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
@@ -180,8 +154,6 @@ pub struct YieldAllocationFact {
     pub extent: YieldExtent,
     /// AIMS-owned lifetime verdict, frozen after convergence.
     pub locality: YieldAllocationLocality,
-    /// Dynamic execution verdict, frozen from the final post-AIMS CFG.
-    pub execution: YieldAllocationExecution,
 }
 
 /// A complete function in the ARC IR.
@@ -204,33 +176,16 @@ pub struct ArcFunction {
     pub entry: ArcBlockId,
     /// Type of each variable, indexed by `ArcVarId::index()`.
     pub var_types: Vec<Idx>,
-    /// Backend-neutral ownership-relevant shape of each variable, indexed by
-    /// `ArcVarId::index()`.
-    ///
-    /// Canonical-to-ARC lowering computes this table and enters
-    /// [`VariableMetadataState::RepresentationsReady`]. The AIMS pipeline
-    /// recomputes and validates it before entering the fully realized state.
-    /// Physical width, offset, ABI, register, and VM-slot choices belong to
-    /// the selected layout projection and are not stored here.
-    ///
-    /// Skipped during cache serialization — derived from `var_types` + Pool,
-    /// not an independent data source.
+    /// Backend-neutral ownership shape indexed by `ArcVarId::index()`.
+    /// Lowering computes it and AIMS validates it before realization; physical
+    /// layout choices remain projection-owned. Cache serialization skips this
+    /// table because it is derived from `var_types` and the type pool.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub var_reprs: Vec<ValueRepr>,
-    /// Cached transitional RC adapter strategy for each variable, indexed by
-    /// `ArcVarId::index()`.
-    /// `None` means no current counter-carrier strategy is required. Computed
-    /// alongside [`var_reprs`](Self::var_reprs) at the start of the ARC pipeline so
-    /// downstream pre-walk passes (the SSA alias-class computation in
-    /// `intraprocedural::ssa_alias_classes` + the transitive-drop edge
-    /// materialization in `intraprocedural::post_convergence`) can classify a
-    /// var's strategy without holding a `&Pool` reference.
-    ///
-    /// In [`VariableMetadataState::Realized`], this table is parallel to
-    /// `var_types` and derived from the ready representation table.
-    /// Skipped during cache serialization for the same reason as
-    /// `var_reprs` — derived from `var_types` + `var_reprs` + Pool, not an
-    /// independent data source.
+    /// Transitional RC adapter strategy indexed by `ArcVarId::index()`.
+    /// `None` means no counter carrier is required. In the realized state this
+    /// table is parallel to `var_types` and derived from the ready representation
+    /// table, so cache serialization skips it.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub var_rc_strategies: Vec<Option<RcStrategy>>,
     /// Authoritative lifecycle of the two derived variable metadata tables.
@@ -276,16 +231,9 @@ pub struct ArcFunction {
     /// from typed IR before analysis.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub primitive_facts: PrimitiveFacts,
-    /// Per-instruction drop hints for unique collection drops.
-    ///
-    /// Identifies `RcDec` instructions where the target collection has exactly
-    /// one logical owner, allowing a physical consumer to select its
-    /// unique-drop fast path through `ori_buffer_drop_unique` instead of
-    /// `ori_buffer_rc_dec`.
-    ///
-    /// Computed after logical ownership-event pair elision in the current
-    /// transitional carrier.
-    /// Skipped during cache serialization — derived data.
+    /// Marks `RcDec` instructions whose collection has one logical owner, allowing
+    /// physical consumers to select `ori_buffer_drop_unique`. Computed after
+    /// ownership-event pair elision and skipped during cache serialization.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub drop_hints: DropHints,
     /// Detected self-recursive tail call sites.
@@ -306,45 +254,17 @@ pub struct ArcFunction {
     /// VF-1 burden-balance verifier and skipped during cache serialization.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub burden_emitted: Vec<bool>,
-    /// Mutable-`Ident` reassignment death points: `(old_var, new_var)` pairs
-    /// recorded by `lower_assign` when `x = e` rebinds a mutable binding.
-    /// `old_var` is the binding's pre-reassignment value (orphaned by the SSA
-    /// rebind); `new_var` is the value `x` now holds (the `Let { dst: new_var,
-    /// value: Var(rhs) }`). The burden Phase-5 reassign-release scan
-    /// (`compute_reassign_rebind_releases`) consumes these to emit the
-    /// scope-rebind `BurdenDec(old_var)` per `Spec: Annex E §AIMS RL-2` (the
-    /// binding's prior value reaches its scope-death at the rebind).
-    ///
-    /// Lowering-recorded structural facts (def-use shape), not derived from
-    /// analysis. Skipped during cache serialization alongside the other
-    /// lowering-time vecs.
+    /// Mutable-binding reassignment death points as `(old_var, new_var)` pairs.
+    /// Lowering records the SSA rebind; release analysis consumes the old value
+    /// as the scope-death target. These structural facts are skipped during
+    /// cache serialization.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub reassign_deaths: Vec<(ArcVarId, ArcVarId)>,
-    /// Maps each may-panic inline checked-op `PrimOp` result var (integer
-    /// div / mod / floor-div / shift, or add / sub / mul / neg overflow per
-    /// `Spec: Clause 14.3`) lowered lexically inside a same-frame `catch(expr:)`
-    /// body to that catch's handler block.
-    ///
-    /// An inline checked-op never references the catch handler via an `Invoke`
-    /// unwind edge, so without this the handler would be dead-eliminated and
-    /// the checked-op panic would abort instead of being caught. This map:
-    /// - keeps every distinct handler block live (`compact_blocks` seeds the
-    ///   reachability DFS from each map value);
-    /// - lets each physical projection route ONLY a mapped checked-op's panic
-    ///   to ITS handler. Per-dispatch and per-handler scope ensures a subsequent
-    ///   uncaught `1 / 0`, or a checked-op caught by a different nested catch,
-    ///   routes correctly.
-    ///
-    /// `ArcVarId`s are SSA-stable across the pipeline's block-merge / compaction
-    /// (vars are never renumbered), so the keys survive those passes; the
-    /// handler `ArcBlockId` values are remapped by `compact_blocks`. Empty when
-    /// no same-frame catch body carries an inline checked-op (the existing
-    /// `Invoke`-unwind path handles callee-function panics).
-    ///
-    /// Stored as a `Vec` of `(var, handler)` pairs (not a map) so `ArcFunction`
-    /// keeps its `Hash`/`Eq` derives — `FxHashMap` is neither; the Vec also
-    /// preserves deterministic lowering-insertion order. Lowering-derived;
-    /// skipped during cache serialization.
+    /// Maps may-panic inline checked-op results to same-frame catch handlers.
+    /// The mapping keeps otherwise edgeless handlers live and routes only their
+    /// lexical operations. SSA-stable variable keys survive compaction; handler
+    /// IDs are remapped. A vector preserves structural hashing and deterministic
+    /// insertion order. Cache serialization skips these lowering-derived facts.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub catch_scoped_checked_ops: Vec<(ArcVarId, ArcBlockId)>,
     /// Type-checker-selected owner provenance for direct method calls.
@@ -371,18 +291,24 @@ pub struct ArcFunction {
     /// rediscovering syntax or depending on mutable instruction positions.
     #[cfg_attr(feature = "cache", serde(default))]
     pub yield_allocations: Vec<YieldAllocationFact>,
-    /// Whether the class-ledger emitter committed its verified Step-4b plan for
-    /// this function.
-    ///
-    /// `true` = the burden ops in the instruction stream ARE the class-ledger
-    /// plan: realization lowers them mechanically in Phase 7. Step-10's
-    /// redundant-project-alias dec cleanup is also skipped because it is not
-    /// part of the class-ledger path. Set only by
-    /// `aims::class_ledger::attempt_replacement`. Skipped during cache
-    /// serialization: a cache-restored function deserializes to `false`,
-    /// which is safe only because the flag is re-derived on every pipeline
-    /// run (function-level caching of post-pipeline IR is not wired; if it
-    /// lands, this flag must be cached or re-derived with it).
+    /// Whether the instruction stream contains a verified class-ledger plan.
+    /// Realization lowers such burden operations mechanically and skips the
+    /// alternate redundant-alias cleanup. Cache restoration clears this flag;
+    /// every pipeline run derives it again before use.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub class_ledger_emission: bool,
+}
+
+impl AllocationSiteId {
+    /// Construct an allocation-site identity from its deterministic function-local index.
+    #[must_use]
+    pub const fn new(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    /// Return the function-local allocation-site index.
+    #[must_use]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
 }

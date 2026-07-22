@@ -157,7 +157,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.trunc_for_narrowed_collection_element(needle, collection_idx, "contains.trunc");
 
         let func = self.current_function;
-        let pre_header = self.builder.current_block().expect("current block");
+        let pre_header = self.builder.current_block()?;
         let header = self.builder.append_block(func, "contains.hdr");
         let body = self.builder.append_block(func, "contains.body");
         let found = self.builder.append_block(func, "contains.found");
@@ -182,7 +182,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let is_match = self.builder.icmp_eq(elem_val, narrow_needle, "match");
         let one = self.builder.const_i64(1);
         let next_idx = self.builder.add(idx_phi, one, "next_idx");
-        let body_end = self.builder.current_block().expect("body block");
+        let body_end = self.builder.current_block()?;
         self.builder.cond_br(is_match, found, header);
 
         // Wire phi.
@@ -268,7 +268,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let direct_val = self
             .builder
             .load(elem_llvm_ty, elem_ptr, "index.direct_val");
-        let direct_end = self.builder.current_block().expect("direct index block");
+        let direct_end = self.builder.current_block()?;
         self.builder.br(merge);
 
         self.builder.position_at_end(fallback);
@@ -281,7 +281,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let fallback_val = self
             .builder
             .load(elem_llvm_ty, out_alloca, "index.fallback_val");
-        let fallback_end = self.builder.current_block().expect("fallback index block");
+        let fallback_end = self.builder.current_block()?;
         self.builder.br(merge);
 
         self.builder.position_at_end(merge);

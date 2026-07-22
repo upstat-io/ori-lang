@@ -115,6 +115,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// String values are `{ i64, i64, ptr }` structs passed by pointer to the runtime.
     /// `return_abi` selects sret `{ i64, i64, ptr }` or direct `i1` return.
+    #[expect(
+        clippy::expect_used,
+        reason = "registered string runtime ABIs always return a value"
+    )]
     pub(super) fn emit_str_runtime_call(
         &mut self,
         func_name: &'static str,
@@ -134,6 +138,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .create_entry_alloca(self.current_function, "str_op.rhs", str_ty);
         self.builder.store(rhs, rhs_ptr);
 
+        // INVARIANT: Each registered string runtime ABI returns a value in its selected mode.
         match return_abi {
             StringRuntimeReturnAbi::StringSret => self
                 .builder
@@ -404,15 +409,4 @@ pub(super) fn closed_target_projection_message(target: &str, site: &str) -> Stri
 }
 
 #[cfg(test)]
-mod diagnostic_tests {
-    use super::closed_target_projection_message;
-
-    #[test]
-    fn closed_target_diagnostic_states_cause_and_action() {
-        let message = closed_target_projection_message("clone$derived$7", "apply");
-        assert!(message.contains("did not declare closed executable target"));
-        assert!(message.contains("ORI_VERIFY_ARC=1"));
-        assert!(message.contains("report this compiler bug"));
-        assert!(!message.contains("missing mono instance"));
-    }
-}
+mod tests;

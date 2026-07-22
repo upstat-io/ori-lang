@@ -42,25 +42,33 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             OpStrategy::UnsignedComparison => self.emit_unsigned_binary_op(op, lhs, rhs),
             OpStrategy::BooleanLogic => self.emit_bool_binary_op(op, lhs, rhs),
             OpStrategy::StructuralEquality => {
-                let equals = self
-                    .emit_element_equals(lhs, rhs, lhs_ty)
-                    .expect("validated structural equality has an LLVM projection");
+                let Some(equals) = self.emit_element_equals(lhs, rhs, lhs_ty) else {
+                    // Why: The registry selects StructuralEquality only for realizable operands.
+                    unreachable!("validated structural equality must have an LLVM projection")
+                };
                 if op == BinaryOp::NotEq {
                     self.builder.not(equals, "neq")
                 } else {
                     equals
                 }
             }
-            OpStrategy::StructuralOrdering => self
-                .emit_ordering_comparison(op, lhs, rhs, lhs_ty)
-                .expect("validated structural ordering has an LLVM projection"),
+            OpStrategy::StructuralOrdering => {
+                let Some(ordering) = self.emit_ordering_comparison(op, lhs, rhs, lhs_ty) else {
+                    // Why: The registry selects StructuralOrdering only for realizable operands.
+                    unreachable!("validated structural ordering must have an LLVM projection")
+                };
+                ordering
+            }
             OpStrategy::RuntimeCall(RuntimeOperator::ListConcat) => {
                 let TypeInfo::List { element } = self.type_info.get(lhs_ty) else {
                     unreachable!("typed ListConcat strategy requires a List receiver")
                 };
                 let cm = self.cow_mode_const(arc_func);
-                self.emit_list_concat_cow(lhs, rhs, element, cm, lhs_ty)
-                    .expect("list concat runtime returns one list value")
+                let Some(value) = self.emit_list_concat_cow(lhs, rhs, element, cm, lhs_ty) else {
+                    // Why: The registered list-concat runtime ABI returns one list value.
+                    unreachable!("list concat runtime must return one list value")
+                };
+                value
             }
             OpStrategy::RuntimeCall(runtime) => self.emit_runtime_binary_op(
                 strategy::RuntimeBinaryOperation::from_parts(runtime, op),

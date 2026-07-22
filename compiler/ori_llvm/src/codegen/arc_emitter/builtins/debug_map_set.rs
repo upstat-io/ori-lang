@@ -66,7 +66,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.position_at_end(empty_bb);
         let empty_str = self.emit_literal_ori_str("{}")?;
-        let empty_bb_end = self.builder.current_block().unwrap();
+        let empty_bb_end = self.builder.current_block()?;
         self.builder.br(done_bb);
 
         self.builder.position_at_end(body_bb);
@@ -141,7 +141,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let acc_init = self.emit_map_entry_str(key_data, val_data, zero, layout, open)?;
 
         let needs_loop = self.builder.icmp_sgt(entry_count, one, "mdbg.more");
-        let first_bb_end = self.builder.current_block().unwrap();
+        let first_bb_end = self.builder.current_block()?;
 
         let loop_hdr = self.builder.append_block(context.function, "mdbg.hdr");
         let loop_body = self.builder.append_block(context.function, "mdbg.loop");
@@ -165,7 +165,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let new_acc = self.emit_map_entry_str(key_data, val_data, idx_phi, layout, with_sep)?;
         self.dec_intermediate_str(with_sep);
         let next_idx = self.builder.add(idx_phi, one, "mdbg.next");
-        let body_end = self.builder.current_block().unwrap();
+        let body_end = self.builder.current_block()?;
         self.builder.br(loop_hdr);
 
         self.builder
@@ -180,7 +180,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let suffix = self.emit_literal_ori_str("}")?;
         let result = self.emit_str_concat(close_acc, suffix)?;
         self.dec_intermediate_str(close_acc);
-        let close_bb_end = self.builder.current_block().unwrap();
+        let close_bb_end = self.builder.current_block()?;
 
         self.dec_temporary_list_with_size(key_list, context.key_ty, collection_idx);
         self.dec_temporary_list_with_size(val_list, context.val_ty, collection_idx);
@@ -279,7 +279,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.position_at_end(empty_bb);
         let empty_str = self.emit_literal_ori_str("Set {}")?;
-        let empty_bb_end = self.builder.current_block().unwrap();
+        let empty_bb_end = self.builder.current_block()?;
         self.builder.br(done_bb);
 
         self.builder.position_at_end(body_bb);
@@ -306,7 +306,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         let needs_loop = self.builder.icmp_sgt(entry_count, one, "sdbg.more");
-        let first_bb_end = self.builder.current_block().unwrap();
+        let first_bb_end = self.builder.current_block()?;
 
         let loop_hdr = self.builder.append_block(func, "sdbg.hdr");
         let loop_body = self.builder.append_block(func, "sdbg.loop");
@@ -340,7 +340,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.dec_intermediate_str(elem_i_str);
         }
         let next_idx = self.builder.add(idx_phi, one, "sdbg.next");
-        let body_end = self.builder.current_block().unwrap();
+        let body_end = self.builder.current_block()?;
         self.builder.br(loop_hdr);
 
         self.builder
@@ -355,7 +355,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let suffix = self.emit_literal_ori_str("}")?;
         let result = self.emit_str_concat(close_acc, suffix)?;
         self.dec_intermediate_str(close_acc);
-        let close_bb_end = self.builder.current_block().unwrap();
+        let close_bb_end = self.builder.current_block()?;
 
         self.dec_temporary_list_canonical(elem_list, elem_ty);
 

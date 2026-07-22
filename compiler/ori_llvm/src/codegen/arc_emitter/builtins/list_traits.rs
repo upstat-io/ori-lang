@@ -40,17 +40,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .extract_value(rhs, FIELD_DATA, "list.rhs.data")?;
 
         let func = self.current_function;
-        let pre_header = self.builder.current_block().expect("current block");
+        let pre_header = self.builder.current_block()?;
         let header = self.builder.append_block(func, "leq.hdr");
         let body = self.builder.append_block(func, "leq.body");
         let exit_true = self.builder.append_block(func, "leq.true");
         let exit_false = self.builder.append_block(func, "leq.false");
         let merge = self.builder.append_block(func, "leq.merge");
 
-        // Pre-header: lengths differ → false.
         self.builder.cond_br(lens_eq, header, exit_false);
 
-        // Header: check index < len.
         self.builder.position_at_end(header);
         let i64_ty = self
             .builder
@@ -59,8 +57,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let has_more = self.builder.icmp_slt(idx_phi, lhs_len, "has_more");
         self.builder.cond_br(has_more, body, exit_true);
 
-        // Body: compare elements[idx].
-        // Use narrowed element type for GEP/load, sext after load.
         self.builder.position_at_end(body);
         let elem_ty_id = self.int_element_llvm_type(list_ty, elem_ty);
         let lhs_ptr = self.builder.gep(elem_ty_id, lhs_data, &[idx_phi], "lhs.ep");
@@ -72,14 +68,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_eq = self.emit_element_equals(lhs_elem, rhs_elem, elem_ty)?;
         let one = self.builder.const_i64(1);
         let next_idx = self.builder.add(idx_phi, one, "next_idx");
-        let body_end = self.builder.current_block().expect("body block");
+        let body_end = self.builder.current_block()?;
         self.builder.cond_br(elem_eq, header, exit_false);
 
         let zero = self.builder.const_i64(0);
         self.builder
             .add_phi_incoming(idx_phi, &[(zero, pre_header), (next_idx, body_end)]);
 
-        // Merge.
         self.builder.position_at_end(exit_true);
         self.builder.br(merge);
         self.builder.position_at_end(exit_false);
@@ -118,14 +113,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .extract_value(rhs, FIELD_DATA, "list.rhs.data")?;
 
-        // min_len = min(lhs_len, rhs_len)
         let lhs_shorter = self.builder.icmp_slt(lhs_len, rhs_len, "lhs_shorter");
         let min_len = self
             .builder
             .select(lhs_shorter, lhs_len, rhs_len, "min_len");
 
         let func = self.current_function;
-        let pre_header = self.builder.current_block().expect("current block");
+        let pre_header = self.builder.current_block()?;
         let header = self.builder.append_block(func, "lcmp.hdr");
         let body = self.builder.append_block(func, "lcmp.body");
         let diff = self.builder.append_block(func, "lcmp.diff");
@@ -134,7 +128,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.br(header);
 
-        // Header: check index < min_len.
         self.builder.position_at_end(header);
         let i64_ty = self
             .builder
@@ -143,8 +136,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let has_more = self.builder.icmp_slt(idx_phi, min_len, "has_more");
         self.builder.cond_br(has_more, body, len_cmp_block);
 
-        // Body: compare elements[idx].
-        // Use narrowed element type for GEP/load, sext after load.
         self.builder.position_at_end(body);
         let elem_ty_id = self.int_element_llvm_type(list_ty, elem_ty);
         let lhs_ptr = self.builder.gep(elem_ty_id, lhs_data, &[idx_phi], "lhs.ep");
@@ -158,25 +149,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let is_eq = self.builder.icmp_eq(elem_cmp, equal_ord, "is_eq");
         let one = self.builder.const_i64(1);
         let next_idx = self.builder.add(idx_phi, one, "next_idx");
-        let body_end = self.builder.current_block().expect("body block");
+        let body_end = self.builder.current_block()?;
         self.builder.cond_br(is_eq, header, diff);
 
         let zero = self.builder.const_i64(0);
         self.builder
             .add_phi_incoming(idx_phi, &[(zero, pre_header), (next_idx, body_end)]);
 
-        // Diff: element comparison gave non-Equal result.
         self.builder.position_at_end(diff);
         self.builder.br(merge);
 
-        // Len compare: all shared elements equal, decide by length.
         self.builder.position_at_end(len_cmp_block);
         let len_ord =
             self.builder
                 .emit_icmp_ordering(lhs_len, rhs_len, "len_cmp", IntegerSignedness::Signed);
         self.builder.br(merge);
 
-        // Merge: result from diff or len_cmp.
         self.builder.position_at_end(merge);
         let i8_ty = self
             .builder
@@ -201,14 +189,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let data = self.builder.extract_value(val, FIELD_DATA, "list.data")?;
 
         let func = self.current_function;
-        let pre_header = self.builder.current_block().expect("current block");
+        let pre_header = self.builder.current_block()?;
         let header = self.builder.append_block(func, "lhash.hdr");
         let body = self.builder.append_block(func, "lhash.body");
         let exit = self.builder.append_block(func, "lhash.exit");
 
         self.builder.br(header);
 
-        // Header: check index < len.
         self.builder.position_at_end(header);
         let i64_ty = self
             .builder
@@ -218,8 +205,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let has_more = self.builder.icmp_slt(idx_phi, len, "has_more");
         self.builder.cond_br(has_more, body, exit);
 
-        // Body: hash current element, combine.
-        // Use narrowed element type for GEP/load, sext after load.
         self.builder.position_at_end(body);
         let elem_ty_id = self.int_element_llvm_type(list_ty, elem_ty);
         let elem_ptr = self.builder.gep(elem_ty_id, data, &[idx_phi], "elem.ptr");
@@ -229,7 +214,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let new_hash = self.emit_hash_combine(hash_phi, elem_hash);
         let one = self.builder.const_i64(1);
         let next_idx = self.builder.add(idx_phi, one, "next_idx");
-        let body_end = self.builder.current_block().expect("body block");
+        let body_end = self.builder.current_block()?;
         self.builder.br(header);
 
         let zero = self.builder.const_i64(0);
@@ -238,7 +223,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder
             .add_phi_incoming(hash_phi, &[(zero, pre_header), (new_hash, body_end)]);
 
-        // Exit: return accumulated hash.
         self.builder.position_at_end(exit);
         Some(hash_phi)
     }

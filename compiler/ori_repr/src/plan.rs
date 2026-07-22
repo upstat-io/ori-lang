@@ -4,6 +4,12 @@
 //! reads the closed plan. Missing decisions stay canonical, and only
 //! AIMS-proven local identities admit local allocation mechanisms.
 
+mod decision;
+pub(crate) mod query;
+mod range_plan;
+mod repr_attr;
+mod yield_plan;
+
 use crate::enum_repr::EnumRepr;
 use crate::escape::EscapeInfo;
 use crate::layout::EnumLayoutInfo;
@@ -18,6 +24,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 pub use self::decision::{DecisionReason, DecisionSource, ReprDecision};
 pub use self::query::{NarrowingPolicy, RcStrategy};
 pub use self::repr_attr::ReprAttribute;
+pub(crate) use yield_plan::YieldLineageRuntimeCall;
 
 /// Concrete storage mechanism selected for one yield allocation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -42,53 +49,19 @@ pub struct CompiledAllocationDecision {
     pub requires_runtime_header: bool,
 }
 
-impl CompiledAllocationDecision {
-    /// Maximum element bytes admitted to function-lifetime stack storage.
-    pub const MAX_LOCAL_BYTES: u64 = 4 * 1024;
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum YieldAllocationIdentity {
     Builder(ArcVarId),
     Result(ArcVarId),
 }
 
-mod decision;
-pub(crate) mod query;
-mod range_plan;
-mod repr_attr;
-mod yield_plan;
-
-pub(crate) use yield_plan::YieldLineageRuntimeCall;
-
-/// The central data structure recording all narrowing decisions.
-///
-/// Computed after type checking and before LLVM codegen. The type checker
-/// never sees `ReprPlan`; codegen reads from it but never writes.
-///
-/// `ReprPlan` is **not** a Salsa tracked struct. It is computed imperatively
-/// by [`compute_repr_plan()`] as a forward pass that mutates state across
-/// multiple analysis phases (triviality → range → narrowing → layout).
-/// Making each phase a Salsa query would create artificial dependencies and
-/// complicate the multi-pass mutation pattern.
-///
-/// Instead, `ReprPlan` is computed once per compilation and passed as
-/// `&ReprPlan` to codegen — the same model as [`TypeInfoStore`] in
-/// `ori_llvm`, but without interior mutability.
-///
-/// **Invalidation:** Recomputed on every compilation. Reuse requires a Salsa
-/// query keyed on Pool identity.
-///
-/// **JIT compatibility:** Each JIT invocation recomputes the entire `ReprPlan`.
-///
-/// **Thread safety:** All fields are plain `FxHashMap`/`Vec` — no
-/// `RefCell`, `Mutex`, or interior mutability. After construction,
-/// `&ReprPlan` is `Send + Sync` by the implicit auto-trait rules.
-/// This contrasts with `TypeInfoStore` which uses `RefCell` for lazy
-/// population.
+/// Representation and narrowing decisions consumed by physical backends.
+/// [`compute_repr_plan()`] builds the plan imperatively after type checking;
+/// codegen reads it without mutation. Every compilation and JIT invocation
+/// recomputes it. Plain collections provide immutable `Send + Sync` access
+/// without interior mutability.
 ///
 /// [`compute_repr_plan()`]: crate::compute_repr_plan
-/// [`TypeInfoStore`]: https://docs.rs/ori_llvm (internal)
 #[derive(Debug)]
 pub struct ReprPlan {
     /// Per-type decisions (indexed by Pool `Idx`).
@@ -146,17 +119,9 @@ pub struct ReprPlan {
     ///
     /// Populated at plan construction from type checker visibility info.
     pub_type_indices: FxHashSet<Idx>,
-    /// Function identities whose parameters must NOT be narrowed by
-    /// interprocedural range analysis.
-    ///
-    /// Entries are `(Option<self_type_idx>, method_name)`:
-    /// - `(None, name)` — pub top-level function
-    /// - `(Some(idx), name)` — trait impl method on type `idx`
-    ///
-    /// Using `(Option<Idx>, Name)` prevents bare-Name collisions where a
-    /// trait impl method and an unrelated inherent method share a name
-    ///
-    /// Closures are handled separately via `ArcFunction::num_captures > 0`.
+    /// Function identities whose parameters remain unconstrained by range analysis.
+    /// `None` identifies public top-level functions; `Some(idx)` qualifies trait
+    /// methods by receiver type. Closures use `ArcFunction::num_captures`.
     unconstrained_fn_names: FxHashSet<(Option<Idx>, Name)>,
     /// Whether the analysis set includes functions not fully integrated into
     /// the codegen pipeline (e.g., impl methods ARC-lowered for range analysis
@@ -166,6 +131,11 @@ pub struct ReprPlan {
     /// summaries from analysis-only functions may trigger narrowing for structs
     /// that cross ABI boundaries without proper widening.
     has_analysis_only_functions: bool,
+}
+
+impl CompiledAllocationDecision {
+    /// Maximum element bytes admitted to function-lifetime stack storage.
+    pub const MAX_LOCAL_BYTES: u64 = 4 * 1024;
 }
 
 impl ReprPlan {
@@ -239,16 +209,9 @@ impl ReprPlan {
         self.enum_layouts.get(&idx)
     }
 
-    /// Resolve the `EnumRepr` for `idx` — plan-first, with on-the-fly
-    /// canonical recomputation for enum-shaped types with variable residue
-    /// (e.g., `Option<Var(T resolved to str)>`) that were not in the plan when it
-    /// was computed.
-    ///
-    /// SSOT for the plan-lookup + canonical-fallback ladder. Every consumer
-    /// (ABI sizing, type-info layout resolution, ARC emission) routes through
-    /// this so a variable-residue enum cannot answer differently across
-    /// emission surfaces. The fallback delegates to
-    /// [`crate::canonical_enum_for_type`], keeping layout authority here.
+    /// Resolves `idx` from the plan, then canonically recomputes enum-shaped
+    /// types with unresolved residue. ABI, type-info, and ARC consumers share
+    /// this fallback so they cannot select different layouts.
     #[must_use]
     pub fn enum_repr_with_fallback<'p>(
         &'p self,
@@ -301,16 +264,9 @@ impl ReprPlan {
         self.pub_type_indices.contains(&idx)
     }
 
-    /// Register unconstrained function identities (pub, trait impl).
-    ///
-    /// Each entry is `(Option<self_type_idx>, method_name)`:
-    /// - `(None, name)` for pub top-level functions
-    /// - `(Some(idx), name)` for trait impl methods on type `idx`
-    ///
-    /// Unconstrained functions may be called from external code or via
-    /// dynamic dispatch — their parameter ranges must not be narrowed
-    /// by interprocedural range analysis. Closures are handled
-    /// separately via `ArcFunction::num_captures`.
+    /// Registers public and trait-method identities whose parameter ranges must
+    /// remain unconstrained. `None` identifies top-level functions; `Some(idx)`
+    /// identifies methods by receiver type. Closures use `ArcFunction::num_captures`.
     pub fn set_unconstrained_fn_names(
         &mut self,
         names: impl IntoIterator<Item = (Option<Idx>, Name)>,
@@ -318,15 +274,8 @@ impl ReprPlan {
         self.unconstrained_fn_names.extend(names);
     }
 
-    /// Check if a function is unconstrained (pub or trait impl).
-    ///
-    /// `self_type` is the first parameter's type for impl methods, or `None`
-    /// for top-level functions. This disambiguates same-named methods across
-    /// different types.
-    ///
-    /// A function is unconstrained if:
-    /// - It's a pub top-level function: `(None, name)` is in the set, OR
-    /// - It's a trait impl method: `(Some(self_type), name)` is in the set
+    /// Reports whether the exact top-level or receiver-qualified identity is
+    /// externally unconstrained. `self_type` disambiguates same-named methods.
     #[must_use]
     pub fn is_unconstrained_fn(&self, self_type: Option<Idx>, name: Name) -> bool {
         // Exact match only: (None, name) for pub top-level, (Some(idx), name) for
@@ -345,17 +294,9 @@ impl ReprPlan {
             .contains(&(None, qualified_name))
     }
 
-    /// Whether integer narrowing is safe to apply at the codegen level.
-    ///
-    /// Returns `false` when the analysis set includes functions not fully
-    /// integrated into the codegen pipeline (e.g., impl methods ARC-lowered
-    /// for range analysis only). Their field-range summaries could trigger
-    /// narrowing for structs that cross ABI boundaries between the ARC-emitted
-    /// path (narrowed) and the `compile_impls` path (canonical), causing
-    /// layout mismatches.
-    ///
-    /// When no analysis-only functions are present, narrowing is safe because
-    /// all analyzed functions go through the same codegen path.
+    /// Reports whether every analyzed function shares the narrowing-aware
+    /// codegen path. Analysis-only functions make field summaries unsafe for
+    /// ABI-crossing layout decisions.
     #[must_use]
     pub fn is_narrowing_safe_for_codegen(&self) -> bool {
         !self.has_analysis_only_functions

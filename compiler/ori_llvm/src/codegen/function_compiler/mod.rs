@@ -66,23 +66,6 @@ static RL31_NOALIAS_DISABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::n
     report_rl31_noalias_toggle(std::env::var_os("ORI_DISABLE_RL31_NOALIAS").is_some())
 });
 
-/// Read the process-cached RL-31 `noalias` ablation toggle.
-pub(super) fn rl31_noalias_disabled() -> bool {
-    *RL31_NOALIAS_DISABLED
-}
-
-/// Report whether RL-31 `noalias` projection is disabled.
-pub(super) fn report_rl31_noalias_toggle(disabled: bool) -> bool {
-    if disabled {
-        tracing::info!(
-            toggle = "ORI_DISABLE_RL31_NOALIAS",
-            effect = "omit LLVM projection of RL-31 parameter facts",
-            "ablation toggle fired"
-        );
-    }
-    disabled
-}
-
 /// Two-pass function compiler.
 ///
 /// Holds the mapping from function `Name` → `(FunctionId, FunctionAbi)`,
@@ -111,9 +94,6 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Frozen AIMS contracts used only for physical attribute projection.
     /// This map can only be populated from the closed executable artifact.
     aims_contracts: FxHashMap<Name, MemoryContract>,
-    /// Whether to run ARC IR verification in release builds.
-    /// In debug builds, verification always runs regardless of this flag.
-    verify_arc: bool,
     /// Closed backend-neutral facts consumed by the physical LLVM projection.
     /// Production body emission fails closed when this is absent.
     executable_program: Option<&'a ori_repr::executable::ExecutableProgram>,
@@ -121,18 +101,15 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     length_projection_clones: FxHashMap<Name, (Name, ori_arc::ArcVarId)>,
     /// Qualified call site → ordinary callee, pending clone declaration.
     length_projection_calls: FxHashMap<(Name, ori_arc::ArcVarId), Name>,
+    /// Whether to run ARC IR verification in release builds.
+    /// In debug builds, verification always runs regardless of this flag.
+    verify_arc: bool,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
-    /// Create a new function compiler.
-    ///
-    /// `module_path` determines name mangling: `""` for the root module,
-    /// `"math"` or `"data/utils"` for nested modules. All LLVM symbols
-    /// are mangled (e.g., `add` → `_ori_add`, `math.add` → `_ori_math$add`).
-    ///
-    /// `annotated_sigs` and `arc_classifier` drive borrow-aware ABI:
-    /// `Borrowed` + non-Scalar parameters use `Reference` passing
-    /// (pointer, no RC at call site).
+    /// Creates a function compiler for `module_path`. Annotated signatures and
+    /// ARC classification select reference passage for borrowed, non-scalar
+    /// parameters; the module path supplies symbol mangling context.
     pub fn new(
         builder: &'a mut IrBuilder<'scx, 'ctx>,
         type_info: &'a TypeInfoStore<'tcx>,
@@ -158,10 +135,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             arc_classifier,
             debug_context,
             aims_contracts: FxHashMap::default(),
-            verify_arc,
             executable_program: None,
             length_projection_clones: FxHashMap::default(),
             length_projection_calls: FxHashMap::default(),
+            verify_arc,
         }
     }
 
@@ -336,6 +313,23 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 .insert(canonical, (function, abi));
         }
     }
+}
+
+/// Read the process-cached RL-31 `noalias` ablation toggle.
+pub(super) fn rl31_noalias_disabled() -> bool {
+    *RL31_NOALIAS_DISABLED
+}
+
+/// Report whether RL-31 `noalias` projection is disabled.
+pub(super) fn report_rl31_noalias_toggle(disabled: bool) -> bool {
+    if disabled {
+        tracing::info!(
+            toggle = "ORI_DISABLE_RL31_NOALIAS",
+            effect = "omit LLVM projection of RL-31 parameter facts",
+            "ablation toggle fired"
+        );
+    }
+    disabled
 }
 
 #[cfg(test)]

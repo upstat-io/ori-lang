@@ -326,34 +326,53 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         lhs: ValueId,
         rhs: ValueId,
     ) -> ValueId {
+        let runtime_symbol = |operation: RuntimeBinaryOperation| {
+            let Some(symbol) = native_runtime_symbol(operation.runtime()) else {
+                // Why: Every string RuntimeBinaryOperation is registered with a native ABI symbol.
+                unreachable!("string runtime identity must have a native ABI symbol")
+            };
+            symbol
+        };
         match operation {
             RuntimeBinaryOperation::Concat => self.emit_str_runtime_call(
-                native_runtime_symbol(operation.runtime())
-                    .expect("string runtime identity has a native ABI symbol"),
+                runtime_symbol(operation),
                 lhs,
                 rhs,
                 StringRuntimeReturnAbi::StringSret,
             ),
             RuntimeBinaryOperation::Equal | RuntimeBinaryOperation::NotEqual => self
                 .emit_str_runtime_call(
-                    native_runtime_symbol(operation.runtime())
-                        .expect("string runtime identity has a native ABI symbol"),
+                    runtime_symbol(operation),
                     lhs,
                     rhs,
                     StringRuntimeReturnAbi::BoolDirect,
                 ),
-            RuntimeBinaryOperation::Less => self
-                .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::Less)
-                .expect("str Lt comparison should always succeed"),
-            RuntimeBinaryOperation::Greater => self
-                .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::Greater)
-                .expect("str Gt comparison should always succeed"),
-            RuntimeBinaryOperation::LessOrEqual => self
-                .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::LessOrEqual)
-                .expect("str LtEq comparison should always succeed"),
-            RuntimeBinaryOperation::GreaterOrEqual => self
-                .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::GreaterOrEqual)
-                .expect("str GtEq comparison should always succeed"),
+            RuntimeBinaryOperation::Less
+            | RuntimeBinaryOperation::Greater
+            | RuntimeBinaryOperation::LessOrEqual
+            | RuntimeBinaryOperation::GreaterOrEqual => {
+                let predicate = match operation {
+                    RuntimeBinaryOperation::Less => builtins::CmpPredicate::Less,
+                    RuntimeBinaryOperation::Greater => builtins::CmpPredicate::Greater,
+                    RuntimeBinaryOperation::LessOrEqual => builtins::CmpPredicate::LessOrEqual,
+                    RuntimeBinaryOperation::GreaterOrEqual => {
+                        builtins::CmpPredicate::GreaterOrEqual
+                    }
+                    RuntimeBinaryOperation::Concat
+                    | RuntimeBinaryOperation::Equal
+                    | RuntimeBinaryOperation::NotEqual => {
+                        // Why: The enclosing match arm admits only ordered operations.
+                        unreachable!(
+                            "comparison branch must contain only ordered string operations"
+                        )
+                    }
+                };
+                let Some(value) = self.emit_str_cmp_predicate(lhs, rhs, predicate) else {
+                    // Why: Ordered string operations use the registered ori_str_compare ABI.
+                    unreachable!("string comparison runtime must return an Ordering value")
+                };
+                value
+            }
         }
     }
 }

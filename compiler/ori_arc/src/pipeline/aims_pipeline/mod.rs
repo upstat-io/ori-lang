@@ -34,6 +34,38 @@ pub(super) use metadata::{representation_metadata_errors, validate_variable_meta
 /// Receives stable function snapshots at realization checkpoints.
 pub type CheckpointObserver<'a> = dyn Fn(&ArcFunction, &str /* phase */) + 'a;
 
+/// Shared immutable inputs for one per-function realization.
+pub(crate) struct AimsPipelineConfig<'a> {
+    pub classifier: &'a dyn ArcClassification,
+    pub contracts: &'a FxHashMap<Name, MemoryContract>,
+    /// Exact local functions whose contracts must be present.
+    pub func_names: &'a FxHashSet<Name>,
+    /// Local and producer-validated external callables whose exact contracts
+    /// take precedence over same-spelled builtin ownership heuristics.
+    pub exact_callables: &'a FxHashSet<Name>,
+    pub pool: &'a ori_types::Pool,
+    pub interner: &'a ori_ir::StringInterner,
+    pub builtins: &'a BuiltinOwnershipSets,
+    /// Receives each stable checkpoint when snapshot capture is enabled.
+    pub observer: Option<&'a CheckpointObserver<'a>>,
+    /// Type information required to freeze class-ledger plans.
+    pub type_registry: &'a TypeRegistry,
+    pub verify_arc: bool,
+}
+
+/// Result of `run_aims_pipeline` for a single function.
+pub(crate) struct AimsPipelineResult {
+    pub problems: Vec<ArcProblem>,
+    /// Post-emission missed reuse count from `FipEvidence`. Used by the
+    /// second pass to compute `may_deallocate` (> 0) and to re-verify
+    /// `Bounded(n)` contracts with accurate counts.
+    pub missed_reuses: usize,
+    /// Whether this function was TRMC-rewritten (and the rewrite survived
+    /// both structural and semantic verification). Used by the second pass
+    /// to mark `has_unbounded_stack = false` on refreshed contracts.
+    pub was_trmc_rewritten: bool,
+}
+
 /// Emits structural and ownership metrics and invokes `observer`.
 ///
 /// The predictable `ori_arc::aims::pipeline` target supports pass bisection;
@@ -81,38 +113,6 @@ pub(crate) fn trace_pipeline_checkpoint(
     if let Some(obs) = observer {
         obs(func, phase);
     }
-}
-
-/// Shared immutable inputs for one per-function realization.
-pub(crate) struct AimsPipelineConfig<'a> {
-    pub classifier: &'a dyn ArcClassification,
-    pub contracts: &'a FxHashMap<Name, MemoryContract>,
-    /// Exact local functions whose contracts must be present.
-    pub func_names: &'a FxHashSet<Name>,
-    /// Local and producer-validated external callables whose exact contracts
-    /// take precedence over same-spelled builtin ownership heuristics.
-    pub exact_callables: &'a FxHashSet<Name>,
-    pub pool: &'a ori_types::Pool,
-    pub interner: &'a ori_ir::StringInterner,
-    pub builtins: &'a BuiltinOwnershipSets,
-    pub verify_arc: bool,
-    /// Receives each stable checkpoint when snapshot capture is enabled.
-    pub observer: Option<&'a CheckpointObserver<'a>>,
-    /// Type information required to freeze class-ledger plans.
-    pub type_registry: &'a TypeRegistry,
-}
-
-/// Result of `run_aims_pipeline` for a single function.
-pub(crate) struct AimsPipelineResult {
-    pub problems: Vec<ArcProblem>,
-    /// Post-emission missed reuse count from `FipEvidence`. Used by the
-    /// second pass to compute `may_deallocate` (> 0) and to re-verify
-    /// `Bounded(n)` contracts with accurate counts.
-    pub missed_reuses: usize,
-    /// Whether this function was TRMC-rewritten (and the rewrite survived
-    /// both structural and semantic verification). Used by the second pass
-    /// to mark `has_unbounded_stack = false` on refreshed contracts.
-    pub was_trmc_rewritten: bool,
 }
 
 /// Realizes one function after closed-program contracts are frozen.
@@ -252,9 +252,7 @@ fn finish_postprocess(
     func: &mut ArcFunction,
     config: &AimsPipelineConfig<'_>,
 ) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
-    let problems = postprocess::emit_postprocess(func, config)?;
-    freeze_yield_allocation_execution(func);
-    Ok(problems)
+    postprocess::emit_postprocess(func, config)
 }
 
 /// Freeze AIMS placement eligibility onto stable yield-allocation identities.
@@ -291,37 +289,6 @@ fn freeze_yield_allocation_locality(
             } else {
                 crate::ir::YieldAllocationLocality::Escaping
             };
-    }
-}
-
-/// Freeze representation-owned execution evidence from the final CFG.
-///
-/// A function-entry stack slot has one physical identity. It can represent a
-/// yield allocation only when the builder's defining block cannot be revisited
-/// in the same invocation; otherwise separate dynamic results may overlap. This
-/// projection fact does not alter AIMS locality or logical event identities.
-fn freeze_yield_allocation_execution(func: &mut ArcFunction) {
-    let cycle_regions = crate::graph::CycleRegions::compute(func);
-    let definition_blocks: FxHashMap<_, _> = func
-        .blocks
-        .iter()
-        .enumerate()
-        .flat_map(|(block_index, block)| {
-            block.body.iter().filter_map(move |instruction| {
-                instruction
-                    .defined_var()
-                    .map(|variable| (variable, block_index))
-            })
-        })
-        .collect();
-
-    for fact in &mut func.yield_allocations {
-        fact.execution = match definition_blocks.get(&fact.builder).copied() {
-            Some(block) if !cycle_regions.is_in_cycle(block) => {
-                crate::ir::YieldAllocationExecution::SingleExecution
-            }
-            _ => crate::ir::YieldAllocationExecution::RepeatedOrUnknown,
-        };
     }
 }
 

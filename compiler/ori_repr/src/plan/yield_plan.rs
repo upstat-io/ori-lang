@@ -1,8 +1,8 @@
 //! Closed-program yield allocation projections.
 
 use ori_arc::ir::{
-    ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership, YieldAllocationExecution,
-    YieldAllocationFact, YieldAllocationLocality, YieldExtent,
+    ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership, YieldAllocationFact,
+    YieldAllocationLocality, YieldExtent,
 };
 use ori_arc::ArcClassification;
 use ori_ir::Name;
@@ -31,26 +31,34 @@ struct YieldLineageCall<'a> {
     position: (usize, usize),
 }
 
+#[derive(Clone, Copy)]
+enum YieldAllocationExecution {
+    RepeatedOrUnknown,
+    SingleExecution,
+}
+
 impl ReprPlan {
-    /// Freeze AIMS yield facts into conservative compiled allocation choices.
-    pub fn freeze_yield_allocations(
-        &mut self,
-        facts_by_function: &FxHashMap<Name, Vec<YieldAllocationFact>>,
-    ) {
+    /// Compile AIMS yield facts and final-CFG execution multiplicity into
+    /// conservative allocation choices.
+    pub fn freeze_yield_allocations(&mut self, functions: &[ArcFunction]) {
         self.yield_allocations.clear();
         self.yield_allocation_sites.clear();
-        for (&function, facts) in facts_by_function {
-            for fact in facts {
+        for function in functions {
+            let execution_by_builder = yield_allocation_execution(function);
+            for fact in &function.yield_allocations {
                 self.yield_allocation_sites.insert(
-                    (function, YieldAllocationIdentity::Builder(fact.builder)),
+                    (
+                        function.name,
+                        YieldAllocationIdentity::Builder(fact.builder),
+                    ),
                     fact.site,
                 );
                 self.yield_allocation_sites.insert(
-                    (function, YieldAllocationIdentity::Result(fact.result)),
+                    (function.name, YieldAllocationIdentity::Result(fact.result)),
                     fact.site,
                 );
                 self.yield_allocations.insert(
-                    (function, fact.site),
+                    (function.name, fact.site),
                     CompiledAllocationDecision {
                         site: fact.site,
                         builder: fact.builder,
@@ -58,7 +66,13 @@ impl ReprPlan {
                         elem_ty: fact.elem_ty,
                         elem_size: fact.elem_size,
                         extent: fact.extent,
-                        mechanism: select_yield_mechanism(*fact),
+                        mechanism: select_yield_mechanism(
+                            *fact,
+                            execution_by_builder
+                                .get(&fact.builder)
+                                .copied()
+                                .unwrap_or(YieldAllocationExecution::RepeatedOrUnknown),
+                        ),
                         requires_runtime_header: true,
                     },
                 );
@@ -158,6 +172,30 @@ impl ReprPlan {
             .iter()
             .map(|(&callee, &result)| (callee, result))
     }
+}
+
+/// Derive physical single-slot eligibility from the finalized CFG.
+fn yield_allocation_execution(
+    function: &ArcFunction,
+) -> FxHashMap<ArcVarId, YieldAllocationExecution> {
+    let cycle_regions = ori_arc::graph::CycleRegions::compute(function);
+    function
+        .blocks
+        .iter()
+        .enumerate()
+        .flat_map(|(block_index, block)| {
+            let execution = if cycle_regions.is_in_cycle(block_index) {
+                YieldAllocationExecution::RepeatedOrUnknown
+            } else {
+                YieldAllocationExecution::SingleExecution
+            };
+            block.body.iter().filter_map(move |instruction| {
+                instruction
+                    .defined_var()
+                    .map(|variable| (variable, execution))
+            })
+        })
+        .collect()
 }
 
 fn yield_runtime_header_is_elidable(
@@ -322,14 +360,17 @@ fn yield_lineage_call_is_header_independent(
     }
 }
 
-fn select_yield_mechanism(fact: YieldAllocationFact) -> CompiledAllocationMechanism {
+fn select_yield_mechanism(
+    fact: YieldAllocationFact,
+    execution: YieldAllocationExecution,
+) -> CompiledAllocationMechanism {
     let YieldExtent::StaticExact(capacity) = fact.extent else {
         return CompiledAllocationMechanism::RuntimeHeap;
     };
     let Some(bytes) = capacity.checked_mul(fact.elem_size.max(1)) else {
         return CompiledAllocationMechanism::RuntimeHeap;
     };
-    match (fact.locality, fact.execution) {
+    match (fact.locality, execution) {
         (YieldAllocationLocality::Local, YieldAllocationExecution::SingleExecution) => {
             if bytes <= CompiledAllocationDecision::MAX_LOCAL_BYTES {
                 CompiledAllocationMechanism::StackSlot

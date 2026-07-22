@@ -314,7 +314,7 @@ pub(crate) fn realize_arc_program(
         &callable_boundaries,
         verify_arc,
     )?;
-    repr_plan.freeze_yield_allocations(&aims.yield_allocations);
+    repr_plan.freeze_yield_allocations(&functions);
     ExecutableProgram::validate(ExecutableProgramParts {
         version: EXECUTABLE_PROGRAM_VERSION,
         symbols,

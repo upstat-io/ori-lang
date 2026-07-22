@@ -83,7 +83,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "reuse.old_len",
             "reuse.old_cap",
         ) else {
-            panic!("CollectionReuse input must have the canonical collection layout");
+            // Why: ARC validates CollectionReuse inputs as canonical list or set values.
+            unreachable!("CollectionReuse input must have the canonical collection layout")
         };
 
         // Build call args for ori_list_reset_buffer.
@@ -110,7 +111,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ],
             "reuse.data",
         ) else {
-            panic!("ori_list_reset_buffer must return a data pointer");
+            // Why: The registered ori_list_reset_buffer ABI returns a data pointer.
+            unreachable!("ori_list_reset_buffer must return a data pointer")
         };
 
         // Store each new element into the returned buffer.

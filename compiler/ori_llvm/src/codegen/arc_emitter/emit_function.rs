@@ -17,18 +17,9 @@ use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Determine whether a builtin handler intercepts an `Invoke` callee.
-    ///
-    /// Several handler paths in [`Self::emit_invoke`] always emit `call`
-    /// regardless of the invoke mode: format calls, prelude builtins, and
-    /// builtin type methods. An intercepted callee's unwind block has no
-    /// predecessor and is dead code.
-    ///
-    /// Used by dead unwind detection (to skip creating LLVM blocks) and by
-    /// [`Self::emit_invoke`] (to use `Call` mode instead of `Invoke`).
-    ///
-    /// Delegates to the shared [`super::context::is_callee_intercepted`] free
-    /// function for the actual 6-condition check.
+    /// Reports whether builtin handling converts an `Invoke` callee to `call`.
+    /// Intercepted callees leave their unwind blocks without predecessors, so
+    /// dead-unwind classification omits those blocks.
     pub(super) fn callee_will_be_intercepted(
         &self,
         callee: Name,

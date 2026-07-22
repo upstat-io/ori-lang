@@ -1,7 +1,5 @@
 //! Map buffer reference-count operations and unwind-safe element teardown.
 
-use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
-
 use super::super::ArcIrEmitter;
 use crate::codegen::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
 
@@ -79,14 +77,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         val: ValueId,
         resolved: ori_types::Idx,
     ) {
-        let Some(len) = self.builder.extract_value(val, FIELD_LEN, "rc.len") else {
-            return;
-        };
-        let Some(cap) = self.builder.extract_value(val, FIELD_CAP, "rc.cap") else {
-            return;
-        };
-        let Some(data) = self.builder.extract_value(val, FIELD_DATA, "rc.data_ptr") else {
-            return;
+        let Some((data, len, cap)) =
+            self.extract_collection_fields(val, "rc.data_ptr", "rc.len", "rc.cap")
+        else {
+            // Why: ARC routes only canonical map values to buffer RC emission.
+            unreachable!("map RC input must have the canonical collection layout")
         };
 
         let key_type = self.pool.map_key(resolved);
@@ -111,10 +106,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let value_drop = DropChannel::from_facts(val_dec_fid, val_may_unwind);
             let cur = self.current_function;
             let dec_fn = self.builder.runtime_fn("ori_rc_dec_to_zero");
-            let hit = self
-                .builder
-                .call(dec_fn, &[data], "mdec.hz")
-                .expect("ori_rc_dec_to_zero returns i8");
+            let Some(hit) = self.builder.call(dec_fn, &[data], "mdec.hz") else {
+                // Why: The registered ori_rc_dec_to_zero ABI returns an i8 flag.
+                unreachable!("ori_rc_dec_to_zero must produce its registered return value")
+            };
             let zero8 = self.builder.const_i8(0);
             let is_zero = self.builder.icmp_ne(hit, zero8, "mdec.zero");
             let cleanup_bb = self.builder.append_block(cur, "mdec.cleanup");
@@ -188,18 +183,27 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let cl_enter = self.builder.runtime_fn("ori_drop_cleanup_enter");
         let cl_exit = self.builder.runtime_fn("ori_drop_cleanup_exit");
 
-        let keys_off = self
-            .builder
-            .call(keys_off_fn, &[cap, key_size_v, val_size_v], "mdrop.koff")
-            .expect("ori_map_keys_offset returns i64");
-        let vals_off = self
-            .builder
-            .call(vals_off_fn, &[cap, key_size_v, val_size_v], "mdrop.voff")
-            .expect("ori_map_vals_offset returns i64");
-        let total = self
-            .builder
-            .call(total_fn, &[cap, key_size_v, val_size_v], "mdrop.total")
-            .expect("ori_map_total_size returns i64");
+        let Some(keys_off) =
+            self.builder
+                .call(keys_off_fn, &[cap, key_size_v, val_size_v], "mdrop.koff")
+        else {
+            // Why: The registered ori_map_keys_offset ABI returns i64.
+            unreachable!("ori_map_keys_offset must produce its registered return value")
+        };
+        let Some(vals_off) =
+            self.builder
+                .call(vals_off_fn, &[cap, key_size_v, val_size_v], "mdrop.voff")
+        else {
+            // Why: The registered ori_map_vals_offset ABI returns i64.
+            unreachable!("ori_map_vals_offset must produce its registered return value")
+        };
+        let Some(total) =
+            self.builder
+                .call(total_fn, &[cap, key_size_v, val_size_v], "mdrop.total")
+        else {
+            // Why: The registered ori_map_total_size ABI returns i64.
+            unreachable!("ori_map_total_size must produce its registered return value")
+        };
 
         // Loop index + pending-key flag in allocas so the cleanup pad can read
         // them to drain the remaining (post-panic) buckets.
@@ -265,10 +269,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.position_at_end(state.body);
         let index = self.builder.load(state.i64_type, state.index, "mdrop.i.b");
-        let occupied = self
-            .builder
-            .call(state.occupied_fn, &[state.data, index], "mdrop.occ")
-            .expect("ori_map_bucket_occupied returns i8");
+        let Some(occupied) =
+            self.builder
+                .call(state.occupied_fn, &[state.data, index], "mdrop.occ")
+        else {
+            // Why: The registered ori_map_bucket_occupied ABI returns an i8 flag.
+            unreachable!("ori_map_bucket_occupied must produce its registered return value")
+        };
         let is_occupied = self.builder.icmp_ne(occupied, state.zero8, "mdrop.is_occ");
         self.builder
             .cond_br(is_occupied, state.live, state.continuation);
@@ -374,10 +381,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.position_at_end(drain_body);
         let index = self.builder.load(state.i64_type, state.index, "mdrop.di.b");
-        let occupied = self
-            .builder
-            .call(state.occupied_fn, &[state.data, index], "mdrop.docc")
-            .expect("ori_map_bucket_occupied returns i8");
+        let Some(occupied) =
+            self.builder
+                .call(state.occupied_fn, &[state.data, index], "mdrop.docc")
+        else {
+            // Why: The registered ori_map_bucket_occupied ABI returns an i8 flag.
+            unreachable!("ori_map_bucket_occupied must produce its registered return value")
+        };
         let is_occupied = self.builder.icmp_ne(occupied, state.zero8, "mdrop.dis");
         self.builder.cond_br(is_occupied, drain_live, drain_next);
 
@@ -431,17 +441,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         val: ValueId,
         resolved: ori_types::Idx,
     ) {
-        let Some(len) = self.builder.extract_value(val, FIELD_LEN, "udrop.len") else {
-            return;
-        };
-        let Some(cap) = self.builder.extract_value(val, FIELD_CAP, "udrop.cap") else {
-            return;
-        };
-        let Some(data) = self
-            .builder
-            .extract_value(val, FIELD_DATA, "udrop.data_ptr")
+        let Some((data, len, cap)) =
+            self.extract_collection_fields(val, "udrop.data_ptr", "udrop.len", "udrop.cap")
         else {
-            return;
+            // Why: ARC routes only canonical map values to unique-drop emission.
+            unreachable!("map unique-drop input must have the canonical collection layout")
         };
 
         let key_type = self.pool.map_key(resolved);

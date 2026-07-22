@@ -1,0 +1,17 @@
+// Spec: 08-types.md 8.7 Nominal Typing
+//
+// Control provider. `Rec` is shaped identically to A::Row but differently
+// spelled, so the checker already rejects it at A::accept_a (E2001). It is the
+// GREEN control proving the rejection path works when spellings differ, which
+// isolates the spelling-keyed identity defect the same-name pin exposes.
+
+use std.testing { assert_eq }
+
+pub type Rec = { values: [str] }
+
+pub @make_c () -> Rec = Rec { values: ["c", "d", "e"] };
+
+@test_make_c_same_module tests @make_c () -> void = {
+    let $r = make_c();
+    assert_eq(actual: r.values.len(), expected: 3)
+}

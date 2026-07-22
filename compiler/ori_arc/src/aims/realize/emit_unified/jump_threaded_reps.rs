@@ -247,8 +247,7 @@ mod tests {
     use super::YieldLineageIndex;
     use crate::ir::{
         AllocationSiteId, ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue,
-        ArcVarId, YieldAllocationExecution, YieldAllocationFact, YieldAllocationLocality,
-        YieldExtent,
+        ArcVarId, YieldAllocationFact, YieldAllocationLocality, YieldExtent,
     };
     use ori_types::Idx;
 
@@ -278,7 +277,6 @@ mod tests {
                 elem_size: 1,
                 extent: YieldExtent::StaticExact(1),
                 locality: YieldAllocationLocality::Local,
-                execution: YieldAllocationExecution::SingleExecution,
             }],
             ..ArcFunction::default()
         };

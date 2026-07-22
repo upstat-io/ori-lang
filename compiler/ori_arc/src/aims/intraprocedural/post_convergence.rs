@@ -368,10 +368,6 @@ pub(crate) fn populate_var_shapes(state_map: &mut AimsStateMap, func: &ArcFuncti
 /// realize walk (`cleanup_redundant.rs`) succeed for singleton
 /// parents/children. Records no inter-class relation — singleton
 /// `class_members` entries only, no predicate-stack edge map.
-#[expect(
-    clippy::too_many_lines,
-    reason = "five edge-recording sites with structurally similar logic must be enumerated explicitly to preserve preconditions"
-)]
 pub(crate) fn materialize_transitive_drop_singleton_classes(
     func: &ArcFunction,
     sigs: &FxHashMap<Name, MemoryContract>,
@@ -398,41 +394,15 @@ pub(crate) fn materialize_transitive_drop_singleton_classes(
                     args,
                     arg_ownership,
                     ..
-                } => {
-                    let Some(strat) = dst_strategy_of(func, *dst) else {
-                        continue;
-                    };
-                    if !is_transitive_drop_strategy(strat) {
-                        continue;
-                    }
-                    for (i, arg) in args.iter().enumerate() {
-                        // Path-c: edge eligibility = Owned-access
-                        // OR contract claims param flows into the returned
-                        // transitive-drop variant payload (e.g.,
-                        // `wrap_ok(m) = Ok(m)` — Borrowed access but
-                        // structurally contained in Result.payload).
-                        let edge_eligible = match sigs.get(callee) {
-                            Some(contract) => contract.params.get(i).map_or_else(
-                                || {
-                                    arg_ownership
-                                        .get(i)
-                                        .is_none_or(|o| matches!(o, ArgOwnership::Owned))
-                                },
-                                |p| {
-                                    matches!(p.access, AccessClass::Owned)
-                                        || p.return_payload_contains_param
-                                },
-                            ),
-                            None => arg_ownership
-                                .get(i)
-                                .is_none_or(|o| matches!(o, ArgOwnership::Owned)),
-                        };
-                        if !edge_eligible {
-                            continue;
-                        }
-                        materialize_payload_edge_classes(*arg, *dst, func, state_map);
-                    }
-                }
+                } => materialize_call_payload_classes(
+                    *dst,
+                    *callee,
+                    args,
+                    arg_ownership,
+                    func,
+                    sigs,
+                    state_map,
+                ),
                 ArcInstr::Set { base, value, .. } => {
                     let Some(strat) = dst_strategy_of(func, *base) else {
                         continue;
@@ -453,34 +423,15 @@ pub(crate) fn materialize_transitive_drop_singleton_classes(
             ..
         } = &block.terminator
         {
-            if let Some(strat) = dst_strategy_of(func, *dst) {
-                if is_transitive_drop_strategy(strat) {
-                    for (i, arg) in args.iter().enumerate() {
-                        // Path-c: same edge-eligibility rule as the Apply arm
-                        // (Owned-access OR contract-claimed payload containment).
-                        let edge_eligible = match sigs.get(callee) {
-                            Some(contract) => contract.params.get(i).map_or_else(
-                                || {
-                                    arg_ownership
-                                        .get(i)
-                                        .is_none_or(|o| matches!(o, ArgOwnership::Owned))
-                                },
-                                |p| {
-                                    matches!(p.access, AccessClass::Owned)
-                                        || p.return_payload_contains_param
-                                },
-                            ),
-                            None => arg_ownership
-                                .get(i)
-                                .is_none_or(|o| matches!(o, ArgOwnership::Owned)),
-                        };
-                        if !edge_eligible {
-                            continue;
-                        }
-                        materialize_payload_edge_classes(*arg, *dst, func, state_map);
-                    }
-                }
-            }
+            materialize_call_payload_classes(
+                *dst,
+                *callee,
+                args,
+                arg_ownership,
+                func,
+                sigs,
+                state_map,
+            );
         }
     }
 
@@ -488,4 +439,48 @@ pub(crate) fn materialize_transitive_drop_singleton_classes(
         func = ?func.name,
         "materialize_transitive_drop_singleton_classes materialized singleton classes"
     );
+}
+
+fn materialize_call_payload_classes(
+    dst: ArcVarId,
+    callee: Name,
+    args: &[ArcVarId],
+    arg_ownership: &[ArgOwnership],
+    func: &ArcFunction,
+    sigs: &FxHashMap<Name, MemoryContract>,
+    state_map: &mut AimsStateMap,
+) {
+    let Some(strategy) = dst_strategy_of(func, dst) else {
+        return;
+    };
+    if !is_transitive_drop_strategy(strategy) {
+        return;
+    }
+    for (index, &arg) in args.iter().enumerate() {
+        if call_arg_enters_return_payload(callee, index, arg_ownership, sigs) {
+            materialize_payload_edge_classes(arg, dst, func, state_map);
+        }
+    }
+}
+
+/// Whether a call argument can enter the returned transitive-drop payload.
+fn call_arg_enters_return_payload(
+    callee: Name,
+    index: usize,
+    arg_ownership: &[ArgOwnership],
+    sigs: &FxHashMap<Name, MemoryContract>,
+) -> bool {
+    sigs.get(&callee)
+        .and_then(|contract| contract.params.get(index))
+        .map_or_else(
+            || {
+                arg_ownership
+                    .get(index)
+                    .is_none_or(|ownership| matches!(ownership, ArgOwnership::Owned))
+            },
+            |parameter| {
+                matches!(parameter.access, AccessClass::Owned)
+                    || parameter.return_payload_contains_param
+            },
+        )
 }
