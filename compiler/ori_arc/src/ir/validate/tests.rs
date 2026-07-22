@@ -307,7 +307,7 @@ fn test_unresolved_var_in_entry_param_fails() {
     assert_eq!(
         err.var_id,
         v(param_var_id),
-        "reported var_id matches params[0].var (ArcVarId(3)) per validate.rs:146-148"
+        "reported var_id matches params[0].var (ArcVarId(3)) per assert_no_unresolved_type_vars"
     );
 }
 

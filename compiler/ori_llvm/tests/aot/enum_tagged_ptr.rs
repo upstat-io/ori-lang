@@ -94,9 +94,8 @@ fn test_explicit_tag_enum_with_iterator_payload_compiles_and_runs() {
 /// switch, decode pointer, per-variant RC dec) but uses the
 /// `rc_dec.tag` / `rc_dec.tp.ptr` / `rc_dec.done` block-name family. Both
 /// helpers are entry points for tagged-pointer codegen — pinning the
-/// shape exercised by user source matches the plan-body line 2381
-/// "adjust assertions to match the actual block-name shapes emitted"
-/// discipline.
+/// shape exercised by user source follows the plan's requirement that assertions
+/// match the actual emitted block-name shapes.
 #[test]
 fn test_burden_dec_variant_tagged_ptr_enum_emits_switch_and_rc_dec() {
     let ir = compile_to_llvm_ir(include_str!(

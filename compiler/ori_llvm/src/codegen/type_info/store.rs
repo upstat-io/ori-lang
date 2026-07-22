@@ -328,9 +328,9 @@ impl<'tcx> TypeInfoStore<'tcx> {
             // bodies post-§SC-1 carry `Tag::BoundVar(var_id)` leaves;
             // substitution to concrete types happens UPSTREAM in
             // `lower_function_can` via `type_subst` threaded from
-            // `MonoFunction.body_type_map` (see `function_compiler/
-            // nounwind/prepare.rs:133`). By the time codegen queries
-            // `TypeInfoStore`, a correctly-substituted mono body has
+            // `MonoFunction.body_type_map` (threaded by
+            // `FunctionCompiler::define_function_body_arc_with_subst`). By the time
+            // codegen queries `TypeInfoStore`, a correctly-substituted mono body has
             // NO `Tag::BoundVar` leaves left.
             //
             // If a `Tag::BoundVar` reaches this arm, an upstream layer

@@ -774,7 +774,8 @@ fn test_coll_map_index_in_loop() {
 
 // List: eager collection-returning methods (auto-iter promotion)
 //
-// Spec annex-c-built-in-functions.md:469: `[T].filter(predicate) -> [T]` (eager).
+// Spec: Annex C, Collection Methods, List Methods:
+// `[T].filter(predicate) -> [T]` (eager).
 // `[T].map(transform) -> [T]` likewise. The codegen has no direct list
 // filter/map builtin, so these route through auto-iter promotion
 // (`emit_auto_iter` → `ori_iter_filter`/`ori_iter_map`), which produces an

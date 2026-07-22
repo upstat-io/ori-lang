@@ -6132,7 +6132,7 @@ fn effective_uniqueness_at_block_entry_reflects_apply_maybe_shared_contract() {
     assert_eq!(
         effective,
         Uniqueness::MaybeShared,
-        "consumer at block entry (cow.rs:67 / realize/mod.rs:302+346) must see \
+        "consumers emit_rc::cow and realize::emit_unified must see \
          contract-narrowed MaybeShared — JOIN(MaybeShared, lattice_BOTTOM=Unique) = MaybeShared"
     );
 }
@@ -6166,7 +6166,7 @@ fn effective_uniqueness_at_block_exit_reflects_apply_maybe_shared_contract() {
     assert_eq!(
         effective,
         Uniqueness::MaybeShared,
-        "consumer at block exit (walk_dec.rs:250+254+300) must see contract-narrowed \
+        "the realize::emit_unified DeathEvent consumer must see contract-narrowed \
          MaybeShared for DeathEvent — emit_reuse downstream filters death.uniqueness == Unique"
     );
 }
