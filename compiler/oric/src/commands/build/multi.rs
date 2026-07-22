@@ -232,7 +232,7 @@ struct ModuleLoweringInput<'ctx, 'a> {
 
 fn lower_module_to_llvm<'ctx>(
     input: ModuleLoweringInput<'ctx, '_>,
-) -> Option<crate::commands::codegen_pipeline::LlvmCodegenOutput<'ctx>> {
+) -> Option<crate::commands::backend::EmittedArtifact<'ctx>> {
     use crate::commands::compile_common::compile_to_llvm_with_imports;
     use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics, CodegenProblem};
 
@@ -347,7 +347,7 @@ fn compile_single_module(
         collect_imported_collection_surfaces(source_path, ctx.graph, compiled_modules);
 
     let context = Context::create();
-    let llvm_output = lower_module_to_llvm(ModuleLoweringInput {
+    let artifact = lower_module_to_llvm(ModuleLoweringInput {
         context: &context,
         build: ctx,
         source_path: &source_path_str,
@@ -362,15 +362,18 @@ fn compile_single_module(
         imported: imported_state.surfaces(),
     })?;
 
-    let obj_path = emit_module_artifact(ctx, &llvm_output.module, &module_name, &source_path_str)?;
+    let crate::commands::backend::EmittedArtifact {
+        module,
+        exports: public_functions,
+    } = artifact;
+    // Object emission consumes the emitting backend's own module.
+    let crate::commands::backend::EmittedModule::Llvm(module) = module;
+
+    let obj_path = emit_module_artifact(ctx, &module, &module_name, &source_path_str)?;
 
     let exported_type_metadata = type_result.typed.exported_type_metadata.clone();
     let exported_collection_surfaces = type_result.typed.exported_collection_surfaces.clone();
     let has_cli_entry = super::module_has_cli_entry(&parse_result, &type_result);
-    let crate::commands::codegen_pipeline::LlvmCodegenOutput {
-        module,
-        exports: public_functions,
-    } = llvm_output;
     drop(module);
     let module_info = CompiledModuleInfo {
         path: source_path.to_path_buf(),

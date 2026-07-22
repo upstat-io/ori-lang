@@ -100,8 +100,6 @@ const OPTION_NICHE_FN: &str = "fn emit_option_niche(";
 /// Marker that scopes assertions to within `emit_result_niche` only.
 const RESULT_NICHE_FN: &str = "fn emit_result_niche(";
 
-// ── §1: Option niche helpers must guard and retain ──
-
 #[test]
 fn option_niche_unwrap_has_panic_guard_and_rc_retain() {
     let body = extract_arm_body(HELPER_SRC, OPTION_NICHE_FN, "\"unwrap\" =>");
@@ -148,8 +146,6 @@ fn option_niche_unwrap_or_has_conditional_rc_retain() {
         "Option.unwrap_or niche arm must use cond_br + merge for conditional retain (not unconditional, would corrupt None case)\nbody:\n{body}",
     );
 }
-
-// ── §2: Result niche helpers must differentiate methods + guard + retain ──
 
 #[test]
 fn result_niche_unwrap_has_panic_guard_and_rc_retain() {
@@ -250,8 +246,6 @@ fn result_niche_expect_err_has_expect_branch_and_rc_retain() {
         "Result.expect_err niche arm must extract err_ty from TypeInfo::Result\nbody:\n{body}",
     );
 }
-
-// ── §3: Result niche unwrap_or must NOT be in a collapsed arm ──
 
 #[test]
 fn result_niche_no_collapsed_unwrap_arm() {

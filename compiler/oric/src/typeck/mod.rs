@@ -396,15 +396,12 @@ fn collect_named_type_names(
     }
 }
 
-/// Register the provider's nominal types that an imported function's signature
-/// references.
+/// Register the provider nominal types an imported function's signature
+/// references but `resolved.imported_types` does not carry.
 ///
-/// A type reaching the consumer only through an imported signature is absent
-/// from `resolved.imported_types`, so field access on such a value resolves to
-/// `Tag::Error`. Error poison suppresses the diagnostic, so the program
-/// type-checks and the evaluator runs while the compiled backend cannot realize
-/// the body. Registration goes through the same `register_imported_type`
-/// primitive the explicit-import path uses.
+/// Without this, field access on such a value resolves to `Tag::Error`, whose
+/// poison suppresses the diagnostic — the evaluator runs while the compiled
+/// backend cannot realize the body.
 fn register_signature_types(
     func: &ori_ir::Function,
     imported_module: &ori_ir::Module,
@@ -421,6 +418,12 @@ fn register_signature_types(
         collect_named_type_names(foreign_arena, ty, &mut names);
     }
     for name in names {
+        // Why: re-registering a name the consumer already carries would clobber
+        // a local type with the provider's, and shift the registry ordinals
+        // driver-parity compares.
+        if checker.type_registry().get_by_name(name).is_some() {
+            continue;
+        }
         if let Some(decl) = imported_module.types.iter().find(|decl| decl.name == name) {
             checker.register_imported_type(decl, foreign_arena);
         }

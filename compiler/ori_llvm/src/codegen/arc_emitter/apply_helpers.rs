@@ -231,9 +231,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Coerce an aggregate value to a pointer for runtime function calls.
     ///
     /// Runtime functions like `ori_print` expect `ptr` arguments (pointers to
-    /// structs), but ARC IR passes aggregate values directly. When we detect
-    /// that a call arg is an aggregate but the callee expects `ptr`, we
-    /// alloca+store+pass the pointer.
+    /// structs), but ARC IR passes aggregate values directly. An aggregate
+    /// argument whose callee expects `ptr` is materialized in a stack slot.
     pub(super) fn coerce_aggregate_to_ptr(&mut self, val: ValueId, ty: Idx) -> ValueId {
         let tag = self.pool.tag(ty);
         match tag {

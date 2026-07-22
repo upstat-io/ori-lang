@@ -17,6 +17,7 @@
 pub fn collect_unconstrained_fn_names(
     function_sigs: &[ori_types::FunctionSig],
     trait_impl_fn_names: &[(ori_types::Idx, ori_ir::Name)],
+    pool: &ori_types::Pool,
     interner: Option<&ori_ir::StringInterner>,
 ) -> Vec<(Option<ori_types::Idx>, ori_ir::Name)> {
     let mut names = Vec::new();
@@ -41,13 +42,12 @@ pub fn collect_unconstrained_fn_names(
                 ord
             };
             let method_str = interner.lookup(name);
+            let receiver_hash = pool.hash(self_type);
             let qualified = if ordinal == 0 {
-                interner.intern(&format!("__impl_{}_{method_str}", self_type.raw()))
+                interner.intern(&format!("__impl_{receiver_hash:016x}_{method_str}"))
             } else {
                 interner.intern(&format!(
-                    "__impl_{}_{}_{ordinal}",
-                    self_type.raw(),
-                    method_str
+                    "__impl_{receiver_hash:016x}_{method_str}_{ordinal}"
                 ))
             };
             names.push((None, qualified));

@@ -110,7 +110,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let tag = self.builder.extract_value(receiver, 0, "rdbg.n.tag")?;
         let ok_const = self
             .builder
-            .const_int_matching(tag, ori_ir::RESULT_TAG_OK as u64);
+            .const_int_matching(tag, u64::try_from(ori_ir::RESULT_TAG_OK).ok()?);
         let is_ok = self.builder.icmp_eq(tag, ok_const, "rdbg.n.is_ok");
 
         let ok_bb = self

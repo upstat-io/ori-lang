@@ -156,7 +156,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.elem_size_and_align(args.elem_ty, Some(args.list_ty));
             let inc_fn = self.get_or_generate_elem_inc_fn(args.elem_ty);
             let dec_fn = self.get_or_generate_elem_dec_fn(args.elem_ty);
-            let cow_mode = self.builder.const_i32(args.cow_mode as i32);
+            let cow_mode = self.builder.const_i32(super::cow_mode_code(args.cow_mode));
             self.emit_rt_call(
                 args.func_id,
                 &[

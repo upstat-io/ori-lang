@@ -1730,7 +1730,8 @@ fn set_tag_emits_gep_and_store() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![enum_ty],
-        var_reprs: Vec::new(),
+        var_reprs: vec![ori_arc::ir::ValueRepr::Aggregate],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -1815,6 +1816,17 @@ fn emitted_value_from_repr() {
     ));
 }
 
+#[test]
+#[should_panic(expected = "LLVM emission requires realized variable representations")]
+fn llvm_emission_rejects_unrealized_variable_representations() {
+    let function = ArcFunction {
+        var_types: vec![Idx::INT],
+        ..ArcFunction::default()
+    };
+
+    super::emitter_utils::required_var_repr(ArcVarId::new(0), &function);
+}
+
 // RC strategy dispatch tests
 
 /// Verify `FatPointer` `RcDec` extracts `data_ptr` at field 1 and calls `ori_rc_dec`.
@@ -1887,7 +1899,8 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::STR],
-        var_reprs: Vec::new(),
+        var_reprs: vec![ori_arc::ir::ValueRepr::FatValue],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -1984,7 +1997,8 @@ fn rc_dec_closure_null_checks_env() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![fn_ty],
-        var_reprs: Vec::new(),
+        var_reprs: vec![ori_arc::ir::ValueRepr::FatValue],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -2094,7 +2108,8 @@ fn rc_inc_inline_enum_emits_tag_switch() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![result_ty],
-        var_reprs: Vec::new(),
+        var_reprs: vec![ori_arc::ir::ValueRepr::Aggregate],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -2194,7 +2209,8 @@ fn rc_dec_inline_enum_tag_switches() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![result_ty],
-        var_reprs: Vec::new(),
+        var_reprs: vec![ori_arc::ir::ValueRepr::Aggregate],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -2304,7 +2320,8 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::STR],
-        var_reprs: Vec::new(),
+        var_reprs: vec![ori_arc::ir::ValueRepr::RcPointer],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };

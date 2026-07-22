@@ -226,10 +226,8 @@ pub struct ArcFunction {
     /// materialization in `intraprocedural::post_convergence`) can classify a
     /// var's strategy without holding a `&Pool` reference.
     ///
-    /// Empty until the current AIMS pipeline derives it from the ready
-    /// representation table, then parallel to `var_types` in the fully realized
-    /// state. This preserves shipped behavior but is not the production AIMS
-    /// seam; stable logical value/cleanup IDs replace it before physical planning.
+    /// In [`VariableMetadataState::Realized`], this table is parallel to
+    /// `var_types` and derived from the ready representation table.
     /// Skipped during cache serialization for the same reason as
     /// `var_reprs` — derived from `var_types` + `var_reprs` + Pool, not an
     /// independent data source.
@@ -258,9 +256,7 @@ pub struct ArcFunction {
     ///
     /// Set by `lower_lambda()` — top-level functions always have `0`.
     /// Available to physical projections when choosing a closure encoding.
-    /// The LLVM backend currently uses it to detect non-capturing lambdas and
-    /// skip trampoline wrapper generation; that projection does not own the
-    /// shared capture fact.
+    /// Zero captures permit physical projections to omit a trampoline wrapper.
     #[cfg_attr(feature = "cache", serde(default))]
     pub num_captures: usize,
     /// Per-instruction COW mode annotations from uniqueness analysis.
@@ -268,12 +264,8 @@ pub struct ArcFunction {
     /// Maps `(block_index, instr_index)` to [`CowMode`] for each COW
     /// operation. Physical consumers may use this AIMS verdict to select only
     /// the fast path (`StaticUnique`), only the slow path (`StaticShared`), or
-    /// the full runtime check (`Dynamic`). The LLVM ARC emitter is the current
-    /// compiled projection of that shared fact.
-    ///
-    /// Populated by the ARC pipeline (after uniqueness analysis). Empty
-    /// until then. Skipped during cache serialization — derived from the
-    /// analysis, not an independent data source.
+    /// the full runtime check (`Dynamic`). The ARC pipeline populates this table
+    /// after uniqueness analysis; cache serialization skips the derived data.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub cow_annotations: CowAnnotations,
     /// Typed primitive-operation facts resolved once by AIMS.
@@ -288,8 +280,8 @@ pub struct ArcFunction {
     ///
     /// Identifies `RcDec` instructions where the target collection has exactly
     /// one logical owner, allowing a physical consumer to select its
-    /// unique-drop fast path. LLVM currently maps that verdict to
-    /// `ori_buffer_drop_unique` instead of `ori_buffer_rc_dec`.
+    /// unique-drop fast path through `ori_buffer_drop_unique` instead of
+    /// `ori_buffer_rc_dec`.
     ///
     /// Computed after logical ownership-event pair elision in the current
     /// transitional carrier.
@@ -339,8 +331,7 @@ pub struct ArcFunction {
     /// - keeps every distinct handler block live (`compact_blocks` seeds the
     ///   reachability DFS from each map value);
     /// - lets each physical projection route ONLY a mapped checked-op's panic
-    ///   to ITS handler. LLVM currently materializes landing pads and uses
-    ///   `invoke`; the per-dispatch + per-handler scope ensures a subsequent
+    ///   to ITS handler. Per-dispatch and per-handler scope ensures a subsequent
     ///   uncaught `1 / 0`, or a checked-op caught by a different nested catch,
     ///   routes correctly.
     ///

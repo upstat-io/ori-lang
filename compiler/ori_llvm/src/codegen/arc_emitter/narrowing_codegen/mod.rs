@@ -10,6 +10,7 @@
 //!   constructing or extracting fields of narrowed structs.
 
 mod loop_exclusions;
+mod struct_fields;
 
 #[cfg(test)]
 mod tests;
@@ -49,13 +50,10 @@ pub(crate) fn narrowed_collection_element_width(
 }
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    // Collection element narrowing (integer narrowing phase C)
+    // Collection element narrowing.
 
-    /// Check if a collection type has narrowed int elements in the `ReprPlan`.
-    ///
     /// Returns the narrowed `IntWidth` if the collection's element repr has been
-    /// narrowed below canonical `i64`, `None` otherwise. Delegates to the
-    /// context-free [`narrowed_collection_element_width`] SSOT.
+    /// narrowed below canonical `i64`, or `None` otherwise.
     pub(super) fn narrowed_collection_element_width(
         &self,
         collection_idx: Idx,
@@ -245,7 +243,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Check each variable in the function.
         for (raw_idx, &ty_idx) in func.var_types.iter().enumerate() {
-            let var = ArcVarId::new(raw_idx as u32);
+            let Ok(raw_idx) = u32::try_from(raw_idx) else {
+                self.builder.record_codegen_error_with_msg(
+                    "ARC variable table exceeds the supported u32 identity range",
+                );
+                break;
+            };
+            let var = ArcVarId::new(raw_idx);
 
             // Skip function parameters (can't distinguish pub from private).
             if param_vars.contains(&var) || loop_carried.contains(&var) {
@@ -294,187 +298,5 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ori_repr::IntWidth::I64 => scx.type_i64().into(),
         };
         self.builder.register_type(ty)
-    }
-
-    // Struct field narrowing (integer/float narrowing)
-
-    /// Truncate struct field values from canonical width (i64) to narrowed
-    /// field width (i8/i16/i32) when constructing a narrowed struct.
-    ///
-    /// Returns a new `Vec` with truncated values where needed. Values whose
-    /// LLVM type already matches the struct field type pass through unchanged.
-    ///
-    /// Only truncates fields whose pool type is `Tag::Int` (canonical i64) —
-    /// naturally narrow types (Byte → i8, Char → i32) are not affected.
-    ///
-    /// This is the construction-side half of integer narrowing codegen.
-    /// The extraction-side half is [`sext_narrowed_field`](Self::sext_narrowed_field).
-    pub(super) fn trunc_for_narrowed_struct(
-        &mut self,
-        struct_ty_id: LLVMTypeId,
-        args: &[ValueId],
-        ctor_type: Idx,
-    ) -> Vec<ValueId> {
-        use inkwell::types::BasicTypeEnum;
-        use ori_types::Tag;
-
-        let raw_ty = self.builder.arena.get_type(struct_ty_id);
-        let BasicTypeEnum::StructType(st) = raw_ty else {
-            return args.to_vec();
-        };
-
-        // Get the struct/tuple field types from the pool (declaration order),
-        // then reorder to memory order to match the reordered args.
-        let resolved = self.pool.resolve_fully(ctor_type);
-        let pool_tag = self.pool.tag(resolved);
-        let decl_pool_types: Vec<Idx> = if pool_tag == Tag::Struct {
-            self.pool
-                .struct_fields(resolved)
-                .into_iter()
-                .map(|(_, idx)| idx)
-                .collect()
-        } else if pool_tag == Tag::Tuple {
-            self.pool.tuple_elems(resolved)
-        } else {
-            return args.to_vec();
-        };
-
-        // Reorder pool field types to memory order (matching arg order).
-        let field_pool_types: Vec<Idx> =
-            if let Some(repr) = self.repr_plan.and_then(|p| p.get_repr(resolved)) {
-                let fields = match repr {
-                    ori_repr::MachineRepr::Struct(s) => &s.fields[..],
-                    ori_repr::MachineRepr::Tuple(t) => &t.elements[..],
-                    _ => return args.to_vec(),
-                };
-                fields
-                    .iter()
-                    .map(|f| decl_pool_types[f.original_index as usize])
-                    .collect()
-            } else {
-                decl_pool_types
-            };
-
-        args.iter()
-            .enumerate()
-            .map(|(i, &val)| {
-                let field_pool_tag = field_pool_types
-                    .get(i)
-                    .map(|&idx| self.pool.tag(self.pool.resolve_fully(idx)));
-
-                // Integer narrowing: truncate when pool field is Int (canonical i64)
-                // but the struct field is narrower.
-                if field_pool_tag == Some(Tag::Int) {
-                    let Some(BasicTypeEnum::IntType(field_int)) =
-                        st.get_field_type_at_index(i as u32)
-                    else {
-                        return val;
-                    };
-                    let field_bits = field_int.get_bit_width();
-                    if field_bits >= 64 {
-                        return val;
-                    }
-                    let v = self.builder.arena.get_value(val);
-                    if !v.is_int_value() {
-                        return val;
-                    }
-                    let val_bits = v.into_int_value().get_type().get_bit_width();
-                    if val_bits > field_bits {
-                        let field_ty_id = self.builder.register_type(field_int.into());
-                        return self
-                            .builder
-                            .trunc(val, field_ty_id, &format!("narrow.trunc.{i}"));
-                    }
-                    return val;
-                }
-
-                // Float narrowing: fptrunc when pool field is Float (canonical f64)
-                // but the struct field is f32.
-                if field_pool_tag == Some(Tag::Float) {
-                    let Some(BasicTypeEnum::FloatType(field_float)) =
-                        st.get_field_type_at_index(i as u32)
-                    else {
-                        return val;
-                    };
-                    let v = self.builder.arena.get_value(val);
-                    if !v.is_float_value() {
-                        return val;
-                    }
-                    let val_float_ty = v.into_float_value().get_type();
-                    // f32 field but f64 value → fptrunc
-                    if val_float_ty != field_float {
-                        let field_ty_id = self.builder.register_type(field_float.into());
-                        return self.builder.float_trunc(
-                            val,
-                            field_ty_id,
-                            &format!("narrow.fptrunc.{i}"),
-                        );
-                    }
-                }
-
-                val
-            })
-            .collect()
-    }
-
-    /// Widen a narrowed struct field value back to canonical width after
-    /// extraction.
-    ///
-    /// For integer fields: sign-extend (i8/i16/i32 → i64) when the ARC IR
-    /// destination type is `Tag::Int`. For float fields: fpext (f32 → f64)
-    /// when the ARC IR destination type is `Tag::Float`.
-    ///
-    /// Naturally narrow types (Byte → i8, Char → i32) are not affected
-    /// because their pool tag is `Tag::Byte`/`Tag::Char`, not `Tag::Int`.
-    ///
-    /// This is the extraction-side half of integer/float narrowing codegen.
-    pub(super) fn sext_narrowed_field(
-        &mut self,
-        extracted: ValueId,
-        field_index: u32,
-        dst_type: Idx,
-    ) -> ValueId {
-        use ori_types::Tag;
-
-        let resolved = self.pool.resolve_fully(dst_type);
-        let tag = self.pool.tag(resolved);
-
-        // Integer: sext when the destination expects i64 (Tag::Int).
-        if tag == Tag::Int {
-            let v = self.builder.arena.get_value(extracted);
-            if !v.is_int_value() {
-                return extracted;
-            }
-            let bits = v.into_int_value().get_type().get_bit_width();
-            if bits >= 64 {
-                return extracted;
-            }
-            let i64_ty = self
-                .builder
-                .register_type(self.builder.scx.type_i64().into());
-            return self
-                .builder
-                .sext(extracted, i64_ty, &format!("narrow.sext.{field_index}"));
-        }
-
-        // Float narrowing: fpext when the destination expects f64 (Tag::Float).
-        if tag == Tag::Float {
-            let v = self.builder.arena.get_value(extracted);
-            if !v.is_float_value() {
-                return extracted;
-            }
-            let val_float_ty = v.into_float_value().get_type();
-            let canonical_f64 = self.builder.scx.type_f64();
-            if val_float_ty != canonical_f64 {
-                let f64_ty_id = self.builder.register_type(canonical_f64.into());
-                return self.builder.float_ext(
-                    extracted,
-                    f64_ty_id,
-                    &format!("narrow.fpext.{field_index}"),
-                );
-            }
-        }
-
-        extracted
     }
 }

@@ -11,7 +11,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     #[must_use = "the absence of a value must be handled"]
     pub(super) fn emit_literal_ori_str(&mut self, text: &str) -> Option<ValueId> {
         let ptr = self.builder.build_global_string_ptr(text, "lit.str");
-        let len = self.builder.const_i64(text.len() as i64);
+        let len = self.builder.const_i64(i64::try_from(text.len()).ok()?);
         let func_id = self.builder.runtime_fn("ori_str_from_raw");
         let str_ty = self.resolve_type(ori_types::Idx::STR);
         self.builder
@@ -112,7 +112,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let tag = self.builder.extract_value(val, 0, "tstr.opt.tag")?;
                 let some = self
                     .builder
-                    .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
+                    .const_int_matching(tag, u64::try_from(ori_ir::OPTION_TAG_SOME).ok()?);
                 let is_some = self.builder.icmp_eq(tag, some, "tstr.opt.is_some");
                 let payload = self.builder.extract_value(val, 1, "tstr.opt.payload")?;
                 self.emit_option_debug_branch(is_some, payload, inner, RenderStyle::Printable)
@@ -205,7 +205,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let tag = self.builder.extract_value(val, 0, "dbg.opt.tag")?;
                 let some = self
                     .builder
-                    .const_int_matching(tag, ori_ir::OPTION_TAG_SOME as u64);
+                    .const_int_matching(tag, u64::try_from(ori_ir::OPTION_TAG_SOME).ok()?);
                 let is_some = self.builder.icmp_eq(tag, some, "dbg.opt.is_some");
                 let payload = self.builder.extract_value(val, 1, "dbg.opt.payload")?;
                 self.emit_option_debug_branch(is_some, payload, inner, RenderStyle::Debug)

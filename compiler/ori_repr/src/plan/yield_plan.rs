@@ -12,7 +12,6 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::{
     CompiledAllocationDecision, CompiledAllocationMechanism, ReprPlan, YieldAllocationIdentity,
-    MAX_LOCAL_YIELD_BYTES,
 };
 
 /// Runtime-use evidence accepted by compact yield-lineage storage.
@@ -332,7 +331,7 @@ fn select_yield_mechanism(fact: YieldAllocationFact) -> CompiledAllocationMechan
     };
     match (fact.locality, fact.execution) {
         (YieldAllocationLocality::Local, YieldAllocationExecution::SingleExecution) => {
-            if bytes <= MAX_LOCAL_YIELD_BYTES {
+            if bytes <= CompiledAllocationDecision::MAX_LOCAL_BYTES {
                 CompiledAllocationMechanism::StackSlot
             } else {
                 CompiledAllocationMechanism::RuntimeHeap

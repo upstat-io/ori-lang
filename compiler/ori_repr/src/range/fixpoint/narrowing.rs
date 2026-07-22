@@ -256,13 +256,10 @@ pub(super) fn run_narrowing_pass(
     for &block_idx in context.rpo {
         let block = &context.func.blocks[block_idx];
 
-        // Narrow block parameters from predecessor jump args.
-        // Skip entry block parameters with no predecessors — they may be seeded
-        // from interprocedural analysis, and narrowing against Bottom
-        // (which means "no info from predecessors") would destroy those seeds.
+        // INVARIANT: Predecessor `Bottom` cannot replace seeded entry-parameter ranges.
         for (param_idx, (param_var, _)) in block.params.iter().enumerate() {
             if context.predecessors[block_idx].is_empty() {
-                continue; // Entry block — preserve interprocedural seeds.
+                continue;
             }
             let mut merged = Bottom;
             for &pred_idx in &context.predecessors[block_idx] {
@@ -286,14 +283,9 @@ pub(super) fn run_narrowing_pass(
             }
         }
 
-        // Apply block-entry refinements temporarily (same as forward pass).
         let saved = apply_block_refinements(block, ranges, block_refinements);
 
-        // Narrow body instructions.
-        // Apply updates immediately so later instructions see narrowed values
-        // from earlier instructions in the same block. This is critical for
-        // loop body copy chains: %18 = %4 (narrowed via refinement) must be
-        // visible when computing %20 = %18 + 1.
+        // INVARIANT: Each transfer observes earlier narrowed values in the block.
         let field_summaries = field_summary_table.as_map();
         for instr in &block.body {
             let computed = {
@@ -318,12 +310,8 @@ pub(super) fn run_narrowing_pass(
             }
         }
 
-        // Restore temporary refinements.
         restore_block_refinements(ranges, saved);
 
-        // Narrow invoke terminator.
-        // also apply call_result_narrowings for Invoke dst (same
-        // as forward pass), so return-range feedback reaches Invoke paths.
         if let ArcTerminator::Invoke {
             dst,
             ty,

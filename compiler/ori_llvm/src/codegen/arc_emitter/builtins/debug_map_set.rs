@@ -1,16 +1,10 @@
-//! Debug formatting for Map and Set types in LLVM codegen.
+//! Map and Set formatting contracts for LLVM emission.
 //!
-//! Map: `{key: value, key2: value2}` — keys use Printable semantics (unquoted
-//! strings), values use Debug semantics (quoted strings, recursive formatting).
-//! Set: `Set {elem, elem2}` — elements use Debug semantics.
-//!
-//! Both convert the hash table to temporary contiguous lists via runtime
-//! helpers (`ori_map_keys_to_list`, `ori_set_to_list`), iterate to build
-//! the formatted string, then dec the temporary list buffers.
-//!
-//! IMPORTANT: Temporary lists use the map/set's exact collection-level
-//! element representation for both sizing and widening. Mixing collection
-//! identities causes GEP stride mismatches and value corruption.
+//! Maps render as `{key: value}` and Sets as `Set {element}`. Printable map
+//! keys remain unquoted; Debug values and Set elements use recursive formatting.
+//! Runtime helpers expose temporary contiguous lists for iteration. Their
+//! element sizing and widening use the source collection's representation;
+//! substituting a canonical element layout corrupts GEP strides.
 
 use super::{super::ArcIrEmitter, RenderStyle};
 use crate::codegen::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
@@ -70,13 +64,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.cond_br(is_empty, empty_bb, body_bb);
 
-        // Empty: return "{}"
         self.builder.position_at_end(empty_bb);
         let empty_str = self.emit_literal_ori_str("{}")?;
         let empty_bb_end = self.builder.current_block().unwrap();
         self.builder.br(done_bb);
 
-        // Non-empty: format all entries with loop.
         self.builder.position_at_end(body_bb);
         let context = MapDebugContext {
             map_ty,
@@ -89,7 +81,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (result, close_bb_end) = self.emit_map_debug_entries(map, zero, context)?;
         self.builder.br(done_bb);
 
-        // Done: phi between empty and formatted
         self.builder.position_at_end(done_bb);
         let final_phi = self.builder.phi(str_ty, "mdbg.final");
         self.builder.add_phi_incoming(
@@ -167,7 +158,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let has_more = self.builder.icmp_slt(idx_phi, entry_count, "mdbg.cont");
         self.builder.cond_br(has_more, loop_body, close_bb);
 
-        // Loop body: acc = acc + ", " + key_to_str + ": " + value_debug
         self.builder.position_at_end(loop_body);
         let sep = self.emit_literal_ori_str(", ")?;
         let with_sep = self.emit_str_concat(acc_phi, sep)?;
@@ -178,13 +168,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let body_end = self.builder.current_block().unwrap();
         self.builder.br(loop_hdr);
 
-        // Wire loop phis
         self.builder
             .add_phi_incoming(idx_phi, &[(one, first_bb_end), (next_idx, body_end)]);
         self.builder
             .add_phi_incoming(acc_phi, &[(acc_init, first_bb_end), (new_acc, body_end)]);
 
-        // Close: acc + "}"
         self.builder.position_at_end(close_bb);
         let close_acc = self.builder.phi(context.str_ty, "mdbg.cl.acc");
         self.builder
@@ -194,7 +182,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.dec_intermediate_str(close_acc);
         let close_bb_end = self.builder.current_block().unwrap();
 
-        // Dec temporary list buffers
         self.dec_temporary_list_with_size(key_list, context.key_ty, collection_idx);
         self.dec_temporary_list_with_size(val_list, context.val_ty, collection_idx);
 
@@ -232,26 +219,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             val
         };
 
-        // Keys: Debug renders with full Debug semantics (`{"x": 1}` — str keys
-        // quoted) per Spec Clause 8.12.1, mirroring the interpreter's
-        // `debug_value`. Printable (to_str) renders keys unquoted,
-        // control-escaped. This is the same Debug/Printable split applied to
-        // values below. Both branches return a freshly-allocated str.
         let key_str = if layout.style.is_debug() {
             self.emit_element_debug(key, layout.key_ty)?
         } else {
             let raw_key_str = self.emit_element_to_str(key, layout.key_ty)?;
             let escaped = self.emit_escape_control(raw_key_str)?;
-            // For a Str key, `emit_element_to_str` returns the borrowed Str (not
-            // a fresh allocation) — decrementing it would double-free; only dec
-            // `raw_key_str` when it was freshly allocated.
             if !matches!(self.type_info.get(layout.key_ty), TypeInfo::Str) {
                 self.dec_intermediate_str(raw_key_str);
             }
             escaped
         };
         let colon = self.emit_literal_ori_str(": ")?;
-        // Values use the selected Debug or Printable semantics.
         let val_str = if layout.style.is_debug() {
             self.emit_element_debug(val, layout.val_ty)?
         } else {
@@ -265,8 +243,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.dec_intermediate_str(tmp1);
         let result = self.emit_str_concat(tmp2, val_str)?;
         self.dec_intermediate_str(tmp2);
-        // `key_str` is always a fresh allocation (Debug: `emit_element_debug`;
-        // Printable: `emit_escape_control`), so it is always safe to dec.
         self.dec_intermediate_str(key_str);
         if !val_is_borrowed_str {
             self.dec_intermediate_str(val_str);
@@ -285,8 +261,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         elem_ty: Idx,
         style: RenderStyle,
     ) -> Option<ValueId> {
-        // A borrowed Str leaf returned by `emit_element_to_str` is not a fresh
-        // allocation — decrementing it would double-free.
+        // Why: Decrementing a borrowed Printable string would double-free its source.
         let elem_is_borrowed_str =
             style == RenderStyle::Printable && matches!(self.type_info.get(elem_ty), TypeInfo::Str);
         let len = self.builder.extract_value(set, FIELD_LEN, "sdbg.len")?;
@@ -302,14 +277,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.cond_br(is_empty, empty_bb, body_bb);
 
-        // Empty: "Set {}"
         self.builder.position_at_end(empty_bb);
         let empty_str = self.emit_literal_ori_str("Set {}")?;
         let empty_bb_end = self.builder.current_block().unwrap();
         self.builder.br(done_bb);
 
-        // Non-empty: convert to list.
-        // emit_set_to_list uses canonical element sizes, so use resolve_type.
         self.builder.position_at_end(body_bb);
         let elem_list = self.emit_set_to_list(set, elem_ty)?;
         let data = self
@@ -318,10 +290,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let entry_count = self.builder.extract_value(elem_list, FIELD_LEN, "sdbg.n")?;
 
         let one = self.builder.const_i64(1);
-        // Use canonical types — set_to_list uses element_store_size, not narrowed.
         let elem_llvm_ty = self.resolve_type(elem_ty);
 
-        // Format first element: "Set {" + elem_debug
         let open = self.emit_literal_ori_str("Set {")?;
         let ptr0 = self.builder.gep(elem_llvm_ty, data, &[zero], "sdbg.ep0");
         let elem0 = self.builder.load(elem_llvm_ty, ptr0, "sdbg.e0");
@@ -344,7 +314,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.cond_br(needs_loop, loop_hdr, close_bb);
 
-        // Loop header
         self.builder.position_at_end(loop_hdr);
         let i64_ty = self
             .builder
@@ -354,7 +323,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let has_more = self.builder.icmp_slt(idx_phi, entry_count, "sdbg.cont");
         self.builder.cond_br(has_more, loop_body, close_bb);
 
-        // Loop body
         self.builder.position_at_end(loop_body);
         let sep = self.emit_literal_ori_str(", ")?;
         let with_sep = self.emit_str_concat(acc_phi, sep)?;
@@ -375,13 +343,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let body_end = self.builder.current_block().unwrap();
         self.builder.br(loop_hdr);
 
-        // Wire phis
         self.builder
             .add_phi_incoming(idx_phi, &[(one, first_bb_end), (next_idx, body_end)]);
         self.builder
             .add_phi_incoming(acc_phi, &[(acc_init, first_bb_end), (new_acc, body_end)]);
 
-        // Close: acc + "}"
         self.builder.position_at_end(close_bb);
         let close_acc = self.builder.phi(str_ty, "sdbg.cl.acc");
         self.builder
@@ -391,12 +357,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.dec_intermediate_str(close_acc);
         let close_bb_end = self.builder.current_block().unwrap();
 
-        // Dec temporary list buffer
         self.dec_temporary_list_canonical(elem_list, elem_ty);
 
         self.builder.br(done_bb);
 
-        // Done: phi
         self.builder.position_at_end(done_bb);
         let final_phi = self.builder.phi(str_ty, "sdbg.final");
         self.builder.add_phi_incoming(

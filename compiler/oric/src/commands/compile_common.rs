@@ -15,7 +15,7 @@ use oric::ir::Name;
 use oric::parser::ParseOutput;
 use oric::{CompilerDb, Db, SourceFile};
 
-use super::backend::{CodegenBackendChoice, LlvmBackend};
+use super::backend::{CodegenBackendChoice, EmittedArtifact, EmittedModule, LlvmBackend};
 
 /// Information about an imported function for codegen.
 #[derive(Debug, Clone)]
@@ -160,10 +160,10 @@ pub fn compile_to_llvm_with_imported_monos<'ctx>(
         imported,
     });
 
-    backend
-        .compile(&program)
-        .map(|output| output.module)
-        .map_err(|e| e.0)
+    let artifact = backend.compile(&program).map_err(|e| e.0)?;
+    // This entry produces an LLVM module for the LLVM-specific driver steps.
+    let EmittedModule::Llvm(module) = artifact.module;
+    Ok(module)
 }
 
 /// Compile source to LLVM IR with explicit module name and import
@@ -212,7 +212,7 @@ impl std::fmt::Debug for ImportedModuleCompilation<'_, '_> {
 
 pub fn compile_to_llvm_with_imports<'ctx>(
     input: ImportedModuleCompilation<'ctx, '_>,
-) -> Result<super::codegen_pipeline::LlvmCodegenOutput<'ctx>, String> {
+) -> Result<EmittedArtifact<'ctx>, String> {
     let ImportedModuleCompilation {
         context,
         db,

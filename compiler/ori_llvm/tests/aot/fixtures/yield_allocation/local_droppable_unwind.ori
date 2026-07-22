@@ -1,0 +1,19 @@
+type Item = { name: str, value: int }
+
+@build_then_panic () -> void = {
+    let _ = for i in 0..3 yield {
+        if i == 2 then panic(msg: "intentional yield unwind");
+        Item {
+            name: "this item name exceeds the SSO threshold for heap storage",
+            value: i,
+        }
+    }
+}
+
+@main () -> int = {
+    let result = catch(expr: build_then_panic());
+    match result {
+        Ok(_) -> 1,
+        Err(_) -> 0,
+    }
+}

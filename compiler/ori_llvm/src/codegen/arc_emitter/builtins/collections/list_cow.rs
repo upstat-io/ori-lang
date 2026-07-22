@@ -258,7 +258,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
         let dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
-        let cow_mode = self.builder.const_i32(cow_mode as i32);
+        let cow_mode = self.builder.const_i32(cow_mode_code(cow_mode));
 
         self.emit_list_cow_call(
             func_id,
@@ -347,5 +347,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 cow_mode,
             ],
         )
+    }
+}
+
+const fn cow_mode_code(mode: CowMode) -> i32 {
+    match mode {
+        CowMode::Dynamic => 0,
+        CowMode::StaticUnique => 1,
+        CowMode::StaticShared => 2,
     }
 }

@@ -333,6 +333,7 @@ pub(crate) fn compute_module_repr_plan(input: ModuleReprInput<'_>) -> ori_repr::
     let unconstrained_fn_names = ori_repr::collect_unconstrained_fn_names(
         &type_result.typed.functions,
         &type_result.typed.trait_impl_fn_names,
+        pool,
         interner,
     );
 

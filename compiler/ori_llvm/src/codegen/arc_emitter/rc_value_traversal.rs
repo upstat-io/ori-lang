@@ -81,10 +81,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let resolved = self.pool.resolve_fully(ty);
         let tag = self.pool.tag(resolved);
         match tag {
-            // Scalars: no RC action. Range (fixed 4-field scalar-only value
-            // — start, end, step, inclusive per `codegen-rules.md TR-1`)
-            // joins this arm: every field is `int`/`bool`-shaped, so no
-            // field can ever carry an RC pointer regardless of element type.
+            // INVARIANT: Range stores only scalar start, end, step, and inclusivity fields.
             Tag::Int
             | Tag::Float
             | Tag::Bool
@@ -193,10 +190,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let resolved = self.pool.resolve_fully(ty);
         let tag = self.pool.tag(resolved);
         match tag {
-            // Scalars: no RC action. Range (fixed 4-field scalar-only value
-            // — start, end, step, inclusive per `codegen-rules.md TR-1`)
-            // joins this arm: every field is `int`/`bool`-shaped, so no
-            // field can ever carry an RC pointer regardless of element type.
+            // INVARIANT: Range stores only scalar start, end, step, and inclusivity fields.
             Tag::Int
             | Tag::Float
             | Tag::Bool

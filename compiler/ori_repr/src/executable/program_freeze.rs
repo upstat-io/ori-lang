@@ -119,8 +119,7 @@ fn freeze_executable_program(
     })
 }
 
-/// Close the repr plan's yield-lineage facts: runtime-header requirements for
-/// escaping yield allocations, then the length-projection call/yield pair.
+/// Freezes runtime-header requirements and length-projection pairs together.
 fn close_yield_lineage_facts(
     repr_plan: &mut crate::plan::ReprPlan,
     functions: &[ArcFunction],

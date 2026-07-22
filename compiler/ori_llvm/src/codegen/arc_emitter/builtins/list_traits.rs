@@ -75,7 +75,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let body_end = self.builder.current_block().expect("body block");
         self.builder.cond_br(elem_eq, header, exit_false);
 
-        // Wire phi: idx starts at 0 (pre_header), increments (body).
         let zero = self.builder.const_i64(0);
         self.builder
             .add_phi_incoming(idx_phi, &[(zero, pre_header), (next_idx, body_end)]);
@@ -162,7 +161,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let body_end = self.builder.current_block().expect("body block");
         self.builder.cond_br(is_eq, header, diff);
 
-        // Wire phi.
         let zero = self.builder.const_i64(0);
         self.builder
             .add_phi_incoming(idx_phi, &[(zero, pre_header), (next_idx, body_end)]);
@@ -234,7 +232,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let body_end = self.builder.current_block().expect("body block");
         self.builder.br(header);
 
-        // Wire phis.
         let zero = self.builder.const_i64(0);
         self.builder
             .add_phi_incoming(idx_phi, &[(zero, pre_header), (next_idx, body_end)]);

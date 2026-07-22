@@ -1,0 +1,2 @@
+@make () -> [int] = for i in 0..10000 yield i;
+@main () -> int = if make().length() == 10000 then 0 else 1;

@@ -1,0 +1,9 @@
+type Logged = { value: int }
+
+impl Logged: Drop {
+    @drop (self) -> void = print(msg: `drop-{self.value}`);
+}
+
+@observe (values: [Logged]) -> int = values.length();
+@make () -> [Logged] = for i in 0..3 yield Logged { value: i };
+@main () -> void = print(msg: `{observe(values: make())}`);

@@ -38,6 +38,7 @@ mod rc_ops;
 mod rc_value_traversal;
 mod repr_helpers;
 mod rpo;
+mod runtime_names;
 pub(super) mod tag_access;
 mod tagless_enum;
 mod terminators;
@@ -47,7 +48,7 @@ mod variant_construction;
 use ori_arc::ir::ArcVarId;
 use ori_arc::ArcClassification;
 use ori_arc::MemoryContract;
-use ori_ir::{Name, StringInterner};
+use ori_ir::StringInterner;
 use ori_types::{Idx, Pool};
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -60,110 +61,7 @@ pub use context::CodegenContext;
 use context::EmittedValue;
 pub(crate) use emitter_context::ArcEmitterFunctionContext;
 pub(crate) use narrowing_codegen::narrowed_collection_element_width;
-
-/// Return ABI used by a binary string runtime helper.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum StringRuntimeReturnAbi {
-    StringSret,
-    BoolDirect,
-}
-
-/// Pre-interned `Name`s for the list runtime symbols the emitter
-/// special-cases at call-emission sites (per interning discipline: identity
-/// comparison goes through `Name`, pre-interned once — never per-call
-/// string comparison).
-#[derive(Clone, Copy, Debug)]
-pub(super) struct ListRtNames {
-    /// `ori_list_push` — element arg coerced to ptr; for-yield elem-size override.
-    pub push: Name,
-    /// `ori_list_new` — for-yield elem-size override.
-    pub new: Name,
-    /// `ori_list_take` — real runtime fn with special sret handling (non-protocol).
-    pub take: Name,
-    /// `ori_list_free` — scratch-builder unwind cleanup.
-    pub free: Name,
-    /// `ori_list_slice_drop` — list rest-pattern expansion (non-protocol).
-    pub slice_drop: Name,
-}
-
-impl ListRtNames {
-    fn from_interner(interner: &StringInterner) -> Self {
-        Self {
-            push: interner.intern("ori_list_push"),
-            new: interner.intern("ori_list_new"),
-            take: interner.intern("ori_list_take"),
-            free: interner.intern("ori_list_free"),
-            slice_drop: interner.intern("ori_list_slice_drop"),
-        }
-    }
-}
-
-/// Pre-interned `Name`s for the `ori_format_*` intercepts (per interning
-/// discipline: identity comparison goes through `Name`, pre-interned once).
-/// [`FormatRtNames::lookup`] is the single dispatch point — it carries the
-/// typed runtime target, so its symbol and value ABI cannot drift apart.
-#[derive(Clone, Copy, Debug)]
-pub(super) struct FormatRtNames {
-    int: Name,
-    float: Name,
-    str: Name,
-    bool: Name,
-    char: Name,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum FormatRuntimeTarget {
-    Int,
-    Float,
-    Str,
-    Bool,
-    Char,
-}
-
-impl FormatRuntimeTarget {
-    pub(super) const fn symbol(self) -> &'static str {
-        match self {
-            Self::Int => "ori_format_int",
-            Self::Float => "ori_format_float",
-            Self::Str => "ori_format_str",
-            Self::Bool => "ori_format_bool",
-            Self::Char => "ori_format_char",
-        }
-    }
-
-    pub(super) const fn value_needs_pointer(self) -> bool {
-        matches!(self, Self::Str)
-    }
-}
-
-impl FormatRtNames {
-    fn from_interner(interner: &StringInterner) -> Self {
-        Self {
-            int: interner.intern("ori_format_int"),
-            float: interner.intern("ori_format_float"),
-            str: interner.intern("ori_format_str"),
-            bool: interner.intern("ori_format_bool"),
-            char: interner.intern("ori_format_char"),
-        }
-    }
-
-    /// Resolve a callee `Name` to its runtime target and value ABI.
-    pub(super) fn lookup(&self, callee: Name) -> Option<FormatRuntimeTarget> {
-        if callee == self.int {
-            Some(FormatRuntimeTarget::Int)
-        } else if callee == self.float {
-            Some(FormatRuntimeTarget::Float)
-        } else if callee == self.str {
-            Some(FormatRuntimeTarget::Str)
-        } else if callee == self.bool {
-            Some(FormatRuntimeTarget::Bool)
-        } else if callee == self.char {
-            Some(FormatRuntimeTarget::Char)
-        } else {
-            None
-        }
-    }
-}
+use runtime_names::{FormatRtNames, ListRtNames, StringRuntimeReturnAbi};
 
 /// Emits LLVM IR from ARC IR basic blocks.
 ///

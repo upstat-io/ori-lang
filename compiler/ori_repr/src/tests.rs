@@ -376,6 +376,7 @@ fn yield_allocation_selection_is_exact_bounded_and_fail_closed() {
         YieldExtent::StaticExact(32),
         YieldAllocationLocality::Local,
     );
+
     let oversized = yield_fact(
         1,
         3,
@@ -384,6 +385,7 @@ fn yield_allocation_selection_is_exact_bounded_and_fail_closed() {
         YieldExtent::StaticExact(513),
         YieldAllocationLocality::Local,
     );
+
     let dynamic = yield_fact(
         2,
         5,
@@ -392,6 +394,7 @@ fn yield_allocation_selection_is_exact_bounded_and_fail_closed() {
         YieldExtent::RuntimeExact(ArcVarId::new(7)),
         YieldAllocationLocality::Local,
     );
+
     let escaping = yield_fact(
         3,
         8,
@@ -400,6 +403,7 @@ fn yield_allocation_selection_is_exact_bounded_and_fail_closed() {
         YieldExtent::StaticExact(32),
         YieldAllocationLocality::Escaping,
     );
+
     let unknown = yield_fact(
         5,
         12,
@@ -408,6 +412,25 @@ fn yield_allocation_selection_is_exact_bounded_and_fail_closed() {
         YieldExtent::StaticExact(32),
         YieldAllocationLocality::Unknown,
     );
+
+    let at_limit = yield_fact(
+        6,
+        14,
+        15,
+        8,
+        YieldExtent::StaticExact(512),
+        YieldAllocationLocality::Local,
+    );
+
+    let overflow = yield_fact(
+        7,
+        16,
+        17,
+        u64::MAX,
+        YieldExtent::StaticExact(2),
+        YieldAllocationLocality::Local,
+    );
+
     let mut repeated = yield_fact(
         4,
         10,
@@ -420,7 +443,9 @@ fn yield_allocation_selection_is_exact_bounded_and_fail_closed() {
     let mut facts = FxHashMap::default();
     facts.insert(
         function,
-        vec![local, oversized, dynamic, escaping, unknown, repeated],
+        vec![
+            local, oversized, dynamic, escaping, unknown, at_limit, overflow, repeated,
+        ],
     );
     let mut plan = ReprPlan::new(NarrowingPolicy::Aggressive);
     plan.freeze_yield_allocations(&facts);
@@ -428,14 +453,27 @@ fn yield_allocation_selection_is_exact_bounded_and_fail_closed() {
     let Some(local_decision) = plan.yield_allocation_for_builder(function, local.builder) else {
         panic!("local allocation decision");
     };
+
     assert_eq!(
         local_decision.mechanism,
         crate::CompiledAllocationMechanism::StackSlot
     );
-    for fact in [oversized, dynamic, escaping, unknown, repeated] {
+
+    let Some(at_limit_decision) = plan.yield_allocation_for_builder(function, at_limit.builder)
+    else {
+        panic!("at-limit allocation decision");
+    };
+
+    assert_eq!(
+        at_limit_decision.mechanism,
+        crate::CompiledAllocationMechanism::StackSlot
+    );
+
+    for fact in [oversized, dynamic, escaping, unknown, overflow, repeated] {
         let Some(decision) = plan.yield_allocation_for_result(function, fact.result) else {
             panic!("managed allocation decision");
         };
+
         assert_eq!(
             decision.mechanism,
             crate::CompiledAllocationMechanism::RuntimeHeap
@@ -836,16 +874,13 @@ fn canonical_enum() {
     let repr = canonical(&pool, enum_idx);
     if let MachineRepr::Enum(ref e) = repr {
         assert_eq!(e.variants.len(), 2);
-        // 2 variants → I8 tag
         assert_eq!(
             e.tag,
             EnumTag::Explicit {
                 width: IntWidth::I8
             }
         );
-        // First variant (A) is unit — no fields
         assert!(e.variants[0].fields.is_empty());
-        // Second variant (B) has one Int field
         assert_eq!(e.variants[1].fields.len(), 1);
     } else {
         panic!("expected Enum, got {repr:?}");
@@ -3337,12 +3372,10 @@ fn multiple_applied_instantiations_all_protected() {
     let base_struct = pool.struct_type(type_name, &[(field_a, Idx::FLOAT), (field_b, Idx::FLOAT)]);
     pool.set_resolution(named_idx, base_struct);
 
-    // First instantiation: Pair<int, int>
     let applied_1 = pool.applied(type_name, &[Idx::INT, Idx::INT]);
     let mono_1 = pool.struct_type(type_name, &[(field_a, Idx::INT), (field_b, Idx::INT)]);
     pool.set_resolution(applied_1, mono_1);
 
-    // Second instantiation: Pair<int, str>
     let applied_2 = pool.applied(type_name, &[Idx::INT, Idx::STR]);
     let mono_2 = pool.struct_type(type_name, &[(field_a, Idx::INT), (field_b, Idx::STR)]);
     pool.set_resolution(applied_2, mono_2);
@@ -4077,7 +4110,6 @@ fn enum_repr_with_fallback_plan_miss_recomputes_canonical_option() {
     let mut pool = Pool::new();
     let opt_str = pool.option(ori_types::Idx::STR);
 
-    // Empty plan: direct lookup misses.
     let plan = ReprPlan::new(NarrowingPolicy::Aggressive);
     assert!(plan.enum_repr(opt_str).is_none());
 

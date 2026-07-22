@@ -197,7 +197,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
             Tag::Function => {
                 // Closure: { fn_ptr, env_ptr } — only env_ptr (field 1) is RC-managed.
-                // The fn_ptr is a code pointer, not heap-allocated.
+                // Why: The closure code pointer carries no heap ownership.
                 if let Some(env_ptr) =
                     self.builder
                         .extract_value(val, CLOSURE_FIELD_ENV, "rc.closure_env")
@@ -207,10 +207,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     vec![]
                 }
             }
-            // Range: fixed 4-field scalar-only value (start, end, step,
-            // inclusive — `codegen-rules.md TR-1`); no field is ever
-            // RC-managed regardless of element type. Matches the
-            // `Tag::Range` no-op arms in `rc_value_traversal.rs`.
+            // INVARIANT: Range stores only scalar start, end, step, and inclusivity fields.
             Tag::Range => vec![],
             _ => vec![val],
         }

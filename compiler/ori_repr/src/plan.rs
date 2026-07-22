@@ -42,14 +42,16 @@ pub struct CompiledAllocationDecision {
     pub requires_runtime_header: bool,
 }
 
+impl CompiledAllocationDecision {
+    /// Maximum element bytes admitted to function-lifetime stack storage.
+    pub const MAX_LOCAL_BYTES: u64 = 4 * 1024;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum YieldAllocationIdentity {
     Builder(ArcVarId),
     Result(ArcVarId),
 }
-
-/// Maximum element bytes admitted to function-lifetime stack storage.
-pub const MAX_LOCAL_YIELD_BYTES: u64 = 4 * 1024;
 
 mod decision;
 pub(crate) mod query;
@@ -74,14 +76,10 @@ pub(crate) use yield_plan::YieldLineageRuntimeCall;
 /// `&ReprPlan` to codegen — the same model as [`TypeInfoStore`] in
 /// `ori_llvm`, but without interior mutability.
 ///
-/// **Invalidation:** Recomputed on every compilation. Future optimization:
-/// if the Pool is unchanged (Salsa cache hit on type checking), the
-/// previous `ReprPlan` can be reused via a Salsa query keyed on Pool
-/// identity.
+/// **Invalidation:** Recomputed on every compilation. Reuse requires a Salsa
+/// query keyed on Pool identity.
 ///
-/// **JIT compatibility:** The JIT path recomputes the entire `ReprPlan`
-/// per invocation, matching `TypeInfoStore`'s current behavior. Future
-/// optimization: incremental updates keyed by function-level changes.
+/// **JIT compatibility:** Each JIT invocation recomputes the entire `ReprPlan`.
 ///
 /// **Thread safety:** All fields are plain `FxHashMap`/`Vec` — no
 /// `RefCell`, `Mutex`, or interior mutability. After construction,
@@ -107,7 +105,7 @@ pub struct ReprPlan {
     rc_strategies: FxHashMap<Idx, RcStrategy>,
     /// Per-function escape info (indexed by function `Name`).
     ///
-    /// Empty until escape analysis populates it.
+    /// Absence of a function key conservatively means that its values escape.
     escape_info: FxHashMap<Name, EscapeInfo>,
     /// Compiled allocation projections keyed by function and stable site.
     yield_allocations: FxHashMap<(Name, AllocationSiteId), CompiledAllocationDecision>,
@@ -337,12 +335,10 @@ impl ReprPlan {
         self.unconstrained_fn_names.contains(&(self_type, name))
     }
 
-    /// Check if this specific function (by its ARC-lowered name) is unconstrained.
+    /// Reports whether an ARC-qualified function has no representation constraints.
     ///
-    /// Used for analysis-only ARC functions with type-qualified names
-    /// Both base names (`__impl_42_index`) and
-    /// ordinal-suffixed names (`__impl_42_index_1`) are registered by
-    /// `collect_unconstrained_fn_names()`, so exact match is sufficient
+    /// Base (`__impl_<type-hash>_index`) and ordinal-suffixed
+    /// (`__impl_<type-hash>_index_1`) names are stored as exact keys.
     #[must_use]
     pub fn is_qualified_unconstrained(&self, qualified_name: Name) -> bool {
         self.unconstrained_fn_names
@@ -400,10 +396,7 @@ impl ReprPlan {
         });
     }
 
-    /// Iterate over all type indices that have a stored representation decision.
-    ///
-    /// Used by narrowing passes to find struct/tuple types to narrow
-    /// without depending on pool iteration order.
+    /// Yields decided type indices in the plan's deterministic map order.
     pub fn decision_indices(&self) -> impl Iterator<Item = Idx> + '_ {
         self.decisions.keys().copied()
     }

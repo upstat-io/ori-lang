@@ -18,6 +18,15 @@ use super::ArcIrEmitter;
 use crate::codegen::type_info::TypeLayoutResolver;
 use crate::codegen::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
 
+/// Read representation metadata at the LLVM phase boundary.
+///
+/// A missing entry means AIMS handed codegen an unrealized function. LLVM
+/// cannot safely substitute a physical representation for that missing fact.
+pub(super) fn required_var_repr(var: ArcVarId, func: &ArcFunction) -> ValueRepr {
+    func.var_repr(var)
+        .expect("LLVM emission requires realized variable representations")
+}
+
 /// Canonical home for the field/variant RC-walk ORDER decision.
 ///
 /// Teardown (dec/drop) walks reverse-declaration (LIFO) per
@@ -439,7 +448,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// range and (b) informs LLVM of the restricted range for optimization.
     /// Consistent with the phi path which also stores sext'd i64 values.
     pub(super) fn def_var_repr(&mut self, v: ArcVarId, val: ValueId, func: &ArcFunction) {
-        let repr = func.var_repr(v).unwrap_or(ValueRepr::Scalar);
+        let repr = required_var_repr(v, func);
         let final_val = self.narrow_local_if_needed(v, val);
         self.def_var(v, EmittedValue::from_repr(repr, final_val));
     }
