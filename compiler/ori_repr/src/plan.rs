@@ -409,7 +409,10 @@ impl ReprPlan {
         let mut out = String::new();
         for (i, d) in self.audit.iter().enumerate() {
             let tag = pool.tag(d.type_idx);
-            let _ = writeln!(out, "[{i}] {tag:?} <- {:?}: {:?}", d.source, d.reason);
+            assert!(
+                writeln!(out, "[{i}] {tag:?} <- {:?}: {:?}", d.source, d.reason).is_ok(),
+                "writing ReprPlan audit text to String cannot fail"
+            );
         }
         out
     }
