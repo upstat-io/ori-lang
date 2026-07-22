@@ -1,12 +1,17 @@
 //! Bounded local and length-only yield allocation emission.
 
-use super::super::{ArcIrEmitter, EmittedValue};
-use crate::codegen::value_id::ValueId;
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::{Name, FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
 
+use crate::codegen::value_id::ValueId;
+
+use super::super::{ArcIrEmitter, EmittedValue};
+
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
+    /// Emits an apply whose frozen yield plan selects local or length-only storage.
+    ///
+    /// Returns `false` when the apply requires the canonical runtime path.
     pub(super) fn try_emit_local_yield_apply(
         &mut self,
         dst: ArcVarId,
@@ -190,11 +195,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .load(count_ty, builder, "yield.length_only.push.len");
 
-        // The private projection clone exists only for a yield whose neutral
-        // extent fact supplies a static upper bound. This builder owns no
-        // element storage, so incrementing its count cannot cross a memory
-        // boundary; the ordinary materializing function retains the guarded
-        // push that enforces the physical allocation contract.
+        // Why: Static extent bounds this storage-free counter without an allocation guard.
         let one = if narrow {
             self.builder.const_i32(1)
         } else {
@@ -227,7 +228,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             count
         };
         let list_ty = self.fat_ptr_llvm_type();
-        let cap = self.builder.const_i64(capacity as i64);
+        let cap = self
+            .builder
+            .const_i64(planned_runtime_i64(capacity, "yield capacity"));
         let data = self.builder.const_null_ptr();
         self.builder
             .build_struct(list_ty, &[count, cap, data], "yield.length_only.result")
@@ -272,12 +275,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .icmp_ult(len, cap, "yield.local.push.has_capacity");
 
-        self.emit_unwrap_branch(
+        let Some(()) = self.emit_unwrap_branch(
             has_capacity,
             "compiler's bounded-yield capacity proof was violated; report this compiler bug",
             "yield.local.push.capacity",
-        )
-        .expect("local yield capacity guard emits its continuation");
+        ) else {
+            // Why: `emit_unwrap_branch` always positions and returns its continuation block.
+            unreachable!("local yield capacity guard must emit its continuation");
+        };
         let elem_llvm_ty = self.int_element_llvm_type(collection_ty, elem_ty);
         let stored = if self.pool.tag(self.pool.resolve_fully(elem_ty)) == ori_types::Tag::Int
             && elem_size < 8
@@ -323,20 +328,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         elem_size: u64,
         requires_runtime_header: bool,
     ) -> ValueId {
-        const RC_HEADER_SIZE: u64 = 32;
+        const RC_HEADER_SIZE: u32 = 32;
         const LOCAL_DATA_SIZE: i64 = -1;
 
-        let bytes = capacity
-            .checked_mul(elem_size.max(1))
-            .and_then(|size| {
-                size.checked_add(if requires_runtime_header {
-                    RC_HEADER_SIZE
-                } else {
-                    0
-                })
+        let Some(bytes) = capacity.checked_mul(elem_size.max(1)).and_then(|size| {
+            size.checked_add(if requires_runtime_header {
+                u64::from(RC_HEADER_SIZE)
+            } else {
+                0
             })
-            .expect("representation plan admitted a checked local yield size");
-        let bytes = u32::try_from(bytes).expect("local yield threshold fits LLVM array length");
+        }) else {
+            // Why: Representation planning admits only checked local-yield allocation sizes.
+            unreachable!("local yield byte size must fit u64");
+        };
+        let Ok(bytes) = u32::try_from(bytes) else {
+            // Why: The local-yield threshold bounds every admitted LLVM stack-array length.
+            unreachable!("local yield byte size must fit the LLVM u32 array length");
+        };
         let byte_array_ty = self.builder.byte_array_type(bytes);
         let storage = self.builder.create_entry_alloca_aligned(
             self.current_function,
@@ -347,7 +355,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let i8_ty = self.builder.i8_type();
         let zero = self.builder.const_i64(0);
         let data = if requires_runtime_header {
-            let offset = self.builder.const_i64(RC_HEADER_SIZE as i64);
+            let offset = self.builder.const_i64(i64::from(RC_HEADER_SIZE));
             let data = self
                 .builder
                 .gep(i8_ty, storage, &[offset], "yield.local.elements");
@@ -402,7 +410,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder
                 .struct_gep(list_ty, builder, ori_ir::FIELD_DATA, "yield.local.data_ptr");
         self.builder.store(zero, len_ptr);
-        let capacity = self.builder.const_i64(capacity as i64);
+        let capacity = self
+            .builder
+            .const_i64(planned_runtime_i64(capacity, "yield capacity"));
         self.builder.store(capacity, cap_ptr);
         self.builder.store(data, data_ptr);
         builder
@@ -419,30 +429,31 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .load(list_ty, builder, "yield.local.cleanup.list");
 
-        let Some(data) =
+        let (Some(data), Some(len), Some(cap)) = (
             self.builder
-                .extract_value(list, ori_ir::FIELD_DATA, "yield.local.cleanup.data")
-        else {
-            return;
-        };
-
-        let Some(len) =
+                .extract_value(list, ori_ir::FIELD_DATA, "yield.local.cleanup.data"),
             self.builder
-                .extract_value(list, ori_ir::FIELD_LEN, "yield.local.cleanup.len")
-        else {
-            return;
-        };
-
-        let Some(cap) =
+                .extract_value(list, ori_ir::FIELD_LEN, "yield.local.cleanup.len"),
             self.builder
-                .extract_value(list, ori_ir::FIELD_CAP, "yield.local.cleanup.cap")
-        else {
-            return;
+                .extract_value(list, ori_ir::FIELD_CAP, "yield.local.cleanup.cap"),
+        ) else {
+            // Why: The fat-list LLVM type always defines all three runtime list fields.
+            unreachable!("fat-list cleanup value must contain data, length, and capacity fields");
         };
-        let elem_size = self.builder.const_i64(elem_size as i64);
+        let elem_size = self
+            .builder
+            .const_i64(planned_runtime_i64(elem_size, "yield element size"));
         let null = self.builder.const_null_ptr();
         let free = self.builder.runtime_fn("ori_buffer_rc_dec");
         self.builder
             .call(free, &[data, len, cap, elem_size, null], "");
     }
+}
+
+fn planned_runtime_i64(value: u64, subject: &str) -> i64 {
+    let Ok(value) = i64::try_from(value) else {
+        // Why: Representation planning admits only values that fit runtime list ABI fields.
+        unreachable!("planned {subject} must fit the runtime i64 ABI field");
+    };
+    value
 }

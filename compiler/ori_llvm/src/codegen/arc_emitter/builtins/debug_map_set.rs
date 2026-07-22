@@ -389,17 +389,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     fn dec_temporary_list(&mut self, list: ValueId, elem_ty: Idx, elem_size: u64) {
-        let Some(data) = self.builder.extract_value(list, FIELD_DATA, "dec.data") else {
-            return;
+        let (Some(data), Some(len), Some(cap)) = (
+            self.builder.extract_value(list, FIELD_DATA, "dec.data"),
+            self.builder.extract_value(list, FIELD_LEN, "dec.len"),
+            self.builder.extract_value(list, FIELD_CAP, "dec.cap"),
+        ) else {
+            // Why: The temporary list value always uses the runtime fat-list layout.
+            unreachable!("temporary list value must contain data, length, and capacity fields");
         };
-        let Some(len) = self.builder.extract_value(list, FIELD_LEN, "dec.len") else {
-            return;
+        let Ok(elem_size) = i64::try_from(elem_size) else {
+            // Why: LLVM element layouts always fit the runtime list ABI's i64 size field.
+            unreachable!("temporary list element size must fit the runtime i64 ABI field");
         };
-        let Some(cap) = self.builder.extract_value(list, FIELD_CAP, "dec.cap") else {
-            return;
-        };
-        let elem_size = i64::try_from(elem_size)
-            .unwrap_or_else(|_| panic!("temporary list element size {elem_size} exceeds i64"));
         let elem_size = self.builder.const_i64(elem_size);
         let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
         let func_id = self.builder.runtime_fn("ori_buffer_rc_dec");
