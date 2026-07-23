@@ -108,15 +108,21 @@ fn exact_reconstruction_fixture(
             first_member_ty,
             second_member_ty,
             container_ty,
+            container_ty,
         ],
         blocks: vec![ArcBlock {
             id: block_id(0),
             params: vec![],
             body: vec![
+                ArcInstr::Let {
+                    dst: var(6),
+                    ty: container_ty,
+                    value: ArcValue::Var(var(0)),
+                },
                 ArcInstr::Project {
                     dst: var(1),
                     ty: first_member_ty,
-                    value: var(0),
+                    value: var(6),
                     field: 0,
                 },
                 ArcInstr::Let {
@@ -135,7 +141,7 @@ fn exact_reconstruction_fixture(
                 ArcInstr::Project {
                     dst: var(4),
                     ty: second_member_ty,
-                    value: var(0),
+                    value: var(6),
                     field: 1,
                 },
                 ArcInstr::Construct {
@@ -691,6 +697,66 @@ fn member_user_drop_declines_exact_reconstruction_explicitly() {
         container_ty,
         Some(UserBurdenSpec {
             self_owned_identity: true,
+            owned_fields: vec![
+                UserOwnedField {
+                    field_path: vec![0],
+                    field_type: member_ty,
+                },
+                UserOwnedField {
+                    field_path: vec![1],
+                    field_type: Idx::STR,
+                },
+            ],
+            ..UserBurdenSpec::default()
+        }),
+    );
+
+    let extraction = super::extract::extract_contract_and_transfers_with_call_ownership(
+        &ContractExtractionInput {
+            func: &func,
+            state_map: &state_map,
+            classifier: &classifier,
+            sigs: &sigs,
+            scc_peers: &FxHashSet::default(),
+            context_regions: &[],
+            interner: &interner,
+            builtins: &builtins,
+            exact_callables: &FxHashSet::default(),
+            type_registry: Some(&registry),
+        },
+    );
+
+    assert!(matches!(
+        extraction.contract.params[0].exact_transfer,
+        ExactTransferState::Unproven
+    ));
+    assert!(extraction.exact_transfer_witnesses.is_empty());
+    assert_eq!(extraction.contract.params[0].access, AccessClass::Borrowed);
+}
+
+#[test]
+fn container_user_drop_declines_exact_reconstruction_explicitly() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let push = interner.intern("push");
+    let mut sigs = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    let container_ty = ty(64);
+    let member_ty = ty(70);
+    let func = exact_reconstruction_fixture(name(19), push, container_ty, member_ty, Idx::STR);
+    let classifier = TestClassifier::all_ref(71).with_scalar(2);
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let mut registry = ori_types::TypeRegistry::default();
+    registered_struct_with_burden(
+        &mut registry,
+        "ContainerWithDrop",
+        container_ty,
+        Some(UserBurdenSpec {
+            self_owned_identity: true,
+            user_drop: Some(ori_registry::burden::FnSym::new(core::num::NonZeroU32::MIN)),
             owned_fields: vec![
                 UserOwnedField {
                     field_path: vec![0],

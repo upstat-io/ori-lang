@@ -94,6 +94,7 @@ pub(crate) fn effective_consuming_provenance(
     position: usize,
     ownership: crate::ir::ArgOwnership,
     exact_callable: bool,
+    method_receiver_tag: Option<ori_registry::TypeTag>,
     contracts: &FxHashMap<Name, MemoryContract>,
     interner: &StringInterner,
 ) -> bool {
@@ -106,6 +107,25 @@ pub(crate) fn effective_consuming_provenance(
         .is_some_and(|param| param.access == AccessClass::Owned)
     {
         return true;
+    }
+    if let Some(receiver_tag) = method_receiver_tag {
+        let Some(method_name) = interner.try_lookup(callee) else {
+            return false;
+        };
+        let Some(identity) = ori_registry::find_method_id(receiver_tag, method_name) else {
+            return false;
+        };
+        return ori_registry::methods_for(identity.receiver())
+            .get(identity.index())
+            .and_then(|method| method.runtime)
+            .is_some_and(|runtime| {
+                matches!(
+                    runtime,
+                    ori_registry::MethodRuntime::ListPush
+                        | ori_registry::MethodRuntime::ListSet
+                        | ori_registry::MethodRuntime::ListPrepend
+                )
+            });
     }
     if exact_callable || position != 0 {
         return false;

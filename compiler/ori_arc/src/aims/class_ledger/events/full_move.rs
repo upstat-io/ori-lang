@@ -400,6 +400,7 @@ fn projection_carrier(
                                 position,
                                 ArgOwnership::Owned,
                                 exact_callables.contains(func),
+                                None,
                                 contracts,
                                 interner,
                             ))

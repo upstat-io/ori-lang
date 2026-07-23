@@ -174,14 +174,9 @@ fn recognize_block_candidate(
         if construct_args.is_empty() || matches!(ctor, CtorKind::EnumVariant { .. }) {
             continue;
         }
-        let Some(routes) = exact_reconstruction(
-            block,
-            construct_index,
-            construct_args,
-            authority.sigs,
-            authority.exact_callables,
-            authority.interner,
-        ) else {
+        let Some(routes) =
+            exact_reconstruction(func, block, construct_index, construct_args, authority)
+        else {
             continue;
         };
         let Some(source_ty) = routes
@@ -258,25 +253,23 @@ struct ProjectionRoute {
 
 /// Return exact same-position routes for one reconstruction.
 fn exact_reconstruction(
+    func: &ArcFunction,
     block: &ArcBlock,
     construct_index: usize,
     construct_args: &[ArcVarId],
-    sigs: &FxHashMap<Name, MemoryContract>,
-    exact_callables: &FxHashSet<Name>,
-    interner: &ori_ir::StringInterner,
+    authority: &ExactTransferAuthority<'_>,
 ) -> Option<Vec<ProjectionRoute>> {
     let mut routes = Vec::with_capacity(construct_args.len());
     let mut projection_dsts = FxHashSet::default();
     for (position, &carrier) in construct_args.iter().enumerate() {
         let expected_field = u32::try_from(position).ok()?;
         let route = projection_for_carrier(
+            func,
             block,
             construct_index,
             carrier,
             expected_field,
-            sigs,
-            exact_callables,
-            interner,
+            authority,
         )?;
         if !projection_dsts.insert(route.projection_dst) {
             return None;
@@ -289,13 +282,12 @@ fn exact_reconstruction(
 /// Trace a constructor carrier to a same-position projection, directly or
 /// through one effectively-owned direct-call relay.
 fn projection_for_carrier(
+    func: &ArcFunction,
     block: &ArcBlock,
     construct_index: usize,
     carrier: ArcVarId,
     expected_field: u32,
-    sigs: &FxHashMap<Name, MemoryContract>,
-    exact_callables: &FxHashSet<Name>,
-    interner: &ori_ir::StringInterner,
+    authority: &ExactTransferAuthority<'_>,
 ) -> Option<ProjectionRoute> {
     if let Some((index, source, dst)) =
         direct_projection(block, construct_index, carrier, expected_field)
@@ -321,6 +313,7 @@ fn projection_for_carrier(
         return None;
     }
     let ArcInstr::Apply {
+        dst,
         func: callee,
         args,
         arg_ownership,
@@ -338,9 +331,13 @@ fn projection_for_carrier(
                     *callee,
                     position,
                     ownership,
-                    exact_callables.contains(callee),
-                    sigs,
-                    interner,
+                    authority.exact_callables.contains(callee),
+                    func.method_call_facts
+                        .iter()
+                        .find(|fact| fact.destination == *dst)
+                        .and_then(|fact| authority.classifier.builtin_type_tag(fact.receiver_type)),
+                    authority.sigs,
+                    authority.interner,
                 )
             })
         })
@@ -516,6 +513,13 @@ fn parameter_uses_confined_to_reconstruction(
                     instr,
                     ArcInstr::Project { dst, value, .. }
                         if *value == alias && selected.contains(dst)
+                ) || matches!(
+                    instr,
+                    ArcInstr::Let {
+                        dst,
+                        value: crate::ir::ArcValue::Var(source),
+                        ..
+                    } if *source == alias && aliases.contains(dst)
                 );
                 if !permitted {
                     return false;

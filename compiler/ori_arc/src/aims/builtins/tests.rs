@@ -93,6 +93,7 @@ fn effective_consuming_provenance_requires_specific_authority() {
         0,
         crate::ir::ArgOwnership::Owned,
         false,
+        None,
         &sigs,
         &interner,
     ));
@@ -101,6 +102,7 @@ fn effective_consuming_provenance_requires_specific_authority() {
         0,
         crate::ir::ArgOwnership::Borrowed,
         false,
+        None,
         &sigs,
         &interner,
     ));
@@ -109,6 +111,7 @@ fn effective_consuming_provenance_requires_specific_authority() {
         0,
         crate::ir::ArgOwnership::Owned,
         true,
+        None,
         &sigs,
         &interner,
     ));
@@ -117,6 +120,7 @@ fn effective_consuming_provenance_requires_specific_authority() {
         0,
         crate::ir::ArgOwnership::Owned,
         false,
+        None,
         &sigs,
         &interner,
     ));
@@ -130,6 +134,25 @@ fn effective_consuming_provenance_requires_specific_authority() {
         0,
         crate::ir::ArgOwnership::Owned,
         false,
+        None,
+        &sigs,
+        &interner,
+    ));
+}
+
+#[test]
+fn exact_registry_method_identity_survives_same_spelled_callable_collision() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    let push = interner.intern("push");
+
+    assert!(effective_consuming_provenance(
+        push,
+        0,
+        crate::ir::ArgOwnership::Owned,
+        true,
+        Some(ori_registry::TypeTag::List),
         &sigs,
         &interner,
     ));
