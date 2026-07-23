@@ -82,6 +82,47 @@ pub(crate) fn seed_builtin_contracts(
     seed_internal_runtime_contracts(sigs, interner);
 }
 
+/// Whether one effective owned call argument continues as the call result.
+///
+/// User functions and identity builtins carry the ordinary structural
+/// `transfers_through_return + Direct` proof. Persistent-list COW mutators may
+/// replace their backing allocation, so they cannot claim `Direct`; their
+/// narrower logical-owner lineage comes from an unambiguous registry runtime
+/// identity plus the caller-side Owned annotation.
+pub(crate) fn effective_owned_result_lineage(
+    callee: Name,
+    position: usize,
+    ownership: crate::ir::ArgOwnership,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    interner: &StringInterner,
+) -> bool {
+    if ownership != crate::ir::ArgOwnership::Owned {
+        return false;
+    }
+    if contracts
+        .get(&callee)
+        .and_then(|contract| contract.params.get(position))
+        .is_some_and(|param| {
+            param.transfers_through_return && param.return_alias == Some(ReturnAliasShape::Direct)
+        })
+    {
+        return true;
+    }
+    if position != 0 {
+        return false;
+    }
+    crate::borrow::persistent_list_runtime_methods().any(|method| {
+        matches!(
+            method.runtime,
+            Some(
+                ori_registry::MethodRuntime::ListPush
+                    | ori_registry::MethodRuntime::ListSet
+                    | ori_registry::MethodRuntime::ListPrepend
+            )
+        ) && interner.intern(method.name) == callee
+    })
+}
+
 // Contract constructors
 
 /// Borrowing method: receiver borrowed, return conservative.

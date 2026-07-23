@@ -87,6 +87,7 @@ pub(super) fn detect_param_facts(
         sigs,
         &alias_to_param,
         classifier,
+        interner,
     );
     consumed.extend(&return_flow);
     consumed.extend(&aggregate_transfer);

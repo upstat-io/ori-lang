@@ -1220,7 +1220,7 @@ fn test_main_args_forwarded_to_borrowed_callee_does_not_double_free() {
 #[test]
 fn test_main_args_int_return_iteration_does_not_double_free() {
     let (exit_code, _, stderr) = compile_and_run_with_args(
-        "@main (args: [str]) -> int = {\n    let count = 0;\n\n    for arg in args do\n        count = count + arg.len();\n\n    if count > 0 then 0 else 1;\n}\n",
+        "@main (args: [str]) -> int = {\n    let total = 0;\n    for a in args do {\n        total += a.len();\n    };\n    if total >= 0 then 0 else 1\n}\n",
         &["alpha", "beta"],
     );
     assert_eq!(

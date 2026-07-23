@@ -3187,12 +3187,14 @@ fn shared_edge_source_declines_full_move_arm() {
     let mut state_map = AimsStateMap::new(&func);
     state_map.set_permanent_scalar(v(8));
     let (_analysis, mut partition) = analyze_with_registry(&func, &state_map, &registry);
+    let interner = test_interner();
 
     let arms = super::events::detect_full_move_arms(
         &func,
         &mut partition,
         &registry,
         &FxHashMap::default(),
+        &interner,
     );
     assert!(
         arms.is_empty(),

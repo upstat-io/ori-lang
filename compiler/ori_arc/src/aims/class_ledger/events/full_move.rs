@@ -49,10 +49,12 @@ pub(crate) fn detect_full_move_arms(
     partition: &mut BirthSitePartition,
     type_registry: &ori_types::TypeRegistry,
     contracts: &rustc_hash::FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
+    interner: &ori_ir::StringInterner,
 ) -> Vec<FullMoveArm> {
     let mut arms = Vec::new();
     for block in 0..func.blocks.len() {
-        if let Some(arm) = full_move_arm_in_block(func, partition, type_registry, contracts, block)
+        if let Some(arm) =
+            full_move_arm_in_block(func, partition, type_registry, contracts, interner, block)
         {
             arms.push(arm);
         }
@@ -67,6 +69,7 @@ fn full_move_arm_in_block(
     partition: &mut BirthSitePartition,
     type_registry: &ori_types::TypeRegistry,
     contracts: &rustc_hash::FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
+    interner: &ori_ir::StringInterner,
     block: usize,
 ) -> Option<FullMoveArm> {
     use crate::ir::ArcInstr;
@@ -90,7 +93,15 @@ fn full_move_arm_in_block(
             continue;
         };
         if !projections.iter().any(|&(pidx, pdst, _, _)| {
-            projection_carrier(blk, partition, contracts, pidx, pdst, i, args).is_some()
+            projection_carrier(
+                blk,
+                partition,
+                contracts,
+                interner,
+                (pidx, pdst),
+                (i, args),
+            )
+            .is_some()
         }) {
             continue;
         }
@@ -115,8 +126,15 @@ fn full_move_arm_in_block(
         .iter()
         .copied()
         .filter(|&(pidx, pdst, _, _)| {
-            projection_carrier(blk, partition, contracts, pidx, pdst, cidx, construct_args)
-                .is_some()
+            projection_carrier(
+                blk,
+                partition,
+                contracts,
+                interner,
+                (pidx, pdst),
+                (cidx, construct_args),
+            )
+            .is_some()
         })
         .map(|(index, dst, src, field)| MovedProjection {
             index,
@@ -178,13 +196,14 @@ fn projection_carrier(
     block: &crate::ir::ArcBlock,
     partition: &mut BirthSitePartition,
     contracts: &rustc_hash::FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
-    projection_index: usize,
-    projection_dst: ArcVarId,
-    construct_index: usize,
-    construct_args: &[ArcVarId],
+    interner: &ori_ir::StringInterner,
+    projection: (usize, ArcVarId),
+    construct: (usize, &[ArcVarId]),
 ) -> Option<ArcVarId> {
     use crate::ir::{ArcInstr, ArgOwnership};
 
+    let (projection_index, projection_dst) = projection;
+    let (construct_index, construct_args) = construct;
     if construct_args
         .iter()
         .filter(|&&arg| arg == projection_dst)
@@ -223,19 +242,26 @@ fn projection_carrier(
             {
                 return None;
             }
-            let owned_source_count = args
-                .iter()
-                .zip(arg_ownership)
-                .filter(|&(arg, ownership)| {
-                    *arg == projection_dst && *ownership == ArgOwnership::Owned
-                })
-                .count();
             let result_node = partition.register_node(*dst, FieldPath::whole_var());
             let contract_identity = partition.rep_of(result_node) == projection_rep;
-            let frozen_contract = contracts.contains_key(func);
+            let owned_source_count = args
+                .iter()
+                .enumerate()
+                .filter(|&(position, arg)| {
+                    *arg == projection_dst
+                        && arg_ownership.get(position) == Some(&ArgOwnership::Owned)
+                        && (contract_identity
+                            || crate::aims::builtins::effective_owned_result_lineage(
+                                *func,
+                                position,
+                                ArgOwnership::Owned,
+                                contracts,
+                                interner,
+                            ))
+                })
+                .count();
             (owned_source_count == 1
-                && args.iter().filter(|&&arg| arg == projection_dst).count() == 1
-                && (contract_identity || frozen_contract))
+                && args.iter().filter(|&&arg| arg == projection_dst).count() == 1)
                 .then_some((relay_index, *dst))
         });
     let (relay_index, carrier) = relays.next()?;

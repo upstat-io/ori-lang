@@ -11,8 +11,7 @@ use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::contract::MemoryContract;
-use crate::aims::lattice::AccessClass;
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use crate::ArcClassification;
 
 /// Parameters transferred by an exact all-field reconstruction.
@@ -21,6 +20,7 @@ pub(super) fn find_exact_aggregate_transfer_params(
     sigs: &FxHashMap<Name, MemoryContract>,
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
     classifier: &dyn ArcClassification,
+    interner: &ori_ir::StringInterner,
 ) -> FxHashSet<usize> {
     let mut transferred = FxHashSet::default();
     for block in &func.blocks {
@@ -40,9 +40,14 @@ pub(super) fn find_exact_aggregate_transfer_params(
             if *dst != returned || construct_args.is_empty() {
                 continue;
             }
-            let Some((param, projections)) =
-                exact_reconstruction(block, construct_index, construct_args, sigs, alias_to_param)
-            else {
+            let Some((param, projections)) = exact_reconstruction(
+                block,
+                construct_index,
+                construct_args,
+                sigs,
+                alias_to_param,
+                interner,
+            ) else {
                 continue;
             };
             let Some(param_ty) = func.params.get(param).map(|param| param.ty) else {
@@ -77,13 +82,20 @@ fn exact_reconstruction(
     construct_args: &[ArcVarId],
     sigs: &FxHashMap<Name, MemoryContract>,
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+    interner: &ori_ir::StringInterner,
 ) -> Option<(usize, FxHashSet<ArcVarId>)> {
     let mut common_param = None;
     let mut projections = FxHashSet::default();
     for (position, &carrier) in construct_args.iter().enumerate() {
         let expected_field = u32::try_from(position).ok()?;
-        let projection =
-            projection_for_carrier(block, construct_index, carrier, expected_field, sigs)?;
+        let projection = projection_for_carrier(
+            block,
+            construct_index,
+            carrier,
+            expected_field,
+            sigs,
+            interner,
+        )?;
         let ArcInstr::Project { value, .. } = &block.body[projection.index] else {
             unreachable!("projection_for_carrier returns a Project index");
         };
@@ -117,6 +129,7 @@ fn projection_for_carrier(
     carrier: ArcVarId,
     expected_field: u32,
     sigs: &FxHashMap<Name, MemoryContract>,
+    interner: &ori_ir::StringInterner,
 ) -> Option<Projection> {
     if let Some((index, dst)) = direct_projection(block, construct_index, carrier, expected_field) {
         return projection_has_only_use(block, index, dst, construct_index)
@@ -140,23 +153,15 @@ fn projection_for_carrier(
     else {
         return None;
     };
-    // A raw Owned annotation is insufficient authority: unknown callees use
-    // conservative ownership and may not preserve an exact reconstruction
-    // lineage. A frozen builtin/user contract must exist at this boundary.
-    if !sigs.contains_key(callee) {
-        return None;
-    }
     let mut sources = args
         .iter()
         .enumerate()
         .filter(|&(position, _)| {
-            arg_ownership.get(position) == Some(&ArgOwnership::Owned)
-                || sigs.get(callee).is_some_and(|contract| {
-                    contract
-                        .params
-                        .get(position)
-                        .is_some_and(|param| param.access == AccessClass::Owned)
-                })
+            arg_ownership.get(position).is_some_and(|&ownership| {
+                crate::aims::builtins::effective_owned_result_lineage(
+                    *callee, position, ownership, sigs, interner,
+                )
+            })
         })
         .filter_map(|(_, &arg)| {
             direct_projection(block, relay_index, arg, expected_field)

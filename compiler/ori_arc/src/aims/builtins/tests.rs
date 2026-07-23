@@ -83,6 +83,35 @@ fn seed_cow_receiver_only_borrows_args() {
 }
 
 #[test]
+fn effective_owned_result_lineage_requires_specific_authority() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+
+    assert!(effective_owned_result_lineage(
+        interner.intern("push"),
+        0,
+        crate::ir::ArgOwnership::Owned,
+        &sigs,
+        &interner,
+    ));
+    assert!(!effective_owned_result_lineage(
+        interner.intern("push"),
+        0,
+        crate::ir::ArgOwnership::Borrowed,
+        &sigs,
+        &interner,
+    ));
+    assert!(!effective_owned_result_lineage(
+        interner.intern("remove"),
+        0,
+        crate::ir::ArgOwnership::Owned,
+        &sigs,
+        &interner,
+    ));
+}
+
+#[test]
 fn seed_sharing_methods_return_maybe_shared() {
     let (interner, builtins) = setup();
     let mut sigs = FxHashMap::default();
