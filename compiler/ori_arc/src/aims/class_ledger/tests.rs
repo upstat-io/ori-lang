@@ -3008,6 +3008,107 @@ fn canonical_exact_transfer_witness_drives_production_ledger_rebooking() {
 }
 
 #[test]
+fn paramless_container_user_drop_declines_canonical_producer_and_consumer() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    struct WitnessClassifier;
+    impl crate::ArcClassification for WitnessClassifier {
+        fn arc_class(&self, idx: Idx) -> crate::ArcClass {
+            if matches!(idx, Idx::INT | Idx::BOOL) {
+                crate::ArcClass::Scalar
+            } else {
+                crate::ArcClass::DefiniteRef
+            }
+        }
+    }
+
+    let interner = test_interner();
+    let push = interner.intern("push");
+    let pair_ty = ty(64);
+    let list_ty = ty(70);
+    let func = projected_cow_reconstruction_func(push, pair_ty, list_ty);
+    let registry = |user_drop| {
+        let mut registry = ori_types::TypeRegistry::new();
+        registered_struct_with_burden(
+            &mut registry,
+            "ParamlessWitnessPair",
+            pair_ty,
+            Some(UserBurdenSpec {
+                self_owned_identity: true,
+                user_drop,
+                owned_fields: vec![
+                    UserOwnedField {
+                        field_path: vec![0],
+                        field_type: list_ty,
+                    },
+                    UserOwnedField {
+                        field_path: vec![1],
+                        field_type: Idx::STR,
+                    },
+                ],
+                ..UserBurdenSpec::default()
+            }),
+        );
+        registry
+    };
+    let ordinary_registry = registry(None);
+    let user_drop_registry = registry(Some(ori_registry::burden::FnSym::new(
+        core::num::NonZeroU32::MIN,
+    )));
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [3, 5, 7, 11] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let classifier = WitnessClassifier;
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let mut contracts = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut contracts, &builtins, &interner);
+    let exact_callables = FxHashSet::default();
+    let extract = |type_registry| {
+        crate::aims::interprocedural::extract_contract_and_transfers_with_call_ownership(
+            &crate::aims::interprocedural::ContractExtractionInput {
+                func: &func,
+                state_map: &state_map,
+                classifier: &classifier,
+                sigs: &contracts,
+                scc_peers: &FxHashSet::default(),
+                context_regions: &[],
+                interner: &interner,
+                builtins: &builtins,
+                exact_callables: &exact_callables,
+                type_registry: Some(type_registry),
+            },
+        )
+    };
+
+    let ordinary = extract(&ordinary_registry);
+    let [witness] = ordinary.exact_transfer_witnesses.as_slice() else {
+        panic!("the ordinary local reconstruction must publish one witness");
+    };
+    assert_eq!(witness.param, None);
+
+    let rejected = extract(&user_drop_registry);
+    assert!(
+        rejected.exact_transfer_witnesses.is_empty(),
+        "the canonical producer must reject a param-less user-drop container"
+    );
+
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+    let arms = super::events::full_move_arms_from_exact_transfer_witnesses(
+        &func,
+        &mut partition,
+        &user_drop_registry,
+        &ordinary.exact_transfer_witnesses,
+    );
+    assert!(
+        arms.is_empty(),
+        "the consumer must not materialize a full-move arm from a stale \
+         param-less witness when cleanup authority changes to user drop"
+    );
+}
+
+#[test]
 fn opaque_owned_relay_does_not_authorize_projected_full_move() {
     use crate::lower::test_utils::registered_struct_with_burden;
     use ori_types::burden::{UserBurdenSpec, UserOwnedField};
