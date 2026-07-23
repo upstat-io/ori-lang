@@ -1245,6 +1245,17 @@ fn test_main_args_panic_during_iteration_does_not_double_free() {
         exit_code,
         "test_main_args_panic_during_iteration_does_not_double_free",
     );
+    // Pin clean panic propagation as well as the release count. Asserting only
+    // "no signal" and "no double free" accepts a cure that swallows the panic
+    // and returns success, which is a different defect with the same predicates.
+    assert_eq!(
+        exit_code, 1,
+        "panic during iteration must propagate as a clean panic exit, stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("ori panic: alpha"),
+        "expected the panic message from the first element, got: {stderr}"
+    );
     assert!(
         !stderr.contains("double free"),
         "unwind must release the argv buffer exactly once, stderr: {stderr}"
