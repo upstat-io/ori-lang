@@ -533,6 +533,14 @@ fn test_coll_list_sort_ints() {
 }
 
 #[test]
+fn test_coll_list_sort_orderings() {
+    assert_aot_success(
+        include_str!("fixtures/collections_ext/coll_list_sort_orderings.ori"),
+        "coll_list_sort_orderings",
+    );
+}
+
+#[test]
 fn test_coll_list_sort_already_sorted() {
     assert_aot_success(
         include_str!("fixtures/collections_ext/coll_list_sort_already_sorted.ori"),

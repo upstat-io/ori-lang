@@ -79,7 +79,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .or_else(|| self.emit_structural_eq_enum(lhs, rhs, &variants))
             }
 
-            _ => None,
+            TypeInfo::Range
+            | TypeInfo::Iterator { .. }
+            | TypeInfo::Channel { .. }
+            | TypeInfo::Function { .. }
+            | TypeInfo::Error => None,
         }
     }
 
@@ -151,7 +155,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .emit_icmp_ordering(lhs, rhs, "elem_cmp", IntegerSignedness::Signed),
             ),
             TypeInfo::Float => Some(self.builder.emit_fcmp_ordering(lhs, rhs, "elem_cmp")),
-            TypeInfo::Bool | TypeInfo::Char | TypeInfo::Byte => Some(
+            TypeInfo::Bool | TypeInfo::Char | TypeInfo::Byte | TypeInfo::Ordering => Some(
                 self.builder
                     .emit_icmp_ordering(lhs, rhs, "elem_cmp", IntegerSignedness::Unsigned),
             ),
@@ -178,7 +182,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_derived_compare_call(lhs, rhs, elem_ty)
             }
 
-            _ => None,
+            TypeInfo::Map { .. }
+            | TypeInfo::Set { .. }
+            | TypeInfo::Range
+            | TypeInfo::Iterator { .. }
+            | TypeInfo::Channel { .. }
+            | TypeInfo::Function { .. }
+            | TypeInfo::Error => None,
         }
     }
 
@@ -249,7 +259,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_derived_hash_call(val, elem_ty)
             }
 
-            _ => None,
+            TypeInfo::Range
+            | TypeInfo::Iterator { .. }
+            | TypeInfo::Channel { .. }
+            | TypeInfo::Function { .. }
+            | TypeInfo::Error => None,
         }
     }
 

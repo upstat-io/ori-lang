@@ -75,8 +75,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             TypeInfo::Bool => "bool",
             TypeInfo::Char => "char",
             TypeInfo::Byte => "byte",
+            TypeInfo::Ordering => "ordering",
             TypeInfo::Str => "str",
-            _ => return None,
+            TypeInfo::Unit
+            | TypeInfo::Never
+            | TypeInfo::List { .. }
+            | TypeInfo::Map { .. }
+            | TypeInfo::Set { .. }
+            | TypeInfo::Tuple { .. }
+            | TypeInfo::Option { .. }
+            | TypeInfo::Result { .. }
+            | TypeInfo::Range
+            | TypeInfo::Struct { .. }
+            | TypeInfo::Enum { .. }
+            | TypeInfo::Iterator { .. }
+            | TypeInfo::Channel { .. }
+            | TypeInfo::Function { .. }
+            | TypeInfo::Error => return None,
         };
 
         let func_name = format!("_ori_cmp_{type_suffix}");
@@ -96,7 +111,31 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let result = match &elem_info {
             TypeInfo::Str => self.gen_str_compare(a_ptr, b_ptr),
-            _ => self.gen_primitive_compare(a_ptr, b_ptr, elem_ty, &elem_info),
+            TypeInfo::Int
+            | TypeInfo::Float
+            | TypeInfo::Bool
+            | TypeInfo::Char
+            | TypeInfo::Byte
+            | TypeInfo::Duration
+            | TypeInfo::Size
+            | TypeInfo::Ordering => self.gen_primitive_compare(a_ptr, b_ptr, elem_ty, &elem_info),
+            TypeInfo::Unit
+            | TypeInfo::Never
+            | TypeInfo::List { .. }
+            | TypeInfo::Map { .. }
+            | TypeInfo::Set { .. }
+            | TypeInfo::Tuple { .. }
+            | TypeInfo::Option { .. }
+            | TypeInfo::Result { .. }
+            | TypeInfo::Range
+            | TypeInfo::Struct { .. }
+            | TypeInfo::Enum { .. }
+            | TypeInfo::Iterator { .. }
+            | TypeInfo::Channel { .. }
+            | TypeInfo::Function { .. }
+            | TypeInfo::Error => {
+                unreachable!("unsupported list-sort comparison thunk reached emission")
+            }
         };
 
         self.compare_thunk_cache.insert(elem_ty, func_id);
@@ -128,7 +167,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_compare_result(lt, gt)
             }
 
-            TypeInfo::Bool | TypeInfo::Char | TypeInfo::Byte => {
+            TypeInfo::Bool | TypeInfo::Char | TypeInfo::Byte | TypeInfo::Ordering => {
                 let i32_ty = self.builder.i32_type();
                 let a_ext = self.builder.zext(a_val, i32_ty, "a.ext");
                 let b_ext = self.builder.zext(b_val, i32_ty, "b.ext");
@@ -140,7 +179,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             TypeInfo::Unit
             | TypeInfo::Never
             | TypeInfo::Str
-            | TypeInfo::Ordering
             | TypeInfo::List { .. }
             | TypeInfo::Map { .. }
             | TypeInfo::Set { .. }
