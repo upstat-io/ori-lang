@@ -31,6 +31,19 @@ python3 verify-results.py results.jsonl --arm cured
 (`STATUS_HEAP_CORRUPTION`) indicates a double free in the entry-point wrapper's
 ownership handling.
 
+## Fail-closed guarantees
+
+The kit is built so that a broken or absent measurement cannot read as success:
+
+- The recorder deletes each destination executable before compiling and requires
+  BOTH a zero build exit status AND a newly produced file. A failed compile
+  records `build_ok=false` rather than running a previous run's binary.
+- The results file is truncated per run unless `-AppendResults` is passed, so a
+  recording cannot inherit rows from an earlier one.
+- The verifier rejects duplicate `(arm, witness)` records instead of collapsing
+  them, and fails on a missing file, an empty file, an absent arm, or any
+  witness with `build_ok=false`.
+
 ## Regression arm
 
 To bind a fix to a native red -> green, record a second arm from a pre-fix

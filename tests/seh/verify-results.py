@@ -47,7 +47,17 @@ def normalize(stream: str | None) -> str:
 def check(rows: list[dict], contract: dict, arm: str) -> list[str]:
     """Return a list of failure strings; empty means every witness matched."""
     failures: list[str] = []
-    by_name = {r.get("witness"): r for r in rows if r.get("arm") == arm}
+    arm_rows = [r for r in rows if r.get("arm") == arm]
+    by_name: dict[str, dict] = {}
+    for row in arm_rows:
+        name = row.get("witness")
+        if name in by_name:
+            failures.append(
+                f"{name}: DUPLICATE record for arm '{arm}' - the recording is "
+                "ambiguous; truncate the results file and re-record"
+            )
+            continue
+        by_name[name] = row
     for witness in contract["witnesses"]:
         name = witness["name"]
         want = witness["expect"]
