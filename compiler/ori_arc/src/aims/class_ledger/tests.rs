@@ -3158,6 +3158,10 @@ fn canonical_exact_transfer_witness_drives_production_ledger_rebooking() {
     );
 }
 
+/// The list runtime lowers `push` as nounwind, so LLVM erases this logical
+/// unwind edge. This is the executable verifier boundary for the residual:
+/// the witness must commit at the Invoke and the sibling must release only on
+/// its unwind successor.
 #[test]
 fn canonical_invoke_witness_rebooks_normal_and_unwind_field_credits() {
     let interner = test_interner();
@@ -3168,9 +3172,19 @@ fn canonical_invoke_witness_rebooks_normal_and_unwind_field_credits() {
     let registry = invoke_witness_registry(pair_ty, list_ty);
     let (state_map, contracts, witnesses) = extract_invoke_witness(&func, &registry, &interner);
     let exact_callables = FxHashSet::default();
-    let [_witness] = witnesses.as_slice() else {
+    let [witness] = witnesses.as_slice() else {
         panic!("the Invoke reconstruction must publish exactly one canonical witness");
     };
+    assert_eq!(
+        witness.commit,
+        crate::aims::interprocedural::ExactTransferCommitWitness::Invoke {
+            block: ArcBlockId::new(0),
+            dst: v(3),
+            normal: ArcBlockId::new(1),
+            unwind: ArcBlockId::new(2),
+        },
+        "the proof boundary is the logical Invoke, not the nounwind LLVM call"
+    );
     let mut debug_partition = compute_birth_site_partition(&func, &state_map);
     let arms = super::events::full_move_arms_from_exact_transfer_witnesses(
         &func,

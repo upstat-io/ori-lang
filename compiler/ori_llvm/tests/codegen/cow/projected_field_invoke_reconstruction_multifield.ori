@@ -4,6 +4,9 @@
 // @function: _ori_append
 // CHECK-LABEL: define fastcc void @_ori_append
 // CHECK-NOT: call void @ori_list_rc_inc
+// CHECK-NOT: invoke
+// CHECK-NOT: landingpad
+// CHECK-NOT: resume
 // CHECK: call void @ori_list_push_cow
 
 type Box = { rows: [int], tags: [int] }

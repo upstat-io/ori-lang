@@ -86,6 +86,7 @@ pub mod panic;
 pub mod patterns;
 pub mod poly_lambda_mono;
 pub mod predicate_stack_probe;
+pub mod projected_field_reconstruction;
 pub mod rc_matrix;
 pub mod rc_remarks;
 pub mod realize_rc_reuse;
