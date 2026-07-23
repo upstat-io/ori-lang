@@ -1170,10 +1170,12 @@ fn test_main_args_with_heap_strings() {
     );
 }
 
-// Regression: iterating the entry-point's argv-backed `[str]` parameter with
-// `for..in` transferred an owner credit to the iterator that no site funded, so
-// the iterator released a buffer the caller never owned and the runtime's args
-// cleanup freed it a second time.
+// Regression: iterating the entry point's argv-backed `[str]` parameter released
+// the same buffer twice. The in-language path consumes the parameter and releases
+// it, while the entry wrapper independently decided to retain and clean it. The
+// in-language controls below iterate the identical borrowed-parameter shape and
+// stay green, bounding the defect to the argv entry boundary rather than to
+// borrowed-rooted iteration.
 
 #[test]
 fn test_main_args_for_in_does_not_double_free() {
@@ -1212,6 +1214,18 @@ fn test_main_args_forwarded_to_borrowed_callee_does_not_double_free() {
     assert_eq!(
         exit_code, 0,
         "expected exit 0 (argv buffer forwarded through a borrowed param), stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_main_args_int_return_iteration_does_not_double_free() {
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        "@main (args: [str]) -> int = {\n    let count = 0;\n\n    for arg in args do\n        count = count + arg.len();\n\n    if count > 0 then 0 else 1;\n}\n",
+        &["alpha", "beta"],
+    );
+    assert_eq!(
+        exit_code, 0,
+        "int-returning main iterating argv must not double free, stderr: {stderr}"
     );
 }
 

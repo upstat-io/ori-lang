@@ -2943,6 +2943,49 @@ fn opaque_owned_relay_does_not_authorize_projected_full_move() {
     );
 }
 
+#[test]
+fn registered_receiver_only_relay_does_not_authorize_projected_full_move() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let interner = test_interner();
+    let remove = interner.intern("remove");
+    let pair_ty = ty(64);
+    let list_ty = ty(70);
+    let func = projected_cow_reconstruction_func(remove, pair_ty, list_ty);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_burden(
+        &mut registry,
+        "ReceiverOnlyRelayPair",
+        pair_ty,
+        Some(UserBurdenSpec {
+            self_owned_identity: true,
+            owned_fields: vec![
+                UserOwnedField {
+                    field_path: vec![0],
+                    field_type: list_ty,
+                },
+                UserOwnedField {
+                    field_path: vec![1],
+                    field_type: Idx::STR,
+                },
+            ],
+            ..UserBurdenSpec::default()
+        }),
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [3, 5, 7, 11] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let (analysis, _) = analyze_with_registry_and_interner(&func, &state_map, &registry, &interner);
+
+    assert!(
+        analysis.field_view_hazard,
+        "a registered consuming receiver with no return-lineage authority \
+         cannot rebook the projected field credit"
+    );
+}
+
 /// Builder for the multi-owed diamond: a call result re-acquires the SAME
 /// allocation (RL-34 Credit) past which the class's books owe two
 /// references (birth + credit), both dying past the final terminator read.

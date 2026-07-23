@@ -531,6 +531,87 @@ fn exact_projected_cow_reconstruction_transfers_the_aggregate_boundary() {
 }
 
 #[test]
+fn registered_receiver_only_relay_does_not_transfer_aggregate_boundary() {
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let remove = interner.intern("remove");
+    let mut sigs = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut sigs, &builtins, &interner);
+
+    let func = ArcFunction {
+        name: name(13),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: ty(0),
+        var_types: vec![ty(0), ty(1), ty(2), ty(1), ty(3), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(1),
+                    value: var(0),
+                    field: 0,
+                },
+                ArcInstr::Let {
+                    dst: var(2),
+                    ty: ty(2),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                ArcInstr::Apply {
+                    dst: var(3),
+                    ty: ty(1),
+                    func: remove,
+                    args: vec![var(1), var(2)],
+                    arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Project {
+                    dst: var(4),
+                    ty: ty(3),
+                    value: var(0),
+                    field: 1,
+                },
+                ArcInstr::Construct {
+                    dst: var(5),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(name(80)),
+                    args: vec![var(3), var(4)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(5) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(4).with_scalar(2);
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &interner,
+    );
+
+    assert_eq!(
+        contract.params[0].access,
+        AccessClass::Borrowed,
+        "registration plus caller-side Owned is not return-lineage authority"
+    );
+    assert_eq!(
+        contract.params[0].callee_owner_demand(),
+        CalleeOwnerDemand::Borrow
+    );
+}
+
+#[test]
 fn projected_cow_consume_without_exact_reconstruction_stays_borrowed() {
     let interner = ori_ir::StringInterner::new();
     let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
