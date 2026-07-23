@@ -157,6 +157,91 @@ fn exact_reconstruction_fixture(
     }
 }
 
+fn exact_invoke_reconstruction_fixture(
+    function_name: Name,
+    relay: Name,
+    container_ty: Idx,
+    first_member_ty: Idx,
+    second_member_ty: Idx,
+) -> ArcFunction {
+    ArcFunction {
+        name: function_name,
+        params: vec![ArcParam {
+            var: var(0),
+            ty: container_ty,
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: container_ty,
+        var_types: vec![
+            container_ty,
+            first_member_ty,
+            ty(2),
+            first_member_ty,
+            second_member_ty,
+            container_ty,
+            container_ty,
+        ],
+        blocks: vec![
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Let {
+                        dst: var(6),
+                        ty: container_ty,
+                        value: ArcValue::Var(var(0)),
+                    },
+                    ArcInstr::Project {
+                        dst: var(1),
+                        ty: first_member_ty,
+                        value: var(6),
+                        field: 0,
+                    },
+                    ArcInstr::Let {
+                        dst: var(2),
+                        ty: ty(2),
+                        value: ArcValue::Literal(LitValue::Int(1)),
+                    },
+                    ArcInstr::Project {
+                        dst: var(4),
+                        ty: second_member_ty,
+                        value: var(6),
+                        field: 1,
+                    },
+                ],
+                terminator: ArcTerminator::Invoke {
+                    dst: var(3),
+                    ty: first_member_ty,
+                    func: relay,
+                    args: vec![var(1), var(2)],
+                    arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: block_id(1),
+                    unwind: block_id(2),
+                },
+            },
+            ArcBlock {
+                id: block_id(1),
+                params: vec![],
+                body: vec![ArcInstr::Construct {
+                    dst: var(5),
+                    ty: container_ty,
+                    ctor: CtorKind::Struct(name(80)),
+                    args: vec![var(3), var(4)],
+                }],
+                terminator: ArcTerminator::Return { value: var(5) },
+            },
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        ..Default::default()
+    }
+}
+
 // Extract contract from a single function (no interprocedural context)
 
 #[test]
@@ -590,6 +675,50 @@ fn exact_reconstruction_publishes_contract_and_local_witness_together() {
     };
     assert_eq!(witness.param, Some(0));
     assert_eq!(witness.block, block_id(0));
+    assert_eq!(witness.construct_dst, var(5));
+    assert_eq!(witness.fields.len(), 2);
+}
+
+#[test]
+fn invoke_reconstruction_publishes_exact_contract_and_local_witness() {
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let push = interner.intern("push");
+    let mut sigs = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    let func = exact_invoke_reconstruction_fixture(name(20), push, ty(0), ty(1), Idx::STR);
+    let classifier = TestClassifier::all_ref(4).with_scalar(2);
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let registry = ori_types::TypeRegistry::default();
+
+    let extraction = super::extract::extract_contract_and_transfers_with_call_ownership(
+        &ContractExtractionInput {
+            func: &func,
+            state_map: &state_map,
+            classifier: &classifier,
+            sigs: &sigs,
+            scc_peers: &FxHashSet::default(),
+            context_regions: &[],
+            interner: &interner,
+            builtins: &builtins,
+            exact_callables: &FxHashSet::default(),
+            type_registry: Some(&registry),
+        },
+    );
+
+    assert!(
+        matches!(
+            extraction.contract.params[0].exact_transfer,
+            ExactTransferState::Exact(_)
+        ),
+        "a may-unwind relay followed by normal-edge reconstruction must publish \
+         the same exact aggregate transfer as its nounwind Apply sibling"
+    );
+    let [witness] = extraction.exact_transfer_witnesses.as_slice() else {
+        panic!("the Invoke reconstruction must publish one local witness");
+    };
+    assert_eq!(witness.param, Some(0));
+    assert_eq!(witness.block, block_id(1));
     assert_eq!(witness.construct_dst, var(5));
     assert_eq!(witness.fields.len(), 2);
 }

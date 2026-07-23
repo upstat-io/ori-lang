@@ -2862,6 +2862,85 @@ fn projected_cow_reconstruction_func(push: Name, pair_ty: Idx, list_ty: Idx) -> 
     }
 }
 
+fn invoke_projected_reconstruction_func(push: Name, pair_ty: Idx, list_ty: Idx) -> ArcFunction {
+    ArcFunction {
+        name: Name::from_raw(83),
+        params: vec![ArcParam {
+            var: v(0),
+            ty: pair_ty,
+            ownership: Ownership::Owned,
+        }],
+        return_type: pair_ty,
+        var_types: vec![
+            pair_ty,
+            list_ty,
+            Idx::INT,
+            list_ty,
+            Idx::STR,
+            pair_ty,
+            pair_ty,
+        ],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Let {
+                        dst: v(6),
+                        ty: pair_ty,
+                        value: ArcValue::Var(v(0)),
+                    },
+                    ArcInstr::Project {
+                        dst: v(1),
+                        ty: list_ty,
+                        value: v(6),
+                        field: 0,
+                    },
+                    ArcInstr::Let {
+                        dst: v(2),
+                        ty: Idx::INT,
+                        value: ArcValue::Literal(crate::ir::LitValue::Int(1)),
+                    },
+                    ArcInstr::Project {
+                        dst: v(4),
+                        ty: Idx::STR,
+                        value: v(6),
+                        field: 1,
+                    },
+                ],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(3),
+                    ty: list_ty,
+                    func: push,
+                    args: vec![v(1), v(2)],
+                    arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![],
+                body: vec![ArcInstr::Construct {
+                    dst: v(5),
+                    ty: pair_ty,
+                    ctor: CtorKind::Struct(Name::from_raw(82)),
+                    args: vec![v(3), v(4)],
+                }],
+                terminator: ret(5),
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        ..Default::default()
+    }
+}
+
 #[test]
 fn projected_cow_reconstruction_rebooks_the_existing_field_credit() {
     use crate::lower::test_utils::registered_struct_with_burden;
@@ -3004,6 +3083,113 @@ fn canonical_exact_transfer_witness_drives_production_ledger_rebooking() {
         analysis.field_view_hazard,
         analysis.readiness.declined,
         analysis.readiness.verdicts,
+    );
+}
+
+#[test]
+fn canonical_invoke_witness_rebooks_normal_and_unwind_field_credits() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    struct WitnessClassifier;
+    impl crate::ArcClassification for WitnessClassifier {
+        fn arc_class(&self, idx: Idx) -> crate::ArcClass {
+            if matches!(idx, Idx::INT | Idx::BOOL) {
+                crate::ArcClass::Scalar
+            } else {
+                crate::ArcClass::DefiniteRef
+            }
+        }
+    }
+
+    let interner = test_interner();
+    let push = interner.intern("push");
+    let pair_ty = ty(64);
+    let list_ty = ty(70);
+    let func = invoke_projected_reconstruction_func(push, pair_ty, list_ty);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_burden(
+        &mut registry,
+        "InvokeWitnessPair",
+        pair_ty,
+        Some(UserBurdenSpec {
+            self_owned_identity: true,
+            owned_fields: vec![
+                UserOwnedField {
+                    field_path: vec![0],
+                    field_type: list_ty,
+                },
+                UserOwnedField {
+                    field_path: vec![1],
+                    field_type: Idx::STR,
+                },
+            ],
+            ..UserBurdenSpec::default()
+        }),
+    );
+    let classifier = WitnessClassifier;
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let mut contracts = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut contracts, &builtins, &interner);
+    let exact_callables = FxHashSet::default();
+    let state_map =
+        crate::aims::intraprocedural::analyze_function(&func, &classifier, &contracts, &[], vec![]);
+    let extraction =
+        crate::aims::interprocedural::extract_contract_and_transfers_with_call_ownership(
+            &crate::aims::interprocedural::ContractExtractionInput {
+                func: &func,
+                state_map: &state_map,
+                classifier: &classifier,
+                sigs: &contracts,
+                scc_peers: &FxHashSet::default(),
+                context_regions: &[],
+                interner: &interner,
+                builtins: &builtins,
+                exact_callables: &exact_callables,
+                type_registry: Some(&registry),
+            },
+        );
+    let [_witness] = extraction.exact_transfer_witnesses.as_slice() else {
+        panic!("the Invoke reconstruction must publish exactly one canonical witness");
+    };
+
+    let analysis = super::analysis::analyze_from_state_map_with_exact(
+        &func,
+        &state_map,
+        &contracts,
+        &exact_callables,
+        Some(&extraction.exact_transfer_witnesses),
+        &registry,
+        &interner,
+    );
+    assert!(
+        !analysis.field_view_hazard && analysis.readiness.all_classes_clean,
+        "the Invoke witness must balance the normal reconstruction and unwind cleanup: \
+         hazard={} declined={:?} verdicts={:?}",
+        analysis.field_view_hazard,
+        analysis.readiness.declined,
+        analysis.readiness.verdicts,
+    );
+
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+    let source = class_rep(&mut partition, 0);
+    assert!(
+        ops_for(&analysis, source).is_empty(),
+        "the aggregate owner decomposes logically at Invoke without a physical release"
+    );
+    let relayed = class_rep(&mut partition, 1);
+    assert!(
+        ops_for(&analysis, relayed)
+            .iter()
+            .all(|op| op.kind != PlannedOpKind::Inc),
+        "the relayed field transfers its existing credit into the callee"
+    );
+    let direct = class_rep(&mut partition, 4);
+    assert_eq!(
+        ops_for(&analysis, direct),
+        vec![dec(PlanSlot::BlockFront { block: 2 }, 4)],
+        "the direct sibling moves into the normal-edge Construct and releases exactly \
+         once on unwind"
     );
 }
 
