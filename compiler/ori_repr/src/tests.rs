@@ -18,6 +18,14 @@ mod resolved_metadata;
 mod triviality_validation;
 mod yield_allocations;
 
+use ori_arc::ir::{
+    AllocationSiteId, ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId,
+    ArgOwnership, LitValue, ValueRepr, YieldAllocationFact, YieldAllocationLocality, YieldExtent,
+};
+use ori_arc::ArcBlockId;
+use ori_ir::Name;
+use ori_types::{ExportedTypeMetadata, Idx, Pool};
+
 use crate::canonical::{canonical, canonical_cached};
 use crate::enum_repr::{EnumTag, VariantRepr};
 use crate::escape::EscapeInfo;
@@ -27,10 +35,3 @@ use crate::repr::{FloatWidth, IntWidth, MachineRepr};
 use crate::struct_repr::{ClosureRepr, FatRepr, FieldRepr, RcRepr, StructRepr, TupleRepr};
 use crate::ReprAttribute;
 use crate::ReprPlan;
-use ori_arc::ir::{
-    AllocationSiteId, ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId,
-    ArgOwnership, LitValue, ValueRepr, YieldAllocationFact, YieldAllocationLocality, YieldExtent,
-};
-use ori_arc::ArcBlockId;
-use ori_ir::Name;
-use ori_types::{ExportedTypeMetadata, Idx, Pool};

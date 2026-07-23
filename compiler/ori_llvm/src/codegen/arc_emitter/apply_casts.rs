@@ -12,8 +12,9 @@ use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::Name;
 use ori_types::Tag;
 
-use super::ArcIrEmitter;
 use crate::codegen::value_id::ValueId;
+
+use super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a primitive `as` cast (the `__cast` intercept). Returns the

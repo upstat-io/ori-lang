@@ -1,10 +1,12 @@
 //! Collection builtin dispatch declarations.
 
-use super::super::RenderStyle;
-use super::list_cow::YieldReceiverStorage;
+use ori_arc::ir::ArgOwnership;
+
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
-use ori_arc::ir::ArgOwnership;
+
+use super::super::RenderStyle;
+use super::list_cow::YieldReceiverStorage;
 
 fn emit_list_concat<'scx: 'ctx, 'ctx>(
     emitter: &mut crate::codegen::arc_emitter::ArcIrEmitter<'_, 'scx, 'ctx, '_>,

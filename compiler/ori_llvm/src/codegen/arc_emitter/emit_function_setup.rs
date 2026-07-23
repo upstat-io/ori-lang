@@ -4,9 +4,10 @@ use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 use ori_arc::{CalleeOwnerDemand, Ownership};
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::codegen::abi::{FunctionAbi, ParamPassing, ReturnPassing};
+
 use super::context::EmittedValue;
 use super::ArcIrEmitter;
-use crate::codegen::abi::{FunctionAbi, ParamPassing, ReturnPassing};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Bind function parameters to LLVM values under their ABI passing modes.

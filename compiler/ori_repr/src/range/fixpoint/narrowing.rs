@@ -6,6 +6,12 @@
 //! - **Field summary recomputation**: clears and rebuilds from final ranges
 //! - **Return range recomputation**: rebuilds from final narrowed variables
 
+use ori_arc::ir::{ArcFunction, ArcTerminator};
+use ori_arc::ArcBlockId;
+use ori_arc::ArcVarId;
+use ori_types::Pool;
+use rustc_hash::FxHashMap;
+
 use super::super::field_summary::{
     update_element_summaries, update_element_summaries_from_terminator, update_field_summaries,
     ElementSummaryTable, FieldSummaryTable,
@@ -14,11 +20,6 @@ use super::super::transfer::{transfer, transfer_known_call, TransferContext};
 use super::super::{is_int_typed, ValueRange};
 use super::iteration::{apply_block_refinements, restore_block_refinements};
 use super::{narrow, FixpointContext};
-use ori_arc::ir::{ArcFunction, ArcTerminator};
-use ori_arc::ArcBlockId;
-use ori_arc::ArcVarId;
-use ori_types::Pool;
-use rustc_hash::FxHashMap;
 use ValueRange::{Bottom, Top};
 
 /// Run one narrowing pass over all blocks to recover precision lost to widening.

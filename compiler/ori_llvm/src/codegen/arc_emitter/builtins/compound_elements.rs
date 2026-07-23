@@ -1,12 +1,14 @@
 //! Recursive structural-trait dispatch for compound elements.
 
-use super::super::{ArcIrEmitter, StringRuntimeReturnAbi};
+use ori_ir::Name;
+use ori_types::Idx;
+
 use crate::codegen::abi::{FunctionAbi, ParamAbi};
 use crate::codegen::ir_builder::IntegerSignedness;
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::{FunctionId, ValueId};
-use ori_ir::Name;
-use ori_types::Idx;
+
+use super::super::{ArcIrEmitter, StringRuntimeReturnAbi};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `lhs.equals(rhs)` for any type, dispatching recursively.

@@ -8,9 +8,10 @@ use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::builtin_constants::protocol::ProtocolBuiltin;
 use ori_ir::Name;
 
-use super::ArcIrEmitter;
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
+
+use super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Try to handle an internal protocol call.

@@ -5,14 +5,15 @@
 //! terminate" pattern as LLVM's `IRBuilder`, but uses block parameters
 //! instead of phi nodes for SSA merge.
 
+use ori_ir::canon::MonoInstanceId;
+use ori_ir::{Name, Span};
+use ori_types::Idx;
+
 use crate::ir::{
     AllocationSiteId, ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator,
     ArcVarId, MethodCallFact, MethodCallForm, YieldAllocationFact, YieldAllocationLocality,
     YieldExtent,
 };
-use ori_ir::canon::MonoInstanceId;
-use ori_ir::{Name, Span};
-use ori_types::Idx;
 
 /// Groups CFG successors with the abstract dispatch index for an invoke.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
