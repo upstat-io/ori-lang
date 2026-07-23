@@ -118,6 +118,7 @@ pub(crate) fn analyze_from_state_map(
         func,
         &classification,
         &mut partition,
+        contracts,
         type_registry,
         interner,
     );
@@ -280,12 +281,13 @@ pub(crate) fn analyze_class_ledger(
     func: &ArcFunction,
     classification: &LedgerClassification,
     partition: &mut BirthSitePartition,
+    contracts: &FxHashMap<Name, MemoryContract>,
     type_registry: &ori_types::TypeRegistry,
     interner: &ori_ir::StringInterner,
 ) -> ClassLedgerAnalysis {
     let preds = compute_predecessors(func);
     let regions = emit::CycleRegions::compute(func);
-    let full_move_arms = events::detect_full_move_arms(func, partition, type_registry, interner);
+    let full_move_arms = events::detect_full_move_arms(func, partition, type_registry, contracts);
     let InitialClassPlans {
         mut classes,
         mut verdicts,

@@ -48,12 +48,11 @@ pub(crate) fn detect_full_move_arms(
     func: &ArcFunction,
     partition: &mut BirthSitePartition,
     type_registry: &ori_types::TypeRegistry,
-    interner: &ori_ir::StringInterner,
+    contracts: &rustc_hash::FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
 ) -> Vec<FullMoveArm> {
-    let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
     let mut arms = Vec::new();
     for block in 0..func.blocks.len() {
-        if let Some(arm) = full_move_arm_in_block(func, partition, type_registry, &builtins, block)
+        if let Some(arm) = full_move_arm_in_block(func, partition, type_registry, contracts, block)
         {
             arms.push(arm);
         }
@@ -67,7 +66,7 @@ fn full_move_arm_in_block(
     func: &ArcFunction,
     partition: &mut BirthSitePartition,
     type_registry: &ori_types::TypeRegistry,
-    builtins: &crate::borrow::BuiltinOwnershipSets,
+    contracts: &rustc_hash::FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
     block: usize,
 ) -> Option<FullMoveArm> {
     use crate::ir::ArcInstr;
@@ -91,7 +90,7 @@ fn full_move_arm_in_block(
             continue;
         };
         if !projections.iter().any(|&(pidx, pdst, _, _)| {
-            projection_carrier(blk, partition, builtins, pidx, pdst, i, args).is_some()
+            projection_carrier(blk, partition, contracts, pidx, pdst, i, args).is_some()
         }) {
             continue;
         }
@@ -110,13 +109,14 @@ fn full_move_arm_in_block(
         return None;
     };
     // The moved projections: those consumed by the construct directly or
-    // through one uniquely owned, same-allocation call result. All must read
-    // ONE aggregate class.
+    // through one uniquely owned call result under frozen contract authority.
+    // All must read ONE aggregate class.
     let moved: Vec<MovedProjection> = projections
         .iter()
         .copied()
         .filter(|&(pidx, pdst, _, _)| {
-            projection_carrier(blk, partition, builtins, pidx, pdst, cidx, construct_args).is_some()
+            projection_carrier(blk, partition, contracts, pidx, pdst, cidx, construct_args)
+                .is_some()
         })
         .map(|(index, dst, src, field)| MovedProjection {
             index,
@@ -177,7 +177,7 @@ fn full_move_arm_in_block(
 fn projection_carrier(
     block: &crate::ir::ArcBlock,
     partition: &mut BirthSitePartition,
-    builtins: &crate::borrow::BuiltinOwnershipSets,
+    contracts: &rustc_hash::FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
     projection_index: usize,
     projection_dst: ArcVarId,
     construct_index: usize,
@@ -232,11 +232,10 @@ fn projection_carrier(
                 .count();
             let result_node = partition.register_node(*dst, FieldPath::whole_var());
             let contract_identity = partition.rep_of(result_node) == projection_rep;
-            let known_cow_transfer = builtins.consuming_receiver.contains(func)
-                || builtins.consuming_receiver_only.contains(func);
+            let frozen_contract = contracts.contains_key(func);
             (owned_source_count == 1
                 && args.iter().filter(|&&arg| arg == projection_dst).count() == 1
-                && (contract_identity || known_cow_transfer))
+                && (contract_identity || frozen_contract))
                 .then_some((relay_index, *dst))
         });
     let (relay_index, carrier) = relays.next()?;

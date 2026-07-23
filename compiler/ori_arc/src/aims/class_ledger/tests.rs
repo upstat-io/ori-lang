@@ -179,9 +179,19 @@ fn analyze_with_registry_and_interner(
     crate::aims::freeze_primitive_facts(std::slice::from_mut(&mut func), &classifier)
         .unwrap_or_else(|errors| panic!("class-ledger primitive facts should freeze: {errors:?}"));
     let facts: FxHashMap<Name, BoundaryFacts> = FxHashMap::default();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
+    let mut contracts = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut contracts, &builtins, interner);
     let mut partition = compute_birth_site_partition(&func, state_map);
     let classification = classify_function(&func, state_map, &mut partition, &facts, interner);
-    let analysis = analyze_class_ledger(&func, &classification, &mut partition, registry, interner);
+    let analysis = analyze_class_ledger(
+        &func,
+        &classification,
+        &mut partition,
+        &contracts,
+        registry,
+        interner,
+    );
     (analysis, partition)
 }
 
@@ -3135,8 +3145,12 @@ fn shared_edge_source_declines_full_move_arm() {
     state_map.set_permanent_scalar(v(8));
     let (_analysis, mut partition) = analyze_with_registry(&func, &state_map, &registry);
 
-    let interner = test_interner();
-    let arms = super::events::detect_full_move_arms(&func, &mut partition, &registry, &interner);
+    let arms = super::events::detect_full_move_arms(
+        &func,
+        &mut partition,
+        &registry,
+        &FxHashMap::default(),
+    );
     assert!(
         arms.is_empty(),
         "a Jump edge feeding two params from one class must decline the \
@@ -5292,6 +5306,7 @@ fn release_never_names_borrowed_param_var() {
         &func,
         &classification,
         &mut partition,
+        &FxHashMap::default(),
         &ori_types::TypeRegistry::default(),
         &interner,
     );

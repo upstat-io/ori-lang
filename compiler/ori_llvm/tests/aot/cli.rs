@@ -1204,14 +1204,43 @@ fn test_main_args_iter_chain_does_not_double_free() {
 }
 
 #[test]
-fn test_borrowed_str_list_param_for_in_does_not_double_free() {
+fn test_main_args_forwarded_to_borrowed_callee_does_not_double_free() {
     let (exit_code, _, stderr) = compile_and_run_with_args(
         "@show (items: [str]) -> void =\n    for item in items do\n        print(msg: item);\n\n@main (args: [str]) -> void =\n    show(items: args);\n",
         &["alpha", "beta"],
     );
     assert_eq!(
         exit_code, 0,
-        "expected exit 0 (borrowed list param iterated in a callee), stderr: {stderr}"
+        "expected exit 0 (argv buffer forwarded through a borrowed param), stderr: {stderr}"
+    );
+}
+
+// Negative controls: an in-language collection iterated through the SAME
+// borrowed-parameter shape must stay green. These bound the defect to the
+// argv/entry-boundary buffer and clamp a cure that would strip the legitimate
+// inward owner transfer from ordinary caller-funded iteration.
+
+#[test]
+fn test_fresh_str_list_forwarded_to_borrowed_callee_stays_green() {
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        "@show (items: [str]) -> void =\n    for item in items do\n        print(msg: item);\n\n@main () -> void =\n    show(items: [\"alpha\", \"beta\"]);\n",
+        &[],
+    );
+    assert_eq!(
+        exit_code, 0,
+        "in-language list through a borrowed param must stay green, stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_fresh_str_list_iterated_in_main_stays_green() {
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        "@main () -> void = {\n    let $items = [\"alpha\", \"beta\"];\n\n    for item in items do\n        print(msg: item);\n}\n",
+        &[],
+    );
+    assert_eq!(
+        exit_code, 0,
+        "in-language list iterated directly must stay green, stderr: {stderr}"
     );
 }
 
