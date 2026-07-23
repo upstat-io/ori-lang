@@ -205,10 +205,10 @@ impl ReprPlan {
         }
     }
 
-    /// Record a narrowing decision for a type.
+    /// Records a narrowing decision for a type.
     ///
-    /// Later decisions override earlier ones for the same `Idx`, but the
-    /// audit trail preserves both entries in insertion order.
+    /// Inserting an existing `Idx` replaces its map entry and appends the
+    /// decision to the insertion-ordered audit trail.
     pub fn set_repr(&mut self, idx: Idx, decision: ReprDecision) {
         self.audit.push(decision.clone());
         self.decisions.insert(idx, decision);

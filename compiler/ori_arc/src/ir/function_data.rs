@@ -21,8 +21,7 @@ pub enum VariableMetadataState {
     /// Lowering or an isolated pre-realization transform owns only types.
     #[default]
     Unrealized,
-    /// Representation metadata is exact, but current carrier strategies are
-    /// not yet derived.
+    /// Representation metadata is exact, while carrier strategies are absent.
     ///
     /// Canonical-to-ARC lowering enters this state before the AIMS pipeline.
     /// Keeping it distinct from [`Unrealized`](Self::Unrealized) makes an
@@ -63,8 +62,8 @@ pub struct MethodCallFact {
     pub form: MethodCallForm,
     /// Exact executable producer when this call was compiler-generated.
     ///
-    /// Source calls not yet frozen at this seam carry `None`; every generated
-    /// call must carry `Some` before executable closure.
+    /// Source calls unresolved at this seam carry `None`; every generated call
+    /// carries `Some` before executable closure.
     pub producer: Option<MethodProducer>,
     /// Type-checker table handle for a source-selected method producer.
     ///

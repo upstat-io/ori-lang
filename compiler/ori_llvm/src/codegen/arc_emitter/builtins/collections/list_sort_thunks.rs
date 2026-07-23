@@ -1,7 +1,7 @@
-//! Sort/compare thunk generators for list sorting.
+//! This module generates sort/compare thunks for list sorting.
 //!
-//! Generates per-element-type LLVM comparison functions used by the COW sort
-//! runtime (`ori_list_sort_cow`, `ori_list_sort_stable_cow`).
+//! Per-element-type LLVM comparison functions implement the COW sort runtimes
+//! (`ori_list_sort_cow`, `ori_list_sort_stable_cow`).
 //!
 //! Each thunk has signature `fn(*const u8, *const u8) -> i32` and returns
 //! -1 (less), 0 (equal), or 1 (greater).

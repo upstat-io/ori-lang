@@ -66,7 +66,7 @@ pub(super) fn run_narrowing_pass(
 
         let saved = apply_block_refinements(block, ranges, block_refinements);
 
-        // INVARIANT: Each transfer observes earlier narrowed values in the block.
+        // INVARIANT: Each transfer observes the narrowed prefix of its block.
         let field_summaries = field_summary_table.as_map();
         for instr in &block.body {
             let computed = {

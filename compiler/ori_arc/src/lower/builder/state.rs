@@ -1,7 +1,7 @@
 //! ARC IR builder state, allocation, and finalization.
 //!
 //! [`ArcIrBuilder`] owns block and variable state while a function is being
-//! lowered. Follows the same "position at a block, emit instructions,
+//! lowered. The builder follows the same "position at a block, emit instructions,
 //! terminate" pattern as LLVM's `IRBuilder`, but uses block parameters
 //! instead of phi nodes for SSA merge.
 
@@ -34,7 +34,7 @@ pub(in crate::lower) struct BlockBuilder {
     pub(in crate::lower) body: Vec<ArcInstr>,
     /// Source spans parallel to `body`.
     pub(in crate::lower) spans: Vec<Option<Span>>,
-    /// Control-flow terminator, once assigned.
+    /// Stores the block's optional control-flow terminator.
     pub(in crate::lower) terminator: Option<ArcTerminator>,
 }
 
