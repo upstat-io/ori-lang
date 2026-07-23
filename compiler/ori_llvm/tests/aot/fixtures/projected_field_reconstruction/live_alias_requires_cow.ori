@@ -1,19 +1,17 @@
 type Box = { rows: [int], tags: [int] }
-type Pair = { original: Box, updated: Box }
 
-@update_with_live_alias (box: Box) -> Pair = {
+@update_with_live_alias (box: Box) -> bool = {
     let original = box;
     let updated = Box { rows: box.rows.push(value: 5), tags: box.tags };
 
-    Pair { original, updated }
+    original.rows.len() == 2
+        && updated.rows.len() == 3
+        && original.tags.len() == 2
+        && updated.tags.len() == 2
 }
 
 @main () -> void = {
     let box = Box { rows: [1, 2], tags: [3, 4] };
-    let pair = update_with_live_alias(box:);
-    let preserved = pair.original.rows.len() == 2
-        && pair.updated.rows.len() == 3
-        && pair.original.tags.len() == 2
-        && pair.updated.tags.len() == 2;
+    let preserved = update_with_live_alias(box:);
     print(msg: preserved.to_str())
 }
