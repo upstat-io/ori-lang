@@ -1,10 +1,12 @@
 //! Collection builtin dispatch declarations.
 
-use super::super::RenderStyle;
-use super::list_cow::YieldReceiverStorage;
+use ori_arc::ir::ArgOwnership;
+
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
-use ori_arc::ir::ArgOwnership;
+
+use super::super::RenderStyle;
+use super::list_cow::YieldReceiverStorage;
 
 fn emit_list_concat<'scx: 'ctx, 'ctx>(
     emitter: &mut crate::codegen::arc_emitter::ArcIrEmitter<'_, 'scx, 'ctx, '_>,
@@ -94,9 +96,6 @@ declare_builtins! { emitter, ctx;
     },
     ("list", "pop") => {
         if let TypeInfo::List { element } = ctx.type_info {
-            // Why: pop() is typed Option<T> but the removing dual-return (element +
-            // modified list) needs ARC-pipeline cooperation that is not wired, so the
-            // emitted form is the non-mutating last-element read.
             emitter.emit_list_last(ctx.arg_vals[0], *element, ctx.receiver_ty)
         } else {
             None
@@ -268,7 +267,7 @@ declare_builtins! { emitter, ctx;
     ("list", "to_fixed") => Some(ctx.arg_vals[0]),
     ("list", "iter") => {
         if let TypeInfo::List { element } = ctx.type_info {
-            // INVARIANT: retained closure arguments give iterators an independent credit.
+            // INVARIANT: Retained closure arguments give iterators an independent credit.
             let ownership = if !emitter.is_var_borrowed_rooted(ctx.arc_args[0])
                 || emitter.iter_receiver_owns_via_contract(ctx.arc_args[0])
             {

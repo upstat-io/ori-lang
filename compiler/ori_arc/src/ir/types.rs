@@ -71,6 +71,7 @@ pub struct ParamEdgeArg {
 
 // ID newtypes
 
+#[inline]
 fn encode_arc_id(raw: u32) -> NonZeroU32 {
     if raw == u32::MAX {
         return NonZeroU32::MAX;
@@ -79,9 +80,13 @@ fn encode_arc_id(raw: u32) -> NonZeroU32 {
         raw < u32::MAX - 1,
         "ARC ID table exceeded niche-encoded u32 capacity"
     );
-    NonZeroU32::new(raw + 1).expect("adding one to a valid ARC ID must be non-zero")
+    let Some(encoded) = NonZeroU32::new(raw + 1) else {
+        unreachable!("adding one to a valid ARC ID produced zero");
+    };
+    encoded
 }
 
+#[inline]
 fn decode_arc_id(encoded: NonZeroU32) -> u32 {
     if encoded == NonZeroU32::MAX {
         u32::MAX

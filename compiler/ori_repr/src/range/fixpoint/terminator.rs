@@ -10,7 +10,8 @@ use rustc_hash::FxHashMap;
 use super::super::conditional::refine_from_branch;
 use super::super::transfer::transfer_known_call;
 use super::super::{is_int_typed, ValueRange};
-use super::{update_range, FixpointContext};
+use super::widen::update_range;
+use super::FixpointContext;
 use ValueRange::{Bottom, Bounded, Top};
 
 /// Process a block's terminator: `Invoke` defines a variable,

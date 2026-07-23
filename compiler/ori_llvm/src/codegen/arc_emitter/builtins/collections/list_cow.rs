@@ -105,7 +105,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 cow_mode,
             ],
         )?;
-        // INVARIANT: only returned receivers own the element keep-alive credit.
+        // INVARIANT: Only returned receivers own the element keep-alive credit.
         let header_store_disabled = push_result_elem_header_store_disabled();
         if !receiver_returned || header_store_disabled {
             return Some(result);

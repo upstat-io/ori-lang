@@ -13,10 +13,11 @@ use ori_arc::CowMode;
 use ori_ir::UnaryOp;
 use ori_types::Idx;
 
-use super::context::EmittedValue;
-use super::ArcIrEmitter;
 use crate::codegen::type_info::TypeLayoutResolver;
 use crate::codegen::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
+
+use super::emitted_mappings::let_alias_root;
+use super::ArcIrEmitter;
 
 /// Read representation metadata at the LLVM phase boundary.
 ///
@@ -37,7 +38,7 @@ pub(super) fn required_var_repr(var: ArcVarId, func: &ArcFunction) -> ValueRepr 
 /// a consistent field-teardown order across every emission path: the heap
 /// drop-fn walk (`drop_gen::emit_drop_fields`), the inline-aggregate dec walk
 /// (`rc_value_traversal::dec_aggregate_fields`), and the struct/Result/Option
-/// payload walk (`rc_helpers`). Inc keeps forward declaration order (order is
+/// payload walk (`rc_enum_values`). Inc keeps forward declaration order (order is
 /// unobservable for inc). The tagless-enum payload walk
 /// (`tagless_enum`) consumes the same LIFO contract over borrowed fields.
 ///
@@ -106,9 +107,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         };
         self.repr_plan
             .and_then(|plan| plan.yield_allocation_for_result(arc_func.name, result))
-            .is_some_and(|decision| {
-                decision.mechanism == ori_repr::CompiledAllocationMechanism::StackSlot
-            })
+            .is_some_and(|decision| decision.mechanism.is_stack())
     }
 
     /// Whether `receiver` uses compact stack backing with no preceding RC header.
@@ -123,8 +122,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.repr_plan
             .and_then(|plan| plan.yield_allocation_for_result(arc_func.name, result))
             .is_some_and(|decision| {
-                decision.mechanism == ori_repr::CompiledAllocationMechanism::StackSlot
-                    && !decision.requires_runtime_header
+                matches!(
+                    decision.mechanism,
+                    ori_repr::CompiledAllocationMechanism::CompactStack { .. }
+                )
             })
     }
 
@@ -380,131 +381,5 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(crate) fn element_store_align(&self, ty: Idx) -> u64 {
         let info = self.type_info.get(ty);
         u64::from(info.alignment())
-    }
-
-    /// Look up the raw LLVM value for an ARC variable.
-    ///
-    /// Returns the underlying `ValueId`, suitable for consumers that don't
-    /// need representation info. For typed access, use [`var_emitted`](Self::var_emitted).
-    ///
-    /// # Panics
-    /// Returns `ValueId::NONE` and logs an error if the variable is not yet defined.
-    pub(super) fn var(&self, v: ArcVarId) -> ValueId {
-        self.var_emitted(v).into_raw()
-    }
-
-    /// Return a POINTER to the field/variant layout of an ARC variable,
-    /// suitable for `struct_gep`-based field addressing.
-    ///
-    /// - `RcPointer` repr → the heap pointer itself (already addressable).
-    /// - Any by-value repr (`Aggregate` / `FatValue` / `Immediate`) → spill
-    ///   the SSA value to a fresh stack `alloca` + `store` and return the
-    ///   slot pointer.
-    ///
-    /// Per AB-5 (the 16-byte indirect-passing / `FastISel` aggregate rule): a
-    /// by-value aggregate SSA value (e.g. a struct phi `%vN = phi %ori.Record`)
-    /// has no addressable storage, so `struct_gep` on the value itself is a
-    /// `struct_gep on non-pointer value`. The spill mirrors the enum RC-op
-    /// path's `alloca` + `store` at `rc_helpers.rs` `emit_enum_rc_op`.
-    pub(super) fn var_field_base_ptr(&mut self, v: ArcVarId, base_ty: Idx) -> ValueId {
-        let emitted = self.var_emitted(v);
-        if let EmittedValue::RcPointer(ptr) = emitted {
-            return ptr;
-        }
-        let llvm_ty = self.resolve_type(base_ty);
-        let slot = self.builder.alloca(llvm_ty, "burden.spill");
-        self.builder.store(emitted.into_raw(), slot);
-        slot
-    }
-
-    /// Look up the typed emitted value for an ARC variable.
-    ///
-    /// Returns the full [`EmittedValue`] including representation info.
-    /// Prefer this over [`var`](Self::var) when the consumer needs to
-    /// distinguish between value kinds (e.g., RC operations).
-    pub(super) fn var_emitted(&self, v: ArcVarId) -> EmittedValue {
-        debug_assert!(v.is_valid(), "var_emitted called with INVALID ArcVarId");
-        if let Some(Some(val)) = self.var_map.get(v.index()) {
-            *val
-        } else {
-            tracing::error!(var = v.raw(), "ArcIrEmitter: variable not yet defined");
-            self.builder.record_codegen_error();
-            // Return the pre-created i64 zero poison value instead of
-            // ValueId::NONE. NONE (u32::MAX) causes panics in get_value()
-            // which cascade into LLVM C++ crashes that bypass catch_unwind.
-            // The module will be rejected by the codegen error check before JIT.
-            EmittedValue::Immediate(self.builder.poison_value)
-        }
-    }
-
-    /// Bind an ARC variable to a typed LLVM value.
-    pub(super) fn def_var(&mut self, v: ArcVarId, val: EmittedValue) {
-        let idx = v.index();
-        if idx >= self.var_map.len() {
-            self.var_map.resize(idx + 1, None);
-        }
-        self.var_map[idx] = Some(val);
-    }
-
-    /// Bind an ARC variable to a raw LLVM value, inferring its [`EmittedValue`]
-    /// variant from the variable's [`ValueRepr`] in the ARC function.
-    ///
-    /// If the variable is in `narrowed_vars`, the incoming i64
-    /// value is truncated to the narrow width and immediately sign-extended back
-    /// to i64. This trunc+sext pair (a) validates the value fits in the narrow
-    /// range and (b) informs LLVM of the restricted range for optimization.
-    /// Consistent with the phi path which also stores sext'd i64 values.
-    pub(super) fn def_var_repr(&mut self, v: ArcVarId, val: ValueId, func: &ArcFunction) {
-        let repr = required_var_repr(v, func);
-        let final_val = self.narrow_local_if_needed(v, val);
-        self.def_var(v, EmittedValue::from_repr(repr, final_val));
-    }
-
-    /// Look up the LLVM block for an ARC block.
-    ///
-    /// Returns the poison block and records a codegen error if the block ID
-    /// is out of bounds or was not mapped (dead unwind block).
-    pub(super) fn block(&self, b: ori_arc::ir::ArcBlockId) -> super::BlockId {
-        debug_assert!(b.is_valid(), "block() called with INVALID ArcBlockId");
-        if let Some(Some(block_id)) = self.block_map.get(b.index()) {
-            *block_id
-        } else {
-            tracing::error!(
-                block = b.raw(),
-                block_map_len = self.block_map.len(),
-                "ArcIrEmitter: block not mapped (out of bounds or dead unwind)"
-            );
-            self.builder.record_codegen_error();
-            // Return the entry block as a safe fallback. The branch target is
-            // semantically wrong, but record_codegen_error() prevents execution.
-            // This avoids creating a dedicated poison block (which would trigger
-            // IR quality assertions about unreachable blocks).
-            let Some(entry) = self.block_map.first().copied().flatten() else {
-                // Why: Function emission installs the entry block before mapping ARC blocks.
-                unreachable!("entry block must always exist in block_map")
-            };
-            entry
-        }
-    }
-}
-
-fn let_alias_root(function: &ArcFunction, mut value: ArcVarId) -> ArcVarId {
-    loop {
-        let source = function
-            .blocks
-            .iter()
-            .flat_map(|block| &block.body)
-            .find_map(|instruction| match instruction {
-                ori_arc::ArcInstr::Let {
-                    dst,
-                    value: ArcValue::Var(source),
-                    ..
-                } if *dst == value => Some(*source),
-                _ => None,
-            });
-        match source {
-            Some(source) if source != value => value = source,
-            _ => return value,
-        }
     }
 }

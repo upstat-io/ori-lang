@@ -65,7 +65,6 @@ impl ReprPlan {
                         result: fact.result,
                         elem_ty: fact.elem_ty,
                         elem_size: fact.elem_size,
-                        extent: fact.extent,
                         mechanism: select_yield_mechanism(
                             *fact,
                             execution_by_builder
@@ -73,7 +72,6 @@ impl ReprPlan {
                                 .copied()
                                 .unwrap_or(YieldAllocationExecution::RepeatedOrUnknown),
                         ),
-                        requires_runtime_header: true,
                     },
                 );
             }
@@ -115,10 +113,13 @@ impl ReprPlan {
                 },
             );
             if elidable {
-                self.yield_allocations
+                let decision = self
+                    .yield_allocations
                     .get_mut(&key)
-                    .unwrap_or_else(|| unreachable!("compiled allocation disappeared"))
-                    .requires_runtime_header = false;
+                    .unwrap_or_else(|| unreachable!("compiled allocation disappeared"));
+                if let CompiledAllocationMechanism::ManagedStack { capacity } = decision.mechanism {
+                    decision.mechanism = CompiledAllocationMechanism::CompactStack { capacity };
+                }
             }
         }
     }
@@ -207,8 +208,10 @@ fn yield_runtime_header_is_elidable(
     runtime_call: &mut impl FnMut(Name, ArcVarId) -> Option<YieldLineageRuntimeCall>,
 ) -> bool {
     let classifier = ori_arc::ArcClassifier::new(pool);
-    if decision.mechanism != CompiledAllocationMechanism::StackSlot
-        || !classifier.is_scalar(decision.elem_ty)
+    if !matches!(
+        decision.mechanism,
+        CompiledAllocationMechanism::ManagedStack { .. }
+    ) || !classifier.is_scalar(decision.elem_ty)
         || !matches!(
             classifier.builtin_type_tag(decision.elem_ty),
             Some(
@@ -365,17 +368,23 @@ fn select_yield_mechanism(
     execution: YieldAllocationExecution,
 ) -> CompiledAllocationMechanism {
     let YieldExtent::StaticExact(capacity) = fact.extent else {
-        return CompiledAllocationMechanism::RuntimeHeap;
+        return CompiledAllocationMechanism::RuntimeHeap {
+            extent: fact.extent,
+        };
     };
     let Some(bytes) = capacity.checked_mul(fact.elem_size.max(1)) else {
-        return CompiledAllocationMechanism::RuntimeHeap;
+        return CompiledAllocationMechanism::RuntimeHeap {
+            extent: fact.extent,
+        };
     };
     match (fact.locality, execution) {
         (YieldAllocationLocality::Local, YieldAllocationExecution::SingleExecution) => {
             if bytes <= CompiledAllocationDecision::MAX_LOCAL_BYTES {
-                CompiledAllocationMechanism::StackSlot
+                CompiledAllocationMechanism::ManagedStack { capacity }
             } else {
-                CompiledAllocationMechanism::RuntimeHeap
+                CompiledAllocationMechanism::RuntimeHeap {
+                    extent: fact.extent,
+                }
             }
         }
         (
@@ -383,7 +392,9 @@ fn select_yield_mechanism(
             YieldAllocationExecution::RepeatedOrUnknown | YieldAllocationExecution::SingleExecution,
         )
         | (YieldAllocationLocality::Local, YieldAllocationExecution::RepeatedOrUnknown) => {
-            CompiledAllocationMechanism::RuntimeHeap
+            CompiledAllocationMechanism::RuntimeHeap {
+                extent: fact.extent,
+            }
         }
     }
 }

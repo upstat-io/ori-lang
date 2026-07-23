@@ -1,8 +1,8 @@
-//! Structural regression tests for niche-encoded Option/Result helpers.
+//! Structural regression tests for niche-encoded Option/Result dispatch.
 //!
 //! These tests pin they assert that the niche-encoded
 //! `unwrap` / `unwrap_err` / `unwrap_or` / `expect` / `expect_err` helper
-//! bodies in `option_result_helpers.rs` contain the required tag-guard
+//! bodies in `option_result_niche.rs` contain the required tag-guard
 //! and RC-retain calls, mirroring the explicit-tag pattern from
 //! `option_result.rs`.
 //!
@@ -22,7 +22,7 @@
 //! these tests would fail at compile time of the test crate (zero runtime
 //! cost, immediate signal).
 
-const HELPER_SRC: &str = include_str!("../option_result_helpers.rs");
+const NICHE_SRC: &str = include_str!("../option_result_niche.rs");
 
 /// Walk braces from `body_start` (just past an opening `{`) and return the
 /// substring up to the matching closing brace at depth 0.
@@ -77,7 +77,7 @@ fn extract_arm_body<'a>(src: &'a str, start_after: &str, arm_label: &str) -> &'a
 /// Extract the body of a free function from the helper source.
 ///
 /// Walks braces starting from the first `{` after `fn_start` so the helper
-/// is robust to line-ending differences (LF vs CRLF) and incidental
+/// is independent of line-ending differences (LF vs CRLF) and incidental
 /// formatting changes — no string-pattern dependency on the exact closing
 /// `}\n` shape.
 fn extract_fn_body<'a>(src: &'a str, fn_start: &str) -> &'a str {
@@ -102,7 +102,7 @@ const RESULT_NICHE_FN: &str = "fn emit_result_niche(";
 
 #[test]
 fn option_niche_unwrap_has_panic_guard_and_rc_retain() {
-    let body = extract_arm_body(HELPER_SRC, OPTION_NICHE_FN, "\"unwrap\" =>");
+    let body = extract_arm_body(NICHE_SRC, OPTION_NICHE_FN, "\"unwrap\" =>");
     assert!(
         body.contains("emit_unwrap_branch"),
         "Option.unwrap() niche arm must call emit_unwrap_branch (panic guard)\nbody:\n{body}",
@@ -119,7 +119,7 @@ fn option_niche_unwrap_has_panic_guard_and_rc_retain() {
 
 #[test]
 fn option_niche_expect_has_expect_branch_and_rc_retain() {
-    let body = extract_arm_body(HELPER_SRC, OPTION_NICHE_FN, "\"expect\" if");
+    let body = extract_arm_body(NICHE_SRC, OPTION_NICHE_FN, "\"expect\" if");
     assert!(
         body.contains("emit_expect_branch"),
         "Option.expect niche arm must call emit_expect_branch (user-msg guard)\nbody:\n{body}",
@@ -132,7 +132,7 @@ fn option_niche_expect_has_expect_branch_and_rc_retain() {
 
 #[test]
 fn option_niche_unwrap_or_has_conditional_rc_retain() {
-    let body = extract_arm_body(HELPER_SRC, OPTION_NICHE_FN, "\"unwrap_or\" if");
+    let body = extract_arm_body(NICHE_SRC, OPTION_NICHE_FN, "\"unwrap_or\" if");
     // unwrap_or has no panic — it returns the default on None — but it MUST
     // conditionally retain the payload when Some so the inner heap data is
     // not dropped twice (mirrors option_result.rs `unwrap_or` pattern).
@@ -149,7 +149,7 @@ fn option_niche_unwrap_or_has_conditional_rc_retain() {
 
 #[test]
 fn result_niche_unwrap_has_panic_guard_and_rc_retain() {
-    let body = extract_arm_body(HELPER_SRC, RESULT_NICHE_FN, "\"unwrap\" =>");
+    let body = extract_arm_body(NICHE_SRC, RESULT_NICHE_FN, "\"unwrap\" =>");
     assert!(
         body.contains("emit_unwrap_branch"),
         "Result.unwrap() niche arm must call emit_unwrap_branch (panic guard)\nbody:\n{body}",
@@ -171,8 +171,8 @@ fn result_niche_unwrap_has_panic_guard_and_rc_retain() {
 
 #[test]
 fn result_niche_unwrap_err_is_distinct_from_unwrap() {
-    let unwrap_body = extract_arm_body(HELPER_SRC, RESULT_NICHE_FN, "\"unwrap\" =>");
-    let unwrap_err_body = extract_arm_body(HELPER_SRC, RESULT_NICHE_FN, "\"unwrap_err\" =>");
+    let unwrap_body = extract_arm_body(NICHE_SRC, RESULT_NICHE_FN, "\"unwrap\" =>");
+    let unwrap_err_body = extract_arm_body(NICHE_SRC, RESULT_NICHE_FN, "\"unwrap_err\" =>");
     // Pre-fix bug: `unwrap | unwrap_err | unwrap_or` were collapsed into a
     // single arm. Post-fix: each method has its own body. The semantic pin
     // is that the bodies must NOT be byte-identical.
@@ -202,7 +202,7 @@ fn result_niche_unwrap_err_is_distinct_from_unwrap() {
 
 #[test]
 fn result_niche_unwrap_or_has_conditional_rc_retain() {
-    let body = extract_arm_body(HELPER_SRC, RESULT_NICHE_FN, "\"unwrap_or\" if");
+    let body = extract_arm_body(NICHE_SRC, RESULT_NICHE_FN, "\"unwrap_or\" if");
     assert!(
         body.contains("inc_value_rc"),
         "Result.unwrap_or niche arm must call inc_value_rc when Ok\nbody:\n{body}",
@@ -215,7 +215,7 @@ fn result_niche_unwrap_or_has_conditional_rc_retain() {
 
 #[test]
 fn result_niche_expect_has_expect_branch_and_rc_retain() {
-    let body = extract_arm_body(HELPER_SRC, RESULT_NICHE_FN, "\"expect\" if");
+    let body = extract_arm_body(NICHE_SRC, RESULT_NICHE_FN, "\"expect\" if");
     assert!(
         body.contains("emit_expect_branch"),
         "Result.expect niche arm must call emit_expect_branch\nbody:\n{body}",
@@ -232,7 +232,7 @@ fn result_niche_expect_has_expect_branch_and_rc_retain() {
 
 #[test]
 fn result_niche_expect_err_has_expect_branch_and_rc_retain() {
-    let body = extract_arm_body(HELPER_SRC, RESULT_NICHE_FN, "\"expect_err\" if");
+    let body = extract_arm_body(NICHE_SRC, RESULT_NICHE_FN, "\"expect_err\" if");
     assert!(
         body.contains("emit_expect_branch"),
         "Result.expect_err niche arm must call emit_expect_branch\nbody:\n{body}",
@@ -253,7 +253,7 @@ fn result_niche_no_collapsed_unwrap_arm() {
     // Post-fix: each method has its own arm with the appropriate semantics.
     // The negative pin is that the source must NOT contain the collapsed-arm
     // pattern within emit_result_niche.
-    let result_fn_body = extract_fn_body(HELPER_SRC, RESULT_NICHE_FN);
+    let result_fn_body = extract_fn_body(NICHE_SRC, RESULT_NICHE_FN);
 
     let collapsed_pattern = "\"unwrap\" | \"unwrap_err\" | \"unwrap_or\"";
     assert!(

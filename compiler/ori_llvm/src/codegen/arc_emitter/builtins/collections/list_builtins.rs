@@ -291,7 +291,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             &[(direct_val, direct_end), (fallback_val, fallback_end)],
         );
 
-        // Sign-extend narrowed element back to canonical i64.
         let elem_val = if bool_elem {
             let bool_ty = self
                 .builder
@@ -301,12 +300,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.sext_narrowed_collection_element(elem_val, collection_idx, "index.sext")
         };
 
-        // ori_list_get does a raw memcpy — the extracted element shares
-        // the collection's RC children (e.g., str data pointers) without
-        // incrementing their RC. This compiled adapter emits RcInc so the
-        // caller receives the owner credit frozen by the shared plan. The
-        // adapter's later RcDec realizes the matching release. Neither physical
-        // counter operation defines AIMS policy.
+        // INVARIANT: A raw list load shares managed children, so the result needs
+        // the owner credit frozen by the shared plan.
         if !self.classifier.is_scalar(elem_ty) {
             self.inc_value_rc(elem_val, elem_ty, 1);
         }
@@ -314,24 +309,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(elem_val)
     }
 
-    /// Emit `list.iter()` — call `ori_iter_from_list(data, len, cap, elem_size)`.
+    /// Creates a list iterator with ownership and element-width metadata.
     ///
-    /// The iterator takes ownership of one RC reference to the list data buffer.
-    /// The caller is responsible for ensuring the buffer RC is incremented before
-    /// this call (via ARC arg-ownership for explicit `.iter()`, or via
-    /// `emit_slice_aware_rc_inc` in `emit_auto_iter` for auto-promoted methods).
-    /// When the iterator is consumed/dropped, `Drop for IterState` calls
-    /// `ori_buffer_rc_dec` to release this reference.
-    ///
-    /// Element cleanup is entirely header-based: `ori_buffer_rc_dec` reads
-    /// `elem_dec_fn` from the V5 RC header at cleanup time.
-    ///
-    /// **Narrowing boundary:** when the list has narrowed int
-    /// elements (i8/i16/i32 via repr-opt), the list iterator yields narrowed
-    /// bytes. To prevent the narrowing from leaking into the iterator pipeline
-    /// (trampolines, scratch buffers, consumers), we inject a sext widening
-    /// map trampoline that converts narrowed elements to canonical i64. The
-    /// entire iterator pipeline then operates on canonical element types.
+    /// Owned receivers transfer one buffer credit to the iterator. Narrowed
+    /// integer buffers receive a widening trampoline so consumers use canonical
+    /// `i64` elements.
     pub(crate) fn emit_list_iter(
         &mut self,
         receiver: ValueId,
@@ -345,11 +327,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let collection_idx = self.pool.resolve_fully(receiver_ty);
         let narrowed_elem_size = self.collection_elem_size(collection_idx, elem_ty);
         let elem_size_val = self.builder.const_i64(narrowed_elem_size as i64);
-        // owns_data threads the ARC arg-ownership of the .iter() receiver into the
-        // runtime: an owned receiver (the ARC pipeline gave the iterator its own
-        // RC ref) → true (Drop decs); a borrowed-rooted receiver (the flatten
-        // inner sub.iter() on a trampoline-closure param) → false (Drop does NOT
-        // dec; the outer container's elem_dec_fn frees the buffer once).
+        // INVARIANT: Only an owned iterator releases the receiver buffer.
         let owns_data_val = self.builder.const_bool(ownership == ArgOwnership::Owned);
 
         let list_iter = self.emit_rt_call(
@@ -358,12 +336,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "list.iter",
         )?;
 
-        // If the collection has narrowed int elements, inject a sext widening
-        // trampoline at the iter() boundary. This converts narrowed elements
-        // (i8/i16/i32) to canonical i64 so the entire iterator pipeline
-        // operates on canonical types. Without this, downstream trampolines,
-        // scratch buffers, and collect allocations would use the narrowed size
-        // and corrupt data.
+        // Why: Iterator scratch storage uses canonical width; unwidened elements corrupt it.
         let canonical_elem_size = self.element_store_size(elem_ty);
         if narrowed_elem_size < canonical_elem_size {
             if let Some(narrowed_width) = self.narrowed_collection_element_width(collection_idx) {
@@ -427,76 +400,5 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         );
 
         Some(self.builder.load(list_ty, out, "slice.val"))
-    }
-
-    /// Shared body for `emit_list_take_slice` / `emit_list_drop_slice` — both
-    /// are a zero-copy N-element slice differing only in the runtime entry
-    /// point and the emitted-value label.
-    fn emit_list_take_or_drop_slice(
-        &mut self,
-        runtime_fn_name: &'static str,
-        label: &str,
-        receiver: ValueId,
-        n: ValueId,
-        elem_ty: Idx,
-        list_ty: Idx,
-    ) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn(runtime_fn_name);
-
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
-        // Use narrowed element size if available.
-        let collection_idx = self.pool.resolve_fully(list_ty);
-        let elem_size_val = self
-            .builder
-            .const_i64(self.collection_elem_size(collection_idx, elem_ty) as i64);
-
-        let list_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "list.slice.out", list_ty);
-
-        self.emit_rt_call(func_id, &[data_ptr, len, cap, n, elem_size_val, out], label);
-
-        Some(self.builder.load(list_ty, out, "list.slice.val"))
-    }
-
-    /// Emit `list.take(n)` — zero-copy first-N elements slice.
-    ///
-    /// Equivalent to `list.slice(0, n)`. No elements are copied.
-    pub(crate) fn emit_list_take_slice(
-        &mut self,
-        receiver: ValueId,
-        n: ValueId,
-        elem_ty: Idx,
-        list_ty: Idx,
-    ) -> Option<ValueId> {
-        self.emit_list_take_or_drop_slice(
-            "ori_list_slice_take",
-            "take",
-            receiver,
-            n,
-            elem_ty,
-            list_ty,
-        )
-    }
-
-    /// Emit `list.drop(n)` — zero-copy skip-first-N elements slice.
-    ///
-    /// Equivalent to `list.slice(n, len)`. No elements are copied.
-    pub(crate) fn emit_list_drop_slice(
-        &mut self,
-        receiver: ValueId,
-        n: ValueId,
-        elem_ty: Idx,
-        list_ty: Idx,
-    ) -> Option<ValueId> {
-        self.emit_list_take_or_drop_slice(
-            "ori_list_slice_drop",
-            "drop",
-            receiver,
-            n,
-            elem_ty,
-            list_ty,
-        )
     }
 }

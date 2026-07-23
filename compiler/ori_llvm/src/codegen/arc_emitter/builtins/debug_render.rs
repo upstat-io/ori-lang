@@ -1,10 +1,12 @@
 //! Leaf `debug`/`to_str` LLVM emission: per-element formatting, the element
 //! dispatchers, derived-method calls, and string literal/concat utilities.
 
-use super::{super::ArcIrEmitter, RenderStyle};
+use ori_types::Idx;
+
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
-use ori_types::Idx;
+
+use super::{super::ArcIrEmitter, RenderStyle};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Materialize a runtime-owned `OriStr` from a compiler literal.
@@ -77,6 +79,27 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .call_with_sret(func_id, &[s_ptr], str_ty, "esc.ctrl")
     }
 
+    fn emit_byte_to_str(&mut self, value: ValueId) -> Option<ValueId> {
+        let i64_ty = self
+            .builder
+            .register_type(self.builder.scx().type_i64().into());
+        let as_i64 = self.builder.zext(value, i64_ty, "tstr.byte.zext");
+        let str_ty = self.resolve_type(ori_types::Idx::STR);
+        let func_id = self.builder.runtime_fn("ori_byte_printable_format");
+        self.builder
+            .call_with_sret(func_id, &[as_i64], str_ty, "tstr.byte")
+    }
+
+    fn emit_option_to_str(&mut self, value: ValueId, inner_type: Idx) -> Option<ValueId> {
+        let tag = self.builder.extract_value(value, 0, "tstr.opt.tag")?;
+        let some = self
+            .builder
+            .const_int_matching(tag, u64::try_from(ori_ir::OPTION_TAG_SOME).ok()?);
+        let is_some = self.builder.icmp_eq(tag, some, "tstr.opt.is_some");
+        let payload = self.builder.extract_value(value, 1, "tstr.opt.payload")?;
+        self.emit_option_debug_branch(is_some, payload, inner_type, RenderStyle::Printable)
+    }
+
     /// Emit `to_str` (Printable) for an element of any supported type.
     ///
     /// Strings and chars render without quoting; compound types recurse with
@@ -96,26 +119,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             TypeInfo::Str => Some(val),
 
-            TypeInfo::Byte => {
-                let i64_ty = self
-                    .builder
-                    .register_type(self.builder.scx().type_i64().into());
-                let as_i64 = self.builder.zext(val, i64_ty, "tstr.byte.zext");
-                let str_ty = self.resolve_type(ori_types::Idx::STR);
-                let func_id = self.builder.runtime_fn("ori_byte_printable_format");
-                self.builder
-                    .call_with_sret(func_id, &[as_i64], str_ty, "tstr.byte")
-            }
+            TypeInfo::Byte => self.emit_byte_to_str(val),
 
             TypeInfo::Option { inner } => {
                 let inner = *inner;
-                let tag = self.builder.extract_value(val, 0, "tstr.opt.tag")?;
-                let some = self
-                    .builder
-                    .const_int_matching(tag, u64::try_from(ori_ir::OPTION_TAG_SOME).ok()?);
-                let is_some = self.builder.icmp_eq(tag, some, "tstr.opt.is_some");
-                let payload = self.builder.extract_value(val, 1, "tstr.opt.payload")?;
-                self.emit_option_debug_branch(is_some, payload, inner, RenderStyle::Printable)
+                self.emit_option_to_str(val, inner)
             }
 
             TypeInfo::Result {
@@ -133,6 +141,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
 
             TypeInfo::Tuple { elements } => {
+                // Why: Owning the descriptor releases the type-info borrow before recursive emission.
                 let elements = elements.clone();
                 self.emit_tuple_debug(val, &elements, ty, RenderStyle::Printable)
             }
@@ -154,6 +163,46 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
+    fn emit_scalar_debug(&mut self, value: ValueId, type_info: &TypeInfo) -> Option<ValueId> {
+        let str_ty = self.resolve_type(ori_types::Idx::STR);
+        match type_info {
+            TypeInfo::Str => {
+                let string_pointer =
+                    self.builder
+                        .create_entry_alloca(self.current_function, "dbg.str", str_ty);
+                self.builder.store(value, string_pointer);
+                let function = self.builder.runtime_fn("ori_str_debug_format");
+                self.builder
+                    .call_with_sret(function, &[string_pointer], str_ty, "dbg.str.fmt")
+            }
+            TypeInfo::Char => {
+                let function = self.builder.runtime_fn("ori_char_debug_format");
+                self.builder
+                    .call_with_sret(function, &[value], str_ty, "dbg.char.fmt")
+            }
+            TypeInfo::Byte => {
+                let i64_ty = self
+                    .builder
+                    .register_type(self.builder.scx().type_i64().into());
+                let as_i64 = self.builder.zext(value, i64_ty, "dbg.byte.zext");
+                let function = self.builder.runtime_fn("ori_str_from_int");
+                self.builder
+                    .call_with_sret(function, &[as_i64], str_ty, "dbg.byte")
+            }
+            _ => unreachable!("scalar debug helper received a non-scalar type"),
+        }
+    }
+
+    fn emit_option_debug(&mut self, value: ValueId, inner_type: Idx) -> Option<ValueId> {
+        let tag = self.builder.extract_value(value, 0, "dbg.opt.tag")?;
+        let some = self
+            .builder
+            .const_int_matching(tag, u64::try_from(ori_ir::OPTION_TAG_SOME).ok()?);
+        let is_some = self.builder.icmp_eq(tag, some, "dbg.opt.is_some");
+        let payload = self.builder.extract_value(value, 1, "dbg.opt.payload")?;
+        self.emit_option_debug_branch(is_some, payload, inner_type, RenderStyle::Debug)
+    }
+
     /// Emit Debug formatting for an element of any type.
     ///
     /// Strings and chars render quoted and escaped; compound types recurse with
@@ -171,44 +220,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             TypeInfo::Ordering => self.emit_ordering_name(val),
 
-            TypeInfo::Str => {
-                let str_ty = self.resolve_type(ori_types::Idx::STR);
-                let s_ptr =
-                    self.builder
-                        .create_entry_alloca(self.current_function, "dbg.str", str_ty);
-                self.builder.store(val, s_ptr);
-                let func_id = self.builder.runtime_fn("ori_str_debug_format");
-                self.builder
-                    .call_with_sret(func_id, &[s_ptr], str_ty, "dbg.str.fmt")
-            }
-
-            TypeInfo::Char => {
-                let str_ty = self.resolve_type(ori_types::Idx::STR);
-                let func_id = self.builder.runtime_fn("ori_char_debug_format");
-                self.builder
-                    .call_with_sret(func_id, &[val], str_ty, "dbg.char.fmt")
-            }
-
-            TypeInfo::Byte => {
-                let i64_ty = self
-                    .builder
-                    .register_type(self.builder.scx().type_i64().into());
-                let as_i64 = self.builder.zext(val, i64_ty, "dbg.byte.zext");
-                let str_ty = self.resolve_type(ori_types::Idx::STR);
-                let func_id = self.builder.runtime_fn("ori_str_from_int");
-                self.builder
-                    .call_with_sret(func_id, &[as_i64], str_ty, "dbg.byte")
+            TypeInfo::Str | TypeInfo::Char | TypeInfo::Byte => {
+                self.emit_scalar_debug(val, &type_info)
             }
 
             TypeInfo::Option { inner } => {
                 let inner = *inner;
-                let tag = self.builder.extract_value(val, 0, "dbg.opt.tag")?;
-                let some = self
-                    .builder
-                    .const_int_matching(tag, u64::try_from(ori_ir::OPTION_TAG_SOME).ok()?);
-                let is_some = self.builder.icmp_eq(tag, some, "dbg.opt.is_some");
-                let payload = self.builder.extract_value(val, 1, "dbg.opt.payload")?;
-                self.emit_option_debug_branch(is_some, payload, inner, RenderStyle::Debug)
+                self.emit_option_debug(val, inner)
             }
 
             TypeInfo::Result {
@@ -226,6 +244,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
 
             TypeInfo::Tuple { elements } => {
+                // Why: Owning the descriptor releases the type-info borrow before recursive emission.
                 let elements = elements.clone();
                 self.emit_tuple_debug(val, &elements, ty, RenderStyle::Debug)
             }
@@ -250,9 +269,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Call a compiled `str`-returning derived method (`debug` / `to_str`)
     /// for a type via method dispatch.
     ///
-    /// Looks up `method_name` in `method_functions`, applies ABI parameter
-    /// passing (Indirect for large structs), and handles the sret return
-    /// (both `debug` and `to_str` return `str`, which is 24 bytes -> sret).
+    /// Resolves `method_name` through the derived-method target tables, applies
+    /// ABI parameter passing, and handles the sret return used by `str`.
     /// Returns `None` if no compiled method exists for the type.
     fn emit_derived_str_method_call(
         &mut self,

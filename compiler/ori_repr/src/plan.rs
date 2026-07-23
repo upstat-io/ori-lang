@@ -10,17 +10,17 @@ mod range_plan;
 mod repr_attr;
 mod yield_plan;
 
-use crate::enum_repr::EnumRepr;
-use crate::escape::EscapeInfo;
-use crate::layout::EnumLayoutInfo;
-use crate::range::ValueRange;
-use crate::repr::MachineRepr;
 use ori_arc::ir::{AllocationSiteId, ArcVarId, YieldExtent};
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-// Re-export sub-types for plan consumers.
+use crate::enum_repr::EnumRepr;
+use crate::escape::EscapeInfo;
+use crate::layout::EnumLayoutInfo;
+use crate::range::ValueRange;
+use crate::repr::MachineRepr;
+
 pub use self::decision::{DecisionReason, DecisionSource, ReprDecision};
 pub use self::query::{NarrowingPolicy, RcStrategy};
 pub use self::repr_attr::ReprAttribute;
@@ -30,23 +30,37 @@ pub(crate) use yield_plan::YieldLineageRuntimeCall;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CompiledAllocationMechanism {
     /// Existing growable RC-managed runtime allocation.
-    RuntimeHeap,
-    /// Bounded function-lifetime storage emitted in the owning stack frame.
-    StackSlot,
+    RuntimeHeap {
+        /// Proven allocation extent, when available.
+        extent: YieldExtent,
+    },
+    /// Bounded function-lifetime storage with a runtime-compatible header.
+    ManagedStack {
+        /// Exact element capacity.
+        capacity: u64,
+    },
+    /// Bounded function-lifetime storage without a runtime header.
+    CompactStack {
+        /// Exact element capacity.
+        capacity: u64,
+    },
 }
 
 /// Representation-layer allocation projection for one stable site.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CompiledAllocationDecision {
+    /// Stable identity of the source allocation.
     pub site: AllocationSiteId,
+    /// ARC variable holding the allocation builder.
     pub builder: ArcVarId,
+    /// ARC variable holding the completed collection.
     pub result: ArcVarId,
+    /// Element type stored by the allocation.
     pub elem_ty: Idx,
+    /// Physical size of one element in bytes.
     pub elem_size: u64,
-    pub extent: YieldExtent,
+    /// Physical storage selected for the allocation.
     pub mechanism: CompiledAllocationMechanism,
-    /// Preserve the runtime RC header immediately before the element data.
-    pub requires_runtime_header: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -73,8 +87,7 @@ pub struct ReprPlan {
     /// Stored **separately** from `decisions` because RC strategy is metadata
     /// about how a value is reference-counted, not a replacement for its
     /// layout. Writing an RC decision must not destroy the type's
-    /// `MachineRepr`. Populated by ARC header compression
-    /// and thread-local ARC passes.
+    /// `MachineRepr`.
     rc_strategies: FxHashMap<Idx, RcStrategy>,
     /// Per-function escape info (indexed by function `Name`).
     ///
@@ -90,25 +103,22 @@ pub struct ReprPlan {
     length_projection_yields: FxHashMap<Name, ArcVarId>,
     /// Per-function, per-variable ranges from range analysis.
     ///
-    /// Key: function `Name` → (`ArcVarId` → `ValueRange`).
-    /// Populated by range analysis, consumed by integer narrowing.
+    /// Key: function `Name` maps to (`ArcVarId`, `ValueRange`) entries.
     function_var_ranges: FxHashMap<Name, FxHashMap<ArcVarId, ValueRange>>,
     /// Per-type-field range summaries from field-summary analysis.
     ///
-    /// Key: `(struct/tuple Idx, field_index)` → joined `ValueRange`.
-    /// Populated by `FieldSummaryTable::flush_to_repr_plan`,
-    /// consumed by struct field narrowing.
+    /// Key: `(struct/tuple Idx, field_index)` maps to the joined `ValueRange`.
     field_range_summaries: FxHashMap<(Idx, u32), ValueRange>,
     /// Per-collection-type element range summaries from element analysis.
     ///
-    /// Key: collection type `Idx` (e.g., `[int]`) → joined `ValueRange` of
+    /// Key: collection type `Idx` (e.g., `[int]`) maps to the joined `ValueRange` of
     /// all observed element values across `Construct(ListLiteral)` and
-    /// `CollectionReuse` sites. Consumed by collection element narrowing.
+    /// `CollectionReuse` sites.
     element_range_summaries: FxHashMap<Idx, ValueRange>,
     /// Canonical enum layout facts, keyed by enum type `Idx`.
     ///
-    /// Populated from the final `EnumRepr` after all repr-optimization passes.
-    /// Consumers query `enum_layout_info()` instead of computing layout ad-hoc.
+    /// Each entry is derived from the final `EnumRepr` after all representation
+    /// optimization passes.
     enum_layouts: FxHashMap<Idx, EnumLayoutInfo>,
     /// Audit trail — all decisions in insertion order.
     audit: Vec<ReprDecision>,
@@ -136,6 +146,31 @@ pub struct ReprPlan {
 impl CompiledAllocationDecision {
     /// Maximum element bytes admitted to function-lifetime stack storage.
     pub const MAX_LOCAL_BYTES: u64 = 4 * 1024;
+}
+
+impl CompiledAllocationMechanism {
+    /// Proven allocation extent.
+    #[must_use]
+    pub const fn extent(self) -> YieldExtent {
+        match self {
+            Self::RuntimeHeap { extent } => extent,
+            Self::ManagedStack { capacity } | Self::CompactStack { capacity } => {
+                YieldExtent::StaticExact(capacity)
+            }
+        }
+    }
+
+    /// Whether the allocation is emitted in the owning stack frame.
+    #[must_use]
+    pub const fn is_stack(self) -> bool {
+        matches!(self, Self::ManagedStack { .. } | Self::CompactStack { .. })
+    }
+
+    /// Whether storage retains the runtime-compatible header.
+    #[must_use]
+    pub const fn requires_runtime_header(self) -> bool {
+        !matches!(self, Self::CompactStack { .. })
+    }
 }
 
 impl ReprPlan {
@@ -175,7 +210,7 @@ impl ReprPlan {
     /// Query the representation decision for a type.
     ///
     /// Returns `None` if no decision has been recorded — callers should
-    /// fall back to `TypeInfoStore` (Phase A migration).
+    /// fall back to the canonical `TypeInfoStore` layout.
     #[must_use]
     pub fn get_repr(&self, idx: Idx) -> Option<&MachineRepr> {
         self.decisions.get(&idx).map(|d| &d.repr)
@@ -278,9 +313,7 @@ impl ReprPlan {
     /// externally unconstrained. `self_type` disambiguates same-named methods.
     #[must_use]
     pub fn is_unconstrained_fn(&self, self_type: Option<Idx>, name: Name) -> bool {
-        // Exact match only: (None, name) for pub top-level, (Some(idx), name) for
-        // trait impl methods. No wildcard fallback — a pub top-level `foo` must NOT
-        // make an unrelated impl method `Type.foo` unconstrained.
+        // Why: Receiver qualification keeps public top-level names from constraining methods.
         self.unconstrained_fn_names.contains(&(self_type, name))
     }
 

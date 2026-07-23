@@ -17,11 +17,7 @@ use super::iterator_flow::IteratorFlowSetup;
 
 struct YieldIteratorSetup {
     flow: IteratorFlowSetup,
-    list_ptr: ArcVarId,
-    elem_size_var: ArcVarId,
-    elem_ty: Idx,
-    elem_size: u64,
-    extent: YieldExtent,
+    allocation: YieldListAllocation,
 }
 
 #[derive(Clone, Copy)]
@@ -31,11 +27,16 @@ enum RangeEnd {
 }
 
 /// Carries allocation identity and normalized extent evidence between yield strategies.
+#[derive(Clone, Copy)]
 pub(super) struct YieldListAllocation {
     /// Builder identity used by list mutation and realization.
     pub(super) list_ptr: ArcVarId,
     /// Lowered element-size operand for runtime list operations.
     pub(super) elem_size_var: ArcVarId,
+    /// Semantic list element type.
+    pub(super) elem_ty: Idx,
+    /// Physical compatibility size passed to the current list runtime ABI.
+    pub(super) elem_size: u64,
     /// Extent normalized to the runtime capacity ABI.
     pub(super) extent: YieldExtent,
 }
@@ -77,6 +78,7 @@ impl ArcLowerer<'_> {
             let iter_name = self
                 .interner
                 .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
+
             let iter_handle =
                 self.builder
                     .emit_apply(Idx::INT, iter_name, vec![iter_val], None, None);
@@ -92,6 +94,7 @@ impl ArcLowerer<'_> {
             let iter_name = self
                 .interner
                 .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
+
             let iter_handle =
                 self.builder
                     .emit_apply(Idx::INT, iter_name, vec![iter_val], None, None);
@@ -148,11 +151,12 @@ impl ArcLowerer<'_> {
             iter_val,
             &setup.flow,
             Some(ForYieldContext {
-                list_ptr: setup.list_ptr,
-                elem_size: setup.elem_size_var,
+                list_ptr: setup.allocation.list_ptr,
+                elem_size: setup.allocation.elem_size_var,
                 list_push_name: list_push,
             }),
         );
+
         self.lower_iterator_guard(
             shape.pattern,
             elem_ty,
@@ -177,17 +181,9 @@ impl ArcLowerer<'_> {
         } else {
             fallback_elem_ty
         };
-        let elem_size = self.compute_elem_size(body_elem_ty).cast_unsigned();
         let allocation = self.allocate_yield_list(body_elem_ty, extent);
         let flow = self.prepare_iterator_flow(None);
-        YieldIteratorSetup {
-            flow,
-            list_ptr: allocation.list_ptr,
-            elem_size_var: allocation.elem_size_var,
-            elem_ty: body_elem_ty,
-            elem_size,
-            extent: allocation.extent,
-        }
+        YieldIteratorSetup { flow, allocation }
     }
 
     /// Allocate a list builder while preserving normalized extent evidence.
@@ -215,6 +211,7 @@ impl ArcLowerer<'_> {
         let elem_size_var =
             self.builder
                 .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(elem_size)), None);
+
         let list_ptr = self.builder.emit_apply(
             Idx::INT,
             list_new,
@@ -222,9 +219,12 @@ impl ArcLowerer<'_> {
             None,
             None,
         );
+
         YieldListAllocation {
             list_ptr,
             elem_size_var,
+            elem_ty,
+            elem_size: elem_size.cast_unsigned(),
             extent,
         }
     }
@@ -288,10 +288,15 @@ impl ArcLowerer<'_> {
         self.builder.emit_apply(
             Idx::UNIT,
             list_push,
-            vec![setup.list_ptr, body_val, setup.elem_size_var],
+            vec![
+                setup.allocation.list_ptr,
+                body_val,
+                setup.allocation.elem_size_var,
+            ],
             None,
             None,
         );
+
         let back_args = setup
             .flow
             .header_mut_params
@@ -327,16 +332,21 @@ impl ArcLowerer<'_> {
             self.scope.bind_mutable(name, param);
         }
         let list_take = self.interner.intern("ori_list_take");
-        let result =
-            self.builder
-                .emit_apply(result_ty, list_take, vec![setup.list_ptr], None, None);
+        let result = self.builder.emit_apply(
+            result_ty,
+            list_take,
+            vec![setup.allocation.list_ptr],
+            None,
+            None,
+        );
+
         self.builder.note_yield_allocation(
-            setup.list_ptr,
+            setup.allocation.list_ptr,
             result,
-            setup.elem_ty,
-            setup.elem_size_var,
-            setup.elem_size,
-            setup.extent,
+            setup.allocation.elem_ty,
+            setup.allocation.elem_size_var,
+            setup.allocation.elem_size,
+            setup.allocation.extent,
         );
         result
     }

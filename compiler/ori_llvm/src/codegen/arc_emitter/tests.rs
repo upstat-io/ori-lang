@@ -3054,7 +3054,7 @@ fn register_unrelated_method(
 }
 
 #[test]
-fn bound_user_method_miss_does_not_fall_back_to_legacy_map() {
+fn bound_user_method_miss_does_not_use_unbound_method_map() {
     let mut pool = Pool::new();
     let type_name = ori_ir::Name::from_raw(300);
     let struct_ty = pool.struct_type(type_name, &[]);
@@ -3092,7 +3092,7 @@ fn bound_user_method_miss_does_not_fall_back_to_legacy_map() {
 
     assert!(
         em.user_method(struct_ty, method_name).is_none(),
-        "a bound exact-table miss must not resolve through legacy method maps"
+        "a bound exact-table miss must not resolve through the unbound type-name method map"
     );
 }
 
@@ -3666,5 +3666,148 @@ fn sret_forwarding_matching_pointee_reuses_destination() {
     assert!(
         !ir.contains("%sret.tmp = alloca"),
         "matching nested return should not allocate a temporary:\n{ir}"
+    );
+}
+
+#[test]
+fn malformed_indirect_closure_records_codegen_error_through_emitter() {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_malformed_indirect_closure"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let host = builder.declare_void_function("host", &[]);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+    let malformed_closure = builder.const_i64(0);
+
+    let classifier = TestClassifier;
+    let codegen_ctx = super::CodegenContext::default();
+    let mut emitter = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &classifier as &dyn ArcClassification,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
+    );
+
+    let closure = ArcVarId::new(0);
+    emitter.def_var(closure, super::EmittedValue::Immediate(malformed_closure));
+    let function = ArcFunction {
+        name: interner.intern("host"),
+        return_type: Idx::INT,
+        var_types: vec![Idx::INT, Idx::INT],
+        var_reprs: vec![
+            ori_arc::ir::ValueRepr::Scalar,
+            ori_arc::ir::ValueRepr::Scalar,
+        ],
+        var_metadata_state: VariableMetadataState::Realized,
+        ..Default::default()
+    };
+
+    emitter.emit_instr(
+        &ArcInstr::ApplyIndirect {
+            dst: ArcVarId::new(1),
+            ty: Idx::INT,
+            closure,
+            args: Vec::new(),
+            arg_ownership: Vec::new(),
+        },
+        &function,
+    );
+
+    let errors = emitter.builder.codegen_error_descriptions();
+    assert!(
+        errors.iter().any(|error| {
+            error.contains("closure v0")
+                && error.contains("function and environment fields")
+                && error.contains("report this compiler bug")
+        }),
+        "malformed closure emission must record the actionable indirect-call diagnostic: {errors:?}"
+    );
+}
+
+#[test]
+fn invalid_general_enum_payload_projection_records_codegen_error_through_emitter() {
+    let mut pool = Pool::new();
+    let enum_ty = pool.enum_type(
+        Name::from_raw(100),
+        &[
+            ori_types::EnumVariant {
+                name: Name::from_raw(101),
+                field_types: vec![Idx::INT],
+            },
+            ori_types::EnumVariant {
+                name: Name::from_raw(102),
+                field_types: vec![Idx::INT],
+            },
+        ],
+    );
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_invalid_enum_projection"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let host = builder.declare_void_function("host", &[]);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let classifier = TestClassifier;
+    let codegen_ctx = super::CodegenContext::default();
+    let mut emitter = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &classifier as &dyn ArcClassification,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
+    );
+
+    let source = ArcVarId::new(0);
+    let enum_llvm_ty = emitter.resolve_type(enum_ty);
+    let enum_value = emitter.builder.const_zero_ty(enum_llvm_ty);
+    emitter.def_var(source, super::EmittedValue::Immediate(enum_value));
+    let function = ArcFunction {
+        name: interner.intern("host"),
+        return_type: Idx::UNIT,
+        var_types: vec![enum_ty, Idx::BOOL],
+        var_reprs: vec![
+            ori_arc::ir::ValueRepr::Aggregate,
+            ori_arc::ir::ValueRepr::Scalar,
+        ],
+        var_metadata_state: VariableMetadataState::Realized,
+        ..Default::default()
+    };
+
+    emitter.emit_instr(
+        &ArcInstr::Project {
+            dst: ArcVarId::new(1),
+            ty: Idx::BOOL,
+            value: source,
+            field: 1,
+        },
+        &function,
+    );
+
+    let errors = emitter.builder.codegen_error_descriptions();
+    assert!(
+        errors.iter().any(|error| {
+            error.contains("general-enum projection field 1")
+                && error.contains("has no matching payload field")
+                && error.contains("report this compiler bug")
+        }),
+        "invalid general-enum projection must fail closed with an actionable diagnostic: {errors:?}"
     );
 }

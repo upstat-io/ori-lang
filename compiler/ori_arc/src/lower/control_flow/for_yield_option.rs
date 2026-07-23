@@ -9,6 +9,7 @@ use crate::ir::{ArcBlockId, ArcValue, ArcVarId, LitValue, PrimOp, YieldExtent};
 use crate::lower::scope::ArcScope;
 
 use super::super::expr::{ArcLowerer, ForYieldContext, ForYieldShape, LoopContext};
+use super::for_yield::YieldListAllocation;
 
 type MutableBinding = (Name, ArcVarId, Idx);
 
@@ -19,11 +20,7 @@ struct YieldOptionSetup {
     pre_scope: ArcScope,
     mutable_bindings: Vec<MutableBinding>,
     exit_mut_params: Vec<(Name, ArcVarId)>,
-    list_ptr: ArcVarId,
-    elem_size_var: ArcVarId,
-    elem_ty: Idx,
-    elem_size: u64,
-    extent: YieldExtent,
+    allocation: YieldListAllocation,
 }
 
 impl ArcLowerer<'_> {
@@ -66,17 +63,18 @@ impl ArcLowerer<'_> {
             .mutable_bindings()
             .map(|(name, var)| (name, var, self.builder.var_type(var)))
             .collect::<Vec<_>>();
+
         let body_elem_ty = if self.pool.tag(result_ty) == Tag::List {
             self.pool.list_elem(result_ty)
         } else {
             fallback_elem_ty
         };
-        let elem_size = self.compute_elem_size(body_elem_ty).cast_unsigned();
         let allocation = self.allocate_yield_list(body_elem_ty, YieldExtent::StaticExact(1));
         let exit_mut_params = mutable_bindings
             .iter()
             .map(|&(name, _, ty)| (name, self.builder.add_block_param(exit_block, ty)))
             .collect();
+
         YieldOptionSetup {
             some_block,
             none_block,
@@ -84,11 +82,7 @@ impl ArcLowerer<'_> {
             pre_scope,
             mutable_bindings,
             exit_mut_params,
-            list_ptr: allocation.list_ptr,
-            elem_size_var: allocation.elem_size_var,
-            elem_ty: body_elem_ty,
-            elem_size,
-            extent: allocation.extent,
+            allocation,
         }
     }
 
@@ -105,6 +99,7 @@ impl ArcLowerer<'_> {
             ArcValue::Literal(LitValue::Int(ori_ir::OPTION_TAG_SOME)),
             None,
         );
+
         let is_some = self.builder.emit_let(
             Idx::BOOL,
             ArcValue::PrimOp {
@@ -138,6 +133,7 @@ impl ArcLowerer<'_> {
             .iter()
             .map(|&(name, pre_var, _)| (name, pre_var))
             .collect();
+
         self.loop_ctx_stack.push(LoopContext {
             label,
             exit_block: setup.exit_block,
@@ -145,8 +141,8 @@ impl ArcLowerer<'_> {
             mutable_vars,
             abandon_iter: None,
             yield_ctx: Some(ForYieldContext {
-                list_ptr: setup.list_ptr,
-                elem_size: setup.elem_size_var,
+                list_ptr: setup.allocation.list_ptr,
+                elem_size: setup.allocation.elem_size_var,
                 list_push_name: list_push,
             }),
         });
@@ -190,10 +186,15 @@ impl ArcLowerer<'_> {
         self.builder.emit_apply(
             Idx::UNIT,
             list_push,
-            vec![setup.list_ptr, body_val, setup.elem_size_var],
+            vec![
+                setup.allocation.list_ptr,
+                body_val,
+                setup.allocation.elem_size_var,
+            ],
             None,
             None,
         );
+
         let exit_args = setup
             .mutable_bindings
             .iter()
@@ -210,16 +211,21 @@ impl ArcLowerer<'_> {
         }
 
         let list_take = self.interner.intern("ori_list_take");
-        let result =
-            self.builder
-                .emit_apply(result_ty, list_take, vec![setup.list_ptr], None, None);
+        let result = self.builder.emit_apply(
+            result_ty,
+            list_take,
+            vec![setup.allocation.list_ptr],
+            None,
+            None,
+        );
+
         self.builder.note_yield_allocation(
-            setup.list_ptr,
+            setup.allocation.list_ptr,
             result,
-            setup.elem_ty,
-            setup.elem_size_var,
-            setup.elem_size,
-            setup.extent,
+            setup.allocation.elem_ty,
+            setup.allocation.elem_size_var,
+            setup.allocation.elem_size,
+            setup.allocation.extent,
         );
         result
     }

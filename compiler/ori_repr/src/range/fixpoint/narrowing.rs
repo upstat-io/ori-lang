@@ -165,6 +165,7 @@ fn add_operands(
     Some((*args.first()?, *args.get(1)?))
 }
 
+/// Derives loop-header and loop-body ranges for a bounded direct range.
 pub(super) fn direct_range_intervals(
     start: ValueRange,
     end: ValueRange,
@@ -239,7 +240,7 @@ fn bounded_or_bottom(lo: i64, hi: i64) -> ValueRange {
 
 /// Run one narrowing pass over all blocks to recover precision lost to widening.
 ///
-/// also re-merges block parameters from predecessors, applies
+/// Also re-merges block parameters from predecessors, applies
 /// block refinements (branch/switch), and narrows invoke terminators.
 /// This allows widened loop-header parameters to recover bounded ranges.
 pub(super) fn run_narrowing_pass(
@@ -354,7 +355,7 @@ pub(super) fn recompute_field_summaries(
 
 /// Recompute element summaries from final (post-narrowing) variable ranges.
 ///
-/// Same rationale as `recompute_field_summaries`.
+/// Rebuilds element summaries without pre-convergence ranges.
 pub(super) fn recompute_element_summaries(
     rpo: &[usize],
     func: &ArcFunction,

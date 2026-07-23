@@ -140,9 +140,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if self.ctx.executable_facts_bound {
             return self.lookup_exact_method_target(receiver_ty, name);
         }
-        // A generic-composite receiver resolves to its materialized
-        // concrete body; prefer the per-instantiation derived method keyed on
-        // that Idx before the type-name-keyed map.
+        // Why: Type-name lookup can select the wrong layout for generic instantiations.
         let resolved = self.pool.resolve_fully(receiver_ty);
         if let Some(hit) = self.ctx.mono_derive_functions.get(&(resolved, name)) {
             return Some(hit);
@@ -168,10 +166,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if self.ctx.executable_facts_bound {
             return self.lookup_exact_method_target(return_ty, name);
         }
-        // A generic-composite return type (e.g. `Default` on
-        // `P3Pair<int,str>`) resolves to its materialized concrete body; prefer
-        // the per-instantiation derived method keyed on that Idx before the
-        // last-instantiation-wins type-name-keyed map.
+        // Why: Type-name lookup can select the wrong layout for generic instantiations.
         let resolved = self.pool.resolve_fully(return_ty);
         if let Some(hit) = self.ctx.mono_derive_functions.get(&(resolved, name)) {
             return Some(hit);
@@ -180,23 +175,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.ctx.method_functions.get(&(*type_name, name))
     }
 
-    /// Diagnostic check for method lookup when all typed dispatches miss.
+    /// Diagnoses missing typed registrations after all typed dispatches miss.
     ///
-    /// Always returns `None` — this function only logs diagnostics.
-    /// If a method exists in `method_functions` but wasn't found through
-    /// normal dispatch, it means the receiver's type wasn't registered in
-    /// `type_idx_to_name` (e.g., enum types whose derives aren't compiled yet).
-    /// Returning `None` ensures the caller falls through to the "unresolved
-    /// function" error path instead of silently calling the wrong method.
-    ///
-    /// The warning fires only when `receiver_ty` resolves to a type
-    /// `type_idx_to_name` is meant to cover (`Tag::Applied` generic
-    /// composites, `Tag::Struct`, `Tag::Enum` — mirrors the registration
-    /// idiom at `derive_codegen/instantiation.rs`). A builtin receiver
-    /// (str, bool, ...) legitimately falls through every typed dispatch
-    /// step to `try_emit_builtin_method`; gating on the receiver's tag
-    /// stops the warning firing whenever ANY unrelated type happens to
-    /// share the method name.
+    /// Returns `None` after warning only for receiver types that require a
+    /// registered derived method; builtin receivers remain silent.
     pub(super) fn lookup_method_fallback(
         &self,
         name: Name,
@@ -221,24 +203,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         None
     }
 
-    /// Resolve a generic function call to its monomorphized variant.
+    /// Resolves a generic call to its monomorphized LLVM declaration.
     ///
-    /// The ARC IR uses the original generic name (e.g., `identity`) while
-    /// the LLVM function was declared under the mangled name
-    /// (`identity$m$3_int`). Two paths:
-    ///
-    /// 1. Abstract-index fast path (sub-step 1e/1f canon-side-table +
-    ///    sub-step 1b-deferred deferred-resolution publication): when the
-    ///    ARC carrier supplies `mono_instance_id`, look up the mangled
-    ///    name directly from `ctx.mono_dispatch_by_id`. This is the
-    ///    canonical post-1f path for paths covered by the typeck
-    ///    publication pipeline.
-    /// 2. Argument-type fallback: kept live for ARC `Invoke` terminators
-    ///    in tail position and `apply`-pattern invocations whose carrier
-    ///    still has `mono_instance_id = None`. When wired through, the
-    ///    fallback becomes dead and can be removed; until then it
-    ///    matches concrete argument types against
-    ///    `ctx.mono_dispatch[callee]` to pick the correct specialization.
+    /// Exact instance identity takes precedence; calls without that identity
+    /// fall back to structural argument-type matching.
     pub(super) fn lookup_mono_dispatch(
         &self,
         callee: Name,
@@ -271,13 +239,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .iter()
             .map(|a| self.pool.resolve_fully(func.var_type(*a)))
             .collect();
-        // Match by structural type equality across the merged/imported pool
-        // boundary: a param `[int]` and an arg `[int]` interned to distinct Idx
-        // denote the same type, so `Pool::structural_eq` is required, not raw
-        // Idx identity (the SSOT both fallback sites call).
-        //
-        // The provenance-erased fallback must not bind a builtin method call to
-        // a same-named free-function specialization.
+        // Why: Raw `Idx` equality differs across merged pools, and builtin methods can share names.
         let skip_self_target = ori_repr::monomorphize::callee_shadows_builtin_method(
             self.pool,
             self.interner,
@@ -320,15 +282,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         matched.and_then(|(_, mangled)| self.ctx.functions.get(mangled))
     }
 
-    /// Resolve a callee via the 5-step dispatch chain (shared by `Apply`
-    /// emission and `Invoke` terminator emission):
+    /// Resolves a callee through receiver, return, free-function, and generic identities.
     ///
-    /// 1. Receiver-based: use first arg's type (instance methods)
-    /// 2. Return-type-based: use dst's type (static methods like default)
-    /// 3. Unqualified: bare function name (free functions)
-    /// 4. Monomorphized generic: abstract-index fast path via
-    ///    `mono_instance_id`, degrading to argument-type matching
-    /// 5. Diagnostic fallback: logs warning, returns None
+    /// A final typed diagnostic fallback returns `None` when every identity misses.
     pub(super) fn resolve_callee(
         &self,
         callee: Name,
@@ -373,9 +329,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             };
         }
 
-        // Receiver's resolved type, computed once for the diagnostic-only
-        // fallback step — mirrors `lookup_method_by_receiver`'s own
-        // `args.first()` + `func.var_type()` + `resolve_fully()` derivation.
         let resolved_receiver_ty = args
             .first()
             .map(|&a| self.pool.resolve_fully(func.var_type(a)));

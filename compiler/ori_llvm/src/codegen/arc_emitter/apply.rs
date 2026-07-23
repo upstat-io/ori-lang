@@ -3,13 +3,15 @@
 
 mod local_yield;
 
-use super::{ArcIrEmitter, EmittedValue, StringRuntimeReturnAbi};
-use crate::codegen::abi::{ParamAbi, ReturnAbi, ReturnPassing};
-use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::canon::MonoInstanceId;
 use ori_ir::{Name, CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN, FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
+
+use crate::codegen::abi::{ParamAbi, ReturnAbi, ReturnPassing};
+use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
+
+use super::{ArcIrEmitter, EmittedValue, StringRuntimeReturnAbi};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit an `Apply` instruction (ABI-aware direct call).
@@ -82,11 +84,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let env_ptr = self
             .builder
             .extract_value(closure_val, CLOSURE_FIELD_ENV, "closure.env_ptr");
+
         let (Some(fn_ptr), Some(env_ptr)) = (fn_ptr, env_ptr) else {
-            tracing::error!(
-                closure_var = closure.raw(),
-                "emit_apply_indirect: extract_value failed — fn_ptr or env_ptr is None"
-            );
+            let msg = invalid_indirect_closure_message(closure);
+            tracing::error!("{msg}");
+            self.builder.record_codegen_error_with_msg(msg);
             return;
         };
 
@@ -108,8 +110,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.emit_indirect_call_direct(dst, ret_ty, &param_types, fn_ptr, &arg_vals, func);
         }
     }
-
-    // String runtime call helpers
 
     /// Call a string runtime function: `ori_str_concat`, `ori_str_eq`, `ori_str_ne`.
     ///
@@ -293,8 +293,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.call(store_count, &[data, len], "");
     }
 
-    // Indirect-call emission helpers
-
     /// Marshal explicit closure arguments under the uniform borrowed ABI.
     pub(super) fn marshal_indirect_call_args(
         &mut self,
@@ -303,8 +301,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         func: &ArcFunction,
     ) -> (Vec<ValueId>, Vec<LLVMTypeId>) {
         let ptr_ty = self.builder.ptr_type();
-        let mut arg_vals = Vec::with_capacity(1 + args.len());
-        let mut param_types = Vec::with_capacity(1 + args.len());
+        let capacity = args.len().saturating_add(1);
+        let mut arg_vals = Vec::with_capacity(capacity);
+        let mut param_types = Vec::with_capacity(capacity);
         arg_vals.push(env_ptr);
         param_types.push(ptr_ty);
 
@@ -402,9 +401,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 }
 
+/// Builds the diagnostic for a closed target missing from LLVM declarations.
 pub(super) fn closed_target_projection_message(target: &str, site: &str) -> String {
     format!(
         "LLVM did not declare closed executable target `{target}` before {site}; rerun the same command with ORI_VERIFY_ARC=1 and report this compiler bug"
+    )
+}
+
+fn invalid_indirect_closure_message(closure: ArcVarId) -> String {
+    format!(
+        "LLVM could not read the function and environment fields of indirect-call closure v{}; report this compiler bug",
+        closure.raw()
     )
 }
 

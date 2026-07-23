@@ -8,6 +8,8 @@ use crate::ir::{ArcBlockId, ArcValue, ArcVarId, PrimOp, YieldExtent};
 use crate::lower::expr::{ArcLowerer, ForYieldContext, ForYieldShape, LoopContext};
 use crate::lower::scope::ArcScope;
 
+use super::super::for_yield::YieldListAllocation;
+
 mod condition;
 
 type MutableBinding = (Name, ArcVarId, Idx);
@@ -81,7 +83,6 @@ impl ArcLowerer<'_> {
         } else {
             Idx::INT
         };
-        let elem_size = self.compute_elem_size(elem_ty).cast_unsigned();
         let allocation = self.allocate_yield_list(elem_ty, extent);
         let setup = self.prepare_range_loop(RangeLoopKind::Yield);
         let (step, in_bounds) = self.enter_range_header(iter_val, &setup);
@@ -96,25 +97,10 @@ impl ArcLowerer<'_> {
             },
         );
         self.lower_range_guard(shape.pattern, shape.guard, in_bounds, &setup);
-        self.lower_range_yield_body(
-            shape.pattern,
-            shape.body,
-            list_push,
-            allocation.list_ptr,
-            allocation.elem_size_var,
-            &setup,
-        );
+        self.lower_range_yield_body(shape.pattern, shape.body, list_push, &allocation, &setup);
         self.loop_ctx_stack.pop();
         self.emit_range_latch(step, &setup);
-        self.finish_range_yield_loop(
-            shape.result_ty,
-            allocation.list_ptr,
-            elem_ty,
-            allocation.elem_size_var,
-            elem_size,
-            allocation.extent,
-            setup,
-        )
+        self.finish_range_yield_loop(shape.result_ty, allocation, setup)
     }
 
     fn prepare_range_loop(&mut self, kind: RangeLoopKind) -> RangeLoopSetup {
@@ -140,6 +126,7 @@ impl ArcLowerer<'_> {
                 )
             })
             .collect();
+
         let latch_mut_params = mutable_bindings
             .iter()
             .map(|&(name, _, ty)| (name, self.builder.add_block_param(latch_block, ty)))
@@ -241,6 +228,7 @@ impl ArcLowerer<'_> {
             .iter()
             .map(|&(name, _, param)| (name, param))
             .collect();
+
         self.loop_ctx_stack.push(LoopContext {
             label,
             exit_block: setup.exit_block,
@@ -262,6 +250,7 @@ impl ArcLowerer<'_> {
             .iter()
             .map(|&(name, _, param)| (name, param))
             .collect();
+
         self.loop_ctx_stack.push(LoopContext {
             label,
             exit_block: setup.exit_block,
@@ -329,8 +318,7 @@ impl ArcLowerer<'_> {
         pattern: CanBindingPatternId,
         body: CanId,
         list_push: Name,
-        list_ptr: ArcVarId,
-        elem_size: ArcVarId,
+        allocation: &YieldListAllocation,
         setup: &RangeLoopSetup,
     ) {
         self.builder.position_at(setup.body_block);
@@ -342,10 +330,11 @@ impl ArcLowerer<'_> {
         self.builder.emit_apply(
             Idx::UNIT,
             list_push,
-            vec![list_ptr, body_val, elem_size],
+            vec![allocation.list_ptr, body_val, allocation.elem_size_var],
             None,
             None,
         );
+
         let body_args = setup
             .header_mut_params
             .iter()
@@ -390,11 +379,7 @@ impl ArcLowerer<'_> {
     fn finish_range_yield_loop(
         &mut self,
         result_ty: Idx,
-        list_ptr: ArcVarId,
-        elem_ty: Idx,
-        elem_size_var: ArcVarId,
-        elem_size: u64,
-        extent: YieldExtent,
+        allocation: YieldListAllocation,
         setup: RangeLoopSetup,
     ) -> ArcVarId {
         self.builder.position_at(setup.exit_prep_block);
@@ -411,16 +396,17 @@ impl ArcLowerer<'_> {
             self.scope.bind_mutable(name, param);
         }
         let list_take = self.interner.intern("ori_list_take");
-        let result = self
-            .builder
-            .emit_apply(result_ty, list_take, vec![list_ptr], None, None);
+        let result =
+            self.builder
+                .emit_apply(result_ty, list_take, vec![allocation.list_ptr], None, None);
+
         self.builder.note_yield_allocation(
-            list_ptr,
+            allocation.list_ptr,
             result,
-            elem_ty,
-            elem_size_var,
-            elem_size,
-            extent,
+            allocation.elem_ty,
+            allocation.elem_size_var,
+            allocation.elem_size,
+            allocation.extent,
         );
         result
     }

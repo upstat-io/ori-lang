@@ -46,20 +46,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return false;
         };
 
-        let ori_arc::ir::YieldExtent::StaticExact(capacity) = decision.extent else {
+        let ori_arc::ir::YieldExtent::StaticExact(capacity) = decision.mechanism.extent() else {
             return false;
         };
 
         let builder = if self.length_only_yield_result == Some(decision.result) {
             self.emit_length_only_yield_builder(capacity)
         } else {
-            if decision.mechanism != ori_repr::CompiledAllocationMechanism::StackSlot {
+            if !decision.mechanism.is_stack() {
                 return false;
             }
             self.emit_local_yield_builder(
                 capacity,
                 decision.elem_size,
-                decision.requires_runtime_header,
+                decision.mechanism.requires_runtime_header(),
             )
         };
         self.def_var_repr(dst, builder, func);
@@ -78,16 +78,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         else {
             return false;
         };
-        let exact_heap = decision.mechanism == ori_repr::CompiledAllocationMechanism::RuntimeHeap
-            && matches!(decision.extent, ori_arc::ir::YieldExtent::StaticExact(_));
+        let exact_heap = matches!(
+            decision.mechanism,
+            ori_repr::CompiledAllocationMechanism::RuntimeHeap {
+                extent: ori_arc::ir::YieldExtent::StaticExact(_)
+            }
+        );
         if self.length_only_yield_result == Some(decision.result) {
-            let ori_arc::ir::YieldExtent::StaticExact(capacity) = decision.extent else {
+            let ori_arc::ir::YieldExtent::StaticExact(capacity) = decision.mechanism.extent()
+            else {
                 return false;
             };
             self.emit_length_only_yield_push(self.var(args[0]), capacity);
         } else {
-            if decision.mechanism != ori_repr::CompiledAllocationMechanism::StackSlot && !exact_heap
-            {
+            if !decision.mechanism.is_stack() && !exact_heap {
                 return false;
             }
             self.emit_local_yield_push(
@@ -96,7 +100,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 func.var_type(decision.result),
                 func.var_type(args[1]),
                 decision.elem_size,
-                decision.requires_runtime_header,
+                decision.mechanism.requires_runtime_header(),
             );
         }
         let unit = self.builder.const_i64(0);
@@ -120,12 +124,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return false;
         }
         let result = if self.length_only_yield_result == Some(decision.result) {
-            let ori_arc::ir::YieldExtent::StaticExact(capacity) = decision.extent else {
+            let ori_arc::ir::YieldExtent::StaticExact(capacity) = decision.mechanism.extent()
+            else {
                 return false;
             };
             self.emit_length_only_yield_take(self.var(builder_var), capacity)
         } else {
-            if decision.mechanism != ori_repr::CompiledAllocationMechanism::StackSlot {
+            if !decision.mechanism.is_stack() {
                 return false;
             }
             self.emit_local_yield_take(self.var(builder_var))
@@ -147,10 +152,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return false;
         };
         if self.length_only_yield_result != Some(decision.result) {
-            if decision.mechanism != ori_repr::CompiledAllocationMechanism::StackSlot {
+            if !decision.mechanism.is_stack() {
                 return false;
             }
-            if decision.requires_runtime_header {
+            if decision.mechanism.requires_runtime_header() {
                 self.emit_local_yield_free(self.var(builder_var), decision.elem_size);
             }
         }

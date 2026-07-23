@@ -9,11 +9,13 @@
 //! `List<T>`: `{i64 len, i64 cap, ptr data}` — element-wise iteration
 //! via GEP into the data pointer.
 
-use super::super::ArcIrEmitter;
-use crate::codegen::ir_builder::IntegerSignedness;
-use crate::codegen::value_id::ValueId;
 use ori_ir::{FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
+
+use crate::codegen::ir_builder::IntegerSignedness;
+use crate::codegen::value_id::ValueId;
+
+use super::super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `List<T>.equals(other) -> bool`

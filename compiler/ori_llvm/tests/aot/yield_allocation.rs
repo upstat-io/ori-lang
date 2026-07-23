@@ -1,14 +1,15 @@
 //! Allocation-plan pins for bounded `for .. yield` comprehensions.
 //!
-//! These tests deliberately inspect realized function IR as well as executing
-//! cleanup-sensitive fixtures. Output-only tests cannot distinguish the old
-//! repeated-growth heap path from exact capacity or bounded local storage.
+//! These tests inspect realized function IR and execute cleanup-sensitive
+//! fixtures. Output alone cannot distinguish exact capacity from bounded local
+//! storage.
+
+use ori_llvm::aot::TargetConfig;
 
 use crate::util::{
     assert_aot_success, compile_and_capture_ir, compile_and_run_capture,
     compile_to_llvm_ir_for_target, extract_function_ir,
 };
-use ori_llvm::aot::TargetConfig;
 
 fn function_ir(source: &str, function: &str) -> String {
     let ir = compile_and_capture_ir(source);

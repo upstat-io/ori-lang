@@ -1414,24 +1414,25 @@ fn fixpoint_narrowing_recovers_loop_bound() {
 
 // Branch refinement overwrite + stale iterations
 
-/// Build a multi-predecessor Branch refinement CFG. Returns `(func, v_y)`.
-#[expect(
-    clippy::too_many_lines,
-    reason = "pre-existing; test builder is inherently long"
-)]
-fn build_multi_pred_branch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
-    use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, PrimOp};
-    use {ori_arc::ArcBlockId, ori_ir::BinaryOp};
-    let (int, bool_t) = (ori_types::Idx::INT, ori_types::Idx::BOOL);
-    let v = ArcVarId::new;
-    let (v_x, v_cond, v_b1, v_c2, v_b2, v_c3, v_y) = (v(0), v(1), v(2), v(3), v(4), v(5), v(6));
+struct MultiPredBranch {
+    id: u32,
+    bound_var: ArcVarId,
+    comparison_var: ArcVarId,
+    bound: i64,
+    true_block: u32,
+    false_block: u32,
+}
 
-    let block0 = ArcBlock {
+fn multi_pred_entry_block(subject: ArcVarId, condition: ArcVarId) -> ori_arc::ir::ArcBlock {
+    use ori_arc::ir::{ArcBlock, ArcInstr, ArcTerminator};
+    use ori_arc::ArcBlockId;
+
+    ArcBlock {
         id: ArcBlockId::new(0),
         params: vec![],
         body: vec![
             ArcInstr::Apply {
-                dst: v_x,
+                dst: subject,
                 ty: ori_types::Idx::INT,
                 func: ori_ir::Name::from_raw(99),
                 args: vec![],
@@ -1439,44 +1440,84 @@ fn build_multi_pred_branch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
                 mono_instance_id: None,
             },
             ArcInstr::IsShared {
-                dst: v_cond,
-                var: v_x,
+                dst: condition,
+                var: subject,
             },
         ],
         terminator: ArcTerminator::Branch {
-            cond: v_cond,
+            cond: condition,
             then_block: ArcBlockId::new(1),
             else_block: ArcBlockId::new(2),
         },
-    };
+    }
+}
 
-    let make_lt_branch = |id, bvar, cvar, bound, true_b, false_b| ArcBlock {
-        id: ArcBlockId::new(id),
+fn multi_pred_less_than_block(
+    subject: ArcVarId,
+    branch: &MultiPredBranch,
+) -> ori_arc::ir::ArcBlock {
+    use ori_arc::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, PrimOp};
+    use ori_arc::ArcBlockId;
+    use ori_ir::BinaryOp;
+
+    ArcBlock {
+        id: ArcBlockId::new(branch.id),
         params: vec![],
         body: vec![
             ArcInstr::Let {
-                dst: bvar,
+                dst: branch.bound_var,
                 ty: ori_types::Idx::INT,
-                value: ArcValue::Literal(ori_arc::ir::LitValue::Int(bound)),
+                value: ArcValue::Literal(ori_arc::ir::LitValue::Int(branch.bound)),
             },
             ArcInstr::Let {
-                dst: cvar,
+                dst: branch.comparison_var,
                 ty: ori_types::Idx::BOOL,
                 value: ArcValue::PrimOp {
                     op: PrimOp::Binary(BinaryOp::Lt),
-                    args: vec![v_x, bvar],
+                    args: vec![subject, branch.bound_var],
                 },
             },
         ],
         terminator: ArcTerminator::Branch {
-            cond: cvar,
-            then_block: ArcBlockId::new(true_b),
-            else_block: ArcBlockId::new(false_b),
+            cond: branch.comparison_var,
+            then_block: ArcBlockId::new(branch.true_block),
+            else_block: ArcBlockId::new(branch.false_block),
         },
-    };
+    }
+}
 
-    let block1 = make_lt_branch(1, v_b1, v_c2, 0, 3, 4);
-    let block2 = make_lt_branch(2, v_b2, v_c3, 100, 5, 3);
+/// Build a multi-predecessor Branch refinement CFG. Returns `(func, v_y)`.
+fn build_multi_pred_branch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
+    use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue};
+    use ori_arc::ArcBlockId;
+
+    let (int, bool_t) = (ori_types::Idx::INT, ori_types::Idx::BOOL);
+    let v = ArcVarId::new;
+    let (v_x, v_cond, v_b1, v_c2, v_b2, v_c3, v_y) = (v(0), v(1), v(2), v(3), v(4), v(5), v(6));
+
+    let block0 = multi_pred_entry_block(v_x, v_cond);
+    let block1 = multi_pred_less_than_block(
+        v_x,
+        &MultiPredBranch {
+            id: 1,
+            bound_var: v_b1,
+            comparison_var: v_c2,
+            bound: 0,
+            true_block: 3,
+            false_block: 4,
+        },
+    );
+    let block2 = multi_pred_less_than_block(
+        v_x,
+        &MultiPredBranch {
+            id: 2,
+            bound_var: v_b2,
+            comparison_var: v_c3,
+            bound: 100,
+            true_block: 5,
+            false_block: 3,
+        },
+    );
     let ret_block = |id, var| ArcBlock {
         id: ArcBlockId::new(id),
         params: vec![],
@@ -1967,6 +2008,152 @@ fn fixpoint_invoke_defines_dst_variable() {
 
 // Loop convergence: SSA body vars must not be widened
 
+struct RealLoopVars {
+    i_init: ArcVarId,
+    sum_init: ArcVarId,
+    i: ArcVarId,
+    sum: ArcVarId,
+    i_copy: ArcVarId,
+    limit: ArcVarId,
+    condition: ArcVarId,
+    sum_copy: ArcVarId,
+    i_sum_copy: ArcVarId,
+    new_sum: ArcVarId,
+    new_sum_copy: ArcVarId,
+    i_increment_copy: ArcVarId,
+    one: ArcVarId,
+    next: ArcVarId,
+    next_copy: ArcVarId,
+    return_sum: ArcVarId,
+    return_value: ArcVarId,
+}
+
+impl RealLoopVars {
+    fn new() -> Self {
+        Self {
+            i_init: ArcVarId::new(0),
+            sum_init: ArcVarId::new(2),
+            i: ArcVarId::new(4),
+            sum: ArcVarId::new(5),
+            i_copy: ArcVarId::new(6),
+            limit: ArcVarId::new(7),
+            condition: ArcVarId::new(8),
+            sum_copy: ArcVarId::new(13),
+            i_sum_copy: ArcVarId::new(14),
+            new_sum: ArcVarId::new(15),
+            new_sum_copy: ArcVarId::new(16),
+            i_increment_copy: ArcVarId::new(18),
+            one: ArcVarId::new(19),
+            next: ArcVarId::new(20),
+            next_copy: ArcVarId::new(21),
+            return_sum: ArcVarId::new(26),
+            return_value: ArcVarId::new(27),
+        }
+    }
+}
+
+fn real_loop_header(vars: &RealLoopVars, limit: i64) -> ori_arc::ir::ArcBlock {
+    use ori_arc::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, LitValue, PrimOp};
+    use ori_arc::ArcBlockId;
+    use ori_ir::BinaryOp;
+
+    ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![
+            (vars.i, ori_types::Idx::INT),
+            (vars.sum, ori_types::Idx::INT),
+        ],
+        body: vec![
+            ArcInstr::Let {
+                dst: vars.i_copy,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(vars.i),
+            },
+            ArcInstr::Let {
+                dst: vars.limit,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(limit)),
+            },
+            ArcInstr::Let {
+                dst: vars.condition,
+                ty: ori_types::Idx::BOOL,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::GtEq),
+                    args: vec![vars.i_copy, vars.limit],
+                },
+            },
+        ],
+        terminator: ArcTerminator::Branch {
+            cond: vars.condition,
+            then_block: ArcBlockId::new(2),
+            else_block: ArcBlockId::new(3),
+        },
+    }
+}
+
+fn real_loop_body(vars: &RealLoopVars) -> ori_arc::ir::ArcBlock {
+    use ori_arc::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, LitValue, PrimOp};
+    use ori_arc::ArcBlockId;
+    use ori_ir::BinaryOp;
+
+    ArcBlock {
+        id: ArcBlockId::new(3),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: vars.sum_copy,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(vars.sum),
+            },
+            ArcInstr::Let {
+                dst: vars.i_sum_copy,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(vars.i),
+            },
+            ArcInstr::Let {
+                dst: vars.new_sum,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Add),
+                    args: vec![vars.sum_copy, vars.i_sum_copy],
+                },
+            },
+            ArcInstr::Let {
+                dst: vars.new_sum_copy,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(vars.new_sum),
+            },
+            ArcInstr::Let {
+                dst: vars.i_increment_copy,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(vars.i),
+            },
+            ArcInstr::Let {
+                dst: vars.one,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(1)),
+            },
+            ArcInstr::Let {
+                dst: vars.next,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Add),
+                    args: vec![vars.i_increment_copy, vars.one],
+                },
+            },
+            ArcInstr::Let {
+                dst: vars.next_copy,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(vars.next),
+            },
+        ],
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: vec![vars.next_copy, vars.new_sum_copy],
+        },
+    }
+}
+
 /// Build a loop that matches real ARC IR structure: copy variables in body.
 ///
 /// This is the exact CFG from `@sum_loop` with `GtEq` comparison and copy
@@ -1974,10 +2161,6 @@ fn fixpoint_invoke_defines_dst_variable() {
 /// when body variables are treated as phi nodes.
 ///
 /// Returns `(func, v_i, v_sum, v_i_copy, v_next)`.
-#[expect(
-    clippy::too_many_lines,
-    reason = "ARC IR test builder — block construction is inherently verbose"
-)]
 fn build_real_loop_func(
     limit: i64,
 ) -> (
@@ -1987,27 +2170,10 @@ fn build_real_loop_func(
     ArcVarId,
     ArcVarId,
 ) {
-    use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, LitValue, PrimOp};
+    use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, LitValue};
     use ori_arc::ArcBlockId;
-    use ori_ir::BinaryOp;
 
-    let v_i_init = ArcVarId::new(0); // %0: sum init = 0 in real IR (both inits are 0)
-    let v_s_init = ArcVarId::new(2); // %2: i init = 0 in real IR (both inits are 0)
-    let v_i = ArcVarId::new(4); // %4: loop counter phi
-    let v_sum = ArcVarId::new(5); // %5: accumulator phi
-    let v_i_copy = ArcVarId::new(6); // %6: copy of %4 (for comparison)
-    let v_limit = ArcVarId::new(7); // %7: limit constant
-    let v_cond = ArcVarId::new(8); // %8: comparison result
-    let v_s_copy = ArcVarId::new(13); // %13: copy of sum for add
-    let v_i_copy2 = ArcVarId::new(14); // %14: copy of i for sum add
-    let v_new_sum = ArcVarId::new(15); // %15: sum + i
-    let v_new_sum2 = ArcVarId::new(16); // %16: copy of new_sum
-    let v_i_copy3 = ArcVarId::new(18); // %18: copy of i for increment
-    let v_one = ArcVarId::new(19); // %19: constant 1
-    let v_next = ArcVarId::new(20); // %20: i + 1
-    let v_next2 = ArcVarId::new(21); // %21: copy of next
-    let v_ret_s = ArcVarId::new(26); // %26: copy of sum for return
-    let v_ret = ArcVarId::new(27); // %27: return value
+    let vars = RealLoopVars::new();
 
     // bb0: entry — both inits are 0, ordering doesn't affect result
     let block0 = ArcBlock {
@@ -2015,129 +2181,43 @@ fn build_real_loop_func(
         params: vec![],
         body: vec![
             ArcInstr::Let {
-                dst: v_i_init,
+                dst: vars.i_init,
                 ty: ori_types::Idx::INT,
                 value: ArcValue::Literal(LitValue::Int(0)),
             },
             ArcInstr::Let {
-                dst: v_s_init,
+                dst: vars.sum_init,
                 ty: ori_types::Idx::INT,
                 value: ArcValue::Literal(LitValue::Int(0)),
             },
         ],
         terminator: ArcTerminator::Jump {
             target: ArcBlockId::new(1),
-            args: vec![v_i_init, v_s_init],
+            args: vec![vars.i_init, vars.sum_init],
         },
     };
 
-    // bb1: loop header — phi(i, sum), compare, branch
-    let block1 = ArcBlock {
-        id: ArcBlockId::new(1),
-        params: vec![(v_i, ori_types::Idx::INT), (v_sum, ori_types::Idx::INT)],
-        body: vec![
-            ArcInstr::Let {
-                dst: v_i_copy,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Var(v_i),
-            },
-            ArcInstr::Let {
-                dst: v_limit,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Literal(LitValue::Int(limit)),
-            },
-            ArcInstr::Let {
-                dst: v_cond,
-                ty: ori_types::Idx::BOOL,
-                value: ArcValue::PrimOp {
-                    op: PrimOp::Binary(BinaryOp::GtEq),
-                    args: vec![v_i_copy, v_limit],
-                },
-            },
-        ],
-        terminator: ArcTerminator::Branch {
-            cond: v_cond,
-            then_block: ArcBlockId::new(2),
-            else_block: ArcBlockId::new(3),
-        },
-    };
-
-    // bb2: exit (i >= limit) — return sum
+    let block1 = real_loop_header(&vars, limit);
     let block2 = ArcBlock {
         id: ArcBlockId::new(2),
         params: vec![],
         body: vec![
             ArcInstr::Let {
-                dst: v_ret_s,
+                dst: vars.return_sum,
                 ty: ori_types::Idx::INT,
-                value: ArcValue::Var(v_sum),
+                value: ArcValue::Var(vars.sum),
             },
             ArcInstr::Let {
-                dst: v_ret,
+                dst: vars.return_value,
                 ty: ori_types::Idx::INT,
-                value: ArcValue::Var(v_ret_s),
+                value: ArcValue::Var(vars.return_sum),
             },
         ],
-        terminator: ArcTerminator::Return { value: v_ret },
-    };
-
-    // bb3: body (i < limit) — sum = sum + i; i = i + 1; jump back
-    let block3 = ArcBlock {
-        id: ArcBlockId::new(3),
-        params: vec![],
-        body: vec![
-            ArcInstr::Let {
-                dst: v_s_copy,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Var(v_sum),
-            },
-            ArcInstr::Let {
-                dst: v_i_copy2,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Var(v_i),
-            },
-            ArcInstr::Let {
-                dst: v_new_sum,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::PrimOp {
-                    op: PrimOp::Binary(BinaryOp::Add),
-                    args: vec![v_s_copy, v_i_copy2],
-                },
-            },
-            ArcInstr::Let {
-                dst: v_new_sum2,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Var(v_new_sum),
-            },
-            ArcInstr::Let {
-                dst: v_i_copy3,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Var(v_i),
-            },
-            ArcInstr::Let {
-                dst: v_one,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Literal(LitValue::Int(1)),
-            },
-            ArcInstr::Let {
-                dst: v_next,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::PrimOp {
-                    op: PrimOp::Binary(BinaryOp::Add),
-                    args: vec![v_i_copy3, v_one],
-                },
-            },
-            ArcInstr::Let {
-                dst: v_next2,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Var(v_next),
-            },
-        ],
-        terminator: ArcTerminator::Jump {
-            target: ArcBlockId::new(1),
-            args: vec![v_next2, v_new_sum2],
+        terminator: ArcTerminator::Return {
+            value: vars.return_value,
         },
     };
+    let block3 = real_loop_body(&vars);
 
     let mut var_types = vec![ori_types::Idx::INT; 28];
     var_types[8] = ori_types::Idx::BOOL;
@@ -2162,17 +2242,12 @@ fn build_real_loop_func(
         ..Default::default()
     };
 
-    (func, v_i, v_sum, v_i_copy, v_next)
+    (func, vars.i, vars.sum, vars.i_copy, vars.next)
 }
 
 /// Semantic pin: loop counter phi with `GtEq` comparison and copy chains
 /// must converge to [0, limit]. This is the exact structure generated by
 /// the Ori compiler for `loop { if i >= N then break; ... i = i + 1 }`.
-///
-/// BUG: Before fix, body copy variables (%6 = %4) get widened because
-/// `update_range()` applies join+widening to ALL variables. SSA body vars
-/// should use direct assignment. The widened copy poisons downstream:
-/// %20 = %6 + 1 feeds back to phi %4, causing %4 to diverge to Top.
 #[test]
 fn fixpoint_real_loop_converges_with_copies() {
     let (func, v_i, v_sum, _v_i_copy, v_next) = build_real_loop_func(10);
@@ -2193,7 +2268,6 @@ fn fixpoint_real_loop_converges_with_copies() {
          If lo < 0: body copy vars are being widened — fix update_range for SSA body vars."
     );
 
-    // v_next (i+1) should be [1, 10] — the back-edge argument
     let next_range = result
         .var_ranges
         .get(&v_next)
@@ -2205,17 +2279,12 @@ fn fixpoint_real_loop_converges_with_copies() {
         "i+1 should be exactly [1, 10], got {next_range:?}"
     );
 
-    // sum accumulator doesn't have a branch refinement (no comparison on sum),
-    // so the narrowing pass can't tighten it. It may stay wide or Top.
-    // The critical assertion is on the loop counter and v_next above.
+    // Why: The sum has no branch refinement, so only its non-negative bound is stable.
     let sum_range = result
         .var_ranges
         .get(&v_sum)
         .copied()
         .unwrap_or(ValueRange::Top);
-    // After the fix, sum should at least have a non-negative lower bound because
-    // sum starts at 0 and only adds non-negative values (i in [0,9]).
-    // If this still fails, it's acceptable — sum convergence is a separate optimization.
     if let ValueRange::Bounded { lo, .. } = sum_range {
         assert!(
             lo >= 0,

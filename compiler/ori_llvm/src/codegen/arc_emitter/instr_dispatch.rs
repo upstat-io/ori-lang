@@ -7,10 +7,11 @@
 mod mutation;
 mod projection;
 
-use super::context::EmittedValue;
-use super::ArcIrEmitter;
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId, CtorKind};
 use ori_types::Idx;
+
+use super::context::EmittedValue;
+use super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a single `ArcInstr` as LLVM IR.
@@ -175,7 +176,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     fn emit_let_instr(&mut self, dst: ArcVarId, ty: Idx, value: &ArcValue, func: &ArcFunction) {
-        let emitted = if let Some(&(_, element_type)) = self.for_yield_elem_size_types.get(&dst) {
+        let emitted = if let Some(&(_, element_type)) = self.yield_types_by_elem_size_var.get(&dst)
+        {
             let llvm_size = self.element_store_size(element_type);
             let Ok(llvm_size) = i64::try_from(llvm_size) else {
                 self.builder.record_codegen_error_with_msg(format!(

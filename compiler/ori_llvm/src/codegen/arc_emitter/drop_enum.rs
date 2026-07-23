@@ -13,11 +13,12 @@
 
 use ori_types::{Idx, Pool, Tag};
 
+use crate::codegen::type_info::TypeLayoutResolver;
+use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
+
 use super::context::is_boxed_enum_field;
 use super::field_walk::FieldWalkOps;
 use super::ArcIrEmitter;
-use crate::codegen::type_info::TypeLayoutResolver;
-use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
 
 /// [`FieldWalkOps`] for a HEAP enum variant payload reached via the drop-fn
 /// path (`emit_drop_enum` → `_ori_drop$<Enum>`, e.g. a boxed-recursive enum
@@ -246,13 +247,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.builder.resume(lp);
                 return;
             }
-            // No user `@drop` resolved after all — fall through to plain path.
         }
 
-        // Plain path: run the user `@drop` first when the enum implements
-        // `Drop` (non-unwinding, or SEH). The helper self-gates on the canonical
-        // method map (the upstream burden `FnSym` is not threaded onto this
-        // path), so call it unconditionally.
         self.emit_user_drop_via_pointer(ty, data_ptr);
         self.emit_variant_burden_walk(func_id, data_ptr, ty, variants);
         self.emit_drop_rc_free(data_ptr, ty);
@@ -391,17 +387,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             Vec::new()
         } else if resolved_tag == Tag::Enum {
             let all_variants = self.pool.enum_variants(resolved_ty);
-            // OOB variant = upstream typeck/canon bug; an empty fallback would
-            // silently skip dropping payload fields (leak).
+            // Why: Missing variant metadata would silently skip payload release.
             let Some((_, variant_field_types)) = all_variants.into_iter().nth(variant_idx) else {
                 unreachable!("drop glue variant {variant_idx} out of bounds for enum type")
             };
             compute_variant_field_offsets(&variant_field_types, resolved_ty, self)
         } else {
-            // Fallback: non-Enum tag for a general enum — treat field_index as
-            // an i64 slot index (offset = field_index * 8). Build a dense vec
-            // indexed by field_index so `HeapEnumPayloadOps::load` resolves the
-            // right offset per field.
+            // Why: Non-enum layouts use i64 slots, so field position determines byte offset.
             tracing::warn!(
                 ?resolved_tag,
                 "drop_gen: non-Enum tag for general enum — using slot access"
@@ -422,136 +414,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             offsets,
         };
         self.dec_fields_may_unwind(&ops, &walk, 0);
-    }
-    /// Emit drop body for a niche-encoded enum.
-    ///
-    /// For 2-variant niche enums (Option/Result): load the niche field,
-    /// compare against `niche_value`, skip drop for the niche variant (no
-    /// payload to clean up), and drop fields for the data variant.
-    fn emit_drop_enum_niche(
-        &mut self,
-        func_id: FunctionId,
-        data_ptr: ValueId,
-        ty: Idx,
-        variants: &[Vec<(u32, Idx)>],
-        encoding: &super::tag_access::TagEncoding,
-    ) {
-        let enum_llvm_ty = self.resolve_type(ty);
-        let Some((niche_idx, niche_value, niche_variant_idx)) = encoding.niche_fields() else {
-            self.builder
-                .record_codegen_error_with_msg("niche drop requires a niche tag encoding");
-            return;
-        };
-        let niche_variant_idx = niche_variant_idx as usize;
-
-        // Load niche field
-        let Some(field_ty) = self.builder.struct_field_type(enum_llvm_ty, niche_idx) else {
-            self.builder
-                .record_codegen_error_with_msg("niche drop layout is missing its sentinel field");
-            return;
-        };
-        let field_ptr = self
-            .builder
-            .struct_gep(enum_llvm_ty, data_ptr, niche_idx, "niche.ptr");
-        let field_val = self.builder.load(field_ty, field_ptr, "niche.val");
-
-        let is_niche = self.niche_is_sentinel(field_val, niche_value, "is.niche");
-
-        let drop_data = self.builder.append_block(func_id, "drop.data");
-        let drop_done = self.builder.append_block(func_id, "drop.done");
-
-        // Niche variant → skip to done. Data variant → drop fields.
-        self.builder.cond_br(is_niche, drop_done, drop_data);
-
-        // Emit data variant field drops via the canonical may-unwind field-walk
-        // SSOT so a panicking payload field's user `@drop` still frees the
-        // later-walked siblings (matching every other enum payload path). The
-        // niche layout has no tag field; `NicheEnumPayloadOps` accesses payload
-        // fields at struct index `field_index`.
-        self.builder.position_at_end(drop_data);
-        let data_variant_idx = usize::from(niche_variant_idx == 0);
-        if let Some(data_fields) = variants.get(data_variant_idx) {
-            let (resolved_ty, _) = resolve_type_through_aliases(ty, self.pool);
-            let walk = super::emitter_utils::field_rc_walk_order(
-                data_fields,
-                super::emitter_utils::FieldRcWalkOrder::Teardown,
-            );
-            let ops = NicheEnumPayloadOps {
-                value: data_ptr,
-                enum_llvm_ty,
-                owner_ty: resolved_ty,
-                value_traversal: false,
-            };
-            self.dec_fields_may_unwind(&ops, &walk, 0);
-        }
-        self.builder.br(drop_done);
-
-        // done: position only; caller owns free + ret.
-        self.builder.position_at_end(drop_done);
-    }
-
-    /// Emit drop body for a tagged-pointer encoded enum.
-    ///
-    /// Loads the 8-byte encoded value from `data_ptr`, decodes the tag bits,
-    /// and dispatches to per-variant pointer dec via a switch. Pointer-bearing
-    /// variants decode the high 61 bits and call the appropriate `drop_fn`;
-    /// unit variants flow through the default arm to `drop.done` (no payload
-    /// to clean up).
-    ///
-    /// `variants[i]` contains the RC-needing fields for variant `i`. For
-    /// tagged-pointer enums each non-empty variant has exactly one entry —
-    /// enforced by `can_use_tagged_pointer`.
-    fn emit_drop_enum_tagged_ptr(
-        &mut self,
-        func_id: FunctionId,
-        data_ptr: ValueId,
-        variants: &[Vec<(u32, Idx)>],
-    ) {
-        // Tagged-pointer enums are stored as a single i64 slot.
-        let i64_ty = self.builder.i64_type();
-        let encoded = self.builder.load(i64_ty, data_ptr, "tagged.encoded");
-        let tag_val = self.tagged_ptr_decode_tag(encoded, "tagged.tag");
-
-        let drop_done = self.builder.append_block(func_id, "drop.done");
-
-        // Build per-variant blocks for pointer-bearing variants only.
-        let mut cases: Vec<(ValueId, crate::codegen::value_id::BlockId, Idx)> = Vec::new();
-        for (i, variant_fields) in variants.iter().enumerate() {
-            if variant_fields.is_empty() {
-                continue;
-            }
-            debug_assert!(
-                variant_fields.len() == 1,
-                "tagged-pointer variant must have at most one RC field"
-            );
-            let (_, field_type) = variant_fields[0];
-            let block = self
-                .builder
-                .append_block(func_id, &format!("tagged.v{i}.drop"));
-            // Variant index is bounded by 8 (3-bit tag), so the
-            // `usize → u64` widening is exact.
-            let tag_const = self.builder.const_int_matching(tag_val, i as u64);
-            cases.push((tag_const, block, field_type));
-        }
-
-        if cases.is_empty() {
-            // No pointer-bearing variants — straight to free.
-            self.builder.br(drop_done);
-        } else {
-            let switch_cases: Vec<(ValueId, crate::codegen::value_id::BlockId)> =
-                cases.iter().map(|(t, b, _)| (*t, *b)).collect();
-            self.builder.switch(tag_val, drop_done, &switch_cases);
-
-            for &(_, block, field_type) in &cases {
-                self.builder.position_at_end(block);
-                let ptr = self.tagged_ptr_decode_ptr(encoded, "tagged.ptr");
-                self.emit_drop_rc_dec(ptr, field_type);
-                self.builder.br(drop_done);
-            }
-        }
-
-        // done: position only; caller owns free + ret.
-        self.builder.position_at_end(drop_done);
     }
 }
 
@@ -584,7 +446,6 @@ pub(super) fn compute_variant_field_offsets(
             let llvm_ty = emitter.type_resolver.resolve(field_ty);
             TypeLayoutResolver::type_store_size(llvm_ty)
         };
-        // Round up to 8-byte alignment (i64 slot boundary)
         current += field_size.div_ceil(8).saturating_mul(8);
     }
 
@@ -614,7 +475,7 @@ fn resolve_pool_tag(ty: Idx, pool: &Pool) -> Tag {
 }
 
 /// Resolve a type through Var chains and Named/Applied/Alias to its concrete tag.
-fn resolve_type_through_aliases(ty: Idx, pool: &Pool) -> (Idx, Tag) {
+pub(super) fn resolve_type_through_aliases(ty: Idx, pool: &Pool) -> (Idx, Tag) {
     // Use resolve_fully to handle both type variables (VarState::Link)
     // and named type aliases in one pass.
     let resolved = pool.resolve_fully(ty);

@@ -1,4 +1,4 @@
-//! ABI parameter passing and type coercion helpers for function call emission.
+//! ABI parameter passing and type coercion for function call emission.
 //!
 //! These helpers bridge the gap between ARC IR's uniform value representation
 //! and LLVM's ABI requirements:
@@ -10,11 +10,13 @@
 //! - **Aggregate coercion**: Runtime functions expect `ptr` but ARC IR passes
 //!   aggregates (Str, List, Map, Set) by value — alloca + store + pass pointer.
 
-use super::ArcIrEmitter;
-use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
 use ori_arc::ir::ArcVarId;
 use ori_ir::Name;
 use ori_types::{Idx, Tag};
+
+use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
+
+use super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Coerces runtime arguments to their pointer ABI and applies for-yield
@@ -59,7 +61,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         };
 
         if let Some((elem_size_var, (collection_ty, elem_ty))) = elem_size_var.and_then(|var| {
-            self.for_yield_elem_size_types
+            self.yield_types_by_elem_size_var
                 .get(&var)
                 .copied()
                 .map(|types| (var, types))
@@ -208,11 +210,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Coerce any value (including scalars) to a pointer via alloca+store.
+    /// Coerce any value, including a scalar, to a pointer through a stack slot.
     ///
-    /// Unlike `coerce_aggregate_to_ptr` which only handles struct types,
-    /// this works for ALL types. Used by `ori_list_push` which needs a
-    /// `*const u8` pointer to any element's bytes.
+    /// Unlike `coerce_aggregate_to_ptr`, this accepts every type because the
+    /// list-push ABI requires a pointer to the element bytes.
     pub(super) fn coerce_any_to_ptr(&mut self, val: ValueId, ty: Idx) -> ValueId {
         let llvm_ty = self.resolve_type(ty);
         let alloca = self

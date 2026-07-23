@@ -1,12 +1,14 @@
 //! Recursive structural-trait dispatch for compound elements.
 
-use super::super::{ArcIrEmitter, StringRuntimeReturnAbi};
+use ori_ir::Name;
+use ori_types::Idx;
+
 use crate::codegen::abi::{FunctionAbi, ParamAbi};
 use crate::codegen::ir_builder::IntegerSignedness;
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::{FunctionId, ValueId};
-use ori_ir::Name;
-use ori_types::Idx;
+
+use super::super::{ArcIrEmitter, StringRuntimeReturnAbi};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `lhs.equals(rhs)` for any type, dispatching recursively.
@@ -57,11 +59,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_set_equals(lhs, rhs, elem_ty, element)
             }
             TypeInfo::Struct { fields } => {
+                // Why: Owning the descriptor releases the type-info borrow before recursive emission.
                 let fields = fields.clone();
                 self.emit_derived_eq_call(lhs, rhs, elem_ty)
                     .or_else(|| self.emit_structural_eq(lhs, rhs, &fields))
             }
             TypeInfo::Enum { variants } => {
+                // Why: Owning the descriptor releases the type-info borrow before recursive emission.
                 let variants = variants.clone();
                 self.emit_derived_eq_call(lhs, rhs, elem_ty)
                     .or_else(|| self.emit_structural_eq_enum(lhs, rhs, &variants))
@@ -81,6 +85,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         ty: Idx,
         method: Name,
     ) -> Option<(FunctionId, FunctionAbi)> {
+        // Why: Call emission mutates the emitter, so the returned ABI cannot retain a table borrow.
         if self.ctx.executable_facts_bound {
             return self.lookup_exact_method_target(ty, method).cloned();
         }

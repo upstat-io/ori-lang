@@ -5,20 +5,24 @@
 //! terminate" pattern as LLVM's `IRBuilder`, but uses block parameters
 //! instead of phi nodes for SSA merge.
 
+use ori_ir::canon::MonoInstanceId;
+use ori_ir::{Name, Span};
+use ori_types::Idx;
+
 use crate::ir::{
     AllocationSiteId, ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator,
     ArcVarId, MethodCallFact, MethodCallForm, YieldAllocationFact, YieldAllocationLocality,
     YieldExtent,
 };
-use ori_ir::canon::MonoInstanceId;
-use ori_ir::{Name, Span};
-use ori_types::Idx;
 
 /// Groups CFG successors with the abstract dispatch index for an invoke.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct InvokeTargets {
+    /// Successor entered when the call returns normally.
     pub(crate) normal: ArcBlockId,
+    /// Successor entered when the call unwinds.
     pub(crate) unwind: ArcBlockId,
+    /// Monomorphization-table identity of the invoked callable, when known.
     pub(crate) mono_instance_id: Option<MonoInstanceId>,
 }
 
@@ -26,8 +30,11 @@ pub(crate) struct InvokeTargets {
 pub(in crate::lower) struct BlockBuilder {
     id: ArcBlockId,
     params: Vec<(ArcVarId, Idx)>,
+    /// Instructions accumulated for the block.
     pub(in crate::lower) body: Vec<ArcInstr>,
+    /// Source spans parallel to `body`.
     pub(in crate::lower) spans: Vec<Option<Span>>,
+    /// Control-flow terminator, once assigned.
     pub(in crate::lower) terminator: Option<ArcTerminator>,
 }
 
@@ -41,17 +48,21 @@ pub(super) struct InstructionLocation {
 }
 
 /// Owns block and variable state while the function is being lowered.
-/// Consumed by [`finish`](ArcIrBuilder::finish) to produce the final
-/// [`ArcFunction`].
+///
+/// [`finish`](ArcIrBuilder::finish) turns this state into an [`ArcFunction`].
 pub(crate) struct ArcIrBuilder {
+    /// Function blocks in allocation order.
     pub(in crate::lower) blocks: Vec<BlockBuilder>,
+    /// Current instruction insertion block.
     pub(in crate::lower) current_block: ArcBlockId,
+    /// Raw index assigned to the next fresh variable.
     pub(super) next_var: u32,
+    /// Variable types indexed by `ArcVarId`.
     pub(in crate::lower) var_types: Vec<Idx>,
+    /// Defining instruction locations indexed by `ArcVarId`.
     pub(super) definitions: Vec<InstructionLocation>,
-    /// When set, `emit_invoke` creates unwind blocks that `Jump` to this
-    /// target instead of `Resume`. Used by `catch(expr:)` lowering to
-    /// redirect panics to a shared catch handler block.
+    /// When set, `emit_invoke` redirects unwind edges to this shared catch
+    /// handler instead of emitting `Resume`.
     pub(in crate::lower) catch_unwind_target: Option<ArcBlockId>,
     /// Mutable-identifier reassignment pairs requiring old-binding release.
     pub(in crate::lower) reassign_deaths: Vec<(ArcVarId, ArcVarId)>,
@@ -103,8 +114,6 @@ impl ArcIrBuilder {
         }
     }
 
-    // Block management.
-
     /// Allocate a new empty block and return its ID.
     pub(crate) fn new_block(&mut self) -> ArcBlockId {
         // Why: Allocating enough blocks to exhaust `ArcBlockId` is not
@@ -149,8 +158,6 @@ impl ArcIrBuilder {
     pub(crate) fn entry_block(&self) -> ArcBlockId {
         ArcBlockId::new(0)
     }
-
-    // Variable allocation.
 
     /// Allocate a fresh variable with the given type.
     pub(crate) fn fresh_var(&mut self, ty: Idx) -> ArcVarId {
@@ -278,8 +285,6 @@ impl ArcIrBuilder {
             locality: YieldAllocationLocality::Unknown,
         });
     }
-
-    // Finalization.
 
     /// Consume the builder and produce a finished [`ArcFunction`].
     ///

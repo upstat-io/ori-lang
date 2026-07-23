@@ -20,7 +20,6 @@ target | ori_arc::aims::interprocedural | compiler/ori_arc/src/aims/interprocedu
 target | ori_arc::aims::intraprocedural | compiler/ori_arc/src/aims/intraprocedural/birth_site_partition.rs
 target | ori_arc::aims::intraprocedural | compiler/ori_arc/src/aims/intraprocedural/birth_site_population.rs
 target | ori_arc::aims::intraprocedural | compiler/ori_arc/src/aims/intraprocedural/birth_site_population/merge_family.rs
-target | ori_arc::aims::pipeline | compiler/ori_arc/src/pipeline/aims_pipeline/mod.rs
 target | ori_arc::aims::realize | compiler/ori_arc/src/aims/realize/emit_unified.rs
 target | ori_arc::aims::realize | compiler/ori_arc/src/aims/realize/rc_remark.rs
 target | ori_arc::rc_insert::annotate | compiler/ori_arc/src/rc_insert/annotate.rs
@@ -30,14 +29,14 @@ target | ori_llvm::codegen::derive_codegen | compiler/ori_llvm/src/codegen/deriv
 target | oric::realization::arc_batch | compiler/oric/src/realization/arc_batch.rs
 target | oric::realization::mono_inventory | compiler/oric/src/realization/mono_inventory.rs
 span | aims_verify | compiler/ori_arc/src/pipeline/aims_pipeline/postprocess.rs
-span | analyze_function | compiler/ori_arc/src/pipeline/aims_pipeline/mod.rs
+span | analyze_function | compiler/ori_arc/src/pipeline/aims_pipeline/execution.rs
 span | analyze_program | compiler/ori_arc/src/pipeline/aims_pipeline/batch.rs
 span | apply_ownership | compiler/ori_arc/src/pipeline/aims_pipeline/batch.rs
 span | block_merge_compact | compiler/ori_arc/src/block_merge/compact.rs
 span | compute_var_reprs | compiler/ori_arc/src/pipeline/aims_pipeline/trmc.rs
 span | contract_coherence_oracle | compiler/ori_arc/src/pipeline/aims_pipeline/batch.rs
 span | detect_immortals | compiler/ori_arc/src/pipeline/aims_pipeline/trmc.rs
-span | emit_arg_ownership_prelude | compiler/ori_arc/src/pipeline/aims_pipeline/mod.rs
+span | emit_arg_ownership_prelude | compiler/ori_arc/src/pipeline/aims_pipeline/execution.rs
 span | merge_blocks | compiler/ori_arc/src/pipeline/aims_pipeline/postprocess.rs
 span | normalize_function | compiler/ori_arc/src/pipeline/aims_pipeline/trmc.rs
 span | phase2_downgrade | compiler/ori_arc/src/block_merge/downgrade.rs
@@ -49,8 +48,8 @@ span | phase7_invariant_param | compiler/ori_arc/src/block_merge/invariant_param
 span | post_emission_fip_update | compiler/ori_arc/src/pipeline/aims_pipeline/batch/second_pass.rs
 span | post_emission_fip_verify | compiler/ori_arc/src/pipeline/aims_pipeline/batch/second_pass.rs
 span | realize_annotations | compiler/ori_arc/src/aims/realize/mod.rs
-span | realize_annotations | compiler/ori_arc/src/pipeline/aims_pipeline/mod.rs
-span | realize_rc_reuse | compiler/ori_arc/src/pipeline/aims_pipeline/mod.rs
+span | realize_annotations | compiler/ori_arc/src/pipeline/aims_pipeline/execution.rs
+span | realize_rc_reuse | compiler/ori_arc/src/pipeline/aims_pipeline/execution.rs
 span | realize_rc_unified | compiler/ori_arc/src/aims/realize/mod.rs
 span | realize_reuse | compiler/ori_arc/src/aims/realize/mod.rs
 span | tail_calls | compiler/ori_arc/src/pipeline/aims_pipeline/postprocess.rs

@@ -6,11 +6,13 @@
 //! element sizing and widening use the source collection's representation;
 //! substituting a canonical element layout corrupts GEP strides.
 
-use super::{super::ArcIrEmitter, RenderStyle};
-use crate::codegen::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
-use crate::codegen::TypeInfo;
 use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
+
+use crate::codegen::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
+use crate::codegen::TypeInfo;
+
+use super::{super::ArcIrEmitter, RenderStyle};
 
 #[derive(Clone, Copy)]
 struct MapDebugContext {
@@ -37,12 +39,8 @@ struct MapEntryLayout {
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `{K: V}.debug()` — format as `{key: value, ...}`.
     ///
-    /// Strategy: convert map to key/value lists, iterate both in parallel,
-    /// format each `key_to_str + ": " + value_debug`, then dec temporary lists.
-    ///
-    /// Uses collection-level narrowing (from the map type) for element sizes,
-    /// since the temporary lists are created by `emit_map_keys`/`emit_map_values`
-    /// which use `collection_elem_size`.
+    /// Key/value staging lists retain the map representation's collection-level
+    /// element sizes so narrowed layouts keep the correct strides.
     pub(super) fn emit_map_debug(
         &mut self,
         map: ValueId,
@@ -90,9 +88,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(final_phi)
     }
 
-    /// Format all map entries: extract key/value lists, format first entry,
-    /// loop remaining, close brace, dec temporary buffers.
-    /// Returns `(formatted_string, close_bb_end)` for the phi merge.
+    /// Format the non-empty map entries and return the string with its exit block.
     fn emit_map_debug_entries(
         &mut self,
         map: ValueId,
@@ -253,8 +249,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `Set<T>.debug()` — format as `Set {elem, elem2, ...}`.
     ///
-    /// Strategy: convert set to list via `ori_set_to_list`, iterate elements,
-    /// format each with Debug semantics, then dec temporary list buffer.
+    /// Elements follow the requested Debug or Printable rendering style.
     pub(super) fn emit_set_debug(
         &mut self,
         set: ValueId,
@@ -370,19 +365,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(final_phi)
     }
 
-    /// Dec a temporary list buffer using collection-level element sizes.
-    ///
-    /// Used for map key/value lists where element sizes come from the map's
-    /// `collection_elem_size`, not the canonical `element_store_size`.
+    /// Decrement a temporary list whose elements use the source collection layout.
     fn dec_temporary_list_with_size(&mut self, list: ValueId, elem_ty: Idx, collection_idx: Idx) {
         let elem_size = self.collection_elem_size(collection_idx, elem_ty);
         self.dec_temporary_list(list, elem_ty, elem_size);
     }
 
-    /// Dec a temporary list buffer using canonical element sizes.
-    ///
-    /// Used for set-to-list conversions where `emit_set_to_list` uses
-    /// `element_store_size` (canonical, not narrowed).
+    /// Decrement a temporary list whose elements use the canonical store layout.
     fn dec_temporary_list_canonical(&mut self, list: ValueId, elem_ty: Idx) {
         let elem_size = self.element_store_size(elem_ty);
         self.dec_temporary_list(list, elem_ty, elem_size);

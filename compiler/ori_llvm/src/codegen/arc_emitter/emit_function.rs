@@ -4,17 +4,20 @@
 //! orchestrates block pre-creation, parameter binding, EH setup, and
 //! per-block instruction/terminator emission in reverse post-order.
 
-use super::context::EmittedValue;
-use super::dead_unwind::assert_dead_unwind_unreachable;
-use super::emit_function_support::{index_for_yield_elem_size_types, BlockLabel};
-use super::field_scan::{compute_pointer_only_params, scan_used_fields};
-use super::ArcIrEmitter;
-use crate::codegen::abi::FunctionAbi;
-use crate::codegen::eh_model::EhModel;
-use crate::codegen::value_id::{FunctionId, ValueId};
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
+
+use crate::codegen::abi::FunctionAbi;
+use crate::codegen::eh_model::EhModel;
+use crate::codegen::value_id::{FunctionId, ValueId};
+
+use super::block_label::BlockLabel;
+use super::context::EmittedValue;
+use super::dead_unwind::assert_dead_unwind_unreachable;
+use super::field_scan::{compute_pointer_only_params, scan_used_fields};
+use super::yield_type_index::index_yield_types_by_elem_size_var;
+use super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Reports whether builtin handling converts an `Invoke` callee to `call`.
@@ -105,7 +108,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         self.var_map.resize(func.var_types.len(), None);
         self.yield_lineages = ori_arc::YieldLineageIndex::for_function(func);
-        self.for_yield_elem_size_types = index_for_yield_elem_size_types(func);
+        self.yield_types_by_elem_size_var = index_yield_types_by_elem_size_var(func);
 
         let used_fields = scan_used_fields(func);
         let pointer_only = self.find_pointer_only_params(func);
@@ -120,6 +123,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let len_name = self.interner.intern("len");
         compute_pointer_only_params(func, |dst, callee, args| {
             let callee_name = self.interner.lookup(callee);
+            let is_string_length_call = || {
+                let Some(&receiver) = args.first() else {
+                    return false;
+                };
+                (callee == length_name || callee == len_name)
+                    && self.pool.tag(func.var_type(receiver)) == ori_types::Tag::Str
+            };
             if self.ctx.executable_facts_bound {
                 match self.ctx.executable_call_targets.get(&(func.name, dst)) {
                     Some(
@@ -127,11 +137,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         | ori_repr::executable::CallableTarget::External(_),
                     ) => return true,
                     Some(ori_repr::executable::CallableTarget::Runtime(_)) | None => {
-                        if (callee == length_name || callee == len_name) && !args.is_empty() {
-                            let receiver_ty = func.var_type(args[0]);
-                            return self.pool.tag(receiver_ty) == ori_types::Tag::Str;
-                        }
-                        return false;
+                        return is_string_length_call();
                     }
                 }
             }
@@ -145,11 +151,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ) {
                 return true;
             }
-            if (callee == length_name || callee == len_name) && !args.is_empty() {
-                let receiver_ty = func.var_type(args[0]);
-                return self.pool.tag(receiver_ty) == ori_types::Tag::Str;
-            }
-            false
+            is_string_length_call()
         })
     }
 
@@ -353,6 +355,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 }
 
+/// Panics if load elision would hide a direct ARC instruction on a parameter.
 pub(super) fn assert_pointer_only_params_have_no_rc(
     func: &ArcFunction,
     pointer_only: &FxHashSet<ArcVarId>,

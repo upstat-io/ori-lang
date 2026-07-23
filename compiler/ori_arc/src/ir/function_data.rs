@@ -1,14 +1,14 @@
 //! Function-level ARC IR metadata and carrier.
 
-use super::{
-    ArcBlock, ArcBlockId, ArcParam, ArcVarId, PrimOp, PrimitiveFacts, RcStrategy, ValueRepr,
-};
-use crate::uniqueness::{CowAnnotations, DropHints};
 use ori_ir::canon::MethodProducerId;
 use ori_ir::{Name, Span};
 use ori_types::{DerivedCallPosition, Idx, MethodProducer};
 
-// Functions
+use crate::uniqueness::{CowAnnotations, DropHints};
+
+use super::{
+    ArcBlock, ArcBlockId, ArcParam, ArcVarId, PrimOp, PrimitiveFacts, RcStrategy, ValueRepr,
+};
 
 /// Readiness of logical representation metadata and the transitional
 /// RC-adapter strategy table.
@@ -241,9 +241,8 @@ pub struct ArcFunction {
     /// Detected self-recursive tail call sites.
     ///
     /// Each entry identifies the block and instruction index of an `Apply`
-    /// in tail position. Populated by [`tail_call::detect_tail_calls`] in the
-    /// AIMS pipeline (after current-carrier ownership-event elision). Consumed by the loop-lowering
-    /// rewrite pass. Skipped during cache serialization.
+    /// in tail position after current-carrier ownership-event elision.
+    /// Skipped during cache serialization.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub tail_calls: Vec<crate::tail_call::TailCallSite>,
     /// Variables included in the per-variable burden-balance verifier.
@@ -252,8 +251,8 @@ pub struct ArcFunction {
     /// whose `BurdenInc` / `BurdenDec*` traffic must net to zero.
     ///
     /// Production class-ledger emission leaves this empty because it verifies
-    /// the plan at class grain before mechanical Phase-7 lowering. Read by the
-    /// VF-1 burden-balance verifier and skipped during cache serialization.
+    /// the plan at class grain before mechanical Phase-7 lowering. Skipped
+    /// during cache serialization.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub burden_emitted: Vec<bool>,
     /// Mutable-binding reassignment death points as `(old_var, new_var)` pairs.

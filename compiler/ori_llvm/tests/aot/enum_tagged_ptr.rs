@@ -89,7 +89,7 @@ fn test_explicit_tag_enum_with_iterator_payload_compiles_and_runs() {
 /// tagged-ptr enums are 8 bytes and typically live inline in a parent
 /// rather than as a standalone heap allocation (`drop_enum.rs` tagged-pointer
 /// comment). The user-source path that does fire on a list-element decl
-/// goes through `rc_helpers.rs::emit_tagged_ptr_enum_rc`, which emits
+/// goes through `rc_enum_values.rs::emit_tagged_ptr_enum_rc`, which emits
 /// the same tagged-pointer dispatch shape (load encoded i64, decode tag,
 /// switch, decode pointer, per-variant RC dec) but uses the
 /// `rc_dec.tag` / `rc_dec.tp.ptr` / `rc_dec.done` block-name family. Both
@@ -111,7 +111,7 @@ fn test_burden_dec_variant_tagged_ptr_enum_emits_switch_and_rc_dec() {
          backing buffer (RC dec on each element at buffer teardown)."
     );
     // `rc_dec.tag` — decoded 3-bit tag from the tagged-pointer encoded i64
-    // (`rc_helpers.rs::emit_tagged_ptr_enum_rc` via `tagged_ptr_decode_tag`).
+    // (`rc_enum_values.rs::emit_tagged_ptr_enum_rc` via `tagged_ptr_decode_tag`).
     assert!(
         ir.contains("rc_dec.tag"),
         "tagged-ptr dispatch must decode the tag into a value named \
