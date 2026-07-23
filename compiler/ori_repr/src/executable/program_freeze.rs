@@ -14,6 +14,7 @@ use super::{
 };
 
 /// Returns a deterministically ordered artifact with closed metadata and call targets.
+#[must_use = "the validated executable program must be handled"]
 pub(super) fn validate(
     mut parts: ExecutableProgramParts,
 ) -> Result<ExecutableProgram, RealizationError> {

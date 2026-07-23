@@ -12,6 +12,7 @@ use super::super::{ArcIrEmitter, StringRuntimeReturnAbi};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `lhs.equals(rhs)` for any type, dispatching recursively.
+    #[must_use = "the absence of an equality value must be handled"]
     pub(crate) fn emit_element_equals(
         &mut self,
         lhs: ValueId,
@@ -88,6 +89,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// type-name-keyed map. Shared mono-first resolver for the eq/hash/compare
     /// element paths and the `debug`/`to_str` format paths (which need the return
     /// ABI for the sret decision).
+    #[must_use = "the absence of a derived method must be handled"]
     pub(super) fn derived_method_full(
         &self,
         ty: Idx,
@@ -134,6 +136,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `lhs.compare(rhs)` for any type, dispatching recursively.
     ///
     /// Returns Ordering as i8 (Less=0, Equal=1, Greater=2).
+    #[must_use = "the absence of a comparison value must be handled"]
     pub(crate) fn emit_element_compare(
         &mut self,
         lhs: ValueId,
@@ -194,6 +197,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Emit `val.hash()` for any type, dispatching recursively.
+    #[must_use = "the absence of a hash value must be handled"]
     pub(crate) fn emit_element_hash(&mut self, val: ValueId, elem_ty: Idx) -> Option<ValueId> {
         let type_info = self.type_info.get(elem_ty);
         let i64_ty = self.builder.i64_type();

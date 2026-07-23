@@ -59,6 +59,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// The thunk maps two element pointers to -1, 0, or 1. Unsupported element
     /// types return `None`.
+    #[must_use = "the absence of a comparison thunk must be handled"]
     pub(in crate::codegen::arc_emitter::builtins::collections) fn get_or_create_compare_thunk(
         &mut self,
         elem_ty: Idx,
@@ -162,6 +163,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Elements load at their stored width and compare after sign extension.
     /// A canonical-width list returns `None`.
+    #[must_use = "the absence of a narrowed comparison thunk must be handled"]
     pub(in crate::codegen::arc_emitter::builtins::collections) fn get_or_create_narrowed_compare_thunk(
         &mut self,
         list_ty: Idx,

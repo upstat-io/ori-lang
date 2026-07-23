@@ -386,7 +386,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         .create_entry_alloca(self.current_function, "sret.tmp", ret_ty);
                 let mut full_args = vec![sret_alloca];
                 full_args.extend_from_slice(&passed_args);
-                self.call_or_invoke_llvm(func_id, &full_args, mode, "call");
+                let call_result = self.call_or_invoke_llvm(func_id, &full_args, mode, "call");
+                assert!(
+                    call_result.is_none(),
+                    "an sret call must not produce a direct LLVM return value"
+                );
                 self.builder.position_at_end(mode.normal_block());
                 Some(self.builder.load(ret_ty, sret_alloca, "sret.load"))
             }

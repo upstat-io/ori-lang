@@ -410,12 +410,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 }
 
 /// Builds the diagnostic for a closed target missing from LLVM declarations.
+#[cold]
+#[must_use]
 pub(super) fn closed_target_projection_message(target: &str, site: &str) -> String {
     format!(
         "LLVM did not declare closed executable target `{target}` before {site}; rerun the same command with ORI_VERIFY_ARC=1 and report this compiler bug"
     )
 }
 
+#[cold]
 fn invalid_indirect_closure_message(closure: ArcVarId) -> String {
     format!(
         "LLVM could not read the function and environment fields of indirect-call closure v{}; report this compiler bug",

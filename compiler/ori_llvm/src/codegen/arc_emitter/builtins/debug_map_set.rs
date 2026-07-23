@@ -36,11 +36,21 @@ struct MapEntryLayout {
     val_narrowed: bool,
 }
 
+#[derive(Clone, Copy)]
+struct SetDebugContext {
+    elem_ty: Idx,
+    str_ty: LLVMTypeId,
+    function: FunctionId,
+    style: RenderStyle,
+    elem_is_borrowed_str: bool,
+}
+
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `{K: V}.debug()` — format as `{key: value, ...}`.
     ///
     /// Key/value staging lists retain the map representation's collection-level
     /// element sizes so narrowed layouts keep the correct strides.
+    #[must_use = "the absence of a value must be handled"]
     pub(super) fn emit_map_debug(
         &mut self,
         map: ValueId,
@@ -252,6 +262,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `Set<T>.debug()` — format as `Set {elem, elem2, ...}`.
     ///
     /// Elements follow the requested Debug or Printable rendering style.
+    #[must_use = "the absence of a value must be handled"]
     pub(super) fn emit_set_debug(
         &mut self,
         set: ValueId,
@@ -280,6 +291,39 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.br(done_bb);
 
         self.builder.position_at_end(body_bb);
+        let context = SetDebugContext {
+            elem_ty,
+            str_ty,
+            function: func,
+            style,
+            elem_is_borrowed_str,
+        };
+        let (result, close_bb_end) = self.emit_set_debug_entries(set, zero, context)?;
+        self.builder.br(done_bb);
+
+        self.builder.position_at_end(done_bb);
+        let final_phi = self.builder.phi(str_ty, "sdbg.final");
+        self.builder.add_phi_incoming(
+            final_phi,
+            &[(empty_str, empty_bb_end), (result, close_bb_end)],
+        );
+        Some(final_phi)
+    }
+
+    /// Format the non-empty set elements and return the string with its exit block.
+    fn emit_set_debug_entries(
+        &mut self,
+        set: ValueId,
+        zero: ValueId,
+        context: SetDebugContext,
+    ) -> Option<(ValueId, BlockId)> {
+        let SetDebugContext {
+            elem_ty,
+            str_ty,
+            function,
+            style,
+            elem_is_borrowed_str,
+        } = context;
         let elem_list = self.emit_set_to_list(set, elem_ty)?;
         let data = self
             .builder
@@ -305,9 +349,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let needs_loop = self.builder.icmp_sgt(entry_count, one, "sdbg.more");
         let first_bb_end = self.builder.current_block()?;
 
-        let loop_hdr = self.builder.append_block(func, "sdbg.hdr");
-        let loop_body = self.builder.append_block(func, "sdbg.loop");
-        let close_bb = self.builder.append_block(func, "sdbg.close");
+        let loop_hdr = self.builder.append_block(function, "sdbg.hdr");
+        let loop_body = self.builder.append_block(function, "sdbg.loop");
+        let close_bb = self.builder.append_block(function, "sdbg.close");
 
         self.builder.cond_br(needs_loop, loop_hdr, close_bb);
 
@@ -356,16 +400,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let close_bb_end = self.builder.current_block()?;
 
         self.dec_temporary_list_canonical(elem_list, elem_ty);
-
-        self.builder.br(done_bb);
-
-        self.builder.position_at_end(done_bb);
-        let final_phi = self.builder.phi(str_ty, "sdbg.final");
-        self.builder.add_phi_incoming(
-            final_phi,
-            &[(empty_str, empty_bb_end), (result, close_bb_end)],
-        );
-        Some(final_phi)
+        Some((result, close_bb_end))
     }
 
     /// Decrement a temporary list whose elements use the source collection layout.

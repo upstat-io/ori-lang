@@ -22,6 +22,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Equal if same length AND all elements are equal.
     /// Layout: `{i64 len, i64 cap, ptr data}`.
+    #[must_use = "the absence of an equality value must be handled"]
     pub(in crate::codegen::arc_emitter) fn emit_list_equals(
         &mut self,
         lhs: ValueId,
@@ -98,6 +99,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `List<T>.compare(other) -> Ordering`
     ///
     /// Lexicographic: compare element-wise, shorter list is Less.
+    #[must_use = "the absence of a comparison value must be handled"]
     pub(in crate::codegen::arc_emitter) fn emit_list_compare(
         &mut self,
         lhs: ValueId,
@@ -181,6 +183,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `List<T>.hash() -> int`
     ///
     /// Fold `hash_combine` over element hashes, starting from 0.
+    #[must_use = "the absence of a hash value must be handled"]
     pub(in crate::codegen::arc_emitter) fn emit_list_hash(
         &mut self,
         val: ValueId,

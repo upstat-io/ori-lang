@@ -13,6 +13,7 @@ use super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Resolve one receiver-qualified method through the closed artifact census.
+    #[must_use = "the absence of an exact method target must be handled"]
     pub(super) fn lookup_exact_method_target(
         &self,
         receiver: Idx,
@@ -41,6 +42,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// enter builtin/runtime emission. Exact function and external targets must
     /// resolve through their declared artifact identity and fail closed if that
     /// declaration is absent.
+    #[must_use]
     pub(super) fn runtime_projection_allowed(&self, func: &ArcFunction, dst: ArcVarId) -> bool {
         if !self.ctx.executable_facts_bound {
             return true;
@@ -56,6 +58,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Explain an unresolved direct call using the closed target identity.
+    #[cold]
+    #[must_use]
     pub(super) fn unresolved_direct_call_message(
         &self,
         func: &ArcFunction,
@@ -99,6 +103,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// - `InvokeMode::Invoke`: emits `invoke` with normal + unwind continuations
     /// - `InvokeMode::Call`: emits `call` + unconditional `br` to normal block
+    #[must_use = "the absence of a call result must be handled"]
     pub(super) fn call_or_invoke_llvm(
         &mut self,
         func_id: FunctionId,
@@ -133,6 +138,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// names. When two types derive the same trait, the unqualified lookup is
     /// ambiguous. This method uses the first arg's type index to resolve the
     /// correct type-qualified entry in `method_functions`.
+    #[must_use = "the absence of a receiver-qualified method must be handled"]
     pub(super) fn lookup_method_by_receiver(
         &self,
         name: Name,
@@ -160,6 +166,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// For factory methods like `default()`, the return type IS the owning type,
     /// so we can use `func.var_type(dst)` to find the correct type-qualified
     /// entry in `method_functions`.
+    #[must_use = "the absence of a return-qualified method must be handled"]
     pub(super) fn lookup_method_by_return_type(
         &self,
         name: Name,
@@ -183,6 +190,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Returns `None` after warning only for receiver types that require a
     /// registered derived method; builtin receivers remain silent.
+    #[must_use = "the absence of a fallback method must be handled"]
     pub(super) fn lookup_method_fallback(
         &self,
         name: Name,
@@ -211,6 +219,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Exact instance identity takes precedence; calls without that identity
     /// fall back to structural argument-type matching.
+    #[must_use = "the absence of a monomorphized dispatch target must be handled"]
     pub(super) fn lookup_mono_dispatch(
         &self,
         callee: Name,
@@ -289,6 +298,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Resolves a callee through receiver, return, free-function, and generic identities.
     ///
     /// A final typed diagnostic fallback returns `None` when every identity misses.
+    #[must_use = "the absence of a resolved callee must be handled"]
     pub(super) fn resolve_callee(
         &self,
         callee: Name,

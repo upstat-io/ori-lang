@@ -78,6 +78,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Fast path (unique + capacity): appends in place, O(1).
     /// Slow path (shared): copies to new buffer, O(n).
+    #[must_use = "the absence of a value must be handled"]
     pub(crate) fn emit_list_push_cow(
         &mut self,
         receiver: ValueId,
@@ -131,6 +132,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Fast path (unique): overwrites element at index in place.
     /// Slow path (shared): copies buffer, overwrites target index.
+    #[must_use = "the absence of a value must be handled"]
     pub(crate) fn emit_list_set_cow(
         &mut self,
         receiver: ValueId,
@@ -187,6 +189,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emits COW replacement for `list.updated(key, value)`. Unique lists update
     /// in place; shared lists copy first. The runtime panics on out-of-bounds keys
     /// and consumes the value's owned reference.
+    #[must_use = "the absence of a value must be handled"]
     pub(crate) fn emit_list_updated_cow(
         &mut self,
         receiver: ValueId,
@@ -268,6 +271,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Fast path (unique + capacity): memmove + write in place.
     /// Slow path (shared): new allocation with element inserted.
+    #[must_use = "the absence of a value must be handled"]
     pub(crate) fn emit_list_insert_cow(
         &mut self,
         receiver: ValueId,
@@ -289,6 +293,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Emit `list.prepend(value)` through the canonical index-zero insert path.
+    #[must_use = "the absence of a value must be handled"]
     pub(crate) fn emit_list_prepend_cow(
         &mut self,
         receiver: ValueId,
@@ -305,6 +310,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Fast path (unique): memmove shift left in place.
     /// Slow path (shared): new allocation without the removed element.
+    #[must_use = "the absence of a value must be handled"]
     pub(crate) fn emit_list_remove_cow(
         &mut self,
         receiver: ValueId,
