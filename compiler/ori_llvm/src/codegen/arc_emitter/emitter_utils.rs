@@ -95,6 +95,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .get(self.current_block_idx, self.current_instr_idx)
     }
 
+    fn yield_allocation_for_receiver(
+        &self,
+        arc_func: &ArcFunction,
+        receiver: ArcVarId,
+    ) -> Option<ori_repr::CompiledAllocationDecision> {
+        let result = self.yield_lineages.result_for_receiver(receiver)?;
+        self.repr_plan?
+            .yield_allocation_for_result(arc_func.name, result)
+    }
+
     /// Whether `receiver` belongs to a yield lineage whose frozen compiled
     /// allocation mechanism is a stack slot.
     pub(crate) fn is_stack_slot_yield_receiver(
@@ -102,11 +112,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         arc_func: &ArcFunction,
         receiver: ArcVarId,
     ) -> bool {
-        let Some(result) = self.yield_lineages.result_for_receiver(receiver) else {
-            return false;
-        };
-        self.repr_plan
-            .and_then(|plan| plan.yield_allocation_for_result(arc_func.name, result))
+        self.yield_allocation_for_receiver(arc_func, receiver)
             .is_some_and(|decision| decision.mechanism.is_stack())
     }
 
@@ -116,11 +122,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         arc_func: &ArcFunction,
         receiver: ArcVarId,
     ) -> bool {
-        let Some(result) = self.yield_lineages.result_for_receiver(receiver) else {
-            return false;
-        };
-        self.repr_plan
-            .and_then(|plan| plan.yield_allocation_for_result(arc_func.name, result))
+        self.yield_allocation_for_receiver(arc_func, receiver)
             .is_some_and(|decision| {
                 matches!(
                     decision.mechanism,
@@ -138,19 +140,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         arc_func: &ArcFunction,
         receiver: ArcVarId,
     ) -> bool {
-        if !self.is_stack_slot_yield_receiver(arc_func, receiver) {
-            return false;
-        }
-        let Some(result) = self.yield_lineages.result_for_receiver(receiver) else {
-            return false;
-        };
-        arc_func
-            .yield_allocations
-            .iter()
-            .find(|fact| fact.result == result)
-            .is_some_and(|fact| {
-                self.classifier.is_scalar(fact.elem_ty)
-                    && self.user_drop_method(fact.elem_ty).is_none()
+        self.yield_allocation_for_receiver(arc_func, receiver)
+            .is_some_and(|decision| {
+                decision.mechanism.is_stack()
+                    && self.classifier.is_scalar(decision.elem_ty)
+                    && self.user_drop_method(decision.elem_ty).is_none()
             })
     }
 

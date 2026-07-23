@@ -90,16 +90,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .call_with_sret(func_id, &[as_i64], str_ty, "tstr.byte")
     }
 
-    fn emit_option_to_str(&mut self, value: ValueId, inner_type: Idx) -> Option<ValueId> {
-        let tag = self.builder.extract_value(value, 0, "tstr.opt.tag")?;
-        let some = self
-            .builder
-            .const_int_matching(tag, u64::try_from(ori_ir::OPTION_TAG_SOME).ok()?);
-        let is_some = self.builder.icmp_eq(tag, some, "tstr.opt.is_some");
-        let payload = self.builder.extract_value(value, 1, "tstr.opt.payload")?;
-        self.emit_option_debug_branch(is_some, payload, inner_type, RenderStyle::Printable)
-    }
-
     /// Emit `to_str` (Printable) for an element of any supported type.
     ///
     /// Strings and chars render without quoting; compound types recurse with
@@ -121,10 +111,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             TypeInfo::Byte => self.emit_byte_to_str(val),
 
-            TypeInfo::Option { inner } => {
-                let inner = *inner;
-                self.emit_option_to_str(val, inner)
-            }
+            TypeInfo::Option { .. } => self.emit_option_render(val, ty, RenderStyle::Printable),
 
             TypeInfo::Result {
                 ok: ok_ty,
@@ -193,16 +180,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    fn emit_option_debug(&mut self, value: ValueId, inner_type: Idx) -> Option<ValueId> {
-        let tag = self.builder.extract_value(value, 0, "dbg.opt.tag")?;
-        let some = self
-            .builder
-            .const_int_matching(tag, u64::try_from(ori_ir::OPTION_TAG_SOME).ok()?);
-        let is_some = self.builder.icmp_eq(tag, some, "dbg.opt.is_some");
-        let payload = self.builder.extract_value(value, 1, "dbg.opt.payload")?;
-        self.emit_option_debug_branch(is_some, payload, inner_type, RenderStyle::Debug)
-    }
-
     /// Emit Debug formatting for an element of any type.
     ///
     /// Strings and chars render quoted and escaped; compound types recurse with
@@ -224,10 +201,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_scalar_debug(val, &type_info)
             }
 
-            TypeInfo::Option { inner } => {
-                let inner = *inner;
-                self.emit_option_debug(val, inner)
-            }
+            TypeInfo::Option { .. } => self.emit_option_render(val, ty, RenderStyle::Debug),
 
             TypeInfo::Result {
                 ok: ok_ty,

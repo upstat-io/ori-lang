@@ -175,7 +175,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Shared `debug` / `to_str` rendering for explicit-tag Options.
     /// `style` selects Debug or Printable formatting.
-    fn emit_option_render(
+    pub(super) fn emit_option_render(
         &mut self,
         receiver: ValueId,
         receiver_ty: Idx,
