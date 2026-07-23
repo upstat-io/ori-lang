@@ -4,6 +4,8 @@ use crate::util::{compile_and_capture_ir, compile_and_run_with_env, extract_func
 
 const FALLIBLE_IDENTITY_RELAY: &str =
     include_str!("fixtures/projected_field_reconstruction/fallible_identity_relay_unwind.ori");
+const LIVE_ALIAS_REQUIRES_COW: &str =
+    include_str!("fixtures/projected_field_reconstruction/live_alias_requires_cow.ori");
 
 #[test]
 fn fallible_identity_relay_releases_residual_sibling_on_unwind() {
@@ -69,5 +71,46 @@ fn fallible_identity_relay_releases_residual_sibling_on_unwind() {
     assert!(
         stderr.contains("(live=0)"),
         "the RC trace must end with no live allocations:\n{stderr}"
+    );
+}
+
+#[test]
+fn live_aggregate_alias_keeps_retain_and_runtime_cow() {
+    let ir = compile_and_capture_ir(LIVE_ALIAS_REQUIRES_COW);
+    let update_ir = extract_function_ir(&ir, "_ori_update_with_live_alias");
+
+    assert!(
+        update_ir.contains("call void @ori_list_rc_inc"),
+        "a live copy of the source aggregate must keep projected-field funding:\n{update_ir}"
+    );
+    assert!(
+        update_ir.contains("call void @ori_list_push_cow"),
+        "the shared projected field must continue through runtime COW:\n{update_ir}"
+    );
+
+    let (exit_code, stdout, stderr) =
+        compile_and_run_with_env(LIVE_ALIAS_REQUIRES_COW, &[("ORI_TRACE_RC", "1")]);
+    assert_eq!(
+        exit_code, 0,
+        "the real-alias control must remain leak- and double-free-clean:\n{stderr}"
+    );
+    assert_eq!(
+        stdout.trim(),
+        "true",
+        "runtime COW must preserve the original aggregate while mutating its copy"
+    );
+    let allocations = stderr.matches("[RC] alloc").count();
+    let frees = stderr.matches("[RC] free").count();
+    assert!(
+        allocations >= 3,
+        "the two source lists plus the COW copy must allocate:\n{stderr}"
+    );
+    assert_eq!(
+        frees, allocations,
+        "every real-alias allocation must free exactly once:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("(live=0)"),
+        "the real-alias trace must end with no live allocations:\n{stderr}"
     );
 }

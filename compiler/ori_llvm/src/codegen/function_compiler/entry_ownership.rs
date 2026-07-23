@@ -1,11 +1,12 @@
 //! Entry-point ownership-seam report: the semantic AIMS param facts and the
 //! physical wrapper cleanup decision, rendered side by side.
 //!
-//! The C `main()` wrapper decides argv cleanup from `ParamPassing` alone. This
-//! module is the single place that projects the governing semantic facts
-//! (`ParamContract`, realized `ArcParam` ownership) next to that physical
+//! The C `main()` wrapper decides argv cleanup from the callee's owner demand.
+//! This module is the single place that projects the governing semantic facts
+//! (`ParamContract`, realized `ArcParam` ownership) next to that wrapper
 //! decision and the per-cleanup-site verdict, so a reader sees whether the
-//! physical decision followed from the semantic fact or from the ABI bit.
+//! wrapper decision agrees with the semantic fact on every exit. A regression
+//! that derived the decision from the ABI passing mode would read DIVERGENT.
 //!
 //! Read-only: every fact is READ from its owner. The RL-2 boundary verdict is
 //! `ParamContract::callee_owner_demand()`, the same oracle
@@ -75,16 +76,19 @@ impl CleanupSite {
         }
     }
 
-    /// Whether the site's cleanup call is guarded by `wrapper_owns_on_normal`.
+    /// Whether the site's cleanup call is guarded by `wrapper_owns`.
     ///
-    /// The three normal-return sites are guarded; the two caught sites emit
-    /// unconditionally. Unconditional caught cleanup double-frees a consumed
-    /// argv on the unwind exit.
+    /// Every site — the three normal-return sites AND the two caught sites — is
+    /// guarded by the one `wrapper_owns` decision: the wrapper releases the
+    /// buffer on an exit iff it owns the cleanup obligation there.
     #[must_use]
     pub(super) fn is_guarded(self) -> bool {
         match self {
-            Self::ItaniumInvokeNormal | Self::ItaniumDirectNormal | Self::SehSuccess => true,
-            Self::ItaniumCatch | Self::SehCaught => false,
+            Self::ItaniumInvokeNormal
+            | Self::ItaniumDirectNormal
+            | Self::SehSuccess
+            | Self::ItaniumCatch
+            | Self::SehCaught => true,
         }
     }
 
@@ -92,7 +96,7 @@ impl CleanupSite {
     #[must_use]
     pub(super) fn guard(self) -> &'static str {
         if self.is_guarded() {
-            "wrapper_owns_on_normal"
+            "wrapper_owns"
         } else {
             "unconditional"
         }
@@ -112,8 +116,8 @@ impl CleanupSite {
 
     /// Whether this site emits an `ori_args_cleanup` call.
     #[must_use]
-    pub(super) fn emits_cleanup(self, wrapper_owns_on_normal: bool) -> bool {
-        !self.is_guarded() || wrapper_owns_on_normal
+    pub(super) fn emits_cleanup(self, wrapper_owns: bool) -> bool {
+        !self.is_guarded() || wrapper_owns
     }
 }
 
@@ -186,8 +190,9 @@ pub(super) struct EntryParamSeam {
     pub(super) borrowed_rooted: Option<bool>,
     /// How the parameter is physically passed to `_ori_main`.
     pub(super) param_passing: ParamPassing,
-    /// The wrapper's computed normal-path ownership flag.
-    pub(super) wrapper_owns_on_normal: bool,
+    /// The wrapper's computed cleanup-ownership decision, applied on every
+    /// exit (normal AND unwind), derived from the callee's owner demand.
+    pub(super) wrapper_owns: bool,
 }
 
 impl EntryParamSeam {
@@ -227,7 +232,7 @@ impl EntryParamSeam {
             return None;
         }
         let must_release = self.wrapper_must_release()?;
-        let emits = site.emits_cleanup(self.wrapper_owns_on_normal);
+        let emits = site.emits_cleanup(self.wrapper_owns);
         Some(match (emits, must_release) {
             (true, false) => SiteCorrectness::DoubleFree,
             (false, true) => SiteCorrectness::Leak,
@@ -383,7 +388,7 @@ impl EntryOwnershipReport {
     }
 
     fn render_physical(out: &mut String, param: &EntryParamSeam) {
-        out.push_str("    physical (ABI):\n");
+        out.push_str("    physical (wrapper decision):\n");
         let _ = writeln!(
             out,
             "      param_passing             = {:?}",
@@ -391,8 +396,8 @@ impl EntryOwnershipReport {
         );
         let _ = writeln!(
             out,
-            "      wrapper_owns_on_normal    = {}  <- derived from param_passing ONLY",
-            param.wrapper_owns_on_normal
+            "      wrapper_owns              = {}  <- cleanup owned on every exit",
+            param.wrapper_owns
         );
     }
 
@@ -407,7 +412,7 @@ impl EntryOwnershipReport {
                 out,
                 "      {:<24} {:<5} (guard: {:<22}) [{:<8}] {}",
                 site.name(),
-                if site.emits_cleanup(param.wrapper_owns_on_normal) {
+                if site.emits_cleanup(param.wrapper_owns) {
                     "EMIT"
                 } else {
                     "SKIP"

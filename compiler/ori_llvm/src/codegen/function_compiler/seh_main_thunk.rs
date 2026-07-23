@@ -89,7 +89,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             cleanup_fn,
             data,
             len,
-            wrapper_owns_on_normal,
+            wrapper_owns,
             list_ty,
             param_passing,
         } = *args_cleanup;
@@ -157,16 +157,20 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         } else {
             self.builder.const_i32(0)
         };
-        if wrapper_owns_on_normal {
+        if wrapper_owns {
             self.builder.call(cleanup_fn, &[data, len], "");
         }
         self.emit_leak_check_and_ret(main_exit_code);
 
-        // Caught: always cleanup args + return exit code 1
+        // Caught: cleanup args only when the wrapper owns the buffer, then exit
+        // code 1. A consuming callee released it before unwinding, so an
+        // unconditional caught release would double-free.
         self.builder.position_at_end(caught_bb);
         let report_panic = self.builder.runtime_fn("ori_report_uncaught_panic");
         self.builder.call(report_panic, &[], "");
-        self.builder.call(cleanup_fn, &[data, len], "");
+        if wrapper_owns {
+            self.builder.call(cleanup_fn, &[data, len], "");
+        }
         let panic_exit = self.builder.const_i32(1);
         self.builder.ret(panic_exit);
     }

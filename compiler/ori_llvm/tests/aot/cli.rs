@@ -1262,6 +1262,34 @@ fn test_main_args_panic_during_iteration_does_not_double_free() {
     );
 }
 
+#[test]
+fn test_main_args_panic_before_iteration_does_not_double_free() {
+    // The callee consumes argv at the boundary, not when iteration begins: this
+    // program panics BEFORE the loop, yet the buffer is still transferred inward
+    // and released on unwind. An unconditional caught-path cleanup would still
+    // double-free it. Clamps the boundary-transfer timing the wrapper assumes.
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        "@main (args: [str]) -> void = {\n    if args.len() > 0 then panic(msg: \"before-loop\");\n\n    for arg in args do\n        print(msg: arg);\n}\n",
+        &["alpha", "beta"],
+    );
+    assert_no_signal_crash(
+        exit_code,
+        "test_main_args_panic_before_iteration_does_not_double_free",
+    );
+    assert_eq!(
+        exit_code, 1,
+        "a pre-loop panic must propagate as a clean panic exit, stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("ori panic: before-loop"),
+        "expected the pre-loop panic message, got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("double free"),
+        "unwind must release the argv buffer exactly once, stderr: {stderr}"
+    );
+}
+
 // Negative controls: an in-language collection iterated through the SAME
 // borrowed-parameter shape must stay green. These bound the defect to the
 // argv/entry-boundary buffer and clamp a cure that would strip the legitimate
@@ -1709,11 +1737,14 @@ fn test_main_args_owned_wrapper_ir_no_normal_cleanup() {
             "main wrapper should use invoke for owned-args path.\nIR:\n{main_fn}"
         );
     }
-    // ori_args_cleanup called exactly ONCE: catch/caught path only.
-    // Normal/success path skips cleanup — callee owns the buffer.
+    // ori_args_cleanup is called ZERO times: the callee consumes the buffer and
+    // releases it on BOTH exits (normal return and unwind), so the wrapper must
+    // release it on neither. An earlier wrapper cleaned up unconditionally on the
+    // caught path, double-freeing a consumed buffer whenever an owned-args
+    // program panicked.
     let cleanup_call_count = main_fn.matches("call void @ori_args_cleanup").count();
     assert_eq!(
-        cleanup_call_count, 1,
-        "ori_args_cleanup should be called once (catch only) for owned args, found {cleanup_call_count}.\nIR:\n{main_fn}"
+        cleanup_call_count, 0,
+        "ori_args_cleanup should not be called for consumed args on either exit, found {cleanup_call_count}.\nIR:\n{main_fn}"
     );
 }
