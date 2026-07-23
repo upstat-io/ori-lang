@@ -146,48 +146,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let open = self.emit_literal_ori_str("{")?;
         let acc_init = self.emit_map_entry_str(key_data, val_data, zero, layout, open)?;
 
-        let needs_loop = self.builder.icmp_sgt(entry_count, one, "mdbg.more");
         let first_bb_end = self.builder.current_block()?;
-
-        let loop_hdr = self.builder.append_block(context.function, "mdbg.hdr");
-        let loop_body = self.builder.append_block(context.function, "mdbg.loop");
-        let close_bb = self.builder.append_block(context.function, "mdbg.close");
-
-        self.builder.cond_br(needs_loop, loop_hdr, close_bb);
-
-        self.builder.position_at_end(loop_hdr);
-        let i64_ty = self
-            .builder
-            .register_type(self.builder.scx().type_i64().into());
-        let idx_phi = self.builder.phi(i64_ty, "mdbg.idx");
-        let acc_phi = self.builder.phi(context.str_ty, "mdbg.acc");
-        let has_more = self.builder.icmp_slt(idx_phi, entry_count, "mdbg.cont");
-        self.builder.cond_br(has_more, loop_body, close_bb);
-
-        self.builder.position_at_end(loop_body);
-        let sep = self.emit_literal_ori_str(", ")?;
-        let with_sep = self.emit_str_concat(acc_phi, sep)?;
-        self.dec_intermediate_str(acc_phi);
-        let new_acc = self.emit_map_entry_str(key_data, val_data, idx_phi, layout, with_sep)?;
-        self.dec_intermediate_str(with_sep);
-        let next_idx = self.builder.add(idx_phi, one, "mdbg.next");
-        let body_end = self.builder.current_block()?;
-        self.builder.br(loop_hdr);
-
-        self.builder
-            .add_phi_incoming(idx_phi, &[(one, first_bb_end), (next_idx, body_end)]);
-
-        self.builder
-            .add_phi_incoming(acc_phi, &[(acc_init, first_bb_end), (new_acc, body_end)]);
-
-        self.builder.position_at_end(close_bb);
-        let close_acc = self.builder.phi(context.str_ty, "mdbg.cl.acc");
-        self.builder
-            .add_phi_incoming(close_acc, &[(acc_init, first_bb_end), (acc_phi, loop_hdr)]);
-        let suffix = self.emit_literal_ori_str("}")?;
-        let result = self.emit_str_concat(close_acc, suffix)?;
-        self.dec_intermediate_str(close_acc);
-        let close_bb_end = self.builder.current_block()?;
+        let (result, close_bb_end) = self.emit_debug_sequence_tail(
+            entry_count,
+            one,
+            acc_init,
+            first_bb_end,
+            context.str_ty,
+            context.function,
+            "}",
+            |emitter, idx, acc| {
+                let sep = emitter.emit_literal_ori_str(", ")?;
+                let with_sep = emitter.emit_str_concat(acc, sep)?;
+                emitter.dec_intermediate_str(acc);
+                let new_acc =
+                    emitter.emit_map_entry_str(key_data, val_data, idx, layout, with_sep)?;
+                emitter.dec_intermediate_str(with_sep);
+                Some(new_acc)
+            },
+        )?;
 
         self.dec_temporary_list_with_size(key_list, context.key_ty, collection_idx);
         self.dec_temporary_list_with_size(val_list, context.val_ty, collection_idx);
@@ -346,58 +323,34 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.dec_intermediate_str(elem0_str);
         }
 
-        let needs_loop = self.builder.icmp_sgt(entry_count, one, "sdbg.more");
         let first_bb_end = self.builder.current_block()?;
-
-        let loop_hdr = self.builder.append_block(function, "sdbg.hdr");
-        let loop_body = self.builder.append_block(function, "sdbg.loop");
-        let close_bb = self.builder.append_block(function, "sdbg.close");
-
-        self.builder.cond_br(needs_loop, loop_hdr, close_bb);
-
-        self.builder.position_at_end(loop_hdr);
-        let i64_ty = self
-            .builder
-            .register_type(self.builder.scx().type_i64().into());
-        let idx_phi = self.builder.phi(i64_ty, "sdbg.idx");
-        let acc_phi = self.builder.phi(str_ty, "sdbg.acc");
-        let has_more = self.builder.icmp_slt(idx_phi, entry_count, "sdbg.cont");
-        self.builder.cond_br(has_more, loop_body, close_bb);
-
-        self.builder.position_at_end(loop_body);
-        let sep = self.emit_literal_ori_str(", ")?;
-        let with_sep = self.emit_str_concat(acc_phi, sep)?;
-        self.dec_intermediate_str(acc_phi);
-        let ptr_i = self.builder.gep(elem_llvm_ty, data, &[idx_phi], "sdbg.epi");
-        let elem_i = self.builder.load(elem_llvm_ty, ptr_i, "sdbg.ei");
-        let elem_i_str = if style.is_debug() {
-            self.emit_element_debug(elem_i, elem_ty)?
-        } else {
-            self.emit_element_to_str(elem_i, elem_ty)?
-        };
-        let new_acc = self.emit_str_concat(with_sep, elem_i_str)?;
-        self.dec_intermediate_str(with_sep);
-        if !elem_is_borrowed_str {
-            self.dec_intermediate_str(elem_i_str);
-        }
-        let next_idx = self.builder.add(idx_phi, one, "sdbg.next");
-        let body_end = self.builder.current_block()?;
-        self.builder.br(loop_hdr);
-
-        self.builder
-            .add_phi_incoming(idx_phi, &[(one, first_bb_end), (next_idx, body_end)]);
-
-        self.builder
-            .add_phi_incoming(acc_phi, &[(acc_init, first_bb_end), (new_acc, body_end)]);
-
-        self.builder.position_at_end(close_bb);
-        let close_acc = self.builder.phi(str_ty, "sdbg.cl.acc");
-        self.builder
-            .add_phi_incoming(close_acc, &[(acc_init, first_bb_end), (acc_phi, loop_hdr)]);
-        let suffix = self.emit_literal_ori_str("}")?;
-        let result = self.emit_str_concat(close_acc, suffix)?;
-        self.dec_intermediate_str(close_acc);
-        let close_bb_end = self.builder.current_block()?;
+        let (result, close_bb_end) = self.emit_debug_sequence_tail(
+            entry_count,
+            one,
+            acc_init,
+            first_bb_end,
+            str_ty,
+            function,
+            "}",
+            |emitter, idx, acc| {
+                let sep = emitter.emit_literal_ori_str(", ")?;
+                let with_sep = emitter.emit_str_concat(acc, sep)?;
+                emitter.dec_intermediate_str(acc);
+                let elem_ptr = emitter.builder.gep(elem_llvm_ty, data, &[idx], "sdbg.epi");
+                let elem = emitter.builder.load(elem_llvm_ty, elem_ptr, "sdbg.ei");
+                let elem_str = if style.is_debug() {
+                    emitter.emit_element_debug(elem, elem_ty)?
+                } else {
+                    emitter.emit_element_to_str(elem, elem_ty)?
+                };
+                let new_acc = emitter.emit_str_concat(with_sep, elem_str)?;
+                emitter.dec_intermediate_str(with_sep);
+                if !elem_is_borrowed_str {
+                    emitter.dec_intermediate_str(elem_str);
+                }
+                Some(new_acc)
+            },
+        )?;
 
         self.dec_temporary_list_canonical(elem_list, elem_ty);
         Some((result, close_bb_end))

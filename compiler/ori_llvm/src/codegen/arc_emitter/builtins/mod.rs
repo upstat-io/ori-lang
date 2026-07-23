@@ -78,6 +78,7 @@ mod compound_type_impls;
 mod debug_compound;
 mod debug_map_set;
 mod debug_render;
+mod debug_sequence;
 mod dispatch;
 mod iterator;
 mod iterator_adapters;
