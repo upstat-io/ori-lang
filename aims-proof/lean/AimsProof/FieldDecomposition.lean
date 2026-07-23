@@ -221,6 +221,14 @@ theorem FD_cured_moved_field_balanced :
 theorem FD_cured_unmoved_field_balanced :
     threeClauses (payloadEvents false false) = true := by rfl
 
+/-- §T6 (P4) exact aggregate reconstruction moves BOTH owned fields, so the
+    typed authority union produces the total skip set. Each moved field
+    balances independently while the container's own consume remains
+    verbatim by `FD_container_class_verbatim`. -/
+theorem FD_cured_total_skip_balanced :
+    (List.range 2).all (fun _ => threeClauses (payloadEvents true true)) = true := by
+  rfl
+
 /-- §T6 (P4) the BUGGY composition: whole-var release (skip = ∅) on the same
     move — the moved field's class nets -1 and fails the clauses: the double
     free the field-view hazard declines today, now the named rejection

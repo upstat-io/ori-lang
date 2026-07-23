@@ -2870,7 +2870,10 @@ fn projected_cow_reconstruction_rebooks_the_existing_field_credit() {
 
     assert!(
         !analysis.field_view_hazard && analysis.readiness.all_classes_clean,
-        "the exact reconstruction must verify cleanly: declined={:?} verdicts={:?}",
+        "the exact reconstruction must verify cleanly: field_view_hazard={} \
+         all_classes_clean={} declined={:?} verdicts={:?}",
+        analysis.field_view_hazard,
+        analysis.readiness.all_classes_clean,
         analysis.readiness.declined,
         analysis.readiness.verdicts
     );

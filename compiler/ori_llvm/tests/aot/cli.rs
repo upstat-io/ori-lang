@@ -1170,6 +1170,51 @@ fn test_main_args_with_heap_strings() {
     );
 }
 
+// Regression: iterating the entry-point's argv-backed `[str]` parameter with
+// `for..in` transferred an owner credit to the iterator that no site funded, so
+// the iterator released a buffer the caller never owned and the runtime's args
+// cleanup freed it a second time.
+
+#[test]
+fn test_main_args_for_in_does_not_double_free() {
+    let (exit_code, stdout, stderr) = compile_and_run_with_args(
+        "@main (args: [str]) -> void =\n    for arg in args do\n        print(msg: arg);\n",
+        &["alpha", "beta", "gamma"],
+    );
+    assert_eq!(
+        exit_code, 0,
+        "expected exit 0 (no double free), stdout: {stdout}, stderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("alpha") && stdout.contains("beta") && stdout.contains("gamma"),
+        "expected every argument printed, stdout: {stdout}"
+    );
+}
+
+#[test]
+fn test_main_args_iter_chain_does_not_double_free() {
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        "@main (args: [str]) -> void =\n    print(msg: args.iter().count().to_str());\n",
+        &["alpha", "beta"],
+    );
+    assert_eq!(
+        exit_code, 0,
+        "expected exit 0 (no double free through the iterator chain), stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_borrowed_str_list_param_for_in_does_not_double_free() {
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        "@show (items: [str]) -> void =\n    for item in items do\n        print(msg: item);\n\n@main (args: [str]) -> void =\n    show(items: args);\n",
+        &["alpha", "beta"],
+    );
+    assert_eq!(
+        exit_code, 0,
+        "expected exit 0 (borrowed list param iterated in a callee), stderr: {stderr}"
+    );
+}
+
 #[test]
 fn test_main_args_void_return() {
     let (exit_code, _, stderr) = compile_and_run_with_args(
