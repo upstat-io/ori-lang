@@ -320,6 +320,7 @@ fn yield_fact(
         builder: ArcVarId::new(builder),
         result: ArcVarId::new(result),
         elem_ty: ori_types::Idx::BOOL,
+        elem_size_var: ArcVarId::new(result),
         elem_size,
         extent,
         locality,

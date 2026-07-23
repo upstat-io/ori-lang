@@ -110,6 +110,7 @@ impl ArcLowerer<'_> {
             shape.result_ty,
             allocation.list_ptr,
             elem_ty,
+            allocation.elem_size_var,
             elem_size,
             allocation.extent,
             setup,
@@ -391,6 +392,7 @@ impl ArcLowerer<'_> {
         result_ty: Idx,
         list_ptr: ArcVarId,
         elem_ty: Idx,
+        elem_size_var: ArcVarId,
         elem_size: u64,
         extent: YieldExtent,
         setup: RangeLoopSetup,
@@ -412,8 +414,14 @@ impl ArcLowerer<'_> {
         let result = self
             .builder
             .emit_apply(result_ty, list_take, vec![list_ptr], None, None);
-        self.builder
-            .note_yield_allocation(list_ptr, result, elem_ty, elem_size, extent);
+        self.builder.note_yield_allocation(
+            list_ptr,
+            result,
+            elem_ty,
+            elem_size_var,
+            elem_size,
+            extent,
+        );
         result
     }
 }

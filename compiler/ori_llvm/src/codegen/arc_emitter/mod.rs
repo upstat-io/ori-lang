@@ -210,12 +210,7 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// `[-128, 127]` uses `i8` element storage instead of `i64`).
     repr_plan: Option<&'a ori_repr::ReprPlan>,
 
-    /// Elem-size `ArcVarId` → (collection `Idx`, element `Idx`) for yields.
-    ///
-    /// Used to override ARC-emitted `pool_type_store_size` values with
-    /// the LLVM struct store size (which accounts for field reordering).
-    /// Without this, reordered structs/tuples get a size mismatch between
-    /// the runtime list stride and LLVM GEP stride.
+    /// Typed yield element-size identities indexed for O(1) emission lookup.
     for_yield_elem_size_types: FxHashMap<ArcVarId, (Idx, Idx)>,
 
     /// Closed yield-allocation lineage index for the function being emitted.

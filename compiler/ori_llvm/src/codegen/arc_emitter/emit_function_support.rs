@@ -1,6 +1,6 @@
 //! Stack-backed block labels and function pre-scans.
 
-use ori_arc::ir::{ArcFunction, ArcInstr, ArcVarId};
+use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
 
@@ -39,33 +39,50 @@ impl BlockLabel {
     }
 }
 
-/// Maps for-yield element-size variables to their collection and element types.
-/// LLVM uses the map to replace source-layout sizes for reordered aggregates and
-/// to derive the integer subset eligible for narrowed-size overrides.
-pub(super) fn scan_for_yield_elem_size_types(
+/// Index typed yield facts by their shared element-size operand.
+pub(super) fn index_for_yield_elem_size_types(
     func: &ArcFunction,
-    interner: &ori_ir::StringInterner,
-    yield_lineages: &ori_arc::YieldLineageIndex,
 ) -> FxHashMap<ArcVarId, (Idx, Idx)> {
-    // Why: Comparing interned names avoids a per-instruction interner lookup.
-    let list_push = interner.intern("ori_list_push");
-    let mut result = FxHashMap::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Apply {
-                func: callee, args, ..
-            } = instr
-            {
-                if *callee == list_push && args.len() == 3 {
-                    let elem_ty = func.var_type(args[1]);
-                    let collection_ty = yield_lineages.result_for_receiver(args[0]).map_or_else(
-                        || func.var_type(args[0]),
-                        |yield_result| func.var_type(yield_result),
-                    );
-                    result.insert(args[2], (collection_ty, elem_ty));
-                }
-            }
-        }
+    func.yield_allocations
+        .iter()
+        .map(|fact| {
+            (
+                fact.elem_size_var,
+                (func.var_type(fact.result), fact.elem_ty),
+            )
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use ori_arc::ir::{
+        AllocationSiteId, ArcFunction, ArcVarId, YieldAllocationFact, YieldAllocationLocality,
+        YieldExtent,
+    };
+    use ori_types::Idx;
+
+    use super::index_for_yield_elem_size_types;
+
+    #[test]
+    fn yield_element_size_index_reads_the_typed_fact() {
+        let elem_size_var = ArcVarId::new(2);
+        let function = ArcFunction {
+            var_types: vec![Idx::UNIT, Idx::BOOL, Idx::INT],
+            yield_allocations: vec![YieldAllocationFact {
+                site: AllocationSiteId::new(0),
+                builder: ArcVarId::new(0),
+                result: ArcVarId::new(1),
+                elem_ty: Idx::INT,
+                elem_size_var,
+                elem_size: 8,
+                extent: YieldExtent::StaticExact(4),
+                locality: YieldAllocationLocality::Local,
+            }],
+            ..ArcFunction::default()
+        };
+
+        let index = index_for_yield_elem_size_types(&function);
+        assert_eq!(index.get(&elem_size_var), Some(&(Idx::BOOL, Idx::INT)));
     }
-    result
 }

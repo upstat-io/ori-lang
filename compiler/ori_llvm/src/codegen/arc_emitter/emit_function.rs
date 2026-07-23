@@ -6,7 +6,7 @@
 
 use super::context::EmittedValue;
 use super::dead_unwind::assert_dead_unwind_unreachable;
-use super::emit_function_support::{scan_for_yield_elem_size_types, BlockLabel};
+use super::emit_function_support::{index_for_yield_elem_size_types, BlockLabel};
 use super::field_scan::{compute_pointer_only_params, scan_used_fields};
 use super::ArcIrEmitter;
 use crate::codegen::abi::FunctionAbi;
@@ -105,8 +105,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
         self.var_map.resize(func.var_types.len(), None);
         self.yield_lineages = ori_arc::YieldLineageIndex::for_function(func);
-        self.for_yield_elem_size_types =
-            scan_for_yield_elem_size_types(func, self.interner, &self.yield_lineages);
+        self.for_yield_elem_size_types = index_for_yield_elem_size_types(func);
 
         let used_fields = scan_used_fields(func);
         let pointer_only = self.find_pointer_only_params(func);

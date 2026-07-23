@@ -18,6 +18,8 @@
 //! Values are named via [`ArcVarId`] (SSA-like). Control flow uses
 //! [`ArcBlockId`] references between blocks.
 
+use std::num::NonZeroU32;
+
 use ori_ir::{BinaryOp, DurationUnit, Name, SizeUnit, UnaryOp};
 use ori_types::Idx;
 
@@ -69,44 +71,72 @@ pub struct ParamEdgeArg {
 
 // ID newtypes
 
+fn encode_arc_id(raw: u32) -> NonZeroU32 {
+    if raw == u32::MAX {
+        return NonZeroU32::MAX;
+    }
+    assert!(
+        raw < u32::MAX - 1,
+        "ARC ID table exceeded niche-encoded u32 capacity"
+    );
+    NonZeroU32::new(raw + 1).expect("adding one to a valid ARC ID must be non-zero")
+}
+
+fn decode_arc_id(encoded: NonZeroU32) -> u32 {
+    if encoded == NonZeroU32::MAX {
+        u32::MAX
+    } else {
+        encoded.get() - 1
+    }
+}
+
 /// Variable ID within an ARC IR function.
 ///
 /// Each `ArcVarId` identifies a unique SSA-like value within a single
 /// [`ArcFunction`]. IDs are allocated sequentially starting from 0.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 #[repr(transparent)]
-pub struct ArcVarId(u32);
+pub struct ArcVarId(NonZeroU32);
 
 impl ArcVarId {
     /// Sentinel value representing an invalid or uninitialized variable.
     ///
     /// Equal to `u32::MAX`. Functions that return `ArcVarId` should never
     /// produce this value; its presence indicates a lowering bug.
-    pub const INVALID: Self = Self(u32::MAX);
+    pub const INVALID: Self = Self(NonZeroU32::MAX);
 
     /// Create a new variable ID from a raw index.
     #[inline]
     pub fn new(raw: u32) -> Self {
-        Self(raw)
+        Self(encode_arc_id(raw))
     }
 
     /// Get the raw `u32` value.
     #[inline]
     pub fn raw(self) -> u32 {
-        self.0
+        decode_arc_id(self.0)
     }
 
     /// Get the index as `usize` (for indexing into `Vec`s).
     #[inline]
     pub fn index(self) -> usize {
-        self.0 as usize
+        self.raw() as usize
     }
 
     /// Returns `true` if this is a valid (non-sentinel) variable ID.
     #[inline]
     pub fn is_valid(self) -> bool {
-        self.0 != u32::MAX
+        self != Self::INVALID
+    }
+}
+
+impl std::fmt::Debug for ArcVarId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("ArcVarId")
+            .field(&self.raw())
+            .finish()
     }
 }
 
@@ -114,40 +144,49 @@ impl ArcVarId {
 ///
 /// Each `ArcBlockId` identifies a basic block within a single
 /// [`ArcFunction`]. IDs are allocated sequentially starting from 0.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 #[repr(transparent)]
-pub struct ArcBlockId(u32);
+pub struct ArcBlockId(NonZeroU32);
 
 impl ArcBlockId {
     /// Sentinel value representing an invalid or uninitialized block.
     ///
     /// Equal to `u32::MAX`. Functions that return `ArcBlockId` should never
     /// produce this value; its presence indicates a lowering bug.
-    pub const INVALID: Self = Self(u32::MAX);
+    pub const INVALID: Self = Self(NonZeroU32::MAX);
 
     /// Create a new block ID from a raw index.
     #[inline]
     pub fn new(raw: u32) -> Self {
-        Self(raw)
+        Self(encode_arc_id(raw))
     }
 
     /// Get the raw `u32` value.
     #[inline]
     pub fn raw(self) -> u32 {
-        self.0
+        decode_arc_id(self.0)
     }
 
     /// Get the index as `usize` (for indexing into `Vec`s).
     #[inline]
     pub fn index(self) -> usize {
-        self.0 as usize
+        self.raw() as usize
     }
 
     /// Returns `true` if this is a valid (non-sentinel) block ID.
     #[inline]
     pub fn is_valid(self) -> bool {
-        self.0 != u32::MAX
+        self != Self::INVALID
+    }
+}
+
+impl std::fmt::Debug for ArcBlockId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("ArcBlockId")
+            .field(&self.raw())
+            .finish()
     }
 }
 

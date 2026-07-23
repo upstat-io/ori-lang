@@ -334,6 +334,7 @@ impl ArcLowerer<'_> {
             setup.list_ptr,
             result,
             setup.elem_ty,
+            setup.elem_size_var,
             setup.elem_size,
             setup.extent,
         );

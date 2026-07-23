@@ -274,6 +274,7 @@ mod tests {
                 builder: var(0),
                 result: var(1),
                 elem_ty: Idx::BOOL,
+                elem_size_var: var(2),
                 elem_size: 1,
                 extent: YieldExtent::StaticExact(1),
                 locality: YieldAllocationLocality::Local,

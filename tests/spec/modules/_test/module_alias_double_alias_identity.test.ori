@@ -11,6 +11,7 @@
 use std.testing { assert_eq }
 use "../struct_lib" as first
 use "../struct_lib" as second
+use "../precedence/../struct_lib" as spelled
 
 @helper () -> int = 42;
 
@@ -38,4 +39,13 @@ use "../struct_lib" as second
     let b = second.Point { x: 7, y: 8 };
     assert_eq(actual: a.x, expected: b.x);
     assert_eq(actual: a.y, expected: b.y)
+}
+
+// The same declaration reached through an equivalent-but-differently-spelled
+// module path is still one nominal type: module identity is the normalized
+// path, not the spelling the import happened to use.
+@test_double_alias_path_spelling_is_normalized tests @helper () -> void = {
+    let p = spelled.Point { x: 9, y: 10 };
+
+    assert_eq(actual: consume_first(p: p), expected: 9)
 }

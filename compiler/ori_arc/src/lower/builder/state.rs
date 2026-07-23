@@ -260,6 +260,7 @@ impl ArcIrBuilder {
         builder: ArcVarId,
         result: ArcVarId,
         elem_ty: Idx,
+        elem_size_var: ArcVarId,
         elem_size: u64,
         extent: YieldExtent,
     ) {
@@ -271,6 +272,7 @@ impl ArcIrBuilder {
             builder,
             result,
             elem_ty,
+            elem_size_var,
             elem_size,
             extent,
             locality: YieldAllocationLocality::Unknown,

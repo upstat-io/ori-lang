@@ -148,6 +148,8 @@ pub struct YieldAllocationFact {
     pub result: ArcVarId,
     /// Semantic list element type.
     pub elem_ty: Idx,
+    /// Lowered element-size operand shared by the allocation and push calls.
+    pub elem_size_var: ArcVarId,
     /// Physical compatibility size passed to the current list runtime ABI.
     pub elem_size: u64,
     /// Backend-neutral capacity evidence.

@@ -45,7 +45,17 @@ fn arc_var_id_ordering() {
 #[test]
 fn id_sizes() {
     assert_eq!(mem::size_of::<ArcVarId>(), 4);
+    assert_eq!(mem::size_of::<Option<ArcVarId>>(), 4);
     assert_eq!(mem::size_of::<ArcBlockId>(), 4);
+    assert_eq!(mem::size_of::<Option<ArcBlockId>>(), 4);
+}
+
+#[test]
+fn invalid_ids_preserve_the_raw_sentinel() {
+    assert_eq!(ArcVarId::INVALID.raw(), u32::MAX);
+    assert_eq!(ArcVarId::new(u32::MAX), ArcVarId::INVALID);
+    assert_eq!(ArcBlockId::INVALID.raw(), u32::MAX);
+    assert_eq!(ArcBlockId::new(u32::MAX), ArcBlockId::INVALID);
 }
 
 // LitValue

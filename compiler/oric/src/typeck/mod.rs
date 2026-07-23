@@ -456,8 +456,15 @@ fn register_imported_functions(
             }
             // The module's resolved path identifies the declarations it owns, so
             // the same module imported under several aliases registers one
-            // nominal type per declaration rather than one per alias.
-            let module_key = interner.intern_owned(module.module_path.display().to_string());
+            // nominal type per declaration rather than one per alias. The path
+            // is normalized first: `module_path` keeps the resolver's spelling,
+            // so two equivalent spellings of one module would otherwise key
+            // apart and register the declaration twice.
+            let module_key = interner.intern_owned(
+                imports::normalize_path(&module.module_path)
+                    .display()
+                    .to_string(),
+            );
             checker.register_module_alias(
                 func_ref.local_name,
                 module_key,
