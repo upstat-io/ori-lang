@@ -47,8 +47,13 @@ fn report(
     }
 }
 
+// This pins the diagnostic's OWN cleanup-site enum against expected values; it
+// does NOT read the real emitters in `entry_point.rs` / `seh_main_thunk.rs`, so
+// it cannot catch a future emitter that changes a guard. Source-binding the
+// table to the emitter is a single ownership-decision SSOT that lands with the
+// entry-wrapper cure.
 #[test]
-fn cleanup_site_table_is_exhaustive_and_guards_match_source() {
+fn cleanup_site_table_is_internally_consistent() {
     assert_eq!(CleanupSite::ALL.len(), 5);
     let names: Vec<&str> = CleanupSite::ALL.iter().map(|site| site.name()).collect();
     assert_eq!(
@@ -61,8 +66,8 @@ fn cleanup_site_table_is_exhaustive_and_guards_match_source() {
             "seh_caught",
         ]
     );
-    // The two unwind-path sites clean up unconditionally; the three
-    // normal-return sites are guarded by `wrapper_owns_on_normal`.
+    // The two caught sites clean up unconditionally; the three normal-return
+    // sites are guarded by `wrapper_owns_on_normal`.
     assert!(!CleanupSite::ItaniumCatch.is_guarded());
     assert!(!CleanupSite::SehCaught.is_guarded());
     assert!(CleanupSite::ItaniumInvokeNormal.is_guarded());
@@ -120,14 +125,20 @@ fn site_activity_covers_every_eh_model_and_unwind_combination() {
 fn borrow_demand_with_owning_wrapper_is_consistent() {
     let seam = seam(Some(borrowed_read_only_contract()), true);
     assert_eq!(seam.owner_demand(), Some(CalleeOwnerDemand::Borrow));
-    assert_eq!(seam.seam_verdict(), Some(SeamVerdict::Consistent));
+    assert_eq!(
+        seam.seam_verdict(EhModel::Itanium, true),
+        Some(SeamVerdict::Consistent)
+    );
 }
 
 #[test]
 fn iter_consuming_demand_with_owning_wrapper_is_divergent() {
     let seam = seam(Some(iter_consuming_contract()), true);
     assert_eq!(seam.owner_demand(), Some(CalleeOwnerDemand::WholeValue));
-    assert_eq!(seam.seam_verdict(), Some(SeamVerdict::Divergent));
+    assert_eq!(
+        seam.seam_verdict(EhModel::Itanium, true),
+        Some(SeamVerdict::Divergent)
+    );
 }
 
 #[test]
@@ -142,14 +153,76 @@ fn verdict_flips_with_the_semantic_column_alone() {
         consuming.wrapper_owns_on_normal
     );
     assert_eq!(read_only.param_passing, consuming.param_passing);
-    assert_ne!(read_only.seam_verdict(), consuming.seam_verdict());
+    assert_ne!(
+        read_only.seam_verdict(EhModel::Itanium, true),
+        consuming.seam_verdict(EhModel::Itanium, true)
+    );
 }
 
 #[test]
 fn missing_contract_yields_no_verdict() {
     let seam = seam(None, true);
     assert_eq!(seam.owner_demand(), None);
-    assert_eq!(seam.seam_verdict(), None);
+    assert_eq!(seam.seam_verdict(EhModel::Itanium, true), None);
+}
+
+// Both-exits false-negative pin. A normal-path-only cure sets
+// `wrapper_owns_on_normal=false` for a consumed value, so the guarded normal
+// sites correctly skip — but the caught sites emit unconditionally. On an
+// unwinding entry the caught site still double-frees, so the verdict must stay
+// DIVERGENT. A verdict blind to the caught sites (checking only the normal
+// decision) would wrongly report CONSISTENT here.
+#[test]
+fn normal_path_only_cure_still_double_frees_on_unwind() {
+    let seam = seam(Some(iter_consuming_contract()), false);
+    assert_eq!(seam.owner_demand(), Some(CalleeOwnerDemand::WholeValue));
+
+    // The active caught site is the defect the normal-path cure left behind.
+    assert_eq!(
+        seam.site_correctness(CleanupSite::ItaniumCatch, EhModel::Itanium, true),
+        Some(SiteCorrectness::DoubleFree)
+    );
+    // The guarded normal site is now correct under the same cure.
+    assert_eq!(
+        seam.site_correctness(CleanupSite::ItaniumInvokeNormal, EhModel::Itanium, true),
+        Some(SiteCorrectness::Ok)
+    );
+    // Aggregate: still DIVERGENT because one active exit double-frees.
+    assert_eq!(
+        seam.seam_verdict(EhModel::Itanium, true),
+        Some(SeamVerdict::Divergent)
+    );
+}
+
+// The same normal-path cure DOES fully fix a non-unwinding entry: with no active
+// caught site, the only active site (the guarded direct-normal path) correctly
+// skips a consumed value.
+#[test]
+fn normal_path_cure_fixes_the_nounwind_shape() {
+    let seam = seam(Some(iter_consuming_contract()), false);
+    assert_eq!(
+        seam.site_correctness(CleanupSite::ItaniumDirectNormal, EhModel::Itanium, false),
+        Some(SiteCorrectness::Ok)
+    );
+    assert_eq!(
+        seam.seam_verdict(EhModel::Itanium, false),
+        Some(SeamVerdict::Consistent)
+    );
+}
+
+// A borrowed value whose wrapper wrongly skips cleanup leaks rather than
+// double-frees; the per-site verdict distinguishes the two defect directions.
+#[test]
+fn borrow_demand_with_skipping_wrapper_leaks() {
+    let seam = seam(Some(borrowed_read_only_contract()), false);
+    assert_eq!(
+        seam.site_correctness(CleanupSite::ItaniumDirectNormal, EhModel::Itanium, false),
+        Some(SiteCorrectness::Leak)
+    );
+    assert_eq!(
+        seam.seam_verdict(EhModel::Itanium, false),
+        Some(SeamVerdict::Divergent)
+    );
 }
 
 #[test]

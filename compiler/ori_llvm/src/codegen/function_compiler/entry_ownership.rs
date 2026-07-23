@@ -77,8 +77,9 @@ impl CleanupSite {
 
     /// Whether the site's cleanup call is guarded by `wrapper_owns_on_normal`.
     ///
-    /// The unwind-path sites clean up unconditionally: the callee's release
-    /// does not execute when it unwinds.
+    /// The three normal-return sites are guarded; the two caught sites emit
+    /// unconditionally. Unconditional caught cleanup double-frees a consumed
+    /// argv on the unwind exit.
     #[must_use]
     pub(super) fn is_guarded(self) -> bool {
         match self {
@@ -116,13 +117,44 @@ impl CleanupSite {
     }
 }
 
-/// Whether the physical cleanup decision agrees with the semantic demand.
+/// Per-active-site agreement between the physical emission and the demand.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SiteCorrectness {
+    /// The site emits or skips cleanup exactly as the owner demand requires.
+    Ok,
+    /// The site releases a credit the callee already consumed (double free).
+    DoubleFree,
+    /// The site never releases a credit the wrapper retained (leak).
+    Leak,
+}
+
+impl SiteCorrectness {
+    #[must_use]
+    fn name(self) -> &'static str {
+        match self {
+            Self::Ok => "OK",
+            Self::DoubleFree => "DOUBLE-FREE",
+            Self::Leak => "LEAK",
+        }
+    }
+
+    /// Whether this per-site outcome is a defect.
+    #[must_use]
+    fn is_defect(self) -> bool {
+        !matches!(self, Self::Ok)
+    }
+}
+
+/// Whether the physical cleanup decision agrees with the semantic demand across
+/// EVERY active exit, not only the normal-return decision.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SeamVerdict {
-    /// The wrapper's normal-path ownership matches the callee's owner demand.
+    /// Every active cleanup site's emission matches the callee's owner demand
+    /// on every exit.
     Consistent,
-    /// The callee consumes an owner credit the wrapper also releases, or the
-    /// callee borrows a credit the wrapper never releases.
+    /// At least one active cleanup site disagrees with the owner demand: the
+    /// wrapper releases a consumed credit (double free) or never releases a
+    /// retained one (leak), on some exit.
     Divergent,
 }
 
@@ -167,23 +199,60 @@ impl EntryParamSeam {
             .map(ParamContract::callee_owner_demand)
     }
 
-    /// Compare the physical decision against the semantic demand.
-    ///
-    /// `WholeValue` means the callee consumes one owner credit for the whole
-    /// value, so the wrapper must not also release it; `Borrow` means the
-    /// wrapper retains the credit and must release it. Unknown demand yields
-    /// no verdict.
+    /// Whether the wrapper must emit cleanup at all: `Borrow` retains the credit
+    /// (wrapper releases it), `WholeValue` transfers it inward (wrapper must
+    /// not). Unknown demand yields no obligation.
     #[must_use]
-    pub(super) fn seam_verdict(&self) -> Option<SeamVerdict> {
-        let demand = self.owner_demand()?;
-        let wrapper_should_own = match demand {
+    fn wrapper_must_release(&self) -> Option<bool> {
+        Some(match self.owner_demand()? {
             CalleeOwnerDemand::Borrow => true,
             CalleeOwnerDemand::WholeValue => false,
-        };
-        Some(if wrapper_should_own == self.wrapper_owns_on_normal {
-            SeamVerdict::Consistent
-        } else {
+        })
+    }
+
+    /// Per-site agreement for one cleanup site under a given wrapper shape.
+    ///
+    /// `None` when the site is inactive for this shape or the owner demand is
+    /// unknown. An ACTIVE guarded normal site and an ACTIVE unconditional caught
+    /// site are judged independently, so a normal-path-only cure that leaves a
+    /// caught site emitting for a consumed value is still a defect here.
+    #[must_use]
+    pub(super) fn site_correctness(
+        &self,
+        site: CleanupSite,
+        eh_model: EhModel,
+        can_unwind: bool,
+    ) -> Option<SiteCorrectness> {
+        if !site.is_active(eh_model, can_unwind) {
+            return None;
+        }
+        let must_release = self.wrapper_must_release()?;
+        let emits = site.emits_cleanup(self.wrapper_owns_on_normal);
+        Some(match (emits, must_release) {
+            (true, false) => SiteCorrectness::DoubleFree,
+            (false, true) => SiteCorrectness::Leak,
+            _ => SiteCorrectness::Ok,
+        })
+    }
+
+    /// The both-exits seam verdict: `Divergent` iff ANY active cleanup site is a
+    /// defect under this wrapper shape, `Consistent` when every active site
+    /// agrees with the demand. Unknown demand yields no verdict.
+    ///
+    /// Depends on `eh_model` + `can_unwind` because the active-site set differs
+    /// per exception-handling shape; a verdict blind to the caught sites would
+    /// pass a cure that still double-frees on the unwind exit.
+    #[must_use]
+    pub(super) fn seam_verdict(&self, eh_model: EhModel, can_unwind: bool) -> Option<SeamVerdict> {
+        self.wrapper_must_release()?;
+        let any_defect = CleanupSite::ALL.iter().any(|&site| {
+            self.site_correctness(site, eh_model, can_unwind)
+                .is_some_and(SiteCorrectness::is_defect)
+        });
+        Some(if any_defect {
             SeamVerdict::Divergent
+        } else {
+            SeamVerdict::Consistent
         })
     }
 }
@@ -330,9 +399,13 @@ impl EntryOwnershipReport {
     fn render_cleanup_verdicts(&self, out: &mut String, param: &EntryParamSeam) {
         out.push_str("    cleanup-site verdicts:\n");
         for site in CleanupSite::ALL {
+            let active = site.is_active(self.eh_model, self.can_unwind);
+            let correctness = param
+                .site_correctness(site, self.eh_model, self.can_unwind)
+                .map_or("", SiteCorrectness::name);
             let _ = writeln!(
                 out,
-                "      {:<24} {:<5} (guard: {:<22}) [{}]",
+                "      {:<24} {:<5} (guard: {:<22}) [{:<8}] {}",
                 site.name(),
                 if site.emits_cleanup(param.wrapper_owns_on_normal) {
                     "EMIT"
@@ -340,15 +413,12 @@ impl EntryOwnershipReport {
                     "SKIP"
                 },
                 site.guard(),
-                if site.is_active(self.eh_model, self.can_unwind) {
-                    "active"
-                } else {
-                    "inactive"
-                }
+                if active { "active" } else { "inactive" },
+                correctness,
             );
         }
 
-        match param.seam_verdict() {
+        match param.seam_verdict(self.eh_model, self.can_unwind) {
             Some(verdict) => {
                 let _ = writeln!(out, "    seam: {}", verdict.name());
             }
