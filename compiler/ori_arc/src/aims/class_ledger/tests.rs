@@ -2941,6 +2941,78 @@ fn invoke_projected_reconstruction_func(push: Name, pair_ty: Idx, list_ty: Idx) 
     }
 }
 
+struct InvokeWitnessClassifier;
+
+impl crate::ArcClassification for InvokeWitnessClassifier {
+    fn arc_class(&self, idx: Idx) -> crate::ArcClass {
+        if matches!(idx, Idx::INT | Idx::BOOL) {
+            crate::ArcClass::Scalar
+        } else {
+            crate::ArcClass::DefiniteRef
+        }
+    }
+}
+
+fn invoke_witness_registry(pair_ty: Idx, list_ty: Idx) -> ori_types::TypeRegistry {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_burden(
+        &mut registry,
+        "InvokeWitnessPair",
+        pair_ty,
+        Some(UserBurdenSpec {
+            self_owned_identity: true,
+            owned_fields: vec![
+                UserOwnedField {
+                    field_path: vec![0],
+                    field_type: list_ty,
+                },
+                UserOwnedField {
+                    field_path: vec![1],
+                    field_type: Idx::STR,
+                },
+            ],
+            ..UserBurdenSpec::default()
+        }),
+    );
+    registry
+}
+
+fn extract_invoke_witness(
+    func: &ArcFunction,
+    registry: &ori_types::TypeRegistry,
+    interner: &ori_ir::StringInterner,
+) -> (
+    AimsStateMap,
+    FxHashMap<Name, MemoryContract>,
+    Vec<crate::aims::interprocedural::ExactAggregateTransferWitness>,
+) {
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
+    let mut contracts = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut contracts, &builtins, interner);
+    let classifier = InvokeWitnessClassifier;
+    let state_map =
+        crate::aims::intraprocedural::analyze_function(func, &classifier, &contracts, &[], vec![]);
+    let extraction =
+        crate::aims::interprocedural::extract_contract_and_transfers_with_call_ownership(
+            &crate::aims::interprocedural::ContractExtractionInput {
+                func,
+                state_map: &state_map,
+                classifier: &classifier,
+                sigs: &contracts,
+                scc_peers: &FxHashSet::default(),
+                context_regions: &[],
+                interner,
+                builtins: &builtins,
+                exact_callables: &FxHashSet::default(),
+                type_registry: Some(registry),
+            },
+        );
+    (state_map, contracts, extraction.exact_transfer_witnesses)
+}
+
 #[test]
 fn projected_cow_reconstruction_rebooks_the_existing_field_credit() {
     use crate::lower::test_utils::registered_struct_with_burden;
@@ -3088,77 +3160,40 @@ fn canonical_exact_transfer_witness_drives_production_ledger_rebooking() {
 
 #[test]
 fn canonical_invoke_witness_rebooks_normal_and_unwind_field_credits() {
-    use crate::lower::test_utils::registered_struct_with_burden;
-    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
-
-    struct WitnessClassifier;
-    impl crate::ArcClassification for WitnessClassifier {
-        fn arc_class(&self, idx: Idx) -> crate::ArcClass {
-            if matches!(idx, Idx::INT | Idx::BOOL) {
-                crate::ArcClass::Scalar
-            } else {
-                crate::ArcClass::DefiniteRef
-            }
-        }
-    }
-
     let interner = test_interner();
     let push = interner.intern("push");
     let pair_ty = ty(64);
     let list_ty = ty(70);
     let func = invoke_projected_reconstruction_func(push, pair_ty, list_ty);
-    let mut registry = ori_types::TypeRegistry::new();
-    registered_struct_with_burden(
-        &mut registry,
-        "InvokeWitnessPair",
-        pair_ty,
-        Some(UserBurdenSpec {
-            self_owned_identity: true,
-            owned_fields: vec![
-                UserOwnedField {
-                    field_path: vec![0],
-                    field_type: list_ty,
-                },
-                UserOwnedField {
-                    field_path: vec![1],
-                    field_type: Idx::STR,
-                },
-            ],
-            ..UserBurdenSpec::default()
-        }),
-    );
-    let classifier = WitnessClassifier;
-    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
-    let mut contracts = FxHashMap::default();
-    crate::aims::builtins::seed_builtin_contracts(&mut contracts, &builtins, &interner);
+    let registry = invoke_witness_registry(pair_ty, list_ty);
+    let (state_map, contracts, witnesses) = extract_invoke_witness(&func, &registry, &interner);
     let exact_callables = FxHashSet::default();
-    let state_map =
-        crate::aims::intraprocedural::analyze_function(&func, &classifier, &contracts, &[], vec![]);
-    let extraction =
-        crate::aims::interprocedural::extract_contract_and_transfers_with_call_ownership(
-            &crate::aims::interprocedural::ContractExtractionInput {
-                func: &func,
-                state_map: &state_map,
-                classifier: &classifier,
-                sigs: &contracts,
-                scc_peers: &FxHashSet::default(),
-                context_regions: &[],
-                interner: &interner,
-                builtins: &builtins,
-                exact_callables: &exact_callables,
-                type_registry: Some(&registry),
-            },
-        );
-    let [_witness] = extraction.exact_transfer_witnesses.as_slice() else {
+    let [_witness] = witnesses.as_slice() else {
         panic!("the Invoke reconstruction must publish exactly one canonical witness");
     };
+    let mut debug_partition = compute_birth_site_partition(&func, &state_map);
+    let arms = super::events::full_move_arms_from_exact_transfer_witnesses(
+        &func,
+        &mut debug_partition,
+        &registry,
+        &witnesses,
+    );
+    let direct_class = class_rep(&mut debug_partition, 4);
+    let direct_credits =
+        super::events::full_move_credit_sites(&mut debug_partition, &arms, direct_class);
+    assert_eq!(arms.len(), 1, "the witness must materialize one ledger arm");
+    assert_eq!(
+        direct_credits,
+        vec![(0, 3)],
+        "the direct sibling must acquire the decomposed aggregate's field credit"
+    );
 
     let analysis = super::analysis::analyze_from_state_map_with_exact(
         &func,
         &state_map,
         &contracts,
         &exact_callables,
-        Some(&extraction.exact_transfer_witnesses),
+        Some(&witnesses),
         &registry,
         &interner,
     );

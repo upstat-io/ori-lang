@@ -9,6 +9,7 @@ This file is the **single source of truth** for fixture categorization, coverage
 - **aims-heavy** — Exit 0, exercises AIMS-specific paths (COW, reuse, `?` unwinding, recursion, monomorphization). Feature-specific IR assertions required.
 - **expected-fail** — Exit non-zero. Validates that diagnostic scripts correctly detect failures (leaks, mismatches, build errors).
 - **infra** — Supporting infrastructure (wrappers, scripts). Not run as standalone fixtures.
+- **seam-only** — Compiled for a build-time diagnostic report only; the emitted binary is never executed, so no exit-code or leak contract applies. Excluded from `PASS_FIXTURES` / `AIMS_HEAVY_FIXTURES` / `EXPECTED_FAIL_FIXTURES`.
 
 ## Fixture Matrix
 
@@ -34,6 +35,8 @@ This file is the **single source of truth** for fixture categorization, coverage
 | `mismatch.ori` | expected-fail | Interpreter vs AOT mismatch | Mismatch detection path | non-zero | No |
 | `build-fail-parse.ori` | expected-fail | Parse error (syntax) | Build failure detection | non-zero | No |
 | `mismatch-wrapper.sh` | infra | ORI_BIN wrapper for mismatch | Injects deterministic divergence | N/A | N/A |
+| `entry_args_read.ori` | seam-only | `@main` argv borrow-read | Entry-point ownership seam, CONSISTENT arm | N/A (not executed) | No |
+| `entry_args_consumed.ori` | seam-only | `@main` argv iter-consumed | Entry-point ownership seam, DIVERGENT arm | N/A (not executed) | No |
 
 ## Self-Test Contract by Category
 
@@ -55,3 +58,9 @@ Same as **pass**, PLUS:
 - `leak.ori`: `bisect-passes.sh --rc-only` output contains "exited with code 1" (panic bypasses runtime leak checker, so "Leak check: clean" is still present — the runtime failure indicator is the key assertion)
 - `mismatch.ori` (via wrapper): `dual-exec-debug.sh` exits non-zero; output contains "MISMATCH"
 - `build-fail-parse.ori`: build step fails (exit non-zero)
+
+### seam-only
+- `entry-ownership.sh` renders a seam block containing `param#0 name=args`
+- `entry_args_read.ori`: report contains `seam: CONSISTENT` and `callee_owner_demand = Borrow`
+- `entry_args_consumed.ori`: report contains `seam: DIVERGENT` and `callee_owner_demand = WholeValue`
+- `entry-ownership.sh --compare` over the pair reports differing semantic fields while `wrapper_owns_on_normal` is absent from the diff

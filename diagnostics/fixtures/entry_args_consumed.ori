@@ -1,0 +1,5 @@
+// Entry point whose `args` parameter is iter-consumed by a `for` loop.
+// The callee's iterator cleanup releases the collection, so a wrapper cleanup on
+// the same normal path is a second release. Used by entry-ownership.sh
+// self-tests as the DIVERGENT arm; the emitted binary is not executed.
+@main (args: [str]) -> void = for a in args do print(msg: a);

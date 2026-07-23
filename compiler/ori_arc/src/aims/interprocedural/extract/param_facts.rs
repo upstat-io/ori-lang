@@ -117,4 +117,4 @@ pub(super) fn detect_param_facts(
     }
 }
 
-pub(crate) use aggregate_transfer::ExactAggregateTransferWitness;
+pub(crate) use aggregate_transfer::{ExactAggregateTransferWitness, ExactTransferCommitWitness};

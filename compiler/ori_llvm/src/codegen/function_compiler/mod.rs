@@ -7,6 +7,7 @@ mod declarations;
 mod define_phase;
 mod derive_methods;
 mod effect_projection;
+mod entry_ownership;
 mod entry_point;
 mod error_ctor;
 mod impls;
@@ -36,6 +37,7 @@ use super::type_info::{TypeInfoStore, TypeLayoutResolver};
 use super::value_id::{FunctionId, LLVMTypeId, ValueId};
 
 pub use compiler::FunctionCompiler;
+pub use entry_ownership::ENV_DUMP_ENTRY_OWNERSHIP;
 pub use nounwind::{NounwindAnalyzedFunctions, PreparedFunction};
 
 pub(super) use compiler::rl31_noalias_disabled;

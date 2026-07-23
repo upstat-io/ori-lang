@@ -151,7 +151,7 @@ fn collect_extraction_seeds(
         .flat_map(|arm| {
             arm.projections
                 .iter()
-                .map(move |&(index, _)| (arm.block, index))
+                .map(|&(block, index, _)| (block, index))
         })
         .collect();
 

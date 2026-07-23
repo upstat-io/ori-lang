@@ -6,6 +6,7 @@ use ori_ir::Name;
 use ori_types::{FunctionSig, Idx};
 use tracing::debug;
 
+use super::entry_ownership::{dump_enabled, EntryOwnershipReport, EntryParamSeam};
 use super::FunctionCompiler;
 use crate::codegen::abi::{FunctionAbi, ParamPassing, ReturnPassing};
 use crate::codegen::eh_model::EhModel;
@@ -124,6 +125,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // `_URC_END_OF_STACK` (code 5), causing a fatal error.
         let can_unwind = !self.codegen_ctx.nounwind_functions.contains(&main_name);
 
+        self.maybe_dump_entry_ownership(main_name, main_sig, args_cleanup.as_ref(), can_unwind);
+
         if can_unwind {
             match self.builder.eh_model() {
                 EhModel::Itanium => self.emit_main_call_with_invoke(
@@ -180,6 +183,78 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         }
 
         true
+    }
+
+    /// Emit the entry-point ownership seam to stderr when `ORI_DUMP_ENTRY_OWNERSHIP` is set.
+    fn maybe_dump_entry_ownership(
+        &self,
+        main_name: Name,
+        main_sig: &FunctionSig,
+        args_cleanup: Option<&MainArgsCleanup>,
+        can_unwind: bool,
+    ) {
+        if dump_enabled() {
+            let report =
+                self.build_entry_ownership_report(main_name, main_sig, args_cleanup, can_unwind);
+            eprint!("{}", report.render());
+        }
+    }
+
+    /// Project the entry-point ownership seam for the `ORI_DUMP_ENTRY_OWNERSHIP` dump.
+    ///
+    /// Every fact is READ from its owner: the semantic contract from the frozen
+    /// AIMS contract map, the realized ownership from the closed executable
+    /// artifact, and the physical decision from the `MainArgsCleanup` carrier the
+    /// wrapper actually uses. Nothing here re-derives an ownership fact.
+    fn build_entry_ownership_report(
+        &self,
+        main_name: Name,
+        main_sig: &FunctionSig,
+        args_cleanup: Option<&MainArgsCleanup>,
+        can_unwind: bool,
+    ) -> EntryOwnershipReport {
+        let contract = self.aims_contracts.get(&main_name);
+        let realized_params = self
+            .executable_program
+            .and_then(|program| {
+                program
+                    .function_id(main_name)
+                    .map(|id| program.function(id))
+            })
+            .map(|function| function.params.as_slice());
+
+        // The wrapper's cleanup carrier covers the single `args` parameter; a
+        // `@main` with no parameters produces no seam.
+        let params = args_cleanup
+            .map(|cleanup| {
+                let name = main_sig
+                    .param_names
+                    .first()
+                    .map(|param| self.interner.lookup(*param))
+                    .filter(|text| !text.is_empty())
+                    .map_or_else(|| "<unnamed>".to_owned(), ToOwned::to_owned);
+                let realized_ownership = realized_params
+                    .and_then(|params| params.first())
+                    .map(|param| param.ownership);
+                vec![EntryParamSeam {
+                    index: 0,
+                    name,
+                    contract: contract.and_then(|c| c.params.first()).cloned(),
+                    realized_ownership,
+                    borrowed_rooted: realized_ownership
+                        .map(|own| own == ori_arc::ownership::Ownership::Borrowed),
+                    param_passing: cleanup.param_passing,
+                    wrapper_owns_on_normal: cleanup.wrapper_owns_on_normal,
+                }]
+            })
+            .unwrap_or_default();
+
+        EntryOwnershipReport {
+            main_name: self.interner.lookup(main_name).to_owned(),
+            eh_model: self.builder.eh_model(),
+            can_unwind,
+            params,
+        }
     }
 
     /// Build args for calling the Ori `@main` function.

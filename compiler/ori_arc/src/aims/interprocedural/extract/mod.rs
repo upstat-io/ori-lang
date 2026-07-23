@@ -14,5 +14,5 @@ pub(crate) use contract::{
 };
 pub(crate) use param_facts::{
     find_borrowed_cow_consumed_params, find_iter_consume_call_args, CowConsumeScope,
-    ExactAggregateTransferWitness,
+    ExactAggregateTransferWitness, ExactTransferCommitWitness,
 };

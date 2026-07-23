@@ -253,7 +253,7 @@ fn plan_initial_classes(input: &mut ClassPlanningInput<'_>) -> InitialClassPlans
                 input.partition,
                 class,
                 &credit_sites,
-                events::EventFunding::Classified,
+                events::EventFunding::ExtractionOwned,
             )
         };
         events::apply_full_move_rebook(
@@ -393,7 +393,7 @@ fn analyze_class_ledger_with_transfers(
     });
     let full_move_construct_sites: Vec<(usize, EventSite)> = full_move_arms
         .iter()
-        .map(|arm| (arm.block, EventSite::Body(arm.construct_index)))
+        .map(|arm| (arm.construct_block, EventSite::Body(arm.construct_index)))
         .collect();
     let hazards = hazard::field_view_hazard_classes(
         func,

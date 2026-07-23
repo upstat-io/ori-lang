@@ -481,6 +481,30 @@ run_test_output_contains "cow_sharing.ori ARC has RcInc (sharing)" "RcInc" \
     "$SCRIPT_DIR/arc-dump.sh" --no-color "$FIXTURES_DIR/cow_sharing.ori"
 echo ""
 
+printf "${C_BOLD}Entry-point ownership seam (seam-only fixtures)${C_NC}\n"
+# These fixtures are compiled for the build-time seam report only; the emitted
+# binaries are never executed, so no exit-code or leak contract applies.
+run_test_output_contains "entry_args_read.ori seam names the argv parameter" "param#0 name=args" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color "$FIXTURES_DIR/entry_args_read.ori"
+run_test_output_contains "entry_args_read.ori borrow-read demand is Borrow" "callee_owner_demand       = Borrow" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color "$FIXTURES_DIR/entry_args_read.ori"
+run_test_output_contains "entry_args_read.ori seam is CONSISTENT" "seam: CONSISTENT" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color "$FIXTURES_DIR/entry_args_read.ori"
+run_test_output_contains "entry_args_consumed.ori iter-consume demand is WholeValue" "callee_owner_demand       = WholeValue" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color "$FIXTURES_DIR/entry_args_consumed.ori"
+run_test_output_contains "entry_args_consumed.ori seam is DIVERGENT" "seam: DIVERGENT" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color "$FIXTURES_DIR/entry_args_consumed.ori"
+run_test_output_contains "entry-ownership --compare separates the pair on iter_consumes" "iter_consumes = true" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color --compare \
+    "$FIXTURES_DIR/entry_args_read.ori" "$FIXTURES_DIR/entry_args_consumed.ori"
+# The physical column is identical across the pair, so it never appears in the
+# differing-fields section — the semantic columns are what separate them.
+run_test_output_not_contains "entry-ownership --compare shows no wrapper_owns_on_normal difference" \
+    "A:  wrapper_owns_on_normal" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color --compare \
+    "$FIXTURES_DIR/entry_args_read.ori" "$FIXTURES_DIR/entry_args_consumed.ori"
+echo ""
+
 printf "${C_BOLD}Expected-fail fixtures${C_NC}\n"
 # leak.ori: diagnose-aot reports failure + imbalance
 run_test_expect_fail "leak.ori diagnose-aot exits non-zero" \

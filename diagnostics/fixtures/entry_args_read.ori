@@ -1,0 +1,4 @@
+// Entry point whose `args` parameter is only borrow-read.
+// The callee demands no owner credit, so the C main() wrapper's cleanup is the
+// single release. Used by entry-ownership.sh self-tests as the CONSISTENT arm.
+@main (args: [str]) -> int = args.len();

@@ -15,6 +15,7 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `rc-stats.sh` | RC operation count per function | Leak or over-release suspicion (`--block-level`, `--optimized`, `--rc-remarks`) |
 | `ir-dump.sh` | Annotated LLVM IR with color-coded RC ops | Understanding what codegen actually emits |
 | `arc-dump.sh` | Annotated ARC IR (post-lowering, pre-RC) | Debugging AIMS pipeline: alias chains, take-projects, lineage |
+| `entry-ownership.sh` | Entry-point ownership seam: `@main`'s AIMS param facts beside the C wrapper's argv cleanup decision and every cleanup site's EMIT/SKIP verdict (`--compare a.ori b.ori` diffs two programs' seams in one command) | An `@main (args:)` double-free, leak, or "why does the wrapper free this" question |
 | `ir-diff.sh` | Side-by-side IR comparison of two programs | Regression hunting, before/after comparison |
 | `disasm-ori.sh` | Native disassembly with Ori symbol demangling | Instruction-level debugging |
 | `bisect-passes.sh` | Identify which AIMS pipeline phase introduced an RC or structural change | After `diagnose-aot.sh` finds a leak/crash (`--function`, `--rc-only`) |
@@ -146,6 +147,18 @@ diagnostics/arc-dump.sh --function main file.ori    # Single function only
 ```
 
 Captures the typed ARC IR via `ORI_DUMP_AFTER_ARC=1` — the IR after CanExpr lowering but before AIMS RC emission. Use this when debugging take-projects, alias chains, block params (phi merges), and `Project` / `Construct` / `Apply` / RC instructions. For LLVM IR (post-codegen) use `ir-dump.sh` instead.
+
+### entry-ownership.sh — Entry-Point Ownership Seam
+
+```bash
+diagnostics/entry-ownership.sh file.ori                    # Seam report for @main
+diagnostics/entry-ownership.sh --compare a.ori b.ori       # Two programs side by side
+diagnostics/entry-ownership.sh --raw file.ori              # No header decoration
+```
+
+Captures the seam via `ORI_DUMP_ENTRY_OWNERSHIP=1` — the C `main()` wrapper's argv cleanup decision beside the AIMS facts that govern it. The C wrapper decides argv cleanup from the physical `ParamPassing` alone; this report puts that physical decision next to the semantic `ParamContract` (access, consumption, cardinality, iter-consume, return-transfer, read-only, escape, share, uniqueness, exact-transfer), the RL-2 boundary verdict (`callee_owner_demand`), the realized `ArcParam` ownership, the borrowed-rooted flag, and the EMIT/SKIP verdict of every `ori_args_cleanup` site across both exception-handling legs. The `seam:` line reads `CONSISTENT` when the physical decision agrees with the semantic owner demand and `DIVERGENT` when it does not. Read-only: it changes no cleanup emission.
+
+`--compare` answers "do these two programs' seams differ, and where" in one command — the direct cure for reaching for three commands to correlate an `@main (args:)` double-free. Two programs with identical `param_passing` and identical `wrapper_owns_on_normal` can still differ in the semantic columns; that contrast is what the report surfaces.
 
 ### ir-diff.sh — IR Comparison
 

@@ -28,6 +28,8 @@ use crate::ArcClassification;
 pub(crate) struct ExactFieldTransferWitness {
     /// Typed semantic path from the source aggregate.
     pub(crate) path: ExactFieldPath,
+    /// Block containing the stable projection identity.
+    pub(crate) projection_block: ArcBlockId,
     /// Aggregate variable read by the projection.
     pub(crate) source: ArcVarId,
     /// Stable projection result identity.
@@ -36,6 +38,26 @@ pub(crate) struct ExactFieldTransferWitness {
     pub(crate) carrier: ArcVarId,
     /// Whether the path is direct or crosses one effectively-owned relay.
     pub(crate) kind: ExactFieldTransferKind,
+}
+
+/// Stable site where the source aggregate's whole owner is committed.
+///
+/// A nounwind reconstruction commits when its constructor consumes every
+/// routed field. A may-unwind relay commits at the `Invoke`: the callee owns
+/// its consumed argument on both outgoing edges, while only the normal edge
+/// reaches the rebuilding constructor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExactTransferCommitWitness {
+    Construct {
+        block: ArcBlockId,
+        dst: ArcVarId,
+    },
+    Invoke {
+        block: ArcBlockId,
+        dst: ArcVarId,
+        normal: ArcBlockId,
+        unwind: ArcBlockId,
+    },
 }
 
 /// Immutable local proof consumed after intraprocedural convergence.
@@ -51,6 +73,8 @@ pub(crate) struct ExactAggregateTransferWitness {
     pub(crate) block: ArcBlockId,
     /// Stable destination identity of the rebuilding constructor.
     pub(crate) construct_dst: ArcVarId,
+    /// Stable ownership-commit topology.
+    pub(crate) commit: ExactTransferCommitWitness,
     /// All matching projection routes, including scalar residual positions.
     pub(crate) fields: Box<[ExactFieldTransferWitness]>,
 }
@@ -174,7 +198,7 @@ fn recognize_block_candidate(
         if construct_args.is_empty() || matches!(ctor, CtorKind::EnumVariant { .. }) {
             continue;
         }
-        let Some(routes) =
+        let Some((routes, commit)) =
             exact_reconstruction(func, block, construct_index, construct_args, authority)
         else {
             continue;
@@ -190,7 +214,7 @@ fn recognize_block_candidate(
             || routes
                 .iter()
                 .any(|route| func.var_types.get(route.source.index()).copied() != Some(source_ty))
-            || !source_uses_confined_to_routes(block, &routes)
+            || !source_uses_confined_to_routes(func, &routes)
             || !cleanup_is_supported(func, source_ty, &routes, authority.type_registry)
         {
             continue;
@@ -218,10 +242,12 @@ fn recognize_block_candidate(
                 param,
                 block: block.id,
                 construct_dst: *dst,
+                commit,
                 fields: routes
                     .into_iter()
                     .map(|route| ExactFieldTransferWitness {
                         path: route.path,
+                        projection_block: route.projection_block,
                         source: route.source,
                         projection_dst: route.projection_dst,
                         carrier: route.carrier,
@@ -244,6 +270,7 @@ fn recognize_block_candidate(
 #[derive(Clone)]
 struct ProjectionRoute {
     path: ExactFieldPath,
+    projection_block: ArcBlockId,
     source: ArcVarId,
     projection_index: usize,
     projection_dst: ArcVarId,
@@ -253,6 +280,28 @@ struct ProjectionRoute {
 
 /// Return exact same-position routes for one reconstruction.
 fn exact_reconstruction(
+    func: &ArcFunction,
+    block: &ArcBlock,
+    construct_index: usize,
+    construct_args: &[ArcVarId],
+    authority: &ExactTransferAuthority<'_>,
+) -> Option<(Vec<ProjectionRoute>, ExactTransferCommitWitness)> {
+    if let Some(routes) =
+        same_block_reconstruction(func, block, construct_index, construct_args, authority)
+    {
+        return Some((
+            routes,
+            ExactTransferCommitWitness::Construct {
+                block: block.id,
+                dst: block.body.get(construct_index)?.defined_var()?,
+            },
+        ));
+    }
+
+    invoke_reconstruction(func, block, construct_index, construct_args, authority)
+}
+
+fn same_block_reconstruction(
     func: &ArcFunction,
     block: &ArcBlock,
     construct_index: usize,
@@ -279,6 +328,80 @@ fn exact_reconstruction(
     Some(routes)
 }
 
+fn invoke_reconstruction(
+    func: &ArcFunction,
+    construct_block: &ArcBlock,
+    construct_index: usize,
+    construct_args: &[ArcVarId],
+    authority: &ExactTransferAuthority<'_>,
+) -> Option<(Vec<ProjectionRoute>, ExactTransferCommitWitness)> {
+    use crate::ir::ArcTerminator;
+
+    let mut predecessors = func.blocks.iter().filter_map(|block| {
+        let ArcTerminator::Invoke {
+            dst,
+            normal,
+            unwind,
+            ..
+        } = &block.terminator
+        else {
+            return None;
+        };
+        (*normal == construct_block.id && construct_args.contains(dst))
+            .then_some((block, *dst, *normal, *unwind))
+    });
+    let (invoke_block, invoke_dst, normal, unwind) = predecessors.next()?;
+    if predecessors.next().is_some() {
+        return None;
+    }
+
+    let mut routes = Vec::with_capacity(construct_args.len());
+    let mut projection_dsts = FxHashSet::default();
+    for (position, &carrier) in construct_args.iter().enumerate() {
+        let expected_field = u32::try_from(position).ok()?;
+        let route = if carrier == invoke_dst {
+            projection_for_invoke_relay(
+                func,
+                invoke_block,
+                construct_block,
+                construct_index,
+                carrier,
+                expected_field,
+                authority,
+            )?
+        } else {
+            projection_for_invoke_direct(
+                func,
+                invoke_block,
+                construct_block,
+                construct_index,
+                carrier,
+                expected_field,
+            )?
+        };
+        if !projection_dsts.insert(route.projection_dst) {
+            return None;
+        }
+        routes.push(route);
+    }
+    if !routes
+        .iter()
+        .any(|route| route.kind == ExactFieldTransferKind::EffectiveOwnedRelay)
+    {
+        return None;
+    }
+
+    Some((
+        routes,
+        ExactTransferCommitWitness::Invoke {
+            block: invoke_block.id,
+            dst: invoke_dst,
+            normal,
+            unwind,
+        },
+    ))
+}
+
 /// Trace a constructor carrier to a same-position projection, directly or
 /// through one effectively-owned direct-call relay.
 fn projection_for_carrier(
@@ -295,6 +418,7 @@ fn projection_for_carrier(
         return projection_has_only_use(block, index, dst, construct_index).then(|| {
             ProjectionRoute {
                 path: ExactFieldPath::single(expected_field),
+                projection_block: block.id,
                 source,
                 projection_index: index,
                 projection_dst: dst,
@@ -345,6 +469,7 @@ fn projection_for_carrier(
             direct_projection(block, relay_index, arg, expected_field).map(
                 |(index, source, dst)| ProjectionRoute {
                     path: ExactFieldPath::single(expected_field),
+                    projection_block: block.id,
                     source,
                     projection_index: index,
                     projection_dst: dst,
@@ -366,6 +491,151 @@ fn projection_for_carrier(
         return None;
     }
     Some(route)
+}
+
+fn projection_for_invoke_relay(
+    func: &ArcFunction,
+    invoke_block: &ArcBlock,
+    construct_block: &ArcBlock,
+    construct_index: usize,
+    carrier: ArcVarId,
+    expected_field: u32,
+    authority: &ExactTransferAuthority<'_>,
+) -> Option<ProjectionRoute> {
+    use crate::ir::ArcTerminator;
+
+    let ArcTerminator::Invoke {
+        dst,
+        func: callee,
+        args,
+        arg_ownership,
+        ..
+    } = &invoke_block.terminator
+    else {
+        return None;
+    };
+    if *dst != carrier
+        || !var_has_only_use_in_function(
+            func,
+            carrier,
+            construct_block.id,
+            EventUse::Body(construct_index),
+        )
+    {
+        return None;
+    }
+
+    let mut sources = args
+        .iter()
+        .enumerate()
+        .filter(|&(position, _)| {
+            arg_ownership.get(position).is_some_and(|&ownership| {
+                crate::aims::builtins::effective_consuming_provenance(
+                    *callee,
+                    position,
+                    ownership,
+                    authority.exact_callables.contains(callee),
+                    func.method_call_facts
+                        .iter()
+                        .find(|fact| fact.destination == *dst)
+                        .and_then(|fact| authority.classifier.builtin_type_tag(fact.receiver_type)),
+                    authority.sigs,
+                    authority.interner,
+                )
+            })
+        })
+        .filter_map(|(_, &arg)| {
+            direct_projection(invoke_block, invoke_block.body.len(), arg, expected_field).map(
+                |(index, source, projection_dst)| ProjectionRoute {
+                    path: ExactFieldPath::single(expected_field),
+                    projection_block: invoke_block.id,
+                    source,
+                    projection_index: index,
+                    projection_dst,
+                    carrier,
+                    kind: ExactFieldTransferKind::EffectiveOwnedRelay,
+                },
+            )
+        });
+    let route = sources.next()?;
+    if sources.next().is_some()
+        || !var_has_only_use_in_function(
+            func,
+            route.projection_dst,
+            invoke_block.id,
+            EventUse::Terminator,
+        )
+    {
+        return None;
+    }
+    Some(route)
+}
+
+fn projection_for_invoke_direct(
+    func: &ArcFunction,
+    invoke_block: &ArcBlock,
+    construct_block: &ArcBlock,
+    construct_index: usize,
+    carrier: ArcVarId,
+    expected_field: u32,
+) -> Option<ProjectionRoute> {
+    let (projection_block, projection_index, source, projection_dst) = direct_projection(
+        invoke_block,
+        invoke_block.body.len(),
+        carrier,
+        expected_field,
+    )
+    .map(|(index, source, dst)| (invoke_block, index, source, dst))
+    .or_else(|| {
+        direct_projection(construct_block, construct_index, carrier, expected_field)
+            .map(|(index, source, dst)| (construct_block, index, source, dst))
+    })?;
+    if !var_has_only_use_in_function(
+        func,
+        projection_dst,
+        construct_block.id,
+        EventUse::Body(construct_index),
+    ) {
+        return None;
+    }
+    Some(ProjectionRoute {
+        path: ExactFieldPath::single(expected_field),
+        projection_block: projection_block.id,
+        source,
+        projection_index,
+        projection_dst,
+        carrier,
+        kind: ExactFieldTransferKind::DirectMove,
+    })
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EventUse {
+    Body(usize),
+    Terminator,
+}
+
+fn var_has_only_use_in_function(
+    func: &ArcFunction,
+    var: ArcVarId,
+    expected_block: ArcBlockId,
+    expected_use: EventUse,
+) -> bool {
+    let mut uses = Vec::new();
+    for block in &func.blocks {
+        uses.extend(
+            block
+                .body
+                .iter()
+                .enumerate()
+                .filter(|(_, instr)| instr.uses_var(var))
+                .map(|(index, _)| (block.id, EventUse::Body(index))),
+        );
+        if block.terminator.uses_var(var) {
+            uses.push((block.id, EventUse::Terminator));
+        }
+    }
+    uses.as_slice() == [(expected_block, expected_use)]
 }
 
 fn direct_projection(
@@ -412,30 +682,47 @@ fn var_has_only_use(block: &ArcBlock, var: ArcVarId, expected_use: usize) -> boo
         && !block.terminator.uses_var(var)
 }
 
-fn source_uses_confined_to_routes(block: &ArcBlock, routes: &[ProjectionRoute]) -> bool {
-    let sources: FxHashSet<ArcVarId> = routes.iter().map(|route| route.source).collect();
-    for (index, instr) in block.body.iter().enumerate() {
-        for &source in &sources {
-            if !instr.uses_var(source) {
-                continue;
-            }
-            let permitted = matches!(
-                instr,
-                ArcInstr::Project { dst, value, .. }
-                    if *value == source
-                        && routes.iter().any(|route| {
-                            route.projection_dst == *dst
-                                && route.projection_index == index
-                        })
-            );
-            if !permitted {
-                return false;
+fn source_uses_confined_to_routes(func: &ArcFunction, routes: &[ProjectionRoute]) -> bool {
+    let projection_blocks: FxHashSet<ArcBlockId> =
+        routes.iter().map(|route| route.projection_block).collect();
+    for block_id in projection_blocks {
+        let Some(block) = func.blocks.iter().find(|block| block.id == block_id) else {
+            return false;
+        };
+        let sources: FxHashSet<ArcVarId> = routes
+            .iter()
+            .filter(|route| route.projection_block == block_id)
+            .map(|route| route.source)
+            .collect();
+        for (index, instr) in block.body.iter().enumerate() {
+            for &source in &sources {
+                if !instr.uses_var(source) {
+                    continue;
+                }
+                let permitted = matches!(
+                    instr,
+                    ArcInstr::Project { dst, value, .. }
+                        if *value == source
+                            && routes.iter().any(|route| {
+                                route.source == source
+                                    && route.projection_block == block.id
+                                    && route.projection_dst == *dst
+                                    && route.projection_index == index
+                            })
+                );
+                if !permitted {
+                    return false;
+                }
             }
         }
+        if sources
+            .iter()
+            .any(|&source| block.terminator.uses_var(source))
+        {
+            return false;
+        }
     }
-    sources
-        .iter()
-        .all(|&source| !block.terminator.uses_var(source))
+    true
 }
 
 fn cleanup_is_supported(

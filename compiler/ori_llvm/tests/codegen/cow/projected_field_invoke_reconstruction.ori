@@ -2,7 +2,8 @@
 // mutation. The real lowerer places the owning relay in an Invoke terminator and
 // reconstructs the aggregate only on its normal successor.
 //
-// CHECK-LABEL: define void @_ori_append
+// @function: _ori_append
+// CHECK-LABEL: define fastcc void @_ori_append
 // CHECK-NOT: call void @ori_list_rc_inc
 // CHECK: call void @ori_list_push_cow
 

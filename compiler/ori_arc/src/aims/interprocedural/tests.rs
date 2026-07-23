@@ -180,6 +180,7 @@ fn exact_invoke_reconstruction_fixture(
             second_member_ty,
             container_ty,
             container_ty,
+            container_ty,
         ],
         blocks: vec![
             ArcBlock {
@@ -202,12 +203,6 @@ fn exact_invoke_reconstruction_fixture(
                         ty: ty(2),
                         value: ArcValue::Literal(LitValue::Int(1)),
                     },
-                    ArcInstr::Project {
-                        dst: var(4),
-                        ty: second_member_ty,
-                        value: var(6),
-                        field: 1,
-                    },
                 ],
                 terminator: ArcTerminator::Invoke {
                     dst: var(3),
@@ -223,12 +218,25 @@ fn exact_invoke_reconstruction_fixture(
             ArcBlock {
                 id: block_id(1),
                 params: vec![],
-                body: vec![ArcInstr::Construct {
-                    dst: var(5),
-                    ty: container_ty,
-                    ctor: CtorKind::Struct(name(80)),
-                    args: vec![var(3), var(4)],
-                }],
+                body: vec![
+                    ArcInstr::Let {
+                        dst: var(7),
+                        ty: container_ty,
+                        value: ArcValue::Var(var(0)),
+                    },
+                    ArcInstr::Project {
+                        dst: var(4),
+                        ty: second_member_ty,
+                        value: var(7),
+                        field: 1,
+                    },
+                    ArcInstr::Construct {
+                        dst: var(5),
+                        ty: container_ty,
+                        ctor: CtorKind::Struct(name(80)),
+                        args: vec![var(3), var(4)],
+                    },
+                ],
                 terminator: ArcTerminator::Return { value: var(5) },
             },
             ArcBlock {
