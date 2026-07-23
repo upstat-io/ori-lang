@@ -83,27 +83,39 @@ fn seed_cow_receiver_only_borrows_args() {
 }
 
 #[test]
-fn effective_owned_result_lineage_requires_specific_authority() {
+fn effective_consuming_provenance_requires_specific_authority() {
     let (interner, builtins) = setup();
     let mut sigs = FxHashMap::default();
     seed_builtin_contracts(&mut sigs, &builtins, &interner);
 
-    assert!(effective_owned_result_lineage(
+    assert!(effective_consuming_provenance(
         interner.intern("push"),
         0,
         crate::ir::ArgOwnership::Owned,
         &sigs,
         &interner,
     ));
-    assert!(!effective_owned_result_lineage(
+    assert!(!effective_consuming_provenance(
         interner.intern("push"),
         0,
         crate::ir::ArgOwnership::Borrowed,
         &sigs,
         &interner,
     ));
-    assert!(!effective_owned_result_lineage(
+    assert!(effective_consuming_provenance(
         interner.intern("remove"),
+        0,
+        crate::ir::ArgOwnership::Owned,
+        &sigs,
+        &interner,
+    ));
+    let registered_borrowed = interner.intern("registered_borrowed");
+    sigs.insert(
+        registered_borrowed,
+        MemoryContract::all_borrowed(2, FipContract::Never),
+    );
+    assert!(!effective_consuming_provenance(
+        registered_borrowed,
         0,
         crate::ir::ArgOwnership::Owned,
         &sigs,

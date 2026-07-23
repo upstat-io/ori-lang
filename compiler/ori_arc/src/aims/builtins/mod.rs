@@ -82,14 +82,14 @@ pub(crate) fn seed_builtin_contracts(
     seed_internal_runtime_contracts(sigs, interner);
 }
 
-/// Whether one effective owned call argument continues as the call result.
+/// Whether one call argument has authoritative effective-ownership provenance.
 ///
-/// User functions and identity builtins carry the ordinary structural
-/// `transfers_through_return + Direct` proof. Persistent-list COW mutators may
-/// replace their backing allocation, so they cannot claim `Direct`; their
-/// narrower logical-owner lineage comes from an unambiguous registry runtime
-/// identity plus the caller-side Owned annotation.
-pub(crate) fn effective_owned_result_lineage(
+/// A frozen Owned parameter contract is authoritative. Persistent-list COW
+/// mutators are seeded Borrowed because their receiver ownership is
+/// type-qualified at the call site; the unambiguous runtime identities below
+/// recover that producer-owned override. The raw annotation alone is never
+/// sufficient.
+pub(crate) fn effective_consuming_provenance(
     callee: Name,
     position: usize,
     ownership: crate::ir::ArgOwnership,
@@ -102,9 +102,7 @@ pub(crate) fn effective_owned_result_lineage(
     if contracts
         .get(&callee)
         .and_then(|contract| contract.params.get(position))
-        .is_some_and(|param| {
-            param.transfers_through_return && param.return_alias == Some(ReturnAliasShape::Direct)
-        })
+        .is_some_and(|param| param.access == AccessClass::Owned)
     {
         return true;
     }

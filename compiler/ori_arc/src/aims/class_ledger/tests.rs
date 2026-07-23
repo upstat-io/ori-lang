@@ -2944,7 +2944,7 @@ fn opaque_owned_relay_does_not_authorize_projected_full_move() {
 }
 
 #[test]
-fn registered_receiver_only_relay_does_not_authorize_projected_full_move() {
+fn registered_receiver_only_relay_authorizes_projected_full_move() {
     use crate::lower::test_utils::registered_struct_with_burden;
     use ori_types::burden::{UserBurdenSpec, UserOwnedField};
 
@@ -2980,9 +2980,8 @@ fn registered_receiver_only_relay_does_not_authorize_projected_full_move() {
     let (analysis, _) = analyze_with_registry_and_interner(&func, &state_map, &registry, &interner);
 
     assert!(
-        analysis.field_view_hazard,
-        "a registered consuming receiver with no return-lineage authority \
-         cannot rebook the projected field credit"
+        !analysis.field_view_hazard && analysis.readiness.all_classes_clean,
+        "the frozen Owned receiver contract proves one-in/one-out conservation"
     );
 }
 

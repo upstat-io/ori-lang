@@ -244,7 +244,7 @@ fn projection_carrier(
                     *arg == projection_dst
                         && arg_ownership.get(position) == Some(&ArgOwnership::Owned)
                         && (contract_identity
-                            || crate::aims::builtins::effective_owned_result_lineage(
+                            || crate::aims::builtins::effective_consuming_provenance(
                                 *func,
                                 position,
                                 ArgOwnership::Owned,

@@ -158,7 +158,7 @@ fn projection_for_carrier(
         .enumerate()
         .filter(|&(position, _)| {
             arg_ownership.get(position).is_some_and(|&ownership| {
-                crate::aims::builtins::effective_owned_result_lineage(
+                crate::aims::builtins::effective_consuming_provenance(
                     *callee, position, ownership, sigs, interner,
                 )
             })
