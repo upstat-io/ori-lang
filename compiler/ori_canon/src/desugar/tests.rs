@@ -455,6 +455,71 @@ fn desugar_struct_with_spread_flattens_to_struct() {
 }
 
 #[test]
+fn lower_struct_shorthand_preserves_explicit_field_type() {
+    let mut arena = ExprArena::new();
+    let interner = test_interner();
+
+    let holder = interner.intern("Holder");
+    let value = interner.intern("value");
+    let holder_type_path = arena.alloc_parsed_type(ori_ir::ParsedType::Named {
+        name: holder,
+        type_args: ori_ir::ParsedTypeRange::EMPTY,
+    });
+
+    let explicit_value = arena.alloc_expr(Expr::new(ExprKind::Ident(value), Span::new(16, 21)));
+    let explicit_fields = arena.alloc_field_inits([ori_ir::FieldInit {
+        name: value,
+        value: Some(explicit_value),
+        span: Span::new(9, 21),
+    }]);
+    let explicit_root = arena.alloc_expr(Expr::new(
+        ExprKind::Struct {
+            type_path: holder_type_path,
+            fields: explicit_fields,
+        },
+        Span::new(0, 23),
+    ));
+
+    let shorthand_fields = arena.alloc_field_inits([ori_ir::FieldInit {
+        name: value,
+        value: None,
+        span: Span::new(32, 37),
+    }]);
+    let shorthand_root = arena.alloc_expr(Expr::new(
+        ExprKind::Struct {
+            type_path: holder_type_path,
+            fields: shorthand_fields,
+        },
+        Span::new(24, 39),
+    ));
+
+    let mut pool = ori_types::Pool::new();
+    let holder_idx = pool.named(holder);
+    let holder_body = pool.struct_type(holder, &[(value, Idx::STR)]);
+    pool.set_resolution(holder_idx, holder_body);
+    let type_result = test_type_result(vec![Idx::STR, holder_idx, holder_idx]);
+
+    let explicit = lower(&arena, &type_result, &pool, explicit_root, &interner);
+    let shorthand = lower(&arena, &type_result, &pool, shorthand_root, &interner);
+
+    let field_type = |result: &ori_ir::canon::CanonResult| match result.arena.kind(result.root) {
+        CanExpr::Struct { fields, .. } => {
+            let fields = result.arena.get_fields(*fields);
+            assert_eq!(fields.len(), 1);
+            result.arena.ty(fields[0].value)
+        }
+        other => panic!("expected Struct, got {other:?}"),
+    };
+
+    assert_eq!(field_type(&explicit), ori_ir::TypeId::STR);
+    assert_eq!(
+        field_type(&shorthand),
+        field_type(&explicit),
+        "struct shorthand must carry the same resolved field type as its explicit spelling"
+    );
+}
+
+#[test]
 fn desugar_method_call_named_drops_to_positional() {
     // No method signature available -> args stay in source order, and the sugar
     // variant lowers to a positional CanExpr::MethodCall. Positive pin: no
