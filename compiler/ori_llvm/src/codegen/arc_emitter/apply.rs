@@ -39,9 +39,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             Some((func_id, params, ret_abi)) => {
                 self.emit_resolved_direct_call(func_id, &params, ret_abi, &arg_vals, args)
             }
+
             None if runtime_projection_allowed => {
                 self.emit_runtime_projection_fallback(dst, callee, args, &arg_vals, func)
             }
+
             None => self.record_unresolved_direct_call(dst, callee, func),
         };
 
@@ -77,6 +79,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             args = args.len(),
             "emit_apply_indirect"
         );
+
         let fn_ptr = self
             .builder
             .extract_value(closure_val, CLOSURE_FIELD_FN, "closure.fn_ptr");
@@ -144,6 +147,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .builder
                 .call_with_sret(func_id, &[lhs_ptr, rhs_ptr], str_ty, func_name)
                 .expect("str-returning runtime call uses sret; builder yields the loaded value"),
+
             StringRuntimeReturnAbi::BoolDirect => {
                 let result = self.emit_rt_call(func_id, &[lhs_ptr, rhs_ptr], func_name);
                 result.expect("str comparison runtime fn is non-void; builder.call returns Some")
@@ -185,6 +189,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.def_var_repr(dst, val, func);
                 true
             }
+
             None => false,
         }
     }
@@ -204,6 +209,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let ret_ty = self.resolve_type(ret_abi.ty);
                 self.call_with_sret(func_id, &passed_args, ret_ty, "call")
             }
+
             ReturnPassing::Direct | ReturnPassing::Void => {
                 self.emit_rt_call(func_id, &passed_args, "call")
             }
@@ -325,7 +331,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     arg_vals.push(alloca);
                     param_types.push(ptr_ty);
                 }
+
                 crate::codegen::abi::ParamPassing::Void => {}
+
                 crate::codegen::abi::ParamPassing::Direct => {
                     arg_vals.push(self.var(a));
                     param_types.push(self.resolve_type(arg_ty));

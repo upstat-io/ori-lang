@@ -120,11 +120,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let gt = self.builder.icmp_sgt(a_val, b_val, "gt");
                 self.emit_compare_result(lt, gt)
             }
+
             TypeInfo::Float => {
                 let lt = self.builder.fcmp_olt(a_val, b_val, "lt");
                 let gt = self.builder.fcmp_ogt(a_val, b_val, "gt");
                 self.emit_compare_result(lt, gt)
             }
+
             TypeInfo::Bool | TypeInfo::Char | TypeInfo::Byte => {
                 let i32_ty = self.builder.i32_type();
                 let a_ext = self.builder.zext(a_val, i32_ty, "a.ext");
@@ -133,6 +135,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let gt = self.builder.icmp_ugt(a_ext, b_ext, "gt");
                 self.emit_compare_result(lt, gt)
             }
+
             TypeInfo::Unit
             | TypeInfo::Never
             | TypeInfo::Str

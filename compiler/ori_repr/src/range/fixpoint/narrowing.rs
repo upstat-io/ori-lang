@@ -57,6 +57,7 @@ pub(super) fn refine_direct_range_inductions(
                     ArcTerminator::Jump { target, args } if *target == block.id => {
                         args.get(param_idx).copied()
                     }
+
                     _ => None,
                 })
                 .collect();
@@ -99,6 +100,7 @@ pub(super) fn refine_direct_range_inductions(
             let inclusive = ranges
                 .get(&construct_args[3])
                 .and_then(ValueRange::is_constant);
+
             let Some((header_range, body_range)) =
                 direct_range_intervals(start, end, step, inclusive)
             else {
@@ -109,6 +111,7 @@ pub(super) fn refine_direct_range_inductions(
                 .entry(param)
                 .and_modify(|current| *current = current.meet(header_range))
                 .or_insert(header_range);
+
             block_refinements
                 .entry((then_block, param))
                 .and_modify(|current| *current = current.meet(body_range))
@@ -203,6 +206,7 @@ pub(super) fn direct_range_intervals(
         } else {
             end_hi.saturating_add(step_hi).saturating_sub(1)
         };
+
         let header = ValueRange::Bounded {
             lo: start_lo,
             hi: start_hi.max(overshoot),
@@ -220,6 +224,7 @@ pub(super) fn direct_range_intervals(
         } else {
             end_lo.saturating_add(step_lo).saturating_add(1)
         };
+
         let header = ValueRange::Bounded {
             lo: start_lo.min(overshoot),
             hi: start_hi,
@@ -296,6 +301,7 @@ pub(super) fn run_narrowing_pass(
                 };
                 transfer(instr, &ctx)
             };
+
             let Some(var) = instr.defined_var() else {
                 continue;
             };

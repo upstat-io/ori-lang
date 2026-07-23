@@ -40,6 +40,7 @@ declare_builtins! { emitter, ctx;
     ("list", "is_empty") => emitter.emit_collection_is_empty_forwarded(ctx.arg_vals[0], ctx.arc_args[0], "list.is_empty"),
     ("list", "concat") => emit_list_concat(emitter, ctx),
     ("list", "add") => emit_list_concat(emitter, ctx),
+
     ("list", "push") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
@@ -59,6 +60,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "prepend") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
@@ -73,6 +75,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "first") => {
         if let TypeInfo::List { element } = ctx.type_info {
             emitter.emit_list_first(ctx.arg_vals[0], *element, ctx.receiver_ty)
@@ -80,6 +83,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "last") => {
         if let TypeInfo::List { element } = ctx.type_info {
             emitter.emit_list_last(ctx.arg_vals[0], *element, ctx.receiver_ty)
@@ -87,6 +91,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "flatten") => {
         if let TypeInfo::List { element } = ctx.type_info {
             emitter.emit_list_flatten(ctx.arg_vals[0], *element, ctx.receiver_ty)
@@ -94,6 +99,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "pop") => {
         if let TypeInfo::List { element } = ctx.type_info {
             emitter.emit_list_last(ctx.arg_vals[0], *element, ctx.receiver_ty)
@@ -101,6 +107,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "contains") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
@@ -112,6 +119,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "reverse") => {
         if let TypeInfo::List { element } = ctx.type_info {
             let cm = emitter.cow_mode_const(ctx.arc_func);
@@ -122,6 +130,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "sort") => {
         if let TypeInfo::List { element } = ctx.type_info {
             let cm = emitter.cow_mode_const(ctx.arc_func);
@@ -132,6 +141,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "sort_stable") => {
         if let TypeInfo::List { element } = ctx.type_info {
             let cm = emitter.cow_mode_const(ctx.arc_func);
@@ -142,6 +152,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "set") => {
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::List { element } = ctx.type_info {
@@ -156,6 +167,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "updated") => {
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::List { element } = ctx.type_info {
@@ -169,6 +181,7 @@ declare_builtins! { emitter, ctx;
                 } else {
                     YieldReceiverStorage::Runtime
                 };
+
                 let negated_same_index = emitter.is_negated_same_index_update(
                     ctx.arc_func,
                     ctx.arc_args[0],
@@ -187,6 +200,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "insert") => {
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::List { element } = ctx.type_info {
@@ -201,6 +215,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "remove") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
@@ -215,6 +230,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "slice") => {
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::List { element } = ctx.type_info {
@@ -226,6 +242,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "take") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
@@ -237,6 +254,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "drop") => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
@@ -248,6 +266,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "debug") => {
         if let TypeInfo::List { element } = ctx.type_info {
             emitter.emit_list_debug(ctx.arg_vals[0], ctx.receiver_ty, *element, RenderStyle::Debug)
@@ -255,6 +274,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     ("list", "to_str") => {
         if let TypeInfo::List { element } = ctx.type_info {
             emitter.emit_list_debug(ctx.arg_vals[0], ctx.receiver_ty, *element, RenderStyle::Printable)
@@ -262,9 +282,12 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
     // Spec: Clause 8.2.2 gives fixed and dynamic lists the same runtime layout.
     ("list", "to_dynamic") => Some(ctx.arg_vals[0]),
+
     ("list", "to_fixed") => Some(ctx.arg_vals[0]),
+
     ("list", "iter") => {
         if let TypeInfo::List { element } = ctx.type_info {
             // INVARIANT: Retained closure arguments give iterators an independent credit.
@@ -288,4 +311,5 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+
 }

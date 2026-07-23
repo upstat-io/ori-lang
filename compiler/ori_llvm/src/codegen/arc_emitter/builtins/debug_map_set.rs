@@ -166,6 +166,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder
             .add_phi_incoming(idx_phi, &[(one, first_bb_end), (next_idx, body_end)]);
+
         self.builder
             .add_phi_incoming(acc_phi, &[(acc_init, first_bb_end), (new_acc, body_end)]);
 
@@ -205,6 +206,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         } else {
             key
         };
+
         let val_ptr = self
             .builder
             .gep(layout.val_llvm_ty, val_data, &[idx], "mdbg.vp");
@@ -340,6 +342,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder
             .add_phi_incoming(idx_phi, &[(one, first_bb_end), (next_idx, body_end)]);
+
         self.builder
             .add_phi_incoming(acc_phi, &[(acc_init, first_bb_end), (new_acc, body_end)]);
 
@@ -386,6 +389,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // Why: The temporary list value always uses the runtime fat-list layout.
             unreachable!("temporary list value must contain data, length, and capacity fields");
         };
+
         let Ok(elem_size) = i64::try_from(elem_size) else {
             // Why: LLVM element layouts always fit the runtime list ABI's i64 size field.
             unreachable!("temporary list element size must fit the runtime i64 ABI field");

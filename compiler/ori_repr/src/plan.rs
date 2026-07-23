@@ -154,6 +154,7 @@ impl CompiledAllocationMechanism {
     pub const fn extent(self) -> YieldExtent {
         match self {
             Self::RuntimeHeap { extent } => extent,
+
             Self::ManagedStack { capacity } | Self::CompactStack { capacity } => {
                 YieldExtent::StaticExact(capacity)
             }

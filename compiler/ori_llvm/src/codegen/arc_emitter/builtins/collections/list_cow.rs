@@ -210,9 +210,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let elem_llvm_ty = self
                 .builder
                 .register_type(self.builder.scx().type_i8().into());
+
             let elem_ptr =
                 self.builder
                     .gep(elem_llvm_ty, data_ptr, &[key], "updated.toggle.elem_ptr");
+
             let old = self
                 .builder
                 .load(elem_llvm_ty, elem_ptr, "updated.toggle.old");

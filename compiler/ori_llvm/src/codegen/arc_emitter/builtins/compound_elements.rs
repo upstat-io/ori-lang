@@ -39,37 +39,45 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let inner = *inner;
                 self.emit_option_equals(lhs, rhs, inner)
             }
+
             TypeInfo::Result { ok, err } => {
                 let ok = *ok;
                 let err = *err;
                 self.emit_result_equals(lhs, rhs, elem_ty, ok, err)
             }
+
             TypeInfo::Tuple { elements } => self.emit_tuple_equals(lhs, rhs, elements, elem_ty),
+
             TypeInfo::List { element } => {
                 let elem = *element;
                 self.emit_list_equals(lhs, rhs, elem_ty, elem)
             }
+
             TypeInfo::Map { key, value } => {
                 let key = *key;
                 let value = *value;
                 self.emit_map_equals(lhs, rhs, key, value)
             }
+
             TypeInfo::Set { element } => {
                 let element = *element;
                 self.emit_set_equals(lhs, rhs, elem_ty, element)
             }
+
             TypeInfo::Struct { fields } => {
                 // Why: Owning the descriptor releases the type-info borrow before recursive emission.
                 let fields = fields.clone();
                 self.emit_derived_eq_call(lhs, rhs, elem_ty)
                     .or_else(|| self.emit_structural_eq(lhs, rhs, &fields))
             }
+
             TypeInfo::Enum { variants } => {
                 // Why: Owning the descriptor releases the type-info borrow before recursive emission.
                 let variants = variants.clone();
                 self.emit_derived_eq_call(lhs, rhs, elem_ty)
                     .or_else(|| self.emit_structural_eq_enum(lhs, rhs, &variants))
             }
+
             _ => None,
         }
     }
@@ -149,19 +157,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let inner = *inner;
                 self.emit_option_compare(lhs, rhs, inner)
             }
+
             TypeInfo::Result { ok, err } => {
                 let ok = *ok;
                 let err = *err;
                 self.emit_result_compare(lhs, rhs, elem_ty, ok, err)
             }
+
             TypeInfo::Tuple { elements } => self.emit_tuple_compare(lhs, rhs, elements, elem_ty),
+
             TypeInfo::List { element } => {
                 let elem = *element;
                 self.emit_list_compare(lhs, rhs, elem_ty, elem)
             }
+
             TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => {
                 self.emit_derived_compare_call(lhs, rhs, elem_ty)
             }
+
             _ => None,
         }
     }
@@ -191,37 +204,47 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let arg_vals = [val];
                 self.emit_trait_method("hash", &arg_vals, &type_info)
             }
+
             TypeInfo::Bool | TypeInfo::Byte | TypeInfo::Ordering => {
                 Some(self.builder.zext(val, i64_ty, "elem_hash"))
             }
+
             TypeInfo::Char => Some(self.builder.sext(val, i64_ty, "elem_hash")),
             TypeInfo::Str => self.emit_str_hash_call(val),
+
             TypeInfo::Option { inner } => {
                 let inner = *inner;
                 self.emit_option_hash(val, inner)
             }
+
             TypeInfo::Result { ok, err } => {
                 let ok = *ok;
                 let err = *err;
                 self.emit_result_hash(val, elem_ty, ok, err)
             }
+
             TypeInfo::Tuple { elements } => self.emit_tuple_hash(val, elements, elem_ty),
+
             TypeInfo::List { element } => {
                 let elem = *element;
                 self.emit_list_hash(val, elem_ty, elem)
             }
+
             TypeInfo::Map { key, value } => {
                 let key = *key;
                 let value = *value;
                 self.emit_map_hash(val, key, value)
             }
+
             TypeInfo::Set { element } => {
                 let element = *element;
                 self.emit_set_hash(val, elem_ty, element)
             }
+
             TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => {
                 self.emit_derived_hash_call(val, elem_ty)
             }
+
             _ => None,
         }
     }

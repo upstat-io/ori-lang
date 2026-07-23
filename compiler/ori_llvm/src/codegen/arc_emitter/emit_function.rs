@@ -136,6 +136,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         ori_repr::executable::CallableTarget::Function(_)
                         | ori_repr::executable::CallableTarget::External(_),
                     ) => return true,
+
                     Some(ori_repr::executable::CallableTarget::Runtime(_)) | None => {
                         return is_string_length_call();
                     }
@@ -168,6 +169,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         } else {
             !unwind_blocks.is_empty()
         };
+
         let personality = needs_personality.then(|| {
             let id = self.builder.runtime_fn(eh_model.personality_name());
             self.builder.set_personality(self.current_function, id);
@@ -248,6 +250,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 personality,
                 &mut landingpad_values,
             );
+
             if self.emit_block_instructions(func, block_index) {
                 self.current_cleanup_pad = None;
                 continue;
@@ -299,10 +302,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     self.emit_catch_cleanup(exception);
                 }
             }
+
             EhModel::Itanium => {
                 let pad = self.builder.landingpad(personality, true, "lp");
                 landingpad_values.insert(block.id.index(), pad);
             }
+
             EhModel::Seh => {
                 let pad = self.builder.cleanuppad(None, &[]);
                 self.current_cleanup_pad = Some(pad);

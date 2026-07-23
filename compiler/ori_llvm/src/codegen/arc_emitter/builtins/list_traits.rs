@@ -222,6 +222,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let zero = self.builder.const_i64(0);
         self.builder
             .add_phi_incoming(idx_phi, &[(zero, pre_header), (next_idx, body_end)]);
+
         self.builder
             .add_phi_incoming(hash_phi, &[(zero, pre_header), (new_hash, body_end)]);
 

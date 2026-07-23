@@ -94,6 +94,7 @@ fn freeze_executable_program(
         &function_ids,
         &direct_call_targets,
     );
+
     Ok(ExecutableProgram {
         version: parts.version,
         symbols: parts.symbols,
@@ -163,10 +164,12 @@ fn yield_lineage_runtime_call(
         | super::RuntimeCall::RegisteredMethod(ori_registry::MethodRuntime::Length) => {
             Some(crate::plan::YieldLineageRuntimeCall::BorrowedRead)
         }
+
         super::RuntimeCall::ListSet
         | super::RuntimeCall::RegisteredMethod(ori_registry::MethodRuntime::ListSet) => {
             Some(crate::plan::YieldLineageRuntimeCall::StaticUniqueListSet)
         }
+
         _ => None,
     }
 }

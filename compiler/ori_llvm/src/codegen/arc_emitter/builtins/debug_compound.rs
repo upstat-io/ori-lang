@@ -252,6 +252,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder
             .add_phi_incoming(idx_phi, &[(one, first_bb_end), (next_idx, body_end)]);
+
         self.builder
             .add_phi_incoming(acc_phi, &[(acc_init, first_bb_end), (new_acc, body_end)]);
 
