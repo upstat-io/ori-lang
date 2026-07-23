@@ -204,16 +204,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         args: &[ArcVarId],
     ) -> Option<ValueId> {
         let passed_args = self.apply_param_passing(arg_vals, Some(args), params);
-        match &ret_abi.passing {
+        let received = match &ret_abi.passing {
             ReturnPassing::Sret { .. } => {
-                let ret_ty = self.resolve_type(ret_abi.ty);
+                let ret_ty = self.resolve_boundary_type(ret_abi.ty);
                 self.call_with_sret(func_id, &passed_args, ret_ty, "call")
             }
 
-            ReturnPassing::Direct | ReturnPassing::Void => {
-                self.emit_rt_call(func_id, &passed_args, "call")
-            }
-        }
+            ReturnPassing::Void => return self.emit_rt_call(func_id, &passed_args, "call"),
+
+            ReturnPassing::Direct => self.emit_rt_call(func_id, &passed_args, "call"),
+        };
+        received.map(|v| self.narrow_to_storage(v, ret_abi.ty))
     }
 
     /// Fallback chain for an unresolved callee when runtime projection is
@@ -335,8 +336,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 crate::codegen::abi::ParamPassing::Void => {}
 
                 crate::codegen::abi::ParamPassing::Direct => {
-                    arg_vals.push(self.var(a));
-                    param_types.push(self.resolve_type(arg_ty));
+                    let widened = self.widen_to_boundary(self.var(a), arg_ty);
+                    arg_vals.push(widened);
+                    param_types.push(self.resolve_boundary_type(arg_ty));
                 }
             }
         }

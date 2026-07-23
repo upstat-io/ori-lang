@@ -74,11 +74,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ReturnPassing::Sret { .. } => {
                 if self.sret_forwarded_result != Some(value) {
                     let output = self.builder.get_param(self.current_function, 0);
-                    self.builder.store(value, output);
+                    let widened = self.widen_to_boundary(value, abi.return_abi.ty);
+                    self.builder.store(widened, output);
                 }
                 self.builder.ret_void();
             }
-            ReturnPassing::Direct => self.builder.ret(value),
+            ReturnPassing::Direct => {
+                let widened = self.widen_to_boundary(value, abi.return_abi.ty);
+                self.builder.ret(widened);
+            }
             ReturnPassing::Void => self.builder.ret_void(),
         }
     }

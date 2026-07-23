@@ -940,19 +940,20 @@ fn test_float_narrowed_struct_ir_pin_fptrunc_on_construction() {
         "fixtures/narrowing/float_narrowed_struct_ir_pin_fptrunc_on_construction.ori"
     ));
 
-    let main_ir = extract_function_ir(&ir, "_ori_main");
+    // The struct crosses the `read_x` ABI boundary as canonical `{ double, double }`
+    // (repr.md RN-3), so storage narrowing to `{ float, float }` occurs inside the
+    // callee that reads a field, not at the caller-side construct.
+    let callee_ir = extract_function_ir(&ir, "_ori_read_x");
 
-    // The f64 constants (0.5, 0.25) are stored into narrowed f32 struct fields.
-    // LLVM may fold `fptrunc double 5.0e-1 to float` → `float 5.0e-1` at IR
-    // construction time, so we check for either explicit fptrunc or a float constant.
-    let has_fptrunc = main_ir.contains("fptrunc double");
-    let has_narrowed_const = main_ir.contains("{ float, float }");
+    // The f64 fields are narrowed to f32 storage inside the callee.
+    let has_fptrunc = callee_ir.contains("fptrunc double");
+    let has_narrowed_const = callee_ir.contains("{ float, float }");
     assert!(
         has_fptrunc || has_narrowed_const,
-        "expected evidence of float narrowing at construction in _ori_main — either \
-         `fptrunc double ... to float` instructions or a `{{ float, float }}` constant.\n\
+        "expected evidence of float narrowing to storage in _ori_read_x — either \
+         `fptrunc double ... to float` instructions or a `{{ float, float }}` type.\n\
          Regression guard: without narrowing, the struct type would be `{{ double, double }}`.\n\
-         IR:\n{main_ir}"
+         IR:\n{callee_ir}"
     );
 }
 

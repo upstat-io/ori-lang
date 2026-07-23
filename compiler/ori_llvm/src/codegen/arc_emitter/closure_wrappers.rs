@@ -65,7 +65,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Determine return type and sret mode
         let ptr_ty = self.builder.ptr_type();
-        let ret_ty = self.resolve_type(callee_abi.return_abi.ty);
+        let ret_ty = self.resolve_boundary_type(callee_abi.return_abi.ty);
         let has_sret = matches!(callee_abi.return_abi.passing, ReturnPassing::Sret { .. });
         let is_void = matches!(callee_abi.return_abi.passing, ReturnPassing::Void);
 
@@ -81,7 +81,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         for param in remaining_params {
             match &param.passing {
                 ParamPassing::Direct => {
-                    let ty = self.resolve_type(param.ty);
+                    let ty = self.resolve_boundary_type(param.ty);
                     wrapper_param_types.push(ty);
                 }
                 ParamPassing::Indirect { .. } | ParamPassing::Reference => {
@@ -277,7 +277,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .builder
                     .load(field_type, field_ptr, &format!("cap.{index}"));
                 self.retain_closure_capture(loaded, capture_type, frozen_action, needs_legacy_inc);
-                loaded
+                // The env stores narrowed storage form; the lambda signature is
+                // canonical, so the capture widens at the unpack boundary.
+                self.widen_to_boundary(loaded, capture_type)
             };
             callee_args.push(capture);
         }
@@ -356,7 +358,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         // Why: Direct target passing makes needs_semantic_value true above.
                         unreachable!("direct target requires a semantic value")
                     };
-                    callee_args.push(value);
+                    let widened = self.widen_to_boundary(value, target_param.ty);
+                    callee_args.push(widened);
                 }
                 ParamPassing::Indirect { .. } | ParamPassing::Reference => {
                     if source_is_pointer {

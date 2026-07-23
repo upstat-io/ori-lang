@@ -16,6 +16,19 @@ use super::store::TypeInfoStore;
 use super::type_size::{select_shared_payload_arm, SharedPayloadArm};
 use super::TypeInfo;
 
+/// Which representation of a type a resolution asks for.
+///
+/// One `Idx` has two LLVM types when repr-opt narrowed its fields. Spec:
+/// Annex E §Representation Optimization — narrowing is a storage optimization;
+/// parameters and return values carry the canonical form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ResolveMode {
+    /// Buffers, struct fields, locals — narrowing applies.
+    Storage,
+    /// Parameters and return values — canonical widths only.
+    Boundary,
+}
+
 /// Resolves `Idx` → `BasicTypeEnum` with cycle-safe two-phase struct creation.
 ///
 /// For recursive types like `type Tree = Leaf(int) | Node(Tree, Tree)`, LLVM
@@ -48,7 +61,9 @@ pub struct TypeLayoutResolver<'a, 'll, 'tcx> {
     /// rather than recurring.
     pub(super) resolving: RefCell<FxHashSet<Idx>>,
     /// Resolved LLVM types cache.
-    cache: RefCell<FxHashMap<Idx, BasicTypeEnum<'ll>>>,
+    cache: RefCell<FxHashMap<(Idx, ResolveMode), BasicTypeEnum<'ll>>>,
+    /// Representation the active resolution asks for.
+    mode: Cell<ResolveMode>,
     /// Named struct types created during resolution (for body filling).
     pub(super) named_structs: RefCell<FxHashMap<Idx, StructType<'ll>>>,
     /// Recursion depth counter for indirect cycle detection.
@@ -87,7 +102,28 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             cache: RefCell::new(FxHashMap::default()),
             named_structs: RefCell::new(FxHashMap::default()),
             depth: Cell::new(0),
+            mode: Cell::new(ResolveMode::Storage),
         }
+    }
+
+    /// Resolve `idx` to the canonical form crossing an ABI boundary.
+    pub fn resolve_boundary(&self, idx: Idx) -> BasicTypeEnum<'ll> {
+        let previous = self.mode.replace(ResolveMode::Boundary);
+        let resolved = self.resolve(idx);
+        self.mode.set(previous);
+        resolved
+    }
+
+    /// Whether `idx` lowers to a narrowed aggregate with two distinct forms.
+    #[must_use]
+    pub fn is_narrowed_aggregate(&self, idx: Idx) -> bool {
+        self.narrows_in_place(self.store.pool().resolve_fully(idx))
+    }
+
+    fn narrows_in_place(&self, canonical: Idx) -> bool {
+        self.repr_plan
+            .and_then(|plan| plan.get_repr(canonical))
+            .is_some_and(|repr| self.try_lower_narrowed_aggregate(repr).is_some())
     }
 
     /// Access the representation plan, when one was supplied.
@@ -145,8 +181,18 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         // despite being the same type.
         let canonical = self.store.pool().resolve_fully(idx);
 
-        // Cache hit (on the canonical Idx)
-        if let Some(&cached) = self.cache.borrow().get(&canonical) {
+        // Only a narrowed aggregate has two forms. Collapsing every other type
+        // keeps one named struct per Idx; two modes minting their own would give
+        // LLVM two distinct `%ori.T` types for one Ori type.
+        let requested = self.mode.get();
+        if requested == ResolveMode::Boundary && !self.narrows_in_place(canonical) {
+            self.mode.set(ResolveMode::Storage);
+            let resolved = self.resolve(canonical);
+            self.mode.set(requested);
+            return resolved;
+        }
+
+        if let Some(&cached) = self.cache.borrow().get(&(canonical, self.mode.get())) {
             return cached;
         }
 
@@ -223,7 +269,9 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             TypeInfo::Enum { variants } => self.resolve_enum(idx, variants),
         };
 
-        self.cache.borrow_mut().insert(idx, result);
+        self.cache
+            .borrow_mut()
+            .insert((idx, self.mode.get()), result);
         result
     }
 
@@ -243,8 +291,15 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
 
     fn resolve_from_repr_plan(&self, idx: Idx) -> Option<BasicTypeEnum<'ll>> {
         let repr = self.repr_plan.and_then(|plan| plan.get_repr(idx))?;
-        self.try_repr_to_llvm_type(repr)
-            .or_else(|| self.try_lower_narrowed_aggregate(repr))
+        if let Some(direct) = self.try_repr_to_llvm_type(repr) {
+            return Some(direct);
+        }
+        match self.mode.get() {
+            ResolveMode::Storage => self.try_lower_narrowed_aggregate(repr),
+            // Spec: Annex E §Representation Optimization — narrowing stops at
+            // the ABI boundary; fall through to the named struct path.
+            ResolveMode::Boundary => None,
+        }
     }
 
     fn resolve_option(&self, idx: Idx, inner: Idx) -> BasicTypeEnum<'ll> {

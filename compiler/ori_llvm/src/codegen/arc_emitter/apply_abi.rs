@@ -128,13 +128,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         .filter(|var| self.pointer_only_params.contains(var))
                         .and_then(|var| self.borrowed_param_ptrs.get(var))
                         .copied();
-                    if let Some(src_ptr) = elided_ptr {
+                    let value = if let Some(src_ptr) = elided_ptr {
                         let param_ty = self.resolve_type(param_abi.ty);
-                        let loaded = self.builder.load(param_ty, src_ptr, "borrow.byval.load");
-                        result.push(loaded);
+                        self.builder.load(param_ty, src_ptr, "borrow.byval.load")
                     } else {
-                        result.push(args[arg_idx]);
-                    }
+                        args[arg_idx]
+                    };
+                    result.push(self.widen_to_boundary(value, param_abi.ty));
                     arg_idx += 1;
                 }
                 crate::codegen::abi::ParamPassing::Void => {}

@@ -31,15 +31,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let sret_offset = u32::from(has_sret);
         // INVARIANT: Sret forwarding requires identical physical return types.
         if has_sret {
-            let return_ty = self.resolve_type(abi.return_abi.ty);
+            let return_ty = self.resolve_boundary_type(abi.return_abi.ty);
             self.current_sret = Some((self.builder.get_param(self.current_function, 0), return_ty));
         }
         let phantom_env_offset = u32::from(self.ctx.non_capturing_lambdas.contains(&func.name));
+        // A Direct narrowed aggregate emits its conversion here, so it needs
+        // the entry block just as a pointer load does.
         let needs_loads = abi.params.iter().any(|p| {
             matches!(
                 p.passing,
                 ParamPassing::Indirect { .. } | ParamPassing::Reference
-            )
+            ) || (matches!(p.passing, ParamPassing::Direct)
+                && self.type_resolver.is_narrowed_aggregate(p.ty))
         });
         if needs_loads {
             self.builder.position_at_end(self.block(func.entry));
@@ -52,7 +55,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     let llvm_param = self
                         .builder
                         .get_param(self.current_function, llvm_param_idx);
-                    self.def_var_repr(param.var, llvm_param, func);
+                    let stored = self.narrow_to_storage(llvm_param, param.ty);
+                    self.def_var_repr(param.var, stored, func);
                     llvm_param_idx += 1;
                 }
                 ParamPassing::Indirect { .. } | ParamPassing::Reference => {

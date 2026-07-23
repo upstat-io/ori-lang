@@ -86,7 +86,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         let mut llvm_param_types =
             Vec::with_capacity(abi.params.len() + extra_leading_params.len() + 1);
 
-        let return_llvm_type = self.type_resolver.resolve(abi.return_abi.ty);
+        let return_llvm_type = self.type_resolver.resolve_boundary(abi.return_abi.ty);
         let return_llvm_id = self.builder.register_type(return_llvm_type);
 
         if matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }) {
@@ -98,7 +98,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         for param in &abi.params {
             match &param.passing {
                 ParamPassing::Direct => {
-                    let ty = self.type_resolver.resolve(param.ty);
+                    let ty = self.type_resolver.resolve_boundary(param.ty);
                     llvm_param_types.push(self.builder.register_type(ty));
                 }
                 ParamPassing::Indirect { .. } | ParamPassing::Reference => {

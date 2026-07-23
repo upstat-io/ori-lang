@@ -1,5 +1,6 @@
 //! Narrowing codegen.
 
+mod boundary;
 mod implementation;
 mod loop_exclusions;
 mod struct_fields;

@@ -249,9 +249,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    /// Resolve an `Idx` to an `LLVMTypeId`.
+    /// Resolve an `Idx` to an `LLVMTypeId` in storage form.
     pub(super) fn resolve_type(&mut self, idx: Idx) -> LLVMTypeId {
         let llvm_ty = self.type_resolver.resolve(idx);
+        self.builder.register_type(llvm_ty)
+    }
+
+    /// Resolve an `Idx` to the canonical form crossing an ABI boundary.
+    pub(super) fn resolve_boundary_type(&mut self, idx: Idx) -> LLVMTypeId {
+        let llvm_ty = self.type_resolver.resolve_boundary(idx);
         self.builder.register_type(llvm_ty)
     }
 
