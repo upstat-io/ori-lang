@@ -480,6 +480,7 @@ fn checkpoint_observer_with_all_passes_configured_captures_all_phase_names_in_or
         verify_arc: false,
         observer: Some(&observer),
         type_registry: &type_registry,
+        exact_transfer_witnesses: &rustc_hash::FxHashMap::default(),
     };
 
     let _result = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
@@ -554,6 +555,7 @@ fn checkpoint_observer_when_none_skips_all_callbacks() {
         verify_arc: false,
         observer: None,
         type_registry: &type_registry,
+        exact_transfer_witnesses: &rustc_hash::FxHashMap::default(),
     };
 
     // Pipeline runs successfully with no observer — zero overhead path.
@@ -613,6 +615,7 @@ fn checkpoint_observer_after_realize_rc_reuse_captures_added_rc_ops() {
         verify_arc: false,
         observer: Some(&observer),
         type_registry: &type_registry,
+        exact_transfer_witnesses: &rustc_hash::FxHashMap::default(),
     };
 
     let _result = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
@@ -844,6 +847,7 @@ fn aims_pipeline_panics_on_synthetic_invariant_break() {
         verify_arc: false,
         observer: None,
         type_registry: &type_registry,
+        exact_transfer_witnesses: &rustc_hash::FxHashMap::default(),
     };
 
     let _ = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
@@ -874,6 +878,7 @@ fn run_pipeline(func: &mut ArcFunction) {
         verify_arc: false,
         observer: None,
         type_registry: &type_registry,
+        exact_transfer_witnesses: &rustc_hash::FxHashMap::default(),
     };
     let result = super::aims_pipeline::run_aims_pipeline(func, &config);
     assert!(
@@ -1169,6 +1174,7 @@ fn class_ledger_replaces_contract_certified_payload_view_caller() {
         verify_arc: false,
         observer: None,
         type_registry: &type_registry,
+        exact_transfer_witnesses: &rustc_hash::FxHashMap::default(),
     };
     let result = super::aims_pipeline::run_aims_pipeline(&mut func, &config);
     assert!(result.is_ok(), "pipeline must succeed");

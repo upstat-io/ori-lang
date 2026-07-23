@@ -22,7 +22,22 @@ use crate::ArcClassification;
 use super::super::contract::{FipContract, MemoryContract};
 use super::super::intraprocedural::analyze_function;
 use super::demand_propagation::tighten_uniqueness_from_callers;
-use super::extract::extract_contract_with_call_ownership;
+use super::extract::{
+    extract_contract_and_transfers_with_call_ownership, ExactAggregateTransferWitness,
+};
+
+/// Frozen whole-program ownership analysis.
+pub(crate) struct ProgramAnalysis {
+    /// Converged callable contracts, including immutable external inputs.
+    pub(crate) contracts: FxHashMap<Name, MemoryContract>,
+    /// Local exact-transfer proofs keyed by function identity.
+    pub(crate) exact_transfer_witnesses: FxHashMap<Name, Vec<ExactAggregateTransferWitness>>,
+}
+
+struct FunctionAnalysis {
+    contract: MemoryContract,
+    witnesses: Vec<ExactAggregateTransferWitness>,
+}
 
 /// Compute [`MemoryContract`] for all functions via SCC-based fixed-point.
 ///
@@ -68,6 +83,7 @@ pub(crate) fn analyze_program_with_external_contracts<S: BuildHasher>(
         external_contracts,
         &ValidatedCallableBoundaryFacts::empty(),
     )
+    .contracts
 }
 
 /// Compute local contracts with immutable external inputs and exact semantic
@@ -79,7 +95,28 @@ pub(crate) fn analyze_program_with_external_contracts_and_boundaries<S: BuildHas
     interner: &ori_ir::StringInterner,
     external_contracts: &HashMap<Name, MemoryContract, S>,
     callable_boundaries: &ValidatedCallableBoundaryFacts<'_>,
-) -> FxHashMap<Name, MemoryContract> {
+) -> ProgramAnalysis {
+    analyze_program_with_external_contracts_boundaries_and_types(
+        functions,
+        classifier,
+        builtins,
+        interner,
+        external_contracts,
+        callable_boundaries,
+        None,
+    )
+}
+
+/// Production entry with canonical type/destructor authority.
+pub(crate) fn analyze_program_with_external_contracts_boundaries_and_types<S: BuildHasher>(
+    functions: &[ArcFunction],
+    classifier: &dyn ArcClassification,
+    builtins: &BuiltinOwnershipSets,
+    interner: &ori_ir::StringInterner,
+    external_contracts: &HashMap<Name, MemoryContract, S>,
+    callable_boundaries: &ValidatedCallableBoundaryFacts<'_>,
+    type_registry: Option<&ori_types::TypeRegistry>,
+) -> ProgramAnalysis {
     let graph = CallGraph::build(functions);
     let sccs = compute_sccs(&graph);
 
@@ -92,6 +129,7 @@ pub(crate) fn analyze_program_with_external_contracts_and_boundaries<S: BuildHas
         .collect();
 
     let mut all_sigs: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+    let mut exact_transfer_witnesses = FxHashMap::default();
 
     // Pre-seed builtin contracts so call sites get accurate ownership info.
     super::super::builtins::seed_builtin_contracts(&mut all_sigs, builtins, interner);
@@ -114,7 +152,7 @@ pub(crate) fn analyze_program_with_external_contracts_and_boundaries<S: BuildHas
             if scc_funcs.is_empty() {
                 continue;
             }
-            let scc_sigs = analyze_scc_fixpoint(
+            let scc_analysis = analyze_scc_fixpoint(
                 &scc_funcs,
                 classifier,
                 &all_sigs,
@@ -122,10 +160,12 @@ pub(crate) fn analyze_program_with_external_contracts_and_boundaries<S: BuildHas
                 builtins,
                 &exact_callables,
                 callable_boundaries,
+                type_registry,
             );
-            all_sigs.extend(scc_sigs);
+            all_sigs.extend(scc_analysis.contracts);
+            exact_transfer_witnesses.extend(scc_analysis.exact_transfer_witnesses);
         } else if let Some(&func) = func_by_name.get(&scc.members[0]) {
-            let contract = analyze_scc_single(
+            let analysis = analyze_scc_single(
                 func,
                 classifier,
                 &all_sigs,
@@ -133,8 +173,10 @@ pub(crate) fn analyze_program_with_external_contracts_and_boundaries<S: BuildHas
                 builtins,
                 &exact_callables,
                 callable_boundaries,
+                type_registry,
             );
-            all_sigs.insert(func.name, contract);
+            all_sigs.insert(func.name, analysis.contract);
+            exact_transfer_witnesses.insert(func.name, analysis.witnesses);
         }
         // External/FFI functions not in `func_by_name` are skipped —
         // their contracts are looked up as conservative fallbacks
@@ -155,7 +197,10 @@ pub(crate) fn analyze_program_with_external_contracts_and_boundaries<S: BuildHas
 
     trace_contract_summary(&all_sigs, interner);
 
-    all_sigs
+    ProgramAnalysis {
+        contracts: all_sigs,
+        exact_transfer_witnesses,
+    }
 }
 
 /// Report converged contract coverage and per-function demand dimensions.
@@ -226,7 +271,7 @@ fn trace_contract_summary(
 }
 
 /// Analyze a non-recursive function in a single pass.
-pub(super) fn analyze_scc_single(
+fn analyze_scc_single(
     func: &ArcFunction,
     classifier: &dyn ArcClassification,
     all_sigs: &FxHashMap<Name, MemoryContract>,
@@ -234,24 +279,30 @@ pub(super) fn analyze_scc_single(
     builtins: &BuiltinOwnershipSets,
     exact_callables: &FxHashSet<Name>,
     callable_boundaries: &ValidatedCallableBoundaryFacts<'_>,
-) -> MemoryContract {
+    type_registry: Option<&ori_types::TypeRegistry>,
+) -> FunctionAnalysis {
     let state_map = analyze_function(func, classifier, all_sigs, &[], Vec::new());
     // Non-recursive: empty SCC peer set → has_unbounded_stack = false.
     // No context regions for non-recursive (TRMC requires recursion).
     let empty_peers = rustc_hash::FxHashSet::default();
-    let mut contract = extract_contract_with_call_ownership(&super::ContractExtractionInput {
-        func,
-        state_map: &state_map,
-        classifier,
-        sigs: all_sigs,
-        scc_peers: &empty_peers,
-        context_regions: &[],
-        interner,
-        builtins,
-        exact_callables,
-    });
-    callable_boundaries.constrain_contract(func.name, &mut contract);
-    contract
+    let mut extraction =
+        extract_contract_and_transfers_with_call_ownership(&super::ContractExtractionInput {
+            func,
+            state_map: &state_map,
+            classifier,
+            sigs: all_sigs,
+            scc_peers: &empty_peers,
+            context_regions: &[],
+            interner,
+            builtins,
+            exact_callables,
+            type_registry,
+        });
+    callable_boundaries.constrain_contract(func.name, &mut extraction.contract);
+    FunctionAnalysis {
+        contract: extraction.contract,
+        witnesses: extraction.exact_transfer_witnesses,
+    }
 }
 
 /// Analyze a mutually recursive SCC via fixed-point iteration.
@@ -268,7 +319,8 @@ fn analyze_scc_fixpoint(
     builtins: &BuiltinOwnershipSets,
     exact_callables: &FxHashSet<Name>,
     callable_boundaries: &ValidatedCallableBoundaryFacts<'_>,
-) -> FxHashMap<Name, MemoryContract> {
+    type_registry: Option<&ori_types::TypeRegistry>,
+) -> ProgramAnalysis {
     // Build the SCC peer set for constant-stack analysis.
     let scc_peers: rustc_hash::FxHashSet<Name> = scc_funcs.iter().map(|f| f.name).collect();
 
@@ -285,11 +337,13 @@ fn analyze_scc_fixpoint(
     // Local contracts shadow finalized external contracts while the SCC
     // iterates. Cloning keeps `analyze_function` on its concrete map API.
     let mut combined_sigs = external_sigs.clone();
+    let mut final_witnesses = FxHashMap::default();
 
     let mut changed = true;
     let mut iterations = 0usize;
     while changed {
         changed = false;
+        let mut iteration_witnesses = FxHashMap::default();
 
         // Update combined with current local sigs.
         for (&name, contract) in &local_sigs {
@@ -302,8 +356,8 @@ fn analyze_scc_fixpoint(
             // interprocedural fixpoint; the rewrite runs in the per-function
             // pipeline after contracts converge).
             let context_regions = crate::aims::normalize::detect_context_regions(func);
-            let mut new_contract =
-                extract_contract_with_call_ownership(&super::ContractExtractionInput {
+            let mut extraction = extract_contract_and_transfers_with_call_ownership(
+                &super::ContractExtractionInput {
                     func,
                     state_map: &state_map,
                     classifier,
@@ -313,8 +367,12 @@ fn analyze_scc_fixpoint(
                     interner,
                     builtins,
                     exact_callables,
-                });
-            callable_boundaries.constrain_contract(func.name, &mut new_contract);
+                    type_registry,
+                },
+            );
+            callable_boundaries.constrain_contract(func.name, &mut extraction.contract);
+            let new_contract = extraction.contract;
+            iteration_witnesses.insert(func.name, extraction.exact_transfer_witnesses);
 
             let old_contract = &local_sigs[&func.name];
             if &new_contract != old_contract {
@@ -330,6 +388,9 @@ fn analyze_scc_fixpoint(
             panic!("AIMS fixed-point iteration count must fit usize");
         };
         iterations = next_iteration;
+        if !changed {
+            final_witnesses = iteration_witnesses;
+        }
     }
 
     // Convergence bound: each iteration promotes at least one lattice step
@@ -347,7 +408,22 @@ fn analyze_scc_fixpoint(
         "AIMS SCC fixed-point converged"
     );
 
-    local_sigs
+    for (&name, witnesses) in &mut final_witnesses {
+        let contract = &local_sigs[&name];
+        witnesses.retain(|witness| {
+            witness.param.is_none_or(|param| {
+                matches!(
+                    contract.params.get(param).map(|pc| &pc.exact_transfer),
+                    Some(super::super::contract::ExactTransferState::Exact(_))
+                )
+            })
+        });
+    }
+
+    ProgramAnalysis {
+        contracts: local_sigs,
+        exact_transfer_witnesses: final_witnesses,
+    }
 }
 
 /// Worst-case fixpoint convergence bound for an SCC (IC-7 height-sum).

@@ -17,6 +17,7 @@ pub(super) struct SecondPassContext<'a, 'facts> {
     pub(super) interner: &'a ori_ir::StringInterner,
     pub(super) builtins: &'a crate::borrow::BuiltinOwnershipSets,
     pub(super) exact_callables: &'a FxHashSet<Name>,
+    pub(super) type_registry: &'a ori_types::TypeRegistry,
     pub(super) callable_boundaries:
         &'a crate::pipeline::callable_boundary::ValidatedCallableBoundaryFacts<'facts>,
 }
@@ -38,6 +39,7 @@ pub(super) fn run_second_pass(
         interner,
         builtins,
         exact_callables,
+        type_registry,
         callable_boundaries,
     } = context;
 
@@ -67,6 +69,7 @@ pub(super) fn run_second_pass(
                         interner,
                         builtins,
                         exact_callables,
+                        type_registry: Some(type_registry),
                     },
                 );
             callable_boundaries.constrain_contract(name, &mut new_contract);

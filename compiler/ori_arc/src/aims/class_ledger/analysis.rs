@@ -83,6 +83,7 @@ pub(crate) fn analyze_from_state_map(
         state_map,
         contracts,
         &FxHashSet::default(),
+        None,
         type_registry,
         interner,
     )
@@ -93,6 +94,9 @@ pub(crate) fn analyze_from_state_map_with_exact(
     state_map: &AimsStateMap,
     contracts: &FxHashMap<Name, MemoryContract>,
     exact_callables: &FxHashSet<Name>,
+    exact_transfer_witnesses: Option<
+        &[crate::aims::interprocedural::ExactAggregateTransferWitness],
+    >,
     type_registry: &ori_types::TypeRegistry,
     interner: &ori_ir::StringInterner,
 ) -> ClassLedgerAnalysis {
@@ -133,12 +137,13 @@ pub(crate) fn analyze_from_state_map_with_exact(
             interner,
             user_drop_admitted,
         );
-    let mut analysis = analyze_class_ledger_with_exact(
+    let mut analysis = analyze_class_ledger_with_transfers(
         func,
         &classification,
         &mut partition,
         contracts,
         exact_callables,
+        exact_transfer_witnesses,
         type_registry,
         interner,
     );
@@ -326,16 +331,52 @@ pub(super) fn analyze_class_ledger_with_exact(
     type_registry: &ori_types::TypeRegistry,
     interner: &ori_ir::StringInterner,
 ) -> ClassLedgerAnalysis {
-    let preds = compute_predecessors(func);
-    let regions = emit::CycleRegions::compute(func);
-    let full_move_arms = events::detect_full_move_arms_with_exact(
+    analyze_class_ledger_with_transfers(
         func,
+        classification,
         partition,
-        type_registry,
         contracts,
         exact_callables,
+        None,
+        type_registry,
         interner,
-    );
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "ledger analysis consumes frozen contracts plus their local proof witnesses"
+)]
+fn analyze_class_ledger_with_transfers(
+    func: &ArcFunction,
+    classification: &LedgerClassification,
+    partition: &mut BirthSitePartition,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    exact_callables: &FxHashSet<Name>,
+    exact_transfer_witnesses: Option<
+        &[crate::aims::interprocedural::ExactAggregateTransferWitness],
+    >,
+    type_registry: &ori_types::TypeRegistry,
+    interner: &ori_ir::StringInterner,
+) -> ClassLedgerAnalysis {
+    let preds = compute_predecessors(func);
+    let regions = emit::CycleRegions::compute(func);
+    let full_move_arms = match exact_transfer_witnesses {
+        None => events::detect_full_move_arms_with_exact(
+            func,
+            partition,
+            type_registry,
+            contracts,
+            exact_callables,
+            interner,
+        ),
+        Some(witnesses) => events::full_move_arms_from_exact_transfer_witnesses(
+            func,
+            partition,
+            type_registry,
+            witnesses,
+        ),
+    };
     let InitialClassPlans {
         mut classes,
         mut verdicts,
@@ -413,6 +454,7 @@ pub(crate) fn apply_class_ledger_replacement(
         state_map,
         contracts,
         &FxHashSet::default(),
+        None,
         type_registry,
         interner,
         burden_ops_enabled,
@@ -424,6 +466,9 @@ pub(crate) fn apply_class_ledger_replacement_with_exact(
     state_map: &AimsStateMap,
     contracts: &FxHashMap<Name, MemoryContract>,
     exact_callables: &FxHashSet<Name>,
+    exact_transfer_witnesses: Option<
+        &[crate::aims::interprocedural::ExactAggregateTransferWitness],
+    >,
     type_registry: &ori_types::TypeRegistry,
     interner: &ori_ir::StringInterner,
     burden_ops_enabled: bool,
@@ -433,6 +478,7 @@ pub(crate) fn apply_class_ledger_replacement_with_exact(
         state_map,
         contracts,
         exact_callables,
+        exact_transfer_witnesses,
         type_registry,
         interner,
         burden_ops_enabled,

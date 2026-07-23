@@ -2918,6 +2918,95 @@ fn projected_cow_reconstruction_rebooks_the_existing_field_credit() {
 }
 
 #[test]
+fn canonical_exact_transfer_witness_drives_production_ledger_rebooking() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let interner = test_interner();
+    let push = interner.intern("push");
+    let pair_ty = ty(64);
+    let list_ty = ty(70);
+    let func = projected_cow_reconstruction_func(push, pair_ty, list_ty);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_burden(
+        &mut registry,
+        "CanonicalWitnessPair",
+        pair_ty,
+        Some(UserBurdenSpec {
+            self_owned_identity: true,
+            owned_fields: vec![
+                UserOwnedField {
+                    field_path: vec![0],
+                    field_type: list_ty,
+                },
+                UserOwnedField {
+                    field_path: vec![1],
+                    field_type: Idx::STR,
+                },
+            ],
+            ..UserBurdenSpec::default()
+        }),
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [3, 5, 7, 11] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    struct WitnessClassifier;
+    impl crate::ArcClassification for WitnessClassifier {
+        fn arc_class(&self, idx: Idx) -> crate::ArcClass {
+            if matches!(idx, Idx::INT | Idx::BOOL) {
+                crate::ArcClass::Scalar
+            } else {
+                crate::ArcClass::DefiniteRef
+            }
+        }
+    }
+    let classifier = WitnessClassifier;
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let mut contracts = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut contracts, &builtins, &interner);
+    let exact_callables = FxHashSet::default();
+    let extraction =
+        crate::aims::interprocedural::extract_contract_and_transfers_with_call_ownership(
+            &crate::aims::interprocedural::ContractExtractionInput {
+                func: &func,
+                state_map: &state_map,
+                classifier: &classifier,
+                sigs: &contracts,
+                scc_peers: &FxHashSet::default(),
+                context_regions: &[],
+                interner: &interner,
+                builtins: &builtins,
+                exact_callables: &exact_callables,
+                type_registry: Some(&registry),
+            },
+        );
+    let [witness] = extraction.exact_transfer_witnesses.as_slice() else {
+        panic!("the canonical producer must publish the loop reconstruction witness");
+    };
+    assert_eq!(witness.param, None);
+    assert_eq!(witness.block, ArcBlockId::new(2));
+
+    let analysis = super::analysis::analyze_from_state_map_with_exact(
+        &func,
+        &state_map,
+        &contracts,
+        &exact_callables,
+        Some(&extraction.exact_transfer_witnesses),
+        &registry,
+        &interner,
+    );
+    assert!(
+        !analysis.field_view_hazard && analysis.readiness.all_classes_clean,
+        "the production witness consumer must rebook without a second recognizer: \
+         hazard={} declined={:?} verdicts={:?}",
+        analysis.field_view_hazard,
+        analysis.readiness.declined,
+        analysis.readiness.verdicts,
+    );
+}
+
+#[test]
 fn opaque_owned_relay_does_not_authorize_projected_full_move() {
     use crate::lower::test_utils::registered_struct_with_burden;
     use ori_types::burden::{UserBurdenSpec, UserOwnedField};

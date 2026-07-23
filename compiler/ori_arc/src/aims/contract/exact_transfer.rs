@@ -20,28 +20,33 @@ pub enum ExactFieldTransferKind {
     EffectiveOwnedRelay,
 }
 
-/// Semantic projection path from the aggregate root.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ExactFieldPath(Box<[u32]>);
+/// One top-level semantic projection from the aggregate root.
+///
+/// The PV-6 grain deliberately excludes arbitrary-depth paths. Nested
+/// aggregates publish a transfer for the owned top-level member rather than
+/// extending this caller-boundary coordinate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ExactFieldPath(u32);
 
 impl ExactFieldPath {
-    /// Construct a non-empty projection path.
+    /// Construct exactly one top-level projection hop.
     #[must_use]
     pub fn new(path: impl IntoIterator<Item = u32>) -> Option<Self> {
-        let path: Box<[u32]> = path.into_iter().collect();
-        (!path.is_empty()).then_some(Self(path))
+        let mut path = path.into_iter();
+        let field = path.next()?;
+        path.next().is_none().then_some(Self(field))
     }
 
     /// Construct a one-hop projection path.
     #[must_use]
     pub fn single(field: u32) -> Self {
-        Self(vec![field].into_boxed_slice())
+        Self(field)
     }
 
-    /// Root-to-leaf field indices.
+    /// Top-level field index.
     #[must_use]
-    pub fn as_slice(&self) -> &[u32] {
-        &self.0
+    pub fn index(self) -> u32 {
+        self.0
     }
 }
 

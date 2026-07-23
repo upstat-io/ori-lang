@@ -87,6 +87,115 @@ pub(crate) fn detect_full_move_arms_with_exact(
     arms
 }
 
+/// Resolve canonical pre-contract witnesses into ledger-local full-move arms.
+///
+/// This is an identity check and partition projection, not a second structural
+/// recognizer: every route and cleanup decision came from the canonical
+/// producer. Stable variable identities are resolved to current body offsets;
+/// any mismatch declines the witness.
+pub(crate) fn full_move_arms_from_exact_transfer_witnesses(
+    func: &ArcFunction,
+    partition: &mut BirthSitePartition,
+    type_registry: &ori_types::TypeRegistry,
+    witnesses: &[crate::aims::interprocedural::ExactAggregateTransferWitness],
+) -> Vec<FullMoveArm> {
+    witnesses
+        .iter()
+        .filter_map(|witness| {
+            full_move_arm_from_exact_transfer_witness(func, partition, type_registry, witness)
+        })
+        .collect()
+}
+
+fn full_move_arm_from_exact_transfer_witness(
+    func: &ArcFunction,
+    partition: &mut BirthSitePartition,
+    type_registry: &ori_types::TypeRegistry,
+    witness: &crate::aims::interprocedural::ExactAggregateTransferWitness,
+) -> Option<FullMoveArm> {
+    use crate::ir::ArcInstr;
+
+    let block = witness.block.index();
+    let blk = func.blocks.get(block)?;
+    if blk.id != witness.block {
+        return None;
+    }
+    let (construct_index, construct_args) =
+        blk.body
+            .iter()
+            .enumerate()
+            .find_map(|(index, instr)| match instr {
+                ArcInstr::Construct { dst, args, .. } if *dst == witness.construct_dst => {
+                    Some((index, args.as_slice()))
+                }
+                _ => None,
+            })?;
+    if construct_args.len() != witness.fields.len() {
+        return None;
+    }
+
+    let mut moved = Vec::with_capacity(witness.fields.len());
+    for field in &witness.fields {
+        let top_level_field = field.path.index();
+        let position = usize::try_from(top_level_field).ok()?;
+        if construct_args.get(position) != Some(&field.carrier) {
+            return None;
+        }
+        let (projection_index, src) =
+            blk.body
+                .iter()
+                .enumerate()
+                .find_map(|(index, instr)| match instr {
+                    ArcInstr::Project {
+                        dst,
+                        value,
+                        field: projected_field,
+                        ..
+                    } if *dst == field.projection_dst && *projected_field == top_level_field => {
+                        Some((index, *value))
+                    }
+                    _ => None,
+                })?;
+        if src != field.source || projection_index >= construct_index {
+            return None;
+        }
+        moved.push(MovedProjection {
+            index: projection_index,
+            dst: field.projection_dst,
+            src,
+            field: top_level_field,
+        });
+    }
+
+    let first_src = moved.first()?.src;
+    let first_node = partition.register_node(first_src, FieldPath::whole_var());
+    let class_rep = partition.rep_of(first_node);
+    let construct_node = partition.register_node(witness.construct_dst, FieldPath::whole_var());
+    if partition.rep_of(construct_node) == class_rep {
+        return None;
+    }
+    if moved.iter().any(|projection| {
+        let node = partition.register_node(projection.src, FieldPath::whole_var());
+        partition.rep_of(node) != class_rep
+    }) || !class_uses_confined_to_moves(func, partition, class_rep, block, &moved)
+        || moved_class_shares_edge_source(func, partition, class_rep)
+        || !moved_fields_cover_owned(func, type_registry, first_src, &moved)
+    {
+        return None;
+    }
+
+    Some(FullMoveArm {
+        block,
+        construct_index,
+        projections: moved
+            .iter()
+            .map(|projection| (projection.index, projection.dst))
+            .collect(),
+        class_rep,
+        src_var: first_src,
+    })
+}
+
 /// The [`FullMoveArm`] in `block`, when the shape holds (see
 /// [`detect_full_move_arms`]).
 fn full_move_arm_in_block(
@@ -471,6 +580,17 @@ fn moved_fields_cover_owned(
     let Some(&src_ty) = func.var_types.get(src_var.index()) else {
         return false;
     };
+    if crate::lower::burden_lookup::type_has_user_drop(src_ty, type_registry)
+        || moved.iter().any(|projection| {
+            func.var_types
+                .get(projection.dst.index())
+                .is_some_and(|&member_ty| {
+                    crate::lower::burden_lookup::type_has_user_drop(member_ty, type_registry)
+                })
+        })
+    {
+        return false;
+    }
     let Some(BurdenRef::User(user)) =
         lookup_burden(idx_to_type_ref(src_ty, type_registry), type_registry)
     else {
@@ -484,7 +604,11 @@ fn moved_fields_cover_owned(
     if owned.is_empty() {
         return false;
     }
-    let moved_fields: FxHashSet<u32> = moved.iter().map(|projection| projection.field).collect();
+    let moved_fields: FxHashSet<u32> = moved
+        .iter()
+        .map(|projection| projection.field)
+        .filter(|field| owned.contains(field))
+        .collect();
     moved_fields == owned
 }
 

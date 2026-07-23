@@ -22,7 +22,8 @@ pub(crate) use demand::{
 #[cfg(test)]
 pub(crate) use full_move::detect_full_move_arms;
 pub(crate) use full_move::{
-    apply_full_move_rebook, detect_full_move_arms_with_exact, full_move_credit_sites, FullMoveArm,
+    apply_full_move_rebook, detect_full_move_arms_with_exact,
+    full_move_arms_from_exact_transfer_witnesses, full_move_credit_sites, FullMoveArm,
 };
 pub(crate) use liveness::{
     live_from, live_from_forward, live_from_forward_killing, live_from_killing, live_out,

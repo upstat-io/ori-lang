@@ -164,6 +164,7 @@ pub(crate) fn attempt_replacement(
         state_map,
         contracts,
         &FxHashSet::default(),
+        None,
         type_registry,
         interner,
         allow_replacement,
@@ -175,6 +176,9 @@ pub(crate) fn attempt_replacement_with_exact(
     state_map: &AimsStateMap,
     contracts: &FxHashMap<Name, MemoryContract>,
     exact_callables: &FxHashSet<Name>,
+    exact_transfer_witnesses: Option<
+        &[crate::aims::interprocedural::ExactAggregateTransferWitness],
+    >,
     type_registry: &TypeRegistry,
     interner: &ori_ir::StringInterner,
     allow_replacement: bool,
@@ -184,6 +188,7 @@ pub(crate) fn attempt_replacement_with_exact(
         state_map,
         contracts,
         exact_callables,
+        exact_transfer_witnesses,
         type_registry,
         interner,
     );

@@ -44,6 +44,9 @@ pub(crate) struct AimsPipelineConfig<'a> {
     pub observer: Option<&'a CheckpointObserver<'a>>,
     /// Type information required to freeze class-ledger plans.
     pub type_registry: &'a TypeRegistry,
+    /// Canonical pre-normalization exact-transfer proofs keyed by function.
+    pub exact_transfer_witnesses:
+        &'a FxHashMap<Name, Vec<crate::aims::interprocedural::ExactAggregateTransferWitness>>,
     /// Whether to run the optional ARC verification checkpoints.
     pub verify_arc: bool,
 }
@@ -242,6 +245,12 @@ fn apply_class_ledger(
         state_map,
         config.contracts,
         config.exact_callables,
+        Some(
+            config
+                .exact_transfer_witnesses
+                .get(&func.name)
+                .map_or(&[][..], Vec::as_slice),
+        ),
         config.type_registry,
         config.interner,
         burden_emission::burden_ops_enabled(),

@@ -6,7 +6,8 @@ use ori_types::Idx;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::contract::{
-    CalleeOwnerDemand, ContextRegion, FipContract, MemoryAccessClass, MemoryContract,
+    CalleeOwnerDemand, ContextRegion, ExactTransferState, FipContract, MemoryAccessClass,
+    MemoryContract,
 };
 use crate::aims::intraprocedural::analyze_function;
 use crate::ir::{
@@ -83,6 +84,71 @@ fn ty(n: u32) -> Idx {
 
 fn name(n: u32) -> Name {
     Name::from_raw(n)
+}
+
+fn exact_reconstruction_fixture(
+    function_name: Name,
+    relay: Name,
+    container_ty: Idx,
+    first_member_ty: Idx,
+    second_member_ty: Idx,
+) -> ArcFunction {
+    ArcFunction {
+        name: function_name,
+        params: vec![ArcParam {
+            var: var(0),
+            ty: container_ty,
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: container_ty,
+        var_types: vec![
+            container_ty,
+            first_member_ty,
+            ty(2),
+            first_member_ty,
+            second_member_ty,
+            container_ty,
+        ],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Project {
+                    dst: var(1),
+                    ty: first_member_ty,
+                    value: var(0),
+                    field: 0,
+                },
+                ArcInstr::Let {
+                    dst: var(2),
+                    ty: ty(2),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                ArcInstr::Apply {
+                    dst: var(3),
+                    ty: first_member_ty,
+                    func: relay,
+                    args: vec![var(1), var(2)],
+                    arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Project {
+                    dst: var(4),
+                    ty: second_member_ty,
+                    value: var(0),
+                    field: 1,
+                },
+                ArcInstr::Construct {
+                    dst: var(5),
+                    ty: container_ty,
+                    ctor: CtorKind::Struct(name(80)),
+                    args: vec![var(3), var(4)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(5) },
+        }],
+        ..Default::default()
+    }
 }
 
 // Extract contract from a single function (no interprocedural context)
@@ -454,55 +520,7 @@ fn exact_projected_cow_reconstruction_transfers_the_aggregate_boundary() {
     let mut sigs = FxHashMap::default();
     crate::aims::builtins::seed_builtin_contracts(&mut sigs, &builtins, &interner);
 
-    let func = ArcFunction {
-        name: name(10),
-        params: vec![ArcParam {
-            var: var(0),
-            ty: ty(0),
-            ownership: Ownership::Borrowed,
-        }],
-        return_type: ty(0),
-        var_types: vec![ty(0), ty(1), ty(2), ty(1), ty(3), ty(0)],
-        blocks: vec![ArcBlock {
-            id: block_id(0),
-            params: vec![],
-            body: vec![
-                ArcInstr::Project {
-                    dst: var(1),
-                    ty: ty(1),
-                    value: var(0),
-                    field: 0,
-                },
-                ArcInstr::Let {
-                    dst: var(2),
-                    ty: ty(2),
-                    value: ArcValue::Literal(LitValue::Int(1)),
-                },
-                ArcInstr::Apply {
-                    dst: var(3),
-                    ty: ty(1),
-                    func: push,
-                    args: vec![var(1), var(2)],
-                    arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
-                    mono_instance_id: None,
-                },
-                ArcInstr::Project {
-                    dst: var(4),
-                    ty: ty(3),
-                    value: var(0),
-                    field: 1,
-                },
-                ArcInstr::Construct {
-                    dst: var(5),
-                    ty: ty(0),
-                    ctor: CtorKind::Struct(name(80)),
-                    args: vec![var(3), var(4)],
-                },
-            ],
-            terminator: ArcTerminator::Return { value: var(5) },
-        }],
-        ..Default::default()
-    };
+    let func = exact_reconstruction_fixture(name(10), push, ty(0), ty(1), ty(3));
 
     let classifier = TestClassifier::all_ref(4).with_scalar(2);
     let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
@@ -528,6 +546,186 @@ fn exact_projected_cow_reconstruction_transfers_the_aggregate_boundary() {
         "the helper boundary transfers the complete aggregate, never a synthetic \
          single projected-field credit"
     );
+}
+
+#[test]
+fn exact_reconstruction_publishes_contract_and_local_witness_together() {
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let push = interner.intern("push");
+    let mut sigs = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    let func = exact_reconstruction_fixture(name(15), push, ty(0), ty(1), ty(3));
+    let classifier = TestClassifier::all_ref(4).with_scalar(2);
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let registry = ori_types::TypeRegistry::default();
+
+    let extraction = super::extract::extract_contract_and_transfers_with_call_ownership(
+        &ContractExtractionInput {
+            func: &func,
+            state_map: &state_map,
+            classifier: &classifier,
+            sigs: &sigs,
+            scc_peers: &FxHashSet::default(),
+            context_regions: &[],
+            interner: &interner,
+            builtins: &builtins,
+            exact_callables: &FxHashSet::default(),
+            type_registry: Some(&registry),
+        },
+    );
+
+    assert!(matches!(
+        extraction.contract.params[0].exact_transfer,
+        ExactTransferState::Exact(_)
+    ));
+    let [witness] = extraction.exact_transfer_witnesses.as_slice() else {
+        panic!("one canonical recognition must publish one local witness");
+    };
+    assert_eq!(witness.param, Some(0));
+    assert_eq!(witness.block, block_id(0));
+    assert_eq!(witness.construct_dst, var(5));
+    assert_eq!(witness.fields.len(), 2);
+}
+
+#[test]
+fn acyclic_program_analysis_freezes_exact_transfer_witness_by_function_identity() {
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let push = interner.intern("push");
+    let func = exact_reconstruction_fixture(name(18), push, ty(0), ty(1), ty(3));
+    let classifier = TestClassifier::all_ref(4).with_scalar(2);
+    let registry = ori_types::TypeRegistry::default();
+    let analysis = analyze_program_with_external_contracts_boundaries_and_types(
+        std::slice::from_ref(&func),
+        &classifier,
+        &builtins,
+        &interner,
+        &FxHashMap::default(),
+        &crate::pipeline::callable_boundary::ValidatedCallableBoundaryFacts::empty(),
+        Some(&registry),
+    );
+
+    assert!(matches!(
+        analysis.contracts[&func.name].params[0].exact_transfer,
+        ExactTransferState::Exact(_)
+    ));
+    let [witness] = analysis.exact_transfer_witnesses[&func.name].as_slice() else {
+        panic!("acyclic SCC publication must freeze exactly one witness");
+    };
+    assert_eq!(witness.param, Some(0));
+    assert_eq!(witness.construct_dst, var(5));
+}
+
+#[test]
+fn trmc_context_declines_exact_reconstruction_before_contract_publication() {
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let push = interner.intern("push");
+    let mut sigs = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    let func = exact_reconstruction_fixture(name(16), push, ty(0), ty(1), ty(3));
+    let classifier = TestClassifier::all_ref(4).with_scalar(2);
+    let context_regions = [ContextRegion {
+        open_block: block_id(0),
+        open_instr: 4,
+        context_var: var(5),
+        hole_field: 0,
+        close_block: block_id(0),
+        close_instr: 2,
+        hole_var: var(3),
+    }];
+    let state_map = analyze_function(&func, &classifier, &sigs, &context_regions, Vec::new());
+    let registry = ori_types::TypeRegistry::default();
+
+    let extraction = super::extract::extract_contract_and_transfers_with_call_ownership(
+        &ContractExtractionInput {
+            func: &func,
+            state_map: &state_map,
+            classifier: &classifier,
+            sigs: &sigs,
+            scc_peers: &FxHashSet::default(),
+            context_regions: &context_regions,
+            interner: &interner,
+            builtins: &builtins,
+            exact_callables: &FxHashSet::default(),
+            type_registry: Some(&registry),
+        },
+    );
+
+    assert!(matches!(
+        extraction.contract.params[0].exact_transfer,
+        ExactTransferState::Unproven
+    ));
+    assert!(extraction.exact_transfer_witnesses.is_empty());
+}
+
+#[test]
+fn member_user_drop_declines_exact_reconstruction_explicitly() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let push = interner.intern("push");
+    let mut sigs = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    let container_ty = ty(64);
+    let member_ty = ty(70);
+    let func = exact_reconstruction_fixture(name(17), push, container_ty, member_ty, Idx::STR);
+    let classifier = TestClassifier::all_ref(71).with_scalar(2);
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let mut registry = ori_types::TypeRegistry::default();
+    registered_struct_with_burden(
+        &mut registry,
+        "MemberWithDrop",
+        member_ty,
+        Some(UserBurdenSpec {
+            user_drop: Some(ori_registry::burden::FnSym::new(core::num::NonZeroU32::MIN)),
+            ..UserBurdenSpec::default()
+        }),
+    );
+    registered_struct_with_burden(
+        &mut registry,
+        "ContainerAroundDropMember",
+        container_ty,
+        Some(UserBurdenSpec {
+            self_owned_identity: true,
+            owned_fields: vec![
+                UserOwnedField {
+                    field_path: vec![0],
+                    field_type: member_ty,
+                },
+                UserOwnedField {
+                    field_path: vec![1],
+                    field_type: Idx::STR,
+                },
+            ],
+            ..UserBurdenSpec::default()
+        }),
+    );
+
+    let extraction = super::extract::extract_contract_and_transfers_with_call_ownership(
+        &ContractExtractionInput {
+            func: &func,
+            state_map: &state_map,
+            classifier: &classifier,
+            sigs: &sigs,
+            scc_peers: &FxHashSet::default(),
+            context_regions: &[],
+            interner: &interner,
+            builtins: &builtins,
+            exact_callables: &FxHashSet::default(),
+            type_registry: Some(&registry),
+        },
+    );
+
+    assert!(matches!(
+        extraction.contract.params[0].exact_transfer,
+        ExactTransferState::Unproven
+    ));
+    assert!(extraction.exact_transfer_witnesses.is_empty());
+    assert_eq!(extraction.contract.params[0].access, AccessClass::Borrowed);
 }
 
 #[test]
@@ -705,6 +903,7 @@ fn borrowed_relay_reconstruction_contract(relay_spelling: &str, exact: bool) -> 
         interner: &interner,
         builtins: &builtins,
         exact_callables: &exact_callables,
+        type_registry: None,
     })
 }
 
@@ -1299,6 +1498,7 @@ fn exact_callable_named_like_cow_builtin_does_not_publish_credit() {
         interner: &interner,
         builtins: &builtins,
         exact_callables: &exact_callables,
+        type_registry: None,
     });
 
     assert!(

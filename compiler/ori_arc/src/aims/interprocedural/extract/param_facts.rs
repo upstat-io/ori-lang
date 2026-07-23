@@ -4,7 +4,7 @@
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::aims::contract::{MemoryContract, ReturnAliasShape};
+use crate::aims::contract::{ExactTransferState, MemoryContract, ReturnAliasShape};
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::{ArcFunction, ArcVarId};
 use crate::ArcClassification;
@@ -36,6 +36,8 @@ pub(super) struct ParamFacts {
     pub(super) borrowed_cow_consumed: FxHashSet<usize>,
     pub(super) borrowed_cow_mutated: FxHashSet<usize>,
     pub(super) owner_credit: FxHashSet<usize>,
+    pub(super) exact_transfer_states: FxHashMap<usize, ExactTransferState>,
+    pub(super) exact_transfer_witnesses: Vec<aggregate_transfer::ExactAggregateTransferWitness>,
 }
 
 /// Detect all structural facts for one function's parameters.
@@ -47,6 +49,8 @@ pub(super) fn detect_param_facts(
     builtins: &BuiltinOwnershipSets,
     exact_callables: &FxHashSet<Name>,
     interner: &ori_ir::StringInterner,
+    type_registry: Option<&ori_types::TypeRegistry>,
+    context_regions_present: bool,
 ) -> ParamFacts {
     let alias_to_param = build_alias_to_param_map(func, param_vars, Some(sigs));
     let mut consumed = find_consumed_params(func, sigs, &alias_to_param);
@@ -82,16 +86,18 @@ pub(super) fn detect_param_facts(
         builtins,
         exact_callables,
     );
-    let aggregate_transfer = aggregate_transfer::find_exact_aggregate_transfer_params(
+    let aggregate_transfer = aggregate_transfer::find_exact_aggregate_transfers(
         func,
         sigs,
         &alias_to_param,
         classifier,
         exact_callables,
         interner,
+        type_registry,
+        context_regions_present,
     );
     consumed.extend(&return_flow);
-    consumed.extend(&aggregate_transfer);
+    consumed.extend(&aggregate_transfer.consumed_params);
     ParamFacts {
         consumed,
         return_flow,
@@ -102,5 +108,9 @@ pub(super) fn detect_param_facts(
         borrowed_cow_consumed,
         borrowed_cow_mutated,
         owner_credit,
+        exact_transfer_states: aggregate_transfer.states,
+        exact_transfer_witnesses: aggregate_transfer.witnesses,
     }
 }
+
+pub(crate) use aggregate_transfer::ExactAggregateTransferWitness;
