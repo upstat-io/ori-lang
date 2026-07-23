@@ -575,6 +575,7 @@ fn absent_param() -> ParamContract {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         borrowed_cow_mutated: false,
+        exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
     }
 }
 
@@ -594,6 +595,7 @@ fn used_param() -> ParamContract {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         borrowed_cow_mutated: false,
+        exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
     }
 }
 

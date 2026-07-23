@@ -244,6 +244,9 @@ fn param_contract_for(i: usize, state: &AimsState, facts: &ParamFacts) -> ParamC
         // MUTATOR-only refinement (excludes the builtin `iter`) — the
         // borrowed-`Invoke` lineage gate (c3) declines on it.
         borrowed_cow_mutated: facts.borrowed_cow_mutated.contains(&i),
+        // The canonical structural recognizer replaces this conservative
+        // value when it publishes the local witness and caller projection.
+        exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
     }
 }
 

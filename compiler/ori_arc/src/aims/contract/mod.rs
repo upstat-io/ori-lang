@@ -20,6 +20,7 @@
 
 mod context;
 mod effect;
+mod exact_transfer;
 mod param;
 #[cfg(test)]
 mod tests;
@@ -27,6 +28,10 @@ mod tests;
 pub use context::{ContextBehavior, ContextRegion};
 pub use effect::{
     EffectSummary, FipContract, FreshSelfAllocationFacts, FunctionEffectFacts, MemoryAccessClass,
+};
+pub use exact_transfer::{
+    CleanupAuthority, ExactAggregateTransfer, ExactFieldPath, ExactFieldTransfer,
+    ExactFieldTransferKind, ExactTransferState, ResidualDisposition,
 };
 pub use param::{CalleeOwnerDemand, ParamContract, ReturnAliasShape};
 

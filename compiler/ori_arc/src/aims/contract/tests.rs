@@ -118,6 +118,7 @@ fn param_join_is_commutative() {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         borrowed_cow_mutated: false,
+        exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
     };
     let b = ParamContract {
         access: AccessClass::Borrowed,
@@ -134,6 +135,7 @@ fn param_join_is_commutative() {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         borrowed_cow_mutated: false,
+        exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
     };
     assert_eq!(a.join(&b), b.join(&a));
 }
@@ -332,6 +334,7 @@ fn to_annotated_sig_dead_param_is_borrowed() {
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
             borrowed_cow_mutated: false,
+            exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
         }],
         return_info: ReturnContract::CONSERVATIVE,
         effects: EffectSummary::default(),

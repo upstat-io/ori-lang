@@ -2,6 +2,7 @@
 //! return-alias shape it carries ([`ReturnAliasShape`]).
 
 use super::super::lattice::{AccessClass, Cardinality, Consumption, Locality, Uniqueness};
+use super::ExactTransferState;
 
 /// Independent-owner credit required before entering a callee through a
 /// borrowed residual-call boundary.
@@ -83,7 +84,7 @@ impl ReturnAliasShape {
         `iter_consumes` (iter-consume inward-transfer, RL-2). \
         Bundling would obscure the analysis surface."
 )]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParamContract {
     /// Whether the parameter is owned or borrowed.
     pub access: AccessClass,
@@ -247,6 +248,11 @@ pub struct ParamContract {
     /// keeps the per-call RL-1 funding increment for this demand.
     /// IC-3 join: OR. Default: `false` (no mutator claim).
     pub borrowed_cow_mutated: bool,
+
+    /// Exact field-sensitive ownership transfer through aggregate
+    /// reconstruction. The caller-visible state is joined through SCC
+    /// convergence; the local witness is carried separately.
+    pub exact_transfer: ExactTransferState,
 }
 
 impl ParamContract {
@@ -293,6 +299,7 @@ impl ParamContract {
         borrowed_cow_consumed: false,
         // Unknown callees claim no mutation, so lineage gate c3 never declines.
         borrowed_cow_mutated: false,
+        exact_transfer: ExactTransferState::Unproven,
     };
 
     /// Most-optimistic: borrowed, dead, absent, no escape/share, block-local, unique,
@@ -322,6 +329,7 @@ impl ParamContract {
         borrowed_cow_consumed: false,
         // IC-2 OR-join bottom; promotes when a path's MUTATOR consume fires.
         borrowed_cow_mutated: false,
+        exact_transfer: ExactTransferState::Optimistic,
     };
 
     /// RL-2 CONSUME classification: `iter_consumes ∧ ¬transfers_through_return`.
@@ -362,6 +370,7 @@ impl ParamContract {
             borrowed_cow_consumed: self.borrowed_cow_consumed || other.borrowed_cow_consumed,
             // Any mutating path obligates caller funding and declines lineage.
             borrowed_cow_mutated: self.borrowed_cow_mutated || other.borrowed_cow_mutated,
+            exact_transfer: self.exact_transfer.join(&other.exact_transfer),
         }
     }
 }

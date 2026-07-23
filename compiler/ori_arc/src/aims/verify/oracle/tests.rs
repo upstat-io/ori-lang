@@ -149,6 +149,7 @@ fn oracle_accepts_matching_contract() {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         borrowed_cow_mutated: false,
+        exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
     }]);
 
     let mismatches = verify_isolated(&func, &contract, 0);
@@ -188,6 +189,7 @@ fn oracle_accepts_conservative_inference() {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         borrowed_cow_mutated: false,
+        exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
     }]);
 
     let mismatches = verify_isolated(&func, &contract, 0);
@@ -249,6 +251,7 @@ fn oracle_rejects_unsafe_optimistic_inference() {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         borrowed_cow_mutated: false,
+        exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
     }]);
 
     let mismatches = verify_isolated(&func, &contract, 0);
@@ -416,6 +419,7 @@ fn oracle_derives_may_share_from_rc_incs() {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         borrowed_cow_mutated: false,
+        exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
     }]);
 
     let mismatches = verify_isolated(&func, &inferred, 0);
@@ -766,6 +770,7 @@ fn oracle_accepts_conservative_may_share() {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         borrowed_cow_mutated: false,
+        exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
     }]);
 
     let mismatches = verify_isolated(&func, &contract, 0);
@@ -836,6 +841,7 @@ fn oracle_handles_param_count_mismatch_gracefully() {
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
             borrowed_cow_mutated: false,
+            exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
         },
         ParamContract {
             access: AccessClass::Owned,
@@ -852,6 +858,7 @@ fn oracle_handles_param_count_mismatch_gracefully() {
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
             borrowed_cow_mutated: false,
+            exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
         },
     ]);
 
@@ -892,6 +899,7 @@ fn oracle_handles_extra_function_params_gracefully() {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         borrowed_cow_mutated: false,
+        exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
     }]);
 
     let mismatches = verify_isolated(&func, &contract, 0);

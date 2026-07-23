@@ -287,13 +287,13 @@ pub(crate) fn apply_aims_ownership(
     for func in functions {
         let contract = contracts.get_required(&func.name, "apply_aims_ownership");
         for (param, pc) in func.params.iter_mut().zip(&contract.params) {
-            param.ownership = param_contract_to_ownership(*pc);
+            param.ownership = param_contract_to_ownership(pc);
         }
     }
 }
 
 /// Maps parameter access into the IR ownership carrier.
-fn param_contract_to_ownership(pc: ParamContract) -> Ownership {
+fn param_contract_to_ownership(pc: &ParamContract) -> Ownership {
     match pc.access {
         AccessClass::Borrowed => Ownership::Borrowed,
         AccessClass::Owned => Ownership::Owned,

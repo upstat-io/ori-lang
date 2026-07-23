@@ -266,6 +266,7 @@ const PARAM_BORROWED: ParamContract = ParamContract {
     borrowed_read_only: false,
     borrowed_cow_consumed: false,
     borrowed_cow_mutated: false,
+    exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
 };
 
 /// Borrowed parameter PROVEN read-only: the runtime function reads the value's
@@ -274,8 +275,21 @@ const PARAM_BORROWED: ParamContract = ParamContract {
 /// `callee_may_cow_arg`; seed it ONLY for runtime functions whose `ori_rt`
 /// implementation provably performs no RC operation on the param.
 const PARAM_BORROWED_READ_ONLY: ParamContract = ParamContract {
+    access: AccessClass::Borrowed,
+    consumption: Consumption::Dead,
+    cardinality: Cardinality::Once,
+    may_escape: false,
+    may_share: false,
+    locality_bound: Locality::Unknown,
+    uniqueness: Uniqueness::MaybeShared,
+    transfers_through_return: false,
+    return_alias: None,
+    return_payload_contains_param: false,
+    iter_consumes: false,
     borrowed_read_only: true,
-    ..PARAM_BORROWED
+    borrowed_cow_consumed: false,
+    borrowed_cow_mutated: false,
+    exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
 };
 
 /// Owned parameter consumed exactly once (linear).
@@ -295,6 +309,7 @@ const PARAM_OWNED_LINEAR: ParamContract = ParamContract {
     borrowed_read_only: false,
     borrowed_cow_consumed: false,
     borrowed_cow_mutated: false,
+    exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
 };
 
 /// Return contract for methods producing unique results (COW operations).
