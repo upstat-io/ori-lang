@@ -19,20 +19,20 @@ fn fallible_identity_relay_releases_residual_sibling_on_unwind() {
         .unwrap_or_else(|| {
             panic!("the admitted fallible relay must remain an invoke:\n{update_ir}")
         });
-    let landingpad = update_ir[invoke..]
-        .find("landingpad")
-        .map(|offset| invoke + offset)
-        .unwrap_or_else(|| panic!("the relay unwind edge must have a landing pad:\n{update_ir}"));
+    let landingpad = update_ir[invoke..].find("landingpad").map_or_else(
+        || panic!("the relay unwind edge must have a landing pad:\n{update_ir}"),
+        |offset| invoke + offset,
+    );
     let residual_dec = update_ir[landingpad..]
         .find("call void @ori_rc_dec")
-        .map(|offset| landingpad + offset)
-        .unwrap_or_else(|| {
-            panic!("the unwind edge must release the still-owned sibling:\n{update_ir}")
-        });
-    let resume = update_ir[residual_dec..]
-        .find("resume ")
-        .map(|offset| residual_dec + offset)
-        .unwrap_or_else(|| panic!("the cleanup edge must resume unwinding:\n{update_ir}"));
+        .map_or_else(
+            || panic!("the unwind edge must release the still-owned sibling:\n{update_ir}"),
+            |offset| landingpad + offset,
+        );
+    let resume = update_ir[residual_dec..].find("resume ").map_or_else(
+        || panic!("the cleanup edge must resume unwinding:\n{update_ir}"),
+        |offset| residual_dec + offset,
+    );
 
     assert!(
         invoke < landingpad && landingpad < residual_dec && residual_dec < resume,
@@ -60,6 +60,11 @@ fn fallible_identity_relay_releases_residual_sibling_on_unwind() {
         stderr.matches("[RC] free").count(),
         2,
         "both list buffers must free exactly once across the unwind:\n{stderr}"
+    );
+    assert_eq!(
+        stderr.matches("[RC] dec").count(),
+        2,
+        "the transferred field and residual sibling must each decrement exactly once:\n{stderr}"
     );
     assert!(
         stderr.contains("(live=0)"),
