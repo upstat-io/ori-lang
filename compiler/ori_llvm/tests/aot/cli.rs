@@ -1220,12 +1220,34 @@ fn test_main_args_forwarded_to_borrowed_callee_does_not_double_free() {
 #[test]
 fn test_main_args_int_return_iteration_does_not_double_free() {
     let (exit_code, _, stderr) = compile_and_run_with_args(
-        "@main (args: [str]) -> int = {\n    let total = 0;\n    for a in args do {\n        total += a.len();\n    };\n    if total >= 0 then 0 else 1\n}\n",
+        "@main (args: [str]) -> int = {\n    let total = 0;\n    for a in args do {\n        total += a.len();\n    };\n    if total == 9 then 0 else 1\n}\n",
         &["alpha", "beta"],
     );
     assert_eq!(
         exit_code, 0,
-        "int-returning main iterating argv must not double free, stderr: {stderr}"
+        "int-returning main iterating argv must accumulate every element and not \
+         double free, stderr: {stderr}"
+    );
+}
+
+// The unwind path carries the same defect: the entry wrapper cleans the argv
+// buffer unconditionally on the landingpad, while the consuming callee released
+// it before unwinding. The sibling panic-without-iteration cell is the control —
+// it does not consume, so its unconditional unwind cleanup is correct.
+
+#[test]
+fn test_main_args_panic_during_iteration_does_not_double_free() {
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        "@main (args: [str]) -> void =\n    for arg in args do\n        panic(msg: arg);\n",
+        &["alpha", "beta"],
+    );
+    assert_no_signal_crash(
+        exit_code,
+        "test_main_args_panic_during_iteration_does_not_double_free",
+    );
+    assert!(
+        !stderr.contains("double free"),
+        "unwind must release the argv buffer exactly once, stderr: {stderr}"
     );
 }
 
