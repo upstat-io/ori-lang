@@ -447,6 +447,156 @@ fn borrowed_projected_iteration_does_not_transfer_aggregate_field_credit() {
 }
 
 #[test]
+fn exact_projected_cow_reconstruction_transfers_the_aggregate_boundary() {
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let push = interner.intern("push");
+    let mut sigs = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut sigs, &builtins, &interner);
+
+    let func = ArcFunction {
+        name: name(10),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: ty(0),
+        var_types: vec![ty(0), ty(1), ty(2), ty(1), ty(3), ty(0)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(1),
+                    value: var(0),
+                    field: 0,
+                },
+                ArcInstr::Let {
+                    dst: var(2),
+                    ty: ty(2),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                ArcInstr::Apply {
+                    dst: var(3),
+                    ty: ty(1),
+                    func: push,
+                    args: vec![var(1), var(2)],
+                    arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                },
+                ArcInstr::Project {
+                    dst: var(4),
+                    ty: ty(3),
+                    value: var(0),
+                    field: 1,
+                },
+                ArcInstr::Construct {
+                    dst: var(5),
+                    ty: ty(0),
+                    ctor: CtorKind::Struct(name(80)),
+                    args: vec![var(3), var(4)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(5) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(4).with_scalar(2);
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &interner,
+    );
+
+    assert_eq!(
+        contract.params[0].access,
+        AccessClass::Owned,
+        "an exact all-field reconstruction must transfer the aggregate owner \
+         into the helper so the projected COW receiver reuses its existing credit"
+    );
+    assert_eq!(
+        contract.params[0].callee_owner_demand(),
+        CalleeOwnerDemand::WholeValue,
+        "the helper boundary transfers the complete aggregate, never a synthetic \
+         single projected-field credit"
+    );
+}
+
+#[test]
+fn projected_cow_consume_without_exact_reconstruction_stays_borrowed() {
+    let interner = ori_ir::StringInterner::new();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let push = interner.intern("push");
+    let mut sigs = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut sigs, &builtins, &interner);
+
+    let func = ArcFunction {
+        name: name(11),
+        params: vec![ArcParam {
+            var: var(0),
+            ty: ty(0),
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: ty(1),
+        var_types: vec![ty(0), ty(1), ty(2), ty(1)],
+        blocks: vec![ArcBlock {
+            id: block_id(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Project {
+                    dst: var(1),
+                    ty: ty(1),
+                    value: var(0),
+                    field: 0,
+                },
+                ArcInstr::Let {
+                    dst: var(2),
+                    ty: ty(2),
+                    value: ArcValue::Literal(LitValue::Int(1)),
+                },
+                ArcInstr::Apply {
+                    dst: var(3),
+                    ty: ty(1),
+                    func: push,
+                    args: vec![var(1), var(2)],
+                    arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: var(3) },
+        }],
+        ..Default::default()
+    };
+
+    let classifier = TestClassifier::all_ref(3).with_scalar(2);
+    let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
+    let contract = extract_contract(
+        &func,
+        &state_map,
+        &classifier,
+        &sigs,
+        &FxHashSet::default(),
+        &[],
+        &interner,
+    );
+
+    assert_eq!(contract.params[0].access, AccessClass::Borrowed);
+    assert_eq!(
+        contract.params[0].callee_owner_demand(),
+        CalleeOwnerDemand::Borrow,
+        "a consumed projection alone cannot transfer or destroy its parent aggregate"
+    );
+}
+
+#[test]
 fn extract_contract_project_return_alias_propagates_through_forwarder() {
     // INVARIANT: A forwarder preserves the callee's projected return alias so
     // callers retain the owning box through the view's last use.

@@ -2725,6 +2725,164 @@ fn branch_exclusive_full_move_rebooks_aggregate_consume() {
     );
 }
 
+fn projected_cow_reconstruction_func(push: Name, pair_ty: Idx, list_ty: Idx) -> ArcFunction {
+    ArcFunction {
+        var_types: vec![
+            list_ty,
+            Idx::STR,
+            pair_ty,
+            Idx::BOOL,
+            pair_ty,
+            Idx::BOOL,
+            list_ty,
+            Idx::INT,
+            list_ty,
+            Idx::STR,
+            pair_ty,
+            Idx::BOOL,
+        ],
+        blocks: vec![
+            block(
+                0,
+                vec![],
+                vec![
+                    ArcInstr::Construct {
+                        dst: v(0),
+                        ty: list_ty,
+                        ctor: CtorKind::ListLiteral,
+                        args: vec![],
+                    },
+                    ArcInstr::Let {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(81))),
+                    },
+                    ArcInstr::Construct {
+                        dst: v(2),
+                        ty: pair_ty,
+                        ctor: CtorKind::Struct(Name::from_raw(82)),
+                        args: vec![v(0), v(1)],
+                    },
+                    ArcInstr::Let {
+                        dst: v(3),
+                        ty: Idx::BOOL,
+                        value: ArcValue::Literal(crate::ir::LitValue::Bool(true)),
+                    },
+                ],
+                jump(1, vec![2, 3]),
+            ),
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![(v(4), pair_ty), (v(5), Idx::BOOL)],
+                body: vec![],
+                terminator: branch(5, 2, 3),
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Project {
+                        dst: v(6),
+                        ty: list_ty,
+                        value: v(4),
+                        field: 0,
+                    },
+                    ArcInstr::Let {
+                        dst: v(7),
+                        ty: Idx::INT,
+                        value: ArcValue::Literal(crate::ir::LitValue::Int(1)),
+                    },
+                    ArcInstr::Apply {
+                        dst: v(8),
+                        ty: list_ty,
+                        func: push,
+                        args: vec![v(6), v(7)],
+                        arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                        mono_instance_id: None,
+                    },
+                    ArcInstr::Project {
+                        dst: v(9),
+                        ty: Idx::STR,
+                        value: v(4),
+                        field: 1,
+                    },
+                    ArcInstr::Construct {
+                        dst: v(10),
+                        ty: pair_ty,
+                        ctor: CtorKind::Struct(Name::from_raw(82)),
+                        args: vec![v(8), v(9)],
+                    },
+                    ArcInstr::Let {
+                        dst: v(11),
+                        ty: Idx::BOOL,
+                        value: ArcValue::Literal(crate::ir::LitValue::Bool(false)),
+                    },
+                ],
+                terminator: jump(1, vec![10, 11]),
+            },
+            ArcBlock {
+                id: ArcBlockId::new(3),
+                params: vec![],
+                body: vec![],
+                terminator: ret(4),
+            },
+        ],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn projected_cow_reconstruction_rebooks_the_existing_field_credit() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let interner = test_interner();
+    let push = interner.intern("push");
+    let pair_ty = ty(64);
+    let list_ty = ty(70);
+    let func = projected_cow_reconstruction_func(push, pair_ty, list_ty);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_burden(
+        &mut registry,
+        "ProjectedCowPair",
+        pair_ty,
+        Some(UserBurdenSpec {
+            self_owned_identity: true,
+            owned_fields: vec![
+                UserOwnedField {
+                    field_path: vec![0],
+                    field_type: list_ty,
+                },
+                UserOwnedField {
+                    field_path: vec![1],
+                    field_type: Idx::STR,
+                },
+            ],
+            ..UserBurdenSpec::default()
+        }),
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [3, 5, 7, 11] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let (analysis, mut partition) =
+        analyze_with_registry_and_interner(&func, &state_map, &registry, &interner);
+
+    assert!(
+        !analysis.field_view_hazard && analysis.readiness.all_classes_clean,
+        "the exact reconstruction must verify cleanly: declined={:?} verdicts={:?}",
+        analysis.readiness.declined,
+        analysis.readiness.verdicts
+    );
+    let projected_list = class_rep(&mut partition, 6);
+    let projected_ops = ops_for(&analysis, projected_list);
+    assert!(
+        projected_ops.iter().all(|op| op.kind != PlannedOpKind::Inc),
+        "the projected list's existing owner credit transfers through push into \
+         the rebuilt aggregate; no retain may inflate dynamic COW: {projected_ops:?}"
+    );
+}
+
 /// Builder for the multi-owed diamond: a call result re-acquires the SAME
 /// allocation (RL-34 Credit) past which the class's books owe two
 /// references (birth + credit), both dying past the final terminator read.
