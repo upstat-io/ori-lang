@@ -30,7 +30,7 @@ use super::super::field_summary::{
     update_element_summaries, update_element_summaries_from_terminator, update_field_summaries,
     ElementSummaryTable, FieldSummaryTable,
 };
-use super::super::transfer::{transfer, TransferContext};
+use super::super::transfer::{transfer, DirectFieldSources, TransferContext};
 use super::super::{RangeAnalysisConfig, ValueRange};
 use super::direct_range::refine_direct_range_inductions;
 use super::iteration;
@@ -65,7 +65,7 @@ pub struct RangeFixpointResult {
 /// Mutable state threaded through the fixpoint loop.
 struct FixpointState {
     ranges: FxHashMap<ArcVarId, ValueRange>,
-    direct_field_sources: FxHashMap<(ArcVarId, u32), ArcVarId>,
+    direct_field_sources: DirectFieldSources,
     field_summary_table: FieldSummaryTable,
     element_summary_table: ElementSummaryTable,
     block_refinements: FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
@@ -327,29 +327,7 @@ pub(crate) fn range_fixpoint(
         po
     };
     let predecessors = compute_predecessors(func);
-    let direct_field_sources = func
-        .blocks
-        .iter()
-        .flat_map(|block| &block.body)
-        .filter_map(|instr| match instr {
-            ori_arc::ir::ArcInstr::Construct { dst, ty, args, .. }
-                if pool.tag(pool.resolve_fully(*ty)) == ori_types::Tag::Range =>
-            {
-                Some(
-                    args.iter()
-                        .enumerate()
-                        .filter_map(|(field, source)| {
-                            u32::try_from(field)
-                                .ok()
-                                .map(|field| ((*dst, field), *source))
-                        })
-                        .collect::<Vec<_>>(),
-                )
-            }
-            _ => None,
-        })
-        .flatten()
-        .collect();
+    let direct_field_sources = DirectFieldSources::for_function(func, pool);
 
     let mut state = FixpointState {
         ranges: FxHashMap::default(),

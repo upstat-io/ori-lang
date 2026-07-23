@@ -110,9 +110,47 @@ pub struct TransferContext<'a> {
     /// needlessly loses precision when a `Project` names a specific immutable
     /// Range `Construct`. Direct sources take precedence over the aggregate
     /// summary; mutable aggregate types deliberately stay on the summary path.
-    pub direct_field_sources: &'a FxHashMap<(ArcVarId, u32), ArcVarId>,
+    pub(super) direct_field_sources: &'a DirectFieldSources,
     /// Pre-interned builtin names for `transfer_known_call`.
     pub known_builtins: &'a super::KnownBuiltins,
+}
+
+/// Exact SSA sources for fields projected from locally constructed ranges.
+#[derive(Debug, Default)]
+pub(super) struct DirectFieldSources(FxHashMap<(ArcVarId, u32), ArcVarId>);
+
+impl DirectFieldSources {
+    /// Build the exact-source relation for immutable range constructions.
+    pub(super) fn for_function(function: &ori_arc::ir::ArcFunction, pool: &Pool) -> Self {
+        let sources = function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.body)
+            .filter_map(|instruction| match instruction {
+                ArcInstr::Construct { dst, ty, args, .. }
+                    if pool.tag(pool.resolve_fully(*ty)) == ori_types::Tag::Range =>
+                {
+                    Some(
+                        args.iter()
+                            .enumerate()
+                            .filter_map(|(field, source)| {
+                                u32::try_from(field)
+                                    .ok()
+                                    .map(|field| ((*dst, field), *source))
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                }
+                _ => None,
+            })
+            .flatten()
+            .collect();
+        Self(sources)
+    }
+
+    fn get(&self, value: ArcVarId, field: u32) -> Option<ArcVarId> {
+        self.0.get(&(value, field)).copied()
+    }
 }
 
 /// Compute the output range for a single `ArcInstr`.
@@ -171,8 +209,8 @@ pub fn transfer(instr: &ArcInstr, ctx: &TransferContext<'_>) -> ValueRange {
             if !is_int_typed(*ty, pool) {
                 return Top;
             }
-            if let Some(source) = direct_field_sources.get(&(*value, *field)) {
-                return ranges.get(source).copied().unwrap_or(Top);
+            if let Some(source) = direct_field_sources.get(*value, *field) {
+                return ranges.get(&source).copied().unwrap_or(Top);
             }
             let struct_idx = var_types.get(value.index()).copied();
             match struct_idx {
