@@ -104,6 +104,14 @@ fn effective_consuming_provenance_requires_specific_authority() {
         &sigs,
         &interner,
     ));
+    assert!(!effective_consuming_provenance(
+        interner.intern("push"),
+        0,
+        crate::ir::ArgOwnership::Owned,
+        true,
+        &sigs,
+        &interner,
+    ));
     assert!(effective_consuming_provenance(
         interner.intern("remove"),
         0,

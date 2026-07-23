@@ -44,6 +44,7 @@ pub(crate) struct FullMoveArm {
 /// aggregate burden's owned top-level field set; no OTHER use of any
 /// aggregate member var in the block (class-internal `Let` aliases and the
 /// `Project`s themselves permitted). Fail-closed on any mismatch.
+#[cfg(test)]
 pub(crate) fn detect_full_move_arms(
     func: &ArcFunction,
     partition: &mut BirthSitePartition,
@@ -101,15 +102,7 @@ fn full_move_arm_in_block(
 
     let blk = func.blocks.get(block)?;
     // Projections in this block, keyed by dst.
-    let mut projections: Vec<(usize, ArcVarId, ArcVarId, u32)> = Vec::new();
-    for (i, instr) in blk.body.iter().enumerate() {
-        if let ArcInstr::Project {
-            dst, value, field, ..
-        } = instr
-        {
-            projections.push((i, *dst, *value, *field));
-        }
-    }
+    let projections = projections_in_block(blk);
     // ONE Construct consuming projection dsts, either directly or through
     // one ownership-preserving call-result carrier.
     let mut construct_index: Option<usize> = None;
@@ -208,6 +201,20 @@ fn full_move_arm_in_block(
         class_rep,
         src_var: first_src,
     })
+}
+
+fn projections_in_block(block: &crate::ir::ArcBlock) -> Vec<(usize, ArcVarId, ArcVarId, u32)> {
+    block
+        .body
+        .iter()
+        .enumerate()
+        .filter_map(|(index, instr)| match instr {
+            crate::ir::ArcInstr::Project {
+                dst, value, field, ..
+            } => Some((index, *dst, *value, *field)),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Return the `Construct` carrier for one projection when ownership travels

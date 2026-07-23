@@ -70,6 +70,7 @@ pub(crate) struct ClassLedgerAnalysis {
 /// Run classification, planning, and per-class verification from the
 /// converged state map — the analysis entry [`attempt_replacement`] and the
 /// tests share.
+#[cfg(test)]
 pub(crate) fn analyze_from_state_map(
     func: &ArcFunction,
     state_map: &AimsStateMap,
@@ -296,6 +297,7 @@ fn plan_initial_classes(input: &mut ClassPlanningInput<'_>) -> InitialClassPlans
     }
 }
 
+#[cfg(test)]
 pub(crate) fn analyze_class_ledger(
     func: &ArcFunction,
     classification: &LedgerClassification,
@@ -315,7 +317,7 @@ pub(crate) fn analyze_class_ledger(
     )
 }
 
-fn analyze_class_ledger_with_exact(
+pub(super) fn analyze_class_ledger_with_exact(
     func: &ArcFunction,
     classification: &LedgerClassification,
     partition: &mut BirthSitePartition,
@@ -397,6 +399,7 @@ fn analyze_class_ledger_with_exact(
 ///
 /// `burden_ops_enabled = false` (Step-4b emission disabled)
 /// keeps the analysis-only readiness report and never replaces.
+#[cfg(test)]
 pub(crate) fn apply_class_ledger_replacement(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,

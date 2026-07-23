@@ -86,9 +86,9 @@ pub(crate) fn seed_builtin_contracts(
 ///
 /// A frozen Owned parameter contract is authoritative. Persistent-list COW
 /// mutators are seeded Borrowed because their receiver ownership is
-/// type-qualified at the call site; the unambiguous runtime identities below
-/// recover that producer-owned override. The raw annotation alone is never
-/// sufficient.
+/// type-qualified at the call site; the registry identities below recover
+/// that producer-owned override only when the callee is not an exact user
+/// callable. The raw annotation or spelling alone is never sufficient.
 pub(crate) fn effective_consuming_provenance(
     callee: Name,
     position: usize,

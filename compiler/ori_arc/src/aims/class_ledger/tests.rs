@@ -1,6 +1,6 @@
 use ori_ir::Name;
 use ori_types::Idx;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::contract::MemoryContract;
 use crate::aims::intraprocedural::birth_site_partition::{BirthSitePartition, FieldPath, NodeIdx};
@@ -170,6 +170,22 @@ fn analyze_with_registry_and_interner(
     registry: &ori_types::TypeRegistry,
     interner: &ori_ir::StringInterner,
 ) -> (ClassLedgerAnalysis, BirthSitePartition) {
+    analyze_with_registry_interner_and_exact(
+        func,
+        state_map,
+        registry,
+        interner,
+        &FxHashSet::default(),
+    )
+}
+
+fn analyze_with_registry_interner_and_exact(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    registry: &ori_types::TypeRegistry,
+    interner: &ori_ir::StringInterner,
+    exact_callables: &FxHashSet<Name>,
+) -> (ClassLedgerAnalysis, BirthSitePartition) {
     // These unit fixtures bypass whole-program AIMS setup. Route
     // their synthetic bodies through the same strict primitive-fact producer
     // before any ledger consumer reads the frozen table.
@@ -184,11 +200,12 @@ fn analyze_with_registry_and_interner(
     crate::aims::builtins::seed_builtin_contracts(&mut contracts, &builtins, interner);
     let mut partition = compute_birth_site_partition(&func, state_map);
     let classification = classify_function(&func, state_map, &mut partition, &facts, interner);
-    let analysis = analyze_class_ledger(
+    let analysis = super::analysis::analyze_class_ledger_with_exact(
         &func,
         &classification,
         &mut partition,
         &contracts,
+        exact_callables,
         registry,
         interner,
     );
@@ -2940,6 +2957,55 @@ fn opaque_owned_relay_does_not_authorize_projected_full_move() {
         analysis.field_view_hazard,
         "an unregistered Owned call is conservative authority, not proof that \
          the call result linearly reconstructs the projected field"
+    );
+}
+
+#[test]
+fn exact_push_name_collision_does_not_authorize_projected_full_move() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let interner = test_interner();
+    let push = interner.intern("push");
+    let pair_ty = ty(64);
+    let list_ty = ty(70);
+    let func = projected_cow_reconstruction_func(push, pair_ty, list_ty);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_burden(
+        &mut registry,
+        "ExactPushCollisionPair",
+        pair_ty,
+        Some(UserBurdenSpec {
+            self_owned_identity: true,
+            owned_fields: vec![
+                UserOwnedField {
+                    field_path: vec![0],
+                    field_type: list_ty,
+                },
+                UserOwnedField {
+                    field_path: vec![1],
+                    field_type: Idx::STR,
+                },
+            ],
+            ..UserBurdenSpec::default()
+        }),
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [3, 5, 7, 11] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let exact_callables = FxHashSet::from_iter([push]);
+    let (analysis, _) = analyze_with_registry_interner_and_exact(
+        &func,
+        &state_map,
+        &registry,
+        &interner,
+        &exact_callables,
+    );
+
+    assert!(
+        analysis.field_view_hazard,
+        "an exact user callable named `push` must not inherit registry builtin authority"
     );
 }
 

@@ -178,15 +178,7 @@ pub(crate) fn run_aims_pipeline(
     );
 
     // INVARIANT: Class-ledger planning is the sole producer of ownership events.
-    crate::aims::class_ledger::apply_class_ledger_replacement_with_exact(
-        func,
-        &state_map,
-        config.contracts,
-        config.exact_callables,
-        config.type_registry,
-        config.interner,
-        burden_emission::burden_ops_enabled(),
-    );
+    apply_class_ledger(func, &state_map, config);
     crate::aims::realize::emit_survivor_remarks_all_kept(func, &state_map, config.interner);
     trace_pipeline_checkpoint(
         func,
@@ -238,6 +230,22 @@ pub(crate) fn run_aims_pipeline(
         missed_reuses,
         was_trmc_rewritten: trmc_rewrite_survived,
     })
+}
+
+fn apply_class_ledger(
+    func: &mut ArcFunction,
+    state_map: &crate::aims::intraprocedural::AimsStateMap,
+    config: &AimsPipelineConfig<'_>,
+) {
+    crate::aims::class_ledger::apply_class_ledger_replacement_with_exact(
+        func,
+        state_map,
+        config.contracts,
+        config.exact_callables,
+        config.type_registry,
+        config.interner,
+        burden_emission::burden_ops_enabled(),
+    );
 }
 
 fn finish_postprocess(

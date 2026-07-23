@@ -690,9 +690,11 @@ fn borrowed_relay_reconstruction_contract(relay_spelling: &str, exact: bool) -> 
     };
     let classifier = TestClassifier::all_ref(4).with_scalar(2);
     let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
-    let exact_callables = exact
-        .then(|| FxHashSet::from_iter([relay]))
-        .unwrap_or_default();
+    let exact_callables = if exact {
+        FxHashSet::from_iter([relay])
+    } else {
+        FxHashSet::default()
+    };
     extract_contract_with_call_ownership(&ContractExtractionInput {
         func: &func,
         state_map: &state_map,

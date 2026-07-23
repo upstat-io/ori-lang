@@ -31,8 +31,9 @@ mod placement;
 mod replace;
 mod verify;
 
+#[cfg(test)]
+pub(crate) use analysis::{analyze_from_state_map, apply_class_ledger_replacement};
 pub(crate) use analysis::{
-    analyze_from_state_map, apply_class_ledger_replacement,
     apply_class_ledger_replacement_with_exact, ClassLedgerAnalysis, ClassPlan,
 };
 

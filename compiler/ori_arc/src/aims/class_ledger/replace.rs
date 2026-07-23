@@ -150,6 +150,7 @@ impl FallbackReason {
 ///
 /// `allow_replacement = false` runs the analysis only (readiness stays
 /// reportable) and never mutates `func`.
+#[cfg(test)]
 pub(crate) fn attempt_replacement(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
