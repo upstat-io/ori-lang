@@ -204,59 +204,78 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn("ori_list_updated_cow");
 
         let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
-        let bool_elem = self.pool.tag(self.pool.resolve_fully(elem_ty)) == Tag::Bool;
-        if bool_elem
-            && receiver_storage.is_stack()
-            && cow_mode == CowMode::StaticUnique
-            && negated_same_index
-        {
-            let elem_llvm_ty = self
-                .builder
-                .register_type(self.builder.scx().type_i8().into());
-
-            let elem_ptr =
-                self.builder
-                    .gep(elem_llvm_ty, data_ptr, &[key], "updated.toggle.elem_ptr");
-
-            let old = self
-                .builder
-                .load(elem_llvm_ty, elem_ptr, "updated.toggle.old");
-            let one = self.builder.const_i8(1);
-            let toggled = self.builder.xor(old, one, "updated.toggle.value");
-            self.builder.store(toggled, elem_ptr);
-            return Some(receiver);
+        let args = ScalarUpdatedArgs {
+            receiver,
+            key,
+            elem,
+            data_ptr,
+            len,
+            cap,
+            elem_ty,
+            cow_mode,
+            list_ty,
+            receiver_storage,
+            func_id,
+        };
+        if let Some(result) = self.try_emit_negated_bool_update(&args, negated_same_index) {
+            return Some(result);
         }
         // Why: Direct scalar overwrite avoids runtime calls; unsafe shapes retain COW checks.
         if self.classifier.is_scalar(elem_ty) {
-            return self.emit_scalar_list_updated_cow(&ScalarUpdatedArgs {
-                receiver,
-                key,
-                elem,
-                data_ptr,
-                len,
-                cap,
-                elem_ty,
-                cow_mode,
-                list_ty,
-                receiver_storage,
-                func_id,
-            });
+            return self.emit_scalar_list_updated_cow(&args);
         }
 
-        let elem_ptr = self.elem_to_ptr(elem, elem_ty, "updated.elem");
-        let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
-        let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
-        let dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
-        let cow_mode = self.builder.const_i32(cow_mode_code(cow_mode));
+        self.emit_nonscalar_list_updated_cow(&args)
+    }
+
+    fn try_emit_negated_bool_update(
+        &mut self,
+        args: &ScalarUpdatedArgs,
+        negated_same_index: bool,
+    ) -> Option<ValueId> {
+        let bool_elem = self.pool.tag(self.pool.resolve_fully(args.elem_ty)) == Tag::Bool;
+        if !bool_elem
+            || !args.receiver_storage.is_stack()
+            || args.cow_mode != CowMode::StaticUnique
+            || !negated_same_index
+        {
+            return None;
+        }
+
+        let elem_llvm_ty = self
+            .builder
+            .register_type(self.builder.scx().type_i8().into());
+        let elem_ptr = self.builder.gep(
+            elem_llvm_ty,
+            args.data_ptr,
+            &[args.key],
+            "updated.toggle.elem_ptr",
+        );
+        let old = self
+            .builder
+            .load(elem_llvm_ty, elem_ptr, "updated.toggle.old");
+        let one = self.builder.const_i8(1);
+        let toggled = self.builder.xor(old, one, "updated.toggle.value");
+        self.builder.store(toggled, elem_ptr);
+        Some(args.receiver)
+    }
+
+    fn emit_nonscalar_list_updated_cow(&mut self, args: &ScalarUpdatedArgs) -> Option<ValueId> {
+        let elem_ptr = self.elem_to_ptr(args.elem, args.elem_ty, "updated.elem");
+        let (elem_size_val, elem_align_val) =
+            self.elem_size_and_align(args.elem_ty, Some(args.list_ty));
+        let inc_fn = self.get_or_generate_elem_inc_fn(args.elem_ty);
+        let dec_fn = self.get_or_generate_elem_dec_fn(args.elem_ty);
+        let cow_mode = self.builder.const_i32(cow_mode_code(args.cow_mode));
 
         self.emit_list_cow_call(
-            func_id,
+            args.func_id,
             "updated",
             vec![
-                data_ptr,
-                len,
-                cap,
-                key,
+                args.data_ptr,
+                args.len,
+                args.cap,
+                args.key,
                 elem_ptr,
                 elem_size_val,
                 elem_align_val,
