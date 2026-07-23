@@ -14,6 +14,7 @@ use super::alias_flow::{
     find_return_alias_shapes, find_return_flow_params,
 };
 
+mod aggregate_transfer;
 mod borrowed_facts;
 mod iter_consume;
 mod ownership_credit;
@@ -81,7 +82,14 @@ pub(super) fn detect_param_facts(
         builtins,
         exact_callables,
     );
+    let aggregate_transfer = aggregate_transfer::find_exact_aggregate_transfer_params(
+        func,
+        sigs,
+        &alias_to_param,
+        classifier,
+    );
     consumed.extend(&return_flow);
+    consumed.extend(&aggregate_transfer);
     ParamFacts {
         consumed,
         return_flow,

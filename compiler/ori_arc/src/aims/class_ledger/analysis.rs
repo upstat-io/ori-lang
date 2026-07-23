@@ -285,7 +285,7 @@ pub(crate) fn analyze_class_ledger(
 ) -> ClassLedgerAnalysis {
     let preds = compute_predecessors(func);
     let regions = emit::CycleRegions::compute(func);
-    let full_move_arms = events::detect_full_move_arms(func, partition, type_registry);
+    let full_move_arms = events::detect_full_move_arms(func, partition, type_registry, interner);
     let InitialClassPlans {
         mut classes,
         mut verdicts,

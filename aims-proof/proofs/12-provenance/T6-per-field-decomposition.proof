@@ -58,8 +58,10 @@ Theorem IA-T6: Per-field release decomposition — typed-authority union soundne
       FD_balanced_cells_safe (committed clauses<->safety bridge applied)
       FD_container_class_verbatim, FD_untouched_class_verbatim (P2 frame)
       FD_cured_moved_field_balanced, FD_cured_unmoved_field_balanced,
+        FD_cured_total_skip_balanced,
         FD_buggy_whole_var_release_rejected (P4 struct_list_field
-        instantiation: cured skip-set accepted, whole-var release rejected)
+        instantiations: partial skip and two-distinct-field total skip accepted,
+        container consume preserved, whole-var release rejected)
       FD_moveout_is_committed_transfer, FD_read_is_not_transfer (P4 the
         consume mark computed through the committed RL-2 table)
       FD_per_site_skipset_sound (P5 per-SITE pathwise iff: over a path
@@ -91,4 +93,4 @@ Theorem IA-T6: Per-field release decomposition — typed-authority union soundne
 
   Expected:
     status: unimplemented_engine_shape
-    reason: IA per-field-decomposition shape outside the rule-numbered IA verifier inventory (the IA dischargers serve numbered IA suffixes only). The authoritative machine-check is the compiled Lean AimsProof.FieldDecomposition (lake build clean): FD_authority_union_skipset_sound proves that the typed local/boundary authority union is the sole clause-preserving skip set; FD_boundary_authority_exact and FD_boundary_authority_conflict_rejected pin the PV-4 validation boundary; FD_cell_balanced_iff supplies the four-cell balance verdict with both named negative witnesses; FD_container_class_verbatim + FD_untouched_class_verbatim supply the release frame; and FD_authority_union_site_uniform_projection supplies the per-release-site path obligation.
+    reason: IA per-field-decomposition shape outside the rule-numbered IA verifier inventory (the IA dischargers serve numbered IA suffixes only). The authoritative machine-check is the compiled Lean AimsProof.FieldDecomposition (lake build clean): FD_authority_union_skipset_sound proves that the typed local/boundary authority union is the sole clause-preserving skip set; FD_boundary_authority_exact and FD_boundary_authority_conflict_rejected pin the PV-4 validation boundary; FD_cell_balanced_iff supplies the four-cell balance verdict with both named negative witnesses; FD_cured_total_skip_balanced instantiates two distinct local field authorities and preserves the separate container consume; FD_container_class_verbatim + FD_untouched_class_verbatim supply the release frame; and FD_authority_union_site_uniform_projection supplies the per-release-site path obligation.

@@ -221,13 +221,28 @@ theorem FD_cured_moved_field_balanced :
 theorem FD_cured_unmoved_field_balanced :
     threeClauses (payloadEvents false false) = true := by rfl
 
-/-- §T6 (P4) exact aggregate reconstruction moves BOTH owned fields, so the
-    typed authority union produces the total skip set. Each moved field
-    balances independently while the container's own consume remains
-    verbatim by `FD_container_class_verbatim`. -/
-theorem FD_cured_total_skip_balanced :
-    (List.range 2).all (fun _ => threeClauses (payloadEvents true true)) = true := by
-  rfl
+/-- The two DISTINCT local field authorities in the exact-reconstruction
+    cell: both top-level owned fields move out. -/
+def exactReconstructionAuthorities : List AuthorizedFieldMove :=
+  [localFieldMoveAuthority 0, localFieldMoveAuthority 1]
+
+/-- §T6 (P4) exact aggregate reconstruction moves BOTH distinct owned fields.
+    The typed authority union therefore marks indices 0 and 1, each payload
+    class balances under its own skip verdict, and the container's separate
+    class still derives its one verbatim consume. -/
+theorem FD_cured_total_skip_balanced (classOf : Nat → Nat) (container : Nat) :
+    fieldHasMoveAuthority exactReconstructionAuthorities 0 = true ∧
+      fieldHasMoveAuthority exactReconstructionAuthorities 1 = true ∧
+      threeClauses
+        (payloadEvents
+          (fieldHasMoveAuthority exactReconstructionAuthorities 0) true) = true ∧
+      threeClauses
+        (payloadEvents
+          (fieldHasMoveAuthority exactReconstructionAuthorities 1) true) = true ∧
+      deriveLedger classOf (classOf container) (decPartialInstrs container) =
+        [.consume] := by
+  refine ⟨rfl, rfl, rfl, rfl, ?_⟩
+  exact FD_container_class_verbatim classOf container
 
 /-- §T6 (P4) the BUGGY composition: whole-var release (skip = ∅) on the same
     move — the moved field's class nets -1 and fails the clauses: the double
