@@ -396,7 +396,7 @@ impl EntryOwnershipReport {
         );
         let _ = writeln!(
             out,
-            "      wrapper_owns              = {}  <- cleanup owned on every exit",
+            "      wrapper_owns              = {}  <- one cleanup decision, applied on every exit",
             param.wrapper_owns
         );
     }
