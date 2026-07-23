@@ -4,12 +4,11 @@
 //! fixtures. Output alone cannot distinguish exact capacity from bounded local
 //! storage.
 
-use ori_llvm::aot::TargetConfig;
-
 use crate::util::{
     assert_aot_success, compile_and_capture_ir, compile_and_run_capture,
     compile_to_llvm_ir_for_target, extract_function_ir,
 };
+use ori_llvm::aot::TargetConfig;
 
 fn function_ir(source: &str, function: &str) -> String {
     let ir = compile_and_capture_ir(source);
@@ -23,6 +22,7 @@ fn assert_exact_heap_capacity(source: &str, function: &str, capacity: u64, elem_
         ir.contains(&expected),
         "expected exact-capacity managed yield allocation `{expected}`:\n{ir}"
     );
+
     assert_eq!(
         ir.matches("call ptr @ori_list_new").count(),
         1,
@@ -40,14 +40,17 @@ fn assert_bounded_local_ir(ir: &str) {
         !ir.contains("call ptr @ori_list_new"),
         "proven local static yield must not use the general heap builder:\n{ir}"
     );
+
     assert!(
         !ir.contains("call ptr @ori_list_alloc_data"),
         "proven local static yield must not allocate list backing on the general heap:\n{ir}"
     );
+
     assert!(
         ir.contains("%yield.local.builder = alloca"),
         "proven local static yield must expose a bounded local builder slot:\n{ir}"
     );
+
     assert!(
         ir.contains("%yield.local.data = alloca"),
         "proven local static yield must expose bounded local element storage:\n{ir}"
@@ -107,6 +110,7 @@ fn dynamic_range_capacity_is_not_the_literal_fallback() {
         ir.contains("call ptr @ori_list_new"),
         "runtime-sized escaping yield must retain managed allocation:\n{ir}"
     );
+
     assert!(
         !ir.contains("call ptr @ori_list_new(i64 8,"),
         "runtime-bounded range must derive capacity instead of using literal 8:\n{ir}"
@@ -152,10 +156,12 @@ fn compact_local_updated_oob_uses_storage_independent_panic() {
         ir.contains("%yield.local.data = alloca [4 x i8]"),
         "fixture must exercise compact headerless backing:\n{ir}"
     );
+
     assert!(
         ir.contains("call void @ori_panic_index_out_of_bounds"),
         "compact OOB must avoid the header-reading COW runtime:\n{ir}"
     );
+
     assert!(
         !ir.contains("call void @ori_list_updated_cow"),
         "compact OOB must not pass headerless data to general COW cleanup:\n{ir}"
@@ -191,10 +197,12 @@ fn oversized_static_yield_remains_managed_storage() {
         ir.contains("call ptr @ori_list_new"),
         "oversized static yield must retain managed storage:\n{ir}"
     );
+
     assert!(
         !ir.contains("[10000 x i64]"),
         "oversized static yield must not create a giant stack slot:\n{ir}"
     );
+
     assert!(
         !ir.contains("call ptr @ori_list_new(i64 8,"),
         "managed oversized yield must not use the old literal fallback:\n{ir}"
@@ -211,18 +219,22 @@ fn production_simulate_has_one_exact_heap_yield_and_local_doors() {
         1,
         "simulate must heap-allocate only its escaping result, not local doors:\n{ir}"
     );
+
     assert!(
         ir.contains("call ptr @ori_list_new(i64 100, i64 8)"),
         "escaping guarded result must reserve the Range upper bound 100:\n{ir}"
     );
+
     assert!(
         !ir.contains("call ptr @ori_list_alloc_data"),
         "simulate must not directly allocate local doors backing on the general heap:\n{ir}"
     );
+
     assert!(
         ir.contains("%yield.local.builder = alloca"),
         "simulate must expose the local doors builder slot:\n{ir}"
     );
+
     assert!(
         ir.contains("%yield.local.data = alloca"),
         "simulate must expose bounded local doors storage:\n{ir}"
@@ -238,22 +250,27 @@ fn production_length_observer_uses_private_count_projection() {
         clone.starts_with("define internal fastcc"),
         "length projection must remain module-local:\n{clone}"
     );
+
     assert!(
         clone.contains("%yield.length_only.count = alloca i32"),
         "small bounded length projection must use a vectorizable i32 count:\n{clone}"
     );
+
     assert!(
         !clone.contains("call ptr @ori_list_new"),
         "length-only projection must not materialize its returned list:\n{clone}"
     );
+
     assert!(
         !clone.contains("yield.length_only.push.has_capacity"),
         "header-only count projection must not retain a memory-capacity branch:\n{clone}"
     );
+
     assert!(
         !clone.contains("call void @ori_buffer_drop_unique"),
         "trivial scalar local storage must not retain a runtime buffer teardown:\n{clone}"
     );
+
     assert!(
         clone.contains("%yield.local.data = alloca [100 x i8]"),
         "closed primitive-scalar lineage must use compact element-only backing:\n{clone}"
@@ -264,6 +281,7 @@ fn production_length_observer_uses_private_count_projection() {
         main.contains("@\"_ori_simulate$24length_only\""),
         "qualified length-only call site must target the private clone:\n{main}"
     );
+
     assert!(
         !main.contains("call fastcc void @_ori_simulate("),
         "length-only call site must not materialize the ordinary result:\n{main}"
@@ -386,6 +404,7 @@ fn nested_range_yield_reentrant_inner_allocation_stays_managed() {
         1,
         "the loop-reentered inner allocation must retain one managed builder site:\n{ir}"
     );
+
     assert!(
         ir.contains("%yield.local.builder = alloca"),
         "the single-execution outer allocation should remain bounded local storage:\n{ir}"

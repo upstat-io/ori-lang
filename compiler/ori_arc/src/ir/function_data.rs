@@ -1,14 +1,12 @@
 //! Function-level ARC IR metadata and carrier.
 
-use ori_ir::canon::MethodProducerId;
-use ori_ir::{Name, Span};
-use ori_types::{DerivedCallPosition, Idx, MethodProducer};
-
-use crate::uniqueness::{CowAnnotations, DropHints};
-
 use super::{
     ArcBlock, ArcBlockId, ArcParam, ArcVarId, PrimOp, PrimitiveFacts, RcStrategy, ValueRepr,
 };
+use crate::uniqueness::{CowAnnotations, DropHints};
+use ori_ir::canon::MethodProducerId;
+use ori_ir::{Name, Span};
+use ori_types::{DerivedCallPosition, Idx, MethodProducer};
 
 /// Readiness of logical representation metadata and the transitional
 /// RC-adapter strategy table.

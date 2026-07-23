@@ -6,13 +6,11 @@
 //! element sizing and widening use the source collection's representation;
 //! substituting a canonical element layout corrupts GEP strides.
 
-use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
-use ori_types::Idx;
-
+use super::{super::ArcIrEmitter, RenderStyle};
 use crate::codegen::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
 use crate::codegen::TypeInfo;
-
-use super::{super::ArcIrEmitter, RenderStyle};
+use ori_ir::{FIELD_CAP, FIELD_DATA, FIELD_LEN};
+use ori_types::Idx;
 
 #[derive(Clone, Copy)]
 struct MapDebugContext {

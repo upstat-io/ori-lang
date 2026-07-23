@@ -3,15 +3,13 @@
 
 mod local_yield;
 
+use super::{ArcIrEmitter, EmittedValue, StringRuntimeReturnAbi};
+use crate::codegen::abi::{ParamAbi, ReturnAbi, ReturnPassing};
+use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::canon::MonoInstanceId;
 use ori_ir::{Name, CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN, FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
-
-use crate::codegen::abi::{ParamAbi, ReturnAbi, ReturnPassing};
-use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
-
-use super::{ArcIrEmitter, EmittedValue, StringRuntimeReturnAbi};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit an `Apply` instruction (ABI-aware direct call).

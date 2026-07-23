@@ -10,16 +10,15 @@ mod range_plan;
 mod repr_attr;
 mod yield_plan;
 
-use ori_arc::ir::{AllocationSiteId, ArcVarId, YieldExtent};
-use ori_ir::Name;
-use ori_types::{Idx, Pool};
-use rustc_hash::{FxHashMap, FxHashSet};
-
 use crate::enum_repr::EnumRepr;
 use crate::escape::EscapeInfo;
 use crate::layout::EnumLayoutInfo;
 use crate::range::ValueRange;
 use crate::repr::MachineRepr;
+use ori_arc::ir::{AllocationSiteId, ArcVarId, YieldExtent};
+use ori_ir::Name;
+use ori_types::{Idx, Pool};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 pub use self::decision::{DecisionReason, DecisionSource, ReprDecision};
 pub use self::query::{NarrowingPolicy, RcStrategy};

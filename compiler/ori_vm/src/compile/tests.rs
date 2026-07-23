@@ -8,6 +8,14 @@ mod rc_values;
 mod runtime_dispatch_cases;
 mod runtime_programs;
 
+use super::{compile, compile_with_options, CompileOptions};
+use crate::bytecode::{
+    BytecodeProgram, CallArgument, Op, Register, VmClosureAdapterAction, VmRetainPlanId,
+};
+use crate::{
+    execute_report, verify, CompileError, ExecutionConfig, ExitValue, IndexKind, VerifyError,
+};
+use closure_programs::*;
 use ori_arc::ir::{compute_var_rc_strategies, PrimitiveFacts};
 use ori_arc::uniqueness::{CowAnnotations, DropHints};
 use ori_arc::{
@@ -25,20 +33,10 @@ use ori_repr::executable::{
 };
 use ori_repr::{NarrowingPolicy, ReprPlan};
 use ori_types::{Idx, Pool, TypeRegistry};
-use rustc_hash::FxHashMap;
-
-use crate::bytecode::{
-    BytecodeProgram, CallArgument, Op, Register, VmClosureAdapterAction, VmRetainPlanId,
-};
-use crate::{
-    execute_report, verify, CompileError, ExecutionConfig, ExitValue, IndexKind, VerifyError,
-};
-
-use super::{compile, compile_with_options, CompileOptions};
-use closure_programs::*;
 use rc_programs::*;
 use rc_values::*;
 use runtime_programs::*;
+use rustc_hash::FxHashMap;
 
 struct RcValueFixture {
     body: Vec<ArcInstr>,

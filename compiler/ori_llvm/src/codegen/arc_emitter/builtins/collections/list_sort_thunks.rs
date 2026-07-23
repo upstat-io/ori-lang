@@ -6,12 +6,10 @@
 //! Each thunk has signature `fn(*const u8, *const u8) -> i32` and returns
 //! -1 (less), 0 (equal), or 1 (greater).
 
-use ori_types::Idx;
-
+use super::super::super::ArcIrEmitter;
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::{BlockId, FunctionId, ValueId};
-
-use super::super::super::ArcIrEmitter;
+use ori_types::Idx;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     fn begin_compare_thunk(

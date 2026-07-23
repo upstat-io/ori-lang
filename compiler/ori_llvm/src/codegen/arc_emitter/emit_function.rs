@@ -4,20 +4,18 @@
 //! orchestrates block pre-creation, parameter binding, EH setup, and
 //! per-block instruction/terminator emission in reverse post-order.
 
-use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
-use ori_ir::Name;
-use rustc_hash::{FxHashMap, FxHashSet};
-
-use crate::codegen::abi::FunctionAbi;
-use crate::codegen::eh_model::EhModel;
-use crate::codegen::value_id::{FunctionId, ValueId};
-
 use super::block_label::BlockLabel;
 use super::context::EmittedValue;
 use super::dead_unwind::assert_dead_unwind_unreachable;
 use super::field_scan::{compute_pointer_only_params, scan_used_fields};
 use super::yield_type_index::index_yield_types_by_elem_size_var;
 use super::ArcIrEmitter;
+use crate::codegen::abi::FunctionAbi;
+use crate::codegen::eh_model::EhModel;
+use crate::codegen::value_id::{FunctionId, ValueId};
+use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
+use ori_ir::Name;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Reports whether builtin handling converts an `Invoke` callee to `call`.

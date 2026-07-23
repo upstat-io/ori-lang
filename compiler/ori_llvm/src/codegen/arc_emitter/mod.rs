@@ -52,23 +52,23 @@ mod value_emission;
 mod variant_construction;
 mod yield_type_index;
 
+use super::ir_builder::IrBuilder;
+use super::type_info::{TypeInfoStore, TypeLayoutResolver};
+use super::value_id::{BlockId, FunctionId, LLVMTypeId, TokenId, ValueId};
+use crate::aot::debug::DebugContext;
+use context::EmittedValue;
 use ori_arc::ir::ArcVarId;
 use ori_arc::{ArcClassification, MemoryContract};
 use ori_ir::StringInterner;
 use ori_types::{Idx, Pool};
+use runtime_names::{FormatRtNames, ListRtNames, StringRuntimeReturnAbi};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::aot::debug::DebugContext;
-
-use super::ir_builder::IrBuilder;
-use super::type_info::{TypeInfoStore, TypeLayoutResolver};
-use super::value_id::{BlockId, FunctionId, LLVMTypeId, TokenId, ValueId};
 pub use context::CodegenContext;
-use context::EmittedValue;
 pub use emitter::ArcIrEmitter;
+
 pub(crate) use emitter_context::ArcEmitterFunctionContext;
 pub(crate) use narrowing_codegen::narrowed_collection_element_width;
-use runtime_names::{FormatRtNames, ListRtNames, StringRuntimeReturnAbi};
 
 #[cfg(test)]
 mod test_utils;

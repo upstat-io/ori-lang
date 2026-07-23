@@ -1,13 +1,11 @@
 //! Compound-aggregate `debug`/`to_str` LLVM emission: Option, Result, List,
 //! Tuple.
 
-use ori_ir::{FIELD_DATA, FIELD_LEN};
-use ori_types::Idx;
-
+use super::{super::ArcIrEmitter, RenderStyle};
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
-
-use super::{super::ArcIrEmitter, RenderStyle};
+use ori_ir::{FIELD_DATA, FIELD_LEN};
+use ori_types::Idx;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `Option.debug()` / `Option.to_str()` with branching.

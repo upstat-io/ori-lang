@@ -7,11 +7,10 @@
 mod mutation;
 mod projection;
 
-use ori_arc::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId, CtorKind};
-use ori_types::Idx;
-
 use super::context::EmittedValue;
 use super::ArcIrEmitter;
+use ori_arc::ir::{ArcFunction, ArcInstr, ArcValue, ArcVarId, CtorKind};
+use ori_types::Idx;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a single `ArcInstr` as LLVM IR.

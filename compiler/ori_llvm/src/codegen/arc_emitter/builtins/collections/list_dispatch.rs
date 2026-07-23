@@ -1,12 +1,10 @@
 //! Collection builtin dispatch declarations.
 
-use ori_arc::ir::ArgOwnership;
-
-use crate::codegen::type_info::TypeInfo;
-use crate::codegen::value_id::ValueId;
-
 use super::super::RenderStyle;
 use super::list_cow::YieldReceiverStorage;
+use crate::codegen::type_info::TypeInfo;
+use crate::codegen::value_id::ValueId;
+use ori_arc::ir::ArgOwnership;
 
 fn emit_list_concat<'scx: 'ctx, 'ctx>(
     emitter: &mut crate::codegen::arc_emitter::ArcIrEmitter<'_, 'scx, 'ctx, '_>,
@@ -26,6 +24,7 @@ fn emit_list_concat<'scx: 'ctx, 'ctx>(
         cow_mode,
         ctx.receiver_ty,
     );
+
     if result.is_some() {
         emitter.mark_cow_data_noalias_if_unique(ctx.arc_func);
     }

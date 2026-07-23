@@ -7,14 +7,12 @@
 mod scalar_update;
 mod transforms;
 
+use self::scalar_update::ScalarUpdatedArgs;
+use super::super::super::ArcIrEmitter;
+use crate::codegen::value_id::{FunctionId, ValueId};
 use ori_arc::CowMode;
 use ori_ir::{FIELD_DATA, FIELD_LEN};
 use ori_types::{Idx, Tag};
-
-use crate::codegen::value_id::{FunctionId, ValueId};
-
-use self::scalar_update::ScalarUpdatedArgs;
-use super::super::super::ArcIrEmitter;
 
 /// Physical storage available to a list mutation receiver.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -251,6 +249,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             &[args.key],
             "updated.toggle.elem_ptr",
         );
+
         let old = self
             .builder
             .load(elem_llvm_ty, elem_ptr, "updated.toggle.old");

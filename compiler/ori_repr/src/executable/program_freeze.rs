@@ -3,15 +3,14 @@
 mod length_projection;
 mod metadata;
 
-use ori_arc::ir::ArcVarId;
-use ori_arc::ArcFunction;
-use ori_ir::Name;
-use rustc_hash::FxHashMap;
-
 use super::{
     call_targets, external, method_targets, validation, CallableTarget, ExecutableDropPlan,
     ExecutableProgram, ExecutableProgramParts, FunctionId, RealizationError,
 };
+use ori_arc::ir::ArcVarId;
+use ori_arc::ArcFunction;
+use ori_ir::Name;
+use rustc_hash::FxHashMap;
 
 /// Returns a deterministically ordered artifact with closed metadata and call targets.
 #[must_use = "the validated executable program must be handled"]
@@ -141,6 +140,7 @@ fn close_yield_lineage_facts(
         };
         yield_lineage_runtime_call(*operation)
     });
+
     let (length_projection_calls, length_projection_yields) =
         length_projection::analyze_length_projections(
             functions,

@@ -5,15 +5,14 @@
 //! terminate" pattern as LLVM's `IRBuilder`, but uses block parameters
 //! instead of phi nodes for SSA merge.
 
-use ori_ir::canon::MonoInstanceId;
-use ori_ir::{Name, Span};
-use ori_types::Idx;
-
 use crate::ir::{
     AllocationSiteId, ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator,
     ArcVarId, MethodCallFact, MethodCallForm, YieldAllocationFact, YieldAllocationLocality,
     YieldExtent,
 };
+use ori_ir::canon::MonoInstanceId;
+use ori_ir::{Name, Span};
+use ori_types::Idx;
 
 /// Groups CFG successors with the abstract dispatch index for an invoke.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -203,6 +202,7 @@ impl ArcIrBuilder {
                 .all(|fact| fact.destination != destination),
             "a direct call result may carry only one method provenance fact"
         );
+
         self.method_call_facts.push(MethodCallFact {
             destination,
             receiver_type,
@@ -228,6 +228,7 @@ impl ArcIrBuilder {
                 .all(|fact| fact.destination != destination),
             "a direct call result may carry only one method provenance fact"
         );
+
         self.method_call_facts.push(MethodCallFact {
             destination,
             receiver_type,
@@ -253,6 +254,7 @@ impl ArcIrBuilder {
                 .all(|fact| fact.destination != destination),
             "an operator call result may carry only one resolution fact"
         );
+
         self.operator_call_facts.push(crate::ir::OperatorCallFact {
             destination,
             receiver,
@@ -274,6 +276,7 @@ impl ArcIrBuilder {
         let Ok(raw_site) = u32::try_from(self.yield_allocations.len()) else {
             unreachable!("yield allocation table exceeded AllocationSiteId capacity");
         };
+
         self.yield_allocations.push(YieldAllocationFact {
             site: AllocationSiteId::new(raw_site),
             builder,
@@ -306,6 +309,7 @@ impl ArcIrBuilder {
                 "ARC block {} must be terminated before finish",
                 bb.id.raw()
             );
+
             // Why: The always-on assertion establishes the terminator's presence.
             let Some(terminator) = bb.terminator.take() else {
                 unreachable!("validated ARC terminator disappeared before finalization");
