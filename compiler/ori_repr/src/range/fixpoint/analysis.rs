@@ -32,13 +32,14 @@ use super::super::field_summary::{
 };
 use super::super::transfer::{transfer, TransferContext};
 use super::super::{RangeAnalysisConfig, ValueRange};
+use super::direct_range::refine_direct_range_inductions;
 use super::iteration;
 use super::iteration::{
     collect_comparison_thresholds, merge_block_params, propagate_refinements_through_jump_chains,
 };
 use super::narrowing::{
     recompute_element_summaries, recompute_field_summaries, recompute_return_range,
-    refine_direct_range_inductions, run_narrowing_pass,
+    run_narrowing_pass,
 };
 use super::terminator::process_terminator;
 use ValueRange::{Bottom, Top};

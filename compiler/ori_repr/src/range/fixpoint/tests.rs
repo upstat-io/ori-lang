@@ -108,7 +108,7 @@ fn narrow_bottom_stays_bottom() {
 
 #[test]
 fn direct_range_intervals_distinguish_header_overshoot_from_body() {
-    use super::narrowing::direct_range_intervals;
+    use super::direct_range::direct_range_intervals;
 
     assert_eq!(
         direct_range_intervals(

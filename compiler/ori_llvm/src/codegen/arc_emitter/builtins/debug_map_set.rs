@@ -31,9 +31,9 @@ struct MapEntryLayout {
     collection_idx: Idx,
     key_llvm_ty: LLVMTypeId,
     val_llvm_ty: LLVMTypeId,
+    style: RenderStyle,
     key_narrowed: bool,
     val_narrowed: bool,
-    style: RenderStyle,
 }
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
@@ -128,9 +128,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             collection_idx,
             key_llvm_ty,
             val_llvm_ty,
+            style: context.style,
             key_narrowed,
             val_narrowed,
-            style: context.style,
         };
 
         let open = self.emit_literal_ori_str("{")?;

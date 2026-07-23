@@ -1,6 +1,7 @@
 //! Fixed-point value range analysis.
 
 mod analysis;
+mod direct_range;
 mod iteration;
 mod narrowing;
 mod terminator;
