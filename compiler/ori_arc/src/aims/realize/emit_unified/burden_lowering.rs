@@ -183,13 +183,14 @@ fn field_grain_repr_lowerable(func: &ArcFunction, var: ArcVarId) -> bool {
 /// [`field_grain_repr_lowerable`] RE-2 backstop so the census surfaces it).
 fn respell_field_grain_dec(func: &mut ArcFunction, block_idx: usize, instr_idx: usize) -> bool {
     let realized = match &func.blocks[block_idx].body[instr_idx] {
-        ArcInstr::BurdenDecPartial {
-            var,
-            skip_fields: _,
-        } if field_grain_repr_lowerable(func, *var) => ArcInstr::RcDecPartial {
-            var: *var,
-            skip_fields: Vec::new(),
-        },
+        ArcInstr::BurdenDecPartial { var, skip_fields }
+            if field_grain_repr_lowerable(func, *var) =>
+        {
+            ArcInstr::RcDecPartial {
+                var: *var,
+                skip_fields: skip_fields.clone(),
+            }
+        }
         ArcInstr::BurdenDecField { base, field } if field_grain_repr_lowerable(func, *base) => {
             ArcInstr::RcDecField {
                 base: *base,
