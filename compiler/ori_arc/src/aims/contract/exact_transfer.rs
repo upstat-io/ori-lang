@@ -1,6 +1,13 @@
 //! Exact aggregate-reconstruction ownership transfer carried through SCC
 //! convergence.
 
+#![expect(
+    clippy::disallowed_types,
+    reason = "Contract proofs are immutable, thread-safe compiler metadata; \
+        structural Arc sharing is the chosen direct carrier and is unrelated \
+        to runtime Ori value storage."
+)]
+
 use std::sync::Arc;
 
 /// How one projected field reaches its matching reconstruction position.
@@ -23,6 +30,12 @@ impl ExactFieldPath {
     pub fn new(path: impl IntoIterator<Item = u32>) -> Option<Self> {
         let path: Box<[u32]> = path.into_iter().collect();
         (!path.is_empty()).then_some(Self(path))
+    }
+
+    /// Construct a one-hop projection path.
+    #[must_use]
+    pub fn single(field: u32) -> Self {
+        Self(vec![field].into_boxed_slice())
     }
 
     /// Root-to-leaf field indices.
@@ -111,16 +124,23 @@ pub enum ExactTransferState {
 }
 
 impl ExactTransferState {
+    /// Wrap one immutable exact proof as a lattice atom.
+    #[must_use]
+    pub fn exact(transfer: ExactAggregateTransfer) -> Self {
+        Self::Exact(Arc::new(transfer))
+    }
+
     /// Least upper bound in the flat exact-transfer lattice.
     #[must_use]
     pub fn join(&self, other: &Self) -> Self {
         match (self, other) {
             (Self::Optimistic, state) | (state, Self::Optimistic) => state.clone(),
-            (Self::Unproven, _) | (_, Self::Unproven) => Self::Unproven,
             (Self::Exact(left), Self::Exact(right)) if left == right => {
                 Self::Exact(Arc::clone(left))
             }
-            (Self::Exact(_), Self::Exact(_)) => Self::Unproven,
+            (Self::Unproven, _) | (_, Self::Unproven) | (Self::Exact(_), Self::Exact(_)) => {
+                Self::Unproven
+            }
         }
     }
 }

@@ -353,6 +353,8 @@ fn analyze_scc_fixpoint(
 /// Worst-case fixpoint convergence bound for an SCC (IC-7 height-sum).
 fn compute_convergence_bound(scc_funcs: &[&ArcFunction]) -> usize {
     const PARAM_HEIGHT_WITH_MAY_ESCAPE: usize = 17;
+    // Optimistic -> Exact -> Unproven contributes two strict rises.
+    const EXACT_TRANSFER_HEIGHT: usize = 2;
     const RETURN_HEIGHT: usize = 8;
     const EFFECT_HEIGHT: usize = 5;
     const CONTEXT_HEIGHT: usize = 4;
@@ -362,7 +364,7 @@ fn compute_convergence_bound(scc_funcs: &[&ArcFunction]) -> usize {
         let member_height = f
             .params
             .len()
-            .checked_mul(PARAM_HEIGHT_WITH_MAY_ESCAPE)?
+            .checked_mul(PARAM_HEIGHT_WITH_MAY_ESCAPE + EXACT_TRANSFER_HEIGHT)?
             .checked_add(FIXED_HEIGHT)?;
         total.checked_add(member_height)
     });

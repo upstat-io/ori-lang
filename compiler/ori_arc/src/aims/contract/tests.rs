@@ -140,6 +140,97 @@ fn param_join_is_commutative() {
     assert_eq!(a.join(&b), b.join(&a));
 }
 
+fn exact_transfer(fields: &[(u32, ExactFieldTransferKind)]) -> ExactTransferState {
+    let fields = fields
+        .iter()
+        .map(|&(field, kind)| ExactFieldTransfer {
+            path: ExactFieldPath::single(field),
+            kind,
+        })
+        .collect();
+    let proof = ExactAggregateTransfer::new(
+        fields,
+        ResidualDisposition::FullyReconstructed,
+        CleanupAuthority::OrdinaryCleanupProven,
+    );
+    let Some(proof) = proof else {
+        panic!("fixture fields must be unique");
+    };
+    ExactTransferState::exact(proof)
+}
+
+#[test]
+fn exact_transfer_constructor_canonicalizes_field_order() {
+    let left = exact_transfer(&[
+        (2, ExactFieldTransferKind::EffectiveOwnedRelay),
+        (0, ExactFieldTransferKind::DirectMove),
+    ]);
+    let right = exact_transfer(&[
+        (0, ExactFieldTransferKind::DirectMove),
+        (2, ExactFieldTransferKind::EffectiveOwnedRelay),
+    ]);
+
+    assert_eq!(left, right);
+}
+
+#[test]
+fn exact_transfer_constructor_rejects_duplicate_field_credit() {
+    let duplicate = vec![
+        ExactFieldTransfer {
+            path: ExactFieldPath::single(1),
+            kind: ExactFieldTransferKind::DirectMove,
+        },
+        ExactFieldTransfer {
+            path: ExactFieldPath::single(1),
+            kind: ExactFieldTransferKind::EffectiveOwnedRelay,
+        },
+    ];
+
+    assert!(ExactAggregateTransfer::new(
+        duplicate,
+        ResidualDisposition::FullyReconstructed,
+        CleanupAuthority::OrdinaryCleanupProven,
+    )
+    .is_none());
+}
+
+#[test]
+fn exact_transfer_join_is_flat_associative_and_idempotent() {
+    let a = exact_transfer(&[(0, ExactFieldTransferKind::DirectMove)]);
+    let same_a = exact_transfer(&[(0, ExactFieldTransferKind::DirectMove)]);
+    let b = exact_transfer(&[(1, ExactFieldTransferKind::EffectiveOwnedRelay)]);
+
+    assert_eq!(a.join(&same_a), a);
+    assert_eq!(a.join(&b), ExactTransferState::Unproven);
+    assert_eq!(
+        a.join(&same_a).join(&b),
+        a.join(&same_a.join(&b)),
+        "a = same_a != b must reach Unproven under either grouping"
+    );
+    assert_eq!(
+        ExactTransferState::Optimistic.join(&a),
+        a.join(&ExactTransferState::Optimistic)
+    );
+}
+
+#[test]
+fn param_join_carries_exact_transfer_lattice() {
+    let exact = exact_transfer(&[(0, ExactFieldTransferKind::DirectMove)]);
+    let mut left = ParamContract::OPTIMISTIC;
+    left.exact_transfer = exact.clone();
+    let mut right = ParamContract::OPTIMISTIC;
+    right.exact_transfer = exact;
+
+    assert!(matches!(
+        left.join(&right).exact_transfer,
+        ExactTransferState::Exact(_)
+    ));
+    assert_eq!(
+        left.join(&ParamContract::CONSERVATIVE).exact_transfer,
+        ExactTransferState::Unproven
+    );
+}
+
 // ReturnContract join
 
 #[test]
