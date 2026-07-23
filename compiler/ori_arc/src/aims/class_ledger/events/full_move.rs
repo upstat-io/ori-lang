@@ -93,15 +93,8 @@ fn full_move_arm_in_block(
             continue;
         };
         if !projections.iter().any(|&(pidx, pdst, _, _)| {
-            projection_carrier(
-                blk,
-                partition,
-                contracts,
-                interner,
-                (pidx, pdst),
-                (i, args),
-            )
-            .is_some()
+            projection_carrier(blk, partition, contracts, interner, (pidx, pdst), (i, args))
+                .is_some()
         }) {
             continue;
         }
