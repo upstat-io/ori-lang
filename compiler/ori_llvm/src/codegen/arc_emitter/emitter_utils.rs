@@ -304,7 +304,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             &format!("{name}.sret"),
             sret_type,
         );
-        let mut full_args = Vec::with_capacity(args.len() + 1);
+        let mut full_args = Vec::with_capacity(args.len().saturating_add(1));
         full_args.push(sret_ptr);
         full_args.extend_from_slice(args);
         self.emit_rt_call(callee, &full_args, name);

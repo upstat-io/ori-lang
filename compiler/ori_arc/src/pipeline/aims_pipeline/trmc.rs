@@ -72,7 +72,7 @@ pub(crate) fn normalize_with_trmc(
             }
             did_trmc_transform = true;
             trmc_iterations += 1;
-            debug_assert!(
+            assert!(
                 trmc_iterations <= 2,
                 "TRMC rewrite loop exceeded 2 iterations for {:?} — \
                  idempotency invariant violated",
