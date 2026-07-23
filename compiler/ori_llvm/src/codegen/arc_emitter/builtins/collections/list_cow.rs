@@ -35,7 +35,10 @@ enum IndexedListCowOperation {
 
 impl YieldReceiverStorage {
     const fn is_stack(self) -> bool {
-        matches!(self, Self::ManagedStack | Self::CompactStack)
+        match self {
+            Self::Runtime => false,
+            Self::ManagedStack | Self::CompactStack => true,
+        }
     }
 }
 
@@ -349,5 +352,17 @@ const fn cow_mode_code(mode: CowMode) -> i32 {
         CowMode::Dynamic => 0,
         CowMode::StaticUnique => 1,
         CowMode::StaticShared => 2,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::YieldReceiverStorage;
+
+    #[test]
+    fn yield_receiver_storage_stack_property_covers_every_mode() {
+        assert!(!YieldReceiverStorage::Runtime.is_stack());
+        assert!(YieldReceiverStorage::ManagedStack.is_stack());
+        assert!(YieldReceiverStorage::CompactStack.is_stack());
     }
 }

@@ -163,13 +163,19 @@ impl CompiledAllocationMechanism {
     /// Whether the allocation is emitted in the owning stack frame.
     #[must_use]
     pub const fn is_stack(self) -> bool {
-        matches!(self, Self::ManagedStack { .. } | Self::CompactStack { .. })
+        match self {
+            Self::RuntimeHeap { .. } => false,
+            Self::ManagedStack { .. } | Self::CompactStack { .. } => true,
+        }
     }
 
     /// Whether storage retains the runtime-compatible header.
     #[must_use]
     pub const fn requires_runtime_header(self) -> bool {
-        !matches!(self, Self::CompactStack { .. })
+        match self {
+            Self::RuntimeHeap { .. } | Self::ManagedStack { .. } => true,
+            Self::CompactStack { .. } => false,
+        }
     }
 }
 

@@ -13,6 +13,22 @@ fn value_range_is_interval_lattice() {
     );
 }
 
+#[test]
+fn compiled_allocation_mechanism_properties_cover_every_mode() {
+    let runtime = crate::CompiledAllocationMechanism::RuntimeHeap {
+        extent: YieldExtent::Unknown,
+    };
+    let managed = crate::CompiledAllocationMechanism::ManagedStack { capacity: 4 };
+    let compact = crate::CompiledAllocationMechanism::CompactStack { capacity: 4 };
+
+    assert!(!runtime.is_stack());
+    assert!(runtime.requires_runtime_header());
+    assert!(managed.is_stack());
+    assert!(managed.requires_runtime_header());
+    assert!(compact.is_stack());
+    assert!(!compact.requires_runtime_header());
+}
+
 fn yield_fact(
     site: u32,
     builder: u32,

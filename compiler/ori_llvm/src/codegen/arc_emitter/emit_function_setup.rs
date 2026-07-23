@@ -23,7 +23,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         used_fields: &FxHashMap<ArcVarId, Option<FxHashSet<u32>>>,
     ) {
         // INVARIANT: Non-capturing closure ABIs reserve a leading environment pointer.
-        let has_sret = matches!(abi.return_abi.passing, ReturnPassing::Sret { .. });
+        let has_sret = match abi.return_abi.passing {
+            ReturnPassing::Sret { .. } => true,
+            ReturnPassing::Direct | ReturnPassing::Void => false,
+        };
         let sret_offset = u32::from(has_sret);
         // INVARIANT: Sret forwarding requires identical physical return types.
         if has_sret {

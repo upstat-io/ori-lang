@@ -45,10 +45,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if !self.ctx.executable_facts_bound {
             return true;
         }
-        matches!(
-            self.ctx.executable_call_targets.get(&(func.name, dst)),
-            Some(ori_repr::executable::CallableTarget::Runtime(_))
-        )
+        match self.ctx.executable_call_targets.get(&(func.name, dst)) {
+            Some(ori_repr::executable::CallableTarget::Runtime(_)) => true,
+            Some(
+                ori_repr::executable::CallableTarget::Function(_)
+                | ori_repr::executable::CallableTarget::External(_),
+            )
+            | None => false,
+        }
     }
 
     /// Explain an unresolved direct call using the closed target identity.
