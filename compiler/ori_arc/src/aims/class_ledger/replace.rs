@@ -33,7 +33,7 @@
 
 use ori_ir::Name;
 use ori_types::TypeRegistry;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::contract::MemoryContract;
 use crate::aims::intraprocedural::AimsStateMap;
@@ -43,7 +43,7 @@ use crate::lower::burden_lookup::type_has_user_drop;
 use super::apply::apply_plan;
 use super::emit::{AliasFlowGraph, ClassOutcome, PlannedOp};
 use super::placement::ops_placeable;
-use super::{analyze_from_state_map, ClassLedgerAnalysis};
+use super::ClassLedgerAnalysis;
 
 /// Step-4b emission mode for one function.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,7 +158,34 @@ pub(crate) fn attempt_replacement(
     interner: &ori_ir::StringInterner,
     allow_replacement: bool,
 ) -> ReplacementOutcome {
-    let analysis = analyze_from_state_map(func, state_map, contracts, type_registry, interner);
+    attempt_replacement_with_exact(
+        func,
+        state_map,
+        contracts,
+        &FxHashSet::default(),
+        type_registry,
+        interner,
+        allow_replacement,
+    )
+}
+
+pub(crate) fn attempt_replacement_with_exact(
+    func: &mut ArcFunction,
+    state_map: &AimsStateMap,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    exact_callables: &FxHashSet<Name>,
+    type_registry: &TypeRegistry,
+    interner: &ori_ir::StringInterner,
+    allow_replacement: bool,
+) -> ReplacementOutcome {
+    let analysis = super::analysis::analyze_from_state_map_with_exact(
+        func,
+        state_map,
+        contracts,
+        exact_callables,
+        type_registry,
+        interner,
+    );
     let ops = planned_ops(&analysis);
     if let Some(reason) = gate_rejection(
         func,

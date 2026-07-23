@@ -92,6 +92,7 @@ fn effective_consuming_provenance_requires_specific_authority() {
         interner.intern("push"),
         0,
         crate::ir::ArgOwnership::Owned,
+        false,
         &sigs,
         &interner,
     ));
@@ -99,6 +100,7 @@ fn effective_consuming_provenance_requires_specific_authority() {
         interner.intern("push"),
         0,
         crate::ir::ArgOwnership::Borrowed,
+        false,
         &sigs,
         &interner,
     ));
@@ -106,6 +108,7 @@ fn effective_consuming_provenance_requires_specific_authority() {
         interner.intern("remove"),
         0,
         crate::ir::ArgOwnership::Owned,
+        false,
         &sigs,
         &interner,
     ));
@@ -118,6 +121,7 @@ fn effective_consuming_provenance_requires_specific_authority() {
         registered_borrowed,
         0,
         crate::ir::ArgOwnership::Owned,
+        false,
         &sigs,
         &interner,
     ));

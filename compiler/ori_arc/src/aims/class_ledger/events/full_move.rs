@@ -51,11 +51,35 @@ pub(crate) fn detect_full_move_arms(
     contracts: &rustc_hash::FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
     interner: &ori_ir::StringInterner,
 ) -> Vec<FullMoveArm> {
+    detect_full_move_arms_with_exact(
+        func,
+        partition,
+        type_registry,
+        contracts,
+        &FxHashSet::default(),
+        interner,
+    )
+}
+
+pub(crate) fn detect_full_move_arms_with_exact(
+    func: &ArcFunction,
+    partition: &mut BirthSitePartition,
+    type_registry: &ori_types::TypeRegistry,
+    contracts: &rustc_hash::FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
+    exact_callables: &FxHashSet<ori_ir::Name>,
+    interner: &ori_ir::StringInterner,
+) -> Vec<FullMoveArm> {
     let mut arms = Vec::new();
     for block in 0..func.blocks.len() {
-        if let Some(arm) =
-            full_move_arm_in_block(func, partition, type_registry, contracts, interner, block)
-        {
+        if let Some(arm) = full_move_arm_in_block(
+            func,
+            partition,
+            type_registry,
+            contracts,
+            exact_callables,
+            interner,
+            block,
+        ) {
             arms.push(arm);
         }
     }
@@ -69,6 +93,7 @@ fn full_move_arm_in_block(
     partition: &mut BirthSitePartition,
     type_registry: &ori_types::TypeRegistry,
     contracts: &rustc_hash::FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
+    exact_callables: &FxHashSet<ori_ir::Name>,
     interner: &ori_ir::StringInterner,
     block: usize,
 ) -> Option<FullMoveArm> {
@@ -93,8 +118,16 @@ fn full_move_arm_in_block(
             continue;
         };
         if !projections.iter().any(|&(pidx, pdst, _, _)| {
-            projection_carrier(blk, partition, contracts, interner, (pidx, pdst), (i, args))
-                .is_some()
+            projection_carrier(
+                blk,
+                partition,
+                contracts,
+                exact_callables,
+                interner,
+                (pidx, pdst),
+                (i, args),
+            )
+            .is_some()
         }) {
             continue;
         }
@@ -123,6 +156,7 @@ fn full_move_arm_in_block(
                 blk,
                 partition,
                 contracts,
+                exact_callables,
                 interner,
                 (pidx, pdst),
                 (cidx, construct_args),
@@ -189,6 +223,7 @@ fn projection_carrier(
     block: &crate::ir::ArcBlock,
     partition: &mut BirthSitePartition,
     contracts: &rustc_hash::FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
+    exact_callables: &FxHashSet<ori_ir::Name>,
     interner: &ori_ir::StringInterner,
     projection: (usize, ArcVarId),
     construct: (usize, &[ArcVarId]),
@@ -248,6 +283,7 @@ fn projection_carrier(
                                 *func,
                                 position,
                                 ArgOwnership::Owned,
+                                exact_callables.contains(func),
                                 contracts,
                                 interner,
                             ))

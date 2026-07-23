@@ -20,6 +20,7 @@ pub(super) fn find_exact_aggregate_transfer_params(
     sigs: &FxHashMap<Name, MemoryContract>,
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
     classifier: &dyn ArcClassification,
+    exact_callables: &FxHashSet<Name>,
     interner: &ori_ir::StringInterner,
 ) -> FxHashSet<usize> {
     let mut transferred = FxHashSet::default();
@@ -46,6 +47,7 @@ pub(super) fn find_exact_aggregate_transfer_params(
                 construct_args,
                 sigs,
                 alias_to_param,
+                exact_callables,
                 interner,
             ) else {
                 continue;
@@ -82,6 +84,7 @@ fn exact_reconstruction(
     construct_args: &[ArcVarId],
     sigs: &FxHashMap<Name, MemoryContract>,
     alias_to_param: &FxHashMap<ArcVarId, FxHashSet<usize>>,
+    exact_callables: &FxHashSet<Name>,
     interner: &ori_ir::StringInterner,
 ) -> Option<(usize, FxHashSet<ArcVarId>)> {
     let mut common_param = None;
@@ -94,6 +97,7 @@ fn exact_reconstruction(
             carrier,
             expected_field,
             sigs,
+            exact_callables,
             interner,
         )?;
         let ArcInstr::Project { value, .. } = &block.body[projection.index] else {
@@ -129,6 +133,7 @@ fn projection_for_carrier(
     carrier: ArcVarId,
     expected_field: u32,
     sigs: &FxHashMap<Name, MemoryContract>,
+    exact_callables: &FxHashSet<Name>,
     interner: &ori_ir::StringInterner,
 ) -> Option<Projection> {
     if let Some((index, dst)) = direct_projection(block, construct_index, carrier, expected_field) {
@@ -159,7 +164,12 @@ fn projection_for_carrier(
         .filter(|&(position, _)| {
             arg_ownership.get(position).is_some_and(|&ownership| {
                 crate::aims::builtins::effective_consuming_provenance(
-                    *callee, position, ownership, sigs, interner,
+                    *callee,
+                    position,
+                    ownership,
+                    exact_callables.contains(callee),
+                    sigs,
+                    interner,
                 )
             })
         })

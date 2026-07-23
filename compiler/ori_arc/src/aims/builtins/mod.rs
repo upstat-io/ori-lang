@@ -93,6 +93,7 @@ pub(crate) fn effective_consuming_provenance(
     callee: Name,
     position: usize,
     ownership: crate::ir::ArgOwnership,
+    exact_callable: bool,
     contracts: &FxHashMap<Name, MemoryContract>,
     interner: &StringInterner,
 ) -> bool {
@@ -106,7 +107,7 @@ pub(crate) fn effective_consuming_provenance(
     {
         return true;
     }
-    if position != 0 {
+    if exact_callable || position != 0 {
         return false;
     }
     crate::borrow::persistent_list_runtime_methods().any(|method| {

@@ -613,8 +613,30 @@ fn registered_receiver_only_relay_transfers_aggregate_boundary() {
 
 #[test]
 fn registered_borrowed_relay_ignores_hardcoded_owned_annotation() {
+    let contract = borrowed_relay_reconstruction_contract("registered_borrowed_relay", false);
+
+    assert_eq!(contract.params[0].access, AccessClass::Borrowed);
+    assert_eq!(
+        contract.params[0].callee_owner_demand(),
+        CalleeOwnerDemand::Borrow
+    );
+}
+
+#[test]
+fn exact_push_name_collision_ignores_hardcoded_owned_annotation() {
+    let contract = borrowed_relay_reconstruction_contract("push", true);
+
+    assert_eq!(contract.params[0].access, AccessClass::Borrowed);
+    assert_eq!(
+        contract.params[0].callee_owner_demand(),
+        CalleeOwnerDemand::Borrow
+    );
+}
+
+fn borrowed_relay_reconstruction_contract(relay_spelling: &str, exact: bool) -> MemoryContract {
     let interner = ori_ir::StringInterner::new();
-    let relay = interner.intern("registered_borrowed_relay");
+    let relay = interner.intern(relay_spelling);
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
     let mut sigs = FxHashMap::default();
     sigs.insert(relay, MemoryContract::all_borrowed(2, FipContract::Never));
     let func = ArcFunction {
@@ -668,21 +690,20 @@ fn registered_borrowed_relay_ignores_hardcoded_owned_annotation() {
     };
     let classifier = TestClassifier::all_ref(4).with_scalar(2);
     let state_map = analyze_function(&func, &classifier, &sigs, &[], Vec::new());
-    let contract = extract_contract(
-        &func,
-        &state_map,
-        &classifier,
-        &sigs,
-        &FxHashSet::default(),
-        &[],
-        &interner,
-    );
-
-    assert_eq!(contract.params[0].access, AccessClass::Borrowed);
-    assert_eq!(
-        contract.params[0].callee_owner_demand(),
-        CalleeOwnerDemand::Borrow
-    );
+    let exact_callables = exact
+        .then(|| FxHashSet::from_iter([relay]))
+        .unwrap_or_default();
+    extract_contract_with_call_ownership(&ContractExtractionInput {
+        func: &func,
+        state_map: &state_map,
+        classifier: &classifier,
+        sigs: &sigs,
+        scc_peers: &FxHashSet::default(),
+        context_regions: &[],
+        interner: &interner,
+        builtins: &builtins,
+        exact_callables: &exact_callables,
+    })
 }
 
 #[test]

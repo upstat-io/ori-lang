@@ -178,10 +178,11 @@ pub(crate) fn run_aims_pipeline(
     );
 
     // INVARIANT: Class-ledger planning is the sole producer of ownership events.
-    crate::aims::class_ledger::apply_class_ledger_replacement(
+    crate::aims::class_ledger::apply_class_ledger_replacement_with_exact(
         func,
         &state_map,
         config.contracts,
+        config.exact_callables,
         config.type_registry,
         config.interner,
         burden_emission::burden_ops_enabled(),

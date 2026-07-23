@@ -23,7 +23,7 @@ use crate::graph::compute_predecessors;
 use crate::ir::ArcFunction;
 
 use super::emit::ClassOutcome;
-use super::replace::{attempt_replacement, EmissionMode, FallbackReason, ReplacementOutcome};
+use super::replace::{EmissionMode, FallbackReason, ReplacementOutcome};
 use super::verify::{ClassVerdict, ReadinessSummary};
 use super::{copy_out, emit, events, hazard, replace, verify};
 
@@ -77,6 +77,24 @@ pub(crate) fn analyze_from_state_map(
     type_registry: &ori_types::TypeRegistry,
     interner: &ori_ir::StringInterner,
 ) -> ClassLedgerAnalysis {
+    analyze_from_state_map_with_exact(
+        func,
+        state_map,
+        contracts,
+        &FxHashSet::default(),
+        type_registry,
+        interner,
+    )
+}
+
+pub(crate) fn analyze_from_state_map_with_exact(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    exact_callables: &FxHashSet<Name>,
+    type_registry: &ori_types::TypeRegistry,
+    interner: &ori_ir::StringInterner,
+) -> ClassLedgerAnalysis {
     let boundary_facts: FxHashMap<Name, BoundaryFacts> = contracts
         .iter()
         .map(|(name, contract)| (*name, BoundaryFacts::from_contract(contract)))
@@ -114,11 +132,12 @@ pub(crate) fn analyze_from_state_map(
             interner,
             user_drop_admitted,
         );
-    let mut analysis = analyze_class_ledger(
+    let mut analysis = analyze_class_ledger_with_exact(
         func,
         &classification,
         &mut partition,
         contracts,
+        exact_callables,
         type_registry,
         interner,
     );
@@ -285,10 +304,36 @@ pub(crate) fn analyze_class_ledger(
     type_registry: &ori_types::TypeRegistry,
     interner: &ori_ir::StringInterner,
 ) -> ClassLedgerAnalysis {
+    analyze_class_ledger_with_exact(
+        func,
+        classification,
+        partition,
+        contracts,
+        &FxHashSet::default(),
+        type_registry,
+        interner,
+    )
+}
+
+fn analyze_class_ledger_with_exact(
+    func: &ArcFunction,
+    classification: &LedgerClassification,
+    partition: &mut BirthSitePartition,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    exact_callables: &FxHashSet<Name>,
+    type_registry: &ori_types::TypeRegistry,
+    interner: &ori_ir::StringInterner,
+) -> ClassLedgerAnalysis {
     let preds = compute_predecessors(func);
     let regions = emit::CycleRegions::compute(func);
-    let full_move_arms =
-        events::detect_full_move_arms(func, partition, type_registry, contracts, interner);
+    let full_move_arms = events::detect_full_move_arms_with_exact(
+        func,
+        partition,
+        type_registry,
+        contracts,
+        exact_callables,
+        interner,
+    );
     let InitialClassPlans {
         mut classes,
         mut verdicts,
@@ -360,10 +405,31 @@ pub(crate) fn apply_class_ledger_replacement(
     interner: &ori_ir::StringInterner,
     burden_ops_enabled: bool,
 ) -> bool {
-    let outcome = attempt_replacement(
+    apply_class_ledger_replacement_with_exact(
         func,
         state_map,
         contracts,
+        &FxHashSet::default(),
+        type_registry,
+        interner,
+        burden_ops_enabled,
+    )
+}
+
+pub(crate) fn apply_class_ledger_replacement_with_exact(
+    func: &mut ArcFunction,
+    state_map: &AimsStateMap,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    exact_callables: &FxHashSet<Name>,
+    type_registry: &ori_types::TypeRegistry,
+    interner: &ori_ir::StringInterner,
+    burden_ops_enabled: bool,
+) -> bool {
+    let outcome = replace::attempt_replacement_with_exact(
+        func,
+        state_map,
+        contracts,
+        exact_callables,
         type_registry,
         interner,
         burden_ops_enabled,
