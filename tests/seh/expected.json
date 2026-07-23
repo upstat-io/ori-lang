@@ -1,0 +1,35 @@
+{
+  "description": "Expected native results for the @main entry-point wrapper witnesses under the SEH (x86_64-pc-windows-msvc) exception-handling model. A conforming compiler must produce every 'cured' row. The 'defect_signature' documents what the historical unfunded-ownership regression produced, so a red arm is recognizable rather than merely 'nonzero'.",
+  "run_args": ["alpha", "beta"],
+  "defect_signature": {
+    "exit_hex": "0xC0000374",
+    "meaning": "STATUS_HEAP_CORRUPTION - the allocator detected freed-block metadata corruption (a double free). Any witness producing this is a regression.",
+    "affected_witnesses": ["w1_normal_iter", "w2_mid_iter_panic", "w3_preloop_panic"]
+  },
+  "witnesses": [
+    {
+      "name": "w1_normal_iter",
+      "seh_exit_site": "seh_success",
+      "note": "args is iterator-consumed; the wrapper transfers ownership and must not also clean up on the normal exit.",
+      "expect": { "exit_signed": 0, "exit_hex": "0x00000000", "stdout": "alpha\nbeta\n", "stderr": "" }
+    },
+    {
+      "name": "w2_mid_iter_panic",
+      "seh_exit_site": "seh_caught",
+      "note": "Panic raised after iteration begins; the caught path must not double-free the transferred buffer.",
+      "expect": { "exit_signed": 1, "exit_hex": "0x00000001", "stdout": "", "stderr": "ori panic: alpha\n" }
+    },
+    {
+      "name": "w3_preloop_panic",
+      "seh_exit_site": "seh_caught",
+      "note": "Panic raised before iteration begins; exercises the caught path with the loop never entered.",
+      "expect": { "exit_signed": 1, "exit_hex": "0x00000001", "stdout": "", "stderr": "ori panic: before-loop\n" }
+    },
+    {
+      "name": "w4_borrowed_control",
+      "seh_exit_site": "owning",
+      "note": "Borrowed control: the wrapper retains ownership and frees exactly once. The exit code is the returned value (args.len()), not a fault - it must track the argument count.",
+      "expect": { "exit_signed": 2, "exit_hex": "0x00000002", "stdout": "", "stderr": "" }
+    }
+  ]
+}

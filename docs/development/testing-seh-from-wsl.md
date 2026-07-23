@@ -99,8 +99,12 @@ stdout/stderr; a memory-management defect surfaces as a `0xCxxxxxxx` NT status.
 
 ## Witness programs
 
-A minimal witness set that exercises both SEH exit sites of the `@main`
-entry-point wrapper:
+A runnable kit lives at `tests/seh/` — the four witness sources, an
+`expected.json` contract, a recorder that persists exit codes and streams as
+JSONL, and `verify-results.py` which checks a recording against the contract and
+fails closed. See `tests/seh/README.md`.
+
+The witnesses exercise both SEH exit sites of the `@main` entry-point wrapper:
 
 ```ori
 // normal completion — exercises the SEH success exit
