@@ -2,12 +2,12 @@
 //!
 //! Panic trampoline generation lives in [`super::panic_trampoline`].
 
-use ori_arc::aims::contract::{CalleeOwnerDemand, ParamContract};
+use ori_arc::aims::contract::CalleeOwnerDemand;
 use ori_ir::Name;
 use ori_types::{FunctionSig, Idx};
 use tracing::debug;
 
-use super::entry_ownership::{dump_enabled, EntryOwnershipReport, EntryParamSeam};
+use super::entry_ownership::{dump_enabled, CleanupSite, EntryOwnershipReport, EntryParamSeam};
 use super::FunctionCompiler;
 use crate::codegen::abi::{FunctionAbi, ParamPassing, ReturnPassing};
 use crate::codegen::eh_model::EhModel;
@@ -34,6 +34,16 @@ pub(super) struct MainArgsCleanup {
     pub(super) list_ty: crate::codegen::value_id::LLVMTypeId,
     /// How the param is passed to `_ori_main`, needed by SEH thunk.
     pub(super) param_passing: ParamPassing,
+}
+
+impl MainArgsCleanup {
+    /// Query the shared entry-ownership policy for one physical cleanup site.
+    ///
+    /// Naming the site here binds every real emitter to the same exhaustive
+    /// table used by the ownership diagnostic.
+    pub(super) fn emits_at(&self, site: CleanupSite) -> bool {
+        site.emits_cleanup(self.wrapper_owns)
+    }
 }
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
@@ -303,17 +313,16 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // consume it. Read that from the callee's frozen owner demand — the
         // same fact the whole pipeline uses — never the ABI passing mode: a
         // `Reference` param the callee iter-consumes transfers the credit
-        // inward, so an ABI-derived `owns=true` double-frees. Fall back to the
-        // ABI heuristic only when no contract was frozen for this entry point.
-        let wrapper_owns = self
+        // inward, so an ABI-derived `owns=true` double-frees.
+        let owner_demand = self
             .aims_contracts
             .get(&main_name)
             .and_then(|contract| contract.params.first())
-            .map(ParamContract::callee_owner_demand)
-            .map_or_else(
-                || matches!(param_passing, Some(ParamPassing::Reference)),
-                |demand| matches!(demand, CalleeOwnerDemand::Borrow),
-            );
+            .unwrap_or_else(|| {
+                panic!("validated @main(args) is missing its frozen AIMS parameter contract")
+            })
+            .callee_owner_demand();
+        let wrapper_owns = matches!(owner_demand, CalleeOwnerDemand::Borrow);
 
         // Check callee's param ABI: Indirect/Reference means _ori_main
         // expects a pointer, not the struct value directly.
@@ -398,7 +407,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             _ => self.builder.const_i32(0),
         };
         if let Some(cleanup) = args_cleanup {
-            if cleanup.wrapper_owns {
+            if cleanup.emits_at(CleanupSite::ItaniumInvokeNormal) {
                 self.builder
                     .call(cleanup.cleanup_fn, &[cleanup.data, cleanup.len], "");
             }
@@ -420,7 +429,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // released the buffer before unwinding, so releasing it here too would
         // double-free.
         if let Some(cleanup) = args_cleanup {
-            if cleanup.wrapper_owns {
+            if cleanup.emits_at(CleanupSite::ItaniumCatch) {
                 self.builder
                     .call(cleanup.cleanup_fn, &[cleanup.data, cleanup.len], "");
             }
@@ -458,7 +467,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         };
 
         if let Some(cleanup) = args_cleanup {
-            if cleanup.wrapper_owns {
+            if cleanup.emits_at(CleanupSite::ItaniumDirectNormal) {
                 self.builder
                     .call(cleanup.cleanup_fn, &[cleanup.data, cleanup.len], "");
             }

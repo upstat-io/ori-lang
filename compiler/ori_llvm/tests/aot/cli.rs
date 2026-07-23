@@ -1708,15 +1708,13 @@ fn test_main_args_owned_path_valgrind_clean() {
     }
 }
 
-// Semantic pin: when @main takes args via owned Indirect ABI, the wrapper
-// must NOT call ori_args_cleanup on the normal return path. It must still
-// call it on the catch (unwind) path, because the callee's ARC dec hasn't
-// run if it unwound.
+// Semantic pin: when @main consumes args, the wrapper must NOT call
+// ori_args_cleanup on either exit. The callee owns the boundary credit and
+// releases it on both normal return and unwind.
 #[test]
 fn test_main_args_owned_wrapper_ir_no_normal_cleanup() {
-    // This program uses args in an owned way (passed to id()).
-    // The wrapper should handle unwind but ori_args_cleanup only
-    // appears ONCE (catch/caught path), not twice.
+    // This program uses args in an owned way (passed to id()). The wrapper
+    // handles unwind but emits no argv cleanup on either exit.
     let ir = compile_and_capture_ir(include_str!(
         "fixtures/cli/main_args_owned_wrapper_ir_no_normal_cleanup.ori"
     ));

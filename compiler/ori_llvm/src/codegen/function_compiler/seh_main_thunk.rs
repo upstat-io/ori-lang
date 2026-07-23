@@ -8,6 +8,7 @@
 //! site, mirroring the [`super::super::arc_emitter::catch_thunk`] pattern
 //! used by `catch(expr:)`.
 
+use super::entry_ownership::CleanupSite;
 use super::entry_point::MainArgsCleanup;
 use super::FunctionCompiler;
 use crate::codegen::abi::{ParamPassing, ReturnPassing};
@@ -85,11 +86,13 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         i32_ty: crate::codegen::value_id::LLVMTypeId,
         args_cleanup: &MainArgsCleanup,
     ) {
+        let emit_success_cleanup = args_cleanup.emits_at(CleanupSite::SehSuccess);
+        let emit_caught_cleanup = args_cleanup.emits_at(CleanupSite::SehCaught);
         let MainArgsCleanup {
             cleanup_fn,
             data,
             len,
-            wrapper_owns,
+            wrapper_owns: _,
             list_ty,
             param_passing,
         } = *args_cleanup;
@@ -157,7 +160,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         } else {
             self.builder.const_i32(0)
         };
-        if wrapper_owns {
+        if emit_success_cleanup {
             self.builder.call(cleanup_fn, &[data, len], "");
         }
         self.emit_leak_check_and_ret(main_exit_code);
@@ -168,7 +171,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         self.builder.position_at_end(caught_bb);
         let report_panic = self.builder.runtime_fn("ori_report_uncaught_panic");
         self.builder.call(report_panic, &[], "");
-        if wrapper_owns {
+        if emit_caught_cleanup {
             self.builder.call(cleanup_fn, &[data, len], "");
         }
         let panic_exit = self.builder.const_i32(1);
