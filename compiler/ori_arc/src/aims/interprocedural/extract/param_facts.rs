@@ -41,6 +41,10 @@ pub(super) struct ParamFacts {
 }
 
 /// Detect all structural facts for one function's parameters.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "fact extraction consumes the complete frozen analysis authority"
+)]
 pub(super) fn detect_param_facts(
     func: &ArcFunction,
     sigs: &FxHashMap<Name, MemoryContract>,

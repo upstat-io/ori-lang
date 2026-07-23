@@ -171,6 +171,10 @@ pub(crate) fn attempt_replacement(
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "replacement consumes frozen contracts plus their local proof witnesses"
+)]
 pub(crate) fn attempt_replacement_with_exact(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,

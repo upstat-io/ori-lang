@@ -271,6 +271,10 @@ fn trace_contract_summary(
 }
 
 /// Analyze a non-recursive function in a single pass.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "SCC extraction consumes the complete frozen program authority"
+)]
 fn analyze_scc_single(
     func: &ArcFunction,
     classifier: &dyn ArcClassification,
@@ -311,6 +315,10 @@ fn analyze_scc_single(
 /// conservative, return uniqueness can only weaken). Each iteration must
 /// promote at least one dimension of one parameter, guaranteeing
 /// termination in bounded iterations.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "SCC extraction consumes the complete frozen program authority"
+)]
 fn analyze_scc_fixpoint(
     scc_funcs: &[&ArcFunction],
     classifier: &dyn ArcClassification,

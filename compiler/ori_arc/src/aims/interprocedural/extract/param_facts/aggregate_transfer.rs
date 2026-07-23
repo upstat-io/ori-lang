@@ -12,8 +12,6 @@
 //! through one linear relay. Cleanup authority is established here, before the
 //! contract enters SCC convergence.
 
-use std::sync::Arc;
-
 use ori_ir::Name;
 use ori_types::TypeRegistry;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -92,93 +90,19 @@ pub(super) fn find_exact_aggregate_transfers(
         };
     }
 
-    let mut candidates = Vec::new();
-    for block in &func.blocks {
-        let mut block_candidates = Vec::new();
-        for (construct_index, instr) in block.body.iter().enumerate() {
-            let ArcInstr::Construct {
-                dst,
-                ty,
-                ctor,
-                args: construct_args,
-            } = instr
-            else {
-                continue;
-            };
-            if construct_args.is_empty() || matches!(ctor, CtorKind::EnumVariant { .. }) {
-                continue;
-            }
-            let Some(routes) = exact_reconstruction(
-                block,
-                construct_index,
-                construct_args,
-                sigs,
-                exact_callables,
-                interner,
-            ) else {
-                continue;
-            };
-            let Some(source_ty) = routes
-                .first()
-                .and_then(|route| func.var_types.get(route.source.index()))
-                .copied()
-            else {
-                continue;
-            };
-            if source_ty != *ty
-                || routes.iter().any(|route| {
-                    func.var_types.get(route.source.index()).copied() != Some(source_ty)
-                })
-                || !source_uses_confined_to_routes(block, &routes)
-                || !cleanup_is_supported(func, source_ty, &routes, type_registry)
-            {
-                continue;
-            }
-
-            let managed_fields: Vec<ExactFieldTransfer> = routes
-                .iter()
-                .filter_map(|route| {
-                    let member_ty = *func.var_types.get(route.projection_dst.index())?;
-                    (!classifier.is_scalar(member_ty)).then(|| ExactFieldTransfer {
-                        path: route.path.clone(),
-                        kind: route.kind,
-                    })
-                })
-                .collect();
-            let Some(proof) = ExactAggregateTransfer::new(
-                managed_fields,
-                ResidualDisposition::FullyReconstructed,
-                CleanupAuthority::OrdinaryCleanupProven,
-            ) else {
-                continue;
-            };
-            let param = common_parameter(&routes, alias_to_param);
-            block_candidates.push((
-                Arc::new(proof),
-                ExactAggregateTransferWitness {
-                    param,
-                    block: block.id,
-                    construct_dst: *dst,
-                    fields: routes
-                        .into_iter()
-                        .map(|route| ExactFieldTransferWitness {
-                            path: route.path,
-                            source: route.source,
-                            projection_dst: route.projection_dst,
-                            carrier: route.carrier,
-                            kind: route.kind,
-                        })
-                        .collect(),
-                },
-            ));
-        }
-
-        // The ledger books at most one aggregate move per block. Multiple
-        // candidate reconstructions make the local residual ambiguous.
-        if block_candidates.len() == 1 {
-            candidates.extend(block_candidates);
-        }
-    }
+    let authority = ExactTransferAuthority {
+        sigs,
+        alias_to_param,
+        classifier,
+        exact_callables,
+        interner,
+        type_registry,
+    };
+    let candidates: Vec<ExactTransferCandidate> = func
+        .blocks
+        .iter()
+        .filter_map(|block| recognize_block_candidate(func, block, &authority))
+        .collect();
 
     let mut states = FxHashMap::default();
     let mut consumed_params = FxHashSet::default();
@@ -190,7 +114,7 @@ pub(super) fn find_exact_aggregate_transfers(
             continue;
         }
         consumed_params.insert(param);
-        let state = ExactTransferState::Exact(Arc::clone(proof));
+        let state = ExactTransferState::exact(proof.clone());
         states
             .entry(param)
             .and_modify(|current: &mut ExactTransferState| {
@@ -207,7 +131,7 @@ pub(super) fn find_exact_aggregate_transfers(
             };
             matches!(
                 states.get(&param),
-                Some(ExactTransferState::Exact(published)) if **published == *proof
+                Some(ExactTransferState::Exact(published)) if published.as_ref() == &proof
             )
             .then_some(witness)
         })
@@ -217,6 +141,108 @@ pub(super) fn find_exact_aggregate_transfers(
         states,
         consumed_params,
         witnesses,
+    }
+}
+
+type ExactTransferCandidate = (ExactAggregateTransfer, ExactAggregateTransferWitness);
+
+struct ExactTransferAuthority<'a> {
+    sigs: &'a FxHashMap<Name, MemoryContract>,
+    alias_to_param: &'a FxHashMap<ArcVarId, FxHashSet<usize>>,
+    classifier: &'a dyn ArcClassification,
+    exact_callables: &'a FxHashSet<Name>,
+    interner: &'a ori_ir::StringInterner,
+    type_registry: Option<&'a TypeRegistry>,
+}
+
+fn recognize_block_candidate(
+    func: &ArcFunction,
+    block: &ArcBlock,
+    authority: &ExactTransferAuthority<'_>,
+) -> Option<ExactTransferCandidate> {
+    let mut candidates = Vec::new();
+    for (construct_index, instr) in block.body.iter().enumerate() {
+        let ArcInstr::Construct {
+            dst,
+            ty,
+            ctor,
+            args: construct_args,
+        } = instr
+        else {
+            continue;
+        };
+        if construct_args.is_empty() || matches!(ctor, CtorKind::EnumVariant { .. }) {
+            continue;
+        }
+        let Some(routes) = exact_reconstruction(
+            block,
+            construct_index,
+            construct_args,
+            authority.sigs,
+            authority.exact_callables,
+            authority.interner,
+        ) else {
+            continue;
+        };
+        let Some(source_ty) = routes
+            .first()
+            .and_then(|route| func.var_types.get(route.source.index()))
+            .copied()
+        else {
+            continue;
+        };
+        if source_ty != *ty
+            || routes
+                .iter()
+                .any(|route| func.var_types.get(route.source.index()).copied() != Some(source_ty))
+            || !source_uses_confined_to_routes(block, &routes)
+            || !cleanup_is_supported(func, source_ty, &routes, authority.type_registry)
+        {
+            continue;
+        }
+
+        let managed_fields: Vec<ExactFieldTransfer> = routes
+            .iter()
+            .filter_map(|route| {
+                let member_ty = *func.var_types.get(route.projection_dst.index())?;
+                (!authority.classifier.is_scalar(member_ty)).then_some(ExactFieldTransfer {
+                    path: route.path,
+                    kind: route.kind,
+                })
+            })
+            .collect();
+        let proof = ExactAggregateTransfer::new(
+            managed_fields,
+            ResidualDisposition::FullyReconstructed,
+            CleanupAuthority::OrdinaryCleanupProven,
+        )?;
+        let param = common_parameter(&routes, authority.alias_to_param);
+        candidates.push((
+            proof,
+            ExactAggregateTransferWitness {
+                param,
+                block: block.id,
+                construct_dst: *dst,
+                fields: routes
+                    .into_iter()
+                    .map(|route| ExactFieldTransferWitness {
+                        path: route.path,
+                        source: route.source,
+                        projection_dst: route.projection_dst,
+                        carrier: route.carrier,
+                        kind: route.kind,
+                    })
+                    .collect(),
+            },
+        ));
+    }
+
+    // The ledger books at most one aggregate move per block. Multiple
+    // candidate reconstructions make the local residual ambiguous.
+    if candidates.len() == 1 {
+        candidates.pop()
+    } else {
+        None
     }
 }
 
@@ -276,8 +302,7 @@ fn projection_for_carrier(
     {
         return projection_has_only_use(block, index, dst, construct_index).then(|| {
             ProjectionRoute {
-                path: ExactFieldPath::new([expected_field])
-                    .expect("one-element exact field path is non-empty"),
+                path: ExactFieldPath::single(expected_field),
                 source,
                 projection_index: index,
                 projection_dst: dst,
@@ -322,8 +347,7 @@ fn projection_for_carrier(
         .filter_map(|(_, &arg)| {
             direct_projection(block, relay_index, arg, expected_field).map(
                 |(index, source, dst)| ProjectionRoute {
-                    path: ExactFieldPath::new([expected_field])
-                        .expect("one-element exact field path is non-empty"),
+                    path: ExactFieldPath::single(expected_field),
                     source,
                     projection_index: index,
                     projection_dst: dst,

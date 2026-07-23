@@ -2922,6 +2922,17 @@ fn canonical_exact_transfer_witness_drives_production_ledger_rebooking() {
     use crate::lower::test_utils::registered_struct_with_burden;
     use ori_types::burden::{UserBurdenSpec, UserOwnedField};
 
+    struct WitnessClassifier;
+    impl crate::ArcClassification for WitnessClassifier {
+        fn arc_class(&self, idx: Idx) -> crate::ArcClass {
+            if matches!(idx, Idx::INT | Idx::BOOL) {
+                crate::ArcClass::Scalar
+            } else {
+                crate::ArcClass::DefiniteRef
+            }
+        }
+    }
+
     let interner = test_interner();
     let push = interner.intern("push");
     let pair_ty = ty(64);
@@ -2950,16 +2961,6 @@ fn canonical_exact_transfer_witness_drives_production_ledger_rebooking() {
     let mut state_map = AimsStateMap::new(&func);
     for scalar in [3, 5, 7, 11] {
         state_map.set_permanent_scalar(v(scalar));
-    }
-    struct WitnessClassifier;
-    impl crate::ArcClassification for WitnessClassifier {
-        fn arc_class(&self, idx: Idx) -> crate::ArcClass {
-            if matches!(idx, Idx::INT | Idx::BOOL) {
-                crate::ArcClass::Scalar
-            } else {
-                crate::ArcClass::DefiniteRef
-            }
-        }
     }
     let classifier = WitnessClassifier;
     let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);

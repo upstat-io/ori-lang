@@ -322,6 +322,7 @@ pub(crate) fn analyze_class_ledger(
     )
 }
 
+#[cfg(test)]
 pub(super) fn analyze_class_ledger_with_exact(
     func: &ArcFunction,
     classification: &LedgerClassification,
@@ -461,6 +462,10 @@ pub(crate) fn apply_class_ledger_replacement(
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "replacement consumes frozen contracts plus their local proof witnesses"
+)]
 pub(crate) fn apply_class_ledger_replacement_with_exact(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
