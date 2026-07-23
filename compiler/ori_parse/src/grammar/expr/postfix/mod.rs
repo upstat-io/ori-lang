@@ -250,10 +250,11 @@ impl Parser<'_> {
             })),
             Head::Field { receiver, field } => {
                 let base = self.expr_head_to_type_path(receiver)?;
-                Some(
-                    self.arena
-                        .alloc_parsed_type(ParsedType::associated_type(base, field)),
-                )
+                Some(self.arena.alloc_parsed_type(ParsedType::associated_type(
+                    base,
+                    field,
+                    ParsedTypeRange::EMPTY,
+                )))
             }
         }
     }

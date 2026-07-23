@@ -1,0 +1,41 @@
+// Spec: 18-modules.md Module Alias — nominal identity across aliases
+//
+// One declaration imported under two module aliases is ONE nominal type
+// (Clause 8.7: nominal identity comes from the declaration). Registering the
+// imported type per alias-text would mint a separate pool index per alias, so
+// `first.Point` and `second.Point` would be mutually incompatible even though
+// both name the same `struct_lib` declaration. This pins that a value built
+// through one alias is accepted where the other alias's type is expected, in
+// both argument and return position, on BOTH backends.
+
+use std.testing { assert_eq }
+use "../struct_lib" as first
+use "../struct_lib" as second
+
+@helper () -> int = 42;
+
+// Consumes the type named through the FIRST alias.
+@consume_first (p: first.Point) -> int = p.x;
+
+// Produces the type named through the SECOND alias.
+@produce_second () -> second.Point = second.Point { x: 5, y: 6 };
+
+// A literal built through one alias satisfies the other alias's annotation.
+@test_double_alias_literal_crosses_aliases tests @helper () -> void = {
+    let p = second.Point { x: 3, y: 4 };
+    assert_eq(actual: consume_first(p: p), expected: 3)
+}
+
+// A qualified return through one alias satisfies the other alias's parameter.
+@test_double_alias_return_crosses_aliases tests @helper () -> void = {
+    let p = produce_second();
+    assert_eq(actual: consume_first(p: p), expected: 5)
+}
+
+// Field access resolves identically through either alias's spelling.
+@test_double_alias_field_access tests @helper () -> void = {
+    let a = first.Point { x: 7, y: 8 };
+    let b = second.Point { x: 7, y: 8 };
+    assert_eq(actual: a.x, expected: b.x);
+    assert_eq(actual: a.y, expected: b.y)
+}

@@ -186,8 +186,8 @@ struct StructLiteralTarget {
 /// A bare `Named` head resolves by name; a module-qualified `AssociatedType`
 /// head (`module.Type`) resolves through the shared `resolve_parsed_type` SSOT
 /// then back to its registry entry via `get_by_idx`, so a qualified path never
-/// falls back to a same-named local type. Module-qualified type registration is
-/// tracked by BUG-02-101; until it lands the qualified head misses cleanly.
+/// falls back to a same-named local type. Both heads report a miss identically,
+/// including the "did you mean?" suggestion set.
 ///
 /// Pushes the unknown-type-name / non-struct-target diagnostic and returns
 /// `None` on a missing type registry, unknown name, or non-struct target. The
@@ -215,11 +215,18 @@ fn resolve_struct_literal_target(
             let assoc_name = *assoc_name;
             let parsed = arena.get_parsed_type(type_path);
             let resolved = resolve_parsed_type(engine, arena, parsed);
-            let Some(entry) = engine
+            let found = engine
                 .type_registry()
-                .and_then(|registry| registry.get_by_idx(resolved).cloned())
-            else {
-                engine.push_error(TypeCheckError::unknown_ident(span, assoc_name, Vec::new()));
+                .and_then(|registry| registry.get_by_idx(resolved).cloned());
+            let Some(entry) = found else {
+                // Suggest on the terminal segment — the type name the author
+                // actually mistyped — so a qualified miss reads the same as the
+                // bare-`Named` miss above.
+                let similar = match engine.type_registry() {
+                    Some(registry) => find_similar_type_names(engine, registry, assoc_name),
+                    None => Vec::new(),
+                };
+                engine.push_error(TypeCheckError::unknown_ident(span, assoc_name, similar));
                 return None;
             };
             entry

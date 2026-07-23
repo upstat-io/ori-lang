@@ -342,9 +342,12 @@ impl ModuleChecker<'_> {
     /// inference path: the call records into `TypedModule.module_alias_call_map`,
     /// which `ori_canon` reads to rewrite the namespace call to a free `Call`.
     /// The signatures stored here back that resolution at inference time.
+    /// `module_key` identifies the module's source, so a declaration imported
+    /// under several aliases resolves to one nominal type.
     pub fn register_module_alias(
         &mut self,
         alias: Name,
+        module_key: Name,
         module: &ori_ir::Module,
         foreign_arena: &ExprArena,
     ) {
@@ -380,7 +383,21 @@ impl ModuleChecker<'_> {
             })
             .collect();
         for (decl, qualified_name) in qualified {
+            // One declaration reached through several aliases is one nominal
+            // type: bind the new qualified name to the index the first alias
+            // registered, rather than registering a second type that would be
+            // incompatible with the first.
+            let decl_key = (module_key, decl.name);
+            if let Some(&canonical) = self.imported_type_canonical.get(&decl_key) {
+                if self.types.bind_additional_name(qualified_name, canonical) {
+                    continue;
+                }
+            }
             self.register_imported_type_as(decl, foreign_arena, qualified_name);
+            if let Some(entry) = self.types.get_by_name(qualified_name) {
+                let idx = entry.idx;
+                self.imported_type_canonical.insert(decl_key, idx);
+            }
         }
 
         // Bind alias as a named type placeholder in the import env.

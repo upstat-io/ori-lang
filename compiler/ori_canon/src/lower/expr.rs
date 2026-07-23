@@ -334,7 +334,7 @@ impl Lowerer<'_> {
             ExprKind::Tuple(exprs) => self.lower_tuple(exprs, span, ty),
             ExprKind::Map(entries) => self.lower_map(entries, span, ty),
             ExprKind::Struct { type_path, fields } => {
-                let name = struct_literal_name(self.src, type_path);
+                let name = self.struct_literal_name(type_path, ty);
                 self.lower_struct(name, fields, span, ty)
             }
             ExprKind::Range {
@@ -426,11 +426,32 @@ impl Lowerer<'_> {
             ExprKind::ListWithSpread(elements) => self.desugar_list_with_spread(elements, span, ty),
             ExprKind::MapWithSpread(elements) => self.desugar_map_with_spread(elements, span, ty),
             ExprKind::StructWithSpread { type_path, fields } => {
-                let name = struct_literal_name(self.src, type_path);
+                let name = self.struct_literal_name(type_path, ty);
                 self.desugar_struct_with_spread(name, fields, span, ty)
             }
             _ => unreachable!("lower_sugar_kind called with non-sugar expression"),
         }
+    }
+
+    /// Registered name of a struct-literal head.
+    ///
+    /// The type checker already resolved this head to a registry entry and
+    /// gave the literal that entry's type, so the resolved struct's own name is
+    /// read here rather than rebuilt from the source path. A module-qualified
+    /// head is registered under its qualified name (`alias.Decl`), which the
+    /// dotted AST cannot reproduce from its terminal segment alone; reading the
+    /// resolved name keeps this name equal to the one `resolve_struct_fields`
+    /// matches against, so a qualified literal resolves its field layout
+    /// instead of falling through to the unresolved-spread recovery path.
+    ///
+    /// Falls back to the source terminal segment when the literal's type did
+    /// not resolve to a struct, preserving error recovery.
+    fn struct_literal_name(&self, type_path: ParsedTypeId, ty: TypeId) -> Name {
+        let resolved = self.pool.resolve_fully(ori_types::Idx::from_raw(ty.raw()));
+        if self.pool.is_valid_idx(resolved) && self.pool.tag(resolved) == ori_types::Tag::Struct {
+            return self.pool.struct_name(resolved);
+        }
+        ast_struct_literal_name(self.src, type_path)
     }
 
     fn push_foldable(&mut self, kind: CanExpr, span: ori_ir::Span, ty: TypeId) -> CanId {
@@ -439,7 +460,12 @@ impl Lowerer<'_> {
     }
 }
 
-fn struct_literal_name(arena: &ExprArena, type_path: ParsedTypeId) -> Name {
+/// Terminal segment of a struct-literal head, read from the source AST.
+///
+/// Recovery-only: the AST carries one segment per dotted step, so a qualified
+/// head yields the terminal name alone, never the qualified name the registry
+/// interned. `Lowerer::struct_literal_name` prefers the resolved type.
+fn ast_struct_literal_name(arena: &ExprArena, type_path: ParsedTypeId) -> Name {
     match arena.get_parsed_type(type_path) {
         ParsedType::Named { name, .. } => *name,
         ParsedType::AssociatedType { assoc_name, .. } => *assoc_name,

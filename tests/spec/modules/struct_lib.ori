@@ -8,8 +8,15 @@
 // Public struct — constructed via `alias.Point { .. }` from a consumer.
 pub type Point = { x: int, y: int }
 
-// Public struct with a single field — spread/base coverage.
-pub type Wrapped = { value: int }
+// Public struct for spread/base coverage. Two fields, so a spread test can
+// override one and assert the other arrives ONLY through `...base` — a
+// single-field type cannot distinguish a resolved spread from a dropped one.
+pub type Wrapped = { value: int, tag: int }
+
+// Public generic struct. `type = type_path [ type_args ]` (grammar.ebnf) binds
+// generic arguments to the terminal segment of a dotted path, so a consumer
+// writes `alias.Boxed<int>` in annotation position.
+pub type Boxed<T> = { item: T }
 
 // A public constructor, for the associated-function sibling that already works.
 pub @origin () -> Point = Point { x: 0, y: 0 };

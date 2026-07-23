@@ -102,16 +102,19 @@ pub(super) fn resolve_and_check_type_with_vars(
         }
         ParsedType::Infer => checker.pool_mut().fresh_var(),
         ParsedType::SelfType => Idx::ERROR,
-        ParsedType::AssociatedType { base, .. } => {
-            resolve_and_check_type_with_vars(
-                checker,
-                arena.get_parsed_type(*base),
-                type_param_vars,
-                span,
-                arena,
-            );
-            Idx::ERROR
-        }
+        ParsedType::AssociatedType {
+            base,
+            assoc_name,
+            type_args,
+        } => resolve_associated_type(
+            checker,
+            *base,
+            *assoc_name,
+            *type_args,
+            type_param_vars,
+            span,
+            arena,
+        ),
         ParsedType::ConstExpr(_) => Idx::INT,
         ParsedType::TraitBounds(bounds) => {
             let bound_ids = arena.get_parsed_type_list(*bounds);
@@ -131,6 +134,56 @@ pub(super) fn resolve_and_check_type_with_vars(
             primary
         }
     }
+}
+
+/// Resolve an `AssociatedType` head in signature position.
+///
+/// A module-qualified path (`geom.Point`) names the aliased module's registered
+/// type. Poisoning it would make the annotation unify with every argument,
+/// silently disabling checking against it. A genuine associated-type projection
+/// (`Self.Item`, `C.Item`) has no concrete binding at signature-collection time
+/// and stays poison, with its base still walked for object-safety checking.
+fn resolve_associated_type(
+    checker: &mut ModuleChecker<'_>,
+    base: ori_ir::ParsedTypeId,
+    assoc_name: Name,
+    type_args: ori_ir::ParsedTypeRange,
+    type_param_vars: &FxHashMap<Name, Idx>,
+    span: Span,
+    arena: &ExprArena,
+) -> Idx {
+    if let Some(qualified) = crate::module_qualified::qualified_type_path(
+        &checker.module_aliases,
+        checker.interner,
+        checker.type_registry(),
+        arena,
+        base,
+        assoc_name,
+    ) {
+        let args: Vec<Idx> = arena
+            .get_parsed_type_list(type_args)
+            .iter()
+            .map(|&arg_id| {
+                resolve_and_check_type_with_vars(
+                    checker,
+                    arena.get_parsed_type(arg_id),
+                    type_param_vars,
+                    span,
+                    arena,
+                )
+            })
+            .collect();
+        return crate::module_qualified::apply_qualified(checker.pool_mut(), qualified, &args);
+    }
+
+    resolve_and_check_type_with_vars(
+        checker,
+        arena.get_parsed_type(base),
+        type_param_vars,
+        span,
+        arena,
+    );
+    Idx::ERROR
 }
 
 fn resolve_function_type(

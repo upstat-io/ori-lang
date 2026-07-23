@@ -454,8 +454,13 @@ fn register_imported_functions(
                     );
                 }
             }
+            // The module's resolved path identifies the declarations it owns, so
+            // the same module imported under several aliases registers one
+            // nominal type per declaration rather than one per alias.
+            let module_key = interner.intern_owned(module.module_path.display().to_string());
             checker.register_module_alias(
                 func_ref.local_name,
+                module_key,
                 &imported_parsed.module,
                 &imported_parsed.arena,
             );

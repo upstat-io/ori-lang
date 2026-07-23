@@ -12,6 +12,25 @@ use rustc_hash::FxHashMap;
 
 use crate::{Idx, ModuleChecker};
 
+/// The ambient scope an overlay type resolution reads from.
+///
+/// `method_substitutions`, `type_params`, `self_type`, and `arena` are set
+/// together by each entry point and read together by every arm of the
+/// resolution walk, so they travel as one value rather than four parallel
+/// parameters.
+#[derive(Clone, Copy)]
+pub(crate) struct OverlayContext<'a> {
+    /// Method-level binder overlay: a `Named` name found here resolves to the
+    /// caller-allocated `RigidVar` rather than the impl-level interning.
+    pub method_substitutions: &'a FxHashMap<Name, Idx>,
+    /// The combined impl-level + method-level generic names in scope.
+    pub type_params: &'a [Name],
+    /// The type `Self` substitutes to.
+    pub self_type: Idx,
+    /// The arena the `ParsedType` nodes are read from.
+    pub arena: &'a ExprArena,
+}
+
 pub(crate) use metadata::{
     build_method_generic_metadata, build_method_generic_metadata_from, build_where_constraint,
 };
@@ -34,7 +53,16 @@ pub(crate) fn resolve_type_with_self(
 ) -> Idx {
     let arena = checker.arena();
     let empty: FxHashMap<Name, Idx> = FxHashMap::default();
-    resolve_type_with_overlay_inner(checker, parsed, &empty, type_params, self_type, arena)
+    resolve_type_with_overlay_inner(
+        checker,
+        parsed,
+        OverlayContext {
+            method_substitutions: &empty,
+            type_params,
+            self_type,
+            arena,
+        },
+    )
 }
 
 /// Resolve a parsed type with Self substitution AND a method-level binder overlay.
@@ -79,10 +107,12 @@ pub(crate) fn resolve_type_with_method_generics_from(
     resolve_type_with_overlay_inner(
         checker,
         parsed,
-        method_substitutions,
-        type_params,
-        self_type,
-        arena,
+        OverlayContext {
+            method_substitutions,
+            type_params,
+            self_type,
+            arena,
+        },
     )
 }
 
@@ -90,83 +120,34 @@ pub(crate) fn resolve_type_with_method_generics_from(
 fn resolve_type_with_overlay_inner(
     checker: &mut ModuleChecker<'_>,
     parsed: &ParsedType,
-    method_substitutions: &FxHashMap<Name, Idx>,
-    type_params: &[Name],
-    self_type: Idx,
-    arena: &ExprArena,
+    ctx: OverlayContext<'_>,
 ) -> Idx {
+    let OverlayContext {
+        self_type, arena, ..
+    } = ctx;
     match parsed {
         ParsedType::SelfType => self_type,
-        ParsedType::Named { .. } => resolve_overlay_named(
-            checker,
-            parsed,
-            method_substitutions,
-            type_params,
-            self_type,
-            arena,
-        ),
+        ParsedType::Named { .. } => resolve_overlay_named(checker, parsed, ctx),
         ParsedType::List(elem_id) | ParsedType::FixedList { elem: elem_id, .. } => {
             let elem = arena.get_parsed_type(*elem_id);
-            let elem_ty = resolve_type_with_overlay_inner(
-                checker,
-                elem,
-                method_substitutions,
-                type_params,
-                self_type,
-                arena,
-            );
+            let elem_ty = resolve_type_with_overlay_inner(checker, elem, ctx);
             checker.pool_mut().list(elem_ty)
         }
         ParsedType::Map { key, value } => {
             let key_parsed = arena.get_parsed_type(*key);
             let value_parsed = arena.get_parsed_type(*value);
-            let key_ty = resolve_type_with_overlay_inner(
-                checker,
-                key_parsed,
-                method_substitutions,
-                type_params,
-                self_type,
-                arena,
-            );
-            let value_ty = resolve_type_with_overlay_inner(
-                checker,
-                value_parsed,
-                method_substitutions,
-                type_params,
-                self_type,
-                arena,
-            );
+            let key_ty = resolve_type_with_overlay_inner(checker, key_parsed, ctx);
+            let value_ty = resolve_type_with_overlay_inner(checker, value_parsed, ctx);
             checker.pool_mut().map(key_ty, value_ty)
         }
-        ParsedType::Tuple(_) => resolve_overlay_tuple(
-            checker,
-            parsed,
-            method_substitutions,
-            type_params,
-            self_type,
-            arena,
-        ),
-        ParsedType::Function { .. } => resolve_overlay_function(
-            checker,
-            parsed,
-            method_substitutions,
-            type_params,
-            self_type,
-            arena,
-        ),
+        ParsedType::Tuple(_) => resolve_overlay_tuple(checker, parsed, ctx),
+        ParsedType::Function { .. } => resolve_overlay_function(checker, parsed, ctx),
         // Bounded trait object: resolve first bound with self-substitution
         ParsedType::TraitBounds(bounds) => {
             let bound_ids = arena.get_parsed_type_list(*bounds);
             if let Some(&first_id) = bound_ids.first() {
                 let first = arena.get_parsed_type(first_id);
-                resolve_type_with_overlay_inner(
-                    checker,
-                    first,
-                    method_substitutions,
-                    type_params,
-                    self_type,
-                    arena,
-                )
+                resolve_type_with_overlay_inner(checker, first, ctx)
             } else {
                 Idx::ERROR
             }
@@ -176,30 +157,67 @@ fn resolve_type_with_overlay_inner(
         // to a concrete `self_type`, or a nested projection), then project the
         // assoc binding. Symbolic/generic base → clean `Idx::ERROR` poison (the
         // projection legitimately cannot resolve until an impl is selected).
-        ParsedType::AssociatedType { base, assoc_name } => {
-            let base_parsed = arena.get_parsed_type(*base);
-            let base_ty = resolve_type_with_overlay_inner(
-                checker,
-                base_parsed,
-                method_substitutions,
-                type_params,
-                self_type,
-                arena,
-            );
-            resolve_associated_projection(checker, base_ty, *assoc_name, self_type)
-        }
+        ParsedType::AssociatedType {
+            base,
+            assoc_name,
+            type_args,
+        } => resolve_overlay_associated_type(checker, *base, *assoc_name, *type_args, ctx),
         _ => resolve_parsed_type_simple(checker, parsed, arena),
     }
+}
+
+/// Resolve the `AssociatedType` head shared by a module-qualified type path and
+/// an associated-type projection.
+///
+/// A module-qualified path (`geom.Point`) resolves against the alias table. The
+/// projection (`Self.Item`, `T.Assoc`) resolves its base first — the base may be
+/// `Self` already substituted to a concrete `self_type`, or a nested projection
+/// — then projects the assoc binding, with a symbolic or generic base yielding
+/// clean `Idx::ERROR` poison because the projection cannot resolve until an impl
+/// is selected. Reaching the projection with a module-namespace base would find
+/// no impl and poison the annotation, so the qualified path is answered first.
+fn resolve_overlay_associated_type(
+    checker: &mut ModuleChecker<'_>,
+    base: ori_ir::ParsedTypeId,
+    assoc_name: Name,
+    type_args: ori_ir::ParsedTypeRange,
+    ctx: OverlayContext<'_>,
+) -> Idx {
+    let arena = ctx.arena;
+    if let Some(qualified) = crate::module_qualified::qualified_type_path(
+        &checker.module_aliases,
+        checker.interner,
+        checker.type_registry(),
+        arena,
+        base,
+        assoc_name,
+    ) {
+        let args: Vec<Idx> = arena
+            .get_parsed_type_list(type_args)
+            .iter()
+            .map(|&arg_id| {
+                resolve_type_with_overlay_inner(checker, arena.get_parsed_type(arg_id), ctx)
+            })
+            .collect();
+        return crate::module_qualified::apply_qualified(checker.pool_mut(), qualified, &args);
+    }
+
+    let base_parsed = arena.get_parsed_type(base);
+    let base_ty = resolve_type_with_overlay_inner(checker, base_parsed, ctx);
+    resolve_associated_projection(checker, base_ty, assoc_name, ctx.self_type)
 }
 
 fn resolve_overlay_named(
     checker: &mut ModuleChecker<'_>,
     parsed: &ParsedType,
-    method_substitutions: &FxHashMap<Name, Idx>,
-    type_params: &[Name],
-    self_type: Idx,
-    arena: &ExprArena,
+    ctx: OverlayContext<'_>,
 ) -> Idx {
+    let OverlayContext {
+        method_substitutions,
+        type_params,
+        arena,
+        ..
+    } = ctx;
     let ParsedType::Named { name, type_args } = parsed else {
         unreachable!("named overlay resolver called for non-named type");
     };
@@ -209,16 +227,7 @@ fn resolve_overlay_named(
     let resolved_args: Vec<Idx> = arena
         .get_parsed_type_list(*type_args)
         .iter()
-        .map(|&arg_id| {
-            resolve_type_with_overlay_inner(
-                checker,
-                arena.get_parsed_type(arg_id),
-                method_substitutions,
-                type_params,
-                self_type,
-                arena,
-            )
-        })
+        .map(|&arg_id| resolve_type_with_overlay_inner(checker, arena.get_parsed_type(arg_id), ctx))
         .collect();
     if !resolved_args.is_empty() {
         if let Some(idx) = checker.resolve_well_known_generic_cached(*name, &resolved_args) {
@@ -236,11 +245,9 @@ fn resolve_overlay_named(
 fn resolve_overlay_tuple(
     checker: &mut ModuleChecker<'_>,
     parsed: &ParsedType,
-    method_substitutions: &FxHashMap<Name, Idx>,
-    type_params: &[Name],
-    self_type: Idx,
-    arena: &ExprArena,
+    ctx: OverlayContext<'_>,
 ) -> Idx {
+    let arena = ctx.arena;
     let ParsedType::Tuple(elements) = parsed else {
         unreachable!("tuple overlay resolver called for non-tuple type");
     };
@@ -248,14 +255,7 @@ fn resolve_overlay_tuple(
         .get_parsed_type_list(*elements)
         .iter()
         .map(|&element_id| {
-            resolve_type_with_overlay_inner(
-                checker,
-                arena.get_parsed_type(element_id),
-                method_substitutions,
-                type_params,
-                self_type,
-                arena,
-            )
+            resolve_type_with_overlay_inner(checker, arena.get_parsed_type(element_id), ctx)
         })
         .collect();
     checker.pool_mut().tuple(&resolved)
@@ -264,11 +264,9 @@ fn resolve_overlay_tuple(
 fn resolve_overlay_function(
     checker: &mut ModuleChecker<'_>,
     parsed: &ParsedType,
-    method_substitutions: &FxHashMap<Name, Idx>,
-    type_params: &[Name],
-    self_type: Idx,
-    arena: &ExprArena,
+    ctx: OverlayContext<'_>,
 ) -> Idx {
+    let arena = ctx.arena;
     let ParsedType::Function { params, ret } = parsed else {
         unreachable!("function overlay resolver called for non-function type");
     };
@@ -276,24 +274,11 @@ fn resolve_overlay_function(
         .get_parsed_type_list(*params)
         .iter()
         .map(|&param_id| {
-            resolve_type_with_overlay_inner(
-                checker,
-                arena.get_parsed_type(param_id),
-                method_substitutions,
-                type_params,
-                self_type,
-                arena,
-            )
+            resolve_type_with_overlay_inner(checker, arena.get_parsed_type(param_id), ctx)
         })
         .collect();
-    let resolved_return = resolve_type_with_overlay_inner(
-        checker,
-        arena.get_parsed_type(*ret),
-        method_substitutions,
-        type_params,
-        self_type,
-        arena,
-    );
+    let resolved_return =
+        resolve_type_with_overlay_inner(checker, arena.get_parsed_type(*ret), ctx);
     checker
         .pool_mut()
         .function(&resolved_params, resolved_return)

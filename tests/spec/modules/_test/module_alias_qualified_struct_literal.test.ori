@@ -21,10 +21,14 @@ use "../struct_lib" as geom
 }
 
 // Qualified struct literal with spread — `...base` then an override.
+// `tag` is supplied ONLY by the spread and never overridden, so this fails if
+// the qualified head resolves its field layout by a bare terminal name: the
+// spread is then dropped and `tag` never reaches the literal.
 @test_qualified_struct_literal_spread tests @helper () -> void = {
-    let base = geom.Wrapped { value: 1 };
+    let base = geom.Wrapped { value: 1, tag: 7 };
     let w = geom.Wrapped { ...base, value: 9 };
-    assert_eq(actual: w.value, expected: 9)
+    assert_eq(actual: w.value, expected: 9);
+    assert_eq(actual: w.tag, expected: 7)
 }
 
 // Zero-valued fields — clamps the literal against the default-looking shape a

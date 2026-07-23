@@ -169,6 +169,26 @@ pub(crate) fn dump_match_pattern(
     }
 }
 
+/// Render a `<A, B>` generic-argument list, or the empty string when there are none.
+///
+/// Shared by `Named` and `AssociatedType`: a dotted path's args live on its
+/// terminal segment, so both arms print the same suffix.
+fn format_type_args(
+    type_args: ori_ir::ParsedTypeRange,
+    arena: &ExprArena,
+    interner: &StringInterner,
+) -> String {
+    if type_args.is_empty() {
+        return String::new();
+    }
+    let args: Vec<String> = arena
+        .get_parsed_type_list(type_args)
+        .iter()
+        .map(|tid| format_parsed_type(arena.get_parsed_type(*tid), arena, interner))
+        .collect();
+    format!("<{}>", args.join(", "))
+}
+
 /// Format a parsed type for display.
 pub(crate) fn format_parsed_type(
     ty: &ori_ir::ParsedType,
@@ -180,16 +200,7 @@ pub(crate) fn format_parsed_type(
         ParsedType::Primitive(tid) => format!("{tid:?}"),
         ParsedType::Named { name, type_args } => {
             let n = interner.lookup(*name);
-            if type_args.is_empty() {
-                n.to_string()
-            } else {
-                let args: Vec<String> = arena
-                    .get_parsed_type_list(*type_args)
-                    .iter()
-                    .map(|tid| format_parsed_type(arena.get_parsed_type(*tid), arena, interner))
-                    .collect();
-                format!("{n}<{}>", args.join(", "))
-            }
+            format!("{n}{}", format_type_args(*type_args, arena, interner))
         }
         ParsedType::List(elem) => {
             format!(
@@ -228,11 +239,16 @@ pub(crate) fn format_parsed_type(
         ParsedType::Infer => "_".to_string(),
         ParsedType::SelfType => "Self".to_string(),
         ParsedType::AssociatedType {
-            base, assoc_name, ..
+            base,
+            assoc_name,
+            type_args,
         } => {
             let base_str = format_parsed_type(arena.get_parsed_type(*base), arena, interner);
             let name = interner.lookup(*assoc_name);
-            format!("{base_str}.{name}")
+            format!(
+                "{base_str}.{name}{}",
+                format_type_args(*type_args, arena, interner)
+            )
         }
         ParsedType::ConstExpr(_) => "$const".to_string(),
         ParsedType::TraitBounds(bounds) => {

@@ -338,11 +338,11 @@ mod expression_context {
         );
     }
 
-    // BUG-01-032: qualified struct literals `module.Type { .. }` — the grammar
-    // defines `struct_literal = type_path "{" ...` with `type_path = identifier
-    // { "." identifier }`, so a dotted head before `{` is grammar-valid. These
-    // pins FAIL on the unfixed parser (the `PostfixOp::StructLit` arm only fires
-    // for a bare-`Ident` head) and pass once the head accepts a `type_path`.
+    // Qualified struct literals `module.Type { .. }`. The grammar defines
+    // `struct_literal = type_path "{" ...` with `type_path = identifier
+    // { "." identifier }`, so a dotted head before `{` is grammar-valid; these
+    // pin that the `PostfixOp::StructLit` arm accepts a whole `type_path` head,
+    // not a bare `Ident` alone.
 
     #[test]
     fn test_qualified_struct_literal_parses() {
@@ -391,9 +391,9 @@ mod expression_context {
 
     #[test]
     fn test_multi_segment_type_annotation_parses() {
-        // BUG-01-032 in-scope latent bug: `parse_named_type` handles only ONE
-        // dot, so a multi-segment `type_path` in annotation position fails to
-        // parse. `type_path = identifier { "." identifier }` admits N segments.
+        // `type_path = identifier { "." identifier }` admits N segments, so
+        // `parse_named_type` consumes every dotted segment in annotation
+        // position, nesting one `AssociatedType` per segment.
         let result = parse_source("@test () -> a.b.C = todo();");
         assert!(
             !result.has_errors(),
