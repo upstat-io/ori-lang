@@ -16,6 +16,7 @@ Full workflow, toolchain prerequisites, and exit-code interpretation:
 | `expected.json` | the contract a conforming compiler must satisfy, plus the known defect signature |
 | `record-witnesses.ps1` | compiles and runs each witness, recording exit codes and streams as JSONL |
 | `verify-results.py` | checks a recorded JSONL against `expected.json`; fails closed |
+| `selftest-recorder.ps1` | proves the recorder fails closed rather than running a stale executable |
 
 ## Run
 
@@ -30,6 +31,21 @@ python3 verify-results.py results.jsonl --arm cured
 `PASS` means every witness matched the contract. A witness exiting `0xC0000374`
 (`STATUS_HEAP_CORRUPTION`) indicates a double free in the entry-point wrapper's
 ownership handling.
+
+## Self-test
+
+Before trusting a recording, prove the recorder itself fails closed. Supply any
+known-good witness executable; the self-test seeds it as a stale artifact and
+runs the recorder against a compiler shim that exits nonzero without producing
+its output.
+
+```powershell
+.\selftest-recorder.ps1 -StaleExe <path\to\any\working\witness.exe>
+```
+
+Exit 0 means the failing compile was recorded `build_ok=false` and the stale
+executable was removed unexecuted. Exit 1 means the recorder ran the stale
+binary and recorded a passing row — the regression this check exists to catch.
 
 ## Fail-closed guarantees
 
