@@ -1431,9 +1431,9 @@ fn test_main_args_wrapper_uses_invoke_ir() {
     // This program uses args in a borrowed way (only .len()), so the
     // wrapper retains ownership → cleanup on both paths.
     let cleanup_call_count = main_fn.matches("call void @ori_args_cleanup").count();
-    assert!(
-        cleanup_call_count >= 2,
-        "ori_args_cleanup must be called in both normal and catch paths (found {cleanup_call_count}).\nIR:\n{main_fn}"
+    assert_eq!(
+        cleanup_call_count, 2,
+        "ori_args_cleanup must be called exactly once in each active normal and catch path.\nIR:\n{main_fn}"
     );
 }
 
