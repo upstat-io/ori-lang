@@ -1,5 +1,6 @@
 //! Child completion, bounded cleanup, and sampled process resources.
 
+#[cfg(target_os = "linux")]
 use std::fs;
 use std::io;
 use std::process::{Child, ExitStatus};
