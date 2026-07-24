@@ -218,17 +218,18 @@ pub fn compile_to_executable(
     })?;
     let shared_canon =
         crate::query::canonicalize_cached(&db, file, &parse_result, &type_result, &pool);
-    crate::realization::realize_local_program(crate::realization::ProgramRealizationInput {
-        parse: &parse_result,
-        types: &type_result,
-        canon: &shared_canon,
-        pool,
-        symbols: db.shared_interner(),
-        narrowing_policy,
-        verify_arc: std::env::var(crate::debug_flags::ORI_VERIFY_ARC)
-            .is_ok_and(|value| value != "0"),
-    })
-    .map_err(ExecutableCompileError::from)
+    let program =
+        crate::realization::realize_local_program(crate::realization::ProgramRealizationInput {
+            parse: &parse_result,
+            types: &type_result,
+            canon: &shared_canon,
+            pool,
+            symbols: db.shared_interner(),
+            policy: crate::realization::RealizationPolicy::with_narrowing(narrowing_policy),
+        })
+        .map_err(ExecutableCompileError::from)?;
+    crate::dump_orchestrator::dump_realized_arc(&program, db.interner(), source_path);
+    Ok(program)
 }
 
 #[cfg(test)]

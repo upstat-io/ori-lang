@@ -1,12 +1,45 @@
-//! Per-block fixpoint iteration mechanics: comparison-threshold collection,
-//! block-parameter merging, and refinement propagation through jump chains.
+//! Fixpoint refinements are temporary overlays and widening thresholds remain finite.
 
 use ori_arc::ir::{ArcFunction, ArcTerminator};
 use ori_arc::{ArcBlockId, ArcVarId};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::ValueRange;
+use super::{FixpointContext, ValueRange};
 use ValueRange::Bottom;
+
+/// Apply block-entry refinements to non-parameter variables temporarily.
+pub(super) fn apply_block_refinements(
+    block: &ori_arc::ir::ArcBlock,
+    ranges: &mut FxHashMap<ArcVarId, ValueRange>,
+    block_refinements: &FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
+) -> Vec<(ArcVarId, ValueRange)> {
+    let mut saved = Vec::new();
+    let param_vars: FxHashSet<_> = block.params.iter().map(|(var, _)| *var).collect();
+
+    for (&(ref_block, ref_var), &refinement) in block_refinements {
+        if ref_block != block.id || param_vars.contains(&ref_var) {
+            continue;
+        }
+        if let Some(&current) = ranges.get(&ref_var) {
+            let refined = current.meet(refinement);
+            if refined != current {
+                saved.push((ref_var, current));
+                ranges.insert(ref_var, refined);
+            }
+        }
+    }
+    saved
+}
+
+/// Restore ranges temporarily refined for a block.
+pub(super) fn restore_block_refinements(
+    ranges: &mut FxHashMap<ArcVarId, ValueRange>,
+    saved: Vec<(ArcVarId, ValueRange)>,
+) {
+    for (var, original) in saved {
+        ranges.insert(var, original);
+    }
+}
 
 /// Collect integer constants used in comparison operations as widening thresholds.
 ///
@@ -15,7 +48,8 @@ use ValueRange::Bottom;
 /// directly to ±MAX. For example, `i >= 10` yields threshold 10, causing
 /// widening to produce `[0, 10]` instead of `[0, MAX]`.
 ///
-/// Also includes ±1 neighbors since `i < N` uses N and `i >= N` uses N-1.
+/// Only exact constants are included: neighboring values would make an
+/// incrementing loop discover a fresh threshold on every iteration.
 pub(super) fn collect_comparison_thresholds(
     func: &ArcFunction,
     ranges: &FxHashMap<ArcVarId, ValueRange>,
@@ -24,7 +58,7 @@ pub(super) fn collect_comparison_thresholds(
     use ori_ir::BinaryOp;
 
     let mut thresholds = Vec::new();
-    // Always include 0 — loop counters commonly start at 0
+    // Why: Zero keeps a shrinking zero-based lower bound from widening to `i64::MIN`.
     thresholds.push(0);
 
     for block in &func.blocks {
@@ -48,10 +82,8 @@ pub(super) fn collect_comparison_thresholds(
                         | BinaryOp::NotEq
                 ) && args.len() == 2
                 {
-                    // Extract constant operand values from their ranges.
-                    // Only use the exact constant — NOT ±1 neighbors.
-                    // Neighbors cause infinite widening growth when the loop
-                    // counter increments by 1 each iteration.
+                    // Why: neighboring constants would make incrementing loops
+                    // discover a fresh widening threshold on every iteration.
                     for &arg in args {
                         if let Some(val) = ranges.get(&arg).and_then(ValueRange::is_constant) {
                             thresholds.push(val);
@@ -67,15 +99,10 @@ pub(super) fn collect_comparison_thresholds(
 }
 
 /// Process block parameters (phi-like merging from predecessor `Jump` args).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "fixpoint infrastructure passes — bundling would add indirection"
-)]
 pub(super) fn merge_block_params(
+    context: &FixpointContext<'_>,
     block: &ori_arc::ir::ArcBlock,
     block_idx: usize,
-    predecessors: &[Vec<usize>],
-    func: &ArcFunction,
     ranges: &mut FxHashMap<ArcVarId, ValueRange>,
     block_refinements: &FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
     iteration: usize,
@@ -86,8 +113,8 @@ pub(super) fn merge_block_params(
     let mut changed = false;
     for (param_idx, (param_var, _param_ty)) in block.params.iter().enumerate() {
         let mut merged = Bottom;
-        for &pred_idx in &predecessors[block_idx] {
-            let pred = &func.blocks[pred_idx];
+        for &pred_idx in &context.predecessors[block_idx] {
+            let pred = &context.func.blocks[pred_idx];
             if let ArcTerminator::Jump { target, args, .. } = &pred.terminator {
                 if target.index() == block_idx {
                     if let Some(&arg_var) = args.get(param_idx) {
@@ -97,7 +124,6 @@ pub(super) fn merge_block_params(
                 }
             }
         }
-        // Apply conditional refinements from Branch/Switch.
         if let Some(&refinement) = block_refinements.get(&(block.id, *param_var)) {
             merged = merged.meet(refinement);
         }
@@ -127,14 +153,19 @@ pub(super) fn propagate_refinements_through_jump_chains(
         let pred_idx = predecessors[block_idx][0];
         let pred_id = func.blocks[pred_idx].id;
         for (&(ref_block, ref_var), &ref_range) in block_refinements.iter() {
-            if ref_block == pred_id && !block_refinements.contains_key(&(block_id, ref_var)) {
+            if ref_block == pred_id {
                 propagated.push((block_id, ref_var, ref_range));
             }
         }
     }
-    let count = propagated.len();
+    let mut count = 0;
     for (bid, var, range) in propagated {
-        block_refinements.insert((bid, var), range);
+        if let std::collections::hash_map::Entry::Vacant(entry) =
+            block_refinements.entry((bid, var))
+        {
+            entry.insert(range);
+            count += 1;
+        }
     }
     if count > 0 {
         tracing::debug!(count, "propagated block refinements through jump chains");

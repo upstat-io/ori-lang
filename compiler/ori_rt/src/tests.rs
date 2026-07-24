@@ -1072,6 +1072,58 @@ fn rc_realloc_preserves_data_on_shrink() {
 }
 
 #[test]
+fn local_rc_storage_promotes_to_heap_without_losing_header_state() {
+    let _g = lock_rc();
+    let baseline = ori_rc_live_count();
+
+    #[repr(C, align(8))]
+    struct LocalBuffer([u8; RC_HEADER_SIZE + 16]);
+
+    let mut storage = LocalBuffer([0; RC_HEADER_SIZE + 16]);
+    let base = storage.0.as_mut_ptr();
+    // SAFETY: `LocalBuffer` is 8-byte aligned and reserves the complete V5
+    // header followed by 16 bytes of addressable element storage.
+    let data = unsafe {
+        base.cast::<i64>().write(LOCAL_DATA_SIZE);
+        base.add(24).cast::<i64>().write(1);
+        let data = base.add(RC_HEADER_SIZE);
+        store_elem_dec_fn(data, Some(test_drop_fn));
+        store_elem_count(data, 2);
+        for i in 0..16u8 {
+            *data.add(i as usize) = i + 1;
+        }
+        data
+    };
+
+    assert_eq!(ori_rc_data_size(data), LOCAL_DATA_SIZE);
+    assert_eq!(ori_rc_count(data), 1);
+    ori_rc_free(data, 16, 8);
+    assert_eq!(ori_rc_live_count(), baseline, "local free must be a no-op");
+
+    let promoted = ori_rc_realloc(data, 16, 64, 8);
+    assert!(!promoted.is_null());
+    assert_eq!(ori_rc_data_size(promoted), 64);
+    assert_eq!(ori_rc_count(promoted), 1);
+    assert_eq!(ori_rc_live_count(), baseline + 1);
+    // SAFETY: promotion returned a live V5 allocation and the original local
+    // header remains live until this stack frame returns.
+    unsafe {
+        assert_eq!(load_elem_count(promoted), 2);
+        assert_eq!(load_elem_count(data), 0, "local ownership was transferred");
+        assert_eq!(
+            load_elem_dec_fn(promoted).map(|f| f as usize),
+            Some(test_drop_fn as *const () as usize)
+        );
+        for i in 0..16u8 {
+            assert_eq!(*promoted.add(i as usize), i + 1);
+        }
+    }
+
+    ori_rc_free(promoted, 64, 8);
+    assert_eq!(ori_rc_live_count(), baseline);
+}
+
+#[test]
 fn rc_realloc_null_returns_null() {
     assert!(ori_rc_realloc(std::ptr::null_mut(), 0, 64, 8).is_null());
 }

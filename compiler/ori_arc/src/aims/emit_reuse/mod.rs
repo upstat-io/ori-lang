@@ -171,7 +171,6 @@ fn emit_reuse_from_raw(
     let mut cross_block_reuses = 0;
     let mut fields_skipped = 0;
 
-    // Phase 1: same-block opportunities.
     for opp in &same_block {
         if opp.is_static_unique {
             fields_skipped += apply_static_reuse_same_block(func, opp);
@@ -182,7 +181,6 @@ fn emit_reuse_from_raw(
         }
     }
 
-    // Phase 2: cross-block opportunities (static-unique only in v1).
     for opp in &cross_block {
         fields_skipped += apply_static_reuse_cross_block(func, opp);
         cross_block_reuses += 1;

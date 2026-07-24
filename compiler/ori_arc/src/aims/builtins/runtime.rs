@@ -5,15 +5,11 @@ use std::sync::LazyLock;
 use super::{
     sharing_return_contract, ContextBehavior, EffectSummary, FipContract, FxHashMap,
     MemoryContract, Name, ParamContract, ReturnAliasShape, ReturnContract, StringInterner,
-    PARAM_BORROWED, PARAM_BORROWED_READ_ONLY, PARAM_OWNED_LINEAR,
+    PARAM_BORROWED, PARAM_BORROWED_READ_ONLY, PARAM_OWNED_LINEAR, RETURN_UNIQUE,
 };
 
-/// `ORI_DISABLE_PANIC_MSG_TRANSFER=1` skips the `ori_panic` Owned message
-/// contract, restoring the all-borrowed default (the pre-transfer caller-side
-/// no-release arrangement — the message buffer leaks on every caught-panic
-/// path). Bisection surface: isolates a panic-path leak / double-free to the
-/// panic-message ownership transfer vs the rest of the contract seeding.
-/// Spec: Annex E §AIMS RL-2 (ownership-transferring terminal use).
+// Env: ORI_DISABLE_PANIC_MSG_TRANSFER - restores the borrowed panic-message contract,
+// debug-only. Spec: Annex E §AIMS RL-2.
 static PANIC_MSG_TRANSFER_DISABLED: LazyLock<bool> = LazyLock::new(|| {
     report_panic_msg_transfer_toggle(
         std::env::var("ORI_DISABLE_PANIC_MSG_TRANSFER").as_deref() == Ok("1"),
@@ -53,6 +49,24 @@ pub(super) fn seed_internal_runtime_contracts(
     sigs.entry(ori_list_push).or_insert_with(|| MemoryContract {
         params: vec![PARAM_BORROWED, PARAM_OWNED_LINEAR, PARAM_BORROWED],
         return_info: ReturnContract::CONSERVATIVE,
+        effects: EffectSummary::default(),
+        context_behavior: ContextBehavior::default(),
+        fip: FipContract::Never,
+        is_fbip: false,
+    });
+
+    // `ori_list_take` moves a compiler-owned yield buffer out of its untyped
+    // scratch handle. The result is born unique at this call site; downstream
+    // demand remains responsible for widening locality or uniqueness. Leaving
+    // this internal finalizer without a contract applies TF-5 CONSERVATIVE and
+    // loses the fresh lineage before a loop can carry it through COW updates.
+    let ori_list_take = interner.intern("ori_list_take");
+    sigs.entry(ori_list_take).or_insert_with(|| MemoryContract {
+        params: vec![PARAM_BORROWED],
+        return_info: ReturnContract {
+            returns_fresh_self_alloc: true,
+            ..RETURN_UNIQUE
+        },
         effects: EffectSummary::default(),
         context_behavior: ContextBehavior::default(),
         fip: FipContract::Never,

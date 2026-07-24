@@ -12,8 +12,9 @@ use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::Name;
 use ori_types::Tag;
 
-use super::ArcIrEmitter;
 use crate::codegen::value_id::ValueId;
+
+use super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a primitive `as` cast (the `__cast` intercept). Returns the
@@ -39,7 +40,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .tag(self.pool.resolve_fully(func.var_type(args[0])));
         let tgt_tag = self.pool.tag(self.pool.resolve_fully(func.var_type(dst)));
 
-        // Identity conversion (same primitive type) — no-op.
         if src_tag == tgt_tag {
             return Some(val);
         }
@@ -50,9 +50,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 Some(self.builder.si_to_fp(val, f64_ty, "cast.int.float"))
             }
             (Tag::Float, Tag::Int) => {
-                // Saturating conversion — NaN -> 0, out-of-range clamps to
-                // i64 MIN/MAX (parity with eval's Rust `as` semantics; raw
-                // fptosi is poison on those inputs).
+                // Why: Raw `fptosi` is poison for NaN and out-of-range inputs.
                 let i64_ty = self.builder.i64_type();
                 Some(self.builder.fp_to_si_sat(val, i64_ty, "cast.float.int"))
             }
@@ -61,8 +59,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 Some(self.builder.zext(val, i64_ty, "cast.widen.int"))
             }
             (Tag::Int, Tag::Byte) => {
-                // Range check 0..=255, panic out of range (parity with
-                // eval's "value N out of range for byte (0-255)").
+                // Why: Truncation would wrap values outside the byte range.
                 let lo = self.builder.const_i64(0);
                 let hi = self.builder.const_i64(255);
                 let ge = self.builder.icmp_sge(val, lo, "cast.byte.ge");
@@ -73,9 +70,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 Some(self.builder.trunc(val, i8_ty, "cast.int.byte"))
             }
             (Tag::Int, Tag::Char) => {
-                // Valid Unicode scalar: [0, 0xD7FF] or [0xE000, 0x10FFFF].
-                // Checked on the full i64 BEFORE truncation (parity with
-                // eval — high bits must not wrap into the valid range).
+                // Why: Pre-truncation checks prevent high bits from wrapping into a valid scalar.
                 let zero = self.builder.const_i64(0);
                 let surrogate_lo = self.builder.const_i64(0xD7FF);
                 let surrogate_hi = self.builder.const_i64(0xE000);
@@ -95,13 +90,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let i32_ty = self.builder.i32_type();
                 Some(self.builder.trunc(val, i32_ty, "cast.int.char"))
             }
-            // str→int / str→float (parse) and value→str (to_str) need the
-            // cast runtime surface — not emitted here; caller falls through.
             _ => None,
         }
     }
-
-    // Format call decomposition
 
     /// Intercept `ori_format_*` calls and decompose the string spec argument.
     ///
@@ -125,12 +116,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let target = self.format_rt_names.lookup(callee)?;
         let func_id = self.builder.runtime_fn(target.symbol());
 
-        // args[0] = the value to format
         let value = self.var(args[0]);
-        // args[1] = spec string {i64 len, ptr data}
         let spec_str = self.var(args[1]);
 
-        // For ori_format_str, the value arg is also a string struct — coerce to ptr.
         let value_arg = if target.value_needs_pointer() {
             let val_ty = func.var_type(args[0]);
             self.coerce_aggregate_to_ptr(value, val_ty)
@@ -138,21 +126,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             value
         };
 
-        // Decompose spec string via SSO-safe runtime helpers.
-        // Field extraction is WRONG for SSO strings (field 0 = inline bytes, not len).
+        // Why: Field extraction reads inline bytes instead of length for SSO strings.
         let spec_str_ptr = self.str_to_ptr(spec_str, "fmt.spec");
         let len_fn = self.builder.runtime_fn("ori_str_len");
-        let spec_len = self
-            .builder
-            .call(len_fn, &[spec_str_ptr], "fmt.spec_len")
-            .expect("ori_str_len is non-void; builder.call returns Some");
+        let spec_len = self.builder.call(len_fn, &[spec_str_ptr], "fmt.spec_len")?;
         let data_fn = self.builder.runtime_fn("ori_str_data");
         let spec_ptr = self
             .builder
-            .call(data_fn, &[spec_str_ptr], "fmt.spec_ptr")
-            .expect("ori_str_data is non-void; builder.call returns Some");
+            .call(data_fn, &[spec_str_ptr], "fmt.spec_ptr")?;
 
-        // Call runtime: ori_format_*(value, spec_ptr, spec_len) → Str via sret
         let str_ty = self.resolve_type(ori_types::Idx::STR);
         self.builder
             .call_with_sret(func_id, &[value_arg, spec_ptr, spec_len], str_ty, "fmt")

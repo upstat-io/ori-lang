@@ -6,13 +6,14 @@ pub(crate) use field_access::{
     infer_field, infer_index, infer_struct_field, lookup_struct_field_types,
 };
 
-use ori_ir::{ExprArena, Name, Span};
+use ori_ir::{ExprArena, Name, ParsedType, ParsedTypeId, Span};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::pool::substitute::substitute_named_in_pool;
 use crate::{ContextKind, Expected, Idx, TypeCheckError, TypeKind};
 
 use super::super::InferEngine;
+use super::type_resolution::resolve_parsed_type;
 use super::{find_similar_type_names, infer_expr, infer_ident};
 
 /// Infer the value expressions of a field-init range for error recovery.
@@ -171,15 +172,22 @@ fn check_provided_fields(
 /// `infer_struct` and `infer_struct_spread`: the registry index, the
 /// substituted expected field set, and the applied/named result type.
 struct StructLiteralTarget {
+    name: Name,
     entry_idx: Idx,
     expected_fields: Vec<(Name, Idx)>,
     expected_map: FxHashMap<Name, Idx>,
     target_type: Idx,
 }
 
-/// Resolve `name` to its registered struct definition and build the per-literal
-/// layout data: fresh type-parameter substitution, substituted expected field
-/// types, and the applied/named result type.
+/// Resolve the struct-literal `type_path` head to its registered definition and
+/// build the per-literal layout data: fresh type-parameter substitution,
+/// substituted expected field types, and the applied/named result type.
+///
+/// A bare `Named` head resolves by name; a module-qualified `AssociatedType`
+/// head (`module.Type`) resolves through the shared `resolve_parsed_type` SSOT
+/// then back to its registry entry via `get_by_idx`, so a qualified path never
+/// falls back to a same-named local type. Both heads report a miss identically,
+/// including the "did you mean?" suggestion set.
 ///
 /// Pushes the unknown-type-name / non-struct-target diagnostic and returns
 /// `None` on a missing type registry, unknown name, or non-struct target. The
@@ -187,18 +195,46 @@ struct StructLiteralTarget {
 /// (`FieldInitRange` vs `StructLitFieldRange`) on the `None` path.
 fn resolve_struct_literal_target(
     engine: &mut InferEngine<'_>,
-    name: Name,
+    arena: &ExprArena,
+    type_path: ParsedTypeId,
     span: Span,
 ) -> Option<StructLiteralTarget> {
-    // Step 1: Look up the struct type in the registry
-    let type_registry = engine.type_registry()?;
-
-    let Some(entry) = type_registry.get_by_name(name).cloned() else {
-        // Unknown type name — find similar type names for suggestions
-        let similar = find_similar_type_names(engine, type_registry, name);
-        engine.push_error(TypeCheckError::unknown_ident(span, name, similar));
-        return None;
+    // Step 1: Resolve the type-path head to its registered type entry.
+    let entry = match arena.get_parsed_type(type_path) {
+        ParsedType::Named { name, .. } => {
+            let name = *name;
+            let type_registry = engine.type_registry()?;
+            let Some(entry) = type_registry.get_by_name(name).cloned() else {
+                let similar = find_similar_type_names(engine, type_registry, name);
+                engine.push_error(TypeCheckError::unknown_ident(span, name, similar));
+                return None;
+            };
+            entry
+        }
+        ParsedType::AssociatedType { assoc_name, .. } => {
+            let assoc_name = *assoc_name;
+            let parsed = arena.get_parsed_type(type_path);
+            let resolved = resolve_parsed_type(engine, arena, parsed);
+            let found = engine
+                .type_registry()
+                .and_then(|registry| registry.get_by_idx(resolved).cloned());
+            let Some(entry) = found else {
+                // Suggest on the terminal segment — the type name the author
+                // actually mistyped — so a qualified miss reads the same as the
+                // bare-`Named` miss above.
+                let similar = match engine.type_registry() {
+                    Some(registry) => find_similar_type_names(engine, registry, assoc_name),
+                    None => Vec::new(),
+                };
+                engine.push_error(TypeCheckError::unknown_ident(span, assoc_name, similar));
+                return None;
+            };
+            entry
+        }
+        _ => return None,
     };
+
+    let name = entry.name;
 
     // Step 2: Verify it's a struct — move struct_def out of the already-owned entry
     let entry_idx = entry.idx;
@@ -243,6 +279,7 @@ fn resolve_struct_literal_target(
     };
 
     Some(StructLiteralTarget {
+        name,
         entry_idx,
         expected_fields,
         expected_map,
@@ -261,16 +298,17 @@ fn resolve_struct_literal_target(
 pub(crate) fn infer_struct(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
-    name: Name,
+    type_path: ParsedTypeId,
     fields: ori_ir::FieldInitRange,
     span: Span,
 ) -> Idx {
     // Resolve the struct target; on failure infer field values for error
     // recovery and bail with the error type.
-    let Some(target) = resolve_struct_literal_target(engine, name, span) else {
+    let Some(target) = resolve_struct_literal_target(engine, arena, type_path, span) else {
         infer_field_init_values(engine, arena, fields);
         return Idx::ERROR;
     };
+    let name = target.name;
 
     // Check provided fields
     let provided_fields = check_provided_fields(
@@ -302,7 +340,7 @@ pub(crate) fn infer_struct(
 pub(crate) fn infer_struct_spread(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
-    name: Name,
+    type_path: ParsedTypeId,
     fields: ori_ir::StructLitFieldRange,
     span: Span,
 ) -> Idx {
@@ -310,10 +348,11 @@ pub(crate) fn infer_struct_spread(
 
     // Resolve the struct target; on failure infer field values (and spread
     // expressions) for error recovery and bail with the error type.
-    let Some(target) = resolve_struct_literal_target(engine, name, span) else {
+    let Some(target) = resolve_struct_literal_target(engine, arena, type_path, span) else {
         infer_struct_lit_field_values(engine, arena, fields);
         return Idx::ERROR;
     };
+    let name = target.name;
 
     // Check provided fields
     let mut provided_fields: FxHashSet<Name> =

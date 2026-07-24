@@ -679,14 +679,8 @@ impl<'a> Verifier<'a> {
             }
             match (slot.demand, slot.action) {
                 (VmCalleeOwnerDemand::Borrow, VmClosureAdapterAction::Borrow)
-                | (
-                    VmCalleeOwnerDemand::WholeValue | VmCalleeOwnerDemand::ProjectedField(_),
-                    VmClosureAdapterAction::Copy,
-                ) => {}
-                (
-                    VmCalleeOwnerDemand::WholeValue | VmCalleeOwnerDemand::ProjectedField(_),
-                    VmClosureAdapterAction::Retain(plan),
-                ) => {
+                | (VmCalleeOwnerDemand::WholeValue, VmClosureAdapterAction::Copy) => {}
+                (VmCalleeOwnerDemand::WholeValue, VmClosureAdapterAction::Retain(plan)) => {
                     let retain = self.program.retain_plans.get(plan.index()).ok_or_else(|| {
                         invalid_index(
                             self.function.name,

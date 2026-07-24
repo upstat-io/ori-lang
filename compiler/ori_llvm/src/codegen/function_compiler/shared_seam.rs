@@ -1,17 +1,7 @@
 //! Shared executable-artifact projection helpers.
 //!
-//! Both the immediate-emit path ([`FunctionCompiler::emit_arc_function`] in
-//! [`super::define_phase`]) and the two-pass prepare path
-//! ([`FunctionCompiler::prepare_arc_function`] in [`super::nounwind::prepare`])
-//! route through these helpers, keeping the shared-seam surface in one place.
-//!
-//! Callers (grep-verifiable):
-//! - `define_phase.rs`: `emit_arc_function_inner` → `process_arc_function`;
-//!   `compile_lambda_arc` → `declare_and_process_lambda`.
-//! - `nounwind/prepare.rs`: `prepare_arc_function` / `prepare_lambda` →
-//!   same two entry points.
-//! - `impls.rs`: `compile_impls` / test compilation go through
-//!   `emit_arc_function` above (no direct call to these helpers today).
+//! Immediate emission and nounwind preparation share realization, verification,
+//! calling-convention selection, and ARC emission through this module.
 
 use ori_arc::verify::VerifyError;
 use ori_ir::Name;
@@ -25,14 +15,9 @@ use crate::codegen::value_id::FunctionId;
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// Replace a lowering shape-driver with its closed realized body.
     ///
-    /// Shared by both the immediate-emit path ([`Self::emit_arc_function`]) and
-    /// the two-pass prepare path ([`Self::prepare_arc_function`]).
-    ///
-    /// Returns `Err(VerifyError::UnresolvedTypeVar(_))` when the PC-2
-    /// cross-phase contract check detects `Tag::Var` or `Tag::Projection`
-    /// in the ARC IR. This is ALWAYS-ON contract enforcement, not gated by
-    /// `self.verify_arc` which controls additional downstream verification
-    /// (per-function LLVM IR verification under `ORI_VERIFY_ARC=1`).
+    /// Returns [`VerifyError::UnresolvedTypeVar`] when PC-2 detects unresolved
+    /// variables or projections. This contract check is independent of
+    /// optional LLVM verification.
     pub(super) fn process_arc_function(
         &mut self,
         name: Name,
@@ -63,12 +48,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             );
         }
 
-        // PC-2 contract check guards the exact body consumed by physical
-        // projection. Checking a caller-supplied lowering shape instead would
-        // validate the wrong structure.
-        //
-        // Empty exempt set: generic bodies reach this seam only post-
-        // monomorphization; non-generic bodies have no scheme_var_ids.
+        // INVARIANT: Physical projection validates the closed, monomorphized body.
         let exempt: FxHashSet<u32> = FxHashSet::default();
         if let Err(err) =
             ori_arc::assert_no_unresolved_type_vars(self.pool, arc_func, self.interner, &exempt)
@@ -217,9 +197,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             "declaring lambda"
         );
 
-        // Declare with phantom env param for non-capturing lambdas.
-        // The emission ABI (registered below) does NOT include the phantom
-        // param -- emit_function adjusts llvm_param_idx to skip it.
+        // INVARIANT: Non-capturing lambdas reserve an LLVM-only environment parameter.
         let func_id = if is_non_capturing {
             let ptr_ty = self.builder.ptr_type();
             self.declare_function_llvm_with_extra_params(&symbol, &abi, &[ptr_ty])

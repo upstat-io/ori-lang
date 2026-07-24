@@ -104,6 +104,7 @@ fn empty_executable(symbols: &SharedInterner) -> ExecutableProgram {
         method_call_facts: Vec::new(),
         operator_call_facts: Vec::new(),
         direct_call_facts: Vec::new(),
+        yield_allocations: Vec::new(),
         class_ledger_emission: false,
     };
     let pool = Pool::new();
@@ -133,7 +134,7 @@ fn empty_executable(symbols: &SharedInterner) -> ExecutableProgram {
         retain_plans: Default::default(),
         roots: vec![main],
         cli_entry: None,
-        externals: Vec::new(),
+        externals: ori_repr::executable::ValidatedExternalCallables::empty(),
         method_targets: Default::default(),
         user_drop_bindings: Vec::new(),
         repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
@@ -190,37 +191,38 @@ fn test_compile_module_with_tests_empty() {
 ///
 /// When two trait impls on the same type share a method name (e.g., two `Index`
 /// impls with `@index`), `collect_unconstrained_fn_names()` must register both
-/// the base name (`__impl_42_index`) and ordinal-suffixed names
-/// (`__impl_42_index_1`).
+/// the stable-hash base name and ordinal-suffixed names.
 #[test]
 fn collect_unconstrained_fn_names_registers_ordinal_variants() {
     let interner = StringInterner::new();
+    let pool = ori_types::Pool::new();
 
     // Simulate type checker output: same type (Idx 42) defines `index` twice
     // (e.g., `impl Index<int>` and `impl Index<str>` on the same type).
-    let self_type = ori_types::Idx::from_raw(42);
+    let self_type = ori_types::Idx::INT;
     let index_name = interner.intern("index");
     let trait_impl_fn_names = vec![(self_type, index_name), (self_type, index_name)];
 
     let result =
-        ori_repr::collect_unconstrained_fn_names(&[], &trait_impl_fn_names, Some(&interner));
+        ori_repr::collect_unconstrained_fn_names(&[], &trait_impl_fn_names, &pool, Some(&interner));
 
-    let base_qualified = interner.intern("__impl_42_index");
-    let ordinal_qualified = interner.intern("__impl_42_index_1");
+    let receiver_hash = pool.hash(self_type);
+    let base_qualified = interner.intern(&format!("__impl_{receiver_hash:016x}_index"));
+    let ordinal_qualified = interner.intern(&format!("__impl_{receiver_hash:016x}_index_1"));
 
     assert!(
         result.contains(&(None, base_qualified)),
-        "Base qualified name __impl_42_index must be registered"
+        "base qualified name must use the stable receiver hash"
     );
     assert!(
         result.contains(&(None, ordinal_qualified)),
-        "Ordinal-qualified name __impl_42_index_1 must be registered"
+        "ordinal-qualified name must use the stable receiver hash"
     );
 
     // Negative: ordinal 0 must NOT produce a suffixed name
-    let wrong_base = interner.intern("__impl_42_index_0");
+    let wrong_base = interner.intern(&format!("__impl_{receiver_hash:016x}_index_0"));
     assert!(
         !result.contains(&(None, wrong_base)),
-        "Ordinal 0 must use the unsuffixed base name, not __impl_42_index_0"
+        "ordinal 0 must use the unsuffixed stable-hash base name"
     );
 }

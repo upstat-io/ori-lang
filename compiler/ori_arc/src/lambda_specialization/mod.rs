@@ -114,9 +114,7 @@ pub fn specialize_polymorphic_lambdas(
         lambda.invalidate_variable_metadata_for_type_rewrite();
     }
 
-    // Resolve every type site to identities already materialized by the type
-    // phase before deciding whether specialization is needed. ARC may select
-    // those identities but cannot extend the canonical Pool.
+    // INVARIANT: Specialization selects identities already materialized in the canonical pool.
     let mut resolution = TypeResolution::new(pool);
     let empty = rustc_hash::FxHashMap::default();
     resolve_type_sites(parent, &empty, &mut resolution);

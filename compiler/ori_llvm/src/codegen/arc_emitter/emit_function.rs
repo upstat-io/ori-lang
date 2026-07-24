@@ -8,28 +8,21 @@ use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::context::EmittedValue;
-use super::dead_unwind::assert_dead_unwind_unreachable;
-use super::emit_function_support::{scan_for_yield_elem_size_types, BlockLabel};
-use super::field_scan::{compute_pointer_only_params, scan_used_fields};
-use super::ArcIrEmitter;
 use crate::codegen::abi::FunctionAbi;
 use crate::codegen::eh_model::EhModel;
 use crate::codegen::value_id::{FunctionId, ValueId};
 
+use super::block_label::BlockLabel;
+use super::context::EmittedValue;
+use super::dead_unwind::assert_dead_unwind_unreachable;
+use super::field_scan::{compute_pointer_only_params, scan_used_fields};
+use super::yield_type_index::index_yield_types_by_elem_size_var;
+use super::ArcIrEmitter;
+
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Determine whether a builtin handler intercepts an `Invoke` callee.
-    ///
-    /// Several handler paths in [`Self::emit_invoke`] always emit `call`
-    /// regardless of the invoke mode: format calls, prelude builtins, and
-    /// builtin type methods. An intercepted callee's unwind block has no
-    /// predecessor and is dead code.
-    ///
-    /// Used by dead unwind detection (to skip creating LLVM blocks) and by
-    /// [`Self::emit_invoke`] (to use `Call` mode instead of `Invoke`).
-    ///
-    /// Delegates to the shared [`super::context::is_callee_intercepted`] free
-    /// function for the actual 6-condition check.
+    /// Reports whether builtin handling converts an `Invoke` callee to `call`.
+    /// Intercepted callees leave their unwind blocks without predecessors, so
+    /// dead-unwind classification omits those blocks.
     pub(super) fn callee_will_be_intercepted(
         &self,
         callee: Name,
@@ -114,17 +107,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .insert(checked_var, self.block(handler));
         }
         self.var_map.resize(func.var_types.len(), None);
-        self.for_yield_elem_size_types = scan_for_yield_elem_size_types(func, self.interner);
-        if self.narrowed_int_collection_element_width().is_some() {
-            self.for_yield_int_elem_sizes = self
-                .for_yield_elem_size_types
-                .iter()
-                .filter(|&(_, &elem_ty)| {
-                    self.pool.tag(self.pool.resolve_fully(elem_ty)) == ori_types::Tag::Int
-                })
-                .map(|(&var, _)| var)
-                .collect();
-        }
+        self.yield_lineages = ori_arc::YieldLineageIndex::for_function(func);
+        self.yield_types_by_elem_size_var = index_yield_types_by_elem_size_var(func);
 
         let used_fields = scan_used_fields(func);
         let pointer_only = self.find_pointer_only_params(func);
@@ -139,18 +123,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let len_name = self.interner.intern("len");
         compute_pointer_only_params(func, |dst, callee, args| {
             let callee_name = self.interner.lookup(callee);
+            let is_string_length_call = || {
+                let Some(&receiver) = args.first() else {
+                    return false;
+                };
+                (callee == length_name || callee == len_name)
+                    && self.pool.tag(func.var_type(receiver)) == ori_types::Tag::Str
+            };
             if self.ctx.executable_facts_bound {
                 match self.ctx.executable_call_targets.get(&(func.name, dst)) {
                     Some(
                         ori_repr::executable::CallableTarget::Function(_)
                         | ori_repr::executable::CallableTarget::External(_),
                     ) => return true,
+
                     Some(ori_repr::executable::CallableTarget::Runtime(_)) | None => {
-                        if (callee == length_name || callee == len_name) && !args.is_empty() {
-                            let receiver_ty = func.var_type(args[0]);
-                            return self.pool.tag(receiver_ty) == ori_types::Tag::Str;
-                        }
-                        return false;
+                        return is_string_length_call();
                     }
                 }
             }
@@ -164,11 +152,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ) {
                 return true;
             }
-            if (callee == length_name || callee == len_name) && !args.is_empty() {
-                let receiver_ty = func.var_type(args[0]);
-                return self.pool.tag(receiver_ty) == ori_types::Tag::Str;
-            }
-            false
+            is_string_length_call()
         })
     }
 
@@ -185,6 +169,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         } else {
             !unwind_blocks.is_empty()
         };
+
         let personality = needs_personality.then(|| {
             let id = self.builder.runtime_fn(eh_model.personality_name());
             self.builder.set_personality(self.current_function, id);
@@ -265,6 +250,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 personality,
                 &mut landingpad_values,
             );
+
             if self.emit_block_instructions(func, block_index) {
                 self.current_cleanup_pad = None;
                 continue;
@@ -316,10 +302,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     self.emit_catch_cleanup(exception);
                 }
             }
+
             EhModel::Itanium => {
                 let pad = self.builder.landingpad(personality, true, "lp");
                 landingpad_values.insert(block.id.index(), pad);
             }
+
             EhModel::Seh => {
                 let pad = self.builder.cleanuppad(None, &[]);
                 self.current_cleanup_pad = Some(pad);
@@ -372,6 +360,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 }
 
+/// Panics if load elision would hide a direct ARC instruction on a parameter.
 pub(super) fn assert_pointer_only_params_have_no_rc(
     func: &ArcFunction,
     pointer_only: &FxHashSet<ArcVarId>,

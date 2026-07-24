@@ -1,16 +1,15 @@
 //! Local jump-threaded same-allocation rep tracking, consumed by codegen's
 //! push-result element-escape keep-alive gate.
-//!
-//! Split out of [`super`] to keep both files under the 500-line hygiene cap.
 
 use rustc_hash::FxHashMap;
 
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
+use crate::uniqueness::CowMode;
 
 /// Whether `recv`'s jump-threaded collection lineage is RETURNED from `func` —
 /// the SAME discriminator the element-escape keep-alive gates on
 /// ([`collection_receiver_returned`]). This is a logical element-ownership fact
-/// for every physical projection. LLVM currently maps it to the paired
+/// for every physical projection. LLVM maps it to the paired
 /// elem-header store on push results: the keep-alive inc's balancing release is
 /// the receiving collection's `elem_dec_fn`, which exists only when the result
 /// buffer's header is populated; an in-scope (non-returned) receiver holds
@@ -20,6 +19,101 @@ pub fn push_receiver_lineage_returned(func: &ArcFunction, recv: ArcVarId) -> boo
     let jt_reps = compute_jump_threaded_reps(func, None);
     let rep_of = |v: ArcVarId| jt_reps.get(&v).copied().unwrap_or(v);
     collection_receiver_returned(rep_of(recv), func, &rep_of)
+}
+
+/// Find the lowering-owned yield result that shares `recv`'s jump-threaded
+/// list lineage.
+///
+/// This exposes stable allocation identity, not a physical placement choice.
+/// Consumers must still consult the representation plan before selecting a
+/// stack or heap projection.
+pub fn yield_result_for_receiver_lineage(func: &ArcFunction, recv: ArcVarId) -> Option<ArcVarId> {
+    YieldLineageIndex::for_function(func).result_for_receiver(recv)
+}
+
+/// Reusable index of lowering-owned yield allocation lineages in one function.
+///
+/// Construct this once when a consumer queries multiple variables. Building the
+/// index scans the function to close static-unique COW and jump-threaded alias
+/// edges; each subsequent lookup is constant-time.
+#[derive(Debug, Default)]
+pub struct YieldLineageIndex {
+    representatives: FxHashMap<ArcVarId, ArcVarId>,
+    results_by_representative: FxHashMap<ArcVarId, ArcVarId>,
+}
+
+impl YieldLineageIndex {
+    /// Build the closed lineage index for `func`.
+    #[must_use]
+    pub fn for_function(func: &ArcFunction) -> Self {
+        if func.yield_allocations.is_empty() {
+            return Self {
+                representatives: FxHashMap::default(),
+                results_by_representative: FxHashMap::default(),
+            };
+        }
+        let cow_reps = static_unique_cow_reps(func);
+        let representatives = compute_jump_threaded_reps(func, Some(&cow_reps));
+        let mut results_by_representative = FxHashMap::default();
+        for fact in &func.yield_allocations {
+            let representative = representatives
+                .get(&fact.result)
+                .copied()
+                .unwrap_or(fact.result);
+            results_by_representative
+                .entry(representative)
+                .or_insert(fact.result);
+        }
+        Self {
+            representatives,
+            results_by_representative,
+        }
+    }
+
+    /// Find the lowering-owned yield result sharing `receiver`'s lineage.
+    #[must_use]
+    pub fn result_for_receiver(&self, receiver: ArcVarId) -> Option<ArcVarId> {
+        let representative = self
+            .representatives
+            .get(&receiver)
+            .copied()
+            .unwrap_or(receiver);
+        self.results_by_representative.get(&representative).copied()
+    }
+}
+
+/// Same-allocation edges frozen by the COW projection.
+///
+/// A `StaticUnique` COW operation is guaranteed to select its in-place path,
+/// so its collection result has the receiver's physical allocation identity.
+/// Keep these edges local to allocation-lineage queries: the broader AIMS
+/// analyses intentionally retain their existing merge discipline.
+fn static_unique_cow_reps(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
+    let mut reps = FxHashMap::default();
+    for (block_idx, block) in func.blocks.iter().enumerate() {
+        for (instr_idx, instr) in block.body.iter().enumerate() {
+            if func.cow_annotations.get(block_idx, instr_idx) != CowMode::StaticUnique {
+                continue;
+            }
+            if let ArcInstr::Apply { dst, ty, args, .. } = instr {
+                if let Some(&receiver) = args.first() {
+                    if func.var_type(receiver) == *ty {
+                        reps.insert(*dst, receiver);
+                    }
+                }
+            }
+        }
+        if func.cow_annotations.get(block_idx, block.body.len()) == CowMode::StaticUnique {
+            if let ArcTerminator::Invoke { dst, ty, args, .. } = &block.terminator {
+                if let Some(&receiver) = args.first() {
+                    if func.var_type(receiver) == *ty {
+                        reps.insert(*dst, receiver);
+                    }
+                }
+            }
+        }
+    }
+    reps
 }
 
 /// Whether collection-receiver lineage `recv_rep` (a jump-threaded rep of a
@@ -146,4 +240,51 @@ pub(super) fn compute_jump_threaded_reps(
         reps.insert(v, r);
     }
     reps
+}
+
+#[cfg(test)]
+mod tests {
+    use super::YieldLineageIndex;
+    use crate::ir::{
+        AllocationSiteId, ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue,
+        ArcVarId, YieldAllocationFact, YieldAllocationLocality, YieldExtent,
+    };
+    use ori_types::Idx;
+
+    fn var(raw: u32) -> ArcVarId {
+        ArcVarId::new(raw)
+    }
+
+    #[test]
+    fn reusable_index_resolves_jump_threaded_yield_aliases() {
+        let function = ArcFunction {
+            var_types: vec![Idx::BOOL; 3],
+            blocks: vec![ArcBlock {
+                id: ArcBlockId::new(0),
+                params: Vec::new(),
+                body: vec![ArcInstr::Let {
+                    dst: var(2),
+                    ty: Idx::BOOL,
+                    value: ArcValue::Var(var(1)),
+                }],
+                terminator: ArcTerminator::Return { value: var(2) },
+            }],
+            yield_allocations: vec![YieldAllocationFact {
+                site: AllocationSiteId::new(0),
+                builder: var(0),
+                result: var(1),
+                elem_ty: Idx::BOOL,
+                elem_size_var: var(2),
+                elem_size: 1,
+                extent: YieldExtent::StaticExact(1),
+                locality: YieldAllocationLocality::Local,
+            }],
+            ..ArcFunction::default()
+        };
+
+        let index = YieldLineageIndex::for_function(&function);
+        assert_eq!(index.result_for_receiver(var(1)), Some(var(1)));
+        assert_eq!(index.result_for_receiver(var(2)), Some(var(1)));
+        assert_eq!(index.result_for_receiver(var(0)), None);
+    }
 }

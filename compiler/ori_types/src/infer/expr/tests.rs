@@ -4408,13 +4408,11 @@ fn test_capturing_lambda_via_struct_literal_does_not_generalize() {
         value: Some(outer),
         span: span(),
     }]);
-    let body = alloc(
-        &mut arena,
-        ExprKind::Struct {
-            name: name(202),
-            fields,
-        },
-    );
+    let type_path = arena.alloc_parsed_type(ori_ir::ParsedType::Named {
+        name: name(202),
+        type_args: ori_ir::ParsedTypeRange::EMPTY,
+    });
+    let body = alloc(&mut arena, ExprKind::Struct { type_path, fields });
     assert_lambda_with_body_does_not_generalize(&mut arena, body);
 }
 

@@ -212,14 +212,11 @@ pub(crate) fn balance_verdict(
     balance_verdict_from_nets(func, delta, &nets)
 }
 
-/// Verdict extraction from a precomputed `(delta, nets)` pair — the pure
-/// classification core (merge-disagree first, then convergence-exhausted
-/// fail-closed, then first nonzero terminal). Split from `balance_verdict`
-/// so the `ConvergenceExhausted` branch is directly pinnable: freeze-on-disagree
-/// makes a non-converged-without-disagree state unreachable through any real
-/// CFG (a cyclic non-zero-delta merge freezes and converges to `MergeDisagree`),
-/// so the fail-closed branch is verified against a hand-constructed non-converged
-/// `BurdenEntryNets`. The production path always threads through here.
+/// Classifies a precomputed `(delta, nets)` pair.
+///
+/// Checks merge disagreement, convergence exhaustion, then the first nonzero
+/// terminal. Freeze-on-disagree makes exhaustion without disagreement
+/// unreachable from a real CFG, so tests construct that fail-closed state.
 pub(crate) fn balance_verdict_from_nets(
     func: &ArcFunction,
     delta: Vec<i64>,

@@ -1,9 +1,13 @@
-//! Codegen backend dispatch — the `BackendChoice` enum wrapping the LLVM
-//! backend behind `ori_repr::CodegenBackend`.
+//! Codegen backend dispatch — the `CodegenBackendChoice` enum wrapping the
+//! LLVM backend behind `ori_codegen::CodegenBackend`.
 //!
 //! Single-variant today (`Llvm`); routes both `compile_common.rs` entry
 //! points through `run_codegen_pipeline` unchanged. The fixed backend set uses
 //! enum dispatch; backend implementations share the `CodegenBackend` contract.
+//!
+//! Each variant produces its own `CodegenBackend::Artifact`; the dispatch
+//! normalizes that into the backend-neutral [`EmittedArtifact`], so the
+//! dispatch signature names no concrete backend's output type.
 
 #[cfg(feature = "llvm")]
 use ori_llvm::inkwell::context::Context;
@@ -12,7 +16,7 @@ use ori_llvm::inkwell::context::Context;
 use ori_repr::monomorphize::ImportSig;
 
 #[cfg(feature = "llvm")]
-use ori_repr::{BackendError, CodegenBackend, RealizedProgram};
+use ori_codegen::{BackendError, CodegenBackend, CodegenInput};
 
 #[cfg(feature = "llvm")]
 use oric::parser::ParseOutput;
@@ -21,13 +25,36 @@ use oric::parser::ParseOutput;
 use oric::CompilerDb;
 
 #[cfg(feature = "llvm")]
-use super::codegen_pipeline::{run_codegen_pipeline, CodegenPipelineInput, LlvmCodegenOutput};
+use super::codegen_pipeline::{
+    run_codegen_pipeline, CodegenPipelineInput, LlvmCodegenOutput, RealizedCallableExport,
+};
 
 #[cfg(feature = "llvm")]
 use super::ImportedSurfaces;
 
+/// The emitted module, one variant per member of the closed backend set.
+///
+/// A driver step that consumes a backend's own module matches this exhaustively;
+/// adding a backend turns every such step into a compile error rather than a
+/// silent fallthrough.
+#[cfg(feature = "llvm")]
+pub(super) enum EmittedModule<'ctx> {
+    Llvm(ori_llvm::inkwell::module::Module<'ctx>),
+}
+
+/// The backend-neutral result of one codegen dispatch.
+///
+/// `exports` are producer-authored callable facts already independent of any
+/// backend; `module` holds the emitting backend's own module. The type names no
+/// placement, header, ABI, opcode, or helper identity.
+#[cfg(feature = "llvm")]
+pub(super) struct EmittedArtifact<'ctx> {
+    pub(super) exports: Vec<RealizedCallableExport>,
+    pub(super) module: EmittedModule<'ctx>,
+}
+
 /// The LLVM codegen backend — wraps the existing `run_codegen_pipeline`
-/// with the driver-side inputs `RealizedProgram` does not carry (the LLVM
+/// with the driver-side inputs `CodegenInput` does not carry (the LLVM
 /// `Context`, the Salsa `CompilerDb`, cross-module import linkage).
 #[cfg(feature = "llvm")]
 pub(super) struct LlvmBackend<'ctx, 'a> {
@@ -44,7 +71,7 @@ impl<'ctx> CodegenBackend<'ctx> for LlvmBackend<'ctx, '_> {
 
     fn compile<'p>(
         &self,
-        program: &RealizedProgram<'ctx, 'p>,
+        program: &CodegenInput<'ctx, 'p>,
     ) -> Result<Self::Artifact, BackendError> {
         run_codegen_pipeline(CodegenPipelineInput {
             context: self.context,
@@ -59,7 +86,9 @@ impl<'ctx> CodegenBackend<'ctx> for LlvmBackend<'ctx, '_> {
             import_sigs: self.import_sigs,
             imported: self.imported,
             target_triple: program.target_triple,
-            narrowing_policy: program.narrowing_policy,
+            realization_policy: oric::realization::RealizationPolicy::with_narrowing(
+                program.narrowing_policy,
+            ),
             imported_type_metadata: program.imported_type_metadata,
             imported_collection_surfaces: program.imported_collection_surfaces,
         })
@@ -71,18 +100,29 @@ impl<'ctx> CodegenBackend<'ctx> for LlvmBackend<'ctx, '_> {
 ///
 /// This is single-variant today; enum dispatch keeps the closed set explicit.
 #[cfg(feature = "llvm")]
-pub(super) enum BackendChoice<'ctx, 'a> {
+pub(super) enum CodegenBackendChoice<'ctx, 'a> {
     Llvm(LlvmBackend<'ctx, 'a>),
 }
 
 #[cfg(feature = "llvm")]
-impl<'ctx> BackendChoice<'ctx, '_> {
+impl<'ctx> CodegenBackendChoice<'ctx, '_> {
+    /// Compile `program` with the selected backend, normalizing that backend's
+    /// own `Artifact` into the neutral [`EmittedArtifact`].
     pub(super) fn compile<'p>(
         &self,
-        program: &RealizedProgram<'ctx, 'p>,
-    ) -> Result<LlvmCodegenOutput<'ctx>, BackendError> {
+        program: &CodegenInput<'ctx, 'p>,
+    ) -> Result<EmittedArtifact<'ctx>, BackendError> {
         match self {
-            BackendChoice::Llvm(backend) => backend.compile(program),
+            CodegenBackendChoice::Llvm(backend) => {
+                let LlvmCodegenOutput { module, exports } = backend.compile(program)?;
+                Ok(EmittedArtifact {
+                    exports,
+                    module: EmittedModule::Llvm(module),
+                })
+            }
         }
     }
 }
+
+#[cfg(all(test, feature = "llvm"))]
+mod tests;

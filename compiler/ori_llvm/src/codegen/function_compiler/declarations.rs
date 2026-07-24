@@ -86,7 +86,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         let mut llvm_param_types =
             Vec::with_capacity(abi.params.len() + extra_leading_params.len() + 1);
 
-        let return_llvm_type = self.type_resolver.resolve(abi.return_abi.ty);
+        let return_llvm_type = self.type_resolver.resolve_boundary(abi.return_abi.ty);
         let return_llvm_id = self.builder.register_type(return_llvm_type);
 
         if matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }) {
@@ -98,7 +98,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         for param in &abi.params {
             match &param.passing {
                 ParamPassing::Direct => {
-                    let ty = self.type_resolver.resolve(param.ty);
+                    let ty = self.type_resolver.resolve_boundary(param.ty);
                     llvm_param_types.push(self.builder.register_type(ty));
                 }
                 ParamPassing::Indirect { .. } | ParamPassing::Reference => {
@@ -193,7 +193,35 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         span: Span,
     ) {
         let (func_id, abi) = self.declare_impl_method(name, symbol, sig, span);
-        self.codegen_ctx.functions.insert(name, (func_id, abi));
+        self.codegen_ctx
+            .functions
+            .insert(name, (func_id, abi.clone()));
+
+        self.declare_length_projection_clone(name, &abi);
+    }
+
+    pub(super) fn declare_length_projection_clone(&mut self, name: Name, abi: &FunctionAbi) {
+        let Some(&(clone_name, _)) = self.length_projection_clones.get(&name) else {
+            return;
+        };
+        if self.codegen_ctx.functions.contains_key(&clone_name) {
+            return;
+        }
+        let clone_symbol = self
+            .mangler
+            .mangle_function(self.module_path, self.interner.lookup(clone_name));
+        let clone_function = self.declare_function_llvm(&clone_symbol, abi);
+        self.builder.set_internal_linkage(clone_function);
+        self.codegen_ctx
+            .functions
+            .insert(clone_name, (clone_function, abi.clone()));
+        for (&site, &callee) in &self.length_projection_calls {
+            if callee == name {
+                self.codegen_ctx
+                    .length_projection_call_targets
+                    .insert(site, clone_name);
+            }
+        }
     }
 
     /// Declare an impl method LLVM function without registering it in the bare
@@ -258,7 +286,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 match dc.create_function_at_offset(name_str, span.start) {
                     Ok(subprogram) => {
                         let func_val = self.builder.get_function_value(func_id);
-                        dc.di().attach_function(func_val, subprogram);
+                        dc.builder().attach_function(func_val, subprogram);
                     }
                     Err(err) => {
                         // Debug info is best-effort; the function still

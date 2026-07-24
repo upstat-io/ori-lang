@@ -12,11 +12,7 @@ use crate::codegen::abi::FunctionAbi;
 use crate::codegen::value_id::{FunctionId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
-    /// Compile derived trait methods for types with `#[derive(...)]`.
-    ///
-    /// Generates synthetic LLVM functions for derived traits (Eq, Clone,
-    /// Hashable, Printable) and registers them in `method_functions` for
-    /// normal method dispatch.
+    /// Generates and registers synthetic Eq, Clone, Hashable, and Printable methods.
     pub fn compile_derives(
         &mut self,
         module: &ori_ir::Module,
@@ -25,18 +21,11 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         super::super::derive_codegen::compile_derives(self, module, user_types);
     }
 
-    /// PASS 1 (declare-all-then-define-all): declare a derived method LLVM
-    /// function + register its dispatch maps, WITHOUT an entry block or body.
+    /// Declares a derived-method LLVM function and registers its dispatch maps.
     ///
-    /// LLVM permits calling a declared-but-not-yet-defined function, so declaring
-    /// and registering every transitively-demanded instantiation's method FIRST
-    /// lets any later body dispatch to it order-independently (and handles
-    /// self/mutually-recursive derive types a body-emission ordering cannot).
-    /// Registers `method_functions` + `type_idx_to_name`; the per-instantiation
-    /// `mono_derive_functions` registration is the caller's
-    /// (`register_mono_derive_function`).
-    ///
-    /// Returns the declared `func_id`.
+    /// The declaration has no entry block or body, so recursive derived types
+    /// remain independent of definition order. The caller owns registration in
+    /// `mono_derive_functions`.
     pub(crate) fn declare_derive_function(
         &mut self,
         symbol: &str,
@@ -54,7 +43,6 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             .type_idx_to_name
             .insert(type_idx, type_name);
 
-        // Verify round-trip: registrations are immediately retrievable.
         debug_assert!(
             self.codegen_ctx
                 .method_functions
@@ -73,11 +61,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         func_id
     }
 
-    /// PASS 2 (declare-all-then-define-all): create the entry block + bind the
-    /// params for an already-declared derived method ([`Self::declare_derive_function`]),
-    /// positioning the builder to emit the body.
+    /// Creates the entry block and binds a declared derived method's parameters.
     ///
-    /// Returns `(self_value, other_param_values)`.
+    /// Positions the builder for body emission and returns the receiver followed
+    /// by the remaining parameter values.
     pub(crate) fn bind_derive_entry(
         &mut self,
         func_id: FunctionId,

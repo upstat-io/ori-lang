@@ -323,7 +323,7 @@ impl Lowerer<'_> {
         span: Span,
         ty: TypeId,
     ) -> CanId {
-        let range = self.lower_field_inits(fields);
+        let range = self.lower_field_inits(name, fields, ty);
         self.push(
             CanExpr::Struct {
                 name,
@@ -337,15 +337,21 @@ impl Lowerer<'_> {
     /// Lower struct field initializers from the source arena.
     ///
     /// Handles the shorthand syntax: `FieldInit { name, value: None }` is
-    /// desugared to `CanExpr::Ident(name)` (implicit variable reference).
+    /// desugared to a typed `CanExpr::Ident(name)` (implicit variable
+    /// reference). Since shorthand has no source `ExprId`, its type comes from
+    /// the resolved struct field rather than the expression-type table.
     pub(crate) fn lower_field_inits(
         &mut self,
+        struct_name: Name,
         range: ori_ir::FieldInitRange,
+        struct_ty: TypeId,
     ) -> ori_ir::canon::CanFieldRange {
         let src_fields = self.src.get_field_inits(range);
         if src_fields.is_empty() {
             return ori_ir::canon::CanFieldRange::EMPTY;
         }
+
+        let field_defs = self.resolve_struct_fields(struct_name, struct_ty);
 
         // Copy out to avoid borrow conflict.
         let src_fields: Vec<(Name, Option<ExprId>, Span)> = src_fields
@@ -355,12 +361,14 @@ impl Lowerer<'_> {
         let mut can_fields = Vec::with_capacity(src_fields.len());
 
         for (name, value, field_span) in src_fields {
-            let value = match value {
-                Some(expr_id) => self.lower_expr(expr_id),
-                // Shorthand: `Point { x }` → synthesize `Ident(x)`. The
-                // synthesized Ident's type is refined when the evaluator/codegen
-                // looks up the variable binding, so it carries ERROR here.
-                None => self.push(CanExpr::Ident(name), field_span, TypeId::ERROR),
+            let value = if let Some(expr_id) = value {
+                self.lower_expr(expr_id)
+            } else {
+                let ty = field_defs
+                    .as_deref()
+                    .and_then(|defs| defs.iter().find(|(field, _)| *field == name))
+                    .map_or(TypeId::ERROR, |(_, ty)| *ty);
+                self.push(CanExpr::Ident(name), field_span, ty)
             };
             can_fields.push(CanField { name, value });
         }

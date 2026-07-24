@@ -212,7 +212,7 @@ mod tests {
             retain_plans: RetainPlanTable::default(),
             roots: vec![fresh_name],
             cli_entry: Some(fresh_name),
-            externals: Vec::new(),
+            externals: ori_repr::executable::ValidatedExternalCallables::empty(),
             method_targets: FxHashMap::default(),
             user_drop_bindings: Vec::new(),
             repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),

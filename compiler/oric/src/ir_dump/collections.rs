@@ -12,7 +12,7 @@ use std::fmt::Write;
 
 use ori_ir::ast::StructLitField;
 use ori_ir::{
-    ExprRange, FieldInitRange, ListElementRange, MapElementRange, MapEntryRange, Name,
+    ExprRange, FieldInitRange, ListElementRange, MapElementRange, MapEntryRange, ParsedTypeId,
     StructLitFieldRange,
 };
 
@@ -74,7 +74,7 @@ pub(super) fn dump_map(
 /// Render a `Struct` literal: `Struct Name` then each field init / shorthand.
 pub(super) fn dump_struct(
     out: &mut String,
-    name: Name,
+    type_path: ParsedTypeId,
     fields: FieldInitRange,
     ctx: &DumpCtx,
     depth: usize,
@@ -84,7 +84,11 @@ pub(super) fn dump_struct(
     let DumpCtx {
         arena, interner, ..
     } = *ctx;
-    let sname = interner.lookup(name);
+    let sname = crate::ast_dump::patterns::format_parsed_type(
+        arena.get_parsed_type(type_path),
+        arena,
+        interner,
+    );
     writeln!(out, "{indent}Struct {sname}{ty}").unwrap();
     for init in arena.get_field_inits(fields) {
         let fname = interner.lookup(init.name);
@@ -100,7 +104,7 @@ pub(super) fn dump_struct(
 /// Render a `StructWithSpread` literal: each explicit field or `...` spread.
 pub(super) fn dump_struct_with_spread(
     out: &mut String,
-    name: Name,
+    type_path: ParsedTypeId,
     fields: StructLitFieldRange,
     ctx: &DumpCtx,
     depth: usize,
@@ -110,7 +114,11 @@ pub(super) fn dump_struct_with_spread(
     let DumpCtx {
         arena, interner, ..
     } = *ctx;
-    let sname = interner.lookup(name);
+    let sname = crate::ast_dump::patterns::format_parsed_type(
+        arena.get_parsed_type(type_path),
+        arena,
+        interner,
+    );
     writeln!(out, "{indent}StructWithSpread {sname}{ty}").unwrap();
     for field in arena.get_struct_lit_fields(fields) {
         match field {

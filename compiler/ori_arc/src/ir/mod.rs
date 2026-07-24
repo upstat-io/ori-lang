@@ -17,8 +17,9 @@ mod types;
 
 pub use function_cache::collect_all_arc_functions;
 pub use function_data::{
-    ArcFunction, DirectCallFact, MethodCallFact, MethodCallForm, OperatorCallFact,
-    VariableMetadataState,
+    AllocationSiteId, ArcFunction, DirectCallFact, MethodCallFact, MethodCallForm,
+    OperatorCallFact, VariableMetadataState, YieldAllocationFact, YieldAllocationLocality,
+    YieldExtent,
 };
 pub use instr::ArcInstr;
 pub use primitive::{PrimitiveFact, PrimitiveFacts};

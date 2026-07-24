@@ -29,7 +29,7 @@ pub mod transfer;
 // Re-export key types for downstream consumers.
 pub use conditional::BranchRefinement;
 pub use field_summary::{ElementSummaryTable, FieldSummaryTable};
-pub use fixpoint::{range_fixpoint, RangeFixpointResult};
+pub use fixpoint::RangeFixpointResult;
 pub use signatures::{propagate_ranges, FunctionRangeInfo, ParamRange};
 // Transfer functions (range_add, etc.) are pub(crate) within transfer/ —
 // consumers use crate::range::transfer::* or super::transfer::* directly.
@@ -52,7 +52,7 @@ pub enum ValueRange {
     Top,
 }
 
-/// Default is `Top` — the safe conservative "we don't know anything" value.
+/// Default is `Top`, the conservative value for missing range evidence.
 ///
 /// This is load-bearing: `ReprPlan::var_range()` uses `.unwrap_or_default()`
 /// so unanalyzed variables get `Top` (not `Bottom`).

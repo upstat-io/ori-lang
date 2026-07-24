@@ -7,7 +7,6 @@ use ori_types::{Idx, Tag};
 use crate::codegen::value_id::{FunctionId, ValueId};
 
 use super::super::ArcIrEmitter;
-use super::trampolines::TrampolineKind;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `last()` — advance the double-ended iterator from the back once.
@@ -54,46 +53,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         _arc_func: &ArcFunction,
         elem_ty: Idx,
     ) -> Option<ValueId> {
-        if arg_vals.len() < 2 {
-            return None;
-        }
-        let closure = arg_vals[1];
-
-        let (tramp_fn, closure_env) =
-            self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
-
-        let elem_size = self.element_store_size(elem_ty);
-        let elem_size_val = self.builder.const_i64(elem_size as i64);
-        let elem_inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
-
-        // Option layout: {i64 tag, T payload}
-        let tag_llvm = self.builder.scx().type_i64().into();
-        let payload_llvm = self.type_resolver.resolve(elem_ty);
-        let opt_struct = self
-            .builder
-            .scx()
-            .type_struct(&[tag_llvm, payload_llvm], false);
-        let opt_struct_ty = self.builder.register_type(opt_struct.into());
-
-        let out_ptr =
-            self.builder
-                .create_entry_alloca(self.current_function, "rfind.out", opt_struct_ty);
-
-        let func_id = self.builder.runtime_fn("ori_iter_rfind");
-        self.emit_rt_call(
-            func_id,
-            &[
-                iter_ptr,
-                tramp_fn,
-                closure_env,
-                elem_size_val,
-                elem_inc_fn,
-                out_ptr,
-            ],
-            "",
-        );
-
-        Some(self.builder.load(opt_struct_ty, out_ptr, "rfind.result"))
+        self.emit_iter_find_with(
+            iter_ptr,
+            arg_vals,
+            elem_ty,
+            "ori_iter_rfind",
+            "rfind.out",
+            "rfind.result",
+        )
     }
 
     /// Emit `rfold(initial, op)` — fold by advancing directly from the back.
@@ -107,50 +74,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         arc_func: &ArcFunction,
         elem_ty: Idx,
     ) -> Option<ValueId> {
-        if arg_vals.len() < 3 {
-            return None;
-        }
-        let init_val = arg_vals[1];
-        let closure = arg_vals[2];
-
-        let acc_ty = arc_func.var_type(args[1]);
-        let acc_llvm_ty = self.resolve_type(acc_ty);
-
-        let (tramp_fn, closure_env) =
-            self.build_trampoline(closure, elem_ty, TrampolineKind::Fold, Some(acc_ty));
-
-        let elem_size = self.element_store_size(elem_ty);
-        let elem_size_val = self.builder.const_i64(elem_size as i64);
-        let acc_size = self.element_store_size(acc_ty);
-        let acc_size_val = self.builder.const_i64(acc_size as i64);
-        let acc_dec_fn = self.get_or_generate_elem_dec_fn(acc_ty);
-
-        let init_alloca =
-            self.builder
-                .create_entry_alloca(self.current_function, "rfold.init", acc_llvm_ty);
-        self.builder.store(init_val, init_alloca);
-
-        let out_alloca =
-            self.builder
-                .create_entry_alloca(self.current_function, "rfold.result", acc_llvm_ty);
-
-        let func_id = self.builder.runtime_fn("ori_iter_rfold");
-        self.emit_rt_call(
-            func_id,
-            &[
-                iter_ptr,
-                init_alloca,
-                tramp_fn,
-                closure_env,
-                elem_size_val,
-                acc_size_val,
-                acc_dec_fn,
-                out_alloca,
-            ],
-            "",
-        );
-
-        Some(self.builder.load(acc_llvm_ty, out_alloca, "rfold.result"))
+        self.emit_iter_fold_with(
+            iter_ptr,
+            arg_vals,
+            args,
+            arc_func,
+            elem_ty,
+            "ori_iter_rfold",
+            "rfold.init",
+            "rfold.result",
+            "rfold.result",
+        )
     }
 
     /// Emit `join(separator)` — join iterator elements into a string.

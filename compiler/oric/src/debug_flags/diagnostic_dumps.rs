@@ -55,6 +55,19 @@ flags! {
     /// Usage: `ORI_DUMP_AFTER_LLVM=1 ori build file.ori`
     ORI_DUMP_AFTER_LLVM
 
+    /// Dump the entry-point ownership seam for `@main` to stderr during codegen.
+    ///
+    /// Emits one block per entry-point parameter carrying the semantic AIMS
+    /// facts (`ParamContract` access / consumption / cardinality / iter-consume /
+    /// return-transfer / read-only / escape / share / uniqueness / exact-transfer),
+    /// the RL-2 boundary verdict (`callee_owner_demand`), the realized
+    /// `ArcParam` ownership, the borrowed-rooted flag, the physical
+    /// `param_passing` + `wrapper_owns_on_normal` decision, and the EMIT/SKIP
+    /// verdict for each of the wrapper's five `ori_args_cleanup` sites.
+    /// Read-only: derives no ownership fact and changes no emission.
+    /// Usage: `ORI_DUMP_ENTRY_OWNERSHIP=1 ori build file.ori`
+    ORI_DUMP_ENTRY_OWNERSHIP
+
     /// Emit `GraphViz` DOT output of ARC IR control-flow graphs to stderr.
     ///
     /// Each function becomes a digraph with basic blocks as table nodes and
@@ -158,6 +171,13 @@ const _: () = {
     assert!(
         const_str_eq(ORI_NO_REPR_OPT, ori_repr::NarrowingPolicy::ENV_NO_REPR_OPT),
         "ORI_NO_REPR_OPT constant drifted between oric and ori_repr"
+    );
+    assert!(
+        const_str_eq(
+            ORI_DUMP_ENTRY_OWNERSHIP,
+            ori_llvm::codegen::function_compiler::ENV_DUMP_ENTRY_OWNERSHIP
+        ),
+        "ORI_DUMP_ENTRY_OWNERSHIP constant drifted between oric and ori_llvm"
     );
 };
 

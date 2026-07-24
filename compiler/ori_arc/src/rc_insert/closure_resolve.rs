@@ -117,9 +117,10 @@ pub(crate) fn build_closure_def_map(blocks: &[ArcBlock]) -> FxHashMap<ArcVarId, 
 /// returns `None` (conservative fallback) on `Idx` mismatch; the pool-aware
 /// variant accepts via tag equivalence.
 ///
-/// Used by `aims/intraprocedural/apply_aliases.rs::populate_apply_result_aliases`
-/// (the closure `ApplyIndirect` bridge) where pool is not available
-/// at AIMS analysis time per the `var_rc_strategies` cache architecture.
+/// Resolves closure `ApplyIndirect` aliases without a type pool.
+///
+/// Canonical-tag conflicts fail closed because `var_rc_strategies` cannot
+/// prove type identity at this boundary.
 pub(crate) fn resolve_to_partial_apply_idx_eq(
     var: ArcVarId,
     def_map: &FxHashMap<ArcVarId, ResolvedDef>,

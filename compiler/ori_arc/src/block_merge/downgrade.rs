@@ -1,4 +1,4 @@
-//! Phase 2: Downgrade trivial `Invoke` terminators to `Apply` + `Jump`.
+//! Downgrades trivial `Invoke` terminators to `Apply` plus `Jump`.
 //!
 //! An invoke is trivial when:
 //! 1. `normal != unwind` (same block would route success to `Resume`)
@@ -28,10 +28,7 @@ pub(crate) fn downgrade_trivial_invokes(func: &mut ArcFunction) {
             continue;
         };
 
-        // Extract invoke fields. We know the terminator is Invoke from
-        // the check above. The `mono_instance_id` slot must transfer to
-        // the downgraded Apply so generic-instantiated calls retain their
-        // abstract dispatch index after the trivial-invoke rewrite.
+        // INVARIANT: Downgrading preserves `mono_instance_id` for generic dispatch.
         let (dst, ty, callee, args, arg_ownership, mono_instance_id) = {
             let ArcTerminator::Invoke {
                 dst,

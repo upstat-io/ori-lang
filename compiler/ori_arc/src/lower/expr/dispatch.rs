@@ -15,56 +15,82 @@ impl ArcLowerer<'_> {
             return self.emit_unit();
         }
 
-        let kind = *self.arena.kind(id);
-        let span = self.arena.span(id);
-        let ty = self.expr_type(id);
-        tracing::trace!(
-            id = id.raw(),
-            bb = self.builder.current_block().index(),
-            "lower_expr"
-        );
+        let (kind, span, ty) = self.expr_dispatch_context(id);
 
         match kind {
-            CanExpr::Int(_)
-            | CanExpr::Float(_)
-            | CanExpr::Bool(_)
-            | CanExpr::Str(_)
-            | CanExpr::Char(_)
-            | CanExpr::Duration { .. }
-            | CanExpr::Size { .. }
-            | CanExpr::Unit
-            | CanExpr::HashLength
-            | CanExpr::FunctionRef(_)
-            | CanExpr::Constant(_)
-            | CanExpr::Ident(_)
-            | CanExpr::TypeRef(_)
-            | CanExpr::Const(_)
-            | CanExpr::SelfRef => self.lower_value_expr(kind, ty, span),
-
+            CanExpr::Int(value) => self.literal(ty, span, LitValue::Int(value)),
+            CanExpr::Float(value) => self.literal(ty, span, LitValue::Float(value)),
+            CanExpr::Bool(value) => self.literal(ty, span, LitValue::Bool(value)),
+            CanExpr::Str(value) => self.literal(ty, span, LitValue::String(value)),
+            CanExpr::Char(value) => self.literal(ty, span, LitValue::Char(value)),
+            CanExpr::Duration { value, unit } => {
+                self.literal(ty, span, LitValue::Duration { value, unit })
+            }
+            CanExpr::Size { value, unit } => self.literal(ty, span, LitValue::Size { value, unit }),
+            CanExpr::Unit => self.literal(ty, span, LitValue::Unit),
+            CanExpr::HashLength => self.lower_hash_length(ty, span),
+            CanExpr::FunctionRef(name) => self.lower_function_reference(name, ty, span),
+            CanExpr::Constant(const_id) => self.lower_constant(const_id, ty, span),
+            CanExpr::Ident(name) | CanExpr::TypeRef(name) => self.lower_ident(name, ty, span),
+            CanExpr::Const(name) => self.lower_const_reference(name, ty, span),
+            CanExpr::SelfRef => self.lower_self_reference(ty, span),
             CanExpr::Binary { op, left, right } => self.lower_binary(op, left, right, ty, span),
             CanExpr::Unary { op, operand } => self.lower_unary(op, operand, ty, span),
 
-            CanExpr::Block { .. }
-            | CanExpr::Let { .. }
-            | CanExpr::If { .. }
-            | CanExpr::Match { .. }
-            | CanExpr::Loop { .. }
-            | CanExpr::For { .. }
-            | CanExpr::Break { .. }
-            | CanExpr::Continue { .. }
-            | CanExpr::Assign { .. } => self.lower_control_expr(kind, ty, span),
+            CanExpr::Block { stmts, result } => self.lower_block(stmts, result, ty),
+            CanExpr::Let { pattern, init, .. } => self.lower_let(pattern, init),
+            CanExpr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => self.lower_if(cond, then_branch, else_branch, ty, span),
+            CanExpr::Match {
+                scrutinee,
+                decision_tree,
+                arms,
+            } => self.lower_match(scrutinee, decision_tree, arms, ty, span),
+            CanExpr::Loop { body, label, .. } => self.lower_loop(body, ty, label),
+            CanExpr::For {
+                pattern,
+                iter,
+                guard,
+                body,
+                is_yield,
+                label,
+                ..
+            } => self.lower_for(ForLoop {
+                pattern,
+                iter,
+                guard,
+                body,
+                ty,
+                is_yield,
+                label,
+            }),
+            CanExpr::Break { value, label, .. } => self.lower_break(value, label),
+            CanExpr::Continue { value, label, .. } => self.lower_continue(value, label),
+            CanExpr::Assign { target, value } => self.lower_assign(target, value, span),
 
-            CanExpr::Tuple(_)
-            | CanExpr::List(_)
-            | CanExpr::Map(_)
-            | CanExpr::Struct { .. }
-            | CanExpr::Ok(_)
-            | CanExpr::Err(_)
-            | CanExpr::Some(_)
-            | CanExpr::None
-            | CanExpr::Field { .. }
-            | CanExpr::Index { .. }
-            | CanExpr::Range { .. } => self.lower_collection_expr(kind, ty, span),
+            CanExpr::Tuple(exprs) => self.lower_tuple(exprs, ty, span),
+            CanExpr::List(exprs) => self.lower_list(exprs, ty, span),
+            CanExpr::Map(entries) => self.lower_map(entries, ty, span),
+            CanExpr::Struct { name, fields } => self.lower_struct(name, fields, ty, span),
+            CanExpr::Ok(inner) => self.lower_ok(inner, ty, span),
+            CanExpr::Err(inner) => self.lower_err(inner, ty, span),
+            CanExpr::Some(inner) => self.lower_some(inner, ty, span),
+            CanExpr::None => self.lower_none(ty, span),
+            CanExpr::Field { receiver, field } => self.lower_field(receiver, field, ty, span),
+            CanExpr::Index {
+                receiver,
+                index,
+                dispatch,
+            } => self.lower_index(receiver, index, dispatch, ty, span),
+            CanExpr::Range {
+                start,
+                end,
+                step,
+                inclusive,
+            } => self.lower_range(start, end, step, inclusive, ty, span),
 
             CanExpr::Unsafe(inner) | CanExpr::Await(inner) => self.lower_expr(inner),
             CanExpr::WithCapability {
@@ -94,38 +120,22 @@ impl ArcLowerer<'_> {
         }
     }
 
-    fn lower_value_expr(
-        &mut self,
-        kind: CanExpr,
-        ty: ori_types::Idx,
-        span: ori_ir::Span,
-    ) -> ArcVarId {
-        let literal = match kind {
-            CanExpr::Int(value) => Some(LitValue::Int(value)),
-            CanExpr::Float(value) => Some(LitValue::Float(value)),
-            CanExpr::Bool(value) => Some(LitValue::Bool(value)),
-            CanExpr::Str(value) => Some(LitValue::String(value)),
-            CanExpr::Char(value) => Some(LitValue::Char(value)),
-            CanExpr::Duration { value, unit } => Some(LitValue::Duration { value, unit }),
-            CanExpr::Size { value, unit } => Some(LitValue::Size { value, unit }),
-            CanExpr::Unit => Some(LitValue::Unit),
-            _ => None,
-        };
-        if let Some(literal) = literal {
-            return self
-                .builder
-                .emit_let(ty, ArcValue::Literal(literal), Some(span));
-        }
+    fn expr_dispatch_context(&self, id: CanId) -> (CanExpr, ori_ir::Span, ori_types::Idx) {
+        tracing::trace!(
+            id = id.raw(),
+            bb = self.builder.current_block().index(),
+            "lower_expr"
+        );
+        (
+            *self.arena.kind(id),
+            self.arena.span(id),
+            self.expr_type(id),
+        )
+    }
 
-        match kind {
-            CanExpr::HashLength => self.lower_hash_length(ty, span),
-            CanExpr::FunctionRef(name) => self.lower_function_reference(name, ty, span),
-            CanExpr::Constant(const_id) => self.lower_constant(const_id, ty, span),
-            CanExpr::Ident(name) | CanExpr::TypeRef(name) => self.lower_ident(name, ty, span),
-            CanExpr::Const(name) => self.lower_const_reference(name, ty, span),
-            CanExpr::SelfRef => self.lower_self_reference(ty, span),
-            _ => unreachable!("lower_value_expr called with non-value expression"),
-        }
+    fn literal(&mut self, ty: ori_types::Idx, span: ori_ir::Span, literal: LitValue) -> ArcVarId {
+        self.builder
+            .emit_let(ty, ArcValue::Literal(literal), Some(span))
     }
 
     fn lower_hash_length(&mut self, ty: ori_types::Idx, span: ori_ir::Span) -> ArcVarId {
@@ -165,81 +175,6 @@ impl ArcLowerer<'_> {
         }
         self.builder
             .emit_partial_apply(ty, name, vec![], Some(span))
-    }
-
-    fn lower_control_expr(
-        &mut self,
-        kind: CanExpr,
-        ty: ori_types::Idx,
-        span: ori_ir::Span,
-    ) -> ArcVarId {
-        match kind {
-            CanExpr::Block { stmts, result } => self.lower_block(stmts, result, ty),
-            CanExpr::Let { pattern, init, .. } => self.lower_let(pattern, init),
-            CanExpr::If {
-                cond,
-                then_branch,
-                else_branch,
-            } => self.lower_if(cond, then_branch, else_branch, ty, span),
-            CanExpr::Match {
-                scrutinee,
-                decision_tree,
-                arms,
-            } => self.lower_match(scrutinee, decision_tree, arms, ty, span),
-            CanExpr::Loop { body, label, .. } => self.lower_loop(body, ty, label),
-            CanExpr::For {
-                pattern,
-                iter,
-                guard,
-                body,
-                is_yield,
-                label,
-                ..
-            } => self.lower_for(ForLoop {
-                pattern,
-                iter,
-                guard,
-                body,
-                ty,
-                is_yield,
-                label,
-            }),
-            CanExpr::Break { value, label, .. } => self.lower_break(value, label),
-            CanExpr::Continue { value, label, .. } => self.lower_continue(value, label),
-            CanExpr::Assign { target, value } => self.lower_assign(target, value, span),
-            _ => unreachable!("lower_control_expr called with non-control expression"),
-        }
-    }
-
-    fn lower_collection_expr(
-        &mut self,
-        kind: CanExpr,
-        ty: ori_types::Idx,
-        span: ori_ir::Span,
-    ) -> ArcVarId {
-        match kind {
-            CanExpr::Tuple(exprs) => self.lower_tuple(exprs, ty, span),
-            CanExpr::List(exprs) => self.lower_list(exprs, ty, span),
-            CanExpr::Map(entries) => self.lower_map(entries, ty, span),
-            CanExpr::Struct { name, fields } => self.lower_struct(name, fields, ty, span),
-            CanExpr::Ok(inner) => self.lower_ok(inner, ty, span),
-            CanExpr::Err(inner) => self.lower_err(inner, ty, span),
-            CanExpr::Some(inner) => self.lower_some(inner, ty, span),
-            CanExpr::None => self.lower_none(ty, span),
-            CanExpr::Field { receiver, field } => self.lower_field(receiver, field, ty, span),
-            CanExpr::Index {
-                receiver,
-                index,
-                dispatch,
-            } => self.lower_index(receiver, index, dispatch, ty, span),
-            CanExpr::Range {
-                start,
-                end,
-                step,
-                inclusive,
-            } => self.lower_range(start, end, step, inclusive, ty, span),
-            _ => unreachable!("lower_collection_expr called with non-collection expression"),
-        }
     }
 
     fn lower_with_capability(

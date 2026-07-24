@@ -1,8 +1,5 @@
 //! Return-alias shape detection: [`find_return_alias_shapes`] and its
 //! private resolution helpers.
-//!
-//! Split out of [`super`] to keep the alias-flow module under the 500-line
-//! hygiene cap.
 
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -422,8 +419,8 @@ fn join_shape_into(
     idx: usize,
     new: ReturnAliasShape,
 ) {
-    let prev = shapes.get(&idx).copied();
-    if let Some(joined) = ReturnAliasShape::join(prev, Some(new)) {
-        shapes.insert(idx, joined);
-    }
+    shapes
+        .entry(idx)
+        .and_modify(|previous| *previous = previous.join(new))
+        .or_insert(new);
 }

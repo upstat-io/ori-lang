@@ -1,6 +1,6 @@
 use ori_ir::Name;
 use ori_types::Idx;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::contract::MemoryContract;
 use crate::aims::intraprocedural::birth_site_partition::{BirthSitePartition, FieldPath, NodeIdx};
@@ -170,6 +170,22 @@ fn analyze_with_registry_and_interner(
     registry: &ori_types::TypeRegistry,
     interner: &ori_ir::StringInterner,
 ) -> (ClassLedgerAnalysis, BirthSitePartition) {
+    analyze_with_registry_interner_and_exact(
+        func,
+        state_map,
+        registry,
+        interner,
+        &FxHashSet::default(),
+    )
+}
+
+fn analyze_with_registry_interner_and_exact(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    registry: &ori_types::TypeRegistry,
+    interner: &ori_ir::StringInterner,
+    exact_callables: &FxHashSet<Name>,
+) -> (ClassLedgerAnalysis, BirthSitePartition) {
     // These unit fixtures bypass whole-program AIMS setup. Route
     // their synthetic bodies through the same strict primitive-fact producer
     // before any ledger consumer reads the frozen table.
@@ -179,9 +195,20 @@ fn analyze_with_registry_and_interner(
     crate::aims::freeze_primitive_facts(std::slice::from_mut(&mut func), &classifier)
         .unwrap_or_else(|errors| panic!("class-ledger primitive facts should freeze: {errors:?}"));
     let facts: FxHashMap<Name, BoundaryFacts> = FxHashMap::default();
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
+    let mut contracts = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut contracts, &builtins, interner);
     let mut partition = compute_birth_site_partition(&func, state_map);
     let classification = classify_function(&func, state_map, &mut partition, &facts, interner);
-    let analysis = analyze_class_ledger(&func, &classification, &mut partition, registry, interner);
+    let analysis = super::analysis::analyze_class_ledger_with_exact(
+        &func,
+        &classification,
+        &mut partition,
+        &contracts,
+        exact_callables,
+        registry,
+        interner,
+    );
     (analysis, partition)
 }
 
@@ -270,173 +297,11 @@ fn unconditional_emitter_produces_plan() {
     assert!(!analysis.plan.classes.is_empty());
 }
 
-/// A borrowed direct call can consume one aggregate field without a caller-
-/// local `Project`. The contract fact must still decompose the later shell
-/// release so the callee-owned field is not released twice.
-#[test]
-fn boundary_field_consume_without_local_project_plans_partial_release() {
-    let callee = Name::from_raw(19);
-    let func = one_block_func(
-        2,
-        vec![
-            construct(0, vec![]),
-            apply_to(1, callee, vec![(0, ArgOwnership::Borrowed)]),
-        ],
-        ret(1),
-    );
-    let mut state_map = AimsStateMap::new(&func);
-    state_map.set_permanent_scalar(v(1));
-    let mut contract = MemoryContract::conservative(1);
-    contract.params[0].iter_consumes_projected_field = Some(3);
-    let contracts = FxHashMap::from_iter([(callee, contract)]);
-    let mut partition = compute_birth_site_partition(&func, &state_map);
-    let interner = test_interner();
-    let facts = FxHashMap::from_iter(
-        contracts
-            .iter()
-            .map(|(name, contract)| (*name, BoundaryFacts::from_contract(contract))),
-    );
-    let classification = classify_function(&func, &state_map, &mut partition, &facts, &interner);
-    let analysis = analyze_class_ledger(
-        &func,
-        &classification,
-        &mut partition,
-        &ori_types::TypeRegistry::default(),
-        &interner,
-    );
-
-    let container = class_rep(&mut partition, 0);
-    let ops = ops_for(&analysis, container);
-    assert!(
-        ops.iter().any(|op| {
-            matches!(
-                &op.kind,
-                PlannedOpKind::DecPartial { skip_fields } if skip_fields == &vec![3]
-            )
-        }),
-        "post-call release must skip the transferred field: {ops:?}"
-    );
-    assert!(analysis.readiness.all_classes_clean);
-}
-
-/// A branch that bypasses the consuming call still owns the field. The
-/// transfer-dominated release skips it, while the bypass release remains a
-/// whole-value `Dec`.
-#[test]
-fn boundary_field_consume_is_path_sensitive_across_bypass_branch() {
-    let callee = Name::from_raw(20);
-    let func = func_with_blocks(
-        5,
-        vec![
-            block(0, vec![], vec![construct(0, vec![])], branch(1, 1, 2)),
-            block(
-                1,
-                vec![],
-                vec![apply_to(2, callee, vec![(0, ArgOwnership::Borrowed)])],
-                ret(2),
-            ),
-            block(2, vec![], vec![is_shared(3, 0)], ret(3)),
-        ],
-    );
-    let mut state_map = AimsStateMap::new(&func);
-    for scalar in [1u32, 2, 3, 4] {
-        state_map.set_permanent_scalar(v(scalar));
-    }
-    let mut contract = MemoryContract::conservative(1);
-    contract.params[0].iter_consumes_projected_field = Some(2);
-    let facts = FxHashMap::from_iter([(callee, BoundaryFacts::from_contract(&contract))]);
-    let mut partition = compute_birth_site_partition(&func, &state_map);
-    let interner = test_interner();
-    let classification = classify_function(&func, &state_map, &mut partition, &facts, &interner);
-    let analysis = analyze_class_ledger(
-        &func,
-        &classification,
-        &mut partition,
-        &ori_types::TypeRegistry::default(),
-        &interner,
-    );
-
-    let container = class_rep(&mut partition, 0);
-    let ops = ops_for(&analysis, container);
-    assert!(
-        ops.iter().any(|op| {
-            op.slot.block() == 1
-                && matches!(
-                    &op.kind,
-                    PlannedOpKind::DecPartial { skip_fields } if skip_fields == &vec![2]
-                )
-        }),
-        "the call-dominated release must skip field 2: {ops:?}"
-    );
-    assert!(
-        ops.iter()
-            .any(|op| op.slot.block() == 2 && op.kind == PlannedOpKind::Dec),
-        "the bypass release must retain the whole recursive drop: {ops:?}"
-    );
-    assert!(analysis.readiness.all_classes_clean);
-}
-
-/// A local moved-out field and a boundary-consumed field share the one
-/// canonical partial-release representation. Neither authority may replace
-/// the other, and duplicate indices are normalized once.
-#[test]
-fn boundary_and_local_field_skips_are_unioned_once() {
-    let callee = Name::from_raw(21);
-    let func = one_block_func(
-        7,
-        vec![
-            construct(0, vec![]),
-            construct(1, vec![]),
-            construct(2, vec![0, 1]),
-            ArcInstr::Project {
-                dst: v(3),
-                ty: ty(0),
-                value: v(2),
-                field: 0,
-            },
-            apply(4, vec![(3, ArgOwnership::Owned)]),
-            apply_to(5, callee, vec![(2, ArgOwnership::Borrowed)]),
-            is_shared(6, 2),
-        ],
-        ret(6),
-    );
-    let mut state_map = AimsStateMap::new(&func);
-    for scalar in [4u32, 5, 6] {
-        state_map.set_permanent_scalar(v(scalar));
-    }
-    let mut contract = MemoryContract::conservative(1);
-    contract.params[0].iter_consumes_projected_field = Some(1);
-    let facts = FxHashMap::from_iter([(callee, BoundaryFacts::from_contract(&contract))]);
-    let mut partition = compute_birth_site_partition(&func, &state_map);
-    let interner = test_interner();
-    let classification = classify_function(&func, &state_map, &mut partition, &facts, &interner);
-    let analysis = analyze_class_ledger(
-        &func,
-        &classification,
-        &mut partition,
-        &ori_types::TypeRegistry::default(),
-        &interner,
-    );
-
-    let container = class_rep(&mut partition, 2);
-    let ops = ops_for(&analysis, container);
-    assert!(
-        ops.iter().any(|op| {
-            matches!(
-                &op.kind,
-                PlannedOpKind::DecPartial { skip_fields } if skip_fields == &vec![0, 1]
-            )
-        }),
-        "local and boundary skip authorities must union: {ops:?}"
-    );
-    assert!(analysis.readiness.all_classes_clean);
-}
-
 /// Transfer sites and release slots in one block use instruction ordering,
 /// not block-level dominance alone.
 #[test]
 fn boundary_field_consume_respects_same_block_ordering() {
-    use super::hazard::sum_arm::{SiteVerdict, TransferFlowContext};
+    use super::hazard::{SiteVerdict, TransferFlowContext};
 
     let func = one_block_func(1, vec![construct(0, vec![])], ret(0));
     let ctx = TransferFlowContext::from_transfer_sites(&func, &[(0, EventSite::Body(0))]);
@@ -451,8 +316,8 @@ fn boundary_field_consume_respects_same_block_ordering() {
         var: v(0),
     };
 
-    assert_eq!(ctx.classify(&func, &before), Some(SiteVerdict::Whole));
-    assert_eq!(ctx.classify(&func, &after), Some(SiteVerdict::Skip));
+    assert_eq!(ctx.classify(&before), Some(SiteVerdict::Whole));
+    assert_eq!(ctx.classify(&after), Some(SiteVerdict::Skip));
 }
 
 /// A release before a loop-local transfer is reached both before any
@@ -460,7 +325,7 @@ fn boundary_field_consume_respects_same_block_ordering() {
 /// and cannot safely take either a uniform skip or whole verdict.
 #[test]
 fn boundary_field_consume_in_cycle_declines_when_not_uniform() {
-    use super::hazard::sum_arm::TransferFlowContext;
+    use super::hazard::TransferFlowContext;
 
     let func = func_with_blocks(
         2,
@@ -477,14 +342,14 @@ fn boundary_field_consume_in_cycle_declines_when_not_uniform() {
         var: v(0),
     };
 
-    assert_eq!(ctx.classify(&func, &release), None);
+    assert_eq!(ctx.classify(&release), None);
 }
 
 /// `Invoke` transfers ownership before either successor executes. Normal and
 /// unwind release sites therefore share the boundary skip verdict.
 #[test]
 fn boundary_field_consume_invoke_covers_normal_and_unwind() {
-    use super::hazard::sum_arm::{SiteVerdict, TransferFlowContext};
+    use super::hazard::{SiteVerdict, TransferFlowContext};
 
     let func = func_with_blocks(
         2,
@@ -506,7 +371,7 @@ fn boundary_field_consume_invoke_covers_normal_and_unwind() {
             kind: PlannedOpKind::Dec,
             var: v(0),
         };
-        assert_eq!(ctx.classify(&func, &release), Some(SiteVerdict::Skip));
+        assert_eq!(ctx.classify(&release), Some(SiteVerdict::Skip));
     }
 }
 
@@ -514,7 +379,7 @@ fn boundary_field_consume_invoke_covers_normal_and_unwind() {
 /// independent verdict rather than inheriting a class-global skip.
 #[test]
 fn boundary_field_consume_classifies_each_release_site() {
-    use super::hazard::sum_arm::{SiteVerdict, TransferFlowContext};
+    use super::hazard::{SiteVerdict, TransferFlowContext};
 
     let func = func_with_blocks(
         2,
@@ -531,7 +396,7 @@ fn boundary_field_consume_classifies_each_release_site() {
             kind: PlannedOpKind::Dec,
             var: v(0),
         };
-        assert_eq!(ctx.classify(&func, &release), Some(SiteVerdict::Skip));
+        assert_eq!(ctx.classify(&release), Some(SiteVerdict::Skip));
     }
 }
 
@@ -539,7 +404,7 @@ fn boundary_field_consume_classifies_each_release_site() {
 /// is mixed. A class-global skip would leak the bypass-owned field.
 #[test]
 fn boundary_field_consume_mixed_join_declines() {
-    use super::hazard::sum_arm::TransferFlowContext;
+    use super::hazard::TransferFlowContext;
 
     let func = func_with_blocks(
         2,
@@ -557,7 +422,7 @@ fn boundary_field_consume_mixed_join_declines() {
         var: v(0),
     };
 
-    assert_eq!(ctx.classify(&func, &release), None);
+    assert_eq!(ctx.classify(&release), None);
 }
 
 /// A borrowed user-call boundary whose callee consumes a COW owner needs two
@@ -2887,6 +2752,731 @@ fn branch_exclusive_full_move_rebooks_aggregate_consume() {
     );
 }
 
+fn projected_cow_reconstruction_loop_body(push: Name, pair_ty: Idx, list_ty: Idx) -> ArcBlock {
+    ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![
+            ArcInstr::Project {
+                dst: v(6),
+                ty: list_ty,
+                value: v(4),
+                field: 0,
+            },
+            ArcInstr::Let {
+                dst: v(7),
+                ty: Idx::INT,
+                value: ArcValue::Literal(crate::ir::LitValue::Int(1)),
+            },
+            ArcInstr::Apply {
+                dst: v(8),
+                ty: list_ty,
+                func: push,
+                args: vec![v(6), v(7)],
+                arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                mono_instance_id: None,
+            },
+            ArcInstr::Project {
+                dst: v(9),
+                ty: Idx::STR,
+                value: v(4),
+                field: 1,
+            },
+            ArcInstr::Construct {
+                dst: v(10),
+                ty: pair_ty,
+                ctor: CtorKind::Struct(Name::from_raw(82)),
+                args: vec![v(8), v(9)],
+            },
+            ArcInstr::Let {
+                dst: v(11),
+                ty: Idx::BOOL,
+                value: ArcValue::Literal(crate::ir::LitValue::Bool(false)),
+            },
+        ],
+        terminator: jump(1, vec![10, 11]),
+    }
+}
+
+fn projected_cow_reconstruction_func(push: Name, pair_ty: Idx, list_ty: Idx) -> ArcFunction {
+    ArcFunction {
+        var_types: vec![
+            list_ty,
+            Idx::STR,
+            pair_ty,
+            Idx::BOOL,
+            pair_ty,
+            Idx::BOOL,
+            list_ty,
+            Idx::INT,
+            list_ty,
+            Idx::STR,
+            pair_ty,
+            Idx::BOOL,
+        ],
+        blocks: vec![
+            block(
+                0,
+                vec![],
+                vec![
+                    ArcInstr::Construct {
+                        dst: v(0),
+                        ty: list_ty,
+                        ctor: CtorKind::ListLiteral,
+                        args: vec![],
+                    },
+                    ArcInstr::Let {
+                        dst: v(1),
+                        ty: Idx::STR,
+                        value: ArcValue::Literal(crate::ir::LitValue::String(Name::from_raw(81))),
+                    },
+                    ArcInstr::Construct {
+                        dst: v(2),
+                        ty: pair_ty,
+                        ctor: CtorKind::Struct(Name::from_raw(82)),
+                        args: vec![v(0), v(1)],
+                    },
+                    ArcInstr::Let {
+                        dst: v(3),
+                        ty: Idx::BOOL,
+                        value: ArcValue::Literal(crate::ir::LitValue::Bool(true)),
+                    },
+                ],
+                jump(1, vec![2, 3]),
+            ),
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![(v(4), pair_ty), (v(5), Idx::BOOL)],
+                body: vec![],
+                terminator: branch(5, 2, 3),
+            },
+            projected_cow_reconstruction_loop_body(push, pair_ty, list_ty),
+            ArcBlock {
+                id: ArcBlockId::new(3),
+                params: vec![],
+                body: vec![],
+                terminator: ret(4),
+            },
+        ],
+        ..Default::default()
+    }
+}
+
+fn invoke_projected_reconstruction_func(push: Name, pair_ty: Idx, list_ty: Idx) -> ArcFunction {
+    ArcFunction {
+        name: Name::from_raw(83),
+        params: vec![ArcParam {
+            var: v(0),
+            ty: pair_ty,
+            ownership: Ownership::Owned,
+        }],
+        return_type: pair_ty,
+        var_types: vec![
+            pair_ty,
+            list_ty,
+            Idx::INT,
+            list_ty,
+            Idx::STR,
+            pair_ty,
+            pair_ty,
+        ],
+        blocks: vec![
+            ArcBlock {
+                id: ArcBlockId::new(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Let {
+                        dst: v(6),
+                        ty: pair_ty,
+                        value: ArcValue::Var(v(0)),
+                    },
+                    ArcInstr::Project {
+                        dst: v(1),
+                        ty: list_ty,
+                        value: v(6),
+                        field: 0,
+                    },
+                    ArcInstr::Let {
+                        dst: v(2),
+                        ty: Idx::INT,
+                        value: ArcValue::Literal(crate::ir::LitValue::Int(1)),
+                    },
+                    ArcInstr::Project {
+                        dst: v(4),
+                        ty: Idx::STR,
+                        value: v(6),
+                        field: 1,
+                    },
+                ],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(3),
+                    ty: list_ty,
+                    func: push,
+                    args: vec![v(1), v(2)],
+                    arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Borrowed],
+                    mono_instance_id: None,
+                    normal: ArcBlockId::new(1),
+                    unwind: ArcBlockId::new(2),
+                },
+            },
+            ArcBlock {
+                id: ArcBlockId::new(1),
+                params: vec![],
+                body: vec![ArcInstr::Construct {
+                    dst: v(5),
+                    ty: pair_ty,
+                    ctor: CtorKind::Struct(Name::from_raw(82)),
+                    args: vec![v(3), v(4)],
+                }],
+                terminator: ret(5),
+            },
+            ArcBlock {
+                id: ArcBlockId::new(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        ..Default::default()
+    }
+}
+
+struct InvokeWitnessClassifier;
+
+impl crate::ArcClassification for InvokeWitnessClassifier {
+    fn arc_class(&self, idx: Idx) -> crate::ArcClass {
+        if matches!(idx, Idx::INT | Idx::BOOL) {
+            crate::ArcClass::Scalar
+        } else {
+            crate::ArcClass::DefiniteRef
+        }
+    }
+}
+
+fn invoke_witness_registry(pair_ty: Idx, list_ty: Idx) -> ori_types::TypeRegistry {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_burden(
+        &mut registry,
+        "InvokeWitnessPair",
+        pair_ty,
+        Some(UserBurdenSpec {
+            self_owned_identity: true,
+            owned_fields: vec![
+                UserOwnedField {
+                    field_path: vec![0],
+                    field_type: list_ty,
+                },
+                UserOwnedField {
+                    field_path: vec![1],
+                    field_type: Idx::STR,
+                },
+            ],
+            ..UserBurdenSpec::default()
+        }),
+    );
+    registry
+}
+
+fn extract_invoke_witness(
+    func: &ArcFunction,
+    registry: &ori_types::TypeRegistry,
+    interner: &ori_ir::StringInterner,
+) -> (
+    AimsStateMap,
+    FxHashMap<Name, MemoryContract>,
+    Vec<crate::aims::interprocedural::ExactAggregateTransferWitness>,
+) {
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(interner);
+    let mut contracts = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut contracts, &builtins, interner);
+    let classifier = InvokeWitnessClassifier;
+    let state_map =
+        crate::aims::intraprocedural::analyze_function(func, &classifier, &contracts, &[], vec![]);
+    let extraction =
+        crate::aims::interprocedural::extract_contract_and_transfers_with_call_ownership(
+            &crate::aims::interprocedural::ContractExtractionInput {
+                func,
+                state_map: &state_map,
+                classifier: &classifier,
+                sigs: &contracts,
+                scc_peers: &FxHashSet::default(),
+                context_regions: &[],
+                interner,
+                builtins: &builtins,
+                exact_callables: &FxHashSet::default(),
+                type_registry: Some(registry),
+            },
+        );
+    (state_map, contracts, extraction.exact_transfer_witnesses)
+}
+
+#[test]
+fn projected_cow_reconstruction_rebooks_the_existing_field_credit() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let interner = test_interner();
+    let push = interner.intern("push");
+    let pair_ty = ty(64);
+    let list_ty = ty(70);
+    let func = projected_cow_reconstruction_func(push, pair_ty, list_ty);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_burden(
+        &mut registry,
+        "ProjectedCowPair",
+        pair_ty,
+        Some(UserBurdenSpec {
+            self_owned_identity: true,
+            owned_fields: vec![
+                UserOwnedField {
+                    field_path: vec![0],
+                    field_type: list_ty,
+                },
+                UserOwnedField {
+                    field_path: vec![1],
+                    field_type: Idx::STR,
+                },
+            ],
+            ..UserBurdenSpec::default()
+        }),
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [3, 5, 7, 11] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let (analysis, mut partition) =
+        analyze_with_registry_and_interner(&func, &state_map, &registry, &interner);
+
+    assert!(
+        !analysis.field_view_hazard && analysis.readiness.all_classes_clean,
+        "the exact reconstruction must verify cleanly: field_view_hazard={} \
+         all_classes_clean={} declined={:?} verdicts={:?}",
+        analysis.field_view_hazard,
+        analysis.readiness.all_classes_clean,
+        analysis.readiness.declined,
+        analysis.readiness.verdicts
+    );
+    let projected_list = class_rep(&mut partition, 6);
+    let projected_ops = ops_for(&analysis, projected_list);
+    assert!(
+        projected_ops.iter().all(|op| op.kind != PlannedOpKind::Inc),
+        "the projected list's existing owner credit transfers through push into \
+         the rebuilt aggregate; no retain may inflate dynamic COW: {projected_ops:?}"
+    );
+}
+
+#[test]
+fn canonical_exact_transfer_witness_drives_production_ledger_rebooking() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    struct WitnessClassifier;
+    impl crate::ArcClassification for WitnessClassifier {
+        fn arc_class(&self, idx: Idx) -> crate::ArcClass {
+            if matches!(idx, Idx::INT | Idx::BOOL) {
+                crate::ArcClass::Scalar
+            } else {
+                crate::ArcClass::DefiniteRef
+            }
+        }
+    }
+
+    let interner = test_interner();
+    let push = interner.intern("push");
+    let pair_ty = ty(64);
+    let list_ty = ty(70);
+    let func = projected_cow_reconstruction_func(push, pair_ty, list_ty);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_burden(
+        &mut registry,
+        "CanonicalWitnessPair",
+        pair_ty,
+        Some(UserBurdenSpec {
+            self_owned_identity: true,
+            owned_fields: vec![
+                UserOwnedField {
+                    field_path: vec![0],
+                    field_type: list_ty,
+                },
+                UserOwnedField {
+                    field_path: vec![1],
+                    field_type: Idx::STR,
+                },
+            ],
+            ..UserBurdenSpec::default()
+        }),
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [3, 5, 7, 11] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let classifier = WitnessClassifier;
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let mut contracts = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut contracts, &builtins, &interner);
+    let exact_callables = FxHashSet::default();
+    let extraction =
+        crate::aims::interprocedural::extract_contract_and_transfers_with_call_ownership(
+            &crate::aims::interprocedural::ContractExtractionInput {
+                func: &func,
+                state_map: &state_map,
+                classifier: &classifier,
+                sigs: &contracts,
+                scc_peers: &FxHashSet::default(),
+                context_regions: &[],
+                interner: &interner,
+                builtins: &builtins,
+                exact_callables: &exact_callables,
+                type_registry: Some(&registry),
+            },
+        );
+    let [witness] = extraction.exact_transfer_witnesses.as_slice() else {
+        panic!("the canonical producer must publish the loop reconstruction witness");
+    };
+    assert_eq!(witness.param, None);
+    assert_eq!(witness.block, ArcBlockId::new(2));
+
+    let analysis = super::analysis::analyze_from_state_map_with_exact(
+        &func,
+        &state_map,
+        &contracts,
+        &exact_callables,
+        Some(&extraction.exact_transfer_witnesses),
+        &registry,
+        &interner,
+    );
+    assert!(
+        !analysis.field_view_hazard && analysis.readiness.all_classes_clean,
+        "the production witness consumer must rebook without a second recognizer: \
+         hazard={} declined={:?} verdicts={:?}",
+        analysis.field_view_hazard,
+        analysis.readiness.declined,
+        analysis.readiness.verdicts,
+    );
+}
+
+/// The list runtime lowers `push` as nounwind, so LLVM erases this logical
+/// unwind edge. This is the executable verifier boundary for the residual:
+/// the witness must commit at the Invoke and the sibling must release only on
+/// its unwind successor.
+#[test]
+fn canonical_invoke_witness_rebooks_normal_and_unwind_field_credits() {
+    let interner = test_interner();
+    let push = interner.intern("push");
+    let pair_ty = ty(64);
+    let list_ty = ty(70);
+    let func = invoke_projected_reconstruction_func(push, pair_ty, list_ty);
+    let registry = invoke_witness_registry(pair_ty, list_ty);
+    let (state_map, contracts, witnesses) = extract_invoke_witness(&func, &registry, &interner);
+    let exact_callables = FxHashSet::default();
+    let [witness] = witnesses.as_slice() else {
+        panic!("the Invoke reconstruction must publish exactly one canonical witness");
+    };
+    assert_eq!(
+        witness.commit,
+        crate::aims::interprocedural::ExactTransferCommitWitness::Invoke {
+            block: ArcBlockId::new(0),
+            dst: v(3),
+            normal: ArcBlockId::new(1),
+            unwind: ArcBlockId::new(2),
+        },
+        "the proof boundary is the logical Invoke, not the nounwind LLVM call"
+    );
+    let mut debug_partition = compute_birth_site_partition(&func, &state_map);
+    let arms = super::events::full_move_arms_from_exact_transfer_witnesses(
+        &func,
+        &mut debug_partition,
+        &registry,
+        &witnesses,
+    );
+    let direct_class = class_rep(&mut debug_partition, 4);
+    let direct_credits =
+        super::events::full_move_credit_sites(&mut debug_partition, &arms, direct_class);
+    assert_eq!(arms.len(), 1, "the witness must materialize one ledger arm");
+    assert_eq!(
+        direct_credits,
+        vec![(0, 3)],
+        "the direct sibling must acquire the decomposed aggregate's field credit"
+    );
+
+    let analysis = super::analysis::analyze_from_state_map_with_exact(
+        &func,
+        &state_map,
+        &contracts,
+        &exact_callables,
+        Some(&witnesses),
+        &registry,
+        &interner,
+    );
+    assert!(
+        !analysis.field_view_hazard && analysis.readiness.all_classes_clean,
+        "the Invoke witness must balance the normal reconstruction and unwind cleanup: \
+         hazard={} declined={:?} verdicts={:?}",
+        analysis.field_view_hazard,
+        analysis.readiness.declined,
+        analysis.readiness.verdicts,
+    );
+
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+    let source = class_rep(&mut partition, 0);
+    assert!(
+        ops_for(&analysis, source).is_empty(),
+        "the aggregate owner decomposes logically at Invoke without a physical release"
+    );
+    let relayed = class_rep(&mut partition, 1);
+    assert!(
+        ops_for(&analysis, relayed)
+            .iter()
+            .all(|op| op.kind != PlannedOpKind::Inc),
+        "the relayed field transfers its existing credit into the callee"
+    );
+    let direct = class_rep(&mut partition, 4);
+    assert_eq!(
+        ops_for(&analysis, direct),
+        vec![dec(PlanSlot::BlockFront { block: 2 }, 4)],
+        "the direct sibling moves into the normal-edge Construct and releases exactly \
+         once on unwind"
+    );
+}
+
+#[test]
+fn paramless_container_user_drop_declines_canonical_producer_and_consumer() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    struct WitnessClassifier;
+    impl crate::ArcClassification for WitnessClassifier {
+        fn arc_class(&self, idx: Idx) -> crate::ArcClass {
+            if matches!(idx, Idx::INT | Idx::BOOL) {
+                crate::ArcClass::Scalar
+            } else {
+                crate::ArcClass::DefiniteRef
+            }
+        }
+    }
+
+    let interner = test_interner();
+    let push = interner.intern("push");
+    let pair_ty = ty(64);
+    let list_ty = ty(70);
+    let func = projected_cow_reconstruction_func(push, pair_ty, list_ty);
+    let registry = |user_drop| {
+        let mut registry = ori_types::TypeRegistry::new();
+        registered_struct_with_burden(
+            &mut registry,
+            "ParamlessWitnessPair",
+            pair_ty,
+            Some(UserBurdenSpec {
+                self_owned_identity: true,
+                user_drop,
+                owned_fields: vec![
+                    UserOwnedField {
+                        field_path: vec![0],
+                        field_type: list_ty,
+                    },
+                    UserOwnedField {
+                        field_path: vec![1],
+                        field_type: Idx::STR,
+                    },
+                ],
+                ..UserBurdenSpec::default()
+            }),
+        );
+        registry
+    };
+    let ordinary_registry = registry(None);
+    let user_drop_registry = registry(Some(ori_registry::burden::FnSym::new(
+        core::num::NonZeroU32::MIN,
+    )));
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [3, 5, 7, 11] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let classifier = WitnessClassifier;
+    let builtins = crate::borrow::BuiltinOwnershipSets::new(&interner);
+    let mut contracts = FxHashMap::default();
+    crate::aims::builtins::seed_builtin_contracts(&mut contracts, &builtins, &interner);
+    let exact_callables = FxHashSet::default();
+    let extract = |type_registry| {
+        crate::aims::interprocedural::extract_contract_and_transfers_with_call_ownership(
+            &crate::aims::interprocedural::ContractExtractionInput {
+                func: &func,
+                state_map: &state_map,
+                classifier: &classifier,
+                sigs: &contracts,
+                scc_peers: &FxHashSet::default(),
+                context_regions: &[],
+                interner: &interner,
+                builtins: &builtins,
+                exact_callables: &exact_callables,
+                type_registry: Some(type_registry),
+            },
+        )
+    };
+
+    let ordinary = extract(&ordinary_registry);
+    let [witness] = ordinary.exact_transfer_witnesses.as_slice() else {
+        panic!("the ordinary local reconstruction must publish one witness");
+    };
+    assert_eq!(witness.param, None);
+
+    let rejected = extract(&user_drop_registry);
+    assert!(
+        rejected.exact_transfer_witnesses.is_empty(),
+        "the canonical producer must reject a param-less user-drop container"
+    );
+
+    let mut partition = compute_birth_site_partition(&func, &state_map);
+    let arms = super::events::full_move_arms_from_exact_transfer_witnesses(
+        &func,
+        &mut partition,
+        &user_drop_registry,
+        &ordinary.exact_transfer_witnesses,
+    );
+    assert!(
+        arms.is_empty(),
+        "the consumer must not materialize a full-move arm from a stale \
+         param-less witness when cleanup authority changes to user drop"
+    );
+}
+
+#[test]
+fn opaque_owned_relay_does_not_authorize_projected_full_move() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let interner = test_interner();
+    let opaque = interner.intern("opaque_owned_relay");
+    let pair_ty = ty(64);
+    let list_ty = ty(70);
+    let func = projected_cow_reconstruction_func(opaque, pair_ty, list_ty);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_burden(
+        &mut registry,
+        "OpaqueRelayPair",
+        pair_ty,
+        Some(UserBurdenSpec {
+            self_owned_identity: true,
+            owned_fields: vec![
+                UserOwnedField {
+                    field_path: vec![0],
+                    field_type: list_ty,
+                },
+                UserOwnedField {
+                    field_path: vec![1],
+                    field_type: Idx::STR,
+                },
+            ],
+            ..UserBurdenSpec::default()
+        }),
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [3, 5, 7, 11] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let (analysis, _) = analyze_with_registry_and_interner(&func, &state_map, &registry, &interner);
+
+    assert!(
+        analysis.field_view_hazard,
+        "an unregistered Owned call is conservative authority, not proof that \
+         the call result linearly reconstructs the projected field"
+    );
+}
+
+#[test]
+fn exact_push_name_collision_does_not_authorize_projected_full_move() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let interner = test_interner();
+    let push = interner.intern("push");
+    let pair_ty = ty(64);
+    let list_ty = ty(70);
+    let func = projected_cow_reconstruction_func(push, pair_ty, list_ty);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_burden(
+        &mut registry,
+        "ExactPushCollisionPair",
+        pair_ty,
+        Some(UserBurdenSpec {
+            self_owned_identity: true,
+            owned_fields: vec![
+                UserOwnedField {
+                    field_path: vec![0],
+                    field_type: list_ty,
+                },
+                UserOwnedField {
+                    field_path: vec![1],
+                    field_type: Idx::STR,
+                },
+            ],
+            ..UserBurdenSpec::default()
+        }),
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [3, 5, 7, 11] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let exact_callables = FxHashSet::from_iter([push]);
+    let (analysis, _) = analyze_with_registry_interner_and_exact(
+        &func,
+        &state_map,
+        &registry,
+        &interner,
+        &exact_callables,
+    );
+
+    assert!(
+        analysis.field_view_hazard,
+        "an exact user callable named `push` must not inherit registry builtin authority"
+    );
+}
+
+#[test]
+fn registered_receiver_only_relay_authorizes_projected_full_move() {
+    use crate::lower::test_utils::registered_struct_with_burden;
+    use ori_types::burden::{UserBurdenSpec, UserOwnedField};
+
+    let interner = test_interner();
+    let remove = interner.intern("remove");
+    let pair_ty = ty(64);
+    let list_ty = ty(70);
+    let func = projected_cow_reconstruction_func(remove, pair_ty, list_ty);
+    let mut registry = ori_types::TypeRegistry::new();
+    registered_struct_with_burden(
+        &mut registry,
+        "ReceiverOnlyRelayPair",
+        pair_ty,
+        Some(UserBurdenSpec {
+            self_owned_identity: true,
+            owned_fields: vec![
+                UserOwnedField {
+                    field_path: vec![0],
+                    field_type: list_ty,
+                },
+                UserOwnedField {
+                    field_path: vec![1],
+                    field_type: Idx::STR,
+                },
+            ],
+            ..UserBurdenSpec::default()
+        }),
+    );
+    let mut state_map = AimsStateMap::new(&func);
+    for scalar in [3, 5, 7, 11] {
+        state_map.set_permanent_scalar(v(scalar));
+    }
+    let (analysis, _) = analyze_with_registry_and_interner(&func, &state_map, &registry, &interner);
+
+    assert!(
+        !analysis.field_view_hazard && analysis.readiness.all_classes_clean,
+        "the frozen Owned receiver contract proves one-in/one-out conservation"
+    );
+}
+
 /// Builder for the multi-owed diamond: a call result re-acquires the SAME
 /// allocation (RL-34 Credit) past which the class's books owe two
 /// references (birth + credit), both dying past the final terminator read.
@@ -3088,8 +3678,15 @@ fn shared_edge_source_declines_full_move_arm() {
     let mut state_map = AimsStateMap::new(&func);
     state_map.set_permanent_scalar(v(8));
     let (_analysis, mut partition) = analyze_with_registry(&func, &state_map, &registry);
+    let interner = test_interner();
 
-    let arms = super::events::detect_full_move_arms(&func, &mut partition, &registry);
+    let arms = super::events::detect_full_move_arms(
+        &func,
+        &mut partition,
+        &registry,
+        &FxHashMap::default(),
+        &interner,
+    );
     assert!(
         arms.is_empty(),
         "a Jump edge feeding two params from one class must decline the \
@@ -4889,6 +5486,313 @@ fn multi_container_view_declines_field_decomposition() {
     }
 }
 
+fn multi_container_unfundable_seed_func() -> ArcFunction {
+    let mut func = one_block_func(
+        9,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![0]),
+            ArcInstr::Project {
+                dst: v(2),
+                ty: ty(0),
+                value: v(1),
+                field: 0,
+            },
+            construct(3, vec![2]),
+            ArcInstr::Project {
+                dst: v(4),
+                ty: ty(0),
+                value: v(3),
+                field: 0,
+            },
+            ArcInstr::Let {
+                dst: v(5),
+                ty: ty(0),
+                value: ArcValue::Var(v(1)),
+            },
+            is_shared(6, 5),
+            ArcInstr::Let {
+                dst: v(7),
+                ty: ty(0),
+                value: ArcValue::Var(v(3)),
+            },
+            is_shared(8, 7),
+        ],
+        ret(4),
+    );
+    func.params = vec![];
+    func.var_types[2] = ty(64);
+    func.var_types[4] = ty(64);
+    func
+}
+
+fn multi_container_unfundable_seed_state(func: &ArcFunction) -> AimsStateMap {
+    let mut state_map = AimsStateMap::new(func);
+    state_map.set_permanent_scalar(v(6));
+    state_map.set_permanent_scalar(v(8));
+    state_map
+}
+
+#[test]
+fn multi_container_view_with_unfundable_seed_is_cured() {
+    let func = multi_container_unfundable_seed_func();
+    let state_map = multi_container_unfundable_seed_state(&func);
+    let (analysis, _partition) = analyze(&func, &state_map);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "a multi-container view whose seed increment carries no burden must \
+         still be cured: {:?}",
+        analysis.readiness.declined
+    );
+    assert!(
+        analysis.readiness.all_classes_clean,
+        "the cured plan must verify Clean: {:?}",
+        analysis.readiness.declined
+    );
+}
+
+#[test]
+fn multi_container_view_with_unfundable_seed_keeps_container_releases_whole() {
+    let func = multi_container_unfundable_seed_func();
+    let state_map = multi_container_unfundable_seed_state(&func);
+    let (analysis, mut partition) = analyze(&func, &state_map);
+
+    let container_a = class_rep(&mut partition, 1);
+    let container_b = class_rep(&mut partition, 3);
+    assert_ne!(
+        container_a, container_b,
+        "the two containers stay distinct classes"
+    );
+    for plan in &analysis.plan.classes {
+        let ClassOutcome::Planned(ops) = &plan.outcome else {
+            continue;
+        };
+        let rep = partition.rep_of(plan.class);
+        if rep != container_a && rep != container_b {
+            continue;
+        }
+        assert!(
+            ops.iter()
+                .all(|op| !matches!(op.kind, PlannedOpKind::DecPartial { .. })),
+            "unmanaged tuple containers retain whole releases: {ops:?}"
+        );
+    }
+}
+
+#[test]
+fn multi_container_tuple_container_with_user_drop_declines_no_release_cure() {
+    use core::num::NonZeroU32;
+    use ori_registry::burden::FnSym;
+    use ori_types::burden::UserBurdenSpec;
+
+    let mut func = multi_container_unfundable_seed_func();
+    func.var_types[1] = ty(65);
+    func.var_types[3] = ty(65);
+    let state_map = multi_container_unfundable_seed_state(&func);
+    let mut registry = ori_types::TypeRegistry::new();
+    crate::lower::test_utils::registered_struct_with_burden(
+        &mut registry,
+        "GuardedContainer",
+        ty(65),
+        Some(UserBurdenSpec {
+            user_drop: Some(FnSym::new(NonZeroU32::MIN)),
+            ..UserBurdenSpec::default()
+        }),
+    );
+    assert!(
+        crate::lower::type_has_user_drop(ty(65), &registry),
+        "the negative pin requires cleanup on both tuple containers"
+    );
+    assert!(
+        !crate::lower::type_has_user_drop(ty(64), &registry),
+        "the member type stays unregistered so only the container guard can decline"
+    );
+
+    let (analysis, _partition) = analyze_with_registry(&func, &state_map, &registry);
+    assert!(
+        analysis.field_view_hazard,
+        "a released container carrying its own cleanup must retain the hazard"
+    );
+}
+
+#[test]
+fn multi_container_tuple_member_with_user_drop_declines_no_release_cure() {
+    use core::num::NonZeroU32;
+    use ori_registry::burden::FnSym;
+    use ori_types::burden::UserBurdenSpec;
+
+    let func = multi_container_unfundable_seed_func();
+    let state_map = multi_container_unfundable_seed_state(&func);
+    let mut registry = ori_types::TypeRegistry::new();
+    crate::lower::test_utils::registered_struct_with_burden(
+        &mut registry,
+        "GuardedMember",
+        ty(64),
+        Some(UserBurdenSpec {
+            user_drop: Some(FnSym::new(NonZeroU32::MIN)),
+            ..UserBurdenSpec::default()
+        }),
+    );
+    assert!(
+        crate::lower::type_has_user_drop(ty(64), &registry),
+        "the negative pin requires cleanup on projected tuple members"
+    );
+    assert!(
+        func.blocks[0]
+            .body
+            .iter()
+            .filter(|instr| matches!(
+                instr,
+                ArcInstr::Construct {
+                    ctor: CtorKind::Tuple,
+                    args,
+                    ..
+                } if !args.is_empty()
+            ))
+            .count()
+            == 2,
+        "the negative pin reaches the multi-container non-sum rung"
+    );
+
+    let (analysis, _partition) = analyze_with_registry(&func, &state_map, &registry);
+    assert!(
+        analysis.field_view_hazard,
+        "a non-sum tuple chain must retain the hazard when member cleanup is registered"
+    );
+}
+
+#[test]
+fn single_container_unfundable_demand_declines_no_release_cure() {
+    let mut func = func_with_blocks(
+        6,
+        vec![
+            block(
+                0,
+                vec![],
+                vec![
+                    construct(0, vec![]),
+                    construct(1, vec![0]),
+                    ArcInstr::Project {
+                        dst: v(2),
+                        ty: ty(70),
+                        value: v(1),
+                        field: 0,
+                    },
+                ],
+                invoke(3, vec![(2, ArgOwnership::Owned)], 1, 2),
+            ),
+            block(
+                1,
+                vec![],
+                vec![construct(4, vec![3]), construct(5, vec![1, 4])],
+                ret(5),
+            ),
+            block(2, vec![], vec![], ArcTerminator::Resume),
+        ],
+    );
+    func.params = vec![];
+    func.var_types[2] = ty(70);
+    func.var_types[3] = ty(70);
+    let state_map = AimsStateMap::new(&func);
+
+    let (analysis, _partition) = analyze(&func, &state_map);
+    assert!(
+        analysis.field_view_hazard,
+        "one non-sum container cannot justify the unmanaged tuple-chain cure"
+    );
+}
+
+#[test]
+fn multi_container_sum_view_declines_no_release_cure() {
+    let mut func = multi_container_unfundable_seed_func();
+    for instr in &mut func.blocks[0].body {
+        let ArcInstr::Construct { ctor, args, .. } = instr else {
+            continue;
+        };
+        if args.is_empty() {
+            continue;
+        }
+        *ctor = CtorKind::EnumVariant {
+            enum_name: Name::from_raw(9),
+            variant: 0,
+        };
+    }
+    let state_map = multi_container_unfundable_seed_state(&func);
+
+    let (analysis, _partition) = analyze(&func, &state_map);
+    assert!(
+        analysis.field_view_hazard,
+        "recursive sum-container cleanup must retain the shared-view hazard"
+    );
+}
+
+#[test]
+fn production_replacement_covers_multi_container_unfundable_view() {
+    let mut func = multi_container_unfundable_seed_func();
+    let state_map = multi_container_unfundable_seed_state(&func);
+
+    let pool = ori_types::Pool::new();
+    let classifier = crate::ArcClassifier::new(&pool);
+    crate::aims::freeze_primitive_facts(std::slice::from_mut(&mut func), &classifier)
+        .unwrap_or_else(|errors| panic!("primitive facts should freeze: {errors:?}"));
+    let interner = test_interner();
+    let registry = ori_types::TypeRegistry::default();
+    let contracts: FxHashMap<Name, MemoryContract> = FxHashMap::default();
+
+    let replaced = crate::aims::class_ledger::apply_class_ledger_replacement(
+        &mut func, &state_map, &contracts, &registry, &interner, true,
+    );
+    assert!(
+        replaced,
+        "the production replacement gate must cover a multi-container view \
+         whose extraction seed carries no burden"
+    );
+}
+
+#[test]
+fn single_container_view_with_unfundable_seed_is_cured() {
+    let mut func = one_block_func(
+        7,
+        vec![
+            construct(0, vec![]),
+            construct(1, vec![0]),
+            ArcInstr::Project {
+                dst: v(2),
+                ty: ty(0),
+                value: v(1),
+                field: 0,
+            },
+            construct(3, vec![2]),
+            ArcInstr::Let {
+                dst: v(4),
+                ty: ty(0),
+                value: ArcValue::Var(v(1)),
+            },
+            is_shared(5, 4),
+            is_shared(6, 3),
+        ],
+        ret(3),
+    );
+    func.params = vec![];
+    func.var_types[2] = ty(64);
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_permanent_scalar(v(5));
+    state_map.set_permanent_scalar(v(6));
+    let (analysis, _partition) = analyze(&func, &state_map);
+
+    assert!(
+        !analysis.field_view_hazard,
+        "a single-container view is cured by field decomposition even when \
+         its extraction seed carries no burden: {:?}",
+        analysis.readiness.declined
+    );
+    assert!(
+        analysis.readiness.all_classes_clean,
+        "field decomposition must leave every single-container class clean"
+    );
+}
+
 /// A release planned for a class containing a BORROWED function param names
 /// a same-class alias, never the param var itself (VF-1 rejects an `RcDec` on
 /// a borrowed param; the alias is the same allocation).
@@ -4938,6 +5842,7 @@ fn release_never_names_borrowed_param_var() {
         &func,
         &classification,
         &mut partition,
+        &FxHashMap::default(),
         &ori_types::TypeRegistry::default(),
         &interner,
     );

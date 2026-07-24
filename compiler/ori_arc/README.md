@@ -23,10 +23,10 @@ Decision-tree primitives for match compilation are also housed here currently �
 
 - `lower/` — phase 5 ARC lowering (`CanExpr` → `ArcFunction`)
 - `aims/` — phase 6 AIMS lattice, contracts, analysis driver
-- `realize/` — phase 7 logical ownership / COW / reuse / drop realization
+- `aims/realize/` — phase 7 logical ownership / COW / reuse / drop realization
 - `decision_tree/` — Maranget primitives (shared with `ori_canon`)
 - `borrow/` — borrow inference
-- `fip/` — FBIP / FIP contract certification
+- `fbip/` and `aims/verify/fip.rs` — FBIP analysis and FIP contract certification
 
 ## Dependencies
 
@@ -61,9 +61,9 @@ AIMS snapshot tests live in `compiler/oric/tests/aims-snapshots/` — run via `c
 
 - Lowering: `src/lower/`
 - Lattice: `src/aims/lattice/`
-- Contracts: `src/aims/contracts/`
-- Realization: `src/realize/`
-- FIP: `src/fip/`
+- Contracts: `src/aims/contract/`
+- Realization: `src/aims/realize/`
+- FBIP and FIP verification: `src/fbip/`, `src/aims/verify/fip.rs`
 
 ## References
 

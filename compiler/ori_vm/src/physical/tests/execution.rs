@@ -549,7 +549,7 @@ fn direct_call_artifact() -> DirectCallArtifact {
         retain_plans: RetainPlanTable::default(),
         roots: vec![main_name],
         cli_entry: Some(main_name),
-        externals: Vec::new(),
+        externals: ori_repr::executable::ValidatedExternalCallables::empty(),
         method_targets: FxHashMap::default(),
         user_drop_bindings: Vec::new(),
         repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),

@@ -22,7 +22,11 @@ pub enum RealizationError {
     },
     /// The external callable table exceeds its stable index representation.
     #[error("executable program contains too many external functions: {count}")]
-    TooManyExternalFunctions { count: usize },
+    TooManyExternalFunctions {
+        count: usize,
+        #[source]
+        source: std::num::TryFromIntError,
+    },
     /// A function name is absent from the supplied immutable symbol table.
     #[error("function name {name:?} is absent from the executable symbol table")]
     UnknownFunctionName { name: Name },

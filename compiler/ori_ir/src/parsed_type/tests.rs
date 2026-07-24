@@ -143,11 +143,12 @@ fn test_associated_type() {
     let mut arena = ExprArena::new();
     let base_id = arena.alloc_parsed_type(ParsedType::SelfType);
     let assoc_name = Name::new(0, 5);
-    let ty = ParsedType::associated_type(base_id, assoc_name);
+    let ty = ParsedType::associated_type(base_id, assoc_name, ParsedTypeRange::EMPTY);
     match ty {
         ParsedType::AssociatedType {
             base,
             assoc_name: name,
+            ..
         } => {
             assert_eq!(*arena.get_parsed_type(base), ParsedType::SelfType);
             assert_eq!(name, assoc_name);

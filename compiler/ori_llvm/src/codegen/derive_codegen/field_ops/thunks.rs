@@ -117,11 +117,10 @@ fn get_or_create_list_eq_thunk<'a>(
     let use_deep = needs_deep_comparison(&elem_info);
     let elem_size = compute_elem_size(fc, list_ty, element_ty, &elem_info);
 
-    // For deep comparison, we need an inner thunk for element equality
+    // Why: Deep comparisons dispatch through an element equality thunk.
     let inner_thunk = if use_deep {
         get_or_create_derive_eq_thunk(fc, element_ty, &elem_info)?
     } else {
-        // Not used — just a placeholder
         fc.builder_mut().const_null_ptr()
     };
 

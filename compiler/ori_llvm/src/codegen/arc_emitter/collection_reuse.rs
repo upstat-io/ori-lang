@@ -27,13 +27,49 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Determine element type from the collection type.
         let type_info = self.type_info.get(ty);
-        let elem_idx = match (ctor, &type_info) {
-            (CtorKind::ListLiteral, TypeInfo::List { element })
-            | (CtorKind::SetLiteral, TypeInfo::Set { element }) => *element,
-            _ => unreachable!(
+        let expects_list = match ctor {
+            CtorKind::ListLiteral => true,
+            CtorKind::SetLiteral => false,
+            CtorKind::Struct(_)
+            | CtorKind::EnumVariant { .. }
+            | CtorKind::Tuple
+            | CtorKind::MapLiteral
+            | CtorKind::Closure { .. } => {
+                unreachable!("collection reuse requires a list or set constructor: {ctor:?}")
+            }
+        };
+        let (is_list, elem_idx) = match &type_info {
+            TypeInfo::List { element } => (true, *element),
+            TypeInfo::Set { element } => (false, *element),
+            TypeInfo::Int
+            | TypeInfo::Float
+            | TypeInfo::Bool
+            | TypeInfo::Char
+            | TypeInfo::Byte
+            | TypeInfo::Unit
+            | TypeInfo::Never
+            | TypeInfo::Str
+            | TypeInfo::Duration
+            | TypeInfo::Size
+            | TypeInfo::Ordering
+            | TypeInfo::Map { .. }
+            | TypeInfo::Tuple { .. }
+            | TypeInfo::Option { .. }
+            | TypeInfo::Result { .. }
+            | TypeInfo::Range
+            | TypeInfo::Struct { .. }
+            | TypeInfo::Enum { .. }
+            | TypeInfo::Iterator { .. }
+            | TypeInfo::Channel { .. }
+            | TypeInfo::Function { .. }
+            | TypeInfo::Error => unreachable!(
                 "collection reuse TypeInfo mismatch: ctor={ctor:?}, info={type_info:?}"
             ),
         };
+        assert_eq!(
+            expects_list, is_list,
+            "collection reuse TypeInfo mismatch: ctor={ctor:?}, info={type_info:?}"
+        );
 
         // Narrowed element type/size for collection reuse.
         let collection_idx = self.pool.resolve_fully(ty);
@@ -47,7 +83,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "reuse.old_len",
             "reuse.old_cap",
         ) else {
-            panic!("CollectionReuse input must have the canonical collection layout");
+            // Why: ARC validates CollectionReuse inputs as canonical list or set values.
+            unreachable!("CollectionReuse input must have the canonical collection layout")
         };
 
         // Build call args for ori_list_reset_buffer.
@@ -74,7 +111,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ],
             "reuse.data",
         ) else {
-            panic!("ori_list_reset_buffer must return a data pointer");
+            // Why: The registered ori_list_reset_buffer ABI returns a data pointer.
+            unreachable!("ori_list_reset_buffer must return a data pointer")
         };
 
         // Store each new element into the returned buffer.

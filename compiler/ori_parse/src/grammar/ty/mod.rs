@@ -10,7 +10,7 @@
 //! by ID. This enables flat storage without `Box<ParsedType>`.
 
 use ori_diagnostic::ErrorCode;
-use ori_ir::{ParsedType, ParsedTypeId, ParsedTypeRange, TokenKind, TypeId};
+use ori_ir::{Name, ParsedType, ParsedTypeId, ParsedTypeRange, TokenKind, TypeId};
 
 // Tag constants for type keyword dispatch (avoids cloning TokenKind).
 use ori_ir::TokenKind as TK;
@@ -71,8 +71,9 @@ impl Parser<'_> {
         };
         let associated = *associated;
         self.cursor.advance();
+        let type_args = self.parse_optional_generic_args_range();
         let base = self.arena.alloc_parsed_type(ParsedType::SelfType);
-        ParsedType::associated_type(base, associated)
+        ParsedType::associated_type(base, associated, type_args)
     }
 
     fn parse_named_type(&mut self) -> Option<ParsedType> {
@@ -81,21 +82,38 @@ impl Parser<'_> {
         };
         let name = *name;
         self.cursor.advance();
-        let type_args = self.parse_optional_generic_args_range();
-        let base = ParsedType::Named { name, type_args };
-        let head = if self.cursor.check(&TokenKind::Dot) {
+        // `type = type_path [ type_args ]` and
+        // `type_path = identifier { "." identifier }` (Spec: grammar.ebnf),
+        // so the dotted path is consumed in full FIRST and the generic args
+        // bind to its terminal segment: `a.b.C<int>` puts `<int>` on `C`.
+        let mut segments: Vec<Name> = Vec::new();
+        while self.cursor.check(&TokenKind::Dot) {
             self.cursor.advance();
-            if let TokenKind::Ident(associated) = self.cursor.current_kind() {
-                let associated = *associated;
-                self.cursor.advance();
-                let base = self.arena.alloc_parsed_type(base);
-                ParsedType::associated_type(base, associated)
+            let TokenKind::Ident(associated) = self.cursor.current_kind() else {
+                break;
+            };
+            segments.push(*associated);
+            self.cursor.advance();
+        }
+        let type_args = self.parse_optional_generic_args_range();
+        let mut head = ParsedType::Named {
+            name,
+            type_args: if segments.is_empty() {
+                type_args
             } else {
-                base
-            }
-        } else {
-            base
+                ParsedTypeRange::EMPTY
+            },
         };
+        let last = segments.len().saturating_sub(1);
+        for (index, associated) in segments.into_iter().enumerate() {
+            let base = self.arena.alloc_parsed_type(head);
+            let args = if index == last {
+                type_args
+            } else {
+                ParsedTypeRange::EMPTY
+            };
+            head = ParsedType::associated_type(base, associated, args);
+        }
         if !self.cursor.check(&TokenKind::Plus) {
             return Some(head);
         }

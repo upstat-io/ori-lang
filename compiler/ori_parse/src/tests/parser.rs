@@ -164,6 +164,128 @@ fn test_parse_block_expr() {
 }
 
 #[test]
+fn block_boundary_diagnostic_names_cause_and_fix() {
+    let result = parse_source("@f () -> int = { 1 2 }");
+
+    assert!(result.has_errors());
+    let error = &result.errors[0];
+    assert!(
+        error.message.contains("expected a statement boundary"),
+        "diagnostic should name the missing boundary: {}",
+        error.message
+    );
+    let help = error.help.join(" ");
+    assert!(
+        help.contains("Add `;` before") && help.contains("Spec: Clause 11.12"),
+        "diagnostic should name the concrete fix and governing clause: {help}"
+    );
+}
+
+#[test]
+fn block_ending_expression_can_omit_semicolon_before_next_expression() {
+    let sources = [
+        "@f () -> int = { if true then { 1 } else { 2 } 42 }",
+        "@f () -> int = { for i in 0..1 do { i } 42 }",
+        "@f () -> int = { while true do { break } 42 }",
+        "@f () -> int = { loop { break } 42 }",
+        "@f () -> int = { {a: 1} 42 }",
+    ];
+
+    for source in sources {
+        let result = parse_source(source);
+
+        assert!(
+            !result.has_errors(),
+            "a block-ending expression may omit its semicolon before the next expression: {source:?}: {:?}",
+            result.errors
+        );
+
+        let body = result.arena.get_expr(result.module.functions[0].body);
+        let ExprKind::Block {
+            stmts,
+            result: value,
+        } = &body.kind
+        else {
+            panic!("expected block expression, got {:?}", body.kind);
+        };
+        let statements = result.arena.get_stmt_range(*stmts);
+        assert_eq!(
+            statements.len(),
+            1,
+            "expected one discarded expression: {source}"
+        );
+        assert!(matches!(statements[0].kind, StmtKind::Expr(_)));
+        assert!(value.is_valid());
+    }
+}
+
+#[test]
+fn try_block_ending_expression_can_omit_semicolon_before_next_expression() {
+    let result =
+        parse_source("@f () -> Result<int, str> = try { if true then { 1 } else { 2 } Ok(42) }");
+
+    assert!(
+        !result.has_errors(),
+        "the shared try-block collector must accept the same boundary: {:?}",
+        result.errors
+    );
+
+    let body = result.arena.get_expr(result.module.functions[0].body);
+    let ExprKind::FunctionSeq(sequence) = body.kind else {
+        panic!("expected try function sequence, got {:?}", body.kind);
+    };
+    let FunctionSeq::Try {
+        stmts,
+        result: value,
+        ..
+    } = result.arena.get_function_seq(sequence)
+    else {
+        panic!("expected try function sequence");
+    };
+    assert_eq!(result.arena.get_stmt_range(*stmts).len(), 1);
+    assert!(value.is_valid());
+}
+
+#[test]
+fn explicit_semicolon_after_block_ending_expression_remains_valid() {
+    let result = parse_source("@f () -> int = { for i in 0..1 do { i }; 42 }");
+
+    assert!(
+        !result.has_errors(),
+        "the optional path must not change explicit-semicolon parsing: {:?}",
+        result.errors
+    );
+}
+
+#[test]
+fn trailing_block_ending_expression_remains_block_value() {
+    let result = parse_source("@f () -> int = { if true then { 1 } else { 2 } }");
+
+    assert!(
+        !result.has_errors(),
+        "a trailing block-ending expression remains the block value: {:?}",
+        result.errors
+    );
+
+    let body = result.arena.get_expr(result.module.functions[0].body);
+    let ExprKind::Block { result: value, .. } = &body.kind else {
+        panic!("expected block expression, got {:?}", body.kind);
+    };
+    assert!(matches!(
+        result.arena.get_expr(*value).kind,
+        ExprKind::If { .. }
+    ));
+}
+
+#[test]
+fn let_binding_still_requires_semicolon_before_next_expression() {
+    let result = parse_source("@f () -> int = { let x = 1 2 }");
+
+    assert!(result.has_errors());
+    assert!(result.errors[0].message.contains("expected `;` or `}`"));
+}
+
+#[test]
 fn test_parse_let_expression() {
     let result = parse_source(fixture_without_trailing_newline(include_str!(
         "fixtures/parser/parse_let_expression.ori"

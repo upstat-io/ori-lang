@@ -65,7 +65,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Determine return type and sret mode
         let ptr_ty = self.builder.ptr_type();
-        let ret_ty = self.resolve_type(callee_abi.return_abi.ty);
+        let ret_ty = self.resolve_boundary_type(callee_abi.return_abi.ty);
         let has_sret = matches!(callee_abi.return_abi.passing, ReturnPassing::Sret { .. });
         let is_void = matches!(callee_abi.return_abi.passing, ReturnPassing::Void);
 
@@ -81,7 +81,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         for param in remaining_params {
             match &param.passing {
                 ParamPassing::Direct => {
-                    let ty = self.resolve_type(param.ty);
+                    let ty = self.resolve_boundary_type(param.ty);
                     wrapper_param_types.push(ty);
                 }
                 ParamPassing::Indirect { .. } | ParamPassing::Reference => {
@@ -277,7 +277,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     .builder
                     .load(field_type, field_ptr, &format!("cap.{index}"));
                 self.retain_closure_capture(loaded, capture_type, frozen_action, needs_legacy_inc);
-                loaded
+                // The env stores narrowed storage form; the lambda signature is
+                // canonical, so the capture widens at the unpack boundary.
+                self.widen_to_boundary(loaded, capture_type)
             };
             callee_args.push(capture);
         }
@@ -343,15 +345,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             });
 
             if let Some(plan) = retain_plan {
-                self.emit_frozen_closure_retain_plan(
-                    semantic_value.expect("retain bridge requires a semantic value"),
-                    plan,
-                );
+                let Some(value) = semantic_value else {
+                    // Why: A retain plan makes needs_semantic_value true above.
+                    unreachable!("retain bridge requires a semantic value")
+                };
+                self.emit_frozen_closure_retain_plan(value, plan);
             }
 
             match target_param.passing {
-                ParamPassing::Direct => callee_args
-                    .push(semantic_value.expect("direct target requires a semantic value")),
+                ParamPassing::Direct => {
+                    let Some(value) = semantic_value else {
+                        // Why: Direct target passing makes needs_semantic_value true above.
+                        unreachable!("direct target requires a semantic value")
+                    };
+                    let widened = self.widen_to_boundary(value, target_param.ty);
+                    callee_args.push(widened);
+                }
                 ParamPassing::Indirect { .. } | ParamPassing::Reference => {
                     if source_is_pointer {
                         callee_args.push(incoming);
@@ -360,10 +369,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                         let slot = self
                             .builder
                             .alloca(value_type, &format!("arg.{residual_index}.bridge"));
-                        self.builder.store(
-                            semantic_value.expect("pointer target requires a semantic value"),
-                            slot,
-                        );
+                        let Some(value) = semantic_value else {
+                            // Why: Bridging a direct source to a pointer target needs the value.
+                            unreachable!("pointer target requires a semantic value")
+                        };
+                        self.builder.store(value, slot);
                         callee_args.push(slot);
                     }
                 }
@@ -419,6 +429,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                             memory_field,
                             &format!("closure.retain.f.{}", edge.field),
                         ) else {
+                            self.builder.record_codegen_error_with_msg(format!(
+                                "closure retain plan {} references absent field {}",
+                                plan.index(),
+                                edge.field,
+                            ));
                             return;
                         };
                         if is_boxed_enum_field(self.pool, owner, child.ty) {

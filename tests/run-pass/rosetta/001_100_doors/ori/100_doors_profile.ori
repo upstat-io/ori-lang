@@ -1,0 +1,96 @@
+// 100 Doors — characterization mirror of ../ori/100_doors.ori.
+//
+// Runs the SAME algorithm as simulate() over a reduced iteration count with a
+// counter incremented at every characterized operation site, and emits one
+// `work <category> <count>` line per counter. The harness runs this program in
+// its own untimed invocation (`measure.sh <subject> --metric profile`), so the
+// counters never enter a timed measurement.
+//
+// The categories are the harness's FIXED language-independent vocabulary: they
+// name source-level dynamic events every imperative language exhibits, never
+// one runtime's opcode names, so the Python and LuaJIT siblings count exactly
+// the same categories at exactly the same sites.
+//
+// Counted sites (shared by all three implementations):
+//   alloc     one doors collection per simulate call
+//   loop_iter one per pass, per toggle, and per read-loop iteration
+//   index     two per toggle (read + write), one per read-loop element read
+//   branch    one per read-loop `if doors[i]` decision
+//   arith     one per `pass - 1` bound, one per `salt % 100`, one per open bump
+//   field     this workload reads no aggregate field
+//   string_op this workload performs no string operation
+//   call      one per simulate invocation, from the single driver call site
+// The doors initialization is NOT counted: the three implementations spell it
+// idiomatically differently and it is not part of the modelled algorithm. The
+// driver loop in main is harness scaffolding and is not counted either.
+
+@simulate_profiled (salt: int) -> (int, int, int, int, int, int) = {
+    let allocs = 0;
+    let ariths = 0;
+    let branches = 0;
+    let indexes = 0;
+    let iters = 0;
+
+    allocs = allocs + 1;
+    let doors = for _ in 0..100 yield false;
+
+    for pass in 1..=100 do {
+        iters = iters + 1;
+        ariths = ariths + 1;
+        for idx in (pass - 1)..100 by pass do {
+            iters = iters + 1;
+            indexes = indexes + 2;
+            doors[idx] = !doors[idx]
+        }
+    };
+
+    ariths = ariths + 1;
+    let s = salt % 100;
+    indexes = indexes + 2;
+    doors[s] = !doors[s];
+
+    let open = 0;
+    for i in 0..100 do {
+        iters = iters + 1;
+        indexes = indexes + 1;
+        branches = branches + 1;
+        if doors[i] then {
+            ariths = ariths + 1;
+            open = open + 1
+        }
+    };
+
+    (allocs, ariths, branches, indexes, iters, open)
+}
+
+@main () -> void = {
+    let $iterations = 500;
+    let calls = 0;
+    let allocs = 0;
+    let ariths = 0;
+    let branches = 0;
+    let indexes = 0;
+    let iters = 0;
+    let checksum = 0;
+    for n in 0..iterations do {
+        let r = simulate_profiled(salt: n);
+        calls = calls + 1;
+        allocs = allocs + r.0;
+        ariths = ariths + r.1;
+        branches = branches + r.2;
+        indexes = indexes + r.3;
+        iters = iters + r.4;
+        checksum = checksum + r.5
+    };
+
+    print(msg: `work alloc {allocs}`);
+    print(msg: `work arith {ariths}`);
+    print(msg: `work branch {branches}`);
+    print(msg: `work call {calls}`);
+    print(msg: `work field 0`);
+    print(msg: `work index {indexes}`);
+    print(msg: `work loop_iter {iters}`);
+    print(msg: `work string_op 0`);
+    print(msg: `work call_sites 1`);
+    print(msg: `work call_targets 1`)
+}

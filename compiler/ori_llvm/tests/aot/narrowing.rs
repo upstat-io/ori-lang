@@ -3,51 +3,13 @@
 //! Tests that struct field integer narrowing produces correct runtime behavior:
 //! trunc at construction + sext at extraction = identical semantics to canonical i64.
 
-use crate::util::{assert_aot_success, compile_and_capture_ir, extract_function_ir, stdlib_path};
+use crate::util::{
+    assert_aot_success, compile_and_capture_ir, compile_and_capture_ir_no_repr_opt,
+    extract_function_ir, stdlib_path,
+};
 
 use std::process::Command;
-use std::sync::atomic::{AtomicU64, Ordering};
 use tempfile::TempDir;
-
-/// Compile with `ORI_NO_REPR_OPT=1` and capture LLVM IR.
-/// Used for `NarrowingPolicy::Disabled` verification tests.
-fn compile_and_capture_ir_no_repr_opt(source: &str) -> String {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    let source_path = temp_dir.path().join(format!("test_nro_{id}.ori"));
-    let binary_path = temp_dir
-        .path()
-        .join(format!("test_nro_{id}{}", std::env::consts::EXE_SUFFIX));
-
-    std::fs::write(&source_path, source).expect("Failed to write source");
-
-    // Resolve through the staged snapshot — never the mutable shared
-    // target/debug path a concurrent build can swap mid-suite.
-    let binary = crate::util::ir_capture_binary();
-
-    let result = Command::new(binary)
-        .args([
-            "build",
-            source_path.to_str().unwrap(),
-            "-o",
-            binary_path.to_str().unwrap(),
-        ])
-        .env("ORI_STDLIB", stdlib_path())
-        .env("ORI_DEBUG_LLVM", "1")
-        .env("ORI_NO_REPR_OPT", "1")
-        .output()
-        .expect("Failed to execute ori build");
-
-    assert!(
-        result.status.success(),
-        "Compilation failed:\n{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-
-    String::from_utf8_lossy(&result.stderr).to_string()
-}
 
 /// Semantic pin: struct with all fields in [-128, 127] range.
 /// Field values must survive trunc (i64→i8 at construction) and
@@ -100,14 +62,8 @@ fn test_narrowed_struct_i8_boundaries() {
     );
 }
 
-// Multi-file AOT semantic pin tests for cross-module type metadata are blocked on multi-file
-// AOT compilation being incomplete (modules support). The ARC IR
-// emitter currently cannot resolve cross-module function calls. The plumbing
-// for ExportedTypeMetadata is verified by:
-// 1. Unit tests in compiler/oric/src/commands/build/tests.rs
-//    (collect_imported_type_metadata correctness)
-// 2. Existing ori_repr tests (imported metadata prevents narrowing)
-// 3. Compilation succeeds with the new parameter threading
+// Why: multi-file AOT compilation cannot resolve cross-module function calls.
+// Exported-type metadata is covered by build-command and representation tests.
 
 /// Negative semantic pin: struct with Top-range fields must NOT be narrowed.
 /// Fields used with values spanning the full i64 range stay at i64.
@@ -119,7 +75,7 @@ fn test_non_narrowed_struct_wide_range() {
     );
 }
 
-// ---- IR semantic pin tests (IR-PIN-04-018) ----
+// IR semantic pin tests
 //
 // These tests inspect the actual LLVM IR to verify narrowing produces
 // the expected type layouts and trunc/sext boundary instructions.
@@ -228,13 +184,10 @@ fn test_non_narrowed_struct_ir_pin_wide_range() {
     );
 }
 
-// ---- DERIVE-PIN-04-020: Negative-value derive semantic pins ----
+// Negative-value derive semantic pins
 //
-// These tests exercise derived hash(), to_str(), and debug() on narrowed structs
-// with NEGATIVE field values. A zext (instead of sext) bug when widening i8 fields
-// to canonical i64 for runtime functions would corrupt negative values (e.g., -50
-// becomes 206). Previous derive tests only used positive values and would not
-// catch this.
+// Why: zero-extension would turn a negative i8 into a positive runtime argument.
+// Derived hash, to_str, and debug must preserve negative narrowed fields.
 
 /// Semantic pin: derived `hash()` on narrowed struct with negative i8 field values.
 ///
@@ -301,7 +254,7 @@ fn test_narrowed_derive_ir_pin_sext_in_hash() {
     );
 }
 
-// ---- MIXED-PIN-04-019: Mixed-field struct rejection pin ----
+// Mixed-field struct rejection pin
 
 /// Negative IR semantic pin: mixed-field struct (str + narrowed int) must NOT
 /// be lowered through the narrowed aggregate path.
@@ -330,7 +283,7 @@ fn test_mixed_field_struct_ir_pin_no_narrowing() {
     );
 }
 
-// ---- Local-variable narrowing tests ----
+// Local-variable narrowing tests
 
 // Behavioral test: manual loop (loop+break) with bounded counter and accumulator.
 // The program must produce correct results regardless of narrowing.
@@ -360,47 +313,34 @@ fn test_narrowed_local_loop_negative_i8_range_correct_output() {
     );
 }
 
-// IR semantic pin: loop counter phi in a manual loop should use i8.
-// Range [0, 9] fits in signed i8 [-128, 127].
-// This test ONLY passes with Phase B local variable narrowing.
+// IR cost-model pin: loop-carried values stay at canonical width.
 #[test]
-fn test_narrowed_local_ir_pin_loop_counter_phi_i8() {
+fn test_loop_carried_local_ir_pin_phi_stays_i64() {
     let ir = compile_and_capture_ir(include_str!(
         "fixtures/narrowing/local_narrowing_ir_pin_loop_counter_phi.ori"
     ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_loop");
 
-    // With local variable narrowing, loop counter `i` (range [0, 9]) and
-    // accumulator `sum` (range [0, 45]) should both produce i8 phi nodes
-    // instead of i64 phi nodes.
     assert!(
-        fn_ir.contains("phi i8"),
-        "expected `phi i8` for narrowed loop counter/accumulator in _ori_sum_loop — \
-         ranges [0,9] and [0,45] both fit in signed i8.\n\
-         Phase B semantic pin: ONLY passes with local variable narrowing.\n\
-         Got IR:\n{fn_ir}"
+        fn_ir.contains("phi i64") && !fn_ir.contains("phi i8"),
+        "loop-carried counter and accumulator must stay canonical-width so the \
+         hot loop avoids narrow/widen churn.\nGot IR:\n{fn_ir}"
     );
 }
 
-// IR semantic pin: sext must be present to widen narrowed loop variables
-// before canonical-width arithmetic (overflow-checked i64 add).
+// IR cost-model pin: canonical loop values need no narrow/widen boundary.
 #[test]
-fn test_narrowed_local_ir_pin_loop_sext_to_canonical() {
+fn test_loop_carried_local_ir_pin_has_no_trunc_sext_churn() {
     let ir = compile_and_capture_ir(include_str!(
         "fixtures/narrowing/local_narrowing_ir_pin_loop_sext.ori"
     ));
 
     let fn_ir = extract_function_ir(&ir, "_ori_sum_loop");
 
-    // With narrowed i8 loop variables, arithmetic requires sign-extending
-    // to i64 before the overflow-checked add. This sext is the boundary
-    // between narrow storage and canonical computation.
     assert!(
-        fn_ir.contains("sext i8"),
-        "expected `sext i8 ... to i64` in _ori_sum_loop — narrowed loop variables \
-         must be widened before overflow-checked arithmetic.\n\
-         Phase B semantic pin: ONLY passes with local variable narrowing.\n\
+        !fn_ir.contains("trunc i64") && !fn_ir.contains("sext i8"),
+        "loop-carried values must not add trunc/sext work to the hot loop.\n\
          Got IR:\n{fn_ir}"
     );
 }
@@ -425,7 +365,7 @@ fn test_wide_range_local_ir_pin_no_i8_narrowing() {
     );
 }
 
-// ---- Comparison operations on narrowed fields ----
+// Comparison operations on narrowed fields
 //
 // Narrowed struct fields are sign-extended (sext) to i64 before any use,
 // including comparisons. This guarantees signed comparison semantics are
@@ -466,7 +406,7 @@ fn test_narrowed_comparison_ordering_chain() {
     );
 }
 
-// ---- Phase B: Straight-Line Local Variable Narrowing Tests ----
+// Straight-line local-variable narrowing tests
 //
 // These IR-inspection tests verify that non-phi local variables are narrowed
 // to smaller LLVM types when their value range fits (the repr pipeline's
@@ -954,7 +894,7 @@ fn test_mixed_for_yield_int_and_str() {
     );
 }
 
-// ---- Float Narrowing AOT Tests ----
+// Float narrowing AOT tests
 //
 // These tests verify that float field narrowing (f64→f32 for f32-exact literals)
 // produces correct runtime behavior and LLVM IR patterns. They are the float
@@ -1000,19 +940,20 @@ fn test_float_narrowed_struct_ir_pin_fptrunc_on_construction() {
         "fixtures/narrowing/float_narrowed_struct_ir_pin_fptrunc_on_construction.ori"
     ));
 
-    let main_ir = extract_function_ir(&ir, "_ori_main");
+    // The struct crosses the `read_x` ABI boundary as canonical `{ double, double }`
+    // (repr.md RN-3), so storage narrowing to `{ float, float }` occurs inside the
+    // callee that reads a field, not at the caller-side construct.
+    let callee_ir = extract_function_ir(&ir, "_ori_read_x");
 
-    // The f64 constants (0.5, 0.25) are stored into narrowed f32 struct fields.
-    // LLVM may fold `fptrunc double 5.0e-1 to float` → `float 5.0e-1` at IR
-    // construction time, so we check for either explicit fptrunc or a float constant.
-    let has_fptrunc = main_ir.contains("fptrunc double");
-    let has_narrowed_const = main_ir.contains("{ float, float }");
+    // The f64 fields are narrowed to f32 storage inside the callee.
+    let has_fptrunc = callee_ir.contains("fptrunc double");
+    let has_narrowed_const = callee_ir.contains("{ float, float }");
     assert!(
         has_fptrunc || has_narrowed_const,
-        "expected evidence of float narrowing at construction in _ori_main — either \
-         `fptrunc double ... to float` instructions or a `{{ float, float }}` constant.\n\
+        "expected evidence of float narrowing to storage in _ori_read_x — either \
+         `fptrunc double ... to float` instructions or a `{{ float, float }}` type.\n\
          Regression guard: without narrowing, the struct type would be `{{ double, double }}`.\n\
-         IR:\n{main_ir}"
+         IR:\n{callee_ir}"
     );
 }
 
@@ -1134,7 +1075,7 @@ fn test_float_repr_c_not_narrowed() {
     );
 }
 
-// ---- Derive Semantic Pins for Float Narrowing ----
+// Derive semantic pins for float narrowing
 //
 // These tests verify that derived traits (Printable, Debug, Hashable) work
 // correctly with narrowed float struct fields. The derive codegen must extend
@@ -1214,7 +1155,7 @@ fn test_float_narrowed_derive_ir_pin_fpext_in_printable() {
     );
 }
 
-// ---- Float Narrowing LLVM Parity Tests ----
+// Float narrowing LLVM parity tests
 //
 // These tests close the LLVM coverage gap for scenarios that the Ori spec tests
 // (tests/spec/repr/float_narrowing/) cover via the interpreter but cannot run

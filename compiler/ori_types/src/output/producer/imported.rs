@@ -169,10 +169,15 @@ impl StableMethodHasher {
             }
             ParsedType::Infer => self.tag(7),
             ParsedType::SelfType => self.tag(8),
-            ParsedType::AssociatedType { base, assoc_name } => {
+            ParsedType::AssociatedType {
+                base,
+                assoc_name,
+                type_args,
+            } => {
                 self.tag(9);
                 self.parsed_type(arena.get_parsed_type(*base), arena, interner);
                 self.name(*assoc_name, interner);
+                self.type_range(*type_args, arena, interner);
             }
             ParsedType::ConstExpr(_) => self.tag(10),
             ParsedType::TraitBounds(bounds) => {

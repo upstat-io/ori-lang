@@ -26,16 +26,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let receiver = arg_vals[0];
 
-        if let Some(encoding) = self.get_niche_encoding(receiver_ty) {
-            return self.emit_option_monadic_niche(
-                method,
-                receiver,
-                arg_vals,
-                receiver_ty,
-                &encoding,
-                arc_args,
-                arc_func,
-            );
+        if self.get_niche_encoding(receiver_ty).is_some() {
+            return None;
         }
 
         let tag = self.builder.extract_value(receiver, 0, "opt.tag")?;
@@ -96,12 +88,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let mapped = self.call_closure_single_arg(closure, payload, inner, return_ty)?;
         let some_tag = self.builder.const_i64(ori_ir::OPTION_TAG_SOME);
         let some_result = self.build_option_struct(some_tag, mapped, return_ty)?;
-        let some_bb_final = self.builder.current_block().unwrap();
+        let some_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(none_bb);
         let none_result = self.build_none(return_ty)?;
-        let none_bb_final = self.builder.current_block().unwrap();
+        let none_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(merge_bb);
@@ -139,7 +131,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.position_at_end(some_bb);
         let payload = self.builder.extract_value(receiver, 1, "opt.val")?;
         let some_result = self.call_closure_single_arg(closure, payload, inner, return_ty)?;
-        let some_bb_final = self.builder.current_block().unwrap();
+        let some_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(none_bb);
@@ -147,7 +139,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let zero = self.builder.const_zero_ty(result_llvm);
         let none_tag = self.builder.const_i64(ori_ir::OPTION_TAG_NONE);
         let none_result = self.builder.insert_value(zero, none_tag, 0, "at.none");
-        let none_bb_final = self.builder.current_block().unwrap();
+        let none_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(merge_bb);
@@ -186,11 +178,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let pred_i1 = self.builder.icmp_ne(pred_result, zero_i8, "flt.pred");
         let none_val = self.build_none(inner)?;
         let keep_result = self.builder.select(pred_i1, receiver, none_val, "flt.sel");
-        let some_bb_final = self.builder.current_block().unwrap();
+        let some_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(none_bb);
-        let none_bb_final = self.builder.current_block().unwrap();
+        let none_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(merge_bb);
@@ -226,12 +218,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.cond_br(is_some, some_bb, none_bb);
 
         self.builder.position_at_end(some_bb);
-        let some_bb_final = self.builder.current_block().unwrap();
+        let some_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(none_bb);
         let none_result = self.call_closure_no_args(closure, return_ty)?;
-        let none_bb_final = self.builder.current_block().unwrap();
+        let none_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(merge_bb);
@@ -283,7 +275,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             err_ty,
             "okor.ok",
         )?;
-        let some_bb_final = self.builder.current_block().unwrap();
+        let some_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(none_bb);
@@ -295,7 +287,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             err_ty,
             "okor.err",
         )?;
-        let none_bb_final = self.builder.current_block().unwrap();
+        let none_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(merge_bb);
@@ -327,22 +319,5 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let inner_raw = self.builder.raw_type(inner_llvm);
         let opt = scx.llcx.struct_type(&[i64_ty.into(), inner_raw], false);
         self.builder.register_type(opt.into())
-    }
-
-    #[expect(
-        clippy::unused_self,
-        reason = "dispatch compatibility requires an emitter method, but fallback delegation reads no emitter state"
-    )]
-    fn emit_option_monadic_niche(
-        &mut self,
-        _method: &str,
-        _receiver: ValueId,
-        _arg_vals: &[ValueId],
-        _receiver_ty: Idx,
-        _encoding: &crate::codegen::arc_emitter::tag_access::TagEncoding,
-        _arc_args: &[ArcVarId],
-        _arc_func: &ArcFunction,
-    ) -> Option<ValueId> {
-        None
     }
 }

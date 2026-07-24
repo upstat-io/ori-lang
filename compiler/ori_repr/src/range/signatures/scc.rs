@@ -1,15 +1,13 @@
 //! Recursive SCC processing for interprocedural range propagation.
 
-use ori_arc::graph::call_graph::CallGraph;
 use ori_arc::ir::ArcFunction;
-use ori_ir::Name;
-use ori_types::Pool;
 use rustc_hash::FxHashMap;
 
-use super::{collect_param_ranges, FunctionRangeInfo};
-use crate::plan::ReprPlan;
 use crate::range::fixpoint::range_fixpoint;
-use crate::range::{RangeAnalysisConfig, ValueRange};
+use crate::range::ValueRange;
+
+use super::analysis_context::{RangePropagationContext, RangePropagationState};
+use super::{collect_param_ranges, FunctionRangeInfo};
 
 /// Result of solving one genuinely recursive call-graph component.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,44 +42,35 @@ pub(super) fn build_param_seed_map(
 /// replaced with conservative `Top` summaries. Non-recursive components never
 /// enter this routine and therefore never consume a recursive convergence
 /// budget.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "plan parameter required for unconstrained function detection in collect_param_ranges"
-)]
 pub(super) fn process_recursive_scc(
     scc: &ori_arc::graph::scc::Scc,
-    call_graph: &CallGraph,
-    func_map: &FxHashMap<Name, &ArcFunction>,
-    pool: &Pool,
-    config: &RangeAnalysisConfig,
-    results: &mut FxHashMap<Name, crate::range::fixpoint::RangeFixpointResult>,
-    func_infos: &mut FxHashMap<Name, FunctionRangeInfo>,
-    plan: &ReprPlan,
+    context: RangePropagationContext<'_>,
+    state: &mut RangePropagationState<'_>,
 ) -> RecursiveSccOutcome {
-    // Initialize all members with Bottom params.
     for name in &scc.members {
-        if let Some(func) = func_map.get(name) {
-            func_infos.insert(*name, FunctionRangeInfo::new_bottom(func.params.len()));
+        if let Some(func) = context.func_map.get(name) {
+            state
+                .func_infos
+                .insert(*name, FunctionRangeInfo::new_bottom(func.params.len()));
         }
     }
 
     let mut iteration = 0;
     loop {
-        if iteration >= config.max_scc_iterations {
+        if iteration >= context.config.max_scc_iterations {
             tracing::debug!(
                 scc_size = scc.members.len(),
                 iterations = iteration,
                 members = ?scc.members,
                 "recursive range SCC did not converge; replacing its summaries with Top"
             );
-            // Widen all parameter ranges to Top AND clear stale intermediate
-            // results. Without clearing `results`, Phase 4 would
-            // persist partially-converged var_ranges from the last iteration.
             for name in &scc.members {
-                if let Some(func) = func_map.get(name) {
-                    func_infos.insert(*name, FunctionRangeInfo::new_top(func.params.len()));
+                if let Some(func) = context.func_map.get(name) {
+                    state
+                        .func_infos
+                        .insert(*name, FunctionRangeInfo::new_top(func.params.len()));
                 }
-                results.insert(
+                state.results.insert(
                     *name,
                     crate::range::fixpoint::RangeFixpointResult {
                         var_ranges: FxHashMap::default(),
@@ -101,15 +90,20 @@ pub(super) fn process_recursive_scc(
         let mut changed = false;
 
         for name in &scc.members {
-            let Some(func) = func_map.get(name) else {
+            let Some(func) = context.func_map.get(name) else {
                 continue;
             };
 
-            // Collect parameter ranges from all call sites (including within the SCC).
-            let new_info = collect_param_ranges(func, results, func_map, call_graph, pool, plan);
+            let new_info = collect_param_ranges(
+                func,
+                state.results,
+                context.func_map,
+                context.call_graph,
+                context.pool,
+                context.plan,
+            );
 
-            // Check if parameter ranges changed.
-            if let Some(old_info) = func_infos.get(name) {
+            if let Some(old_info) = state.func_infos.get(name) {
                 if old_info.param_ranges != new_info.param_ranges {
                     changed = true;
                 }
@@ -117,14 +111,11 @@ pub(super) fn process_recursive_scc(
                 changed = true;
             }
 
-            func_infos.insert(*name, new_info.clone());
+            state.func_infos.insert(*name, new_info.clone());
 
-            // Re-run intraprocedural analysis with parameter seeds from call sites.
-            // This is the key fix: the fixpoint starts with
-            // interprocedural parameter constraints, enabling tighter results.
             let seeds = build_param_seed_map(func, &new_info);
-            let result = range_fixpoint(func, pool, config, Some(&seeds), None);
-            results.insert(*name, result);
+            let result = range_fixpoint(func, context.pool, context.config, Some(&seeds), None);
+            state.results.insert(*name, result);
         }
 
         iteration += 1;

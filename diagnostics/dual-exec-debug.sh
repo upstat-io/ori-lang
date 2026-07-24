@@ -125,7 +125,7 @@ echo ""
 # ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[1/2] Interpreter (ori run)${C_NC}"
 
-interp_start=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
+interp_start=$(monotonic_now_ns)
 if [[ -n "$LOG_ENV" ]]; then
     env $LOG_ENV "$ORI" run "$FILE" \
         > "$tmpdir/interp_stdout.txt" \
@@ -137,7 +137,7 @@ else
         2> "$tmpdir/interp_stderr.txt"
     interp_exit=$?
 fi
-interp_end=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
+interp_end=$(monotonic_now_ns)
 interp_ms=$(( (interp_end - interp_start) / 1000000 ))
 interp_s=$(awk "BEGIN { printf \"%.2f\", $interp_ms / 1000 }")
 
@@ -183,7 +183,7 @@ fi
 render_captured_stream "build stderr" "$tmpdir/build_err.txt"
 
 # Execute step
-aot_start=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
+aot_start=$(monotonic_now_ns)
 if [[ -n "$LOG_ENV" ]]; then
     env $LOG_ENV "$aot_binary" \
         > "$tmpdir/aot_stdout.txt" \
@@ -195,7 +195,7 @@ else
         2> "$tmpdir/aot_stderr.txt"
     aot_exit=$?
 fi
-aot_end=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
+aot_end=$(monotonic_now_ns)
 aot_ms=$(( (aot_end - aot_start) / 1000000 ))
 aot_s=$(awk "BEGIN { printf \"%.2f\", $aot_ms / 1000 }")
 

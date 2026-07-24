@@ -60,7 +60,7 @@ fn constructless_boundary_credit_sites(
     hazard: &FieldViewHazard,
     authority: &SkipAuthority,
 ) -> Vec<(usize, usize)> {
-    let ctx = SumArmContext::build(
+    let ctx = SumArmContext::for_container_release(
         inputs.func,
         state.partition,
         hazard.view,
@@ -118,7 +118,7 @@ fn try_per_site_decomposition(
 ) -> Option<Vec<SiteVerdict>> {
     let container = hazard.container;
     let variant = authority?.variant_ordinal();
-    let ctx = SumArmContext::build(
+    let ctx = SumArmContext::for_container_release(
         inputs.func,
         state.partition,
         hazard.view,
@@ -313,17 +313,13 @@ fn rebook_or_credit_and_commit(
     commit_cured_view(state, hazard.view, outcome)
 }
 
-/// Cure one consume-marked endangered view by decomposing the container's
-/// release per named owned field: the container's planned `Dec`s become
-/// `DecPartial(skip = the view's field indices)`. A construct-bearing view is
-/// RE-BOOKED with the move-in store non-consuming; a constructless call-result
-/// view receives the container-held field credit at the first extraction on
-/// each path. Both forms transfer the same existing ownership without a
-/// synthetic increment, then re-plan + re-verify. The skip set derives solely
-/// from the partition's consume marks — the UNIQUE clause-preserving skip set
-/// per `FD_skipset_sound`
-/// (`AimsProof.FieldDecomposition`; Spec: Annex E §AIMS §12). A merely-read
-/// view is never consume-marked, never skipped (over-skip = leak).
+/// Decomposes a consume-marked view's container releases into `DecPartial`
+/// operations over the exact moved fields. Construct-bearing views re-book
+/// their move-in store as non-consuming; constructless call results receive
+/// the container credit at their first extraction. Both transfer existing
+/// ownership without an increment, then re-plan and re-verify. Skip fields
+/// come only from consume marks per `FD_skipset_sound`; read-only views are
+/// never skipped (`AimsProof.FieldDecomposition`; Annex E §AIMS §12).
 pub(super) fn cure_view_with_field_decomposition(
     inputs: &HazardCureInputs<'_>,
     state: &mut HazardCureState<'_>,

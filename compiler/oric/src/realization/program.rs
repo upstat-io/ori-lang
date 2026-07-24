@@ -4,13 +4,14 @@ mod aims;
 mod error;
 mod error_mapping;
 mod impl_targets;
+mod inputs;
 mod user_drop;
 
 use ori_ir::canon::CanonResult;
 use ori_ir::{Name, SharedInterner, StringInterner};
 use ori_parse::ParseOutput;
 use ori_repr::executable::{
-    ExecutableProgram, ExecutableProgramParts, ExternalCallable, UserDropBinding,
+    ExecutableProgram, ExecutableProgramParts, UserDropBinding, ValidatedExternalCallables,
     EXECUTABLE_PROGRAM_VERSION,
 };
 use ori_types::{FunctionSig, Pool, TypeCheckResult, TypeRegistry};
@@ -29,7 +30,9 @@ use error_mapping::{arc_lowering_error, map_arc_batch_error, map_generic_mono_cl
 
 pub use error::ProgramRealizationError;
 pub(crate) use impl_targets::rewrite_impl_targets;
-pub(crate) use user_drop::collect_user_drop_bindings;
+pub use inputs::RealizationPolicy;
+pub(crate) use inputs::{CheckedModuleFacts, ImportedReprSurfaces};
+use user_drop::collect_user_drop_bindings;
 
 /// Explicit inputs to backend-neutral local-module realization.
 #[derive(Debug)]
@@ -44,34 +47,33 @@ pub struct ProgramRealizationInput<'a> {
     pub pool: Pool,
     /// Shared symbol storage retained without a compiler database.
     pub symbols: SharedInterner,
-    /// Representation policy selected by the outer compiler driver.
-    pub narrowing_policy: ori_repr::NarrowingPolicy,
-    /// Run the optional ARC consistency oracle while freezing the artifact.
-    pub verify_arc: bool,
+    /// Narrowing and ARC-oracle policy resolved by the outer compiler driver.
+    pub policy: RealizationPolicy,
 }
 
 /// Complete pre-AIMS ARC batch and immutable facts for one executable unit.
-pub(crate) struct ArcProgramRealizationInput {
+pub(crate) struct ArcProgramRealizationInput<'a> {
     /// The only prepared body inventory and its exact parent/lambda topology.
     pub prepared: super::PreparedArcBatch,
     /// Type pool for bodies and imported callable facts.
     pub pool: Pool,
     /// Immutable symbol storage retained by the resulting artifact.
     pub symbols: SharedInterner,
-    /// Explicit nonempty externally reachable roots.
-    pub roots: Vec<Name>,
-    /// Distinguished standalone-process entry, when present.
-    pub cli_entry: Option<Name>,
+    /// Checked frontend facts the derived plans are computed from.
+    pub facts: CheckedModuleFacts<'a>,
     /// Producer-frozen callables linked from other compiled units.
-    pub externals: Vec<ExternalCallable>,
-    /// Exact burden-to-impl bindings for user-defined drop operations.
-    pub user_drop_bindings: Vec<UserDropBinding>,
-    /// Representation plan computed from this exact body batch.
-    pub repr_plan: ori_repr::ReprPlan,
-    /// Closed type and burden metadata for projections.
-    pub type_registry: TypeRegistry,
-    /// Run the optional ARC consistency oracle while freezing the artifact.
-    pub verify_arc: bool,
+    pub externals: ValidatedExternalCallables,
+    /// Typed user-drop bindings collected while lowering this batch.
+    pub typed_user_drop_bindings: &'a [UserDropBinding],
+    /// Narrowing and ARC-oracle policy resolved by the calling driver.
+    pub policy: RealizationPolicy,
+}
+
+/// Immutable plans the shared entry derives before running the calculus.
+struct FrozenProgramPlans {
+    repr_plan: ori_repr::ReprPlan,
+    type_registry: TypeRegistry,
+    user_drop_bindings: Vec<UserDropBinding>,
 }
 
 #[derive(Clone, Copy)]
@@ -165,7 +167,8 @@ fn lower_all_callable_groups(
 pub fn realize_local_program(
     mut input: ProgramRealizationInput<'_>,
 ) -> Result<ExecutableProgram, ProgramRealizationError> {
-    let interner = &*input.symbols;
+    let symbols = input.symbols.clone();
+    let interner = &*symbols;
     let LoweredCallableAssembly {
         groups,
         mono_functions,
@@ -207,61 +210,88 @@ pub fn realize_local_program(
             interner,
         )
         .map_err(map_arc_batch_error)?;
-    let mut type_registry = TypeRegistry::from_typed_exports(
-        input.types.typed.types.clone(),
-        input.types.typed.collection_burdens.clone(),
-    );
-    ori_types::register_resolved_collection_burdens(&input.pool, &mut type_registry);
-    let repr_plan = compute_module_repr_plan(ModuleReprInput {
-        pool: &input.pool,
-        arc_functions: prepared.functions(),
-        narrowing_policy: input.narrowing_policy,
-        type_result: input.types,
-        interner: Some(interner),
-        imported_type_metadata: &[],
-        imported_collection_surfaces: &[],
-        has_analysis_only_functions: false,
-    });
-    let user_drop_bindings =
-        collect_user_drop_bindings(&type_registry, &typed_user_drop_bindings, &input.pool)?;
-    let main = interner.try_intern("main")?;
     realize_arc_program(ArcProgramRealizationInput {
         prepared,
         pool: input.pool,
         symbols: input.symbols,
-        roots: vec![main],
-        cli_entry: Some(main),
-        externals: Vec::new(),
-        user_drop_bindings,
-        repr_plan,
-        type_registry,
-        verify_arc: input.verify_arc,
+        facts: CheckedModuleFacts {
+            parse: input.parse,
+            types: input.types,
+            function_sigs: &function_sigs,
+            interner,
+            imported_repr: ImportedReprSurfaces::default(),
+        },
+        externals: ValidatedExternalCallables::empty(),
+        typed_user_drop_bindings: &typed_user_drop_bindings,
+        policy: input.policy,
     })
 }
 
-/// Run the backend-neutral calculus exactly once and close its artifact.
+/// Derive the registry, representation plan, and user-drop bindings every
+/// driver would otherwise assemble independently.
+fn derive_program_plans(
+    prepared: &super::PreparedArcBatch,
+    pool: &Pool,
+    facts: CheckedModuleFacts<'_>,
+    typed_user_drop_bindings: &[UserDropBinding],
+    policy: RealizationPolicy,
+) -> Result<FrozenProgramPlans, ProgramRealizationError> {
+    let mut type_registry = TypeRegistry::from_typed_exports(
+        facts.types.typed.types.clone(),
+        facts.types.typed.collection_burdens.clone(),
+    );
+    ori_types::register_resolved_collection_burdens(pool, &mut type_registry);
+    let repr_plan = compute_module_repr_plan(ModuleReprInput {
+        pool,
+        arc_functions: prepared.functions(),
+        narrowing_policy: policy.narrowing,
+        type_result: facts.types,
+        interner: Some(facts.interner),
+        imported_type_metadata: facts.imported_repr.type_metadata,
+        imported_collection_surfaces: facts.imported_repr.collection_surfaces,
+        has_analysis_only_functions: facts.has_analysis_only_functions(),
+    });
+    let user_drop_bindings =
+        collect_user_drop_bindings(&type_registry, typed_user_drop_bindings, pool)?;
+    Ok(FrozenProgramPlans {
+        repr_plan,
+        type_registry,
+        user_drop_bindings,
+    })
+}
+
+/// Assemble the derived plans, run the backend-neutral calculus exactly once,
+/// and close its artifact.
+///
+/// This is the sole `ExecutableProgram::validate` edge. Every driver reaches it
+/// with the same checked frontend facts, so no caller can select its own roots,
+/// entry point, registry, representation plan, or drop bindings.
 #[must_use = "success or failure must be handled"]
 pub(crate) fn realize_arc_program(
-    input: ArcProgramRealizationInput,
+    input: ArcProgramRealizationInput<'_>,
 ) -> Result<ExecutableProgram, ProgramRealizationError> {
     let ArcProgramRealizationInput {
         prepared,
         pool,
         symbols,
-        roots,
-        cli_entry,
+        facts,
         externals,
-        user_drop_bindings,
-        repr_plan,
-        type_registry,
-        verify_arc,
+        typed_user_drop_bindings,
+        policy,
     } = input;
+    let FrozenProgramPlans {
+        mut repr_plan,
+        type_registry,
+        user_drop_bindings,
+    } = derive_program_plans(&prepared, &pool, facts, typed_user_drop_bindings, policy)?;
+    let roots = prepared.parent_roots();
+    let cli_entry = facts.cli_entry();
+    let verify_arc = policy.verify_arc;
     let (mut functions, function_families, method_targets) = prepared.into_executable_parts();
 
     // External ownership/effect policy is producer-owned. Reject any stale,
     // incomplete, or signature-mismatched transport record before its
     // contract can seed the AIMS fixed point.
-    ori_repr::executable::validate_external_callables(&externals, &pool)?;
     let external_contracts = externals
         .iter()
         .map(|external| (external.name(), external.contract().clone()))
@@ -284,6 +314,7 @@ pub(crate) fn realize_arc_program(
         &callable_boundaries,
         verify_arc,
     )?;
+    repr_plan.freeze_yield_allocations(&functions);
     ExecutableProgram::validate(ExecutableProgramParts {
         version: EXECUTABLE_PROGRAM_VERSION,
         symbols,

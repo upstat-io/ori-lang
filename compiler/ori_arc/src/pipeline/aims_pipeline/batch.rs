@@ -66,17 +66,20 @@ fn run_aims_pipeline_all_impl<'a, S: BuildHasher>(
     // INVARIANT: Interprocedural transfer reads one frozen primitive policy table.
     crate::aims::freeze_primitive_facts(functions, classifier)?;
 
-    let mut contracts = {
+    let program_analysis = {
         let _span = tracing::info_span!("analyze_program").entered();
-        crate::aims::interprocedural::analyze_program_with_external_contracts_and_boundaries(
+        crate::aims::interprocedural::analyze_program_with_external_contracts_boundaries_and_types(
             functions,
             classifier,
             builtins,
             interner,
             external_contracts,
             &callable_boundaries,
+            Some(type_registry),
         )
     };
+    let mut contracts = program_analysis.contracts;
+    let exact_transfer_witnesses = program_analysis.exact_transfer_witnesses;
 
     {
         let _span = tracing::info_span!("apply_ownership").entered();
@@ -105,6 +108,7 @@ fn run_aims_pipeline_all_impl<'a, S: BuildHasher>(
         verify_arc,
         observer,
         type_registry,
+        exact_transfer_witnesses: &exact_transfer_witnesses,
     };
 
     let mut execution = run_function_pipelines(functions, &config)?;
@@ -119,6 +123,7 @@ fn run_aims_pipeline_all_impl<'a, S: BuildHasher>(
             interner,
             builtins,
             exact_callables: &exact_callables,
+            type_registry,
             callable_boundaries: &callable_boundaries,
         },
         &mut contracts,
@@ -287,13 +292,13 @@ pub(crate) fn apply_aims_ownership(
     for func in functions {
         let contract = contracts.get_required(&func.name, "apply_aims_ownership");
         for (param, pc) in func.params.iter_mut().zip(&contract.params) {
-            param.ownership = param_contract_to_ownership(*pc);
+            param.ownership = param_contract_to_ownership(pc);
         }
     }
 }
 
 /// Maps parameter access into the IR ownership carrier.
-fn param_contract_to_ownership(pc: ParamContract) -> Ownership {
+fn param_contract_to_ownership(pc: &ParamContract) -> Ownership {
     match pc.access {
         AccessClass::Borrowed => Ownership::Borrowed,
         AccessClass::Owned => Ownership::Owned,

@@ -19,12 +19,12 @@ mod use_count;
 mod tests;
 
 pub use scc_driver::analyze_program;
-pub(crate) use scc_driver::analyze_program_with_external_contracts_and_boundaries;
+pub(crate) use scc_driver::analyze_program_with_external_contracts_boundaries_and_types;
 
-#[cfg(test)]
-pub(crate) use extract::extract_contract;
 pub(crate) use extract::{
     build_subject_independent_alias_to_param_map, extract_contract_with_call_ownership,
     find_borrowed_cow_consumed_params, find_iter_consume_call_args, ContractExtractionInput,
-    CowConsumeScope,
+    CowConsumeScope, ExactAggregateTransferWitness, ExactTransferCommitWitness,
 };
+#[cfg(test)]
+pub(crate) use extract::{extract_contract, extract_contract_and_transfers_with_call_ownership};

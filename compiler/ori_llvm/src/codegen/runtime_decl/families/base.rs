@@ -56,6 +56,13 @@ pub(in crate::codegen::runtime_decl) static BASE: &[RtFn] = &[
         attrs: &[Attr::Cold, Attr::Noreturn],
         jit_allowed: true,
     },
+    RtFn {
+        name: "ori_panic_index_out_of_bounds",
+        params: &[Ty::I64, Ty::I64],
+        ret: None,
+        attrs: &[Attr::Cold, Attr::Noreturn],
+        jit_allowed: true,
+    },
     // Entry point wrapper (AOT-only — JIT runs functions directly).
     // Nounwind: catches all panics internally via catch_unwind (Itanium) or
     // __try/__except SEH (MSVC). Never unwinds to its caller.

@@ -9,7 +9,9 @@ mod decide;
 #[cfg(test)]
 mod dimension_consumer;
 mod emit_unified;
-pub use emit_unified::push_receiver_lineage_returned;
+pub use emit_unified::{
+    push_receiver_lineage_returned, yield_result_for_receiver_lineage, YieldLineageIndex,
+};
 pub mod metrics;
 pub mod rc_remark;
 pub mod rl31_disjoint;

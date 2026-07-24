@@ -1,4 +1,4 @@
-//! Phase 1: Remove blocks unreachable from the entry block.
+//! Removes unreachable blocks and compacts block identifiers.
 //!
 //! Computes reachability via DFS, builds an old→new block ID remap for
 //! surviving blocks, filters out dead blocks, and rewrites all block
@@ -61,8 +61,7 @@ pub(crate) fn compact_blocks(func: &mut ArcFunction) {
         }
     }
 
-    // Filter to reachable blocks, assigning new sequential IDs.
-    // We drain blocks/spans to avoid needing Default on ArcBlock.
+    // Why: Draining preserves ownership without requiring `ArcBlock: Default`.
     let old_blocks: Vec<_> = func.blocks.drain(..).collect();
     let old_spans: Vec<_> = func.spans.drain(..).collect();
     let mut new_blocks = Vec::with_capacity(counter);

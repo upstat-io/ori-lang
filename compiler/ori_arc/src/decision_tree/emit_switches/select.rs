@@ -114,7 +114,9 @@ pub(super) fn emit_select_chain(
         };
         let arm_index = match &last.1 {
             DecisionTree::Leaf { arm_index, .. } => *arm_index,
-            _ => unreachable!("is_select_eligible guarantees leaf"),
+            DecisionTree::Switch { .. } | DecisionTree::Guard { .. } | DecisionTree::Fail => {
+                unreachable!("is_select_eligible guarantees leaf")
+            }
         };
         let val = lowerer.lower_expr(ctx.arm_bodies[arm_index]);
         (val, rest)
@@ -126,7 +128,9 @@ pub(super) fn emit_select_chain(
     for (tv, subtree) in compare_edges {
         let arm_index = match subtree {
             DecisionTree::Leaf { arm_index, .. } => *arm_index,
-            _ => unreachable!("is_select_eligible guarantees leaf"),
+            DecisionTree::Switch { .. } | DecisionTree::Guard { .. } | DecisionTree::Fail => {
+                unreachable!("is_select_eligible guarantees leaf")
+            }
         };
         let body_val = lowerer.lower_expr(ctx.arm_bodies[arm_index]);
         let cmp = emit_eq_test(lowerer, scrutinee, tv, ctx.span);
@@ -169,7 +173,12 @@ fn emit_eq_test(
             ArcValue::Literal(LitValue::Int(i64::from(*variant_index))),
             Some(span),
         ),
-        _ => unreachable!("select chain only for int/bool/char/tag tests"),
+        TestValue::Str(_)
+        | TestValue::Float(_)
+        | TestValue::IntRange { .. }
+        | TestValue::ListLen { .. } => {
+            unreachable!("select chain only for int/bool/char/tag tests")
+        }
     };
 
     lowerer.builder.emit_let(

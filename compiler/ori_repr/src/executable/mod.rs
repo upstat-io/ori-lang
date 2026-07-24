@@ -32,7 +32,7 @@ pub use drop_plan::{ExecutableDropPlan, ExecutableUserDrop, UserDropBinding};
 pub use error::RealizationError;
 pub use external::{
     validate_external_callables, ExternalCallable, ExternalCallableMetadata,
-    ExternalFactIdentities, ExternalFunctionId, ExternalUnwind,
+    ExternalFactIdentities, ExternalFunctionId, ExternalUnwind, ValidatedExternalCallables,
 };
 pub use function_families::FunctionFamilyTopology;
 pub use runtime::{CompilerOperation, FormatRuntime, IteratorSource, RuntimeCall};
@@ -172,7 +172,7 @@ pub struct ExecutableProgramParts {
     /// a standalone process.
     pub cli_entry: Option<Name>,
     /// Producer-authored facts for callable bodies linked from other units.
-    pub externals: Vec<ExternalCallable>,
+    pub externals: ValidatedExternalCallables,
     /// Exact semantic receiver/method targets selected before ARC preparation.
     pub method_targets: FxHashMap<(ori_types::Idx, Name), Name>,
     /// Exact logical-to-callable bindings for every user-defined drop burden.

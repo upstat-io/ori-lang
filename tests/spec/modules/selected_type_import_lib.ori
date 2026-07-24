@@ -1,0 +1,37 @@
+// Spec: 18-modules.md § Imports — selected type import (BUG-02-101)
+//
+// Provider for selected-type-import tests: a `use "./lib" { TypeName }` must
+// bind the exported type into the consumer's scope, at parity with the
+// selected-function-import path. Exports a struct type, a newtype, and a sum
+// type so a consumer can exercise construction across type kinds. A public
+// constructor covers the already-working associated-function sibling.
+
+use std.testing { assert_eq }
+
+// Public struct type — constructed via `Widget { .. }` from a consumer.
+pub type Widget = { size: int }
+
+// Public newtype — constructed via `Meters(..)` from a consumer.
+pub type Meters = int;
+
+// Public sum type — constructed + matched from a consumer.
+pub type Shape = Circle(radius: int) | Square(side: int);
+
+// Private (non-pub) type — gates the visibility negative pin. Referenced
+// internally by `hidden_size` so it is not dead code.
+type Hidden = { secret: int }
+
+// Public constructor (associated-function sibling that already resolves today).
+pub @make_widget (s: int) -> Widget = Widget { size: s };
+
+// Public function using the private type, keeping `Hidden` live.
+pub @hidden_size () -> int = {
+    let h = Hidden { secret: 11 };
+    h.secret
+};
+
+// Self-test: same-module construction already works.
+@test_bare_widget tests @make_widget () -> void = {
+    let w = Widget { size: 5 };
+    assert_eq(actual: w.size, expected: 5)
+}

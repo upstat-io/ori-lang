@@ -1,8 +1,12 @@
-//! Per-release-site arm safety for a derived skip authority
-//! (`FD_site_uniform_projection`): extraction domination, tag exclusion,
-//! and forward reachability from the view's extraction sites.
+//! Per-release-site safety for local and boundary-derived field-transfer
+//! authorities (`FD_site_uniform_projection` and
+//! `FD_authority_union_skipset_sound`): transfer state, tag exclusion, and
+//! the exact position of each planned release.
+
+use std::collections::VecDeque;
 
 use crate::aims::intraprocedural::birth_site_partition::{BirthSitePartition, NodeIdx};
+use crate::aims::intraprocedural::ledger_events::EventSite;
 use crate::ir::ArcFunction;
 
 use super::super::emit::{self, ClassOutcome};
@@ -10,16 +14,12 @@ use super::super::ClassPlan;
 use super::skip_derive::SkipAuthority;
 use super::FieldViewHazard;
 
-/// Sum arm-safety over the container's PLANNED releases: every release site
-/// must be dominated by an extraction of the payload (the moved-out
-/// reference is gone there) or sit on a tag-switch arm that EXCLUDES the
-/// skip variant (no such payload exists there). A release reachable with
-/// the payload unextracted would skip a live payload's drop — a leak.
-/// Vacuously safe for a construct-bearing struct/tuple container (no skip
-/// authority). A POSITIONAL authority (constructless struct/tuple) runs the
-/// same per-site classification with NO tag exclusion: every release site
-/// must be extraction-dominated for the uniform whole-container skip; a
-/// bypass site routes to the per-site path instead.
+/// Validates each planned container release against its field-transfer
+/// authority. A release must be extraction-dominated or lie on a tag arm
+/// excluding the skipped variant; otherwise the skipped payload leaks.
+/// Construct-bearing structs and tuples are vacuously safe. Constructless
+/// positional authority has no tag exclusion, so every uniform skip must be
+/// extraction-dominated; a bypass routes to the per-site path.
 pub(super) fn sum_release_sites_safe(
     func: &ArcFunction,
     partition: &mut BirthSitePartition,
@@ -66,23 +66,124 @@ pub(super) fn sum_release_sites_safe(
 /// any extraction (not forward-reachable from one — the bypass edge keeps
 /// the recursive release); MIXED (None) when paths disagree — decline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum SiteVerdict {
+pub(in crate::aims::class_ledger) enum SiteVerdict {
     Skip,
     Whole,
+}
+
+/// CFG-only transfer-state classifier shared by local extraction and
+/// boundary-contract adapters. Each block entry tracks whether it is
+/// reachable before and/or after the transfer; the two-bit fixed point makes
+/// joins and backedges explicit instead of inferring them from dominance.
+pub(in crate::aims::class_ledger) struct TransferFlowContext {
+    transfer_sites: Vec<Vec<EventSite>>,
+    entry_without_transfer: Vec<bool>,
+    entry_with_transfer: Vec<bool>,
+}
+
+impl TransferFlowContext {
+    #[must_use]
+    pub(in crate::aims::class_ledger) fn from_transfer_sites(
+        func: &ArcFunction,
+        transfer_sites: &[(usize, EventSite)],
+    ) -> Self {
+        let mut sites_by_block = vec![Vec::new(); func.blocks.len()];
+        for &(block, site) in transfer_sites {
+            if let Some(sites) = sites_by_block.get_mut(block) {
+                sites.push(site);
+            }
+        }
+        let mut entry_without_transfer = vec![false; func.blocks.len()];
+        let mut entry_with_transfer = vec![false; func.blocks.len()];
+        let entry = func.entry.index();
+        if entry < func.blocks.len() {
+            entry_without_transfer[entry] = true;
+        }
+        let mut worklist = VecDeque::from([entry]);
+        while let Some(block) = worklist.pop_front() {
+            if block >= func.blocks.len() {
+                continue;
+            }
+            let block_transfers = !sites_by_block[block].is_empty();
+            let exit_without = entry_without_transfer[block] && !block_transfers;
+            let exit_with =
+                entry_with_transfer[block] || (entry_without_transfer[block] && block_transfers);
+            for successor in crate::aims::class_ledger::events::successors_of(func, block) {
+                let changed_without = exit_without && !entry_without_transfer[successor];
+                let changed_with = exit_with && !entry_with_transfer[successor];
+                if changed_without {
+                    entry_without_transfer[successor] = true;
+                }
+                if changed_with {
+                    entry_with_transfer[successor] = true;
+                }
+                if changed_without || changed_with {
+                    worklist.push_back(successor);
+                }
+            }
+        }
+        Self {
+            transfer_sites: sites_by_block,
+            entry_without_transfer,
+            entry_with_transfer,
+        }
+    }
+
+    /// Classify one planned release. `None` means concrete paths reach the
+    /// site both before and after transfer, so neither release shape is safe.
+    pub(in crate::aims::class_ledger) fn classify(
+        &self,
+        op: &emit::PlannedOp,
+    ) -> Option<SiteVerdict> {
+        if !matches!(
+            op.kind,
+            emit::PlannedOpKind::Dec | emit::PlannedOpKind::DecPartial { .. }
+        ) {
+            return Some(SiteVerdict::Whole);
+        }
+        let block = op.slot.block();
+        let mut without = *self.entry_without_transfer.get(block)?;
+        let mut with = *self.entry_with_transfer.get(block)?;
+        if self.transfer_sites[block]
+            .iter()
+            .copied()
+            .any(|site| transfer_precedes_release(site, op.slot))
+        {
+            with |= without;
+            without = false;
+        }
+        match (without, with) {
+            (true, false) => Some(SiteVerdict::Whole),
+            (false, true) => Some(SiteVerdict::Skip),
+            (true, true) | (false, false) => None,
+        }
+    }
+}
+
+fn transfer_precedes_release(site: EventSite, slot: emit::PlanSlot) -> bool {
+    match (site, slot) {
+        (EventSite::BlockEntry, _)
+        | (EventSite::Body(_), emit::PlanSlot::BeforeTerminator { .. }) => true,
+        (EventSite::Body(transfer), emit::PlanSlot::BeforeBody { index, .. }) => transfer < index,
+        (EventSite::Body(transfer), emit::PlanSlot::AfterBody { index, .. }) => transfer <= index,
+        (EventSite::Body(_), emit::PlanSlot::BlockFront { .. }) | (EventSite::Terminator, _) => {
+            false
+        }
+    }
 }
 
 /// Shared per-site machinery for a variant-ordinal skip: the view's
 /// extraction sites, the tag-excluded arm entries, and forward
 /// reachability from the extractions (`FD_site_uniform_projection`).
 pub(super) struct SumArmContext {
+    flow: TransferFlowContext,
     dom: crate::graph::DominatorTree,
     pub(super) extractions: Vec<(usize, usize)>,
     excluded_entries: Vec<usize>,
-    reachable_from_extraction: Vec<bool>,
 }
 
 impl SumArmContext {
-    pub(super) fn build(
+    pub(super) fn for_container_release(
         func: &ArcFunction,
         partition: &mut BirthSitePartition,
         view: NodeIdx,
@@ -159,32 +260,15 @@ impl SumArmContext {
                 }
             }
         }
-        // Forward reachability FROM the extractions: a block downstream of
-        // any extraction may hold a moved-out payload; a block no extraction
-        // reaches never does (the bypass edge — whole-var release safe).
-        let mut reachable_from_extraction = vec![false; func.blocks.len()];
-        let mut worklist: Vec<usize> = Vec::new();
-        for &(block, _) in &extractions {
-            for succ in crate::aims::class_ledger::events::successors_of(func, block) {
-                if !reachable_from_extraction[succ] {
-                    reachable_from_extraction[succ] = true;
-                    worklist.push(succ);
-                }
-            }
-        }
-        while let Some(block) = worklist.pop() {
-            for succ in crate::aims::class_ledger::events::successors_of(func, block) {
-                if !reachable_from_extraction[succ] {
-                    reachable_from_extraction[succ] = true;
-                    worklist.push(succ);
-                }
-            }
-        }
+        let transfer_sites: Vec<_> = extractions
+            .iter()
+            .map(|&(block, index)| (block, EventSite::Body(index)))
+            .collect();
         Self {
+            flow: TransferFlowContext::from_transfer_sites(func, &transfer_sites),
             dom,
             extractions,
             excluded_entries,
-            reachable_from_extraction,
         }
     }
 
@@ -198,42 +282,14 @@ impl SumArmContext {
         }
         let block = op.slot.block();
         let block_id = func.blocks[block].id;
-        let same_block_extraction = |pb: usize, pi: usize| {
-            pb == block
-                && match op.slot {
-                    emit::PlanSlot::AfterBody { index, .. } => index >= pi,
-                    emit::PlanSlot::BeforeBody { index, .. } => index > pi,
-                    emit::PlanSlot::BeforeTerminator { .. } => true,
-                    emit::PlanSlot::BlockFront { .. } => false,
-                }
-        };
-        let extraction_dominates = self.extractions.iter().any(|&(pb, pi)| {
-            if pb == block {
-                same_block_extraction(pb, pi)
-            } else {
-                self.dom.dominates(func.blocks[pb].id, block_id)
-            }
-        });
         let tag_excluded = self
             .excluded_entries
             .iter()
             .any(|&entry| self.dom.dominates(func.blocks[entry].id, block_id));
-        if extraction_dominates || tag_excluded {
+        if tag_excluded {
             return Some(SiteVerdict::Skip);
         }
-        // Untouched by every extraction: neither reachable from one nor
-        // holding one earlier in the same block — the payload is still in
-        // the container on every path here; the whole-var release is its
-        // recursive drop.
-        let touched = self.reachable_from_extraction[block]
-            || self
-                .extractions
-                .iter()
-                .any(|&(pb, pi)| same_block_extraction(pb, pi));
-        if !touched {
-            return Some(SiteVerdict::Whole);
-        }
-        None
+        self.flow.classify(op)
     }
 }
 
@@ -249,7 +305,7 @@ pub(super) fn sum_skip_sites_arm_safe(
     variant: Option<u32>,
     container_ops: &[emit::PlannedOp],
 ) -> bool {
-    let ctx = SumArmContext::build(func, partition, view, container, variant);
+    let ctx = SumArmContext::for_container_release(func, partition, view, container, variant);
     container_ops.iter().all(|op| {
         ctx.classify(func, op) == Some(SiteVerdict::Skip)
             || !matches!(

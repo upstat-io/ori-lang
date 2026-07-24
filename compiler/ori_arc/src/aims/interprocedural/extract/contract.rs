@@ -16,7 +16,7 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use crate::tail_call::has_non_tail_recursive_calls;
 use crate::ArcClassification;
 
-use super::param_facts::{detect_param_facts, ParamFacts};
+use super::param_facts::{detect_param_facts, ExactAggregateTransferWitness, ParamFacts};
 use super::return_contract::extract_return_info;
 
 /// Complete converged state and callable authority needed for one contract.
@@ -30,6 +30,16 @@ pub(crate) struct ContractExtractionInput<'a> {
     pub(crate) interner: &'a ori_ir::StringInterner,
     pub(crate) builtins: &'a crate::borrow::BuiltinOwnershipSets,
     pub(crate) exact_callables: &'a FxHashSet<Name>,
+    /// Canonical cleanup authority. Production always supplies the registry;
+    /// legacy unit extraction helpers omit it.
+    pub(crate) type_registry: Option<&'a ori_types::TypeRegistry>,
+}
+
+/// Contract plus the immutable local proofs produced by the same recognition
+/// pass.
+pub(crate) struct ContractExtractionOutput {
+    pub(crate) contract: MemoryContract,
+    pub(crate) exact_transfer_witnesses: Vec<ExactAggregateTransferWitness>,
 }
 
 /// Extract a [`MemoryContract`] from a converged intraprocedural state map.
@@ -68,6 +78,7 @@ pub(crate) fn extract_contract(
         interner,
         builtins: &builtins,
         exact_callables: &FxHashSet::default(),
+        type_registry: None,
     })
 }
 
@@ -76,6 +87,14 @@ pub(crate) fn extract_contract(
 pub(crate) fn extract_contract_with_call_ownership(
     input: &ContractExtractionInput<'_>,
 ) -> MemoryContract {
+    extract_contract_and_transfers_with_call_ownership(input).contract
+}
+
+/// Production extraction entry returning both the converged contract
+/// candidate and its local exact-transfer witnesses.
+pub(crate) fn extract_contract_and_transfers_with_call_ownership(
+    input: &ContractExtractionInput<'_>,
+) -> ContractExtractionOutput {
     let func = input.func;
     let state_map = input.state_map;
     let classifier = input.classifier;
@@ -103,6 +122,8 @@ pub(crate) fn extract_contract_with_call_ownership(
         builtins,
         exact_callables,
         interner,
+        input.type_registry,
+        !context_regions.is_empty(),
     );
 
     let params: Vec<ParamContract> = func
@@ -182,13 +203,16 @@ pub(crate) fn extract_contract_with_call_ownership(
 
     let context_behavior = compute_context_behavior(func, context_regions, effects);
 
-    MemoryContract {
-        params,
-        return_info,
-        effects,
-        context_behavior,
-        fip,
-        is_fbip,
+    ContractExtractionOutput {
+        contract: MemoryContract {
+            params,
+            return_info,
+            effects,
+            context_behavior,
+            fip,
+            is_fbip,
+        },
+        exact_transfer_witnesses: facts.exact_transfer_witnesses,
     }
 }
 
@@ -244,9 +268,11 @@ fn param_contract_for(i: usize, state: &AimsState, facts: &ParamFacts) -> ParamC
         // MUTATOR-only refinement (excludes the builtin `iter`) — the
         // borrowed-`Invoke` lineage gate (c3) declines on it.
         borrowed_cow_mutated: facts.borrowed_cow_mutated.contains(&i),
-        // RL-2 field-grained iter-consume record — the per-field refinement of
-        // `iter_consumes` for the aggregate-field iter-consume caller scan.
-        iter_consumes_projected_field: facts.iter_consumes_projected_field.get(&i).copied(),
+        exact_transfer: facts
+            .exact_transfer_states
+            .get(&i)
+            .cloned()
+            .unwrap_or(crate::aims::contract::ExactTransferState::Unproven),
     }
 }
 

@@ -1,20 +1,16 @@
 //! `ReprPlan` — the central decision document for representation optimization.
 //!
-//! Each optimization pass writes narrowing decisions into the
-//! `ReprPlan` with full provenance tracking. Codegen reads the final
-//! plan to determine the machine representation of every type.
-//!
-//! # Design
-//!
-//! - **Audit trail**: every decision is recorded in order, even when
-//!   overridden — useful for debugging why a type was narrowed.
-//! - **Safe defaults**: queries return canonical (un-narrowed) values
-//!   when no decision has been recorded — the canonical pass alone causes zero
-//!   behavioral change.
-//! - **Placeholder fields**: `escape_info` uses a stub type until escape
-//!   analysis replaces it.
+//! Optimization passes record narrowing decisions with provenance; codegen
+//! reads the closed plan. Missing decisions stay canonical, and only
+//! AIMS-proven local identities admit local allocation mechanisms.
 
-use ori_arc::ArcVarId;
+mod decision;
+pub(crate) mod query;
+mod range_plan;
+mod repr_attr;
+mod yield_plan;
+
+use ori_arc::ir::{AllocationSiteId, ArcVarId, YieldExtent};
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -25,54 +21,62 @@ use crate::layout::EnumLayoutInfo;
 use crate::range::ValueRange;
 use crate::repr::MachineRepr;
 
-// Re-export sub-types for plan consumers.
 pub use self::decision::{DecisionReason, DecisionSource, ReprDecision};
 pub use self::query::{NarrowingPolicy, RcStrategy};
 pub use self::repr_attr::ReprAttribute;
+pub(crate) use yield_plan::YieldLineageRuntimeCall;
 
-mod decision;
-pub(crate) mod query;
-mod repr_attr;
+/// Concrete storage mechanism selected for one yield allocation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CompiledAllocationMechanism {
+    /// Existing growable RC-managed runtime allocation.
+    RuntimeHeap {
+        /// Proven allocation extent, when available.
+        extent: YieldExtent,
+    },
+    /// Bounded function-lifetime storage with a runtime-compatible header.
+    ManagedStack {
+        /// Exact element capacity.
+        capacity: u64,
+    },
+    /// Bounded function-lifetime storage without a runtime header.
+    CompactStack {
+        /// Exact element capacity.
+        capacity: u64,
+    },
+}
 
-/// The central data structure recording all narrowing decisions.
-///
-/// Computed after type checking and before LLVM codegen. The type checker
-/// never sees `ReprPlan`; codegen reads from it but never writes.
-///
-/// # Salsa Integration
-///
-/// `ReprPlan` is **not** a Salsa tracked struct. It is computed imperatively
-/// by [`compute_repr_plan()`] as a forward pass that mutates state across
-/// multiple analysis phases (triviality → range → narrowing → layout).
-/// Making each phase a Salsa query would create artificial dependencies and
-/// complicate the multi-pass mutation pattern.
-///
-/// Instead, `ReprPlan` is computed once per compilation and passed as
-/// `&ReprPlan` to codegen — the same model as [`TypeInfoStore`] in
-/// `ori_llvm`, but without interior mutability.
-///
-/// **Invalidation:** Recomputed on every compilation. Future optimization:
-/// if the Pool is unchanged (Salsa cache hit on type checking), the
-/// previous `ReprPlan` can be reused via a Salsa query keyed on Pool
-/// identity.
-///
-/// **JIT compatibility:** The JIT path recomputes the entire `ReprPlan`
-/// per invocation, matching `TypeInfoStore`'s current behavior. Future
-/// optimization: incremental updates keyed by function-level changes.
-///
-/// **Thread safety:** All fields are plain `FxHashMap`/`Vec` — no
-/// `RefCell`, `Mutex`, or interior mutability. After construction,
-/// `&ReprPlan` is `Send + Sync` by the implicit auto-trait rules.
-/// This contrasts with `TypeInfoStore` which uses `RefCell` for lazy
-/// population.
+/// Representation-layer allocation projection for one stable site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CompiledAllocationDecision {
+    /// Stable identity of the source allocation.
+    pub site: AllocationSiteId,
+    /// ARC variable holding the allocation builder.
+    pub builder: ArcVarId,
+    /// ARC variable holding the completed collection.
+    pub result: ArcVarId,
+    /// Element type stored by the allocation.
+    pub elem_ty: Idx,
+    /// Physical size of one element in bytes.
+    pub elem_size: u64,
+    /// Physical storage selected for the allocation.
+    pub mechanism: CompiledAllocationMechanism,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum YieldAllocationIdentity {
+    Builder(ArcVarId),
+    Result(ArcVarId),
+}
+
+/// Representation and narrowing decisions consumed by physical backends.
+/// [`compute_repr_plan()`] builds the plan imperatively after type checking;
+/// codegen reads it without mutation. Every compilation and JIT invocation
+/// recomputes it. Plain collections provide immutable `Send + Sync` access
+/// without interior mutability.
 ///
 /// [`compute_repr_plan()`]: crate::compute_repr_plan
-/// [`TypeInfoStore`]: https://docs.rs/ori_llvm (internal)
 #[derive(Debug)]
-#[expect(
-    clippy::zero_sized_map_values,
-    reason = "EscapeInfo is placeholder ZST — replaced when escape analysis is implemented"
-)]
 pub struct ReprPlan {
     /// Per-type decisions (indexed by Pool `Idx`).
     decisions: FxHashMap<Idx, ReprDecision>,
@@ -83,34 +87,38 @@ pub struct ReprPlan {
     /// Stored **separately** from `decisions` because RC strategy is metadata
     /// about how a value is reference-counted, not a replacement for its
     /// layout. Writing an RC decision must not destroy the type's
-    /// `MachineRepr`. Populated by ARC header compression
-    /// and thread-local ARC passes.
+    /// `MachineRepr`.
     rc_strategies: FxHashMap<Idx, RcStrategy>,
     /// Per-function escape info (indexed by function `Name`).
     ///
-    /// Empty until escape analysis populates it.
+    /// Absence of a function key conservatively means that its values escape.
     escape_info: FxHashMap<Name, EscapeInfo>,
+    /// Compiled allocation projections keyed by function and stable site.
+    yield_allocations: FxHashMap<(Name, AllocationSiteId), CompiledAllocationDecision>,
+    /// Stable allocation sites indexed by the ARC identities used during emission.
+    yield_allocation_sites: FxHashMap<(Name, YieldAllocationIdentity), AllocationSiteId>,
+    /// Qualified call sites redirected to private length-only physical clones.
+    length_projection_calls: FxHashMap<(Name, ArcVarId), Name>,
+    /// Qualified callees and the returned yield virtualized by their clones.
+    length_projection_yields: FxHashMap<Name, ArcVarId>,
     /// Per-function, per-variable ranges from range analysis.
     ///
-    /// Key: function `Name` → (`ArcVarId` → `ValueRange`).
-    /// Populated by range analysis, consumed by integer narrowing.
+    /// Key: function `Name` maps to (`ArcVarId`, `ValueRange`) entries.
     function_var_ranges: FxHashMap<Name, FxHashMap<ArcVarId, ValueRange>>,
     /// Per-type-field range summaries from field-summary analysis.
     ///
-    /// Key: `(struct/tuple Idx, field_index)` → joined `ValueRange`.
-    /// Populated by `FieldSummaryTable::flush_to_repr_plan`,
-    /// consumed by struct field narrowing.
+    /// Key: `(struct/tuple Idx, field_index)` maps to the joined `ValueRange`.
     field_range_summaries: FxHashMap<(Idx, u32), ValueRange>,
     /// Per-collection-type element range summaries from element analysis.
     ///
-    /// Key: collection type `Idx` (e.g., `[int]`) → joined `ValueRange` of
+    /// Key: collection type `Idx` (e.g., `[int]`) maps to the joined `ValueRange` of
     /// all observed element values across `Construct(ListLiteral)` and
-    /// `CollectionReuse` sites. Consumed by collection element narrowing.
+    /// `CollectionReuse` sites.
     element_range_summaries: FxHashMap<Idx, ValueRange>,
     /// Canonical enum layout facts, keyed by enum type `Idx`.
     ///
-    /// Populated from the final `EnumRepr` after all repr-optimization passes.
-    /// Consumers query `enum_layout_info()` instead of computing layout ad-hoc.
+    /// Each entry is derived from the final `EnumRepr` after all representation
+    /// optimization passes.
     enum_layouts: FxHashMap<Idx, EnumLayoutInfo>,
     /// Audit trail — all decisions in insertion order.
     audit: Vec<ReprDecision>,
@@ -121,17 +129,9 @@ pub struct ReprPlan {
     ///
     /// Populated at plan construction from type checker visibility info.
     pub_type_indices: FxHashSet<Idx>,
-    /// Function identities whose parameters must NOT be narrowed by
-    /// interprocedural range analysis.
-    ///
-    /// Entries are `(Option<self_type_idx>, method_name)`:
-    /// - `(None, name)` — pub top-level function
-    /// - `(Some(idx), name)` — trait impl method on type `idx`
-    ///
-    /// Using `(Option<Idx>, Name)` prevents bare-Name collisions where a
-    /// trait impl method and an unrelated inherent method share a name
-    ///
-    /// Closures are handled separately via `ArcFunction::num_captures > 0`.
+    /// Function identities whose parameters remain unconstrained by range analysis.
+    /// `None` identifies public top-level functions; `Some(idx)` qualifies trait
+    /// methods by receiver type. Closures use `ArcFunction::num_captures`.
     unconstrained_fn_names: FxHashSet<(Option<Idx>, Name)>,
     /// Whether the analysis set includes functions not fully integrated into
     /// the codegen pipeline (e.g., impl methods ARC-lowered for range analysis
@@ -143,19 +143,56 @@ pub struct ReprPlan {
     has_analysis_only_functions: bool,
 }
 
+impl CompiledAllocationDecision {
+    /// Maximum element bytes admitted to function-lifetime stack storage.
+    pub const MAX_LOCAL_BYTES: u64 = 4 * 1024;
+}
+
+impl CompiledAllocationMechanism {
+    /// Proven allocation extent.
+    #[must_use]
+    pub const fn extent(self) -> YieldExtent {
+        match self {
+            Self::RuntimeHeap { extent } => extent,
+
+            Self::ManagedStack { capacity } | Self::CompactStack { capacity } => {
+                YieldExtent::StaticExact(capacity)
+            }
+        }
+    }
+
+    /// Whether the allocation is emitted in the owning stack frame.
+    #[must_use]
+    pub const fn is_stack(self) -> bool {
+        match self {
+            Self::RuntimeHeap { .. } => false,
+            Self::ManagedStack { .. } | Self::CompactStack { .. } => true,
+        }
+    }
+
+    /// Whether storage retains the runtime-compatible header.
+    #[must_use]
+    pub const fn requires_runtime_header(self) -> bool {
+        match self {
+            Self::RuntimeHeap { .. } | Self::ManagedStack { .. } => true,
+            Self::CompactStack { .. } => false,
+        }
+    }
+}
+
 impl ReprPlan {
     /// Create a new empty `ReprPlan` with the given narrowing policy.
     #[must_use]
-    #[expect(
-        clippy::zero_sized_map_values,
-        reason = "EscapeInfo is placeholder ZST — replaced when escape analysis is implemented"
-    )]
     pub fn new(policy: NarrowingPolicy) -> Self {
         Self {
             decisions: FxHashMap::default(),
             repr_attrs: FxHashMap::default(),
             rc_strategies: FxHashMap::default(),
             escape_info: FxHashMap::default(),
+            yield_allocations: FxHashMap::default(),
+            yield_allocation_sites: FxHashMap::default(),
+            length_projection_calls: FxHashMap::default(),
+            length_projection_yields: FxHashMap::default(),
             function_var_ranges: FxHashMap::default(),
             field_range_summaries: FxHashMap::default(),
             element_range_summaries: FxHashMap::default(),
@@ -168,10 +205,10 @@ impl ReprPlan {
         }
     }
 
-    /// Record a narrowing decision for a type.
+    /// Records a narrowing decision for a type.
     ///
-    /// Later decisions override earlier ones for the same `Idx`, but the
-    /// audit trail preserves both entries in insertion order.
+    /// Inserting an existing `Idx` replaces its map entry and appends the
+    /// decision to the insertion-ordered audit trail.
     pub fn set_repr(&mut self, idx: Idx, decision: ReprDecision) {
         self.audit.push(decision.clone());
         self.decisions.insert(idx, decision);
@@ -180,7 +217,7 @@ impl ReprPlan {
     /// Query the representation decision for a type.
     ///
     /// Returns `None` if no decision has been recorded — callers should
-    /// fall back to `TypeInfoStore` (Phase A migration).
+    /// fall back to the canonical `TypeInfoStore` layout.
     #[must_use]
     pub fn get_repr(&self, idx: Idx) -> Option<&MachineRepr> {
         self.decisions.get(&idx).map(|d| &d.repr)
@@ -192,7 +229,7 @@ impl ReprPlan {
     /// This is the canonical query — all consumers should use this instead
     /// of pattern-matching `get_repr()` into `MachineRepr::Enum`.
     #[must_use]
-    pub fn get_enum_repr(&self, idx: Idx) -> Option<&EnumRepr> {
+    pub fn enum_repr(&self, idx: Idx) -> Option<&EnumRepr> {
         match self.get_repr(idx)? {
             MachineRepr::Enum(e) => Some(e),
             _ => None,
@@ -200,9 +237,6 @@ impl ReprPlan {
     }
 
     /// Record the canonical [`EnumLayoutInfo`] for an enum type.
-    ///
-    /// Written by the `populate_enum_layouts` pass after all repr-optimization
-    /// passes have finalized the type's `EnumRepr`.
     pub fn set_enum_layout(&mut self, idx: Idx, info: EnumLayoutInfo) {
         self.enum_layouts.insert(idx, info);
     }
@@ -217,16 +251,9 @@ impl ReprPlan {
         self.enum_layouts.get(&idx)
     }
 
-    /// Resolve the `EnumRepr` for `idx` — plan-first, with on-the-fly
-    /// canonical recomputation for enum-shaped types with variable residue
-    /// (e.g., `Option<Var(T resolved to str)>`) that were not in the plan when it
-    /// was computed.
-    ///
-    /// SSOT for the plan-lookup + canonical-fallback ladder. Every consumer
-    /// (ABI sizing, type-info layout resolution, ARC emission) routes through
-    /// this so a variable-residue enum cannot answer differently across
-    /// emission surfaces. The fallback delegates to
-    /// [`crate::canonical_enum_for_type`], keeping layout authority here.
+    /// Resolves `idx` from the plan, then canonically recomputes enum-shaped
+    /// types with unresolved residue. ABI, type-info, and ARC consumers share
+    /// this fallback so they cannot select different layouts.
     #[must_use]
     pub fn enum_repr_with_fallback<'p>(
         &'p self,
@@ -235,7 +262,7 @@ impl ReprPlan {
     ) -> Option<std::borrow::Cow<'p, EnumRepr>> {
         let resolved = pool.resolve_fully(idx);
 
-        if let Some(enum_repr) = self.get_enum_repr(resolved) {
+        if let Some(enum_repr) = self.enum_repr(resolved) {
             return Some(std::borrow::Cow::Borrowed(enum_repr));
         }
 
@@ -249,84 +276,6 @@ impl ReprPlan {
         }
 
         None
-    }
-
-    /// Record per-variable range analysis results for a function.
-    ///
-    /// Called by range analysis after `range_fixpoint()` completes for a function.
-    pub fn set_var_ranges(&mut self, func: Name, ranges: FxHashMap<ArcVarId, ValueRange>) {
-        self.function_var_ranges.insert(func, ranges);
-    }
-
-    /// Get the range for a variable in a function.
-    ///
-    /// Returns the default `ValueRange` (unconstrained) if no range was
-    /// recorded for this function or variable.
-    #[must_use]
-    pub fn var_range(&self, func: Name, var: ArcVarId) -> ValueRange {
-        self.function_var_ranges
-            .get(&func)
-            .and_then(|m| m.get(&var))
-            .copied()
-            .unwrap_or_default()
-    }
-
-    /// Get mutable access to a function's per-variable range map.
-    ///
-    /// Returns `None` if no ranges have been recorded for this function.
-    /// Used by interprocedural propagation to merge parameter ranges into
-    /// existing intraprocedural results.
-    pub fn function_var_ranges_mut(
-        &mut self,
-        func: Name,
-    ) -> Option<&mut FxHashMap<ArcVarId, ValueRange>> {
-        self.function_var_ranges.get_mut(&func)
-    }
-
-    /// Join a field range into the persistent summary.
-    ///
-    /// Called by `FieldSummaryTable::flush_to_repr_plan()` after the
-    /// fixpoint completes for each function. Multiple functions accumulate
-    /// evidence by joining (not overwriting).
-    pub fn join_field_range(&mut self, idx: Idx, field: u32, range: ValueRange) {
-        self.field_range_summaries
-            .entry((idx, field))
-            .and_modify(|existing| *existing = existing.join(range))
-            .or_insert(range);
-    }
-
-    /// Query the aggregated field range for a struct/tuple field.
-    ///
-    /// Returns `Top` if no construction sites were observed for this field.
-    #[must_use]
-    pub fn field_range(&self, idx: Idx, field: u32) -> ValueRange {
-        self.field_range_summaries
-            .get(&(idx, field))
-            .copied()
-            .unwrap_or_default()
-    }
-
-    /// Join an element range into the persistent summary for a collection type.
-    ///
-    /// Called by `ElementSummaryTable::flush_to_repr_plan()` after the
-    /// fixpoint completes for each function. Multiple functions accumulate
-    /// evidence by joining (not overwriting).
-    pub fn join_element_range(&mut self, collection_idx: Idx, range: ValueRange) {
-        self.element_range_summaries
-            .entry(collection_idx)
-            .and_modify(|existing| *existing = existing.join(range))
-            .or_insert(range);
-    }
-
-    /// Query the aggregated element range for a collection type.
-    ///
-    /// Returns `Top` if no construction sites were observed for this collection.
-    #[must_use]
-    pub fn element_range(&self, collection_idx: Idx) -> ValueRange {
-        self.element_range_summaries
-            .get(&collection_idx)
-            .copied()
-            .unwrap_or_default()
     }
 
     /// Store a `#repr` attribute for a type.
@@ -357,16 +306,9 @@ impl ReprPlan {
         self.pub_type_indices.contains(&idx)
     }
 
-    /// Register unconstrained function identities (pub, trait impl).
-    ///
-    /// Each entry is `(Option<self_type_idx>, method_name)`:
-    /// - `(None, name)` for pub top-level functions
-    /// - `(Some(idx), name)` for trait impl methods on type `idx`
-    ///
-    /// Unconstrained functions may be called from external code or via
-    /// dynamic dispatch — their parameter ranges must not be narrowed
-    /// by interprocedural range analysis. Closures are handled
-    /// separately via `ArcFunction::num_captures`.
+    /// Registers public and trait-method identities whose parameter ranges must
+    /// remain unconstrained. `None` identifies top-level functions; `Some(idx)`
+    /// identifies methods by receiver type. Closures use `ArcFunction::num_captures`.
     pub fn set_unconstrained_fn_names(
         &mut self,
         names: impl IntoIterator<Item = (Option<Idx>, Name)>,
@@ -374,46 +316,27 @@ impl ReprPlan {
         self.unconstrained_fn_names.extend(names);
     }
 
-    /// Check if a function is unconstrained (pub or trait impl).
-    ///
-    /// `self_type` is the first parameter's type for impl methods, or `None`
-    /// for top-level functions. This disambiguates same-named methods across
-    /// different types.
-    ///
-    /// A function is unconstrained if:
-    /// - It's a pub top-level function: `(None, name)` is in the set, OR
-    /// - It's a trait impl method: `(Some(self_type), name)` is in the set
+    /// Reports whether the exact top-level or receiver-qualified identity is
+    /// externally unconstrained. `self_type` disambiguates same-named methods.
     #[must_use]
     pub fn is_unconstrained_fn(&self, self_type: Option<Idx>, name: Name) -> bool {
-        // Exact match only: (None, name) for pub top-level, (Some(idx), name) for
-        // trait impl methods. No wildcard fallback — a pub top-level `foo` must NOT
-        // make an unrelated impl method `Type.foo` unconstrained.
+        // Why: Receiver qualification keeps public top-level names from constraining methods.
         self.unconstrained_fn_names.contains(&(self_type, name))
     }
 
-    /// Check if this specific function (by its ARC-lowered name) is unconstrained.
+    /// Reports whether an ARC-qualified function has no representation constraints.
     ///
-    /// Used for analysis-only ARC functions with type-qualified names
-    /// Both base names (`__impl_42_index`) and
-    /// ordinal-suffixed names (`__impl_42_index_1`) are registered by
-    /// `collect_unconstrained_fn_names()`, so exact match is sufficient
+    /// Base (`__impl_<type-hash>_index`) and ordinal-suffixed
+    /// (`__impl_<type-hash>_index_1`) names are stored as exact keys.
     #[must_use]
     pub fn is_qualified_unconstrained(&self, qualified_name: Name) -> bool {
         self.unconstrained_fn_names
             .contains(&(None, qualified_name))
     }
 
-    /// Whether integer narrowing is safe to apply at the codegen level.
-    ///
-    /// Returns `false` when the analysis set includes functions not fully
-    /// integrated into the codegen pipeline (e.g., impl methods ARC-lowered
-    /// for range analysis only). Their field-range summaries could trigger
-    /// narrowing for structs that cross ABI boundaries between the ARC-emitted
-    /// path (narrowed) and the `compile_impls` path (canonical), causing
-    /// layout mismatches.
-    ///
-    /// When no analysis-only functions are present, narrowing is safe because
-    /// all analyzed functions go through the same codegen path.
+    /// Reports whether every analyzed function shares the narrowing-aware
+    /// codegen path. Analysis-only functions make field summaries unsafe for
+    /// ABI-crossing layout decisions.
     #[must_use]
     pub fn is_narrowing_safe_for_codegen(&self) -> bool {
         !self.has_analysis_only_functions
@@ -434,7 +357,6 @@ impl ReprPlan {
     }
 
     /// Record an RC strategy decision for a type.
-    ///
     /// Stores the strategy in a **separate map** so the type's `MachineRepr`
     /// layout is preserved. The audit trail records the decision for debugging.
     pub fn set_rc_strategy(&mut self, idx: Idx, strategy: RcStrategy, source: DecisionSource) {
@@ -444,7 +366,6 @@ impl ReprPlan {
             RcStrategy::Atomic { .. } => DecisionReason::Canonical,
         };
         self.rc_strategies.insert(idx, strategy);
-        // Record in audit trail for debugging without overwriting the repr.
         self.audit.push(ReprDecision {
             source,
             type_idx: idx,
@@ -456,16 +377,12 @@ impl ReprPlan {
         });
     }
 
-    /// Iterate over all type indices that have a stored representation decision.
-    ///
-    /// Used by narrowing passes to find struct/tuple types to narrow
-    /// without depending on pool iteration order.
+    /// Yields decided type indices in the plan's deterministic map order.
     pub fn decision_indices(&self) -> impl Iterator<Item = Idx> + '_ {
         self.decisions.keys().copied()
     }
 
     /// Dump the audit trail for debugging.
-    ///
     /// Returns a human-readable string with all decisions in insertion order.
     #[must_use]
     pub fn dump_audit(&self, pool: &Pool) -> String {
@@ -473,16 +390,15 @@ impl ReprPlan {
         let mut out = String::new();
         for (i, d) in self.audit.iter().enumerate() {
             let tag = pool.tag(d.type_idx);
-            let _ = writeln!(out, "[{i}] {tag:?} <- {:?}: {:?}", d.source, d.reason);
+            assert!(
+                writeln!(out, "[{i}] {tag:?} <- {:?}: {:?}", d.source, d.reason).is_ok(),
+                "writing ReprPlan audit text to String cannot fail"
+            );
         }
         out
     }
 }
 
-// Thread safety: compile-time assertion that ReprPlan is Send + Sync.
-// ReprPlan has no interior mutability (no RefCell, no Mutex), so &ReprPlan
-// can be safely shared across threads. This assertion catches regressions
-// if a future field introduces non-Send/Sync types.
 const _: () = {
     const fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<ReprPlan>();

@@ -76,8 +76,9 @@ mod compound_elements;
 mod compound_traits;
 mod compound_type_impls;
 mod debug_compound;
-mod debug_helpers;
 mod debug_map_set;
+mod debug_render;
+mod debug_sequence;
 mod dispatch;
 mod iterator;
 mod iterator_adapters;
@@ -87,8 +88,9 @@ mod iterator_reverse_consumers;
 mod iterators_guard;
 mod list_traits;
 mod option_result;
-mod option_result_helpers;
 mod option_result_monadic;
+mod option_result_niche;
+mod option_result_runtime;
 pub(crate) mod prelude;
 mod primitives;
 mod result_monadic;
@@ -211,13 +213,19 @@ impl BuiltinTable {
         {
             for reg in source {
                 let methods = entries.entry(reg.type_name).or_default();
-                debug_assert!(
-                    !methods.contains_key(reg.method_name),
-                    "duplicate builtin registration: ({}, {})",
-                    reg.type_name,
-                    reg.method_name,
-                );
-                methods.insert(reg.method_name, reg);
+                match methods.entry(reg.method_name) {
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(reg);
+                    }
+                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                        debug_assert!(
+                            false,
+                            "duplicate builtin registration: ({}, {})",
+                            reg.type_name, reg.method_name,
+                        );
+                        entry.insert(reg);
+                    }
+                }
             }
         }
 

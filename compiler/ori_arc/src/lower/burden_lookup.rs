@@ -1,4 +1,4 @@
-//! Phase 5 burden lookup — bridges builtin (`BURDEN_TABLE`) and user-defined
+//! Burden lookup bridges builtin (`BURDEN_TABLE`) and user-defined
 //! (`TypeRegistry`) burden sides behind a single dispatch surface.
 //!
 //! Spec: Annex E §AIMS — burden specs are typed pre-pass input feeding the
@@ -15,9 +15,8 @@ use super::burden::{Burden, BurdenRef, TypeRef};
 
 /// Reserved sentinel raw value for `TYPE_PARAM_E` (`u32::MAX - 1`). User pool
 /// indices MUST stay strictly below this to avoid collision when
-/// boundary-translating into the `BurdenTypeId` namespace. Extracted from the
-/// shared SSOT constant in `ori_registry::burden::table` rather than mirrored
-/// as a literal.
+/// boundary-translating into the `BurdenTypeId` namespace. The registry
+/// constant prevents a mirrored sentinel from drifting.
 const TYPE_PARAM_E_RAW: u32 = TYPE_PARAM_E.get().get();
 
 /// Returns the burden spec for `ty`, dispatching across the builtin

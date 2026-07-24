@@ -88,9 +88,7 @@ pub fn compute_repr_plan_with_interner(
         plan.set_has_analysis_only_functions();
     }
 
-    // Phase 0: Store user-specified #repr attributes.
-    // Also store under the resolved idx so that narrowing and codegen (which
-    // operate on resolved struct/tuple indices) see the attr.
+    // Why: Narrowing and codegen read resolved indices rather than source aliases.
     for &(idx, ref attr) in repr_attrs {
         let converted = convert_repr_attr_kind(attr);
         plan.set_repr_attr(idx, converted);
@@ -100,7 +98,6 @@ pub fn compute_repr_plan_with_interner(
         }
     }
 
-    // Phase 0a-import: Seed imported repr/pub/collection metadata.
     let (imported_repr_attrs, imported_pub_indices, _imported_collection_indices) =
         seed_imported_metadata(
             &mut plan,
@@ -109,18 +106,7 @@ pub fn compute_repr_plan_with_interner(
             imported_collection_surfaces,
         );
 
-    // Phase 0b: Store public type indices for ABI-safe narrowing.
-    // Also store under the resolved idx for the same reason.
-    // Includes local public types and imported public user-defined types.
-    //
-    // NOTE: Imported collection surfaces are NOT added here.
-    // They exist for transitive forwarding metadata (A→B→C), not for narrowing
-    // suppression. Same-module public functions already mark `[int]` as public
-    // via `collect_public_collection_types()`. Imported surfaces would suppress
-    // narrowing for private `[int]` usage that never crosses module boundaries,
-    // because pool interning deduplicates `List<int>` to one Idx. The imported
-    // collection indices are still resolved by `seed_imported_metadata()` for
-    // future use when cross-module ABI widening is implemented.
+    // Why: Imported collection surfaces are forwarding metadata; pool interning would make them suppress private narrowing.
     plan.set_pub_type_indices(
         pub_type_indices
             .iter()
@@ -135,22 +121,10 @@ pub fn compute_repr_plan_with_interner(
             .chain(imported_pub_indices),
     );
 
-    // Phase 0b2: Store unconstrained function names for interprocedural range analysis.
-    // Public functions and trait impl methods have parameters that could be
-    // called with any value — their parameter ranges must stay Top.
+    // INVARIANT: Externally callable parameters retain `Top` ranges.
     plan.set_unconstrained_fn_names(unconstrained_fn_names.iter().copied());
 
-    // Phase 0c: Propagate repr/pub metadata through Applied → concrete Struct
-    // resolutions for monomorphized generic types.
-    //
-    // Phases 0/0b store metadata on the Named idx and its direct resolve_fully()
-    // result. But monomorphization creates additional Applied(Name, [ConcreteArgs])
-    // → Struct resolutions that aren't in the Named chain. We collect the set of
-    // protected type Names, then scan the pool for Applied entries whose name
-    // matches. Each matching Applied is resolved through the pool, and the
-    // concrete Struct idx receives the same repr/pub metadata.
-    //
-    // Combine local and imported repr attrs/pub indices for propagation.
+    // Why: Monomorphized `Applied` types can resolve outside their `Named` metadata chain.
     let all_repr_attrs: Vec<(Idx, ReprAttrKind)> = repr_attrs
         .iter()
         .copied()
@@ -168,7 +142,6 @@ pub fn compute_repr_plan_with_interner(
         .collect();
     propagate_metadata_to_applied_resolutions(&mut plan, pool, &all_repr_attrs, &all_pub_indices);
 
-    // Phase 1: Set canonical representations for all types.
     crate::canonical::populate_canonical(&mut plan, pool);
 
     if policy == NarrowingPolicy::Disabled {
@@ -178,35 +151,27 @@ pub fn compute_repr_plan_with_interner(
         return plan;
     }
 
-    // Phase 2: Triviality analysis
     analyze_triviality(&mut plan, pool);
 
-    // Phase 3: Range analysis → Integer narrowing → Float narrowing
     analyze_ranges(&mut plan, pool, arc_functions, interner);
     apply_integer_narrowing(&mut plan, pool);
     apply_float_narrowing(&mut plan, pool, arc_functions);
 
-    // Phase 4: Struct layout, Enum repr
     compute_struct_layouts(&mut plan, pool);
     compute_enum_reprs(&mut plan, pool);
 
-    // Phase 5: Escape analysis → ARC header compression → Thread-local ARC
     analyze_escape(&mut plan, pool, arc_functions);
     compress_arc_headers(&mut plan, pool);
     apply_thread_local_arc(&mut plan, pool, arc_functions);
 
-    // Phase 6: Collection specialization
     specialize_collections(&mut plan, pool);
 
-    // Phase 7: Canonical enum layout facts (after all EnumRepr-mutating passes).
     populate_enum_layouts(&mut plan, pool);
 
     plan
 }
 
-// Phase 0a-import and Phase 0c metadata propagation live in `metadata.rs`.
-
-// Repr pipeline passes — active implementations and future stubs.
+// Repr pipeline passes.
 
 /// Transitive triviality validation pass.
 ///
@@ -287,11 +252,7 @@ fn analyze_ranges(
     range::propagate_ranges(plan, pool, arc_functions, &config);
 }
 
-/// Integer narrowing (i64 → i32/i16/i8 when range fits).
-///
-/// Phase A: Struct/tuple field narrowing from field-range summaries.
-/// Phase B: Local variable narrowing + overflow guards.
-/// Phase C: Collection element narrowing.
+/// Narrow integer storage when range evidence proves the smaller width safe.
 fn apply_integer_narrowing(plan: &mut ReprPlan, pool: &Pool) {
     // Gate: only narrow when the full integer narrowing pipeline is safe for codegen.
     // Narrowing produces MachineRepr::Int widths that codegen consumes for
@@ -305,10 +266,9 @@ fn apply_integer_narrowing(plan: &mut ReprPlan, pool: &Pool) {
     narrowing::int::narrow_collection_elements(plan, pool);
 }
 
-/// Float narrowing (f64 → f32 when precision is exact).
+/// Narrow struct-field storage when every observed value is exactly representable as `f32`.
 ///
-/// Phase A: Storage-only narrowing — struct fields where ALL observed
-/// values are f32-exact literals. Arithmetic results are never narrowed.
+/// Arithmetic results retain `f64` representation.
 fn apply_float_narrowing(plan: &mut ReprPlan, pool: &Pool, arc_functions: &[ArcFunction]) {
     if plan.narrowing_policy() == NarrowingPolicy::Disabled {
         return;
@@ -444,7 +404,7 @@ fn populate_enum_layouts(plan: &mut ReprPlan, pool: &Pool) {
     let updates: Vec<(Idx, crate::EnumLayoutInfo)> = plan
         .decision_indices()
         .filter_map(|idx| {
-            let repr = plan.get_enum_repr(idx)?;
+            let repr = plan.enum_repr(idx)?;
             let is_runtime_abi =
                 matches!(pool.tag(pool.resolve_fully(idx)), Tag::Option | Tag::Result);
             Some((idx, crate::compute_enum_layout_info(repr, is_runtime_abi)))

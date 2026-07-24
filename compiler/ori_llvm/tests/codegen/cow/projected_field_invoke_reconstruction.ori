@@ -1,0 +1,19 @@
+// Production-entry pin for projected-field transfer through a may-unwind list
+// mutation. The real lowerer places the owning relay in an Invoke terminator and
+// reconstructs the aggregate only on its normal successor.
+//
+// @function: _ori_append
+// CHECK-LABEL: define fastcc void @_ori_append
+// CHECK-NOT: call void @ori_list_rc_inc
+// CHECK: call void @ori_list_push_cow
+
+type Box = { rows: [int] }
+
+@append (box: Box, value: int) -> Box =
+    Box { rows: box.rows.push(value:) };
+
+@main () -> void = {
+    let box = Box { rows: [1, 2] };
+    let updated = append(box:, value: 3);
+    print(msg: updated.rows.len().to_str())
+}

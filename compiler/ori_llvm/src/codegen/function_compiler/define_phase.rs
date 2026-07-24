@@ -15,7 +15,7 @@ use tracing::{debug, trace};
 
 use super::FunctionCompiler;
 use crate::codegen::abi::{compute_function_abi_from_shape, CallConvSite, FunctionAbi};
-use crate::codegen::arc_emitter::ArcIrEmitter;
+use crate::codegen::arc_emitter::{ArcEmitterFunctionContext, ArcIrEmitter};
 use crate::codegen::value_id::FunctionId;
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
@@ -234,9 +234,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.interner,
             self.pool,
             self.arc_classifier as &dyn ori_arc::ArcClassification,
-            func_id,
-            &self.codegen_ctx,
-            self.debug_context,
+            ArcEmitterFunctionContext::new(func_id, &self.codegen_ctx, self.debug_context),
         );
         emitter.set_verify_arc(self.verify_arc);
         emitter.set_func_contract(self.aims_contracts.get(&arc_func.name));
@@ -303,9 +301,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.interner,
             self.pool,
             self.arc_classifier as &dyn ori_arc::ArcClassification,
-            func_id,
-            &self.codegen_ctx,
-            self.debug_context,
+            ArcEmitterFunctionContext::new(func_id, &self.codegen_ctx, self.debug_context),
         );
         emitter.set_verify_arc(self.verify_arc);
         emitter.set_func_contract(self.aims_contracts.get(&lambda.name));

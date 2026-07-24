@@ -183,6 +183,30 @@ impl ModuleChecker<'_> {
         self.bind_imported_sig_with_vars(sig, &var_ids);
     }
 
+    /// Register an imported type into the consumer's `TypeRegistry` under its own
+    /// name, resolving field / generic types against the PROVIDER's arena.
+    ///
+    /// Unlike a constant import (which ends in a value binding), a type import
+    /// inserts a `TypeEntry` into `types_by_name` so `get_by_name` resolves the
+    /// name for struct-literal / field / variant typing. Call this before
+    /// `collect_signatures()`, alongside the imported-function bindings.
+    pub fn register_imported_type(&mut self, decl: &ori_ir::TypeDecl, foreign_arena: &ExprArena) {
+        crate::check::registration::register_type_decl_with(self, decl, foreign_arena, decl.name);
+    }
+
+    /// Register an imported type under a different local name.
+    ///
+    /// Like [`register_imported_type`], but binds the `TypeEntry` under `alias`
+    /// for `use "./mod" { Thing as Widget }`.
+    pub fn register_imported_type_as(
+        &mut self,
+        decl: &ori_ir::TypeDecl,
+        foreign_arena: &ExprArena,
+        alias: Name,
+    ) {
+        crate::check::registration::register_type_decl_with(self, decl, foreign_arena, alias);
+    }
+
     /// Try to resolve all types in an imported signature by Merkle hash lookup.
     ///
     /// Returns `Some(local_sig)` if every param/return type already exists in
@@ -318,9 +342,12 @@ impl ModuleChecker<'_> {
     /// inference path: the call records into `TypedModule.module_alias_call_map`,
     /// which `ori_canon` reads to rewrite the namespace call to a free `Call`.
     /// The signatures stored here back that resolution at inference time.
+    /// `module_key` identifies the module's source, so a declaration imported
+    /// under several aliases resolves to one nominal type.
     pub fn register_module_alias(
         &mut self,
         alias: Name,
+        module_key: Name,
         module: &ori_ir::Module,
         foreign_arena: &ExprArena,
     ) {
@@ -336,6 +363,42 @@ impl ModuleChecker<'_> {
             .collect();
 
         self.module_aliases.insert(alias, sigs);
+
+        // Register the aliased module's public types under their QUALIFIED names
+        // (`geom.Point`), so a qualified struct literal or type annotation
+        // resolves to the provider's type instead of a same-named local one.
+        // The pairs are collected before registering so the interner borrow ends
+        // before the `&mut self` registration calls.
+        let alias_str = self.interner.lookup(alias).to_string();
+        let qualified: Vec<(&ori_ir::TypeDecl, Name)> = module
+            .types
+            .iter()
+            .filter(|decl| decl.visibility == ori_ir::Visibility::Public)
+            .map(|decl| {
+                let decl_str = self.interner.lookup(decl.name);
+                let qualified_name = self
+                    .interner
+                    .intern_owned(ori_ir::qualified_alias_name(&alias_str, decl_str));
+                (decl, qualified_name)
+            })
+            .collect();
+        for (decl, qualified_name) in qualified {
+            // One declaration reached through several aliases is one nominal
+            // type: bind the new qualified name to the index the first alias
+            // registered, rather than registering a second type that would be
+            // incompatible with the first.
+            let decl_key = (module_key, decl.name);
+            if let Some(&canonical) = self.imported_type_canonical.get(&decl_key) {
+                if self.types.bind_additional_name(qualified_name, canonical) {
+                    continue;
+                }
+            }
+            self.register_imported_type_as(decl, foreign_arena, qualified_name);
+            if let Some(entry) = self.types.get_by_name(qualified_name) {
+                let idx = entry.idx;
+                self.imported_type_canonical.insert(decl_key, idx);
+            }
+        }
 
         // Bind alias as a named type placeholder in the import env.
         // This makes the alias name resolvable (as a namespace marker).

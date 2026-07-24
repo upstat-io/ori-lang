@@ -1,0 +1,50 @@
+// Spec: 18-modules.md § Imports — selected type import (BUG-02-101)
+//
+// Positive pins: a selected import of an exported type binds the type into the
+// consumer's scope so it can be named + constructed, exactly like a selected
+// function import. These FAIL on the unfixed compiler (E2003 "function 'X' not
+// found in module") because the resolver has no type namespace. Covers struct /
+// newtype kinds, an aliased import, and a sum type used as a type annotation.
+// (Sum-variant-constructor scoping on import is verified in the implementation
+// section; a sum-variant match on an unresolved type additionally trips the
+// orthogonal canon ICE BUG-04-298 pre-fix, so the sum pin here binds the type
+// name via annotation rather than constructing a variant.)
+
+use std.testing { assert, assert_eq }
+use "../selected_type_import_lib" {
+    Widget,
+    Meters,
+    Shape,
+    Widget as Gadget,
+}
+
+// Struct type: import + construct + field read.
+@test_import_struct_type tests _ () -> void = {
+    let w = Widget { size: 7 };
+    assert_eq(actual: w.size, expected: 7)
+}
+
+// Newtype: import + construct + `.unwrap()` read.
+@test_import_newtype tests _ () -> void = {
+    let m = Meters(42);
+    assert_eq(actual: m.unwrap(), expected: 42)
+}
+
+// Aliased type import: `Widget as Gadget` binds the type under the local alias.
+@test_import_type_alias tests _ () -> void = {
+    let g = Gadget { size: 9 };
+    assert_eq(actual: g.size, expected: 9)
+}
+
+// Sum type: the imported type name binds and is usable as a type annotation.
+// `shape_arity`'s `Shape` parameter type only resolves if the sum-type import
+// bound the name, so this whole file type-checking IS the pin (a compile
+// resolution pin — the same `assert(cond: true)` idiom the newtype spec corpus
+// uses for "reached here without a compile error"). Sum-VARIANT construction
+// across a module boundary (`Circle(radius:)` from an imported `Shape`) is
+// spec-undefined for a selected type import and is a separate deliverable.
+@shape_arity (s: Shape) -> int = 1;
+
+@test_import_sum_type_name_binds tests @shape_arity () -> void = {
+    assert(cond: true)
+}

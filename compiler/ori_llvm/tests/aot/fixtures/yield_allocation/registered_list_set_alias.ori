@@ -1,0 +1,6 @@
+@local_doors () -> int = {
+    let doors = for _ in 0..4 yield false;
+    let changed = doors.set(index: 1, value: true);
+    if changed[1] then changed.length() else 0
+}
+@main () -> int = if local_doors() == 4 then 0 else 1;

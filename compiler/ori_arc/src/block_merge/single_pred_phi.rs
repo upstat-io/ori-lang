@@ -1,4 +1,4 @@
-//! Phase 5: Eliminate block params on single-predecessor blocks.
+//! Eliminates block parameters on single-predecessor blocks.
 //!
 //! After Phase 4 merges single-predecessor Jump chains, some blocks may
 //! still have `params` with exactly one predecessor. Two cases:
@@ -30,8 +30,7 @@ pub(crate) fn eliminate_single_pred_params(func: &mut ArcFunction) {
     let predecessors = compute_predecessors(func);
     let entry_idx = func.entry.index();
 
-    // We need mutable access to `func.blocks[a_idx]` and `func.blocks[b_idx]`
-    // inside the loop, so we can't use an iterator over `predecessors`.
+    // Why: Index iteration permits disjoint mutable access to predecessor and successor blocks.
     #[expect(
         clippy::needless_range_loop,
         reason = "loop body mutates func.blocks at both a_idx and b_idx"

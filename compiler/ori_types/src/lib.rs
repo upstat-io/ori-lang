@@ -13,6 +13,7 @@ mod idx;
 mod infer;
 mod item;
 mod lifetime;
+mod module_qualified;
 mod operator;
 mod output;
 mod pool;

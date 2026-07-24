@@ -45,8 +45,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 if s.is_empty() {
                     // Why: The empty-string runtime path avoids a global and heap ownership.
                     let func_id = self.builder.runtime_fn("ori_str_empty");
-                    self.call_with_sret(func_id, &[], str_ty, "str.empty")
-                        .expect("ori_str_empty returns Str via sret")
+                    let Some(value) = self.call_with_sret(func_id, &[], str_ty, "str.empty") else {
+                        // Why: The registered ori_str_empty ABI returns Str through sret.
+                        unreachable!("ori_str_empty must produce its registered sret value")
+                    };
+                    value
                 } else {
                     let global = self.builder.build_global_string_ptr(s, "str");
                     let len = self.builder.const_i64(s.len() as i64);
@@ -60,15 +63,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
             LitValue::Duration { value, unit } => {
-                let nanos = unit
-                    .to_nanos(*value)
-                    .expect("duration literal validated by lexer");
+                let Some(nanos) = unit.to_nanos(*value) else {
+                    // Why: The lexer admits only duration values representable as nanoseconds.
+                    unreachable!(
+                        "validated duration literal must fit its nanosecond representation"
+                    )
+                };
                 self.builder.const_i64(nanos)
             }
             LitValue::Size { value, unit } => {
-                let bytes = unit
-                    .to_bytes(*value)
-                    .expect("size literal validated by lexer");
+                let Some(bytes) = unit.to_bytes(*value) else {
+                    // Why: The lexer admits only size values representable as bytes.
+                    unreachable!("validated size literal must fit its byte representation")
+                };
                 self.builder.const_i64(bytes as i64)
             }
         }
@@ -84,16 +91,27 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         func: &ArcFunction,
         arc_args: &[ArcVarId],
     ) -> ValueId {
-        let fact = func.primitive_facts.get(dst).unwrap_or_else(|| {
-            panic!("validated PrimOp v{} is missing its frozen fact", dst.raw())
-        });
+        let Some(fact) = func.primitive_facts.get(dst) else {
+            // Why: ARC validation freezes a fact for every primitive operation before codegen.
+            unreachable!("validated PrimOp v{} is missing its frozen fact", dst.raw())
+        };
         match op {
             PrimOp::Binary(bin_op) => {
                 let lhs = arg_vals[0];
                 let rhs = arg_vals[1];
                 let lhs_ty = func.var_type(arc_args[0]);
                 let rhs_ty = func.var_type(arc_args[1]);
-                self.emit_binary_op(bin_op, lhs, rhs, lhs_ty, rhs_ty, ty, fact.strategy, func)
+                self.emit_binary_op(
+                    bin_op,
+                    lhs,
+                    rhs,
+                    lhs_ty,
+                    rhs_ty,
+                    ty,
+                    fact.strategy,
+                    func,
+                    arc_args,
+                )
             }
             PrimOp::Unary(un_op) => {
                 let operand = arg_vals[0];

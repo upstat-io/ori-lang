@@ -81,7 +81,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .extract_value(receiver, ori_ir::FIELD_LEN, name)
     }
 
-    /// Extract the data and length fields shared by list/map/set values.
+    /// Extract the data and length fields shared by collection and string fat values.
     pub(crate) fn extract_collection_data_and_len(
         &mut self,
         receiver: ValueId,
@@ -97,8 +97,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some((data, len))
     }
 
-    /// Extract the canonical data/length/capacity fields shared by
-    /// list/map/set values.
+    /// Extract the canonical data/length/capacity fields shared by collection
+    /// and string fat values.
     pub(crate) fn extract_collection_fields(
         &mut self,
         receiver: ValueId,

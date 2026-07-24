@@ -331,3 +331,87 @@ fn unknown_closed_type_variants_panic_before_decision_tree_compilation() {
         );
     }
 }
+
+#[test]
+fn malformed_typed_patterns_panic_instead_of_lowering_wrong_values() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    use super::decision_tree::flatten::FlattenCtx;
+
+    let mut arena = ExprArena::new();
+    let interner = test_interner();
+    let unit_expr = arena.alloc_expr(Expr::new(ExprKind::Unit, Span::DUMMY));
+    let float_expr = arena.alloc_expr(Expr::new(ExprKind::Float(0), Span::DUMMY));
+    let wildcard = arena.alloc_match_pattern(MatchPattern::Wildcard);
+    let one_pattern = arena.alloc_match_pattern_list([wildcard]);
+
+    let struct_name = interner.intern("Record");
+    let known_field = interner.intern("known");
+    let unknown_field = interner.intern("unknown");
+    let enum_name = interner.intern("Choice");
+    let variant_name = interner.intern("Known");
+    let mut pool = ori_types::Pool::new();
+    let tuple_type = pool.tuple(&[Idx::INT, Idx::BOOL]);
+    let struct_type = pool.struct_type(struct_name, &[(known_field, Idx::INT)]);
+    let enum_type = pool.enum_type(
+        enum_name,
+        &[ori_types::EnumVariant {
+            name: variant_name,
+            field_types: Vec::new(),
+        }],
+    );
+
+    let cases = [
+        (
+            "non-literal literal pattern",
+            MatchPattern::Literal(unit_expr),
+            Idx::UNIT,
+        ),
+        (
+            "non-integral range bound",
+            MatchPattern::Range {
+                start: Some(float_expr),
+                end: None,
+                inclusive: false,
+            },
+            Idx::INT,
+        ),
+        (
+            "tuple arity mismatch",
+            MatchPattern::Tuple(one_pattern),
+            tuple_type,
+        ),
+        (
+            "non-list list pattern",
+            MatchPattern::List {
+                elements: one_pattern,
+                rest: None,
+            },
+            Idx::INT,
+        ),
+        (
+            "unknown struct field",
+            MatchPattern::Struct {
+                fields: vec![(unknown_field, None)],
+                rest: false,
+            },
+            struct_type,
+        ),
+        (
+            "variant arity mismatch",
+            MatchPattern::Variant {
+                name: variant_name,
+                inner: one_pattern,
+            },
+            enum_type,
+        ),
+    ];
+
+    let ctx = FlattenCtx::new(&arena, &pool, &interner);
+    for (label, pattern, scrutinee_type) in cases {
+        let failure = catch_unwind(AssertUnwindSafe(|| {
+            ctx.to_flat_pattern(&pattern, scrutinee_type)
+        }));
+        assert!(failure.is_err(), "{label} must fail closed");
+    }
+}

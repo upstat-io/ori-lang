@@ -827,3 +827,11 @@ Rationale:
 - LTO significantly increases compile time
 - Users who need maximum optimization can explicitly add `--lto=thin`
 - Default release builds prioritize reasonable compile times
+
+---
+
+## Errata (added 2026-07-21)
+
+> **Incremental Compilation Cache decision superseded by [cache-lifecycle-proposal.md](cache-lifecycle-proposal.md)**: this proposal decided a project-local cache in `build/cache/`. That decision is superseded — the cache is now a single global, per-user, content-addressed root with an automatic bounded eviction lifecycle. The three original grounds (invalidation simplicity, cross-project coherency, per-project lifetime) are addressed directly in that proposal's D0; per-project lifetime was the property deliberately traded, because it is what leaves each project's cache unbounded. Deliverables (`build/obj/`, output layout) are unchanged; only the reusable-work cache moves.
+
+> **Debug Format table, Linux row superseded by [cache-lifecycle-proposal.md](cache-lifecycle-proposal.md)**: this proposal's table set Linux debug info to embedded DWARF 4 by default. That row is superseded — Linux now defaults to split debug info (`.dwo` / `.debug` companion located by the platform's own build-id / `.gnu_debuglink` linkage), satisfying T4's "debug information is separable" outcome. The macOS (split dSYM) and Windows (CodeView/PDB) rows are unchanged.

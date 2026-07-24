@@ -543,29 +543,12 @@ fn closure_final_release_transitively_releases_captured_heap_owner() {
     ));
 }
 
-#[test]
-fn projected_nested_closure_adapter_copies_only_the_owned_path() {
+/// Builds a verified program whose main function's closure adapter retains a
+/// borrowed whole-value argument through a two-hop owned chain
+/// (`outer -> inner -> shared`) plus a sibling field sharing the same leaf
+/// retain plan, using a three-plan retain chain (shared/inner/outer).
+fn nested_whole_value_retain_program() -> VerifiedProgram {
     let mut program = verified_aggregate_program();
-    install_projected_nested_closure_adapter(&mut program);
-    let mut interpreter = Interpreter::new(&program, ExecutionConfig::default());
-    let fixture = allocate_projected_nested_values(&mut interpreter);
-    let mut values = [fixture.outer];
-
-    must_succeed(
-        interpreter.prepare_closure_adapter_values(program.program.main, &mut values),
-        "projected adapter should prepare an exact independent owner",
-    );
-    commit_projected_retain(&mut interpreter, &fixture);
-    assert_projected_copy_is_independent(&mut interpreter, &fixture, values[0]);
-
-    must_succeed(
-        interpreter.release_owned_value(fixture.outer),
-        "caller's complete value should release normally",
-    );
-    assert_eq!(interpreter.heap.metrics().live_objects, 0);
-}
-
-fn install_projected_nested_closure_adapter(program: &mut VerifiedProgram) {
     let function = program.program.main;
     let shared_plan = VmRetainPlanId::from_shared(ori_arc::RetainPlanId::from_raw(0));
     let inner_plan = VmRetainPlanId::from_shared(ori_arc::RetainPlanId::from_raw(1));
@@ -591,10 +574,16 @@ fn install_projected_nested_closure_adapter(program: &mut VerifiedProgram) {
         VmRetainPlan {
             ty: outer_type,
             kind: VmRetainPlanKind::OwnedFields(
-                vec![VmRetainEdge {
-                    field: 0,
-                    child: inner_plan,
-                }]
+                vec![
+                    VmRetainEdge {
+                        field: 0,
+                        child: inner_plan,
+                    },
+                    VmRetainEdge {
+                        field: 1,
+                        child: shared_plan,
+                    },
+                ]
                 .into_boxed_slice(),
             ),
         },
@@ -605,34 +594,35 @@ fn install_projected_nested_closure_adapter(program: &mut VerifiedProgram) {
         slots: vec![VmClosureAdapterSlot {
             source: VmClosureAdapterSource::BorrowedCallArgument,
             ty: outer_type,
-            demand: VmCalleeOwnerDemand::ProjectedField(0),
+            demand: VmCalleeOwnerDemand::WholeValue,
             action: VmClosureAdapterAction::Retain(outer_plan),
         }]
         .into_boxed_slice(),
     });
+    program
 }
 
-struct ProjectedNestedValues {
-    selected: VmValue,
-    unselected: VmValue,
-    inner: VmValue,
-    outer: VmValue,
-}
-
-fn allocate_projected_nested_values(interpreter: &mut Interpreter<'_>) -> ProjectedNestedValues {
+/// Allocates a nested owned+sibling aggregate (`outer = (inner, sibling)`,
+/// `inner = (selected,)`) so the whole-value closure adapter retain built by
+/// [`nested_whole_value_retain_program`] must walk two aggregate hops to
+/// reach `selected` while leaving `sibling` reachable at the top level.
+/// Returns `(selected, sibling, inner, outer)`.
+fn build_nested_owner_aggregate(
+    interpreter: &mut Interpreter,
+) -> (VmValue, VmValue, VmValue, VmValue) {
     let selected = must_succeed(
         interpreter.heap.allocate(
             HeapObject::List(vec![VmValue::int(7)]),
             interpreter.config.max_heap_objects,
         ),
-        "selected nested owner should allocate",
+        "nested owner should allocate",
     );
-    let unselected = must_succeed(
+    let sibling = must_succeed(
         interpreter.heap.allocate(
             HeapObject::List(vec![VmValue::int(11)]),
             interpreter.config.max_heap_objects,
         ),
-        "unselected sibling should allocate",
+        "sibling owner should allocate",
     );
     let mut inner = Aggregate {
         length: 1,
@@ -650,27 +640,40 @@ fn allocate_projected_nested_values(interpreter: &mut Interpreter<'_>) -> Projec
         ..Aggregate::default()
     };
     outer.fields[0] = inner;
-    outer.fields[1] = unselected;
+    outer.fields[1] = sibling;
     let outer = must_succeed(
         interpreter
             .value_arena
             .allocate_aggregate(outer, interpreter.config.max_value_arena_entries),
         "outer product should allocate",
     );
-
-    ProjectedNestedValues {
-        selected,
-        unselected,
-        inner,
-        outer,
-    }
+    (selected, sibling, inner, outer)
 }
 
-fn commit_projected_retain(interpreter: &mut Interpreter<'_>, fixture: &ProjectedNestedValues) {
+#[test]
+fn whole_value_nested_closure_adapter_copies_all_owned_paths() {
+    let program = nested_whole_value_retain_program();
+    let function = program.program.main;
+
+    let mut interpreter = Interpreter::new(&program, ExecutionConfig::default());
+    let (selected, sibling, inner, outer) = build_nested_owner_aggregate(&mut interpreter);
+    let mut values = [outer];
+
+    must_succeed(
+        interpreter.prepare_closure_adapter_values(function, &mut values),
+        "whole-value adapter should prepare an independent owner",
+    );
+    assert_ne!(values[0], outer);
+    let copied_inner = must_succeed(
+        interpreter.value_arena.aggregate(values[0]),
+        "copied outer product should remain live",
+    )
+    .fields[0];
+    assert_ne!(copied_inner, inner);
     assert_eq!(
         must_succeed(
-            interpreter.heap.references(fixture.selected),
-            "selected owner should remain live",
+            interpreter.heap.references(selected),
+            "owner should stay live"
         ),
         1,
         "retains stay staged until the callee frame is ready",
@@ -678,72 +681,28 @@ fn commit_projected_retain(interpreter: &mut Interpreter<'_>, fixture: &Projecte
     interpreter.commit_prepared_retains(1);
     assert_eq!(
         must_succeed(
-            interpreter.heap.references(fixture.selected),
-            "selected owner should be credited",
+            interpreter.heap.references(selected),
+            "owner should be credited"
         ),
         2,
     );
     assert_eq!(
         must_succeed(
-            interpreter.heap.references(fixture.unselected),
-            "unselected sibling should remain live",
+            interpreter.heap.references(sibling),
+            "sibling should be credited"
         ),
-        1,
-        "projected demand must not credit an unrelated field",
-    );
-}
-
-fn assert_projected_copy_is_independent(
-    interpreter: &mut Interpreter<'_>,
-    fixture: &ProjectedNestedValues,
-    copied_outer: VmValue,
-) {
-    assert_ne!(copied_outer, fixture.outer);
-    let copied_inner = must_succeed(
-        interpreter.value_arena.aggregate(copied_outer),
-        "copied outer product should remain live",
-    )
-    .fields[0];
-    assert_ne!(copied_inner, fixture.inner);
-    assert_eq!(
-        must_succeed(
-            interpreter.value_arena.aggregate(fixture.outer),
-            "caller's outer product should remain live",
-        )
-        .fields[0],
-        fixture.inner,
+        2,
     );
 
     must_succeed(
-        interpreter.release_owned_value(copied_inner),
-        "callee's projected owner should release independently",
+        interpreter.release_owned_value(outer),
+        "caller's complete value should release normally",
     );
     must_succeed(
-        interpreter.set_field(copied_inner, 0, VmValue::int(99)),
-        "callee copy should remain independently mutable",
+        interpreter.release_owned_value(values[0]),
+        "callee's complete value should release independently",
     );
-    assert_eq!(
-        must_succeed(
-            interpreter.value_arena.aggregate(fixture.inner),
-            "caller's inner product should remain live",
-        )
-        .fields[0],
-        fixture.selected,
-    );
-    assert_eq!(
-        must_succeed(
-            interpreter.heap.references(fixture.selected),
-            "caller should retain its selected owner",
-        ),
-        1,
-    );
-    assert_eq!(
-        must_succeed(
-            interpreter.heap.references(fixture.unselected),
-            "caller should retain its unselected sibling",
-        ),
-        1,
-    );
+    assert_eq!(interpreter.heap.metrics().live_objects, 0);
 }
 
 #[test]
@@ -1186,7 +1145,7 @@ pub(super) fn verified_aggregate_program() -> VerifiedProgram {
             retain_plans: RetainPlanTable::default(),
             roots: vec![main],
             cli_entry: Some(main),
-            externals: Vec::new(),
+            externals: ori_repr::executable::ValidatedExternalCallables::empty(),
             method_targets: FxHashMap::default(),
             user_drop_bindings: Vec::new(),
             repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
@@ -1326,7 +1285,7 @@ pub(super) fn verified_program(
             retain_plans: RetainPlanTable::default(),
             roots: vec![main],
             cli_entry: Some(main),
-            externals: Vec::new(),
+            externals: ori_repr::executable::ValidatedExternalCallables::empty(),
             method_targets: FxHashMap::default(),
             user_drop_bindings: Vec::new(),
             repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
@@ -1399,6 +1358,7 @@ fn test_function_with_blocks(
         method_call_facts: Vec::new(),
         operator_call_facts: Vec::new(),
         direct_call_facts: Vec::new(),
+        yield_allocations: Vec::new(),
         class_ledger_emission: false,
     }
 }

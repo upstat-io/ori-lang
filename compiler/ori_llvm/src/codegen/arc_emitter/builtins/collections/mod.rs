@@ -8,6 +8,7 @@ mod list_builtins;
 mod list_cow;
 mod list_dispatch;
 mod list_field_access;
+mod list_slices;
 mod list_sort_thunks;
 mod map_builtins;
 mod map_dispatch;

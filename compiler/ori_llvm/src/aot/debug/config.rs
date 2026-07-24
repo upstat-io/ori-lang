@@ -222,13 +222,16 @@ impl DebugInfoConfig {
 }
 
 /// Error type for debug info operations.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum DebugInfoError {
     /// Failed to create basic type.
     BasicType { name: String, message: String },
     /// Failed to create a basic type during LLVM debug info generation.
     /// This indicates an LLVM internal error and should not happen with valid inputs.
-    BasicTypeCreation { name: String },
+    BasicTypeCreation {
+        name: String,
+        source: inkwell::error::Error,
+    },
     /// Debug info is disabled.
     Disabled,
 }
@@ -239,7 +242,7 @@ impl std::fmt::Display for DebugInfoError {
             Self::BasicType { name, message } => {
                 write!(f, "failed to create debug type '{name}': {message}")
             }
-            Self::BasicTypeCreation { name } => {
+            Self::BasicTypeCreation { name, .. } => {
                 write!(f, "LLVM failed to create basic debug type '{name}'")
             }
             Self::Disabled => write!(f, "debug info is disabled"),
@@ -247,7 +250,14 @@ impl std::fmt::Display for DebugInfoError {
     }
 }
 
-impl std::error::Error for DebugInfoError {}
+impl std::error::Error for DebugInfoError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::BasicTypeCreation { source, .. } => Some(source),
+            _ => None,
+        }
+    }
+}
 
 /// Create a `DebugInfoError::BasicTypeCreation` error (cold path).
 ///
@@ -256,8 +266,12 @@ impl std::error::Error for DebugInfoError {}
 /// serious LLVM internal error.
 #[cold]
 #[inline(never)]
-pub(super) fn basic_type_creation_error(name: &str) -> DebugInfoError {
+pub(super) fn basic_type_creation_error(
+    name: &str,
+    source: inkwell::error::Error,
+) -> DebugInfoError {
     DebugInfoError::BasicTypeCreation {
         name: name.to_string(),
+        source,
     }
 }

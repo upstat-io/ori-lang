@@ -1,14 +1,17 @@
 //! ABI-aware direct and indirect ARC call emission.
 //! Internal protocols, casts, and method resolution precede ordinary ABI dispatch.
 
+mod local_yield;
+
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_ir::canon::MonoInstanceId;
 use ori_ir::{Name, CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN, FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
 
-use super::{ArcIrEmitter, EmittedValue, StringRuntimeReturnAbi};
 use crate::codegen::abi::{ParamAbi, ReturnAbi, ReturnPassing};
 use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
+
+use super::{ArcIrEmitter, EmittedValue, StringRuntimeReturnAbi};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit an `Apply` instruction (ABI-aware direct call).
@@ -22,6 +25,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) {
         let runtime_projection_allowed = self.runtime_projection_allowed(func, dst);
 
+        if runtime_projection_allowed && self.try_emit_local_yield_apply(dst, callee, args, func) {
+            return;
+        }
+
         if runtime_projection_allowed && self.try_emit_apply_special(dst, callee, args, func) {
             return;
         }
@@ -32,9 +39,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             Some((func_id, params, ret_abi)) => {
                 self.emit_resolved_direct_call(func_id, &params, ret_abi, &arg_vals, args)
             }
+
             None if runtime_projection_allowed => {
                 self.emit_runtime_projection_fallback(dst, callee, args, &arg_vals, func)
             }
+
             None => self.record_unresolved_direct_call(dst, callee, func),
         };
 
@@ -70,17 +79,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             args = args.len(),
             "emit_apply_indirect"
         );
+
         let fn_ptr = self
             .builder
             .extract_value(closure_val, CLOSURE_FIELD_FN, "closure.fn_ptr");
+
         let env_ptr = self
             .builder
             .extract_value(closure_val, CLOSURE_FIELD_ENV, "closure.env_ptr");
+
         let (Some(fn_ptr), Some(env_ptr)) = (fn_ptr, env_ptr) else {
-            tracing::error!(
-                closure_var = closure.raw(),
-                "emit_apply_indirect: extract_value failed — fn_ptr or env_ptr is None"
-            );
+            let msg = invalid_indirect_closure_message(closure);
+            tracing::error!("{msg}");
+            self.builder.record_codegen_error_with_msg(msg);
             return;
         };
 
@@ -103,12 +114,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
     }
 
-    // String runtime call helpers
-
     /// Call a string runtime function: `ori_str_concat`, `ori_str_eq`, `ori_str_ne`.
     ///
     /// String values are `{ i64, i64, ptr }` structs passed by pointer to the runtime.
     /// `return_abi` selects sret `{ i64, i64, ptr }` or direct `i1` return.
+    #[expect(
+        clippy::expect_used,
+        reason = "registered string runtime ABIs always return a value"
+    )]
     pub(super) fn emit_str_runtime_call(
         &mut self,
         func_name: &'static str,
@@ -128,19 +141,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .create_entry_alloca(self.current_function, "str_op.rhs", str_ty);
         self.builder.store(rhs, rhs_ptr);
 
+        // INVARIANT: Each registered string runtime ABI returns a value in its selected mode.
         match return_abi {
             StringRuntimeReturnAbi::StringSret => self
                 .builder
                 .call_with_sret(func_id, &[lhs_ptr, rhs_ptr], str_ty, func_name)
                 .expect("str-returning runtime call uses sret; builder yields the loaded value"),
+
             StringRuntimeReturnAbi::BoolDirect => {
                 let result = self.emit_rt_call(func_id, &[lhs_ptr, rhs_ptr], func_name);
                 result.expect("str comparison runtime fn is non-void; builder.call returns Some")
             }
         }
     }
-
-    // Apply emission helpers
 
     /// Emit a special-case `Apply` that bypasses ordinary callee resolution:
     /// protocol builtins, format calls, prelude functions, and traceless
@@ -176,6 +189,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.def_var_repr(dst, val, func);
                 true
             }
+
             None => false,
         }
     }
@@ -190,15 +204,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         args: &[ArcVarId],
     ) -> Option<ValueId> {
         let passed_args = self.apply_param_passing(arg_vals, Some(args), params);
-        match &ret_abi.passing {
+        let received = match &ret_abi.passing {
             ReturnPassing::Sret { .. } => {
-                let ret_ty = self.resolve_type(ret_abi.ty);
+                let ret_ty = self.resolve_boundary_type(ret_abi.ty);
                 self.call_with_sret(func_id, &passed_args, ret_ty, "call")
             }
-            ReturnPassing::Direct | ReturnPassing::Void => {
-                self.emit_rt_call(func_id, &passed_args, "call")
-            }
-        }
+
+            ReturnPassing::Void => return self.emit_rt_call(func_id, &passed_args, "call"),
+
+            ReturnPassing::Direct => self.emit_rt_call(func_id, &passed_args, "call"),
+        };
+        received.map(|v| self.narrow_to_storage(v, ret_abi.ty))
     }
 
     /// Fallback chain for an unresolved callee when runtime projection is
@@ -266,6 +282,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let len_ptr =
             self.builder
                 .struct_gep(list_struct_ty, list_ptr, FIELD_LEN, "list_builder.len_ptr");
+
         let data_ptr = self.builder.struct_gep(
             list_struct_ty,
             list_ptr,
@@ -283,8 +300,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.call(store_count, &[data, len], "");
     }
 
-    // Indirect-call emission helpers
-
     /// Marshal explicit closure arguments under the uniform borrowed ABI.
     pub(super) fn marshal_indirect_call_args(
         &mut self,
@@ -293,8 +308,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         func: &ArcFunction,
     ) -> (Vec<ValueId>, Vec<LLVMTypeId>) {
         let ptr_ty = self.builder.ptr_type();
-        let mut arg_vals = Vec::with_capacity(1 + args.len());
-        let mut param_types = Vec::with_capacity(1 + args.len());
+        let capacity = args.len().saturating_add(1);
+        let mut arg_vals = Vec::with_capacity(capacity);
+        let mut param_types = Vec::with_capacity(capacity);
         arg_vals.push(env_ptr);
         param_types.push(ptr_ty);
 
@@ -306,6 +322,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.repr_plan,
                 self.classifier,
             );
+
             match passing {
                 crate::codegen::abi::ParamPassing::Indirect { .. }
                 | crate::codegen::abi::ParamPassing::Reference => {
@@ -315,10 +332,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     arg_vals.push(alloca);
                     param_types.push(ptr_ty);
                 }
+
                 crate::codegen::abi::ParamPassing::Void => {}
+
                 crate::codegen::abi::ParamPassing::Direct => {
-                    arg_vals.push(self.var(a));
-                    param_types.push(self.resolve_type(arg_ty));
+                    let widened = self.widen_to_boundary(self.var(a), arg_ty);
+                    arg_vals.push(widened);
+                    param_types.push(self.resolve_boundary_type(arg_ty));
                 }
             }
         }
@@ -384,28 +404,29 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder
                 .call_indirect(ret_ty, param_types, fn_ptr, arg_vals, "icall")
         };
+
         if let Some(val) = result {
             self.def_var_repr(dst, val, func);
         }
     }
 }
 
+/// Builds the diagnostic for a closed target missing from LLVM declarations.
+#[cold]
+#[must_use]
 pub(super) fn closed_target_projection_message(target: &str, site: &str) -> String {
     format!(
         "LLVM did not declare closed executable target `{target}` before {site}; rerun the same command with ORI_VERIFY_ARC=1 and report this compiler bug"
     )
 }
 
-#[cfg(test)]
-mod diagnostic_tests {
-    use super::closed_target_projection_message;
-
-    #[test]
-    fn closed_target_diagnostic_states_cause_and_action() {
-        let message = closed_target_projection_message("clone$derived$7", "apply");
-        assert!(message.contains("did not declare closed executable target"));
-        assert!(message.contains("ORI_VERIFY_ARC=1"));
-        assert!(message.contains("report this compiler bug"));
-        assert!(!message.contains("missing mono instance"));
-    }
+#[cold]
+fn invalid_indirect_closure_message(closure: ArcVarId) -> String {
+    format!(
+        "LLVM could not read the function and environment fields of indirect-call closure v{}; report this compiler bug",
+        closure.raw()
+    )
 }
+
+#[cfg(test)]
+mod tests;

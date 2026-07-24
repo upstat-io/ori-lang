@@ -115,8 +115,10 @@ impl ReprPlan {
     /// Returns `true` by default — safe (never stack-promotes when unsure).
     #[must_use]
     pub fn escapes(&self, func: ori_ir::Name, var: ori_arc::ArcVarId) -> bool {
-        // Until escape analysis populates escape_info, assume everything escapes.
-        let result = true;
+        let result = self
+            .escape_info
+            .get(&func)
+            .is_none_or(|info| info.escapes(var));
         tracing::trace!(?func, ?var, escapes = result, "escapes query");
         result
     }

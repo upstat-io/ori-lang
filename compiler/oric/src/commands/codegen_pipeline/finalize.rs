@@ -1,32 +1,14 @@
-//! Phase-dump + post-codegen finalization helpers.
+//! Post-codegen finalization.
 //!
-//! - `dump_arc_phases`: the `ORI_DUMP_AFTER_ARC` (via the dump orchestrator) +
-//!   `ORI_EMIT_ARC_DOT` phase-dump invocations — no-op when the env vars unset.
-//! - `finalize_module`: the post-codegen diagnostics-and-verify phase. Runs
-//!   LLVM-IR dump (if requested), codegen audit (if requested), and module
-//!   verification. Returns the cloned module on success or a diagnostic string
-//!   on failure.
+//! `finalize_module` runs the LLVM-IR dump (if requested), the codegen audit
+//! (if requested), and module verification. Returns the cloned module on
+//! success or a diagnostic string on failure. Realized-artifact observation
+//! lives at `dump_orchestrator::dump_realized_arc`, shared by every driver.
 
 use ori_ir::StringInterner;
 use ori_llvm::inkwell::module::Module;
 use ori_llvm::SimpleCx;
 use ori_types::Pool;
-
-/// Emit ARC-IR phase dumps when the corresponding env-var gates are set.
-///
-/// The ARC IR dump routes through the dump orchestrator (ARC phase); the
-/// `ORI_EMIT_ARC_DOT` `GraphViz` emit stays `dbg_do!`-gated. A single call site
-/// for both so the caller doesn't carry the gating noise inline.
-pub(super) fn dump_arc_phases(
-    executable: &ori_repr::executable::ExecutableProgram,
-    interner: &StringInterner,
-    source_path: &str,
-) {
-    crate::dump_orchestrator::dump_arc(executable, interner, source_path);
-    crate::dbg_do!(crate::debug_flags::ORI_EMIT_ARC_DOT, {
-        crate::arc_dot::emit_arc_dot(executable.functions(), executable.pool(), interner);
-    });
-}
 
 /// Post-codegen diagnostics-and-verify phase.
 ///

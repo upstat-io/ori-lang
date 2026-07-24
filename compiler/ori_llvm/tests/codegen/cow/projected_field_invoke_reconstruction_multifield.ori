@@ -1,0 +1,21 @@
+// Multi-field production-entry pin for reconstruction split across an Invoke
+// predecessor and its normal successor.
+//
+// @function: _ori_append
+// CHECK-LABEL: define fastcc void @_ori_append
+// CHECK-NOT: call void @ori_list_rc_inc
+// CHECK-NOT: invoke
+// CHECK-NOT: landingpad
+// CHECK-NOT: resume
+// CHECK: call void @ori_list_push_cow
+
+type Box = { rows: [int], tags: [int] }
+
+@append (box: Box, value: int) -> Box =
+    Box { rows: box.rows.push(value:), tags: box.tags };
+
+@main () -> void = {
+    let box = Box { rows: [1, 2], tags: [3, 4] };
+    let updated = append(box:, value: 5);
+    print(msg: (updated.rows.len() + updated.tags.len()).to_str())
+}

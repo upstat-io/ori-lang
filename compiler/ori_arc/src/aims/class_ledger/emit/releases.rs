@@ -12,9 +12,8 @@ use crate::aims::intraprocedural::ledger_events::EventSite;
 use crate::ir::ArcFunction;
 
 use super::super::events::{live_out, live_out_forward, successors_of, ClassEvent, ClassEvents};
-use super::cfg_region::CycleRegions;
 use super::release_subject::{release_var_for_slot, ReleaseCtx};
-use super::{DeclineReason, PlanSlot, PlannedOp, PlannedOpKind};
+use super::{CycleRegions, DeclineReason, PlanSlot, PlannedOp, PlannedOpKind};
 pub(in super::super) use arm_local::pair_arm_local_seed_releases;
 
 /// RL-2 unused-owned / RL-5 dead-at-entry releases for a class with zero

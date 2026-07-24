@@ -276,11 +276,11 @@ fn dump_collection(
         ExprKind::Map(entries) => {
             collections::dump_map(out, *entries, ctx, depth, indent, ty);
         }
-        ExprKind::Struct { name, fields } => {
-            collections::dump_struct(out, *name, *fields, ctx, depth, indent, ty);
+        ExprKind::Struct { type_path, fields } => {
+            collections::dump_struct(out, *type_path, *fields, ctx, depth, indent, ty);
         }
-        ExprKind::StructWithSpread { name, fields } => {
-            collections::dump_struct_with_spread(out, *name, *fields, ctx, depth, indent, ty);
+        ExprKind::StructWithSpread { type_path, fields } => {
+            collections::dump_struct_with_spread(out, *type_path, *fields, ctx, depth, indent, ty);
         }
         ExprKind::ListWithSpread(elements) => {
             collections::dump_list_with_spread(out, *elements, ctx, depth, indent, ty);

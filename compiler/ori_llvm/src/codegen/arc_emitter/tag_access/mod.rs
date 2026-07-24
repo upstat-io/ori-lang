@@ -115,20 +115,14 @@ impl TagEncoding {
         }
     }
 
-    /// For niche encoding: the niche sentinel value.
-    pub(crate) fn niche_value(&self) -> Option<u64> {
-        match &self.tag {
-            EnumTag::Niche { niche_value, .. } => Some(*niche_value),
-            _ => None,
-        }
-    }
-
-    /// For niche encoding: which variant is encoded by the niche value.
-    pub(crate) fn niche_variant_idx(&self) -> Option<u32> {
+    /// Return the three fields that are present together on a niche encoding.
+    pub(crate) fn niche_fields(&self) -> Option<(u32, u64, u32)> {
         match &self.tag {
             EnumTag::Niche {
-                niche_variant_idx, ..
-            } => Some(*niche_variant_idx),
+                field_index,
+                niche_value,
+                niche_variant_idx,
+            } => Some((*field_index, *niche_value, *niche_variant_idx)),
             _ => None,
         }
     }

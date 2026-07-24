@@ -79,6 +79,13 @@ pub struct ModuleChecker<'a> {
     /// Consumed by `try_infer_module_alias_call` to resolve `alias.func(args)`
     /// against the named signature (arity-checked, args checked against params).
     pub(super) module_aliases: FxHashMap<Name, Vec<FunctionSig>>,
+    /// Canonical pool index per imported type declaration, keyed by
+    /// `(module source path, declaration name)`.
+    ///
+    /// A declaration imported under several module aliases is one nominal type,
+    /// so the second alias binds its qualified name to the index recorded here
+    /// instead of registering a separate type.
+    pub(super) imported_type_canonical: FxHashMap<(Name, Name), Idx>,
 
     // Function Signatures
     /// Collected function signatures for call resolution.
@@ -256,6 +263,7 @@ impl<'a> ModuleChecker<'a> {
             methods: MethodRegistry::new(),
             import_env: TypeEnv::new(),
             module_aliases: FxHashMap::default(),
+            imported_type_canonical: FxHashMap::default(),
             signatures: FxHashMap::default(),
             base_env: None,
             expr_types: Vec::new(),

@@ -136,6 +136,13 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         self.arena.push_type(self.scx.type_ptr().into())
     }
 
+    /// Register a fixed-size byte-array type.
+    #[inline]
+    pub fn byte_array_type(&mut self, len: u32) -> LLVMTypeId {
+        self.arena
+            .push_type(self.scx.type_i8().array_type(len).into())
+    }
+
     /// Register and return the unit type ID (i64, matching Ori convention).
     #[inline]
     pub fn unit_type(&mut self) -> LLVMTypeId {

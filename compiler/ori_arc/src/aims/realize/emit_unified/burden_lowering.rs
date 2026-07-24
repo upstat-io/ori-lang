@@ -1,5 +1,5 @@
-//! Phase 7 mechanical lowering: surviving whole-var and field-grain burden
-//! ops to their realized RC instructions.
+//! Mechanical lowering from whole-var and field-grain burden operations to
+//! realized RC instructions.
 //!
 //! This module owns the final burden-to-RC spelling boundary.
 
@@ -11,43 +11,14 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::ir::{ArcFunction, ArcInstr, ArcVarId, RcAtomicity, RcStrategy};
 use crate::lower::type_has_user_drop;
 
-/// Phase 7 (probe): mechanically lower surviving whole-var burden ops to the
-/// shipped transitional RC carrier.
+/// Lowers whole-variable and field-grain burden operations to RC instructions.
 ///
-/// `BurdenInc { var }` → `RcInc { var, count: 1, strategy, atomicity }` and
-/// whole-var `BurdenDec { var }` → `RcDec { var, strategy, atomicity }`, with
-/// the canonical `RcStrategy::from_repr` (same strategy the predicate-stack
-/// emitter embeds) and compatibility `atomicity = Atomic`. The latter preserves
-/// the shipped compiled runtime; AIMS freezes thread reachability rather than
-/// selecting this physical mechanism.
-///
-/// Field-grain `BurdenDecPartial` / `BurdenDecField` / `BurdenDecVariant` are
-/// rewritten to their REALIZED spellings (`RcDecPartial` / `RcDecField` /
-/// `RcDecVariant`) with the same logical partial, variant, and replacement
-/// cleanup obligations, never a whole-var `RcDec` (would double-drop). The re-spelling takes the lowered op
-/// OUT of the Step-11 burden census: the VF-1 whole-var ledger counts SURVIVING
-/// burden ops, and a mechanically-lowered op must leave the burden stream with
-/// its pair partner (the whole-var acquire inc lowers to `RcInc` in the same
-/// pass) — a half-pair surviving in burden spelling nets `-1` at every exit
-/// through its path and aborts gated runs (Spec: Annex E §AIMS RL-comp
-/// net-preservation). `ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING=1` restores the
-/// legacy burden-spelled survival for bisection.
-///
-/// `Scalar` reprs cannot reach here from class-ledger emission: state-map
-/// exclusion and class admission consult this same `var_reprs` source (Spec:
-/// Annex E §AIMS RE-2 / DP-1 / L-9). A `Scalar` or out-of-range `var_repr`
-/// leaves the burden op in place rather than synthesizing an unsound `RcDec`.
-///
-/// `elidable_fresh_incs` (per `compute_elidable_fresh_self_alloc_incs`): FRESH
-/// self-allocation `BurdenInc` def-sites whose paired fresh inc is REDUNDANT
-/// under lowering — the allocation already supplies the lineage's `+1`. The
-/// FIRST `BurdenInc` encountered for such a var is REMOVED (an elided op is
-/// gone from the op stream, keeping the VF-1 whole-var ledger net-0; a
-/// surviving no-op marker would count `+1` at function exit and abort gated
-/// runs). Subsequent `BurdenInc`s for the same var (genuine dup-alias
-/// acquires) still lower — only the ONE redundant fresh-site inc per var is
-/// elided. `ORI_DISABLE_ELIDED_FRESH_INC_REMOVAL=1` restores the legacy
-/// no-op-marker form (codegen no-ops it) for bisection.
+/// Whole-variable operations use the representation's canonical strategy and
+/// atomic RC. Field-grain decrements retain their partial cleanup obligations;
+/// lowering them to a whole-variable decrement would double-drop fields.
+/// Scalar or out-of-range representations remain burden operations. Each entry
+/// in `elidable_fresh_incs` omits one redundant increment because allocation
+/// supplies the lineage's initial `+1`.
 ///
 /// Spec: Annex E §AIMS RL-comp (lowered `BurdenInc`/`BurdenDec` net-preservation).
 pub(super) fn lower_burden_ops_to_rc(
@@ -117,7 +88,29 @@ pub(super) fn lower_burden_ops_to_rc(
                     strategy,
                     atomicity,
                 },
-                _ => unreachable!("filtered to whole-var burden ops above"),
+                ArcInstr::Let { .. }
+                | ArcInstr::Apply { .. }
+                | ArcInstr::ApplyIndirect { .. }
+                | ArcInstr::PartialApply { .. }
+                | ArcInstr::Project { .. }
+                | ArcInstr::Construct { .. }
+                | ArcInstr::RcInc { .. }
+                | ArcInstr::RcDec { .. }
+                | ArcInstr::RcDecPartial { .. }
+                | ArcInstr::RcDecField { .. }
+                | ArcInstr::RcDecVariant { .. }
+                | ArcInstr::BurdenDecPartial { .. }
+                | ArcInstr::BurdenDecField { .. }
+                | ArcInstr::BurdenDecVariant { .. }
+                | ArcInstr::IsShared { .. }
+                | ArcInstr::Set { .. }
+                | ArcInstr::SetTag { .. }
+                | ArcInstr::Reset { .. }
+                | ArcInstr::Reuse { .. }
+                | ArcInstr::CollectionReuse { .. }
+                | ArcInstr::Select { .. } => {
+                    unreachable!("filtered to whole-var burden ops above")
+                }
             };
             func.blocks[block_idx].body[instr_idx] = lowered;
         }
@@ -127,10 +120,7 @@ pub(super) fn lower_burden_ops_to_rc(
     }
 }
 
-/// `ORI_DISABLE_ELIDED_FRESH_INC_REMOVAL=1` keeps each elided fresh-site
-/// `BurdenInc` as a codegen-no-op marker instead of removing it. Bisection
-/// surface: isolates a behavior change to the marker removal vs the elision
-/// verdict. Default (unset): elided incs are removed.
+// Env: ORI_DISABLE_ELIDED_FRESH_INC_REMOVAL - retains elided fresh-site markers, debug-only.
 static ELIDED_FRESH_INC_REMOVAL_DISABLED: LazyLock<bool> = LazyLock::new(|| {
     report_elided_fresh_inc_removal_toggle(
         std::env::var("ORI_DISABLE_ELIDED_FRESH_INC_REMOVAL").as_deref() == Ok("1"),
@@ -152,12 +142,7 @@ fn elided_fresh_inc_removal_disabled() -> bool {
     *ELIDED_FRESH_INC_REMOVAL_DISABLED
 }
 
-/// `ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING=1` keeps `BurdenDecPartial` /
-/// `BurdenDecField` / `BurdenDecVariant` in burden spelling through Phase 7
-/// (the legacy half-pair shape the Step-11 VF-1 ledger nets `-1`). Bisection
-/// surface: isolates a gated-verification change to the field-grain
-/// re-spelling vs the rest of the lowering. Default (unset): field-grain decs
-/// lower to `RcDecPartial` / `RcDecField` / `RcDecVariant`.
+// Env: ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING - retains burden-spelled field decrements, debug-only.
 static FIELD_GRAIN_DEC_LOWERING_DISABLED: LazyLock<bool> = LazyLock::new(|| {
     report_field_grain_dec_lowering_toggle(
         std::env::var("ORI_DISABLE_FIELD_GRAIN_DEC_LOWERING").as_deref() == Ok("1"),

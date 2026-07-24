@@ -1,9 +1,7 @@
-//! Fibonacci Benchmark - The classic language performance test
+//! Native iterative Fibonacci benchmark.
 //!
-//! Since we don't have Ori-to-Ori function calls yet, we'll:
-//! 1. Generate LLVM IR for an iterative fibonacci function
-//! 2. Compile to native code
-//! 3. Benchmark against other languages
+//! Generates LLVM IR directly, compiles it to native code, and measures the
+//! resulting function.
 //!
 //! Run with: `cargo run --example fib_benchmark -p ori_llvm --release`
 
@@ -17,21 +15,17 @@ use inkwell::OptimizationLevel;
 fn main() {
     println!("=== Fibonacci Benchmark ===\n");
 
-    // We'll manually construct LLVM IR for iterative fib
-    // since our AST codegen doesn't have all features yet
     create_fib_benchmark();
 }
 
 fn create_fib_benchmark() {
     let context = Context::create();
 
-    // Create module directly with inkwell for full control
     let module = context.create_module("fib_bench");
     let builder = context.create_builder();
 
     let i64_type = context.i64_type();
 
-    // Create: fn fib(n: i64) -> i64
     let fn_type = i64_type.fn_type(&[i64_type.into()], false);
     let function = module.add_function("fib", fn_type, None);
 

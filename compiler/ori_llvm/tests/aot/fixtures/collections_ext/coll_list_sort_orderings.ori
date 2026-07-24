@@ -1,0 +1,5 @@
+@main () -> int = {
+    let sorted = [Greater, Less, Equal].sort();
+
+    if sorted == [Less, Equal, Greater] && [Less] < [Equal] then 0 else 1
+}

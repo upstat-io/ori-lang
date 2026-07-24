@@ -79,6 +79,24 @@ pub(crate) fn dump_arc(
     crate::arc_dump::dump_arc_ir(executable.functions(), executable.pool(), interner, path);
 }
 
+/// Emits every realized-artifact observation gate for one driver.
+///
+/// Called by each driver immediately after the shared realization entry
+/// returns, so the AOT, JIT, and VM-corpus paths observe the same artifact
+/// through the same gates. Keeping this at the caller leaves the realization
+/// entry free of environment reads.
+#[cfg(feature = "llvm")]
+pub(crate) fn dump_realized_arc(
+    executable: &ori_repr::executable::ExecutableProgram,
+    interner: &StringInterner,
+    source_path: &str,
+) {
+    dump_arc(executable, interner, source_path);
+    crate::dbg_do!(crate::debug_flags::ORI_EMIT_ARC_DOT, {
+        crate::arc_dot::emit_arc_dot(executable.functions(), executable.pool(), interner);
+    });
+}
+
 /// Emits LLVM IR when enabled and delays `ir_text` until after the gate.
 #[cfg(feature = "llvm")]
 pub(crate) fn dump_llvm(

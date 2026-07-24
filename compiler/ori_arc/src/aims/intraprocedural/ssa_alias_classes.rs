@@ -1,58 +1,15 @@
-//! SSA-alias equivalence-class computation .
+//! SSA alias equivalence classes.
 //!
-//! Pre-walk pass that computes the `ssa_alias_classes` side-table on
-//! [`AimsStateMap`] via union-find over Let-Var alias edges, Jump-arg →
-//! block-param edges, and apply-result alias edges of `Direct` and
-//! `Conditional` shape. Class membership encodes "these SSA names refer to the
-//! same logical ownership identity" — orthogonal to `borrow_sources` (per-Project borrow facts)
-//! and to `project_alias_sources` (per-Project transitive alias chains).
+//! Union-find groups `Let` aliases, jump arguments with block parameters, and
+//! `Direct` or `Conditional` apply-result aliases. Project, wrapped, and
+//! `Select` values remain separate ownership identities. `class_table` maps
+//! non-singleton members, `class_members` supports last-use checks, and
+//! `class_apply_alias_source_candidates` preserves directional suppression.
 //!
-//! In-class membership: Let-Var aliases (transitively chained), Jump-arg →
-//! block-param pairs, and apply-result aliases whose `ApplyAliasSource` is
-//! `Direct(arg)` or `Conditional { candidates }`. NOT in-class:
-//! - Project field borrows — a different ownership identity from the source's root; the
-//!   `borrow_sources` side table covers DP-5 disjointness for them.
-//! - Select operands — `Select(cond, true_val, false_val)` operands refer to
-//!   different logical ownership identities; only one is selected at runtime, the
-//!   unselected one needs an independent `RcDec`. Existing compensating `RcInc`
-//!   in `walk.rs` handles Select correctly through per-source dec
-//!   independence (PIN-2).
-//! - `ApplyAliasSource::Project { arg, field }` — the apply returned `arg.field`
-//!   (a different ownership identity than `arg`'s root). The same identity-separation
-//!   architectural concern as Select; unioning would conflate two distinct
-//!   logical owners and reproduce the same double-release / under-release failure mode
-//!   PIN-2 was created to prevent. The directional metadata is still recorded
-//!   in `class_apply_alias_source_candidates` (PIN-3) so caller-side
-//!   `should_suppress_apply_aliased_dec` continues to suppress the apply-source
-//!   role's scope-exit dec.
+//! # Ordering
 //!
-//! Three returned fields:
-//! - `class_table: ArcVarId → u32` — the union-find result, keyed only by vars
-//!   that participate in a multi-member class (singletons excluded — they
-//!   flow through the per-var dec emission path unchanged).
-//! - `class_members: u32 → FxHashSet<ArcVarId>` — reverse index. Enables the
-//!   PIN-4 class-liveness check `class_members(class_id).any(is_live_after)`
-//!   in `walk_dec.rs::emit_last_use_decs`: skip `RcDec` emission unless no class
-//!   member is live after the current instruction; emit at the class's
-//!   absolute last use.
-//! - `class_apply_alias_source_candidates: u32 → FxHashSet<ArcVarId>` — PIN-3
-//!   directional metadata, keyed by the SOURCE arg's class. For `Direct` and
-//!   `Conditional` shapes, source-class equals destination-class (via union).
-//!   For `Project` shape (no union), source-class is the source arg's
-//!   pre-existing class — keying by source-class is the only way the
-//!   downstream `should_suppress_apply_aliased_dec` helper can find the apply
-//!   source for a Project return.
-//!
-//! Pipeline ordering — PL-5 (no-stale-summary invariant):
-//!
-//! 1. `populate_apply_result_aliases(func, sigs)` — pre-walk (`apply_aliases.rs`).
-//! 2. `compute_ssa_alias_classes(func, &apply_result_aliases)` — pre-walk (this file).
-//! 3. `compute_project_alias_sources(func, &apply_result_aliases)` — pre-walk.
-//! 4. `analyze_function` worklist — sees fully composed alias graph; backward
-//!    walk never reads stale state.
-//!
-//! Read-only after step 2 completes; matches the `borrow_sources` and
-//! `apply_result_aliases` invariants per §1.9 Side-Table Domains.
+//! Apply-result aliases must exist before class construction. The completed
+//! table is read-only before backward demand analysis begins.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -64,7 +21,7 @@ use super::state_map::ApplyAliasSource;
 /// Returned data of `compute_ssa_alias_classes`.
 #[expect(
     clippy::struct_field_names,
-    reason = "pre-existing; struct field naming is consistent with domain model"
+    reason = "all fields expose distinct projections of one SSA alias class"
 )]
 pub(crate) struct SsaAliasClassesOutput {
     pub class_table: FxHashMap<ArcVarId, u32>,
@@ -82,10 +39,6 @@ pub(crate) struct SsaAliasClassesOutput {
 ///
 /// Complexity: O(N · α(N) + I) where N = total SSA vars and I = total
 /// instructions+terminators.
-#[expect(
-    clippy::match_same_arms,
-    reason = "pre-existing; explicit arms document the intent"
-)]
 pub(crate) fn compute_ssa_alias_classes(
     func: &ArcFunction,
     apply_result_aliases: &FxHashMap<ArcVarId, ApplyAliasSource>,
@@ -119,17 +72,7 @@ pub(crate) fn compute_ssa_alias_classes(
     for (&dst, source) in apply_result_aliases {
         match source {
             ApplyAliasSource::Direct(arg) => uf.union(dst, *arg),
-            ApplyAliasSource::Project { .. } => { /* no union — PIN-2 */ }
-            ApplyAliasSource::Wrapped(_) => {
-                // PIN-2 ANALOGOUS — no union.
-                // Wrapped means dst CONTAINS arg as a transitive-drop variant
-                // payload (e.g., `wrap_ok(m: T) -> Result<T, E> = Ok(m)`).
-                // Result and the wrapped allocation are SEPARATE RC slots
-                // (different identity), so unioning their classes would
-                // collapse two distinct slots into one and over-suppress
-                // downstream Project apply-aliased decs (the install
-                // failure mode).
-            }
+            ApplyAliasSource::Project { .. } | ApplyAliasSource::Wrapped(_) => {}
             ApplyAliasSource::Conditional { candidates } => {
                 for &cand in candidates {
                     uf.union(dst, cand);
@@ -159,18 +102,14 @@ pub(crate) fn compute_ssa_alias_classes(
     // PIN-3: record source-arg → class metadata, keyed by the SOURCE's class.
     // For Direct and Conditional, source-class equals destination-class via
     // union. For Project (no union), source-class is the source arg's
-    // pre-existing class — keying by source-class is the only way
+    // existing class — keying by source-class is the only way
     // `should_suppress_apply_aliased_dec` can find the source for a Project
     // return.
     for source in apply_result_aliases.values() {
         let source_args: Vec<ArcVarId> = match source {
-            ApplyAliasSource::Direct(arg) => vec![*arg],
-            ApplyAliasSource::Project { arg, .. } => vec![*arg],
-            // Wrapped contributes its arg
-            // as a source candidate so class-keyed lookups (mirror of the
-            // per-var `should_suppress_apply_aliased_dec` path) can find
-            // arg too. Mirrors Direct/Project's single-arg pattern.
-            ApplyAliasSource::Wrapped(arg) => vec![*arg],
+            ApplyAliasSource::Direct(arg)
+            | ApplyAliasSource::Project { arg, .. }
+            | ApplyAliasSource::Wrapped(arg) => vec![*arg],
             ApplyAliasSource::Conditional { candidates } => candidates.clone(),
         };
         for arg in source_args {
@@ -222,10 +161,6 @@ impl UnionFind {
         x
     }
 
-    #[expect(
-        clippy::comparison_chain,
-        reason = "pre-existing; if-chain is clearer for this domain logic"
-    )]
     fn union(&mut self, a: ArcVarId, b: ArcVarId) {
         let root_a = self.find(a);
         let root_b = self.find(b);
@@ -234,13 +169,13 @@ impl UnionFind {
         }
         let rank_a = self.ranks[root_a as usize];
         let rank_b = self.ranks[root_b as usize];
-        let (kept, merged) = if rank_a < rank_b {
-            (root_b, root_a)
-        } else if rank_a > rank_b {
-            (root_a, root_b)
-        } else {
-            self.ranks[root_a as usize] += 1;
-            (root_a, root_b)
+        let (kept, merged) = match rank_a.cmp(&rank_b) {
+            std::cmp::Ordering::Less => (root_b, root_a),
+            std::cmp::Ordering::Greater => (root_a, root_b),
+            std::cmp::Ordering::Equal => {
+                self.ranks[root_a as usize] += 1;
+                (root_a, root_b)
+            }
         };
         self.parents[merged as usize] = kept;
         self.sizes[kept as usize] += self.sizes[merged as usize];

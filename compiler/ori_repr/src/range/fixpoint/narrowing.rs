@@ -7,6 +7,7 @@
 //! - **Return range recomputation**: rebuilds from final narrowed variables
 
 use ori_arc::ir::{ArcFunction, ArcTerminator};
+use ori_arc::ArcBlockId;
 use ori_arc::ArcVarId;
 use ori_types::Pool;
 use rustc_hash::FxHashMap;
@@ -15,46 +16,35 @@ use super::super::field_summary::{
     update_element_summaries, update_element_summaries_from_terminator, update_field_summaries,
     ElementSummaryTable, FieldSummaryTable,
 };
-use super::super::transfer::{transfer, transfer_known_call, TransferContext};
+use super::super::transfer::{transfer, transfer_known_call, DirectFieldSources, TransferContext};
 use super::super::{is_int_typed, ValueRange};
-use super::{apply_block_refinements, narrow, restore_block_refinements};
-use ori_arc::ArcBlockId;
+use super::iteration::{apply_block_refinements, restore_block_refinements};
+use super::{narrow, FixpointContext};
 use ValueRange::{Bottom, Top};
 
 /// Run one narrowing pass over all blocks to recover precision lost to widening.
 ///
-/// also re-merges block parameters from predecessors, applies
+/// Also re-merges block parameters from predecessors, applies
 /// block refinements (branch/switch), and narrows invoke terminators.
 /// This allows widened loop-header parameters to recover bounded ranges.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "fixpoint infrastructure passes — bundling would add indirection"
-)]
 pub(super) fn run_narrowing_pass(
-    rpo: &[usize],
-    func: &ArcFunction,
-    pool: &Pool,
+    context: &FixpointContext<'_>,
     ranges: &mut FxHashMap<ArcVarId, ValueRange>,
     field_summary_table: &FieldSummaryTable,
-    predecessors: &[Vec<usize>],
+    direct_field_sources: &DirectFieldSources,
     block_refinements: &FxHashMap<(ArcBlockId, ArcVarId), ValueRange>,
-    known_builtins: &super::super::KnownBuiltins,
-    call_result_narrowings: &FxHashMap<ArcVarId, super::super::ValueRange>,
 ) {
-    for &block_idx in rpo {
-        let block = &func.blocks[block_idx];
+    for &block_idx in context.rpo {
+        let block = &context.func.blocks[block_idx];
 
-        // Narrow block parameters from predecessor jump args.
-        // Skip entry block parameters with no predecessors — they may be seeded
-        // from interprocedural analysis, and narrowing against Bottom
-        // (which means "no info from predecessors") would destroy those seeds.
+        // INVARIANT: Predecessor `Bottom` cannot replace seeded entry-parameter ranges.
         for (param_idx, (param_var, _)) in block.params.iter().enumerate() {
-            if predecessors[block_idx].is_empty() {
-                continue; // Entry block — preserve interprocedural seeds.
+            if context.predecessors[block_idx].is_empty() {
+                continue;
             }
             let mut merged = Bottom;
-            for &pred_idx in &predecessors[block_idx] {
-                let pred = &func.blocks[pred_idx];
+            for &pred_idx in &context.predecessors[block_idx] {
+                let pred = &context.func.blocks[pred_idx];
                 if let ArcTerminator::Jump { target, args, .. } = &pred.terminator {
                     if target.index() == block_idx {
                         if let Some(&arg_var) = args.get(param_idx) {
@@ -74,26 +64,23 @@ pub(super) fn run_narrowing_pass(
             }
         }
 
-        // Apply block-entry refinements temporarily (same as forward pass).
         let saved = apply_block_refinements(block, ranges, block_refinements);
 
-        // Narrow body instructions.
-        // Apply updates immediately so later instructions see narrowed values
-        // from earlier instructions in the same block. This is critical for
-        // loop body copy chains: %18 = %4 (narrowed via refinement) must be
-        // visible when computing %20 = %18 + 1.
+        // INVARIANT: Each transfer observes the narrowed prefix of its block.
         let field_summaries = field_summary_table.as_map();
         for instr in &block.body {
             let computed = {
                 let ctx = TransferContext {
                     ranges: &*ranges,
-                    pool,
-                    var_types: &func.var_types,
+                    pool: context.pool,
+                    var_types: &context.func.var_types,
                     field_summaries,
-                    known_builtins,
+                    direct_field_sources,
+                    known_builtins: context.known_builtins,
                 };
                 transfer(instr, &ctx)
             };
+
             let Some(var) = instr.defined_var() else {
                 continue;
             };
@@ -105,12 +92,8 @@ pub(super) fn run_narrowing_pass(
             }
         }
 
-        // Restore temporary refinements.
         restore_block_refinements(ranges, saved);
 
-        // Narrow invoke terminator.
-        // also apply call_result_narrowings for Invoke dst (same
-        // as forward pass), so return-range feedback reaches Invoke paths.
         if let ArcTerminator::Invoke {
             dst,
             ty,
@@ -118,9 +101,10 @@ pub(super) fn run_narrowing_pass(
             ..
         } = &block.terminator
         {
-            if is_int_typed(*ty, pool) {
-                let mut computed = transfer_known_call(*callee, known_builtins).unwrap_or(Top);
-                if let Some(&crn) = call_result_narrowings.get(dst) {
+            if is_int_typed(*ty, context.pool) {
+                let mut computed =
+                    transfer_known_call(*callee, context.known_builtins).unwrap_or(Top);
+                if let Some(&crn) = context.call_result_narrowings.get(dst) {
                     computed = computed.meet(crn);
                 }
                 if let Some(&widened) = ranges.get(dst) {
@@ -156,7 +140,7 @@ pub(super) fn recompute_field_summaries(
 
 /// Recompute element summaries from final (post-narrowing) variable ranges.
 ///
-/// Same rationale as `recompute_field_summaries`.
+/// Rebuilds element summaries without pre-convergence ranges.
 pub(super) fn recompute_element_summaries(
     rpo: &[usize],
     func: &ArcFunction,
@@ -169,7 +153,6 @@ pub(super) fn recompute_element_summaries(
         for instr in &func.blocks[block_idx].body {
             update_element_summaries(instr, ranges, &func.var_types, pool, element_summary_table);
         }
-        // also check terminators for Invoke calls returning collections.
         update_element_summaries_from_terminator(
             &func.blocks[block_idx].terminator,
             pool,
@@ -178,15 +161,9 @@ pub(super) fn recompute_element_summaries(
     }
 }
 
-/// Recompute `return_range` from the final narrowed variable ranges.
-///
-/// During forward iterations, `return_range` accumulates pre-narrowing values.
-/// After narrowing recovers precision for loop variables, `return_range` must
-/// be recomputed so the interprocedural handoff uses the tightened ranges.
-///
-/// Only iterates reachable blocks (via `rpo`). Unreachable blocks
-/// contain variables that were never analyzed, so `ranges.get()` returns `None`
-/// and the `unwrap_or(Top)` fallback would pollute the return range.
+/// Recomputes the return range after loop narrowing. Only RPO-reachable blocks
+/// contribute; including unanalyzed unreachable variables would introduce
+/// `Top` through the missing-range fallback.
 pub(super) fn recompute_return_range(
     rpo: &[usize],
     func: &ArcFunction,

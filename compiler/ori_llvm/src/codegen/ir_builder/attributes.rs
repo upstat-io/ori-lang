@@ -73,6 +73,17 @@ impl IrBuilder<'_, '_> {
         f.add_attribute(AttributeLoc::Function, attr);
     }
 
+    /// Require inlining of a private specialization at every call site.
+    ///
+    /// Used only for closed-program physical clones whose specialization fact
+    /// becomes substantially more useful after caller/callee optimization.
+    pub fn add_alwaysinline_attribute(&mut self, func: FunctionId) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("alwaysinline");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 0);
+        f.add_attribute(AttributeLoc::Function, attr);
+    }
+
     /// Add the `cold` attribute to a function.
     ///
     /// Hints that this function is rarely called. LLVM uses this to:

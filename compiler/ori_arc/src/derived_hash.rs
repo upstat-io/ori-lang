@@ -66,6 +66,8 @@ pub enum DerivedHashBodyError {
         index_kind: &'static str,
         /// Source shape index.
         index: usize,
+        /// Integer conversion failure, when conversion caused the overflow.
+        source: Option<std::num::TryFromIntError>,
     },
 }
 
@@ -108,6 +110,7 @@ impl std::fmt::Display for DerivedHashBodyError {
                 receiver_type,
                 index_kind,
                 index,
+                ..
             } => write!(
                 formatter,
                 "derived Hashable body for {receiver_type:?} has {index_kind} index {index}, which exceeds the ARC IR index range"
@@ -116,7 +119,17 @@ impl std::fmt::Display for DerivedHashBodyError {
     }
 }
 
-impl std::error::Error for DerivedHashBodyError {}
+impl std::error::Error for DerivedHashBodyError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::IndexOverflow {
+                source: Some(source),
+                ..
+            } => Some(source),
+            _ => None,
+        }
+    }
+}
 
 /// Build one concrete derived `Hashable.hash` body as shared ARC flow.
 ///
@@ -234,10 +247,11 @@ fn emit_enum_hash(
     let mut arms = Vec::with_capacity(variants.len());
     for (variant_index, (_, fields)) in variants.into_iter().enumerate() {
         let switch_value =
-            u64::try_from(variant_index).map_err(|_| DerivedHashBodyError::IndexOverflow {
+            u64::try_from(variant_index).map_err(|source| DerivedHashBodyError::IndexOverflow {
                 receiver_type,
                 index_kind: "variant",
                 index: variant_index,
+                source: Some(source),
             })?;
         let block = builder.new_block();
         cases.push((switch_value, block));
@@ -285,10 +299,11 @@ fn emit_field_hash_fold(
             continue;
         }
         let offset =
-            u32::try_from(field_index).map_err(|_| DerivedHashBodyError::IndexOverflow {
+            u32::try_from(field_index).map_err(|source| DerivedHashBodyError::IndexOverflow {
                 receiver_type,
                 index_kind: "field",
                 index: field_index,
+                source: Some(source),
             })?;
         let projection =
             field_base
@@ -297,6 +312,7 @@ fn emit_field_hash_fold(
                     receiver_type,
                     index_kind: "field",
                     index: field_index,
+                    source: None,
                 })?;
         let field = builder.emit_project(field_type, receiver, projection, None);
         let field_hash = emit_field_hash(builder, field, field_type, method_name);

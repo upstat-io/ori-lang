@@ -11,6 +11,15 @@ use crate::ir::{ArcFunction, ArcTerminator, ArcVarId};
 
 use super::{ClassEvent, ClassEvents, EventKind};
 
+#[derive(Clone, Copy)]
+struct MovedProjection {
+    block: usize,
+    index: usize,
+    dst: ArcVarId,
+    src: ArcVarId,
+    field: u32,
+}
+
 /// One arm-local FULL MOVE (the branch-exclusive rebuild shape): in
 /// `block`, every owned field of one aggregate class is projected and
 /// consumed exactly once as an arg of the ONE `Construct` at
@@ -19,10 +28,13 @@ use super::{ClassEvent, ClassEvents, EventKind};
 /// transfer (`FD_moveout_is_committed_transfer`; the full-skip cell of
 /// `FD_skipset_sound`).
 pub(crate) struct FullMoveArm {
-    pub(crate) block: usize,
+    pub(crate) construct_block: usize,
     pub(crate) construct_index: usize,
-    /// `(body index, projection dst)` of each member-moving `Project`.
-    pub(crate) projections: Vec<(usize, ArcVarId)>,
+    /// Block and event at which the source aggregate's whole owner commits.
+    pub(crate) commit_block: usize,
+    pub(crate) commit_site: EventSite,
+    /// `(block, body index, projection dst)` of each member-moving `Project`.
+    pub(crate) projections: Vec<(usize, usize, ArcVarId)>,
     /// The moved aggregate's class rep.
     pub(crate) class_rep: NodeIdx,
     /// The projected-from member var (the rebooked consume's subject).
@@ -36,18 +48,265 @@ pub(crate) struct FullMoveArm {
 /// aggregate burden's owned top-level field set; no OTHER use of any
 /// aggregate member var in the block (class-internal `Let` aliases and the
 /// `Project`s themselves permitted). Fail-closed on any mismatch.
+#[cfg(test)]
 pub(crate) fn detect_full_move_arms(
     func: &ArcFunction,
     partition: &mut BirthSitePartition,
     type_registry: &ori_types::TypeRegistry,
+    contracts: &rustc_hash::FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
+    interner: &ori_ir::StringInterner,
+) -> Vec<FullMoveArm> {
+    detect_full_move_arms_with_exact(
+        func,
+        partition,
+        type_registry,
+        contracts,
+        &FxHashSet::default(),
+        interner,
+    )
+}
+
+pub(crate) fn detect_full_move_arms_with_exact(
+    func: &ArcFunction,
+    partition: &mut BirthSitePartition,
+    type_registry: &ori_types::TypeRegistry,
+    contracts: &rustc_hash::FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
+    exact_callables: &FxHashSet<ori_ir::Name>,
+    interner: &ori_ir::StringInterner,
 ) -> Vec<FullMoveArm> {
     let mut arms = Vec::new();
     for block in 0..func.blocks.len() {
-        if let Some(arm) = full_move_arm_in_block(func, partition, type_registry, block) {
+        if let Some(arm) = full_move_arm_in_block(
+            func,
+            partition,
+            type_registry,
+            contracts,
+            exact_callables,
+            interner,
+            block,
+        ) {
             arms.push(arm);
         }
     }
     arms
+}
+
+/// Resolve canonical pre-contract witnesses into ledger-local full-move arms.
+///
+/// This is an identity check and partition projection, not a second structural
+/// recognizer: every route and cleanup decision came from the canonical
+/// producer. Stable variable identities are resolved to current body offsets;
+/// any mismatch declines the witness.
+pub(crate) fn full_move_arms_from_exact_transfer_witnesses(
+    func: &ArcFunction,
+    partition: &mut BirthSitePartition,
+    type_registry: &ori_types::TypeRegistry,
+    witnesses: &[crate::aims::interprocedural::ExactAggregateTransferWitness],
+) -> Vec<FullMoveArm> {
+    witnesses
+        .iter()
+        .filter_map(|witness| {
+            full_move_arm_from_exact_transfer_witness(func, partition, type_registry, witness)
+        })
+        .collect()
+}
+
+struct ResolvedExactCommit<'a> {
+    block: usize,
+    site: EventSite,
+    invoke: Option<(ArcVarId, &'a [ArcVarId])>,
+}
+
+fn resolve_exact_commit<'a>(
+    func: &'a ArcFunction,
+    witness: &crate::aims::interprocedural::ExactAggregateTransferWitness,
+    construct_index: usize,
+) -> Option<ResolvedExactCommit<'a>> {
+    match witness.commit {
+        crate::aims::interprocedural::ExactTransferCommitWitness::Construct { block, dst }
+            if block == witness.block && dst == witness.construct_dst =>
+        {
+            Some(ResolvedExactCommit {
+                block: block.index(),
+                site: EventSite::Body(construct_index),
+                invoke: None,
+            })
+        }
+        crate::aims::interprocedural::ExactTransferCommitWitness::Invoke {
+            block,
+            dst,
+            normal,
+            unwind,
+        } => {
+            let invoke_block = func.blocks.get(block.index())?;
+            let crate::ir::ArcTerminator::Invoke {
+                dst: live_dst,
+                args,
+                normal: live_normal,
+                unwind: live_unwind,
+                ..
+            } = &invoke_block.terminator
+            else {
+                return None;
+            };
+            if invoke_block.id != block
+                || *live_dst != dst
+                || *live_normal != normal
+                || *live_unwind != unwind
+                || normal != witness.block
+            {
+                return None;
+            }
+            Some(ResolvedExactCommit {
+                block: block.index(),
+                site: EventSite::Terminator,
+                invoke: Some((dst, args)),
+            })
+        }
+        crate::aims::interprocedural::ExactTransferCommitWitness::Construct { .. } => None,
+    }
+}
+
+fn resolve_exact_moved_projections(
+    func: &ArcFunction,
+    witness: &crate::aims::interprocedural::ExactAggregateTransferWitness,
+    construct_block: usize,
+    construct_index: usize,
+    construct_args: &[ArcVarId],
+    commit: &ResolvedExactCommit<'_>,
+) -> Option<Vec<MovedProjection>> {
+    use crate::ir::ArcInstr;
+
+    let mut moved = Vec::with_capacity(witness.fields.len());
+    for field in &witness.fields {
+        let top_level_field = field.path.index();
+        let position = usize::try_from(top_level_field).ok()?;
+        if construct_args.get(position) != Some(&field.carrier) {
+            return None;
+        }
+        let projection_block = field.projection_block.index();
+        let projection_blk = func.blocks.get(projection_block)?;
+        if projection_blk.id != field.projection_block {
+            return None;
+        }
+        let (projection_index, src) =
+            projection_blk
+                .body
+                .iter()
+                .enumerate()
+                .find_map(|(index, instr)| match instr {
+                    ArcInstr::Project {
+                        dst,
+                        value,
+                        field: projected_field,
+                        ..
+                    } if *dst == field.projection_dst && *projected_field == top_level_field => {
+                        Some((index, *value))
+                    }
+                    _ => None,
+                })?;
+        let route_matches_commit = match (
+            field.kind,
+            commit.invoke,
+            projection_block == construct_block,
+        ) {
+            (_, None, true) => projection_index < construct_index,
+            (crate::aims::contract::ExactFieldTransferKind::DirectMove, Some(_), false) => {
+                projection_block == commit.block && field.carrier == field.projection_dst
+            }
+            (
+                crate::aims::contract::ExactFieldTransferKind::EffectiveOwnedRelay,
+                Some((dst, args)),
+                false,
+            ) => {
+                projection_block == commit.block
+                    && field.carrier == dst
+                    && args
+                        .iter()
+                        .filter(|&&arg| arg == field.projection_dst)
+                        .count()
+                        == 1
+            }
+            _ => false,
+        };
+        if src != field.source || !route_matches_commit {
+            return None;
+        }
+        moved.push(MovedProjection {
+            block: projection_block,
+            index: projection_index,
+            dst: field.projection_dst,
+            src,
+            field: top_level_field,
+        });
+    }
+    Some(moved)
+}
+
+fn full_move_arm_from_exact_transfer_witness(
+    func: &ArcFunction,
+    partition: &mut BirthSitePartition,
+    type_registry: &ori_types::TypeRegistry,
+    witness: &crate::aims::interprocedural::ExactAggregateTransferWitness,
+) -> Option<FullMoveArm> {
+    use crate::ir::ArcInstr;
+
+    let construct_block = witness.block.index();
+    let blk = func.blocks.get(construct_block)?;
+    if blk.id != witness.block {
+        return None;
+    }
+    let (construct_index, construct_args) =
+        blk.body
+            .iter()
+            .enumerate()
+            .find_map(|(index, instr)| match instr {
+                ArcInstr::Construct { dst, args, .. } if *dst == witness.construct_dst => {
+                    Some((index, args.as_slice()))
+                }
+                _ => None,
+            })?;
+    if construct_args.len() != witness.fields.len() {
+        return None;
+    }
+    let commit = resolve_exact_commit(func, witness, construct_index)?;
+    let moved = resolve_exact_moved_projections(
+        func,
+        witness,
+        construct_block,
+        construct_index,
+        construct_args,
+        &commit,
+    )?;
+    let first_src = moved.first()?.src;
+    let first_node = partition.register_node(first_src, FieldPath::whole_var());
+    let class_rep = partition.rep_of(first_node);
+    let construct_node = partition.register_node(witness.construct_dst, FieldPath::whole_var());
+    if partition.rep_of(construct_node) == class_rep {
+        return None;
+    }
+    if moved.iter().any(|projection| {
+        let node = partition.register_node(projection.src, FieldPath::whole_var());
+        partition.rep_of(node) != class_rep
+    }) || !class_uses_confined_to_moves(func, partition, class_rep, commit.block, &moved)
+        || moved_class_shares_edge_source(func, partition, class_rep)
+        || !moved_fields_cover_owned(func, type_registry, first_src, &moved)
+    {
+        return None;
+    }
+
+    Some(FullMoveArm {
+        construct_block,
+        construct_index,
+        commit_block: commit.block,
+        commit_site: commit.site,
+        projections: moved
+            .iter()
+            .map(|projection| (projection.block, projection.index, projection.dst))
+            .collect(),
+        class_rep,
+        src_var: first_src,
+    })
 }
 
 /// The [`FullMoveArm`] in `block`, when the shape holds (see
@@ -56,31 +315,35 @@ fn full_move_arm_in_block(
     func: &ArcFunction,
     partition: &mut BirthSitePartition,
     type_registry: &ori_types::TypeRegistry,
+    contracts: &rustc_hash::FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
+    exact_callables: &FxHashSet<ori_ir::Name>,
+    interner: &ori_ir::StringInterner,
     block: usize,
 ) -> Option<FullMoveArm> {
     use crate::ir::ArcInstr;
 
     let blk = func.blocks.get(block)?;
     // Projections in this block, keyed by dst.
-    let mut projections: Vec<(usize, ArcVarId, ArcVarId, u32)> = Vec::new();
-    for (i, instr) in blk.body.iter().enumerate() {
-        if let ArcInstr::Project {
-            dst, value, field, ..
-        } = instr
-        {
-            projections.push((i, *dst, *value, *field));
-        }
-    }
-    // ONE Construct consuming projection dsts.
+    let projections = projections_in_block(blk);
+    // ONE Construct consuming projection dsts, either directly or through
+    // one ownership-preserving call-result carrier.
     let mut construct_index: Option<usize> = None;
     for (i, instr) in blk.body.iter().enumerate() {
         let ArcInstr::Construct { args, .. } = instr else {
             continue;
         };
-        if !projections
-            .iter()
-            .any(|&(_, pdst, _, _)| args.contains(&pdst))
-        {
+        if !projections.iter().any(|&(pidx, pdst, _, _)| {
+            projection_carrier(
+                blk,
+                partition,
+                contracts,
+                exact_callables,
+                interner,
+                (pidx, pdst),
+                (i, args),
+            )
+            .is_some()
+        }) {
             continue;
         }
         if construct_index.is_some() {
@@ -97,35 +360,42 @@ fn full_move_arm_in_block(
     else {
         return None;
     };
-    // The moved projections: those consumed by the construct. All must read
-    // ONE class; each dst used exactly once (at the construct).
-    let moved: Vec<(usize, ArcVarId, ArcVarId, u32)> = projections
+    // The moved projections: those consumed by the construct directly or
+    // through one uniquely owned call result under frozen contract authority.
+    // All must read ONE aggregate class.
+    let moved: Vec<MovedProjection> = projections
         .iter()
         .copied()
-        .filter(|&(_, pdst, _, _)| construct_args.contains(&pdst))
+        .filter(|&(pidx, pdst, _, _)| {
+            projection_carrier(
+                blk,
+                partition,
+                contracts,
+                exact_callables,
+                interner,
+                (pidx, pdst),
+                (cidx, construct_args),
+            )
+            .is_some()
+        })
+        .map(|(index, dst, src, field)| MovedProjection {
+            block,
+            index,
+            dst,
+            src,
+            field,
+        })
         .collect();
-    let (_, _, first_src, _) = *moved.first()?;
+    let first_src = moved.first()?.src;
     let first_node = partition.register_node(first_src, FieldPath::whole_var());
     let class_rep = partition.rep_of(first_node);
     let construct_node = partition.register_node(*construct_dst, FieldPath::whole_var());
     if partition.rep_of(construct_node) == class_rep {
         return None;
     }
-    for &(_, pdst, src, _) in &moved {
-        let src_node = partition.register_node(src, FieldPath::whole_var());
+    for moved_projection in &moved {
+        let src_node = partition.register_node(moved_projection.src, FieldPath::whole_var());
         if partition.rep_of(src_node) != class_rep {
-            return None;
-        }
-        if construct_args.iter().filter(|&&arg| arg == pdst).count() != 1 {
-            return None;
-        }
-        let other_use = blk
-            .body
-            .iter()
-            .enumerate()
-            .any(|(i, instr)| i != cidx && instr.uses_var(pdst))
-            || blk.terminator.uses_var(pdst);
-        if other_use {
             return None;
         }
     }
@@ -145,12 +415,138 @@ fn full_move_arm_in_block(
         "full-move arm detected: every owned field moved into one Construct"
     );
     Some(FullMoveArm {
-        block,
+        construct_block: block,
         construct_index: cidx,
-        projections: moved.iter().map(|&(i, pdst, _, _)| (i, pdst)).collect(),
+        commit_block: block,
+        commit_site: EventSite::Body(cidx),
+        projections: moved
+            .iter()
+            .map(|projection| (projection.block, projection.index, projection.dst))
+            .collect(),
         class_rep,
         src_var: first_src,
     })
+}
+
+fn projections_in_block(block: &crate::ir::ArcBlock) -> Vec<(usize, ArcVarId, ArcVarId, u32)> {
+    block
+        .body
+        .iter()
+        .enumerate()
+        .filter_map(|(index, instr)| match instr {
+            crate::ir::ArcInstr::Project {
+                dst, value, field, ..
+            } => Some((index, *dst, *value, *field)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Return the `Construct` carrier for one projection when ownership travels
+/// either directly or through exactly one owned call-result relay.
+///
+/// The explicit use checks make the accepted call a linear ownership relay:
+/// the projected value is the call's unique Owned input and the result is
+/// consumed exactly once by this construct. The result need not alias the
+/// input: a COW mutator may reuse or replace storage dynamically, but its
+/// owned input and owned result still carry the one logical field credit
+/// through the call.
+fn projection_carrier(
+    block: &crate::ir::ArcBlock,
+    partition: &mut BirthSitePartition,
+    contracts: &rustc_hash::FxHashMap<ori_ir::Name, crate::aims::contract::MemoryContract>,
+    exact_callables: &FxHashSet<ori_ir::Name>,
+    interner: &ori_ir::StringInterner,
+    projection: (usize, ArcVarId),
+    construct: (usize, &[ArcVarId]),
+) -> Option<ArcVarId> {
+    use crate::ir::{ArcInstr, ArgOwnership};
+
+    let (projection_index, projection_dst) = projection;
+    let (construct_index, construct_args) = construct;
+    if construct_args
+        .iter()
+        .filter(|&&arg| arg == projection_dst)
+        .count()
+        == 1
+    {
+        let used_elsewhere = block
+            .body
+            .iter()
+            .enumerate()
+            .any(|(index, instr)| index != construct_index && instr.uses_var(projection_dst))
+            || block.terminator.uses_var(projection_dst);
+        return (!used_elsewhere).then_some(projection_dst);
+    }
+
+    let projection_node = partition.register_node(projection_dst, FieldPath::whole_var());
+    let projection_rep = partition.rep_of(projection_node);
+    let mut relays = block
+        .body
+        .iter()
+        .enumerate()
+        .filter_map(|(relay_index, relay)| {
+            let ArcInstr::Apply {
+                dst,
+                func,
+                args,
+                arg_ownership,
+                ..
+            } = relay
+            else {
+                return None;
+            };
+            if !construct_args.contains(dst)
+                || relay_index <= projection_index
+                || relay_index >= construct_index
+            {
+                return None;
+            }
+            let result_node = partition.register_node(*dst, FieldPath::whole_var());
+            let contract_identity = partition.rep_of(result_node) == projection_rep;
+            let owned_source_count = args
+                .iter()
+                .enumerate()
+                .filter(|&(position, arg)| {
+                    *arg == projection_dst
+                        && arg_ownership.get(position) == Some(&ArgOwnership::Owned)
+                        && (contract_identity
+                            || crate::aims::builtins::effective_consuming_provenance(
+                                *func,
+                                position,
+                                ArgOwnership::Owned,
+                                exact_callables.contains(func),
+                                None,
+                                contracts,
+                                interner,
+                            ))
+                })
+                .count();
+            (owned_source_count == 1
+                && args.iter().filter(|&&arg| arg == projection_dst).count() == 1)
+                .then_some((relay_index, *dst))
+        });
+    let (relay_index, carrier) = relays.next()?;
+    if relays.next().is_some() {
+        return None;
+    }
+    if relay_index <= projection_index || relay_index >= construct_index {
+        return None;
+    }
+
+    let source_used_elsewhere = block
+        .body
+        .iter()
+        .enumerate()
+        .any(|(index, instr)| index != relay_index && instr.uses_var(projection_dst))
+        || block.terminator.uses_var(projection_dst);
+    let carrier_used_elsewhere = block
+        .body
+        .iter()
+        .enumerate()
+        .any(|(index, instr)| index != construct_index && instr.uses_var(carrier))
+        || block.terminator.uses_var(carrier);
+    (!source_used_elsewhere && !carrier_used_elsewhere).then_some(carrier)
 }
 
 /// No OTHER use of the moved aggregate in `block`: permitted uses are the
@@ -167,7 +563,7 @@ fn class_uses_confined_to_moves(
     partition: &mut BirthSitePartition,
     class_rep: NodeIdx,
     block: usize,
-    moved: &[(usize, ArcVarId, ArcVarId, u32)],
+    moved: &[MovedProjection],
 ) -> bool {
     use crate::ir::{ArcInstr, ArcValue};
 
@@ -183,8 +579,8 @@ fn class_uses_confined_to_moves(
             .map(|&(var, _, _)| var)
             .collect()
     };
-    for &(_, _, src, _) in moved {
-        tracked.insert(src);
+    for projection in moved {
+        tracked.insert(projection.src);
     }
     // Close over block-local `Let { Var }` edges in BOTH directions until
     // fixpoint: an alias of a tracked var and the var an alias reads are
@@ -230,7 +626,7 @@ fn class_uses_confined_to_moves(
                 continue;
             }
             let permitted = matches!(instr, ArcInstr::Project { .. })
-                && moved.iter().any(|&(idx, _, _, _)| idx == i)
+                && moved.iter().any(|projection| projection.index == i)
                 || matches!(
                     instr,
                     ArcInstr::Let { value: ArcValue::Var(v), .. } if *v == member
@@ -293,7 +689,7 @@ fn moved_fields_cover_owned(
     func: &ArcFunction,
     type_registry: &ori_types::TypeRegistry,
     src_var: ArcVarId,
-    moved: &[(usize, ArcVarId, ArcVarId, u32)],
+    moved: &[MovedProjection],
 ) -> bool {
     use crate::lower::burden::BurdenRef;
     use crate::lower::burden_lookup::{idx_to_type_ref, lookup_burden};
@@ -301,6 +697,17 @@ fn moved_fields_cover_owned(
     let Some(&src_ty) = func.var_types.get(src_var.index()) else {
         return false;
     };
+    if crate::lower::burden_lookup::type_has_user_drop(src_ty, type_registry)
+        || moved.iter().any(|projection| {
+            func.var_types
+                .get(projection.dst.index())
+                .is_some_and(|&member_ty| {
+                    crate::lower::burden_lookup::type_has_user_drop(member_ty, type_registry)
+                })
+        })
+    {
+        return false;
+    }
     let Some(BurdenRef::User(user)) =
         lookup_burden(idx_to_type_ref(src_ty, type_registry), type_registry)
     else {
@@ -314,7 +721,11 @@ fn moved_fields_cover_owned(
     if owned.is_empty() {
         return false;
     }
-    let moved_fields: FxHashSet<u32> = moved.iter().map(|&(_, _, _, field)| field).collect();
+    let moved_fields: FxHashSet<u32> = moved
+        .iter()
+        .map(|projection| projection.field)
+        .filter(|field| owned.contains(field))
+        .collect();
     moved_fields == owned
 }
 
@@ -331,10 +742,10 @@ pub(crate) fn full_move_credit_sites(
     let class_rep = partition.rep_of(class);
     let mut sites = Vec::new();
     for arm in arms {
-        for &(index, dst) in &arm.projections {
+        for &(block, index, dst) in &arm.projections {
             let node = partition.register_node(dst, FieldPath::whole_var());
             if partition.rep_of(node) == class_rep {
-                sites.push((arm.block, index));
+                sites.push((block, index));
             }
         }
     }
@@ -358,15 +769,21 @@ pub(crate) fn apply_full_move_rebook(
         if arm.class_rep != class_rep {
             continue;
         }
-        let Some(evs) = events.per_block.get_mut(arm.block) else {
+        let Some(evs) = events.per_block.get_mut(arm.commit_block) else {
             continue;
         };
-        if evs.is_empty() || !evs.iter().all(|ev| ev.kind == EventKind::Read) {
+        let has_read = evs.iter().any(|ev| ev.kind == EventKind::Read);
+        let only_entry_funding_and_reads = evs.iter().all(|ev| {
+            ev.kind == EventKind::Read
+                || ev.site == EventSite::BlockEntry
+                    && matches!(ev.kind, EventKind::Birth | EventKind::Credit)
+        });
+        if !has_read || !only_entry_funding_and_reads {
             continue;
         }
-        evs.clear();
+        evs.retain(|ev| ev.kind != EventKind::Read);
         evs.push(ClassEvent {
-            site: EventSite::Body(arm.construct_index),
+            site: arm.commit_site,
             kind: EventKind::Consume,
             var: Some(arm.src_var),
             delta: -1,
@@ -375,8 +792,8 @@ pub(crate) fn apply_full_move_rebook(
         events.books_runtime_grounded = false;
         tracing::trace!(
             target: "ori_arc::aims::class_ledger",
-            block = arm.block,
-            construct_index = arm.construct_index,
+            block = arm.commit_block,
+            commit_site = ?arm.commit_site,
             "full-move arm rebooked: the class's Reads become its move-out Consume"
         );
     }

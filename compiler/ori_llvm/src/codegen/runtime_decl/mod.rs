@@ -87,7 +87,7 @@ fn apply_attr(builder: &mut IrBuilder, func: FunctionId, attr: Attr, param_count
 /// For return types > 16 bytes (`Str`, `List`, `Map`), the x86-64 `SysV` ABI
 /// requires sret convention: the caller allocates stack space and passes
 /// a pointer as the first argument; the callee writes the result there.
-/// We declare these as void-returning with an sret pointer prepended.
+/// Declares these as void-returning with a prepended sret pointer.
 fn declare_spec(builder: &mut IrBuilder, spec: &RtFn) -> FunctionId {
     let mut params: Vec<LLVMTypeId> = spec
         .params

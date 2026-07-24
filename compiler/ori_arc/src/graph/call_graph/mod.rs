@@ -6,8 +6,8 @@
 //! are unknown at compile time and handled conservatively (all-Owned) by
 //! borrow inference.
 //!
-//! Used by SCC-based borrow inference to decompose functions
-//! into strongly connected components for incremental Salsa-tracked analysis.
+//! SCC-based borrow inference uses the graph to decompose functions into
+//! strongly connected components for incremental Salsa-tracked analysis.
 
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};

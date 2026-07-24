@@ -36,6 +36,7 @@ fn resolved_import(
             span: Span::DUMMY,
         }],
         imported_constants: Vec::new(),
+        imported_types: Vec::new(),
         errors: Vec::new(),
     }
 }

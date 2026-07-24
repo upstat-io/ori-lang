@@ -11,13 +11,12 @@
 //! planned for it (fail-closed, never a wrong placement).
 //! Spec: Annex E §AIMS RL-1 + RL-2 + RL-4 + RL-5.
 
-mod cfg_region;
 mod incs;
 mod merge_equalize;
 mod release_subject;
 mod releases;
 
-pub(crate) use cfg_region::CycleRegions;
+pub(crate) use crate::graph::CycleRegions;
 
 use crate::aims::verify::burden_delta::compute_burden_entry_nets;
 use crate::ir::{ArcFunction, ArcVarId};

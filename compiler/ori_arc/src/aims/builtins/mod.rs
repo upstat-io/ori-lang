@@ -82,6 +82,66 @@ pub(crate) fn seed_builtin_contracts(
     seed_internal_runtime_contracts(sigs, interner);
 }
 
+/// Whether one call argument has authoritative effective-ownership provenance.
+///
+/// A frozen Owned parameter contract is authoritative. Persistent-list COW
+/// mutators are seeded Borrowed because their receiver ownership is
+/// type-qualified at the call site; the registry identities below recover
+/// that producer-owned override only when the callee is not an exact user
+/// callable. The raw annotation or spelling alone is never sufficient.
+pub(crate) fn effective_consuming_provenance(
+    callee: Name,
+    position: usize,
+    ownership: crate::ir::ArgOwnership,
+    exact_callable: bool,
+    method_receiver_tag: Option<ori_registry::TypeTag>,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    interner: &StringInterner,
+) -> bool {
+    if ownership != crate::ir::ArgOwnership::Owned {
+        return false;
+    }
+    if contracts
+        .get(&callee)
+        .and_then(|contract| contract.params.get(position))
+        .is_some_and(|param| param.access == AccessClass::Owned)
+    {
+        return true;
+    }
+    if let Some(receiver_tag) = method_receiver_tag {
+        let Some(method_name) = interner.try_lookup(callee) else {
+            return false;
+        };
+        let Some(identity) = ori_registry::find_method_id(receiver_tag, method_name) else {
+            return false;
+        };
+        return ori_registry::methods_for(identity.receiver())
+            .get(identity.index())
+            .and_then(|method| method.runtime)
+            .is_some_and(|runtime| {
+                matches!(
+                    runtime,
+                    ori_registry::MethodRuntime::ListPush
+                        | ori_registry::MethodRuntime::ListSet
+                        | ori_registry::MethodRuntime::ListPrepend
+                )
+            });
+    }
+    if exact_callable || position != 0 {
+        return false;
+    }
+    crate::borrow::persistent_list_runtime_methods().any(|method| {
+        matches!(
+            method.runtime,
+            Some(
+                ori_registry::MethodRuntime::ListPush
+                    | ori_registry::MethodRuntime::ListSet
+                    | ori_registry::MethodRuntime::ListPrepend
+            )
+        ) && interner.intern(method.name) == callee
+    })
+}
+
 // Contract constructors
 
 /// Borrowing method: receiver borrowed, return conservative.
@@ -226,7 +286,7 @@ const PARAM_BORROWED: ParamContract = ParamContract {
     borrowed_read_only: false,
     borrowed_cow_consumed: false,
     borrowed_cow_mutated: false,
-    iter_consumes_projected_field: None,
+    exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
 };
 
 /// Borrowed parameter PROVEN read-only: the runtime function reads the value's
@@ -235,8 +295,21 @@ const PARAM_BORROWED: ParamContract = ParamContract {
 /// `callee_may_cow_arg`; seed it ONLY for runtime functions whose `ori_rt`
 /// implementation provably performs no RC operation on the param.
 const PARAM_BORROWED_READ_ONLY: ParamContract = ParamContract {
+    access: AccessClass::Borrowed,
+    consumption: Consumption::Dead,
+    cardinality: Cardinality::Once,
+    may_escape: false,
+    may_share: false,
+    locality_bound: Locality::Unknown,
+    uniqueness: Uniqueness::MaybeShared,
+    transfers_through_return: false,
+    return_alias: None,
+    return_payload_contains_param: false,
+    iter_consumes: false,
     borrowed_read_only: true,
-    ..PARAM_BORROWED
+    borrowed_cow_consumed: false,
+    borrowed_cow_mutated: false,
+    exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
 };
 
 /// Owned parameter consumed exactly once (linear).
@@ -256,18 +329,19 @@ const PARAM_OWNED_LINEAR: ParamContract = ParamContract {
     borrowed_read_only: false,
     borrowed_cow_consumed: false,
     borrowed_cow_mutated: false,
-    iter_consumes_projected_field: None,
+    exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
 };
 
 /// Return contract for methods producing unique results (COW operations).
 const RETURN_UNIQUE: ReturnContract = ReturnContract {
     uniqueness: Uniqueness::Unique,
     preserves_freshness: true,
-    locality: Locality::Unknown,
+    // A COW result is born at the call site. Downstream demand may widen its
+    // lifetime, but seeding it as Unknown here would trigger CN-6 immediately
+    // and erase the Unique guarantee this contract exists to carry.
+    locality: Locality::BlockLocal,
     shape: super::lattice::ShapeClass::NonReusable,
-    // Builtin COW-method results are fresh, but the fresh-self-alloc admission
-    // is scoped to USER for-yield finalizers (`@ori_list_take`) extracted from
-    // the body; builtins keep `false` to preserve the status-quo store-dup path.
+    // Why: Only user for-yield finalizers prove that the fresh result is the receiver allocation.
     returns_fresh_self_alloc: false,
     returns_sharing_view: false,
 };

@@ -113,6 +113,8 @@ pub enum RuntimeCall {
     ListSet,
     /// Read a collection or string length.
     Length,
+    /// Compute the element count of a bounded integer range.
+    RangeLength,
     /// Convert a value to its string form.
     ToString,
     /// Concatenate strings.
@@ -158,6 +160,7 @@ impl RuntimeCall {
             | Self::IterDrop
             | Self::ListTake
             | Self::Length
+            | Self::RangeLength
             | Self::ToString
             | Self::StringIsEmpty
             | Self::StringTrim
@@ -223,6 +226,9 @@ impl RuntimeCall {
         receiver: ori_registry::TypeTag,
     ) -> Option<Self> {
         Some(match operation {
+            ori_registry::MethodRuntime::Length if receiver == ori_registry::TypeTag::Range => {
+                Self::RangeLength
+            }
             ori_registry::MethodRuntime::Length => Self::Length,
             ori_registry::MethodRuntime::ListPush => Self::ListPush,
             ori_registry::MethodRuntime::ListSet => Self::ListSet,

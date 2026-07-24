@@ -27,7 +27,7 @@ type Wrap = W(n: int);
 }
 
 /// `str` payload — the canonical non-recursive repro that panicked pre-fix at
-/// `drop_enum.rs:292`. Build + run + leak-clean.
+/// `emit_drop_enum_niche`. Build + run + leak-clean.
 #[test]
 fn tagless_enum_str_payload_drops_no_leak() {
     let source = r#"

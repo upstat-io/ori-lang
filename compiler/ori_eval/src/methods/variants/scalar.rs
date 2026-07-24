@@ -233,11 +233,12 @@ fn dispatch_byte_tail(byte: u8, method: Name, args: &[Value], ctx: &DispatchCtx<
         let name = if method == n.shl { "shl" } else { "shr" };
         require_args(name, 1, args.len())?;
         let shift = require_scalar_int_arg(name, args, 0)?.raw();
-        if method == n.shl {
-            byte_shift_left(byte, shift)
+        let operation: fn(u8, u32) -> Option<u8> = if method == n.shl {
+            u8::checked_shl
         } else {
-            byte_shift_right(byte, shift)
-        }
+            u8::checked_shr
+        };
+        byte_shift(byte, shift, operation)
     } else if method == n.is_ascii {
         require_args("is_ascii", 0, args.len())?;
         Ok(Value::Bool(true))
@@ -287,24 +288,14 @@ pub(in crate::methods) fn dispatch_newtype_method(
     }
 }
 
-/// Return an error unless the left shift is in `0..8`.
-fn byte_shift_left(b: u8, shift_val: i64) -> EvalResult {
-    if let Ok(shift_u32) = u32::try_from(shift_val) {
-        if shift_u32 < 8 {
-            return Ok(Value::Byte(b << shift_u32));
-        }
-    }
-    Err(EvalError::new(format!("shift amount {shift_val} out of range (0-7)")).into())
-}
-
-/// Return an error unless the right shift is in `0..8`.
-fn byte_shift_right(b: u8, shift_val: i64) -> EvalResult {
-    if let Ok(shift_u32) = u32::try_from(shift_val) {
-        if shift_u32 < 8 {
-            return Ok(Value::Byte(b >> shift_u32));
-        }
-    }
-    Err(EvalError::new(format!("shift amount {shift_val} out of range (0-7)")).into())
+/// Apply a checked byte shift, rejecting amounts outside `0..8`.
+fn byte_shift(byte: u8, shift_value: i64, operation: fn(u8, u32) -> Option<u8>) -> EvalResult {
+    let shifted = u32::try_from(shift_value)
+        .ok()
+        .and_then(|shift| operation(byte, shift));
+    shifted.map(Value::Byte).ok_or_else(|| {
+        EvalError::new(format!("shift amount {shift_value} out of range (0-7)")).into()
+    })
 }
 
 #[cfg(test)]

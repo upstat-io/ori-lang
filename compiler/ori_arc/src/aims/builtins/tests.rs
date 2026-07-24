@@ -83,6 +83,82 @@ fn seed_cow_receiver_only_borrows_args() {
 }
 
 #[test]
+fn effective_consuming_provenance_requires_specific_authority() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+
+    assert!(effective_consuming_provenance(
+        interner.intern("push"),
+        0,
+        crate::ir::ArgOwnership::Owned,
+        false,
+        None,
+        &sigs,
+        &interner,
+    ));
+    assert!(!effective_consuming_provenance(
+        interner.intern("push"),
+        0,
+        crate::ir::ArgOwnership::Borrowed,
+        false,
+        None,
+        &sigs,
+        &interner,
+    ));
+    assert!(!effective_consuming_provenance(
+        interner.intern("push"),
+        0,
+        crate::ir::ArgOwnership::Owned,
+        true,
+        None,
+        &sigs,
+        &interner,
+    ));
+    assert!(effective_consuming_provenance(
+        interner.intern("remove"),
+        0,
+        crate::ir::ArgOwnership::Owned,
+        false,
+        None,
+        &sigs,
+        &interner,
+    ));
+    let registered_borrowed = interner.intern("registered_borrowed");
+    sigs.insert(
+        registered_borrowed,
+        MemoryContract::all_borrowed(2, FipContract::Never),
+    );
+    assert!(!effective_consuming_provenance(
+        registered_borrowed,
+        0,
+        crate::ir::ArgOwnership::Owned,
+        false,
+        None,
+        &sigs,
+        &interner,
+    ));
+}
+
+#[test]
+fn exact_registry_method_identity_survives_same_spelled_callable_collision() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+    let push = interner.intern("push");
+
+    assert!(effective_consuming_provenance(
+        push,
+        0,
+        crate::ir::ArgOwnership::Owned,
+        true,
+        Some(ori_registry::TypeTag::List),
+        &sigs,
+        &interner,
+    ));
+}
+
+#[test]
 fn seed_sharing_methods_return_maybe_shared() {
     let (interner, builtins) = setup();
     let mut sigs = FxHashMap::default();
@@ -119,6 +195,32 @@ fn fixed_capacity_conversions_are_direct_identity_transfers() {
             "List.{name} moves one credit; it does not mint a sharing-view credit"
         );
     }
+}
+
+#[test]
+fn indexed_cow_result_is_born_unique_and_block_local() {
+    let interner = StringInterner::new();
+    let builtins = BuiltinOwnershipSets::new(&interner);
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+
+    let contract = &sigs[&interner.intern("updated")];
+    assert_eq!(contract.return_info.uniqueness, Uniqueness::Unique);
+    assert_eq!(contract.return_info.locality, Locality::BlockLocal);
+    assert!(contract.return_info.preserves_freshness);
+}
+
+#[test]
+fn yield_finalizer_result_is_born_unique_and_fresh() {
+    let (interner, builtins) = setup();
+    let mut sigs = FxHashMap::default();
+    seed_builtin_contracts(&mut sigs, &builtins, &interner);
+
+    let contract = &sigs[&interner.intern("ori_list_take")];
+    assert_eq!(contract.return_info.uniqueness, Uniqueness::Unique);
+    assert_eq!(contract.return_info.locality, Locality::BlockLocal);
+    assert!(contract.return_info.preserves_freshness);
+    assert!(contract.return_info.returns_fresh_self_alloc);
 }
 
 #[test]

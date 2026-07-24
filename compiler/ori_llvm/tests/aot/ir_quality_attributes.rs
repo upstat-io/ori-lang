@@ -4,8 +4,8 @@
 //! on LLVM IR function declarations and definitions.
 
 use crate::util::{
-    compile_and_capture_ir, extract_function_ir, resolve_derived_function_name,
-    resolve_function_attrs,
+    compile_and_capture_ir, compile_and_capture_ir_no_repr_opt, extract_function_ir,
+    resolve_derived_function_name, resolve_function_attrs,
 };
 
 // Pre-banner ignored tests (nounwind + dead block pruning)
@@ -388,7 +388,7 @@ fn test_impure_derived_methods_lack_nounwind() {
 /// references the group number, not the attributes directly.
 #[test]
 fn test_panic_declarations_have_noreturn() {
-    let ir = compile_and_capture_ir(include_str!(
+    let ir = compile_and_capture_ir_no_repr_opt(include_str!(
         "fixtures/ir_quality_attributes/panic_declarations_have_noreturn.ori"
     ));
 

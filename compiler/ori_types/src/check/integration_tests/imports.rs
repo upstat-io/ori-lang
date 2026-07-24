@@ -268,7 +268,7 @@ fn import_module_alias_stores_signatures() {
         &interner,
         |checker| {
             let alias = interner.intern("math");
-            checker.register_module_alias(alias, &provider.module, &provider.arena);
+            checker.register_module_alias(alias, alias, &provider.module, &provider.arena);
 
             // Verify: only the public function should be in the alias
             let aliases = checker.module_aliases();
@@ -298,7 +298,7 @@ fn module_alias_qualified_call_types_to_function_return() {
         &interner,
         |checker| {
             let alias = interner.intern("math");
-            checker.register_module_alias(alias, &provider.module, &provider.arena);
+            checker.register_module_alias(alias, alias, &provider.module, &provider.arena);
         },
     );
 
@@ -348,7 +348,7 @@ fn module_alias_unknown_qualified_method_does_not_resolve() {
         &interner,
         |checker| {
             let alias = interner.intern("math");
-            checker.register_module_alias(alias, &provider.module, &provider.arena);
+            checker.register_module_alias(alias, alias, &provider.module, &provider.arena);
         },
     );
 
@@ -367,5 +367,52 @@ fn module_alias_unknown_qualified_method_does_not_resolve() {
         caller_body_ty,
         Idx::INT,
         "math.nonexistent(...) must NOT resolve to int via the module-alias path"
+    );
+}
+
+#[test]
+fn qualified_struct_literal_miss_suggests_similar_type_name() {
+    // A module-qualified struct-literal head that misses its type reports the
+    // SAME "did you mean?" suggestion set the bare-`Named` head reports. The
+    // qualified miss path previously hardcoded an empty suggestion list, so a
+    // mistyped qualified type produced a strictly worse diagnostic than a
+    // mistyped bare one.
+    let interner = StringInterner::new();
+    let provider = parse_source("pub type Widget = { w: int }\n", &interner);
+    let consumer = parse_source(
+        concat!(
+            "type Point = { x: int, y: int }\n",
+            "@probe () -> void = {\n",
+            "    let p = geom.Pont { x: 1, y: 2 };\n",
+            "    ()\n",
+            "}\n",
+        ),
+        &interner,
+    );
+
+    let (result, _pool) = crate::check::check_module_with_imports(
+        &consumer.module,
+        &consumer.arena,
+        &interner,
+        |checker| {
+            let alias = interner.intern("geom");
+            checker.register_module_alias(alias, alias, &provider.module, &provider.arena);
+        },
+    );
+
+    let point = interner.intern("Point");
+    let suggested = result.typed.errors.iter().any(|e| match &e.kind {
+        TypeErrorKind::UnknownIdent { similar, .. } => similar.contains(&point),
+        _ => false,
+    });
+    assert!(
+        suggested,
+        "qualified struct-literal miss must carry the `did you mean` suggestion set; errors: {:?}",
+        result
+            .typed
+            .errors
+            .iter()
+            .map(|e| &e.kind)
+            .collect::<Vec<_>>()
     );
 }

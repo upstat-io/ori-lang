@@ -118,7 +118,7 @@ fn param_join_is_commutative() {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         borrowed_cow_mutated: false,
-        iter_consumes_projected_field: None,
+        exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
     };
     let b = ParamContract {
         access: AccessClass::Borrowed,
@@ -135,9 +135,100 @@ fn param_join_is_commutative() {
         borrowed_read_only: false,
         borrowed_cow_consumed: false,
         borrowed_cow_mutated: false,
-        iter_consumes_projected_field: None,
+        exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
     };
     assert_eq!(a.join(&b), b.join(&a));
+}
+
+fn exact_transfer(fields: &[(u32, ExactFieldTransferKind)]) -> ExactTransferState {
+    let fields = fields
+        .iter()
+        .map(|&(field, kind)| ExactFieldTransfer {
+            path: ExactFieldPath::single(field),
+            kind,
+        })
+        .collect();
+    let proof = ExactAggregateTransfer::new(
+        fields,
+        ResidualDisposition::FullyReconstructed,
+        CleanupAuthority::OrdinaryCleanupProven,
+    );
+    let Some(proof) = proof else {
+        panic!("fixture fields must be unique");
+    };
+    ExactTransferState::exact(proof)
+}
+
+#[test]
+fn exact_transfer_constructor_canonicalizes_field_order() {
+    let left = exact_transfer(&[
+        (2, ExactFieldTransferKind::EffectiveOwnedRelay),
+        (0, ExactFieldTransferKind::DirectMove),
+    ]);
+    let right = exact_transfer(&[
+        (0, ExactFieldTransferKind::DirectMove),
+        (2, ExactFieldTransferKind::EffectiveOwnedRelay),
+    ]);
+
+    assert_eq!(left, right);
+}
+
+#[test]
+fn exact_transfer_constructor_rejects_duplicate_field_credit() {
+    let duplicate = vec![
+        ExactFieldTransfer {
+            path: ExactFieldPath::single(1),
+            kind: ExactFieldTransferKind::DirectMove,
+        },
+        ExactFieldTransfer {
+            path: ExactFieldPath::single(1),
+            kind: ExactFieldTransferKind::EffectiveOwnedRelay,
+        },
+    ];
+
+    assert!(ExactAggregateTransfer::new(
+        duplicate,
+        ResidualDisposition::FullyReconstructed,
+        CleanupAuthority::OrdinaryCleanupProven,
+    )
+    .is_none());
+}
+
+#[test]
+fn exact_transfer_join_is_flat_associative_and_idempotent() {
+    let a = exact_transfer(&[(0, ExactFieldTransferKind::DirectMove)]);
+    let same_a = exact_transfer(&[(0, ExactFieldTransferKind::DirectMove)]);
+    let b = exact_transfer(&[(1, ExactFieldTransferKind::EffectiveOwnedRelay)]);
+
+    assert_eq!(a.join(&same_a), a);
+    assert_eq!(a.join(&b), ExactTransferState::Unproven);
+    assert_eq!(
+        a.join(&same_a).join(&b),
+        a.join(&same_a.join(&b)),
+        "a = same_a != b must reach Unproven under either grouping"
+    );
+    assert_eq!(
+        ExactTransferState::Optimistic.join(&a),
+        a.join(&ExactTransferState::Optimistic)
+    );
+}
+
+#[test]
+fn param_join_carries_exact_transfer_lattice() {
+    let exact = exact_transfer(&[(0, ExactFieldTransferKind::DirectMove)]);
+    let mut left = ParamContract::OPTIMISTIC;
+    left.exact_transfer = exact.clone();
+    let mut right = ParamContract::OPTIMISTIC;
+    right.exact_transfer = exact;
+
+    assert!(matches!(
+        left.join(&right).exact_transfer,
+        ExactTransferState::Exact(_)
+    ));
+    assert_eq!(
+        left.join(&ParamContract::CONSERVATIVE).exact_transfer,
+        ExactTransferState::Unproven
+    );
 }
 
 // ReturnContract join
@@ -152,14 +243,14 @@ fn return_join_preserves_freshness_and() {
         preserves_freshness: false,
         ..ReturnContract::OPTIMISTIC
     };
-    assert!(!a.join(&b).preserves_freshness);
+    assert!(!a.join(b).preserves_freshness);
 }
 
 #[test]
 fn return_join_uniqueness_weakens() {
     let unique = ReturnContract::OPTIMISTIC;
     let shared = ReturnContract::CONSERVATIVE;
-    let joined = unique.join(&shared);
+    let joined = unique.join(shared);
     assert_eq!(joined.uniqueness, Uniqueness::MaybeShared);
 }
 
@@ -201,10 +292,10 @@ fn effect_join_or_semantics() {
         may_throw: false,
         has_unbounded_stack: false,
     };
-    let joined = a.join(&b);
+    let joined = a.join(b);
     assert!(joined.may_allocate);
-    assert!(!joined.alloc_only_on_slow_path); // AND semantics
-    assert!(joined.may_deallocate); // OR semantics
+    assert!(!joined.alloc_only_on_slow_path);
+    assert!(joined.may_deallocate);
     assert!(joined.may_share);
     assert!(!joined.may_throw);
     assert!(!joined.has_unbounded_stack);
@@ -220,11 +311,10 @@ fn effect_join_unbounded_stack_or_semantics() {
         has_unbounded_stack: true,
         ..EffectSummary::OPTIMISTIC
     };
-    // OR semantics: either side unbounded → joined is unbounded.
-    assert!(bounded.join(&unbounded).has_unbounded_stack);
-    assert!(unbounded.join(&bounded).has_unbounded_stack);
-    assert!(!bounded.join(&bounded).has_unbounded_stack);
-    assert!(unbounded.join(&unbounded).has_unbounded_stack);
+    assert!(bounded.join(unbounded).has_unbounded_stack);
+    assert!(unbounded.join(bounded).has_unbounded_stack);
+    assert!(!bounded.join(bounded).has_unbounded_stack);
+    assert!(unbounded.join(unbounded).has_unbounded_stack);
 }
 
 // FipContract join
@@ -314,7 +404,6 @@ fn to_annotated_sig_borrowed_params() {
     let func_params = vec![arc_param(0, 1)];
     let sig = contract.to_annotated_sig(&func_params, Idx::STR);
 
-    // Dead consumption → Borrowed regardless of access class.
     assert_eq!(sig.params[0].ownership, Ownership::Borrowed);
 }
 
@@ -336,7 +425,7 @@ fn to_annotated_sig_dead_param_is_borrowed() {
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
             borrowed_cow_mutated: false,
-            iter_consumes_projected_field: None,
+            exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
         }],
         return_info: ReturnContract::CONSERVATIVE,
         effects: EffectSummary::default(),
@@ -347,7 +436,6 @@ fn to_annotated_sig_dead_param_is_borrowed() {
     let func_params = vec![arc_param(0, 1)];
     let sig = contract.to_annotated_sig(&func_params, Idx::UNIT);
 
-    // Dead params are treated as Borrowed even if access says Owned.
     assert_eq!(sig.params[0].ownership, Ownership::Borrowed);
 }
 
@@ -356,12 +444,9 @@ fn to_annotated_sig_dead_param_is_borrowed() {
 #[test]
 fn context_behavior_default_is_conservative() {
     let cb = ContextBehavior::default();
-    // Default: no preservation, no hole consumption.
     assert!(!cb.preserves_context);
     assert!(!cb.consumes_hole);
-    // Conservative: require uniqueness (safe default).
     assert!(cb.requires_unique_context);
-    // No non-linear resumption (optimistic, refined from effects).
     assert!(!cb.may_resume_nonlinearly);
 }
 
@@ -380,10 +465,8 @@ fn context_behavior_join_is_conservative() {
         may_resume_nonlinearly: true,
     };
     let joined = a.join(&b);
-    // AND for positive properties (must hold on ALL paths).
     assert!(!joined.preserves_context);
     assert!(joined.consumes_hole);
-    // OR for negative properties (ANY path triggers).
     assert!(joined.requires_unique_context);
     assert!(joined.may_resume_nonlinearly);
 }
@@ -407,7 +490,6 @@ fn context_behavior_join_is_commutative() {
 
 #[test]
 fn context_behavior_conservative_constructor_safe() {
-    // conservative() uses ContextBehavior::default(), which must be safe.
     let c = MemoryContract::conservative(1);
     assert!(c.context_behavior.requires_unique_context);
     assert!(!c.context_behavior.preserves_context);
@@ -415,11 +497,7 @@ fn context_behavior_conservative_constructor_safe() {
     assert!(!c.context_behavior.may_resume_nonlinearly);
 }
 
-// ContractMapExt — IC-1 enforcement helpers (get_required / get_mut_required)
-//
-// Per AIMS Invariant IC-1: the contracts map MUST cover every function after
-// the interprocedural fixpoint completes. These helpers panic on absence
-// (pipeline-ordering bug) rather than silently degrading via a default.
+// ContractMapExt — AIMS IC-1 coverage enforcement.
 
 #[test]
 fn test_get_required_returns_contract_when_present() {
@@ -471,11 +549,8 @@ fn test_get_mut_required_panics_message_includes_invariant_label() {
     let _ = map.get_mut_required(&Name::from_raw(6), "any_mut_site");
 }
 
-// IC-4 join rules for the sharing-view CREDIT (returns_sharing_view;
-// Spec: Annex E §AIMS §12 — sharing-view producer = CREDIT).
+// Sharing-view joins (Spec: Annex E §AIMS §12).
 
-/// The CREDIT joins by AND: a return is a sharing view only when EVERY
-/// joined path returns one (monotone toward conservative), commutatively.
 #[test]
 fn return_contract_join_ands_returns_sharing_view() {
     let view = ReturnContract {
@@ -483,15 +558,12 @@ fn return_contract_join_ands_returns_sharing_view() {
         ..ReturnContract::CONSERVATIVE
     };
     let non_view = ReturnContract::CONSERVATIVE;
-    assert!(view.join(&view).returns_sharing_view);
-    assert!(!view.join(&non_view).returns_sharing_view);
-    assert!(!non_view.join(&view).returns_sharing_view);
-    assert!(!non_view.join(&non_view).returns_sharing_view);
+    assert!(view.join(view).returns_sharing_view);
+    assert!(!view.join(non_view).returns_sharing_view);
+    assert!(!non_view.join(view).returns_sharing_view);
+    assert!(!non_view.join(non_view).returns_sharing_view);
 }
 
-/// CONSERVATIVE claims no CREDIT; OPTIMISTIC starts true so the monotone
-/// SCC fixpoint AND-join only ever clears it (`true ∧ extractor-false`
-/// converges false for a non-view return).
 #[test]
 fn returns_sharing_view_optimistic_init_clears_via_join() {
     const { assert!(!ReturnContract::CONSERVATIVE.returns_sharing_view) };
@@ -499,7 +571,7 @@ fn returns_sharing_view_optimistic_init_clears_via_join() {
     let extracted_non_view = ReturnContract::CONSERVATIVE;
     assert!(
         !ReturnContract::OPTIMISTIC
-            .join(&extracted_non_view)
+            .join(extracted_non_view)
             .returns_sharing_view
     );
 }

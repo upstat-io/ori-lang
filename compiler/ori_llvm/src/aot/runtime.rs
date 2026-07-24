@@ -357,13 +357,7 @@ impl RuntimeConfig {
         };
         input.libraries.push(lib);
 
-        // Platform system libraries needed by ori_rt (a Rust staticlib).
-        // Detected at build time via `rustc --print native-static-libs` in build.rs.
-        // This replaces hardcoded per-platform lists that drift across toolchain versions.
-        //
-        // Previous hardcoded values (for reference):
-        //   Unix:    c, m, pthread
-        //   Windows: advapi32, bcryptprimitives, kernel32, ntdll, userenv, ws2_32
+        // Why: `rustc --print native-static-libs` supplies target-specific runtime dependencies.
         for lib in env!("ORI_RT_NATIVE_LIBS")
             .split(',')
             .filter(|s| !s.is_empty())

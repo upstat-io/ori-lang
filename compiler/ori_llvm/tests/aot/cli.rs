@@ -1170,6 +1170,155 @@ fn test_main_args_with_heap_strings() {
     );
 }
 
+// Regression: iterating the entry point's argv-backed `[str]` parameter released
+// the same buffer twice. The in-language path consumes the parameter and releases
+// it, while the entry wrapper independently decided to retain and clean it. The
+// in-language controls below iterate the identical borrowed-parameter shape and
+// stay green, bounding the defect to the argv entry boundary rather than to
+// borrowed-rooted iteration.
+
+#[test]
+fn test_main_args_for_in_does_not_double_free() {
+    let (exit_code, stdout, stderr) = compile_and_run_with_args(
+        "@main (args: [str]) -> void =\n    for arg in args do\n        print(msg: arg);\n",
+        &["alpha", "beta", "gamma"],
+    );
+    assert_eq!(
+        exit_code, 0,
+        "expected exit 0 (no double free), stdout: {stdout}, stderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("alpha") && stdout.contains("beta") && stdout.contains("gamma"),
+        "expected every argument printed, stdout: {stdout}"
+    );
+}
+
+#[test]
+fn test_main_args_iter_chain_does_not_double_free() {
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        "@main (args: [str]) -> void =\n    print(msg: args.iter().count().to_str());\n",
+        &["alpha", "beta"],
+    );
+    assert_eq!(
+        exit_code, 0,
+        "expected exit 0 (no double free through the iterator chain), stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_main_args_forwarded_to_borrowed_callee_does_not_double_free() {
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        "@show (items: [str]) -> void =\n    for item in items do\n        print(msg: item);\n\n@main (args: [str]) -> void =\n    show(items: args);\n",
+        &["alpha", "beta"],
+    );
+    assert_eq!(
+        exit_code, 0,
+        "expected exit 0 (argv buffer forwarded through a borrowed param), stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_main_args_int_return_iteration_does_not_double_free() {
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        "@main (args: [str]) -> int = {\n    let total = 0;\n    for a in args do {\n        total += a.len();\n    };\n    if total == 9 then 0 else 1\n}\n",
+        &["alpha", "beta"],
+    );
+    assert_eq!(
+        exit_code, 0,
+        "int-returning main iterating argv must accumulate every element and not \
+         double free, stderr: {stderr}"
+    );
+}
+
+// The unwind path carries the same defect: the entry wrapper cleans the argv
+// buffer unconditionally on the landingpad, while the consuming callee released
+// it before unwinding. The sibling panic-without-iteration cell is the control —
+// it does not consume, so its unconditional unwind cleanup is correct.
+
+#[test]
+fn test_main_args_panic_during_iteration_does_not_double_free() {
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        "@main (args: [str]) -> void =\n    for arg in args do\n        panic(msg: arg);\n",
+        &["alpha", "beta"],
+    );
+    assert_no_signal_crash(
+        exit_code,
+        "test_main_args_panic_during_iteration_does_not_double_free",
+    );
+    // Pin clean panic propagation as well as the release count. Asserting only
+    // "no signal" and "no double free" accepts a cure that swallows the panic
+    // and returns success, which is a different defect with the same predicates.
+    assert_eq!(
+        exit_code, 1,
+        "panic during iteration must propagate as a clean panic exit, stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("ori panic: alpha"),
+        "expected the panic message from the first element, got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("double free"),
+        "unwind must release the argv buffer exactly once, stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_main_args_panic_before_iteration_does_not_double_free() {
+    // The callee consumes argv at the boundary, not when iteration begins: this
+    // program panics BEFORE the loop, yet the buffer is still transferred inward
+    // and released on unwind. An unconditional caught-path cleanup would still
+    // double-free it. Clamps the boundary-transfer timing the wrapper assumes.
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        "@main (args: [str]) -> void = {\n    if args.len() > 0 then panic(msg: \"before-loop\");\n\n    for arg in args do\n        print(msg: arg);\n}\n",
+        &["alpha", "beta"],
+    );
+    assert_no_signal_crash(
+        exit_code,
+        "test_main_args_panic_before_iteration_does_not_double_free",
+    );
+    assert_eq!(
+        exit_code, 1,
+        "a pre-loop panic must propagate as a clean panic exit, stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("ori panic: before-loop"),
+        "expected the pre-loop panic message, got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("double free"),
+        "unwind must release the argv buffer exactly once, stderr: {stderr}"
+    );
+}
+
+// Negative controls: an in-language collection iterated through the SAME
+// borrowed-parameter shape must stay green. These bound the defect to the
+// argv/entry-boundary buffer and clamp a cure that would strip the legitimate
+// inward owner transfer from ordinary caller-funded iteration.
+
+#[test]
+fn test_fresh_str_list_forwarded_to_borrowed_callee_stays_green() {
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        "@show (items: [str]) -> void =\n    for item in items do\n        print(msg: item);\n\n@main () -> void =\n    show(items: [\"alpha\", \"beta\"]);\n",
+        &[],
+    );
+    assert_eq!(
+        exit_code, 0,
+        "in-language list through a borrowed param must stay green, stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_fresh_str_list_iterated_in_main_stays_green() {
+    let (exit_code, _, stderr) = compile_and_run_with_args(
+        "@main () -> void = {\n    let $items = [\"alpha\", \"beta\"];\n\n    for item in items do\n        print(msg: item);\n}\n",
+        &[],
+    );
+    assert_eq!(
+        exit_code, 0,
+        "in-language list iterated directly must stay green, stderr: {stderr}"
+    );
+}
+
 #[test]
 fn test_main_args_void_return() {
     let (exit_code, _, stderr) = compile_and_run_with_args(
@@ -1282,9 +1431,9 @@ fn test_main_args_wrapper_uses_invoke_ir() {
     // This program uses args in a borrowed way (only .len()), so the
     // wrapper retains ownership → cleanup on both paths.
     let cleanup_call_count = main_fn.matches("call void @ori_args_cleanup").count();
-    assert!(
-        cleanup_call_count >= 2,
-        "ori_args_cleanup must be called in both normal and catch paths (found {cleanup_call_count}).\nIR:\n{main_fn}"
+    assert_eq!(
+        cleanup_call_count, 2,
+        "ori_args_cleanup must be called exactly once in each active normal and catch path.\nIR:\n{main_fn}"
     );
 }
 
@@ -1559,15 +1708,13 @@ fn test_main_args_owned_path_valgrind_clean() {
     }
 }
 
-// Semantic pin: when @main takes args via owned Indirect ABI, the wrapper
-// must NOT call ori_args_cleanup on the normal return path. It must still
-// call it on the catch (unwind) path, because the callee's ARC dec hasn't
-// run if it unwound.
+// Semantic pin: when @main consumes args, the wrapper must NOT call
+// ori_args_cleanup on either exit. The callee owns the boundary credit and
+// releases it on both normal return and unwind.
 #[test]
 fn test_main_args_owned_wrapper_ir_no_normal_cleanup() {
-    // This program uses args in an owned way (passed to id()).
-    // The wrapper should handle unwind but ori_args_cleanup only
-    // appears ONCE (catch/caught path), not twice.
+    // This program uses args in an owned way (passed to id()). The wrapper
+    // handles unwind but emits no argv cleanup on either exit.
     let ir = compile_and_capture_ir(include_str!(
         "fixtures/cli/main_args_owned_wrapper_ir_no_normal_cleanup.ori"
     ));
@@ -1588,11 +1735,14 @@ fn test_main_args_owned_wrapper_ir_no_normal_cleanup() {
             "main wrapper should use invoke for owned-args path.\nIR:\n{main_fn}"
         );
     }
-    // ori_args_cleanup called exactly ONCE: catch/caught path only.
-    // Normal/success path skips cleanup — callee owns the buffer.
+    // ori_args_cleanup is called ZERO times: the callee consumes the buffer and
+    // releases it on BOTH exits (normal return and unwind), so the wrapper must
+    // release it on neither. An earlier wrapper cleaned up unconditionally on the
+    // caught path, double-freeing a consumed buffer whenever an owned-args
+    // program panicked.
     let cleanup_call_count = main_fn.matches("call void @ori_args_cleanup").count();
     assert_eq!(
-        cleanup_call_count, 1,
-        "ori_args_cleanup should be called once (catch only) for owned args, found {cleanup_call_count}.\nIR:\n{main_fn}"
+        cleanup_call_count, 0,
+        "ori_args_cleanup should not be called for consumed args on either exit, found {cleanup_call_count}.\nIR:\n{main_fn}"
     );
 }

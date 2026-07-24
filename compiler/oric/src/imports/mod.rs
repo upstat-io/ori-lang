@@ -96,6 +96,24 @@ pub(crate) struct ImportedConstantRef {
     pub span: Span,
 }
 
+/// Reference to a selected type within a resolved module.
+///
+/// Type imports have their own carrier because a `use "./m" { Thing }` naming an
+/// exported type must bind into the consumer's type namespace, not the function
+/// or constant namespace. Ori's declaration model keeps type and value names in
+/// separate namespaces, so a name may appear in both carriers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ImportedTypeRef {
+    /// Name in the importing scope (may be aliased via `as`).
+    pub local_name: Name,
+    /// Name in the source module.
+    pub original_name: Name,
+    /// Index into `ResolvedImports::modules`.
+    pub module_index: usize,
+    /// Source span of the containing `use` statement.
+    pub span: Span,
+}
+
 /// All resolved imports for a single file.
 ///
 /// Produced by `resolve_imports()` and consumed by all backends.
@@ -109,6 +127,9 @@ pub(crate) struct ResolvedImports {
     pub imported_functions: Vec<ImportedFunctionRef>,
     /// Selected constant values and the modules that define them.
     pub imported_constants: Vec<ImportedConstantRef>,
+    /// Selected types and the modules that define them.
+    /// Each entry binds an exported type into the consumer's type namespace.
+    pub imported_types: Vec<ImportedTypeRef>,
     /// Import errors encountered during resolution.
     /// These are collected rather than failing fast so all errors are reported.
     pub errors: Vec<ImportError>,
@@ -564,6 +585,7 @@ pub(crate) fn resolve_imports(
     let mut modules = Vec::new();
     let mut imported_functions = Vec::new();
     let mut imported_constants = Vec::new();
+    let mut imported_types = Vec::new();
     let mut errors = Vec::new();
 
     // Read ORI_STDLIB once for all module imports (avoids per-import syscall).
@@ -607,8 +629,10 @@ pub(crate) fn resolve_imports(
         push_item_imports(
             imp,
             module_index,
+            &modules,
             &mut imported_functions,
             &mut imported_constants,
+            &mut imported_types,
         );
     }
 
@@ -617,6 +641,7 @@ pub(crate) fn resolve_imports(
         modules,
         imported_functions,
         imported_constants,
+        imported_types,
         errors,
     });
 
@@ -701,13 +726,23 @@ fn push_module_alias_import(
 }
 
 /// Register one import entry per individually-named item (`use "./m" { f, C }`),
-/// routing constants and functions to their respective inventories.
+/// classifying each item against the provider module's declared namespaces.
+///
+/// A `$`-sigiled item is a constant. Every other bare identifier is classified
+/// by looking it up in the provider module: a name declared as a `type` binds a
+/// type import, a name declared as a function binds a function import, and a
+/// name declared in both namespaces binds both (Ori keeps type and value names
+/// in separate namespaces). A name found in neither namespace falls through to
+/// the function inventory so the existing not-found diagnostic reports it.
 fn push_item_imports(
     imp: &ori_ir::UseDef,
     module_index: usize,
+    modules: &[ResolvedImportedModule],
     imported_functions: &mut Vec<ImportedFunctionRef>,
     imported_constants: &mut Vec<ImportedConstantRef>,
+    imported_types: &mut Vec<ImportedTypeRef>,
 ) {
+    let provider = &modules[module_index].parse_output.module;
     for item in &imp.items {
         if item.is_constant {
             imported_constants.push(ImportedConstantRef {
@@ -718,13 +753,38 @@ fn push_item_imports(
             });
             continue;
         }
-        imported_functions.push(ImportedFunctionRef {
-            local_name: item.alias.unwrap_or(item.name),
-            original_name: item.name,
-            module_index,
-            is_module_alias: false,
-            span: imp.span,
-        });
+
+        let is_type = provider.types.iter().any(|t| t.name == item.name);
+        let is_function = provider.functions.iter().any(|f| f.name == item.name);
+
+        if is_type {
+            imported_types.push(ImportedTypeRef {
+                local_name: item.alias.unwrap_or(item.name),
+                original_name: item.name,
+                module_index,
+                span: imp.span,
+            });
+        }
+        if is_function {
+            imported_functions.push(ImportedFunctionRef {
+                local_name: item.alias.unwrap_or(item.name),
+                original_name: item.name,
+                module_index,
+                is_module_alias: false,
+                span: imp.span,
+            });
+        }
+        if !is_type && !is_function {
+            // Genuinely-missing name: route to the function inventory so
+            // `register_imported_functions` reports it not found.
+            imported_functions.push(ImportedFunctionRef {
+                local_name: item.alias.unwrap_or(item.name),
+                original_name: item.name,
+                module_index,
+                is_module_alias: false,
+                span: imp.span,
+            });
+        }
     }
 }
 

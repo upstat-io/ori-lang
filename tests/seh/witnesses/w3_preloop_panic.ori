@@ -1,0 +1,6 @@
+@main (args: [str]) -> void = {
+    if args.len() > 0 then panic(msg: "before-loop");
+
+    for arg in args do
+        print(msg: arg);
+}

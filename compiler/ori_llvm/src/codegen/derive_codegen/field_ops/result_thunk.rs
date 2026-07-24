@@ -139,10 +139,9 @@ fn result_thunk_arm_args<'a>(
     }
 }
 
-/// Generate a thunk `(ptr, ptr) -> bool` for Result<T, E> equality.
+/// Generate a `(ptr, ptr) -> bool` equality thunk for `Result<T, E>`.
 ///
-/// Loads the tag (i64 at offset 0) from each pointer, compares tags,
-/// then if same variant, compares payloads using Ok or Err eq thunk.
+/// Equal tags select the corresponding `Ok` or `Err` payload thunk.
 pub(super) fn get_or_create_result_eq_thunk<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     ty: Idx,

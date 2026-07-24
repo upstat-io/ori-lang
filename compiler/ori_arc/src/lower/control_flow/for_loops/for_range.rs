@@ -2,11 +2,15 @@
 
 use ori_ir::canon::{CanBindingPatternId, CanId};
 use ori_ir::Name;
-use ori_types::Idx;
+use ori_types::{Idx, Tag};
 
-use crate::ir::{ArcBlockId, ArcValue, ArcVarId, LitValue, PrimOp};
-use crate::lower::expr::{ArcLowerer, LoopContext};
+use crate::ir::{ArcBlockId, ArcValue, ArcVarId, PrimOp, YieldExtent};
+use crate::lower::expr::{ArcLowerer, ForYieldContext, ForYieldShape, LoopContext};
 use crate::lower::scope::ArcScope;
+
+use super::super::for_yield::YieldListAllocation;
+
+mod condition;
 
 type MutableBinding = (Name, ArcVarId, Idx);
 type HeaderMutableParam = (Name, ArcVarId, ArcVarId);
@@ -22,7 +26,13 @@ struct RangeLoopSetup {
     header_mut_params: Vec<HeaderMutableParam>,
     latch_mut_params: Vec<(Name, ArcVarId)>,
     exit_mut_params: Vec<(Name, ArcVarId)>,
-    result_param: ArcVarId,
+    result_param: Option<ArcVarId>,
+}
+
+#[derive(Clone, Copy)]
+enum RangeLoopKind {
+    Plain,
+    Yield,
 }
 
 impl ArcLowerer<'_> {
@@ -39,7 +49,7 @@ impl ArcLowerer<'_> {
         body: CanId,
         label: ori_ir::Name,
     ) -> ArcVarId {
-        let setup = self.prepare_range_loop();
+        let setup = self.prepare_range_loop(RangeLoopKind::Plain);
 
         tracing::debug!(
             pattern = ?pattern,
@@ -60,7 +70,40 @@ impl ArcLowerer<'_> {
         self.finish_range_loop(setup)
     }
 
-    fn prepare_range_loop(&mut self) -> RangeLoopSetup {
+    /// Lower a range-backed comprehension without materializing an iterator.
+    pub(in crate::lower) fn lower_for_yield_range(
+        &mut self,
+        shape: ForYieldShape,
+        iter_val: ArcVarId,
+        extent: YieldExtent,
+        label: Name,
+    ) -> ArcVarId {
+        let elem_ty = if self.pool.tag(shape.result_ty) == Tag::List {
+            self.pool.list_elem(shape.result_ty)
+        } else {
+            Idx::INT
+        };
+        let allocation = self.allocate_yield_list(elem_ty, extent);
+        let setup = self.prepare_range_loop(RangeLoopKind::Yield);
+        let (step, in_bounds) = self.enter_range_header(iter_val, &setup);
+        let list_push = self.interner.intern("ori_list_push");
+        self.push_range_yield_context(
+            label,
+            &setup,
+            ForYieldContext {
+                list_ptr: allocation.list_ptr,
+                elem_size: allocation.elem_size_var,
+                list_push_name: list_push,
+            },
+        );
+        self.lower_range_guard(shape.pattern, shape.guard, in_bounds, &setup);
+        self.lower_range_yield_body(shape.pattern, shape.body, list_push, &allocation, &setup);
+        self.loop_ctx_stack.pop();
+        self.emit_range_latch(step, &setup);
+        self.finish_range_yield_loop(shape.result_ty, allocation, setup)
+    }
+
+    fn prepare_range_loop(&mut self, kind: RangeLoopKind) -> RangeLoopSetup {
         let header_block = self.builder.new_block();
         let body_block = self.builder.new_block();
         let latch_block = self.builder.new_block();
@@ -83,11 +126,13 @@ impl ArcLowerer<'_> {
                 )
             })
             .collect();
+
         let latch_mut_params = mutable_bindings
             .iter()
             .map(|&(name, _, ty)| (name, self.builder.add_block_param(latch_block, ty)))
             .collect();
-        let result_param = self.builder.add_block_param(exit_block, Idx::UNIT);
+        let result_param = matches!(kind, RangeLoopKind::Plain)
+            .then(|| self.builder.add_block_param(exit_block, Idx::UNIT));
         let exit_mut_params = mutable_bindings
             .iter()
             .map(|&(name, _, ty)| (name, self.builder.add_block_param(exit_block, ty)))
@@ -183,6 +228,7 @@ impl ArcLowerer<'_> {
             .iter()
             .map(|&(name, _, param)| (name, param))
             .collect();
+
         self.loop_ctx_stack.push(LoopContext {
             label,
             exit_block: setup.exit_block,
@@ -190,6 +236,28 @@ impl ArcLowerer<'_> {
             mutable_vars,
             abandon_iter: None,
             yield_ctx: None,
+        });
+    }
+
+    fn push_range_yield_context(
+        &mut self,
+        label: Name,
+        setup: &RangeLoopSetup,
+        yield_ctx: ForYieldContext,
+    ) {
+        let mutable_vars = setup
+            .header_mut_params
+            .iter()
+            .map(|&(name, _, param)| (name, param))
+            .collect();
+
+        self.loop_ctx_stack.push(LoopContext {
+            label,
+            exit_block: setup.exit_block,
+            continue_block: setup.latch_block,
+            mutable_vars,
+            abandon_iter: None,
+            yield_ctx: Some(yield_ctx),
         });
     }
 
@@ -245,6 +313,36 @@ impl ArcLowerer<'_> {
         }
     }
 
+    fn lower_range_yield_body(
+        &mut self,
+        pattern: CanBindingPatternId,
+        body: CanId,
+        list_push: Name,
+        allocation: &YieldListAllocation,
+        setup: &RangeLoopSetup,
+    ) {
+        self.builder.position_at(setup.body_block);
+        self.bind_for_pattern(pattern, setup.i_var, Idx::INT);
+        let body_val = self.lower_expr(body);
+        if self.builder.is_terminated() {
+            return;
+        }
+        self.builder.emit_apply(
+            Idx::UNIT,
+            list_push,
+            vec![allocation.list_ptr, body_val, allocation.elem_size_var],
+            None,
+            None,
+        );
+
+        let body_args = setup
+            .header_mut_params
+            .iter()
+            .map(|&(name, _, param)| self.scope.lookup(name).unwrap_or(param))
+            .collect();
+        self.builder.terminate_jump(setup.latch_block, body_args);
+    }
+
     fn emit_range_latch(&mut self, step: ArcVarId, setup: &RangeLoopSetup) {
         self.builder.position_at(setup.latch_block);
         let next = self.builder.emit_let(
@@ -272,154 +370,44 @@ impl ArcLowerer<'_> {
         for &(name, param) in &setup.exit_mut_params {
             self.scope.bind_mutable(name, param);
         }
-        setup.result_param
+        let Some(result_param) = setup.result_param else {
+            unreachable!("ordinary range loop has a unit result parameter");
+        };
+        result_param
     }
 
-    /// Emit a zero-step guard: panic at runtime if `step == 0`.
-    ///
-    /// Creates a branch: if step is zero, jump to a panic block;
-    /// otherwise continue to a new loop-entry block. Positions the
-    /// builder at the loop-entry block on return.
-    fn emit_zero_step_guard(&mut self, step: ArcVarId) {
-        let zero = self
-            .builder
-            .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(0)), None);
-        let step_is_zero = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Eq),
-                args: vec![step, zero],
-            },
-            None,
-        );
-        let panic_block = self.builder.new_block();
-        let loop_entry_block = self.builder.new_block();
-        self.builder
-            .terminate_branch(step_is_zero, panic_block, loop_entry_block);
-
-        // Panic block: emit "range step cannot be zero" and halt.
-        self.builder.position_at(panic_block);
-        let panic_msg = self.interner.intern("range step cannot be zero");
-        let msg_var = self.builder.emit_let(
-            Idx::STR,
-            ArcValue::Literal(LitValue::String(panic_msg)),
-            None,
-        );
-        let panic_fn = self.interner.intern("ori_panic");
-        self.builder
-            .emit_apply(Idx::UNIT, panic_fn, vec![msg_var], None, None);
-        self.builder.terminate_unreachable();
-
-        // Continue in loop entry block.
-        self.builder.position_at(loop_entry_block);
-    }
-
-    /// Emit the general 8-instruction sign-aware range condition.
-    ///
-    /// ```text
-    /// asc_part  = (step > 0) && (i < end)
-    /// desc_part = (step < 0) && (i > end)
-    /// base      = asc_part || desc_part
-    /// incl_part = (inclusive > 0) && (i == end)
-    /// in_bounds = base || incl_part
-    /// ```
-    fn emit_general_range_condition(
+    fn finish_range_yield_loop(
         &mut self,
-        i_var: ArcVarId,
-        end: ArcVarId,
-        step: ArcVarId,
-        inclusive: ArcVarId,
+        result_ty: Idx,
+        allocation: YieldListAllocation,
+        setup: RangeLoopSetup,
     ) -> ArcVarId {
-        let zero = self
-            .builder
-            .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(0)), None);
-        let step_pos = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Gt),
-                args: vec![step, zero],
-            },
-            None,
+        self.builder.position_at(setup.exit_prep_block);
+        let prep_args = setup
+            .header_mut_params
+            .iter()
+            .map(|&(_, _, param)| param)
+            .collect();
+        self.builder.terminate_jump(setup.exit_block, prep_args);
+
+        self.builder.position_at(setup.exit_block);
+        self.scope = setup.pre_scope;
+        for &(name, param) in &setup.exit_mut_params {
+            self.scope.bind_mutable(name, param);
+        }
+        let list_take = self.interner.intern("ori_list_take");
+        let result =
+            self.builder
+                .emit_apply(result_ty, list_take, vec![allocation.list_ptr], None, None);
+
+        self.builder.note_yield_allocation(
+            allocation.list_ptr,
+            result,
+            allocation.elem_ty,
+            allocation.elem_size_var,
+            allocation.elem_size,
+            allocation.extent,
         );
-        let step_neg = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Lt),
-                args: vec![step, zero],
-            },
-            None,
-        );
-        let is_incl = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Gt),
-                args: vec![inclusive, zero],
-            },
-            None,
-        );
-        let lt_val = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Lt),
-                args: vec![i_var, end],
-            },
-            None,
-        );
-        let gt_val = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Gt),
-                args: vec![i_var, end],
-            },
-            None,
-        );
-        let eq_val = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Eq),
-                args: vec![i_var, end],
-            },
-            None,
-        );
-        let asc_part = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::And),
-                args: vec![step_pos, lt_val],
-            },
-            None,
-        );
-        let desc_part = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::And),
-                args: vec![step_neg, gt_val],
-            },
-            None,
-        );
-        let base = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Or),
-                args: vec![asc_part, desc_part],
-            },
-            None,
-        );
-        let incl_part = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::And),
-                args: vec![is_incl, eq_val],
-            },
-            None,
-        );
-        self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::Or),
-                args: vec![base, incl_part],
-            },
-            None,
-        )
+        result
     }
 }

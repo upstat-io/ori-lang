@@ -23,6 +23,7 @@ pub(super) use impls::register_imported_impls;
 pub(crate) use impls::{extension_method_has_self, extension_type_params};
 pub use impls::{register_extensions, register_impls};
 pub use traits::{register_object_safety_violations, register_traits};
+pub(crate) use user_types::register_type_decl_with;
 pub use user_types::register_user_types;
 
 pub(super) use traits::register_imported_traits;

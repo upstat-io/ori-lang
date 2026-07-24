@@ -533,6 +533,14 @@ fn test_coll_list_sort_ints() {
 }
 
 #[test]
+fn test_coll_list_sort_orderings() {
+    assert_aot_success(
+        include_str!("fixtures/collections_ext/coll_list_sort_orderings.ori"),
+        "coll_list_sort_orderings",
+    );
+}
+
+#[test]
 fn test_coll_list_sort_already_sorted() {
     assert_aot_success(
         include_str!("fixtures/collections_ext/coll_list_sort_already_sorted.ori"),
@@ -774,7 +782,8 @@ fn test_coll_map_index_in_loop() {
 
 // List: eager collection-returning methods (auto-iter promotion)
 //
-// Spec annex-c-built-in-functions.md:469: `[T].filter(predicate) -> [T]` (eager).
+// Spec: Annex C, Collection Methods, List Methods:
+// `[T].filter(predicate) -> [T]` (eager).
 // `[T].map(transform) -> [T]` likewise. The codegen has no direct list
 // filter/map builtin, so these route through auto-iter promotion
 // (`emit_auto_iter` → `ori_iter_filter`/`ori_iter_map`), which produces an

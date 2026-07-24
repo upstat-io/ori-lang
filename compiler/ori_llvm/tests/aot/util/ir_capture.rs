@@ -17,6 +17,18 @@ use super::binary::{ir_capture_binary, ori_binary, stdlib_path};
 /// Uses the debug `ori` binary for IR capture. Returns the IR string from
 /// compilation stderr. Panics if compilation fails.
 pub fn compile_and_capture_ir(source: &str) -> String {
+    compile_and_capture_ir_with_repr_policy(source, true)
+}
+
+/// Compile with representation optimization disabled and capture LLVM IR.
+///
+/// Use this for codegen tests whose subject would otherwise be removed or
+/// rewritten by range or layout projection before the tested pass runs.
+pub fn compile_and_capture_ir_no_repr_opt(source: &str) -> String {
+    compile_and_capture_ir_with_repr_policy(source, false)
+}
+
+fn compile_and_capture_ir_with_repr_policy(source: &str, repr_opt: bool) -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
     let id = COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -28,7 +40,8 @@ pub fn compile_and_capture_ir(source: &str) -> String {
 
     fs::write(&source_path, source).expect("Failed to write source");
 
-    let compile_result = Command::new(ir_capture_binary())
+    let mut command = Command::new(ir_capture_binary());
+    command
         .args([
             "build",
             source_path.to_str().unwrap(),
@@ -36,9 +49,11 @@ pub fn compile_and_capture_ir(source: &str) -> String {
             binary_path.to_str().unwrap(),
         ])
         .env("ORI_STDLIB", stdlib_path())
-        .env("ORI_DEBUG_LLVM", "1")
-        .output()
-        .expect("Failed to execute ori build");
+        .env("ORI_DEBUG_LLVM", "1");
+    if !repr_opt {
+        command.env("ORI_NO_REPR_OPT", "1");
+    }
+    let compile_result = command.output().expect("Failed to execute ori build");
 
     assert!(
         compile_result.status.success(),
@@ -314,6 +329,16 @@ fn is_ssa_var_used_in(var_name: &str, line: &str) -> bool {
 /// Returns `Ok(ir_text)` on success, `Err(stderr)` on compilation failure.
 #[must_use = "success or failure must be handled"]
 pub fn compile_to_llvm_ir(source: &str) -> Result<String, String> {
+    compile_to_llvm_ir_with_target(source, None)
+}
+
+/// Compile an Ori program to LLVM IR for an explicit non-host target.
+#[must_use = "success or failure must be handled"]
+pub fn compile_to_llvm_ir_for_target(source: &str, target: &str) -> Result<String, String> {
+    compile_to_llvm_ir_with_target(source, Some(target))
+}
+
+fn compile_to_llvm_ir_with_target(source: &str, target: Option<&str>) -> Result<String, String> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
     let id = COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -323,14 +348,18 @@ pub fn compile_to_llvm_ir(source: &str) -> Result<String, String> {
 
     fs::write(&source_path, source).expect("Failed to write source");
 
-    let compile_result = Command::new(ori_binary())
-        .args([
-            "build",
-            source_path.to_str().unwrap(),
-            "--emit=llvm-ir",
-            "-o",
-            ir_path.to_str().unwrap(),
-        ])
+    let mut command = Command::new(ori_binary());
+    command.args([
+        "build",
+        source_path.to_str().unwrap(),
+        "--emit=llvm-ir",
+        "-o",
+        ir_path.to_str().unwrap(),
+    ]);
+    if let Some(target) = target {
+        command.arg(format!("--target={target}"));
+    }
+    let compile_result = command
         .env("ORI_STDLIB", stdlib_path())
         .output()
         .expect("Failed to execute ori build");

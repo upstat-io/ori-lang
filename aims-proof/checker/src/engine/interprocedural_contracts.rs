@@ -1969,23 +1969,23 @@ fn verify_ic6_fip_contract() -> EngineResult {
     }
 
     // (P6) POST-REALIZATION timing — 2-tier state machine witness:
-    // Step1_init = Never; final value = post-Step-5a authoritative;
+    // The initial provisional contract is Never; the final value is post-Step-5a authoritative;
     // FipContract does NOT re-enter Step 1 fixpoint. Discharge via a
     // structural transition function modeling Step 1 → Step 5a → final
     // with the explicit non-backward-flow invariant.
-    let step1_init = FipContract::Never;
-    if step1_init != FipContract::Never {
+    let initial_provisional_contract = FipContract::Never;
+    if initial_provisional_contract != FipContract::Never {
         return fail(format!(
             "IC-6 (P6) Step 1 init violation: expected Never, got {:?}",
-            step1_init
+            initial_provisional_contract
         ));
     }
     // Authoritative Step 5a outputs enumerated: every tier may be the
     // post-realization authoritative value, BUT the transition is
-    // strictly forward (Step1_init -> Step5a_authoritative -> final),
+    // strictly forward (initial provisional contract -> Step 5a authoritative value -> final),
     // never feeds back into Step 1. The forward-only property is
     // structural: no transition function from Step5a_authoritative
-    // back to Step1_init exists in the absorption table.
+    // back to the initial provisional contract exists in the absorption table.
     let mut p6_checked: u64 = 0;
     for &authoritative in &[
         FipContract::Never,
@@ -1994,11 +1994,11 @@ fn verify_ic6_fip_contract() -> EngineResult {
         FipContract::Bounded(7),
         FipContract::Certified,
     ] {
-        // Forward transition: Step1_init -> Step5a_authoritative.
+        // Forward transition: initial provisional contract -> Step 5a authoritative value.
         // The realized IR's alloc / dealloc balance determines the
         // authoritative value; the join with the Step 1 seed obeys
         // the absorption table (Never absorbs all).
-        let with_seed = fip_join(step1_init, authoritative);
+        let with_seed = fip_join(initial_provisional_contract, authoritative);
         if with_seed != FipContract::Never {
             return fail(format!(
                 "IC-6 (P6) Step 1 seed Never failed to absorb authoritative {:?}: got {:?}",
@@ -2112,9 +2112,8 @@ fn verify_ic7_convergence() -> EngineResult {
         ));
     }
 
-    // Shipped ParamContract retains may_escape(1) + transfers_through_return(1)
-    // + return_alias(2) per the IC-3 carve-out + BUG-04-090 caller-side
-    // carriers. shipped_param_height = 13 + 1 + 1 + 2 = 17.
+    // Shipped `ParamContract` retains may-escape, transfer-through-return,
+    // and return-alias caller-side carriers.
     let shipped_param_extra = 1 // may_escape
         + 1 // transfers_through_return
         + 2; // return_alias chain None < Some(Project) < Some(Direct)
@@ -2714,6 +2713,16 @@ fn verify_ic8a_conservative_init() -> EngineResult {
         ProjectedField(u32),
     }
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum FieldMoveAuthorityKind {
+        LocalExtraction,
+        BoundaryContract,
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct AuthorizedFieldMove {
+        field: u32,
+        kind: FieldMoveAuthorityKind,
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     struct TargetOwnershipFactIdentity {
         function: u32,
         parameter: u32,
@@ -2749,13 +2758,26 @@ fn verify_ic8a_conservative_init() -> EngineResult {
             _ => None,
         }
     };
-    let freeze_target =
-        |identity: TargetOwnershipFactIdentity,
-         facts: FinalOwnerFacts|
-         -> Option<FrozenTargetOwnershipFact> {
-            freeze_demand(facts)
-                .map(|demand| FrozenTargetOwnershipFact { identity, demand })
-        };
+    let freeze_target = |identity: TargetOwnershipFactIdentity,
+                         facts: FinalOwnerFacts|
+     -> Option<FrozenTargetOwnershipFact> {
+        freeze_demand(facts).map(|demand| FrozenTargetOwnershipFact { identity, demand })
+    };
+    let validated_boundary_field_move = |identity: TargetOwnershipFactIdentity,
+                                         facts: FinalOwnerFacts|
+     -> Option<AuthorizedFieldMove> {
+        let target = freeze_target(identity, facts)?;
+        match target.demand {
+            CalleeOwnerDemand::ProjectedField(field) => Some(AuthorizedFieldMove {
+                field,
+                kind: FieldMoveAuthorityKind::BoundaryContract,
+            }),
+            CalleeOwnerDemand::Borrow | CalleeOwnerDemand::WholeValue => None,
+        }
+    };
+    let field_has_move_authority = |authorities: &[AuthorizedFieldMove], field: u32| {
+        authorities.iter().any(|authority| authority.field == field)
+    };
     let adapter_path = |demand: CalleeOwnerDemand, _normal_exit: bool| match demand {
         CalleeOwnerDemand::Borrow => vec![AdapterEvent::Read],
         CalleeOwnerDemand::WholeValue | CalleeOwnerDemand::ProjectedField(_) => vec![
@@ -2963,6 +2985,69 @@ fn verify_ic8a_conservative_init() -> EngineResult {
     {
         return fail(
             "IC-8a (P6) missing, malformed, or contradictory frozen target owner facts must fail closed"
+                .to_string(),
+        );
+    }
+
+    // INVARIANT: A field is skipped exactly when a local or boundary authority exists on every path.
+    let projected = FinalOwnerFacts {
+        access: "Borrowed",
+        iter_consumes: false,
+        transfers_through_return: false,
+        borrowed_cow_consumed: false,
+        iter_consumes_projected_field: Some(3),
+    };
+    let plain_borrow = FinalOwnerFacts {
+        access: "Borrowed",
+        iter_consumes: false,
+        transfers_through_return: false,
+        borrowed_cow_consumed: false,
+        iter_consumes_projected_field: None,
+    };
+    let expected_boundary = AuthorizedFieldMove {
+        field: 3,
+        kind: FieldMoveAuthorityKind::BoundaryContract,
+    };
+    if validated_boundary_field_move(target_identity, projected) != Some(expected_boundary)
+        || validated_boundary_field_move(target_identity, plain_borrow).is_some()
+        || validated_boundary_field_move(target_identity, contradictory).is_some()
+    {
+        return fail(
+            "IC-8a (P6) projected-field boundary authority must be exact and conflicts must fail closed"
+                .to_string(),
+        );
+    }
+    let local = AuthorizedFieldMove {
+        field: 1,
+        kind: FieldMoveAuthorityKind::LocalExtraction,
+    };
+    let authority_union = [local, expected_boundary, expected_boundary];
+    if !field_has_move_authority(&authority_union, 1)
+        || !field_has_move_authority(&authority_union, 3)
+        || field_has_move_authority(&authority_union, 2)
+    {
+        return fail(
+            "IC-8a (P6) local/boundary field authority union lost membership or idempotence"
+                .to_string(),
+        );
+    }
+    let payload_balanced = |moved: bool, skipped: bool| moved == skipped;
+    let invoke_successor_marks = [
+        field_has_move_authority(&[expected_boundary], 3),
+        field_has_move_authority(&[expected_boundary], 3),
+    ];
+    let bypass_mark = field_has_move_authority(&[], 3);
+    if !invoke_successor_marks
+        .iter()
+        .copied()
+        .all(|mark| mark && payload_balanced(mark, true))
+        || bypass_mark
+        || !payload_balanced(bypass_mark, false)
+        || payload_balanced(true, false)
+        || payload_balanced(false, true)
+    {
+        return fail(
+            "IC-8a (P6) boundary field authority must cross both Invoke exits, remain absent on bypass, and reject under/over-skip"
                 .to_string(),
         );
     }
@@ -3622,106 +3707,97 @@ fn verify_ic8a_conservative_init() -> EngineResult {
     let requirement_requires_owner = |requirement: NormalReturnRequirementKind| {
         matches!(requirement, NormalReturnRequirementKind::Owned(_))
     };
-    let freeze_function_plan =
-        |inventory: &FunctionExitInventory,
-         evidences: &[NormalReturnEvidence]|
-         -> Option<FrozenFunctionResultPlan> {
-            let exit_sites: Vec<u32> = inventory
-                .exits
-                .iter()
-                .map(|exit| match exit {
-                    FunctionExit::NormalReturn { site, .. } | FunctionExit::Unwind { site } => {
-                        *site
-                    }
-                })
-                .collect();
-            if !identifiers_unique(&exit_sites) {
-                return None;
-            }
-            let requirements: Vec<NormalReturnRequirement> = inventory
-                .exits
-                .iter()
-                .filter_map(|exit| match *exit {
-                    FunctionExit::NormalReturn { site, requirement } => {
-                        Some(NormalReturnRequirement {
-                            identity: ResultFactIdentity {
-                                function: inventory.function,
-                                return_site: site,
-                            },
-                            kind: requirement,
-                        })
-                    }
-                    FunctionExit::Unwind { .. } => None,
-                })
-                .collect();
-            let ownerless_proof_ids: Vec<u32> = requirements
-                .iter()
-                .filter_map(|requirement| match requirement.kind {
-                    NormalReturnRequirementKind::Ownerless { proof_identity, .. } => {
-                        Some(proof_identity)
-                    }
-                    NormalReturnRequirementKind::Owned(_) => None,
-                })
-                .collect();
-            if !identifiers_unique(&ownerless_proof_ids)
-                || ownerless_proof_ids.contains(&0)
-                || evidences.len() != requirements.len()
-            {
-                return None;
-            }
-            let mut rows = Vec::with_capacity(requirements.len());
-            for (requirement, evidence) in requirements.iter().zip(evidences) {
-                let row = match (requirement.kind, *evidence) {
-                    (
-                        NormalReturnRequirementKind::Ownerless {
-                            proof_identity,
-                            reason,
-                        },
-                        NormalReturnEvidence::Ownerless(proof),
-                    ) if proof.identity == requirement.identity
-                        && proof.requirement == requirement.kind
-                        && proof.proof_identity == proof_identity
-                        && proof_identity != 0
-                        && proof.reason == reason
-                        && !requirement_requires_owner(proof.requirement)
-                        && proof.proven_ownerless =>
-                    {
-                        FrozenNormalReturnResult::Ownerless(proof)
-                    }
-                    (
-                        NormalReturnRequirementKind::Owned(required_relation),
-                        NormalReturnEvidence::Owned {
-                            entry,
-                            relation,
-                            funding,
-                            claimed,
-                        },
-                    ) if relation == required_relation => {
-                        let certified = freeze_result(
-                            requirement.identity,
-                            entry,
-                            required_relation,
-                            funding,
-                        )?;
-                        if certified != claimed {
-                            return None;
-                        }
-                        FrozenNormalReturnResult::Owned(certified)
-                    }
-                    _ => return None,
-                };
-                rows.push(row);
-            }
-            Some(FrozenFunctionResultPlan {
-                function: inventory.function,
-                normal_return_sites: requirements
-                    .iter()
-                    .map(|requirement| requirement.identity.return_site)
-                    .collect(),
-                requirements,
-                rows,
+    let freeze_function_plan = |inventory: &FunctionExitInventory,
+                                evidences: &[NormalReturnEvidence]|
+     -> Option<FrozenFunctionResultPlan> {
+        let exit_sites: Vec<u32> = inventory
+            .exits
+            .iter()
+            .map(|exit| match exit {
+                FunctionExit::NormalReturn { site, .. } | FunctionExit::Unwind { site } => *site,
             })
-        };
+            .collect();
+        if !identifiers_unique(&exit_sites) {
+            return None;
+        }
+        let requirements: Vec<NormalReturnRequirement> = inventory
+            .exits
+            .iter()
+            .filter_map(|exit| match *exit {
+                FunctionExit::NormalReturn { site, requirement } => Some(NormalReturnRequirement {
+                    identity: ResultFactIdentity {
+                        function: inventory.function,
+                        return_site: site,
+                    },
+                    kind: requirement,
+                }),
+                FunctionExit::Unwind { .. } => None,
+            })
+            .collect();
+        let ownerless_proof_ids: Vec<u32> = requirements
+            .iter()
+            .filter_map(|requirement| match requirement.kind {
+                NormalReturnRequirementKind::Ownerless { proof_identity, .. } => {
+                    Some(proof_identity)
+                }
+                NormalReturnRequirementKind::Owned(_) => None,
+            })
+            .collect();
+        if !identifiers_unique(&ownerless_proof_ids)
+            || ownerless_proof_ids.contains(&0)
+            || evidences.len() != requirements.len()
+        {
+            return None;
+        }
+        let mut rows = Vec::with_capacity(requirements.len());
+        for (requirement, evidence) in requirements.iter().zip(evidences) {
+            let row = match (requirement.kind, *evidence) {
+                (
+                    NormalReturnRequirementKind::Ownerless {
+                        proof_identity,
+                        reason,
+                    },
+                    NormalReturnEvidence::Ownerless(proof),
+                ) if proof.identity == requirement.identity
+                    && proof.requirement == requirement.kind
+                    && proof.proof_identity == proof_identity
+                    && proof_identity != 0
+                    && proof.reason == reason
+                    && !requirement_requires_owner(proof.requirement)
+                    && proof.proven_ownerless =>
+                {
+                    FrozenNormalReturnResult::Ownerless(proof)
+                }
+                (
+                    NormalReturnRequirementKind::Owned(required_relation),
+                    NormalReturnEvidence::Owned {
+                        entry,
+                        relation,
+                        funding,
+                        claimed,
+                    },
+                ) if relation == required_relation => {
+                    let certified =
+                        freeze_result(requirement.identity, entry, required_relation, funding)?;
+                    if certified != claimed {
+                        return None;
+                    }
+                    FrozenNormalReturnResult::Owned(certified)
+                }
+                _ => return None,
+            };
+            rows.push(row);
+        }
+        Some(FrozenFunctionResultPlan {
+            function: inventory.function,
+            normal_return_sites: requirements
+                .iter()
+                .map(|requirement| requirement.identity.return_site)
+                .collect(),
+            requirements,
+            rows,
+        })
+    };
 
     let ownerless_kind = NormalReturnRequirementKind::Ownerless {
         proof_identity: 7001,
@@ -3796,10 +3872,8 @@ fn verify_ic8a_conservative_init() -> EngineResult {
         funding: plan_target_funding,
         claimed: owned_fact,
     };
-    let exact_plan = freeze_function_plan(
-        &function_inventory,
-        &[ownerless_evidence, owned_evidence],
-    );
+    let exact_plan =
+        freeze_function_plan(&function_inventory, &[ownerless_evidence, owned_evidence]);
     let Some(exact_plan_value) = exact_plan.as_ref() else {
         return fail("IC-8a (P6) exact function-total result plan failed to freeze".to_string());
     };
@@ -3985,11 +4059,8 @@ fn verify_ic8a_conservative_init() -> EngineResult {
         ),
         (
             "cross-site fact replay",
-            freeze_function_plan(
-                &function_inventory,
-                &[ownerless_evidence, wrong_site_owned],
-            )
-            .is_some(),
+            freeze_function_plan(&function_inventory, &[ownerless_evidence, wrong_site_owned])
+                .is_some(),
             false,
         ),
         (
@@ -4017,11 +4088,8 @@ fn verify_ic8a_conservative_init() -> EngineResult {
         ),
         (
             "wrong ownerless proof identity",
-            freeze_function_plan(
-                &function_inventory,
-                &[wrong_proof_identity, owned_evidence],
-            )
-            .is_some(),
+            freeze_function_plan(&function_inventory, &[wrong_proof_identity, owned_evidence])
+                .is_some(),
             false,
         ),
         (

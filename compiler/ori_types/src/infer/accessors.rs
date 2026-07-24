@@ -82,6 +82,45 @@ impl<'pool> InferEngine<'pool> {
             .map(Vec::as_slice)
     }
 
+    /// Whether `name` is a registered module-alias namespace. Distinguishes a
+    /// module-qualified type path (`geom.Point`) from an associated-type
+    /// projection (`Self.Item`), which share the `AssociatedType` shape.
+    pub fn is_module_alias(&self, name: Name) -> bool {
+        self.module_aliases
+            .is_some_and(|aliases| aliases.contains_key(&name))
+    }
+
+    /// Intern the module-qualified type name `alias.type_name` — the key the
+    /// aliased module's public types are registered under. Returns `None`
+    /// without an interner.
+    pub fn qualified_type_name(&self, alias: Name, type_name: Name) -> Option<Name> {
+        let interner = self.interner?;
+        Some(interner.intern_owned(ori_ir::qualified_alias_name(
+            interner.lookup(alias),
+            interner.lookup(type_name),
+        )))
+    }
+
+    /// Pool index of a module-qualified type path headed by `base`.
+    ///
+    /// Delegates to the shared discrimination so in-body inference and
+    /// signature registration answer identically for the same path.
+    pub(crate) fn qualified_type_path(
+        &self,
+        arena: &ori_ir::ExprArena,
+        base: ori_ir::ParsedTypeId,
+        assoc_name: Name,
+    ) -> Option<crate::module_qualified::QualifiedTypePath> {
+        crate::module_qualified::qualified_type_path(
+            self.module_aliases?,
+            self.interner?,
+            self.type_registry?,
+            arena,
+            base,
+            assoc_name,
+        )
+    }
+
     /// Set the type registry for struct/enum/newtype lookup.
     pub fn set_type_registry(&mut self, registry: &'pool TypeRegistry) {
         self.type_registry = Some(registry);

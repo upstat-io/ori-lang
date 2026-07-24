@@ -32,36 +32,49 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         result_ty: Idx,
         strategy: OpStrategy,
         arc_func: &ori_arc::ir::ArcFunction,
+        arc_args: &[ori_arc::ir::ArcVarId],
     ) -> ValueId {
         match strategy {
             OpStrategy::SignedInteger => {
-                self.emit_int_binary_op(op, lhs, rhs, lhs_ty, rhs_ty, result_ty)
+                self.emit_int_binary_op(op, lhs, rhs, lhs_ty, rhs_ty, result_ty, arc_func, arc_args)
             }
             OpStrategy::FloatingPoint => self.emit_float_binary_op(op, lhs, rhs),
             OpStrategy::UnsignedComparison => self.emit_unsigned_binary_op(op, lhs, rhs),
             OpStrategy::BooleanLogic => self.emit_bool_binary_op(op, lhs, rhs),
             OpStrategy::StructuralEquality => {
-                let equals = self
-                    .emit_element_equals(lhs, rhs, lhs_ty)
-                    .expect("validated structural equality has an LLVM projection");
+                let Some(equals) = self.emit_element_equals(lhs, rhs, lhs_ty) else {
+                    // Why: The registry selects StructuralEquality only for realizable operands.
+                    unreachable!("validated structural equality must have an LLVM projection")
+                };
                 if op == BinaryOp::NotEq {
                     self.builder.not(equals, "neq")
                 } else {
                     equals
                 }
             }
-            OpStrategy::StructuralOrdering => self
-                .emit_ordering_comparison(op, lhs, rhs, lhs_ty)
-                .expect("validated structural ordering has an LLVM projection"),
+            OpStrategy::StructuralOrdering => {
+                let Some(ordering) = self.emit_ordering_comparison(op, lhs, rhs, lhs_ty) else {
+                    // Why: The registry selects StructuralOrdering only for realizable operands.
+                    unreachable!("validated structural ordering must have an LLVM projection")
+                };
+                ordering
+            }
             OpStrategy::RuntimeCall(RuntimeOperator::ListConcat) => {
                 let TypeInfo::List { element } = self.type_info.get(lhs_ty) else {
                     unreachable!("typed ListConcat strategy requires a List receiver")
                 };
                 let cm = self.cow_mode_const(arc_func);
-                self.emit_list_concat_cow(lhs, rhs, element, cm, lhs_ty)
-                    .expect("list concat runtime returns one list value")
+                let Some(value) = self.emit_list_concat_cow(lhs, rhs, element, cm, lhs_ty) else {
+                    // Why: The registered list-concat runtime ABI returns one list value.
+                    unreachable!("list concat runtime must return one list value")
+                };
+                value
             }
-            OpStrategy::RuntimeCall(runtime) => self.emit_runtime_binary_op(runtime, op, lhs, rhs),
+            OpStrategy::RuntimeCall(runtime) => self.emit_runtime_binary_op(
+                strategy::RuntimeBinaryOperation::from_parts(runtime, op),
+                lhs,
+                rhs,
+            ),
             OpStrategy::Unsupported => {
                 unreachable!("validated primitive has Unsupported strategy")
             }
@@ -111,8 +124,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 unreachable!("unary op {op:?} has a structural binary strategy")
             }
             OpStrategy::Unsupported => {
-                // Try is desugared before reaching ARC IR. If it slips
-                // through, warn and return a zero constant.
                 unreachable!("validated primitive has Unsupported strategy")
             }
             OpStrategy::RuntimeCall(_) => {
@@ -131,8 +142,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let ordering = self.emit_element_compare(lhs, rhs, lhs_ty)?;
 
-        // Ordering is i8: 0=Less, 1=Equal, 2=Greater
-        // Map comparison operators to equality/inequality checks on the ordering value.
+        // Ordering uses 0=Less and 2=Greater.
         let less = self.builder.const_i8(0);
         let greater = self.builder.const_i8(2);
         let result = match op {

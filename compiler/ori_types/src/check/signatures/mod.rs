@@ -371,7 +371,10 @@ fn detect_type_param_projection(
     type_params: &[Name],
     arena: &ExprArena,
 ) -> Option<(Name, Name)> {
-    let ParsedType::AssociatedType { base, assoc_name } = parsed else {
+    let ParsedType::AssociatedType {
+        base, assoc_name, ..
+    } = parsed
+    else {
         return None;
     };
     let ParsedType::Named { name, .. } = arena.get_parsed_type(*base) else {

@@ -84,13 +84,6 @@ fn hash_contract_ownership(hasher: &mut StableHasher, contract: &MemoryContract)
         hasher.bool(param.borrowed_read_only);
         hasher.bool(param.borrowed_cow_consumed);
         hasher.bool(param.borrowed_cow_mutated);
-        match param.iter_consumes_projected_field {
-            Some(field) => {
-                hasher.tag(1);
-                hasher.u32(field);
-            }
-            None => hasher.tag(0),
-        }
     }
 
     hash_uniqueness(hasher, contract.return_info.uniqueness);

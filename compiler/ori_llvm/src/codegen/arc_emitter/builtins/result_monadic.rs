@@ -28,10 +28,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let receiver = arg_vals[0];
 
-        if let Some(encoding) = self.get_niche_encoding(receiver_ty) {
-            return self.emit_result_monadic_niche(
-                method, receiver, arg_vals, &encoding, arc_args, arc_func,
-            );
+        if self.get_niche_encoding(receiver_ty).is_some() {
+            return None;
         }
 
         let tag = self.builder.extract_value(receiver, 0, "res.tag")?;
@@ -129,7 +127,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             err_ty,
             "rmap.ok",
         )?;
-        let ok_bb_final = self.builder.current_block().unwrap();
+        let ok_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(err_bb);
@@ -142,7 +140,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             err_ty,
             "rmap.err",
         )?;
-        let err_bb_final = self.builder.current_block().unwrap();
+        let err_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(merge_bb);
@@ -188,7 +186,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             mapped_err_ty,
             "rme.ok",
         )?;
-        let ok_bb_final = self.builder.current_block().unwrap();
+        let ok_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(err_bb);
@@ -202,7 +200,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             mapped_err_ty,
             "rme.err",
         )?;
-        let err_bb_final = self.builder.current_block().unwrap();
+        let err_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(merge_bb);
@@ -241,7 +239,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.position_at_end(ok_bb);
         let ok_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, ok_ty)?;
         let ok_result = self.call_closure_single_arg(closure, ok_payload, ok_ty, return_ty)?;
-        let ok_bb_final = self.builder.current_block().unwrap();
+        let ok_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(err_bb);
@@ -257,7 +255,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .struct_gep(result_llvm_ty, alloca, 1, "rat.err.g");
         self.builder.store(err_payload, gep);
         let err_result = self.builder.load(result_llvm_ty, alloca, "rat.err.r");
-        let err_bb_final = self.builder.current_block().unwrap();
+        let err_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(merge_bb);
@@ -305,13 +303,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .struct_gep(result_llvm_ty, alloca, 1, "roe.ok.g");
         self.builder.store(ok_payload, gep);
         let ok_result = self.builder.load(result_llvm_ty, alloca, "roe.ok.r");
-        let ok_bb_final = self.builder.current_block().unwrap();
+        let ok_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(err_bb);
         let err_payload = self.extract_tagged_union_payload(receiver, receiver_ty, 1, err_ty)?;
         let err_result = self.call_closure_single_arg(closure, err_payload, err_ty, return_ty)?;
-        let err_bb_final = self.builder.current_block().unwrap();
+        let err_bb_final = self.builder.current_block()?;
         self.builder.br(merge_bb);
 
         self.builder.position_at_end(merge_bb);
@@ -386,21 +384,5 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             SharedPayloadArm::First => ok_llvm,
             SharedPayloadArm::Second => err_llvm,
         }
-    }
-
-    #[expect(
-        clippy::unused_self,
-        reason = "dispatch compatibility requires an emitter method, but fallback delegation reads no emitter state"
-    )]
-    fn emit_result_monadic_niche(
-        &mut self,
-        _method: &str,
-        _receiver: ValueId,
-        _arg_vals: &[ValueId],
-        _encoding: &crate::codegen::arc_emitter::tag_access::TagEncoding,
-        _arc_args: &[ArcVarId],
-        _arc_func: &ArcFunction,
-    ) -> Option<ValueId> {
-        None
     }
 }

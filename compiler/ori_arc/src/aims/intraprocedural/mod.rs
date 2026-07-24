@@ -136,27 +136,20 @@ fn initialize_analysis(
         }
     }
 
-    // Compute postorder for backward traversal: successors appear before
-    // predecessors, so demand from successors is available when we compute
-    // a block's exit/entry state.
+    // Why: Backward demand traversal requires successors before predecessors.
     let postorder = crate::graph::compute_postorder(func);
 
-    // Collect invoke definitions: Invoke { dst, normal,.. } defines `dst`
-    // at the entry of the `normal` successor only (not unwind). We need to
-    // remove these from the normal successor's entry state.
+    // INVARIANT: `Invoke` defines its destination only at the normal successor entry.
     let invoke_defs = crate::graph::collect_invoke_defs(func);
 
-    // SSA uniqueness lets pre-strip invoke-result demand route from its normal
-    // successor back to the defining invoke's exit-state side table.
+    // INVARIANT: SSA uniqueness gives each invoke result one defining exit-state entry.
     let invoke_dst_to_owner = build_invoke_dst_to_owner(func);
 
-    // PL-5 requires apply-result identities before project-alias sources so
-    // the latter's seed sees the complete map.
+    // PL-5: Project-alias seeding requires the complete apply-result identity map.
     let apply_result_aliases = apply_aliases::populate_apply_result_aliases(func, sigs);
     state_map.set_apply_result_aliases(apply_result_aliases);
 
-    // Build SSA alias classes after apply-result identities are available and
-    // before the worklist begins its read-only use.
+    // INVARIANT: SSA alias classes consume the complete, immutable apply-result map.
     let ssa_alias_output =
         ssa_alias_classes::compute_ssa_alias_classes(func, state_map.apply_result_aliases());
     state_map.set_ssa_alias_output(
@@ -165,8 +158,7 @@ fn initialize_analysis(
         ssa_alias_output.class_apply_alias_source_candidates,
     );
 
-    // Precompute the static same-allocation closure across projections, Let
-    // aliases, jumps, merges, and selects; select origins gate §1.9 demand.
+    // Spec: Annex E §1.9.
     let project_alias_table = project_aliases::compute_project_alias_table_for_state(
         func,
         state_map.apply_result_aliases(),
@@ -176,9 +168,7 @@ fn initialize_analysis(
     let demand_sources = project_alias_table.demand_sources;
     let select_alias_dsts = project_alias_table.select_alias_dsts;
 
-    // Persist the full alias closure for realization, while backward demand
-    // uses the narrower §1.9 sources; whole-var/select demand would overextend
-    // merge-edge lifetimes. PL-5 makes this pre-pass state read-only thereafter.
+    // Why: Whole-var/select demand would extend merge-edge lifetimes beyond §1.9 sources.
     state_map.set_project_alias_sources(project_alias_sources);
 
     AnalysisSetup {
@@ -318,8 +308,6 @@ fn finish_analysis(
     mut state_map: AimsStateMap,
     iteration: usize,
 ) -> AimsStateMap {
-    // Post-convergence: verify canonical fixed point and detect
-    // cross-dimension chaining (Convergence Feedback).
     verify_canonical_fixed_point(&mut state_map, func);
 
     tracing::debug!(
@@ -331,9 +319,7 @@ fn finish_analysis(
         "AIMS intraprocedural analysis converged"
     );
 
-    // Materialize singleton transitive-drop classes first. Call-result state
-    // must precede sparse events so placement candidates see effective exit
-    // locality.
+    // Why: Placement candidates require effective exit locality before sparse events are populated.
     post_convergence::materialize_transitive_drop_singleton_classes(func, sigs, &mut state_map);
     post_convergence::populate_borrow_sources(&mut state_map, func);
     post_convergence::populate_call_result_states(&mut state_map, func, sigs);
@@ -342,8 +328,6 @@ fn finish_analysis(
     // TF-2 alias inheritance requires call-result and shape tables first.
     post_convergence::propagate_alias_forward_state(&mut state_map, func);
 
-    // effect_summary.may_share is available post-convergence.
-    // Passed to TRMC gates for logging (not enforced in v1).
     let may_share = state_map.effect_summary().may_share;
     post_convergence::detect_trmc_candidates(&mut state_map, func, may_share);
     post_convergence::populate_context_events(&mut state_map, func, context_regions, may_share);

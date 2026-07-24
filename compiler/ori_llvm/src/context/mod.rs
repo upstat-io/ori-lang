@@ -15,10 +15,8 @@ use inkwell::module::Module;
 use inkwell::types::{BasicType, BasicTypeEnum, PointerType, StructType};
 use inkwell::AddressSpace;
 
-/// Minimal LLVM context with the module and commonly-used types.
-///
-/// Contains only the LLVM module, context, and commonly-used types.
-/// Used by `IrBuilder` and `FunctionCompiler` for all code generation.
+/// LLVM context, module, and common types shared by `IrBuilder` and
+/// `FunctionCompiler`.
 #[derive(Debug)]
 pub struct SimpleCx<'ll> {
     /// The LLVM context (owns all LLVM types and values).

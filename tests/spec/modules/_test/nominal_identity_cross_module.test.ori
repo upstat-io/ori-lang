@@ -1,0 +1,35 @@
+// Spec: 08-types.md 8.7 Nominal Typing; 18-modules.md Imports
+// Regression: BUG-04-296 — cross-module nominal identity is lost when two
+// modules independently declare a same-SPELLED type.
+//
+// 8.7: "User-defined types are nominally typed. Identical structure does not
+// imply same type." A::Row and B::Row are independent declarations, so a
+// B::Row value is NOT assignable to A::accept_a(row: A::Row).
+//
+// Type identity is keyed by the bare interned `Name` (ori_ir/src/name/mod.rs),
+// which carries no defining-module coordinate; signature import then discards
+// the second provider declaration by spelling
+// (oric/src/typeck/mod.rs register_signature_types) and the hash-first path
+// resolves B's return to A's existing local Idx. The two declarations become
+// interchangeable, so the call below is wrongly ACCEPTED.
+//
+// The differently-spelled `Rec` control is already rejected, proving the
+// rejection path itself works and isolating spelling-keyed identity as the
+// defect.
+
+use std.testing { assert_eq }
+use "../nominal_identity_row_a" { accept_a }
+use "../nominal_identity_row_b" { make_b }
+use "../nominal_identity_rec_c" { make_c }
+
+// RED at HEAD: this call is wrongly accepted; 8.7 requires E2001.
+#compile_fail(code: "E2001")
+@test_cross_module_same_spelling_is_not_assignable tests _ () -> void = {
+    assert_eq(actual: accept_a(row: make_b()), expected: 3)
+}
+
+// GREEN control: differing spelling is already rejected E2001.
+#compile_fail(code: "E2001")
+@test_cross_module_differing_spelling_is_not_assignable tests _ () -> void = {
+    assert_eq(actual: accept_a(row: make_c()), expected: 3)
+}

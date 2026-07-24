@@ -5,7 +5,8 @@
 //! Per, scheme bodies carry `Tag::BoundVar(var_id)` leaves
 //! post-generalization. Substitution to concrete types happens UPSTREAM in
 //! `lower_function_can` via `type_subst` threaded from
-//! `MonoFunction.body_type_map` (see `function_compiler/nounwind/prepare.rs:133`).
+//! `MonoFunction.body_type_map` (threaded by
+//! `FunctionCompiler::define_function_body_arc_with_subst`).
 //! By codegen time, a correctly-substituted mono body has zero `Tag::BoundVar`
 //! leaves. If one reaches `compute_type_info_inner`, an upstream layer
 //! missed a leaf — the store surfaces this as `TypeInfo::Error` rather than

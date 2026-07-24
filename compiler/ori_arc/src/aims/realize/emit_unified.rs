@@ -1,10 +1,7 @@
-//! Unified logical ownership-event realization with inline lifetime-event
-//! collection.
+//! Unified logical ownership-event realization and lifetime-event collection.
 //!
-//! Phase 1 sub-step B of [`super::realize_rc_reuse()`]. Phase-7 mechanical
-//! lowering lives in [`burden_lowering`]; jump-threaded same-allocation rep
-//! tracking lives in [`jump_threaded_reps`] — both split out to keep every
-//! file under the 500-line hygiene cap.
+//! [`burden_lowering`] lowers logical burdens, while [`jump_threaded_reps`]
+//! tracks same-allocation representatives across jump-threaded control flow.
 
 #[cfg(test)]
 mod tests;
@@ -24,19 +21,13 @@ use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
 use super::metrics;
 use burden_lowering::lower_burden_ops_to_rc;
 
-pub use jump_threaded_reps::push_receiver_lineage_returned;
+pub use jump_threaded_reps::{
+    push_receiver_lineage_returned, yield_result_for_receiver_lineage, YieldLineageIndex,
+};
 
-/// Per-phase snapshot of the current counter-shaped carrier for post-walk
-/// adapter debugging.
+/// Trace each block's physical RC projection after a realization phase.
 ///
-/// Emits one `tracing::trace!` per block summarising every `RcInc`/`RcDec` by
-/// `ArcVarId`. These are physical-projection migration metrics, not AIMS facts.
-/// Gated behind `tracing::enabled!` — zero overhead when the
-/// `ori_arc::aims::realize` target is below trace level.
-///
-/// `ORI_LOG=ori_arc::aims::realize=trace` activates it; bisects which post-walk
-/// pass (Phase-7 burden lowering, `coalesce_block_rc`) rewrote a block's RC
-/// ops.
+/// The trace records physical migration metrics, never AIMS facts.
 fn trace_phase_snapshot(
     phase: &'static str,
     func: &ArcFunction,
@@ -129,15 +120,8 @@ pub(super) fn emit_rc_unified(
         );
     }
 
-    // The class-ledger burden carrier is the sole RC-emission input to the
-    // current compiled-counter adapter. It is not AIMS's sole physical
-    // realization. On the normal (burden-ops-enabled) path the Step-4b `assert!`
-    // already ICEs before a
-    // non-replaced function reaches here. Under `ORI_DISABLE_BURDEN_OPS=1`
-    // the Step-4b assert is vacuously satisfied (its condition is
-    // `!burden_ops_enabled || replaced`), so every function declines
-    // replacement without tripping it — THIS `unreachable!()` is itself the
-    // fail-loud gate for that ablation path, not a redundant backstop.
+    // INVARIANT: the burden-disabled ablation declines replacement, so this is
+    // its fail-loud gate; production replacement is asserted before realization.
     unreachable!(
         "realize reached a non-class-ledger function `{}` — the class-ledger \
          plan admits only replaced functions",

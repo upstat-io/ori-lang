@@ -15,7 +15,7 @@ use super::{
     validate_external_callables, BlockIndex, CallPosition, CallSite, CallableTarget,
     ExecutableProgram, ExecutableProgramParts, ExternalCallable, ExternalFactIdentities,
     ExternalUnwind, FunctionFamilyTopology, IteratorSource, RealizationError, RuntimeCall,
-    UserDropBinding,
+    UserDropBinding, ValidatedExternalCallables,
 };
 use crate::{NarrowingPolicy, ReprPlan};
 
@@ -50,6 +50,7 @@ fn empty_function(name: ori_ir::Name) -> ArcFunction {
         method_call_facts: Vec::new(),
         operator_call_facts: Vec::new(),
         direct_call_facts: Vec::new(),
+        yield_allocations: Vec::new(),
         class_ledger_emission: false,
     }
 }
@@ -86,7 +87,7 @@ fn parts(symbols: &SharedInterner) -> ExecutableProgramParts {
         function_families: vec![FunctionFamilyTopology::new(main, Vec::new())],
         roots: vec![main],
         cli_entry: Some(main),
-        externals: Vec::new(),
+        externals: ValidatedExternalCallables::empty(),
         method_targets: FxHashMap::default(),
         user_drop_bindings: Vec::new(),
         repr_plan: ReprPlan::new(NarrowingPolicy::Disabled),
@@ -469,15 +470,19 @@ fn resolves_external_call_from_exact_producer_facts() {
     let external_name = symbols.intern("dependency");
     let mut contract = MemoryContract::conservative(0);
     contract.effects.may_throw = false;
-    input.externals.push(ExternalCallable::freeze(
-        external_name,
-        "_ori_dependency",
-        Vec::new(),
-        Idx::UNIT,
-        contract,
-        ExternalUnwind::NoUnwind,
+    input.externals = validate_external_callables(
+        vec![ExternalCallable::freeze(
+            external_name,
+            "_ori_dependency",
+            Vec::new(),
+            Idx::UNIT,
+            contract,
+            ExternalUnwind::NoUnwind,
+            &input.pool,
+        )],
         &input.pool,
-    ));
+    )
+    .unwrap_or_else(|error| panic!("external fixture should validate: {error}"));
     input.functions[0].blocks[0].body.push(ArcInstr::Apply {
         dst: ArcVarId::new(0),
         ty: Idx::UNIT,
@@ -516,7 +521,7 @@ fn rejects_stale_external_facts_and_local_body_collisions() {
     let mut contract = MemoryContract::conservative(0);
     contract.effects.may_throw = false;
 
-    let mut stale = parts(&symbols);
+    let stale = parts(&symbols);
     let frozen = ExternalCallable::freeze(
         external_name,
         "_ori_dependency",
@@ -527,7 +532,7 @@ fn rejects_stale_external_facts_and_local_body_collisions() {
         &stale.pool,
     );
     let ids = frozen.identities();
-    stale.externals.push(ExternalCallable::from_imported_parts(
+    let stale_external = ExternalCallable::from_imported_parts(
         external_name,
         "_ori_dependency",
         Vec::new(),
@@ -540,22 +545,26 @@ fn rejects_stale_external_facts_and_local_body_collisions() {
             ids.effects(),
             ids.unwind(),
         ),
-    ));
+    );
     assert!(matches!(
-        ExecutableProgram::validate(stale),
+        validate_external_callables(vec![stale_external], &stale.pool),
         Err(RealizationError::StaleExternalFacts { name }) if name == external_name
     ));
 
     let mut collision = parts(&symbols);
-    collision.externals.push(ExternalCallable::freeze(
-        main,
-        "_ori_other_main",
-        Vec::new(),
-        Idx::UNIT,
-        contract,
-        ExternalUnwind::NoUnwind,
+    collision.externals = validate_external_callables(
+        vec![ExternalCallable::freeze(
+            main,
+            "_ori_other_main",
+            Vec::new(),
+            Idx::UNIT,
+            contract,
+            ExternalUnwind::NoUnwind,
+            &collision.pool,
+        )],
         &collision.pool,
-    ));
+    )
+    .unwrap_or_else(|error| panic!("collision fixture facts should validate: {error}"));
     assert!(matches!(
         ExecutableProgram::validate(collision),
         Err(RealizationError::ExternalFunctionBodyCollision { name }) if name == main
@@ -580,7 +589,7 @@ fn exports_callable_metadata_only_from_the_closed_program_and_revalidates_import
         Idx::UNIT,
         metadata.clone(),
     );
-    validate_external_callables(std::slice::from_ref(&exact), program.pool())
+    validate_external_callables(vec![exact.clone()], program.pool())
         .unwrap_or_else(|error| panic!("exact producer metadata should import: {error}"));
     assert_eq!(exact.contract(), program.function_contract(producer));
     assert_eq!(
@@ -596,7 +605,7 @@ fn exports_callable_metadata_only_from_the_closed_program_and_revalidates_import
         metadata,
     );
     assert!(matches!(
-        validate_external_callables(std::slice::from_ref(&signature_mismatch), program.pool()),
+        validate_external_callables(vec![signature_mismatch], program.pool()),
         Err(RealizationError::StaleExternalFacts { name }) if name == imported_name
     ));
 }
@@ -606,12 +615,12 @@ fn rejects_external_aliases_with_different_logical_facts() {
     let symbols = SharedInterner::new();
     let first = symbols.intern("first_alias");
     let second = symbols.intern("second_alias");
-    let mut input = parts(&symbols);
+    let input = parts(&symbols);
     let mut first_contract = MemoryContract::conservative(0);
     first_contract.effects.may_throw = false;
     let mut second_contract = first_contract.clone();
     second_contract.effects.may_allocate = false;
-    input.externals.extend([
+    let externals = vec![
         ExternalCallable::freeze(
             first,
             "_ori_shared_symbol",
@@ -630,10 +639,10 @@ fn rejects_external_aliases_with_different_logical_facts() {
             ExternalUnwind::NoUnwind,
             &input.pool,
         ),
-    ]);
+    ];
 
     assert!(matches!(
-        ExecutableProgram::validate(input),
+        validate_external_callables(externals, &input.pool),
         Err(RealizationError::ExternalAliasFactsMismatch { .. })
     ));
 }
@@ -1714,6 +1723,14 @@ fn length_resolution_requires_a_registered_len_receiver() {
             None
         );
     }
+}
+
+#[test]
+fn range_len_keeps_receiver_specific_runtime_identity() {
+    assert_eq!(
+        RuntimeCall::resolve("len", Some(ori_registry::TypeTag::Range)),
+        Some(RuntimeCall::RangeLength)
+    );
 }
 
 #[test]

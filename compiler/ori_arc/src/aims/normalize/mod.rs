@@ -84,7 +84,7 @@ pub struct NormalizationResult {
 /// break the unique linear chain invariant (Lemma 2, Leijen & Lorenzen
 /// JFP 2025). When effect handlers are implemented, an effect purity gate
 /// must be added here.
-pub fn normalize_function(
+pub(crate) fn normalize_function(
     func: &mut ArcFunction,
     contract: Option<&MemoryContract>,
 ) -> NormalizationResult {

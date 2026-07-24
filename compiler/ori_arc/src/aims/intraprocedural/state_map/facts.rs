@@ -183,7 +183,7 @@ impl AimsStateMap {
     /// It remains `false` here; `extract_contract()` sets it from SCC
     /// membership and syntactic tail-position analysis.
     pub fn accumulate_effect(&mut self, effect: EffectSummary) {
-        self.effect_summary = self.effect_summary.join(&effect);
+        self.effect_summary = self.effect_summary.join(effect);
     }
 
     // FIP token balance

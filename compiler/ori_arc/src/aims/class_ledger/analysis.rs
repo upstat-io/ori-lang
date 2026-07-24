@@ -23,7 +23,7 @@ use crate::graph::compute_predecessors;
 use crate::ir::ArcFunction;
 
 use super::emit::ClassOutcome;
-use super::replace::{attempt_replacement, EmissionMode, FallbackReason, ReplacementOutcome};
+use super::replace::{EmissionMode, FallbackReason, ReplacementOutcome};
 use super::verify::{ClassVerdict, ReadinessSummary};
 use super::{copy_out, emit, events, hazard, replace, verify};
 
@@ -70,10 +70,33 @@ pub(crate) struct ClassLedgerAnalysis {
 /// Run classification, planning, and per-class verification from the
 /// converged state map — the analysis entry [`attempt_replacement`] and the
 /// tests share.
+#[cfg(test)]
 pub(crate) fn analyze_from_state_map(
     func: &ArcFunction,
     state_map: &AimsStateMap,
     contracts: &FxHashMap<Name, MemoryContract>,
+    type_registry: &ori_types::TypeRegistry,
+    interner: &ori_ir::StringInterner,
+) -> ClassLedgerAnalysis {
+    analyze_from_state_map_with_exact(
+        func,
+        state_map,
+        contracts,
+        &FxHashSet::default(),
+        None,
+        type_registry,
+        interner,
+    )
+}
+
+pub(crate) fn analyze_from_state_map_with_exact(
+    func: &ArcFunction,
+    state_map: &AimsStateMap,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    exact_callables: &FxHashSet<Name>,
+    exact_transfer_witnesses: Option<
+        &[crate::aims::interprocedural::ExactAggregateTransferWitness],
+    >,
     type_registry: &ori_types::TypeRegistry,
     interner: &ori_ir::StringInterner,
 ) -> ClassLedgerAnalysis {
@@ -114,10 +137,13 @@ pub(crate) fn analyze_from_state_map(
             interner,
             user_drop_admitted,
         );
-    let mut analysis = analyze_class_ledger(
+    let mut analysis = analyze_class_ledger_with_transfers(
         func,
         &classification,
         &mut partition,
+        contracts,
+        exact_callables,
+        exact_transfer_witnesses,
         type_registry,
         interner,
     );
@@ -227,7 +253,7 @@ fn plan_initial_classes(input: &mut ClassPlanningInput<'_>) -> InitialClassPlans
                 input.partition,
                 class,
                 &credit_sites,
-                events::EventFunding::Classified,
+                events::EventFunding::ExtractionOwned,
             )
         };
         events::apply_full_move_rebook(
@@ -276,16 +302,82 @@ fn plan_initial_classes(input: &mut ClassPlanningInput<'_>) -> InitialClassPlans
     }
 }
 
+#[cfg(test)]
 pub(crate) fn analyze_class_ledger(
     func: &ArcFunction,
     classification: &LedgerClassification,
     partition: &mut BirthSitePartition,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    type_registry: &ori_types::TypeRegistry,
+    interner: &ori_ir::StringInterner,
+) -> ClassLedgerAnalysis {
+    analyze_class_ledger_with_exact(
+        func,
+        classification,
+        partition,
+        contracts,
+        &FxHashSet::default(),
+        type_registry,
+        interner,
+    )
+}
+
+#[cfg(test)]
+pub(super) fn analyze_class_ledger_with_exact(
+    func: &ArcFunction,
+    classification: &LedgerClassification,
+    partition: &mut BirthSitePartition,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    exact_callables: &FxHashSet<Name>,
+    type_registry: &ori_types::TypeRegistry,
+    interner: &ori_ir::StringInterner,
+) -> ClassLedgerAnalysis {
+    analyze_class_ledger_with_transfers(
+        func,
+        classification,
+        partition,
+        contracts,
+        exact_callables,
+        None,
+        type_registry,
+        interner,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "ledger analysis consumes frozen contracts plus their local proof witnesses"
+)]
+fn analyze_class_ledger_with_transfers(
+    func: &ArcFunction,
+    classification: &LedgerClassification,
+    partition: &mut BirthSitePartition,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    exact_callables: &FxHashSet<Name>,
+    exact_transfer_witnesses: Option<
+        &[crate::aims::interprocedural::ExactAggregateTransferWitness],
+    >,
     type_registry: &ori_types::TypeRegistry,
     interner: &ori_ir::StringInterner,
 ) -> ClassLedgerAnalysis {
     let preds = compute_predecessors(func);
     let regions = emit::CycleRegions::compute(func);
-    let full_move_arms = events::detect_full_move_arms(func, partition, type_registry);
+    let full_move_arms = match exact_transfer_witnesses {
+        None => events::detect_full_move_arms_with_exact(
+            func,
+            partition,
+            type_registry,
+            contracts,
+            exact_callables,
+            interner,
+        ),
+        Some(witnesses) => events::full_move_arms_from_exact_transfer_witnesses(
+            func,
+            partition,
+            type_registry,
+            witnesses,
+        ),
+    };
     let InitialClassPlans {
         mut classes,
         mut verdicts,
@@ -301,7 +393,7 @@ pub(crate) fn analyze_class_ledger(
     });
     let full_move_construct_sites: Vec<(usize, EventSite)> = full_move_arms
         .iter()
-        .map(|arm| (arm.block, EventSite::Body(arm.construct_index)))
+        .map(|arm| (arm.construct_block, EventSite::Body(arm.construct_index)))
         .collect();
     let hazards = hazard::field_view_hazard_classes(
         func,
@@ -349,6 +441,7 @@ pub(crate) fn analyze_class_ledger(
 ///
 /// `burden_ops_enabled = false` (Step-4b emission disabled)
 /// keeps the analysis-only readiness report and never replaces.
+#[cfg(test)]
 pub(crate) fn apply_class_ledger_replacement(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
@@ -357,17 +450,45 @@ pub(crate) fn apply_class_ledger_replacement(
     interner: &ori_ir::StringInterner,
     burden_ops_enabled: bool,
 ) -> bool {
-    let outcome = attempt_replacement(
+    apply_class_ledger_replacement_with_exact(
         func,
         state_map,
         contracts,
+        &FxHashSet::default(),
+        None,
+        type_registry,
+        interner,
+        burden_ops_enabled,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "replacement consumes frozen contracts plus their local proof witnesses"
+)]
+pub(crate) fn apply_class_ledger_replacement_with_exact(
+    func: &mut ArcFunction,
+    state_map: &AimsStateMap,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    exact_callables: &FxHashSet<Name>,
+    exact_transfer_witnesses: Option<
+        &[crate::aims::interprocedural::ExactAggregateTransferWitness],
+    >,
+    type_registry: &ori_types::TypeRegistry,
+    interner: &ori_ir::StringInterner,
+    burden_ops_enabled: bool,
+) -> bool {
+    let outcome = replace::attempt_replacement_with_exact(
+        func,
+        state_map,
+        contracts,
+        exact_callables,
+        exact_transfer_witnesses,
         type_registry,
         interner,
         burden_ops_enabled,
     );
     report_readiness(func, interner, &outcome);
-    // No fallback planner remains, so any production decline is an ICE naming
-    // the function and failed gate.
     assert!(
         !burden_ops_enabled || outcome.mode == EmissionMode::Replaced,
         "class-ledger replacement declined for `{}`: {} — every production shape must replace (the legacy Phase-5/6 walk was deleted; no fallback emitter exists)",

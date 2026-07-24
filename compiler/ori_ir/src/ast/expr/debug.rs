@@ -174,9 +174,11 @@ fn fmt_aggregate_expr(expr: &ExprKind, f: &mut fmt::Formatter<'_>) -> fmt::Resul
         ExprKind::ListWithSpread(elements) => write!(f, "ListWithSpread({elements:?})"),
         ExprKind::Map(entries) => write!(f, "Map({entries:?})"),
         ExprKind::MapWithSpread(elements) => write!(f, "MapWithSpread({elements:?})"),
-        ExprKind::Struct { name, fields } => write!(f, "Struct({name:?}, {fields:?})"),
-        ExprKind::StructWithSpread { name, fields } => {
-            write!(f, "StructWithSpread({name:?}, {fields:?})")
+        ExprKind::Struct { type_path, fields } => {
+            write!(f, "Struct({type_path:?}, {fields:?})")
+        }
+        ExprKind::StructWithSpread { type_path, fields } => {
+            write!(f, "StructWithSpread({type_path:?}, {fields:?})")
         }
         ExprKind::Tuple(exprs) => write!(f, "Tuple({exprs:?})"),
         ExprKind::Range {

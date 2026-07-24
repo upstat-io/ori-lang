@@ -2536,8 +2536,8 @@ fn closure_params_top_via_num_captures() {
 /// When two impl blocks define the same method on the same type (e.g.,
 /// `impl Point: Index<int>` and `impl Point: Index<str>`, both with `@index`),
 /// the analysis-only ARC lowering assigns ordinal-qualified names:
-/// - First: `__impl_42_index` (ordinal 0)
-/// - Second: `__impl_42_index_1` (ordinal 1)
+/// - First: `__impl_<type-hash>_index` (ordinal 0)
+/// - Second: `__impl_<type-hash>_index_1` (ordinal 1)
 ///
 /// Both must be recognized by `is_qualified_unconstrained()`.
 #[test]
@@ -2546,8 +2546,8 @@ fn ordinal_qualified_unconstrained_names() {
 
     // Simulate what `collect_unconstrained_fn_names()` now produces for
     // two same-type same-name trait impls:
-    let base_name = ori_ir::Name::from_raw(500); // __impl_42_index
-    let ordinal_name = ori_ir::Name::from_raw(501); // __impl_42_index_1
+    let base_name = ori_ir::Name::from_raw(500); // __impl_<type-hash>_index
+    let ordinal_name = ori_ir::Name::from_raw(501); // __impl_<type-hash>_index_1
 
     plan.set_unconstrained_fn_names(vec![
         (None, base_name),    // ordinal 0 (base)

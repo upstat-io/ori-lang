@@ -392,9 +392,10 @@ impl From<ori_llvm::aot::OptimizationError> for CodegenProblem {
                 pipeline: String::new(),
                 message,
             },
-            OptimizationError::InvalidPipeline { pipeline, message } => {
-                Self::OptimizationFailed { pipeline, message }
-            }
+            OptimizationError::InvalidPipeline { pipeline, source } => Self::OptimizationFailed {
+                pipeline,
+                message: source.to_string(),
+            },
             OptimizationError::BitcodeWriteFailed { path } => Self::EmissionFailed {
                 format: "bitcode".into(),
                 path,

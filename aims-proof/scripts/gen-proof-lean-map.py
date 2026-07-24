@@ -253,7 +253,11 @@ THEOREM_MAP: dict[str, tuple[str, str, list[str]]] = {
         ],
     ),
     "IA-T5": ("ContractBoundary", "T5_frame_untouched_class_ledger_verbatim", ["mergeclasses", "deriveledger"]),
-    "IA-T6": ("FieldDecomposition", "FD_skipset_sound", ["payloadevents", "threeclauses"]),
+    "IA-T6": (
+        "FieldDecomposition",
+        "FD_authority_union_skipset_sound",
+        ["fieldhasmoveauthority", "payloadevents", "threeclauses"],
+    ),
     "CH-comp-PV": ("ProvenanceComposition", "CHcomp_partition_side_table", ["eliminateatclass", "handshakeaccepts"]),
     # CH — Coexistence.lean
     "CH-1": ("Coexistence", "CH1_lattice_bridge", ["burden", "bridge"]),

@@ -33,7 +33,7 @@
 
 use ori_ir::Name;
 use ori_types::TypeRegistry;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::aims::contract::MemoryContract;
 use crate::aims::intraprocedural::AimsStateMap;
@@ -43,7 +43,7 @@ use crate::lower::burden_lookup::type_has_user_drop;
 use super::apply::apply_plan;
 use super::emit::{AliasFlowGraph, ClassOutcome, PlannedOp};
 use super::placement::ops_placeable;
-use super::{analyze_from_state_map, ClassLedgerAnalysis};
+use super::ClassLedgerAnalysis;
 
 /// Step-4b emission mode for one function.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -150,6 +150,7 @@ impl FallbackReason {
 ///
 /// `allow_replacement = false` runs the analysis only (readiness stays
 /// reportable) and never mutates `func`.
+#[cfg(test)]
 pub(crate) fn attempt_replacement(
     func: &mut ArcFunction,
     state_map: &AimsStateMap,
@@ -158,7 +159,43 @@ pub(crate) fn attempt_replacement(
     interner: &ori_ir::StringInterner,
     allow_replacement: bool,
 ) -> ReplacementOutcome {
-    let analysis = analyze_from_state_map(func, state_map, contracts, type_registry, interner);
+    attempt_replacement_with_exact(
+        func,
+        state_map,
+        contracts,
+        &FxHashSet::default(),
+        None,
+        type_registry,
+        interner,
+        allow_replacement,
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "replacement consumes frozen contracts plus their local proof witnesses"
+)]
+pub(crate) fn attempt_replacement_with_exact(
+    func: &mut ArcFunction,
+    state_map: &AimsStateMap,
+    contracts: &FxHashMap<Name, MemoryContract>,
+    exact_callables: &FxHashSet<Name>,
+    exact_transfer_witnesses: Option<
+        &[crate::aims::interprocedural::ExactAggregateTransferWitness],
+    >,
+    type_registry: &TypeRegistry,
+    interner: &ori_ir::StringInterner,
+    allow_replacement: bool,
+) -> ReplacementOutcome {
+    let analysis = super::analysis::analyze_from_state_map_with_exact(
+        func,
+        state_map,
+        contracts,
+        exact_callables,
+        exact_transfer_witnesses,
+        type_registry,
+        interner,
+    );
     let ops = planned_ops(&analysis);
     if let Some(reason) = gate_rejection(
         func,
@@ -391,7 +428,7 @@ fn has_reuse_shape(func: &ArcFunction) -> bool {
     })
 }
 
-/// Whether any variable carries the TRMC `ContextHole` shape.
+// Env: ORI_DISABLE_TRMC_CONTEXT_LEDGER — declines TRMC context-ledger replacement, debug-only.
 fn trmc_context_ledger_disabled() -> bool {
     report_trmc_context_ledger_toggle(
         std::env::var("ORI_DISABLE_TRMC_CONTEXT_LEDGER").as_deref() == Ok("1"),

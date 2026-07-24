@@ -1,0 +1,12 @@
+type Logged = { value: int }
+
+impl Logged: Drop {
+    @drop (self) -> void = print(msg: `drop-{self.value}`);
+}
+
+@local_values () -> int = {
+    let values = for i in 0..3 yield Logged { value: i };
+    values.length()
+}
+
+@main () -> int = if local_values() == 3 then 0 else 1;

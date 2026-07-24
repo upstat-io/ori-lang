@@ -12,6 +12,37 @@ type FrozenExternalCallables = (
     rustc_hash::FxHashMap<Name, ExternalFunctionId>,
 );
 
+/// External callables whose transported facts have been validated against the
+/// importing type pool.
+#[derive(Debug)]
+pub struct ValidatedExternalCallables(Vec<ExternalCallable>);
+
+impl ValidatedExternalCallables {
+    /// Construct an empty validated external-callable set.
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self(Vec::new())
+    }
+
+    /// Return the validated callables in artifact input order.
+    #[must_use]
+    pub fn as_slice(&self) -> &[ExternalCallable] {
+        &self.0
+    }
+
+    fn into_vec(self) -> Vec<ExternalCallable> {
+        self.0
+    }
+}
+
+impl std::ops::Deref for ValidatedExternalCallables {
+    type Target = [ExternalCallable];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
 /// Stable index of an external callable in one closed executable artifact.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ExternalFunctionId(u32);
@@ -24,9 +55,12 @@ impl ExternalFunctionId {
     }
 
     fn from_index(index: usize) -> Result<Self, RealizationError> {
-        u32::try_from(index)
-            .map(Self)
-            .map_err(|_| RealizationError::TooManyExternalFunctions { count: index })
+        u32::try_from(index).map(Self).map_err(|source| {
+            RealizationError::TooManyExternalFunctions {
+                count: index,
+                source,
+            }
+        })
     }
 }
 
@@ -330,14 +364,14 @@ impl ExternalCallable {
 /// Validate producer-authored external facts before they enter AIMS.
 ///
 /// Validation is intentionally independent of executable closure: callers
-/// run it on the pre-AIMS batch, while [`freeze_external_callables`] repeats
-/// it when assigning stable artifact identities after AIMS.
+/// run it on the pre-AIMS batch, and [`freeze_external_callables`] consumes the
+/// resulting refined carrier when assigning stable artifact identities.
 pub fn validate_external_callables(
-    callables: &[ExternalCallable],
+    callables: Vec<ExternalCallable>,
     pool: &Pool,
-) -> Result<(), RealizationError> {
+) -> Result<ValidatedExternalCallables, RealizationError> {
     let mut by_name = rustc_hash::FxHashSet::default();
-    for callable in callables {
+    for callable in &callables {
         if callable.link_symbol.is_empty() {
             return Err(RealizationError::EmptyExternalLinkSymbol {
                 name: callable.name,
@@ -392,20 +426,19 @@ pub fn validate_external_callables(
         }
     }
 
-    Ok(())
+    Ok(ValidatedExternalCallables(callables))
 }
 
 pub(super) fn freeze_external_callables(
-    mut callables: Vec<ExternalCallable>,
-    pool: &Pool,
+    callables: ValidatedExternalCallables,
 ) -> Result<FrozenExternalCallables, RealizationError> {
+    let mut callables = callables.into_vec();
     callables.sort_by(|left, right| {
         left.name
             .raw()
             .cmp(&right.name.raw())
             .then_with(|| left.link_symbol.cmp(&right.link_symbol))
     });
-    validate_external_callables(&callables, pool)?;
     let mut ids = rustc_hash::FxHashMap::default();
     for (index, callable) in callables.iter().enumerate() {
         let id = ExternalFunctionId::from_index(index)?;
@@ -414,4 +447,19 @@ pub(super) fn freeze_external_callables(
     }
 
     Ok((callables.into_boxed_slice(), ids))
+}
+
+#[cfg(all(test, target_pointer_width = "64"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn external_function_index_overflow_preserves_conversion_source() {
+        let overflow = (u32::MAX as usize).saturating_add(1);
+        let Err(error) = ExternalFunctionId::from_index(overflow) else {
+            panic!("an external function index above u32::MAX must be rejected");
+        };
+
+        assert!(std::error::Error::source(&error).is_some());
+    }
 }

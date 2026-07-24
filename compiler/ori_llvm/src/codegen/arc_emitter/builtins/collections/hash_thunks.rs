@@ -161,8 +161,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let a_val = self.builder.load(elem_llvm_ty, a_ptr, "eq.a");
         let b_val = self.builder.load(elem_llvm_ty, b_ptr, "eq.b");
         let result =
-            ori_stack::ensure_sufficient_stack(|| self.emit_element_equals(a_val, b_val, elem_ty))
-                .expect("compound Eq callback type has structural equality emission");
+            ori_stack::ensure_sufficient_stack(|| self.emit_element_equals(a_val, b_val, elem_ty))?;
         self.builder.ret(result);
 
         self.intercepted_unwind = saved_intercepted_unwind;
@@ -202,7 +201,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | TypeInfo::Byte => self.builder.icmp_eq(a_val, b_val, "eq"),
             // Float equality (ordered — NaN != NaN)
             TypeInfo::Float => self.builder.fcmp_oeq(a_val, b_val, "eq"),
-            _ => unreachable!("non-primitive passed to gen_primitive_eq"),
+            TypeInfo::Unit
+            | TypeInfo::Never
+            | TypeInfo::Str
+            | TypeInfo::Ordering
+            | TypeInfo::List { .. }
+            | TypeInfo::Map { .. }
+            | TypeInfo::Set { .. }
+            | TypeInfo::Tuple { .. }
+            | TypeInfo::Option { .. }
+            | TypeInfo::Result { .. }
+            | TypeInfo::Range
+            | TypeInfo::Struct { .. }
+            | TypeInfo::Enum { .. }
+            | TypeInfo::Iterator { .. }
+            | TypeInfo::Channel { .. }
+            | TypeInfo::Function { .. }
+            | TypeInfo::Error => unreachable!("non-primitive passed to gen_primitive_eq"),
         }
     }
 
@@ -253,9 +268,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ParamPassing::Direct => self.builder.load(self_ty, b_ptr, "eq.b"),
             _ => b_ptr,
         };
-        let Some(result) = self.builder.call(eq_fid, &[a_arg, b_arg], "eq.r") else {
-            panic!("Eq implementation must return bool");
-        };
+        let result = self.builder.call(eq_fid, &[a_arg, b_arg], "eq.r")?;
         self.builder.ret(result);
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
@@ -382,7 +395,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
             // f64 — bitcast to i64
             TypeInfo::Float => self.builder.bitcast(a_val, i64_ty, "hash.bits"),
-            _ => unreachable!("non-primitive passed to gen_primitive_hash"),
+            TypeInfo::Unit
+            | TypeInfo::Never
+            | TypeInfo::Str
+            | TypeInfo::Ordering
+            | TypeInfo::List { .. }
+            | TypeInfo::Map { .. }
+            | TypeInfo::Set { .. }
+            | TypeInfo::Tuple { .. }
+            | TypeInfo::Option { .. }
+            | TypeInfo::Result { .. }
+            | TypeInfo::Range
+            | TypeInfo::Struct { .. }
+            | TypeInfo::Enum { .. }
+            | TypeInfo::Iterator { .. }
+            | TypeInfo::Channel { .. }
+            | TypeInfo::Function { .. }
+            | TypeInfo::Error => unreachable!("non-primitive passed to gen_primitive_hash"),
         }
     }
 
@@ -426,9 +455,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             ParamPassing::Direct => self.builder.load(self_ty, key_ptr, "hash.self"),
             _ => key_ptr,
         };
-        let Some(result) = self.builder.call(hash_fid, &[arg], "hash.r") else {
-            panic!("Hashable implementation must return int");
-        };
+        let result = self.builder.call(hash_fid, &[arg], "hash.r")?;
         self.builder.ret(result);
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {

@@ -211,6 +211,7 @@ tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 basename_file="$(basename "$FILE")"
 has_failure=0
+has_warning=0
 
 # Results array (indexed by section number)
 declare -a results
@@ -227,9 +228,9 @@ echo ""
 # Section 1: Compilation
 echo -e "${C_BOLD}[1/9] Compilation${C_NC}"
 
-start_time=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
+start_time=$(monotonic_now_ns)
 if ORI_VERIFY_ARC=1 "$ORI" build "$FILE" -o "$tmpdir/binary" 2>"$tmpdir/build_err.txt"; then
-    end_time=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
+    end_time=$(monotonic_now_ns)
     elapsed_ms=$(( (end_time - start_time) / 1000000 ))
     elapsed_s=$(awk "BEGIN { printf \"%.2f\", $elapsed_ms / 1000 }")
     results[1]="$SYM_PASS"
@@ -329,8 +330,11 @@ if "$SCRIPT_DIR/rc-stats.sh" "$color_flag" "$FILE" > "$tmpdir/rc_stats.txt" 2>/d
     echo -e "  ${SYM_PASS}  All functions balanced"
 else
     results[4]="$SYM_WARN"
-    result_details[4]="imbalanced"
-    echo -e "  ${SYM_WARN}  Imbalanced functions detected:"
+    result_details[4]="heuristic imbalance; confirm with --rc-trace --valgrind or rc-stats.sh --rc-remarks"
+    has_warning=1
+    echo -e "  ${SYM_WARN}  Static RC counts are imbalanced; this is not a memory-safety verdict."
+    echo -e "  ${C_DIM}Confirm with: diagnose-aot.sh --rc-trace --valgrind ${FILE}${C_NC}"
+    echo -e "  ${C_DIM}Inspect burden-sole survivors with: rc-stats.sh --rc-remarks ${FILE}${C_NC}"
 fi
 sed 's/^/  │ /' "$tmpdir/rc_stats.txt"
 echo ""
@@ -377,6 +381,7 @@ case $audit_exit in
         else
             results[6]="$SYM_WARN"
             result_details[6]="warnings detected"
+            has_warning=1
             echo -e "  ${SYM_WARN}  Warnings detected:"
         fi
         sed 's/^/  │ /' "$tmpdir/codegen_audit.txt"
@@ -423,17 +428,27 @@ if [[ "$USE_VALGRIND" -eq 1 ]]; then
         valgrind --leak-check=full --error-exitcode=42 \
             "$tmpdir/binary" > /dev/null 2>"$tmpdir/valgrind.txt"
         vg_exit=$?
-        if [[ $vg_exit -eq 42 ]]; then
-            results[8]="$SYM_FAIL"
-            result_details[8]="errors detected"
-            has_failure=1
-            echo -e "  ${SYM_FAIL}  Valgrind found errors:"
-            grep -E "^==[0-9]+==" "$tmpdir/valgrind.txt" | tail -20 | sed 's/^/  │ /'
-        else
-            results[8]="$SYM_PASS"
-            result_details[8]="clean"
-            echo -e "  ${SYM_PASS}  No memory errors detected"
-        fi
+        case $vg_exit in
+            0)
+                results[8]="$SYM_PASS"
+                result_details[8]="clean"
+                echo -e "  ${SYM_PASS}  No memory errors detected"
+                ;;
+            42)
+                results[8]="$SYM_FAIL"
+                result_details[8]="errors detected"
+                has_failure=1
+                echo -e "  ${SYM_FAIL}  Valgrind found errors:"
+                grep -E "^==[0-9]+==" "$tmpdir/valgrind.txt" | tail -20 | sed 's/^/  │ /'
+                ;;
+            *)
+                results[8]="$SYM_FAIL"
+                result_details[8]="infrastructure exit=${vg_exit}"
+                has_failure=1
+                echo -e "  ${SYM_FAIL}  Valgrind did not complete (exit ${vg_exit}):"
+                tail -20 "$tmpdir/valgrind.txt" | sed 's/^/  │ /'
+                ;;
+        esac
     else
         results[8]="$SYM_SKIP"
         result_details[8]="valgrind not installed"
@@ -459,6 +474,7 @@ if [[ "$VERBOSE" -eq 1 ]]; then
     else
         results[9]="$SYM_FAIL"
         result_details[9]="disassembly failed"
+        has_failure=1
         echo -e "  ${SYM_FAIL}  Failed to disassemble"
     fi
 else
@@ -478,10 +494,13 @@ for i in 1 2 3 4 5 6 7 8 9; do
 done
 
 echo ""
-if [[ $has_failure -eq 0 ]]; then
-    echo -e "${C_GREEN}All checks passed.${C_NC}"
-else
+if [[ $has_failure -ne 0 ]]; then
     echo -e "${C_RED}One or more checks failed.${C_NC}"
+elif [[ $has_warning -ne 0 ]]; then
+    echo -e "${C_YELLOW}Checks completed with warnings; no gating check failed.${C_NC}"
+    echo "Review each WARN section and run its named confirmation command."
+else
+    echo -e "${C_GREEN}All checks passed.${C_NC}"
 fi
 
 # Write per-section results for --both-builds comparison (if requested via env)

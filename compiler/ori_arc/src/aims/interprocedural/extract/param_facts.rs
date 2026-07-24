@@ -4,7 +4,7 @@
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::aims::contract::{MemoryContract, ReturnAliasShape};
+use crate::aims::contract::{ExactTransferState, MemoryContract, ReturnAliasShape};
 use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::{ArcFunction, ArcVarId};
 use crate::ArcClassification;
@@ -14,6 +14,7 @@ use super::alias_flow::{
     find_return_alias_shapes, find_return_flow_params,
 };
 
+mod aggregate_transfer;
 mod borrowed_facts;
 mod iter_consume;
 mod ownership_credit;
@@ -21,7 +22,7 @@ mod ownership_credit;
 pub(super) use borrowed_facts::find_borrowed_read_only_params;
 pub(crate) use borrowed_facts::{find_borrowed_cow_consumed_params, CowConsumeScope};
 pub(crate) use iter_consume::find_iter_consume_call_args;
-pub(super) use iter_consume::{find_aggregate_iter_consume_fields, find_iter_consume_params};
+pub(super) use iter_consume::find_iter_consume_params;
 pub(super) use ownership_credit::find_borrowed_root_credit_params;
 
 /// Structural facts used to construct one contract per parameter.
@@ -34,11 +35,16 @@ pub(super) struct ParamFacts {
     pub(super) borrowed_read_only: FxHashSet<usize>,
     pub(super) borrowed_cow_consumed: FxHashSet<usize>,
     pub(super) borrowed_cow_mutated: FxHashSet<usize>,
-    pub(super) iter_consumes_projected_field: FxHashMap<usize, u32>,
     pub(super) owner_credit: FxHashSet<usize>,
+    pub(super) exact_transfer_states: FxHashMap<usize, ExactTransferState>,
+    pub(super) exact_transfer_witnesses: Vec<aggregate_transfer::ExactAggregateTransferWitness>,
 }
 
 /// Detect all structural facts for one function's parameters.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "fact extraction consumes the complete frozen analysis authority"
+)]
 pub(super) fn detect_param_facts(
     func: &ArcFunction,
     sigs: &FxHashMap<Name, MemoryContract>,
@@ -47,6 +53,8 @@ pub(super) fn detect_param_facts(
     builtins: &BuiltinOwnershipSets,
     exact_callables: &FxHashSet<Name>,
     interner: &ori_ir::StringInterner,
+    type_registry: Option<&ori_types::TypeRegistry>,
+    context_regions_present: bool,
 ) -> ParamFacts {
     let alias_to_param = build_alias_to_param_map(func, param_vars, Some(sigs));
     let mut consumed = find_consumed_params(func, sigs, &alias_to_param);
@@ -74,8 +82,6 @@ pub(super) fn detect_param_facts(
         interner,
         CowConsumeScope::MutatorOnly,
     );
-    let mut iter_consumes_projected_field = find_aggregate_iter_consume_fields(func, interner);
-    iter_consumes_projected_field.retain(|pi, _| !iter_consume.contains(pi));
     let owner_credit = find_borrowed_root_credit_params(
         func,
         sigs,
@@ -84,7 +90,18 @@ pub(super) fn detect_param_facts(
         builtins,
         exact_callables,
     );
+    let aggregate_transfer = aggregate_transfer::find_exact_aggregate_transfers(
+        func,
+        sigs,
+        &alias_to_param,
+        classifier,
+        exact_callables,
+        interner,
+        type_registry,
+        context_regions_present,
+    );
     consumed.extend(&return_flow);
+    consumed.extend(&aggregate_transfer.consumed_params);
     ParamFacts {
         consumed,
         return_flow,
@@ -94,7 +111,10 @@ pub(super) fn detect_param_facts(
         borrowed_read_only,
         borrowed_cow_consumed,
         borrowed_cow_mutated,
-        iter_consumes_projected_field,
         owner_credit,
+        exact_transfer_states: aggregate_transfer.states,
+        exact_transfer_witnesses: aggregate_transfer.witnesses,
     }
 }
+
+pub(crate) use aggregate_transfer::{ExactAggregateTransferWitness, ExactTransferCommitWitness};

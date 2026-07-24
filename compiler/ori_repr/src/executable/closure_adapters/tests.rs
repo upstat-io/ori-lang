@@ -63,15 +63,11 @@ fn fixture(
     let mut target_contract = MemoryContract::conservative(1);
     target_contract.params[0].access = match demand {
         CalleeOwnerDemand::WholeValue => AccessClass::Owned,
-        CalleeOwnerDemand::Borrow | CalleeOwnerDemand::ProjectedField(_) => AccessClass::Borrowed,
+        CalleeOwnerDemand::Borrow => AccessClass::Borrowed,
     };
     target_contract.params[0].borrowed_cow_consumed = false;
     target_contract.params[0].borrowed_cow_mutated = false;
     target_contract.params[0].iter_consumes = false;
-    target_contract.params[0].iter_consumes_projected_field = match demand {
-        CalleeOwnerDemand::ProjectedField(field) => Some(field),
-        CalleeOwnerDemand::Borrow | CalleeOwnerDemand::WholeValue => None,
-    };
     Fixture {
         functions: vec![caller, target_function],
         contracts: vec![caller_contract, target_contract],

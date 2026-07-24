@@ -283,6 +283,8 @@ pub struct CodegenContext {
     /// stable result register. Populated only from `ExecutableProgram`.
     pub executable_call_targets:
         FxHashMap<(Name, ori_arc::ArcVarId), ori_repr::executable::CallableTarget>,
+    /// Closed call sites redirected to a private length-only physical clone.
+    pub length_projection_call_targets: FxHashMap<(Name, ori_arc::ArcVarId), Name>,
     /// Artifact function names in stable `FunctionId` order.
     pub executable_function_names: Vec<Name>,
     /// Import-local names in stable artifact `ExternalFunctionId` order.

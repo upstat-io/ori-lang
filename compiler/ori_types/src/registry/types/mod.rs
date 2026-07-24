@@ -394,6 +394,26 @@ impl TypeRegistry {
         self.insert_entry(entry);
     }
 
+    /// Bind a second name to an already-registered type.
+    ///
+    /// Adds a name-index entry sharing the target's `idx`, so both names denote
+    /// one nominal type. Two module aliases for one module (`use "./m" as a` and
+    /// `use "./m" as b`) name the same declaration, so `a.T` and `b.T` resolve to
+    /// one `Idx` rather than two mutually-incompatible types.
+    ///
+    /// The idx index is left pointing at the original entry, keeping one
+    /// canonical name per `Idx` for reverse lookup and diagnostics. Returns
+    /// `false` when `target` is unregistered.
+    pub fn bind_additional_name(&mut self, name: Name, target: Idx) -> bool {
+        let Some(existing) = self.types_by_idx.get(&target) else {
+            return false;
+        };
+        let mut entry = existing.clone();
+        entry.name = name;
+        self.types_by_name.insert(name, entry);
+        true
+    }
+
     /// Insert a type entry into both indices.
     fn insert_entry(&mut self, entry: TypeEntry) {
         let name = entry.name;

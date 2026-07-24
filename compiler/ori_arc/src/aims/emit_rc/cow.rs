@@ -37,7 +37,7 @@ pub(crate) fn has_borrows_from_aggregate(state_map: &AimsStateMap, aggregate: Ar
 ///    where `g != f` — i.e., they borrow different fields
 ///
 /// If any sibling borrow targets the same field or has `None` (whole-object
-/// borrow), the optimization is unsound and we return `false`.
+/// borrow), the optimization is unsound and returns `false`.
 pub(crate) fn is_borrow_disjoint_from_siblings(
     state_map: &AimsStateMap,
     receiver: ArcVarId,

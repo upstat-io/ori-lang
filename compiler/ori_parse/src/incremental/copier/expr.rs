@@ -180,9 +180,11 @@ impl AstCopier<'_> {
             ExprKind::MapWithSpread(elements) => {
                 self.copy_map_with_spread_kind(*elements, new_arena)
             }
-            ExprKind::Struct { name, fields } => self.copy_struct_kind(*name, *fields, new_arena),
-            ExprKind::StructWithSpread { name, fields } => {
-                self.copy_struct_with_spread_kind(*name, *fields, new_arena)
+            ExprKind::Struct { type_path, fields } => {
+                self.copy_struct_kind(*type_path, *fields, new_arena)
+            }
+            ExprKind::StructWithSpread { type_path, fields } => {
+                self.copy_struct_with_spread_kind(*type_path, *fields, new_arena)
             }
             ExprKind::Tuple(exprs) => {
                 let new_exprs = self.copy_expr_list(*exprs, new_arena);

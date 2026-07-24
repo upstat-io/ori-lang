@@ -2272,7 +2272,7 @@ fn callee_contract_locality_widens_arg() {
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
                 borrowed_cow_mutated: false,
-                iter_consumes_projected_field: None,
+                exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -2377,7 +2377,7 @@ fn callee_contract_local_locality_does_not_escape_arg() {
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
                 borrowed_cow_mutated: false,
-                iter_consumes_projected_field: None,
+                exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -2447,7 +2447,7 @@ fn callee_contract_function_local_preserves_arg() {
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
                 borrowed_cow_mutated: false,
-                iter_consumes_projected_field: None,
+                exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -2649,7 +2649,7 @@ fn contract_with_locality_bounds_enables_rc_free_call() {
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
                 borrowed_cow_mutated: false,
-                iter_consumes_projected_field: None,
+                exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary::default(),
@@ -2737,7 +2737,7 @@ fn pure_callee_preserves_borrowed_arg_uniqueness() {
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
                 borrowed_cow_mutated: false,
-                iter_consumes_projected_field: None,
+                exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2820,7 +2820,7 @@ fn sharing_callee_widens_borrowed_arg_uniqueness() {
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
                 borrowed_cow_mutated: false,
-                iter_consumes_projected_field: None,
+                exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -2903,7 +2903,7 @@ fn owned_param_ignores_callee_may_share() {
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
                 borrowed_cow_mutated: false,
-                iter_consumes_projected_field: None,
+                exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -3284,7 +3284,7 @@ fn effect_summary_apply_unions_callee_effects() {
                 borrowed_read_only: false,
                 borrowed_cow_consumed: false,
                 borrowed_cow_mutated: false,
-                iter_consumes_projected_field: None,
+                exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
             }],
             return_info: ReturnContract::CONSERVATIVE,
             effects: EffectSummary {
@@ -3820,7 +3820,7 @@ fn conditional_fip_call_site_all_unique_no_widening() {
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
             borrowed_cow_mutated: false,
-            iter_consumes_projected_field: None,
+            exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
         }],
         return_info: ReturnContract::CONSERVATIVE,
         effects: EffectSummary {
@@ -3901,7 +3901,7 @@ fn fip_test_contract(fip: FipContract) -> MemoryContract {
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
             borrowed_cow_mutated: false,
-            iter_consumes_projected_field: None,
+            exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
         }],
         return_info: ReturnContract::CONSERVATIVE,
         effects: EffectSummary {
@@ -5186,7 +5186,7 @@ fn contract_with_return(return_info: ReturnContract) -> MemoryContract {
             borrowed_read_only: false,
             borrowed_cow_consumed: false,
             borrowed_cow_mutated: false,
-            iter_consumes_projected_field: None,
+            exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
         }],
         return_info,
         effects: EffectSummary::default(),
@@ -6143,7 +6143,7 @@ fn effective_uniqueness_at_block_entry_reflects_apply_maybe_shared_contract() {
     assert_eq!(
         effective,
         Uniqueness::MaybeShared,
-        "consumer at block entry (cow.rs:67 / realize/mod.rs:302+346) must see \
+        "consumers emit_rc::cow and realize::emit_unified must see \
          contract-narrowed MaybeShared — JOIN(MaybeShared, lattice_BOTTOM=Unique) = MaybeShared"
     );
 }
@@ -6177,7 +6177,7 @@ fn effective_uniqueness_at_block_exit_reflects_apply_maybe_shared_contract() {
     assert_eq!(
         effective,
         Uniqueness::MaybeShared,
-        "consumer at block exit (walk_dec.rs:250+254+300) must see contract-narrowed \
+        "the realize::emit_unified DeathEvent consumer must see contract-narrowed \
          MaybeShared for DeathEvent — emit_reuse downstream filters death.uniqueness == Unique"
     );
 }

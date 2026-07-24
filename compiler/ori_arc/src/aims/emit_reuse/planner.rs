@@ -44,7 +44,7 @@ pub(crate) struct ReusePlanner<'a> {
 }
 
 impl<'a> ReusePlanner<'a> {
-    pub fn new(func: &'a ArcFunction) -> Self {
+    pub(super) fn new(func: &'a ArcFunction) -> Self {
         Self {
             func,
             dom_tree: None,
@@ -70,7 +70,7 @@ impl<'a> ReusePlanner<'a> {
     /// Prefer nearest dominated/post-dominating target by block index
     /// (proxy for dominator depth). Same-shape preference is moot in v1
     /// (same-type implies same-shape).
-    pub fn find_opportunities(
+    pub(super) fn find_opportunities(
         &mut self,
         remaining_deaths: &[&DeathEvent],
         remaining_allocs: &[&AllocEvent],

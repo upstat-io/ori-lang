@@ -19,12 +19,21 @@
 //! - `is_fbip` is `!effects.may_allocate` (inferred metadata)
 
 mod context;
+mod effect;
+mod exact_transfer;
 mod param;
 #[cfg(test)]
 mod tests;
 
 pub use context::{ContextBehavior, ContextRegion};
-pub use param::{CalleeOwnerDemand, CalleeOwnerDemandConflict, ParamContract, ReturnAliasShape};
+pub use effect::{
+    EffectSummary, FipContract, FreshSelfAllocationFacts, FunctionEffectFacts, MemoryAccessClass,
+};
+pub use exact_transfer::{
+    CleanupAuthority, ExactAggregateTransfer, ExactFieldPath, ExactFieldTransfer,
+    ExactFieldTransferKind, ExactTransferState, ResidualDisposition,
+};
+pub use param::{CalleeOwnerDemand, ParamContract, ReturnAliasShape};
 
 use super::lattice::{AccessClass, Cardinality, Consumption, Locality, ShapeClass, Uniqueness};
 use crate::ir::{ArcFunction, ArcInstr, ArcParam, ArcTerminator};
@@ -104,7 +113,7 @@ impl MemoryContract {
     /// Used in SCC fixed-point iteration: if `join(old, new) == old`, the
     /// contract has converged.
     #[must_use]
-    pub fn join(&self, other: &Self) -> Self {
+    pub(crate) fn join(&self, other: &Self) -> Self {
         assert_eq!(
             self.params.len(),
             other.params.len(),
@@ -117,8 +126,8 @@ impl MemoryContract {
                 .zip(other.params.iter())
                 .map(|(a, b)| a.join(b))
                 .collect(),
-            return_info: self.return_info.join(&other.return_info),
-            effects: self.effects.join(&other.effects),
+            return_info: self.return_info.join(other.return_info),
+            effects: self.effects.join(other.effects),
             context_behavior: self.context_behavior.join(&other.context_behavior),
             fip: self.fip.join(&other.fip),
             // is_fbip: AND (conservative direction — if either side allocates,
@@ -179,15 +188,15 @@ impl MemoryContract {
                 param.cardinality == Cardinality::Absent
                     || (param.access == AccessClass::Borrowed && !param.may_share)
             });
-        FunctionEffectFacts {
-            effects: self.effects,
+        FunctionEffectFacts::new(
+            self.effects,
             may_write_inaccessible,
-            memory_access: if no_writes {
+            if no_writes {
                 MemoryAccessClass::ReadOnly
             } else {
                 MemoryAccessClass::ReadWrite
             },
-        }
+        )
     }
 
     /// Freeze the backend-neutral RL-29 return-allocation fact.
@@ -197,9 +206,7 @@ impl MemoryContract {
     /// stronger path-universal self-allocation proof excludes upstream aliases.
     #[must_use]
     pub const fn fresh_self_allocation_facts(&self) -> FreshSelfAllocationFacts {
-        FreshSelfAllocationFacts {
-            returns_fresh_self_alloc: self.return_info.returns_fresh_self_alloc,
-        }
+        FreshSelfAllocationFacts::new(self.return_info.returns_fresh_self_alloc)
     }
 
     /// Convert to [`AnnotatedSig`] for compatibility during migration.
@@ -315,7 +322,7 @@ impl ReturnContract {
 
     /// Componentwise join toward conservative.
     #[must_use]
-    pub fn join(&self, other: &Self) -> Self {
+    pub(crate) fn join(self, other: Self) -> Self {
         Self {
             uniqueness: self.uniqueness.join(other.uniqueness),
             preserves_freshness: self.preserves_freshness && other.preserves_freshness,
@@ -324,233 +331,6 @@ impl ReturnContract {
             returns_fresh_self_alloc: self.returns_fresh_self_alloc
                 && other.returns_fresh_self_alloc,
             returns_sharing_view: self.returns_sharing_view && other.returns_sharing_view,
-        }
-    }
-}
-
-/// Effect summary: what memory effects may the function produce?
-///
-/// Distinct from [`super::lattice::EffectClass`], which is a per-variable,
-/// per-program-point lattice dimension. `EffectSummary` is a per-function
-/// summary aggregated across the entire function body.
-///
-/// FP² Theorem 2 (Lorenzen et al., ICFP 2023) requires:
-/// - `may_allocate == false` → FBIP (no fresh allocations)
-/// - `may_allocate == false && may_deallocate == false` → fully in-place (FIP)
-///
-/// `may_deallocate` is a post-emission fact: computed from
-/// `FipEvidence.missed_reuses > 0` after realization.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "6 independent effect flags from FP² paper (may_allocate, alloc_only_on_slow_path, \
-              may_deallocate, may_share, may_throw, has_unbounded_stack); \
-              enum would add complexity without benefit"
-)]
-pub struct EffectSummary {
-    /// May the function allocate on any code path?
-    pub may_allocate: bool,
-    /// Allocations are only on slow paths guarded by uniqueness checks.
-    ///
-    /// When `may_allocate && alloc_only_on_slow_path`, the function is
-    /// FIP-eligible with Conditional preconditions.
-    pub alloc_only_on_slow_path: bool,
-    /// May the function deallocate on any code path?
-    ///
-    /// `true` if any consumed value with reusable shape was NOT matched
-    /// by a reuse opportunity — the function frees memory without reusing
-    /// it. Computed post-emission from `FipEvidence.missed_reuses > 0`.
-    ///
-    /// When `may_allocate == false && may_deallocate == false`, the
-    /// function is fully in-place (FIP per FP² Theorem 2).
-    pub may_deallocate: bool,
-    /// May the function create shared references?
-    pub may_share: bool,
-    /// May the function throw exceptions/panics?
-    pub may_throw: bool,
-    /// Does this function have unbounded stack growth?
-    ///
-    /// `true` if the function contains non-tail-recursive calls to itself
-    /// or to mutual-recursion partners. Functions where all recursive calls
-    /// are in tail position (rewritten to loops by the tail-call pass) are
-    /// considered constant-stack.
-    ///
-    /// Unlike `may_allocate`/`may_share`/`may_throw`, this is NOT accumulated
-    /// per-block during analysis. It is set once in `extract_contract` from
-    /// SCC membership and syntactic tail-position checks.
-    pub has_unbounded_stack: bool,
-}
-
-impl EffectSummary {
-    /// Conservative: may allocate, deallocate, share, throw, and unbounded stack.
-    pub const CONSERVATIVE: Self = Self {
-        may_allocate: true,
-        alloc_only_on_slow_path: false,
-        may_deallocate: true,
-        may_share: true,
-        may_throw: true,
-        has_unbounded_stack: true,
-    };
-
-    /// Most-optimistic: no effects.
-    pub const OPTIMISTIC: Self = Self {
-        may_allocate: false,
-        alloc_only_on_slow_path: false,
-        may_deallocate: false,
-        may_share: false,
-        may_throw: false,
-        has_unbounded_stack: false,
-    };
-
-    /// Componentwise join (OR for effect flags, AND for slow-path-only).
-    #[must_use]
-    pub fn join(&self, other: &Self) -> Self {
-        Self {
-            may_allocate: self.may_allocate || other.may_allocate,
-            // Both sides must be slow-path-only for the join to be slow-path-only.
-            alloc_only_on_slow_path: self.alloc_only_on_slow_path && other.alloc_only_on_slow_path,
-            may_deallocate: self.may_deallocate || other.may_deallocate,
-            may_share: self.may_share || other.may_share,
-            may_throw: self.may_throw || other.may_throw,
-            // Either side unbounded → joined is unbounded.
-            has_unbounded_stack: self.has_unbounded_stack || other.has_unbounded_stack,
-        }
-    }
-}
-
-/// Backend-neutral whole-function memory-access class derived by AIMS.
-///
-/// The shipped calculus does not carry `may_read_inaccessible`, so it cannot
-/// distinguish no access from reads of non-argument memory. `ReadOnly` permits
-/// reads from any memory and proves only the absence of writes.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum MemoryAccessClass {
-    /// The function may read any memory but does not write memory.
-    ReadOnly,
-    /// The function may write memory or lacks a no-write proof.
-    ReadWrite,
-}
-
-/// Final backend-neutral proof that a function returns its own fresh allocation.
-///
-/// This fact is semantic: it does not prescribe a target attribute or physical
-/// return convention. Backend projections must additionally honor their ABI.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct FreshSelfAllocationFacts {
-    returns_fresh_self_alloc: bool,
-}
-
-impl FreshSelfAllocationFacts {
-    /// Return whether every path yields fresh storage with no upstream alias.
-    #[must_use]
-    pub const fn is_proven(self) -> bool {
-        self.returns_fresh_self_alloc
-    }
-}
-
-/// Final backend-neutral effect facts for one realized function.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct FunctionEffectFacts {
-    effects: EffectSummary,
-    may_write_inaccessible: bool,
-    memory_access: MemoryAccessClass,
-}
-
-impl FunctionEffectFacts {
-    /// Return the final IC-5 effect summary.
-    #[must_use]
-    pub const fn effects(self) -> EffectSummary {
-        self.effects
-    }
-
-    /// Return whether an untyped operation may write non-argument memory.
-    ///
-    /// Calls fail closed here until IC-5 supplies typed inaccessible-memory
-    /// effects that can be propagated interprocedurally.
-    #[must_use]
-    pub const fn may_write_inaccessible(self) -> bool {
-        self.may_write_inaccessible
-    }
-
-    /// Return the final RL-30 memory-access classification.
-    #[must_use]
-    pub const fn memory_access(self) -> MemoryAccessClass {
-        self.memory_access
-    }
-}
-
-/// FIP certification status.
-///
-/// Based on FP² (Lorenzen et al., ICFP 2023): a function is FIP when
-/// it can run with no allocation, no deallocation, and constant stack
-/// space, provided arguments are unique.
-///
-/// Ordering: `Certified < Bounded(n) < Conditional < Never`
-/// (Certified is most optimistic).
-///
-/// FIP classification is inferred from the converged effect state, not
-/// from a separate certification pass.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FipContract {
-    /// Function cannot be certified FIP.
-    Never,
-    /// Function is FIP when the specified parameters are unique.
-    ///
-    /// The `Vec<bool>` is indexed by parameter position in
-    /// `MemoryContract.params`. `true` = this parameter must be unique.
-    Conditional {
-        /// Which parameters must be unique for FIP certification.
-        requires_unique_params: Vec<bool>,
-    },
-    /// Function is unconditionally FIP (all allocations matched by reuses,
-    /// or no allocations at all). `may_allocate` may be `true` for
-    /// token-balanced functions; FBIP (allocation-free) is tracked separately
-    /// by `MemoryContract::is_fbip`.
-    Certified,
-    /// Function allocates at most `n` constructors beyond what it reuses.
-    ///
-    /// `FIPTree`'s `fip(n)` pattern — e.g., tree insertion allocates exactly
-    /// one node (`Bounded(1)`). Compiler-inferred from allocation balance
-    /// tracking (`allocs - reuses = n`), not a user annotation.
-    Bounded(u16),
-}
-
-impl FipContract {
-    /// Componentwise join: weakens toward `Never`.
-    ///
-    /// Ordering: `Certified < Bounded(n) < Conditional < Never`.
-    /// For `Bounded`, takes the max (more allocations = weaker).
-    #[must_use]
-    pub fn join(&self, other: &Self) -> Self {
-        match (self, other) {
-            (Self::Never, _) | (_, Self::Never) => Self::Never,
-
-            // Conditional + Conditional: union of required-unique params.
-            (
-                Self::Conditional {
-                    requires_unique_params: a,
-                },
-                Self::Conditional {
-                    requires_unique_params: b,
-                },
-            ) => {
-                assert_eq!(a.len(), b.len(), "FipContract param counts must match");
-                Self::Conditional {
-                    requires_unique_params: a.iter().zip(b.iter()).map(|(x, y)| *x || *y).collect(),
-                }
-            }
-
-            // Conditional absorbs Bounded and Certified.
-            // Bounded absorbs Certified. Both: weaker side wins (self.clone/other.clone).
-            (Self::Conditional { .. }, Self::Certified | Self::Bounded(_))
-            | (Self::Bounded(_), Self::Certified) => self.clone(),
-            (Self::Certified | Self::Bounded(_), Self::Conditional { .. })
-            | (Self::Certified, Self::Bounded(_)) => other.clone(),
-
-            // Bounded + Bounded: take the max allocation count.
-            (Self::Bounded(a), Self::Bounded(b)) => Self::Bounded((*a).max(*b)),
-
-            (Self::Certified, Self::Certified) => Self::Certified,
         }
     }
 }

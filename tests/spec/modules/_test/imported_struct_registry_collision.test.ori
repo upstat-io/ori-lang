@@ -1,0 +1,32 @@
+// Spec: 18-modules.md § Imports; Annex E § AIMS (typed registry)
+// Regression: BUG-04-296 Mechanism A — two structurally-identical structs imported
+// from different modules collide in ori_types::registry::TypeRegistry::from_typed_exports.
+// Ori interns types structurally (Pool hash -> Idx), so make_a's Row and make_b's Row
+// share ONE Idx; the blind types_by_idx.insert per imported entry clobbers the first
+// nominal's per-type metadata (UserBurdenSpec/repr/kind), so the receiver of
+// make_a().values resolves through a poisoned slot (Tag::Error) and AIMS post-verification
+// reports E5001 PrimitiveFactInvalid. Name-independent (proven with Row vs Rec, same shape).
+// This pins that each imported nominal keeps its own metadata under the shared structural Idx.
+// Dual-backend (interpreter + LLVM); L9 parity + L10 leak covered by the suite.
+
+use std.testing { assert_eq }
+use "../registry_collision_row_a" { make_a }
+use "../registry_collision_row_b" { make_b }
+
+@helper () -> int = 0;
+
+// Core deliverable: both imported structurally-identical structs realize their
+// own field metadata — no registry-collision poison, no E5001.
+@test_imported_identical_structs_no_collision tests @helper () -> void = {
+    let $ra = make_a();
+    let $rb = make_b();
+    assert_eq(actual: ra.values.len(), expected: 2);
+    assert_eq(actual: rb.values.len(), expected: 3)
+}
+
+// Field values are the ownee's own, not the last-registered nominal's.
+@test_imported_collision_field_values_are_per_nominal tests @helper () -> void = {
+    let $ra = make_a();
+    let $rb = make_b();
+    assert_eq(actual: ra.values.len() + rb.values.len(), expected: 5)
+}

@@ -6,7 +6,7 @@ use crate::aims::demand::RawDemand;
 use crate::aims::lattice::Cardinality;
 use crate::aims::lattice::Consumption;
 use crate::aims::transfer::{backward_demands, backward_terminator_demands, BackwardDemand};
-use crate::graph::{compute_predecessors, successor_block_ids};
+use crate::graph::{compute_predecessors, successor_block_ids, CycleRegions};
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueRepr};
 
 /// Identity of one realized semantic endpoint: the exact IR site and operand
@@ -226,7 +226,7 @@ fn derive_param_demands(func: &ArcFunction) -> Vec<DemandShape> {
         return vec![DemandShape::ZERO; func.params.len()];
     }
 
-    let cyclic = cyclic_blocks(func);
+    let cycle_regions = CycleRegions::compute(func);
     let predecessors = compute_predecessors(func);
     let mut entries = vec![DemandState::default(); func.blocks.len()];
     let mut pending = (0..func.blocks.len()).collect::<Vec<_>>();
@@ -234,7 +234,7 @@ fn derive_param_demands(func: &ArcFunction) -> Vec<DemandShape> {
 
     while let Some(block) = pending.pop() {
         queued[block] = false;
-        let updated = analyze_block(func, block, &entries, cyclic[block]);
+        let updated = analyze_block(func, block, &entries, cycle_regions.is_in_cycle(block));
         if updated == entries[block] {
             continue;
         }
@@ -500,30 +500,4 @@ fn merge_sequential(state: &mut DemandState, var: ArcVarId, demand: &DemandPaths
         .remove(&var)
         .map_or_else(|| demand.clone(), |current| current.sequential(demand));
     state.insert(var, combined);
-}
-
-fn cyclic_blocks(func: &ArcFunction) -> Vec<bool> {
-    (0..func.blocks.len())
-        .map(|start| {
-            let mut seen = FxHashSet::default();
-            let mut pending = successor_block_ids(&func.blocks[start].terminator)
-                .into_iter()
-                .map(crate::ir::ArcBlockId::index)
-                .collect::<Vec<_>>();
-            while let Some(block) = pending.pop() {
-                if block == start {
-                    return true;
-                }
-                if block >= func.blocks.len() || !seen.insert(block) {
-                    continue;
-                }
-                pending.extend(
-                    successor_block_ids(&func.blocks[block].terminator)
-                        .into_iter()
-                        .map(crate::ir::ArcBlockId::index),
-                );
-            }
-            false
-        })
-        .collect()
 }

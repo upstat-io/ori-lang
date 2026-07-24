@@ -1,8 +1,7 @@
 //! Closure (partial application) emission for [`ArcIrEmitter`].
 //!
-//! Handles `PartialApply` instructions: allocating closure environments
-//! and generating environment drop functions. Wrapper function generation
-//! lives in the sibling [`closure_wrappers`](super::closure_wrappers) module.
+//! Handles `PartialApply` environment allocation and drop functions.
+//! [`closure_wrappers`](super::closure_wrappers) provides wrapper generation.
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_arc::ownership::Ownership;

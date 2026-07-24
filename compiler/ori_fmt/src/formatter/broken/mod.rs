@@ -248,8 +248,8 @@ impl<I: StringLookup> Formatter<'_, I> {
 
     fn emit_broken_struct(&mut self, kind: &ExprKind) {
         match kind {
-            ExprKind::Struct { name, fields } => {
-                self.ctx.emit(self.interner.lookup(*name));
+            ExprKind::Struct { type_path, fields } => {
+                self.emit_type(self.arena.get_parsed_type(*type_path));
                 self.ctx.emit(" {");
                 let fields = self.arena.get_field_inits(*fields);
                 if fields.is_empty() {
@@ -265,8 +265,8 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.ctx.emit("}");
                 }
             }
-            ExprKind::StructWithSpread { name, fields } => {
-                self.ctx.emit(self.interner.lookup(*name));
+            ExprKind::StructWithSpread { type_path, fields } => {
+                self.emit_type(self.arena.get_parsed_type(*type_path));
                 self.ctx.emit(" {");
                 let fields = self.arena.get_struct_lit_fields(*fields);
                 if fields.is_empty() {

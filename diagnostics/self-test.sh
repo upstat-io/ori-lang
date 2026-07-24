@@ -266,6 +266,17 @@ run_test "simple.ori passes all checks" \
     "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/simple.ori"
 run_test "clean.ori passes all checks" \
     "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/clean.ori"
+run_test "cow_sharing.ori warnings remain non-gating" \
+    "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/cow_sharing.ori"
+run_test_output_contains "RC heuristic warning has a truthful terminal verdict" \
+    "Checks completed with warnings; no gating check failed." \
+    "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/cow_sharing.ori"
+run_test_output_contains "RC heuristic warning names the confirmation probes" \
+    "--rc-trace --valgrind or rc-stats.sh --rc-remarks" \
+    "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/cow_sharing.ori"
+run_test_output_not_contains "diagnose-aot.sh never reports a negative build duration" \
+    "Built in -" \
+    "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/simple.ori"
 run_test_output_contains "diagnose-aot.sh --help shows --release" "--release" \
     "$SCRIPT_DIR/diagnose-aot.sh" --help
 run_test_output_contains "diagnose-aot.sh --help shows --both-builds" "--both-builds" \
@@ -295,6 +306,9 @@ run_test "simple.ori interpreter == AOT" \
     "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/simple.ori"
 run_test "clean.ori interpreter == AOT" \
     "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/clean.ori"
+run_test_output_not_contains "dual-exec-debug.sh never reports a negative duration" \
+    "(-" \
+    "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/simple.ori"
 
 # Mismatch path: verify auto-diagnostics output (uses ORI_BIN wrapper for deterministic divergence)
 SAVED_ORI_BIN="${ORI_BIN:-}"
@@ -465,6 +479,30 @@ run_test_output_contains "recursive_tree.ori ARC has multiple functions" "functi
     "$SCRIPT_DIR/arc-dump.sh" --no-color "$FIXTURES_DIR/recursive_tree.ori"
 run_test_output_contains "cow_sharing.ori ARC has RcInc (sharing)" "RcInc" \
     "$SCRIPT_DIR/arc-dump.sh" --no-color "$FIXTURES_DIR/cow_sharing.ori"
+echo ""
+
+printf "${C_BOLD}Entry-point ownership seam (seam-only fixtures)${C_NC}\n"
+# These fixtures are compiled for the build-time seam report only; the emitted
+# binaries are never executed, so no exit-code or leak contract applies.
+run_test_output_contains "entry_args_read.ori seam names the argv parameter" "param#0 name=args" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color "$FIXTURES_DIR/entry_args_read.ori"
+run_test_output_contains "entry_args_read.ori borrow-read demand is Borrow" "callee_owner_demand       = Borrow" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color "$FIXTURES_DIR/entry_args_read.ori"
+run_test_output_contains "entry_args_read.ori seam is CONSISTENT" "seam: CONSISTENT" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color "$FIXTURES_DIR/entry_args_read.ori"
+run_test_output_contains "entry_args_consumed.ori iter-consume demand is WholeValue" "callee_owner_demand       = WholeValue" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color "$FIXTURES_DIR/entry_args_consumed.ori"
+run_test_output_contains "entry_args_consumed.ori seam is DIVERGENT" "seam: DIVERGENT" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color "$FIXTURES_DIR/entry_args_consumed.ori"
+run_test_output_contains "entry-ownership --compare separates the pair on iter_consumes" "iter_consumes = true" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color --compare \
+    "$FIXTURES_DIR/entry_args_read.ori" "$FIXTURES_DIR/entry_args_consumed.ori"
+# The physical column is identical across the pair, so it never appears in the
+# differing-fields section — the semantic columns are what separate them.
+run_test_output_not_contains "entry-ownership --compare shows no wrapper_owns_on_normal difference" \
+    "A:  wrapper_owns_on_normal" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color --compare \
+    "$FIXTURES_DIR/entry_args_read.ori" "$FIXTURES_DIR/entry_args_consumed.ori"
 echo ""
 
 printf "${C_BOLD}Expected-fail fixtures${C_NC}\n"

@@ -162,7 +162,7 @@ pub(crate) fn narrow_float_fields(
             let repr = plan.get_repr(idx)?;
             match repr {
                 MachineRepr::Struct(_) => Some(idx),
-                // Phase A: skip tuples — same conservative rationale as integer narrowing.
+                // Why: Tuple summaries are too coarse for sound field narrowing.
                 MachineRepr::Tuple(_) => {
                     tracing::trace!(?idx, "float narrowing: skipping tuple (Phase A)");
                     None

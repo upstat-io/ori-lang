@@ -35,7 +35,7 @@ use crate::ir::{ArcFunction, ArcInstr, ArcValue, LitValue};
 /// Boolean/int/unit/char literals are already `ArcClass::Scalar` and skip RC
 /// via the scalar fast path. Immortal detection focuses on non-scalar literals
 /// whose logical lifetime makes ownership-count events unnecessary.
-pub fn detect_immortals(func: &ArcFunction, interner: &StringInterner) -> Vec<bool> {
+pub(crate) fn detect_immortals(func: &ArcFunction, interner: &StringInterner) -> Vec<bool> {
     let num_vars = func.var_types.len();
     let mut immortals = vec![false; num_vars];
 
@@ -78,6 +78,6 @@ fn is_empty_string(name: Name, interner: &StringInterner) -> bool {
 }
 
 /// Count of immortal variables detected (for tracing).
-pub fn count_immortals(immortals: &[bool]) -> usize {
+pub(crate) fn count_immortals(immortals: &[bool]) -> usize {
     immortals.iter().filter(|&&v| v).count()
 }

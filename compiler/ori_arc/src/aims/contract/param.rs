@@ -1,10 +1,8 @@
 //! Per-parameter memory contract ([`ParamContract`]) and the caller-side
 //! return-alias shape it carries ([`ReturnAliasShape`]).
-//!
-//! Split out of [`super`] to keep the contract module under the 500-line
-//! hygiene cap.
 
 use super::super::lattice::{AccessClass, Cardinality, Consumption, Locality, Uniqueness};
+use super::ExactTransferState;
 
 /// Independent-owner credit required before entering a callee through a
 /// borrowed residual-call boundary.
@@ -14,31 +12,19 @@ pub enum CalleeOwnerDemand {
     Borrow,
     /// The callee consumes one credit for the complete value.
     WholeValue,
-    /// The callee consumes one credit for exactly one projected field.
-    ProjectedField(u32),
-}
-
-/// Contradictory final contract facts that demand both whole-value and
-/// projected-field credits at one parameter.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CalleeOwnerDemandConflict {
-    pub field: u32,
 }
 
 /// Shape of how a parameter aliases the callee's return value.
 ///
-/// Caller-side carrier for BUG-04-090's `apply_result_aliases` side-table
-/// population. Distinct in role from `transfers_through_return: bool`:
+/// Distinct in role from `transfers_through_return`:
 /// `transfers_through_return` is the callee-side gate (suppress callee's
 /// scope-exit dec when the param flows to Return); `return_alias` is the
 /// caller-side shape carrier (record what the callee's return aliases so
 /// the caller's Apply site can populate the `apply_result_aliases` map).
 ///
 /// Invariant: `transfers_through_return == true` IFF `return_alias ==
-/// Some(ReturnAliasShape::Direct)`. The bool is a derived special case of
-/// the enum, kept as a separate field to avoid breaking the existing
-/// callee-side consumers (`helpers.rs::should_suppress_return_transfer_dec`,
-/// `walk.rs`, `walk_dec.rs`, `dead_cleanup/mod.rs`, `forward_walk.rs`).
+/// Some(ReturnAliasShape::Direct)`. The boolean is the direct-alias projection
+/// consumed by callee-side release decisions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReturnAliasShape {
     /// Callee returns the parameter unchanged (e.g., `@id<T>(x: T) -> T = x`).
@@ -48,13 +34,25 @@ pub enum ReturnAliasShape {
     /// Callee returns a field projection of the parameter
     /// (e.g., `@unwrap<T>(b: Box<T>) -> T = b.inner`). At the caller,
     /// `Apply dst = @callee(arg)` makes `dst` the same allocation as
-    /// `arg.field`. Single field index — nested projections not yet
-    /// supported (matches the existing `BorrowSource::Exact { field:
-    /// Option<u32> }` precedent).
+    /// `arg.field`. A single field index matches the precision carried by
+    /// `BorrowSource::Exact { field: Option<u32> }`.
     Project { field: u32 },
 }
 
 impl ReturnAliasShape {
+    /// Join two present return-alias shapes.
+    #[must_use]
+    pub(crate) fn join(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Project { field: left }, Self::Project { field: right }) if left == right => {
+                Self::Project { field: left }
+            }
+            (Self::Direct, _)
+            | (_, Self::Direct)
+            | (Self::Project { .. }, Self::Project { .. }) => Self::Direct,
+        }
+    }
+
     /// IC-3 join for `Option<ReturnAliasShape>`.
     ///
     /// Lattice chain: `None < Some(Project) < Some(Direct)` (height 2).
@@ -66,21 +64,11 @@ impl ReturnAliasShape {
     /// Incomparable Project paths (different field indices) join to Direct
     /// per the same rationale.
     #[must_use]
-    pub fn join(a: Option<Self>, b: Option<Self>) -> Option<Self> {
+    fn join_optional(a: Option<Self>, b: Option<Self>) -> Option<Self> {
         match (a, b) {
             (None, None) => None,
             (Some(s), None) | (None, Some(s)) => Some(s),
-            // Same Project field on both paths: preserve the field-level shape.
-            (Some(Self::Project { field: f1 }), Some(Self::Project { field: f2 })) if f1 == f2 => {
-                Some(Self::Project { field: f1 })
-            }
-            // Direct is TOP (absorbs Project); incomparable Project paths
-            // (different field indices) also widen to Direct. Both cases
-            // resolve to `Some(Direct)` per the lattice-monotonicity rule
-            // `join(TOP, x) = TOP`.
-            (Some(Self::Direct), _)
-            | (_, Some(Self::Direct))
-            | (Some(Self::Project { .. }), Some(Self::Project { .. })) => Some(Self::Direct),
+            (Some(left), Some(right)) => Some(left.join(right)),
         }
     }
 }
@@ -89,14 +77,14 @@ impl ReturnAliasShape {
 #[expect(
     clippy::struct_excessive_bools,
     reason = "Each bool encodes a distinct AIMS facet not derivable from \
-        the others: `may_escape` (legacy escape flag retained until \
-        Locality SSOT migration), `may_share` (per-param sharing flag), \
+        the others: `may_escape` (escape observation), \
+        `may_share` (per-param sharing flag), \
         `transfers_through_return` (Return-flow alias), \
         `return_payload_contains_param` (transitive-drop containment), \
         `iter_consumes` (iter-consume inward-transfer, RL-2). \
         Bundling would obscure the analysis surface."
 )]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParamContract {
     /// Whether the parameter is owned or borrowed.
     pub access: AccessClass,
@@ -122,15 +110,14 @@ pub struct ParamContract {
     ///
     /// Default: `MaybeShared` (no caller guarantee).
     pub uniqueness: Uniqueness,
-    /// Whether this parameter flows directly to a `Return { value }`
-    /// terminator (BUG-04-090 fix).
+    /// Whether this parameter flows directly to a `Return { value }` terminator.
     ///
     /// When `true`, ownership of the parameter transfers through the return
     /// to the caller — the callee MUST NOT discharge the parameter's ownership
     /// credit at scope exit, because the caller owns the bound result's eventual
-    /// release. The current carrier spells that release `RcDec`. Computed from the structural Return-flow alias
-    /// fact in `detect_consumed_params` (NOT from `preserves_freshness`,
-    /// which is currently spec-inverted).
+    /// release. The compiled carrier spells that release `RcDec`. This fact
+    /// comes from structural return-flow aliasing in `detect_consumed_params`,
+    /// not from `preserves_freshness`.
     ///
     /// Completes the logical `ownParamsUsingArgs` pattern: event-pair
     /// elimination on owned-arg → owned-callee-param transfer applies to
@@ -138,8 +125,7 @@ pub struct ParamContract {
     ///
     /// Default: `false` (conservative — retain the release obligation).
     pub transfers_through_return: bool,
-    /// Shape of how this parameter aliases the callee's return value
-    /// (BUG-04-090 fix — caller-side carrier for `apply_result_aliases`).
+    /// Shape of how this parameter aliases the callee's return value.
     ///
     /// Direct case: callee returns the param unchanged (`@id<T>(x: T) -> T
     /// = x`). Project case: callee returns a field projection
@@ -255,42 +241,18 @@ pub struct ParamContract {
     /// Default: `false` (conservative — no funding obligation claimed).
     pub borrowed_cow_consumed: bool,
 
-    /// MUTATOR-only refinement of `borrowed_cow_consumed`: the consuming
-    /// position is a genuine COW MUTATOR (`push`/`insert`/`set`/... — the
-    /// consuming-receiver set MINUS the builtin `iter`, whose consumption is
-    /// iterator machinery, not a COW mutation), or transitively a callee param
-    /// carrying THIS fact. Consumed by the borrowed-`Invoke` lineage gate (c3):
-    /// a lineage member borrowed into a COW-mutating callee needs its per-call
-    /// RL-1 funding inc kept (the callee nets -1), while an iter-consuming
-    /// callee's accounting stays with the iter-consume machinery.
-    ///
-    /// IC-3 join: OR (a mutating path obligates the caller's funding).
-    ///
-    /// Default: `false` (conservative — no mutator claim).
+    /// COW-mutator refinement of `borrowed_cow_consumed`, set directly by a
+    /// consuming mutator (`push`/`insert`/`set`/...) or transitively by a
+    /// callee carrying this fact. The builtin `iter` is excluded because its
+    /// ownership uses iterator accounting. The borrowed-`Invoke` lineage gate
+    /// keeps the per-call RL-1 funding increment for this demand.
+    /// IC-3 join: OR. Default: `false` (no mutator claim).
     pub borrowed_cow_mutated: bool,
 
-    /// Field-grained iter-consume record (RL-2 iter-consume inward-transfer,
-    /// the per-field refinement of `iter_consumes`).
-    ///
-    /// `Some(field)` when this BORROWED aggregate param has its `Project
-    /// param.field` projection iter-consumed (`@iter [own]` → `ori_iter_drop`
-    /// frees the projected collection INSIDE the callee), while the param itself
-    /// is NOT directly iter-consumed (the whole-param `iter_consumes` covers the
-    /// param-IS-the-collection case; this covers the field-IS-the-collection
-    /// case). Exactly one consumed field; multiple distinct consumed fields, or a
-    /// field also read past the consume, poison to `None`.
-    ///
-    /// At a call where a fresh/dead OWNED aggregate is passed at this borrowed
-    /// argument position, the callee transfers ownership of `field` inward
-    /// (RL-2). Any caller-side aggregate release must therefore skip that field,
-    /// releasing the shell and its other owned fields without double-freeing the
-    /// iter-consumed field.
-    ///
-    /// IC-3 join: equal `Some` survives; disagreement (different field index)
-    /// poisons to `None`. A single callee computes this once intraprocedurally.
-    ///
-    /// Default: `None` (conservative — no field-grained iter-consume claim).
-    pub iter_consumes_projected_field: Option<u32>,
+    /// Exact field-sensitive ownership transfer through aggregate
+    /// reconstruction. The caller-visible state is joined through SCC
+    /// convergence; the local witness is carried separately.
+    pub exact_transfer: ExactTransferState,
 }
 
 impl ParamContract {
@@ -299,19 +261,17 @@ impl ParamContract {
     ///
     /// This is the single semantic oracle for closure adapters. Ordinary Owned
     /// access, borrowed COW consumption, and plain RL-2 iterator consumption
-    /// require a whole-value credit. Field-grained iterator consumption needs
-    /// only that field's credit; retaining every field would leak. Return alias
-    /// and return containment facts have their own result accounting and do not
-    /// add a pre-entry credit here.
-    pub fn callee_owner_demand(&self) -> Result<CalleeOwnerDemand, CalleeOwnerDemandConflict> {
+    /// require a whole-value credit. Return alias and return containment facts
+    /// have their own result accounting and do not add a pre-entry credit here.
+    #[must_use]
+    pub fn callee_owner_demand(&self) -> CalleeOwnerDemand {
         let whole_value = self.access == AccessClass::Owned
             || self.borrowed_cow_consumed
             || self.is_rl2_consume();
-        match (whole_value, self.iter_consumes_projected_field) {
-            (true, Some(field)) => Err(CalleeOwnerDemandConflict { field }),
-            (true, None) => Ok(CalleeOwnerDemand::WholeValue),
-            (false, Some(field)) => Ok(CalleeOwnerDemand::ProjectedField(field)),
-            (false, None) => Ok(CalleeOwnerDemand::Borrow),
+        if whole_value {
+            CalleeOwnerDemand::WholeValue
+        } else {
+            CalleeOwnerDemand::Borrow
         }
     }
 
@@ -325,36 +285,21 @@ impl ParamContract {
         may_share: true,
         locality_bound: Locality::Unknown,
         uniqueness: Uniqueness::MaybeShared,
-        // Conservative default: emit scope-exit dec. The fixpoint
-        // promotes to `true` only when extract_contract proves the
-        // param flows to Return.
+        // Default false; extraction sets true only for params that flow to Return.
         transfers_through_return: false,
-        // Conservative default: no aliasing claim — caller's Apply dst is
-        // treated as a fresh allocation, not aliased to any consumed arg.
-        // Promoted by extract_contract when the param flows to Return
-        // (Direct) or to a Project that flows to Return (Project).
+        // Fresh Apply destinations claim no alias until extraction proves Return flow.
         return_alias: None,
-        // Conservative default: no containment claim. Promoted by
-        // extract_contract when the param flows into a transitive-drop
-        // variant payload that is returned.
+        // Extraction claims containment only for returned transitive-drop payloads.
         return_payload_contains_param: false,
-        // Conservative default: caller keeps its dec. Promoted by
-        // extract_contract when the borrowed param iter-consumes-and-frees.
+        // The caller keeps its dec unless extraction proves iter-consume-and-free.
         iter_consumes: false,
-        // Conservative default: caller keeps its exclusion (no read-only claim).
-        // AND-join bottom is `false` for the conservative contract — an unknown
-        // callee is assumed to consume the param, so the carve-out never fires.
+        // Unknown callees make no read-only claim, so the caller keeps its exclusion.
         borrowed_read_only: false,
-        // Conservative default: no funding obligation claimed — the
-        // owned-call-arg duplication admission never fires on an unknown
-        // callee.
+        // Unknown callees claim no funding obligation for owned-call-arg duplication.
         borrowed_cow_consumed: false,
-        // Conservative default: no mutator claim — the lineage gate (c3) never
-        // declines on an unknown callee.
+        // Unknown callees claim no mutation, so lineage gate c3 never declines.
         borrowed_cow_mutated: false,
-        // Conservative default: no field-grained iter-consume claim — an unknown
-        // callee never feeds the caller-side aggregate-field iter-consume scan.
-        iter_consumes_projected_field: None,
+        exact_transfer: ExactTransferState::Unproven,
     };
 
     /// Most-optimistic: borrowed, dead, absent, no escape/share, block-local, unique,
@@ -370,32 +315,21 @@ impl ParamContract {
         may_share: false,
         locality_bound: Locality::BlockLocal,
         uniqueness: Uniqueness::Unique,
-        // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
-        // any path's structural Return-flow alias fact fires.
+        // IC-2 OR-join starts false and rises on any structural Return-flow fact.
         transfers_through_return: false,
-        // IC-2 starts most-optimistic at the BOTTOM of the chain
-        // `None < Some(Project) < Some(Direct)`. Join promotes upward as
-        // structural Return-aliasing facts fire across paths.
+        // IC-2 return-alias BOTTOM rises along None < Project < Direct.
         return_alias: None,
-        // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
-        // any path's structural payload-containment fact fires.
+        // IC-2 OR-join rises on any structural payload-containment fact.
         return_payload_contains_param: false,
-        // IC-2 starts most-optimistic. Join (OR) promotes to `true` when
-        // any path's iter-consume-and-free fact fires.
+        // IC-2 OR-join rises on any iter-consume-and-free fact.
         iter_consumes: false,
-        // IC-2 starts most-optimistic at the AND-join TOP (`true` — assume
-        // read-only). Join (AND) demotes to `false` when any path uses the param
-        // at an owned position. `extract_contract` overrides per-param from the
-        // body scan; OPTIMISTIC is the fixpoint seed only.
+        // IC-2 AND-join TOP; owned use demotes the body-derived fact to false.
         borrowed_read_only: true,
-        // IC-2 starts most-optimistic at the OR-join bottom (`false`). Join
-        // (OR) promotes when a path's COW-consume-at-death fact fires.
+        // IC-2 OR-join rises when any path consumes COW storage at death.
         borrowed_cow_consumed: false,
         // IC-2 OR-join bottom; promotes when a path's MUTATOR consume fires.
         borrowed_cow_mutated: false,
-        // IC-2 seed: no claim. `extract_contract` overrides per-param from the
-        // body's projected-field iter-consume scan; a single callee computes it once.
-        iter_consumes_projected_field: None,
+        exact_transfer: ExactTransferState::Optimistic,
     };
 
     /// RL-2 CONSUME classification: `iter_consumes ∧ ¬transfers_through_return`.
@@ -405,7 +339,7 @@ impl ParamContract {
     /// `compute_ttr_iter_consume_dup_aliases`) and must not double-count as a
     /// plain iter-consume here.
     #[must_use]
-    pub fn is_rl2_consume(&self) -> bool {
+    fn is_rl2_consume(&self) -> bool {
         self.iter_consumes && !self.transfers_through_return
     }
 
@@ -420,41 +354,23 @@ impl ParamContract {
             may_share: self.may_share || other.may_share,
             locality_bound: self.locality_bound.join(other.locality_bound),
             uniqueness: self.uniqueness.join(other.uniqueness),
-            // OR (conservative direction): once true on any path, stays true.
-            // Matches IC-3 componentwise-max semantics for boolean dimensions.
+            // IC-3 boolean max: true on any path remains true.
             transfers_through_return: self.transfers_through_return
                 || other.transfers_through_return,
-            // Lattice chain `None < Some(Project) < Some(Direct)` (height 2).
-            // Direct is TOP — absorbs Project. Incomparable Project paths
-            // join to Direct. Per `ReturnAliasShape::join`.
-            return_alias: ReturnAliasShape::join(self.return_alias, other.return_alias),
-            // OR (conservative direction): once true on any path, stays true.
-            // Matches IC-3 componentwise-max semantics for boolean dimensions.
+            // ReturnAliasShape::join_optional implements None < Project < Direct.
+            return_alias: ReturnAliasShape::join_optional(self.return_alias, other.return_alias),
+            // IC-3 boolean max: true on any path remains true.
             return_payload_contains_param: self.return_payload_contains_param
                 || other.return_payload_contains_param,
-            // OR (conservative direction): once true on any path, stays true.
-            // Matches IC-3 componentwise-max semantics for boolean dimensions.
+            // IC-3 boolean max: true on any path remains true.
             iter_consumes: self.iter_consumes || other.iter_consumes,
-            // AND (conservative direction): the read-only guarantee holds only if
-            // it holds on EVERY joined path — any owned-position use clears it.
+            // Read-only survives only when every joined path preserves it.
             borrowed_read_only: self.borrowed_read_only && other.borrowed_read_only,
-            // OR (conservative direction): a consuming path obligates the
-            // caller's funding.
+            // Any consuming path obligates caller funding.
             borrowed_cow_consumed: self.borrowed_cow_consumed || other.borrowed_cow_consumed,
-            // OR (conservative direction): a mutating path obligates the
-            // caller's funding (the lineage gate declines).
+            // Any mutating path obligates caller funding and declines lineage.
             borrowed_cow_mutated: self.borrowed_cow_mutated || other.borrowed_cow_mutated,
-            // Equal `Some` survives; disagreement (different consumed field)
-            // poisons to `None`. A single callee computes its own field-grained
-            // iter-consume shape once.
-            iter_consumes_projected_field: match (
-                self.iter_consumes_projected_field,
-                other.iter_consumes_projected_field,
-            ) {
-                (None, x) | (x, None) => x,
-                (Some(a), Some(b)) if a == b => Some(a),
-                (Some(_), Some(_)) => None,
-            },
+            exact_transfer: self.exact_transfer.join(&other.exact_transfer),
         }
     }
 }

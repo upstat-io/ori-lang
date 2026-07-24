@@ -44,7 +44,7 @@ pub(super) fn classify_success(
     parity_for(eval_value, vm_value, eval_output, vm_output)
 }
 
-pub(super) fn classify_plan(
+pub(crate) fn classify_plan(
     oracle: &OracleObservation,
     record: &VmWorkerRecord,
 ) -> (PlanClassification, ParityObservation) {

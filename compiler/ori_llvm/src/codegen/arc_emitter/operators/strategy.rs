@@ -1,13 +1,18 @@
 //! LLVM instruction-family emitters for shared primitive strategies.
 
 use ori_ir::BinaryOp;
-use ori_registry::RuntimeOperator;
 use ori_types::Idx;
+
+use crate::codegen::type_info::TypeInfo;
+use crate::codegen::value_id::ValueId;
 
 use super::super::builtins;
 use super::super::{ArcIrEmitter, StringRuntimeReturnAbi};
-use crate::codegen::type_info::TypeInfo;
-use crate::codegen::value_id::ValueId;
+
+mod runtime;
+
+use runtime::native_runtime_symbol;
+pub(in crate::codegen::arc_emitter) use runtime::RuntimeBinaryOperation;
 
 #[derive(Clone, Copy)]
 enum CheckedIntSemantics {
@@ -39,15 +44,8 @@ impl CheckedIntSemantics {
     }
 }
 
-const fn native_runtime_symbol(runtime: RuntimeOperator) -> Option<&'static str> {
-    match runtime {
-        RuntimeOperator::StringConcat => Some("ori_str_concat"),
-        RuntimeOperator::StringEqual => Some("ori_str_eq"),
-        RuntimeOperator::StringNotEqual => Some("ori_str_ne"),
-        RuntimeOperator::StringCompare => Some("ori_str_compare"),
-        RuntimeOperator::ListConcat => None,
-    }
-}
+#[cfg(test)]
+mod tests;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     fn emit_checked_int_sub(
@@ -137,6 +135,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         lhs_ty: Idx,
         rhs_ty: Idx,
         result_ty: Idx,
+        arc_func: &ori_arc::ir::ArcFunction,
+        arc_args: &[ori_arc::ir::ArcVarId],
     ) -> ValueId {
         let lhs_is_size = matches!(self.type_info.get(lhs_ty), TypeInfo::Size);
         let rhs_is_size = matches!(self.type_info.get(rhs_ty), TypeInfo::Size);
@@ -153,6 +153,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         };
 
         match op {
+            BinaryOp::Add
+                if arc_args.len() >= 2
+                    && self.repr_plan.is_some_and(|plan| {
+                        addition_range_proves_no_overflow(
+                            plan.var_range(arc_func.name, arc_args[0]),
+                            plan.var_range(arc_func.name, arc_args[1]),
+                        )
+                    }) =>
+            {
+                self.builder.add(lhs, rhs, "add.proven")
+            }
             BinaryOp::Add => self.builder.checked_add_msg(
                 lhs,
                 rhs,
@@ -182,7 +193,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::GtEq => self.builder.icmp_sge(lhs, rhs, "ge"),
             BinaryOp::And => self.builder.and(lhs, rhs, "and"),
             BinaryOp::Or => self.builder.or(lhs, rhs, "or"),
-            // Coalesce is always lowered to control flow by ori_arc.
             BinaryOp::Coalesce => unreachable!(
                 "Coalesce is lowered to control flow by ori_arc and should never reach emit_int_binary_op"
             ),
@@ -216,8 +226,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::Gt => self.builder.fcmp_ogt(lhs, rhs, "gt"),
             BinaryOp::LtEq => self.builder.fcmp_ole(lhs, rhs, "le"),
             BinaryOp::GtEq => self.builder.fcmp_oge(lhs, rhs, "ge"),
-            // Registry assigns FloatingPoint only to the arms above for float;
-            // every other op is Unsupported or never reaches strategy lookup.
             BinaryOp::FloorDiv
             | BinaryOp::MatMul
             | BinaryOp::And
@@ -252,8 +260,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::GtEq => self.builder.icmp_uge(lhs, rhs, "ge"),
             BinaryOp::And => self.builder.and(lhs, rhs, "and"),
             BinaryOp::Or => self.builder.or(lhs, rhs, "or"),
-            // UnsignedComparison covers byte/char/bool comparison plus And/Or only;
-            // arithmetic/bitwise on those types uses SignedInteger or Unsupported.
             BinaryOp::Add
             | BinaryOp::Sub
             | BinaryOp::Mul
@@ -287,8 +293,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             BinaryOp::NotEq => self.builder.icmp_ne(lhs, rhs, "ne"),
             BinaryOp::And => self.builder.and(lhs, rhs, "and"),
             BinaryOp::Or => self.builder.or(lhs, rhs, "or"),
-            // BooleanLogic covers Eq/NotEq/And/Or only; bool ordering routes
-            // through UnsignedComparison and everything else is Unsupported.
             BinaryOp::Add
             | BinaryOp::Sub
             | BinaryOp::Mul
@@ -318,43 +322,104 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `Ordering` (i8) and is post-processed into a bool predicate.
     pub(in crate::codegen::arc_emitter) fn emit_runtime_binary_op(
         &mut self,
-        runtime: RuntimeOperator,
-        op: BinaryOp,
+        operation: RuntimeBinaryOperation,
         lhs: ValueId,
         rhs: ValueId,
     ) -> ValueId {
-        match (runtime, op) {
-            (RuntimeOperator::StringConcat, BinaryOp::Add) => self.emit_str_runtime_call(
-                native_runtime_symbol(runtime)
-                    .expect("string runtime identity has a native ABI symbol"),
+        let runtime_symbol = |operation: RuntimeBinaryOperation| {
+            let Some(symbol) = native_runtime_symbol(operation.runtime()) else {
+                // Why: Every string RuntimeBinaryOperation is registered with a native ABI symbol.
+                unreachable!("string runtime identity must have a native ABI symbol")
+            };
+            symbol
+        };
+        match operation {
+            RuntimeBinaryOperation::Concat => self.emit_str_runtime_call(
+                runtime_symbol(operation),
                 lhs,
                 rhs,
                 StringRuntimeReturnAbi::StringSret,
             ),
-            (RuntimeOperator::StringEqual, BinaryOp::Eq)
-            | (RuntimeOperator::StringNotEqual, BinaryOp::NotEq) => self.emit_str_runtime_call(
-                native_runtime_symbol(runtime)
-                    .expect("string runtime identity has a native ABI symbol"),
-                lhs,
-                rhs,
-                StringRuntimeReturnAbi::BoolDirect,
-            ),
-            (RuntimeOperator::StringCompare, BinaryOp::Lt) => self
-                .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::Less)
-                .expect("str Lt comparison should always succeed"),
-            (RuntimeOperator::StringCompare, BinaryOp::Gt) => self
-                .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::Greater)
-                .expect("str Gt comparison should always succeed"),
-            (RuntimeOperator::StringCompare, BinaryOp::LtEq) => self
-                .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::LessOrEqual)
-                .expect("str LtEq comparison should always succeed"),
-            (RuntimeOperator::StringCompare, BinaryOp::GtEq) => self
-                .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::GreaterOrEqual)
-                .expect("str GtEq comparison should always succeed"),
-            (RuntimeOperator::ListConcat, BinaryOp::Add) => {
-                unreachable!("list concat is emitted by the ownership-aware operator projection")
+            RuntimeBinaryOperation::Equal | RuntimeBinaryOperation::NotEqual => self
+                .emit_str_runtime_call(
+                    runtime_symbol(operation),
+                    lhs,
+                    rhs,
+                    StringRuntimeReturnAbi::BoolDirect,
+                ),
+            RuntimeBinaryOperation::Less
+            | RuntimeBinaryOperation::Greater
+            | RuntimeBinaryOperation::LessOrEqual
+            | RuntimeBinaryOperation::GreaterOrEqual => {
+                let predicate = match operation {
+                    RuntimeBinaryOperation::Less => builtins::CmpPredicate::Less,
+                    RuntimeBinaryOperation::Greater => builtins::CmpPredicate::Greater,
+                    RuntimeBinaryOperation::LessOrEqual => builtins::CmpPredicate::LessOrEqual,
+                    RuntimeBinaryOperation::GreaterOrEqual => {
+                        builtins::CmpPredicate::GreaterOrEqual
+                    }
+                    RuntimeBinaryOperation::Concat
+                    | RuntimeBinaryOperation::Equal
+                    | RuntimeBinaryOperation::NotEqual => {
+                        // Why: The enclosing match arm admits only ordered operations.
+                        unreachable!(
+                            "comparison branch must contain only ordered string operations"
+                        )
+                    }
+                };
+                let Some(value) = self.emit_str_cmp_predicate(lhs, rhs, predicate) else {
+                    // Why: Ordered string operations use the registered ori_str_compare ABI.
+                    unreachable!("string comparison runtime must return an Ordering value")
+                };
+                value
             }
-            _ => unreachable!("runtime operation {runtime:?} does not implement {op:?}"),
         }
+    }
+}
+
+/// Whether adding any pair from two whole-function interval facts fits i64.
+///
+/// The range plan is an over-approximation, so successful checked endpoint
+/// sums prove the language's overflow branch unreachable at this site.
+fn addition_range_proves_no_overflow(lhs: ori_repr::ValueRange, rhs: ori_repr::ValueRange) -> bool {
+    let (
+        ori_repr::ValueRange::Bounded {
+            lo: lhs_lo,
+            hi: lhs_hi,
+        },
+        ori_repr::ValueRange::Bounded {
+            lo: rhs_lo,
+            hi: rhs_hi,
+        },
+    ) = (lhs, rhs)
+    else {
+        return false;
+    };
+    lhs_lo.checked_add(rhs_lo).is_some() && lhs_hi.checked_add(rhs_hi).is_some()
+}
+
+#[cfg(test)]
+mod addition_range_tests {
+    use ori_repr::ValueRange;
+
+    use super::addition_range_proves_no_overflow;
+
+    #[test]
+    fn bounded_addition_elides_only_impossible_overflow() {
+        assert!(addition_range_proves_no_overflow(
+            ValueRange::Bounded { lo: 0, hi: 99 },
+            ValueRange::Bounded { lo: 1, hi: 100 },
+        ));
+        assert!(!addition_range_proves_no_overflow(
+            ValueRange::Bounded {
+                lo: i64::MAX - 1,
+                hi: i64::MAX,
+            },
+            ValueRange::Bounded { lo: 1, hi: 1 },
+        ));
+        assert!(!addition_range_proves_no_overflow(
+            ValueRange::Top,
+            ValueRange::Bounded { lo: 1, hi: 1 },
+        ));
     }
 }

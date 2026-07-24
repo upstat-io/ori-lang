@@ -14,6 +14,21 @@ const COMBINE: Name = Name::from_raw(3);
 const SELF_NAME: Name = Name::from_raw(4);
 const SIGNATURE_NAME: Name = Name::from_raw(5);
 
+#[test]
+fn index_overflow_preserves_conversion_source() {
+    let Err(source) = u32::try_from(u64::MAX) else {
+        panic!("u64::MAX must exceed the u32 index carrier");
+    };
+    let error = DerivedHashBodyError::IndexOverflow {
+        receiver_type: Idx::INT,
+        index_kind: "field",
+        index: 0,
+        source: Some(source),
+    };
+
+    assert!(std::error::Error::source(&error).is_some());
+}
+
 fn signature(receiver: Idx, return_type: Idx) -> FunctionSig {
     FunctionSig::synthetic(SIGNATURE_NAME, vec![SELF_NAME], vec![receiver], return_type)
 }

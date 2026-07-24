@@ -251,9 +251,6 @@ fn compile_closure_adapter(plan: &ori_arc::ClosureAdapterPlan) -> VmClosureAdapt
                 demand: match slot.demand {
                     ori_arc::CalleeOwnerDemand::Borrow => VmCalleeOwnerDemand::Borrow,
                     ori_arc::CalleeOwnerDemand::WholeValue => VmCalleeOwnerDemand::WholeValue,
-                    ori_arc::CalleeOwnerDemand::ProjectedField(field) => {
-                        VmCalleeOwnerDemand::ProjectedField(field)
-                    }
                 },
                 action: match slot.action {
                     ori_arc::ClosureAdapterAction::Borrow => VmClosureAdapterAction::Borrow,
@@ -348,6 +345,7 @@ fn validate_vm_call_target(
             | RuntimeCall::Index
             | RuntimeCall::ListSet
             | RuntimeCall::Length
+            | RuntimeCall::RangeLength
             | RuntimeCall::ToString
             | RuntimeCall::Concat
             | RuntimeCall::StringContains

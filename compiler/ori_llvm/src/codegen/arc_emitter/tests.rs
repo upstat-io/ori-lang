@@ -110,9 +110,7 @@ fn drop_fn_trivial_generates_rc_free() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let info = DropInfo {
@@ -164,9 +162,7 @@ fn drop_fn_fields_generates_gep_and_rc_dec() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let info = DropInfo {
@@ -213,9 +209,7 @@ fn drop_fn_enum_generates_switch_on_tag() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     // 2 variants: None (no RC), Some(str) (RC'd at field 1)
@@ -263,9 +257,7 @@ fn drop_fn_collection_generates_loop() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let list_ty = Idx::from_raw(100);
@@ -317,9 +309,7 @@ fn drop_fn_map_generates_key_value_dec() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let map_ty = Idx::from_raw(101);
@@ -374,9 +364,7 @@ fn drop_fn_closure_env_emits_gep_and_rc_dec() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let clos_ty = Idx::from_raw(102);
@@ -426,9 +414,7 @@ fn get_or_generate_returns_null_for_scalars() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let drop_fn = em.get_or_generate_drop_fn(Idx::INT);
@@ -471,9 +457,7 @@ fn get_or_generate_caches_across_calls() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     // First call generates, second returns from cache
@@ -524,9 +508,7 @@ fn get_or_generate_returns_null_for_scalar_type() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     // Scalar types (like int) don't need drop — should return null pointer
@@ -569,9 +551,7 @@ fn drop_fn_uses_c_calling_convention() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let info = DropInfo {
@@ -622,9 +602,7 @@ fn multiple_drop_fns_for_different_types() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let ty_a = Idx::from_raw(100);
@@ -705,9 +683,7 @@ fn is_shared_emits_gep_load_icmp() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     // Build a minimal ArcFunction: param v0 (ptr), IsShared dst=v1 var=v0, Return v1
@@ -820,9 +796,7 @@ fn set_emits_struct_gep_and_store() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let arc_func = ArcFunction {
@@ -932,9 +906,7 @@ fn set_on_boxed_recursive_field_boxes_value_before_store() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let arc_func = ArcFunction {
@@ -1028,9 +1000,7 @@ fn burden_dec_field_str_field_emits_gep_load_rc_dec() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let arc_func = ArcFunction {
@@ -1123,9 +1093,7 @@ fn burden_dec_field_scalar_field_emits_no_rc_dec_via_re_2_short_circuit() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let arc_func = ArcFunction {
@@ -1218,9 +1186,7 @@ fn burden_dec_field_aggregate_base_spills_to_alloca_before_gep() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let arc_func = ArcFunction {
@@ -1370,9 +1336,7 @@ fn burden_dec_variant_explicit_tag_enum_emits_switch_and_rc_dec() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let arc_func = ArcFunction {
@@ -1488,9 +1452,7 @@ fn burden_dec_variant_option_str_emits_typed_payload_rc_dec() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let arc_func = ArcFunction {
@@ -1613,9 +1575,7 @@ fn burden_dec_variant_scalar_enum_emits_no_codegen_via_re_2_short_circuit() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let arc_func = ArcFunction {
@@ -1745,9 +1705,7 @@ fn set_tag_emits_gep_and_store() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     // ArcFunction: v0 (enum ptr), then SetTag v0 tag=1, return v0
@@ -1772,7 +1730,8 @@ fn set_tag_emits_gep_and_store() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![enum_ty],
-        var_reprs: Vec::new(),
+        var_reprs: vec![ori_arc::ir::ValueRepr::Aggregate],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -1857,6 +1816,17 @@ fn emitted_value_from_repr() {
     ));
 }
 
+#[test]
+#[should_panic(expected = "LLVM emission requires realized variable representations")]
+fn llvm_emission_rejects_unrealized_variable_representations() {
+    let function = ArcFunction {
+        var_types: vec![Idx::INT],
+        ..ArcFunction::default()
+    };
+
+    super::emitter_utils::required_var_repr(ArcVarId::new(0), &function);
+}
+
 // RC strategy dispatch tests
 
 /// Verify `FatPointer` `RcDec` extracts `data_ptr` at field 1 and calls `ori_rc_dec`.
@@ -1904,9 +1874,7 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let arc_func = ArcFunction {
@@ -1931,7 +1899,8 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::STR],
-        var_reprs: Vec::new(),
+        var_reprs: vec![ori_arc::ir::ValueRepr::FatValue],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -2003,9 +1972,7 @@ fn rc_dec_closure_null_checks_env() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let arc_func = ArcFunction {
@@ -2030,7 +1997,8 @@ fn rc_dec_closure_null_checks_env() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![fn_ty],
-        var_reprs: Vec::new(),
+        var_reprs: vec![ori_arc::ir::ValueRepr::FatValue],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -2114,9 +2082,7 @@ fn rc_inc_inline_enum_emits_tag_switch() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let arc_func = ArcFunction {
@@ -2142,7 +2108,8 @@ fn rc_inc_inline_enum_emits_tag_switch() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![result_ty],
-        var_reprs: Vec::new(),
+        var_reprs: vec![ori_arc::ir::ValueRepr::Aggregate],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -2217,9 +2184,7 @@ fn rc_dec_inline_enum_tag_switches() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let arc_func = ArcFunction {
@@ -2244,7 +2209,8 @@ fn rc_dec_inline_enum_tag_switches() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![result_ty],
-        var_reprs: Vec::new(),
+        var_reprs: vec![ori_arc::ir::ValueRepr::Aggregate],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -2327,9 +2293,7 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     // Use Idx::STR as the type — TestClassifier marks it as DefiniteRef.
@@ -2356,7 +2320,8 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::STR],
-        var_reprs: Vec::new(),
+        var_reprs: vec![ori_arc::ir::ValueRepr::RcPointer],
+        var_metadata_state: VariableMetadataState::RepresentationsReady,
         spans: vec![vec![None]],
         ..Default::default()
     };
@@ -2440,9 +2405,7 @@ fn recursive_node_drop_fn_emits_self_referencing_rc_dec() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let info = DropInfo {
@@ -2543,9 +2506,7 @@ fn drop_augment_self_param_emits_no_default_dec_in_arc_ir() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     // `DropKind::Fields.fields` is the RC-dec worklist — the scalar `int` field
@@ -2625,9 +2586,7 @@ fn mutually_recursive_tree_forest_drop_fns_cross_reference() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let tree_info = DropInfo {
@@ -2722,9 +2681,7 @@ fn drop_fn_cache_prevents_infinite_generation() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let info = DropInfo {
@@ -2866,9 +2823,7 @@ fn augment_drop_body_emits_zero_self_dec() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let info = DropInfo {
@@ -2970,9 +2925,7 @@ fn emit_returned_list_push_ir() -> String {
         &interner,
         &pool,
         &classifier as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
     let list_layout = emitter.list_struct_type();
     let receiver = emitter.builder.const_zero_ty(list_layout);
@@ -3101,7 +3054,7 @@ fn register_unrelated_method(
 }
 
 #[test]
-fn bound_user_method_miss_does_not_fall_back_to_legacy_map() {
+fn bound_user_method_miss_does_not_use_unbound_method_map() {
     let mut pool = Pool::new();
     let type_name = ori_ir::Name::from_raw(300);
     let struct_ty = pool.struct_type(type_name, &[]);
@@ -3134,14 +3087,12 @@ fn bound_user_method_miss_does_not_fall_back_to_legacy_map() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     assert!(
         em.user_method(struct_ty, method_name).is_none(),
-        "a bound exact-table miss must not resolve through legacy method maps"
+        "a bound exact-table miss must not resolve through the unbound type-name method map"
     );
 }
 
@@ -3172,9 +3123,7 @@ fn lookup_method_fallback_registered_struct_receiver_warns() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let output = capture_warnings(|| {
@@ -3228,9 +3177,7 @@ fn lookup_method_fallback_registered_enum_receiver_warns() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     // NEGATIVE PIN (proves the fix narrows, never disables, the diagnostic):
@@ -3274,9 +3221,7 @@ fn lookup_method_fallback_builtin_str_receiver_no_warning() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     // REGRESSION PIN: a builtin receiver (`str`) sharing a method name with
@@ -3321,9 +3266,7 @@ fn lookup_method_fallback_none_receiver_no_warning() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     // A no-receiver call (e.g. an associated function whose call site has no
@@ -3400,9 +3343,7 @@ fn resolve_callee_threads_receiver_type_into_fallback_gate() {
         &interner,
         &pool,
         &cl as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
 
     let struct_func = fallback_receiver_function(&interner, "test_struct_receiver_fn", struct_ty);
@@ -3674,9 +3615,7 @@ fn emit_sret_forwarding_probe(matching_pointee: bool) -> (String, bool) {
         &interner,
         &pool,
         &classifier as &dyn ArcClassification,
-        host,
-        &codegen_ctx,
-        None,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
     );
     emitter.current_sret = Some((destination, current_ty));
     let _ = emitter.call_with_sret(nested, &[], requested_ty, "nested");
@@ -3727,5 +3666,148 @@ fn sret_forwarding_matching_pointee_reuses_destination() {
     assert!(
         !ir.contains("%sret.tmp = alloca"),
         "matching nested return should not allocate a temporary:\n{ir}"
+    );
+}
+
+#[test]
+fn malformed_indirect_closure_records_codegen_error_through_emitter() {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_malformed_indirect_closure"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let host = builder.declare_void_function("host", &[]);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+    let malformed_closure = builder.const_i64(0);
+
+    let classifier = TestClassifier;
+    let codegen_ctx = super::CodegenContext::default();
+    let mut emitter = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &classifier as &dyn ArcClassification,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
+    );
+
+    let closure = ArcVarId::new(0);
+    emitter.def_var(closure, super::EmittedValue::Immediate(malformed_closure));
+    let function = ArcFunction {
+        name: interner.intern("host"),
+        return_type: Idx::INT,
+        var_types: vec![Idx::INT, Idx::INT],
+        var_reprs: vec![
+            ori_arc::ir::ValueRepr::Scalar,
+            ori_arc::ir::ValueRepr::Scalar,
+        ],
+        var_metadata_state: VariableMetadataState::Realized,
+        ..Default::default()
+    };
+
+    emitter.emit_instr(
+        &ArcInstr::ApplyIndirect {
+            dst: ArcVarId::new(1),
+            ty: Idx::INT,
+            closure,
+            args: Vec::new(),
+            arg_ownership: Vec::new(),
+        },
+        &function,
+    );
+
+    let errors = emitter.builder.codegen_error_descriptions();
+    assert!(
+        errors.iter().any(|error| {
+            error.contains("closure v0")
+                && error.contains("function and environment fields")
+                && error.contains("report this compiler bug")
+        }),
+        "malformed closure emission must record the actionable indirect-call diagnostic: {errors:?}"
+    );
+}
+
+#[test]
+fn invalid_general_enum_payload_projection_records_codegen_error_through_emitter() {
+    let mut pool = Pool::new();
+    let enum_ty = pool.enum_type(
+        Name::from_raw(100),
+        &[
+            ori_types::EnumVariant {
+                name: Name::from_raw(101),
+                field_types: vec![Idx::INT],
+            },
+            ori_types::EnumVariant {
+                name: Name::from_raw(102),
+                field_types: vec![Idx::INT],
+            },
+        ],
+    );
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_invalid_enum_projection"));
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner), None);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let host = builder.declare_void_function("host", &[]);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let classifier = TestClassifier;
+    let codegen_ctx = super::CodegenContext::default();
+    let mut emitter = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &classifier as &dyn ArcClassification,
+        super::ArcEmitterFunctionContext::new(host, &codegen_ctx, None),
+    );
+
+    let source = ArcVarId::new(0);
+    let enum_llvm_ty = emitter.resolve_type(enum_ty);
+    let enum_value = emitter.builder.const_zero_ty(enum_llvm_ty);
+    emitter.def_var(source, super::EmittedValue::Immediate(enum_value));
+    let function = ArcFunction {
+        name: interner.intern("host"),
+        return_type: Idx::UNIT,
+        var_types: vec![enum_ty, Idx::BOOL],
+        var_reprs: vec![
+            ori_arc::ir::ValueRepr::Aggregate,
+            ori_arc::ir::ValueRepr::Scalar,
+        ],
+        var_metadata_state: VariableMetadataState::Realized,
+        ..Default::default()
+    };
+
+    emitter.emit_instr(
+        &ArcInstr::Project {
+            dst: ArcVarId::new(1),
+            ty: Idx::BOOL,
+            value: source,
+            field: 1,
+        },
+        &function,
+    );
+
+    let errors = emitter.builder.codegen_error_descriptions();
+    assert!(
+        errors.iter().any(|error| {
+            error.contains("general-enum projection field 1")
+                && error.contains("has no matching payload field")
+                && error.contains("report this compiler bug")
+        }),
+        "invalid general-enum projection must fail closed with an actionable diagnostic: {errors:?}"
     );
 }

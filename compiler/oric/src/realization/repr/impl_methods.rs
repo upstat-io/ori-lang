@@ -121,6 +121,7 @@ fn lower_extension_methods(
         let (_, qualified_name) = make_qualified_name(
             Some(method_receiver_key(inputs.pool, *receiver)),
             method.name,
+            inputs.pool,
             inputs.interner,
             &mut outputs.method_ordinals,
         );
@@ -181,6 +182,7 @@ fn lower_declared_impl_methods(
         let (ordinal, qualified_name) = make_qualified_name(
             Some(method_receiver_key(inputs.pool, *receiver)),
             method.name,
+            inputs.pool,
             inputs.interner,
             &mut outputs.method_ordinals,
         );
@@ -232,10 +234,11 @@ fn lower_declared_impl_methods(
 /// Compute the ordinal-qualified name for an impl method.
 ///
 /// Same-type same-name methods (e.g., two `impl Index<...>`) get ordinal
-/// suffixes (`__impl_{idx}_{method}_{ordinal}`) for disambiguation.
+/// suffixes (`__impl_{type_hash}_{method}_{ordinal}`) for disambiguation.
 fn make_qualified_name(
     self_type_idx: Option<Idx>,
     method_name: Name,
+    pool: &Pool,
     interner: &StringInterner,
     method_ordinals: &mut FxHashMap<(Idx, Name), usize>,
 ) -> (usize, Name) {
@@ -249,10 +252,13 @@ fn make_qualified_name(
     };
     let qualified = if let Some(idx) = self_type_idx {
         let method_str = interner.lookup(method_name);
+        let receiver_hash = pool.hash(idx);
         if ordinal == 0 {
-            interner.intern(&format!("__impl_{}_{method_str}", idx.raw()))
+            interner.intern(&format!("__impl_{receiver_hash:016x}_{method_str}"))
         } else {
-            interner.intern(&format!("__impl_{}_{}_{ordinal}", idx.raw(), method_str))
+            interner.intern(&format!(
+                "__impl_{receiver_hash:016x}_{method_str}_{ordinal}"
+            ))
         }
     } else {
         method_name
@@ -312,6 +318,7 @@ fn lower_default_trait_methods(
                 let (ordinal, qualified_name) = make_qualified_name(
                     Some(method_receiver_key(inputs.pool, *receiver)),
                     default.name,
+                    inputs.pool,
                     inputs.interner,
                     &mut outputs.method_ordinals,
                 );

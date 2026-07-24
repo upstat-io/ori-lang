@@ -1,0 +1,19 @@
+{
+  "captured_at": "2026-06-18T03:27:20.464270+00:00",
+  "iters": 20,
+  "kernels": {
+    "arithmetic_loop": 146605620,
+    "closure_capture": 469616497,
+    "for_yield": 1526507143,
+    "function_call_loop": 215812909,
+    "list_append_pop": 2274007961,
+    "list_index_assign": 5382706485,
+    "map_insert_lookup": 5857695522,
+    "method_call_loop": 312286110,
+    "nested_collections": 7071370770,
+    "pattern_match_dispatch": 541012366,
+    "string_concat": 714402911
+  },
+  "metric": "Ir",
+  "tool": "callgrind"
+}

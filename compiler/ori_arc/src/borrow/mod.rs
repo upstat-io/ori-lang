@@ -71,12 +71,10 @@ use crate::ArcClassification;
 // Re-export for per_scc.rs (which uses `super::update_ownership_inner`).
 use update::update_ownership_inner;
 
-/// SCC-based borrow inference (replaces whole-program fixed-point).
+/// Infers borrow annotations per strongly connected component.
 ///
 /// Decomposes functions into SCCs via Tarjan's algorithm, then infers
-/// borrow annotations per-SCC in topological order. Produces identical
-/// results to the old whole-program fixed-point, but enables future
-/// incrementality (each SCC can be cached independently).
+/// borrow annotations per-SCC in topological order.
 ///
 /// # Arguments
 ///

@@ -50,6 +50,7 @@ impl Interpreter<'_> {
             RuntimeCall::Index => self.runtime_index(site, operand_cursor),
             RuntimeCall::ListSet => self.runtime_list_set(site, operand_cursor),
             RuntimeCall::Length => self.runtime_length(site, operand_cursor),
+            RuntimeCall::RangeLength => self.runtime_range_length(site, operand_cursor),
             RuntimeCall::ToString => self.runtime_to_string(site, operand_cursor),
             RuntimeCall::Concat => self.runtime_concat(site, operand_cursor),
             RuntimeCall::StringContains => self.runtime_string_contains(site, operand_cursor),

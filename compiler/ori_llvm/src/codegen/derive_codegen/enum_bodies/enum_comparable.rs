@@ -16,10 +16,9 @@ use super::super::{emit_derive_return, DeriveSetup};
 
 use super::variant_non_void_field_types;
 
-/// Enum Comparable: compare tags first, then per-variant lexicographic ordering.
+/// Emit tag-first lexicographic ordering for an enum.
 ///
-/// Returns `Ordering` (Less=0, Equal=1, Greater=2) based on tag values,
-/// then per-variant field ordering if tags match.
+/// Equal tags delegate to the active variant's field ordering.
 pub(super) fn emit_enum_lexicographic<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     setup: &DeriveSetup,

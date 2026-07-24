@@ -1,0 +1,16 @@
+// Spec: 08-types.md 8.7 Nominal Typing; 18-modules.md Imports
+//
+// Provider B. Declares its OWN `Row`, same spelling and same shape as
+// nominal_identity_row_a.ori's `Row` but a DISTINCT declaration. Per 8.7 the
+// two are different types; a value of B::Row is not assignable to A::Row.
+
+use std.testing { assert_eq }
+
+pub type Row = { values: [str] }
+
+pub @make_b () -> Row = Row { values: ["c", "d", "e"] };
+
+@test_make_b_same_module tests @make_b () -> void = {
+    let $r = make_b();
+    assert_eq(actual: r.values.len(), expected: 3)
+}

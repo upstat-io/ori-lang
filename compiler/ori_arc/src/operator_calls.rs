@@ -237,7 +237,15 @@ fn apply_builtin_rewrite(
                 unwind,
                 ..
             } => (*dst, *ty, args.clone(), *normal, *unwind),
-            _ => unreachable!("validated builtin operator Invoke changed before commit"),
+            ArcTerminator::Return { .. }
+            | ArcTerminator::Jump { .. }
+            | ArcTerminator::Branch { .. }
+            | ArcTerminator::Switch { .. }
+            | ArcTerminator::InvokeIndirect { .. }
+            | ArcTerminator::Resume
+            | ArcTerminator::Unreachable => {
+                unreachable!("validated builtin operator Invoke changed before commit")
+            }
         };
     let catch_handler = match &function.blocks[unwind.index()].terminator {
         ArcTerminator::Jump { target, .. } => Some(*target),
@@ -283,7 +291,15 @@ fn apply_user_rewrite(
         ArcTerminator::Invoke {
             dst, ty, normal, ..
         } => (*dst, *ty, *normal),
-        _ => unreachable!("validated user operator Invoke changed before commit"),
+        ArcTerminator::Return { .. }
+        | ArcTerminator::Jump { .. }
+        | ArcTerminator::Branch { .. }
+        | ArcTerminator::Switch { .. }
+        | ArcTerminator::InvokeIndirect { .. }
+        | ArcTerminator::Resume
+        | ArcTerminator::Unreachable => {
+            unreachable!("validated user operator Invoke changed before commit")
+        }
     };
     match projection {
         OperatorProjection::Identity => {

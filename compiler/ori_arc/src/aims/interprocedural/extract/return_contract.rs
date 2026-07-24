@@ -104,6 +104,7 @@ fn report_fresh_lineage_return_trace_toggle(disabled: bool) -> bool {
     disabled
 }
 
+// Env: ORI_DISABLE_FRESH_LINEAGE_RETURN_TRACE - declines fresh-lineage certification, debug-only.
 fn fresh_lineage_return_trace_disabled() -> bool {
     report_fresh_lineage_return_trace_toggle(
         std::env::var_os("ORI_DISABLE_FRESH_LINEAGE_RETURN_TRACE").is_some(),
@@ -232,21 +233,11 @@ fn fresh_lineage_vars(
         .collect()
 }
 
-/// `true` iff `var` is defined (tracing through `Let { Var }` aliases) by a
-/// fresh producer whose result the caller receives with one logical owner:
-///  - the `for_yield` `@ori_list_take` finalizer (moves a fresh scratch buffer
-///    out — surface (a)'s `clone_list` return);
-///  - a `Construct` / `Reuse` / `CollectionReuse` of a COLLECTION (the
-///    `ListLiteral`/`MapLiteral`/`SetLiteral` builders, `TF-3` fresh owner);
-///  - an `Apply`/`Invoke` whose callee's contract ALREADY certifies
-///    `returns_fresh_self_alloc` (transitive freshness — a forwarder returning
-///    `clone_list(..)` also returns storage with no upstream alias).
-///
-/// Mirrors the FRESH-site set `fresh_self_alloc_dst` (`emit_unified.rs`) the
-/// caller-side burden walk treats as self-allocating, restricted to the
-/// COLLECTION shapes the fresh-collection-root admission consumes. A param
-/// passthrough / `Project` borrow / contract-less call yields `false` (the
-/// returned buffer may alias a caller-visible value — NOT a fresh self-alloc).
+/// Tests whether `var`, after following `Let { Var }` aliases, has one fresh
+/// collection owner. Fresh producers are `@ori_list_take`, collection
+/// constructors or reuse sites, and calls whose contracts certify
+/// `returns_fresh_self_alloc`. Parameter passthroughs, projections, and calls
+/// without contracts may alias caller-visible storage and return `false`.
 fn var_is_fresh_self_alloc(
     var: ArcVarId,
     func: &ArcFunction,
