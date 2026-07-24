@@ -142,7 +142,12 @@ run_rust_llvm() {
 run_aot() {
     echo "=== Running AOT integration tests (gated burden probe) ==="
     if (
-        export ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1
+        # Verification gates -- SSOT: scripts/test_all/verification.env
+        set -a
+        # shellcheck source=scripts/test_all/verification.env
+        . "$(dirname "${BASH_SOURCE[0]}")/verification.env"
+        set +a
+        export ORI_DISABLE_PREDICATE_STACK_RC=1
         rust_test_leg "$AOT_OUTPUT" "${LEG_SEL_AOT[@]}"
     ); then
         echo "  [ok] AOT integration tests passed"

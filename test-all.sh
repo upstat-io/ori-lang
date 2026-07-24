@@ -156,13 +156,11 @@ WASM_EXIT=0
 ORI_INTERP_EXIT=0
 ORI_LLVM_EXIT=0
 
-# Verification gates
-# ARC IR verification: checks RC balance, drop placement after AIMS pipeline.
-# Also enables per-function LLVM IR verification at all emission sites.
-export ORI_VERIFY_ARC=1
-# LLVM pass verification: verifies IR well-formedness after every optimization pass.
-# Measured overhead: ~20% wall time (54s vs ~45s baseline), within 150s budget.
-export ORI_VERIFY_EACH=1
+# Verification gates -- SSOT: scripts/test_all/verification.env
+set -a
+# shellcheck source=scripts/test_all/verification.env
+. "$TEST_ALL_DIR/scripts/test_all/verification.env"
+set +a
 
 # Test-all helper libraries
 # shellcheck source=scripts/test_all/legs.sh
