@@ -199,6 +199,7 @@ fn staged_hardlink_shares_inode_with_source_at_stage_time() {
     let _ = fs::remove_dir_all(&root);
 }
 
+#[cfg(unix)]
 fn identity_of_required(path: &Path) -> String {
     match artifact_identity_of(path) {
         Ok(id) => id,
