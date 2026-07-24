@@ -1,35 +1,17 @@
-//! Width Calculation for AST Nodes
+//! Inline width calculation for AST expressions.
 //!
-//! Bottom-up traversal calculating inline width of each AST node.
-//! Widths are cached for performance.
-//!
-//! # Width Formulas
-//!
-//! | Construct | Width Formula |
-//! |-----------|---------------|
-//! | Identifier | `name.len()` |
-//! | Integer literal | `text.len()` |
-//! | String literal | `text.len() + 2` (quotes) |
-//! | Binary expr | `left + 3 + right` (space-op-space) |
-//! | Function call | `name + 1 + args_width + separators + 1` |
-//! | Named argument | `name + 2 + value` (`: `) |
-//! | Struct literal | `name + 3 + fields_width + separators + 2` (` { ` + ` }`) |
-//! | List | `2 + items_width + separators` (`[` + `]`) |
-//! | Map | `2 + entries_width + separators` (`{` + `}`) |
-//!
-//! # Always-Stacked Constructs
-//!
-//! Some constructs always use stacked format regardless of width:
-//! - `try` (sequential blocks)
-//! - `match` arms
-//! - `recurse`, `parallel`, `spawn`, `nursery`
+//! [`WidthCalculator`] caches bottom-up measurements. Expressions that require
+//! stacked output return [`ALWAYS_STACKED`]. Width helpers mirror formatter
+//! token sequences so measurement and emission stay aligned.
 
 mod calls;
 mod collections;
 mod compounds;
 mod control;
-mod helpers;
+mod element_widths;
+pub(crate) mod lambda;
 mod literals;
+mod metrics;
 mod operators;
 mod patterns;
 mod wrappers;
@@ -37,6 +19,7 @@ mod wrappers;
 #[cfg(test)]
 mod tests;
 
+use crate::rules::{needs_parens, ParenPosition};
 use calls::{call_named_width, call_width, method_call_named_width, method_call_width};
 use collections::{
     list_width, list_with_spread_width, map_width, map_with_spread_width, range_width,
@@ -44,13 +27,15 @@ use collections::{
 };
 use compounds::{duration_width, size_width};
 use control::{
-    assign_width, block_width, break_width, continue_width, field_width, for_width, if_width,
-    index_width, with_capability_width,
+    assign_target_width, assign_width, block_width, break_width, continue_width, field_width,
+    for_width, if_width, index_width, while_width, with_capability_width,
 };
-use helpers::{accumulate_widths, COMMA_SEPARATOR_WIDTH};
 use literals::{bool_width, char_width, float_width, int_width, string_width};
 use operators::{binary_op_width, unary_op_width};
-use ori_ir::{ExprArena, ExprId, ExprKind, FunctionExpKind, FunctionSeq, StringLookup};
+use ori_ir::{
+    BinaryOp, BindingPatternId, ExprArena, ExprId, ExprKind, FunctionExpId, FunctionExpKind,
+    FunctionSeq, FunctionSeqId, Mutability, Name, ParamRange, ParsedTypeId, StringLookup, UnaryOp,
+};
 use patterns::{binding_pattern_width, for_binding_pattern_width};
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use wrappers::{
@@ -63,23 +48,19 @@ use wrappers::{
 /// the inline attempt and go directly to broken/stacked rendering.
 pub const ALWAYS_STACKED: usize = usize::MAX;
 
-/// Placeholder width estimate for type annotations.
-///
-/// Used when the actual type width is not yet computable.
-const TYPE_ANNOTATION_WIDTH_ESTIMATE: usize = 10;
-
 /// Calculator for inline widths of AST nodes.
 ///
 /// Performs bottom-up traversal to compute how wide each expression
 /// would be if rendered on a single line. Results are cached for efficiency.
+#[derive(Debug)]
 pub struct WidthCalculator<'a, I: StringLookup> {
-    arena: &'a ExprArena,
-    interner: &'a I,
+    pub(super) arena: &'a ExprArena,
+    pub(super) interner: &'a I,
     cache: FxHashMap<ExprId, usize>,
 }
 
 impl<'a, I: StringLookup> WidthCalculator<'a, I> {
-    /// Create a new width calculator.
+    /// Creates a calculator with an empty cache.
     pub fn new(arena: &'a ExprArena, interner: &'a I) -> Self {
         Self {
             arena,
@@ -88,7 +69,7 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
         }
     }
 
-    /// Create with pre-allocated cache capacity.
+    /// Creates a calculator with space for `capacity` cached widths.
     pub fn with_capacity(arena: &'a ExprArena, interner: &'a I, capacity: usize) -> Self {
         Self {
             arena,
@@ -110,35 +91,28 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
         width
     }
 
-    /// Check if a cached width exists for an expression.
+    /// Returns whether `expr_id` already has a cached width.
     pub fn is_cached(&self, expr_id: ExprId) -> bool {
         self.cache.contains_key(&expr_id)
     }
 
-    /// Get the number of cached widths.
+    /// Returns the number of cached expression widths.
     pub fn cache_size(&self) -> usize {
         self.cache.len()
     }
 
-    /// Clear the width cache.
+    /// Removes all cached expression widths.
     pub fn clear_cache(&mut self) {
         self.cache.clear();
     }
 
-    /// Calculate width without caching (internal).
-    #[expect(
-        clippy::match_same_arms,
-        reason = "Separate arms document each variant's width calculation for maintainability"
-    )]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive ExprKind width calculation dispatch"
-    )]
+    /// Measures one expression without consulting or updating the cache.
+    ///
+    /// The exhaustive match keeps additions to [`ExprKind`] compiler-checked.
     fn calculate_width(&mut self, expr_id: ExprId) -> usize {
         let expr = self.arena.get_expr(expr_id);
 
         match &expr.kind {
-            // Literals - delegated to literals module
             ExprKind::Int(n) => int_width(*n),
             ExprKind::Float(bits) => float_width(f64::from_bits(*bits)),
             ExprKind::Bool(b) => bool_width(*b),
@@ -146,33 +120,15 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
             ExprKind::Char(c) => char_width(*c),
             ExprKind::Duration { value, unit } => duration_width(*value, *unit),
             ExprKind::Size { value, unit } => size_width(*value, *unit),
-            ExprKind::Unit => 2, // "()"
-
-            // Identifiers - simple inline calculations
+            ExprKind::Unit => "()".len(),
             ExprKind::Ident(name) => self.interner.lookup(*name).len(),
-            ExprKind::Const(name) => self.interner.lookup(*name).len() + 1, // "$name"
-            ExprKind::SelfRef => 4,                                         // "self"
-            ExprKind::FunctionRef(name) => self.interner.lookup(*name).len() + 1, // "@name"
-            ExprKind::HashLength => 1,                                      // "#"
-
-            // Binary/unary operations - delegated to operators module
-            ExprKind::Binary { op, left, right } => {
-                let left_w = self.width(*left);
-                let right_w = self.width(*right);
-                if left_w == ALWAYS_STACKED || right_w == ALWAYS_STACKED {
-                    return ALWAYS_STACKED;
-                }
-                left_w + binary_op_width(*op) + right_w
+            ExprKind::Const(name) | ExprKind::FunctionRef(name) => {
+                self.interner.lookup(*name).len() + 1
             }
-            ExprKind::Unary { op, operand } => {
-                let operand_w = self.width(*operand);
-                if operand_w == ALWAYS_STACKED {
-                    return ALWAYS_STACKED;
-                }
-                unary_op_width(*op) + operand_w
-            }
-
-            // Calls - delegated to calls module
+            ExprKind::SelfRef => "self".len(),
+            ExprKind::HashLength => "#".len(),
+            ExprKind::Binary { op, left, right } => self.binary_expr_width(*op, *left, *right),
+            ExprKind::Unary { op, operand } => self.unary_expr_width(*op, *operand),
             ExprKind::Call { func, args } => call_width(self, *func, *args),
             ExprKind::CallNamed { func, args } => call_named_width(self, *func, *args),
             ExprKind::MethodCall {
@@ -186,17 +142,13 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                 args,
             } => method_call_named_width(self, *receiver, *method, *args),
 
-            // Access - delegated to control module
             ExprKind::Field { receiver, field } => field_width(self, *receiver, *field),
             ExprKind::Index { receiver, index } => index_width(self, *receiver, *index),
-
-            // Control flow - delegated to control module
             ExprKind::If {
                 cond,
                 then_branch,
                 else_branch,
-            } => if_width(self, *cond, *then_branch, *else_branch),
-            ExprKind::Match { .. } => ALWAYS_STACKED,
+            } => self.if_expr_width(expr_id, *cond, *then_branch, *else_branch),
             ExprKind::For {
                 label,
                 pattern,
@@ -206,68 +158,26 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                 is_yield,
             } => for_width(self, *label, *pattern, *iter, *guard, *body, *is_yield),
             ExprKind::Loop { label, body } => loop_width(self, *label, *body),
+            ExprKind::While { label, cond, body } => while_width(self, *label, *cond, *body),
             ExprKind::Block { stmts, result } => block_width(self, *stmts, *result),
-
-            // Let binding - complex, kept inline
             ExprKind::Let {
                 pattern,
                 ty,
                 init,
                 mutable,
-            } => {
-                let init_w = self.width(*init);
-                if init_w == ALWAYS_STACKED {
-                    return ALWAYS_STACKED;
-                }
-
-                // "let " (4 chars, mutable default) or "let $" (5 chars, immutable)
-                let mut total = if mutable.is_mutable() { 4 } else { 5 };
-                let pat = self.arena.get_binding_pattern(*pattern);
-                total += binding_pattern_width(pat, self.interner);
-                if ty.is_valid() {
-                    total += TYPE_ANNOTATION_WIDTH_ESTIMATE;
-                }
-                total += 3 + init_w; // " = " + init
-
-                total
-            }
-
-            // Lambda - complex, kept inline
+            } => self.let_expr_width(*pattern, *ty, *init, *mutable),
             ExprKind::Lambda {
                 params,
                 ret_ty,
                 body,
-            } => {
-                let body_w = self.width(*body);
-                if body_w == ALWAYS_STACKED {
-                    return ALWAYS_STACKED;
-                }
-
-                let params_list = self.arena.get_params(*params);
-                let params_w = self.width_of_params(params_list);
-
-                let mut total = if params_list.len() == 1 && !ret_ty.is_valid() {
-                    params_w // Single param without parens
-                } else {
-                    1 + params_w + 1 // (params)
-                };
-
-                total += 4 + body_w; // " -> " + body
-                if ret_ty.is_valid() {
-                    total += TYPE_ANNOTATION_WIDTH_ESTIMATE;
-                }
-
-                total
-            }
-
-            // Collections - delegated to collections module
+            } => self.lambda_expr_width(*params, *ret_ty, *body),
             ExprKind::List(items) => list_width(self, *items),
             ExprKind::ListWithSpread(elements) => list_with_spread_width(self, *elements),
             ExprKind::Map(entries) => map_width(self, *entries),
             ExprKind::MapWithSpread(elements) => map_with_spread_width(self, *elements),
-            ExprKind::Struct { name, fields } => struct_width(self, *name, *fields),
-            ExprKind::StructWithSpread { name, fields } => {
-                struct_with_spread_width(self, *name, *fields)
+            ExprKind::Struct { type_path, fields } => struct_width(self, *type_path, *fields),
+            ExprKind::StructWithSpread { type_path, fields } => {
+                struct_with_spread_width(self, *type_path, *fields)
             }
             ExprKind::Tuple(items) => tuple_width(self, *items),
             ExprKind::Range {
@@ -277,17 +187,12 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                 inclusive,
             } => range_width(self, *start, *end, *step, *inclusive),
 
-            // Result/Option wrappers - delegated to wrappers module
             ExprKind::Ok(inner) => ok_width(self, *inner),
             ExprKind::Err(inner) => err_width(self, *inner),
             ExprKind::Some(inner) => some_width(self, *inner),
-            ExprKind::None => 4, // "None"
-
-            // Control flow jumps - delegated to control module
+            ExprKind::None => "None".len(),
             ExprKind::Break { label, value } => break_width(self, *label, *value),
             ExprKind::Continue { label, value } => continue_width(self, *label, *value),
-
-            // Unsafe block and postfix operators
             ExprKind::Unsafe(inner) => unsafe_width(self, *inner),
             ExprKind::Await(inner) => await_width(self, *inner),
             ExprKind::Try(inner) => try_width(self, *inner),
@@ -295,285 +200,140 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                 cast_width(self, *expr, self.arena.get_parsed_type(*ty), *fallible)
             }
 
-            // Assignment and capability - delegated to control module
             ExprKind::Assign { target, value } => assign_width(self, *target, *value),
+            ExprKind::AssignTarget { root, steps } => assign_target_width(self, *root, *steps),
             ExprKind::WithCapability {
                 capability,
                 provider,
                 body,
             } => with_capability_width(self, *capability, *provider, *body),
 
-            // Sequential patterns - always stacked
-            ExprKind::FunctionSeq(seq_id) => {
-                let seq = self.arena.get_function_seq(*seq_id);
-                match seq {
-                    FunctionSeq::Try { .. }
-                    | FunctionSeq::Match { .. }
-                    | FunctionSeq::ForPattern { .. } => ALWAYS_STACKED,
-                }
+            ExprKind::FunctionSeq(seq_id) => self.function_seq_width(*seq_id),
+            ExprKind::FunctionExp(exp_id) => self.function_exp_width(*exp_id),
+            ExprKind::TemplateFull(name) => self.template_full_width(*name),
+            ExprKind::Match { .. } | ExprKind::TemplateLiteral { .. } | ExprKind::Error => {
+                ALWAYS_STACKED
             }
-
-            // Named expression patterns
-            ExprKind::FunctionExp(exp_id) => {
-                let exp = self.arena.get_function_exp(*exp_id);
-                match exp.kind {
-                    FunctionExpKind::Recurse
-                    | FunctionExpKind::Parallel
-                    | FunctionExpKind::Spawn
-                    | FunctionExpKind::Catch => ALWAYS_STACKED,
-
-                    FunctionExpKind::Timeout
-                    | FunctionExpKind::Cache
-                    | FunctionExpKind::With
-                    | FunctionExpKind::Print
-                    | FunctionExpKind::Panic
-                    | FunctionExpKind::Todo
-                    | FunctionExpKind::Unreachable
-                    | FunctionExpKind::Channel
-                    | FunctionExpKind::ChannelIn
-                    | FunctionExpKind::ChannelOut
-                    | FunctionExpKind::ChannelAll => {
-                        let props = self.arena.get_named_exprs(exp.props);
-                        let props_w = self.width_of_named_exprs(props);
-                        if props_w == ALWAYS_STACKED {
-                            return ALWAYS_STACKED;
-                        }
-                        exp.kind.name().len() + 1 + props_w + 1
-                    }
-                }
-            }
-
-            // Template literals
-            ExprKind::TemplateFull(name) => self.interner.lookup(*name).len() + 2, // backticks
-            ExprKind::TemplateLiteral { .. } => ALWAYS_STACKED, // conservative: contains expressions
-
-            // Parse error - always stack
-            ExprKind::Error => ALWAYS_STACKED,
         }
     }
 
-    /// Calculate width of an expression list (comma-separated).
-    fn width_of_expr_list(&mut self, exprs: &[ExprId]) -> usize {
-        accumulate_widths(exprs, |id| self.width(*id), COMMA_SEPARATOR_WIDTH)
+    fn binary_expr_width(&mut self, op: BinaryOp, left: ExprId, right: ExprId) -> usize {
+        let left_width = self.width(left);
+        let right_width = self.width(right);
+        if left_width == ALWAYS_STACKED || right_width == ALWAYS_STACKED {
+            ALWAYS_STACKED
+        } else {
+            left_width + binary_op_width(op) + right_width
+        }
     }
 
-    /// Calculate width of call arguments (name: value, ...).
-    fn width_of_call_args(&mut self, args: &[ori_ir::CallArg]) -> usize {
-        if args.is_empty() {
-            return 0;
+    fn unary_expr_width(&mut self, op: UnaryOp, operand: ExprId) -> usize {
+        let operand_width = self.width(operand);
+        if operand_width == ALWAYS_STACKED {
+            return ALWAYS_STACKED;
         }
-
-        let mut total = 0;
-        for (i, arg) in args.iter().enumerate() {
-            let value_w = self.width(arg.value);
-            if value_w == ALWAYS_STACKED {
-                return ALWAYS_STACKED;
-            }
-
-            if let Some(name) = arg.name {
-                total += self.interner.lookup(name).len() + 2 + value_w;
-            } else {
-                total += value_w;
-            }
-
-            if i < args.len() - 1 {
-                total += COMMA_SEPARATOR_WIDTH;
-            }
-        }
-        total
+        let parens_width = usize::from(needs_parens(
+            self.arena,
+            operand,
+            ParenPosition::UnaryOperand,
+        )) * 2;
+        unary_op_width(op) + parens_width + operand_width
     }
 
-    /// Calculate width of map entries (key: value, ...).
-    fn width_of_map_entries(&mut self, entries: &[ori_ir::MapEntry]) -> usize {
-        if entries.is_empty() {
-            return 0;
+    fn if_expr_width(
+        &mut self,
+        expr_id: ExprId,
+        cond: ExprId,
+        then_branch: ExprId,
+        else_branch: ExprId,
+    ) -> usize {
+        if crate::rules::ChainedElseIfRule::has_else_if_chain(self.arena, expr_id) {
+            ALWAYS_STACKED
+        } else {
+            if_width(self, cond, then_branch, else_branch)
         }
-
-        let mut total = 0;
-        for (i, entry) in entries.iter().enumerate() {
-            let key_w = self.width(entry.key);
-            let value_w = self.width(entry.value);
-            if key_w == ALWAYS_STACKED || value_w == ALWAYS_STACKED {
-                return ALWAYS_STACKED;
-            }
-            total += key_w + 2 + value_w;
-
-            if i < entries.len() - 1 {
-                total += COMMA_SEPARATOR_WIDTH;
-            }
-        }
-        total
     }
 
-    /// Calculate width of field initializers (name: value, ...).
-    fn width_of_field_inits(&mut self, fields: &[ori_ir::FieldInit]) -> usize {
-        if fields.is_empty() {
-            return 0;
+    fn let_expr_width(
+        &mut self,
+        pattern: BindingPatternId,
+        ty: ParsedTypeId,
+        init: ExprId,
+        mutable: Mutability,
+    ) -> usize {
+        let init_width = self.width(init);
+        if init_width == ALWAYS_STACKED {
+            return ALWAYS_STACKED;
         }
 
-        let mut total = 0;
-        for (i, field) in fields.iter().enumerate() {
-            let name_w = self.interner.lookup(field.name).len();
-
-            if let Some(value) = field.value {
-                let value_w = self.width(value);
-                if value_w == ALWAYS_STACKED {
-                    return ALWAYS_STACKED;
-                }
-                total += name_w + 2 + value_w;
-            } else {
-                total += name_w;
-            }
-
-            if i < fields.len() - 1 {
-                total += COMMA_SEPARATOR_WIDTH;
-            }
+        let mut total = if mutable.is_mutable() {
+            "let ".len()
+        } else {
+            "let $".len()
+        };
+        total += binding_pattern_width(self.arena.get_binding_pattern(pattern), self.interner);
+        if ty.is_valid() {
+            total += ": ".len() + lambda::type_width(self, self.arena, ty);
         }
-        total
+        total + " = ".len() + init_width
     }
 
-    /// Calculate width of struct literal fields (including spreads).
-    fn width_of_struct_lit_fields(&mut self, fields: &[ori_ir::StructLitField]) -> usize {
-        if fields.is_empty() {
-            return 0;
+    fn lambda_expr_width(
+        &mut self,
+        params: ParamRange,
+        ret_ty: ParsedTypeId,
+        body: ExprId,
+    ) -> usize {
+        let body_width = self.width(body);
+        if body_width == ALWAYS_STACKED {
+            return ALWAYS_STACKED;
         }
-
-        let mut total = 0;
-        for (i, field) in fields.iter().enumerate() {
-            match field {
-                ori_ir::StructLitField::Field(init) => {
-                    let name_w = self.interner.lookup(init.name).len();
-                    if let Some(value) = init.value {
-                        let value_w = self.width(value);
-                        if value_w == ALWAYS_STACKED {
-                            return ALWAYS_STACKED;
-                        }
-                        total += name_w + 2 + value_w;
-                    } else {
-                        total += name_w;
-                    }
-                }
-                ori_ir::StructLitField::Spread { expr, .. } => {
-                    let expr_w = self.width(*expr);
-                    if expr_w == ALWAYS_STACKED {
-                        return ALWAYS_STACKED;
-                    }
-                    // "..." + expr
-                    total += 3 + expr_w;
-                }
-            }
-
-            if i < fields.len() - 1 {
-                total += COMMA_SEPARATOR_WIDTH;
-            }
-        }
-        total
+        lambda::lambda_emit_width(
+            self,
+            self.arena,
+            self.arena.get_params(params),
+            ret_ty,
+            body_width,
+        )
     }
 
-    /// Calculate width of list elements (including spreads).
-    fn width_of_list_elements(&mut self, elements: &[ori_ir::ListElement]) -> usize {
-        if elements.is_empty() {
-            return 0;
+    fn function_seq_width(&self, seq_id: FunctionSeqId) -> usize {
+        match self.arena.get_function_seq(seq_id) {
+            FunctionSeq::Try { .. }
+            | FunctionSeq::Match { .. }
+            | FunctionSeq::ForPattern { .. } => ALWAYS_STACKED,
         }
+    }
 
-        let mut total = 0;
-        for (i, element) in elements.iter().enumerate() {
-            match element {
-                ori_ir::ListElement::Expr { expr, .. } => {
-                    let expr_w = self.width(*expr);
-                    if expr_w == ALWAYS_STACKED {
-                        return ALWAYS_STACKED;
-                    }
-                    total += expr_w;
-                }
-                ori_ir::ListElement::Spread { expr, .. } => {
-                    let expr_w = self.width(*expr);
-                    if expr_w == ALWAYS_STACKED {
-                        return ALWAYS_STACKED;
-                    }
-                    // "..." + expr
-                    total += 3 + expr_w;
+    fn function_exp_width(&mut self, exp_id: FunctionExpId) -> usize {
+        let exp = self.arena.get_function_exp(exp_id);
+        match exp.kind {
+            FunctionExpKind::Recurse
+            | FunctionExpKind::Parallel
+            | FunctionExpKind::Spawn
+            | FunctionExpKind::Catch => ALWAYS_STACKED,
+            FunctionExpKind::Timeout
+            | FunctionExpKind::Cache
+            | FunctionExpKind::With
+            | FunctionExpKind::Print
+            | FunctionExpKind::Panic
+            | FunctionExpKind::Todo
+            | FunctionExpKind::Unreachable
+            | FunctionExpKind::Channel
+            | FunctionExpKind::ChannelIn
+            | FunctionExpKind::ChannelOut
+            | FunctionExpKind::ChannelAll => {
+                let props_width = self.width_of_named_exprs(self.arena.get_named_exprs(exp.props));
+                if props_width == ALWAYS_STACKED {
+                    ALWAYS_STACKED
+                } else {
+                    exp.kind.name().len() + "(".len() + props_width + ")".len()
                 }
             }
-
-            if i < elements.len() - 1 {
-                total += COMMA_SEPARATOR_WIDTH;
-            }
         }
-        total
     }
 
-    /// Calculate width of map elements (including spreads).
-    fn width_of_map_elements(&mut self, elements: &[ori_ir::MapElement]) -> usize {
-        if elements.is_empty() {
-            return 0;
-        }
-
-        let mut total = 0;
-        for (i, element) in elements.iter().enumerate() {
-            match element {
-                ori_ir::MapElement::Entry(entry) => {
-                    let key_w = self.width(entry.key);
-                    let value_w = self.width(entry.value);
-                    if key_w == ALWAYS_STACKED || value_w == ALWAYS_STACKED {
-                        return ALWAYS_STACKED;
-                    }
-                    total += key_w + 2 + value_w; // key: value
-                }
-                ori_ir::MapElement::Spread { expr, .. } => {
-                    let expr_w = self.width(*expr);
-                    if expr_w == ALWAYS_STACKED {
-                        return ALWAYS_STACKED;
-                    }
-                    // "..." + expr
-                    total += 3 + expr_w;
-                }
-            }
-
-            if i < elements.len() - 1 {
-                total += COMMA_SEPARATOR_WIDTH;
-            }
-        }
-        total
-    }
-
-    /// Calculate width of named expressions (name: value, ...).
-    fn width_of_named_exprs(&mut self, exprs: &[ori_ir::NamedExpr]) -> usize {
-        if exprs.is_empty() {
-            return 0;
-        }
-
-        let mut total = 0;
-        for (i, expr) in exprs.iter().enumerate() {
-            let name_w = self.interner.lookup(expr.name).len();
-            let value_w = self.width(expr.value);
-            if value_w == ALWAYS_STACKED {
-                return ALWAYS_STACKED;
-            }
-            total += name_w + 2 + value_w;
-
-            if i < exprs.len() - 1 {
-                total += COMMA_SEPARATOR_WIDTH;
-            }
-        }
-        total
-    }
-
-    /// Calculate width of function parameters.
-    fn width_of_params(&self, params: &[ori_ir::Param]) -> usize {
-        if params.is_empty() {
-            return 0;
-        }
-
-        let mut total = 0;
-        for (i, param) in params.iter().enumerate() {
-            let name_w = self.interner.lookup(param.name).len();
-            total += name_w + 2 + 5; // "name: Type" estimate
-
-            if i < params.len() - 1 {
-                total += COMMA_SEPARATOR_WIDTH;
-            }
-        }
-        total
+    fn template_full_width(&self, name: Name) -> usize {
+        crate::escape_template_text(self.interner.lookup(name)).len() + "``".len()
     }
 }

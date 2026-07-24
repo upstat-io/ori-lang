@@ -1,0 +1,11 @@
+@make_greeter (name: str) -> () -> str = {
+    let greet = () -> `hello {name}`;
+    greet
+}
+
+@main () -> int = {
+    let g = make_greeter(name: "world this is a longer name exceeding sso threshold clearly");
+    let msg = g();
+    print(msg: msg);
+    0
+}

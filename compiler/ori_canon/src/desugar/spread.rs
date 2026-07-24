@@ -7,8 +7,22 @@
 
 use ori_ir::canon::{CanExpr, CanField, CanId, CanMapEntry};
 use ori_ir::{ListElementRange, MapElementRange, Name, Span, StructLitFieldRange, TypeId};
+use rustc_hash::FxHashMap;
 
 use crate::lower::Lowerer;
+
+#[derive(Clone, Copy)]
+enum StructSpreadField {
+    Init {
+        name: Name,
+        value: Option<ori_ir::ExprId>,
+        span: Span,
+    },
+    Spread {
+        expr: ori_ir::ExprId,
+        span: Span,
+    },
+}
 
 impl Lowerer<'_> {
     // ListWithSpread → List + .concat()
@@ -141,10 +155,6 @@ impl Lowerer<'_> {
     ///    - `Spread { expr }` → for ALL fields, set value to `expr.field_name`
     /// 3. "Later wins" — explicit fields after a spread override the spread.
     /// 4. Emit a flat `CanExpr::Struct` with all fields.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "multi-step struct spread desugaring with field override resolution"
-    )]
     pub(crate) fn desugar_struct_with_spread(
         &mut self,
         name: Name,
@@ -152,147 +162,119 @@ impl Lowerer<'_> {
         span: Span,
         ty: TypeId,
     ) -> CanId {
-        enum FieldData {
-            Init {
-                name: Name,
-                value: Option<ori_ir::ExprId>,
-                span: Span,
-            },
-            Spread {
-                expr: ori_ir::ExprId,
-                span: Span,
-            },
+        let field_data = self.collect_struct_spread_fields(fields);
+        match self.resolve_struct_fields(name, ty) {
+            Some(field_defs) => {
+                self.desugar_resolved_struct_spread(name, &field_data, &field_defs, span, ty)
+            }
+            None => self.desugar_unresolved_struct_spread(name, &field_data, span, ty),
         }
+    }
 
-        let src_fields = self.src.get_struct_lit_fields(fields);
-
-        // Copy out field data to avoid borrow conflict.
-        let mut field_data: Vec<FieldData> = Vec::with_capacity(src_fields.len());
-        for f in src_fields {
-            field_data.push(match f {
-                ori_ir::StructLitField::Field(init) => FieldData::Init {
+    fn collect_struct_spread_fields(&self, fields: StructLitFieldRange) -> Vec<StructSpreadField> {
+        self.src
+            .get_struct_lit_fields(fields)
+            .iter()
+            .map(|field| match field {
+                ori_ir::StructLitField::Field(init) => StructSpreadField::Init {
                     name: init.name,
                     value: init.value,
                     span: init.span,
                 },
-                ori_ir::StructLitField::Spread { expr, span } => FieldData::Spread {
+                ori_ir::StructLitField::Spread { expr, span } => StructSpreadField::Spread {
                     expr: *expr,
                     span: *span,
                 },
-            });
+            })
+            .collect()
+    }
+
+    fn desugar_resolved_struct_spread(
+        &mut self,
+        name: Name,
+        fields: &[StructSpreadField],
+        field_defs: &[(Name, TypeId)],
+        span: Span,
+        ty: TypeId,
+    ) -> CanId {
+        let mut field_values = vec![None; field_defs.len()];
+        let mut field_positions = FxHashMap::default();
+        for (position, &(field_name, _)) in field_defs.iter().enumerate() {
+            field_positions.entry(field_name).or_insert(position);
         }
 
-        // Look up the struct definition for field ordering.
-        let struct_field_names = self.resolve_struct_fields(name);
-
-        if let Some(field_names) = struct_field_names {
-            // We know the struct layout — build a fully resolved field list.
-            let mut field_values: Vec<Option<CanId>> = vec![None; field_names.len()];
-
-            for field in &field_data {
-                match field {
-                    FieldData::Init {
-                        name: field_name,
-                        value,
-                        span: field_span,
-                    } => {
-                        let field_name = *field_name;
-                        let field_span = *field_span;
-                        if let Some(pos) = field_names.iter().position(|n| *n == field_name) {
-                            let val = match value {
-                                Some(expr_id) => self.lower_expr(*expr_id),
-                                None => {
-                                    self.push(CanExpr::Ident(field_name), field_span, TypeId::ERROR)
-                                }
-                            };
-                            field_values[pos] = Some(val);
-                        }
-                    }
-                    FieldData::Spread {
-                        expr: spread_expr,
-                        span: spread_span,
-                    } => {
-                        let spread = self.lower_expr(*spread_expr);
-                        for (i, field_name) in field_names.iter().enumerate() {
-                            let field_access = self.push(
-                                CanExpr::Field {
-                                    receiver: spread,
-                                    field: *field_name,
-                                },
-                                *spread_span,
-                                TypeId::ERROR,
-                            );
-                            field_values[i] = Some(field_access);
-                        }
+        for &field in fields {
+            match field {
+                StructSpreadField::Init {
+                    name: field_name,
+                    value,
+                    span: field_span,
+                } => {
+                    let Some(&position) = field_positions.get(&field_name) else {
+                        continue;
+                    };
+                    let field_ty = field_defs[position].1;
+                    let value = match value {
+                        Some(expr) => self.lower_expr(expr),
+                        None => self.push(CanExpr::Ident(field_name), field_span, field_ty),
+                    };
+                    field_values[position] = Some(value);
+                }
+                StructSpreadField::Spread {
+                    expr,
+                    span: spread_span,
+                } => {
+                    let spread = self.lower_expr(expr);
+                    for (position, &(field_name, field_ty)) in field_defs.iter().enumerate() {
+                        field_values[position] = Some(self.push(
+                            CanExpr::Field {
+                                receiver: spread,
+                                field: field_name,
+                            },
+                            spread_span,
+                            field_ty,
+                        ));
                     }
                 }
             }
-
-            // Build the canonical fields.
-            let can_fields: Vec<CanField> = field_names
-                .iter()
-                .zip(field_values)
-                .map(|(fname, value)| {
-                    let value = value.unwrap_or_else(|| {
-                        // Missing field — emit Error (type checker should catch this).
-                        self.push(CanExpr::Error, span, TypeId::ERROR)
-                    });
-                    CanField {
-                        name: *fname,
-                        value,
-                    }
-                })
-                .collect();
-
-            let fields_range = self.arena.push_fields(&can_fields);
-            self.push(
-                CanExpr::Struct {
-                    name,
-                    fields: fields_range,
-                },
-                span,
-                ty,
-            )
-        } else {
-            // Struct definition not found — fall back to lowering fields in order.
-            // This handles error recovery gracefully.
-            let mut can_fields = Vec::new();
-            for field in &field_data {
-                match field {
-                    FieldData::Init {
-                        name: field_name,
-                        value,
-                        span: field_span,
-                    } => {
-                        let field_name = *field_name;
-                        let field_span = *field_span;
-                        let val = match value {
-                            Some(expr_id) => self.lower_expr(*expr_id),
-                            None => {
-                                self.push(CanExpr::Ident(field_name), field_span, TypeId::ERROR)
-                            }
-                        };
-                        can_fields.push(CanField {
-                            name: field_name,
-                            value: val,
-                        });
-                    }
-                    FieldData::Spread { .. } => {
-                        // Struct definition not found — skip lowering the spread
-                        // expression to avoid allocating orphaned nodes in the arena.
-                    }
-                }
-            }
-            let fields_range = self.arena.push_fields(&can_fields);
-            self.push(
-                CanExpr::Struct {
-                    name,
-                    fields: fields_range,
-                },
-                span,
-                ty,
-            )
         }
+
+        let can_fields: Vec<CanField> = field_defs
+            .iter()
+            .zip(field_values)
+            .map(|(&(field_name, _), value)| CanField {
+                name: field_name,
+                value: value.unwrap_or_else(|| self.push(CanExpr::Error, span, TypeId::ERROR)),
+            })
+            .collect();
+        let fields = self.arena.push_fields(&can_fields);
+        self.push(CanExpr::Struct { name, fields }, span, ty)
+    }
+
+    fn desugar_unresolved_struct_spread(
+        &mut self,
+        name: Name,
+        fields: &[StructSpreadField],
+        span: Span,
+        ty: TypeId,
+    ) -> CanId {
+        // Skipping unresolved spreads avoids orphaning lowered nodes without a
+        // field layout; explicit fields remain available for error recovery.
+        let can_fields: Vec<CanField> = fields
+            .iter()
+            .filter_map(|field| match *field {
+                StructSpreadField::Init { name, value, span } => {
+                    let value = match value {
+                        Some(expr) => self.lower_expr(expr),
+                        None => self.push(CanExpr::Ident(name), span, TypeId::ERROR),
+                    };
+                    Some(CanField { name, value })
+                }
+                StructSpreadField::Spread { .. } => None,
+            })
+            .collect();
+        let fields = self.arena.push_fields(&can_fields);
+        self.push(CanExpr::Struct { name, fields }, span, ty)
     }
 
     // Shared Helpers
@@ -328,14 +310,5 @@ impl Lowerer<'_> {
                 ty,
             )
         })
-    }
-
-    /// Look up struct field names in order from the type registry.
-    fn resolve_struct_fields(&self, name: Name) -> Option<Vec<Name>> {
-        let type_entry = self.typed.type_def(name)?;
-        match &type_entry.kind {
-            ori_types::TypeKind::Struct(def) => Some(def.fields.iter().map(|f| f.name).collect()),
-            _ => None,
-        }
     }
 }

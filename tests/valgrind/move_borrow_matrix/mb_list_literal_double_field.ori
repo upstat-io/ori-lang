@@ -1,0 +1,14 @@
+// Move/borrow matrix: MB09 — aggregate with owned heap fields held twice in a literal.
+// A struct with two heap str fields is placed into a list literal TWICE ([a, a]);
+// the list is read after. Verifies the second literal slot's duplication is funded
+// per occupancy — every field payload freed exactly once, no unfreed RC allocation.
+
+type Doc = { content: str, title: str }
+
+@main () -> int = {
+    let a = Doc { content: "abcdefghijklmnopqrstuvwxyz1234", title: "another_long_heap_string_content" };
+    let held = [a, a];
+    let ok = held.length() == 2;
+
+    if ok then 0 else 1
+}

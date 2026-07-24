@@ -2,10 +2,12 @@
 //!
 //! Panic trampoline generation lives in [`super::panic_trampoline`].
 
+use ori_arc::aims::contract::CalleeOwnerDemand;
 use ori_ir::Name;
 use ori_types::{FunctionSig, Idx};
 use tracing::debug;
 
+use super::entry_ownership::{dump_enabled, CleanupSite, EntryOwnershipReport, EntryParamSeam};
 use super::FunctionCompiler;
 use crate::codegen::abi::{FunctionAbi, ParamPassing, ReturnPassing};
 use crate::codegen::eh_model::EhModel;
@@ -13,25 +15,35 @@ use crate::codegen::value_id::{FunctionId, ValueId};
 
 /// Cleanup state for the C main wrapper's `ori_args_cleanup` call.
 ///
-/// Tracks whether the wrapper or the callee owns the args buffer on
-/// normal return, so the wrapper avoids double-freeing when the callee
-/// takes ownership via Indirect ABI.
+/// Tracks whether the wrapper or the callee owns the args buffer, so the
+/// wrapper avoids double-freeing when the callee consumes it.
 pub(super) struct MainArgsCleanup {
     pub(super) cleanup_fn: FunctionId,
     pub(super) data: ValueId,
     pub(super) len: ValueId,
-    /// When `true`, the wrapper retains ownership of the args buffer on
-    /// normal return (callee borrows via `ParamPassing::Reference`).
-    /// When `false`, the callee takes ownership (Indirect/Direct ABI) and
-    /// frees the buffer via its ARC dec — the wrapper must NOT double-free.
+    /// Whether the wrapper owns the args-buffer cleanup obligation, on EVERY
+    /// exit (normal AND unwind).
     ///
-    /// On the unwind path, the wrapper always cleans up regardless of this
-    /// flag, because the callee's ARC dec doesn't execute when it unwinds.
-    pub(super) wrapper_owns_on_normal: bool,
+    /// Derived from the callee's `callee_owner_demand()`: `Borrow` retains the
+    /// credit (the wrapper releases it), `WholeValue` transfers it inward (the
+    /// callee releases it, so the wrapper must not — on either exit). A consumed
+    /// buffer is released by the callee before it unwinds, so an unconditional
+    /// caught-path release double-frees it.
+    pub(super) wrapper_owns: bool,
     /// The list struct type (`{ i64, i64, ptr }`), needed by SEH thunk.
     pub(super) list_ty: crate::codegen::value_id::LLVMTypeId,
     /// How the param is passed to `_ori_main`, needed by SEH thunk.
     pub(super) param_passing: ParamPassing,
+}
+
+impl MainArgsCleanup {
+    /// Query the shared entry-ownership policy for one physical cleanup site.
+    ///
+    /// Naming the site here binds every real emitter to the same exhaustive
+    /// table used by the ownership diagnostic.
+    pub(super) fn emits_at(&self, site: CleanupSite) -> bool {
+        site.emits_cleanup(self.wrapper_owns)
+    }
 }
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
@@ -116,13 +128,15 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         }
 
         // Build args and prepare cleanup info
-        let (call_args, args_cleanup) = self.build_main_args(has_args, c_main_id, &abi);
+        let (call_args, args_cleanup) = self.build_main_args(main_name, has_args, c_main_id, &abi);
 
         // Determine if _ori_main can unwind. When it can, ALWAYS use
         // invoke+landingpad — the landingpad catches panics and exits cleanly.
         // Without invoke, `_Unwind_RaiseException` finds no handler and returns
         // `_URC_END_OF_STACK` (code 5), causing a fatal error.
         let can_unwind = !self.codegen_ctx.nounwind_functions.contains(&main_name);
+
+        self.maybe_dump_entry_ownership(main_name, main_sig, args_cleanup.as_ref(), can_unwind);
 
         if can_unwind {
             match self.builder.eh_model() {
@@ -136,8 +150,6 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                     args_cleanup.as_ref(),
                 ),
                 EhModel::Seh => {
-                    // SEH thunk requires args context. For no-args @main on
-                    // MSVC, use ori_try_call directly without a context struct.
                     if let Some(ref cleanup) = args_cleanup {
                         self.emit_main_call_with_seh_try(
                             c_main_id,
@@ -149,16 +161,12 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                             cleanup,
                         );
                     } else {
-                        // Fallback: direct call on MSVC without args.
-                        // ori_try_call still catches SEH exceptions from
-                        // _ori_main even without a context struct.
-                        self.emit_main_call_direct(
+                        self.emit_main_call_no_args_with_seh_try(
+                            c_main_id,
                             ori_main_id,
-                            &call_args,
                             abi.return_abi.passing,
                             returns_int,
                             i32_ty,
-                            None,
                         );
                     }
                 }
@@ -188,12 +196,85 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         true
     }
 
+    /// Emit the entry-point ownership seam to stderr when `ORI_DUMP_ENTRY_OWNERSHIP` is set.
+    fn maybe_dump_entry_ownership(
+        &self,
+        main_name: Name,
+        main_sig: &FunctionSig,
+        args_cleanup: Option<&MainArgsCleanup>,
+        can_unwind: bool,
+    ) {
+        if dump_enabled() {
+            let report =
+                self.build_entry_ownership_report(main_name, main_sig, args_cleanup, can_unwind);
+            eprint!("{}", report.render());
+        }
+    }
+
+    /// Project the entry-point ownership seam for the `ORI_DUMP_ENTRY_OWNERSHIP` dump.
+    ///
+    /// Every fact is READ from its owner: the semantic contract from the frozen
+    /// AIMS contract map, the realized ownership from the closed executable
+    /// artifact, and the physical decision from the `MainArgsCleanup` carrier the
+    /// wrapper actually uses. Nothing here re-derives an ownership fact.
+    fn build_entry_ownership_report(
+        &self,
+        main_name: Name,
+        main_sig: &FunctionSig,
+        args_cleanup: Option<&MainArgsCleanup>,
+        can_unwind: bool,
+    ) -> EntryOwnershipReport {
+        let contract = self.aims_contracts.get(&main_name);
+        let realized_params = self
+            .executable_program
+            .and_then(|program| {
+                program
+                    .function_id(main_name)
+                    .map(|id| program.function(id))
+            })
+            .map(|function| function.params.as_slice());
+
+        // The wrapper's cleanup carrier covers the single `args` parameter; a
+        // `@main` with no parameters produces no seam.
+        let params = args_cleanup
+            .map(|cleanup| {
+                let name = main_sig
+                    .param_names
+                    .first()
+                    .map(|param| self.interner.lookup(*param))
+                    .filter(|text| !text.is_empty())
+                    .map_or_else(|| "<unnamed>".to_owned(), ToOwned::to_owned);
+                let realized_ownership = realized_params
+                    .and_then(|params| params.first())
+                    .map(|param| param.ownership);
+                vec![EntryParamSeam {
+                    index: 0,
+                    name,
+                    contract: contract.and_then(|c| c.params.first()).cloned(),
+                    realized_ownership,
+                    borrowed_rooted: realized_ownership
+                        .map(|own| own == ori_arc::ownership::Ownership::Borrowed),
+                    param_passing: cleanup.param_passing,
+                    wrapper_owns: cleanup.wrapper_owns,
+                }]
+            })
+            .unwrap_or_default();
+
+        EntryOwnershipReport {
+            main_name: self.interner.lookup(main_name).to_owned(),
+            eh_model: self.builder.eh_model(),
+            can_unwind,
+            params,
+        }
+    }
+
     /// Build args for calling the Ori `@main` function.
     ///
     /// Returns `(call_args, args_cleanup)` where `args_cleanup` contains
     /// the cleanup function, data pointer, length, and ownership flag.
     fn build_main_args(
         &mut self,
+        main_name: Name,
         has_args: bool,
         c_main_id: FunctionId,
         abi: &FunctionAbi,
@@ -227,12 +308,21 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             return (vec![], None);
         };
 
-        // Determine callee ownership: Reference means callee borrows (wrapper
-        // retains ownership), Indirect/Direct means callee takes ownership.
         let param_passing = abi.params.first().map(|p| &p.passing);
-        // Determine callee ownership: Reference means callee borrows (wrapper
-        // retains ownership), Indirect/Direct means callee takes ownership.
-        let wrapper_owns_on_normal = matches!(param_passing, Some(ParamPassing::Reference));
+        // The wrapper owns the args-buffer cleanup iff the callee does NOT
+        // consume it. Read that from the callee's frozen owner demand — the
+        // same fact the whole pipeline uses — never the ABI passing mode: a
+        // `Reference` param the callee iter-consumes transfers the credit
+        // inward, so an ABI-derived `owns=true` double-frees.
+        let owner_demand = self
+            .aims_contracts
+            .get(&main_name)
+            .and_then(|contract| contract.params.first())
+            .unwrap_or_else(|| {
+                panic!("validated @main(args) is missing its frozen AIMS parameter contract")
+            })
+            .callee_owner_demand();
+        let wrapper_owns = matches!(owner_demand, CalleeOwnerDemand::Borrow);
 
         // Check callee's param ABI: Indirect/Reference means _ori_main
         // expects a pointer, not the struct value directly.
@@ -265,7 +355,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             cleanup_fn,
             data,
             len,
-            wrapper_owns_on_normal,
+            wrapper_owns,
             list_ty,
             param_passing: param_passing.copied().unwrap_or(ParamPassing::Direct),
         };
@@ -317,7 +407,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             _ => self.builder.const_i32(0),
         };
         if let Some(cleanup) = args_cleanup {
-            if cleanup.wrapper_owns_on_normal {
+            if cleanup.emits_at(CleanupSite::ItaniumInvokeNormal) {
                 self.builder
                     .call(cleanup.cleanup_fn, &[cleanup.data, cleanup.len], "");
             }
@@ -333,9 +423,16 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             let catch_cleanup = self.builder.runtime_fn("ori_catch_cleanup");
             self.builder.call(catch_cleanup, &[exc_ptr], "");
         }
+        let report_panic = self.builder.runtime_fn("ori_report_uncaught_panic");
+        self.builder.call(report_panic, &[], "");
+        // Same ownership decision as the normal path: a consuming callee already
+        // released the buffer before unwinding, so releasing it here too would
+        // double-free.
         if let Some(cleanup) = args_cleanup {
-            self.builder
-                .call(cleanup.cleanup_fn, &[cleanup.data, cleanup.len], "");
+            if cleanup.emits_at(CleanupSite::ItaniumCatch) {
+                self.builder
+                    .call(cleanup.cleanup_fn, &[cleanup.data, cleanup.len], "");
+            }
         }
         let panic_exit = self.builder.const_i32(1);
         self.builder.ret(panic_exit);
@@ -343,9 +440,9 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
     /// Emit `_ori_main` call via direct `call` (no unwind handling needed).
     ///
-    /// Used when `_ori_main` is nounwind or has no args. When args exist
-    /// but the callee takes ownership (Indirect ABI), cleanup is skipped
-    /// to avoid double-freeing the args buffer.
+    /// Used when `_ori_main` is nounwind. When args exist but the callee takes
+    /// ownership (Indirect ABI), cleanup is skipped to avoid double-freeing
+    /// the args buffer.
     fn emit_main_call_direct(
         &mut self,
         ori_main_id: FunctionId,
@@ -370,7 +467,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         };
 
         if let Some(cleanup) = args_cleanup {
-            if cleanup.wrapper_owns_on_normal {
+            if cleanup.emits_at(CleanupSite::ItaniumDirectNormal) {
                 self.builder
                     .call(cleanup.cleanup_fn, &[cleanup.data, cleanup.len], "");
             }

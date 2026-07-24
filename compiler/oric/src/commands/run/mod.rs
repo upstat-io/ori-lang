@@ -2,7 +2,7 @@
 
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
 use oric::query::evaluated;
-use oric::{CompilerDb, SourceFile};
+use oric::{CompilerDb, Db, SourceFile};
 use std::path::PathBuf;
 
 #[cfg(feature = "llvm")]
@@ -64,8 +64,12 @@ fn report_eval_result(
     emitter: &mut TerminalEmitter<std::io::Stderr>,
 ) {
     if eval_result.is_failure() {
-        // Use enriched diagnostics when we have a structured error snapshot
-        if let Some(ref snapshot) = eval_result.eval_error {
+        let const_diagnostics = const_eval_diagnostics(eval_result, db.interner());
+        if !const_diagnostics.is_empty() {
+            emitter.emit_all(&const_diagnostics);
+            emitter.flush();
+        } else if let Some(ref snapshot) = eval_result.eval_error {
+            // Use enriched diagnostics when we have a structured runtime snapshot.
             let source = file.text(db);
             let diag = oric::problem::eval::snapshot_to_diagnostic(snapshot, source.as_str(), path);
             emitter.emit(&diag);
@@ -94,6 +98,16 @@ fn report_eval_result(
             std::process::exit(exit_code);
         }
     }
+}
+
+fn const_eval_diagnostics(
+    eval_result: &oric::eval::ModuleEvalResult,
+    interner: &oric::ir::StringInterner,
+) -> Vec<ori_diagnostic::Diagnostic> {
+    oric::problem::semantic::const_eval_problems_to_diagnostics(
+        &eval_result.const_problems,
+        interner,
+    )
 }
 
 /// Evaluate with profiling enabled — bypasses Salsa's `evaluated()` query
@@ -147,7 +161,6 @@ pub fn run_file_compiled(path: &str) {
         .filter(|v| v != "0" && !v.is_empty());
     crate::commands::build::check_clang_for_sanitizers(sanitizer_env.as_deref());
 
-    // Read source file
     let content = read_file(path);
 
     // Compute content hash for caching.
@@ -260,7 +273,8 @@ fn compile_and_cache(
     };
     use ori_llvm::inkwell::context::Context;
 
-    use super::compile_common::{check_source, compile_to_llvm};
+    use super::build::build_imported_mono_state;
+    use super::compile_common::{check_source, compile_to_llvm_with_imported_monos};
     use oric::{CompilerDb, SourceFile};
 
     // Parse and type-check (shared with build_file)
@@ -276,21 +290,34 @@ fn compile_and_cache(
     let target = ori_llvm::aot::TargetConfig::native()
         .unwrap_or_else(|e| crate::problem::codegen::report_codegen_error(e));
 
-    // Generate LLVM IR (shared with build_file)
-    let context = Context::create();
-    let llvm_module = compile_to_llvm(
-        &context,
+    // Build cross-module imported-generic mono state. Mirrors the single-file
+    // build path; required when host source has stdlib or relative imports.
+    let imported_state = build_imported_mono_state(
         &db,
+        std::path::Path::new(path),
         &parse_result,
         &type_result,
         &pool,
-        &canon_result,
-        path,
-        Some(target.triple()),
-        if ori_repr::NarrowingPolicy::env_disabled() {
-            ori_repr::NarrowingPolicy::Disabled
-        } else {
-            ori_repr::NarrowingPolicy::Aggressive
+    );
+
+    // Generate LLVM IR (shared with build_file)
+    let context = Context::create();
+    let llvm_module = compile_to_llvm_with_imported_monos(
+        crate::commands::compile_common::ImportedMonoCompilation {
+            context: &context,
+            db: &db,
+            parse: &parse_result,
+            typed: &type_result,
+            pool: &imported_state.merged_pool,
+            imported: imported_state.surfaces(),
+            canon: &canon_result,
+            source_path: path,
+            target_triple: Some(target.triple()),
+            narrowing_policy: if ori_repr::NarrowingPolicy::env_disabled() {
+                ori_repr::NarrowingPolicy::Disabled
+            } else {
+                ori_repr::NarrowingPolicy::Aggressive
+            },
         },
     )
     .unwrap_or_else(|e| {
@@ -310,7 +337,6 @@ fn compile_and_cache(
         );
     }
 
-    // Ensure cache directory exists
     if let Err(e) = std::fs::create_dir_all(cache_dir) {
         eprintln!("warning: could not create cache directory: {e}");
     }
@@ -357,7 +383,7 @@ fn compile_and_cache(
         output: binary_path.to_path_buf(),
         output_kind: LinkOutput::Executable,
         gc_sections: true, // Remove unused sections
-        sanitizer: opt_config.sanitizer.clone(),
+        sanitizer: opt_config.sanitizer,
         ..Default::default()
     };
 
@@ -369,7 +395,6 @@ fn compile_and_cache(
         crate::problem::codegen::report_codegen_error(e);
     }
 
-    // Clean up object file
     let _ = std::fs::remove_file(&obj_path);
 }
 

@@ -1,0 +1,37 @@
+// Spec: 09-properties-of-types.md § 9.8 Default Trait
+// Derived Default constructed via Type.default() inside a generic <T> body,
+// threaded through a generic consumer, and a nested-struct default-construct.
+// Dual-execution mirror of the AOT pins in
+// ori_llvm/tests/aot/default_minmax_mono_in_generic.rs.
+
+use std.testing { assert_eq }
+
+#[derive(Default, Eq)]
+type Cfg = { port: int, name: str }
+
+@build_default <T> (marker: T) -> Cfg = Cfg.default();
+
+@consume_port <T> (marker: T, c: Cfg) -> int = c.port;
+
+@test_default_built_in_generic_is_zero tests @build_default tests @consume_port () -> void = {
+    let c = build_default(marker: 42);
+    let p = consume_port(marker: "x", c: c);
+    assert_eq(actual: p, expected: 0);
+    assert_eq(actual: c.name, expected: "")
+}
+
+#[derive(Default, Eq)]
+type Inner = { a: int, b: int }
+
+#[derive(Default, Eq)]
+type Outer = { inner: Inner, tag: int }
+
+@sum_outer <T> (marker: T, o: Outer) -> int = o.inner.a + o.inner.b + o.tag;
+
+@test_nested_default_through_generic_is_zero tests @sum_outer () -> void = {
+    let o = Outer.default();
+    let s = sum_outer(marker: 0, o: o);
+    assert_eq(actual: s, expected: 0)
+}
+
+@main () -> void = print(msg: "Default-in-generic dual-exec mirror");

@@ -1,0 +1,2 @@
+type Plain = { a: int, b: int }
+         @ok (p: Plain) -> int = match p { Plain { a, .. } -> a, };

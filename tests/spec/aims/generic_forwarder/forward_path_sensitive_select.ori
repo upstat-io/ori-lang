@@ -1,0 +1,33 @@
+// Path-sensitive forwarder: select<T>(cond, x, y) returns ONE of two
+// owned params per branch — the OTHER must be dec'd at scope exit.
+//
+// Path sensitivity is load-bearing: a naive global suppression (suppress
+// ALL decs on params with transfers_through_return) would leak the
+// non-returned arm. The suppression is gated on the ACTUAL Return-flow
+// path, not the static param set.
+//
+// On cond=true: returns x; y must dec at scope exit.
+// On cond=false: returns y; x must dec at scope exit.
+// Both runs must complete cleanly under interpreter AND LLVM.
+
+use std.testing { assert_eq }
+
+@select <T> (cond: bool, x: T, y: T) -> T = if cond then x else y;
+
+@select_true_returns_first () -> [int] = select(cond: true, x: [1, 2, 3], y: [9, 9, 9]);
+
+@select_false_returns_second () -> [int] = select(cond: false, x: [1, 2, 3], y: [9, 9, 9]);
+
+@test_select_true_returns_first_arm tests @select_true_returns_first () -> void = {
+    let xs = select_true_returns_first();
+    assert_eq(actual: xs.len(), expected: 3);
+    assert_eq(actual: xs[0], expected: 1);
+    assert_eq(actual: xs[2], expected: 3)
+}
+
+@test_select_false_returns_second_arm tests @select_false_returns_second () -> void = {
+    let xs = select_false_returns_second();
+    assert_eq(actual: xs.len(), expected: 3);
+    assert_eq(actual: xs[0], expected: 9);
+    assert_eq(actual: xs[2], expected: 9)
+}

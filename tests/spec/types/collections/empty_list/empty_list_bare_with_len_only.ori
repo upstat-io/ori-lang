@@ -4,6 +4,7 @@
 // E2005 fires on the ambiguous signature hole.
 
 #compile_fail(code: "E2005")
+@empty_list_bare_with_len_only tests _ () -> void = { () }
 
 @length_of (xs) -> int = xs.len();
 

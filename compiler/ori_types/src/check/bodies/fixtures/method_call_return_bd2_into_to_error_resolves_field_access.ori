@@ -1,0 +1,1 @@
+@f () -> str = { let msg: str = "x"; let e: Error = msg.into(); e.message }

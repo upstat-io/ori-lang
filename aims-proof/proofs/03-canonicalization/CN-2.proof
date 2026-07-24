@@ -1,0 +1,20 @@
+Theorem CN-2: Linear plus Absent infeasible (subsumed by CN-1)
+
+  Preconditions:
+    - s.consumption = Linear AND s.cardinality = Absent (infeasible composite)
+    - canonicalize_cn1 applies the bidirectional rule per Annex E §AIMS
+
+  Soundness property:
+    canonicalize_cn1(Linear, Absent) = (Dead, Absent).
+
+  Proof obligation:
+    Direct application of CN-1's bidirectional rule: Absent triggers
+    Dead-collapse. CN-2 is subsumed by CN-1; retained in Annex E §AIMS for explicit documentation.
+
+    Engines dispatched:
+      case_analysis (subsumption check per
+        section_03::verify_cn2_linear_absent_infeasible)
+
+  Expected:
+    status: valid
+    reason: section_03 case_analysis engine discharges CN-2 by direct CN-1 subsumption on the (Linear, Absent) input

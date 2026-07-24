@@ -1,4 +1,4 @@
-// Spec: 12-modules.md § Private Access
+// Spec: 18-modules.md § Private Access
 // Design: (modules not yet in design docs)
 //
 // Tests for importing private items using :: prefix.

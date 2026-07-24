@@ -1,0 +1,11 @@
+// Producer-over-producer chain: the outer map consumes the inner map's fresh
+// intermediates; each intermediate must be freed exactly once inside the
+// adapter chain, while join frees only the terminal fresh elements.
+@main () -> void = {
+    let $joined = ["upsilon-upsilon-upsilon-upsilon", "phi-phi-phi-phi-phi-phi-phi"]
+        .iter()
+        .map(transform: (s: str) -> str = s + "-mid-mid-mid-mid-mid-mid")
+        .map(transform: (s: str) -> str = s + "-outer-outer-outer")
+        .join(separator: ", ");
+    print(msg: joined)
+}

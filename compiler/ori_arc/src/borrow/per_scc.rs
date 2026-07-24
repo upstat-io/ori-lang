@@ -46,7 +46,7 @@ pub fn initialize_single_borrowed(
     }
 }
 
-/// Infer borrow annotations for a single non-recursive function (Section 12.5).
+/// Infer borrow annotations for a single non-recursive function.
 ///
 /// Unlike [`super::infer_borrows_scc`] which handles the full SCC decomposition,
 /// this function analyzes ONE function in a single pass. Callee signatures
@@ -76,7 +76,7 @@ pub fn infer_borrow_single(
     sig
 }
 
-/// Infer borrow annotations for a mutually recursive SCC (Section 12.6).
+/// Infer borrow annotations for a mutually recursive SCC.
 ///
 /// Runs fixed-point iteration over the SCC members only, using pre-resolved
 /// `external_sigs` for callees outside the SCC. Convergence is guaranteed

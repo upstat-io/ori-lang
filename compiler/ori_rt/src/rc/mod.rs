@@ -12,13 +12,13 @@ mod debug;
 mod elem_header;
 mod list_rc;
 mod map_rc;
+mod prelude;
 mod set_rc;
 
-pub use allocate::*;
 #[cfg(all(test, debug_assertions))]
 pub(crate) use debug::{
     alloc_registry_insert, alloc_registry_query, alloc_registry_remove, alloc_registry_update,
-    freed_set, RT_DEBUG_FORCE,
+    freed_set, rt_debug_register_allocated, RT_DEBUG_FORCE,
 };
 #[cfg(debug_assertions)]
 pub(crate) use debug::{alloc_registry_report, rt_debug_check_not_freed};
@@ -28,40 +28,20 @@ pub(crate) use debug::{
 };
 #[cfg(debug_assertions)]
 pub use debug::{reset_alloc_registry, reset_freed_set};
-pub use elem_header::*;
-pub use list_rc::*;
-pub use map_rc::*;
-pub use set_rc::*;
+pub use prelude::*;
 
 use debug::{rc_trace_dec, rc_trace_inc};
 
-/// Exit code for fatal RC errors (underflow, double-free, drop panic).
-/// 128 + 6 mirrors the POSIX convention for SIGABRT (signal 6).
-/// We use `exit()` instead of `abort()` because `abort()` raises SIGABRT
-/// which can hang when signal handlers interfere with process termination.
-const SIGABRT_EXIT_CODE: i32 = 128 + 6;
+// Fatal RC errors abort so supervisors can classify a uniform SIGABRT status;
+// harnesses also accept the legacy 128+6 exit class.
 
 #[cfg(not(feature = "single-threaded"))]
 use std::sync::atomic;
 use std::sync::atomic::{AtomicI64, Ordering};
 
-// Reference Counting
-//
-// V5 header layout (32 bytes):
-//
-//   base+0          base+8            base+16          base+24           base+32
-//   [data_size: i64 | elem_dec_fn: ptr | elem_count: i64 | strong_count: i64 | data ...]
-//                                                                               ^
-//                                                                               data_ptr
-//
-// From data_ptr: strong_count = data-8, elem_count = data-16,
-//                elem_dec_fn = data-24, data_size = data-32
-//
-// strong_count stays at data_ptr - 8 — all RC operations are unchanged from V2/V3/V4.
-// elem_dec_fn stores the element destructor for collection buffers (V4).
-// elem_count stores the number of initialized elements for full-range cleanup (V5).
-//   When a slice is the last owner, elem_count tells slice_buffer_rc_dec how
-//   many elements to clean up (not just the slice's visible range).
+// V5's 32-byte header stores data size, element destructor, initialized-element
+// count, then strong count immediately before data. The initialized count lets
+// a last-owner slice clean the full buffer rather than only its visible range.
 
 /// Live RC allocation counter for debugging and testing.
 ///
@@ -128,10 +108,8 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
             let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
             let prev = (*rc_ptr).fetch_add(1, Ordering::Relaxed);
 
-            // Immortal sentinel: skip if refcount is MAX_REFCOUNT. Immortal
-            // objects (e.g., pre-allocated empty string) have their RC set to
-            // MAX_REFCOUNT at creation and never participate in RC operations.
-            // Undo the increment we just did.
+            // Immortal objects use MAX_REFCOUNT and never participate in RC;
+            // restore the sentinel after the attempted increment.
             if prev == MAX_REFCOUNT {
                 (*rc_ptr).fetch_sub(1, Ordering::Relaxed);
                 return;
@@ -184,7 +162,7 @@ pub(super) fn rc_underflow_abort(data_ptr: *mut u8) -> ! {
         }
     }
 
-    std::process::exit(SIGABRT_EXIT_CODE);
+    std::process::abort();
 }
 
 /// Abort on misaligned pointer passed to RC operation.
@@ -211,7 +189,7 @@ fn rc_misaligned_abort(data_ptr: *mut u8, func: &str) -> ! {
         }
     }
 
-    std::process::exit(SIGABRT_EXIT_CODE);
+    std::process::abort();
 }
 
 /// Decrement the reference count. If it reaches zero, call the drop function.
@@ -258,6 +236,72 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
     }
 }
 
+/// Atomic RC decrement-and-test for codegen-driven buffer teardown.
+///
+/// Performs the same decrement as [`ori_rc_dec`] but runs NO drop function —
+/// returns 1 if the refcount reached zero (caller runs cleanup + free), 0
+/// otherwise. Codegen uses this on the may-unwind collection `rc_dec` path so the
+/// per-element / per-bucket cleanup loop (with its own unwind landing pad)
+/// replaces the runtime `catch_unwind` cleanup that cannot catch a foreign Ori
+/// `@drop` exception. `extern "C"` + nounwind — the decrement never unwinds.
+#[no_mangle]
+pub extern "C" fn ori_rc_dec_to_zero(data_ptr: *mut u8) -> i8 {
+    if data_ptr.is_null() {
+        return 0;
+    }
+
+    if !(data_ptr as usize).is_multiple_of(8) {
+        rc_misaligned_abort(data_ptr, "ori_rc_dec_to_zero");
+    }
+
+    rt_debug_validate_rc(data_ptr.cast_const(), "ori_rc_dec_to_zero");
+    #[cfg(debug_assertions)]
+    rt_debug_check_not_freed(data_ptr.cast_const(), "ori_rc_dec_to_zero");
+
+    // SAFETY: data_ptr is non-null (checked above), 8-aligned, from ori_rc_alloc.
+    i8::from(unsafe { rc_dec_to_zero(data_ptr) })
+}
+
+/// May-unwind RC decrement — `extern "C-unwind"` variant of [`ori_rc_dec`] for
+/// types whose drop transitively runs a user `@drop` (per
+/// `ori_arc::type_drop_may_unwind`). The drop function is called DIRECTLY (no
+/// `call_drop_fn` `catch_unwind` guard), so a foreign Ori exception raised by
+/// the user `@drop` unwinds THROUGH this `extern "C-unwind"` frame to the
+/// caller's cleanup landing pad instead of aborting at the `nounwind`
+/// boundary. Codegen routes here via `invoke` only at may-unwind `RcDec`
+/// sites; the nounwind [`ori_rc_dec`] stays for scalar / trivial-drop /
+/// nounwind-drop-fn paths (its `catch_unwind` abort is the safety net for
+/// drop fns that must never unwind). A nested panic during the drop fn's own
+/// cleanup walk aborts via `ori_drop_double_panic_abort` (raised from the
+/// drop fn's cleanup pad), not here.
+#[no_mangle]
+pub extern "C-unwind" fn ori_rc_dec_unwind(
+    data_ptr: *mut u8,
+    drop_fn: Option<extern "C-unwind" fn(*mut u8)>,
+) {
+    if data_ptr.is_null() {
+        return;
+    }
+
+    if !(data_ptr as usize).is_multiple_of(8) {
+        rc_misaligned_abort(data_ptr, "ori_rc_dec_unwind");
+    }
+
+    rt_debug_validate_rc(data_ptr.cast_const(), "ori_rc_dec_unwind");
+    #[cfg(debug_assertions)]
+    rt_debug_check_not_freed(data_ptr.cast_const(), "ori_rc_dec_unwind");
+
+    // SAFETY: data_ptr is non-null (checked above) and was returned by ori_rc_alloc.
+    if unsafe { rc_dec_to_zero(data_ptr) } {
+        if let Some(f) = drop_fn {
+            // Direct call (NO catch_unwind): a foreign Ori exception from the
+            // user `@drop` unwinds through this `extern "C-unwind"` frame to
+            // the caller's cleanup pad — the recoverable-drop-panic path.
+            f(data_ptr);
+        }
+    }
+}
+
 /// Core RC decrement protocol. Returns `true` if RC reached zero and
 /// the caller should perform type-specific cleanup.
 ///
@@ -265,7 +309,7 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
 /// underflow detection, trace logging, and acquire fence.
 ///
 /// This is the single canonical implementation of the ARC decrement
-/// protocol, inspired by Swift's `swift_release_n` and Rust's `Arc::drop`.
+/// protocol: atomic (or non-atomic) decrement with underflow + immortal guards.
 ///
 /// # Safety
 /// `data_ptr` must be non-null and point to data returned by `ori_rc_alloc`.
@@ -453,8 +497,59 @@ pub(super) fn call_drop_fn(f: extern "C" fn(*mut u8), data_ptr: *mut u8) {
     }));
     if result.is_err() {
         eprintln!("ori: drop function panicked — terminating (drop must not unwind)");
-        std::process::exit(SIGABRT_EXIT_CODE);
+        std::process::abort();
     }
+}
+
+/// Nested-panic-during-drop-cleanup abort entry point.
+///
+/// Invoked by codegen-emitted landing pads when a SECOND panic surfaces
+/// during the field-walk cleanup phase of a Drop-implementing type's
+/// drop function. Per `drop-trait-proposal.md §Drop and panic`, a single
+/// panic in `@drop` is recoverable (the landing pad still runs the field
+/// walk + free), but a nested panic during that cleanup aborts the
+/// process — matching Rust's nested-panic-during-drop semantics.
+///
+/// The codegen-emitted cleanup landing pad invokes this entry from its
+/// OWN unwind path; the function does NOT return.
+#[no_mangle]
+pub extern "C" fn ori_drop_double_panic_abort() -> ! {
+    eprintln!(
+        "ori: nested panic during drop cleanup — terminating \
+         (drop-trait-proposal.md §Drop and panic: double-panic abort)"
+    );
+    std::process::abort();
+}
+
+thread_local! {
+    /// Depth of active drop-cleanup regions on this thread. Incremented by
+    /// `ori_drop_cleanup_enter` when a codegen cleanup landing pad begins
+    /// running drop work on the unwind path, decremented by
+    /// `ori_drop_cleanup_exit` before the pad `resume`s. A panic raised while
+    /// depth > 0 is a nested drop-panic and aborts via
+    /// `ori_drop_double_panic_abort` (the panic entry points consult
+    /// `drop_cleanup_active`). `_UA_CLEANUP_PHASE` is per-frame and cannot see
+    /// cross-frame nested panics; this thread-local can.
+    static DROP_CLEANUP_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Enter a drop-cleanup region (a codegen cleanup landing pad running drop work
+/// on the unwind path). A panic raised before the matching exit aborts.
+#[no_mangle]
+pub extern "C" fn ori_drop_cleanup_enter() {
+    DROP_CLEANUP_DEPTH.with(|d| d.set(d.get().saturating_add(1)));
+}
+
+/// Leave a drop-cleanup region. Pairs with `ori_drop_cleanup_enter`.
+#[no_mangle]
+pub extern "C" fn ori_drop_cleanup_exit() {
+    DROP_CLEANUP_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+}
+
+/// True when a drop-cleanup region is active on this thread — a panic now is a
+/// nested drop-panic. Consulted by the panic entry points.
+pub(crate) fn drop_cleanup_active() -> bool {
+    DROP_CLEANUP_DEPTH.with(|d| d.get() > 0)
 }
 
 /// Get the number of live RC allocations (for testing and debugging).

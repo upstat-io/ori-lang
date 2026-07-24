@@ -1,88 +1,38 @@
 //! FBIP (Functional But In-Place) diagnostic analysis.
 //!
-//! After the ARC pipeline runs, this pass catalogs which constructor-reuse
-//! opportunities were achieved (`Reset`/`Reuse` pairs) and which were missed
-//! (`RcDec` of a value followed by a `Construct` of the same type, without
-//! reuse). This helps developers understand where heap allocation can be
-//! avoided and why.
+//! After logical ownership/reuse analysis runs, this pass catalogs which
+//! donor/recipient reuse opportunities the current transitional projection
+//! realized (`Reset`/`Reuse` pairs) and which it missed (a logical release
+//! followed by a compatible construction). This helps developers understand
+//! where a selected physical plan may avoid fresh storage and why.
 //!
-//! Inspired by Koka's `CheckFBIP.hs` — a read-only diagnostic pass that
-//! reports on the effectiveness of Perceus reference counting.
+//! Historical influence: Koka's `CheckFBIP.hs` SHAPE — a read-only diagnostic pass that
+//! reports on the effectiveness of Perceus reuse and ownership analysis.
 //!
 //! # Usage
 //!
-//! Run after the full ARC pipeline (insert → detect → expand → eliminate).
+//! Run after the full ownership pipeline (analyze → realize logical facts →
+//! project the current carrier).
 //! The report is purely informational and does not modify the IR.
 
 use ori_ir::Span;
-use ori_types::Idx;
 
-use crate::graph::DominatorTree;
-use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId};
-use crate::liveness::RefinedLiveness;
+use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
 use crate::ArcClassification;
 
 /// Summary of FBIP analysis for a single function.
 pub(crate) struct FbipReport {
-    /// Successfully paired Reset/Reuse — allocation is reused in-place.
-    pub(crate) achieved: Vec<ReuseOpportunity>,
-    /// Unpaired `RcDec` + `Construct` that could have been reuse but weren't.
-    pub(crate) missed: Vec<MissedReuse>,
-    /// `true` if the function achieves full FBIP (all allocations reused).
-    #[cfg_attr(not(test), expect(dead_code, reason = "read only in tests"))]
-    pub(crate) is_fbip: bool,
+    /// Number of successfully paired donor/recipient operations.
+    pub(crate) achieved_count: usize,
+    /// Number of unpaired logical releases.
+    pub(crate) missed_count: usize,
 }
 
-/// A successfully achieved reuse opportunity.
-#[expect(
-    dead_code,
-    reason = "diagnostic output — inner fields for future detailed FBIP reporting"
-)]
-pub(crate) struct ReuseOpportunity {
-    /// The variable whose allocation is recycled.
-    pub(crate) reset_var: ArcVarId,
-    /// The constructor that reuses the allocation.
-    pub(crate) reuse_dst: ArcVarId,
-    /// The type being reused.
-    pub(crate) ty: Idx,
-    /// Block where the reuse occurs.
-    pub(crate) block: ArcBlockId,
-}
-
-/// A missed reuse opportunity.
-#[expect(
-    dead_code,
-    reason = "diagnostic output — inner fields for future detailed FBIP reporting"
-)]
-pub(crate) struct MissedReuse {
-    /// The variable being decremented (potential allocation to reuse).
-    pub(crate) dec_var: ArcVarId,
-    /// Block where the `RcDec` occurs.
-    pub(crate) dec_block: ArcBlockId,
-    /// The Construct destination that could have reused the allocation.
-    pub(crate) construct_dst: Option<ArcVarId>,
-    /// Block where the Construct occurs.
-    pub(crate) construct_block: Option<ArcBlockId>,
-    /// Why the reuse couldn't be achieved.
-    pub(crate) reason: MissedReuseReason,
-}
-
-/// Reasons why an allocation reuse opportunity was missed.
-#[expect(
-    dead_code,
-    reason = "diagnostic output — variant fields for future detailed FBIP reporting"
-)]
-pub(crate) enum MissedReuseReason {
-    /// The decrement and construct have different types.
-    TypeMismatch { dec_type: Idx, construct_type: Idx },
-    /// The decremented variable is still used between the Dec and Construct.
-    IntermediateUse { use_span: Option<Span> },
-    /// The `Construct` is not dominated by the `RcDec`.
-    NoDominance,
-    /// The variable might be shared (refcount > 1), so reset is unsafe.
-    PossiblyShared,
-    /// No matching Construct of the same type exists.
-    NoMatchingConstruct,
+impl FbipReport {
+    #[cfg(test)]
+    fn is_fbip(&self) -> bool {
+        self.missed_count == 0 && self.achieved_count > 0
+    }
 }
 
 /// Analyze a function for FBIP properties after the ARC pipeline has run.
@@ -95,65 +45,23 @@ pub(crate) enum MissedReuseReason {
 ///
 /// * `func` — the ARC IR function (post-pipeline).
 /// * `classifier` — type classifier for RC checks.
-/// * `dom_tree` — dominator tree for dominance queries.
-/// * `refined` — refined liveness for aliasing checks.
-pub(crate) fn analyze_fbip(
-    func: &ArcFunction,
-    classifier: &dyn ArcClassification,
-    dom_tree: &DominatorTree,
-    refined: &[RefinedLiveness],
-) -> FbipReport {
-    let mut achieved = Vec::new();
-    let mut missed = Vec::new();
-
-    // Phase 1: Collect achieved reuse (expanded Reset/Reuse or IsShared patterns).
-    //
-    // After expand_reset_reuse, Reset/Reuse have been lowered to IsShared
-    // branches. But we can still detect the pattern by looking for Reset/Reuse
-    // in the pre-expansion IR, or for IsShared in the post-expansion IR.
-    //
-    // Since we run AFTER expansion, look for the IsShared pattern:
-    //   IsShared(var) → branch → fast path (reuse) / slow path (alloc)
-    //
-    // Also catch any un-expanded Reset/Reuse (should only happen if expansion
-    // was skipped in testing).
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Reuse { token, dst, ty, .. } = instr {
-                achieved.push(ReuseOpportunity {
-                    reset_var: *token,
-                    reuse_dst: *dst,
-                    ty: *ty,
-                    block: block.id,
-                });
-            }
-        }
+pub(crate) fn analyze_fbip(func: &ArcFunction, classifier: &dyn ArcClassification) -> FbipReport {
+    FbipReport {
+        achieved_count: count_achieved_reuse(func),
+        missed_count: count_missed_reuse(func, classifier),
     }
+}
 
-    // Phase 2: Collect unpaired RcDec instructions (potential missed reuse).
-    //
-    // An RcDec that is NOT part of a Reset/Reuse pattern is a missed
-    // opportunity IF there's a Construct of the same type somewhere
-    // reachable.
-    let mut all_constructs: Vec<(ArcBlockId, ArcVarId, Idx)> = Vec::new();
-    let mut unpaired_decs: Vec<(ArcBlockId, ArcVarId, Idx)> = Vec::new();
+fn count_achieved_reuse(func: &ArcFunction) -> usize {
+    func.blocks
+        .iter()
+        .flat_map(|block| &block.body)
+        .filter(|instr| matches!(instr, ArcInstr::Reuse { .. }))
+        .count()
+}
 
-    // Collect all Construct instructions.
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Construct { dst, ty, .. } = instr {
-                if classifier.needs_rc(*ty) {
-                    all_constructs.push((block.id, *dst, *ty));
-                }
-            }
-        }
-    }
-
-    // Collect RcDec that are not preceded by IsShared (i.e., not part of reuse).
-    //
-    // Heuristic: an RcDec is "unpaired" if the variable was never tested
-    // with IsShared in the same block. This isn't perfect but catches the
-    // common case.
+fn count_missed_reuse(func: &ArcFunction, classifier: &dyn ArcClassification) -> usize {
+    let mut missed_count = 0;
     for block in &func.blocks {
         let is_shared_vars: rustc_hash::FxHashSet<ArcVarId> = block
             .body
@@ -166,84 +74,15 @@ pub(crate) fn analyze_fbip(
 
         for instr in &block.body {
             if let ArcInstr::RcDec { var, .. } = instr {
-                if !is_shared_vars.contains(var) && classifier.needs_rc(func.var_type(*var)) {
-                    unpaired_decs.push((block.id, *var, func.var_type(*var)));
+                if !is_shared_vars.contains(var)
+                    && classifier.has_managed_ownership_obligation(func.var_type(*var))
+                {
+                    missed_count += 1;
                 }
             }
         }
     }
-
-    // Phase 3: Match unpaired RcDec against Constructs.
-    for &(dec_block, dec_var, dec_type) in &unpaired_decs {
-        // Find a Construct of the same type in a dominated block.
-        let matching = all_constructs.iter().find(|&&(con_block, _, con_type)| {
-            con_type == dec_type && dom_tree.dominates(dec_block, con_block)
-        });
-
-        if let Some(&(con_block, con_dst, _)) = matching {
-            // Check aliasing: if dec_var is live_for_use in the construct's
-            // block, the value is still needed (can't reset it).
-            let con_block_idx = con_block.index();
-            let reason = if con_block_idx < refined.len()
-                && refined[con_block_idx].live_for_use.contains(&dec_var)
-            {
-                MissedReuseReason::IntermediateUse { use_span: None }
-            } else {
-                // Should have been caught by detect_reset_reuse — if it
-                // wasn't, the variable might be possibly shared.
-                MissedReuseReason::PossiblyShared
-            };
-            missed.push(MissedReuse {
-                dec_var,
-                dec_block,
-                construct_dst: Some(con_dst),
-                construct_block: Some(con_block),
-                reason,
-            });
-        } else {
-            // Check if there's a type mismatch or no Construct at all.
-            let type_mismatch = all_constructs
-                .iter()
-                .find(|&&(con_block, _, _)| dom_tree.dominates(dec_block, con_block));
-
-            if let Some(&(con_block, con_dst, con_type)) = type_mismatch {
-                missed.push(MissedReuse {
-                    dec_var,
-                    dec_block,
-                    construct_dst: Some(con_dst),
-                    construct_block: Some(con_block),
-                    reason: MissedReuseReason::TypeMismatch {
-                        dec_type,
-                        construct_type: con_type,
-                    },
-                });
-            } else {
-                // No dominated Construct at all — check for non-dominated ones.
-                let any_construct = all_constructs.iter().find(|&&(_, _, t)| t == dec_type);
-
-                let reason = if any_construct.is_some() {
-                    MissedReuseReason::NoDominance
-                } else {
-                    MissedReuseReason::NoMatchingConstruct
-                };
-                missed.push(MissedReuse {
-                    dec_var,
-                    dec_block,
-                    construct_dst: None,
-                    construct_block: None,
-                    reason,
-                });
-            }
-        }
-    }
-
-    let is_fbip = missed.is_empty() && !achieved.is_empty();
-
-    FbipReport {
-        achieved,
-        missed,
-        is_fbip,
-    }
+    missed_count
 }
 
 /// Check FBIP enforcement for a post-pipeline ARC function.
@@ -251,27 +90,22 @@ pub(crate) fn analyze_fbip(
 /// Returns an `ArcProblem::FbipViolation` if the function has missed reuse
 /// opportunities. Only called for functions annotated `#fbip`.
 ///
-/// Rebuilds dominator tree and refined liveness from the post-pipeline IR
-/// state, then delegates to [`analyze_fbip`].
 pub fn check_fbip_enforcement(
     func: &ArcFunction,
     classifier: &dyn ArcClassification,
     func_name: &str,
     func_span: Span,
 ) -> Option<crate::lower::ArcProblem> {
-    let dom_tree = DominatorTree::build(func);
-    let (refined, _liveness) = crate::liveness::compute_refined_liveness(func, classifier);
+    let report = analyze_fbip(func, classifier);
 
-    let report = analyze_fbip(func, classifier, &dom_tree, &refined);
-
-    if report.missed.is_empty() {
+    if report.missed_count == 0 {
         // Fully compliant (or nothing to reuse) — no violation.
         None
     } else {
         Some(crate::lower::ArcProblem::FbipViolation {
             func_name: func_name.to_string(),
-            missed_count: report.missed.len(),
-            achieved_count: report.achieved.len(),
+            missed_count: report.missed_count,
+            achieved_count: report.achieved_count,
             span: func_span,
         })
     }

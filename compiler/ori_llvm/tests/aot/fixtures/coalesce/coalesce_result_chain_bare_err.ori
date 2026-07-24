@@ -1,4 +1,4 @@
-// Regression: TPR-02-003 — Result<int, str> ?? Err("x") must chain
+// Regression: Result<int, str> ?? Err("x") must chain
 @main () -> int = {
     let a: Result<int, str> = Err("first");
     let b: Result<int, str> = a ?? Err("fallback");

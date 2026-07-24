@@ -254,6 +254,15 @@ cp target/release/ori ~/.local/bin/
 - [Roadmap](https://ori-lang.com/roadmap) — Development roadmap and progress
 - [Proposals](docs/ori_lang/proposals/) — Design decisions and rationale
 
+## For LLMs & AI Assistants
+
+Ori is designed to be machine-writable, and the website ships always-current resources so AI coding assistants can generate correct Ori. Point your model at whichever fits its context budget:
+
+- [llms.html](https://ori-lang.com/llms.html) — self-contained writing kit: the syntax quick reference, full EBNF grammar, and operator rules in a single fetch.
+- [grammar.html](https://ori-lang.com/grammar.html) — the standalone formal grammar (EBNF), authoritative for syntax.
+- [llms-reference.html](https://ori-lang.com/llms-reference.html) — a curated index linking the specification clauses, guides, conformance examples, and standard library source.
+- [llms-full.html](https://ori-lang.com/llms-full.html) — the complete specification, grammar, operator rules, and example programs inlined in one document.
+
 ## Design Philosophy
 
 **Functional code that runs fast.** Write clean, value-oriented code. The compiler produces optimized native binaries that run without a runtime, VM, or garbage collector.

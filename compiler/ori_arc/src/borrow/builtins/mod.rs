@@ -1,98 +1,36 @@
-//! Borrowing-builtin method knowledge for ARC borrow inference.
+//! Semantic borrowing facts for builtin method receivers.
 //!
-//! Defines which builtin methods borrow their receiver (read without consuming)
-//! AND produce independent results (no hidden dependency on the receiver's data).
-//!
-//! This is a **language-semantic fact**, not a codegen implementation detail.
-//! Borrow inference needs this knowledge to recognize calls to inline-compiled
-//! builtins (e.g., `len`, `is_empty`, `compare`) as borrowing rather than
-//! defaulting to all-Owned.
-//!
-//! # Exclusions
-//!
-//! - **Iterator methods**: These consume/transform the iterator or create
-//!   derived values — the ARC pipeline can't model these hidden dependencies.
-//! - **`.iter()`**: Creates an iterator that references the receiver's data.
-//!   Uses Owned semantics (default). The runtime's `IterState::List` stores
-//!   the data pointer, cap, and `elem_dec_fn`; `Drop for IterState` calls
-//!   `ori_buffer_rc_dec` to release the list data when the iterator is consumed.
-//!
-//! # Sync
-//!
-//! The LLVM backend's `BuiltinTable` registration reads from
-//! `ori_registry::BUILTIN_TYPES` and respects `Ownership::Borrow` annotations.
-//! A sync test in `ori_llvm` asserts the effective borrowing set matches this
-//! canonical list.
+//! Listed methods read their receiver and return an independent value. Iterator
+//! transforms are excluded because they consume or retain hidden receiver data;
+//! `.iter()` therefore keeps owned semantics so iterator destruction releases
+//! its retained buffer. Registry sync tests pin this catalog to builtin method
+//! ownership declarations.
+
+mod cow_catalog;
+#[cfg(test)]
+mod tests;
+
+pub use cow_catalog::{all_cow_method_names, copy_in_builtin_names};
+pub(crate) use cow_catalog::{
+    consuming_receiver_builtin_names, consuming_receiver_only_builtin_names,
+    consuming_second_arg_builtin_names, consuming_third_arg_builtin_names,
+    persistent_list_runtime_methods,
+};
+#[cfg(test)]
+use cow_catalog::{
+    CONSUMING_RECEIVER_METHOD_NAMES, CONSUMING_RECEIVER_ONLY_METHOD_NAMES,
+    CONSUMING_SECOND_ARG_METHOD_NAMES, CONSUMING_THIRD_ARG_METHOD_NAMES,
+};
 
 use ori_ir::builtin_constants::protocol::{ProtocolArgOwnership, ProtocolBuiltin};
 use ori_ir::{Name, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};
+use smallvec::SmallVec;
 
-/// Method names with **consuming receiver** semantics for list types.
-///
-/// These are COW (Copy-on-Write) list methods that handle the old buffer's
-/// RC lifecycle internally: the fast path reuses the buffer (unique owner),
-/// the slow path allocates a new buffer and `ori_rc_dec`s the old one.
-///
-/// The ARC pipeline must NOT emit an additional `RcDec` for the receiver
-/// argument when calling these methods — doing so causes double-free.
-///
-/// **Type-qualified**: `"add"` and `"concat"` are borrowing for strings but
-/// consuming for lists. The type check happens at the call site in
-/// [`annotate_arg_ownership`](crate::rc_insert::annotate_arg_ownership).
-///
-/// Sorted alphabetically.
-const CONSUMING_RECEIVER_METHOD_NAMES: &[&str] = &[
-    "add",         // list + list (COW concat)
-    "concat",      // list.concat (COW concat)
-    "insert",      // list.insert (COW insert)
-    "iter",        // list.iter (iterator takes ownership of data buffer)
-    "pop",         // list.pop (COW pop)
-    "push",        // list.push (COW push)
-    "remove",      // list.remove (COW remove)
-    "reverse",     // list.reverse (COW reverse)
-    "set",         // list.set (COW set at index)
-    "sort",        // list.sort (COW sort, unstable)
-    "sort_stable", // list.sort_stable (COW sort, stable/TimSort)
-];
-
-/// COW list methods that consume both receiver AND second argument.
-///
-/// For these methods, the runtime takes ownership of the second argument's data:
-/// - `add`/`concat`: list2's buffer is consumed (uniqueness-checked at runtime)
-/// - `push`: the element's bytes are copied into the list buffer, creating a
-///   new reference to any RC-managed data (e.g., str data pointers)
-///
-/// The ARC pipeline must mark arg[1] as `Owned` (no extra `RcDec`) in addition
-/// to the receiver. For `push`, this ensures AIMS emits `RcInc` on fat pointer
-/// elements borrowed from iterators.
-///
-/// Sorted alphabetically.
-const CONSUMING_SECOND_ARG_METHOD_NAMES: &[&str] = &[
-    "add",    // list + list (COW concat)
-    "concat", // list.concat(other)
-    "push",   // list.push(value) — element stored in list buffer
-];
-
-/// COW methods that consume ONLY the receiver; non-receiver args are borrowed.
-///
-/// These are Map/Set COW methods where the runtime takes ownership of the
-/// receiver's buffer but only reads other arguments (comparison keys, read-only
-/// collections). Contrast with `CONSUMING_RECEIVER_METHOD_NAMES` where List
-/// methods also transfer inserted elements.
-///
-/// In `compute_arg_ownership`, these methods produce `[Owned, Borrowed, ...]`
-/// instead of the default all-Owned, preventing RC leaks on comparison keys
-/// and read-only collection arguments.
-///
-/// Sorted alphabetically.
-const CONSUMING_RECEIVER_ONLY_METHOD_NAMES: &[&str] = &[
-    "difference",   // set.difference(other) — other is read-only
-    "insert",       // map/set.insert(key, val) — key/val are copied, not consumed
-    "intersection", // set.intersection(other) — other is read-only
-    "remove",       // map/set.remove(key) — key is comparison-only
-    "union",        // set.union(other) — other is read-only
-];
+/// Intern a static method-name table into a [`Name`] set.
+fn intern_name_set(names: &[&str], interner: &StringInterner) -> FxHashSet<Name> {
+    names.iter().map(|name| interner.intern(name)).collect()
+}
 
 /// Collect interned [`Name`]s for all builtin methods that borrow their receiver.
 ///
@@ -105,8 +43,8 @@ const CONSUMING_RECEIVER_ONLY_METHOD_NAMES: &[&str] = &[
 ///    methods with `receiver: Ownership::Borrow`, excluding Iterator methods
 ///    and `.iter()`.
 /// 2. **Protocol builtins**: `ProtocolBuiltin::ALL` entries with all-borrowed
-///    args (currently only `__index`). These are ARC pipeline internals, not
-///    regular builtin methods, so they live in `ori_ir` rather than the registry.
+///    args (`__index`, `__cast`). These are ARC pipeline internals, not
+///    regular builtin methods, so [`ProtocolBuiltin`] supplies them directly.
 pub fn borrowing_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
     // Base set from registry (type method definitions)
     let mut names: FxHashSet<Name> = ori_registry::borrowing_method_names()
@@ -115,7 +53,7 @@ pub fn borrowing_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
         .collect();
 
     // Append all-borrowed protocol builtins (ARC pipeline internals,
-    // not in registry BUILTIN_TYPES). Currently only "__index".
+    // not in registry BUILTIN_TYPES): "__index", "__cast".
     for pb in ProtocolBuiltin::ALL {
         if pb
             .arg_ownership()
@@ -129,70 +67,11 @@ pub fn borrowing_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
     names
 }
 
-/// Collect interned [`Name`]s for COW list methods with consuming receiver semantics.
-///
-/// These methods handle the old buffer's RC internally. When the receiver is
-/// a `List` type, the ARC pipeline must mark the receiver argument as `Owned`
-/// (no extra `RcDec`) instead of the default `Borrowed` from the borrowing set.
-///
-/// See [`CONSUMING_RECEIVER_METHOD_NAMES`] for the full list and rationale.
-pub fn consuming_receiver_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
-    CONSUMING_RECEIVER_METHOD_NAMES
-        .iter()
-        .map(|name| interner.intern(name))
-        .collect()
-}
-
-/// Collect interned [`Name`]s for COW list methods that also consume their
-/// second argument (list2).
-///
-/// When the receiver is a `List` type and `args.len() >= 2`, the ARC pipeline
-/// marks `arg_ownership[1]` as `Owned` to prevent a duplicate `RcDec` — the
-/// runtime takes ownership of list2 and handles its lifecycle internally.
-///
-/// See [`CONSUMING_SECOND_ARG_METHOD_NAMES`] for the full list.
-pub fn consuming_second_arg_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
-    CONSUMING_SECOND_ARG_METHOD_NAMES
-        .iter()
-        .map(|name| interner.intern(name))
-        .collect()
-}
-
-/// Collect interned [`Name`]s for COW methods that consume only the receiver.
-///
-/// Non-receiver arguments are borrowed (comparison keys, read-only collections).
-/// Used by `compute_arg_ownership` to produce `[Owned, Borrowed, ...]` instead
-/// of the default all-Owned.
-///
-/// See [`CONSUMING_RECEIVER_ONLY_METHOD_NAMES`] for the full list.
-pub fn consuming_receiver_only_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
-    CONSUMING_RECEIVER_ONLY_METHOD_NAMES
-        .iter()
-        .map(|name| interner.intern(name))
-        .collect()
-}
-
-/// Collect interned [`Name`]s for ALL COW methods (union of consuming-receiver
-/// and consuming-receiver-only sets).
-///
-/// This is the single integration point for uniqueness analysis: both
-/// [`consuming_receiver_builtin_names`] (list COW: `push`, `sort`, …) and
-/// [`consuming_receiver_only_builtin_names`] (map/set COW: `remove`, `union`, …)
-/// are COW operations whose results are always `Unique` (RC == 1).
-///
-/// Pass the result to [`crate::uniqueness::inter::build_cow_summaries`] as the
-/// `cow_method_names` argument.
-pub fn all_cow_method_names(interner: &StringInterner) -> FxHashSet<Name> {
-    let mut names = consuming_receiver_builtin_names(interner);
-    names.extend(consuming_receiver_only_builtin_names(interner));
-    names
-}
-
 /// Method names that return values **sharing backing storage** with the receiver.
 ///
 /// Unlike COW methods (which always return `Unique` results), these methods
 /// create views into the receiver's data. The returned value shares the
-/// receiver's refcounted backing buffer, so its uniqueness is `MaybeShared`.
+/// receiver's logical storage identity, so its uniqueness is `MaybeShared`.
 ///
 /// Used by [`crate::uniqueness::inter::build_cow_summaries`] as the
 /// `shared_method_names` argument.
@@ -205,15 +84,65 @@ const SHARING_METHOD_NAMES: &[&str] = &[
 
 /// Collect interned [`Name`]s for methods that share backing with their receiver.
 ///
-/// These methods return values that reference the receiver's heap data,
-/// so their return uniqueness is `MaybeShared` (not `Unique` like COW methods).
+/// These methods return values that share the receiver's logical storage
+/// identity, so their return uniqueness is `MaybeShared`.
 ///
 /// See [`SHARING_METHOD_NAMES`] for the full list.
 pub fn sharing_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
-    SHARING_METHOD_NAMES
-        .iter()
-        .map(|name| interner.intern(name))
-        .collect()
+    intern_name_set(SHARING_METHOD_NAMES, interner)
+}
+
+/// Accessor methods that EXTRACT an owned heap payload out of a wrapper /
+/// collection and RETAIN it (codegen emits `inc_value_rc` on the extracted
+/// element/payload — `option_result.rs:emit_option_method`/`emit_result_method`,
+/// `list_builtins/helpers.rs:emit_list_first_or_last`, `list_builtins/mod.rs`
+/// list index, `map_builtins.rs:emit_map_get`).
+///
+/// The retain makes the result a FRESH owned reference, NOT a buffer-sharing view
+/// (contrast [`SHARING_METHOD_NAMES`] `slice`/`substring`, which return views over
+/// the receiver's backing without a retain). The receiver passed at a borrowed
+/// `Invoke` terminator arg therefore SURVIVES the call and its scope-exit release
+/// belongs on the successor edges (Spec: Annex E §AIMS RL-2 / RL-4) — not inline
+/// before the borrowed call, which would free the payload before the accessor
+/// retains it.
+///
+/// Sorted alphabetically.
+const ACCESSOR_RETAIN_METHOD_NAMES: &[&str] = &[
+    "expect",     // Option/Result.expect — retains Some/Ok payload
+    "expect_err", // Result.expect_err — retains Err payload
+    "first",      // list.first — retains first element copy
+    "get",        // list index / map.get — retains element/value copy
+    "last",       // list.last — retains last element copy
+    "unwrap",     // Option/Result.unwrap — retains Some/Ok payload
+    "unwrap_err", // Result.unwrap_err — retains Err payload
+];
+
+/// Accessor methods that return a BORROW VIEW of an interior field without
+/// minting a result credit or a shared-storage credit. The receiver's logical
+/// lifetime and cleanup obligation govern the view. Contrast
+/// [`ACCESSOR_RETAIN_METHOD_NAMES`] (the result receives its own credit) and
+/// [`SHARING_METHOD_NAMES`] (the result receives a credit on shared storage).
+/// Booking a call-result credit for one of these would double-discharge the
+/// receiver's obligation.
+///
+/// Sorted alphabetically.
+/// `trace` is NOT here: `_ori_format_error_trace` renders a FRESH owned str
+/// (`OriStr::from_owned`), so its call result is an owned arrival.
+const BORROW_VIEW_ACCESSOR_METHOD_NAMES: &[&str] = &[
+    "trace_entries", // Error/Result.trace_entries — loads the interior trace list, no retain
+];
+
+/// Collect interned [`Name`]s for retain-less borrow-view accessor methods.
+pub fn borrow_view_accessor_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
+    intern_name_set(BORROW_VIEW_ACCESSOR_METHOD_NAMES, interner)
+}
+
+/// Collect interned [`Name`]s for accessor methods that retain their extracted
+/// payload.
+///
+/// See [`ACCESSOR_RETAIN_METHOD_NAMES`] for the full list and rationale.
+pub fn accessor_retain_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
+    intern_name_set(ACCESSOR_RETAIN_METHOD_NAMES, interner)
 }
 
 /// Pre-computed interned sets for ARC ownership annotation.
@@ -222,6 +151,7 @@ pub fn sharing_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
 /// [`annotate_arg_ownership`](crate::rc_insert::annotate_arg_ownership)
 /// needs. Constructing this once avoids redundant `intern()` work across
 /// multiple function compilations.
+#[derive(Debug)]
 pub struct BuiltinOwnershipSets {
     /// Methods that borrow their receiver (e.g., `len`, `is_empty`).
     pub borrowing: FxHashSet<Name>,
@@ -229,6 +159,9 @@ pub struct BuiltinOwnershipSets {
     pub consuming_receiver: FxHashSet<Name>,
     /// COW list methods that also consume their second argument (e.g., `add`, `concat`).
     pub consuming_second_arg: FxHashSet<Name>,
+    /// COW methods that also consume their third argument (`updated` — the
+    /// inserted value is moved into the collection).
+    pub consuming_third_arg: FxHashSet<Name>,
     /// COW methods that consume only the receiver; other args are borrowed.
     ///
     /// For Map/Set operations like `remove(key)` and `union(other)`, the
@@ -241,6 +174,10 @@ pub struct BuiltinOwnershipSets {
     /// builtins (`__index`, `__iter_next`, `__collect_set`) without
     /// needing the `StringInterner` in the core loop.
     pub protocol: FxHashMap<Name, &'static [ProtocolArgOwnership]>,
+    zip: Name,
+    chain: Name,
+    pop: Name,
+    insert: Name,
 }
 
 impl BuiltinOwnershipSets {
@@ -250,16 +187,75 @@ impl BuiltinOwnershipSets {
             borrowing: borrowing_builtin_names(interner),
             consuming_receiver: consuming_receiver_builtin_names(interner),
             consuming_second_arg: consuming_second_arg_builtin_names(interner),
+            consuming_third_arg: consuming_third_arg_builtin_names(interner),
             consuming_receiver_only: consuming_receiver_only_builtin_names(interner),
             protocol: ProtocolBuiltin::ALL
                 .iter()
                 .map(|pb| (interner.intern(pb.name()), pb.arg_ownership()))
                 .collect(),
+            zip: interner.intern("zip"),
+            chain: interner.intern("chain"),
+            pop: interner.intern("pop"),
+            insert: interner.intern("insert"),
         }
     }
 
-    /// Check if a name is a known builtin method (in any ownership set).
-    pub fn is_builtin(&self, name: Name) -> bool {
+    /// Return the type-qualified builtin positions that consume their argument.
+    ///
+    /// Collection results are the complete ownership-transfer override for the
+    /// call. Iterator results supplement the registry contract with the typed
+    /// receiver and `zip`/`chain` iterator-operand positions that bare method
+    /// names cannot disambiguate.
+    pub(crate) fn type_qualified_consuming_positions(
+        &self,
+        callee: Name,
+        arg_tags: &[Option<ori_registry::TypeTag>],
+    ) -> SmallVec<[usize; 3]> {
+        use ori_registry::TypeTag;
+
+        let mut positions = SmallVec::new();
+        let Some(Some(receiver_tag)) = arg_tags.first().copied() else {
+            return positions;
+        };
+
+        if matches!(
+            receiver_tag,
+            TypeTag::Iterator | TypeTag::DoubleEndedIterator
+        ) {
+            positions.push(0);
+            if (callee == self.zip || callee == self.chain)
+                && arg_tags.get(1).copied().flatten().is_some_and(|tag| {
+                    matches!(tag, TypeTag::Iterator | TypeTag::DoubleEndedIterator)
+                })
+            {
+                positions.push(1);
+            }
+            return positions;
+        }
+
+        if !matches!(receiver_tag, TypeTag::List | TypeTag::Map | TypeTag::Set)
+            || callee == self.pop
+            || !(self.consuming_receiver.contains(&callee)
+                || self.consuming_receiver_only.contains(&callee))
+        {
+            return positions;
+        }
+
+        positions.push(0);
+        if callee == self.insert && matches!(receiver_tag, TypeTag::Map | TypeTag::Set) {
+            return positions;
+        }
+        if arg_tags.len() >= 2 && self.consuming_second_arg.contains(&callee) {
+            positions.push(1);
+        }
+        if arg_tags.len() >= 3 && self.consuming_third_arg.contains(&callee) {
+            positions.push(2);
+        }
+        positions
+    }
+
+    /// Check if a name is a known builtin method in any ownership set.
+    pub fn contains(&self, name: Name) -> bool {
         self.borrowing.contains(&name)
             || self.consuming_receiver.contains(&name)
             || self.consuming_receiver_only.contains(&name)
@@ -272,11 +268,13 @@ impl BuiltinOwnershipSets {
             borrowing: FxHashSet::default(),
             consuming_receiver: FxHashSet::default(),
             consuming_second_arg: FxHashSet::default(),
+            consuming_third_arg: FxHashSet::default(),
             consuming_receiver_only: FxHashSet::default(),
             protocol: FxHashMap::default(),
+            zip: Name::EMPTY,
+            chain: Name::EMPTY,
+            pop: Name::EMPTY,
+            insert: Name::EMPTY,
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

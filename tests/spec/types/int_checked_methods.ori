@@ -1,0 +1,43 @@
+// Spec: 08-types.md § Built-in Methods — overflow panics
+// Checked int methods, dual-backend (interpreter + LLVM): .abs() panics on
+// int MIN (negation overflows); .byte() panics outside 0..=255.
+
+use std.testing { assert_eq };
+
+@test_abs_negative_returns_magnitude tests _ () -> void = {
+    let n = -42;
+
+    assert_eq(actual: n.abs(), expected: 42)
+}
+
+@test_abs_positive_is_identity tests _ () -> void = {
+    assert_eq(actual: 42.abs(), expected: 42)
+}
+
+#fail("integer overflow")
+@test_abs_int_min_panics tests _ () -> void = {
+    let int_min = -9223372036854775807 - 1;
+
+    assert_eq(actual: int_min.abs(), expected: 0)
+}
+
+@test_byte_method_in_range_converts tests _ () -> void = {
+    let b = 200.byte();
+
+    assert_eq(actual: b.to_int(), expected: 200)
+}
+
+#fail("range (0-255)")
+@test_byte_method_above_range_panics tests _ () -> void = {
+    let b = 256.byte();
+
+    assert_eq(actual: b.to_int(), expected: 0)
+}
+
+#fail("range (0-255)")
+@test_byte_method_negative_panics tests _ () -> void = {
+    let n = -1;
+    let b = n.byte();
+
+    assert_eq(actual: b.to_int(), expected: 0)
+}

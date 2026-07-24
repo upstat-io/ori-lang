@@ -1,0 +1,1 @@
+@f () -> [int] = while true yield 1

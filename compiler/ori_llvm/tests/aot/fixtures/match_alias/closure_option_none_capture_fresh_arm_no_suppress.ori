@@ -1,0 +1,23 @@
+// Negative pin (capture-variant-deadness over-fire boundary): the closure
+// captures `Option<str>::None` (NOT Some). The matched arm (the None arm)
+// returns a FRESH owned str literal `"none_branch"`, NOT a Project of the
+// captured payload. The capture-variant-deadness scan records the lambda's
+// per-variant Project as `tag 0 (Some) -> Project field 1`, but the caller
+// constructs None (tag 1), so the recorded tag does NOT match the captured
+// variant: the scan MUST DECLINE (the live return is the fresh literal, a
+// DISTINCT allocation owning its own ref — suppressing its dec would change
+// the wrong lineage). Zero leaks pins the decline.
+@main () -> int = {
+    let captured: Option<str> = None;
+    let lookup = () -> {
+        match captured {
+            Some(s) -> s,
+            None -> "none_branch",
+        }
+    };
+    let first = lookup();
+    let second = lookup();
+    let h1 = first.contains(substr: "none");
+    let h2 = second.contains(substr: "branch");
+    if h1 && h2 then 0 else 1
+}

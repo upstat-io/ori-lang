@@ -2,13 +2,14 @@
 //!
 //! Formatting for function declarations including signatures and bodies.
 
-use crate::formatter::Formatter;
 use crate::width::ALWAYS_STACKED;
 use ori_ir::ast::items::{Function, Param, TraitBound, WhereClause};
 use ori_ir::{ExprId, StringLookup, Visibility};
 
-use super::parsed_types::{calculate_type_width, format_const_expr, format_parsed_type};
-use super::ModuleFormatter;
+use super::parsed_types::{
+    calculate_type_width, const_expr_render_width, format_const_expr, format_parsed_type,
+};
+use super::{BodyBreakPolicy, ModuleFormatter};
 
 impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// Format a function declaration including signature and body.
@@ -65,88 +66,27 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         self.format_function_body(func.body);
     }
 
-    /// Format a function body, breaking to new line if it doesn't fit after `= `.
-    ///
-    /// Per grammar: expression bodies require trailing `;` but block bodies
-    /// ending with `}` do not.
+    /// Format a function body. Delegates the inline-vs-newline-vs-internal-break
+    /// decision to the shared `emit_expr_body` (SSOT in `function_body`).
+    /// Function bodies use `should_break_body_to_newline`
+    /// (if/for control flow + atomic-that-fits) ahead of the over-width-head guard.
     pub(super) fn format_function_body(&mut self, body: ExprId) {
-        // Calculate body width to determine if it fits inline
-        let body_width = self.width_calc.width(body);
-
-        // Check if body fits after " = " on current line
-        let space_after_eq = 3; // " = "
-        let fits_inline =
-            body_width != ALWAYS_STACKED && self.ctx.fits(space_after_eq + body_width);
-
-        let ends_with_brace;
-
-        if fits_inline {
-            // Inline: " = body"
-            self.ctx.emit(" = ");
-            let current_column = self.ctx.column();
-            let mut expr_formatter =
-                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
-                    .with_starting_column(current_column);
-            expr_formatter.format(body);
-            let body_output = expr_formatter.ctx.as_str().trim_end();
-            ends_with_brace = body_output.ends_with('}');
-            self.ctx.emit(body_output);
-        } else if self.should_break_body_to_newline(body, body_width) {
-            // Break to newline when:
-            // 1. Body is a control flow expr (if/for) - per spec
-            // 2. Body is atomic but would fit on its own line with standard indent
-            // Don't break if body is wider than available space anyway (e.g., long strings)
-            self.ctx.emit(" =");
-            self.ctx.emit_newline();
-            self.ctx.indent();
-            self.ctx.emit_indent();
-
-            // Create formatter with indent level 1 for proper nested breaks
-            // Use format_broken to prevent re-evaluation of fit at new position
-            let mut expr_formatter =
-                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
-                    .with_indent_level(1)
-                    .with_starting_column(self.ctx.column());
-            expr_formatter.format_broken(body);
-            let body_output = expr_formatter.ctx.as_str().trim_end();
-            ends_with_brace = body_output.ends_with('}');
-            self.ctx.emit(body_output);
-            self.ctx.dedent();
-        } else {
-            // Other constructs stay on same line, break internally: " = [...\n]"
-            self.ctx.emit(" = ");
-            let current_column = self.ctx.column();
-            let mut expr_formatter =
-                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
-                    .with_starting_column(current_column);
-            expr_formatter.format(body);
-            let body_output = expr_formatter.ctx.as_str().trim_end();
-            ends_with_brace = body_output.ends_with('}');
-            self.ctx.emit(body_output);
-        }
-
-        // Trailing semicolon for non-block expression bodies
-        if !ends_with_brace {
-            self.ctx.emit(";");
-        }
+        self.emit_expr_body(body, BodyBreakPolicy::AllowStructuralNewline);
     }
 
-    /// Check if an expression should break to a new line when it doesn't fit.
-    ///
-    /// Returns true for:
-    /// 1. Conditionals (if-then-else) and for loops - per spec, these break to newline
-    /// 2. Method calls on For/If receivers - the receiver needs to break
-    /// 3. Atomic expressions that cannot break internally, IF breaking would help
-    ///
-    /// Returns false for:
-    /// - Expressions that can break internally (lists, maps, calls with args)
-    /// - Atomic expressions too wide for even their own line (e.g., long strings)
-    fn should_break_body_to_newline(&self, body: ExprId, body_width: usize) -> bool {
+    /// Whether an over-width expression body breaks to its own line.
+    /// True: conditionals (if-then-else) + for loops (per spec); method calls
+    /// on For/If receivers; atomic exprs that cannot break internally IF
+    /// breaking helps. False: exprs that break internally (lists, maps, calls
+    /// with args); atomic exprs too wide for even their own line (long strings).
+    pub(super) fn should_break_body_to_newline(&self, body: ExprId, body_width: usize) -> bool {
         let expr = self.arena.get_expr(body);
 
         match &expr.kind {
-            // Per spec: If/For always break to newline (they have internal breaking structure)
-            ori_ir::ExprKind::If { .. } | ori_ir::ExprKind::For { .. } => true,
+            // Per spec: If/For/While always break to newline (internal breaking structure)
+            ori_ir::ExprKind::If { .. }
+            | ori_ir::ExprKind::For { .. }
+            | ori_ir::ExprKind::While { .. } => true,
 
             // Method calls: break if receiver is If/For (needs to break internally)
             ori_ir::ExprKind::MethodCall { receiver, args, .. } => {
@@ -255,6 +195,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
 
     fn calculate_params_width(&self, params: &[Param]) -> usize {
         let mut width = 2; // ()
+        let mut width_of_expr = |e| const_expr_render_width(self.arena, self.interner, e);
         for (i, param) in params.iter().enumerate() {
             if i > 0 {
                 width += 2; // ", "
@@ -262,7 +203,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             width += self.interner.lookup(param.name).len();
             if let Some(ref ty) = param.ty {
                 width += 2; // ": "
-                width += calculate_type_width(ty, self.arena, self.interner);
+                width += calculate_type_width(ty, self.arena, self.interner, &mut width_of_expr);
             }
         }
         width
@@ -280,7 +221,8 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         // Return type: " -> Type"
         if let Some(ref ret_ty) = func.return_ty {
             width += 4; // " -> "
-            width += calculate_type_width(ret_ty, self.arena, self.interner);
+            let mut width_of_expr = |e| const_expr_render_width(self.arena, self.interner, e);
+            width += calculate_type_width(ret_ty, self.arena, self.interner, &mut width_of_expr);
         }
 
         // Capabilities: " uses Cap1, Cap2"
@@ -304,10 +246,9 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         // " = " prefix for body
         width += 3;
 
-        // Only include body width if it's short enough that breaking it would be ugly.
-        // Short expressions like `x + y` look bad when broken (`x\n+ y`), so we prefer
-        // to break params first. Longer expressions will break at natural points
-        // (conditionals at else, chains at method calls, etc.) which is fine.
+        // Why: short bodies (<= SHORT_BODY_THRESHOLD) break to params first —
+        // breaking `x + y` as `x\n+ y` looks bad; long bodies break at natural
+        // points (else, method chains), so their width is excluded here.
         let body_width = self.width_calc.width(func.body);
         if body_width != ALWAYS_STACKED && body_width <= SHORT_BODY_THRESHOLD {
             width += body_width;
@@ -316,6 +257,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         width
     }
 
+    /// Format generic parameters `<...>`; emits nothing when the list is empty.
     pub(super) fn format_generic_params(&mut self, generics: ori_ir::GenericParamRange) {
         let generics_list = self.arena.get_generic_params(generics);
         if generics_list.is_empty() {
@@ -355,6 +297,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         self.ctx.emit(">");
     }
 
+    /// Format trait bounds joined with ` + ` (e.g. `A + B`).
     pub(super) fn format_trait_bounds(&mut self, bounds: &[TraitBound]) {
         for (i, bound) in bounds.iter().enumerate() {
             if i > 0 {
@@ -372,6 +315,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         }
     }
 
+    /// Format a ` where ...` clause list; emits nothing when empty.
     pub(super) fn format_where_clauses(&mut self, where_clauses: &[WhereClause]) {
         if where_clauses.is_empty() {
             return;

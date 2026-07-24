@@ -423,10 +423,19 @@ let (first, _, third) = (1, 2, 3);  // Ignore second
 
 ### List Destructuring
 
+The rest-only pattern binds every element and is irrefutable, so it works in a `let`:
+
 ```ori
-let [$head, ..tail] = items;     // head immutable
-let [first, second, ..rest] = items;
-let [only] = single_item_list;    // Panics if not exactly one element
+let [..all] = items;             // binds every element
+```
+
+Patterns that fix element positions (`[head, ..tail]`, `[first, second, ..rest]`, `[only]`) are *refutable* — the list might not have that shape — so they are rejected in a `let` with error `E2001`. Bind them with `match`:
+
+```ori
+let head = match items {
+    [head, ..tail] -> head,
+    _ -> 0,
+};
 ```
 
 ### Immutability in Destructuring

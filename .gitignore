@@ -14,6 +14,10 @@
 # Cargo lock for libraries (keep for binaries)
 # Cargo.lock  # We keep this since we have a binary
 
+# Fuzzing artifacts (cargo-fuzz: regenerable inputs + crash reproducers)
+/fuzz/corpus/
+/fuzz/artifacts/
+
 # Reference repos (local development only)
 /_repos/
 /REFERENCE/
@@ -96,6 +100,12 @@ rustc-ice-*.txt
 /wip.*
 /wip_*
 
+# Scratch test files: underscore-prefixed basenames are dev throwaways
+# (the _test/ dir convention uses non-underscore basenames, so it is spared)
+tests/**/_*.ori
+tests/**/_scratch_*
+tests/**/_tmp_*
+
 # Build artifacts outside target/
 /*.o
 /*.a
@@ -116,8 +126,18 @@ __pycache__/
 *.pyc
 venv/
 .venv/
+.pytest_cache/
+
+# Node
+node_modules/
+package-lock.json
+*.vsix
 
 /.claude/
 /.codex
 /.gemini/
-scratchpad
+**/*scratch/**
+**/scratchpad/**
+
+**/target-bug*/**
+b157_split/

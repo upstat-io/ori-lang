@@ -1,0 +1,34 @@
+// Spec: ori-syntax.md §Declarations — default parameter arity.
+// BUG-04-190 negative-arity pins: the canon default-fill must NOT make a
+// genuinely-wrong-arity call compile. Too-many args and too-few-without-default
+// stay E2004 arity errors (typeck `call_inference.rs` arity check), regardless
+// of the default-fill landing on the positional Call path.
+
+use std.testing { assert_eq }
+
+@req_one (a: int) -> int = a;
+
+// Too-many positional args -> E2004 (default-fill never absorbs extras).
+#compile_fail(code: "E2004")
+@test_too_many_args_rejected tests _ () -> void = {
+    let $x = req_one(1, 2);
+    assert_eq(actual: x, expected: 1)
+}
+
+@req_two (a: int, b: int) -> int = a + b;
+
+// Too-few args with NO default on the omitted param -> E2004.
+#compile_fail(code: "E2004")
+@test_too_few_no_default_rejected tests _ () -> void = {
+    let $x = req_two(1);
+    assert_eq(actual: x, expected: 1)
+}
+
+@one_default (a: int, b: int = 5) -> int = a + b;
+
+// Too-many on a defaulted signature still -> E2004 (extra beyond all params).
+#compile_fail(code: "E2004")
+@test_too_many_with_default_rejected tests _ () -> void = {
+    let $x = one_default(1, 2, 3);
+    assert_eq(actual: x, expected: 1)
+}

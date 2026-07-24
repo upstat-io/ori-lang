@@ -1,0 +1,15 @@
+// Pin 2: two-param both-leak. Both fresh `[int]` args are passed BORROWED
+// into the may-unwind user-call `Invoke`; each is a distinct allocation
+// dying on the call's successor edges with no dead-param sink. The caller
+// releases BOTH exactly once.
+@consume_pair (a: [int], b: [int]) -> bool = {
+    let r = a == b;
+
+    r
+}
+
+@main () -> int = {
+    let ok = consume_pair(a: [7, 8], b: [7, 8]);
+
+    if ok then 0 else 1
+}

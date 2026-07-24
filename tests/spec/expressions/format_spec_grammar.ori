@@ -1,0 +1,65 @@
+// Spec: 09-properties-of-types.md §9.7 + Annex D — format spec grammar
+// `[[fill]align][width][.precision][type]`. Exercises the parser assembling
+// every grammar component (fill+align pair, bare align, width, precision, and
+// type code) and the full combination, distinct from the per-component cells in
+// `format_specifiers.ori` and the `e`/`E` type cells in `scientific_notation.ori`.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// fill + align pair: `[fill]align` — fill char repeated in the padding
+// =============================================================================
+
+@fsg_fill_right () -> str = `{42:*>6}`;
+
+@test_fsg_fill_right tests @fsg_fill_right () -> void = {
+    assert_eq(actual: fsg_fill_right(), expected: "****42")
+}
+
+@fsg_fill_left () -> str = `{42:-<6}`;
+
+@test_fsg_fill_left tests @fsg_fill_left () -> void = {
+    assert_eq(actual: fsg_fill_left(), expected: "42----")
+}
+
+@fsg_fill_center () -> str = `{42:=^6}`;
+
+@test_fsg_fill_center tests @fsg_fill_center () -> void = {
+    assert_eq(actual: fsg_fill_center(), expected: "==42==")
+}
+
+// =============================================================================
+// bare align (no fill) defaults the fill to a space
+// =============================================================================
+
+@fsg_align_left () -> str = `{42:<5}`;
+
+@test_fsg_align_left tests @fsg_align_left () -> void = {
+    assert_eq(actual: fsg_align_left(), expected: "42   ")
+}
+
+// =============================================================================
+// fill + align + width + type: padding applies to the formatted type output
+// =============================================================================
+
+@fsg_fill_width_hex () -> str = `{255:0>4x}`;
+
+@test_fsg_fill_width_hex tests @fsg_fill_width_hex () -> void = {
+    assert_eq(actual: fsg_fill_width_hex(), expected: "00ff")
+}
+
+@fsg_align_width_binary () -> str = `{7:^7b}`;
+
+@test_fsg_align_width_binary tests @fsg_align_width_binary () -> void = {
+    assert_eq(actual: fsg_align_width_binary(), expected: "  111  ")
+}
+
+// =============================================================================
+// full grammar: `[fill]align width .precision` on a float
+// =============================================================================
+
+@fsg_full_combo () -> str = `{3.14159:*>10.2}`;
+
+@test_fsg_full_combo tests @fsg_full_combo () -> void = {
+    assert_eq(actual: fsg_full_combo(), expected: "******3.14")
+}

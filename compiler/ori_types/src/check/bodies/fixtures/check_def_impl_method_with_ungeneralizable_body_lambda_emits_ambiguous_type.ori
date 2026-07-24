@@ -1,0 +1,2 @@
+trait Processable { @process () -> void; }
+pub def impl Processable { @process () -> void = { let _ = { x -> x }; () } }

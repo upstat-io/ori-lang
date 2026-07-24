@@ -39,7 +39,6 @@ const FOREIGN_KEYWORDS: &[(&str, &str)] = &[
     ),
     ("switch", "use `match` for pattern matching in Ori"),
     ("var", "use `let` for variable bindings in Ori"),
-    ("while", "use `loop` with `if`/`break` in Ori"),
 ];
 
 /// Look up a foreign keyword and return its Ori-specific guidance message.

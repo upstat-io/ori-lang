@@ -104,3 +104,194 @@ use std.testing { assert_eq, assert }
 }
 
 @catch_nested () -> int = 1;
+
+// =============================================================================
+// catch — May-Panic Builtin Catchability (parity: eval == AOT)
+// =============================================================================
+
+// catch captures expect on None with the user message
+@test_catch_expect_none tests @catch_expect_none () -> void = {
+    let opt: Option<int> = None;
+    let result = catch(expr: opt.expect(msg: "expect-none caught message exceeds sso"));
+    match result {
+        Err(m) -> assert_eq(actual: m, expected: "expect-none caught message exceeds sso"),
+        Ok(_) -> panic(msg: "expected Err from expect on None")
+    }
+}
+
+@catch_expect_none () -> int = 1;
+
+// catch captures unwrap on None
+@test_catch_unwrap_none tests @catch_unwrap_none () -> void = {
+    let opt: Option<int> = None;
+    let result = catch(expr: opt.unwrap());
+    match result {
+        Err(_) -> (),
+        Ok(_) -> panic(msg: "expected Err from unwrap on None")
+    }
+}
+
+@catch_unwrap_none () -> int = 1;
+
+// catch captures Result.unwrap on Err
+@test_catch_result_unwrap_err tests @catch_result_unwrap_err () -> void = {
+    let r: Result<int, str> = Err("boom");
+    let result = catch(expr: r.unwrap());
+    match result {
+        Err(_) -> (),
+        Ok(_) -> panic(msg: "expected Err from unwrap on Err")
+    }
+}
+
+@catch_result_unwrap_err () -> int = 1;
+
+// catch captures Result.unwrap_err on Ok
+@test_catch_unwrap_err_on_ok tests @catch_unwrap_err_on_ok () -> void = {
+    let r: Result<int, str> = Ok(5);
+    let result = catch(expr: r.unwrap_err());
+    match result {
+        Err(_) -> (),
+        Ok(_) -> panic(msg: "expected Err from unwrap_err on Ok")
+    }
+}
+
+@catch_unwrap_err_on_ok () -> int = 1;
+
+// catch captures list index out of bounds
+@test_catch_index_oob tests @catch_index_oob () -> void = {
+    let xs = [1, 2, 3];
+    let result = catch(expr: xs[7]);
+    match result {
+        Err(_) -> (),
+        Ok(_) -> panic(msg: "expected Err from index OOB")
+    }
+}
+
+@catch_index_oob () -> int = 1;
+
+// catch returns Ok for in-bounds index (hot path unchanged)
+@test_catch_index_inbounds tests @catch_index_inbounds () -> void = {
+    let xs = [10, 20, 30];
+    let result = catch(expr: xs[1]);
+    match result {
+        Ok(v) -> assert_eq(actual: v, expected: 20),
+        Err(_) -> panic(msg: "expected Ok for in-bounds index")
+    }
+}
+
+@catch_index_inbounds () -> int = 1;
+
+// nested catch: inner catch captures the builtin expect panic
+@test_catch_nested_inner_expect tests @catch_nested_inner_expect () -> void = {
+    let outer = catch(
+        expr: {
+            let opt: Option<int> = None;
+            let inner = catch(expr: opt.expect(msg: "inner expect message beyond sso width"));
+
+            match inner {
+                Err(_) -> 7,
+                Ok(_) -> 3
+            }
+        },
+    );
+    match outer {
+        Ok(v) -> assert_eq(actual: v, expected: 7),
+        Err(_) -> panic(msg: "outer should be Ok")
+    }
+}
+
+@catch_nested_inner_expect () -> int = 1;
+
+// =============================================================================
+// catch — Checked-Arithmetic Overflow (int / byte / Duration / Size)
+// =============================================================================
+//
+// int, byte, Duration, and Size all route arithmetic through the same
+// checked-integer-arithmetic LLVM path (Spec: Clause 14.3). A checked-op
+// panic occurring lexically inside `catch(expr: ...)` must route to this
+// catch's landing pad and surface as `Err`, never escape/abort — for every
+// one of the four types, not just `int`.
+
+// catch captures integer addition overflow
+@test_catch_int_add_overflow tests @catch_int_add_overflow () -> void = {
+    let result = catch(expr: 9223372036854775807 + 1);
+    match result {
+        Err(_) -> (),
+        Ok(_) -> panic(msg: "expected Err from int addition overflow")
+    }
+}
+
+@catch_int_add_overflow () -> int = 1;
+
+// catch returns Ok when integer addition does not overflow
+@test_catch_int_add_no_overflow tests @catch_int_add_no_overflow () -> void = {
+    let result = catch(expr: 1 + 1);
+    match result {
+        Ok(v) -> assert_eq(actual: v, expected: 2),
+        Err(_) -> panic(msg: "expected Ok for non-overflowing int addition")
+    }
+}
+
+@catch_int_add_no_overflow () -> int = 1;
+
+// A byte-overflow-inside-catch functional dual-exec test is intentionally
+// NOT included here: the interpreter treats byte as unsigned (0..255) while
+// the LLVM backend represents byte as signed i8 and uses signed overflow
+// checks, so no two-operand byte addition currently overflows identically
+// on both backends. The nounwind/catch-routing fix itself is pinned for
+// byte via an LLVM-only IR-shape test asserting invoke/landingpad routing
+// without depending on which threshold triggers the overflow.
+
+// catch returns Ok when byte addition does not overflow
+@test_catch_byte_add_no_overflow tests @catch_byte_add_no_overflow () -> void = {
+    let result = catch(expr: byte(1) + byte(1));
+    match result {
+        Ok(_) -> (),
+        Err(_) -> panic(msg: "expected Ok for non-overflowing byte addition")
+    }
+}
+
+@catch_byte_add_no_overflow () -> int = 1;
+
+// catch captures Duration addition overflow
+@test_catch_duration_add_overflow tests @catch_duration_add_overflow () -> void = {
+    let max_dur = Duration.from_nanoseconds(ns: 9223372036854775807);
+    let result = catch(expr: max_dur + 1ns);
+    match result {
+        Err(_) -> (),
+        Ok(_) -> panic(msg: "expected Err from Duration addition overflow")
+    }
+}
+
+@catch_duration_add_overflow () -> int = 1;
+
+// catch returns Ok when Duration addition does not overflow
+@test_catch_duration_add_no_overflow tests @catch_duration_add_no_overflow () -> void = {
+    let result = catch(expr: 1s + 1s);
+    match result {
+        Ok(_) -> (),
+        Err(_) -> panic(msg: "expected Ok for non-overflowing Duration addition")
+    }
+}
+
+@catch_duration_add_no_overflow () -> int = 1;
+
+// A Size-overflow-inside-catch functional dual-exec test is intentionally
+// NOT included here: the interpreter treats Size as unsigned (u64) while
+// the LLVM backend represents Size as signed i64 and uses signed overflow
+// checks, so a Size value near u64's upper half (valid, unsigned) already
+// overflows signed i64 arithmetic before the catch is even reached. The
+// nounwind/catch-routing fix itself is pinned for Size via an LLVM-only
+// IR-shape test asserting invoke/landingpad routing without depending on
+// Size's signed/unsigned representation.
+
+// catch returns Ok when Size addition does not overflow
+@test_catch_size_add_no_overflow tests @catch_size_add_no_overflow () -> void = {
+    let result = catch(expr: 1kb + 1kb);
+    match result {
+        Ok(_) -> (),
+        Err(_) -> panic(msg: "expected Ok for non-overflowing Size addition")
+    }
+}
+
+@catch_size_add_no_overflow () -> int = 1;

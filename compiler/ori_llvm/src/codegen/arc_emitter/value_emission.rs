@@ -1,8 +1,4 @@
-//! Value and literal emission for ARC IR → LLVM IR.
-//!
-//! Handles `ArcValue` emission (variables, literals, primitive operations),
-//! hash combine, and catch cleanup. These are the leaf operations that
-//! `emit_instr` delegates to for `Let` instructions.
+//! LLVM emission for ARC values, literals, primitive operations, and catch cleanup.
 
 use ori_arc::ir::{ArcFunction, ArcVarId, LitValue, PrimOp};
 use ori_types::Idx;
@@ -14,6 +10,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit an `ArcValue` as an LLVM value.
     pub(super) fn emit_value(
         &mut self,
+        dst: ArcVarId,
         value: &ori_arc::ir::ArcValue,
         ty: Idx,
         func: &ArcFunction,
@@ -21,18 +18,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         match value {
             ori_arc::ir::ArcValue::Var(v) => self.var(*v),
 
-            ori_arc::ir::ArcValue::Literal(lit) => self.emit_literal(lit),
+            ori_arc::ir::ArcValue::Literal(lit) => self.emit_literal(lit, ty),
 
             ori_arc::ir::ArcValue::PrimOp { op, args } => {
                 let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
-                self.emit_primop(*op, &arg_vals, ty, func, args)
+                self.emit_primop(dst, *op, &arg_vals, ty, func, args)
             }
         }
     }
 
     /// Emit a literal value.
-    fn emit_literal(&mut self, lit: &LitValue) -> ValueId {
+    fn emit_literal(&mut self, lit: &LitValue, ty: Idx) -> ValueId {
         match lit {
+            LitValue::Int(n) if self.pool.resolve_fully(ty) == Idx::BYTE => {
+                let byte_ty = self.builder.i8_type();
+                self.builder.const_int_of_type(byte_ty, n.cast_unsigned())
+            }
             LitValue::Int(n) => self.builder.const_i64(*n),
             LitValue::Float(bits) => self.builder.const_f64(f64::from_bits(*bits)),
             LitValue::Bool(b) => self.builder.const_bool(*b),
@@ -42,16 +43,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let s = self.interner.lookup(*name);
                 let str_ty = self.resolve_type(ori_types::Idx::STR);
                 if s.is_empty() {
-                    // Empty string: call ori_str_empty() directly. Returns SSO
-                    // OriStr::EMPTY (no heap allocation, no RC). Avoids creating
-                    // a global constant and calling ori_str_from_raw(ptr, 0).
+                    // Why: The empty-string runtime path avoids a global and heap ownership.
                     let func_id = self.builder.runtime_fn("ori_str_empty");
-                    self.call_with_sret(func_id, &[], str_ty, "str.empty")
-                        .expect("ori_str_empty returns Str via sret")
+                    let Some(value) = self.call_with_sret(func_id, &[], str_ty, "str.empty") else {
+                        // Why: The registered ori_str_empty ABI returns Str through sret.
+                        unreachable!("ori_str_empty must produce its registered sret value")
+                    };
+                    value
                 } else {
-                    // Non-empty: create global string constant and call
-                    // ori_str_from_raw to produce SSO or RC-managed heap copy.
-                    // Uses emitter's call_with_sret for sret forwarding support.
                     let global = self.builder.build_global_string_ptr(s, "str");
                     let len = self.builder.const_i64(s.len() as i64);
                     let func_id = self.builder.runtime_fn("ori_str_from_raw");
@@ -64,15 +63,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
             LitValue::Duration { value, unit } => {
-                let nanos = unit
-                    .to_nanos(*value)
-                    .expect("duration literal validated by lexer");
+                let Some(nanos) = unit.to_nanos(*value) else {
+                    // Why: The lexer admits only duration values representable as nanoseconds.
+                    unreachable!(
+                        "validated duration literal must fit its nanosecond representation"
+                    )
+                };
                 self.builder.const_i64(nanos)
             }
             LitValue::Size { value, unit } => {
-                let bytes = unit
-                    .to_bytes(*value)
-                    .expect("size literal validated by lexer");
+                let Some(bytes) = unit.to_bytes(*value) else {
+                    // Why: The lexer admits only size values representable as bytes.
+                    unreachable!("validated size literal must fit its byte representation")
+                };
                 self.builder.const_i64(bytes as i64)
             }
         }
@@ -81,23 +84,39 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a primitive operation.
     fn emit_primop(
         &mut self,
+        dst: ArcVarId,
         op: PrimOp,
         arg_vals: &[ValueId],
-        _ty: Idx,
+        ty: Idx,
         func: &ArcFunction,
         arc_args: &[ArcVarId],
     ) -> ValueId {
+        let Some(fact) = func.primitive_facts.get(dst) else {
+            // Why: ARC validation freezes a fact for every primitive operation before codegen.
+            unreachable!("validated PrimOp v{} is missing its frozen fact", dst.raw())
+        };
         match op {
             PrimOp::Binary(bin_op) => {
                 let lhs = arg_vals[0];
                 let rhs = arg_vals[1];
                 let lhs_ty = func.var_type(arc_args[0]);
-                self.emit_binary_op(bin_op, lhs, rhs, lhs_ty, arc_args[0], arc_args[1], func)
+                let rhs_ty = func.var_type(arc_args[1]);
+                self.emit_binary_op(
+                    bin_op,
+                    lhs,
+                    rhs,
+                    lhs_ty,
+                    rhs_ty,
+                    ty,
+                    fact.strategy,
+                    func,
+                    arc_args,
+                )
             }
             PrimOp::Unary(un_op) => {
                 let operand = arg_vals[0];
                 let operand_ty = func.var_type(arc_args[0]);
-                self.emit_unary_op(un_op, operand, operand_ty)
+                self.emit_unary_op(un_op, operand, operand_ty, fact.strategy)
             }
         }
     }
@@ -118,16 +137,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.xor(a, sum3, "hc.result")
     }
 
-    /// Emit `ori_catch_cleanup(exc_ptr)` to free a caught Rust exception.
+    /// Free a caught Rust exception through its Itanium unwind cleanup callback.
     ///
-    /// Calls `_Unwind_DeleteException` via the runtime wrapper, which invokes
-    /// the cleanup callback in the Itanium ABI `_Unwind_Exception` header.
-    /// This properly frees the Rust-allocated panic payload without requiring
-    /// C++ EH ABI functions (`__cxa_begin_catch`/`__cxa_end_catch`), which
-    /// are incompatible with Rust's panic infrastructure.
-    ///
-    /// Called in catch-style unwind blocks right after the landing pad,
-    /// before any RC cleanup or catch handler logic.
+    /// This avoids incompatible C++ exception-handling entry points and runs
+    /// before RC cleanup or catch-handler logic.
     pub(super) fn emit_catch_cleanup(&mut self, exc_ptr: ValueId) {
         let func_id = self.builder.runtime_fn("ori_catch_cleanup");
         self.emit_rt_call(func_id, &[exc_ptr], "");

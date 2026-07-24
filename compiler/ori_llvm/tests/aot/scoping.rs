@@ -14,7 +14,7 @@ use crate::util::assert_aot_success;
 // ─── Basic let bindings ───
 
 #[test]
-fn test_scope_let_basic() {
+fn test_scope_let_binding_reads_back() {
     assert_aot_success(
         include_str!("fixtures/scoping/scope_let_basic.ori"),
         "scope_let_basic",

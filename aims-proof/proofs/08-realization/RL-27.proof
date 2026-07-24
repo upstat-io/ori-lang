@@ -1,0 +1,22 @@
+Theorem RL-27: selective ownership-event ordering at calls
+
+  Preconditions:
+    - The callee parameter contract is known.
+
+  Soundness property:
+    Pending events for v are ordered before the call iff the callee parameter is
+    Owned and non-Dead, or Borrowed with may_share. Borrowed pure calls remain
+    transparent. "Flush" is only a historical worklist implementation term.
+
+  Proof obligation:
+    Enumerate Owned/non-Dead, Owned/Dead, Borrowed/may_share, Borrowed/pure.
+    Coverage gate: 4 cases; Borrowed/pure must not force ordering.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl27_selective_event_ordering)
+      rc_counting (SECONDARY — gracious-accept)
+      refinement (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: RL-27 orders pending ownership events only at call boundaries whose contracts may observe or change ownership state

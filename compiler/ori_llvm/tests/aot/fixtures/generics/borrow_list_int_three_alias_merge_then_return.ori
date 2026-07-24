@@ -1,0 +1,35 @@
+// 3-alias merge: borrowed [int]
+// param flowing into a 3-way alias merge at a basic-block join point.
+// Verifies the post-fix expanded input set doesn't break PIN-6 chain
+// resolution when the SSA alias class has 3 distinct members merging
+// at a CFG join.
+
+@three_alias_merge (xs: [int], choice: int) -> [int] = {
+    let merged = if choice == 0 then {
+        let alias_a = xs;
+        alias_a
+    } else if choice == 1 then {
+        let alias_b = xs;
+        let alias_b2 = alias_b;
+        alias_b2
+    } else {
+        let alias_c = xs;
+        let alias_c2 = alias_c;
+        let alias_c3 = alias_c2;
+        alias_c3
+    };
+    merged
+};
+
+@main () -> int = {
+    let original_0 = [201, 202];
+    let r_0 = three_alias_merge(xs: original_0, choice: 0);
+    let original_1 = [301, 302, 303];
+    let r_1 = three_alias_merge(xs: original_1, choice: 1);
+    let original_2 = [401, 402, 403, 404];
+    let r_2 = three_alias_merge(xs: original_2, choice: 2);
+    let ok_0 = r_0.len() == 2 && r_0[0] == 201;
+    let ok_1 = r_1.len() == 3 && r_1[0] == 301;
+    let ok_2 = r_2.len() == 4 && r_2[0] == 401;
+    if ok_0 && ok_1 && ok_2 then 0 else 1
+}

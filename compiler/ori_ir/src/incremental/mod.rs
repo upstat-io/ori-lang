@@ -4,8 +4,8 @@
 //!
 //! # Architecture
 //!
-//! This module provides the foundation for incremental parsing, following TypeScript's
-//! proven two-phase approach:
+//! This module provides the foundation for incremental parsing — historical
+//! influence: the TypeScript two-phase SHAPE:
 //!
 //! 1. **Text Change** - Represents an edit operation (insertion, deletion, replacement)
 //! 2. **Change Marker** - Determines which source regions are affected by the change
@@ -146,7 +146,7 @@ impl TextChange {
 ///
 /// To handle parser lookahead, the affected region is typically extended backward
 /// from the change start to include any tokens that might have been looked at
-/// during the original parse. This follows TypeScript's incremental parsing approach.
+/// during the original parse.
 ///
 /// # Examples
 ///
@@ -238,8 +238,7 @@ impl ChangeMarker {
             pos
         } else if pos >= self.affected_end {
             // At or after the end of affected region - shift by delta
-            // Safe: we check bounds and delta is computed from u32 values
-            #[allow(
+            #[expect(
                 clippy::cast_sign_loss,
                 clippy::cast_possible_truncation,
                 reason = "Bounds-checked: delta computed from u32 values"

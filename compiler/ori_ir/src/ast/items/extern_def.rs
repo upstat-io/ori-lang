@@ -61,12 +61,21 @@ impl Spanned for ExternItem {
 ///     @_sin (x: float) -> float as "sin"
 /// }
 /// ```
+///
+/// The optional `#free(symbol)` annotation declares the user-supplied
+/// deallocation function for opaque types declared by this block.
+/// `free_fn` is `Some(symbol)` when the annotation is present; `None`
+/// otherwise. Consumed by burden registration to populate
+/// `UserBurdenSpec.user_drop` (Spec: Annex E §FFI).
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct ExternBlock {
     /// Calling convention: `"c"` or `"js"`.
     pub convention: Name,
     /// Library path from the `from` clause.
     pub library: Option<Name>,
+    /// Optional `#free(symbol)` annotation — names the user-supplied
+    /// deallocation function for opaque types declared in this block.
+    pub free_fn: Option<Name>,
     /// Functions declared in this block.
     pub items: Vec<ExternItem>,
     pub visibility: Visibility,

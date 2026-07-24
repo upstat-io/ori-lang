@@ -1,80 +1,100 @@
-//! Specialized drop descriptor generation.
+//! Backend-neutral drop descriptor generation.
 //!
-//! When a reference-counted value's refcount reaches zero, its memory must
-//! be cleaned up: all RC'd child fields must be decremented before the
-//! allocation is freed. This module computes per-type **drop descriptors**
-//! that tell the codegen layer exactly what cleanup is needed.
+//! When a value reaches logical death, its user-drop and transitively owned
+//! child obligations must be discharged exactly once. This module computes
+//! per-type **drop descriptors** that tell every physical executor what must
+//! be cleaned up without selecting a counter, storage class, or free routine.
 //!
 //! # Design
 //!
 //! Drop descriptors are **declarative** — they describe WHAT to clean up,
-//! not HOW. The codegen layer (`ori_llvm`) uses these descriptors to
-//! generate actual drop functions (LLVM IR functions with the cleanup
-//! logic). This keeps `ori_arc` backend-independent while centralizing
-//! the "which fields need RC" analysis.
+//! not HOW. A VM may interpret a descriptor, while a compiled backend may
+//! project it to specialized drop glue. This keeps `ori_arc`
+//! backend-independent while centralizing logical cleanup traversal.
 //!
-//! Two categories of reference-counted types:
+//! Two categories of ownership-bearing types:
 //!
-//! - **Self-RC**: types behind their own refcount (`str`, `[T]`, `{K:V}`,
-//!   closures). Codegen emits `ori_rc_dec(ptr, drop_fn)`.
-//! - **Transitive-RC**: stack types containing RC children (`option[str]`,
-//!   `(int, str)`, custom structs). Codegen emits inline destructure +
-//!   Dec children. The drop descriptor is the same — the codegen layer
-//!   decides the emission strategy based on `TypeInfo`.
-//!
-//! # Reference Compilers
-//!
-//! - **Lean 4** `src/Lean/Compiler/IR/RC.lean` — type-specific cleanup
-//!   in `addDec`, object header carries layout metadata
-//! - **Roc** `crates/compiler/mono/src/code_gen_help/refcount.rs` —
-//!   per-layout refcount helpers, specialized drop per type
+//! - **Self-owned identity**: types with their own logical storage identity
+//!   (`str`, `[T]`, `{K:V}`, closures). The physical projection discharges the
+//!   final owner using its selected mechanism, then follows the descriptor.
+//! - **Transitive ownership**: values containing owned children
+//!   (`option[str]`, `(int, str)`, custom structs). The descriptor defines the
+//!   logical child traversal; each physical layout maps those paths to storage.
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_types::{Idx, Pool, Tag};
 
 use crate::ir::{ArcFunction, ArcInstr};
 use crate::ArcClassification;
 
+mod burden_bridge;
+mod consumer_attribution;
+
+pub use consumer_attribution::compute_consumer_attribution;
+
 // Drop descriptor types
 
-/// Describes the cleanup needed when a reference-counted value's
-/// refcount reaches zero.
+/// Describes the cleanup needed at final logical-owner death.
 ///
 /// Each variant corresponds to a different kind of type and specifies
-/// exactly which child fields need `RcDec` before freeing the memory.
-/// The codegen layer uses `field_type` entries to look up each child's
-/// own drop function, enabling recursive drop.
+/// exactly which child ownership obligations must be discharged.
+/// Physical consumers use `field_type` entries to reach each child's drop
+/// plan, enabling recursive cleanup without re-deriving the traversal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum DropKind {
-    /// No RC'd children — just free the allocation.
+    /// No owned children; only the enclosing physical storage is discharged.
     ///
-    /// Examples: `str` (bytes aren't RC'd), `[int]` (elements are
-    /// scalar), `chan<int>` (runtime-managed), bare function pointers.
+    /// Examples: `str` (bytes carry no child ownership), `[int]` (elements are
+    /// scalar), `chan<int>` (service-managed), bare function pointers.
     Trivial,
 
-    /// Fixed-layout type (struct, tuple): Dec specific RC'd fields.
+    /// Fixed-shape type (struct, tuple): discharge specific owned fields.
     ///
-    /// Each entry is `(field_index, field_type)` for fields that need
-    /// RC. The codegen layer uses `field_index` for `struct_gep` and
-    /// `field_type` to look up the field's own drop function.
-    Fields(Vec<(u32, Idx)>),
+    /// `fields`: `(field_index, field_type)` for fields that need RC.
+    /// `field_index` is a logical declaration-order field identity;
+    /// `field_type` identifies the child's own drop plan. Physical consumers
+    /// map the logical field through their layout plan.
+    ///
+    /// `user_drop`: `Some(fn_sym)` when the type implements the `Drop`
+    /// trait. Physical consumers materialize the AUGMENT order (user
+    /// `@drop` FIRST, then field walk in reverse declaration order)
+    /// per `drop-trait-proposal.md §Execution Timing`. `None` for
+    /// types without an explicit Drop impl; consumers use the plain
+    /// field walk.
+    Fields {
+        fields: Vec<(u32, Idx)>,
+        // Why: `FnSym` is not serializable, so cached drop facts omit this callable identity.
+        #[cfg_attr(feature = "cache", serde(skip))]
+        user_drop: Option<ori_registry::burden::FnSym>,
+    },
 
-    /// Enum type: switch on tag, then Dec variant-specific RC'd fields.
+    /// Enum type: select the variant, then discharge its owned fields.
     ///
-    /// Outer `Vec` indexed by variant ordinal. Inner `Vec` contains
-    /// `(field_index, field_type)` for fields in that variant needing
-    /// RC. An empty inner `Vec` means the variant has no RC'd fields.
+    /// `variants[i]` contains `(field_index, field_type)` entries for
+    /// variant `i`'s ownership-bearing fields. An empty inner vector means the
+    /// variant has no child cleanup obligations.
     ///
     /// Also used for `option[T]` (2 variants: None, Some) and
     /// `result[T, E]` (2 variants: Ok, Err).
-    Enum(Vec<Vec<(u32, Idx)>>),
+    ///
+    /// `user_drop`: `Some(fn_sym)` when the enum-shaped type
+    /// implements the `Drop` trait. Every projection invokes `@drop` BEFORE
+    /// the discriminant-switch and per-variant field walk. Without this,
+    /// `impl T: Drop` on an enum-shaped type would silently bypass the
+    /// user `@drop` body during final logical cleanup.
+    Enum {
+        variants: Vec<Vec<(u32, Idx)>>,
+        // See `Fields.user_drop` for the cache-skip rationale.
+        #[cfg_attr(feature = "cache", serde(skip))]
+        user_drop: Option<ori_registry::burden::FnSym>,
+    },
 
     /// Variable-length collection (`[T]`, `set[T]`): iterate elements,
     /// Dec each.
     ///
-    /// Only created when elements are RC'd. If elements are scalar,
+    /// Only created when elements carry cleanup obligations. If elements are scalar,
     /// [`Trivial`](DropKind::Trivial) is used instead.
     Collection {
         /// The element type (each element needs `RcDec`).
@@ -97,14 +117,14 @@ pub enum DropKind {
     /// Closure environment: Dec specific captured variables.
     ///
     /// Structurally identical to [`Fields`](DropKind::Fields) but
-    /// semantically distinct for naming (`_ori_drop$__lambda_N_env`).
+    /// semantically distinct because closure layout is keyed by its callable.
     ClosureEnv(Vec<(u32, Idx)>),
 }
 
 /// Complete drop information for a type.
 ///
-/// Returned by [`compute_drop_info`] for types that need RC cleanup.
-/// Scalar types (which don't need RC) return `None` from
+/// Returned by [`compute_drop_info`] for types that need ownership cleanup.
+/// Scalar types without cleanup obligations return `None` from
 /// `compute_drop_info`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
@@ -119,14 +139,19 @@ pub struct DropInfo {
 
 /// Compute the drop descriptor for a type.
 ///
-/// Returns `None` for scalar types (no RC, no drop needed).
-/// Returns `Some(DropInfo)` for reference-counted types.
+/// Returns `None` for scalar types with no cleanup obligation.
+/// Returns `Some(DropInfo)` for ownership-bearing types.
 ///
-/// The drop descriptor tells the codegen layer what cleanup is needed
-/// when this type's refcount reaches zero:
-/// - Which child fields need `RcDec`
+/// The drop descriptor tells physical consumers what cleanup is needed
+/// at this type's final logical-owner death:
+/// - Which child fields carry ownership obligations
 /// - Whether to iterate elements (for collections)
 /// - Whether to switch on enum tag
+///
+/// Synthesizes a [`burden_bridge::SynthesizedBurden`] from the pool walk and
+/// classifier, then converts it through [`burden_bridge::burden_to_drop_info`].
+/// Every post-AIMS executor consumes the descriptor for field and element
+/// cleanup, including class-ledger field-grain releases realized in Phase 7.
 pub fn compute_drop_info(
     ty: Idx,
     classifier: &dyn ArcClassification,
@@ -136,24 +161,125 @@ pub fn compute_drop_info(
         return None;
     }
 
-    // Iterators are non-trivial (they need `ori_iter_drop`)
-    // but they do NOT use per-type drop functions. The ARC emitter
-    // dispatches iterator drops inline via `RcStrategy::Iterator` (for
-    // top-level RcDec on iterator variables) and the `Tag::Iterator`
-    // arm of `dec_value_rc_inner` (for iterator fields inside compound
-    // types). Both paths emit `ori_iter_drop(ptr)` directly. Returning
-    // `None` here prevents `collect_drop_infos` from asking `drop_gen`
-    // to generate a spurious `_ori_drop$Iterator<T>` function, which
-    // would call `ori_rc_free` on a Box-allocated pointer and corrupt
-    // memory.
+    // Iterators are non-trivial but use their registry-owned runtime drop
+    // operation rather than a structural per-type descriptor. Returning
+    // `None` prevents any physical consumer from treating iterator state as
+    // an ordinary RC allocation and freeing it through the wrong adapter.
     let (_, tag) = resolve_type(ty, pool);
     if matches!(tag, Tag::Iterator | Tag::DoubleEndedIterator) {
         return None;
     }
 
-    let kind = compute_drop_kind(ty, pool, classifier);
+    // BurdenSpec lift: synthesise a `UserBurdenSpec` (plus a
+    // discriminator for shape-disambiguation that `UserBurdenSpec`
+    // itself does not carry) and lift it to `DropInfo`. When the type
+    // is genuinely trivial after walking (all-scalar fields, all-scalar
+    // variants), `synthesize_burden_from_pool` returns `None`. Preserve the
+    // logical `DropKind::Trivial` descriptor for self-owned leaves.
+    match burden_bridge::synthesize_burden_from_pool(ty, classifier, pool) {
+        Some(synthesized) => {
+            burden_bridge::burden_to_drop_info(ty, &synthesized).or(Some(DropInfo {
+                ty,
+                kind: DropKind::Trivial,
+            }))
+        }
+        None => Some(DropInfo {
+            ty,
+            kind: DropKind::Trivial,
+        }),
+    }
+}
 
-    Some(DropInfo { ty, kind })
+/// Does final logical cleanup of `ty` transitively run a user `@drop`?
+///
+/// `true` iff dropping `ty` reaches a user `@drop` on `ty` itself or on any
+/// transitively-owned field / variant payload / collection element /
+/// map key-or-value / closure capture. A user `@drop` may panic (raise a
+/// foreign Itanium exception via `_Unwind_RaiseException`), so a scope-exit
+/// release of a may-unwind type cannot be `nounwind`: the nounwind analysis
+/// (`is_arc_function_nounwind`) and the `RcDec` emitter (`emit_rc_dec`) both
+/// gate on this predicate to decide whether the dec site needs an `invoke` +
+/// cleanup landing pad threading the exception toward the `@main` catch-all.
+///
+/// `has_user_drop(node_ty)` is the LOCAL "does this exact type carry a user
+/// `@drop`" check, supplied by the caller. The current LLVM projection reads
+/// `CodegenContext.method_functions` (`ArcIrEmitter::user_drop_method`), which
+/// is backend-local re-derivation debt. The production shared plan freezes the
+/// registry fact before any physical projection. The
+/// burden-registry `user_drop` field on [`DropKind`] is hardcoded `None` by
+/// the pool-walk synthesizer and is NOT consulted here. The local check runs
+/// BEFORE [`compute_drop_info`] because an all-scalar-field Drop type
+/// collapses to `Trivial`/`None` under that hardcoded `None`, so the
+/// structure result alone would miss it. [`compute_drop_info`] supplies only
+/// the child drop-tree structure (fields / variants / element / key-value /
+/// captures). Scalars / iterators with no local `@drop` never unwind.
+///
+/// `memo` is a caller-owned cache keyed by `Idx`; the pool is frozen per
+/// compilation, so a result is stable across queries. Cycle-sound: a fresh
+/// on-stack set breaks recursive-type back-edges (an on-stack edge yields a
+/// provisional `false`); only fully-resolved results are memoized — `true`
+/// is permanent (may-unwind is monotone-`OR`), and `false` is cached only
+/// when the subtree consumed no cycle-break (else it could under-approximate
+/// a member whose truth comes from a sibling branch resolved after it cached).
+#[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
+pub fn type_drop_may_unwind(
+    ty: Idx,
+    classifier: &dyn ArcClassification,
+    pool: &Pool,
+    has_user_drop: &dyn Fn(Idx) -> bool,
+    memo: &mut FxHashMap<Idx, bool>,
+) -> bool {
+    let mut on_stack = FxHashSet::default();
+    drop_may_unwind_rec(ty, classifier, pool, has_user_drop, memo, &mut on_stack).0
+}
+
+/// Returns `(may_unwind, consumed_cycle_break)`. `consumed_cycle_break` is
+/// `true` when the subtree result depended on an on-stack back-edge (which
+/// contributes a provisional `false`); such a `false` is an under-
+/// approximation and MUST NOT be memoized.
+fn drop_may_unwind_rec(
+    ty: Idx,
+    classifier: &dyn ArcClassification,
+    pool: &Pool,
+    has_user_drop: &dyn Fn(Idx) -> bool,
+    memo: &mut FxHashMap<Idx, bool>,
+    on_stack: &mut FxHashSet<Idx>,
+) -> (bool, bool) {
+    if let Some(&cached) = memo.get(&ty) {
+        return (cached, false);
+    }
+    // Local `@drop` short-circuits to `true` — checked BEFORE compute_drop_info
+    // so an all-scalar-field Drop type (which collapses to Trivial/None under
+    // the hardcoded-None burden synthesizer) is still detected.
+    if has_user_drop(ty) {
+        memo.insert(ty, true);
+        return (true, false);
+    }
+    if on_stack.contains(&ty) {
+        return (false, true);
+    }
+    on_stack.insert(ty);
+
+    // Child drop-tree structure only — the `user_drop` field is ignored
+    // (always `None` on this path; the local check above is authoritative).
+    let kids: Vec<Idx> = match compute_drop_info(ty, classifier, pool) {
+        None => Vec::new(),
+        Some(info) => drop_info_child_types(&info.kind),
+    };
+
+    let mut any = false;
+    let mut cyclic = false;
+    for kid in kids {
+        let (r, c) = drop_may_unwind_rec(kid, classifier, pool, has_user_drop, memo, on_stack);
+        any |= r;
+        cyclic |= c;
+    }
+
+    on_stack.remove(&ty);
+    if any || !cyclic {
+        memo.insert(ty, any);
+    }
+    (any, cyclic)
 }
 
 /// Compute a drop descriptor for a closure environment.
@@ -163,42 +289,41 @@ pub fn compute_drop_info(
 /// index in the env struct.
 ///
 /// Returns [`DropKind::Trivial`] if no captures need RC.
+///
+/// Transitional thin-wrapper preserved during the burden-tracking
+/// migration. Synthesises a [`burden_bridge::SynthesizedBurden`] for the
+/// closure environment and forwards through
+/// [`burden_bridge::burden_to_drop_info`]. Closure environments are
+/// constructed by `PartialApply` ARC-IR lowering and never interned in
+/// the type pool, so the closure-specific synthesizer takes the capture
+/// slice directly.
 pub fn compute_closure_env_drop(
     capture_types: &[Idx],
     classifier: &dyn ArcClassification,
 ) -> DropKind {
-    let rc_captures: Vec<(u32, Idx)> = capture_types
-        .iter()
-        .enumerate()
-        .filter_map(|(i, &ty)| {
-            if classifier.needs_rc(ty) {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "field indices are bounded by struct layout, never exceed u32"
-                )]
-                Some((i as u32, ty))
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    if rc_captures.is_empty() {
-        DropKind::Trivial
-    } else {
-        DropKind::ClosureEnv(rc_captures)
+    match burden_bridge::synthesize_closure_env_burden(capture_types, classifier) {
+        Some(synthesized) => burden_bridge::burden_to_drop_info(
+            // The pool index is irrelevant for closure environments. Physical
+            // projections key them by the lambda's synthesized identity, not
+            // by `DropInfo.ty`. Use `Idx::ERROR` so a consumer that forgets
+            // the closure-env case surfaces loudly.
+            Idx::ERROR,
+            &synthesized,
+        )
+        .map_or(DropKind::Trivial, |info| info.kind),
+        None => DropKind::Trivial,
     }
 }
 
 /// Collect drop infos for all types that appear in `RcDec` instructions
 /// across the given functions.
 ///
-/// Returns a deduplicated list of [`DropInfo`] descriptors. The codegen
-/// layer uses these to generate specialized drop functions.
+/// Returns a deduplicated list of [`DropInfo`] descriptors. Shared executable
+/// lowering freezes the closed table for every physical consumer.
 ///
 /// **Note:** This collects types from `RcDec` instructions only. For
-/// nested types (e.g., a struct field's type), the codegen layer should
-/// call [`compute_drop_info`] lazily when generating each drop function.
+/// nested types (e.g., a struct field's type), shared realization must close
+/// the transitive descriptor table before backend selection.
 pub fn collect_drop_infos(
     functions: &[ArcFunction],
     classifier: &dyn ArcClassification,
@@ -212,7 +337,7 @@ pub fn collect_drop_infos(
             for instr in &block.body {
                 if let ArcInstr::RcDec { var, .. } = instr {
                     let ty = func.var_type(*var);
-                    if classifier.needs_rc(ty) && seen.insert(ty) {
+                    if classifier.has_managed_ownership_obligation(ty) && seen.insert(ty) {
                         if let Some(info) = compute_drop_info(ty, classifier, pool) {
                             infos.push(info);
                         }
@@ -227,194 +352,21 @@ pub fn collect_drop_infos(
 
 // Internal helpers
 
-/// Compute the drop kind for a non-scalar type.
-fn compute_drop_kind(ty: Idx, pool: &Pool, classifier: &dyn ArcClassification) -> DropKind {
-    let (resolved_ty, resolved_tag) = resolve_type(ty, pool);
-
-    match resolved_tag {
-        // Collections
-
-        // List: iterate elements if RC'd, otherwise just free buffer.
-        Tag::List => {
-            let elem = pool.list_elem(resolved_ty);
-            if classifier.needs_rc(elem) {
-                DropKind::Collection { element_type: elem }
-            } else {
-                DropKind::Trivial
-            }
-        }
-
-        // Set: same structure as list.
-        Tag::Set => {
-            let elem = pool.set_elem(resolved_ty);
-            if classifier.needs_rc(elem) {
-                DropKind::Collection { element_type: elem }
-            } else {
-                DropKind::Trivial
-            }
-        }
-
-        // Map: check keys and values independently.
-        Tag::Map => {
-            let key = pool.map_key(resolved_ty);
-            let value = pool.map_value(resolved_ty);
-            let dk = classifier.needs_rc(key);
-            let dv = classifier.needs_rc(value);
-
-            if dk || dv {
-                DropKind::Map {
-                    key_type: key,
-                    value_type: value,
-                    dec_keys: dk,
-                    dec_values: dv,
-                }
-            } else {
-                DropKind::Trivial
-            }
-        }
-
-        // Fixed-layout compound types
-
-        // Struct: Dec each RC'd field.
-        Tag::Struct => compute_fields_drop(
-            pool.struct_fields(resolved_ty)
-                .into_iter()
-                .map(|(_, ty)| ty),
-            classifier,
-        ),
-
-        // Tuple: same as struct but indexed positionally.
-        Tag::Tuple => compute_fields_drop(pool.tuple_elems(resolved_ty).into_iter(), classifier),
-
-        // Enum: per-variant field drops.
-        Tag::Enum => {
-            let variants = pool.enum_variants(resolved_ty);
-            compute_enum_drop(
-                variants.into_iter().map(|(_, field_types)| field_types),
-                classifier,
-            )
-        }
-
-        // Tagged unions stored as special Pool types
-
-        // option[T] → 2-variant enum: None (no fields), Some(T).
-        Tag::Option => {
-            let inner = pool.option_inner(resolved_ty);
-            if classifier.needs_rc(inner) {
-                DropKind::Enum(vec![
-                    vec![],           // None — no RC'd fields
-                    vec![(0, inner)], // Some — dec the inner value
-                ])
-            } else {
-                DropKind::Trivial
-            }
-        }
-
-        // result[T, E] → 2-variant enum: Ok(T), Err(E).
-        Tag::Result => {
-            let ok_ty = pool.result_ok(resolved_ty);
-            let err_ty = pool.result_err(resolved_ty);
-            let ok_rc = classifier.needs_rc(ok_ty);
-            let err_rc = classifier.needs_rc(err_ty);
-
-            if ok_rc || err_rc {
-                DropKind::Enum(vec![
-                    if ok_rc { vec![(0, ok_ty)] } else { vec![] },
-                    if err_rc { vec![(0, err_ty)] } else { vec![] },
-                ])
-            } else {
-                DropKind::Trivial
-            }
-        }
-
-        // range[T] — ranges of RC types need bounds dropped.
-        Tag::Range => {
-            let elem = pool.range_elem(resolved_ty);
-            if classifier.needs_rc(elem) {
-                // range has start and end fields of the same type.
-                DropKind::Fields(vec![(0, elem), (1, elem)])
-            } else {
-                DropKind::Trivial
-            }
-        }
-
-        // Trivial fallback
-        //
-        // Named/Applied/Alias: resolve_type should have resolved
-        //   these; unresolved named types get trivial drop.
-        // Type variables, schemes, etc.: should be monomorphized
-        //   before reaching codegen. Treat as trivial (just free).
-        _ => DropKind::Trivial,
-    }
-}
-
-/// Compute drop kind for a fixed-layout type with named/positional fields.
-///
-/// Returns `DropKind::Fields` if any field needs RC, `DropKind::Trivial`
-/// if all fields are scalar.
-fn compute_fields_drop(
-    field_types: impl Iterator<Item = Idx>,
-    classifier: &dyn ArcClassification,
-) -> DropKind {
-    let rc_fields: Vec<(u32, Idx)> = field_types
-        .enumerate()
-        .filter_map(|(i, field_ty)| {
-            if classifier.needs_rc(field_ty) {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "field indices are bounded by struct layout, never exceed u32"
-                )]
-                Some((i as u32, field_ty))
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    if rc_fields.is_empty() {
-        DropKind::Trivial
-    } else {
-        DropKind::Fields(rc_fields)
-    }
-}
-
-/// Compute drop kind for an enum type with multiple variants.
-///
-/// Returns `DropKind::Enum` if any variant has RC'd fields,
-/// `DropKind::Trivial` if no variant has RC'd fields.
-fn compute_enum_drop(
-    variants: impl Iterator<Item = Vec<Idx>>,
-    classifier: &dyn ArcClassification,
-) -> DropKind {
-    let variant_drops: Vec<Vec<(u32, Idx)>> = variants
-        .map(|field_types| {
-            field_types
-                .into_iter()
-                .enumerate()
-                .filter_map(|(i, field_ty)| {
-                    if classifier.needs_rc(field_ty) {
-                        #[expect(
-                            clippy::cast_possible_truncation,
-                            reason = "field indices are bounded by struct layout, never exceed u32"
-                        )]
-                        Some((i as u32, field_ty))
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        })
-        .collect();
-
-    if variant_drops.iter().all(Vec::is_empty) {
-        DropKind::Trivial
-    } else {
-        DropKind::Enum(variant_drops)
-    }
-}
-
 /// Resolve a type through Named/Alias indirection to its concrete tag.
+///
+/// Used by the iterator early-exit guard in [`compute_drop_info`]. The
+/// full pool walk lives in
+/// [`burden_bridge::synthesize_burden_from_pool`]; this helper is
+/// retained because the iterator guard fires before the bridge synthesizes
+/// any burden. Iterator cleanup uses a registry-owned runtime identity rather
+/// than a structural descriptor.
 fn resolve_type(ty: Idx, pool: &Pool) -> (Idx, Tag) {
+    // Out-of-bounds idx (e.g. a Var resolving to a synthetic out-of-pool index)
+    // has no resolvable tag — treat as an opaque leaf (no drop, no unwind),
+    // mirroring `Pool::resolve_fully`'s bounds guard. `pool.tag` would panic.
+    if ty.raw() as usize >= pool.len() {
+        return (ty, Tag::Error);
+    }
     let tag = pool.tag(ty);
     match tag {
         Tag::Named | Tag::Applied | Tag::Alias => match pool.resolve(ty) {
@@ -422,6 +374,38 @@ fn resolve_type(ty: Idx, pool: &Pool) -> (Idx, Tag) {
             None => (ty, tag),
         },
         _ => (ty, tag),
+    }
+}
+
+/// The child types whose logical drop plans a [`DropKind`] references.
+///
+/// SSOT for "what does this drop descriptor descend into" — the per-field /
+/// per-variant / element / key-value / capture child set. Consumed by
+/// [`drop_may_unwind_rec`] (transitive may-unwind) and
+/// [`compute_consumer_attribution`] (consumer edges) so the two never diverge
+/// on the descent shape.
+pub(super) fn drop_info_child_types(kind: &DropKind) -> Vec<Idx> {
+    match kind {
+        DropKind::Trivial => Vec::new(),
+        DropKind::Fields { fields, .. } => fields.iter().map(|(_, t)| *t).collect(),
+        DropKind::Enum { variants, .. } => variants.iter().flatten().map(|(_, t)| *t).collect(),
+        DropKind::Collection { element_type } => vec![*element_type],
+        DropKind::Map {
+            key_type,
+            value_type,
+            dec_keys,
+            dec_values,
+        } => {
+            let mut k = Vec::new();
+            if *dec_keys {
+                k.push(*key_type);
+            }
+            if *dec_values {
+                k.push(*value_type);
+            }
+            k
+        }
+        DropKind::ClosureEnv(captures) => captures.iter().map(|(_, t)| *t).collect(),
     }
 }
 

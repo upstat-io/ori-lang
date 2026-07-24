@@ -111,7 +111,9 @@ assert_eq(actual: result, expected: 10);
 
 ```
 
-Named arguments are required for direct function and method calls. Argument names shall match parameter names. Argument order is irrelevant.
+- Named arguments are required for direct function and method calls.
+- Argument names shall match parameter names.
+- Argument order is irrelevant.
 
 Positional arguments are permitted in three cases:
 
@@ -146,7 +148,15 @@ items.map(double);               // error: named arg required
 items.map(transform: double);    // OK: function reference needs name
 ```
 
-A lambda expression is `x -> expr`, `(a, b) -> expr`, `() -> expr`, or `(x: Type) -> Type = expr`. Function references and variables holding functions are not lambda expressions and require named arguments.
+A lambda expression is `x -> expr`, `(a, b) -> expr`, `() -> expr`, `(x: Type) -> expr`, or `(x: Type) -> Type = expr`. Function references and variables holding functions are not lambda expressions and require named arguments.
+
+- A lambda with typed parameters may declare an explicit return type or leave it inferred.
+- In `(x: Type) -> Type = expr`, the second `Type` is the declared return type and `expr` is the body.
+- In `(x: Type) -> expr`, the return type shall use the same inference applied to untyped lambdas.
+- After `->`, recognise an explicit return type only when `=` immediately follows it.
+- Otherwise, parse the tokens after `->` as the body expression.
+- `(x: int) -> int` therefore parses as a lambda whose body is the type name `int`.
+- Because a type name is not a value, that body fails type inference when checked.
 
 For methods, `self` is not counted when determining "single parameter." A method like `map(transform: fn)` has one explicit parameter, so lambda arguments may be positional.
 
@@ -202,7 +212,9 @@ Lossy conversions (like `float -> int`) require explicit methods:
 
 **Built-in `as` conversions:**
 
-The following table lists all built-in infallible conversions. Conversions not in this table are compile-time errors for `as`. User types implement the `As<T>` trait.
+- The following table lists every built-in infallible conversion.
+- A conversion absent from the table is a compile-time error for `as`.
+- User types provide conversions by implementing `As<T>`.
 
 | Source | Target | Behavior |
 |--------|--------|----------|
@@ -218,7 +230,9 @@ NOTE  `float` to `int` is not an `as` conversion because it is lossy. Use `.trun
 
 **Built-in `as?` conversions:**
 
-The following table lists all built-in fallible conversions. Conversions not in this table are compile-time errors for `as?`. User types implement the `TryAs<T>` trait.
+- The following table lists every built-in fallible conversion.
+- A conversion absent from the table is a compile-time error for `as?`.
+- User types provide fallible conversions by implementing `TryAs<T>`.
 
 | Source | Target | Returns |
 |--------|--------|---------|
@@ -272,7 +286,9 @@ Inverts a boolean value.
 !!x;     // x (double negation)
 ```
 
-Type constraint: `! : bool -> bool`. It is a compile-time error to apply `!` to non-boolean types. For bitwise complement of integers, use `~`.
+- Type constraint: `! : bool -> bool`.
+- Applying `!` to a non-boolean type is a compile-time error.
+- Use `~` for the bitwise complement of an integer.
 
 ### 14.2.2 Arithmetic Negation (`-`)
 
@@ -644,7 +660,7 @@ Infinite ranges shall be bounded before terminal operations like `collect()`:
 
 ```ori
 (0..).iter().take(count: 10).collect();    // OK: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-(0..).iter().collect();                     // infinite loop, eventually OOM
+(0..).iter().collect();                     // infinite loop with unbounded allocation
 ```
 
 Implementations SHOULD warn on obvious unbounded consumption patterns.
@@ -678,7 +694,9 @@ The _condition_ shall have type `bool`. It is a compile-time error if the condit
 
 ### 14.9.1 Branch Evaluation
 
-Only one branch is evaluated at runtime. The unevaluated branch does not execute. This is guaranteed and observable (side effects in the unevaluated branch do not occur).
+- Evaluate exactly one branch at runtime.
+- Do not execute the unevaluated branch.
+- This guarantee is observable because side effects in the unevaluated branch do not occur.
 
 ### 14.9.2 Type Unification
 
@@ -921,7 +939,9 @@ The desugaring is purely syntactic — no new runtime semantics.
 
 `while...do` has type `void`. It does not produce a value.
 
-`break value` inside a `while` loop is a compile-time error (E0860). `continue value` is a compile-time error (E0861). Use `loop { }` for value-producing loops.
+- `break value` inside a `while` loop is a compile-time error (E0860).
+- `continue value` is a compile-time error (E0861).
+- Use `loop { }` for value-producing loops.
 
 ### 14.12.4 Examples
 
@@ -1165,7 +1185,9 @@ x = compute();  // compute() evaluated, then assigned to x
 > **Grammar:** See [grammar.ebnf](grammar.md) § `compound_op`
 > **Rules:** See [operator-rules.md](operator-rules.md) § Compound Assignment
 
-A _compound assignment_ `x op= y` desugars to `x = x op y` at parse time. The left-hand side shall be a mutable binding. Compound assignment is a statement, not an expression.
+- A _compound assignment_ `x op= y` desugars to `x = x op y` at parse time.
+- The left-hand side shall be a mutable binding.
+- Compound assignment is a statement, not an expression.
 
 ```ori
 x += 1;              // desugars to: x = x + 1
@@ -1232,6 +1254,10 @@ let y = [];          // error: cannot infer element type
 
 The type of a map literal `{k1: v1, k2: v2, ...}` is `{K: V}` where `K` is the unified key type and `V` is the unified value type. Keys shall implement `Eq` and `Hashable`.
 
+- Evaluate map-entry key and value expressions from left to right.
+- When a later key compares equal under `Eq` to an earlier key, replace the earlier key and value.
+- The map length is the number of resulting distinct keys.
+
 ```ori
 {"name": "Alice", "city": "NYC"}    // type: {str: str}
 {1: "one", 2: "two"}                // type: {int: str}
@@ -1243,7 +1269,9 @@ NOTE  When key expressions are bare identifiers (e.g., `{key: value}`), the pars
 
 ### 14.17.3 Struct literals
 
-The type of a struct literal `TypeName { f1: v1, f2: v2 }` is `TypeName`. All fields shall be provided unless a spread expression (`...`) supplies the remaining fields. Field types shall match the declared field types.
+- The type of a struct literal `TypeName { f1: v1, f2: v2 }` is `TypeName`.
+- All fields shall be provided unless a spread expression (`...`) supplies the remaining fields.
+- Field types shall match the declared field types.
 
 An unknown field name is a compile-time error. A missing required field is a compile-time error.
 
@@ -1265,7 +1293,10 @@ EXAMPLE  `` `Hello, {name}!` `` desugars to `"Hello, " + name.to_str() + "!"`.
 
 ## 14.19 General Evaluation Order
 
-Expressions are evaluated left-to-right. In a binary expression `a + b`, `a` is evaluated before `b`. In a function call `f(x: a, y: b)`, `a` is evaluated before `b`. Arguments are evaluated in textual order regardless of parameter names.
+- Evaluate expressions from left to right.
+- In `a + b`, evaluate `a` before `b`.
+- In `f(x: a, y: b)`, evaluate `a` before `b`.
+- Evaluate arguments in textual order regardless of parameter names.
 
 Exceptions to left-to-right evaluation:
 - Short-circuit operators (`&&`, `||`, `??`) may skip the right operand (see 14.15.8).

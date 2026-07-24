@@ -1,0 +1,19 @@
+// Shape (b) — PRE-style RC motion across an RC-observable barrier (RL-26 × RL-31).
+// `m` is passed to merge (noalias-claimed) AND to an Owned-consuming sink. The
+// Owned hand-off is an RC-observable barrier; motion across it is rejected. The
+// RL-31 noalias on merge's params must survive the blocked motion.
+@merge (a: {str: int}, b: [int]) -> int = {
+    let av = a["x"].unwrap_or(default: 0);
+    let bv = b.len();
+    av + bv
+}
+
+@consume_map (a: {str: int}) -> int = a["x"].unwrap_or(default: 0);
+
+@main () -> void = {
+    let m = {"x": 7};
+    let l = [4, 5];
+    let merged = merge(a: m, b: l);
+    let consumed = consume_map(a: m);
+    print(msg: (merged + consumed).to_str())
+}

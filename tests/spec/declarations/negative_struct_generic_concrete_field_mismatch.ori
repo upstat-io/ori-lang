@@ -1,0 +1,16 @@
+// NEGATIVE PIN — generic-struct concrete-field soundness (substitute_named_types path).
+// In a generic struct, a CONCRETE (non-type-parameter) field whose value type
+// conflicts with its declared type MUST be rejected with E2001. Generic-param
+// substitution leaves the concrete field's type concrete, so the field-value
+// check must still fire — the generic type parameter must not mask it.
+// Spec: 08-declarations.md § Type Definitions + § Generics; typeck E2001 (Mismatch).
+
+type Pair<T> = { tag: int, value: T }
+
+#compile_fail(code: "E2001")
+@test_struct_generic_concrete_field_mismatch tests @_anchor_generic () -> void = {
+    let $p = Pair { tag: "not an int", value: 5 };
+    ()
+}
+
+@_anchor_generic () -> bool = true;

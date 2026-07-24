@@ -1,0 +1,9 @@
+
+@id <T> (x: T) -> T = x;
+@wrap <T> (x: T) -> T = id(x: x);
+@double_wrap <T> (x: T) -> T = wrap(x: x);
+@main () -> int = double_wrap(x: 42);
+@test_main tests @main () -> void = ();
+@test_id tests @id () -> void = ();
+@test_wrap tests @wrap () -> void = ();
+@test_double_wrap tests @double_wrap () -> void = ();

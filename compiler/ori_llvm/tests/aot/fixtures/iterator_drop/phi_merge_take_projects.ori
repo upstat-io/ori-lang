@@ -1,7 +1,7 @@
-// TPR-07-019 topology pin: two unrelated take-projects whose results
+// Topology pin: two unrelated take-projects whose results
 // converge at a phi-style merge.
 //
-// The TPR-07-017 fix used a single union-find that unconditionally
+// The earlier per-class partitioning fix used a single union-find that unconditionally
 // unioned every `Jump arg → block param` edge. At a multi-predecessor
 // merge block, that turned phi-style alternatives into false alias
 // equivalences: if predecessor 1 jumps with `%it_a` and predecessor 2
@@ -9,7 +9,7 @@
 // find collapsed `%it_a`, `%it_b`, and `%result` into one class even
 // though `%result` is a CFG choice, not shared storage.
 //
-// The TPR-07-019 fix in `take_project::union_alias_edges` only unions
+// The fix in `take_project::union_alias_edges` only unions
 // Jump-arg → block-param edges when the target block has exactly one
 // predecessor (a degenerate phi semantically equivalent to `let
 // param = arg`). Multi-predecessor block params are phi merges and

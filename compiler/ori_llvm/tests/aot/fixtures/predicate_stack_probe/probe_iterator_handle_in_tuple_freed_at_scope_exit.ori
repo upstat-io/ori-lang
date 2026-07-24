@@ -1,0 +1,4 @@
+@main () -> int = {
+    let _t: (int, Iterator<int>) = (42, [7, 8, 9].iter());
+    0
+}

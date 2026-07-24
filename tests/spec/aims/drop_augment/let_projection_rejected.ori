@@ -1,0 +1,19 @@
+// A `let $f = v.field` projection of a Drop type's field is a partial move:
+// the field moves out while the residual still carries the type's `@drop`
+// glue, which would re-drop the moved-out field. Typeck rejects with E2048.
+//
+// Spec: drop-trait-proposal.md §Execution Timing.
+
+#compile_fail(code: "E2048")
+@let_projection_rejected tests _ () -> void = { () }
+
+type Pair = { a: int, b: int }
+
+impl Pair: Drop {
+    @drop (self) -> void = ();
+}
+
+@bad (p: Pair) -> int = {
+    let $first = p.a;
+    first
+};

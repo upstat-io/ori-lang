@@ -31,9 +31,9 @@ A **pull-based** pipeline inverts control: calling `eval(file)` triggers `check(
 
 The practical difference shows up during development. In a push-based compiler, changing one line forces a full recompile. In a pull-based compiler, `lex(file)` re-runs, but if the tokens are identical to the cached result (a whitespace-only change, say), every downstream stage returns its cached result immediately. This "early cutoff" behavior is the foundation of incremental compilation.
 
-### The Fork Point
+### The Execution Split
 
-Most compilers have a single pipeline ending in one backend. Ori's pipeline **forks** after canonicalization: the same canonical IR feeds both the tree-walking interpreter (fast feedback during development) and the AIMS/LLVM pipeline (native performance for production). This fork is the reason canonicalization exists as a separate stage — without it, desugaring and pattern compilation would need to be duplicated in both backends.
+Most compilers have a single pipeline ending in one backend. Ori separates semantic evaluation from physical execution after canonicalization. The tree-walking evaluator reads canonical IR as a representation-abstract oracle. AIMS lowers that same canonical meaning once into a realized ownership plan for the bytecode VM and compiled backends. This split is why canonicalization exists as a separate stage: desugaring and pattern compilation remain shared without forcing the evaluator to execute AIMS storage mechanics.
 
 ## Pipeline Stages
 
@@ -147,7 +147,7 @@ Key operations:
 - **Constant folding**: Compile-time expressions pre-evaluated into `ConstantPool`
 - **Type attachment**: Every `CanNode` carries its resolved type
 
-Canonicalization is NOT a Salsa query, but it is independently cached via `canonicalize_cached()` in the session-scoped `CanonCache`. Multiple consumers share the same cached result: the `evaluated()` query, the `check` command (for pattern exhaustiveness), the test runner, and the LLVM backend. The cache is keyed by file path and stores `SharedCanonResult` values, so the canonical IR is computed once and shared across all consumers via `Arc`.
+Canonicalization is NOT a Salsa query, but it is independently cached via `canonicalize_cached()` in the session-scoped `CanonCache`. Multiple consumers share the same cached result: the `evaluated()` query, the `check` command (for pattern exhaustiveness), the test runner, and ARC lowering. The cache is keyed by file path and stores `SharedCanonResult` values, so the canonical IR is computed once and shared across all consumers via `Arc`. LLVM and the VM consume the realized artifact produced after ARC lowering; they do not independently interpret canonical semantics.
 
 ### 5. Evaluation (`evaluated` query)
 
@@ -179,9 +179,11 @@ Key characteristics:
 ### 6. AIMS Analysis (`ori_arc`)
 
 **Input**: `CanonResult` + `Pool`
-**Output**: `Vec<ArcFunction>` (ARC IR with RC operations)
+**Output**: `Vec<ArcFunction>` (ARC IR with backend-neutral ownership and cleanup operations)
 
-The AIMS pipeline transforms canonical IR into a basic-block IR with explicit reference counting. Rather than a sequence of independent passes (borrow inference → liveness → RC insertion → elimination), AIMS uses a **unified 7-dimensional lattice** (`AimsState`: AccessClass × Consumption × Cardinality × Uniqueness × Locality × ShapeClass × EffectClass) where a single backward dataflow analysis converges on all memory decisions simultaneously:
+The AIMS pipeline transforms canonical IR into a basic-block IR with explicit logical ownership, cleanup, COW, and reuse decisions. The current carrier spells some ownership events as `RcInc`/`RcDec`, but those names do not select a physical counter or backend.
+
+Rather than a sequence of independent passes (borrow inference → liveness → RC insertion → elimination), AIMS uses a **unified 7-dimensional lattice** (`AimsState`: AccessClass × Consumption × Cardinality × Uniqueness × Locality × ShapeClass × EffectClass) where a single backward dataflow analysis converges on all memory decisions simultaneously:
 
 ```text
 CanExpr → lower → ArcFunction
@@ -204,24 +206,44 @@ CanExpr → lower → ArcFunction
 ```
 
 Key characteristics:
-- Unified lattice analysis — all RC/reuse/COW/drop decisions derived from one converged state map
-- Two-phase emission: Phase 1 (pre-merge) emits RC ops and reuse; Phase 2 (post-merge) emits COW annotations and drop hints via `ArcVarId`-keyed lookups (position-keyed state maps are invalidated by `merge_blocks()`)
+- Unified lattice analysis — all ownership/reuse/COW/drop decisions derive from one converged state map
+- Two-phase emission: Phase 1 (pre-merge) emits logical ownership events and reuse; Phase 2 (post-merge) emits COW annotations and drop facts via `ArcVarId`-keyed lookups (position-keyed state maps are invalidated by `merge_blocks()`)
 - Three-way type classification: `Scalar` / `DefiniteRef` / `PossibleRef`
-- Backend-independent — no LLVM dependency
+- Backend-independent — no LLVM or VM dependency
 - Interprocedural contracts computed via SCC fixpoint before per-function analysis
 
-### 7. LLVM Codegen (`ori_llvm`)
+### 7. Shared Executable Carrier and VM (`ori_repr`, `ori_vm`)
 
-**Input**: `Vec<ArcFunction>` + `Pool` + type info
+**Input**: Realized `Vec<ArcFunction>` + typed AIMS facts + neutral representation evidence + closed callable identities
+**Output**: Validated `ExecutableProgram`; then `VmLayoutPlan` + verified VM bytecode
+
+- `ori_repr::executable` resolves registry-backed runtime identities and binds
+  other typed facts that every physical executor needs.
+- It does not choose a universal physical layout.
+- `ori_vm` validates the shared artifact, constructs a `VmLayoutPlan`, and compiles it to bytecode.
+- VM layout, dispatch, and storage are private physical choices;
+  ownership-event identity/order, unwind cleanup, COW, reuse, transfer, and
+  logical drop policy remain the AIMS result.
+
+### 8. LLVM Codegen (`ori_llvm`)
+
+**Production input**: validated `ExecutableProgram` +
+`CompiledLayoutPlan(TargetSpec)`
 **Output**: Native binary or JIT execution
+
+The shipped path still accepts realized functions plus `Pool`/type information
+and computes parts of layout/ABI inside LLVM orchestration. That is a migration
+surface, not the AIMS boundary.
 
 Two-pass compilation:
 1. **Declare**: Walk functions → `FunctionAbi` → declare with calling conventions and attributes
 2. **Define**: Walk ARC IR → `ArcIrEmitter` → LLVM IR
 
-The `ArcIrEmitter` translates each ARC IR instruction to LLVM instructions, handling RC operations, closures, built-in methods, and derived trait codegen.
+- `ArcIrEmitter` translates realized ARC instructions to LLVM instructions.
+- It may inline a physical operation or call the runtime, but it may not re-derive memory policy.
+- Direct derived-trait synthesis remains a documented LLVM convergence gap.
 
-### 8. Pattern Checking (inside `check` command)
+### 9. Pattern Checking (inside `check` command)
 
 Canonicalization also runs in the `check` command — independently of `evaluated()` — to detect pattern problems before execution:
 
@@ -256,9 +278,14 @@ flowchart TB
     (AOT path)"]
     H --> I["AIMS pipeline
     (ori_arc)"]
-    I --> J["LLVM codegen
-    (ori_llvm)"]
-    J --> K["native binary"]
+    I --> J["ExecutableProgram
+    logical AIMS plan + stable fact IDs"]
+    J --> VP["VmLayoutPlan"]
+    J --> CP["CompiledLayoutPlan(TargetSpec)"]
+    VP --> K["bytecode VM / VM JIT
+    (ori_vm)"]
+    CP --> L["compiled backend
+    (ori_llvm / native / direct WASM)"]
 
     classDef frontend fill:#1e3a5f,stroke:#60a5fa,color:#dbeafe
     classDef canon fill:#3b1f6e,stroke:#a78bfa,color:#e9d5ff
@@ -268,7 +295,7 @@ flowchart TB
     class A,B,C,D frontend
     class F,H canon
     class E,G interpreter
-    class I,J,K native
+    class I,J,VP,CP,K,L native
 ```
 
 When `SourceFile` changes:
@@ -336,7 +363,7 @@ Different compilers organize their pipelines in different ways, and the differen
 
 [Rust's compiler](https://github.com/rust-lang/rust) uses multiple IR levels: Source → AST → HIR → THIR → MIR → LLVM IR → Machine Code. Each lowering step eliminates a category of complexity. HIR desugars `for` loops and `?`. THIR adds type information. MIR desugars drops, moves, and control flow. This progressive approach means each IR is simpler than the last, but the cost is maintaining six distinct representations.
 
-Ori takes a similar but more compressed approach — two main IRs (AST and canonical) plus a third (ARC IR) for the native path — reflecting the simpler language surface.
+Ori takes a similar but more compressed approach — two main IRs (AST and canonical) plus a third (ARC IR) for the shared physical-execution path — reflecting the simpler language surface.
 
 ### GHC — The Nanopass Pipeline
 

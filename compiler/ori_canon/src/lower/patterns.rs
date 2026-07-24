@@ -1,8 +1,4 @@
-//! Pattern and parameter lowering — match, multi-clause, binding patterns, params, `function_exp`.
-//!
-//! Handles lowering of match expressions (including pattern compilation and
-//! exhaustiveness checking), multi-clause function definitions, binding
-//! pattern destructuring, parameter lists, and function expressions.
+//! Canonical lowering for matches, binding patterns, and function parameters.
 
 use ori_ir::canon::{
     CanBindingPattern, CanBindingPatternId, CanExpr, CanId, CanNamedExpr, CanParam,
@@ -27,15 +23,12 @@ impl Lowerer<'_> {
     ) -> CanId {
         let scrutinee_id = self.lower_expr(scrutinee);
 
-        // Get scrutinee type for pattern flattening.
         let scrutinee_ty = self
             .typed
             .expr_type(scrutinee.index())
             .unwrap_or(ori_types::Idx::UNIT);
 
-        // Extract arm data to avoid borrow conflict (patterns + guards + bodies).
-        // We separate bodies from patterns+guards so patterns can be consumed
-        // (moved) into pattern_data without a second clone.
+        // Why: Separate bodies so pattern ownership moves without cloning source arms.
         let src_arms = self.src.get_arms(arms);
         let mut patterns_and_guards: Vec<_> = src_arms
             .iter()
@@ -43,9 +36,6 @@ impl Lowerer<'_> {
             .collect();
         let bodies: Vec<_> = src_arms.iter().map(|arm| arm.body).collect();
 
-        // Lower guards from ExprId → CanId and take ownership of patterns
-        // in a single pass. Guards must be lowered here (where we have &mut self)
-        // rather than inside compile_patterns (which only borrows &self).
         let pattern_data: Vec<_> = patterns_and_guards
             .drain(..)
             .map(|(pat, guard)| {
@@ -53,13 +43,12 @@ impl Lowerer<'_> {
                 (pat, can_guard)
             })
             .collect();
-        let tree = crate::patterns::compile_patterns(self, &pattern_data, arms.start, scrutinee_ty);
+        let compiled =
+            crate::patterns::compile_patterns(self, &pattern_data, arms.start, scrutinee_ty);
 
-        // Exhaustiveness check: capture arm spans from the source arms (still
-        // accessible since src_arms borrows the read-only source arena).
         let arm_spans: Vec<Span> = src_arms.iter().map(|arm| arm.span).collect();
         let check = crate::exhaustiveness::check_exhaustiveness(
-            &tree,
+            &compiled.tree,
             src_arms.len(),
             span,
             &arm_spans,
@@ -69,17 +58,13 @@ impl Lowerer<'_> {
         );
         self.problems.extend(check.problems);
 
-        let dt_id = self.decision_trees.push(tree);
+        let dt_id = self
+            .decision_trees
+            .push_with_leaf_discards(compiled.tree, compiled.leaf_discard_paths);
 
-        // Lower arm bodies BEFORE building the expr list. lower_expr may
-        // recursively lower nested match expressions, which would push their
-        // own arm bodies into the flat expr_lists array, corrupting our range.
+        // INVARIANT: Nested matches finish before this arm list reserves its range.
         let lowered_bodies: Vec<CanId> = bodies.iter().map(|body| self.lower_expr(*body)).collect();
-        let start = self.arena.start_expr_list();
-        for can_body in lowered_bodies {
-            self.arena.push_expr_list_item(can_body);
-        }
-        let arms_range = self.arena.finish_expr_list(start);
+        let arms_range = self.arena.push_expr_list(&lowered_bodies);
 
         self.push(
             CanExpr::Match {
@@ -121,11 +106,8 @@ impl Lowerer<'_> {
         let span = clauses[0].span;
         let ty = self.expr_type(clauses[0].body);
 
-        // Get parameter names from the FunctionSig (type checker output).
-        // The type checker stores the last clause's names (HashMap insert overwrites),
-        // which typically has all-variable params. The ARC lowering also uses these
-        // names (from ABI.params). The evaluator must also use these names for
-        // multi-clause function parameter binding.
+        // Multi-clause evaluator bindings must use the same signature names as
+        // ARC lowering; typecheck stores the last clause's parameter names.
         let first_params = self.src.get_params(clauses[0].params);
         let param_count = first_params.len();
         let fn_name = clauses[0].name;
@@ -188,12 +170,12 @@ impl Lowerer<'_> {
         }
 
         // Compile the multi-column pattern matrix into a decision tree.
-        let tree = crate::patterns::compile_multi_clause_patterns(&flat_rows, &guards);
+        let compiled = crate::patterns::compile_multi_clause_patterns(&flat_rows, &guards);
 
         // Exhaustiveness check: use clause spans as "arm" spans.
         let clause_spans: Vec<Span> = clauses.iter().map(|c| c.span).collect();
         let check = crate::exhaustiveness::check_exhaustiveness(
-            &tree,
+            &compiled.tree,
             clauses.len(),
             span,
             &clause_spans,
@@ -203,20 +185,17 @@ impl Lowerer<'_> {
         );
         self.problems.extend(check.problems);
 
-        let dt_id = self.decision_trees.push(tree);
+        let dt_id = self
+            .decision_trees
+            .push_with_leaf_discards(compiled.tree, compiled.leaf_discard_paths);
 
-        // Lower each clause body.
+        // Lower each clause body BEFORE building the expr list (nested lowering
+        // would otherwise corrupt the in-flight range).
         let lowered_bodies: Vec<CanId> = clauses
             .iter()
             .map(|clause| self.lower_expr(clause.body))
             .collect();
-
-        // Build the arms CanRange.
-        let start = self.arena.start_expr_list();
-        for can_body in lowered_bodies {
-            self.arena.push_expr_list_item(can_body);
-        }
-        let arms_range = self.arena.finish_expr_list(start);
+        let arms_range = self.arena.push_expr_list(&lowered_bodies);
 
         self.push(
             CanExpr::Match {
@@ -308,6 +287,10 @@ impl Lowerer<'_> {
         }
 
         // Copy out to avoid borrow conflict.
+        #[expect(
+            clippy::needless_collect,
+            reason = "collect copies (name, default) out of the self.src borrow so the loop body can call self.lower_expr with &mut self"
+        )]
         let param_data: Vec<_> = src_params.iter().map(|p| (p.name, p.default)).collect();
 
         let can_params: Vec<_> = param_data
@@ -335,6 +318,10 @@ impl Lowerer<'_> {
     ) -> Vec<Option<CanId>> {
         let src_params = self.src.get_params(param_range);
         // Copy out to avoid borrow conflict with `self.lower_expr`.
+        #[expect(
+            clippy::needless_collect,
+            reason = "collect copies the defaults out of the self.src borrow so the loop body can call self.lower_expr with &mut self"
+        )]
         let defaults: Vec<_> = src_params.iter().map(|p| p.default).collect();
         defaults
             .into_iter()
@@ -356,6 +343,11 @@ impl Lowerer<'_> {
 
         // Lower each named prop value.
         let src_props = self.src.get_named_exprs(func_exp.props);
+        // Copy out to avoid borrow conflict with `self.lower_expr`.
+        #[expect(
+            clippy::needless_collect,
+            reason = "collect copies (name, value) out of the self.src borrow so the loop body can call self.lower_expr with &mut self"
+        )]
         let prop_data: Vec<_> = src_props.iter().map(|p| (p.name, p.value)).collect();
         let can_props: Vec<_> = prop_data
             .into_iter()

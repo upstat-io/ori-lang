@@ -1,6 +1,4 @@
 //! Tests for function value (type conversion) implementations.
-//!
-//! Relocated from `function_val.rs` per coding guidelines (>200 lines).
 
 use crate::function_val::{
     function_val_byte, function_val_float, function_val_int, function_val_str,
@@ -393,6 +391,7 @@ mod byte_conversion {
 
     #[test]
     fn byte_from_char_non_ascii_error() {
+        assert!(function_val_byte(&[Value::Char('\u{80}')]).is_err());
         assert!(function_val_byte(&[Value::Char('λ')]).is_err());
         assert!(function_val_byte(&[Value::Char('中')]).is_err());
     }

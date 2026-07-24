@@ -1,0 +1,243 @@
+Theorem PL-3: Step 5 (realize_rc_reuse, phase 1) precedes Step 9 (merge_blocks) — position-keyed state maps are invalidated by merge
+
+  Preconditions:
+    - The AIMS pipeline is a 12-step strictly-ordered sequence per
+      Annex E §AIMS §6. PL-3 fixes ONE intra-
+      function step boundary: Step 5 (realize_rc_reuse — phase 1) SHALL
+      precede Step 9 (merge_blocks).
+        Step 5: realize_rc_reuse() — Phase 1: RC + reuse + arg_ownership (pre-merge)
+        Step 8a: unwind_cleanup() — Invoke-unwind RC cleanup
+        Step 9: merge_blocks() — CFG cleanup (block renumbering)
+    - PL-3 statement (per Annex E §AIMS PL-3 + Annex E §AIMS §6
+      "Position-keyed state maps (entry_states, exit_states, instr_states)
+      are invalid after merge_blocks() — never query them post-merge"):
+      realize_rc_reuse (phase 1) SHALL precede merge_blocks; phase 1's
+      emission is keyed by pre-merge block positions, which merge_blocks
+      renumbers / removes.
+    - PL-3 type signature (per Pipeline.proof lines 31-36, the sorry
+      obligation this theorem discharges):
+        type : Function -> Pipeline
+        realize_rc_reuse (Step 5 phase 1) SHALL precede merge_blocks
+        (Step 9); position-keyed entry_states / exit_states / instr_states
+        are invalidated by merge.
+    - Shipped per-function driver: ori_arc::pipeline::aims_pipeline::
+      run_aims_pipeline (compiler/ori_arc/src/pipeline/
+      aims_pipeline/mod.rs lines 163-287). The relevant straight-line
+      statements within one body:
+        (a) Step 5 — `realize_rc_reuse(func, &state_map, ...)` (mod.rs
+            lines 246-256), the phase-1 RC + reuse + arg_ownership walk.
+        (b) Steps 6-9 — `postprocess::verify_and_merge(func, config)?`
+            (mod.rs line 275), which internally runs Step 6 verify, Step 7
+            aims_verify, Step 8 tail-calls, Step 8a unwind_cleanup, and
+            Step 9 merge_blocks.
+      The Step 5 call (line 248) is a straight-line statement that completes
+      before the verify_and_merge call (line 275) begins.
+    - Shipped Steps 6-9 driver: ori_arc::pipeline::aims_pipeline::
+      postprocess::verify_and_merge (compiler/ori_arc/src/
+      pipeline/aims_pipeline/postprocess.rs lines 15-51). It runs Step 8
+      tail-calls (postprocess.rs lines 36-37), Step 8a unwind_cleanup
+      (postprocess.rs line 42), then Step 9 merge_blocks
+      (`crate::block_merge::merge_blocks(func)`, postprocess.rs line 47) as
+      the last statement.
+    - Shipped merge pass: ori_arc::block_merge::merge_blocks
+      (compiler/ori_arc/src/block_merge/mod.rs lines 71-95+)
+      runs a seven-phase transform that RENUMBERS and REMOVES blocks:
+      Phase 1 compact_blocks (mod.rs line 76) "remove blocks unreachable
+      from the entry"; Phase 2 downgrade_trivial_invokes (mod.rs line 79)
+      "convert trivial Invokes to Apply + Jump"; Phase 3a fold_select_diamonds
+      (mod.rs line 82) + Phase 3b compact_blocks (mod.rs line 85) remove
+      dead arm blocks; Phase 4 merge_jump_chains (mod.rs line 88) "collapse
+      Jump-chain blocks". The module doc (mod.rs lines 39-44) states merge
+      "Must run AFTER RC elimination but BEFORE [compute_drop_hints] — drop
+      hints store (block_idx, instr_idx) coordinates that would become
+      invalid if blocks are renumbered after hint computation."
+    - AimsStateMap position-keyed fields: block_exit_states and
+      block_entry_states are `Vec<FxHashMap<ArcVarId, AimsState>>` indexed
+      by ArcBlockId::index() (compiler/ori_arc/src/aims/
+      intraprocedural/state_map.rs lines 218-227). After merge_blocks
+      renumbers / removes blocks, an old block index no longer maps to the
+      same block — the position-keyed vectors are stale. Per Annex E §AIMS
+      sec-Pipeline "Position-keyed state maps (entry_states, exit_states,
+      instr_states) are invalid after merge_blocks() — never query them
+      post-merge." Phase 1 (realize_rc_reuse) consumes these position-keyed
+      results, so it SHALL run before merge invalidates them.
+    - This theorem reasons over the LINEAR per-function pipeline DAG; PL-3
+      is downstream of PL-2 (Step 4 precedes Step 5) and is the antecedent
+      of PL-4 (Step 10 follows Step 9) and PL-4a (Step 8a precedes Step 9).
+
+  Soundness property:
+    Forall function F processed by run_aims_pipeline.
+      Let pos_5 = position(Step 5 realize_rc_reuse on F) and
+          pos_9 = position(Step 9 merge_blocks on F)
+      in the total intra-function execution order.
+      Two conjuncts SHALL hold:
+
+      (P1) Realize-phase-1-before-merge:
+        pos_5 < pos_9. Phase 1 (realize_rc_reuse) completes — emitting all
+        position-keyed RC + reuse + arg_ownership decisions against the
+        pre-merge block layout — strictly before merge_blocks renumbers the
+        CFG.
+
+      (P2) Position-keyed-validity-window:
+        Every read of a position-keyed state map field (block_entry_states,
+        block_exit_states, or any (block_idx, instr_idx) coordinate) by
+        phase 1 occurs while those positions are still valid — i.e., before
+        merge_blocks executes. No phase-1 position-keyed read occurs at or
+        after pos_9.
+
+  Proof obligation:
+    Two-part constructive discharge corresponding to (P1) and (P2), by
+    structural induction over the per-function 12-step pipeline DAG (linear
+    chain Step 5 -> ... -> Step 8a -> Step 9 -> Step 10) + case analysis on
+    merge_blocks's block-renumbering effect.
+
+    Part (P1) — Realize-phase-1-before-merge (structural induction over the
+    per-function step chain):
+
+      Base case — Step 5 (realize_rc_reuse):
+        run_aims_pipeline calls realize_rc_reuse(func, &state_map, ...) as a
+        straight-line statement (mod.rs lines 246-256). It binds `result`
+        and emits phase-1 RC/reuse/arg_ownership against the pre-merge CFG.
+        Post-condition: phase-1 emission complete; block layout unchanged.
+
+      Inductive step — Steps 5a..8a follow Step 5 and precede Step 9:
+        Step 5a fip_precheck (mod.rs line 263) is a straight-line statement
+        after Step 5. Steps 6-9 run inside verify_and_merge (mod.rs line
+        275), which is the next statement after the synergy-metrics
+        assignment (mod.rs line 272). Within verify_and_merge, Step 6 verify
+        (postprocess.rs line 21), Step 7 aims_verify (postprocess.rs line
+        31), Step 8 tail-calls (postprocess.rs lines 36-37), and Step 8a
+        unwind_cleanup (postprocess.rs line 42) all execute as straight-line
+        statements before the merge_blocks call. By the induction hypothesis
+        each follows Step 5 and none merges blocks.
+
+      Termination — Step 9 (merge_blocks):
+        merge_blocks (postprocess.rs line 47) is the LAST statement in
+        verify_and_merge. It is reached only after Step 5's straight-line
+        statement completed (mod.rs line 248 < line 275 < postprocess.rs
+        line 47). Therefore pos_5 < pos_9 holds on every path. (P1)
+        discharged.
+
+    Part (P2) — Position-keyed-validity-window (case analysis on
+    merge_blocks's renumbering):
+
+      Case phase-1 position-keyed read (the only phase-1 emission mode):
+        realize_rc_reuse's Sub-step B (emit_rc_unified, realize/mod.rs line
+        140) walks blocks by their pre-merge ArcBlockId and reads the
+        position-keyed block_entry_states / block_exit_states vectors
+        (state_map.rs lines 218-227) at their pre-merge indices. Because
+        Step 5 runs at pos_5 < pos_9 (Part P1), every such read occurs while
+        the block indices are still the indices the state map was built
+        against. Validity preserved.
+
+      Case merge renumbers blocks (the invalidation event):
+        merge_blocks Phase 1 compact_blocks (block_merge/mod.rs line 76)
+        removes unreachable blocks and Phase 4 merge_jump_chains (line 88)
+        collapses Jump chains — both change ArcBlockId::index() assignments.
+        After this, block_entry_states[old_idx] no longer addresses the
+        block it was built for. Per Annex E §AIMS §6 the position-keyed
+        maps are "invalid after merge_blocks() — never query them
+        post-merge." The shipped driver routes the post-merge phase (Step
+        10) through ArcVarId-keyed lookups instead (PL-4), so no
+        position-keyed read survives the boundary. (P2) discharged.
+
+    Coverage gate — pipeline-step ordered-pair enumeration:
+
+      The verifier models the shipped per-function schedule as an ordered
+      step list and discharges the ordered-pair predicate position(Step 5)
+      < position(Step 9) plus the position-keyed attribute on Step 5 and the
+      block-renumbering attribute on Step 9. It asserts:
+        - Step 5 (realize_rc_reuse) is present with the
+          position-keyed-emission attribute.
+        - Step 9 (merge_blocks) is present with the renumbers-blocks
+          attribute.
+        - position(Step 5) < position(Step 9) in the total order.
+        - the intervening steps {5a, 6, 7, 8, 8a} all sit strictly between
+          (no step renumbers blocks ahead of Step 9).
+
+      Coverage axes:
+        Realize-before-merge (P1): the (Step 5, Step 9) ordered pair, plus
+          the five intervening steps verified to preserve the ordering.
+        Validity-window (P2): Step 5 verified position-keyed, Step 9
+          verified renumbers-blocks (so the position-keyed window closes
+          exactly at pos_9).
+
+    Negative-direction witness — merge-before-realize-phase-1 rejected:
+
+      Hypothetically scheduling Step 9 (merge_blocks) before Step 5
+      (realize_rc_reuse) would have phase 1 emit against a renumbered CFG
+      whose block indices no longer match the AimsStateMap's position-keyed
+      vectors (state_map.rs lines 218-227). Reads of block_entry_states[idx]
+      would address the WRONG block or be out of bounds — silently
+      miscompiling RC placement, violating Annex E §AIMS PL-5 ("no
+      pass relies on stale summaries"). The verifier rejects any schedule
+      with position(Step 9) <= position(Step 5).
+
+    Negative-direction witness — position-keyed read after merge rejected:
+
+      Even with Step 5 before Step 9, a phase-1 read of block_entry_states
+      issued AFTER merge_blocks ran would read stale data (the post-merge
+      block layout differs). The shipped phase-1 emission is wholly inside
+      realize_rc_reuse (mod.rs line 248), which completes before
+      verify_and_merge (mod.rs line 275); no phase-1 position-keyed read is
+      deferred past merge. The verifier rejects any schedule that issues a
+      position-keyed read at a position >= pos_9.
+
+    Cycle-soundness witness — PL-3 sits between PL-2 and PL-4/PL-4a:
+
+      PL-3 fixes the Step-5-before-Step-9 boundary. Its antecedent is PL-2
+      (Step 4 precedes Step 5, so the state map phase 1 reads is converged).
+      Its successors are PL-4 (Step 10 follows Step 9; post-merge phase uses
+      merge-surviving ArcVarId-keyed lookups) and PL-4a (Step 8a precedes
+      Step 9; unwind cleanup runs before the CFG merge). The dependency
+      chain is acyclic:
+        PL-2 --> PL-3 (Step 5 phase 1 precedes Step 9 merge)
+        PL-3 --> PL-4 (Step 10 phase 2 follows Step 9 merge)
+        PL-3 --> PL-4a (Step 8a unwind precedes Step 9 merge)
+        PL-3 --> PL-5 (no stale summaries — phase-1 position-keyed reads
+                      close before merge invalidates the indices)
+      PL-3 produces nothing PL-2 consumes; no cycle.
+
+    Algorithm-citation declaration:
+      property: intra-function pipeline-step ordering (position-
+                           keyed realization phase 1 runs before the CFG
+                           merge that invalidates block positions)
+      published: standard "stable-IR-positions-before-CFG-cleanup"
+                           discipline — coordinate-keyed analysis results are
+                           consumed before any pass that renumbers basic
+                           blocks; the same shape governs LLVM's
+                           BasicBlock-index invalidation after CFG
+                           simplification from the published reference-compiler corpus
+      determinism: deterministic — realize_rc_reuse (mod.rs line 248)
+                           followed by verify_and_merge -> merge_blocks
+                           (postprocess.rs line 47) is a fixed straight-line
+                           ordering; no schedule freedom exists
+      reference impl: ori_arc::pipeline::aims_pipeline::run_aims_pipeline
+                           (mod.rs Step 5 realize_rc_reuse lines 246-256,
+                           Steps 6-9 verify_and_merge line 275) +
+                           ori_arc::pipeline::aims_pipeline::postprocess::
+                           verify_and_merge (postprocess.rs Step 8a line 42,
+                           Step 9 merge_blocks line 47) +
+                           ori_arc::block_merge::merge_blocks (block_merge/
+                           mod.rs lines 71-95, compact line 76, merge_jump_
+                           chains line 88) + AimsStateMap position-keyed
+                           fields (state_map.rs lines 218-227)
+
+    Engines dispatched:
+      structural_induction (PRIMARY — structural induction over the
+        per-function linear pipeline DAG per section_07::
+        verify_pl3_realize_before_merge; the verifier models the shipped
+        schedule as an ordered step list and discharges (P1)
+        realize-before-merge via the ordered-pair predicate position(Step 5)
+        < position(Step 9) and (P2) the position-keyed validity window via
+        the position-keyed attribute on Step 5 + the renumbers-blocks
+        attribute on Step 9; emits Fail on any ordering or attribute
+        violation)
+      case_analysis (SECONDARY — per-case grid over the position-keyed-read
+        case + the merge-renumbering invalidation case; gracious-accept once
+        structural_induction has discharged the ordering obligation per the
+        coverage-manifest PL row)
+
+  Expected:
+    status: valid
+    reason: section_07 structural_induction engine discharges PL-3 via the per-function pipeline-DAG ordered pair — (P1) Step 5 realize_rc_reuse (phase 1) precedes Step 9 merge_blocks (position(Step 5) < position(Step 9): realize_rc_reuse at mod.rs line 248 precedes verify_and_merge at line 275 whose last statement is merge_blocks at postprocess.rs line 47) and (P2) the position-keyed validity window closes at merge (block_entry_states/block_exit_states are ArcBlockId-indexed Vecs per state_map.rs lines 218-227, invalidated by merge_blocks block renumbering per block_merge/mod.rs compact line 76 + merge_jump_chains line 88); case_analysis secondary-accepting per the coverage-manifest PL row

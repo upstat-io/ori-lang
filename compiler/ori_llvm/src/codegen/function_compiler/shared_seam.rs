@@ -1,20 +1,7 @@
-//! Shared ARC processing helpers — the primary seam between the codegen
-//! orchestrator and the ARC/AIMS pipeline.
+//! Shared executable-artifact projection helpers.
 //!
-//! Both the immediate-emit path ([`FunctionCompiler::emit_arc_function`] in
-//! [`super::define_phase`]) and the two-pass prepare path
-//! ([`FunctionCompiler::prepare_arc_function`] in [`super::nounwind::prepare`])
-//! route through these helpers. Factored out of `define_phase.rs` as part
-//! of the §04 hygiene sweep so `define_phase.rs` stays under the 500-line
-//! cap while keeping the shared-seam surface in one place.
-//!
-//! Callers (grep-verifiable):
-//! - `define_phase.rs`: `emit_arc_function_inner` → `process_arc_function`;
-//!   `compile_lambda_arc` → `declare_and_process_lambda`.
-//! - `nounwind/prepare.rs`: `prepare_arc_function` / `prepare_lambda` →
-//!   same two entry points.
-//! - `impls.rs`: `compile_impls` / test compilation go through
-//!   `emit_arc_function` above (no direct call to these helpers today).
+//! Immediate emission and nounwind preparation share realization, verification,
+//! calling-convention selection, and ARC emission through this module.
 
 use ori_arc::verify::VerifyError;
 use ori_ir::Name;
@@ -22,78 +9,59 @@ use rustc_hash::FxHashSet;
 use tracing::debug;
 
 use super::FunctionCompiler;
-use crate::codegen::abi::{CallConv, FunctionAbi};
+use crate::codegen::abi::{select_call_conv, CallConvSite, FunctionAbi};
 use crate::codegen::value_id::FunctionId;
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
-    /// Apply borrow annotations, annotate arg ownership, and run the ARC
-    /// pipeline on a function.
+    /// Replace a lowering shape-driver with its closed realized body.
     ///
-    /// Shared by both the immediate-emit path ([`Self::emit_arc_function`]) and
-    /// the two-pass prepare path ([`Self::prepare_arc_function`]).
-    ///
-    /// Returns `Err(VerifyError::UnresolvedTypeVar(_))` when the PC-2
-    /// cross-phase contract check (`typeck.md §PC-2`,
-    /// `impl-hygiene.md §Cross-Phase Invariant Contracts`,
-    /// `codegen-rules.md §TR-2`) detects `Tag::Var` or `Tag::Projection` in
-    /// the ARC IR — this is ALWAYS-ON contract enforcement per
-    /// `CLAUDE.md §The One Rule`, not gated by `self.verify_arc` which
-    /// controls additional downstream verification (VR-1 LLVM IR verification).
+    /// Returns [`VerifyError::UnresolvedTypeVar`] when PC-2 detects unresolved
+    /// variables or projections. This contract check is independent of
+    /// optional LLVM verification.
     pub(super) fn process_arc_function(
         &mut self,
         name: Name,
         arc_func: &mut ori_arc::ArcFunction,
     ) -> Result<(), VerifyError> {
-        // PC-2 contract check. Runs BEFORE run_arc_pipeline because the
-        // pipeline mutates `arc_func` in place; assertion on post-pipeline
-        // IR would validate the wrong structure.
-        //
-        // Empty exempt set: generic bodies reach this seam only post-
-        // monomorphization; non-generic bodies have no scheme_var_ids.
+        if let Some(program) = self.executable_program {
+            let Some(function) = program.function_id(name) else {
+                self.builder.record_codegen_error_with_msg(format!(
+                    "validated executable has no realized body for {}",
+                    self.interner.lookup(name)
+                ));
+                return Ok(());
+            };
+            *arc_func = program.functions()[function.index()].clone();
+        } else {
+            #[cfg(not(test))]
+            {
+                self.builder.record_codegen_error_with_msg(format!(
+                    "physical LLVM projection requires a closed executable artifact for {}",
+                    self.interner.lookup(name)
+                ));
+                return Err(VerifyError::VariableMetadataUnrealized);
+            }
+            #[cfg(test)]
+            debug!(
+                name = %self.interner.lookup(name),
+                "projecting an explicitly supplied low-level test fixture"
+            );
+        }
+
+        // INVARIANT: Physical projection validates the closed, monomorphized body.
         let exempt: FxHashSet<u32> = FxHashSet::default();
         if let Err(err) =
             ori_arc::assert_no_unresolved_type_vars(self.pool, arc_func, self.interner, &exempt)
         {
-            return Err(self.report_primary_seam_violation(
-                err,
-                "Tag::Var in ARC IR violates PC-2 contract (impl-hygiene.md §Cross-Phase Invariant Contracts, codegen-rules.md §TR-2)",
-            ));
+            return Err(self
+                .report_primary_seam_violation(err, "Tag::Var in ARC IR violates PC-2 contract"));
         }
 
-        // Apply AIMS param ownership from pre-computed contracts.
-        // Lowering defaults all params to Ownership::Owned (lower/mod.rs).
-        // AIMS contracts (from compute_aims_contracts()) provide the correct
-        // Owned/Borrowed per param.
-        debug!(name = %self.interner.lookup(name), "processing ARC function");
-        self.apply_aims_param_ownership(arc_func);
-
-        // AIMS pipeline handles arg_ownership internally (Step 4: emit_arg_ownership).
-        let arc_problems = ori_arc::run_arc_pipeline(
-            arc_func,
-            self.arc_classifier,
-            self.annotated_sigs,
-            self.pool,
-            self.interner,
-            &self.uniqueness_summaries,
-            &self.aims_contracts,
-            self.verify_arc,
-        );
-        match arc_problems {
-            Ok(problems) => {
-                for problem in &problems {
-                    debug!(?problem, "ARC pipeline problem");
-                }
-            }
-            Err(verify_errors) => {
-                let func_name = self.interner.lookup(name);
-                for e in &verify_errors {
-                    tracing::error!(function = func_name, "ARC IR verification ICE: {e}");
-                }
-                self.builder.record_codegen_error_with_msg(format!(
-                    "ARC IR verification failed for function '{func_name}' ({} errors)",
-                    verify_errors.len()
-                ));
-            }
+        if self.executable_program.is_some() {
+            debug!(
+                name = %self.interner.lookup(name),
+                "consuming closed post-AIMS function body"
+            );
         }
 
         Ok(())
@@ -102,7 +70,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// Report a contract-violation at a primary PC-2 / monomorphization-resolution
     /// seam: emit structured `contract_violation=true` tracing event, increment
     /// the codegen-error counter (so AOT callers see the failure through
-    /// `builder.codegen_error_count()`), and convert the typed error to the
+    /// `builder.codegen_error_count`), and convert the typed error to the
     /// shared `VerifyError` variant via `Into`. Returns the converted error so
     /// the caller can `return Err(...)` directly.
     ///
@@ -110,7 +78,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// `declare_and_process_lambda` (PC-2 + `BoundVar` on lambdas). Secondary-site
     /// hooks (`pc2_hooks::run_pc2_hook_aot` AOT path, `evaluator/compile.rs` JIT
     /// path) do NOT use this helper — they emit `tracing::error!` only per the
-    /// secondary-site contract (no `record_codegen_error()`, no `return Err`).
+    /// secondary-site contract (no `record_codegen_error`, no `return Err`).
     pub(super) fn report_primary_seam_violation<E>(
         &mut self,
         err: E,
@@ -128,26 +96,6 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         err.into()
     }
 
-    /// Translate AIMS `ParamContract` → `Ownership` for every param on `func`.
-    ///
-    /// Lowering defaults all params to `Ownership::Owned` (see
-    /// `ori_arc/src/lower/mod.rs`); AIMS contracts (from `compute_aims_contracts()`)
-    /// carry the correct Owned/Borrowed classification per param. This helper
-    /// consumes the interprocedural contract for `func.name` (when present) and
-    /// writes the per-param ownership in-place. Callers: `process_arc_function`
-    /// (top-level) + `declare_and_process_lambda` (lambdas); both forms share
-    /// identical translation logic (§impl-hygiene.md §Algorithmic DRY).
-    pub(super) fn apply_aims_param_ownership(&self, func: &mut ori_arc::ArcFunction) {
-        if let Some(contract) = self.aims_contracts.get(&func.name) {
-            for (param, pc) in func.params.iter_mut().zip(&contract.params) {
-                param.ownership = match pc.access {
-                    ori_arc::aims::lattice::AccessClass::Borrowed => ori_arc::Ownership::Borrowed,
-                    ori_arc::aims::lattice::AccessClass::Owned => ori_arc::Ownership::Owned,
-                };
-            }
-        }
-    }
-
     /// Declare a lambda LLVM function, register it in `codegen_ctx`, and run
     /// the ARC pipeline.
     ///
@@ -162,15 +110,39 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     /// parameter, making it directly callable as a closure without generating
     /// a `_ori_partial_N` trampoline wrapper. The emission ABI (stored in
     /// `codegen_ctx.functions`) does NOT include the phantom param -- it stays
-    /// unchanged so `emit_function()` body emission works correctly.
+    /// unchanged so `emit_function` body emission works correctly.
     pub(super) fn declare_and_process_lambda(
         &mut self,
         lambda: &mut ori_arc::ArcFunction,
     ) -> Result<(Name, FunctionId, FunctionAbi), VerifyError> {
-        // PC-2 contract check. Runs BEFORE run_arc_pipeline below because
-        // the pipeline mutates `lambda` in place; assertion on post-pipeline
-        // IR would validate the wrong structure. Mirrors the sibling check
-        // in `process_arc_function`.
+        if let Some(program) = self.executable_program {
+            let Some(function) = program.function_id(lambda.name) else {
+                self.builder.record_codegen_error_with_msg(format!(
+                    "validated executable has no realized lambda body for {}",
+                    self.interner.lookup(lambda.name)
+                ));
+                return Err(VerifyError::VariableMetadataUnrealized);
+            };
+            *lambda = program.functions()[function.index()].clone();
+        } else {
+            #[cfg(not(test))]
+            {
+                self.builder.record_codegen_error_with_msg(format!(
+                    "physical LLVM projection requires a closed executable artifact for lambda {}",
+                    self.interner.lookup(lambda.name)
+                ));
+                return Err(VerifyError::VariableMetadataUnrealized);
+            }
+            #[cfg(test)]
+            debug!(
+                name = %self.interner.lookup(lambda.name),
+                "projecting an explicitly supplied low-level lambda fixture"
+            );
+        }
+
+        // PC-2 contract check guards the exact realized lambda body consumed
+        // by physical projection. Mirrors the sibling check in
+        // `process_arc_function`.
         let exempt: FxHashSet<u32> = FxHashSet::default();
         if let Err(err) =
             ori_arc::assert_no_unresolved_type_vars(self.pool, lambda, self.interner, &exempt)
@@ -181,41 +153,30 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             ));
         }
 
-        // Monomorphization-resolution sibling invariant. Runs at the same
+        // Shared specialization sibling invariant. Runs at the same
         // seam as the PC-2 check so BOTH the immediate-emit path
         // (`compile_lambda_arc`) and the two-pass prepare path
-        // (`prepare_lambda`) are covered. `resolve_all_lambda_bound_vars`
+        // (`prepare_lambda`) are covered. `specialize_polymorphic_lambdas`
         // must have substituted every `Tag::BoundVar` before this point;
-        // survivors mean monomorphization did not finish (types.md §SC-1,
-        // typeck.md §GN-2). Always-on (no `debug_assert!` fail-open);
+        // survivors mean monomorphization did not finish. Always-on (no `debug_assert!` fail-open);
         // routes through `report_primary_seam_violation` so AOT callers see
         // the BoundVar failure through the same `codegen_errors` counter
         // they rely on for PC-2 failures.
-        if let Err(err) = ori_arc::assert_no_unresolved_bound_vars_in_params(self.pool, lambda) {
+        if let Err(err) = ori_arc::assert_no_unresolved_bound_vars(self.pool, lambda) {
             return Err(self.report_primary_seam_violation(
                 err,
-                "Tag::BoundVar in lambda params violates monomorphization-resolution invariant",
+                "Tag::BoundVar in shared lambda ARC violates specialization invariant",
             ));
         }
 
         let is_non_capturing = lambda.num_captures == 0;
-
-        // Apply AIMS param ownership from pre-computed contracts BEFORE the
-        // name change below. The contracts map uses the original lambda name
-        // (e.g., `__lambda_0` from lowering). Lambdas need correct
-        // Owned/Borrowed annotations so that collect_all_borrowed_defs()
-        // correctly identifies borrowed params and their Let aliases.
-        // Without this, edge cleanup emits spurious RcDec for
-        // borrowed-param aliases (double-free on captured non-scalar
-        // values like str, [T]).
-        self.apply_aims_param_ownership(lambda);
 
         let mut abi = self.compute_arc_function_abi(lambda);
 
         // Non-capturing lambdas use `ccc` so they match the closure calling
         // convention directly: `(ptr %env, user_args...) -> ret`.
         if is_non_capturing {
-            abi.call_conv = CallConv::C;
+            abi.call_conv = select_call_conv(CallConvSite::NonCapturingLambda);
         }
 
         // Lambda names are globally unique from lowering (include parent function
@@ -236,9 +197,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             "declaring lambda"
         );
 
-        // Declare with phantom env param for non-capturing lambdas.
-        // The emission ABI (registered below) does NOT include the phantom
-        // param -- emit_function() adjusts llvm_param_idx to skip it.
+        // INVARIANT: Non-capturing lambdas reserve an LLVM-only environment parameter.
         let func_id = if is_non_capturing {
             let ptr_ty = self.builder.ptr_type();
             self.declare_function_llvm_with_extra_params(&symbol, &abi, &[ptr_ty])
@@ -253,34 +212,6 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         self.codegen_ctx
             .functions
             .insert(unique_name, (func_id, abi.clone()));
-
-        // ARC processing — AIMS pipeline handles arg_ownership internally.
-        let arc_problems = ori_arc::run_arc_pipeline(
-            lambda,
-            self.arc_classifier,
-            self.annotated_sigs,
-            self.pool,
-            self.interner,
-            &self.uniqueness_summaries,
-            &self.aims_contracts,
-            self.verify_arc,
-        );
-        match arc_problems {
-            Ok(problems) => {
-                for problem in &problems {
-                    debug!(?problem, "ARC pipeline problem (lambda)");
-                }
-            }
-            Err(verify_errors) => {
-                for e in &verify_errors {
-                    tracing::error!("ARC IR verification ICE (lambda): {e}");
-                }
-                self.builder.record_codegen_error_with_msg(format!(
-                    "ARC IR verification failed for lambda ({} errors)",
-                    verify_errors.len()
-                ));
-            }
-        }
 
         // Store capture param ownership so emit_partial_apply can generate
         // correct wrapper functions: borrowed captures skip RcInc (body borrows

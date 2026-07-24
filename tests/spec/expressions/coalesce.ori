@@ -197,6 +197,20 @@ use std.testing { assert, assert_eq }
     result ?? 0
 }
 
+// Spec: 09-expressions.md § Binary Expressions (??) — discarding the Err
+// variant of a Result via ?? releases its payload. The Err payload here is a
+// heap-allocated str (>23 bytes, defeats SSO) so its RC allocation must be
+// freed on the Err-taken edge. ORI_CHECK_LEAKS=1 must report zero leaks.
+@test_coalesce_discards_heap_err_payload tests @coalesce_discards_heap_err_payload () -> void = {
+    let value = coalesce_discards_heap_err_payload();
+    assert_eq(actual: value, expected: 42)
+}
+
+@coalesce_discards_heap_err_payload () -> int = {
+    let result: Result<int, str> = Err("an allocated failure message well past sso");
+    result ?? 42
+}
+
 @test_ok_skips_default tests @ok_skips_default () -> void = {
     let result: Result<int, str> = Ok(42);
     let value = result ?? panic(msg: "should not execute");

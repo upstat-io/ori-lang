@@ -2,6 +2,20 @@ use crate::{Ownership, ReturnTag, TypeTag};
 
 use super::*;
 
+#[test]
+fn registered_method_identity_counts_only_real_source_operands() {
+    let instance = find_method_id(TypeTag::Ordering, "is_less")
+        .unwrap_or_else(|| panic!("Ordering.is_less should have an identity"));
+    assert_eq!(instance.arity(), 1);
+
+    let associated = find_method_id(TypeTag::Str, "from_utf8")
+        .unwrap_or_else(|| panic!("str.from_utf8 should have an identity"));
+    let definition = find_method(TypeTag::Str, "from_utf8")
+        .unwrap_or_else(|| panic!("str.from_utf8 should be registered"));
+    assert_eq!(definition.kind, crate::MethodKind::Associated);
+    assert_eq!(associated.arity(), definition.params.len());
+}
+
 // find_type tests
 
 #[test]
@@ -22,7 +36,6 @@ fn find_type_returns_known_types() {
 
 #[test]
 fn find_type_returns_none_for_non_registry_tags() {
-    assert!(find_type(TypeTag::Unit).is_none());
     assert!(find_type(TypeTag::Never).is_none());
     assert!(find_type(TypeTag::Function).is_none());
     // DEI has no separate TypeDef — must use base_type() aliasing
@@ -92,8 +105,32 @@ fn find_method_returns_none_for_unknown_method() {
 }
 
 #[test]
-fn find_method_returns_none_for_non_registry_type() {
-    assert!(find_method(TypeTag::Unit, "foo").is_none());
+fn unit_methods_have_exact_registry_identities() {
+    let compare = find_method_id(TypeTag::Unit, "compare")
+        .unwrap_or_else(|| panic!("void.compare should have an identity"));
+    let default = find_method_id(TypeTag::Unit, "default")
+        .unwrap_or_else(|| panic!("void.default should have an identity"));
+
+    assert_eq!(compare.receiver(), TypeTag::Unit);
+    assert_eq!(compare.arity(), 2);
+    assert_eq!(default.receiver(), TypeTag::Unit);
+    assert_eq!(default.arity(), 0);
+}
+
+#[test]
+fn method_identity_preserves_receiver_and_exact_arity() {
+    let identity = find_method_id(TypeTag::Ordering, "is_less")
+        .unwrap_or_else(|| panic!("Ordering.is_less should have an identity"));
+    assert_eq!(identity.receiver(), TypeTag::Ordering);
+    assert_eq!(identity.arity(), 1);
+
+    let dei = find_method_id(TypeTag::DoubleEndedIterator, "next_back")
+        .unwrap_or_else(|| panic!("DEI.next_back should have an identity"));
+    assert_eq!(dei.receiver(), TypeTag::DoubleEndedIterator);
+    assert_eq!(dei.arity(), 1);
+
+    assert!(find_method_id(TypeTag::Iterator, "next_back").is_none());
+    assert!(find_method_id(TypeTag::Int, "nonexistent").is_none());
 }
 
 #[test]
@@ -165,7 +202,6 @@ fn methods_for_returns_nonempty_for_known_types() {
 
 #[test]
 fn methods_for_returns_empty_for_unknown_types() {
-    assert!(methods_for(TypeTag::Unit).is_empty());
     assert!(methods_for(TypeTag::Never).is_empty());
 }
 
@@ -181,13 +217,13 @@ fn method_names_for_returns_expected_names() {
 #[test]
 fn method_names_for_dei_filters_dei_only() {
     let iter_names: Vec<&str> = method_names_for(TypeTag::Iterator).collect();
-    // Plain Iterator: 19 non-DEI methods
+    // Plain Iterator excludes DEI-only methods (next_back, rev, last, rfind, rfold).
     assert_eq!(iter_names.len(), 19);
     assert!(!iter_names.contains(&"next_back"));
     assert!(!iter_names.contains(&"rev"));
 
     let dei_names: Vec<&str> = method_names_for(TypeTag::DoubleEndedIterator).collect();
-    // DEI: all 24 methods
+    // DoubleEndedIterator includes the DEI-only methods plain Iterator hides.
     assert_eq!(dei_names.len(), 24);
     assert!(dei_names.contains(&"next_back"));
     assert!(dei_names.contains(&"rev"));
@@ -361,19 +397,19 @@ fn borrowing_methods_subset_of_all_methods() {
     }
 }
 
-// legacy_type_name tests
+// lowercase_type_name tests
 
 #[test]
-fn legacy_type_name_maps_pascal_to_lowercase() {
-    use super::legacy_type_name;
+fn lowercase_type_name_maps_pascal_to_lowercase() {
+    use super::lowercase_type_name;
 
-    assert_eq!(legacy_type_name("Error"), "error");
-    assert_eq!(legacy_type_name("List"), "list");
-    assert_eq!(legacy_type_name("Map"), "map");
-    assert_eq!(legacy_type_name("Range"), "range");
-    assert_eq!(legacy_type_name("Tuple"), "tuple");
-    assert_eq!(legacy_type_name("int"), "int");
-    assert_eq!(legacy_type_name("str"), "str");
+    assert_eq!(lowercase_type_name("Error"), "error");
+    assert_eq!(lowercase_type_name("List"), "list");
+    assert_eq!(lowercase_type_name("Map"), "map");
+    assert_eq!(lowercase_type_name("Range"), "range");
+    assert_eq!(lowercase_type_name("Tuple"), "tuple");
+    assert_eq!(lowercase_type_name("int"), "int");
+    assert_eq!(lowercase_type_name("str"), "str");
 }
 
 // const fn find_type test

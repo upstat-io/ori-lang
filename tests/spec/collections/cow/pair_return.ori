@@ -1,0 +1,35 @@
+// COW pair-return transfer tests: a dup-inc'd collection whose FINAL use is an
+// owned aggregate Construct arg (tuple element) hands its reference to the
+// aggregate — no further release on any path. Covers the cross-block multi-use
+// lineage read in the caller, and the unwind-path hand-off under catch.
+// Spec: Annex E §AIMS RL-2.
+
+use std.testing { assert_eq }
+
+// --- Pair return, elements read in caller ---
+
+@mk2 () -> ({str: int}, {str: int}) = {
+    let base = {"x": 10, "y": 20};
+    let fork = base.insert("z", 30);
+
+    (base, fork)
+}
+
+@test_pair_elements_read tests @mk2 () -> void = {
+    let (a, b) = mk2();
+    assert_eq(actual: a.len(), expected: 2);
+    assert_eq(actual: b.len(), expected: 3)
+}
+
+// --- Unwind path: hand-off result destructured under catch ---
+
+@read_pair_lens () -> int = {
+    let (a, b) = mk2();
+
+    a.len() + b.len()
+}
+
+@test_pair_under_catch tests @mk2 () -> void = {
+    let r = catch(expr: read_pair_lens());
+    assert_eq(actual: r.unwrap_or(0), expected: 5)
+}

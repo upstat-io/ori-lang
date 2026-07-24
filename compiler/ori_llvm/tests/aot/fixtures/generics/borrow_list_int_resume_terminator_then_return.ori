@@ -1,0 +1,16 @@
+// (B-1) Resume-terminator composition pin: borrowed [int] param + panic
+// branch (Resume terminator) + return-xs branch (Return-as-transfer).
+// Verifies the existing should_suppress_return_transfer_dec gating
+// (per Spec: Annex E §AIMS RL-4) still fires on the return-xs path after
+// the new pre-compute set lands. NOT a true (B-1) case — composition
+// guard. The panic branch is unreachable at runtime (xs.len() > 0).
+
+@borrow_then_resume (xs: [int]) -> [int] = {
+    if xs.len() == 0 then panic(msg: "empty list") else xs
+};
+
+@main () -> int = {
+    let original = [7, 14, 21];
+    let returned = borrow_then_resume(xs: original);
+    if returned.len() == 3 && returned[0] == 7 && returned[2] == 21 then 0 else 1
+}

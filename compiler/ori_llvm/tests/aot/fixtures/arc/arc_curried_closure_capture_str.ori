@@ -1,5 +1,5 @@
 // Cross-type: curried closure capturing str (RC-typed via fat pointer).
-// Same root cause as list capture — tracked as BUG-04-035.
+// Same root cause as list capture.
 @main () -> int = {
     let $fst = a -> b -> a;
     let $s = fst("hello")(0);

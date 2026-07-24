@@ -4,10 +4,6 @@
 //! each user-defined type through the `TypeLayoutResolver`. This ensures
 //! LLVM named struct types exist in the module before any function body
 //! compilation begins.
-//!
-//! Replaces `ModuleCompiler::register_struct_with_types()` and
-//! `register_sum_type_from_decl()` with a single function that operates
-//! on V2 infrastructure.
 
 use ori_types::TypeEntry;
 
@@ -23,7 +19,13 @@ use super::type_info::TypeLayoutResolver;
 /// Generic types (those with non-empty `type_params`) are skipped — they
 /// require monomorphization and will be resolved when concrete instances
 /// are encountered.
-pub fn register_user_types(resolver: &TypeLayoutResolver<'_, '_, '_>, types: &[TypeEntry]) {
+///
+/// Returns the number of types registered (generic entries excluded).
+pub fn register_user_types(
+    resolver: &TypeLayoutResolver<'_, '_, '_>,
+    types: &[TypeEntry],
+) -> usize {
+    let mut registered = 0;
     for entry in types {
         // Skip generic types — they're resolved during monomorphization
         if !entry.type_params.is_empty() {
@@ -45,7 +47,9 @@ pub fn register_user_types(resolver: &TypeLayoutResolver<'_, '_, '_>, types: &[T
         // The resolver caches the result, so subsequent calls to
         // resolver.resolve(entry.idx) return the cached type.
         resolver.resolve(entry.idx);
+        registered += 1;
     }
+    registered
 }
 
 #[cfg(test)]

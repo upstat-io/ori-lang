@@ -110,6 +110,7 @@ Consecutive blank lines are collapsed to a single blank line. Trailing whitespac
 | Spread `...` | No space after | `[...a, ...b]`, `f(...args)` |
 | Unary operators | No space after | `-x`, `!valid`, `~mask` |
 | Error propagation `?` | No space before | `fetch()?` |
+| Fallible forms `let?` / `as?` | No interior space | `let? Some(x) = e;`, `v as? int` |
 | Pipe `\|>` | Space around | `x \|> f()` |
 | Pipe to method `\|> .m()` | Space around `\|>`, no space before `.` | `x \|> .trim()` |
 | Nullish coalescing `??` | Space around | `a ?? b` |
@@ -1766,7 +1767,7 @@ Width-based. One element per line when broken. Rest patterns `..rest` and `..$re
 // Inline
 let (x, y) = get_point();
 let { name, age } = get_user();
-let [$head, ..tail] = items;
+let [..rest] = items;
 
 // Broken — one per line
 let {

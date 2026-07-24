@@ -1,9 +1,7 @@
 use ori_ir::{Name, Span};
 use ori_types::{Idx, Pool};
 
-use crate::graph::DominatorTree;
 use crate::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue, RcStrategy};
-use crate::liveness::compute_refined_liveness;
 use crate::lower::ArcProblem;
 use crate::test_helpers::{b, make_func, owned_param, v};
 use crate::ArcClassifier;
@@ -39,13 +37,10 @@ fn achieved_reuse_reported() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let dom_tree = DominatorTree::build(&func);
-    let (refined, _) = compute_refined_liveness(&func, &classifier);
+    let report = analyze_fbip(&func, &classifier);
 
-    let report = analyze_fbip(&func, &classifier, &dom_tree, &refined);
-
-    assert_eq!(report.achieved.len(), 1);
-    assert!(report.is_fbip);
+    assert_eq!(report.achieved_count, 1);
+    assert!(report.is_fbip());
 }
 
 /// Function with an unpaired `RcDec` + matching Construct → missed.
@@ -61,6 +56,7 @@ fn missed_reuse_detected() {
                 ArcInstr::RcDec {
                     var: v(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
                 ArcInstr::Construct {
                     dst: v(1),
@@ -76,14 +72,11 @@ fn missed_reuse_detected() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let dom_tree = DominatorTree::build(&func);
-    let (refined, _) = compute_refined_liveness(&func, &classifier);
+    let report = analyze_fbip(&func, &classifier);
 
-    let report = analyze_fbip(&func, &classifier, &dom_tree, &refined);
-
-    assert!(report.achieved.is_empty());
-    assert!(!report.missed.is_empty(), "should detect missed reuse");
-    assert!(!report.is_fbip);
+    assert_eq!(report.achieved_count, 0);
+    assert!(report.missed_count > 0, "should detect missed reuse");
+    assert!(!report.is_fbip());
 }
 
 /// Function with no `RcDec` and no Construct → trivially not FBIP
@@ -108,20 +101,16 @@ fn no_allocations_not_fbip() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let dom_tree = DominatorTree::build(&func);
-    let (refined, _) = compute_refined_liveness(&func, &classifier);
+    let report = analyze_fbip(&func, &classifier);
 
-    let report = analyze_fbip(&func, &classifier, &dom_tree, &refined);
-
-    assert!(report.achieved.is_empty());
-    assert!(report.missed.is_empty());
-    assert!(!report.is_fbip, "no allocations → not FBIP");
+    assert_eq!(report.achieved_count, 0);
+    assert_eq!(report.missed_count, 0);
+    assert!(!report.is_fbip(), "no allocations → not FBIP");
 }
 
-/// Type mismatch: `RcDec` of str, Construct of a different type → missed
-/// with `TypeMismatch` reason.
+/// An unpaired `RcDec` remains missed even when a later construct has the same type.
 #[test]
-fn type_mismatch_missed() {
+fn matching_construct_after_unpaired_dec_is_missed() {
     let func = make_func(
         vec![owned_param(0, Idx::STR)],
         Idx::STR,
@@ -132,6 +121,7 @@ fn type_mismatch_missed() {
                 ArcInstr::RcDec {
                     var: v(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
                 // Construct a different type (use a unique Idx to simulate)
                 ArcInstr::Construct {
@@ -155,15 +145,10 @@ fn type_mismatch_missed() {
 
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    let dom_tree = DominatorTree::build(&func);
-    let (refined, _) = compute_refined_liveness(&func, &classifier);
+    let report = analyze_fbip(&func, &classifier);
 
-    let report = analyze_fbip(&func, &classifier, &dom_tree, &refined);
-
-    // v0 is str, there IS a matching Construct of str (v2), so it should
-    // detect a PossiblyShared miss (not type mismatch — there IS a match).
-    assert!(!report.missed.is_empty());
-    assert!(!report.is_fbip);
+    assert!(report.missed_count > 0);
+    assert!(!report.is_fbip());
 }
 
 // check_fbip_enforcement
@@ -218,6 +203,7 @@ fn enforcement_violation_missed_reuse() {
                 ArcInstr::RcDec {
                     var: v(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
                 ArcInstr::Construct {
                     dst: v(1),
@@ -282,7 +268,7 @@ fn enforcement_scalar_only_no_violation() {
     );
 }
 
-// -- is_auto_fbip tests --
+// is_auto_fbip tests
 
 #[test]
 fn auto_fbip_all_static_unique() {

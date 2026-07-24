@@ -1,0 +1,33 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 §C.4.4 — dedup-preserves-receiver-type
+//
+// Two typed-binding call sites on DIFFERENT receiver types (Box<int> vs
+// Option<int>) with the SAME method-args (str inferred from the int -> str
+// mapper). Both have fn_name="map" and identical method-args=[str]; assert
+// mono_instances post-dedup contains BOTH. Tests the receiver-type dedup
+// extension (Round 3 Gemini F1).
+
+use std.testing { assert_eq }
+
+type Box<T> = { value: T }
+type MyOption<T> = { tag: int, val: T }
+
+impl<T> Box<T> {
+    @map<U> (self, f: (T) -> U) -> Box<U> = Box { value: f(self.value) };
+}
+
+impl<T> MyOption<T> {
+    @map<U> (self, f: (T) -> U) -> MyOption<U> = MyOption { tag: self.tag, val: f(self.val) };
+}
+
+@int_to_str (n: int) -> str = `{n}`;
+
+@test_dedup_receiver_type tests _ () -> void = {
+    let box_int: Box<int> = Box { value: 5 };
+    let opt_int: MyOption<int> = MyOption { tag: 1, val: 10 };
+    let r1: Box<str> = box_int.map(f: int_to_str);
+    let r2: MyOption<str> = opt_int.map(f: int_to_str);
+    assert_eq(actual: r1.value, expected: "5");
+    assert_eq(actual: r2.val, expected: "10")
+}

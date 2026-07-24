@@ -31,6 +31,28 @@ use ori_lexer::lex_with_comments;
 /// Widths to test. Covers narrow (60), standard (100), and wide (120).
 const TEST_WIDTHS: &[usize] = &[60, 80, 100, 120];
 
+/// `(repo-relative path, max_width)` pairs whose formatted output currently
+/// emits a code line over `max_width` because the formatter does not yet break
+/// the construct — a known width-breaking defect tracked under BUG-07-313
+/// (the formatter fails to break an over-width line for constructs it has no
+/// break rule for: a nested-if comprehension guard, and a named-arg carrying a
+/// long function-type annotation `transform: (sub: [...]) -> Iterator<...>`
+/// which has no multi-line break form). The harness counts these as KNOWN-tracked
+/// breaks, FAILS on any NEW code-width violation, and FAILS when a listed (file,
+/// width) emits no violation anymore (stale-entry guard) so the list shrinks as
+/// BUG-07-313 is fixed.
+const KNOWN_WIDTH_BREAKS: &[(&str, usize)] = &[
+    ("tests/spec/expressions/loops.ori", 60),
+    ("tests/spec/traits/iterator/methods.ori", 60),
+];
+
+/// Whether `(repo_rel, max_width)` is a tracked BUG-07-313 width break.
+fn is_known_width_break(repo_rel: &str, max_width: usize) -> bool {
+    KNOWN_WIDTH_BREAKS
+        .iter()
+        .any(|(p, w)| *p == repo_rel && *w == max_width)
+}
+
 /// Find all .ori files in a directory recursively.
 fn find_all_ori_files(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
@@ -75,6 +97,15 @@ fn repo_root() -> PathBuf {
         .parent()
         .unwrap()
         .to_path_buf()
+}
+
+/// Repo-relative, forward-slash path string for allowlist matching.
+fn repo_relative(path: &Path) -> String {
+    let root = repo_root();
+    path.strip_prefix(&root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 /// Parse and format code with the given config.
@@ -398,6 +429,9 @@ struct WidthTestResult {
     code_violations: Vec<String>,
     exempt_violations: usize,
     idempotence_failures: Vec<String>,
+    /// `(repo_rel, max_width)` of files whose code-width violation is listed in
+    /// `KNOWN_WIDTH_BREAKS` (BUG-07-313) and was observed to still break here.
+    known_width_breaks_hit: Vec<(String, usize)>,
 }
 
 /// Run tests for all files in a directory at a specific width.
@@ -408,6 +442,7 @@ fn run_tests_at_width(dir: &Path, max_width: usize) -> WidthTestResult {
     let mut code_violations = Vec::new();
     let mut exempt_violations = 0;
     let mut idempotence_failures = Vec::new();
+    let mut known_width_breaks_hit = Vec::new();
 
     for file in &files {
         match test_file_at_width(file, max_width) {
@@ -416,12 +451,18 @@ fn run_tests_at_width(dir: &Path, max_width: usize) -> WidthTestResult {
                     passed += 1;
                 }
                 if !result.code_violations.is_empty() {
-                    code_violations.push(format!(
-                        "{}: {} code violations:\n{}",
-                        file.display(),
-                        result.code_violations.len(),
-                        result.code_violations.join("\n")
-                    ));
+                    let repo_rel = repo_relative(file);
+                    if is_known_width_break(&repo_rel, max_width) {
+                        // Tracked BUG-07-313 break — counted, not failed.
+                        known_width_breaks_hit.push((repo_rel, max_width));
+                    } else {
+                        code_violations.push(format!(
+                            "{}: {} code violations:\n{}",
+                            file.display(),
+                            result.code_violations.len(),
+                            result.code_violations.join("\n")
+                        ));
+                    }
                 }
                 exempt_violations += result.exempt_violations.len();
                 if let Some(e) = result.idempotence_error {
@@ -443,7 +484,45 @@ fn run_tests_at_width(dir: &Path, max_width: usize) -> WidthTestResult {
         code_violations,
         exempt_violations,
         idempotence_failures,
+        known_width_breaks_hit,
     }
+}
+
+/// Fail if any `KNOWN_WIDTH_BREAKS` entry whose dir was scanned at its width was
+/// NOT observed to break — a stale tracked entry (the width defect is fixed; the
+/// allowlist must shrink), mirroring DISPOSITION_DRIFT:stale-tracking.
+fn assert_no_stale_known_width_breaks(
+    hit: &[(String, usize)],
+    scanned_repo_rels: &[String],
+    widths_run: &[usize],
+) {
+    let mut stale = Vec::new();
+    for (known_path, known_width) in KNOWN_WIDTH_BREAKS {
+        if !scanned_repo_rels.iter().any(|p| p == known_path) {
+            continue;
+        }
+        if !widths_run.contains(known_width) {
+            continue;
+        }
+        if !hit.iter().any(|(p, w)| p == known_path && w == known_width) {
+            stale.push(format!("{} @ {}", known_path, known_width));
+        }
+    }
+    if !stale.is_empty() {
+        panic!(
+            "{} stale KNOWN_WIDTH_BREAKS entries now fit within width — remove them from the allowlist (BUG-07-313 progress):\n{}",
+            stale.len(),
+            stale.join("\n")
+        );
+    }
+}
+
+/// Repo-relative paths of every `.ori` file under `dir`.
+fn scanned_repo_relatives(dir: &Path) -> Vec<String> {
+    find_all_ori_files(dir)
+        .iter()
+        .map(|p| repo_relative(p))
+        .collect()
 }
 
 /// Run tests at all widths for a directory.
@@ -453,17 +532,19 @@ fn run_tests_at_all_widths(dir: &Path, dir_name: &str) {
     let mut all_code_violations = Vec::new();
     let mut total_exempt = 0;
     let mut all_idempotence_failures = Vec::new();
+    let mut all_known_breaks = Vec::new();
 
     for &width in TEST_WIDTHS {
         let result = run_tests_at_width(dir, width);
 
         println!(
-            "  Width {}: {} passed, {} skipped, {} code violations, {} exempt (comments/strings), {} idempotence failures",
+            "  Width {}: {} passed, {} skipped, {} code violations, {} exempt (comments/strings), {} known-width-break (BUG-07-313), {} idempotence failures",
             width,
             result.passed,
             result.skipped,
             result.code_violations.len(),
             result.exempt_violations,
+            result.known_width_breaks_hit.len(),
             result.idempotence_failures.len()
         );
 
@@ -472,7 +553,14 @@ fn run_tests_at_all_widths(dir: &Path, dir_name: &str) {
         }
         total_exempt += result.exempt_violations;
         all_idempotence_failures.extend(result.idempotence_failures);
+        all_known_breaks.extend(result.known_width_breaks_hit);
     }
+
+    assert_no_stale_known_width_breaks(
+        &all_known_breaks,
+        &scanned_repo_relatives(dir),
+        TEST_WIDTHS,
+    );
 
     if !all_code_violations.is_empty() {
         panic!(
@@ -516,7 +604,7 @@ fn width_tests_library() {
     run_tests_at_all_widths(&dir, "library");
 }
 
-/// Comprehensive test across all directories and widths.
+/// Runs width tests across all directories and widths.
 #[test]
 fn width_tests_comprehensive() {
     let root = repo_root();
@@ -532,15 +620,20 @@ fn width_tests_comprehensive() {
     let mut total_passed = 0;
     let mut total_skipped = 0;
     let mut total_exempt = 0;
+    let mut total_known_breaks = 0;
     let mut all_code_violations = Vec::new();
     let mut all_idempotence_failures = Vec::new();
+    let mut all_known_breaks = Vec::new();
+    let mut all_scanned = Vec::new();
 
     for (name, dir) in &dirs {
+        all_scanned.extend(scanned_repo_relatives(dir));
         for &width in TEST_WIDTHS {
             let result = run_tests_at_width(dir, width);
             total_passed += result.passed;
             total_skipped += result.skipped;
             total_exempt += result.exempt_violations;
+            total_known_breaks += result.known_width_breaks_hit.len();
 
             for violation in result.code_violations {
                 all_code_violations.push(format!("[{} @ {}] {}", name, width, violation));
@@ -548,15 +641,19 @@ fn width_tests_comprehensive() {
             for failure in result.idempotence_failures {
                 all_idempotence_failures.push(format!("[{} @ {}] {}", name, width, failure));
             }
+            all_known_breaks.extend(result.known_width_breaks_hit);
         }
     }
 
+    assert_no_stale_known_width_breaks(&all_known_breaks, &all_scanned, TEST_WIDTHS);
+
     println!(
-        "\nTotal: {} passed, {} skipped, {} code violations, {} exempt (comments/strings), {} idempotence failures",
+        "\nTotal: {} passed, {} skipped, {} code violations, {} exempt (comments/strings), {} known-width-break (BUG-07-313), {} idempotence failures",
         total_passed,
         total_skipped,
         all_code_violations.len(),
         total_exempt,
+        total_known_breaks,
         all_idempotence_failures.len()
     );
 

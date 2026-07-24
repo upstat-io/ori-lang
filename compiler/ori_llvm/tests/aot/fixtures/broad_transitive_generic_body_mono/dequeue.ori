@@ -1,0 +1,30 @@
+// FAIL-FIRST: missing mono instance pre-fix (broad transitive-generic-body
+// monomorphization gap, ROOT-B). `drain<U>`'s body calls the generic
+// `dequeue` on its own rigid `U`; the concrete `Queue<int>` flow records
+// `drain<int>` but nested `dequeue<int>` is never recorded, so AOT dispatch
+// starves: `unresolved function 'dequeue' in apply -- missing mono instance?`.
+// Interp passes (returns Some(42) -> exit 0).
+type Queue<T> = { items: [T] }
+
+@empty_queue<T> () -> Queue<T> = Queue { items: [] };
+
+@enqueue<T> (q: Queue<T>, item: T) -> Queue<T> = Queue { items: [...q.items, item] };
+
+@dequeue<T> (q: Queue<T>) -> (Option<T>, Queue<T>) = match q.items {
+    [] -> (None, q),
+    [head, ..tail] -> (Some(head), Queue { items: tail })
+};
+
+@drain<U> (q: Queue<U>) -> Option<U> = {
+    let (v, _) = dequeue(q:);
+    v
+};
+
+@main () -> int = {
+    let q: Queue<int> = empty_queue();
+    let q = enqueue(q:, item: 42);
+    match drain(q:) {
+        Some(_) -> 0,
+        None -> 1,
+    }
+}

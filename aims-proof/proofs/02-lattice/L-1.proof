@@ -1,0 +1,61 @@
+Theorem L-1: Lattice join commutativity
+
+  Preconditions:
+    - a, b are AimsState elements per the canonical proof notation
+      sec-Per-Dimension-Symbol-Set
+    - join is the product-lattice componentwise join per Annex E §AIMS + §AIMS §3 L-1
+    - Per-dimension joins per Annex E §AIMS §3.1 through §AIMS §3.7
+
+  Soundness property:
+    Forall a, b in AimsState. join(a, b) = join(b, a)
+
+  Proof obligation:
+    Componentwise per-dimension finite enumeration over the 7 carriers
+    proves dim_join_d(x, y) = dim_join_d(y, x) for every (x, y) in the
+    dimension's carrier squared. Product-lattice commutativity follows
+    by the componentwise-lift lemma: if every dimension's join is
+    commutative, the product join (defined componentwise) is commutative.
+
+    Per-dimension carriers + sizes (pair counts = |carrier| ^ 2):
+      Access {B, O} 2 => 4 pairs
+      Consumption {empty, L, A, U} 4 => 16 pairs
+      Cardinality {absent, 1, omega} 3 => 9 pairs
+      Uniqueness {u, ms, s} 3 => 9 pairs
+      Locality {bl, fl, ae, he, top} 5 => 25 pairs
+      Shape {Phi, R_S, R_V, C, H} 5 => 25 pairs
+      Effect 3-bit flag set 8 => 64 pairs
+
+    Per-dimension argument:
+      Access / Consumption / Cardinality / Uniqueness / Locality:
+        max on a totally ordered carrier; max is commutative because
+        max(x, y) selects the greater of the two and the predicate
+        x >= y is decidable and totally ordered, so the selection is
+        symmetric.
+      Shape (flat lattice with Phi as TOP):
+        join is case_analysis(x == y -> x; x != y -> Phi); both arms
+        are symmetric in x and y (equality is symmetric; the unequal
+        arm returns Phi regardless of order).
+      Effect (componentwise OR on 3-bit flag product):
+        OR on Bool is commutative; per-flag commutativity composes
+        componentwise.
+
+    Lift to product:
+      join(a, b) = (dim_join_d(a_d, b_d))_d for d in 1..7
+                 = (dim_join_d(b_d, a_d))_d for d in 1..7 (per-dim L-1)
+                 = join(b, a)
+
+    Sentinel handling per L-9: SCALAR is pre-filtered before any join
+    invocation; canonicalize does not propagate SCALAR. Sentinels
+    FRESH, CONSERVATIVE, ALL, NONE are concrete lattice values
+    (instantiated 7-tuples) and obey componentwise commutativity.
+
+    Engines dispatched:
+      lattice (per-dimension finite enumeration discharge per
+        section_02::verify_l1_commutativity)
+      monotonicity (validates the per-dimension joins used in L-1 are
+        the same max/case_analysis/OR primitives whose monotonicity
+        L-6 will discharge)
+
+  Expected:
+    status: valid
+    reason: sec-02 lattice engine discharges L-1 via per-dimension finite enumeration over the 7 dimension carriers

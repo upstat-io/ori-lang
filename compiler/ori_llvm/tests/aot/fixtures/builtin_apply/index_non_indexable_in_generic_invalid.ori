@@ -1,0 +1,6 @@
+@bad_index <T> (marker: T, n: int) -> int = {
+    let r = n[0];
+    r
+}
+
+@main () -> int = bad_index(marker: "x", n: 3);

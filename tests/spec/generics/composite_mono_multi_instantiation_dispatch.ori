@@ -1,0 +1,64 @@
+// Regression: multi-instantiation generic-composite derived
+// dispatch. A `#derive(Comparable, Debug)` generic composite instantiated at
+// BOTH `P3Pair<int, str>` AND `P3Pair<str, int>` in one program must dispatch
+// the layout-correct per-instantiation derived method, NOT the
+// last-instantiation-wins type-name layout (`declare_and_bind_derive` overwrites
+// `method_functions[(type_name, method)]` per instantiation).
+//
+// The element-COMPARE path (`xs.compare(other: ys)` on `[P3Pair<...>]`) recurses
+// into the struct element via the LLVM `emit_derived_compare_call` dispatch
+// site. Pre-cure that site read the type-name map (last instantiation wins), so
+// one instantiation reinterpreted the other's field layout — wrong ordering /
+// crash on LLVM (interp is correct: it dispatches on the runtime value's type).
+// Post-cure it reads the per-instantiation `mono_derive_functions` map. The
+// top-level DEBUG calls additionally pin per-instantiation Debug output.
+// Dual-backend (interpreter + LLVM).
+use std.testing { assert, assert_eq }
+
+#derive(Eq, Comparable, Debug) type P3Pair<A, B> = { a: A, b: B }
+
+// Element-path Comparable: `[P3Pair<int, str>]` and `[P3Pair<str, int>]`
+// compared element-wise → emit_derived_compare_call per instantiation.
+@cmp_int_first (xs: [P3Pair<int, str>], ys: [P3Pair<int, str>]) -> Ordering =
+    xs.compare(other: ys);
+
+@cmp_str_first (xs: [P3Pair<str, int>], ys: [P3Pair<str, int>]) -> Ordering =
+    xs.compare(other: ys);
+
+// Top-level Debug per instantiation.
+@dbg_int_first (p: P3Pair<int, str>) -> str = p.debug();
+
+@dbg_str_first (p: P3Pair<str, int>) -> str = p.debug();
+
+@test_int_first_compare tests _ () -> void = {
+    // Order-sensitive: `a` and `b` give CONFLICTING orderings. The int-first
+    // instantiation compares `a` (int) FIRST → 1 < 2 → Less. A wrong-dispatch
+    // to the str-first instantiation would compare `b` first → "z" > "a" →
+    // Greater, flipping the result. Pins per-instantiation field order.
+    let $xs = [P3Pair { a: 1, b: "z" }];
+    let $ys = [P3Pair { a: 2, b: "a" }];
+    assert(cond: cmp_int_first(xs: xs, ys: ys).is_less())
+}
+
+@test_str_first_compare tests _ () -> void = {
+    // Order-sensitive twin: str-first compares `a` (str) FIRST → "a" < "b" →
+    // Less. A wrong-dispatch to the int-first instantiation would compare `b`
+    // (int) first → 9 > 1 → Greater, flipping the result.
+    let $xs = [P3Pair { a: "a", b: 9 }];
+    let $ys = [P3Pair { a: "b", b: 1 }];
+    assert(cond: cmp_str_first(xs: xs, ys: ys).is_less())
+}
+
+@test_int_first_debug tests _ () -> void = {
+    let $p = P3Pair { a: 42, b: "intfirstpayload" };
+    let $s = dbg_int_first(p: p);
+    assert_eq(actual: s.contains(substr: "42"), expected: true);
+    assert_eq(actual: s.contains(substr: "intfirstpayload"), expected: true)
+}
+
+@test_str_first_debug tests _ () -> void = {
+    let $p = P3Pair { a: "strfirstpayload", b: 42 };
+    let $s = dbg_str_first(p: p);
+    assert_eq(actual: s.contains(substr: "strfirstpayload"), expected: true);
+    assert_eq(actual: s.contains(substr: "42"), expected: true)
+}

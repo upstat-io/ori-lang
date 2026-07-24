@@ -1,8 +1,7 @@
 //! Drop hint helpers for AIMS.
 //!
 //! Contains helper functions used by `realize/` for drop hint decisions.
-//! The legacy `compute_aims_drop_hints()` entry point has been removed —
-//! drop hints are now computed by `realize_annotations()` (Section 10).
+//! Drop hints are computed by `realize_annotations()`.
 
 use ori_ir::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -26,15 +25,14 @@ pub(crate) fn is_collection_var(func: &ArcFunction, var: ArcVarId, pool: &Pool) 
 /// Collect variables passed as `Borrowed` arguments to Apply/Invoke calls
 /// whose callees may share references (`effects.may_share == true`).
 ///
-/// Runtime functions may internally call `ori_rc_inc` on borrowed arguments
-/// (e.g., `ori_list_slice` increments the original buffer's refcount to keep
-/// the slice alive). These runtime-internal RC ops are invisible to AIMS
-/// analysis. When the callee's contract has `effects.may_share == true`,
-/// we conservatively exclude borrowed args from the unique-drop fast path.
+/// A callee may mint a logical owner credit on a borrowed argument's storage
+/// identity, as a sharing view does. When its contract has
+/// `effects.may_share == true`, conservatively exclude the argument from
+/// single-owner cleanup.
 ///
 /// When `effects.may_share == false` (pure functions, simple accessors),
 /// the callee provably doesn't create shared references, so borrowed args
-/// preserve uniqueness and can safely use `drop_unique`.
+/// preserve uniqueness and remain eligible for single-owner cleanup.
 ///
 /// Also propagates through Let alias chains: if `%x` is borrowed in a call
 /// and `%y = %x`, then `%y` is also excluded.
@@ -42,9 +40,10 @@ pub(crate) fn collect_borrowed_call_args(
     func: &ArcFunction,
     contracts: &FxHashMap<Name, MemoryContract>,
     builtins: &BuiltinOwnershipSets,
+    func_names: &FxHashSet<Name>,
 ) -> FxHashSet<ArcVarId> {
     let mut borrowed = FxHashSet::default();
-    let mut alias_edges: Vec<Option<ArcVarId>> = vec![None; func.var_types.len()];
+    let mut alias_children: Vec<Vec<ArcVarId>> = vec![Vec::new(); func.var_types.len()];
 
     for block in &func.blocks {
         // Scan body instructions for Apply with Borrowed args.
@@ -59,9 +58,9 @@ pub(crate) fn collect_borrowed_call_args(
                     // For user functions (not builtins) with may_share==false,
                     // the callee provably doesn't share backing storage →
                     // borrowed args preserve uniqueness → safe for drop_unique.
-                    // Builtin contracts are not trusted for this because their
-                    // runtime implementations may do hidden RC ops.
-                    if !is_safe_non_sharing_callee(*callee, contracts, builtins) {
+                    // The transitional builtin contract surface is incomplete;
+                    // production typed runtime descriptors close this fact.
+                    if !is_safe_non_sharing_callee(*callee, contracts, builtins, func_names) {
                         for (i, &arg) in args.iter().enumerate() {
                             if arg_ownership.get(i).copied() == Some(ArgOwnership::Borrowed) {
                                 borrowed.insert(arg);
@@ -83,7 +82,7 @@ pub(crate) fn collect_borrowed_call_args(
                     value: crate::ir::ArcValue::Var(src),
                     ..
                 } => {
-                    alias_edges[dst.index()] = Some(*src);
+                    alias_children[src.index()].push(*dst);
                 }
                 _ => {}
             }
@@ -97,7 +96,7 @@ pub(crate) fn collect_borrowed_call_args(
                 arg_ownership,
                 ..
             } => {
-                if !is_safe_non_sharing_callee(*callee, contracts, builtins) {
+                if !is_safe_non_sharing_callee(*callee, contracts, builtins, func_names) {
                     for (i, &arg) in args.iter().enumerate() {
                         if arg_ownership.get(i).copied() == Some(ArgOwnership::Borrowed) {
                             borrowed.insert(arg);
@@ -116,26 +115,14 @@ pub(crate) fn collect_borrowed_call_args(
         }
     }
 
-    // Propagate through alias chains: if src is borrowed, dst shares the
-    // same object and should also be excluded from unique drops.
-    loop {
-        let mut changed = false;
-        for (i, alias) in alias_edges.iter().enumerate() {
-            if let Some(src) = alias {
-                if borrowed.contains(src) {
-                    #[expect(
-                        clippy::cast_possible_truncation,
-                        reason = "ARC IR var counts fit in u32"
-                    )]
-                    let dst = ArcVarId::new(i as u32);
-                    if borrowed.insert(dst) {
-                        changed = true;
-                    }
-                }
+    // Propagate through alias chains once per reachable edge. A repeated
+    // full-vector fixed-point scan is quadratic for long alias chains.
+    let mut pending: Vec<ArcVarId> = borrowed.iter().copied().collect();
+    while let Some(src) = pending.pop() {
+        for &dst in &alias_children[src.index()] {
+            if borrowed.insert(dst) {
+                pending.push(dst);
             }
-        }
-        if !changed {
-            break;
         }
     }
 
@@ -171,19 +158,35 @@ fn insert_borrowed_from_ownership(
 ///
 /// Returns `true` only for user-analyzed functions (not builtins) where
 /// `effects.may_share == false`. Builtin contracts are not trusted here
-/// because runtime implementations may do hidden `ori_rc_inc` ops
-/// (e.g., `ori_list_slice` increments the backing buffer's refcount).
+/// because the transitional runtime descriptor surface does not yet prove all
+/// sharing-credit behavior. Production executable descriptors remove this
+/// conservative exception.
 fn is_safe_non_sharing_callee(
     callee: Name,
     contracts: &FxHashMap<Name, MemoryContract>,
     builtins: &BuiltinOwnershipSets,
+    func_names: &FxHashSet<Name>,
 ) -> bool {
     // If the callee is a known builtin, always conservative.
-    if builtins.is_builtin(callee) {
+    if builtins.contains(callee) {
         return false;
     }
-    // For user functions: trust the contract's may_share flag.
-    contracts.get(&callee).is_some_and(|c| !c.effects.may_share)
+    // For user functions: trust the contract's may_share flag. A None lookup
+    // is legitimate only for FFI / external / DCE'd callees not in this
+    // compilation unit; those are conservatively non-safe (may_share = true).
+    // Why: a callee present in func_names but missing from contracts is an
+    // IC-1 pipeline-ordering violation (every analyzed function gets a
+    // MemoryContract after the interprocedural fixpoint).
+    if let Some(c) = contracts.get(&callee) {
+        !c.effects.may_share
+    } else {
+        debug_assert!(
+            !func_names.contains(&callee),
+            "AIMS Invariant IC-1: callee {callee:?} is in func_names but \
+             missing from contracts map; pipeline ordering violation"
+        );
+        false
+    }
 }
 
 #[cfg(test)]

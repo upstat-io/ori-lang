@@ -1,0 +1,32 @@
+// Positive companion to `nested_partial_match_destructure_rejected.ori`.
+//
+// A NESTED whole-value `match`-destructure of a Drop-typed field binds EVERY
+// owned field of the nested type (`Inner { x, y }`), consuming the nested
+// value exactly once — no residual drop glue, no partial move. The recursion
+// added for E2048 must NOT over-fire on bind-all nested sub-patterns: this
+// clamps the boundary from below (the rejected sibling clamps from above).
+//
+// Spec: drop-trait-proposal.md §Execution Timing.
+
+use std.testing { assert_eq };
+
+type Inner = { x: int, y: int }
+
+type Outer = { inner: Inner }
+
+impl Inner: Drop {
+    @drop (self) -> void = ();
+}
+
+impl Outer: Drop {
+    @drop (self) -> void = ();
+}
+
+@sum_nested (o: Outer) -> int = match o {
+    Outer { inner: Inner { x, y } } -> x + y,
+};
+
+@t tests @sum_nested () -> void = {
+    let $o = Outer { inner: Inner { x: 3, y: 4 } };
+    assert_eq(actual: sum_nested(o), expected: 7);
+};

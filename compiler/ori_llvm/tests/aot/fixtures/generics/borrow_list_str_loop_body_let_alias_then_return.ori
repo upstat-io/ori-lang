@@ -1,0 +1,21 @@
+// (Cross-type) Loop-body multi-hop Let-alias of a borrowed [str] param then
+// Return the param. The loop body re-reads the param into a fresh alias each
+// iteration (`%0 -> %loop_alias -> %nested`), a multi-hop read-only chain of
+// the same allocation; the param transfers through the Return. The deepest
+// alias must NOT receive a spurious last-use BurdenDec (it is the SAME
+// allocation the Return transfers out -> double-free). Heap-element [str]
+// cross-type sibling of borrow_list_int_loop_body_let_alias_then_return.
+
+@borrow_str_loop_alias_then_return (xs: [str]) -> [str] = {
+    for _i in 0..3 do {
+        let inner_alias = xs;
+        print(msg: `iter-{_i}: {inner_alias.len()}`)
+    };
+    xs
+};
+
+@main () -> int = {
+    let original = ["xx", "yy", "zz"];
+    let returned = borrow_str_loop_alias_then_return(xs: original);
+    if returned.len() == 3 && returned[0] == "xx" && returned[2] == "zz" then 0 else 1
+}

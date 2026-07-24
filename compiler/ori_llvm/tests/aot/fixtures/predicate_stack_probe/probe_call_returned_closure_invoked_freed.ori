@@ -1,0 +1,8 @@
+@make_adder (n: int) -> (int) -> int = {
+    x -> x + n
+}
+
+@main () -> int = {
+    let $r = make_adder(n: 5)(10);
+    if r == 15 then 0 else 1
+}

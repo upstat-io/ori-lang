@@ -1,0 +1,63 @@
+Theorem L-2: Lattice join associativity
+
+  Preconditions:
+    - a, b, c are AimsState elements per the canonical proof notation
+      sec-Per-Dimension-Symbol-Set
+    - join is the product-lattice componentwise join per Annex E §AIMS + §AIMS §3 L-2
+
+  Soundness property:
+    Forall a, b, c in AimsState. join(join(a, b), c) = join(a, join(b, c))
+
+  Proof obligation:
+    Componentwise per-dimension finite enumeration over the 7 carriers
+    proves dim_join_d associativity on every (x, y, z) triple in the
+    carrier cubed. Product-lattice associativity follows by the
+    componentwise-lift lemma: if every dimension's join is associative,
+    the product join is associative.
+
+    Per-dimension triple counts (|carrier| ^ 3):
+      Access 2^3 = 8 triples
+      Consumption 4^3 = 64 triples
+      Cardinality 3^3 = 27 triples
+      Uniqueness 3^3 = 27 triples
+      Locality 5^3 = 125 triples
+      Shape 5^3 = 125 triples
+      Effect 8^3 = 512 triples
+
+    Per-dimension argument:
+      Access / Consumption / Cardinality / Uniqueness / Locality:
+        max on a totally ordered carrier; max is associative because
+        max(max(x, y), z) = max(x, max(y, z)) = the maximum of the
+        3-element set {x, y, z} (the max function over a finite chain
+        is independent of nesting order — it selects the chain-greatest
+        element regardless of how the binary max calls are bracketed).
+      Shape (flat lattice with Phi absorbing):
+        join is a meet with Phi as absorbing top; case enumeration:
+        all three equal -> all bracketings return that value;
+        any two unequal -> any bracketing introducing Phi propagates
+        Phi through subsequent joins (Phi absorbs); each of the 3
+        bracketing orders produces the same value. Per-case discharge
+        over the 5^3 = 125 triples confirms left == right.
+      Effect (componentwise OR on 3-bit flag product):
+        OR on Bool is associative; per-flag associativity composes
+        componentwise.
+
+    Lift to product:
+      join(join(a, b), c) = (dim_join_d(dim_join_d(a_d, b_d), c_d))_d
+                          = (dim_join_d(a_d, dim_join_d(b_d, c_d)))_d
+                            (per-dim L-2)
+                          = join(a, join(b, c))
+
+    Sentinel handling: SCALAR pre-filtered per L-9; FRESH /
+    CONSERVATIVE / ALL / NONE are concrete 7-tuples obeying
+    componentwise associativity.
+
+    Engines dispatched:
+      lattice (per-dimension finite enumeration discharge per
+        section_02::verify_l2_associativity)
+      monotonicity (validates the per-dimension joins used in L-2 are
+        the same primitives whose monotonicity L-6 covers)
+
+  Expected:
+    status: valid
+    reason: sec-02 lattice engine discharges L-2 via per-dimension finite enumeration of associativity triples

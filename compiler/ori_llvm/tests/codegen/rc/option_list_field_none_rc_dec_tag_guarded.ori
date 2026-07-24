@@ -1,0 +1,23 @@
+// FileCheck IR-shape pin (second inner type): a None-bearing Option<[int]>
+// struct field walked for RC dec must load the discriminant and switch BEFORE
+// touching the payload. The tag-blind bypass arm emitted an un-guarded payload
+// extract (named %rc_dec.opt_inner = extractvalue ..., 1) feeding the buffer RC
+// dec with no preceding tag switch. The bug arm fires for any non-boxed RC
+// inner, not just str.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: switch
+// CHECK-NOT: opt_inner
+
+type Holder = { f: Option<[int]> }
+
+@mk (b: bool) -> Option<[int]> = if b then Some([1, 2]) else None;
+
+@consume (h: Holder) -> void = {
+    print(msg: "c")
+}
+
+@main () -> void = {
+    let h = Holder { f: mk(b: false) };
+    consume(h: h)
+}

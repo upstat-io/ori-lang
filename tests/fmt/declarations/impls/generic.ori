@@ -8,6 +8,6 @@ trait Clone {
     @clone (self) -> Self
 }
 
-impl<T: Clone> Clone for Container<T> {
+impl<T: Clone> Container<T>: Clone {
     @clone (self) -> Self = Container { value: self.value.clone() }
 }

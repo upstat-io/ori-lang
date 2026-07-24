@@ -31,11 +31,9 @@ pub struct TokenList {
 
 // Manual Eq/PartialEq/Hash: position-independent comparison.
 //
-// We skip `tags` (derived from `tokens.kind`) AND skip `Span` positions.
-// Only `TokenKind` and `TokenFlags` are compared/hashed. This enables
-// Salsa early cutoff: whitespace-only edits shift token positions but
-// produce the same kinds+flags, so downstream queries (parsing, type
-// checking) are not re-executed.
+// Why: compare/hash only `TokenKind` + `TokenFlags`, skipping `tags` (derived
+// from `tokens.kind`) and `Span` positions — so whitespace-only edits hash
+// equal and Salsa early-cutoffs downstream queries (parsing, type checking).
 impl PartialEq for TokenList {
     fn eq(&self, other: &Self) -> bool {
         if self.tokens.len() != other.tokens.len() {

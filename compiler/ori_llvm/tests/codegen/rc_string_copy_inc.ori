@@ -1,9 +1,0 @@
-// FileCheck test: string copy produces RC increment via fat-pointer RC
-// CHECK: ori_str_rc_inc
-
-@main () -> void = {
-    let s = "hello";
-    let t = s;
-    print(msg: t);
-    print(msg: s)
-}

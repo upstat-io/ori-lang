@@ -5,8 +5,8 @@
 
 use crate::ir::{ExpectedError, StringInterner};
 use ori_diagnostic::span_utils;
-use ori_ir::canon::PatternProblem;
-use ori_types::TypeCheckError;
+use ori_ir::canon::{ConstEvalProblem, PatternProblem};
+use ori_types::{Pool, TypeCheckError};
 
 /// Result of matching errors against expectations.
 #[derive(Debug)]
@@ -38,6 +38,7 @@ pub fn match_errors(
     expected: &[ExpectedError],
     source: &str,
     interner: &StringInterner,
+    pool: &Pool,
 ) -> MatchResult {
     let mut expectation_matched = vec![false; expected.len()];
     let mut error_matched = vec![false; actual.len()];
@@ -45,7 +46,7 @@ pub fn match_errors(
     // For each expectation, try to find a matching error
     for (exp_idx, exp) in expected.iter().enumerate() {
         for (err_idx, err) in actual.iter().enumerate() {
-            if !error_matched[err_idx] && matches_expected(err, exp, source, interner) {
+            if !error_matched[err_idx] && matches_expected(err, exp, source, interner, pool) {
                 expectation_matched[exp_idx] = true;
                 error_matched[err_idx] = true;
                 break;
@@ -77,11 +78,14 @@ pub fn matches_expected(
     expected: &ExpectedError,
     source: &str,
     interner: &StringInterner,
+    pool: &Pool,
 ) -> bool {
-    // Check message substring if specified
+    // Check message substring if specified.
+    // Render via the Pool-aware `format_with` so `#compile_fail` reasons can match
+    // the real type name; the Pool-less `message()` falls back to `<type>`.
     if let Some(msg_name) = expected.message {
         let msg_substr = interner.lookup(msg_name);
-        if !actual.message().contains(msg_substr) {
+        if !actual.format_with(pool, interner).contains(msg_substr) {
             return false;
         }
     }
@@ -138,14 +142,22 @@ pub fn format_expected(expected: &ExpectedError, interner: &StringInterner) -> S
 }
 
 /// Format an actual error for display in error messages.
-pub fn format_actual(actual: &TypeCheckError, source: &str) -> String {
+///
+/// Renders via the Pool-aware `format_with` so the displayed type names are real,
+/// not the `<type>` placeholder the Pool-less `message()` falls back to.
+pub fn format_actual(
+    actual: &TypeCheckError,
+    source: &str,
+    pool: &Pool,
+    interner: &StringInterner,
+) -> String {
     let (line, col) = span_utils::offset_to_line_col(source, actual.span().start);
     format!(
         "[{}] at {}:{}: {}",
         actual.code().as_str(),
         line,
         col,
-        actual.message()
+        actual.format_with(pool, interner)
     )
 }
 
@@ -234,7 +246,53 @@ pub fn format_pattern_problem(problem: &PatternProblem, source: &str) -> String 
     format!("[{code}] at {line}:{col}: {msg}")
 }
 
-/// Match both type errors and pattern problems against expected specifications.
+/// Check whether a structured Canon constant failure satisfies one expected
+/// compile-fail diagnostic.
+pub fn matches_const_problem(
+    problem: &ConstEvalProblem,
+    expected: &ExpectedError,
+    source: &str,
+    interner: &StringInterner,
+) -> bool {
+    let diagnostic = crate::problem::semantic::const_eval_problem_to_diagnostic(problem, interner);
+
+    if let Some(message) = expected.message {
+        if !diagnostic.message.contains(interner.lookup(message)) {
+            return false;
+        }
+    }
+    if let Some(code) = expected.code {
+        if diagnostic.code.as_str() != interner.lookup(code) {
+            return false;
+        }
+    }
+
+    let (line, column) = span_utils::offset_to_line_col(source, problem.span.start);
+    if expected.line.is_some_and(|expected| expected != line) {
+        return false;
+    }
+    if expected.column.is_some_and(|expected| expected != column) {
+        return false;
+    }
+    true
+}
+
+/// Format a Canon constant problem for compile-fail mismatch output.
+pub fn format_const_problem(
+    problem: &ConstEvalProblem,
+    source: &str,
+    interner: &StringInterner,
+) -> String {
+    let diagnostic = crate::problem::semantic::const_eval_problem_to_diagnostic(problem, interner);
+    let (line, column) = span_utils::offset_to_line_col(source, problem.span.start);
+    format!(
+        "[{}] at {line}:{column}: {}",
+        diagnostic.code.as_str(),
+        diagnostic.message
+    )
+}
+
+/// Match type, pattern, and constant-evaluation failures against expectations.
 ///
 /// Tries each expectation against type errors first, then pattern problems.
 /// This unified approach handles `#compile_fail` tests that expect errors from
@@ -242,13 +300,16 @@ pub fn format_pattern_problem(problem: &PatternProblem, source: &str) -> String 
 pub fn match_all_errors(
     type_errors: &[&TypeCheckError],
     pattern_problems: &[&PatternProblem],
+    const_problems: &[&ConstEvalProblem],
     expected: &[ExpectedError],
     source: &str,
     interner: &StringInterner,
+    pool: &Pool,
 ) -> MatchResult {
     let mut expectation_matched = vec![false; expected.len()];
     let mut type_error_matched = vec![false; type_errors.len()];
     let mut pattern_problem_matched = vec![false; pattern_problems.len()];
+    let mut const_problem_matched = vec![false; const_problems.len()];
 
     // For each expectation, try type errors first, then pattern problems.
     for (exp_idx, exp) in expected.iter().enumerate() {
@@ -256,7 +317,7 @@ pub fn match_all_errors(
 
         // Try type errors
         for (err_idx, err) in type_errors.iter().enumerate() {
-            if !type_error_matched[err_idx] && matches_expected(err, exp, source, interner) {
+            if !type_error_matched[err_idx] && matches_expected(err, exp, source, interner, pool) {
                 expectation_matched[exp_idx] = true;
                 type_error_matched[err_idx] = true;
                 found = true;
@@ -278,6 +339,20 @@ pub fn match_all_errors(
                 break;
             }
         }
+
+        if expectation_matched[exp_idx] {
+            continue;
+        }
+
+        for (problem_index, problem) in const_problems.iter().enumerate() {
+            if !const_problem_matched[problem_index]
+                && matches_const_problem(problem, exp, source, interner)
+            {
+                expectation_matched[exp_idx] = true;
+                const_problem_matched[problem_index] = true;
+                break;
+            }
+        }
     }
 
     let unmatched_expectations: Vec<usize> = expectation_matched
@@ -296,6 +371,18 @@ pub fn match_all_errors(
                 .iter()
                 .enumerate()
                 .filter_map(|(i, &m)| if m { None } else { Some(i + type_errors.len()) }),
+        )
+        .chain(
+            const_problem_matched
+                .iter()
+                .enumerate()
+                .filter_map(|(i, &m)| {
+                    if m {
+                        None
+                    } else {
+                        Some(i + type_errors.len() + pattern_problems.len())
+                    }
+                }),
         )
         .collect();
 

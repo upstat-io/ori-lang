@@ -4,7 +4,7 @@
 //! expression helpers.
 
 use super::AstCopier;
-use ori_ir::{Expr, ExprArena, ExprId, ExprKind};
+use ori_ir::{AccessStep, Expr, ExprArena, ExprId, ExprKind};
 
 impl AstCopier<'_> {
     /// Copy an expression tree recursively, allocating in the new arena.
@@ -138,6 +138,11 @@ impl AstCopier<'_> {
                 label: *label,
                 body: self.copy_expr(*body, new_arena),
             },
+            ExprKind::While { label, cond, body } => ExprKind::While {
+                label: *label,
+                cond: self.copy_expr(*cond, new_arena),
+                body: self.copy_expr(*body, new_arena),
+            },
             ExprKind::Block { stmts, result } => self.copy_block_kind(*stmts, *result, new_arena),
 
             // Bindings
@@ -175,9 +180,11 @@ impl AstCopier<'_> {
             ExprKind::MapWithSpread(elements) => {
                 self.copy_map_with_spread_kind(*elements, new_arena)
             }
-            ExprKind::Struct { name, fields } => self.copy_struct_kind(*name, *fields, new_arena),
-            ExprKind::StructWithSpread { name, fields } => {
-                self.copy_struct_with_spread_kind(*name, *fields, new_arena)
+            ExprKind::Struct { type_path, fields } => {
+                self.copy_struct_kind(*type_path, *fields, new_arena)
+            }
+            ExprKind::StructWithSpread { type_path, fields } => {
+                self.copy_struct_with_spread_kind(*type_path, *fields, new_arena)
             }
             ExprKind::Tuple(exprs) => {
                 let new_exprs = self.copy_expr_list(*exprs, new_arena);
@@ -252,6 +259,9 @@ impl AstCopier<'_> {
                 target: self.copy_expr(*target, new_arena),
                 value: self.copy_expr(*value, new_arena),
             },
+            ExprKind::AssignTarget { root, steps } => {
+                self.copy_assign_target_kind(*root, *steps, new_arena)
+            }
 
             // Capability
             ExprKind::WithCapability {
@@ -335,6 +345,28 @@ impl AstCopier<'_> {
             params: new_arena.alloc_params(new_params),
             ret_ty: self.copy_optional_parsed_type_id(ret_ty, new_arena),
             body: self.copy_expr(body, new_arena),
+        }
+    }
+
+    /// Copy an `AssignTarget` expression's root and access-step chain.
+    fn copy_assign_target_kind(
+        &self,
+        root: ExprId,
+        steps: ori_ir::AccessStepRange,
+        new_arena: &mut ExprArena,
+    ) -> ExprKind {
+        let new_root = self.copy_expr(root, new_arena);
+        let old_steps = self.old_arena.get_access_steps(steps);
+        let new_steps: Vec<AccessStep> = old_steps
+            .iter()
+            .map(|step| match step {
+                AccessStep::Index(index) => AccessStep::Index(self.copy_expr(*index, new_arena)),
+                AccessStep::Field(name) => AccessStep::Field(*name),
+            })
+            .collect();
+        ExprKind::AssignTarget {
+            root: new_root,
+            steps: new_arena.alloc_access_steps(new_steps),
         }
     }
 

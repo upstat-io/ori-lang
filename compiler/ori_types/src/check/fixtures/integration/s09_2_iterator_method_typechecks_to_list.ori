@@ -1,0 +1,3 @@
+
+@p5_rev () -> [int] = [1, 2, 3].iter().rev().collect();
+@test_p5 tests @p5_rev () -> void = ();

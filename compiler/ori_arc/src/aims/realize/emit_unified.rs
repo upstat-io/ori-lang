@@ -1,32 +1,33 @@
-//! Unified RC emission: per-block walk with inline death/alloc event collection.
+//! Unified logical ownership-event realization and lifetime-event collection.
 //!
-//! Extracted from `realize/mod.rs` to stay under the 500-line file limit.
-//! Called by [`super::realize_rc_reuse()`] as Phase 1 sub-step B.
+//! [`burden_lowering`] lowers logical burdens, while [`jump_threaded_reps`]
+//! tracks same-allocation representatives across jump-threaded control flow.
 
-use ori_types::Pool;
+#[cfg(test)]
+mod tests;
+
+mod burden_lowering;
+mod jump_threaded_reps;
+
+use ori_ir::Name;
+use ori_types::{Pool, TypeRegistry};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::aims::emit_rc::DeferredDec;
+use crate::aims::contract::MemoryContract;
 use crate::aims::emit_reuse::{AllocEvent, DeathEvent};
 use crate::aims::intraprocedural::state_map::AimsStateMap;
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy};
+use crate::ir::{ArcFunction, ArcInstr, ArcVarId};
 
 use super::metrics;
-use super::walk;
+use burden_lowering::lower_burden_ops_to_rc;
 
-/// Per-phase RC-op snapshot for post-walk pass debugging.
+pub use jump_threaded_reps::{
+    push_receiver_lineage_returned, yield_result_for_receiver_lineage, YieldLineageIndex,
+};
+
+/// Trace each block's physical RC projection after a realization phase.
 ///
-/// Emits one `tracing::trace!` event per block summarising every
-/// `RcInc`/`RcDec` instruction by `ArcVarId`. Gated behind
-/// `tracing::enabled!` so the iteration is skipped entirely when
-/// `ori_arc::aims::realize` is not at trace level — zero overhead in
-/// normal debug runs.
-///
-/// Activate with `ORI_LOG=ori_arc::aims::realize=trace`. Used to
-/// bisect which post-walk pass (`emit_dead_invoke_dsts`,
-/// `emit_edge_cleanup`, `emit_project_escape_incs`, `coalesce_block_rc`)
-/// modifies a specific block's RC ops without inline `tracing::debug!`
-/// insertions. See `.claude/rules/arc.md` § Debugging.
+/// The trace records physical migration metrics, never AIMS facts.
 fn trace_phase_snapshot(
     phase: &'static str,
     func: &ArcFunction,
@@ -39,14 +40,20 @@ fn trace_phase_snapshot(
     for (block_idx, block) in func.blocks.iter().enumerate() {
         let mut incs: Vec<u32> = Vec::new();
         let mut decs: Vec<u32> = Vec::new();
+        let mut binc: Vec<u32> = Vec::new();
+        let mut bdec: Vec<u32> = Vec::new();
         for instr in &block.body {
             match instr {
                 ArcInstr::RcInc { var, .. } => incs.push(var.raw()),
                 ArcInstr::RcDec { var, .. } => decs.push(var.raw()),
+                ArcInstr::BurdenInc { var } => binc.push(var.raw()),
+                ArcInstr::BurdenDec { var }
+                | ArcInstr::BurdenDecPartial { var, .. }
+                | ArcInstr::BurdenDecVariant { var } => bdec.push(var.raw()),
                 _ => {}
             }
         }
-        if incs.is_empty() && decs.is_empty() {
+        if incs.is_empty() && decs.is_empty() && binc.is_empty() && bdec.is_empty() {
             continue;
         }
         tracing::trace!(
@@ -56,260 +63,169 @@ fn trace_phase_snapshot(
             block = block_idx,
             inc = ?incs,
             dec = ?decs,
+            binc = ?binc,
+            bdec = ?bdec,
             "post-walk RC snapshot"
         );
     }
 }
 
-/// Unified RC emission: per-block walk with inline death/alloc event collection.
+/// RC emission for a class-ledger-replaced function.
 ///
-/// Replaces `emit_rc_ops()` with a forward walk that routes all decisions
-/// through `decide()` and collects reuse events inline, eliminating the
-/// separate `collect_death_events()` / `collect_alloc_events()` scans.
-///
-/// # Phases
-///
-/// 1. Per-block: dead-at-entry → unified body walk → terminator RC → deferred
-/// 2. Dead Invoke cleanup (orphaned Invoke result variables)
-/// 3. Inter-block edge cleanup (with deferred parent decs)
-/// 4. RC coalescing peephole per block
+/// Every production shape is class-ledger-replaced (the Step-4b fail-loud
+/// gate admits nothing else), so the burden ops in the instruction stream
+/// ARE the verified plan: this lowers them mechanically to `RcInc`/`RcDec`
+/// (`lower_burden_ops_to_rc`) and finalizes emission. A non-replaced
+/// function reaching this point is an internal error (`unreachable!`).
 pub(super) fn emit_rc_unified(
     func: &mut ArcFunction,
-    state_map: &AimsStateMap,
+    _state_map: &AimsStateMap,
     pool: &Pool,
     interner: &ori_ir::StringInterner,
+    _contracts: &FxHashMap<Name, MemoryContract>,
+    type_registry: &TypeRegistry,
 ) -> (
     usize,
     Vec<DeathEvent>,
     Vec<AllocEvent>,
     metrics::SynergyMetrics,
 ) {
-    use crate::aims::emit_rc::{
-        coalesce_block_rc, collect_all_borrowed_defs, collect_inline_enum_projected_defs,
-        collect_iter_element_defs, collect_project_borrowed_defs, compute_function_project_sources,
-        emit_dead_invoke_dsts, emit_edge_cleanup, DeferredDec,
-    };
-
-    debug_assert!(
-        !func.var_reprs.is_empty(),
-        "var_reprs must be populated before RC emission"
+    assert_eq!(
+        func.var_metadata_state,
+        crate::ir::VariableMetadataState::Realized,
+        "variable metadata must be fully realized before RC emission"
+    );
+    assert_eq!(
+        func.var_reprs.len(),
+        func.var_types.len(),
+        "realized var_reprs must be parallel to var_types before RC emission"
+    );
+    assert_eq!(
+        func.var_rc_strategies.len(),
+        func.var_types.len(),
+        "realized var_rc_strategies must be parallel to var_types before RC emission"
     );
 
-    let all_borrowed_defs = collect_all_borrowed_defs(func, pool);
-    let project_borrowed_defs = collect_project_borrowed_defs(func, pool);
-    let iter_element_defs = collect_iter_element_defs(func, interner);
-    let inline_enum_projected_defs = collect_inline_enum_projected_defs(func, pool);
-    let func_project_sources = compute_function_project_sources(func);
-    // Per-class take-project facts via union-find +
-    // CFG reachability. Precomputed once per function. Each
-    // take-project source seeds its own connected-component class
-    // (Let-alias + Jump-arg → block-param edges); each class has
-    // its own bypass-safe blocks and bypass-safe entries. Consumers
-    // (`dead_cleanup` source 1, `dead_cleanup` source 2,
-    // `edge_cleanup`) query via `is_in_class`, `class_of`, and
-    // `is_bypass_safe_entry_for_var` to coordinate exactly-one drop
-    // per CFG path without double-free or leak.
-    let take_move_facts = crate::aims::emit_rc::take_project::analyze(func, pool);
-    let iter_fn_name = interner.intern("iter");
-    let predecessors = crate::graph::compute_predecessors(func);
-    let mut all_death_events = Vec::new();
-    let mut all_alloc_events = Vec::new();
-    // Deferred decs routed to edge cleanup. Each entry:
-    // - `None` target: emit on ALL outgoing edges (Phase B deferred parents)
-    // - `Some(succ)` target: emit only on edge to `succ` (merge-edge decs)
-    let mut block_deferred: FxHashMap<usize, Vec<DeferredDec>> = FxHashMap::default();
-    let mut synergy = metrics::SynergyMetrics::default();
-
-    // Phase 1: per-block RC emission via unified forward walk.
-    for block_idx in 0..func.blocks.len() {
-        let (death_events, alloc_events, walk_metrics) = emit_block_rc(
-            func,
-            block_idx,
-            state_map,
-            pool,
-            &all_borrowed_defs,
-            &project_borrowed_defs,
-            &iter_element_defs,
-            &inline_enum_projected_defs,
-            &func_project_sources,
-            &take_move_facts,
-            iter_fn_name,
-            &predecessors,
-            &mut block_deferred,
+    // The burden ops in the stream ARE the per-class-verified plan. Lower the
+    // plan mechanically in Phase 7 and coalesce the resulting RC ops.
+    if func.class_ledger_emission {
+        lower_burden_ops_to_rc(func, pool, type_registry, &FxHashSet::default());
+        trace_phase_snapshot("after_phase_7_burden_lowering", func, interner);
+        finalize_rc_emission(func, interner);
+        return (
+            count_rc_ops(func),
+            Vec::new(),
+            Vec::new(),
+            metrics::SynergyMetrics::default(),
         );
-        synergy.merge(&walk_metrics);
-        all_death_events.extend(death_events);
-        all_alloc_events.extend(alloc_events);
     }
-    trace_phase_snapshot("after_phase_1_walk", func, interner);
 
-    // Phase 1.5: dead Invoke result cleanup.
-    emit_dead_invoke_dsts(func, state_map, pool, &all_borrowed_defs);
-    trace_phase_snapshot("after_phase_1_5_dead_invoke", func, interner);
-
-    // Phase 2: inter-block edge cleanup (with deferred parent decs).
-    emit_edge_cleanup(
-        func,
-        state_map,
-        pool,
-        &all_borrowed_defs,
-        &take_move_facts,
-        &block_deferred,
+    // INVARIANT: the burden-disabled ablation declines replacement, so this is
+    // its fail-loud gate; production replacement is asserted before realization.
+    unreachable!(
+        "realize reached a non-class-ledger function `{}` — the class-ledger \
+         plan admits only replaced functions",
+        interner.lookup(func.name)
     );
-    trace_phase_snapshot("after_phase_2_edge_cleanup", func, interner);
+}
 
-    // Phase 2.1: insert RcInc for projected children that escape via
-    // terminator args, where the parent aggregate was edge-dec'd by
-    // Phase 2 above. Edge cleanup may have created trampoline blocks with
-    // AggFields dec — these dec ALL fields including projected ones still
-    // live in the successor. The RcInc compensates.
-    super::project_escape::emit_project_escape_incs(
-        func,
-        state_map,
-        pool,
-        &func_project_sources,
-        &all_borrowed_defs,
-    );
-    trace_phase_snapshot("after_phase_2_1_escape_incs", func, interner);
+/// Shared RC-emission tail: Phase 3 coalescing peephole (merge adjacent RC
+/// ops per block) followed by RL-2 scope-exit drop-order correction on
+/// `Return` blocks ([`order_return_block_scope_exit_decs`]).
+///
+/// BOTH `emit_rc_unified` exit paths — the class-ledger replacement early
+/// return and the default burden-path walk — emit real `RcInc`/`RcDec`
+/// instructions subject to the SAME user-`@drop`-observable ordering hazard
+/// on `Return` blocks (Spec: Annex E §AIMS RL-2 + RL-DROP); routing both
+/// through one finalize step keeps them from drifting out of sync the way a
+/// duplicated inline tail would.
+fn finalize_rc_emission(func: &mut ArcFunction, interner: &ori_ir::StringInterner) {
+    use crate::aims::emit_rc::coalesce_block_rc;
 
-    // Phase 3: RC coalescing peephole — merge adjacent RC ops per block.
     for block in &mut func.blocks {
         coalesce_block_rc(&mut block.body);
     }
     trace_phase_snapshot("after_phase_3_coalesce", func, interner);
 
-    let rc_count = count_rc_ops(func);
-    (rc_count, all_death_events, all_alloc_events, synergy)
+    order_return_block_scope_exit_decs(func);
 }
 
-/// Emit RC operations for a single block via the unified forward walk.
-///
-/// Returns `(death_events, alloc_events, walk_metrics)`.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "block-level RC emission needs full context"
-)]
-fn emit_block_rc(
-    func: &mut ArcFunction,
-    block_idx: usize,
-    state_map: &AimsStateMap,
-    pool: &Pool,
-    all_borrowed_defs: &FxHashSet<ArcVarId>,
-    project_borrowed_defs: &FxHashSet<ArcVarId>,
-    iter_element_defs: &FxHashSet<ArcVarId>,
-    inline_enum_projected_defs: &FxHashSet<ArcVarId>,
-    func_project_sources: &FxHashMap<ArcVarId, ArcVarId>,
-    take_move_facts: &crate::aims::emit_rc::take_project::TakeMoveFacts,
-    iter_fn_name: ori_ir::Name,
-    predecessors: &[Vec<usize>],
-    block_deferred: &mut FxHashMap<usize, Vec<DeferredDec>>,
-) -> (Vec<DeathEvent>, Vec<AllocEvent>, metrics::SynergyMetrics) {
-    use crate::aims::emit_rc::{
-        block_id, collect_borrowed_defs, collect_defined_vars, compute_child_effective_last_use,
-        emit_dead_at_entry_decs, emit_terminator_rc, precompute_block_uses, BlockCtx,
-    };
+/// The released var of a scope-exit release op (whole-var or field-grain),
+/// `None` for every non-release instruction.
+fn release_var(instr: &ArcInstr) -> Option<ArcVarId> {
+    match instr {
+        ArcInstr::RcDec { var, .. }
+        | ArcInstr::BurdenDec { var }
+        | ArcInstr::RcDecPartial { var, .. }
+        | ArcInstr::BurdenDecPartial { var, .. }
+        | ArcInstr::RcDecVariant { var }
+        | ArcInstr::BurdenDecVariant { var } => Some(*var),
+        ArcInstr::RcDecField { base, .. } | ArcInstr::BurdenDecField { base, .. } => Some(*base),
+        _ => None,
+    }
+}
 
-    let blk = block_id(block_idx);
-    let use_info = precompute_block_uses(&func.blocks[block_idx]);
-    let defined_in_block = collect_defined_vars(&func.blocks[block_idx]);
-    let borrowed_defs = collect_borrowed_defs(&func.blocks[block_idx], func, pool);
-    let child_elu =
-        compute_child_effective_last_use(&func.blocks[block_idx], &use_info, func_project_sources);
-
-    let old_body = std::mem::take(&mut func.blocks[block_idx].body);
-    let mut new_body: Vec<ArcInstr> = Vec::with_capacity(old_body.len() * 2);
-
-    let ctx = BlockCtx {
-        func,
-        blk,
-        state_map,
-        defined_in_block: &defined_in_block,
-        borrowed_defs: &borrowed_defs,
-        all_borrowed_defs,
-        project_borrowed_defs,
-        iter_element_defs,
-        inline_enum_projected_defs,
-        use_info: &use_info,
-        pool,
-        child_effective_last_use: &child_elu,
-        take_move_facts,
-    };
-
-    let (deferred_parents, merge_edge_decs) = emit_dead_at_entry_decs(&ctx, &mut new_body);
-
-    let walk::BodyWalkResult {
-        terminator_deferred,
-        death_events,
-        alloc_events,
-        walk_metrics,
-    } = walk::walk_body_unified(
-        &ctx,
-        &old_body,
-        &mut new_body,
-        iter_fn_name,
-        deferred_parents,
-    );
-
-    emit_terminator_rc(&ctx, block_idx, &mut new_body);
-
-    let edge_deferred = match &func.blocks[block_idx].terminator {
-        ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => {
-            for &(var, strategy) in &terminator_deferred {
-                new_body.push(ArcInstr::RcDec { var, strategy });
-            }
-            Vec::new()
+/// RL-2 scope-exit drop ordering on `Return` blocks: sort each Return block's
+/// trailing release run into REVERSE DECLARATION ORDER (descending `ArcVarId`),
+/// the value-semantics teardown order (a later-declared container drops before
+/// the earlier locals its teardown may observe — the two-channel map teardown
+/// fires before the caller's own key/value copies release). Releases within
+/// one trailing run are a per-path permutation (RC-net neutral); only the
+/// user-`@drop`-observable order changes. Spec: Annex E §AIMS RL-2 + RL-DROP.
+fn order_return_block_scope_exit_decs(func: &mut ArcFunction) {
+    for block_idx in 0..func.blocks.len() {
+        if !matches!(
+            func.blocks[block_idx].terminator,
+            crate::ir::ArcTerminator::Return { .. }
+        ) {
+            continue;
         }
-        _ => terminator_deferred,
-    };
-
-    func.blocks[block_idx].body = new_body;
-    if !edge_deferred.is_empty() {
-        let tagged: Vec<_> = edge_deferred
+        let body_len = func.blocks[block_idx].body.len();
+        // The maximal trailing run of release ops — whole-var AND field-grain
+        // (a partial/field/variant dec walks field payloads whose drop glue
+        // may fire transitively, so it is order-bearing and must not truncate
+        // the run).
+        let mut start = body_len;
+        while start > 0 && release_var(&func.blocks[block_idx].body[start - 1]).is_some() {
+            start -= 1;
+        }
+        if body_len - start < 2 {
+            continue;
+        }
+        // One unit per release op; the sort is stable, so same-var release
+        // sequences keep their relative order. `func.spans` is indexed
+        // `[block_index][instr_index]` in lockstep with `body` (per every
+        // other body-reordering pass in this crate — `block_merge::select`,
+        // `aims::emit_reuse::dynamic`, `tail_call::rewrite`); split + resort
+        // the span tail alongside the instruction tail so a reordered
+        // release's provenance stays attached to the reordered instruction
+        // instead of silently describing whichever instruction ends up at
+        // its old position.
+        let tail: Vec<ArcInstr> = func.blocks[block_idx].body.split_off(start);
+        let span_tail: Vec<Option<ori_ir::Span>> = func
+            .spans
+            .get_mut(block_idx)
+            .map(|spans| {
+                let at = start.min(spans.len());
+                spans.split_off(at)
+            })
+            .unwrap_or_default();
+        let mut units: Vec<(usize, ArcInstr, Option<ori_ir::Span>)> = tail
             .into_iter()
-            .map(|(var, strat)| (None, var, strat))
+            .enumerate()
+            .map(|(i, instr)| {
+                let Some(var) = release_var(&instr) else {
+                    unreachable!("trailing run contains only release ops")
+                };
+                let span = span_tail.get(i).copied().flatten();
+                (var.index(), instr, span)
+            })
             .collect();
-        block_deferred.insert(block_idx, tagged);
-    }
-    route_merge_edge_decs(
-        func,
-        block_idx,
-        &merge_edge_decs,
-        predecessors,
-        block_deferred,
-    );
-
-    (death_events, alloc_events, walk_metrics)
-}
-
-/// Route merge-edge decs to per-predecessor edge cleanup.
-///
-/// Each predecessor that DEFINES the variable gets the dec on its edge
-/// to the merge block ONLY (not all outgoing edges). This preserves
-/// successor identity so edge cleanup doesn't fire on unrelated edges.
-///
-/// Take-project alias-class members never reach this routing: the
-/// `dead_cleanup.rs` `is_in_class` checks skip them entirely (their
-/// natural scope-exit drops in non-projecting predecessors handle the
-/// cleanup, and `is_ownership_transfer` at the take-project `Project`
-/// site suppresses the source's last-use drop).
-fn route_merge_edge_decs(
-    func: &ArcFunction,
-    block_idx: usize,
-    merge_edge_decs: &[(ArcVarId, RcStrategy)],
-    predecessors: &[Vec<usize>],
-    block_deferred: &mut FxHashMap<usize, Vec<DeferredDec>>,
-) {
-    if merge_edge_decs.is_empty() {
-        return;
-    }
-    let preds = &predecessors[block_idx];
-    for &(var, strategy) in merge_edge_decs {
-        for &pred_idx in preds {
-            if func.blocks[pred_idx].defines_var(var) {
-                block_deferred
-                    .entry(pred_idx)
-                    .or_default()
-                    .push((Some(block_idx), var, strategy));
+        units.sort_by(|a, b| b.0.cmp(&a.0));
+        for (_, instr, span) in units {
+            func.blocks[block_idx].body.push(instr);
+            if let Some(spans) = func.spans.get_mut(block_idx) {
+                spans.push(span);
             }
         }
     }

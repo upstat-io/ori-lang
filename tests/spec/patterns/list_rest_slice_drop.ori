@@ -1,0 +1,111 @@
+// Spec: 10-patterns.md § match (list rest patterns)
+//
+// Regression: a `match` arm binding a list rest pattern `[head, ..tail]` lowers
+// `..tail` to a seamless slice that SHARES the scrutinee's backing buffer
+// (ori_list_slice_drop -> ori_rc_inc(original_data) + make_slice_cap). Its drop
+// was selected as the unique-owner free path (ori_buffer_drop_unique) because
+// the contract-narrowed Uniqueness=MaybeShared was stored only on the slice
+// Apply dst, not propagated to the Let-aliased pattern binding; the drop site
+// read lattice BOTTOM=Unique. ori_buffer_drop_unique panics on a SLICE_FLAG cap
+// (debug) / treats the byte-offset cap as an allocation size and SIGSEGVs
+// (release/AOT). Interp was always correct -> dual-execution parity pin.
+//
+// Length is read via the `.len()` METHOD throughout (NOT the free-function
+// `len(collection:)` form, whose builtin codegen stubs to 0 under LLVM — that is
+// the orthogonal BUG-02-056 free-function-builtin defect, independent of the
+// slice-drop fix this file pins). The drop fix is length-API-independent: a
+// correct read on the bound slice proves the slice was constructed AND dropped
+// via the slice-aware path; element-access cells prove the same with no len read.
+
+use std.testing { assert_eq }
+
+// --- Rest-pattern slice bindings (the fix target): a length read on a bound
+//     rest slice. SIGSEGVs under LLVM on the unfixed code; interp correct. ---
+
+@rest_len_int (lst: [int]) -> int = match lst {
+    [head, ..tail] -> tail.len(),
+    _ -> 0
+}
+
+@test_rest_len_int tests @rest_len_int () -> void = {
+    assert_eq(actual: rest_len_int([1, 2, 3]), expected: 2);
+    assert_eq(actual: rest_len_int([9]), expected: 0);
+    assert_eq(actual: rest_len_int([]), expected: 0)
+}
+
+// Heap (str) elements through the same seamless-slice drop path.
+@rest_len_str (lst: [str]) -> int = match lst {
+    [first, ..rest] -> rest.len(),
+    _ -> 0
+}
+
+@test_rest_len_str tests @rest_len_str () -> void = {
+    assert_eq(actual: rest_len_str(["a", "b", "c"]), expected: 2);
+    assert_eq(actual: rest_len_str(["solo"]), expected: 0)
+}
+
+// Element ACCESS on the bound rest slice (a second match on `tail`) — proves the
+// slice DATA + drop are correct with NO length read at all.
+@rest_first_int (lst: [int]) -> int = match lst {
+    [head, ..tail] -> match tail {
+        [t0, ..rest2] -> t0,
+        _ -> -1
+    },
+    _ -> -2
+}
+
+@test_rest_first_int tests @rest_first_int () -> void = {
+    assert_eq(actual: rest_first_int([10, 20, 30]), expected: 20);
+    assert_eq(actual: rest_first_int([5]), expected: -1)
+}
+
+// Empty-rest pattern `[..rest]` (matches any list incl. empty) — exhaustive alone.
+@all_rest (lst: [int]) -> int = match lst {
+    [..rest] -> rest.len()
+}
+
+@test_all_rest tests @all_rest () -> void = {
+    assert_eq(actual: all_rest([1, 2, 3, 4]), expected: 4);
+    assert_eq(actual: all_rest([]), expected: 0)
+}
+
+// Nested-heap elements `[[int]]` — rest slice of nested lists (elem_dec_fn path).
+@rest_len_nested (lst: [[int]]) -> int = match lst {
+    [head, ..tail] -> tail.len(),
+    _ -> 0
+}
+
+@test_rest_len_nested tests @rest_len_nested () -> void = {
+    assert_eq(actual: rest_len_nested([[1], [2], [3]]), expected: 2);
+    assert_eq(actual: rest_len_nested([[9]]), expected: 0)
+}
+
+// --- Slice-origin clamp: a `.slice()`-created seamless slice's length must also
+//     read correctly under LLVM via the same drop-aware path. Distinguishes
+//     "rest-pattern slice drop broken" from "all seamless-slice drop broken". ---
+
+@method_slice_len (lst: [int]) -> int = {
+    let $s = lst.slice(start: 1, end: 3);
+    s.len()
+}
+
+@test_method_slice_len tests @method_slice_len () -> void = {
+    assert_eq(actual: method_slice_len([10, 20, 30, 40]), expected: 2);
+    assert_eq(actual: method_slice_len([7, 8]), expected: 1)
+}
+
+// --- Boundary clamp: exact-length matches (NO slice) must STILL use the
+//     unique-drop path correctly. Proves the fix is narrow — it must not
+//     broaden non-unique-drop to all list values, only seamless slices. ---
+
+@exact_sum (lst: [int]) -> int = match lst {
+    [a, b] -> a + b,
+    [a, b, c] -> a + b + c,
+    _ -> 0
+}
+
+@test_exact_sum tests @exact_sum () -> void = {
+    assert_eq(actual: exact_sum([3, 4]), expected: 7);
+    assert_eq(actual: exact_sum([1, 2, 3]), expected: 6);
+    assert_eq(actual: exact_sum([5]), expected: 0)
+}

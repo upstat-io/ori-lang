@@ -1,0 +1,28 @@
+// Forwarder result consumed DIRECTLY as a borrowed call arg through a wrapper
+// return hop (no intermediate let-bind). The wrapper-returned list transfers
+// out of the wrapper's `Return`, then flows straight into a borrowing callee
+// arg (`assert_eq(actual: wrap(), ..)`) — `ApplyToBorrowedParam`, RL-2
+// non-transfer, so the caller owes exactly one release. Regression pin for the
+// test-runner JIT path missing the mono-target rewrite on test bodies, which
+// made the borrowed transfer-through-return arg miss its mono-keyed contract
+// and leak. Dual-execution parity is the spec contract.
+
+use std.testing { assert_eq }
+
+@fwd (xs: [int]) -> [int] = xs;
+@wrap_provided () -> [int] = fwd([1, 2]);
+
+// DIRECT borrowed-arg consume of the wrapper result (no `let` binding) — the
+// shape that leaked on LLVM/AOT.
+@test_forward_list_direct_borrowed_consume tests @wrap_provided () -> void = {
+    assert_eq(actual: wrap_provided(), expected: [1, 2])
+}
+
+// Two-param forwarder: a non-returned scalar param BEFORE the returned list
+// param (the `f_list(n, tail) = tail` shape).
+@f_list (n: int, tail: [int]) -> [int] = tail;
+@provided_two_param () -> [int] = f_list(0, [3, 4]);
+
+@test_forward_list_two_param_direct_consume tests @provided_two_param () -> void = {
+    assert_eq(actual: provided_two_param(), expected: [3, 4])
+}

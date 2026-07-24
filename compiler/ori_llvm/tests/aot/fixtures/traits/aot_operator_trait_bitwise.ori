@@ -1,11 +1,11 @@
 type Mask = { bits: int }
 
-impl BitAnd for Mask {
+impl Mask: BitAnd {
     type Output = Mask;
     @bit_and (self, rhs: Mask) -> Mask = Mask { bits: self.bits & rhs.bits }
 }
 
-impl BitOr for Mask {
+impl Mask: BitOr {
     type Output = Mask;
     @bit_or (self, rhs: Mask) -> Mask = Mask { bits: self.bits | rhs.bits }
 }

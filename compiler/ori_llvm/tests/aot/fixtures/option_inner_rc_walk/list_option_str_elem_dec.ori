@@ -1,0 +1,6 @@
+@mk (b: bool) -> Option<str> = if b then Some("hi") else None;
+@take (xs: [Option<str>]) -> void = print(msg: "c");
+@main () -> void = {
+    let xs = [mk(b: false), mk(b: true)];
+    take(xs: xs)
+}

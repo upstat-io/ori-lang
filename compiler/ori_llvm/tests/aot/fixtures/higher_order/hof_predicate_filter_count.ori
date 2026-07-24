@@ -9,7 +9,7 @@
 }
 
 @main () -> int = {
-    let is_even = (n: int) -> n % 2 == 0;
+    let is_even = (n: int) -> bool = n % 2 == 0;
     let c = count_matching(pred: is_even);
     // 0,2,4,6,8 = 5 even numbers
     if c == 5 then 0 else 1

@@ -72,8 +72,7 @@ fn contains_inclusive() {
     let range = Value::Range(RangeValue::inclusive(0, 10));
 
     assert_eq!(
-        dispatch_builtin_method(range.clone(), "contains", vec![Value::int(10)], &interner)
-            .unwrap(),
+        dispatch_builtin_method(range, "contains", vec![Value::int(10)], &interner).unwrap(),
         Value::Bool(true) // Inclusive end
     );
 }

@@ -38,6 +38,174 @@ fn test_hof_apply_lambda() {
 }
 
 #[test]
+fn test_hof_borrows_closure_typed_residual_argument() {
+    assert_aot_success(
+        r#"
+@apply_consumer (consumer: ((int) -> int) -> int, f: (int) -> int) -> int = consumer(f);
+
+@main () -> int = {
+    let base = "a captured heap string longer than the inline string threshold";
+    let f = (x: int) -> int = x + base.len();
+    let consumer = (g: (int) -> int) -> int = g(3);
+    let first = apply_consumer(consumer: consumer, f: f);
+    let second = f(4);
+    if first > 3 && second > 4 then 0 else 1
+}
+"#,
+        "hof_borrowed_closure_residual",
+    );
+}
+
+#[test]
+fn test_option_map_borrows_closure_payload() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let base = "an option payload closure capture longer than the inline threshold";
+    let f = (x: int) -> int = x + base.len();
+    let opt: Option<(int) -> int> = Some(f);
+    let mapped: Option<int> = opt.map((g: (int) -> int) -> int = g(5));
+    if mapped.unwrap() > 5 then 0 else 1
+}
+"#,
+        "option_map_borrowed_closure_payload",
+    );
+}
+
+#[test]
+fn test_result_map_borrows_closure_payload() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let base = "a result payload closure capture longer than the inline threshold";
+    let f = (x: int) -> int = x + base.len();
+    let result: Result<(int) -> int, str> = Ok(f);
+    let mapped: Result<int, str> = result.map((g: (int) -> int) -> int = g(6));
+    if mapped.unwrap() > 6 then 0 else 1
+}
+"#,
+        "result_map_borrowed_closure_payload",
+    );
+}
+
+#[test]
+fn test_catch_invoke_indirect_borrows_closure_residual() {
+    let source = r#"
+@main () -> int = {
+    let target_base = "a target closure capture longer than the inline string threshold";
+    let target = (x: int) -> int = x + target_base.len();
+    let consumer_base = "a consumer closure capture that forces real unwind cleanup";
+    let consumer = (g: (int) -> int) -> int = g(3) + consumer_base.len();
+    let result = catch(expr: consumer(target));
+    match result {
+        Ok(value) -> if value > 3 then 0 else 1,
+        Err(_) -> 1,
+    }
+}
+"#;
+
+    let ir = compile_and_capture_ir(source);
+    assert!(
+        ir.lines()
+            .any(|line| line.contains(" invoke ") && line.contains("%icall.fn_ptr")),
+        "catch must preserve a real indirect LLVM invoke for the closure call.\nIR:\n{ir}"
+    );
+    assert_aot_success(source, "catch_invoke_indirect_borrowed_closure_residual");
+}
+
+#[test]
+fn test_iter_map_borrows_closure_element() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let base = "a map-element closure capture longer than the inline string threshold";
+    let f = (x: int) -> int = x + base.len();
+    let functions: [(int) -> int] = [f];
+    let values: [int] = functions
+        .iter()
+        .map(transform: (g: (int) -> int) -> int = g(3))
+        .collect();
+    if values.len() == 1 && values[0] > 3 then 0 else 1
+}
+"#,
+        "iter_map_borrowed_closure_element",
+    );
+}
+
+#[test]
+fn test_iter_predicate_borrows_closure_element() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let base = "a predicate-element closure capture longer than the inline string threshold";
+    let f = (x: int) -> int = x + base.len();
+    let functions: [(int) -> int] = [f];
+    let accepted = functions
+        .iter()
+        .all(predicate: (g: (int) -> int) -> bool = g(4) > 4);
+    if accepted then 0 else 1
+}
+"#,
+        "iter_predicate_borrowed_closure_element",
+    );
+}
+
+#[test]
+fn test_iter_for_each_borrows_closure_element() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let base = "a for-each-element closure capture longer than the inline string threshold";
+    let f = (x: int) -> int = x + base.len();
+    let functions: [(int) -> int] = [f];
+    functions.iter().for_each(action: (g: (int) -> int) -> void = {
+        if g(5) <= 5 then panic(msg: "closure element was not invoked correctly");
+    });
+    0
+}
+"#,
+        "iter_for_each_borrowed_closure_element",
+    );
+}
+
+#[test]
+fn test_iter_for_each_discards_capturing_closure_result() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let base = "a discarded closure capture longer than the inline string threshold";
+    [1, 2].iter().for_each(action: (n: int) -> (int) -> int = {
+        let local = base + "-owned-by-the-returned-closure";
+        (x: int) -> int = x + n + local.len()
+    });
+    0
+}
+"#,
+        "iter_for_each_discarded_capturing_closure_result",
+    );
+}
+
+#[test]
+fn test_iter_fold_borrows_closure_accumulator() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let base = "a fold-accumulator closure capture longer than the inline string threshold";
+    let seed = (x: int) -> int = x + base.len();
+    let result: (int) -> int = [1]
+        .iter()
+        .fold(
+            initial: seed,
+            op: (acc: (int) -> int, _n: int) -> (int) -> int = acc,
+        );
+    if result(6) > 6 then 0 else 1
+}
+"#,
+        "iter_fold_borrowed_closure_accumulator",
+    );
+}
+
+#[test]
 fn test_hof_two_function_args() {
     assert_aot_success(
         include_str!("fixtures/higher_order/hof_two_function_args.ori"),
@@ -469,6 +637,62 @@ fn test_closure_capturing_option_str_match() {
     );
 }
 
+// Closure-env-drop single-SSOT consolidation pins.
+//
+// The closure-env drop function routes every captured field's RC dec through
+// the single `dec_value_rc` SSOT (the same tag-aware inline-value dispatch
+// used everywhere), replacing the prior per-tag dispatch that maintained its
+// own collection-buffer-dec arm. A map capture is the sharpest pin: a map's
+// backing buffer is a single `[metadata | keys | values]` allocation whose
+// teardown requires the buffer-aware `ori_map_buffer_rc_dec` path with the
+// correct key/value element sizes. Reverting the consolidation to a flat
+// `ori_rc_dec(data_ptr, drop_fn)` on the map field would fault or leak —
+// fail-on-revert.
+
+/// Semantic pin (consolidation): closure capturing a `{str: str}` map.
+///
+/// The map's key/value children are heap strings; the env-drop must dec the
+/// map's backing buffer through the buffer-aware path (`dec_value_rc` →
+/// `emit_buffer_rc_dec_map`). Leak-clean under `ORI_CHECK_LEAKS=1` proves the
+/// consolidated single-SSOT dispatch handles collection captures with the
+/// correct buffer offsets — the divergence the consolidation eliminates.
+#[test]
+fn test_closure_capture_map_drops_via_single_ssot() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m = {"alpha": "one", "beta": "two"};
+    let c = () -> m.length();
+    let n = c();
+    if n == 2 then 0 else 1
+}
+"#,
+        "closure_capture_map_drops_via_single_ssot",
+    );
+}
+
+/// Semantic pin (consolidation): closure capturing a mixed `(str, {str: str})`
+/// pair plus a list, exercising the str / map / list capture tags through the
+/// single env-drop dispatch in one environment. Every captured field must be
+/// decremented exactly once at env teardown; a missed dec leaks, a double dec
+/// double-frees — both surface as a non-zero exit under `ORI_CHECK_LEAKS=1`.
+#[test]
+fn test_closure_capture_mixed_collections_drop_via_single_ssot() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let label = "the-quick-brown-fox-jumps";
+    let table = {"alpha": "one", "beta": "two"};
+    let xs = ["aaa", "bbb", "ccc"];
+    let c = () -> label.length() + table.length() + xs.length();
+    let n = c();
+    if n == 30 then 0 else 1
+}
+"#,
+        "closure_capture_mixed_collections_drop_via_single_ssot",
+    );
+}
+
 // Nested closure RC matrix — covers double-free regression from wrapper
 // RcInc fix. Every test exercises a different type through the nested-capture
 // path: outer closure captures a value, inner closure re-captures it.
@@ -543,7 +767,36 @@ fn test_nested_closure_borrowed_list_param() {
     );
 }
 
-// ─── Multi-instantiation lambda (TPR-04B-007 regression) ───
+/// Verification pin (no-drift): the closure environment physically owns a
+/// copy of every RC capture, so its drop decrements each one regardless of
+/// whether the lambda body treats the capture by-value or by-reference. A
+/// closure capturing a heap str through a path the borrow checker classifies
+/// as a borrow (passed in as a borrowed parameter, then re-captured) is still
+/// leak-clean: the env owns the stored copy, the env-drop decs it exactly
+/// once, and the wrapper does NOT inc it. The owned/borrowed `BurdenSpec`
+/// partition is consulted for the BODY's borrow treatment (wrapper `RcInc`
+/// skip), never for the env-drop dec decision — so a by-value→by-reference
+/// refinement cannot drift the env-drop into a missed or spurious dec.
+#[test]
+fn test_closure_borrowed_capture_env_owns_copy_no_drift() {
+    assert_aot_success(
+        r#"
+@use_borrowed (s: str) -> int = {
+    let c = () -> s.length();
+    c()
+}
+
+@main () -> int = {
+    let label = "the-quick-brown-fox-jumps-over";
+    let n = use_borrowed(s: label);
+    if n == 30 then 0 else 1
+}
+"#,
+        "closure_borrowed_capture_env_owns_copy_no_drift",
+    );
+}
+
+// ─── Multi-instantiation lambda ───
 
 /// Semantic pin: zero-arg polymorphic lambda returning None, instantiated at
 /// Option<int> and Option<str>. The original generic lambda must be removed
@@ -588,7 +841,7 @@ fn test_multi_inst_map_lambda() {
     );
 }
 
-/// Negative pin for TPR-04B-007: verify that multi-inst originals are NOT
+/// Negative pin: verify that multi-inst originals are NOT
 /// present in the emitted LLVM IR. Only specialized clones (with `$` suffix)
 /// should survive. The stale original would contain unresolved type variables
 /// and produce `unresolved type variable at codegen` errors.
@@ -631,7 +884,7 @@ fn test_multi_inst_no_stale_original_in_ir() {
          stale original lambda was compiled"
     );
 
-    // Negative pin for TPR-04B-009: verify no "callee not found" warnings.
+    // Negative pin: verify no "callee not found" warnings.
     // The original PartialApply instruction must be removed alongside the
     // original lambda function, otherwise the emitter falls back to a null
     // closure for the stale callee reference.
@@ -639,5 +892,41 @@ fn test_multi_inst_no_stale_original_in_ir() {
         !ir.contains("callee not found"),
         "compilation produced 'callee not found' warning — \
          stale PartialApply instruction survived rewriting"
+    );
+}
+
+// Higher-order multi-call closure no-leak matrix.
+//
+// Each test invokes a stdlib higher-order method (`map`/`filter`/`fold`)
+// with a closure capturing an RC-tracked str. The stdlib method dispatches
+// the closure via `ApplyIndirect` once per element — multi-call closure
+// shape that triggers the spurious-RcInc on the closure receiver
+// pre-fix. `assert_aot_success` enables `ORI_CHECK_LEAKS=1`; pre-fix the
+// captured str + closure environment leak (similar to closure_env_alias);
+// post-fix zero leaks. The `parallel` cell is absent because
+// `FunctionExpKind::Parallel` is rejected at typecheck (E2040); map/filter/
+// fold cover the multi-call ApplyIndirect surface for this matrix.
+
+#[test]
+fn test_hof_map_str_capture_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/higher_order/hof_map_str_capture_no_leak.ori"),
+        "hof_map_str_capture_no_leak",
+    );
+}
+
+#[test]
+fn test_hof_filter_str_capture_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/higher_order/hof_filter_str_capture_no_leak.ori"),
+        "hof_filter_str_capture_no_leak",
+    );
+}
+
+#[test]
+fn test_hof_fold_str_capture_no_leak() {
+    assert_aot_success(
+        include_str!("fixtures/higher_order/hof_fold_str_capture_no_leak.ori"),
+        "hof_fold_str_capture_no_leak",
     );
 }

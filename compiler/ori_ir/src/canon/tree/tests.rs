@@ -1,10 +1,11 @@
 use std::mem;
 
+use crate::canon::CanId;
 use crate::Name;
 
 use super::*;
 
-// ── PathInstruction ─────────────────────────────────────────
+// PathInstruction
 
 #[test]
 fn path_instruction_size() {
@@ -28,7 +29,7 @@ fn path_instruction_equality() {
     );
 }
 
-// ── ScrutineePath ───────────────────────────────────────────
+// ScrutineePath
 
 #[test]
 fn scrutinee_path_empty() {
@@ -41,7 +42,7 @@ fn scrutinee_path_multiple_elements() {
     let path: ScrutineePath = vec![
         PathInstruction::TagPayload(0),
         PathInstruction::TupleIndex(1),
-        PathInstruction::StructField(2),
+        PathInstruction::StructField(Name::from_raw(2)),
         PathInstruction::ListElement(3),
     ];
     assert_eq!(path.len(), 4);
@@ -56,7 +57,7 @@ fn scrutinee_path_clone_independence() {
     assert_eq!(cloned.len(), 2);
 }
 
-// ── TestKind ────────────────────────────────────────────────
+// TestKind
 
 #[test]
 fn test_kind_equality() {
@@ -64,7 +65,7 @@ fn test_kind_equality() {
     assert_ne!(TestKind::EnumTag, TestKind::IntEq);
 }
 
-// ── TestValue ───────────────────────────────────────────────
+// TestValue
 
 #[test]
 fn test_value_tag() {
@@ -137,7 +138,7 @@ fn test_value_int_range() {
     );
 }
 
-// ── DecisionTree ────────────────────────────────────────────
+// DecisionTree
 
 #[test]
 fn decision_tree_leaf() {
@@ -295,14 +296,13 @@ fn decision_tree_nested_switch() {
 
     if let DecisionTree::Switch { edges, .. } = &tree {
         assert_eq!(edges.len(), 2);
-        // First edge leads to another Switch (nested).
         assert!(matches!(&edges[0].1, DecisionTree::Switch { .. }));
     } else {
         panic!("expected Switch");
     }
 }
 
-// ── FlatPattern ─────────────────────────────────────────────
+// FlatPattern
 
 #[test]
 fn flat_pattern_wildcard_like() {
@@ -467,15 +467,18 @@ fn extract_bindings_struct() {
     let path: ScrutineePath = Vec::new();
     let bindings = pat.extract_bindings(&path);
     assert_eq!(bindings.len(), 2);
-    // x at [StructField(0)]
+    // x at [StructField(field 10)]
     assert_eq!(bindings[0].0, name_x);
-    assert_eq!(bindings[0].1.as_slice(), &[PathInstruction::StructField(0)]);
-    // a at [StructField(1), TupleIndex(0)]
+    assert_eq!(
+        bindings[0].1.as_slice(),
+        &[PathInstruction::StructField(Name::from_raw(10))]
+    );
+    // a at [StructField(y), TupleIndex(0)]
     assert_eq!(bindings[1].0, name_a);
     assert_eq!(
         bindings[1].1.as_slice(),
         &[
-            PathInstruction::StructField(1),
+            PathInstruction::StructField(name_y),
             PathInstruction::TupleIndex(0)
         ]
     );
@@ -501,7 +504,7 @@ fn extract_bindings_list_with_rest() {
     assert_eq!(bindings[1].1.as_slice(), &[PathInstruction::ListRest(1)]);
 }
 
-// ── PatternRow ──────────────────────────────────────────────
+// PatternRow
 
 #[test]
 fn pattern_row_construction() {
@@ -510,6 +513,7 @@ fn pattern_row_construction() {
         arm_index: 0,
         guard: None,
         bindings: vec![],
+        discard_paths: vec![],
     };
     assert_eq!(row.patterns.len(), 2);
     assert_eq!(row.arm_index, 0);
@@ -523,6 +527,7 @@ fn pattern_row_with_guard() {
         arm_index: 1,
         guard: Some(CanId::new(50)),
         bindings: vec![],
+        discard_paths: vec![],
     };
     assert!(row.guard.is_some());
 }

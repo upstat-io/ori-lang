@@ -1,0 +1,91 @@
+Theorem RL-102: Dispatch monotonicity
+
+  Preconditions:
+    - aims-proof/checker/src/checker.rs::check_proof_file is the
+      top-level orchestration entry point per the proof-checker design
+      sec-Architecture-Sketch
+    - CoverageManifest loaded from checker/coverage-manifest.json
+      maps each Category to an ordered list of engine names per the
+      the proof-checker design sec-Engine-per-Category-Inventory rows
+    - each engine in aims-proof/checker/src/engine implements the
+      Engine trait with accepts and dispatch methods per
+      aims-proof/checker/src/engine/mod.rs
+    - dispatch_theorem walks the manifest list in order and calls
+      engine.dispatch once per engine per theorem
+    - unimplemented_engine_shape is the verdict emitted when every
+      engine in the manifest list returns EngineVerdict::UnimplementedShape
+
+  Soundness property:
+    Forall t in Theorem. Forall engines = manifest.engines_for t.id.category.
+      dispatch_theorem t walks engines in declared order;
+      each engine receives at most one dispatch call per t;
+      no engine outside engines participates in the dispatch loop;
+      when every engine in engines returns UnimplementedShape, the
+        per-theorem verdict is UnimplementedEngineShape;
+      when any engine in engines returns Fail, the per-theorem
+        verdict is Fail and remaining engines are not dispatched.
+
+  Proof obligation:
+    Case analysis on the per-engine accepts and dispatch outcomes,
+    combined with monotonicity over the dispatch sequence.
+
+      Setup:
+        Let engines be the manifest list for t.id.category. Let
+        results[i] denote the EngineVerdict returned by engines[i].
+        Define the per-theorem aggregate verdict over a prefix of
+        results as the precedence Fail greater than UnimplementedShape
+        greater than Valid; this corresponds to merge_results in
+        aims-proof/checker/src/checker.rs.
+
+      Case (engines is empty):
+        dispatch_theorem returns UnimplementedEngineShape with
+        engine equal to <dispatch> and reason citing the manifest
+        empty list; no engine.dispatch call is performed.
+
+      Case (engines has length N, every results[i] is Valid):
+        dispatch_theorem walks every engine and returns Valid.
+        Each engine invoked exactly once; no engine invoked twice.
+
+      Case (results[k] is Fail for some k in 0 to N - 1):
+        dispatch_theorem returns Fail with failing_engine equal to
+        engines[k] and failing_theorem equal to t.id.canonical and
+        reason equal to results[k].reason; engines at indices
+        greater than k are NOT dispatched (early-exit per the
+        dispatch_theorem loop body).
+
+      Case (every results[i] is UnimplementedShape):
+        dispatch_theorem returns UnimplementedEngineShape with
+        engine equal to engines[0] (the first engine to declare
+        UnimplementedShape) and reason equal to results[0].reason;
+        every engine in engines is invoked exactly once.
+
+      Case (mixed Valid and UnimplementedShape, no Fail):
+        dispatch_theorem returns UnimplementedEngineShape with
+        engine equal to the first UnimplementedShape engine.
+
+    Monotonicity claim:
+      The dispatch order is a left-to-right walk per the manifest's
+      declared engine list. The verdict precedence
+      Fail > UnimplementedShape > Valid is monotone with respect to
+      prefix extension: extending a prefix by appending one more
+      engine result never converts Fail into a weaker verdict; it
+      may convert Valid into UnimplementedShape or Fail; it may
+      convert UnimplementedShape into Fail. This monotonicity
+      property is L-6-shaped (transfer functions are monotone) on
+      the verdict lattice with carrier Valid <= UnimplementedShape <= Fail.
+
+    Lattice validation:
+      The verdict aggregation is a chain on the carrier
+      Valid <= UnimplementedShape <= Fail (height 2). Monotone over
+      prefix extension. Idempotent (calling merge_results twice with
+      the same input produces the same output).
+
+    Engines dispatched:
+      monotonicity (dispatch order invariant; verdict aggregation is
+                    monotone over prefix extension)
+      case_analysis (per-engine accepts truth-table enumeration; per
+                     EngineVerdict variant enumeration)
+
+  Expected:
+    status: valid
+    reason: 01A bootstrap discharged via §01A Implementation Items (engine constructive verification + Lean 4 cross-validation)

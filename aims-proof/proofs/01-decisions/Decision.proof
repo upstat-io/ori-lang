@@ -1,0 +1,118 @@
+Theorem DP-1: Decision predicate signatures — pure-state DPs + context-dependent DPs + DP-10 confirmation-of-removal
+
+  Preconditions:
+    - Decision predicates map lattice states to logical ownership-event,
+      mutation-isolation, and donor/recipient-transfer decisions per Annex E
+      §AIMS + Appendix C truth tables
+    - Most DPs are pure functions of AimsState; DP-5 + DP-9 additionally
+      consult borrow_sources + project_alias_sources + live-variable set
+    - MutationObligation is the closed sum type returned by DP-9; CowMode is
+      retained only as a historical artifact alias
+    - DP-10 was REMOVED from Annex E §AIMS as unsound
+      (confirmation-of-removal entry authored below)
+
+  Soundness property:
+    Pure-state DP signatures (per Annex E §AIMS + the canonical proof notation:245):
+
+      DP-1 : AimsState -> Bool
+        needs_ownership_events(s) <=> s.access = O AND
+          s.consumption != empty AND NOT s.is_scalar
+
+      DP-2 : AimsState -> Bool
+        is_release_unnecessary(s) <=> s.cardinality = absent OR
+          s.consumption = empty
+
+      DP-3 : AimsState -> Bool
+        is_additional_credit_elidable(s) <=> s.cardinality = 1 AND
+          (s.consumption = L OR s.consumption = A)
+
+      DP-4 : AimsState -> Bool
+        needs_sharing_observation(s) <=> s.uniqueness = ms
+
+      DP-6 : AimsState -> Bool
+        is_reuse_candidate(s) <=> s.access = O AND s.uniqueness != s AND s.shape != Phi
+
+      DP-7 : AimsState -> Bool
+        is_event_pair_elision_eligible(s) <=> s.locality <= fl AND
+          s.access = O AND s.consumption = L AND s.cardinality = 1 AND
+          s.uniqueness = u AND NOT s.is_scalar
+
+      DP-8 : AimsState -> Bool
+        is_local(s) <=> s.locality in {bl, fl}
+
+    Context-dependent DP signatures (per Annex E §AIMS +
+    the canonical proof notation:252-256):
+
+      DP-5 : AimsState x ArcVarId x FieldPath x ProgramPoint x InstructionKind -> Bool
+        can_mutate_in_place(s, var, field, point, kind) <=>
+          s.access = O AND s.uniqueness = u
+          AND no_active_overlapping_borrows(var, field, point, kind)
+
+        no_active_overlapping_borrows uses borrow_sources +
+        project_alias_sources + live-variable set per Annex E §AIMS
+        DP-5 procedure (two-step check: direct borrows + transitive aliases).
+
+        SetTag clause (per Annex E §AIMS RL-10): when kind = SetTag,
+        the tag change invalidates ALL payload fields (variant may have
+        different layout) -> DP-5 treats SetTag as overlapping every field;
+        tag-mutation context blocks whenever ANY borrow is live regardless
+        of field path. Signature amended at rule reformulation (case 3) surfaced
+        during the DP-5 discharge.
+
+      DP-9 : AimsState x ArcVarId x FieldPath x ProgramPoint x ParamContract
+        -> MutationObligation
+        mutation_obligation(s, var, field, point, contract) =
+          Unique AND DP-5 = true -> SameIdentityAdmissible
+          Unique AND DP-5 = false -> IsolationRequired
+          MaybeShared AND contract.uniqueness = Unique AND DP-5 = true
+            -> SameIdentityAdmissible
+          MaybeShared AND contract.uniqueness = Unique AND DP-5 = false
+            -> SharingObservationRequired
+          MaybeShared else -> SharingObservationRequired
+          Shared -> IsolationRequired
+
+        Row (c) joint-DP-5 refinement (per Annex E §AIMS DP-9 row (c)
+        + the DP-9 proof artifact): MaybeShared + IC-3 ParamContract.
+        uniqueness = Unique routes to SameIdentityAdmissible only when DP-5
+        returns true locally; otherwise SharingObservationRequired remains
+        (row c-prime). IC-3 proves not-shared at function entry but does
+        NOT prove no-active-local-borrows at the mutation point; DP-9 must
+        compose IC-3 (interprocedural) with DP-5 (intraprocedural alias
+        safety). Signature amended at rule reformulation (case 3) surfaced during
+        the DP-9 discharge.
+
+      MutationObligation : closed sum type:
+        MutationObligation = SameIdentityAdmissible | IsolationRequired |
+          SharingObservationRequired
+
+    DP-10 confirmation-of-removal entry:
+
+      DP-10 — Owned + Linear + Once does NOT imply one logical owner (REMOVED)
+
+      Removed in: Annex E §AIMS DP-10 removal note
+        (2026-04 root cause documented inline)
+
+      Root cause: Backward analysis proves "no future duplication" but
+        NOT "no existing aliases". Uniqueness is ONLY established via
+        the Uniqueness lattice dimension (§AIMS §3.4) OR via fresh allocation
+        (TF-3 FRESH output). DP-10's inference from Consumption x Cardinality
+        alone was unsound: one use may store the value into a data structure
+        and create another logical owner.
+
+      Subsumed by:
+        - TF-3 (fresh allocation establishes Uniqueness = u directly)
+        - Uniqueness dimension (§AIMS §3.4) as direct source of truth
+
+      No theorem skeleton to discharge; this is a CONFIRMATION entry only.
+
+  Proof obligation:
+    sorry -- discharged by sec-05 decision predicate proofs (9 active
+            theorems: DP-1, DP-2, DP-3, DP-4, DP-5, DP-6, DP-7, DP-8, DP-9
+            + DP-10 confirmation entry)
+
+    Engines dispatched:
+      case_analysis (Appendix C truth-table enumeration for each predicate)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-05 discharges per-predicate truth-table proofs

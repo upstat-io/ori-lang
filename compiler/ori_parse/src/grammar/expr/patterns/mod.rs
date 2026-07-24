@@ -5,6 +5,7 @@
 //! Match pattern parsing uses `one_of!` for automatic backtracking across
 //! pattern alternatives (wildcard, literal, ident, struct, list, variant, tuple).
 
+mod literal_patterns;
 mod match_patterns;
 
 use crate::context::ParseContext;

@@ -33,11 +33,11 @@ Container formatting decisions: when to inline vs break.
 use ori_fmt::packing::{Packing, ConstructKind, determine_packing};
 
 // Simple list can pack multiple items per line
-let packing = determine_packing(ConstructKind::ListSimple, false, false, false, 10);
+let packing = determine_packing(ConstructKind::ListSimple, false, false, false);
 assert_eq!(packing, Packing::FitOrPackMultiple);
 
 // run() at top level always stacks
-let packing = determine_packing(ConstructKind::RunTopLevel, false, false, false, 3);
+let packing = determine_packing(ConstructKind::RunTopLevel, false, false, false);
 assert_eq!(packing, Packing::AlwaysStacked);
 ```
 
@@ -74,9 +74,9 @@ Eight Ori-specific breaking rules for special constructs:
 | `BooleanBreakRule` | 3+ `\|\|` clauses break with leading `\|\|` |
 | `ChainedElseIfRule` | Kotlin style (first `if` with assignment) |
 | `NestedForRule` | Rust-style indentation for nested `for` |
-| `ParenthesesRule` | Preserve user parens, add when needed |
-| `RunRule` | Top-level stacked, nested width-based |
-| `LoopRule` | Complex body (run/try/match/for) breaks |
+| `needs_parens` | Add parens where semantically required, per position |
+| `FunctionSeq` helpers | Query functions for try, match, generic `FunctionSeq` |
+| `map_key_needs_brackets` | Computed map keys re-emit `[ ]` |
 
 ### Layer 5: Orchestration (`formatter/`)
 

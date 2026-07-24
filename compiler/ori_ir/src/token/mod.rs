@@ -18,7 +18,7 @@ mod tag_constants;
 mod units;
 
 pub use capture::TokenCapture;
-pub use index::{TokenFlags, TokenIdx};
+pub use index::TokenFlags;
 pub use kind::TokenKind;
 pub use list::TokenList;
 pub use tag::TokenTag;
@@ -30,7 +30,7 @@ pub use units::{DurationUnit, SizeUnit};
 /// the `[u128; 2]` bitset in `TokenSet`. The total variant count (including
 /// compound assignment at 128+) is higher.
 #[cfg(test)]
-pub(crate) const TOKEN_KIND_COUNT: usize = 121;
+pub(crate) const TOKEN_KIND_COUNT: usize = 122;
 
 use std::fmt;
 

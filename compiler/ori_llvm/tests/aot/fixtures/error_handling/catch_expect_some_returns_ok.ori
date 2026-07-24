@@ -1,0 +1,8 @@
+@main () -> int = {
+    let opt: Option<int> = Some(41);
+    let result = catch(expr: opt.expect(msg: "unused expect message beyond sso width"));
+    match result {
+        Ok(v) -> if v == 41 then 0 else 2,
+        Err(_) -> 1
+    }
+}

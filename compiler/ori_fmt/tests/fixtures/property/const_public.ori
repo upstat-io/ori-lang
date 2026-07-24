@@ -1,0 +1,1 @@
+pub let $PUBLIC_CONST = 42;

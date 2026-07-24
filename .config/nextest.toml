@@ -1,0 +1,6 @@
+# cargo-nextest config. The slow-timeout terminate-after gives every test a
+# hard kill-timeout: a test still running after `period` is SIGKILLed and
+# reported as timed-out (a failure) rather than hanging the leg / the whole
+# test-all run. 120s matches the ori-test worker watchdog (ORI_TEST_WORKER_TIMEOUT_SECS).
+[profile.default]
+slow-timeout = { period = "120s", terminate-after = 1 }

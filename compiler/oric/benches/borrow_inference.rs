@@ -76,8 +76,13 @@ fn standalone_reader(name: Name) -> ArcFunction {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -100,6 +105,7 @@ fn caller_function(name: Name, callee: Name) -> ArcFunction {
                 func: callee,
                 args: vec![ArcVarId::new(0)],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return {
                 value: ArcVarId::new(1),
@@ -112,8 +118,13 @@ fn caller_function(name: Name, callee: Name) -> ArcFunction {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -147,8 +158,13 @@ fn storer_function(name: Name) -> ArcFunction {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -194,8 +210,13 @@ fn modified_reader(name: Name) -> ArcFunction {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 

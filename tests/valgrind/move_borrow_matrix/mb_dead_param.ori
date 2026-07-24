@@ -1,0 +1,43 @@
+// Move/borrow matrix: MB04 — dead owned param across all type rows.
+// A multi-param callee returns exactly one param path-sensitively; the
+// non-returned owned param is dead on the returning branch. Verifies the
+// dead-owned-param branch release frees the loser exactly once per call.
+
+type Named = { name: str, id: int }
+
+@pick_str (a: str, b: str, flag: bool) -> str = if flag then a else b;
+@pick_list (a: [int], b: [int], flag: bool) -> [int] = if flag then a else b;
+@pick_opt (a: Option<str>, b: Option<str>, flag: bool) -> Option<str> = if flag then a else b;
+@pick_named (a: Named, b: Named, flag: bool) -> Named = if flag then a else b;
+@pick_fn (a: (int) -> int, b: (int) -> int, flag: bool) -> (int) -> int = if flag then a else b;
+
+@main () -> int = {
+    // Row 1: heap str — loser dies inside the callee
+    let s1 = pick_str(a: "abcdefghijklmnopqrstuvwxyz1234", b: "another_long_heap_string_content", flag: true);
+    let s2 = pick_str(a: "third_long_heap_string_payload_x", b: "fourth_long_heap_string_payload", flag: false);
+    let ok1 = s1.length() == 30 && s2.length() == 31;
+
+    // Row 2: [int]
+    let l1 = pick_list(a: [1, 2, 3], b: [4, 5], flag: true);
+    let l2 = pick_list(a: [6], b: [7, 8, 9, 10], flag: false);
+    let ok2 = l1.length() == 3 && l2.length() == 4;
+
+    // Row 3: Option<str> with heap payloads
+    let o1 = pick_opt(a: Some("abcdefghijklmnopqrstuvwxyz1234"), b: Some("another_long_heap_string_content"), flag: true);
+    let o2 = pick_opt(a: Some("third_long_heap_string_payload_x"), b: None, flag: false);
+    let ok3 = is_some(option: o1) && is_none(option: o2);
+
+    // Row 4: closures — the losing env is dropped in the callee
+    let base = "abcdefghijklmnopqrstuvwxyz1234";
+    let fa = (n: int) -> int = base.length() + n;
+    let fb = (n: int) -> int = n * 2;
+    let chosen = pick_fn(a: fa, b: fb, flag: true);
+    let ok4 = chosen(1) == 31;
+
+    // Row 5: structs with heap fields
+    let p1 = pick_named(a: Named { name: "abcdefghijklmnopqrstuvwxyz1234", id: 1 }, b: Named { name: "another_long_heap_string_content", id: 2 }, flag: true);
+    let p2 = pick_named(a: Named { name: "third_long_heap_string_payload_x", id: 3 }, b: Named { name: "fourth_long_heap_string_payload", id: 4 }, flag: false);
+    let ok5 = p1.id == 1 && p2.id == 4;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 then 0 else 1
+}

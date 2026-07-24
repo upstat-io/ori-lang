@@ -1,4 +1,4 @@
-// Regression: BUG-04-021 — Option<CPtr> crashed codegen with unresolved type variable.
+// Regression: Option<CPtr> crashed codegen with unresolved type variable.
 // CPtr is a Named FFI type that needs Pool resolution for ARC/LLVM to classify
 // it as a trivial scalar. Without the fix, the type variable stays Unbound and
 // the drop function generates a type mismatch (i64 vs ptr in ori_rc_dec).

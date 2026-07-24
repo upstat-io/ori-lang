@@ -1,0 +1,257 @@
+Theorem PL-comp: composition theorem — the full 12-step AIMS pipeline produces a realized ArcFunction whose AimsStateMap is consistent with the pre-realization contracts, as the conjunction of the per-step ordering invariants PL-1..PL-6 and the TRMC chain PL-7..PL-11
+
+  Preconditions:
+    - The AIMS pipeline is a 12-step strictly-ordered per-function sequence
+      preceded by the once-per-program interprocedural prefix (Steps 1-2)
+      per Annex E §AIMS §6. PL-comp is the JOINED
+      pipeline invariant: running the whole schedule on a function F yields a
+      realized ArcFunction whose AimsStateMap (the converged Step-4 / Step-4a
+      map consumed at realization) is consistent with the pre-realization
+      interprocedural contracts (the Step-1 MemoryContract map). "Consistent"
+      = no realization pass reads a summary at a stale or out-of-order
+      position, the interprocedural prefix is populated before any consumer,
+      and the TRMC rewrite either preserves the contract handshake or rolls
+      back to a restored CFG whose recomputed summaries supersede the
+      discarded rewritten ones.
+    - PL-comp success-criterion (per Annex E §AIMS §6
+      success_criteria #3): "Composition theorem: full 12-step pipeline
+      produces a realized ArcFunction whose AimsStateMap is consistent with
+      pre-realization contracts." The 13 per-step / TRMC proofs PL-1, PL-1a,
+      PL-2, PL-3, PL-4, PL-4a, PL-5, PL-6, PL-7, PL-8, PL-9, PL-10, PL-11
+      each discharge ONE constituent of this joined claim; none of them
+      INDIVIDUALLY states the composed pipeline-wide invariant. PL-comp is
+      the dedicated artifact that states the conjunction and proves it holds
+      by composition.
+    - PL-comp type signature (the joined obligation):
+        type : Pipeline -> Bool
+        running Steps 1-12 on F SHALL produce a realized ArcFunction whose
+        AimsStateMap is consistent with the pre-realization contracts; the
+        joined invariant holds iff every constituent ordering / staleness /
+        TRMC invariant holds AND the constituent-dependency graph is acyclic
+        (so the conjunction is well-founded, not circular).
+    - Constituent invariants composed (the premises of PL-comp), each an
+      independently-discharged §07 theorem:
+        PL-1 interprocedural prefix (Steps 1-2) runs once before any
+               per-function step — the contract map exists before any consumer.
+        PL-1a per-function pipeline processes functions in SCC topological
+               order (callees before callers) per IC-1.
+        PL-2 Step 4 (analyze) precedes Step 5 (realize phase 1) — the
+               AimsStateMap is produced before its first realization consumer.
+        PL-3 Step 5 (realize phase 1) precedes Step 9 (merge) — position-
+               keyed maps are consumed before merge invalidates them.
+        PL-4 Step 10 (realize phase 2) follows Step 9 (merge) — ArcVarId-
+               keyed lookups survive merge.
+        PL-4a Step 8a (unwind_cleanup) precedes Step 9 (merge) — unwind CFG
+               edits land before merge.
+        PL-5 no pass relies on stale summaries (the umbrella sequencing
+               invariant) — every summary read strictly after its latest
+               production, including the Step-4a rollback re-production.
+        PL-6 adding-a-pass meta-rule — any new pass preserves every ordered
+               pair + updates the schedule + carries a test leg.
+        PL-7 TRMC normalization detection conditions are sound.
+        PL-8 TRMC candidate predicate is sound.
+        PL-9 TRMC rewrite is idempotent + external arity preserved.
+        PL-10 TRMC structural verification rules (a)-(e) are sufficient for
+               behavioral equivalence within the constrained-rewrite scope;
+               the rollback path is sound.
+        PL-11 ContextBehavior initialization + componentwise join.
+    - Shipped per-function driver: ori_arc::pipeline::aims_pipeline::
+      run_aims_pipeline (compiler/ori_arc/src/pipeline/
+      aims_pipeline/mod.rs lines 163-300) executes the schedule whose
+      ordering the constituents constrain. The realized ArcFunction's
+      AimsStateMap is the Step-4 / Step-4a converged map (mod.rs line 182
+      bind, line 195 Step-4a rebind) consumed by Step 5 realize_rc_reuse
+      (mod.rs lines 246-256) and Step 10 realize_annotations (mod.rs line 277
+      + apply_phase_2_annotations). The pre-realization contracts are the
+      Step-1 MemoryContract map (config.contracts, mod.rs line 187).
+    - PL-comp reasons over the CONSTITUENT-DEPENDENCY graph: PL-comp's truth
+      reduces to the conjunction of its 13 premises PLUS the acyclicity of
+      the dependency relation among those premises. PL-5's cycle-soundness
+      witness already established that the ordered-pair rules
+      (PL-1/PL-1a/PL-2/PL-3/PL-4/PL-4a) feed the umbrella PL-5 acyclically
+      and PL-6 is the admissibility envelope over the same schedule; PL-comp
+      is the sink of that dependency tree (nothing depends on PL-comp; PL-comp
+      depends on all 13). The composition adds NO new ordering claim beyond
+      the conjunction — it asserts the conjunction is the realized-pipeline
+      consistency property.
+
+  Soundness property:
+    Forall function F processed by run_aims_pipeline, the realized ArcFunction
+    and its AimsStateMap are consistent with the pre-realization contracts iff
+    the conjunction CONJ(F) of the 13 constituent invariants holds on F and the
+    constituent-dependency graph G is acyclic:
+
+      CONJ(F) = PL-1(F) AND PL-1a(F) AND PL-2(F) AND PL-3(F) AND PL-4(F)
+                AND PL-4a(F) AND PL-5(F) AND PL-6(F) AND PL-7(F) AND PL-8(F)
+                AND PL-9(F) AND PL-10(F) AND PL-11(F)
+
+      (C1) Conjunction soundness:
+        CONJ(F) entails the joined pipeline invariant — the interprocedural
+        prefix populated before consumers (PL-1/PL-1a), the AimsStateMap
+        produced before + consumed in the correct phase order
+        (PL-2/PL-3/PL-4/PL-4a), no stale summary read (PL-5), the TRMC rewrite
+        contract-preserving or soundly rolled back (PL-7..PL-11), and any
+        future schedule edit admissibility-gated (PL-6). The realized
+        AimsStateMap a downstream pass reads is therefore the converged map
+        consistent with the Step-1 contracts.
+
+      (C2) Well-foundedness (acyclicity):
+        The dependency relation among the 13 constituents is acyclic — no
+        constituent's discharge presupposes PL-comp, and the umbrella PL-5 +
+        envelope PL-6 sit downstream of the ordered-pair rules (PL-5's
+        cycle-soundness witness). The conjunction is therefore well-founded:
+        PL-comp is a sink, not a circular premise.
+
+  Proof obligation:
+    Constructive discharge by structural induction over the constituent-
+    dependency DAG (compose the independently-discharged premises) + case
+    analysis confirming the conjunction is total (every constituent present,
+    none missing) and acyclic.
+
+    Part (C1) — Conjunction soundness (structural induction over the
+    constituent-dependency DAG):
+
+      Base case — interprocedural prefix (PL-1, PL-1a):
+        PL-1 discharges that Steps 1-2 run once before any per-function step
+        (the MemoryContract map exists before any consumer). PL-1a discharges
+        that the per-function pipeline visits functions in SCC topological
+        order. Together they establish the pre-realization contract map is
+        fully populated before the per-function suffix reads it — the base of
+        the consistency claim.
+
+      Inductive step — per-function ordered pairs (PL-2, PL-3, PL-4, PL-4a):
+        Given the prefix base, each ordered-pair rule fixes one boundary in
+        the shipped per-function schedule: PL-2 (Step 4 before Step 5), PL-3
+        (Step 5 before Step 9), PL-4 (Step 10 after Step 9), PL-4a (Step 8a
+        before Step 9). By the induction hypothesis the AimsStateMap producer
+        precedes every consumer and the merge boundary is respected, so the
+        realized map a realization pass reads is the converged map.
+
+      Inductive step — umbrella staleness + admissibility (PL-5, PL-6):
+        PL-5 composes the ordered pairs into the cross-cutting no-stale-read
+        invariant (every summary read strictly after its latest production,
+        including the Step-4a rollback re-production). PL-6 establishes the
+        schedule is closed under admissible pass insertion. By the induction
+        hypothesis the whole schedule reads non-stale summaries.
+
+      Inductive step — TRMC chain (PL-7, PL-8, PL-9, PL-10, PL-11):
+        PL-7/PL-8 establish detection + candidate soundness; PL-9 establishes
+        idempotent rewrite + preserved external arity; PL-10 establishes the
+        5 structural checks suffice for behavioral equivalence within the
+        constrained-rewrite scope AND the rollback path is sound; PL-11
+        establishes ContextBehavior init + join. By the induction hypothesis
+        the TRMC rewrite either preserves the contract handshake or rolls back
+        to a restored CFG whose recomputed summaries supersede the rewritten
+        ones (the PL-5 rollback-supersession case). The realized AimsStateMap
+        is therefore consistent with the pre-realization contracts whether or
+        not TRMC fired.
+
+      Termination:
+        The 13 constituents are the complete set of §07 pipeline-ordering +
+        TRMC invariants; each has been composed into the joined consistency
+        claim. CONJ(F) entails the realized-pipeline consistency property.
+        (C1) discharged.
+
+    Part (C2) — Well-foundedness (case analysis on the dependency relation):
+
+      Case ordered-pair → umbrella:
+        PL-1/PL-1a/PL-2/PL-3/PL-4/PL-4a each feed PL-5 (the umbrella) and none
+        depends on PL-5's output — the edges point ordered-pair → PL-5, never
+        back. Acyclic.
+
+      Case TRMC → umbrella:
+        PL-10's rollback re-runs Steps 3-4 so the restored summaries supersede
+        the rewritten ones — this feeds PL-5's rollback-supersession case. The
+        edge points PL-10 → PL-5, never back. Acyclic.
+
+      Case PL-comp sink:
+        No constituent's discharge references PL-comp; PL-comp depends on all
+        13 and nothing depends on PL-comp. PL-comp is the unique sink of the
+        dependency DAG; the conjunction is well-founded. (C2) discharged.
+
+    Coverage gate — constituent enumeration:
+
+      The verifier re-runs each of the 13 constituent discharge routines
+      (verify_pl1_interprocedural_first, verify_pl1a_scc_topological_order,
+      verify_pl2_analyze_before_realize, verify_pl3_realize_before_merge,
+      verify_pl4_annotations_after_merge, verify_pl4a_unwind_before_merge,
+      verify_pl5_no_stale_summaries, verify_pl6_adding_a_pass_meta_rule,
+      verify_pl7_trmc_detect_candidate, verify_pl8_trmc_candidate_predicate,
+      verify_pl9_trmc_rewrite_idempotency, verify_pl10_trmc_structural_verify,
+      verify_pl11_context_behavior_init_join) and asserts EACH returns Valid.
+      A single constituent Fail makes the conjunction Fail (PL-comp is no
+      stronger than its weakest premise). The verifier asserts the constituent
+      count is exactly 13 (the complete §07 invariant set) so a dropped
+      premise is caught as a coverage gap, not silently composed away.
+
+      Coverage axes:
+        Conjunction (C1): all 13 constituent verifiers re-run + asserted Valid.
+        Well-foundedness (C2): the constituent set is the complete §07 set
+          (count 13), PL-comp is a sink, the dependency DAG is acyclic per the
+          PL-5 cycle-soundness witness.
+
+    Negative-direction witness — broken constituent rejected:
+
+      If any constituent verifier returned Fail (e.g. a hypothetical schedule
+      where Step 5 reads the AimsStateMap before Step 4 produces it, failing
+      PL-2 + PL-5), CONJ(F) is false and PL-comp MUST report Fail naming the
+      broken constituent. The composition is exactly as strong as the
+      conjunction — it never gracious-accepts over a failing premise.
+
+    Negative-direction witness — missing constituent rejected:
+
+      If the constituent set were incomplete (fewer than 13 premises), the
+      joined invariant would be under-constrained — a pipeline boundary left
+      unproven. The verifier asserts the count is 13 so a dropped premise
+      fails the coverage gate rather than producing a false-valid composition.
+
+    Cycle-soundness witness — PL-comp is the dependency sink:
+
+      PL-comp composes PL-1..PL-11 (incl. PL-1a, PL-4a); its antecedents are
+      all 13 constituents and it is the sink of the §07 dependency tree.
+      No constituent depends on PL-comp, so adding PL-comp introduces no
+      cycle. The dependency chain is acyclic:
+        {PL-1, PL-1a, PL-2, PL-3, PL-4, PL-4a, PL-7, PL-8, PL-9, PL-10, PL-11}
+          --> PL-5 / PL-6 --> PL-comp
+      PL-comp is the unique sink.
+
+    Algorithm-citation declaration:
+      property: full-pipeline realized-AimsStateMap consistency with
+                           pre-realization contracts, as the conjunction of the
+                           13 §07 pipeline-ordering + TRMC invariants over the
+                           constituent-dependency DAG
+      published: standard "conjunction of invariants over an acyclic
+                           dependency graph" composition discipline — a joined
+                           whole-pipeline property holds iff each constituent
+                           ordering / staleness / rewrite invariant holds and
+                           the constituent dependency relation is well-founded
+                           (no premise presupposes the conclusion); the same
+                           shape governs modular dataflow-soundness composition
+                           in Lean 4 src/Lean/Compiler/IR from the published reference-compiler corpus
+                            Repos
+      determinism: deterministic — the constituent set is fixed (the 13
+                           §07 invariants), each constituent verifier is itself
+                           deterministic, and the conjunction-fold order does
+                           not affect the boolean AND result
+      reference impl: ori_arc::pipeline::aims_pipeline::run_aims_pipeline
+                           (mod.rs lines 163-300) — the schedule whose ordering
+                           the constituents constrain; the realized AimsStateMap
+                           is the Step-4/Step-4a converged map (mod.rs line 182
+                           + 195) consumed at Step 5 (lines 246-256) + Step 10
+                           (line 277), consistent with the Step-1 MemoryContract
+                           map (config.contracts, mod.rs line 187)
+
+    Engines dispatched:
+      structural_induction (PRIMARY — structural induction over the
+        constituent-dependency DAG per section_07::verify_pl_composition; the
+        verifier re-runs all 13 constituent discharge routines, asserts each
+        returns Valid, asserts the constituent count is exactly 13, and emits
+        Fail naming the first broken or missing constituent — the composition
+        is exactly as strong as the conjunction of its premises)
+      case_analysis (SECONDARY — per-case grid over the constituent set +
+        the acyclicity / sink check; gracious-accept once structural_induction
+        has discharged the conjunction per the coverage-manifest PL row)
+
+  Expected:
+    status: valid
+    reason: section_07 structural_induction engine discharges PL-comp by composing the 13 constituent §07 invariants (PL-1, PL-1a, PL-2, PL-3, PL-4, PL-4a, PL-5, PL-6, PL-7, PL-8, PL-9, PL-10, PL-11) — (C1) every constituent discharge routine re-runs and returns Valid so the conjunction CONJ(F) entails the realized-AimsStateMap consistency with pre-realization contracts, and (C2) the constituent set is the complete §07 set (count 13) with PL-comp the acyclic dependency sink per the PL-5 cycle-soundness witness; grounded in the shipped run_aims_pipeline driver (mod.rs lines 163-300) whose realized Step-4/Step-4a AimsStateMap is consumed at Step 5 + Step 10 consistent with the Step-1 MemoryContract map; case_analysis secondary-accepting per the coverage-manifest PL row

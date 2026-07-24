@@ -1,0 +1,16 @@
+type Rectangle = { width: int, height: int }
+
+trait Describable {
+    @describe (self) -> str
+}
+
+impl Rectangle: Describable {
+    @describe (self) -> str = "rect";
+}
+
+@area (r: Rectangle) -> int = r.width * r.height;
+
+@run (r: Rectangle) -> str = {
+    let $a = area(r: r);
+    r.describe()
+};

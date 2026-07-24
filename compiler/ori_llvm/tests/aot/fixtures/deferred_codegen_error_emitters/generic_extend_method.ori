@@ -1,0 +1,8 @@
+extend [T] {
+    @item_tally (self) -> int = self.len();
+}
+
+@main () -> int = {
+    let items: [int] = [1, 2, 3];
+    if items.item_tally() == 3 then 0 else 1
+}

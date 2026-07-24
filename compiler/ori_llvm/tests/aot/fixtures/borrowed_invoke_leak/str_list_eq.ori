@@ -1,0 +1,14 @@
+// Pin 3: `[str]` variant. A fresh heap-element `[str]` is passed BORROWED
+// into the may-unwind user-call `Invoke`. The buffer (and its element
+// strings) are released by the caller after the borrowed call.
+@is_same (a: [str]) -> bool = {
+    let r = a == ["x"];
+
+    r
+}
+
+@main () -> int = {
+    let ok = is_same(a: ["x"]);
+
+    if ok then 0 else 1
+}

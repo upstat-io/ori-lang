@@ -1,0 +1,7 @@
+type Point = { x: int, y: int }
+
+@distance (p: Point) -> int = p.x * p.x + p.y * p.y;
+
+impl Point {
+    @dist (self) -> int = distance(p: self);
+}

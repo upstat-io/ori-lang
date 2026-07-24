@@ -1,0 +1,87 @@
+Theorem CH-104: lattice engine bootstrap (L-7 idempotency on 2-dim sub-lattice)
+
+  Preconditions:
+    - s is an AimsState restricted to the Access x Consumption
+      2-dim sub-lattice per Annex E §AIMS §3.1 + §AIMS §3.2
+    - Access carrier: Borrowed, Owned (height 1)
+    - Consumption carrier: Dead, Linear, Affine, Unrestricted
+      (height 3)
+    - canonicalize_sub s is the canonicalization restricted to the
+      Access x Consumption sub-lattice; CN-1 (Dead implies Absent)
+      does not fire on this sub-lattice because Cardinality is
+      excluded
+    - lattice engine consumes per-dimension finite enumeration and
+      explicit join-table verification per the foundational-axiom policy
+      sec-Per-Engine-Constructive-Proof-Shape
+    - L-7 idempotence claim: canonicalize_sub
+      (canonicalize_sub s) is equal to canonicalize_sub s
+
+  Soundness property:
+    Forall s in (Access x Consumption).
+      canonicalize_sub (canonicalize_sub s) is equal to
+      canonicalize_sub s;
+      i.e. canonicalization is idempotent on the
+        Access x Consumption sub-lattice (L-7 restricted form).
+
+  Proof obligation:
+    Per-dimension finite enumeration over the 8 states of the
+    Access x Consumption sub-lattice. For each state, exhibit
+    canonicalize_sub once and twice; verify equality.
+
+      State (Borrowed, Dead):
+        canonicalize_sub once: no CN rule fires on this sub-lattice
+          (CN-1 requires Cardinality; CN-8 requires Locality);
+          result is (Borrowed, Dead).
+        canonicalize_sub twice: same; idempotent.
+      State (Borrowed, Linear):
+        canonicalize_sub once: no rule fires; result (Borrowed, Linear).
+        canonicalize_sub twice: idempotent.
+      State (Borrowed, Affine):
+        canonicalize_sub once: no rule fires; result (Borrowed, Affine).
+        canonicalize_sub twice: idempotent.
+      State (Borrowed, Unrestricted):
+        canonicalize_sub once: no rule fires; result (Borrowed, Unrestricted).
+        canonicalize_sub twice: idempotent.
+      State (Owned, Dead):
+        canonicalize_sub once: no rule fires; result (Owned, Dead).
+        canonicalize_sub twice: idempotent.
+      State (Owned, Linear):
+        canonicalize_sub once: no rule fires; result (Owned, Linear).
+        canonicalize_sub twice: idempotent.
+      State (Owned, Affine):
+        canonicalize_sub once: no rule fires; result (Owned, Affine).
+        canonicalize_sub twice: idempotent.
+      State (Owned, Unrestricted):
+        canonicalize_sub once: no rule fires; result (Owned, Unrestricted).
+        canonicalize_sub twice: idempotent.
+
+    Closed-world coverage:
+      8 states exhibited; each verified canonicalize_sub once and
+      twice; idempotence holds in all 8 cases. Per L-9 (SCALAR
+      sentinel excluded), SCALAR is not a state on the sub-lattice
+      and is excluded from this enumeration.
+
+    Join-table verification:
+      Per-dimension join is max on a totally ordered carrier; the
+      join-table over the 8 states is symmetric and idempotent
+      (max(a, a) = a). The sub-lattice's product join is the
+      componentwise dimension join; idempotence of the product
+      follows from idempotence of each dimension (L-3 restricted
+      form).
+
+    Lattice validation:
+      L-7 (canonicalize idempotent) is restated for the sub-lattice
+      and discharged by the 8-state finite enumeration above. The
+      restricted form composes monotonically with L-7 on the full
+      7-dim lattice when the excluded dimensions (Cardinality,
+      Uniqueness, Locality, Shape, Effect) are at their idempotent
+      identity (the CN rules on those dimensions are themselves
+      idempotent per L-7 on the full lattice).
+
+    Engines dispatched:
+      lattice (per-dimension finite enumeration; explicit join-table
+               verification; idempotence claim discharge)
+
+  Expected:
+    status: valid
+    reason: 01A bootstrap discharged via §01A Implementation Items (engine constructive verification + Lean 4 cross-validation)

@@ -1,0 +1,35 @@
+// Journey 18: "I am a string builder"
+// Slug: string-builder
+// Difficulty: complex
+// Features: strings, loops, arc, heap_promotion, sso_to_heap
+// Expected: build_repeated(30, "x").length() + build_sequence(15).length() + build_with_separator(["hello","world","ori"], ", ").length() = 30 + 20 + 17 = 67
+
+@build_repeated (n: int, c: str) -> str = {
+    let result = "";
+    for i in 0..n do result = result + c;
+    result
+}
+
+@build_sequence (n: int) -> str = {
+    let result = "";
+    for i in 0..n do result = result + str(i);
+    result
+}
+
+@build_with_separator (items: [str], sep: str) -> str = {
+    let result = "";
+    let first = true;
+    for item in items do {
+        if !first then result = result + sep;
+        result = result + item;
+        first = false
+    };
+    result
+}
+
+@main () -> int = {
+    let a = build_repeated(n: 30, c: "x");
+    let b = build_sequence(n: 15);
+    let c = build_with_separator(items: ["hello", "world", "ori"], sep: ", ");
+    a.length() + b.length() + c.length()
+}

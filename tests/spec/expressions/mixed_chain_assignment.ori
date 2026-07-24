@@ -1,0 +1,56 @@
+// Spec: 14-expressions.md § Index/Field Assignment (Clause 14.12); Spec §13.6.1/§13.6.2
+//
+// Mixed field/index chains desugar right-to-left: a field step becomes
+// `{ ...recv, f: inner }`; an index step becomes `recv.updated(key:, value: inner)`.
+// POSITIVE pins; FAIL today, green after the section-03 desugar lands.
+
+use std.testing { assert_eq }
+
+type Bag = { items: [int] }
+
+type Named = { name: str, score: int }
+
+type Roster = { players: [Named] }
+
+// =============================================================================
+// field then index: state.items[i] = v
+// =============================================================================
+
+@test_mixed_field_then_index tests @mixed_field_then_index () -> void = {
+    assert_eq(actual: mixed_field_then_index(), expected: 7)
+}
+
+@mixed_field_then_index () -> int = {
+    let b = Bag { items: [1, 2, 3] };
+    b.items[0] = 7;
+    b.items[0]
+}
+
+// =============================================================================
+// index then field: list[i].name = v
+// =============================================================================
+
+@test_mixed_index_then_field tests @mixed_index_then_field () -> void = {
+    assert_eq(actual: mixed_index_then_field(), expected: 1)
+}
+
+@mixed_index_then_field () -> int = {
+    let people = [Named { name: "a", score: 1 }, Named { name: "b", score: 2 }];
+    people[1].name = "renamed";
+    // score sibling untouched on the mutated element
+    people[1].score - 1
+}
+
+// =============================================================================
+// field-index-field chain: roster.players[i].score = v
+// =============================================================================
+
+@test_mixed_field_index_field tests @mixed_field_index_field () -> void = {
+    assert_eq(actual: mixed_field_index_field(), expected: 50)
+}
+
+@mixed_field_index_field () -> int = {
+    let r = Roster { players: [Named { name: "a", score: 1 }, Named { name: "b", score: 2 }] };
+    r.players[0].score = 50;
+    r.players[0].score
+}

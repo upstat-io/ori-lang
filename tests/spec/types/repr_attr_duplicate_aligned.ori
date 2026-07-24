@@ -1,5 +1,6 @@
 // Invalid: duplicate #repr("aligned", N) with different values — only c + aligned is a valid combination.
 #compile_fail(code: "E2041", message: "duplicate")
+@repr_attr_duplicate_aligned tests _ () -> void = { () }
 
 #repr("aligned", 8)
 #repr("aligned", 16)

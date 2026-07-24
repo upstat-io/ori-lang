@@ -1,0 +1,230 @@
+Theorem PL-2: Step 4 (analyze_function) precedes Step 5 (realize_rc_reuse) — the converged state map drives emission
+
+  Preconditions:
+    - The AIMS pipeline is a 12-step strictly-ordered sequence per
+      Annex E §AIMS §6. PL-2 fixes ONE intra-
+      function step boundary: within each function's per-function suffix
+      (Steps 3-12), Step 4 (analyze_function) SHALL precede Step 5
+      (realize_rc_reuse).
+        Step 4: analyze_function() — backward dataflow -> converged AimsStateMap
+        Step 5: realize_rc_reuse() — Phase 1: RC + reuse + arg_ownership (pre-merge)
+    - PL-2 statement (per Annex E §AIMS PL-2 + Annex E §AIMS §6
+      "analyze_function (step 4) must run before realize_rc_reuse (step 5)
+      — state map drives emission"): analyze_function SHALL precede
+      realize_rc_reuse on every function F; realizing before analyzing
+      reads an absent / stale AimsStateMap.
+    - PL-2 type signature (per Pipeline.proof lines 26-30, the sorry
+      obligation this theorem discharges):
+        type : Function -> Pipeline
+        analyze_function (Step 4) SHALL precede realize_rc_reuse (Step 5);
+        state map drives emission.
+    - Shipped per-function driver: ori_arc::pipeline::aims_pipeline::
+      run_aims_pipeline (compiler/ori_arc/src/pipeline/
+      aims_pipeline/mod.rs lines 163-287). The relevant straight-line
+      statements within one `run_aims_pipeline(func, config)` body:
+        (a) Step 4 — `let state_map = { ... analyze_function(func, ...) }`
+            (mod.rs lines 182-191); the bound `state_map: AimsStateMap` is
+            the converged backward-dataflow result.
+        (b) Step 4a — verify_trmc_soundness(func, state_map, ...) rebinds
+            `state_map` to the FINAL post-rollback map (mod.rs lines 195-196).
+        (c) Step 5 — `realize_rc_reuse(func, &state_map, ...)` (mod.rs lines
+            246-256) consumes `&state_map` BY REFERENCE — it CANNOT be called
+            before the `let state_map = ...` binding exists. Rust's
+            move/borrow checker makes the data dependency a hard compile-time
+            ordering: the `&state_map` argument at line 249 forces the
+            binding at line 182 to precede it.
+    - The state map is the ANTECEDENT of realization: realize_rc_reuse's
+      signature (compiler/ori_arc/src/aims/realize/mod.rs
+      lines 106-113) takes `state_map: &AimsStateMap` as its second
+      parameter; Sub-step B (`emit_rc_unified(func, state_map, ...)`,
+      realize/mod.rs line 140) routes every RC/reuse decision through the
+      converged lattice state. Per realize/mod.rs lines 100-104, this
+      function "Runs AFTER analyze_function() (step 4) and BEFORE verify()
+      (step 6)". Running Step 5 before Step 4 would read an un-converged or
+      absent state map — a sequencing bug per Annex E §AIMS PL-5 ("no
+      pass relies on stale summaries").
+    - This theorem reasons over the LINEAR 12-step pipeline DAG (Step k
+      precedes Step k+1) restricted to the per-function suffix; the
+      induction domain is the pipeline-step chain, NOT the call-graph SCC
+      DAG (that is PL-1a's domain). PL-2 is downstream of PL-1 (which fixes
+      the prefix/suffix boundary so analyze_program's MemoryContract map is
+      populated before any per-function step) and PL-1a (which fixes the
+      per-function visitation order).
+
+  Soundness property:
+    Forall function F processed by run_aims_pipeline.
+      Let pos_4 = position(Step 4 analyze_function on F) and
+          pos_5 = position(Step 5 realize_rc_reuse on F)
+      in the total intra-function execution order.
+      Two conjuncts SHALL hold:
+
+      (P1) Analyze-before-realize:
+        pos_4 < pos_5. Step 4 completes (the AimsStateMap is bound and
+        converged, including any Step 4a rollback rebinding) strictly
+        before Step 5 starts.
+
+      (P2) State-map-driven emission:
+        Step 5 reads the AimsStateMap produced by Step 4 — every RC /
+        reuse / arg-ownership decision emitted by realize_rc_reuse is a
+        function of the converged lattice state Step 4 computed. There is
+        no realization decision derived from un-analyzed IR.
+
+  Proof obligation:
+    Two-part constructive discharge corresponding to (P1) and (P2), by
+    structural induction over the per-function 12-step pipeline DAG (linear
+    chain Step 3 -> Step 3a -> Step 4 -> Step 4a -> Step 5 -> ...) + case
+    analysis on Step 5's state-map precondition and Step 4a's rollback path.
+
+    Part (P1) — Analyze-before-realize (structural induction over the
+    per-function step chain):
+
+      Base case — Step 4 (analyze_function):
+        run_aims_pipeline binds `state_map` via the straight-line statement
+        at mod.rs lines 182-191. The binding is a `let` whose initializer
+        calls crate::aims::intraprocedural::analyze_function(func, ...). No
+        later statement can observe `state_map` before this `let` executes
+        (sequential Rust statement evaluation). Post-condition: a converged
+        AimsStateMap for F exists.
+
+      Inductive step — every statement between Step 4 and Step 5 follows
+      Step 4 and precedes Step 5:
+        Step 4a (verify_trmc_soundness, mod.rs lines 195-196) rebinds
+        `state_map` to the post-rollback map; it reads Step 4's output as
+        its second argument, so it follows Step 4. The Step 4b-prelude
+        (emit_arg_ownership, mod.rs lines 212-221) and Step 4b
+        (emit_burden_ops, mod.rs lines 234-242) are straight-line statements
+        strictly between the state_map binding and the realize_rc_reuse
+        call. By the induction hypothesis each follows Step 4's binding;
+        none rebinds `state_map` to a pre-analysis value.
+
+      Termination — Step 5 (realize_rc_reuse):
+        The Step 5 statement (mod.rs lines 246-256) passes `&state_map` as
+        argument 2. The borrow `&state_map` at line 249 requires the binding
+        at line 182 to be in scope and initialized — Rust's borrow checker
+        makes this a compile-time-enforced ordering, not merely a runtime
+        convention. Therefore pos_4 < pos_5 holds unconditionally on every
+        path through run_aims_pipeline. (P1) discharged.
+
+    Part (P2) — State-map-driven emission (case analysis on Step 5's
+    precondition):
+
+      Case Step 4 ran on F (the only reachable case in the shipped driver):
+        The AimsStateMap M_F is bound (mod.rs line 182) and converged. Step
+        5's realize_rc_reuse(func, &M_F, ...) (realize/mod.rs lines 106-113)
+        consumes M_F: Sub-step B's emit_rc_unified(func, state_map, ...)
+        (realize/mod.rs line 140) and Sub-step C's emit_reuse_from_events
+        (realize/mod.rs lines 146-151) both derive their RC / reuse
+        decisions from the events collected against M_F. Emission is a pure
+        function of the converged state map; soundness preserved.
+
+      Case Step 4 did NOT run on F (counterfactual — rejected):
+        Without the `let state_map = ...` binding, the `&state_map` argument
+        at mod.rs line 249 does not type-check; run_aims_pipeline would not
+        compile. There is NO execution path in which realize_rc_reuse is
+        reached with an absent state map. The verifier rejects any schedule
+        placing Step 5 at a position <= position(Step 4).
+
+      Case Step 4a rollback (TRMC verification failure):
+        Per Annex E §AIMS PL-10 + Annex E §AIMS §6, on TRMC
+        structural-verification failure Step 4a rolls the rewrite back to
+        pre-TRMC IR AND re-runs Steps 3-4 on the restored CFG. The shipped
+        Step 4a (verify_trmc_soundness, mod.rs lines 195-196) returns the
+        FINAL post-rollback `state_map`, and Step 5 reads THAT rebinding.
+        The rebinding still precedes Step 5 (mod.rs line 196 < line 248), so
+        Step 5 never reads a stale pre-rollback map. No stale-summary leak
+        per PL-5. (P2) discharged.
+
+    Coverage gate — pipeline-step ordered-pair enumeration:
+
+      The verifier models the shipped per-function schedule as an ordered
+      step list and discharges the single ordered-pair predicate
+      position(Step 4) < position(Step 5) plus the state-map-driven
+      attribute on Step 5. It asserts:
+        - Step 4 (analyze_function) is present with the analyze attribute.
+        - Step 5 (realize_rc_reuse) is present with the
+          consumes-state-map attribute.
+        - position(Step 4) < position(Step 5) in the total order.
+        - the intervening steps {4a, 4b-prelude, 4b} all sit strictly
+          between (no step reorders Step 5 ahead of Step 4).
+
+      Coverage axes:
+        Analyze-before-realize (P1): the (Step 4, Step 5) ordered pair, plus
+          the three intervening steps verified to preserve the ordering.
+        State-map-driven (P2): Step 5 verified to carry the
+          consumes-state-map attribute (no realization decision without the
+          converged map).
+
+    Negative-direction witness — realize-before-analyze rejected:
+
+      Hypothetically scheduling Step 5 (realize_rc_reuse) before Step 4
+      (analyze_function) would have realize_rc_reuse read an un-converged or
+      absent AimsStateMap. Per the dependency at realize/mod.rs lines
+      106-140 (state_map is argument 2, consumed by emit_rc_unified), an
+      absent map yields no lattice state — every RC/reuse decision would
+      degrade to a default, silently miscompiling RC balance and violating
+      Annex E §AIMS PL-5 ("no pass relies on stale summaries" — here,
+      an ABSENT summary). The verifier rejects any schedule with
+      position(Step 5) <= position(Step 4).
+
+    Negative-direction witness — stale-map-across-Step-4a rejected:
+
+      Scheduling Step 5 to read the PRE-rollback state map (the binding
+      before verify_trmc_soundness rebinds it) when TRMC rollback fired
+      would feed realization a map computed against IR that no longer exists
+      (the rewrite was reverted). The shipped driver rebinds `state_map`
+      from verify_trmc_soundness's return (mod.rs lines 195-196) before Step
+      5, so Step 5 always reads the final map. The verifier rejects any
+      schedule reading a state map produced before the last Step-4 (re-)run
+      on F's final CFG.
+
+    Cycle-soundness witness — PL-2 sits between PL-1/PL-1a and PL-3:
+
+      PL-2 fixes the Step-4-before-Step-5 boundary WITHIN each function. Its
+      antecedents are PL-1 (interprocedural prefix runs once, so the
+      MemoryContract map analyze_function consumes is populated) and PL-1a
+      (callee-first per-function order). Its successor is PL-3 (Step 5
+      precedes Step 9 merge_blocks). The dependency chain is acyclic:
+        PL-1 + PL-1a --> PL-2 (Step 4 precedes Step 5 within each F)
+        PL-2 --> PL-3 (Step 5 phase 1 precedes Step 9 merge)
+        PL-2 --> PL-5 (no stale summaries — Step 5 reads the
+                              converged, non-stale map Step 4 produced)
+      PL-2 produces nothing PL-1 or PL-1a consumes; no cycle.
+
+    Algorithm-citation declaration:
+      property: intra-function pipeline-step ordering (analysis
+                           Step 4 runs before realization Step 5; the
+                           converged state map is the realization antecedent)
+      published: standard dataflow-analysis-before-transformation
+                           discipline — "analyze, then transform" is the
+                           canonical shape of every optimizing pass manager;
+                           matches Lean 4 src/Lean/Compiler/IR (analysis pass
+                           feeding RC insertion) from the published reference-compiler corpus
+                            Repos
+      determinism: deterministic — the `let state_map = ...` binding
+                           followed by `realize_rc_reuse(func, &state_map)`
+                           is a fixed straight-line ordering enforced by
+                           Rust's borrow checker; no schedule freedom exists
+      reference impl: ori_arc::pipeline::aims_pipeline::run_aims_pipeline
+                           (mod.rs lines 163-287: Step 4 analyze_function
+                           lines 182-191, Step 4a verify_trmc_soundness lines
+                           195-196, Step 5 realize_rc_reuse lines 246-256) +
+                           ori_arc::aims::realize::realize_rc_reuse
+                           (realize/mod.rs lines 106-182, state_map is arg 2)
+
+    Engines dispatched:
+      structural_induction (PRIMARY — structural induction over the
+        per-function linear pipeline DAG per section_07::
+        verify_pl2_analyze_before_realize; the verifier models the shipped
+        schedule as an ordered step list and discharges (P1)
+        analyze-before-realize via the ordered-pair predicate position(Step
+        4) < position(Step 5) and (P2) state-map-driven emission via the
+        consumes-state-map attribute on Step 5; emits Fail on any ordering
+        or attribute violation)
+      case_analysis (SECONDARY — per-precondition case grid over Step 5's
+        state-map precondition + Step 4a rollback path; gracious-accept once
+        structural_induction has discharged the ordering obligation per the
+        coverage-manifest PL row)
+
+  Expected:
+    status: valid
+    reason: section_07 structural_induction engine discharges PL-2 via the per-function pipeline-DAG ordered pair — (P1) Step 4 analyze_function precedes Step 5 realize_rc_reuse (position(Step 4) < position(Step 5), borrow-checker-enforced by the `&state_map` argument at mod.rs line 249 requiring the binding at line 182) and (P2) realization is state-map-driven (realize_rc_reuse consumes the converged AimsStateMap as argument 2 per realize/mod.rs lines 106-140); grounded in the shipped run_aims_pipeline driver (mod.rs lines 163-287) with the Step 4a rollback rebinding (mod.rs lines 195-196) preserving non-staleness per PL-5, case_analysis secondary-accepting per the coverage-manifest PL row

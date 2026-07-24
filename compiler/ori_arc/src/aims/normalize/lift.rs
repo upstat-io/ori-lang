@@ -16,7 +16,7 @@
 //!
 //! # References
 //!
-//! - Invariant I4 (literature review §04.2): lifting precedes detection.
+//! - Invariant I4 (literature review): lifting precedes detection.
 //! - Leijen & Lorenzen, JFP 2025 — constructor argument normalization.
 
 use crate::ir::{ArcFunction, ArcInstr};
@@ -37,10 +37,7 @@ use crate::ir::{ArcFunction, ArcInstr};
 /// lifting must precede detection so that context region metadata
 /// references variables, not embedded expressions.
 pub(super) fn lift_constructor_args(func: &ArcFunction) {
-    // ARC IR enforces A-normal form by construction: `Construct.args` is
-    // `Vec<ArcVarId>`, so embedded expressions are impossible. This pass
-    // verifies the structural invariant rather than performing any
-    // transformation.
+    // INVARIANT: Construct.args is Vec<ArcVarId>, so embedded expressions are impossible by design.
     if cfg!(debug_assertions) {
         verify_construct_args_in_bounds(func);
     }

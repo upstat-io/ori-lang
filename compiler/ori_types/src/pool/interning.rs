@@ -83,4 +83,29 @@ impl Pool {
 
         idx
     }
+
+    /// Append a fresh simple-type entry WITHOUT consulting `intern_map`,
+    /// yielding a distinct `Idx` for a structure that already exists in the
+    /// pool. Reproduces the merged-mono-pool artifact where a host-resolved arg
+    /// type and a re-interned param type land at distinct `Idx` for the same
+    /// structure (the `[int]` vs `[int]` distinct-interning case) so
+    /// `Pool::structural_eq` can be pinned against the raw-`Idx`-identity
+    /// regression. Test-only — production always dedups via [`Pool::intern`].
+    #[cfg(test)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "items.len() always fits u32 — pool indices are u32"
+    )]
+    pub(crate) fn intern_distinct_for_test(&mut self, tag: Tag, data: u32) -> Idx {
+        let hash = self.merkle_hash(tag, data, &[]);
+        let idx = Idx::from_raw(self.items.len() as u32);
+        let item = Item::new(tag, data);
+        let flags = self.compute_flags(tag, data, &[]);
+        self.items.push(item);
+        self.flags.push(flags);
+        self.hashes.push(hash);
+        // Deliberately NOT inserted into `intern_map`: this entry is a
+        // structurally-equal duplicate, exactly the merged-pool shape.
+        idx
+    }
 }

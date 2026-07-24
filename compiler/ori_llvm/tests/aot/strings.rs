@@ -10,12 +10,12 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::assert_aot_success;
+use crate::util::{assert_aot_success, compile_and_run_capture};
 
 // ─── length / len ───
 
 #[test]
-fn test_str_length_basic() {
+fn test_str_length_ascii_five() {
     assert_aot_success(
         include_str!("fixtures/strings/str_length_basic.ori"),
         "str_length_basic",
@@ -91,7 +91,7 @@ fn test_str_is_empty_space() {
 // ─── concat ───
 
 #[test]
-fn test_str_concat_basic() {
+fn test_str_concat_joins_two_strs() {
     assert_aot_success(
         include_str!("fixtures/strings/str_concat_basic.ori"),
         "str_concat_basic",
@@ -307,6 +307,22 @@ fn test_str_to_lowercase() {
 }
 
 #[test]
+fn test_str_case_transform_independence() {
+    assert_aot_success(
+        include_str!("fixtures/strings/str_case_transform_independence.ori"),
+        "str_case_transform_independence",
+    );
+}
+
+#[test]
+fn test_str_case_transform_rebind_loop() {
+    assert_aot_success(
+        include_str!("fixtures/strings/str_case_transform_rebind_loop.ori"),
+        "str_case_transform_rebind_loop",
+    );
+}
+
+#[test]
 fn test_str_replace() {
     assert_aot_success(
         include_str!("fixtures/strings/str_replace.ori"),
@@ -330,4 +346,87 @@ fn test_str_repeat() {
 #[test]
 fn test_str_chars() {
     assert_aot_success(include_str!("fixtures/strings/str_chars.ori"), "str_chars");
+}
+
+// ─── String indexing (str[i]) ───
+
+#[test]
+fn test_str_index_variable() {
+    assert_aot_success(
+        include_str!("fixtures/strings/str_index_variable.ori"),
+        "str_index_variable",
+    );
+}
+
+#[test]
+fn test_str_index_oob_panics() {
+    let (exit_code, _, stderr) =
+        compile_and_run_capture(include_str!("fixtures/strings/str_index_oob_panics.ori"));
+    assert_ne!(
+        exit_code, -1,
+        "str_index_oob_panics must COMPILE (a compile failure is a different defect than \
+         the OOB-panic behavior this test pins):\n{stderr}"
+    );
+    assert_ne!(
+        exit_code, 0,
+        "OOB string index should panic (non-zero exit)"
+    );
+}
+
+#[test]
+fn test_str_negative_index_panics() {
+    let (exit_code, _, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/strings/str_negative_index_panics.ori"
+    ));
+    assert_ne!(
+        exit_code, -1,
+        "negative string index fixture must compile before its runtime panic:\n{stderr}"
+    );
+    assert_ne!(exit_code, 0, "negative string index must panic");
+    assert!(
+        stderr.contains("index out of bounds"),
+        "negative string index must report the bounds failure:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_str_index_multibyte() {
+    assert_aot_success(
+        include_str!("fixtures/strings/str_index_multibyte.ori"),
+        "str_index_multibyte",
+    );
+}
+
+// ─── str[i] cross-feature interaction matrix (loop, closure, nested structure, COW) ───
+
+#[test]
+fn test_str_index_in_loop() {
+    assert_aot_success(
+        include_str!("fixtures/strings/str_index_in_loop.ori"),
+        "str_index_in_loop",
+    );
+}
+
+#[test]
+fn test_str_index_closure_capture() {
+    assert_aot_success(
+        include_str!("fixtures/strings/str_index_closure_capture.ori"),
+        "str_index_closure_capture",
+    );
+}
+
+#[test]
+fn test_str_index_nested_list() {
+    assert_aot_success(
+        include_str!("fixtures/strings/str_index_nested_list.ori"),
+        "str_index_nested_list",
+    );
+}
+
+#[test]
+fn test_str_index_after_clone() {
+    assert_aot_success(
+        include_str!("fixtures/strings/str_index_after_clone.ori"),
+        "str_index_after_clone",
+    );
 }

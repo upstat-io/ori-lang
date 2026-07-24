@@ -1,0 +1,189 @@
+Theorem DP-9: mutation-obligation classification with row (c) joint DP-5 refinement
+
+  Preconditions:
+    - s is a canonical AimsState per Annex E §AIMS product lattice
+    - mutation_obligation (historical artifact alias: cow_mode) :
+        AimsState x ArcVarId x FieldPath x ProgramPoint
+          -> MutationObligation
+      per Annex E §AIMS DP-9 + Appendix C truth table
+    - The obligation is the closed sum type
+        MutationObligation = SameIdentityAdmissible | IsolationRequired |
+          SharingObservationRequired
+      per aims-proof/proofs/01-decisions/Decision.proof
+    - DP-9 is context-dependent — it consults FOUR pre-pass inputs:
+        (i) borrow_sources (per §AIMS §7)
+        (ii) project_alias_sources (per §AIMS §7)
+        (iii) live-variable set at the ProgramPoint
+        (iv) IC-3 ParamContract.uniqueness (per sec-5 IC-3)
+    - DP-5 is the upstream sub-predicate composed by rows (a), (b),
+      (c), (c-prime) per Annex E §AIMS DP-9
+      (c) joint DP-5 refinement
+    - DP-9 / IC-3 / DP-5 dependency chain is non-cyclic at the proof-
+      obligation level: DP-9 reads IC-3.uniqueness as opaque upstream
+      input; sec-06 IC-3 SCC fixpoint computation is structurally
+      independent of DP-9 (IC-N derivation rules operate on per-
+      instruction TF-N forward outputs + componentwise-max joins + CN
+      canonicalization; DP-N predicates NEVER consulted in IC-N
+      derivation per Annex E §AIMS)
+    - Row (c) safety per agy blind-spot 6 (cured): IC-3.uniqueness = u
+      proves the value is NOT shared at function entry; it does NOT
+      prove the value has no active LOCAL borrows at the mutation
+      point. Row (c) SameIdentityAdmissible is sound IFF DP-5 ALSO returns true
+      locally; when DP-5 returns false the configuration falls through
+      to SharingObservationRequired (row c-prime)
+
+  Soundness property:
+    Forall (s, var, field, point, instruction_kind, ic3_uniqueness).
+      mutation_obligation(s, var, field, point, instruction_kind, ic3_uniqueness)
+       = match (s.uniqueness,
+                can_mutate_in_place(s, var, field, point,
+                                    instruction_kind),
+                ic3_uniqueness)
+         with
+         | (u, true, any) -> SameIdentityAdmissible -- row (a)
+         | (u, false, any) -> IsolationRequired -- row (b)
+         | (ms, true, u) -> SameIdentityAdmissible -- row (c)
+         | (ms, false, u) -> SharingObservationRequired -- row (c-prime)
+         | (ms, any, non-u) -> SharingObservationRequired -- row (d)
+         | (s, any, any) -> IsolationRequired -- row (e)
+
+  Proof obligation:
+    Two-part discharge:
+      (a) Exhaustive enumeration over the (Uniqueness x DP-5-result x
+          ic3_uniqueness) product per Appendix C DP-9 + row (c) joint
+          refinement.
+      (b) Soundness equality on every enumerated row + non-cyclic
+          dependency on sec-06 IC-3 (DP-9 reads IC-3.uniqueness as
+          opaque upstream input).
+
+    Part (a) — Appendix C DP-9 row partition (6 rows post (c) /
+    (c-prime) refinement, exhaustive):
+
+      Row (a): Uniqueness = u AND DP-5 = true -> SameIdentityAdmissible
+        Soundness: exactly one logical owner credit + no active overlapping borrow locally ->
+        same-identity mutation is admissible. DP-5 already
+        proved the local borrow-safety obligation.
+
+      Row (b): Uniqueness = u AND DP-5 = false -> IsolationRequired
+        Soundness: exactly one logical owner credit exists, but an active
+        overlapping borrow forbids same-identity mutation. The calculus
+        therefore freezes an isolation obligation without choosing a copy.
+
+      Row (c): Uniqueness = ms AND DP-5 = true AND
+                IC-3.uniqueness = u -> SameIdentityAdmissible
+        Soundness: caller proved exactly one logical owner credit (past guarantee from
+        interprocedural contract per Annex E §AIMS IC-3) AND
+        local borrow-safety holds (DP-5 = true). Both checks compose:
+        IC-3 eliminates the inter-procedural sharing risk; DP-5
+        eliminates the intra-procedural alias-overlap risk. Per sec-4
+        DP-9 safety clauses (a) callee-local Let Var aliases
+        transparent (no inc; Project borrows caught by DP-5) +
+        (b) caller-retained alias caught by IC-3 fixpoint convergence
+        to ms, NOT u.
+
+      Row (c-prime): Uniqueness = ms AND DP-5 = false AND
+                 IC-3.uniqueness = u -> SharingObservationRequired
+        Soundness: IC-3 proves not shared at entry but DP-5 reveals
+        local borrow blocks in-place; the joint check refinement (per
+        agy blind-spot 6 cure) forces
+        fall-through to SharingObservationRequired. The observation is
+        sound here because IC-3.uniqueness = u combined with backward
+        analysis preserving ms at the local point means the local
+        logical owner multiplicity may have grown via caller-retained aliases;
+        the dynamic sharing observation resolves the case.
+
+      Row (d): Uniqueness = ms AND IC-3.uniqueness != u (or row (c)
+                precondition otherwise unmet) -> SharingObservationRequired
+        Soundness: no interprocedural guarantee + no static local
+        guarantee -> a sharing observation is required.
+
+      Row (e): Uniqueness = s -> IsolationRequired
+        Soundness: more than one logical owner credit proved statically -> mutation isolation. The
+        IC-3 + DP-5 sub-predicate values are non-load-bearing for this
+        row.
+
+    Part (b) — Coverage gate:
+      Per section_05::verify_dp9_mutation_obligation_classification:
+        Uniqueness axis: 3 values (u, ms, s).
+        DP-5 result axis: 2 (true, false).
+        IC-3 uniqueness axis: 3 (u, ms, s).
+        Coverage product: 3 x 2 x 3 = 18 enumerated cases per the
+        Appendix C row partition + row (c) / (c-prime) joint-DP-5
+        refinement.
+
+      Row-by-row classification count (canonical case partition):
+        Row (a): u x true x any IC-3 = 1 x 1 x 3 = 3 cases
+        Row (b): u x false x any IC-3 = 1 x 1 x 3 = 3 cases
+        Row (c): ms x true x u = 1 x 1 x 1 = 1 case
+        Row (c-prime): ms x false x u = 1 x 1 x 1 = 1 case
+        Row (d): ms x any x (ms, s) = 1 x 2 x 2 = 4 cases
+        Row (e): s x any x any IC-3 = 1 x 2 x 3 = 6 cases
+        Total: 3 + 3 + 1 + 1 + 4 + 6 = 18 cases — exhaustive.
+
+      Outcome partition (MutationObligation):
+        SameIdentityAdmissible: 3 (row a) + 1 (row c) = 4
+        IsolationRequired: 3 (row b) + 6 (row e) = 9
+        SharingObservationRequired: 1 (row c-prime) + 4 (row d) = 5
+        Total: 4 + 9 + 5 = 18 — exhaustive.
+
+    Joint-DP-5 refinement witness (row (c) vs row (c-prime)
+    discrimination):
+      Take s with Uniqueness = ms and IC-3.uniqueness = u.
+        If DP-5 = true: mutation_obligation = SameIdentityAdmissible (row c).
+        If DP-5 = false: mutation_obligation = SharingObservationRequired
+          (row c-prime).
+      Two-case split is the closure of the agy blind-spot 6 gap: IC-3
+      alone could not prove local borrow safety; row (c) discharges
+      ONLY when DP-5 also holds locally.
+
+    Negative-direction witness — Unique + DP-5 false counterexample:
+      Consider s with Uniqueness = u; DP-5 returns false because a
+      live overlapping borrow exists. Per the predicate row (b) ->
+      mutation_obligation = IsolationRequired. Sound: the borrowed view forbids
+      same-identity mutation, so isolation is required.
+
+    Negative-direction witness — MaybeShared + IC-3.uniqueness = u +
+    DP-5 false:
+      Consider s with Uniqueness = ms, IC-3.uniqueness = u, DP-5 =
+      false. Per row (c-prime), mutation_obligation =
+      SharingObservationRequired.
+      Sound: IC-3 proves not-shared at entry but the local DP-5 check
+      forces fall-through; a sharing observation resolves the outcome — closure of the agy blind-spot 6
+      gap.
+
+    Negative-direction witness — Shared + DP-5 + IC-3 irrelevant:
+      Consider s with Uniqueness = s, any DP-5 value, any IC-3
+      uniqueness. Per row (e), mutation_obligation = IsolationRequired.
+      Sound: multiple logical owner credits proven statically; the DP-5 and IC-3 sub-predicate
+      values are non-load-bearing for this row.
+
+    mutation-obligation classification declaration:
+      rows: a, b, c, c-prime, d, e
+      row_c_joint_dp5_refinement: required
+      upstream_inputs: borrow_sources, project_alias_sources,
+                       live_variable_set, ic3_param_contract_uniqueness
+      cycle_break: per the DP-9 / IC-3 cycle-break decision
+                   (DP-9 reads IC-3.uniqueness as opaque; sec-06 IC-3
+                   SCC fixpoint is structurally independent of DP-9)
+
+    Live-variable / borrow_sources / project_alias_sources / IC-3
+    contract typed pre-pass dependency: REQUIRED for DP-9 (DP-9
+    composes DP-5 typed pre-pass dependency for rows (a), (b), (c),
+    (c-prime); DP-9 additionally consumes IC-3.uniqueness as opaque
+    upstream input per Annex E §AIMS DP-9 +
+    the proof-checker design Engine-per-Category-Inventory
+    DP-row line 99). The verifier constructs synthetic (DP-5-result,
+    IC-3.uniqueness) fixtures per row of the truth table; the fixture
+    suite is encoded in section_05::verify_dp9_mutation_obligation_classification.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — Appendix C 6-row enumeration over
+        (Uniqueness x DP-5-result x IC-3.uniqueness) product with the
+        row (c) / (c-prime) joint-DP-5 refinement axis per
+        section_05::verify_dp9_mutation_obligation_classification; the verifier
+        checks mutation-obligation equality against the row partition on
+        every enumerated case and emits Fail on any divergence)
+
+  Expected:
+    status: valid
+    reason: section_05 case_analysis engine discharges DP-9 via 18-case enumeration over (Uniqueness x DP-5-result x IC-3.uniqueness) covering Appendix C 6-row classification (rows a, b, c, c-prime, d, e) including the row (c) joint-DP-5 refinement per Annex E §AIMS DP-9

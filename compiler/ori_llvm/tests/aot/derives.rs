@@ -4,7 +4,7 @@
 //! through the LLVM backend. Each test compiles Ori source to a native binary,
 //! runs it, and checks the exit code (0 = success).
 //!
-//! Covers roadmap Section 3.5: Derive Traits (Eq, Clone, Hashable, Printable).
+//! Covers derive traits (Eq, Clone, Hashable, Printable).
 
 #![allow(
     clippy::needless_raw_string_hashes,
@@ -60,7 +60,7 @@ fn all_derived_traits_have_codegen() {
 // 3.5.1: Derive Eq
 
 #[test]
-fn test_aot_derive_eq_basic() {
+fn test_aot_derive_eq_equal_and_unequal_points() {
     assert_aot_success(
         include_str!("fixtures/derives/aot_derive_eq_basic.ori"),
         "derive_eq_basic",
@@ -94,7 +94,7 @@ fn test_aot_derive_eq_single_field() {
 // 3.5.2: Derive Clone
 
 #[test]
-fn test_aot_derive_clone_basic() {
+fn test_aot_derive_clone_equals_original() {
     assert_aot_success(
         include_str!("fixtures/derives/aot_derive_clone_basic.ori"),
         "derive_clone_basic",
@@ -127,10 +127,83 @@ fn test_aot_derive_hash_different_values() {
     );
 }
 
+/// Product hashes start at zero and combine participating fields in declaration order.
+#[test]
+fn test_aot_derive_hash_product_uses_zero_seed_and_declaration_order() {
+    assert_aot_success(
+        r#"
+#derive(Eq, Hashable)
+type Product = { first: int, empty: void, second: int }
+
+@main () -> int = {
+    let product = Product { first: 2, empty: (), second: 3 };
+    if product.hash() == 175247769425 then 0 else 1
+}
+"#,
+        "derive_hash_product_zero_seed_declaration_order",
+    );
+}
+
+/// Empty and Unit-only products contribute no field hashes.
+#[test]
+fn test_aot_derive_hash_unit_only_product_returns_zero() {
+    assert_aot_success(
+        r#"
+#derive(Eq, Hashable)
+type UnitOnly = { empty: void }
+
+@main () -> int = {
+    let value = UnitOnly { empty: () };
+    if value.hash() == 0 then 0 else 1
+}
+"#,
+        "derive_hash_unit_only_product_zero",
+    );
+}
+
+/// Sum hashes combine the zero-based declaration ordinal before payload fields.
+#[test]
+fn test_aot_derive_hash_sum_uses_ordinal_then_payload() {
+    assert_aot_success(
+        r#"
+#derive(Eq, Hashable)
+type Choice = Empty | Filled(empty: void, value: int);
+
+@main () -> int = {
+    let empty = Empty;
+    let filled = Filled(empty: (), value: 5);
+    let empty_ok = empty.hash() == 2654435769;
+    let filled_ok = filled.hash() == 175247769366;
+    if empty_ok && filled_ok then 0 else 1
+}
+"#,
+        "derive_hash_sum_ordinal_then_payload",
+    );
+}
+
+// Derived Comparable/Hashable over Result + tuple fields must emit real
+// structural compare/hash, not a const_i8(1)/const_i64(0) field stub.
+
+#[test]
+fn test_aot_derive_result_field_compare_hash() {
+    assert_aot_success(
+        include_str!("fixtures/derives/aot_derive_result_field_compare_hash.ori"),
+        "derive_result_field_compare_hash",
+    );
+}
+
+#[test]
+fn test_aot_derive_tuple_field_compare_hash() {
+    assert_aot_success(
+        include_str!("fixtures/derives/aot_derive_tuple_field_compare_hash.ori"),
+        "derive_tuple_field_compare_hash",
+    );
+}
+
 // 3.5.4: Derive Printable
 
 #[test]
-fn test_aot_derive_printable_basic() {
+fn test_aot_derive_printable_to_str_nonempty() {
     assert_aot_success(
         include_str!("fixtures/derives/aot_derive_printable_basic.ori"),
         "derive_printable_basic",
@@ -140,7 +213,7 @@ fn test_aot_derive_printable_basic() {
 // 3.5.5: Derive Default
 
 #[test]
-fn test_aot_derive_default_basic() {
+fn test_aot_derive_default_zeroes_int_fields() {
     assert_aot_success(
         include_str!("fixtures/derives/aot_derive_default_basic.ori"),
         "derive_default_basic",
@@ -292,7 +365,7 @@ fn test_aot_clone_tuple_triple() {
 // 3.14: Derive Comparable
 
 #[test]
-fn test_aot_derive_comparable_basic() {
+fn test_aot_derive_comparable_less_and_equal() {
     assert_aot_success(
         include_str!("fixtures/derives/aot_derive_comparable_basic.ori"),
         "derive_comparable_basic",

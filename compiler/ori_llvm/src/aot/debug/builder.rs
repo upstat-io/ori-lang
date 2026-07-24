@@ -173,7 +173,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
         self.config.level
     }
 
-    // -- Type Creation --
+    // Type Creation
 
     /// Get or create a debug type for `int` (64-bit signed integer).
     ///
@@ -263,11 +263,11 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
                     // Fallback: create as "unspecified" with 1 bit
                     self.inner.create_basic_type("void", 1, 0x00, DIFlags::ZERO)
                 })
-                .map_err(|_| basic_type_creation_error("void"))?
+                .map_err(|source| basic_type_creation_error("void", source))?
         } else {
             self.inner
                 .create_basic_type(name, size_bits, encoding, DIFlags::ZERO)
-                .map_err(|_| basic_type_creation_error(name))?
+                .map_err(|source| basic_type_creation_error(name, source))?
         };
 
         cache.primitives.insert(name, ty);

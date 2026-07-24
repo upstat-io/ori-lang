@@ -1,0 +1,10 @@
+// Test that a map spread of a non-map expression is rejected.
+// Spec: 14-expressions.md § Spread Operator — a spread element `...e` in a
+// map literal requires `e: {K: V}` matching the container key/value types.
+
+#[compile_fail("type mismatch")]
+@test_map_spread_type_mismatch tests _ () -> void = {
+    let $x = 5;
+    let $bad = {...x};
+    ()
+}

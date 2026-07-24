@@ -303,8 +303,7 @@ fn test_token_set_iterator() {
 #[test]
 fn test_token_set_iterator_empty() {
     let set = TokenSet::new();
-    let indices: Vec<u8> = set.iter_indices().collect();
-    assert!(indices.is_empty());
+    assert!(set.iter_indices().next().is_none());
 }
 
 #[test]

@@ -307,8 +307,8 @@ fn test_target_sysroot_env_key_is_always_shell_safe_matrix() {
 /// Round-trip pin for the env-override path: the discovery side computes
 /// the canonical env key (`ORI_SYSROOT_AARCH64_APPLE_DARWIN`) for any
 /// aliased / versioned input that resolves to the same `support_key`,
-/// and uses it to query the env. This is the exact contract Codex flagged
-/// as an Apple Silicon user who exports
+/// and uses it to query the env. The exact contract:
+/// an Apple Silicon user who exports
 /// `ORI_SYSROOT_AARCH64_APPLE_DARWIN=...` (the documented form) MUST
 /// have it picked up when building with `arm64-apple-darwin25.2.0` (the
 /// LLVM-default spelling).

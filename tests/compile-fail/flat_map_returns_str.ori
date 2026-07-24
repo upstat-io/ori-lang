@@ -1,11 +1,11 @@
 // Regression: flat_map closure must return Iterator<U>, not str.
 // The closure here returns `str` instead of `Iterator<char>`. The diagnostic
 // SHOULD suggest `.iter()` (str is in the suggestion-friendly set).
-// See: bug-tracker/plans/BUG-02-013/
+// See:
 
 #[compile_fail(code: "E2001", message: "Iterator")]
 @bad_flat_map_str tests _ () -> void = {
-    let _ = [1, 2, 3].iter()
+    let _: [int] = [1, 2, 3].iter()
         .flat_map(transform: (x: int) -> str = "abc")
         .collect();
     ()

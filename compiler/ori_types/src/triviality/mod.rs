@@ -58,8 +58,9 @@ pub fn classify_triviality(idx: Idx, pool: &Pool) -> Triviality {
 
 /// Recursive classification with cycle detection.
 ///
-/// Uses `visiting` set to detect recursive types (which must be
-/// heap-allocated and are therefore non-trivial).
+/// Uses `visiting` to detect a recursive structural dependency. Such a cycle
+/// cannot establish trivial cleanup from the type graph alone, so it is
+/// conservatively non-trivial; physical placement remains target-owned.
 fn classify_recursive(idx: Idx, pool: &Pool, visiting: &mut FxHashSet<Idx>) -> Triviality {
     let resolved = pool.resolve_fully(idx);
     let tag = pool.tag(resolved);
@@ -81,14 +82,13 @@ fn classify_recursive(idx: Idx, pool: &Pool, visiting: &mut FxHashSet<Idx>) -> T
         | Tag::Ordering
         | Tag::Error => return Triviality::Trivial,
 
-        // Always heap-allocated with RC headers.
+        // Values with non-trivial logical cleanup in the shared type model.
+        // This classification does not select heap placement or an RC header.
         //
-        // Iterators (Box-allocated, no RC header) are non-trivial because
-        // `ori_iter_drop` must run at scope exit — even though they have
-        // no refcount to decrement. The ARC emitter routes them through
-        // `RcStrategy::Iterator` / the `Tag::Iterator` arm of
-        // `dec_value_rc_inner`, which emits `ori_iter_drop` instead of
-        // `ori_rc_dec`. See
+        // Iterators are non-trivial because their logical cleanup must run at
+        // scope exit. The current compiled projection routes them through
+        // `RcStrategy::Iterator` and emits `ori_iter_drop`; its box allocation
+        // and lack of an RC header are projection details. See
         Tag::Str
         | Tag::List
         | Tag::Map

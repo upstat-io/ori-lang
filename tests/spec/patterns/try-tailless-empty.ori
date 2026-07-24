@@ -1,0 +1,13 @@
+// Regression: a tail-less (empty) try block must not panic in
+// infer_try_seq. An empty block has no tail expression, so its value type is
+// void and the try synthesizes Result<void, str>. Before fix: PANIC.
+// Spec: 16-control-flow.md:508 + 11-blocks-and-scope.md:302.
+//
+// CONFIRM-AFTER-FIX: `{ }` surface ambiguity — ori-syntax treats a bare empty
+// `{}` as an empty map literal. If `try { }` parses the braces as an empty
+// block (no tail), this is Result<void, str> and type-checks clean; if it
+// parses as a tail empty-map literal, the value type is a map and this would
+// be an E2001 mismatch instead. Either way it must NOT panic.
+@try_empty_block () -> Result<void, str> = try { };
+
+@main () -> int = 0;

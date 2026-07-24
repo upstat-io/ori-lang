@@ -1,0 +1,16 @@
+use std.testing { assert_eq }
+
+// Positional method-call form (no named args) on a method-level generic: T is
+// inferred from the positional argument and the call records a mono instance for
+// @wrap<int>, the same as the named-argument call form.
+type Boxer = { tag: int }
+
+impl Boxer {
+    @wrap<T> (self, item: T) -> [T] = [item];
+}
+
+@t tests @wrap () -> void = {
+    let b = Boxer { tag: 1 };
+    let $r = b.wrap(7);
+    assert_eq(actual: r[0], expected: 7)
+}

@@ -1,0 +1,11 @@
+// Filter DISCARDS a map-produced fresh element: the discard path must free
+// the rejected element inside the adapter, independent of join's release of
+// the consumed ones.
+@main () -> void = {
+    let $joined = ["rho-rho-rho-rho-rho-rho-rho", "si-si-si", "tau-tau-tau-tau-tau-tau-tau"]
+        .iter()
+        .map(transform: (s: str) -> str = s + "-suffix-suffix-suffix-suffix")
+        .filter(predicate: (s: str) -> bool = s.len() > 40)
+        .join(separator: ", ");
+    print(msg: joined)
+}

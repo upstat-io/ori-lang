@@ -60,17 +60,32 @@ type Point = { x: int, y: int }
 }
 
 // =============================================================================
-// List destructuring with $ prefix
+// List destructuring — refutable `let` rejected (CF-3)
+//
+// Spec 15.4 + 15-patterns.md § Pattern Refutability: the irrefutability-context table marks
+// `let` and `for` binders as MUST-be-irrefutable. A multi-element list pattern
+// against `[T]` (dynamic length) is refutable and produces E2001.
+//
+// Migrates the BUG-04-086 transient `@test_list_immutable` (which exercised
+// `let [$first, $second, ..rest] = items`) to a `#compile_fail` negative pin
+// on the same surface, plus a sibling positive test that preserves the
+// original "sum first two of a 3-list" intent through the spec-conformant
+// `match` binding path.
 // =============================================================================
 
-@test_list_immutable tests @list_immutable () -> void = {
-    assert_eq(actual: list_immutable(), expected: 3)
+#compile_fail(code: "E2001", message: "refutable pattern in let-binding")
+@test_list_immutable_refutable_let_rejects tests _ () -> void = {
+    let items = [1, 2, 3];
+    let [$first, $second, ..rest] = items
 }
 
-@list_immutable () -> int = {
+@test_list_immutable_via_match tests _ () -> void = {
     let items = [1, 2, 3];
-    let [$first, $second, ..rest] = items;
-    first + second
+    let result = match items {
+        [first, second, ..rest] -> first + second,
+        _ -> panic(msg: "expected non-empty list"),
+    };
+    assert_eq(actual: result, expected: 3)
 }
 
 // =============================================================================

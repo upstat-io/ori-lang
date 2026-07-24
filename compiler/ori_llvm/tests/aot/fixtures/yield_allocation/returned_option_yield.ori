@@ -1,0 +1,2 @@
+@make () -> [int] = for i in Some(5) yield i * 2;
+@main () -> int = if make().length() == 1 then 0 else 1;

@@ -1,0 +1,15 @@
+// Spec: 10-patterns.md § Function-Level Contracts
+//
+// pre() can reference function parameters and module-level bindings only —
+// referencing a name that is neither (e.g., a free identifier) is rejected
+// with E2047 at the contract's resolution site.
+
+@bad_scope (x: int) -> int
+    pre(undefined_local > 0)
+= x + 1;
+
+#[compile_fail(code: "E2047")]
+@test_pre_scope_violation tests _ () -> void = {
+    let _ = bad_scope(x: 5);
+    ()
+}

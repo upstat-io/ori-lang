@@ -85,7 +85,7 @@ fn test_regular_function_not_test() {
     assert_eq!(output.module.tests.len(), 0);
 }
 
-// --- Semicolon enforcement tests ---
+// Semicolon enforcement tests
 
 #[test]
 fn test_expression_body_requires_semicolon() {
@@ -138,10 +138,10 @@ fn test_block_body_with_optional_semicolon() {
     assert_eq!(output.module.functions.len(), 1);
 }
 
-// --- Contract parsing tests ---
+// Contract parsing tests
 
 #[test]
-fn test_pre_contract_basic() {
+fn test_pre_contract_parses_clean() {
     let output = parse_module("@f (x: int) -> int pre(x > 0) = x;");
     assert!(
         output.errors.is_empty(),
@@ -169,7 +169,7 @@ fn test_pre_contract_with_message() {
 }
 
 #[test]
-fn test_post_contract_basic() {
+fn test_post_contract_parses_clean() {
     let output = parse_module("@f (x: int) -> int post(r -> r >= 0) = x;");
     assert!(
         output.errors.is_empty(),
@@ -272,7 +272,7 @@ fn test_contracts_with_guard_and_where() {
 }
 
 #[test]
-fn test_no_contracts_still_works() {
+fn test_function_without_contracts_parses_clean() {
     // Regression: functions without contracts should still parse cleanly
     let output = parse_module("@f (x: int) -> int = x;");
     assert!(
@@ -296,4 +296,126 @@ fn test_pre_used_as_identifier_elsewhere() {
     );
     assert_eq!(output.module.functions.len(), 1);
     assert!(output.module.functions[0].pre_contracts.is_empty());
+}
+
+/// grammar.ebnf `params` is newline-silent, so a
+/// function whose params are stacked one-per-line (the formatter's multi-line
+/// shape) must parse.
+#[test]
+fn test_multiline_params_function_parses_clean() {
+    let output =
+        parse_module("@process_data (\n    input_data: str,\n    count: int,\n) -> int = count;");
+    assert!(
+        output.errors.is_empty(),
+        "multi-line function params should parse; errors: {:?}",
+        output.errors
+    );
+    assert_eq!(output.module.functions.len(), 1);
+    assert_eq!(output.module.functions[0].params.len, 2);
+}
+
+/// Typed-lambda params reuse `parse_params`, so a
+/// lambda with stacked params must parse for the same reason as a function.
+#[test]
+fn test_multiline_params_typed_lambda_parses_clean() {
+    let output = parse_module("@f () -> int = {\n    let g = (\n        a: int,\n        b: int,\n    ) -> int = a + b;\n    g(a: 1, b: 2)\n};");
+    assert!(
+        output.errors.is_empty(),
+        "multi-line typed-lambda params should parse; errors: {:?}",
+        output.errors
+    );
+    assert_eq!(output.module.functions.len(), 1);
+}
+
+/// A clause-based function with a
+/// literal-pattern param stacked one-per-line must parse — the literal-pattern
+/// path also flows through `parse_params`.
+#[test]
+fn test_multiline_params_clause_literal_parses_clean() {
+    let output = parse_module("@f (\n    0: int,\n) -> int = 1;");
+    assert!(
+        output.errors.is_empty(),
+        "multi-line clause/literal params should parse; errors: {:?}",
+        output.errors
+    );
+    assert_eq!(output.module.functions.len(), 1);
+}
+
+/// A default-valued param stacked
+/// one-per-line must parse — the default-value path flows through `parse_params`.
+#[test]
+fn test_multiline_params_default_value_parses_clean() {
+    let output = parse_module("@g (\n    x: int = 42,\n) -> int = x;");
+    assert!(
+        output.errors.is_empty(),
+        "multi-line default-value params should parse; errors: {:?}",
+        output.errors
+    );
+    assert_eq!(output.module.functions.len(), 1);
+    assert_eq!(output.module.functions[0].params.len, 1);
+}
+
+/// A test declaration with
+/// params stacked one-per-line must parse — the test-body parse is a
+/// shared `parse_params` call site (the `parse_test_body` path).
+#[test]
+fn test_multiline_params_test_declaration_parses_clean() {
+    let output = parse_module("@t tests @f (\n    a: int,\n) -> void = ();");
+    assert!(
+        output.errors.is_empty(),
+        "multi-line test-declaration params should parse; errors: {:?}",
+        output.errors
+    );
+    assert_eq!(output.module.tests.len(), 1);
+}
+
+/// Regression: `parse_params` hand-rolled a soft-keyword match list that
+/// drifted from `cursor::identifiers::soft_keyword_str` (the canonical
+/// soft-keyword classification) — `by`/`with`/`print`/`panic` were rejected
+/// as parameter names (E1002) though every other identifier position
+/// (`expect_ident`) accepts them. `parse_params` now delegates to
+/// `expect_ident()`; this matrix proves every soft keyword parses as a
+/// parameter name (body is a literal, not a reference, so the pin is
+/// scoped to param-name acceptance and does not depend on whether the
+/// keyword can also be referenced as a primary expression), and the count
+/// assertion proves no keyword was skipped.
+#[test]
+fn test_soft_keyword_param_names_parse_clean() {
+    let keywords = [
+        "print", "panic", "by", "run", "try", "with", "cache", "catch", "parallel", "recurse",
+        "spawn", "timeout",
+    ];
+    let mut count = 0;
+    for kw in keywords {
+        let output = parse_module(&format!("@f ({kw}: int) -> int = 1;"));
+        assert!(
+            output.errors.is_empty(),
+            "soft keyword `{kw}` should parse as a parameter name; errors: {:?}",
+            output.errors
+        );
+        assert_eq!(
+            output.module.functions.len(),
+            1,
+            "keyword `{kw}` should produce one function"
+        );
+        assert_eq!(
+            output.module.functions[0].params.len, 1,
+            "keyword `{kw}` should produce one parameter"
+        );
+        count += 1;
+    }
+    assert_eq!(count, keywords.len(), "every soft keyword visited");
+}
+
+/// Negative pin: a genuinely reserved keyword (not in the soft-keyword set)
+/// must still be rejected as a parameter name — the `check_ident() ||
+/// soft_keyword_to_name().is_some()` guard must not over-admit every keyword.
+#[test]
+fn test_reserved_keyword_param_name_rejected() {
+    let output = parse_module("@f (if: int) -> int = 1;");
+    assert!(
+        !output.errors.is_empty(),
+        "reserved keyword `if` must be rejected as a parameter name"
+    );
+    assert_eq!(output.errors[0].code(), ori_diagnostic::ErrorCode::E1002);
 }

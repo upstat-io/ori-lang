@@ -1,0 +1,12 @@
+type Point = { x: int, y: int }
+
+impl Point {
+    @sum (self) -> nt = self.x + self.y;
+
+    @scale (self, factor: int) -> Point = Point { x: self.x * factor, y: self.y * factor }
+}
+
+@main () -> void = {
+    let p = Point { x: 3, y: 4 };
+    print(msg: str(p.sum()))
+}

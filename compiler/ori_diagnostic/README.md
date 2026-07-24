@@ -6,7 +6,7 @@
 
 Central diagnostic infrastructure for all compiler phases. Provides:
 
-- **Stable error codes** (ranges per `impl-hygiene.md §Error Handling`):
+- **Stable error codes**:
   - E0xxx — lexer
   - E1xxx — parser
   - E2xxx — type checker
@@ -23,11 +23,14 @@ Central diagnostic infrastructure for all compiler phases. Provides:
 
 ## Architecture
 
-- `diagnostic/` — `Diagnostic` type, builder API
-- `renderer/` — user-facing rendering (plain, JSON, rustc-style)
-- `dedup/` — deduplication + follow-on suppression
-- `suggest/` — edit-distance "did you mean?"
-- `codes/` — canonical code-to-message lookup
+- `diagnostic/` — `Diagnostic` type, builder API, factory functions, `Suggestion`
+- `emitter/` — output formats: `terminal/` (human-readable, optional ANSI color), `json/`, `sarif/`
+- `error_code/` — `ErrorCode` enum + phase-range classification + `--explain` lookups
+- `errors/` — embedded per-code `EXXXX.md` extended-explanation docs
+- `queue/` — accumulation, deduplication, follow-on suppression, error limits
+- `fixes/` — code-fix (quick-fix) trait + registry for `ori fix`
+- `guarantee/` — `ErrorGuaranteed` type-level proof an error was emitted
+- `span_utils/` — line/column computation from spans
 
 ## Dependencies
 
@@ -53,5 +56,5 @@ cargo test -p ori_diagnostic
 ## Where to look
 
 - Diagnostic builder: `src/diagnostic/`
-- Error codes catalog: `src/codes/`
-- Renderers: `src/renderer/`
+- Error codes catalog: `src/error_code/`
+- Emitters: `src/emitter/`

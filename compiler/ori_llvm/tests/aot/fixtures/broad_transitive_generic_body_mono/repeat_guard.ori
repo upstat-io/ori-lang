@@ -1,0 +1,13 @@
+// CURED (passes pre-fix) — regression guard. The prelude generic `repeat`
+// (T: Clone) called on rigid `T` inside a generic body (`rep<T>`), forwarded
+// through `forward_rep<U>`, concrete-instantiated at `int`. The nested
+// `repeat<int>` mono instance must resolve at AOT dispatch. Guards against
+// regressing this already-cured face of the transitive-generic-body shape.
+@rep<T: Clone> (v: T, n: int) -> [T] = repeat(value: v).take(count: n).collect();
+
+@forward_rep<U: Clone> (v: U) -> [U] = rep(v:, n: 2);
+
+@main () -> int = {
+    let xs = forward_rep(v: 3);
+    xs.len() - 2
+}

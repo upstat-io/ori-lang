@@ -1,32 +1,38 @@
 //! Loop-lowering rewrite for detected self-recursive tail calls.
 //!
-//! Transforms tail-recursive calls into `Jump(header, args)` back-edges,
-//! converting tail recursion into loops. Handles both body `Apply`
-//! instructions and `Invoke` terminators (user function calls).
-//!
-//! # Algorithm
-//!
-//! 1. The original entry block becomes the **loop header** — block params
-//!    are added matching the function's parameters.
-//! 2. A **trampoline** block is created as the new function entry — it
-//!    jumps to the header with the original parameter values.
-//! 3. Each tail call site is rewritten:
-//!    - **Apply**: The `Apply` instruction is removed from the body; the
-//!      terminator is changed to `Jump(header, call_args)`.
-//!    - **Invoke**: The `Invoke` terminator is replaced with
-//!      `Jump(header, call_args)`. `RcDec` ops from the normal continuation
-//!      block are moved into the call block before the jump. The normal
-//!      and unwind blocks become dead and are cleaned up by `block_merge`.
-//! 4. Merge blocks that lose all predecessors become unreachable and are
-//!    cleaned up by `block_merge` (which runs after this pass).
-//!
-//! # Pipeline placement
-//!
-//! Runs immediately after [`detect_tail_calls`](super::detect_tail_calls),
-//! AFTER `rc_elim` and BEFORE `block_merge`.
+//! The original entry becomes a loop header, a new trampoline supplies its
+//! initial parameters, and each tail call becomes a back-edge. For an
+//! `Invoke`, safe continuation cleanup moves before the edge; the obsolete
+//! normal and unwind blocks are left for `block_merge`. The pass runs after
+//! RC elimination, when cleanup positions are final.
+
+use std::sync::LazyLock;
 
 use super::TailCallKind;
-use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue};
+use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
+
+// Env: ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP - retains RC ops on eliminated
+// recursive Invoke results for RL-34 ablation, debug-only.
+static TRMC_TRANSFERRED_RESULT_DEC_DROP_DISABLED: LazyLock<bool> = LazyLock::new(|| {
+    report_transferred_result_dec_drop_toggle(
+        std::env::var("ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP").as_deref() == Ok("1"),
+    )
+});
+
+fn report_transferred_result_dec_drop_toggle(disabled: bool) -> bool {
+    if disabled {
+        tracing::info!(
+            toggle = "ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP",
+            effect = "retain RC ops on eliminated recursive Invoke results",
+            "ablation toggle fired"
+        );
+    }
+    disabled
+}
+
+fn transferred_result_dec_drop_disabled() -> bool {
+    *TRMC_TRANSFERRED_RESULT_DEC_DROP_DISABLED
+}
 
 /// Rewrite detected tail calls as loop back-edges.
 ///
@@ -34,9 +40,8 @@ use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue};
 /// [`detect_tail_calls`](super::detect_tail_calls)) and rewrites
 /// the ARC IR to use loops instead of recursive calls.
 ///
-/// After this pass, self-recursive tail calls are replaced by
-/// `Jump(header, new_args)` back-edges, achieving O(1) stack space.
-/// The function's `tail_calls` field is emptied (consumed).
+/// Self-recursive tail calls become `Jump(header, new_args)` back-edges with
+/// O(1) stack use. The rewrite consumes the function's `tail_calls` entries.
 #[tracing::instrument(skip_all, fields(func = ?func.name))]
 pub(crate) fn rewrite_tail_calls(func: &mut ArcFunction) {
     let tail_calls = std::mem::take(&mut func.tail_calls);
@@ -47,21 +52,14 @@ pub(crate) fn rewrite_tail_calls(func: &mut ArcFunction) {
     let header_id = func.entry;
     let header_idx = header_id.index();
 
-    // Step 1: Add block params to the header using FRESH variable IDs.
-    //
-    // We must NOT reuse the function's parameter ArcVarIds here. If we did,
-    // the trampoline's `Jump header [v0, v1]` would pass `v0` to a block
-    // param also named `v0`. Block merge Phase 7 (invariant param elimination)
-    // would see `arg == param_var` and treat the trampoline as a self-referencing
-    // back-edge, incorrectly eliminating the param.
-    //
-    // With fresh IDs, Phase 7 sees distinct vars from both predecessors and
-    // correctly identifies the params as non-invariant.
-    let param_types: Vec<_> = func.params.iter().map(|p| p.ty).collect();
-    let block_params: Vec<_> = param_types
+    // Header parameters need fresh IDs; reusing function parameters would make
+    // the trampoline look self-referential and trigger incorrect invariant-
+    // parameter elimination.
+    let params: Vec<_> = func.params.iter().map(|p| (p.var, p.ty)).collect();
+    let block_params: Vec<_> = params
         .iter()
-        .map(|&ty| {
-            let fresh = func.fresh_var(ty);
+        .map(|&(source, ty)| {
+            let fresh = func.fresh_var_like_typed(source, ty);
             (fresh, ty)
         })
         .collect();
@@ -83,11 +81,8 @@ pub(crate) fn rewrite_tail_calls(func: &mut ArcFunction) {
     });
     func.entry = trampoline_id;
 
-    // Step 3: Rewrite each tail call site.
-    //
-    // This must happen BEFORE prepending Let bindings to the header (Step 4),
-    // because Apply tail calls in the header block use `instr_idx` from
-    // detection — prepending would shift those indices.
+    // Rewrite sites before prepending header bindings, which would invalidate
+    // detected instruction indices.
     for site in &tail_calls {
         let block_idx = site.call_block.index();
 
@@ -101,11 +96,8 @@ pub(crate) fn rewrite_tail_calls(func: &mut ArcFunction) {
         }
     }
 
-    // Step 4: Prepend Let bindings that define the original param vars from
-    // the fresh block params. The header body references the original vars,
-    // so these bindings bridge fresh block params → original names.
-    //
-    // Done after Step 3 so that tail call instr_idx values remain valid.
+    // Bridge fresh header parameters back to the original variables after all
+    // index-sensitive rewrites.
     let mut let_bindings: Vec<ArcInstr> = Vec::with_capacity(block_params.len());
     for (i, param) in func.params.iter().enumerate() {
         let_bindings.push(ArcInstr::Let {
@@ -134,10 +126,8 @@ fn rewrite_apply_site(
     header_id: crate::ir::ArcBlockId,
     site: &super::TailCallSite,
 ) {
-    // Remove the Apply instruction and extract its args. The detection
-    // pass guarantees this is an Apply — the else branch is defensive.
-    // RcDec operations that followed it remain in place — they clean up
-    // the current iteration's values before the back-edge jump.
+    // Preserve following decrements because they clean the current iteration
+    // before the back edge; detection guarantees the removed instruction is Apply.
     let apply_args = match func.blocks[block_idx].body.remove(instr_idx) {
         ArcInstr::Apply { args, .. } => args,
         other => {
@@ -169,17 +159,43 @@ fn rewrite_apply_site(
 /// back-edge jump so they execute at the end of each iteration.
 fn rewrite_invoke_site(func: &mut ArcFunction, block_idx: usize, header_id: crate::ir::ArcBlockId) {
     // Extract args from the Invoke terminator.
-    let invoke_args = if let ArcTerminator::Invoke { args, normal, .. } =
-        &func.blocks[block_idx].terminator
+    let invoke_args = if let ArcTerminator::Invoke {
+        args, normal, dst, ..
+    } = &func.blocks[block_idx].terminator
     {
         let normal_idx = normal.index();
         let args = args.clone();
+        // The loop back edge removes the invoke result; any moved RC operation
+        // on it would violate RL34 and use an undefined value.
+        let result_dst = *dst;
 
-        // Move RcDec instructions from the normal continuation block
-        // into the call block. These clean up the current iteration's
-        // values before the next iteration begins.
-        let normal_body: Vec<ArcInstr> = func.blocks[normal_idx].body.drain(..).collect();
-        let normal_spans: Vec<Option<ori_ir::Span>> = func.spans[normal_idx].drain(..).collect();
+        // Move normal-path cleanup into the call block. Extend body and spans
+        // independently so mismatched arrays are never silently truncated.
+        let mut normal_body: Vec<ArcInstr> = func.blocks[normal_idx].body.drain(..).collect();
+        let mut normal_spans: Vec<Option<ori_ir::Span>> =
+            func.spans[normal_idx].drain(..).collect();
+
+        // Remove RC operations on the eliminated invoke result in body/span
+        // lockstep; the ablation restores move-everything behavior for bisection.
+        if !transferred_result_dec_drop_disabled() {
+            let mut i = 0;
+            while i < normal_body.len() {
+                if rc_op_on_var(&normal_body[i], result_dst) {
+                    tracing::trace!(
+                        target: "ori_arc::tail_call",
+                        result_dst = result_dst.index(),
+                        instr = ?normal_body[i],
+                        "TRMC rewrite: dropping eliminated-Invoke-result RC op (RL-34)"
+                    );
+                    normal_body.remove(i);
+                    if i < normal_spans.len() {
+                        normal_spans.remove(i);
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+        }
 
         func.blocks[block_idx].body.extend(normal_body);
         func.spans[block_idx].extend(normal_spans);
@@ -198,4 +214,74 @@ fn rewrite_invoke_site(func: &mut ArcFunction, block_idx: usize, header_id: crat
         target: header_id,
         args: invoke_args,
     };
+}
+
+/// True iff `instr` is an RC / burden op (realized or burden-spelled) whose
+/// subject var is `var`. Used to drop the eliminated-Invoke-result RC ops when
+/// a recursive tail call is rewritten to a loop back-edge: the result is never
+/// materialized post-rewrite, so a dec on it is a forbidden post-call dec that
+/// dangles as a use-before-def. Spec: Annex E §AIMS RL-34.
+fn rc_op_on_var(instr: &ArcInstr, var: ArcVarId) -> bool {
+    match instr {
+        ArcInstr::RcInc { var: v, .. }
+        | ArcInstr::RcDec { var: v, .. }
+        | ArcInstr::RcDecPartial { var: v, .. }
+        | ArcInstr::RcDecVariant { var: v }
+        | ArcInstr::BurdenInc { var: v }
+        | ArcInstr::BurdenDec { var: v }
+        | ArcInstr::BurdenDecPartial { var: v, .. }
+        | ArcInstr::BurdenDecVariant { var: v } => *v == var,
+        ArcInstr::RcDecField { base, .. } | ArcInstr::BurdenDecField { base, .. } => *base == var,
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod toggle_tests {
+    crate::test_helpers::ablation_env_event_test!(
+        transferred_result_dec_drop_reproduces_dangling_cleanup,
+        "ORI_DISABLE_TRMC_TRANSFERRED_RESULT_DEC_DROP",
+        "retain RC ops on eliminated recursive Invoke results",
+        || {
+            let result = crate::test_helpers::v(1);
+            let mut func = crate::test_helpers::make_func(
+                Vec::new(),
+                ori_types::Idx::UNIT,
+                vec![
+                    crate::test_helpers::make_block(
+                        crate::test_helpers::b(0),
+                        Vec::new(),
+                        crate::test_helpers::make_invoke(
+                            result,
+                            ori_types::Idx::STR,
+                            ori_ir::Name::from_raw(7),
+                            Vec::new(),
+                            Vec::new(),
+                            crate::test_helpers::b(1),
+                            crate::test_helpers::b(2),
+                        ),
+                    ),
+                    crate::test_helpers::make_block(
+                        crate::test_helpers::b(1),
+                        vec![crate::ArcInstr::BurdenDec { var: result }],
+                        crate::ArcTerminator::Unreachable,
+                    ),
+                    crate::test_helpers::make_block(
+                        crate::test_helpers::b(2),
+                        Vec::new(),
+                        crate::ArcTerminator::Resume,
+                    ),
+                ],
+                vec![ori_types::Idx::UNIT, ori_types::Idx::STR],
+            );
+
+            super::rewrite_invoke_site(&mut func, 0, crate::test_helpers::b(0));
+
+            assert!(matches!(
+                func.blocks[0].body.as_slice(),
+                [crate::ArcInstr::BurdenDec { var }] if *var == result
+            ));
+            super::transferred_result_dec_drop_disabled()
+        },
+    );
 }

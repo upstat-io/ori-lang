@@ -1,0 +1,18 @@
+// Option.ok_or borrows its receiver and owns the fallback error. The Some
+// branch must retain the borrowed payload for Ok and release the unused error;
+// the None branch transfers the error into Err without either operation.
+//
+// @function: _ori_convert
+// CHECK: okor.some
+// CHECK: ori_str_rc_inc
+// CHECK: ori_str_rc_dec
+// CHECK: okor.none
+
+@convert (option: Option<str>, error: str) -> Result<str, str> = {
+    option.ok_or(err: error)
+}
+
+@main () -> void = {
+    let result = convert(option: Some("value"), error: "error");
+    print(msg: result.debug())
+}

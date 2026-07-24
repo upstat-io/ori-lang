@@ -1,0 +1,14 @@
+// RL-4 dead-owned-param-branch release POSITIVE matrix pin (type dimension: [str]):
+// the two-param `pick(c, x, y) -> if c then x else y` shape over a HEAP-ELEMENT list
+// `[str]` (vs the `[int]` of path_sensitive_select_list). On the c-true branch `y` is dead
+// and needs ONE release; on the c-false branch `x` is dead and needs ONE. The per-edge
+// release frees the list buffer AND its `str` elements (drop-glue recursion). Pins the fix
+// across the heap-element axis — reverting (`ORI_DISABLE_DEAD_OWNED_PARAM_BRANCH_RELEASE=1`)
+// leaks the dead `[str]` param on each branch.
+@pick_s <T> (c: bool, x: T, y: T) -> T = if c then x else y;
+
+@main () -> int = {
+    let a = pick_s(c: true, x: ["a", "a"], y: ["b", "b"]);
+    let b = pick_s(c: false, x: ["cc", "cc"], y: ["dd", "dd"]);
+    if a[0] == "a" && b[0] == "dd" then 0 else 1
+}

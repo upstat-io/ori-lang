@@ -1,0 +1,77 @@
+Theorem L-7: Canonicalization idempotent
+
+  Preconditions:
+    - canonicalize is the lattice canonicalization function per
+      Annex E §AIMS (CN-1, CN-2, CN-3, CN-5, CN-6, CN-8 — CN-4
+      and CN-7 are REMOVED per sec-2 historical notes)
+    - L-7 (idempotence) per Annex E §AIMS.8 L-7
+    - canonicalize loops over the active CN-N rules until fixed point,
+      bounded at 3 rounds per sec-2 (current rules reach fixpoint in
+      one pass; multi-round loop = defensive)
+
+  Soundness property:
+    Forall s in AimsState. canonicalize(canonicalize(s)) = canonicalize(s)
+
+  Proof obligation:
+    Each individual CN-N rule is idempotent — once applied, re-application
+    leaves the state unchanged. The full canonicalize() is the iterated
+    composition of CN-1, CN-2, CN-3, CN-5, CN-6, CN-8 until fixed point;
+    idempotence of the composition follows from per-rule idempotence +
+    the fixpoint guarantee (3-round bound is defensive but each rule
+    is one-pass-stable on canonical input).
+
+    Per-CN-rule idempotence:
+      CN-1 (Dead <-> Absent bidirectional):
+        first pass coalesces (Dead, Absent) and (Linear, Absent) etc.
+        per the matrix in sec-2; once both dimensions agree, the
+        rule's predicate is satisfied (Consumption = Dead iff
+        Cardinality = Absent), so re-application is a no-op.
+      CN-2 (Linear + Absent infeasible):
+        subsumed by CN-1; one pass eliminates the combination.
+      CN-3 (Shared blocks reuse — Shape forced to NonReusable):
+        on first pass, Uniqueness = Shared sets Shape to NonReusable;
+        re-application sees Shape already NonReusable, no change.
+      CN-5 (Unique + Dead preserves reusable shape):
+        a no-mutation rule that documents an invariant; re-application
+        observes the same invariant.
+      CN-6 (Wide-locality uniqueness ceiling):
+        first pass demotes Unique to MaybeShared when Locality >=
+        HeapEscaping; re-application sees Uniqueness already MaybeShared
+        (or wider), no change.
+      CN-8 (Borrowed locality ceiling):
+        first pass clamps Borrowed + Locality > FunctionLocal down to
+        FunctionLocal; re-application sees Locality already
+        FunctionLocal (or narrower), no change.
+
+    Per-rule pre-canonicalization + post-canonicalization enumeration:
+      Total 7-dim carrier sizes: 2 * 4 * 3 * 3 * 5 * 5 * 8 = 14,400 states.
+      Each CN rule operates on a small slice (2-3 dimensions); per-rule
+      fired-or-not predicate is decidable per state. Per-rule
+      verification enumerates the small slice (e.g. CN-1 covers
+      Consumption x Cardinality = 4 * 3 = 12 pairs; CN-3 covers
+      Uniqueness x Shape = 3 * 5 = 15 pairs; CN-6 covers
+      Locality x Uniqueness = 5 * 3 = 15 pairs; CN-8 covers
+      Access x Locality = 2 * 5 = 10 pairs).
+
+    Composition idempotence:
+      Apply the full canonicalize(s) to obtain s'. By per-rule
+      idempotence, applying canonicalize(s') = s' (no rule fires
+      again; all conditions are already in canonical form). Therefore
+      canonicalize(canonicalize(s)) = canonicalize(s).
+
+    Sentinel handling per L-9: SCALAR is pre-filtered before any
+    canonicalize invocation; canonicalize does not propagate SCALAR.
+    FRESH / CONSERVATIVE / ALL / NONE are concrete 7-tuples whose
+    canonical forms equal themselves (verified by per-sentinel
+    canonicalize invocation in the engine discharge).
+
+    Engines dispatched:
+      lattice (per-CN-rule idempotence enumeration per
+        section_02::verify_l7_canonicalize_idempotence)
+      monotonicity (validates each CN-N rule rewrites within or below
+        the partial order — no upward rewrites — preserving the
+        monotone canonical form)
+
+  Expected:
+    status: valid
+    reason: sec-02 lattice engine discharges L-7 via per-CN-rule idempotence enumeration + composition fixpoint argument

@@ -96,7 +96,7 @@
 // @max_val<T: Comparable> (a: T, b: T) -> T =
 //     if a.compare(other: b) == Greater then a else b
 //
-// #skip("Ordering type does not implement Eq for == comparison")
+// #skip("BUG-07-038: Ordering type does not implement Eq for == comparison")
 // @test_bounded_comparable tests @max_val () -> void = {
 //     assert_eq(actual: max_val(a: 10, b: 20), expected: 20),
 //     assert_eq(actual: max_val(a: 50, b: 30), expected: 50),

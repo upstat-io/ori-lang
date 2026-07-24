@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = [1, 2, 3];
+    let v = xs[9];
+    v
+}

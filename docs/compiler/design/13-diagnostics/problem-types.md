@@ -106,11 +106,10 @@ pub struct ParseError {
 
 The `severity` field distinguishes **hard** from **soft** errors. Soft errors arise from `ParseOutcome::EmptyErr` — the parser attempted a rule and consumed no tokens, so the failure is speculative. Hard errors arise from committed parsing that found something unexpected. The `DiagnosticQueue` suppresses soft errors after a hard error to prevent noise flooding when a single structural mistake produces dozens of speculative failures.
 
-Three primary construction paths exist:
+Two primary construction paths exist:
 
 - `ParseError::new(code, message, span)` — raw construction, defaults to hard severity
 - `ParseError::from_kind(&ParseErrorKind, span)` — structured construction from a rich kind enum; extracts hint, educational note, and context from the kind
-- `ParseError::from_error_token(span, source_text)` — inspects the literal source text via `detect_common_mistake()` to recognize cross-language patterns and provide targeted help
 
 `ParseErrorKind` carries structured context for each error category: `UnexpectedToken { found, expected, context }`, `UnexpectedEof { expected, unclosed }`, `ExpectedExpression { found, position: ExprPosition }`, `UnclosedDelimiter { open, open_span, expected_close }`, and nine others. Each variant knows how to generate an empathetic message, a hint, and an educational note — drawing on Elm's first-person phrasing style.
 

@@ -80,3 +80,48 @@ fn diff_string_to_number() {
         .iter()
         .any(|p| matches!(p, TypeProblem::StringToNumber)));
 }
+
+#[test]
+fn diff_generic_fallback_category_names_match_surface_syntax() {
+    // Regression: the generic-fallback TypeMismatch arm rendered Never/Duration/
+    // Size/Ordering in lowercase, disagreeing with the primary mismatch message
+    // (which uses Idx::display_name / Pool::format_type and renders them
+    // capitalized per their real Ori surface-syntax spelling).
+    let pool = Pool::new();
+
+    let never_vs_bool = diff_types(&pool, Idx::NEVER, Idx::BOOL);
+    assert!(never_vs_bool.iter().any(|p| matches!(
+        p,
+        TypeProblem::TypeMismatch {
+            expected_category: "Never",
+            ..
+        }
+    )));
+
+    let duration_vs_bool = diff_types(&pool, Idx::DURATION, Idx::BOOL);
+    assert!(duration_vs_bool.iter().any(|p| matches!(
+        p,
+        TypeProblem::TypeMismatch {
+            expected_category: "Duration",
+            ..
+        }
+    )));
+
+    let size_vs_bool = diff_types(&pool, Idx::SIZE, Idx::BOOL);
+    assert!(size_vs_bool.iter().any(|p| matches!(
+        p,
+        TypeProblem::TypeMismatch {
+            expected_category: "Size",
+            ..
+        }
+    )));
+
+    let ordering_vs_bool = diff_types(&pool, Idx::ORDERING, Idx::BOOL);
+    assert!(ordering_vs_bool.iter().any(|p| matches!(
+        p,
+        TypeProblem::TypeMismatch {
+            expected_category: "Ordering",
+            ..
+        }
+    )));
+}

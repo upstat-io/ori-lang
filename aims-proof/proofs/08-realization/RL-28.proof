@@ -1,0 +1,22 @@
+Theorem RL-28: unknown callees order all pending ownership events
+
+  Preconditions:
+    - The call is FFI, indirect, or otherwise lacks a trusted contract.
+
+  Soundness property:
+    Every pending logical ownership event is ordered before an unknown call.
+    A known contract delegates to RL-27 selective ordering. The theorem does
+    not prescribe a worklist flush or physical counter operation.
+
+  Proof obligation:
+    Enumerate FFI, indirect, no-contract Apply, and known-contract cases.
+    Coverage gate: 4 cases; an unknown callee may never skip ordering.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl28_unknown_callee_event_ordering)
+      rc_counting (SECONDARY — gracious-accept)
+      refinement (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: RL-28 conservatively orders all pending logical ownership events before every unknown call

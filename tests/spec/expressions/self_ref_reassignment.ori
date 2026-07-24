@@ -1,0 +1,94 @@
+// Regression: BUG-04-194 — AIMS leaked the prior value of a binding on a
+// self-referential reassignment `x = e` where `e` consumes `x` as an
+// ownership-transfer receiver AND re-reads `x` via a borrow. The old binding
+// allocation was RcInc'd but never RcDec'd at the rebind (the borrow-read kept
+// the old VarId aliased, blocking dead-cleanup). Values are correct on both
+// backends; the LEAK is caught by the LLVM harness (`ORI_CHECK_LEAKS`).
+//
+// Matrix: RHS-shape x (value-correct + leak-clean + dual-exec parity). The
+// list `.updated()` consume + self-index-read shape is the leak case (the
+// fresh receiver alias-inc leaves the binding's own value unreleased at the
+// rebind). The struct spread-construct + self-field-read, pure-construct-
+// transfer, and conditional shapes are already-correct regression guards
+// (empirically leak-clean today — their `x` use is a single transfer / a
+// per-branch cardinal consume, so no rebind release was ever dropped).
+
+use std.testing { assert_eq }
+
+type Acc = { a: int, b: int, total: int }
+
+// =============================================================================
+// LEAK CASE 1 — method-receiver consume + self index-read (the §01 repro)
+// =============================================================================
+
+@test_self_ref_index_read tests @self_ref_index_read () -> void = {
+    assert_eq(actual: self_ref_index_read(), expected: 15)
+}
+
+@self_ref_index_read () -> int = {
+    let xs = [10, 20, 30];
+    xs = xs.updated(key: 0, value: xs[0] + 5);
+    xs[0]
+}
+
+// =============================================================================
+// REGRESSION GUARD — struct spread-construct + self field-read (`x = T {...x, k: x.other}`)
+// Empirically already leak-clean (struct Construct + field Project account
+// correctly); guards that the AIMS fix does not regress it.
+// =============================================================================
+
+@test_self_ref_field_read tests @self_ref_field_read () -> void = {
+    assert_eq(actual: self_ref_field_read(), expected: 7)
+}
+
+@self_ref_field_read () -> int = {
+    let acc = Acc { a: 3, b: 4, total: 0 };
+    acc = Acc { ...acc, total: acc.a + acc.b };
+    acc.total
+}
+
+// =============================================================================
+// LEAK CASE 3 — repeated self-referential index reassignment (multi-rebind)
+// =============================================================================
+
+@test_self_ref_repeated tests @self_ref_repeated () -> void = {
+    assert_eq(actual: self_ref_repeated(), expected: 25)
+}
+
+@self_ref_repeated () -> int = {
+    let xs = [10, 20, 30];
+    xs = xs.updated(key: 0, value: xs[0] + 5);
+    xs = xs.updated(key: 0, value: xs[0] + 5);
+    xs = xs.updated(key: 0, value: xs[0] + 5);
+    xs[0]
+}
+
+// =============================================================================
+// REGRESSION GUARD 1 — pure construct transfer (`x = [c, ...x]`), already correct
+// =============================================================================
+
+@test_construct_transfer_no_leak tests @construct_transfer_no_leak () -> void = {
+    assert_eq(actual: construct_transfer_no_leak(), expected: 4)
+}
+
+@construct_transfer_no_leak () -> int = {
+    let xs = [2, 3];
+    xs = [1, ...xs];
+    // xs == [1, 2, 3]; xs[0] + length == 1 + 3
+    xs[0] + len(collection: xs)
+}
+
+// =============================================================================
+// REGRESSION GUARD 2 — conditional rebind (`x = if c then x else y`), already correct
+// =============================================================================
+
+@test_conditional_rebind_no_leak tests @conditional_rebind_no_leak () -> void = {
+    assert_eq(actual: conditional_rebind_no_leak(), expected: 5)
+}
+
+@conditional_rebind_no_leak () -> int = {
+    let xs = [5, 6];
+    let $flag = true;
+    xs = if flag then xs else [0];
+    xs[0]
+}

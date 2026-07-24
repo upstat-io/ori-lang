@@ -1,0 +1,51 @@
+// Spec: 09-expressions.md § Template Literals (multi-line)
+// A template literal may span multiple source lines; the interior newlines and
+// whitespace are preserved EXACTLY (grammar.ebnf template scanning advances over
+// `\n`/`\r` per ori_lexer_core raw_scanner/templates.rs).
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Two-line template -> embedded newline preserved
+// =============================================================================
+
+@ml_two () -> str = `line1
+line2`;
+
+@test_ml_two tests @ml_two () -> void = {
+    assert_eq(actual: ml_two(), expected: "line1\nline2")
+}
+
+// =============================================================================
+// Leading whitespace on a continuation line is preserved EXACTLY (two spaces)
+// =============================================================================
+
+@ml_indent () -> str = `a
+  b`;
+
+@test_ml_indent tests @ml_indent () -> void = {
+    assert_eq(actual: ml_indent(), expected: "a\n  b")
+}
+
+// =============================================================================
+// Three lines with a blank line in the middle (blank line preserved)
+// =============================================================================
+
+@ml_blank () -> str = `top
+
+bottom`;
+
+@test_ml_blank tests @ml_blank () -> void = {
+    assert_eq(actual: ml_blank(), expected: "top\n\nbottom")
+}
+
+// =============================================================================
+// Multi-line template with an interpolation on the second line
+// =============================================================================
+
+@ml_interp (x: int) -> str = `count:
+{x}`;
+
+@test_ml_interp tests @ml_interp () -> void = {
+    assert_eq(actual: ml_interp(x: 3), expected: "count:\n3")
+}

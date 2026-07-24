@@ -1,0 +1,10 @@
+@minmax_float <T> (marker: T, a: float, b: float) -> float = {
+    let lo = min(left: a, right: b);
+    let hi = max(left: a, right: b);
+    hi - lo
+}
+
+@main () -> int = {
+    let d = minmax_float(marker: 0, a: 2.5, b: 4.0);
+    if d > 1.4 && d < 1.6 then 0 else 1
+}

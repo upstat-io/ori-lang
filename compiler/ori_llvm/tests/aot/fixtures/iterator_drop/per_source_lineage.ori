@@ -1,4 +1,4 @@
-// TPR-07-019 semantic pin: per-source bypass-safe lineage split.
+// Semantic pin: per-source bypass-safe lineage split.
 //
 // Two independent phi-merge consumers, each holding a take-project
 // source enum constructed from two alternative branches. The shape
@@ -15,7 +15,7 @@
 // 2. Per-source / per-lineage intersection ensures that two distinct
 //    take-project consumers in the same function each see their own
 //    bypass-safe set, even when their alias chains share structure.
-//    Pre-TPR-07-019 the per-class merged `tp_blocks` would shrink
+//    Without the per-source split, the per-class merged `tp_blocks` would shrink
 //    each consumer's set incorrectly when the membership union
 //    over-approximated via phi.
 //

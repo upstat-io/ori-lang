@@ -80,6 +80,28 @@ fn test_problem_equality() {
 }
 
 #[test]
+fn const_division_by_zero_diagnostic_names_cause_and_fix() {
+    let interner = StringInterner::new();
+    let name = interner.intern("broken");
+    let problem = ori_canon::ConstEvalProblem {
+        name,
+        span: Span::new(10, 30),
+        kind: ori_canon::ConstEvalProblemKind::DivisionByZero,
+    };
+
+    let diagnostic = const_eval_problem_to_diagnostic(&problem, &interner);
+    assert_eq!(diagnostic.code, ErrorCode::E2058);
+    assert!(diagnostic.message.contains("divides by zero"));
+    assert!(
+        diagnostic
+            .suggestions
+            .iter()
+            .any(|suggestion| suggestion.contains("non-zero divisor")),
+        "diagnostic must give a concrete repair: {diagnostic:?}"
+    );
+}
+
+#[test]
 fn test_problem_hash() {
     use std::collections::HashSet;
 

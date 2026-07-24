@@ -1,0 +1,14 @@
+@main () -> int = {
+    let outer: Result<Option<str>, str> = Ok(Some("nested_payload_through_option"));
+    let inner_opt = match outer {
+        Ok(opt) -> opt,
+        Err(_) -> panic(msg: "should be Ok"),
+    };
+    let value = match inner_opt {
+        Some(s) -> s,
+        None -> panic(msg: "should be Some"),
+    };
+    let h = value.contains(substr: "nested");
+    let p = value.contains(substr: "payload");
+    if h && p then 0 else 1
+}

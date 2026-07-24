@@ -1,0 +1,69 @@
+Theorem TF-2b: Typed owned-result PrimOp preserves one result obligation
+
+  Preconditions:
+    - Instruction is `Let { PrimOp(op, args) }` per Annex E §AIMS TF-2b
+    - The typed primitive descriptor is well formed for `args.len`
+    - Descriptor result is `OwnedFromConsumedOrIndependent([0, 1])`
+    - Descriptor operand uses are `[Consume, Consume]`
+    - Allocation effect is `StrategyDependent`; logical ownership does not
+      assert that every physical realization allocates
+
+  Soundness property:
+    Forall abstract realization strategies in
+      {TakeOperandZero, TakeOperandOne, AllocateIndependent}.
+      transfer_tf2b(op) = FRESH(shape)
+      AND both input obligations are consumed exactly once
+      AND exactly one result ownership obligation is produced
+      AND the result storage source is funded by either the consumed input
+          selected by the row or the row's independent allocation.
+
+  Proof obligation:
+    Four-part discharge:
+      (a) Descriptor validity — arity is two; takeover candidates 0 and 1 are
+          in range and both corresponding operand uses are Consume.
+      (b) Logical transfer — the result image is FRESH(shape), meaning one
+          independent owned result obligation. `may_alloc` is a possibility,
+          not a claim that every realization row allocates.
+      (c) Strategy-row conservation — TakeOperandZero, TakeOperandOne, and
+          AllocateIndependent each consume `[0, 1]`, produce owner-count 1,
+          and have a funded storage source. Neither takeover row allocates;
+          the independent row does.
+      (d) Fail closed — wrong arity, out-of-range alias/takeover index, empty
+          takeover set, or takeover from a Borrow operand has no transfer
+          image. Missing descriptors are rejected before transfer.
+
+    Part (a) — descriptor validation:
+      `PrimitiveDescriptorValid(2,
+        {OwnedFromConsumedOrIndependent([0,1]), [Consume,Consume],
+         StrategyDependent}) = true`.
+
+    Part (b) — backend-neutral logical result:
+      For every shape and pair of input states, descriptor-directed transfer
+      returns `Tracked(FRESH(shape))`. The theorem mentions no operator name,
+      runtime symbol, physical layout, or backend.
+
+    Part (c) — exhaustive strategy rows:
+      TakeOperandZero: consumes [0,1], result-owner count 1, storage source 0,
+        allocated=false.
+      TakeOperandOne: consumes [0,1], result-owner count 1, storage source 1,
+        allocated=false.
+      AllocateIndependent: consumes [0,1], result-owner count 1, independent
+        storage source, allocated=true.
+      Thus storage reuse never duplicates an ownership obligation, and a
+      logical FRESH result never implies unconditional physical allocation.
+
+    Part (d) — negative witness:
+      A one-operand descriptor naming takeover candidate 1 while marking the
+      sole operand Borrow evaluates to no transfer image.
+
+    Engines dispatched:
+      monotonicity (PRIMARY — descriptor-directed owned result is a
+        per-descriptor constant FRESH(shape), self-comparable by L-4)
+      case_analysis (PRIMARY — exhaustively checks all three abstract
+        realization rows plus malformed-descriptor rejection)
+      lattice (SECONDARY — accepts gracefully)
+      refinement (SECONDARY — accepts gracefully)
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-2b via typed descriptor validation, three-row ownership-interface enumeration, and fail-closed malformed metadata

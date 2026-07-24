@@ -39,9 +39,8 @@ mod llvm_tests {
         // Ori uses the canonical 3-component spelling `wasm32-unknown-wasip1`.
         // This invariant is what `TargetTripleComponents::parse()` enforces.
         for target in SUPPORTED_TARGETS {
-            let parts: Vec<&str> = target.split('-').collect();
             assert!(
-                parts.len() >= 3,
+                target.split('-').count() >= 3,
                 "target '{target}' must have at least 3 parts (arch-vendor-os[-env])"
             );
         }

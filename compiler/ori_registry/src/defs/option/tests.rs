@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn option_method_count() {
-    assert_eq!(OPTION.methods.len(), 18);
+    assert_eq!(OPTION.methods.len(), 19);
 }
 
 #[test]
@@ -50,6 +50,34 @@ fn option_unwrap_returns_element() {
             .find(|m| m.name == name)
             .unwrap_or_else(|| panic!("unwrap method should exist"));
         assert_eq!(m.returns, ELEM, "Option.{name} should return ElementType");
+    }
+}
+
+#[test]
+fn option_unwrap_or_has_closed_runtime_identity() {
+    let method = OPTION
+        .methods
+        .iter()
+        .find(|method| method.name == "unwrap_or")
+        .unwrap_or_else(|| panic!("unwrap_or method should exist"));
+    assert_eq!(
+        method.runtime,
+        Some(MethodRuntime::Option(OptionRuntime::UnwrapOr))
+    );
+}
+
+#[test]
+fn every_option_method_has_exact_runtime_arity() {
+    for method in OPTION.methods {
+        let runtime = method
+            .runtime
+            .unwrap_or_else(|| panic!("Option.{} lacks a runtime identity", method.name));
+        assert_eq!(
+            runtime.arity(),
+            method.params.len() + 1,
+            "Option.{} runtime arity",
+            method.name
+        );
     }
 }
 

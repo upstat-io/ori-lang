@@ -1,0 +1,9 @@
+
+@identity <T> (x: T) -> T = x;
+@caller () -> int = {
+    let a = identity(x: 1);
+    let b = identity(x: 2);
+    a + b
+}
+@test_caller tests @caller () -> void = ();
+@test_identity tests @identity () -> void = ();

@@ -1,0 +1,13 @@
+type ConstVec<T> = { items: [T] }
+
+impl<T> ConstVec<T> {
+    @body_capacity<$N: int> (self) -> int = {
+        let fixed: [T, max N] = self.items;
+        fixed.len()
+    }
+}
+
+@method_const_body_capacity_call_site_non_positive () -> int = {
+    let values = ConstVec { items: [1, 2, 3] };
+    values.body_capacity<0>()
+}

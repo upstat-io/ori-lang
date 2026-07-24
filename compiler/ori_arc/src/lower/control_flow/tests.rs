@@ -1,4 +1,6 @@
-use ori_ir::canon::{CanArena, CanBindingPattern, CanExpr, CanNode, CanonResult};
+use ori_ir::canon::{
+    CanArena, CanBindingPattern, CanExpr, CanId, CanNode, CanonResult, IndexDispatch,
+};
 use ori_ir::{Mutability, Name, Span, StringInterner, TypeId};
 use ori_types::Idx;
 use ori_types::Pool;
@@ -6,7 +8,7 @@ use ori_types::Pool;
 use super::pool_type_store_size;
 
 use crate::ir::ArcTerminator;
-use crate::lower::ArcProblem;
+use crate::lower::{ArcLoweringInput, ArcProblem};
 
 #[test]
 fn lower_block_with_let() {
@@ -63,28 +65,23 @@ fn lower_block_with_let() {
         TypeId::from_raw(Idx::INT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: block,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-    };
+    let canon = CanonResult::new(arena, block);
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::INT,
-        block,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body: block,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty(), "problems: {problems:?}");
@@ -123,28 +120,23 @@ fn lower_if_else_produces_four_blocks() {
         TypeId::from_raw(Idx::INT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: if_expr,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-    };
+    let canon = CanonResult::new(arena, if_expr);
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::INT,
-        if_expr,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body: if_expr,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty());
@@ -186,28 +178,23 @@ fn lower_loop_produces_header_and_exit() {
         TypeId::from_raw(Idx::INT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: loop_expr,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-    };
+    let canon = CanonResult::new(arena, loop_expr);
 
     let mut problems = Vec::new();
     let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::INT,
-        loop_expr,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body: loop_expr,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty(), "problems: {problems:?}");
@@ -238,59 +225,94 @@ fn assert_jump_args_match_params(func: &crate::ir::ArcFunction) {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "SSA integration test requires building a full AST with 2 mutable vars + for-range loop"
-)]
 fn for_range_with_mutable_vars_ssa_well_formed() {
     let interner = StringInterner::new();
+    let (pool, canon, block) = build_mutable_for_range_fixture(&interner);
+
+    let mut problems = Vec::new();
+    let (func, _) = super::super::super::lower_function_can(
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::UNIT,
+            body: block,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
+        &mut problems,
+    );
+
+    assert!(problems.is_empty(), "problems: {problems:?}");
+    assert!(
+        func.blocks.len() >= 6,
+        "expected at least 6 blocks for for-range with mutable vars, got {}",
+        func.blocks.len()
+    );
+    assert_jump_args_match_params(&func);
+}
+
+fn build_mutable_for_range_fixture(interner: &StringInterner) -> (Pool, CanonResult, CanId) {
     let mut pool = Pool::new();
     let mut arena = CanArena::with_capacity(400);
-
     let x_name = interner.intern("x");
-    let y_name = interner.intern("y");
-
-    // let mut x: int = 0
-    let lit0 = arena.push(CanNode::new(
-        CanExpr::Int(0),
-        Span::new(0, 1),
-        TypeId::from_raw(Idx::INT.raw()),
-    ));
-    let pat_x = arena.push_binding_pattern(CanBindingPattern::Name {
-        name: x_name,
-        mutable: Mutability::Mutable,
+    let let_x = push_mutable_int_binding(&mut arena, x_name, 0);
+    let let_y = push_mutable_int_binding(&mut arena, interner.intern("y"), 12);
+    let range = push_ascending_range(&mut arena, &mut pool);
+    let body = push_int_assignment(&mut arena, x_name);
+    let pattern = arena.push_binding_pattern(CanBindingPattern::Name {
+        name: interner.intern("i"),
+        mutable: Mutability::Immutable,
     });
-    let let_x = arena.push(CanNode::new(
-        CanExpr::Let {
-            pattern: pat_x,
-            init: lit0,
-            mutable: Mutability::Mutable,
+    let for_expr = arena.push(CanNode::new(
+        CanExpr::For {
+            label: Name::EMPTY,
+            pattern,
+            iter: range,
+            guard: CanId::INVALID,
+            body,
+            is_yield: false,
         },
-        Span::new(0, 10),
+        Span::new(25, 42),
         TypeId::from_raw(Idx::UNIT.raw()),
     ));
-
-    // let mut y: int = 0
-    let lit0b = arena.push(CanNode::new(
-        CanExpr::Int(0),
-        Span::new(12, 13),
-        TypeId::from_raw(Idx::INT.raw()),
-    ));
-    let pat_y = arena.push_binding_pattern(CanBindingPattern::Name {
-        name: y_name,
-        mutable: Mutability::Mutable,
-    });
-    let let_y = arena.push(CanNode::new(
-        CanExpr::Let {
-            pattern: pat_y,
-            init: lit0b,
-            mutable: Mutability::Mutable,
+    let stmts = arena.push_expr_list(&[let_x, let_y]);
+    let block = arena.push(CanNode::new(
+        CanExpr::Block {
+            stmts,
+            result: for_expr,
         },
-        Span::new(12, 22),
+        Span::new(0, 50),
         TypeId::from_raw(Idx::UNIT.raw()),
     ));
+    (pool, CanonResult::new(arena, block), block)
+}
 
-    // Range: 0..10
+fn push_mutable_int_binding(arena: &mut CanArena, name: Name, start: u32) -> CanId {
+    let init = arena.push(CanNode::new(
+        CanExpr::Int(0),
+        Span::new(start, start + 1),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let pattern = arena.push_binding_pattern(CanBindingPattern::Name {
+        name,
+        mutable: Mutability::Mutable,
+    });
+    arena.push(CanNode::new(
+        CanExpr::Let {
+            pattern,
+            init,
+            mutable: Mutability::Mutable,
+        },
+        Span::new(start, start + 10),
+        TypeId::from_raw(Idx::UNIT.raw()),
+    ))
+}
+
+fn push_ascending_range(arena: &mut CanArena, pool: &mut Pool) -> CanId {
     let start = arena.push(CanNode::new(
         CanExpr::Int(0),
         Span::new(30, 31),
@@ -307,7 +329,7 @@ fn for_range_with_mutable_vars_ssa_well_formed() {
         TypeId::from_raw(Idx::INT.raw()),
     ));
     let range_ty = pool.range(Idx::INT);
-    let range = arena.push(CanNode::new(
+    arena.push(CanNode::new(
         CanExpr::Range {
             start,
             end,
@@ -316,90 +338,25 @@ fn for_range_with_mutable_vars_ssa_well_formed() {
         },
         Span::new(30, 35),
         TypeId::from_raw(range_ty.raw()),
-    ));
+    ))
+}
 
-    // Body: x = x + 1 (simplified as just an int literal for testing)
-    let body_lit = arena.push(CanNode::new(
+fn push_int_assignment(arena: &mut CanArena, name: Name) -> CanId {
+    let target = arena.push(CanNode::new(
+        CanExpr::Ident(name),
+        Span::new(38, 39),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let value = arena.push(CanNode::new(
         CanExpr::Int(1),
         Span::new(40, 41),
         TypeId::from_raw(Idx::INT.raw()),
     ));
-    let assign_target = arena.push(CanNode::new(
-        CanExpr::Ident(x_name),
-        Span::new(38, 39),
-        TypeId::from_raw(Idx::INT.raw()),
-    ));
-    let assign_val = arena.push(CanNode::new(
-        CanExpr::Assign {
-            target: assign_target,
-            value: body_lit,
-        },
+    arena.push(CanNode::new(
+        CanExpr::Assign { target, value },
         Span::new(38, 41),
         TypeId::from_raw(Idx::UNIT.raw()),
-    ));
-
-    let pat_i = arena.push_binding_pattern(CanBindingPattern::Name {
-        name: interner.intern("i"),
-        mutable: Mutability::Immutable,
-    });
-    let for_expr = arena.push(CanNode::new(
-        CanExpr::For {
-            label: Name::EMPTY,
-            pattern: pat_i,
-            iter: range,
-            guard: ori_ir::canon::CanId::INVALID,
-            body: assign_val,
-            is_yield: false,
-        },
-        Span::new(25, 42),
-        TypeId::from_raw(Idx::UNIT.raw()),
-    ));
-
-    // Block: { let mut x = 0; let mut y = 0; for i in 0..10 do x = 1 }
-    let stmts = arena.push_expr_list(&[let_x, let_y]);
-    let block = arena.push(CanNode::new(
-        CanExpr::Block {
-            stmts,
-            result: for_expr,
-        },
-        Span::new(0, 50),
-        TypeId::from_raw(Idx::UNIT.raw()),
-    ));
-
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: block,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-    };
-
-    let mut problems = Vec::new();
-    let (func, _) = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::UNIT,
-        block,
-        &canon,
-        &interner,
-        &pool,
-        &mut problems,
-        false,
-        None,
-    );
-
-    assert!(problems.is_empty(), "problems: {problems:?}");
-    // The for-range loop should produce header, body, latch, exit, exit_prep blocks.
-    assert!(
-        func.blocks.len() >= 6,
-        "expected at least 6 blocks for for-range with mutable vars, got {}",
-        func.blocks.len()
-    );
-
-    // Core invariant: every Jump's args must match the target block's params.
-    assert_jump_args_match_params(&func);
+    ))
 }
 
 #[test]
@@ -420,7 +377,11 @@ fn lower_index_assignment_reports_internal_error_instead_of_panicking() {
         TypeId::from_raw(Idx::INT.raw()),
     ));
     let target = arena.push(CanNode::new(
-        CanExpr::Index { receiver, index },
+        CanExpr::Index {
+            receiver,
+            index,
+            dispatch: IndexDispatch::Builtin,
+        },
         Span::new(0, 3),
         TypeId::from_raw(Idx::INT.raw()),
     ));
@@ -435,28 +396,23 @@ fn lower_index_assignment_reports_internal_error_instead_of_panicking() {
         TypeId::from_raw(Idx::UNIT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: assign,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-    };
+    let canon = CanonResult::new(arena, assign);
 
     let mut problems = Vec::new();
     let _ = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::UNIT,
-        assign,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::UNIT,
+            body: assign,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(
@@ -501,28 +457,23 @@ fn lower_field_assignment_reports_internal_error_instead_of_panicking() {
         TypeId::from_raw(Idx::UNIT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: assign,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-    };
+    let canon = CanonResult::new(arena, assign);
 
     let mut problems = Vec::new();
     let _ = super::super::super::lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::UNIT,
-        assign,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::UNIT,
+            body: assign,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(
@@ -537,11 +488,7 @@ fn lower_field_assignment_reports_internal_error_instead_of_panicking() {
     );
 }
 
-// pool_type_store_size — cross-phase size agreement
-//
-// These values must match `TypeLayoutResolver::type_store_size()` in ori_llvm.
-// If a new type is added and these constants differ, for-yield element
-// buffers will be mis-sized, causing memory corruption.
+// Store sizes must match the LLVM layout used for for-yield element buffers.
 
 #[test]
 fn type_store_size_primitives() {
@@ -691,7 +638,7 @@ fn type_store_size_extended_types() {
 
 /// Regression: Option/Result trailing alignment padding.
 /// `Option<T>` is `{i64 tag, T payload}` in LLVM. Store size must include
-/// trailing alignment padding to match LLVM's `size_of()`. Without it,
+/// trailing alignment padding to match LLVM's `size_of`. Without it,
 /// outer aggregates containing Option/Result fields are undersized.
 #[test]
 fn type_store_size_option_result_trailing_padding() {
@@ -766,9 +713,7 @@ fn type_store_size_option_result_trailing_padding() {
     );
 }
 
-/// Regression: inter-field alignment padding was missing.
-/// `pool_type_store_size()` summed field sizes without aligning each field,
-/// undercounting aggregates with mixed-alignment fields.
+/// Aggregate storage includes each field's alignment padding.
 #[test]
 fn type_store_size_inter_field_padding() {
     let mut pool = Pool::new();
@@ -842,7 +787,6 @@ fn type_store_size_inter_field_padding() {
     );
 }
 
-/// Regression: + enum payload i64-slot sizing.
 /// Enum payloads use `[M x i64]` layout where each field occupies at
 /// least one full i64 slot (8 bytes), regardless of natural alignment.
 #[test]
@@ -911,11 +855,9 @@ fn type_store_size_enum_payload_slots() {
     );
 }
 
-/// Regression: nested aggregates with sub-8-byte alignment.
-/// `pool_type_alignment()` must recurse into struct/tuple fields to compute
-/// max field alignment, matching `type_alignment()` in `ori_llvm`. Without
-/// recursion, all struct/tuple types default to alignment 8, which over-sizes
-/// aggregates like `((char, char), bool)` (12 bytes, not 16).
+/// `pool_type_alignment` must recurse into struct/tuple fields to compute
+/// the maximum field alignment. `((char, char), bool)` therefore occupies
+/// 12 bytes rather than 16.
 #[test]
 fn type_store_size_nested_low_alignment() {
     let mut pool = Pool::new();
@@ -975,13 +917,7 @@ fn type_store_size_nested_low_alignment() {
     );
 }
 
-/// Regression: all-unit enums use narrowed i8 tags after §07.1.
-///
-/// `pool_type_store_size()` was hardcoding 8-byte (i64) enum tags for all enums,
-/// but §07.1 narrowed all-unit enums to i8 (1 byte). This caused `for...yield`
-/// over all-unit enums to allocate 8 bytes per element in `ori_list_new` /
-/// `ori_list_push`, but LLVM lowered them as 1-byte `{ i8 }` structs — resulting
-/// in out-of-bounds reads/writes and segfaults.
+/// All-unit enums use their narrowed one-byte tag as the complete store size.
 #[test]
 fn type_store_size_all_unit_enum_narrowed_tag() {
     let mut pool = Pool::new();
@@ -1013,7 +949,7 @@ fn type_store_size_all_unit_enum_narrowed_tag() {
     assert_eq!(
         pool_type_store_size(dir_enum, &pool, 0),
         1,
-        "All-unit enum (4 variants) = {{i8}} = 1 byte after §07.1 narrowing"
+        "All-unit enum (4 variants) = {{i8}} = 1 byte after discriminant narrowing"
     );
 
     // Semantic pin: 2-variant all-unit enum → still i8 tag → 1 byte
@@ -1075,7 +1011,7 @@ fn type_store_size_all_unit_enum_narrowed_tag() {
 
 /// Regression: all-unit enum as field in struct/tuple.
 ///
-/// `pool_type_alignment_inner()` returned 8 for all enums, but all-unit enums
+/// `pool_type_alignment_inner` returned 8 for all enums, but all-unit enums
 /// with narrowed tags have alignment 1. This over-sizes containing aggregates.
 #[test]
 fn type_store_size_all_unit_enum_in_aggregate() {
@@ -1119,5 +1055,361 @@ fn type_store_size_all_unit_enum_in_aggregate() {
         pool_type_store_size(tup_di, &pool, 0),
         16,
         "(Dir, int) = 16 bytes"
+    );
+}
+
+#[test]
+fn match_wildcard_discard_materializes_field_project() {
+    use ori_ir::canon::{DecisionTree, PathInstruction};
+
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+    let tuple_ty = pool.tuple(&[Idx::INT, Idx::STR]);
+    let mut arena = CanArena::with_capacity(8);
+
+    let first = arena.push(CanNode::new(
+        CanExpr::Int(1),
+        Span::new(0, 1),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let text = interner.intern("owned");
+    let second = arena.push(CanNode::new(
+        CanExpr::Str(text),
+        Span::new(3, 10),
+        TypeId::from_raw(Idx::STR.raw()),
+    ));
+    let elements = arena.push_expr_list(&[first, second]);
+    let scrutinee = arena.push(CanNode::new(
+        CanExpr::Tuple(elements),
+        Span::new(0, 11),
+        TypeId::from_raw(tuple_ty.raw()),
+    ));
+    let arm = arena.push(CanNode::new(
+        CanExpr::Int(7),
+        Span::new(20, 21),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let arms = arena.push_expr_list(&[arm]);
+
+    let mut decision_trees = ori_ir::canon::DecisionTreePool::new();
+    let tree_id = decision_trees.push_with_leaf_discards(
+        DecisionTree::Leaf {
+            arm_index: 0,
+            bindings: vec![],
+        },
+        vec![vec![vec![PathInstruction::TupleIndex(1)]]],
+    );
+    let match_expr = arena.push(CanNode::new(
+        CanExpr::Match {
+            scrutinee,
+            decision_tree: tree_id,
+            arms,
+        },
+        Span::new(0, 21),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+
+    let canon = CanonResult {
+        decision_trees,
+        ..CanonResult::new(arena, match_expr)
+    };
+    let mut problems = Vec::new();
+    let (func, _) = super::super::super::lower_function_can(
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body: match_expr,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
+        &mut problems,
+    );
+
+    assert!(problems.is_empty(), "problems: {problems:?}");
+    assert!(func
+        .blocks
+        .iter()
+        .flat_map(|block| &block.body)
+        .any(|instr| {
+            matches!(
+                instr,
+                crate::ir::ArcInstr::Project {
+                    ty,
+                    field: 1,
+                    ..
+                } if *ty == Idx::STR
+            )
+        }));
+    assert_jump_args_match_params(&func);
+}
+
+// Match merge-param divergence pruning (Cure B for the dead-merge-param leak)
+
+/// Shared scaffold for the merge-param pruning pins: lowers
+/// `{ let base = "s"(mutable); match true { true -> <arm0>, _ -> <arm1> } }`
+/// against a hand-built bool decision tree and returns the lowered function.
+fn lower_bool_match_with_mutable_binding(
+    build_arm0: impl FnOnce(&mut CanArena, Name) -> ori_ir::canon::CanId,
+    tree_of: impl FnOnce(&mut CanArena, Name) -> ori_ir::canon::DecisionTree,
+) -> crate::ir::ArcFunction {
+    let interner = StringInterner::new();
+    let pool = Pool::new();
+    let mut arena = CanArena::with_capacity(200);
+
+    let base_name = interner.intern("base");
+    let init = arena.push(CanNode::new(
+        CanExpr::Str(base_name),
+        Span::new(0, 1),
+        TypeId::from_raw(Idx::STR.raw()),
+    ));
+    let pat = arena.push_binding_pattern(CanBindingPattern::Name {
+        name: base_name,
+        mutable: Mutability::Mutable,
+    });
+    let let_base = arena.push(CanNode::new(
+        CanExpr::Let {
+            pattern: pat,
+            init,
+            mutable: Mutability::Mutable,
+        },
+        Span::new(0, 10),
+        TypeId::from_raw(Idx::UNIT.raw()),
+    ));
+
+    let arm0 = build_arm0(&mut arena, base_name);
+    let arm1 = arena.push(CanNode::new(
+        CanExpr::Int(2),
+        Span::new(30, 31),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let arms = arena.push_expr_list(&[arm0, arm1]);
+
+    let scrutinee = arena.push(CanNode::new(
+        CanExpr::Bool(true),
+        Span::new(12, 16),
+        TypeId::from_raw(Idx::BOOL.raw()),
+    ));
+
+    let tree = tree_of(&mut arena, base_name);
+    let mut decision_trees = ori_ir::canon::DecisionTreePool::default();
+    let tree_id = decision_trees.push(tree);
+    let _ = arm0;
+
+    let match_expr = arena.push(CanNode::new(
+        CanExpr::Match {
+            scrutinee,
+            decision_tree: tree_id,
+            arms,
+        },
+        Span::new(12, 40),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+
+    let stmts = arena.push_expr_list(&[let_base]);
+    let body = arena.push(CanNode::new(
+        CanExpr::Block {
+            stmts,
+            result: match_expr,
+        },
+        Span::new(0, 41),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+
+    let canon = CanonResult {
+        decision_trees,
+        ..CanonResult::new(arena, body)
+    };
+
+    let mut problems = Vec::new();
+    let (func, _) = super::super::super::lower_function_can(
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
+        &mut problems,
+    );
+    assert!(problems.is_empty(), "problems: {problems:?}");
+    assert_jump_args_match_params(&func);
+    func
+}
+
+/// Plain two-leaf bool tree (no guards).
+fn bool_leaf_tree(_arena: &mut CanArena, _base: Name) -> ori_ir::canon::DecisionTree {
+    ori_ir::canon::DecisionTree::Switch {
+        path: vec![],
+        test_kind: ori_ir::canon::TestKind::BoolEq,
+        edges: vec![(
+            ori_ir::canon::TestValue::Bool(true),
+            ori_ir::canon::DecisionTree::Leaf {
+                arm_index: 0,
+                bindings: vec![],
+            },
+        )],
+        default: Some(Box::new(ori_ir::canon::DecisionTree::Leaf {
+            arm_index: 1,
+            bindings: vec![],
+        })),
+    }
+}
+
+#[test]
+fn match_unchanged_mutable_binding_prunes_merge_param() {
+    // No arm assigns `base` → its merge param is pruned; the merge block
+    // carries ONLY the result param (no dead block-param for the unchanged
+    // binding to leak through per RL-4/RL-5).
+    let func = lower_bool_match_with_mutable_binding(
+        |arena, _| {
+            arena.push(CanNode::new(
+                CanExpr::Int(1),
+                Span::new(20, 21),
+                TypeId::from_raw(Idx::INT.raw()),
+            ))
+        },
+        bool_leaf_tree,
+    );
+    let max_params = func.blocks.iter().map(|b| b.params.len()).max();
+    assert_eq!(
+        max_params,
+        Some(1),
+        "merge carries only the result param — unchanged `base` is pruned; blocks: {:?}",
+        func.blocks
+            .iter()
+            .map(|b| b.params.len())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn match_assigned_mutable_binding_keeps_merge_param() {
+    // Arm 0 reassigns `base` → the binding genuinely diverges and its merge
+    // param MUST survive the pruning (the real phi `merge_mutable_vars`
+    // would keep on the if/else shape).
+    let func = lower_bool_match_with_mutable_binding(
+        |arena, base_name| {
+            let target = arena.push(CanNode::new(
+                CanExpr::Ident(base_name),
+                Span::new(20, 24),
+                TypeId::from_raw(Idx::STR.raw()),
+            ));
+            let value = arena.push(CanNode::new(
+                CanExpr::Str(base_name),
+                Span::new(25, 26),
+                TypeId::from_raw(Idx::STR.raw()),
+            ));
+            let assign = arena.push(CanNode::new(
+                CanExpr::Assign { target, value },
+                Span::new(20, 26),
+                TypeId::from_raw(Idx::UNIT.raw()),
+            ));
+            let stmts = arena.push_expr_list(&[assign]);
+            let result = arena.push(CanNode::new(
+                CanExpr::Int(1),
+                Span::new(27, 28),
+                TypeId::from_raw(Idx::INT.raw()),
+            ));
+            arena.push(CanNode::new(
+                CanExpr::Block { stmts, result },
+                Span::new(20, 28),
+                TypeId::from_raw(Idx::INT.raw()),
+            ))
+        },
+        bool_leaf_tree,
+    );
+    assert!(
+        func.blocks.iter().any(|b| b.params.len() == 2),
+        "a reassigned binding keeps its merge param (result + base phi); blocks: {:?}",
+        func.blocks
+            .iter()
+            .map(|b| b.params.len())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn match_guard_assignment_keeps_merge_param() {
+    // The reassignment occurs in a decision-tree guard expression, not an arm
+    // body — the pre-traversal must walk tree guards too.
+    let func = lower_bool_match_with_mutable_binding(
+        |arena, _| {
+            arena.push(CanNode::new(
+                CanExpr::Int(1),
+                Span::new(20, 21),
+                TypeId::from_raw(Idx::INT.raw()),
+            ))
+        },
+        |arena, base_name| {
+            // Guard: `{ base = "s"; true }` — an Assign reachable only
+            // through the tree's guard expression.
+            let target = arena.push(CanNode::new(
+                CanExpr::Ident(base_name),
+                Span::new(17, 18),
+                TypeId::from_raw(Idx::STR.raw()),
+            ));
+            let value = arena.push(CanNode::new(
+                CanExpr::Str(base_name),
+                Span::new(18, 19),
+                TypeId::from_raw(Idx::STR.raw()),
+            ));
+            let assign = arena.push(CanNode::new(
+                CanExpr::Assign { target, value },
+                Span::new(17, 19),
+                TypeId::from_raw(Idx::UNIT.raw()),
+            ));
+            let stmts = arena.push_expr_list(&[assign]);
+            let guard_result = arena.push(CanNode::new(
+                CanExpr::Bool(true),
+                Span::new(19, 20),
+                TypeId::from_raw(Idx::BOOL.raw()),
+            ));
+            let guard = arena.push(CanNode::new(
+                CanExpr::Block {
+                    stmts,
+                    result: guard_result,
+                },
+                Span::new(17, 20),
+                TypeId::from_raw(Idx::BOOL.raw()),
+            ));
+            ori_ir::canon::DecisionTree::Switch {
+                path: vec![],
+                test_kind: ori_ir::canon::TestKind::BoolEq,
+                edges: vec![(
+                    ori_ir::canon::TestValue::Bool(true),
+                    ori_ir::canon::DecisionTree::Guard {
+                        arm_index: 0,
+                        bindings: vec![],
+                        guard,
+                        on_fail: Box::new(ori_ir::canon::DecisionTree::Leaf {
+                            arm_index: 1,
+                            bindings: vec![],
+                        }),
+                    },
+                )],
+                default: Some(Box::new(ori_ir::canon::DecisionTree::Leaf {
+                    arm_index: 1,
+                    bindings: vec![],
+                })),
+            }
+        },
+    );
+    assert!(
+        func.blocks.iter().any(|b| b.params.len() == 2),
+        "a guard-side reassignment keeps the merge param; blocks: {:?}",
+        func.blocks
+            .iter()
+            .map(|b| b.params.len())
+            .collect::<Vec<_>>()
     );
 }

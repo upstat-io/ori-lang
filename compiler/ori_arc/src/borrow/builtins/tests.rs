@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn borrowing_builtin_names_returns_correct_count() {
+fn borrowing_builtin_names_match_registry_and_protocol_ownership() {
     let interner = StringInterner::default();
     let names = borrowing_builtin_names(&interner);
     // The interned set is derived from ori_registry::borrowing_method_names()
@@ -49,14 +49,12 @@ fn consuming_receiver_method_names_no_duplicates() {
 }
 
 #[test]
-fn consuming_receiver_builtin_names_returns_correct_count() {
+fn consuming_receiver_builtin_names_match_declared_sources() {
     let interner = StringInterner::default();
     let names = consuming_receiver_builtin_names(&interner);
-    assert_eq!(
-        names.len(),
-        CONSUMING_RECEIVER_METHOD_NAMES.len(),
-        "interned set should have same count as const array (no duplicates)"
-    );
+    let mut expected = intern_name_set(CONSUMING_RECEIVER_METHOD_NAMES, &interner);
+    expected.extend(persistent_list_runtime_methods().map(|method| interner.intern(method.name)));
+    assert_eq!(names, expected);
 }
 
 #[test]
@@ -72,10 +70,9 @@ fn reverse_in_consuming() {
 
 #[test]
 fn insert_in_consuming() {
-    // "insert" is COW consuming for all collection types (list, map, set).
-    // All args are owned (key/value/elem transferred to collection).
+    let interner = StringInterner::default();
     assert!(
-        CONSUMING_RECEIVER_METHOD_NAMES.contains(&"insert"),
+        consuming_receiver_builtin_names(&interner).contains(&interner.intern("insert")),
         "\"insert\" must be in CONSUMING — list.insert() is COW consuming"
     );
 }
@@ -88,19 +85,23 @@ fn remove_in_consuming_receiver_only() {
         CONSUMING_RECEIVER_ONLY_METHOD_NAMES.contains(&"remove"),
         "\"remove\" must be in CONSUMING_RECEIVER_ONLY — key is comparison-only"
     );
+    let interner = StringInterner::default();
     assert!(
-        CONSUMING_RECEIVER_METHOD_NAMES.contains(&"remove"),
+        consuming_receiver_builtin_names(&interner).contains(&interner.intern("remove")),
         "\"remove\" must be in CONSUMING_RECEIVER — list.remove() is COW consuming"
     );
 }
 
 #[test]
 fn cow_methods_in_consuming() {
+    let interner = StringInterner::default();
+    let consuming = consuming_receiver_builtin_names(&interner);
     for &method in &[
         "add",
         "concat",
         "insert",
         "pop",
+        "prepend",
         "push",
         "remove",
         "reverse",
@@ -108,10 +109,86 @@ fn cow_methods_in_consuming() {
         "sort_stable",
     ] {
         assert!(
-            CONSUMING_RECEIVER_METHOD_NAMES.contains(&method),
-            "\"{method}\" must be in CONSUMING_RECEIVER_METHOD_NAMES"
+            consuming.contains(&interner.intern(method)),
+            "\"{method}\" must be a consuming-receiver builtin"
         );
     }
+}
+
+#[test]
+fn runtime_list_mutation_ownership_is_registry_derived() {
+    let interner = StringInterner::default();
+    let receivers = consuming_receiver_builtin_names(&interner);
+    let second_args = consuming_second_arg_builtin_names(&interner);
+    let third_args = consuming_third_arg_builtin_names(&interner);
+
+    for method in persistent_list_runtime_methods() {
+        let name = interner.intern(method.name);
+        assert!(receivers.contains(&name), "{}.receiver", method.name);
+        assert_eq!(
+            second_args.contains(&name),
+            method
+                .params
+                .first()
+                .is_some_and(|param| { param.ownership == ori_registry::Ownership::Owned }),
+            "{}.param[0]",
+            method.name,
+        );
+        assert_eq!(
+            third_args.contains(&name),
+            method
+                .params
+                .get(1)
+                .is_some_and(|param| { param.ownership == ori_registry::Ownership::Owned }),
+            "{}.param[1]",
+            method.name,
+        );
+    }
+}
+
+#[test]
+fn updated_in_consuming_and_third_arg() {
+    // "updated" (IndexSet) consumes the receiver (COW, via the type-qualified
+    // override) AND moves the inserted value (arg[2]); the key (arg[1])
+    // stays borrowed.
+    assert!(
+        CONSUMING_RECEIVER_METHOD_NAMES.contains(&"updated"),
+        "\"updated\" must be in CONSUMING_RECEIVER — list/map.updated() is COW consuming"
+    );
+    assert!(
+        CONSUMING_THIRD_ARG_METHOD_NAMES.contains(&"updated"),
+        "\"updated\" must be in CONSUMING_THIRD_ARG — the value is moved into the collection"
+    );
+}
+
+#[test]
+fn consuming_third_arg_method_names_sorted() {
+    for window in CONSUMING_THIRD_ARG_METHOD_NAMES.windows(2) {
+        assert!(
+            window[0] < window[1],
+            "CONSUMING_THIRD_ARG_METHOD_NAMES must stay sorted: {} >= {}",
+            window[0],
+            window[1]
+        );
+    }
+}
+
+#[test]
+fn consuming_third_arg_builtin_names_match_registry_and_legacy_sources() {
+    let interner = StringInterner::default();
+    let names = consuming_third_arg_builtin_names(&interner);
+    let mut expected = intern_name_set(CONSUMING_THIRD_ARG_METHOD_NAMES, &interner);
+    expected.extend(
+        persistent_list_runtime_methods()
+            .filter(|method| {
+                method
+                    .params
+                    .get(1)
+                    .is_some_and(|param| param.ownership == ori_registry::Ownership::Owned)
+            })
+            .map(|method| interner.intern(method.name)),
+    );
+    assert_eq!(names, expected);
 }
 
 #[test]
@@ -138,22 +215,31 @@ fn consuming_second_arg_method_names_no_duplicates() {
 }
 
 #[test]
-fn consuming_second_arg_builtin_names_returns_correct_count() {
+fn consuming_second_arg_builtin_names_match_declared_sources() {
     let interner = StringInterner::default();
     let names = consuming_second_arg_builtin_names(&interner);
-    assert_eq!(
-        names.len(),
-        CONSUMING_SECOND_ARG_METHOD_NAMES.len(),
-        "interned set should have same count as const array (no duplicates)"
+    let mut expected = intern_name_set(CONSUMING_SECOND_ARG_METHOD_NAMES, &interner);
+    expected.extend(
+        persistent_list_runtime_methods()
+            .filter(|method| {
+                method
+                    .params
+                    .first()
+                    .is_some_and(|param| param.ownership == ori_registry::Ownership::Owned)
+            })
+            .map(|method| interner.intern(method.name)),
     );
+    assert_eq!(names, expected);
 }
 
 #[test]
 fn consuming_second_arg_subset_of_consuming_receiver() {
-    for &method in CONSUMING_SECOND_ARG_METHOD_NAMES {
+    let interner = StringInterner::default();
+    let receivers = consuming_receiver_builtin_names(&interner);
+    for method in consuming_second_arg_builtin_names(&interner) {
         assert!(
-            CONSUMING_RECEIVER_METHOD_NAMES.contains(&method),
-            "\"{method}\" is in CONSUMING_SECOND_ARG but not CONSUMING_RECEIVER — \
+            receivers.contains(&method),
+            "{method:?} is in CONSUMING_SECOND_ARG but not CONSUMING_RECEIVER — \
              a method can't consume arg[1] without also consuming the receiver"
         );
     }
@@ -185,7 +271,7 @@ fn consuming_receiver_only_method_names_no_duplicates() {
 }
 
 #[test]
-fn consuming_receiver_only_builtin_names_returns_correct_count() {
+fn consuming_receiver_only_builtin_names_match_declared_source() {
     let interner = StringInterner::default();
     let names = consuming_receiver_only_builtin_names(&interner);
     assert_eq!(
@@ -258,14 +344,8 @@ fn set_binary_ops_in_consuming_receiver_only() {
 
 // Registry sync tests — verify hardcoded lists match ori_registry definitions
 
-/// Every method in `CONSUMING_RECEIVER_METHOD_NAMES` must exist as a method on
-/// at least one collection type (List, Map, or Set) in the registry, OR be an
-/// operator trait method dispatched via the operator system.
-///
-/// Catches stale entries: if a method is renamed or removed from the registry
-/// but left in this list, the ARC pipeline would silently produce wrong ownership
-/// annotations (consuming semantics for a non-existent method = no-op, but the
-/// borrowing set would also be wrong).
+/// Every consuming-receiver catalog entry resolves through a collection or
+/// operator method authority.
 #[test]
 fn consuming_receiver_methods_exist_in_registry() {
     use ori_registry::TypeTag;
@@ -288,18 +368,12 @@ fn consuming_receiver_methods_exist_in_registry() {
             found,
             "CONSUMING_RECEIVER_METHOD_NAMES contains \"{method}\" but it does not \
              exist as a method on List, Map, or Set in ori_registry. \
-             Was it renamed or removed?"
+             Remove the stale ownership entry or register the method."
         );
     }
 }
 
-/// Every method in `CONSUMING_RECEIVER_ONLY_METHOD_NAMES` must exist as a method
-/// on Map or Set in the registry.
-///
-/// These are Map/Set COW methods where only the receiver is consumed. If a method
-/// is removed from the registry but left here, `compute_arg_ownership` would
-/// produce `[Owned, Borrowed]` for a method the runtime doesn't recognize — a
-/// potential RC imbalance.
+/// Every receiver-only COW catalog entry resolves through Map or Set.
 #[test]
 fn consuming_receiver_only_methods_exist_in_registry() {
     use ori_registry::TypeTag;
@@ -314,17 +388,12 @@ fn consuming_receiver_only_methods_exist_in_registry() {
             found,
             "CONSUMING_RECEIVER_ONLY_METHOD_NAMES contains \"{method}\" but it does not \
              exist as a method on Map or Set in ori_registry. \
-             Was it renamed or removed?"
+             Remove the stale ownership entry or register the method."
         );
     }
 }
 
-/// Every method in `SHARING_METHOD_NAMES` must exist in the registry.
-///
-/// Sharing methods return values that reference the receiver's heap data
-/// (slices, substrings). If a method is renamed or removed from the registry
-/// but left here, uniqueness analysis would incorrectly mark it as producing
-/// `MaybeShared` results — benign (conservative) but misleading.
+/// Every sharing-method catalog entry resolves through a collection registry.
 #[test]
 fn sharing_methods_exist_in_registry() {
     use ori_registry::TypeTag;
@@ -338,7 +407,7 @@ fn sharing_methods_exist_in_registry() {
         assert!(
             found,
             "SHARING_METHOD_NAMES contains \"{method}\" but it does not exist \
-             as a method on List or Str in ori_registry. Was it renamed or removed?"
+             as a method on List or Str in ori_registry. Remove the stale entry or register it."
         );
     }
 }
@@ -397,4 +466,87 @@ fn protocol_builtins_borrowing_sync() {
             in_borrowing,
         );
     }
+}
+
+#[test]
+fn type_qualified_collection_consuming_positions_are_exact() {
+    use ori_registry::TypeTag;
+
+    let interner = StringInterner::default();
+    let sets = BuiltinOwnershipSets::new(&interner);
+    let positions = |method, tags: &[Option<TypeTag>]| {
+        sets.type_qualified_consuming_positions(interner.intern(method), tags)
+    };
+
+    assert_eq!(
+        positions(
+            "insert",
+            &[Some(TypeTag::List), Some(TypeTag::Int), Some(TypeTag::Str)]
+        )
+        .as_slice(),
+        &[0, 2]
+    );
+    assert_eq!(
+        positions(
+            "insert",
+            &[Some(TypeTag::Map), Some(TypeTag::Int), Some(TypeTag::Str)]
+        )
+        .as_slice(),
+        &[0]
+    );
+    assert_eq!(
+        positions(
+            "insert",
+            &[Some(TypeTag::Set), Some(TypeTag::Str), Some(TypeTag::Str)]
+        )
+        .as_slice(),
+        &[0]
+    );
+    assert_eq!(
+        positions("concat", &[Some(TypeTag::List), Some(TypeTag::List)]).as_slice(),
+        &[0, 1]
+    );
+    assert_eq!(
+        positions("difference", &[Some(TypeTag::Set), Some(TypeTag::Set)]).as_slice(),
+        &[0]
+    );
+    assert!(positions("concat", &[Some(TypeTag::Str), Some(TypeTag::Str)]).is_empty());
+    assert!(positions("pop", &[Some(TypeTag::List)]).is_empty());
+}
+
+#[test]
+fn type_qualified_iterator_positions_require_iterator_operands() {
+    use ori_registry::TypeTag;
+
+    let interner = StringInterner::default();
+    let sets = BuiltinOwnershipSets::new(&interner);
+    let positions = |method, tags: &[Option<TypeTag>]| {
+        sets.type_qualified_consuming_positions(interner.intern(method), tags)
+    };
+
+    assert_eq!(
+        positions("map", &[Some(TypeTag::Iterator), Some(TypeTag::Function)]).as_slice(),
+        &[0]
+    );
+    assert_eq!(
+        positions(
+            "zip",
+            &[Some(TypeTag::Iterator), Some(TypeTag::DoubleEndedIterator)]
+        )
+        .as_slice(),
+        &[0, 1]
+    );
+    assert_eq!(
+        positions(
+            "chain",
+            &[Some(TypeTag::DoubleEndedIterator), Some(TypeTag::Iterator)]
+        )
+        .as_slice(),
+        &[0, 1]
+    );
+    assert_eq!(
+        positions("zip", &[Some(TypeTag::Iterator), Some(TypeTag::List)]).as_slice(),
+        &[0]
+    );
+    assert!(positions("zip", &[None, Some(TypeTag::Iterator)]).is_empty());
 }

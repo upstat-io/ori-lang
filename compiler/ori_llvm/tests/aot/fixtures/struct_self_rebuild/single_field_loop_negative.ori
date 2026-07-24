@@ -1,0 +1,12 @@
+// Over-fire negative: single-heap-field struct rebuilt from its own
+// projection in a loop. Only ONE field moves; the unification must NOT
+// over-suppress (there is nothing extra to skip). Must run leak-clean.
+type Box = { values: [int] }
+
+@main () -> int = {
+    let r = Box { values: [1, 2, 3] };
+    for i in 0..30 do {
+        r = Box { values: r.values.push(i) };
+    };
+    if r.values.len() == 33 then 0 else 1
+}

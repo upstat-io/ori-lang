@@ -1,0 +1,5 @@
+@main () -> int = {
+    let opt: Option<int> = None;
+    let v = opt.expect(msg: "expect failure message exceeding sso width");
+    v
+}

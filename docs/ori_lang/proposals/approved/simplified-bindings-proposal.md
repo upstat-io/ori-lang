@@ -8,6 +8,12 @@
 
 ---
 
+## Errata (added 2026-05-31)
+
+> **Superseded by let-list-pattern-refutability-proposal.md**: The Destructuring example `let [$head, ..tail] = list` (under `### Destructuring`) is INVALID. List-destructuring patterns (`[a, b, c]`, `[head, ..tail]`) are refutable — a dynamic-length list may not match the pattern's arity at runtime — and refutable patterns are not permitted in `let` bindings (Clause 15 §Pattern Refutability; the compiler rejects them with E2001). Destructure a dynamic list with `match` instead; fixed-arity irrefutable destructuring is reserved for fixed-capacity `[T, max N]` (target-only, pending the fixed-capacity-list encoding). The `$`-prefix-on-individual-bindings mechanism this example illustrates is unaffected and remains valid for irrefutable patterns (struct `{ $x, y }`, tuple `($a, $b)`).
+
+---
+
 ## Summary
 
 Simplify Ori's binding model to two forms:

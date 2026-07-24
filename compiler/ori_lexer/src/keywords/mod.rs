@@ -1,4 +1,4 @@
-//! Keyword resolution for the V2 cooking layer.
+//! Keyword resolution for the cooking layer.
 //!
 //! Two-table keyword system:
 //! 1. **Reserved keywords** — length-bucketed lookup, always resolved
@@ -102,6 +102,7 @@ pub(crate) fn lookup(text: &str) -> Option<TokenKind> {
             "tests" => Some(TokenKind::Tests),
             "trait" => Some(TokenKind::Trait),
             "where" => Some(TokenKind::Where),
+            "while" => Some(TokenKind::While),
             "yield" => Some(TokenKind::Yield),
             _ => None,
         },
@@ -139,13 +140,15 @@ pub(crate) fn lookup(text: &str) -> Option<TokenKind> {
 /// user code from depending on them as identifiers.
 ///
 /// Reserved-future: `asm`, `inline`, `static`, `union`, `view`
-pub(crate) fn reserved_future_lookup(text: &str) -> Option<&'static str> {
+pub(crate) fn reserved_future_lookup(text: &str) -> Option<crate::lex_error::FutureKeyword> {
+    use crate::lex_error::FutureKeyword;
+
     match text {
-        "asm" => Some("asm"),
-        "inline" => Some("inline"),
-        "static" => Some("static"),
-        "union" => Some("union"),
-        "view" => Some("view"),
+        "asm" => Some(FutureKeyword::Asm),
+        "inline" => Some(FutureKeyword::Inline),
+        "static" => Some(FutureKeyword::Static),
+        "union" => Some(FutureKeyword::Union),
+        "view" => Some(FutureKeyword::View),
         _ => None,
     }
 }

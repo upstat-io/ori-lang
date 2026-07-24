@@ -1,0 +1,25 @@
+// FileCheck IR-shape pin (Some preserved): a Some-bearing Option<str> struct
+// field walked for RC dec must STILL dec its inner str — but through the
+// tag-aware path (tag switch BEFORE the payload dec), never the un-guarded
+// bypass arm. Pins that the converge fix neither under-emits the Some payload
+// dec (rejected candidate C would leak Some) nor reintroduces the un-guarded
+// %rc_dec.opt_inner extract. The ordered switch -> ori_str_rc_dec encodes
+// "tag switch precedes payload RC".
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: switch
+// CHECK: ori_str_rc_dec
+// CHECK-NOT: opt_inner
+
+type Holder = { f: Option<str> }
+
+@mk (b: bool) -> Option<str> = if b then Some("hi") else None;
+
+@consume (h: Holder) -> void = {
+    print(msg: "c")
+}
+
+@main () -> void = {
+    let h = Holder { f: mk(b: true) };
+    consume(h: h)
+}

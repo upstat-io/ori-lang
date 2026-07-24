@@ -1,0 +1,227 @@
+// list.concat(other:) — ARC correctness matrix.
+//
+// `[T].concat()` is a dual-consuming PrimOp: the runtime owns consuming BOTH
+// the receiver and the argument buffers (ARC realization emits no operand dec).
+// Two lifecycle boundaries are pinned here. On the JIT/`--backend=llvm` path,
+// FastISel could mis-load a known fat-pointer `cap` and choose the wrong COW
+// path. For real slices, concat also must release the original allocation via
+// the canonical slice-aware buffer decrement when the slice is its last owner.
+// These cells pin:
+//   - behavioral correctness (assert_eq result oracle), and
+//   - leak-freedom (the --backend=llvm runner reports `ARC leak` per cell).
+// The interpreter supplies the behavioral parity oracle; LLVM also checks ARC.
+//
+// Matrix dimensions:
+//   element type:  [int] [float] [bool] [str] [[int]] [Option<int>]
+//   uniqueness:    unique receiver (fast path on AOT) | shared receiver (slow path both backends)
+//   arrangement:   pair | chained | empty operand | literal receiver | slice receiver | slice argument
+//   interaction:   loop back-edge | closure capture | error path (`?` in try)
+// The shared-receiver, slice-receiver, and slice-argument cells are the CLAMPS:
+// they legitimately take the slow path / set is_slice_cap on cap1 OR cap2, so
+// they distinguish correct field extraction and buffer disposal from a wrong
+// "force fast path always" or receiver-only fix.
+
+use std.testing { assert_eq }
+
+// Type dimension — unique receiver, pair concat (the minimal repro per type)
+@concat_int () -> [int] = {
+    let $a = [1, 2];
+    let $b = [3, 4];
+    a.concat(other: b)
+}
+
+@test_concat_int tests @concat_int () -> void = {
+    assert_eq(actual: concat_int(), expected: [1, 2, 3, 4])
+}
+
+@concat_float () -> [float] = {
+    let $a = [1.0, 2.0];
+    let $b = [3.0, 4.0];
+    a.concat(other: b)
+}
+
+@test_concat_float tests @concat_float () -> void = {
+    assert_eq(actual: concat_float(), expected: [1.0, 2.0, 3.0, 4.0])
+}
+
+@concat_bool () -> [bool] = {
+    let $a = [true, false];
+    let $b = [true];
+    a.concat(other: b)
+}
+
+@test_concat_bool tests @concat_bool () -> void = {
+    assert_eq(actual: concat_bool(), expected: [true, false, true])
+}
+
+@concat_str () -> [str] = {
+    let $a = ["x", "y"];
+    let $b = ["z"];
+    a.concat(other: b)
+}
+
+@test_concat_str tests @concat_str () -> void = {
+    assert_eq(actual: concat_str(), expected: ["x", "y", "z"])
+}
+
+@concat_nested () -> [[int]] = {
+    let $a = [[1, 2], [3]];
+    let $b = [[4, 5]];
+    a.concat(other: b)
+}
+
+@test_concat_nested tests @concat_nested () -> void = {
+    assert_eq(actual: concat_nested(), expected: [[1, 2], [3], [4, 5]])
+}
+
+@concat_option () -> [Option<int>] = {
+    let $a = [Some(1), None];
+    let $b = [Some(2)];
+    a.concat(other: b)
+}
+
+@test_concat_option tests @concat_option () -> void = {
+    assert_eq(actual: concat_option(), expected: [Some(1), None, Some(2)])
+}
+
+// Custom struct with an RC-pointer field — exercises the element-level
+// inc/dec (elem_dec_fn) path for a user struct that transitively owns a buffer.
+// Asserts on the concat'd element's inner buffer (the RC-element survives concat).
+
+type Holder = { tag: str, items: [int] }
+
+@concat_struct () -> [Holder] = {
+    let $a = [Holder { tag: "a", items: [1, 2] }];
+    let $b = [Holder { tag: "b", items: [3] }];
+    a.concat(other: b)
+}
+
+@test_concat_struct tests @concat_struct () -> void = {
+    assert_eq(actual: concat_struct()[1].items, expected: [3])
+}
+
+// Arrangement dimension
+// Chained: intermediate concat result becomes the receiver of the next concat.
+@concat_chained () -> [int] = {
+    let $a = [1, 2];
+    let $b = [3, 4];
+    let $c = [5, 6];
+    a.concat(other: b).concat(other: c)
+}
+
+@test_concat_chained tests @concat_chained () -> void = {
+    assert_eq(actual: concat_chained(), expected: [1, 2, 3, 4, 5, 6])
+}
+
+// Empty argument operand.
+@concat_empty_arg () -> [int] = {
+    let $a = [1, 2, 3];
+    let $empty: [int] = [];
+    a.concat(other: empty)
+}
+
+@test_concat_empty_arg tests @concat_empty_arg () -> void = {
+    assert_eq(actual: concat_empty_arg(), expected: [1, 2, 3])
+}
+
+// Empty receiver operand.
+@concat_empty_receiver () -> [int] = {
+    let $empty: [int] = [];
+    let $b = [1, 2, 3];
+    empty.concat(other: b)
+}
+
+@test_concat_empty_receiver tests @concat_empty_receiver () -> void = {
+    assert_eq(actual: concat_empty_receiver(), expected: [1, 2, 3])
+}
+
+// Literal receiver (fresh, unique).
+@concat_literal_receiver () -> [int] = {
+    let $b = [3, 4];
+    [1, 2].concat(other: b)
+}
+
+@test_concat_literal_receiver tests @concat_literal_receiver () -> void = {
+    assert_eq(actual: concat_literal_receiver(), expected: [1, 2, 3, 4])
+}
+
+// A shared receiver forces the slow path and must remain leak-free.
+
+@concat_shared_receiver () -> [int] = {
+    let $a = [1, 2];
+    let $first = a.concat(other: [3, 4]);
+    let $second = a.concat(other: [5, 6]);
+    first.concat(other: second)
+}
+
+@test_concat_shared_receiver tests @concat_shared_receiver () -> void = {
+    assert_eq(actual: concat_shared_receiver(), expected: [1, 2, 3, 4, 1, 2, 5, 6])
+}
+
+// Slice-receiver CLAMP — a real seamless slice legitimately sets is_slice_cap
+// and legitimately takes the slow path. Must produce the correct result and be
+// leak-free: the cap must load as a real slice and its consumed reference must
+// release the original buffer through the slice-aware lifecycle.
+@concat_slice_receiver () -> [int] = {
+    let $a = [10, 20, 30, 40];
+    let $s = a.slice(start: 1, end: 3);
+    let $b = [99];
+    s.concat(other: b)
+}
+
+@test_concat_slice_receiver tests @concat_slice_receiver () -> void = {
+    assert_eq(actual: concat_slice_receiver(), expected: [20, 30, 99])
+}
+
+// Slice-argument CLAMP — the `other` operand is a real slice. Symmetric to the
+// slice-receiver clamp: `cap2` extracts through the same aggregate path as
+// `cap1`, and consuming it must also release the original slice allocation.
+@concat_slice_arg () -> [int] = {
+    let $a = [1, 2];
+    let $b = [10, 20, 30, 40];
+    let $s = b.slice(start: 1, end: 3);
+    a.concat(other: s)
+}
+
+@test_concat_slice_arg tests @concat_slice_arg () -> void = {
+    assert_eq(actual: concat_slice_arg(), expected: [1, 2, 20, 30])
+}
+
+// Closure capture — concat inside a lambda that captures a list by value.
+@concat_in_closure () -> [int] = {
+    let $base = [1, 2];
+    let $f = (x: [int]) -> base.concat(other: x);
+    f([3, 4])
+}
+
+@test_concat_in_closure tests @concat_in_closure () -> void = {
+    assert_eq(actual: concat_in_closure(), expected: [1, 2, 3, 4])
+}
+
+// Error path — concat on a value obtained via `?` (propagated to the
+// Result-returning function).
+@make_tail () -> Result<[int], str> = Ok([3, 4]);
+
+@concat_error_path () -> Result<[int], str> = {
+    let $a = [1, 2];
+    let $b = make_tail()?;
+    Ok(a.concat(other: b))
+}
+
+@test_concat_error_path tests @concat_error_path () -> void = {
+    assert_eq(actual: concat_error_path().unwrap(), expected: [1, 2, 3, 4])
+}
+
+// Loop back-edge — concat reassigning a mutable accumulator across iterations.
+// Incorrect capacity ownership on this path corrupts the reused JIT heap.
+
+@concat_in_loop () -> [int] = {
+    let $parts = [[1, 2], [3, 4], [5, 6]];
+    let acc: [int] = [];
+    for p in parts do acc = acc.concat(other: p);
+    acc
+}
+
+@test_concat_in_loop tests @concat_in_loop () -> void = {
+    assert_eq(actual: concat_in_loop(), expected: [1, 2, 3, 4, 5, 6])
+}

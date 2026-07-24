@@ -1,0 +1,23 @@
+Theorem CN-5: Unique plus Dead preserves reusable shape
+
+  Preconditions:
+    - s.uniqueness = Unique
+    - s.consumption = Dead (implies s.cardinality = Absent via CN-1)
+    - s.shape in {ReusableStruct, ReusableEnum, CollectionBuffer, ContextHole}
+
+  Soundness property:
+    No CN rule collapses ReusableCtor on Unique plus Dead inputs.
+
+  Proof obligation:
+    Implicit-invariant absence check. Compose canonicalize over 4 reusable
+    Shape variants with (Unique, Dead, Absent): CN-3 does NOT fire
+    (uniqueness =/= Shared), CN-1 already at fixpoint (Dead+Absent).
+    Verify shape preserved in all 4 cases.
+
+    Engines dispatched:
+      case_analysis (4-shape absence-check per
+        section_03::verify_cn5_unique_dead_preserves_shape)
+
+  Expected:
+    status: valid
+    reason: section_03 case_analysis engine discharges CN-5 via 4-shape absence check on Unique+Dead state

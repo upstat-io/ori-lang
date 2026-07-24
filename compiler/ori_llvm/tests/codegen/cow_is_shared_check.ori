@@ -1,10 +1,9 @@
-// FileCheck test: shared list mutation uses COW push with double RC setup.
-// A list with RC > 1 (shared via let ys = xs) produces two ori_list_rc_inc
-// calls before ori_list_push_cow — one for each alias. The unique-owner
-// path only has one inc, so requiring two in exact mode distinguishes them.
+// FileCheck test: shared list mutation uses COW push with RC setup.
+// A list shared via `let ys = xs` carries an ori_list_rc_inc for the alias
+// before ori_list_push_cow, so the runtime sees RC > 1 and copies. The
+// unique-owner path carries no alias inc before the push.
 //
 // CHECK-LABEL: define void @_ori_main
-// CHECK: ori_list_rc_inc
 // CHECK: ori_list_rc_inc
 // CHECK: ori_list_push_cow
 

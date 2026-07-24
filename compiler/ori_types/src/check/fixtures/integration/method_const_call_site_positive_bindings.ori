@@ -1,0 +1,15 @@
+type ConstVec<T> = { items: [T] }
+
+impl<T> ConstVec<T> {
+    @explicit<$N: int> (self) -> [T, max N] = self.items;
+    @defaulted<$N: int = 2> (self) -> [T, max N] = self.items;
+    @unrelated<$N: int> (self) -> int = N;
+}
+
+@method_const_call_site_positive_bindings () -> int = {
+    let values = ConstVec { items: [1, 2, 3] };
+    let explicit = values.explicit<3>();
+    let defaulted = values.defaulted();
+    let unrelated_zero = values.unrelated<0>();
+    explicit.len() + defaulted.len() + unrelated_zero
+}

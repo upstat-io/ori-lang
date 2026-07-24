@@ -1,0 +1,38 @@
+Theorem RL-18a: VM and compiled plans erase to one AIMS trace
+
+  Preconditions:
+    - One AllocationFacts product and ExtentClass are frozen.
+    - VmLayoutPlan and CompiledLayoutPlan independently select mechanisms.
+    - Both plans satisfy the exact same logical contract.
+
+  Soundness property:
+    Forall validated VM plan V and compiled plan C:
+
+      (P1) vmPlanTrace(V) = aimsTrace(facts).
+
+      (P2) compiledPlanTrace(C) = aimsTrace(facts).
+
+      (P3) vmPlanTrace(V) = compiledPlanTrace(C).
+
+      (P4) P3 holds even when V and C use different physical mechanisms.
+
+  Proof obligation:
+    Constructive Satisfies checks for both plans followed by exact trace
+    equality over OwnershipObservationFacts and CleanupObligation.
+
+    Part (P1/P2/P3/P4) - projection parity:
+      validated VM plan -> satisfies
+      validated compiled plan -> satisfies
+      VM trace = exact AIMS trace = compiled trace
+      mechanisms differ -> permitted
+      Coverage gate: 4 projection cases.
+
+    Engines dispatched:
+      case_analysis (PRIMARY - section_08::verify_rl18a_projection_parity;
+        projection_refines_aims_trace and vm_compiled_event_parity)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL row)
+      refinement (SECONDARY - gracious-accept per the coverage-manifest RL row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-18a because independently selected VM and compiled mechanisms satisfy one contract and vmPlanTrace equals compiledPlanTrace exactly

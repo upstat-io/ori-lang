@@ -1,0 +1,33 @@
+Theorem RL-12: cross-block donor-to-recipient owner-credit transfer
+
+  Preconditions:
+    - The donor block dominates the recipient block.
+    - The recipient block post-dominates the donor on normal paths.
+    - Donor and recipient have the same loop multiplicity.
+    - The donor is statically Unique and no unwind can strand the transfer.
+
+  Soundness property:
+    Forall dying donor d and fresh same-type recipient r across blocks:
+      (P1) RL-12 freezes transfer iff every path/multiplicity condition holds.
+      (P2) the exact donor owner credit becomes the recipient's credit.
+      (P3) the relation is evaluator-equivalent to independent birth and release.
+    Physical storage reuse is a later projection.
+
+  Proof obligation:
+    Enumerate:
+      all_constraints_hold_credit_transfer -> transfer
+      no_dominance_no_transfer -> no transfer
+      no_postdominance_no_transfer -> no transfer
+      different_loop_no_transfer -> no transfer
+      throw_on_path_no_transfer -> no transfer
+      non_unique_no_transfer -> no transfer
+    Coverage gate: 6 cases.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl12_cross_block_reuse)
+      rc_counting (SECONDARY — gracious-accept)
+      refinement (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: RL-12 freezes cross-block donor/recipient owner-credit transfer in six exhaustive cases without selecting storage recycling

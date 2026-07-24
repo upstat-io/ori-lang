@@ -1,4 +1,4 @@
-//! AOT tests for empty-container correctness (Section 03.5).
+//! AOT tests for empty-container correctness.
 //!
 //! Pins the runtime half of the empty-container fix: a program built around
 //! the original empty-list repro compiles via the full AOT pipeline and exits
@@ -8,7 +8,7 @@
 //!
 //! Dual-execution parity between the interpreter and AOT paths is verified
 //! separately by `diagnostics/dual-exec-verify.sh` against the same repro
-//! program (plan `empty-container-typeck-phase-contract` §03.5.3).
+//! program (empty-container typeck phase-contract repro).
 
 #![allow(
     clippy::needless_raw_string_hashes,

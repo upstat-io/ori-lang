@@ -1,12 +1,13 @@
 //! Ownership annotations for ARC borrow inference.
 //!
-//! After borrow inference (Section 06.2), every parameter in every function
+//! After borrow inference, every parameter in every function
 //! gets an [`Ownership`] annotation: either [`Borrowed`](Ownership::Borrowed)
-//! (callee will not retain) or [`Owned`](Ownership::Owned) (callee may retain,
-//! caller must increment RC).
+//! (callee receives no owner credit) or [`Owned`](Ownership::Owned) (one
+//! logical owner transfers to the callee).
 //!
-//! These annotations drive RC insertion (Section 07) — borrowed parameters
-//! skip `rc_inc` at call sites, reducing runtime overhead.
+//! These annotations drive backend-neutral ownership-event realization. A
+//! counter-based physical plan may spell a required additional credit as a
+//! retain; that mechanism is not part of [`Ownership`].
 
 use ori_ir::Name;
 use ori_types::Idx;
@@ -17,16 +18,16 @@ use crate::ir::ArcVarId;
 ///
 /// Unlike [`Ownership`] which annotates only function parameters,
 /// `DerivedOwnership` classifies **every** variable in a function body.
-/// This enables RC insertion to skip `RcInc`/`RcDec` for variables that
-/// are provably borrowed from an already-live variable or freshly
-/// constructed with refcount = 1.
+/// This enables realization to avoid redundant owner-credit events for values
+/// borrowed from an already-live owner or freshly constructed with exactly one
+/// logical owner and no prior aliases.
 ///
 /// Computed by [`infer_derived_ownership()`](crate::borrow::infer_derived_ownership)
 /// in a single forward pass over SSA blocks (no fixed-point needed since
 /// each variable is defined exactly once in SSA form).
 ///
-/// Inspired by Lean 4's per-variable borrow tracking (`Lean.Compiler.IR.Borrow`)
-/// and Swift's ownership SSA (`OwnershipKind`).
+/// Historical influence: Lean 4's per-variable borrow tracking (`Lean.Compiler.IR.Borrow`)
+/// and Swift's ownership SSA (`OwnershipKind`) SHAPE.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum DerivedOwnership {
@@ -35,36 +36,36 @@ pub enum DerivedOwnership {
     Owned,
 
     /// The variable is a projection or alias of another variable.
-    /// No `RcInc` is needed as long as the source variable is alive.
+    /// No additional owner credit is needed while the source remains alive.
     BorrowedFrom(ArcVarId),
 
-    /// The variable was freshly constructed (`Construct` / `PartialApply`)
-    /// and has refcount = 1. This means the first `RcDec` is guaranteed
-    /// to deallocate, enabling more aggressive reset/reuse pairing.
+    /// The variable was freshly constructed (`Construct` / `PartialApply`),
+    /// has exactly one logical owner, and has no prior aliases. This permits
+    /// stronger reset/reuse reasoning without prescribing a counter.
     Fresh,
 }
 
 /// Ownership classification for a function parameter.
 ///
-/// Inspired by Lean 4's borrow inference: parameters are either borrowed
-/// (callee promises not to store the reference) or owned (callee may retain,
-/// requiring the caller to increment the reference count).
+/// Historical influence: Lean 4's borrow-inference SHAPE: parameters are either borrowed
+/// (callee receives no transferable owner credit) or owned (one logical owner
+/// transfers to the callee).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub enum Ownership {
     /// The callee borrows the value — it will not store or return it.
-    /// No `rc_inc` needed at the call site.
+    /// No owner-credit transfer occurs at the call site.
     Borrowed,
 
     /// The callee takes ownership — it may store, return, or pass the value
-    /// to another owned parameter. The caller must `rc_inc` before the call.
+    /// to another owned parameter. The call transfers one logical owner credit.
     Owned,
 }
 
 /// A function parameter annotated with its ownership.
 ///
-/// Produced by borrow inference (Section 06.2) and consumed by
-/// RC insertion (Section 07) to decide where to place `rc_inc`/`rc_dec`.
+/// Produced by borrow inference and consumed by
+/// AIMS realization to decide where logical ownership events belong.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct AnnotatedParam {
@@ -79,7 +80,7 @@ pub struct AnnotatedParam {
 /// A function signature annotated with ownership on all parameters.
 ///
 /// This is the output of borrow inference for a single function.
-/// RC insertion reads these to decide call-site RC operations.
+/// AIMS realization reads these to decide call-site ownership events.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct AnnotatedSig {

@@ -19,12 +19,13 @@ A third approach avoids interpretation entirely: **ahead-of-time (AOT) compilati
 
 ### Where Ori Sits
 
-Ori uses **two** of these approaches simultaneously:
+Ori currently has mature evaluator and LLVM paths, while this branch prototypes a third physical executor:
 
-1. A **tree-walking interpreter** for development (`ori run`, `ori test`, REPL, WASM playground)
-2. An **LLVM-based AOT compiler** for production (`ori build`)
+1. A **tree-walking evaluator** for semantic evaluation, tests, the REPL, and the current WASM playground
+2. An **LLVM-based compiler** for native and compiled-WebAssembly output (`ori build`)
+3. A **bytecode VM prototype** that consumes the shared post-AIMS executable carrier
 
-This is not unusual — many modern languages provide both an interpreter and a compiler. Roc has an interpreter for the REPL and an LLVM-based compiler for production builds. Zig has a compile-time interpreter (comptime) alongside its LLVM/native backend. Lean 4 has an interpreter for compile-time reduction and a C code generator for executables. What distinguishes these designs is how the two backends share work, and Ori's answer is the **canonical IR**: both the interpreter and the LLVM pipeline consume the same sugar-free, pattern-compiled, constant-folded representation. Desugaring happens once.
+This is not unusual — many modern languages provide both an evaluator and compiled execution. What distinguishes Ori's design is the seam: `ori_eval` remains a representation-abstract oracle over canonical IR, while AIMS lowers canonical meaning once for all physical executors. The VM and compiled backends may encode the realized plan differently, but they do not re-derive ownership, drop, COW, or reuse policy.
 
 ## What Makes Ori's Evaluator Distinctive
 
@@ -237,11 +238,11 @@ The `ori_registry` crate provides `BUILTIN_TYPES` — the single source of truth
 
 **GHC's reduction engine** (for Template Haskell and type-level computation) walks Core expressions and reduces them. Like Ori, GHC's evaluator operates on a desugared IR rather than surface syntax. Unlike Ori, GHC's evaluator works with a much more complex IR (System FC with coercions).
 
-**Ruby's YARV** (Yet Another Ruby VM) replaced MRI's tree-walking interpreter with a bytecode VM in Ruby 1.9, yielding roughly 2-5x speedups. This is the canonical example of the performance ceiling that tree-walking hits and the typical upgrade path. Ori addresses this differently — rather than building a bytecode VM, it provides AOT compilation via LLVM for performance-critical paths.
+**Ruby's YARV** (Yet Another Ruby VM) replaced MRI's tree-walking interpreter with a bytecode VM in Ruby 1.9, demonstrating the performance ceiling that tree-walking hits and the typical upgrade path. Ori now follows that physical-execution shape while retaining `ori_eval` as an independent semantic oracle: `ori_vm` consumes the shared post-AIMS carrier, and compiled execution remains available for native performance.
 
 ## Design Tradeoffs
 
-**Tree-walking vs bytecode VM.** Ori chose tree-walking for the interpreter despite its performance limitations. The rationale: the interpreter exists for development, not production. Development tasks (running tests, checking types, REPL interaction) involve small to medium programs where interpretation overhead is acceptable. Production performance comes from the LLVM backend. Building a bytecode VM would require designing an instruction set, writing a compiler from CanExpr to bytecodes, implementing a dispatch loop, and maintaining all of this alongside the LLVM backend — significant engineering cost for modest benefit in the development workflow.
+**Tree-walking evaluator vs bytecode VM.** `ori_eval` remains tree-walking because its purpose is representation-abstract semantic evaluation, const evaluation, and diagnostics. `ori_vm` is the performance-oriented interpreted executor. It compiles the post-AIMS carrier rather than `CanExpr`, so it shares ownership and cleanup policy with compiled output instead of becoming a second semantic implementation.
 
 **Single struct vs interpreter object hierarchy.** Some evaluator designs use an object hierarchy — a base `Evaluator` class with subclasses for different modes. Ori uses a single `Interpreter` struct parameterized by `EvalMode`. This avoids dynamic dispatch overhead and keeps all evaluation logic in one place, at the cost of conditional checks on the mode in a few places (print handling, recursion limits).
 
@@ -256,4 +257,4 @@ The `ori_registry` crate provides `BUILTIN_TYPES` — the single source of truth
 - [Value System](value-system.md) — Runtime value representation, Heap<T>, factory methods
 - [Module Loading](module-loading.md) — Import resolution, Salsa-free registration
 - [Canonicalization](../07-canonicalization/index.md) — The phase that produces the evaluator's input
-- [AIMS](../09-aims/index.md) — The alternative backend consuming the same canonical IR
+- [AIMS](../09-aims/index.md) — Backend-neutral ownership calculus feeding the VM and compiled executors

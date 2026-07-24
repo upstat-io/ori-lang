@@ -1,0 +1,21 @@
+// Pin 11 (negative GREEN guard — the closure-capture vet gate): the borrowed
+// sum's heap payload is CAPTURED into a closure (`PartialApply` retains a
+// reference) rather than borrow-read. The closure-vet (gate d) declines any
+// member used at a `PartialApply` / `Set` / `SetTag` / `Reset` / COW-machinery
+// position, so the no-sink mode never claims this lineage. Must stay clean.
+type Box = Wrap(xs: [int]);
+
+@capturing_sum (b: Box) -> int = match b {
+    Wrap(xs) -> {
+        let adder = (n: int) -> n + xs.len();
+
+        adder(n: 5)
+    },
+};
+
+@main () -> int = {
+    let b = Wrap(xs: [7, 8]);
+    let v = capturing_sum(b: b);
+
+    if v == 7 then 0 else 1
+}

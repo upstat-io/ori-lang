@@ -5,7 +5,84 @@ use super::*;
 use crate::pool::construct::EnumVariant;
 use crate::tag::Tag;
 
-// === Structural Equality Reference Implementation (02.3) ===
+#[test]
+fn builtin_method_receiver_preserves_newtype_identity() {
+    let mut pool = Pool::new();
+    let newtype_name = ori_ir::Name::from_raw(1);
+    let alias_name = ori_ir::Name::from_raw(2);
+    let newtype_alias_name = ori_ir::Name::from_raw(3);
+    let newtype = pool.named(newtype_name);
+    let alias = pool.named(alias_name);
+    let newtype_alias = pool.named(newtype_alias_name);
+    pool.register_newtype_ctor(newtype_name, Idx::INT);
+    pool.set_resolution(newtype, Idx::INT);
+    pool.set_resolution(alias, Idx::INT);
+    pool.set_resolution(newtype_alias, newtype);
+
+    assert!(pool.is_newtype_type(newtype));
+    assert_eq!(pool.method_receiver_type(newtype), newtype);
+    assert_eq!(pool.builtin_method_type_tag(newtype), None);
+    assert!(!pool.is_newtype_type(alias));
+    assert_eq!(pool.method_receiver_type(alias), Idx::INT);
+    assert_eq!(
+        pool.builtin_method_type_tag(alias),
+        Some(ori_registry::TypeTag::Int)
+    );
+    assert!(!pool.is_newtype_type(newtype_alias));
+    assert_eq!(pool.method_receiver_type(newtype_alias), newtype);
+    assert_eq!(pool.builtin_method_type_tag(newtype_alias), None);
+}
+
+#[test]
+fn method_receiver_key_preserves_concrete_generic_instantiations() {
+    let mut pool = Pool::new();
+    let owner = ori_ir::Name::from_raw(10);
+    let first_field = ori_ir::Name::from_raw(11);
+    let second_field = ori_ir::Name::from_raw(12);
+
+    let int_var_a = pool.fresh_var();
+    let int_var_b = pool.fresh_var();
+    let int_a = pool.applied(owner, &[int_var_a]);
+    let int_b = pool.applied(owner, &[int_var_b]);
+    let string = pool.applied(owner, &[Idx::STR]);
+    let int_body = pool.struct_type(owner, &[(first_field, Idx::INT)]);
+    let string_body = pool.struct_type(owner, &[(first_field, Idx::STR)]);
+    pool.set_resolution(int_a, int_body);
+    pool.set_resolution(int_b, int_body);
+    pool.set_resolution(string, string_body);
+    let int_var_a_id = pool.data(int_var_a);
+    let int_var_b_id = pool.data(int_var_b);
+    *pool.var_state_mut(int_var_a_id) = VarState::Link { target: Idx::INT };
+    *pool.var_state_mut(int_var_b_id) = VarState::Link { target: Idx::INT };
+
+    assert_eq!(
+        pool.method_receiver_key(int_a),
+        pool.method_receiver_key(int_b),
+        "equivalent pre-link carriers must share one method target key"
+    );
+    assert_ne!(
+        pool.method_receiver_key(int_a),
+        pool.method_receiver_key(string),
+        "different concrete arguments must not collapse through one nominal body"
+    );
+
+    let int_string = pool.applied(owner, &[Idx::INT, Idx::STR]);
+    let string_int = pool.applied(owner, &[Idx::STR, Idx::INT]);
+    let int_string_body =
+        pool.struct_type(owner, &[(first_field, Idx::INT), (second_field, Idx::STR)]);
+    let string_int_body =
+        pool.struct_type(owner, &[(first_field, Idx::STR), (second_field, Idx::INT)]);
+    pool.set_resolution(int_string, int_string_body);
+    pool.set_resolution(string_int, string_int_body);
+
+    assert_ne!(
+        pool.method_receiver_key(int_string),
+        pool.method_receiver_key(string_int),
+        "swapped generic arguments must remain distinct method targets"
+    );
+}
+
+// Structural Equality Reference Implementation (02.3)
 //
 // Recursively compares types by structure (tag + children), ignoring Idx
 // values. Used to cross-check Merkle hash correctness: hash equality must
@@ -169,7 +246,7 @@ fn pool_starts_with_primitives() {
     assert_eq!(pool.len(), Idx::FIRST_DYNAMIC as usize);
 }
 
-// === Cross-Pool Merkle Hash Stability Tests ===
+// Cross-Pool Merkle Hash Stability Tests
 //
 // These tests verify the core Merkle hashing invariant:
 //   For any type T interned in Pool P1 as idx1 and in Pool P2 as idx2,
@@ -774,8 +851,7 @@ fn merkle_depth_5_function_stable() {
     );
 }
 
-// === Collision Detection & Distribution Tests (02.2) ===
-
+// Collision Detection & Distribution Tests (02.2)
 /// Generate a large set of distinct types in a pool and verify that no two
 /// distinct types share a Merkle hash. Since the pool deduplicates by hash,
 /// a collision would cause two structurally different types to silently merge
@@ -1006,8 +1082,7 @@ fn merkle_hash_distribution_uniform() {
     }
 }
 
-// === Structural Equality Verification Tests (02.3) ===
-
+// Structural Equality Verification Tests (02.3)
 /// Helper: generate a matching set of types in two shifted pools.
 /// Returns parallel vectors: `types_1[i]` and `types_2[i]` are the same structure.
 fn generate_matched_types(p1: &mut Pool, p2: &mut Pool) -> (Vec<Idx>, Vec<Idx>) {
@@ -1243,11 +1318,11 @@ fn merkle_structural_neq_implies_hash_neq() {
     }
 }
 
-// Scheme flag propagation (types.md §TF-3)
+// Scheme flag propagation (TF-3)
 
-/// Spec: types.md §TF-3 — `PROPAGATE_MASK` must OR from scheme body into parent.
+/// — `PROPAGATE_MASK` must OR from scheme body into parent.
 /// A scheme wrapping an unbound Var must have `HAS_VAR` set on the outer Idx,
-/// otherwise the `HAS_VAR` fast-path gate (types.md §TF-5) silently skips the
+/// otherwise the `HAS_VAR` fast-path gate (TF-5) silently skips the
 /// scheme and misses PC-2 violations inside it.
 #[test]
 fn scheme_wrapping_unbound_var_body_propagates_has_var() {
@@ -1259,7 +1334,7 @@ fn scheme_wrapping_unbound_var_body_propagates_has_var() {
     let scheme_idx = pool.scheme(&[0], var_idx);
     assert!(
         pool.flags(scheme_idx).contains(TypeFlags::HAS_VAR),
-        "Tag::Scheme must propagate HAS_VAR from body per types.md §TF-3"
+        "Tag::Scheme must propagate HAS_VAR from body"
     );
     assert!(pool.flags(scheme_idx).contains(TypeFlags::IS_SCHEME));
 }
@@ -1277,4 +1352,21 @@ fn scheme_wrapping_resolved_body_does_not_set_has_var() {
         "Scheme with resolved body must not have HAS_VAR"
     );
     assert!(pool.flags(scheme_idx).contains(TypeFlags::IS_SCHEME));
+}
+
+#[test]
+fn cabi_kind_round_trips_and_defaults_none() {
+    use ori_ir::{CAbiKind, StringInterner};
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+    let name = interner.intern("c_long");
+    let named = pool.named(name);
+    // Unset -> None (leakage guard: non-FFI Idx never carries a kind).
+    assert_eq!(pool.cabi_kind(Idx::INT), None);
+    assert_eq!(pool.cabi_kind(named), None);
+    // Round-trip.
+    pool.set_cabi_kind(named, CAbiKind::CLong);
+    assert_eq!(pool.cabi_kind(named), Some(CAbiKind::CLong));
+    // Still no leak to a primitive.
+    assert_eq!(pool.cabi_kind(Idx::INT), None);
 }

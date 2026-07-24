@@ -1,0 +1,97 @@
+Theorem TF-4: Project transfer produces Borrowed inheritance + borrow_sources entry
+
+  Preconditions:
+    - Instruction is `Project { value, field }` per Annex E §AIMS TF-4
+    - `value` has AimsState `src.state` in the per-function state map
+    - Per Appendix A row 5: `dst := (Borrowed, Linear, Once, src.uniq,
+      src.loc, NonReusable, NONE)` — Uniqueness and Locality inherit from
+      source; other 5 dimensions are constants per the table row
+    - `borrow_sources` side-table populated per Annex E §AIMS — every
+      Project creates exactly one entry tracking root + field-path
+
+  Soundness property:
+    Forall src in AimsState (non-SCALAR).
+      transfer_tf4(Project { value: v, field: f }) where state(v) = src
+      yields dst with:
+        access := Borrowed; consumption := Linear; cardinality := Once;
+        uniqueness := src.uniqueness; locality := src.locality;
+        shape := NonReusable; effect := NONE = 0b000
+    AND borrow_sources[dst] = { source: root(v), path: [field_chain] }
+    AND L-6 layer (b) monotonicity: forall src1, src2. src1 ≤ src2 ⟹
+      transfer_tf4(src1, f) ≤ transfer_tf4(src2, f) on the product order.
+
+  Proof obligation:
+    Three-part discharge:
+      (a) Per-dimension output enumeration over (Uniqueness x Locality)
+          source pairs — verify the 5 constant columns + 2 inherited columns
+          match Appendix A row 5 for every (src.uniq, src.loc) pair.
+      (b) borrow_sources side-table invariant per §1.9: every Project creates
+          exactly ONE entry; no other instruction creates entries.
+      (c) L-6 layer (b) monotonicity — Access/Consumption/Cardinality/Shape/
+          Effect are constants (trivially monotone); Uniqueness and Locality
+          inherit identity-style from source, which is monotone on its own
+          carrier (identity on a totally-ordered chain is monotone by L-4).
+
+    Part (a) — (Uniqueness x Locality) enumeration (3 x 5 = 15 pairs per
+    Annex E §AIMS + §1.5 carriers):
+      Uniqueness in {Unique, MaybeShared, Shared} (3 values)
+      Locality in {BlockLocal, FunctionLocal, ArgEscaping, HeapEscaping,
+                  Unknown} (5 values)
+      For each of 15 (uniq, loc) pairs, build src state with constant
+      Access=Owned, Consumption=Linear, Cardinality=Once, Shape=ReusableStruct,
+      Effect=0b001, varying Uniqueness and Locality. Verify TF-4 output:
+        access = Borrowed (constant per row)
+        consumption = Linear (constant per row)
+        cardinality = Once (constant per row)
+        uniqueness = src.uniqueness (inherited)
+        locality = src.locality (inherited)
+        shape = NonReusable (constant per row)
+        effect = NONE = 0b000 (constant per row)
+      Note: CN-6 (Wide-locality uniqueness ceiling) and CN-8 (Borrowed
+      locality ceiling) may post-canonicalize the TF-4 output:
+        - CN-8 clamps Borrowed + (ArgEscaping | HeapEscaping | Unknown) to
+          FunctionLocal — fires AFTER TF-4 emits the borrowed state.
+        - CN-6 may then demote Unique -> MaybeShared if locality ≥
+          HeapEscaping (cannot fire after CN-8 clamp for Borrowed paths).
+      TF-4 proof discharges the PRE-CANONICALIZATION output per Appendix A
+      conventions; CN-6 + CN-8 interaction discharged separately in §03.
+
+    Part (b) — borrow_sources invariant per §1.9:
+      "Every Project creates exactly one entry; no other instruction creates
+      entries; read-only after intraprocedural analysis."
+      Discharge: enumerate ArcInstr/ArcTerminator variants creating entries
+      (count = 1: Project only) vs all other variants (count = 0).
+      Engine verifies count = 1 for Project, exhaustive coverage absent for
+      other variants in this proof's scope (cross-rule disjointness ships
+      as composition theorem in §04.4).
+
+    Part (c) — monotonicity per dimension:
+      Access/Consumption/Cardinality/Shape/Effect: TF-4 emits constants
+        (Borrowed, Linear, Once, NonReusable, 0b000). Constant function
+        is monotone (Part (b) of TF-1 / TF-2a argument).
+      Uniqueness: dst.uniqueness = src.uniqueness — identity on a totally-
+        ordered 3-element chain {Unique, MaybeShared, Shared}. Identity
+        on a chain is monotone trivially: u1 ≤ u2 ⟹ id(u1) ≤ id(u2).
+      Locality: dst.locality = src.locality — identity on a 5-element chain
+        {BlockLocal, FunctionLocal, ArgEscaping, HeapEscaping, Unknown}.
+        Identity is monotone by the same argument.
+      Per the componentwise-lift lemma (per L-1.proof Lift to product):
+        if every per-dimension transfer is monotone, the product transfer
+        is monotone.
+      Representative monotonicity-pair enumeration discharged on 2 sample
+      pairs spanning Uniqueness chain (Unique ≤ MaybeShared ≤ Shared) +
+      Locality chain (BlockLocal ≤ FunctionLocal ≤ HeapEscaping).
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) per-rule discharge per
+        section_04::verify_tf4_project_borrowed_inherit — per-dimension
+        monotone inheritance + product-lattice lift)
+      case_analysis (PRIMARY — Appendix A row 5 enumeration across the
+        3 x 5 (Uniqueness, Locality) source pair grid + §1.9 borrow_sources
+        invariant check per section_04::verify_tf4_project_borrowed_inherit)
+      lattice (SECONDARY — accepts gracefully; product order at §02)
+      refinement (SECONDARY — accepts gracefully; TF-4 does NOT refine())
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-4 via 15-state (Uniqueness x Locality) enumeration + §1.9 borrow_sources singleton invariant + per-dimension constant/identity monotonicity

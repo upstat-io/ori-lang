@@ -1,0 +1,84 @@
+Theorem L-1: Per-dimension lattice algebra for the 7-dim product
+
+  Preconditions:
+    - The AIMS product lattice has 7 dimensions per Annex E §AIMS + the canonical proof notation sec-Per-Dimension-Symbol-Set
+    - Each dimension MUST be a finite lattice with explicit value set,
+      partial-order axioms, join operation, and height
+    - Per-dimension symbols are drawn from the canonical table in
+      the canonical proof notation sec-Per-Dimension-Symbol-Set
+      (parser rejects ad-hoc symbols per notation_unknown_symbol)
+    - Product height SHALL equal sum of dimension heights per L-5
+
+  Soundness property:
+    The following 7 dimension structures define the AIMS product lattice:
+
+      Access dimension:
+        carrier = {B, O}
+        ordering = B < O
+        join = max
+        height = 1
+        canonical = totally ordered carrier
+
+      Consumption dimension:
+        carrier = {empty, L, A, U}
+        ordering = empty < L < A < U
+        join = max
+        height = 3
+        canonical = totally ordered carrier
+
+      Cardinality dimension:
+        carrier = {absent, 1, omega}
+        ordering = absent < 1 < omega
+        join = max (for alt_join at CFG merges per IA-3)
+        seq_add = QTT semiring per Annex E §AIMS.3
+                    (absent + x = x; 1 + 1 = omega; x + omega = omega)
+        height = 2
+        canonical = totally ordered carrier
+
+      Uniqueness dimension:
+        carrier = {u, ms, s}
+        ordering = u < ms < s
+        join = max
+        height = 2
+        canonical = totally ordered carrier
+
+      Locality dimension:
+        carrier = {bl, fl, ae, he, top}
+        ordering = bl < fl < ae < he < top
+        join = max (= seq_add = alt_join per Annex E §AIMS.5)
+        height = 4
+        canonical = totally ordered carrier
+
+      Shape dimension:
+        carrier = {Phi, R_S, R_V, C, H}
+        ordering = flat lattice (no proper subordering)
+        join = case_analysis: equal -> a; unequal -> Phi
+        height = 1
+        canonical = flat lattice with Phi as TOP
+
+      Effect dimension:
+        carrier = 3-bit flag product over {may_alloc, may_share, may_throw}
+        ordering = componentwise Bool implication on each flag
+        join = componentwise OR
+        height = 3
+        canonical = 3-flag product
+
+    Product lattice total height:
+      1 + 3 + 2 + 2 + 4 + 1 + 3 = 16 (matches Annex E §AIMS IA-7 CHAIN_HEIGHT)
+
+    L-5 (finite height) holds: every dimension's carrier is finite + bounded.
+    L-1, L-2, L-3 (commutativity, associativity, idempotence) discharged
+    by sec-02 lattice algebra proofs against the per-dimension joins above.
+    L-6 (monotonicity) holds for max-based dimensions trivially;
+    Shape flat-lattice and Effect componentwise-OR are monotone.
+
+  Proof obligation:
+    sorry -- discharged by sec-02 lattice algebra proofs
+
+    Engines dispatched:
+      lattice (per-dimension algebraic-identity discharge)
+      monotonicity (validates L-6 monotonicity preserved by per-dimension joins)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-02 discharges per-dimension lattice proofs

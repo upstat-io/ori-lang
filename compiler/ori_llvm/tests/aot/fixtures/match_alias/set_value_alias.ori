@@ -1,0 +1,8 @@
+type Bag = { items: Set<int> }
+
+@main () -> int = {
+    let s: Set<int> = [10, 20, 30].iter().collect();
+    let bag = Bag { items: s };
+    let extracted = bag.items;
+    if extracted.len() == 3 then 0 else 1
+}

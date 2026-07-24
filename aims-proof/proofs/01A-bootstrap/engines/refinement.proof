@@ -1,0 +1,81 @@
+Theorem CH-102: refinement engine bootstrap (DP-10 removal soundness)
+
+  Preconditions:
+    - DP-10 was a former decision predicate at Annex E §AIMS
+      claiming Owned and Linear and Once implies Uniqueness equal
+      to Unique; this predicate was REMOVED as unsound per
+      Annex E §AIMS DP-10 historical note
+    - the refinement engine consumes post-condition implies
+      pre-condition implications per the proof-checker design
+      sec-Engine-per-Category-Inventory RL row
+    - DP-10 removal soundness is the claim that the absence of
+      DP-10 does NOT under-approximate uniqueness; i.e. every
+      genuinely unique value still has Uniqueness equal to Unique
+      via the remaining derivation paths (TF-3 fresh allocation
+      and IC-3 fixpoint convergence and IC-2 parameter contract)
+    - Annex E §AIMS DP-10 cure clarifies that uniqueness is
+      established ONLY via the Uniqueness dimension OR fresh
+      allocation; backward analysis proves no future duplication
+      but NOT no existing aliases
+
+  Soundness property:
+    Forall v in vars.
+      (Access(v) = Owned and Consumption(v) = Linear and
+       Cardinality(v) = Once) does NOT imply Uniqueness(v) = Unique;
+      i.e. the former DP-10 implication is unsound; its removal is
+        sound; remaining derivation paths preserve the property
+        "every value the calculus genuinely proves unique still
+        has Uniqueness equal to Unique".
+
+  Proof obligation:
+    Refinement argument: post-condition (DP-10 removed) implies
+    pre-condition (every genuinely unique value still has
+    Uniqueness equal to Unique).
+
+      Counterexample to former DP-10 (witness of unsoundness):
+        Let v be a parameter passed by an upstream caller with
+        Uniqueness = MaybeShared (caller may hold one or more
+        upstream aliases that increment the refcount).
+        The callee's backward analysis observes Linear use of v
+        with Cardinality = Once (no future duplication within
+        the callee body); Access defaults to Owned at the
+        parameter boundary per RL-32.
+        Former DP-10 would conclude Uniqueness = Unique; this
+        is unsound because the caller's upstream RcInc means
+        multiple logical owner credits at the call site. Therefore DP-10 is rejected.
+
+      Remaining derivation paths (proof that uniqueness is still
+      derivable when genuinely true):
+        Path A — fresh allocation per TF-3:
+          Construct produces FRESH(shape) with Uniqueness = Unique
+          at the definition site. No reliance on DP-10.
+        Path B — IC-3 SCC fixpoint convergence:
+          Parameter Uniqueness is established by the SCC fixpoint
+          per IC-2 and IC-3; the join across all call sites is the
+          uniqueness assigned to the parameter contract. When all
+          call sites pass fresh-from-Construct values, the join
+          remains Unique; otherwise it widens to MaybeShared. No
+          reliance on DP-10.
+        Path C — Reuse via TF-9 and CollectionReuse via TF-9a:
+          Both produce FRESH outputs with Uniqueness = Unique;
+          the reuse predicate (DP-6) requires Uniqueness not
+          equal to Shared; this is independent of DP-10.
+
+    Closed-world check:
+      Every site in Annex E §AIMS (Forward Transfer) that
+      writes Uniqueness writes either Unique (TF-3, TF-7, TF-9,
+      TF-9a) or inherits from a contract (TF-5, TF-5a, TF-6,
+      TF-6a, TF-6b, TF-6c) or inherits from source via Project
+      (TF-4) or joins via Select (TF-8). None of these depend on
+      DP-10. Therefore DP-10's removal does not remove any
+      previously-derivable Uniqueness = Unique conclusion.
+
+    Engines dispatched:
+      refinement (post-condition implies pre-condition refinement
+                  argument over the DP-10 removal)
+      case_analysis (per remaining derivation path enumeration:
+                     A, B, C exhausts the Uniqueness-write sites)
+
+  Expected:
+    status: valid
+    reason: 01A bootstrap discharged via §01A Implementation Items (engine constructive verification + Lean 4 cross-validation)

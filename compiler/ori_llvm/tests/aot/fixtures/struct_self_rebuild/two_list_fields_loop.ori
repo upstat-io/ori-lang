@@ -1,0 +1,14 @@
+// Loop-carried struct rebuilt from two plain self-projections (both [int]).
+// Both fields move into the new Construct via field-projection transfers
+// (RL-2 ConstructArg). The moved-out-field set must unify across the two
+// sibling `Let { Var }` aliases of the loop-carried struct so neither field
+// receives a spurious release. Was a double-free (exit 134).
+type Pair = { a: [int], b: [int] }
+
+@main () -> int = {
+    let r = Pair { a: [1], b: [2] };
+    for i in 0..30 do {
+        r = Pair { a: r.a, b: r.b };
+    };
+    if r.a.len() == 1 then 0 else 1
+}

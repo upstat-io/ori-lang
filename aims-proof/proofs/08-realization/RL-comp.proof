@@ -1,0 +1,41 @@
+Theorem RL-comp: whole-suite evaluator behavior, exact trace, and projection satisfaction
+
+  Preconditions:
+    - Every active RL constituent discharges, including RL-11a/14a/15a/18a,
+      the RL-13 removal confirmation, and RL-1/RL-2 multi-use composition.
+    - Canonical evaluator behavior is the semantic oracle.
+    - AllocationFacts freezes an exact AIMS logical trace.
+    - A physical plan is admitted only through the separate Satisfies relation.
+
+  Soundness property:
+    Forall realized function F and admitted projection P:
+      (P1) evaluator_behavior(realize(F)) = evaluator_behavior(F).
+      (P2) projection_trace(P) = aimsTrace(facts(F)) exactly, including
+           OwnershipObservationFacts and CleanupObligation identities.
+      (P3) Satisfies(facts(F), extent(F), capabilities(P)).
+      (P4) RL-comp is exactly as strong as the conjunction of all constituents.
+    Behavior parity, trace equality, and Satisfies are independent obligations;
+    no physical ARC/reference-counter baseline is used as a semantic oracle.
+
+  Proof obligation:
+    - Re-run all 38 active RL constituent verifiers and require Valid.
+    - Re-run the RL-1/RL-2 combined multi-use obligation.
+    - Compare canonical and realized evaluator behavior on aliased and
+      unaliased mutation cases.
+    - Compare the capability trace directly with the exact AIMS trace.
+    - Check Satisfies separately even when trace equality holds.
+    - Coverage gate: exactly 38 constituents; none may be dropped.
+
+    Negative-direction witnesses:
+      A shared same-identity mutation changes an alias view and fails behavior
+      parity. A changed observation identity fails exact trace equality. A plan
+      with insufficient owner capacity fails Satisfies.
+
+    Engines dispatched:
+      rc_counting (PRIMARY — section_08::verify_rl_composition)
+      refinement (SECONDARY — gracious-accept)
+      case_analysis (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: RL-comp composes 38 constituents with independent canonical evaluator behavior, exact AIMS logical trace equality, and Satisfies obligations

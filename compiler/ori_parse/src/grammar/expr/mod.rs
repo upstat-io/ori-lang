@@ -19,6 +19,7 @@
 //! - `postfix.rs`: Call, method call, field, index
 //! - `patterns.rs`: try, match, for, `function_exp`
 
+mod assign_target;
 mod blocks;
 mod operators;
 mod patterns;
@@ -73,6 +74,7 @@ impl Parser<'_> {
     ///
     /// Uses `ensure_sufficient_stack` to prevent stack overflow
     /// on deeply nested expressions.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_expr(&mut self) -> ParseOutcome<ExprId> {
         trace!(
             pos = self.cursor.position(),
@@ -86,6 +88,7 @@ impl Parser<'_> {
     ///
     /// Use this for contexts where `=` is a delimiter rather than an operator,
     /// such as guard clauses (`if condition = body`).
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_non_assign_expr(&mut self) -> ParseOutcome<ExprId> {
         ensure_sufficient_stack(|| self.parse_binary_pratt(0))
     }
@@ -94,6 +97,7 @@ impl Parser<'_> {
     ///
     /// Use this in contexts where `<` and `>` are delimiters, not operators,
     /// such as const generic default values: `<$N: int = 10>`.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_non_comparison_expr(&mut self) -> ParseOutcome<ExprId> {
         ensure_sufficient_stack(|| self.parse_binary_pratt(bp::ABOVE_COMPARISON))
     }
@@ -109,9 +113,10 @@ impl Parser<'_> {
             let right = require!(self, self.parse_expr(), "expression after `=`");
             let right_span = self.arena.get_expr(right).span;
             let span = left_span.merge(right_span);
+            let target = committed!(self.assign_target_node(left));
             return ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
                 ExprKind::Assign {
-                    target: left,
+                    target,
                     value: right,
                 },
                 span,
@@ -119,7 +124,8 @@ impl Parser<'_> {
         }
 
         // Check for compound assignment (+=, -=, *=, /=, %=, @=, &=, |=, ^=, <<=, &&=, ||=)
-        // Desugars: `x op= y` → `x = x op y`
+        // Desugars: `x op= y` → `x = x op y`.
+        // `**=` is excluded: the `**` power operator + `**=` token are spec-defined but unshipped (target-only).
         if let Some(op) = self.compound_assign_op() {
             return self.desugar_compound_assign(left, op, 1);
         }
@@ -154,17 +160,15 @@ impl Parser<'_> {
     /// independent AST nodes. For complex lvalue targets (e.g., `arr[f()] += 1`),
     /// the desugared form evaluates the target expression twice — once for the
     /// read and once for the write. This matches Python's augmented assignment
-    /// behavior. When mutable collections/indexing are added, this should be
-    /// revisited with a dedicated `CompoundAssign` AST node that evaluators
-    /// handle atomically.
+    /// behavior.
     fn desugar_compound_assign(
         &mut self,
         target: ExprId,
         op: BinaryOp,
         token_count: u8,
     ) -> ParseOutcome<ExprId> {
-        let target_expr = self.arena.get_expr(target);
-        let left_span = target_expr.span;
+        let target_data = self.arena.get_expr(target);
+        let left_span = target_data.span;
 
         // Consume the compound assignment operator token(s)
         match token_count {
@@ -186,10 +190,11 @@ impl Parser<'_> {
         let rhs_span = self.arena.get_expr(rhs).span;
 
         // Duplicate the target expression as the left operand of the binary op.
-        // ExprKind is Copy, so this is a cheap re-allocation in the arena.
+        // ExprKind is Copy, so this is a cheap re-allocation that reuses the
+        // chain's sub-ExprIds (no re-parse) — the read-copy.
         let left_copy = self
             .arena
-            .alloc_expr(Expr::new(target_expr.kind, left_span));
+            .alloc_expr(Expr::new(target_data.kind, left_span));
 
         // Build the binary expression: target op rhs
         let binary_span = left_span.merge(rhs_span);
@@ -202,11 +207,16 @@ impl Parser<'_> {
             binary_span,
         ));
 
+        // Build the write-target. The AssignTarget chain reuses the SAME step
+        // ExprIds present in the read-copy chain (built from the already-parsed
+        // `target`, never re-parsed) — shared chain identity.
+        let write_target = committed!(self.assign_target_node(target));
+
         // Build the assignment: target = binary
         let assign_span = left_span.merge(rhs_span);
         ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
             ExprKind::Assign {
-                target,
+                target: write_target,
                 value: binary,
             },
             assign_span,
@@ -215,10 +225,8 @@ impl Parser<'_> {
 
     /// Parse binary expressions using a Pratt parser.
     ///
-    /// Replaces the recursive descent precedence chain (12 levels of function
-    /// calls per primary expression) with a single loop that uses a binding
-    /// power table. This reduces function call overhead from ~30 calls per
-    /// simple expression to ~4.
+    /// A single loop driven by the binding-power table (`OPER_TABLE`) handles
+    /// all precedence levels.
     ///
     /// `min_bp` controls which operators are parsed at this level:
     /// - `0`: all binary operators (entry point for full expressions)

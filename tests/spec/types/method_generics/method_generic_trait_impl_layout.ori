@@ -1,0 +1,18 @@
+use std.testing { assert_eq }
+
+// TRAIT-impl method-level generic on a concrete receiver: behaves identically to
+// the inherent-impl case, recording a MonoInstance so the layout-using [T] return
+// substitutes T -> int in codegen.
+type Boxer = { tag: int }
+
+trait Wrapper { @wrap<T> (self, item: T) -> [T]; }
+
+impl Boxer: Wrapper {
+    @wrap<T> (self, item: T) -> [T] = [item];
+}
+
+@t tests @wrap () -> void = {
+    let b = Boxer { tag: 1 };
+    let $r = b.wrap(item: 5);
+    assert_eq(actual: r[0], expected: 5)
+}

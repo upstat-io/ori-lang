@@ -1,38 +1,18 @@
-//! Public API for module-level type checking.
+//! Module type-checking entry points.
 //!
-//! Provides the main entry points for checking modules.
-//!
-//! # Pool Lifecycle
-//!
-//! Each `check_module*` call creates a fresh [`Pool`] inside a [`ModuleChecker`].
-//! The Pool owns all type data for that module. After checking:
-//!
-//! - **`check_module()`**: Pool is discarded. Use when only the [`TypeCheckResult`]
-//!   is needed (e.g., Salsa `typed()` query).
-//! - **`check_module_with_pool()`** / **`check_module_with_imports()`**: Returns
-//!   `(TypeCheckResult, Pool)`. Use when the Pool is needed for:
-//!   - Error rendering (`Pool::format_type()` resolves `Idx` to type names)
-//!   - Code generation (LLVM codegen needs full type information)
-//!   - LSP features (hover, completion)
-//!
-//! The evaluator (`ori_eval`) only needs `&[Idx]` (expression types) for
-//! type-directed dispatch — it does NOT need the Pool at runtime.
-//!
-//! In the Salsa pipeline (`oric/src/query/mod.rs`):
-//! ```text
-//! typed()     → calls type_check_with_imports() → discards Pool
-//! evaluated() → calls type_check_with_imports_and_pool() → passes &[Idx] to evaluator
-//! ori check   → calls type_check_with_imports_and_pool() → uses Pool for error rendering
-//! ```
+//! Basic checks return [`TypeCheckResult`] and discard their fresh [`Pool`].
+//! Pool-returning variants retain type data for diagnostics, evaluation, or codegen.
 
 use ori_ir::{ExprArena, Module, StringInterner};
 
 use super::bodies::{
-    check_def_impl_bodies, check_function_bodies, check_impl_bodies, check_test_bodies,
+    check_def_impl_bodies, check_extension_bodies, check_function_bodies, check_impl_bodies,
+    check_test_bodies,
 };
 use super::registration::{
-    register_builtin_types, register_consts, register_derived_impls, register_impls,
-    register_traits, register_user_types,
+    register_builtin_types, register_consts, register_derived_impls, register_extensions,
+    register_extern_burdens, register_impls, register_object_safety_violations, register_traits,
+    register_user_types, validate_declared_fixed_list_capacities,
 };
 use super::signatures::collect_signatures;
 use super::ModuleChecker;
@@ -44,18 +24,19 @@ use crate::{Pool, TraitRegistry, TypeCheckResult, TypeRegistry};
 ///
 /// # Example
 ///
-/// ```ignore
-/// let parse_output = parse_module(source);
+/// ```rust
+/// use ori_ir::StringInterner;
+/// use ori_types::check_module;
+///
+/// let interner = StringInterner::new();
+/// let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/doc_main.ori"));
+/// let tokens = ori_lexer::lex(source, &interner);
+/// let parse_output = ori_parse::parse(&tokens, &interner);
 /// let result = check_module(&parse_output.module, &parse_output.arena, &interner);
 ///
-/// if result.has_errors() {
-///     for error in result.errors() {
-///         eprintln!("{}", error);
-///     }
-/// }
-///
-/// // Access expression types
-/// let expr_ty = result.typed.expr_type(expr_index);
+/// assert!(!result.has_errors(), "{:?}", result.errors());
+/// // Access typed module metadata.
+/// assert_eq!(result.typed.function_count(), 1);
 /// ```
 #[tracing::instrument(level = "debug", skip_all)]
 pub fn check_module(
@@ -77,13 +58,20 @@ pub fn check_module(
 ///
 /// # Example
 ///
-/// ```ignore
-/// // Resolve imports first
-/// let (types, traits) = resolve_imports(&imports, db);
+/// ```rust
+/// use ori_ir::StringInterner;
+/// use ori_types::{check_module_with_registries, TraitRegistry, TypeRegistry};
 ///
+/// let interner = StringInterner::new();
+/// let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/doc_main.ori"));
+/// let tokens = ori_lexer::lex(source, &interner);
+/// let parsed = ori_parse::parse(&tokens, &interner);
+/// let types = TypeRegistry::new();
+/// let traits = TraitRegistry::new();
 /// let result = check_module_with_registries(
-///     &module, &arena, &interner, types, traits
+///     &parsed.module, &parsed.arena, &interner, types, traits
 /// );
+/// assert!(!result.has_errors());
 /// ```
 #[tracing::instrument(level = "debug", skip_all)]
 pub fn check_module_with_registries(
@@ -130,16 +118,20 @@ pub fn check_module_with_pool(
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
+/// use ori_ir::StringInterner;
+/// use ori_types::check_module_with_imports;
+///
+/// let interner = StringInterner::new();
+/// let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/doc_main.ori"));
+/// let tokens = ori_lexer::lex(source, &interner);
+/// let parsed = ori_parse::parse(&tokens, &interner);
 /// let (result, pool) = check_module_with_imports(
-///     &module, &arena, &interner,
-///     |checker| {
-///         // Register functions from another module
-///         for func in &other_module.functions {
-///             checker.register_imported_function(func, &other_arena, None);
-///         }
-///     },
+///     &parsed.module, &parsed.arena, &interner,
+///     |_checker| {},
 /// );
+/// assert!(!result.has_errors());
+/// assert_eq!(pool.format_type(ori_types::Idx::INT), "int");
 /// ```
 #[tracing::instrument(level = "debug", skip_all)]
 pub fn check_module_with_imports<F>(
@@ -151,11 +143,7 @@ pub fn check_module_with_imports<F>(
 where
     F: FnOnce(&mut ModuleChecker<'_>),
 {
-    // Ensure sufficient stack for the entire type checking pipeline.
-    // The register_fn closure triggers Salsa queries (parsed, tokens) for imports,
-    // and check_module_impl processes all function bodies. On macOS ARM64, the
-    // combined depth of Salsa framework + tracing spans + body checking can
-    // exhaust worker thread stacks.
+    // Why: nested Salsa queries and body checking can exhaust macOS worker stacks.
     ori_stack::ensure_sufficient_stack(|| {
         let mut checker = ModuleChecker::new(arena, interner);
         register_fn(&mut checker);
@@ -179,37 +167,31 @@ where
     impls = module.impls.len(),
 ))]
 fn check_module_impl(checker: &mut ModuleChecker<'_>, module: &Module) {
-    // Pass 0a: Register built-in types
     register_builtin_types(checker);
-
-    // Pass 0b: Register user-defined types
     register_user_types(checker, module);
 
-    // Pass 0c: Register traits and implementations
+    // Spec: Annex E §FFI.
+    register_extern_burdens(checker, module);
+
+    // INVARIANT: Object-safety propagation precedes impl registration.
+    // Spec: Clause 8.8.
     register_traits(checker, module);
+    register_object_safety_violations(checker, module);
     register_impls(checker, module);
+    register_extensions(checker, module);
 
-    // Pass 0d: Register derived implementations
     register_derived_impls(checker, module);
-
-    // Pass 0e: Register config variables
     register_consts(checker, module);
+    validate_declared_fixed_list_capacities(checker, module);
     tracing::debug!("registration passes complete");
 
-    // Pass 1: Collect function signatures
     collect_signatures(checker, module);
     tracing::debug!("signature collection complete");
 
-    // Pass 2: Check function bodies
     check_function_bodies(checker, module);
-
-    // Pass 3: Check test bodies
     check_test_bodies(checker, module);
-
-    // Pass 4: Check impl method bodies
     check_impl_bodies(checker, module);
-
-    // Pass 5: Check def impl method bodies
+    check_extension_bodies(checker, module);
     check_def_impl_bodies(checker, module);
     tracing::debug!("body checking complete");
 }

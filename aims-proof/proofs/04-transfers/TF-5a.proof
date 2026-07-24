@@ -1,0 +1,57 @@
+Theorem TF-5a: ApplyIndirect transfer produces CONSERVATIVE
+
+  Preconditions:
+    - Instruction is `ApplyIndirect { dst, closure, args }` per
+      Annex E §AIMS TF-5a + Appendix A row 8
+    - Closures have NO `MemoryContract` — closure environment captures
+      heterogeneous state across call sites; no whole-program SCC fixpoint
+      can derive a single contract per closure
+    - CONSERVATIVE per TF-5 definition (same value)
+
+  Soundness property:
+    transfer_tf5a(ApplyIndirect { _, _, _ }) = CONSERVATIVE.
+    L-6 layer (b) monotonicity: f(_) = CONSERVATIVE constant function;
+    trivially monotone per L-4 reflexivity.
+
+  Proof obligation:
+    Discharge identical in shape to TF-5 Part (c) — TF-5a is a constant
+    function emitting the same CONSERVATIVE value.
+
+    Two-part discharge:
+      (a) Output parity with TF-5 — verify transfer_tf5a() output matches
+          CONSERVATIVE byte-for-byte across all 7 per-dimension carriers.
+      (b) L-6 layer (b) monotonicity — constant-function check identical
+          to TF-5: f(_) = CONSERVATIVE is reflexively monotone.
+
+    Part (a) — CONSERVATIVE-parity check:
+      transfer_tf5a() = CONSERVATIVE = (Owned, Unrestricted, Many,
+      MaybeShared, Unknown, NonReusable, ALL = 0b111). Same value as TF-5
+      per Appendix A rows 6 + 8 (both TF-5 and TF-5a emit CONSERVATIVE).
+      Engine verifies the equality byte-for-byte against the canonical
+      conservative() helper in section_04.rs.
+
+    Part (b) — constant-function monotonicity:
+      Identical to TF-5 Part (c) — f(_) = CONSERVATIVE is constant;
+      CONSERVATIVE ≤ CONSERVATIVE by L-4 reflexivity on each dimension's
+      carrier; product-order componentwise lift gives f(a) ≤ f(b).
+
+    Rationale for separate TF rule (per Annex E §AIMS TF-5a):
+      ApplyIndirect is distinct from Apply at the instruction-set level
+      (ApplyIndirect carries a `closure: ArcVarId` operand vs Apply's
+      `func: FnId`); the transfer function is identical because both lack
+      a known contract. TF-5a exists to make the lack-of-contract handling
+      explicit in the rule set vs reusing TF-5 ambiguously.
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) constant-function discharge per
+        section_04::verify_tf5a_applyindirect_conservative)
+      case_analysis (PRIMARY — Appendix A row 8 forward-transfer column
+        verification + CONSERVATIVE-parity check per
+        section_04::verify_tf5a_applyindirect_conservative)
+      lattice (SECONDARY — accepts gracefully)
+      refinement (SECONDARY — accepts gracefully; ApplyIndirect emits
+        CONSERVATIVE, never refine())
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-5a via Appendix A row 8 CONSERVATIVE-parity check + constant-function monotonicity

@@ -3,7 +3,10 @@
 //! Verify correct `nounwind`, `noreturn`, and `noundef` attribute placement
 //! on LLVM IR function declarations and definitions.
 
-use crate::util::{compile_and_capture_ir, extract_function_ir};
+use crate::util::{
+    compile_and_capture_ir, compile_and_capture_ir_no_repr_opt, extract_function_ir,
+    resolve_derived_function_name, resolve_function_attrs,
+};
 
 // Pre-banner ignored tests (nounwind + dead block pruning)
 
@@ -158,6 +161,107 @@ fn test_panicking_main_wrapper_lacks_nounwind() {
     assert_fn_lacks_attr(&ir, "main", "nounwind");
 }
 
+/// Regression: a same-frame `catch(expr: 1 / 0)` makes the
+/// enclosing function may-unwind. The checked div-by-zero panic is emitted as
+/// `invoke @ori_panic_cstr` to a catch landing pad, so `_ori_main` MUST NOT be
+/// marked `nounwind` and MUST carry a `landingpad` + the panic `invoke`. The
+/// exit-code cells cannot observe the nounwind attribute / IR shape — this pins
+/// the landing pad surviving to codegen (no nounwind-strips-landingpad regress).
+#[test]
+fn test_checked_op_catch_fn_not_nounwind() {
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/checked_op_catch_not_nounwind.ori"
+    ));
+
+    // The function carrying the catch must not be nounwind (it may unwind via
+    // the checked-op invoke).
+    assert_fn_lacks_attr(&ir, "_ori_main", "nounwind");
+
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+
+    // The catch landing pad survived to codegen.
+    assert!(
+        main_ir.contains("landingpad"),
+        "expected a `landingpad` in _ori_main with a same-frame checked-op catch.\nIR:\n{main_ir}"
+    );
+
+    // The checked div-by-zero panic is an `invoke` (caught), not a plain `call`
+    // + `unreachable` (which would escape the catch and abort).
+    assert!(
+        main_ir.contains("invoke void @ori_panic_cstr"),
+        "expected `invoke @ori_panic_cstr` routing the checked-op panic to the \
+         catch landing pad.\nIR:\n{main_ir}"
+    );
+}
+
+/// Regression: same as [`test_checked_op_catch_fn_not_nounwind`], for `byte`.
+/// Pins the `Tag::is_checked_int_arithmetic()` widening (`Int | Byte |
+/// Duration | Size`): byte checked ops inside a same-frame `catch(expr:)`
+/// register in `catch_scoped_checked_ops` and route panics to the landing pad.
+#[test]
+fn test_checked_op_catch_fn_not_nounwind_byte() {
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/checked_op_catch_not_nounwind_byte.ori"
+    ));
+
+    assert_fn_lacks_attr(&ir, "_ori_main", "nounwind");
+
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+
+    assert!(
+        main_ir.contains("landingpad"),
+        "expected a `landingpad` in _ori_main with a same-frame checked-op catch.\nIR:\n{main_ir}"
+    );
+
+    assert!(
+        main_ir.contains("invoke void @ori_panic_cstr"),
+        "expected `invoke @ori_panic_cstr` routing the checked-op panic to the \
+         catch landing pad.\nIR:\n{main_ir}"
+    );
+}
+
+/// Regression: same as [`test_checked_op_catch_fn_not_nounwind`], for `Size`.
+/// Pins the `Tag::is_checked_int_arithmetic()` widening for Size the same
+/// way as byte.
+#[test]
+fn test_checked_op_catch_fn_not_nounwind_size() {
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/checked_op_catch_not_nounwind_size.ori"
+    ));
+
+    assert_fn_lacks_attr(&ir, "_ori_main", "nounwind");
+
+    let main_ir = extract_function_ir(&ir, "_ori_main");
+
+    assert!(
+        main_ir.contains("landingpad"),
+        "expected a `landingpad` in _ori_main with a same-frame checked-op catch.\nIR:\n{main_ir}"
+    );
+
+    assert!(
+        main_ir.contains("invoke void @ori_panic_cstr"),
+        "expected `invoke @ori_panic_cstr` routing the checked-op panic to the \
+         catch landing pad.\nIR:\n{main_ir}"
+    );
+}
+
+/// Regression: an uncaught checked-arithmetic overflow with no other calls
+/// and no same-frame catch must not mark the enclosing function `nounwind`.
+/// The overflow panic (`call @ori_panic_cstr`) is an LLVM-emission-time-only
+/// artifact of the checked-add intrinsic lowering — invisible to the ARC IR
+/// nounwind scan, which only inspects `Apply`/`Invoke`/`RcDec` instructions.
+/// A leaf function whose sole instruction is checked arithmetic must be
+/// conservatively treated as may-unwind, exactly like an indirect call.
+#[test]
+fn test_uncaught_checked_arith_overflow_not_nounwind() {
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/uncaught_checked_arith_overflow_not_nounwind.ori"
+    ));
+
+    assert_fn_lacks_attr(&ir, "_ori_main", "nounwind");
+    assert_fn_lacks_attr(&ir, "main", "nounwind");
+}
+
 // nounwind propagation through builtin methods and protocols
 
 /// Function calling builtin method (str.length) via Invoke terminator gets nounwind.
@@ -165,7 +269,9 @@ fn test_panicking_main_wrapper_lacks_nounwind() {
 /// The ARC IR lowers `.length()` to `Invoke @length(...)`, and the nounwind
 /// analysis must recognize `@length` as an intercepted builtin that always
 /// emits `call` (never `invoke`). Without this, the function and its callers
-/// would incorrectly lose the nounwind attribute.
+/// would incorrectly lose the nounwind attribute. The fixture bodies contain
+/// no arithmetic — isolating this concern from the (separately pinned)
+/// checked-arithmetic-taints-nounwind behavior.
 #[test]
 fn test_function_calling_builtin_method_gets_nounwind() {
     let ir = compile_and_capture_ir(include_str!(
@@ -197,24 +303,17 @@ fn test_closure_call_gets_nounwind_via_posthoc() {
     assert_fn_has_attr(&ir, "main", "nounwind");
 }
 
-/// Generic function with may-unwind body must NOT be treated as intercepted.
-///
-/// Regression test for `is_callee_intercepted()` previously fell
-/// through to the builtin method heuristic for generic calls with builtin-typed
-/// first args. A call like `might_panic(s)` where `s: str` would be treated as
-/// an intercepted builtin (nounwind), even though the monomorphized function
-/// may unwind via `panic()`. The fix adds a `mono_dispatch` check before the
-/// builtin heuristic.
+/// Generic functions with may-unwind bodies must not be treated as intercepted.
+/// A `mono_dispatch` match takes precedence over the builtin method heuristic
+/// even when the first argument has a builtin type such as `str`.
 #[test]
 fn test_generic_call_with_builtin_arg_not_treated_as_intercepted() {
     let ir = compile_and_capture_ir(
         include_str!("fixtures/ir_quality_attributes/generic_call_with_builtin_arg_not_treated_as_intercepted.ori"),
     );
 
-    // `might_panic` contains `panic()` — it MUST NOT be nounwind.
-    // Before the fix, mono_dispatch was not checked, so `might_panic(x: "hello")`
-    // would be classified as an intercepted builtin (str receiver), making main
-    // appear nounwind despite calling a may-unwind generic function.
+    // `mono_dispatch` identifies `might_panic` as a may-unwind generic call even
+    // though its first argument has the builtin `str` type.
     assert_fn_lacks_attr(&ir, "_ori_main", "nounwind");
     assert_fn_lacks_attr(&ir, "main", "nounwind");
 }
@@ -231,9 +330,32 @@ fn test_pure_derived_methods_have_nounwind() {
         "fixtures/ir_quality_attributes/pure_derived_methods_have_nounwind.ori"
     ));
 
-    assert_fn_has_attr(&ir, "_ori_Shape$eq", "nounwind");
-    assert_fn_has_attr(&ir, "_ori_Shape$compare", "nounwind");
-    assert_fn_has_attr(&ir, "_ori_Shape$hash", "nounwind");
+    for method in ["eq", "compare", "hash"] {
+        let symbol = resolve_derived_function_name(&ir, method);
+        assert_fn_has_attr(&ir, symbol, "nounwind");
+    }
+}
+
+/// Derived equality should test cheap scalar fields before managed fields.
+#[test]
+fn test_derived_eq_checks_scalar_fields_before_managed_fields() {
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/derived_eq_scalar_field_first.ori"
+    ));
+    let eq_symbol = resolve_derived_function_name(&ir, "eq");
+    let eq_ir = extract_function_ir(&ir, eq_symbol);
+    let scalar_projection = eq_ir
+        .find("%proj.1")
+        .expect("derived Eq should project the scalar field");
+
+    let managed_projection = eq_ir
+        .find("%proj.0")
+        .expect("derived Eq should project the managed field");
+
+    assert!(
+        scalar_projection < managed_projection,
+        "derived Eq should compare the scalar field before the managed field:\n{eq_ir}"
+    );
 }
 
 /// Impure derived methods (`$to_str`, `$debug`) should NOT have `nounwind`.
@@ -245,8 +367,10 @@ fn test_impure_derived_methods_lack_nounwind() {
         "fixtures/ir_quality_attributes/impure_derived_methods_lack_nounwind.ori"
     ));
 
-    assert_fn_lacks_attr(&ir, "_ori_Point$to_str", "nounwind");
-    assert_fn_lacks_attr(&ir, "_ori_Point$debug", "nounwind");
+    for method in ["to_str", "debug"] {
+        let symbol = resolve_derived_function_name(&ir, method);
+        assert_fn_lacks_attr(&ir, symbol, "nounwind");
+    }
 }
 
 // noreturn on panic functions
@@ -264,15 +388,13 @@ fn test_impure_derived_methods_lack_nounwind() {
 /// references the group number, not the attributes directly.
 #[test]
 fn test_panic_declarations_have_noreturn() {
-    let ir = compile_and_capture_ir(include_str!(
+    let ir = compile_and_capture_ir_no_repr_opt(include_str!(
         "fixtures/ir_quality_attributes/panic_declarations_have_noreturn.ori"
     ));
 
-    // Check ori_panic_cstr has noreturn via its attribute group
     assert_fn_has_attr(&ir, "ori_panic_cstr", "noreturn");
     assert_fn_lacks_attr(&ir, "ori_panic_cstr", "nounwind");
 
-    // Check ori_panic has noreturn via its attribute group
     assert_fn_has_attr(&ir, "ori_panic", "noreturn");
     assert_fn_lacks_attr(&ir, "ori_panic", "nounwind");
 }
@@ -320,16 +442,9 @@ fn test_scalar_params_have_noundef() {
 /// return `noundef`.
 #[test]
 fn test_indirect_params_have_noundef() {
-    let ir = compile_and_capture_ir(
-        r#"
-@greet (name: str) -> str = `Hello, {name}`;
-
-@main () -> void = {
-    let msg = greet(name: "world");
-    print(msg: msg)
-}
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/indirect_str_param_attributes.ori"
+    ));
 
     // _ori_greet: str param (Indirect → ptr noundef), str return (Sret → void).
     // The pointer param gets noundef; the sret pointer does NOT get noundef
@@ -356,16 +471,9 @@ fn test_indirect_params_have_noundef() {
 /// eliminate null checks and enable speculative loads.
 #[test]
 fn test_indirect_params_have_nonnull() {
-    let ir = compile_and_capture_ir(
-        r#"
-@greet (name: str) -> str = `Hello, {name}`;
-
-@main () -> void = {
-    let msg = greet(name: "world");
-    print(msg: msg)
-}
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/indirect_str_param_attributes.ori"
+    ));
 
     let greet_decl = ir
         .lines()
@@ -388,16 +496,9 @@ fn test_indirect_params_have_nonnull() {
 /// loads without null/bounds checks.
 #[test]
 fn test_indirect_params_have_dereferenceable() {
-    let ir = compile_and_capture_ir(
-        r#"
-@greet (name: str) -> str = `Hello, {name}`;
-
-@main () -> void = {
-    let msg = greet(name: "world");
-    print(msg: msg)
-}
-"#,
-    );
+    let ir = compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/indirect_str_param_attributes.ori"
+    ));
 
     let greet_decl = ir
         .lines()
@@ -443,7 +544,7 @@ fn test_direct_params_lack_nonnull() {
 /// Assert that a function declaration in the IR has a specific attribute
 /// (resolved through LLVM's `#N = { ... }` attribute groups).
 fn assert_fn_has_attr(ir: &str, func_name: &str, attr: &str) {
-    let attrs = resolve_fn_attrs(ir, func_name);
+    let attrs = resolve_function_attrs(ir, func_name);
     assert!(
         attrs.contains(attr),
         "{func_name} should have `{attr}` attribute.\n\
@@ -453,49 +554,12 @@ fn assert_fn_has_attr(ir: &str, func_name: &str, attr: &str) {
 
 /// Assert that a function declaration does NOT have a specific attribute.
 fn assert_fn_lacks_attr(ir: &str, func_name: &str, attr: &str) {
-    let attrs = resolve_fn_attrs(ir, func_name);
+    let attrs = resolve_function_attrs(ir, func_name);
     assert!(
         !attrs.contains(attr),
         "{func_name} must NOT have `{attr}` attribute.\n\
          Resolved attributes: {attrs}"
     );
-}
-
-/// Resolve a function's attributes by following its `#N` attribute group
-/// reference in the LLVM IR.
-///
-/// Searches both `declare` and `define` lines. Handles both plain names
-/// (`@main(`) and quoted names (`@"_ori_Shape$eq"(`).
-fn resolve_fn_attrs(ir: &str, func_name: &str) -> String {
-    // LLVM quotes names with special characters: @"_ori_Shape$eq"(
-    let search_plain = format!("@{func_name}(");
-    let search_quoted = format!("@\"{func_name}\"(");
-    let decl_line = ir
-        .lines()
-        .find(|l| {
-            (l.contains("declare") || l.contains("define"))
-                && (l.contains(&search_plain) || l.contains(&search_quoted))
-        })
-        .unwrap_or_else(|| panic!("{func_name} should be declared/defined in IR"));
-
-    // Extract attribute group reference (e.g., "#2" from the declaration).
-    // For `define`, strip trailing ` {` first.
-    let line = decl_line.trim_end_matches('{').trim();
-    let group_ref = line
-        .rsplit_once('#')
-        .map(|(_, num)| format!("#{}", num.trim()))
-        .unwrap_or_default();
-
-    if group_ref.is_empty() {
-        return String::new();
-    }
-
-    // Find the attribute group definition: `attributes #2 = { cold noreturn }`
-    let group_prefix = format!("attributes {group_ref} = ");
-    ir.lines()
-        .find(|l| l.starts_with(&group_prefix))
-        .map(|l| l[group_prefix.len()..].to_string())
-        .unwrap_or_default()
 }
 
 // Iterator option wrapping elimination
@@ -521,10 +585,26 @@ fn test_iter_next_no_wrapper_struct() {
         "expected 0 insertvalue in @count (iter_next decomposed), got {insertvalue_count}.\nIR:\n{count_ir}"
     );
 
-    // ori_str_len should read from iter_next.scratch directly, not a separate alloca.
+    let scratch_ptr = count_ir
+        .lines()
+        .find_map(|line| {
+            let (_, arguments) = line.split_once("@ori_iter_next(")?;
+            let (_, scratch_and_tail) = arguments.split_once(", ptr ")?;
+            scratch_and_tail.split_once(',').map(|(scratch, _)| scratch)
+        })
+        .expect("expected ori_iter_next call with a scratch pointer");
+
+    let scratch_alloca = format!("{scratch_ptr} = alloca {{ i64, i64, ptr }}");
     assert!(
-        count_ir.contains("call i64 @ori_str_len(ptr %iter_next.scratch)"),
-        "expected ori_str_len to receive iter_next.scratch directly.\nIR:\n{count_ir}"
+        count_ir.contains(&scratch_alloca),
+        "expected iter_next scratch argument to name its element alloca.\nIR:\n{count_ir}"
+    );
+
+    // The element consumer must read from the same scratch buffer passed to iter_next.
+    let str_len_call = format!("call i64 @ori_str_len(ptr {scratch_ptr})");
+    assert!(
+        count_ir.contains(&str_len_call),
+        "expected ori_str_len to receive the iter_next scratch pointer directly.\nIR:\n{count_ir}"
     );
 }
 
@@ -573,11 +653,7 @@ fn test_iter_nested_for_loops() {
     assert_eq!(exit, 6, "expected 6 (1+2+3)");
 }
 
-/// Struct element field access in for-loop body.
-///
-/// Iterates over `[Point]` and accesses `p.x` — the element is a struct
-/// passed by value. Tests that the scratch buffer optimization correctly
-/// handles struct elements with field projection.
+/// Pins scratch-buffer field projection for by-value struct iterator elements.
 #[test]
 fn test_iter_for_loop_struct_field_access() {
     let exit = crate::util::compile_and_run(include_str!(
@@ -690,21 +766,9 @@ fn test_iter_for_yield_semantic_pin() {
 /// mark the sret pointer `noundef`. Regular params should still have `noundef`.
 #[test]
 fn test_closure_wrapper_sret_no_noundef() {
-    let ir = crate::util::compile_and_capture_ir(
-        r#"
-@apply_transform (items: [str], transform: (str) -> str) -> [str] =
-    for item in items yield transform(item);
-
-@main () -> void = {
-    let $prefix = "hello-prefix-over-twenty-three!";
-    let $result = apply_transform(
-        items: ["world"],
-        transform: (s: str) -> str = `{prefix}: {s}`,
-    );
-    print(msg: result[0])
-}
-"#,
-    );
+    let ir = crate::util::compile_and_capture_ir(include_str!(
+        "fixtures/ir_quality_attributes/closure_wrapper_sret_no_noundef.ori"
+    ));
 
     // Find any _ori_partial_* wrapper declaration — these are closure wrappers.
     // The test program captures `prefix` in a lambda returning `str` (>16 bytes),
@@ -715,26 +779,20 @@ fn test_closure_wrapper_sret_no_noundef() {
             && l.contains("sret(")
     });
 
-    // Semantic pin: the wrapper MUST be emitted. If this assert fires, the test
-    // program no longer produces a closure wrapper — fix the program or the
-    // compiler, don't weaken the test to a no-op.
+    // The fixture's capturing closure must emit an sret wrapper.
     let decl = wrapper_decl.expect(
         "expected at least one _ori_partial_* wrapper with sret in IR — \
          the capturing closure returning str must emit a wrapper",
     );
 
-    // The sret pointer (param 0) should NOT have noundef.
-    // Parse: "define void @_ori_partial_N(ptr noalias sret(...) <NO noundef here>, ptr noundef ...)"
-    // Split at sret(...) and check the text BEFORE the next comma doesn't contain noundef
-    // after the sret attribute.
+    // INVARIANT: The first parameter segment containing sret excludes `noundef`.
     let sret_pos = decl
         .find("sret(")
         .expect("wrapper matched sret( in search but not here");
-    // Text from sret( to next comma is the sret param
     let after_sret = &decl[sret_pos..];
     let sret_param_end = after_sret
         .find(',')
-        .unwrap_or(after_sret.find(')').unwrap_or(after_sret.len()));
+        .unwrap_or_else(|| after_sret.find(')').unwrap_or(after_sret.len()));
     let sret_param_text = &after_sret[..sret_param_end];
     assert!(
         !sret_param_text.contains("noundef"),

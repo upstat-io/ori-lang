@@ -11,7 +11,7 @@
 //! - **`FunctionAbi`** = *physical*: passing modes, calling convention, alignment
 //!
 //! Codegen only sees `FunctionAbi`. The semantic signature is consumed once
-//! by `compute_function_abi()` and never referenced again during IR emission.
+//! by `compute_function_abi` and never referenced again during IR emission.
 //!
 //! # References
 //!
@@ -19,11 +19,17 @@
 //! - Swift `lib/IRGen/GenCall.cpp`
 //! - Zig `src/codegen/llvm.zig` (calling convention selection)
 
+mod size;
+
 use ori_arc::{AnnotatedSig, ArcClass, ArcClassification, ArcClassifier, Ownership};
 use ori_ir::Name;
 use ori_repr::ReprPlan;
 use ori_types::{FunctionSig, Idx};
-use rustc_hash::FxHashSet;
+
+#[cfg(test)]
+pub(crate) use size::abi_alignment;
+pub use size::abi_size;
+use size::indirect_alignment;
 
 use super::type_info::TypeInfoStore;
 
@@ -94,7 +100,7 @@ pub struct ReturnAbi {
 
 /// Complete physical ABI for a function.
 ///
-/// Computed once from `ori_types::FunctionSig` via `compute_function_abi()`.
+/// Computed once from `ori_types::FunctionSig` via `compute_function_abi`.
 /// All downstream codegen (declaration, body emission, call sites) uses this
 /// instead of querying types ad-hoc.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -108,182 +114,9 @@ pub struct FunctionAbi {
 }
 
 // ABI computation
-
-/// Compute the ABI size of a type in bytes.
-///
-/// For types where `TypeInfo::size()` returns `None` (Tuple, Struct, Enum),
-/// walks child types recursively via the store to compute the total size.
-/// Recursive types (e.g., `type Expr = Leaf(int) | Binop(Expr, Expr)`) are
-/// detected via a visiting set and treated as pointer-sized (8 bytes).
-///
-/// When `repr_plan` is provided, consults it for niche-encoded Option/Result
-/// types (§07.2) — niche layouts omit the tag field, reducing ABI size.
-pub fn abi_size(ty: Idx, store: &TypeInfoStore<'_>, repr_plan: Option<&ReprPlan>) -> u64 {
-    let mut visiting = FxHashSet::default();
-    abi_size_inner(ty, store, repr_plan, &mut visiting)
-}
-
-/// §07.2: Check if a type has niche encoding in the `ReprPlan`.
-fn is_niche_encoded(ty: Idx, store: &TypeInfoStore<'_>, repr_plan: Option<&ReprPlan>) -> bool {
-    repr_plan
-        .and_then(|plan| plan.get_enum_repr(store.pool().resolve_fully(ty)))
-        .is_some_and(|e| e.tag.is_niche())
-}
-
-/// §07.3.A: Check if a type has tagged-pointer encoding in the `ReprPlan`.
-///
-/// Tagged-pointer enums are exactly 8 bytes (one i64 slot). The ABI passes
-/// them as a single Direct register, identical to a regular pointer or i64.
-fn is_tagged_ptr_encoded(ty: Idx, store: &TypeInfoStore<'_>, repr_plan: Option<&ReprPlan>) -> bool {
-    repr_plan
-        .and_then(|plan| plan.get_enum_repr(store.pool().resolve_fully(ty)))
-        .is_some_and(|e| e.tag.is_tagged_ptr())
-}
-
-/// §07.2: Check if an enum type (Option/Result/user-defined) has niche or tagless
-/// encoding in the `ReprPlan`. Returns `Some(size)` if an optimized layout applies,
-/// `None` to fall through to the explicit tag computation.
-fn niche_enum_size(
-    ty: Idx,
-    variants: &[super::type_info::EnumVariantInfo],
-    store: &TypeInfoStore<'_>,
-    repr_plan: Option<&ReprPlan>,
-    visiting: &mut FxHashSet<Idx>,
-) -> Option<u64> {
-    let plan = repr_plan?;
-    let resolved = store.pool().resolve_fully(ty);
-    let enum_repr = plan.get_enum_repr(resolved)?;
-
-    if enum_repr.tag.is_tagless() {
-        let variant = variants.first()?;
-        let payload: u64 = variant
-            .fields
-            .iter()
-            .map(|&f| abi_size_inner(f, store, repr_plan, visiting))
-            .sum();
-        return Some(payload.max(1));
-    }
-
-    if let ori_repr::EnumTag::Niche {
-        niche_variant_idx, ..
-    } = &enum_repr.tag
-    {
-        let data_idx = usize::from(*niche_variant_idx == 0);
-        let variant = variants.get(data_idx)?;
-        let payload: u64 = variant
-            .fields
-            .iter()
-            .map(|&f| {
-                let size = abi_size_inner(f, store, repr_plan, visiting);
-                size.div_ceil(8) * 8
-            })
-            .sum();
-        return Some(payload.max(1));
-    }
-
-    None
-}
-
-fn abi_size_inner(
-    ty: Idx,
-    store: &TypeInfoStore<'_>,
-    repr_plan: Option<&ReprPlan>,
-    visiting: &mut FxHashSet<Idx>,
-) -> u64 {
-    use super::type_info::TypeInfo;
-
-    let info = store.get(ty);
-    if let Some(size) = info.size() {
-        return size;
-    }
-
-    // Cycle detection: recursive types must use heap indirection,
-    // so treat them as pointer-sized when encountered again.
-    if !visiting.insert(ty) {
-        return 8;
-    }
-
-    // Dynamic-size types: compute recursively
-    //
-    // FIXME(roadmap:section-05): abi_size_inner sums field sizes WITHOUT
-    // alignment padding. A struct { byte, int, byte } computes as 10 bytes
-    // here, but LLVM lays it out as 24 bytes (1+7 padding + 8 + 1+7 padding).
-    // This can misclassify as Direct (≤16) when Indirect (>16) is needed.
-    // Currently safe because built-in composite types (Range, Option, etc.)
-    // use pre-computed TypeInfo::size() that accounts for LLVM layout.
-    // Needs LLVM TargetData query when user-defined structs land in Pool.
-    // Also safe for dereferenceable(N) — underestimating is legal (minimum).
-    let result = match &info {
-        TypeInfo::Option { inner } => {
-            if is_niche_encoded(ty, store, repr_plan) {
-                abi_size_inner(*inner, store, repr_plan, visiting)
-            } else {
-                // Explicit tag: {i64 tag, payload}
-                8 + abi_size_inner(*inner, store, repr_plan, visiting)
-            }
-        }
-        TypeInfo::Result { ok, err } => {
-            let ok_size = abi_size_inner(*ok, store, repr_plan, visiting);
-            let err_size = abi_size_inner(*err, store, repr_plan, visiting);
-            if is_niche_encoded(ty, store, repr_plan) {
-                ok_size.max(err_size)
-            } else {
-                // Explicit tag: {i64 tag, max(ok, err) payload}
-                8 + ok_size.max(err_size)
-            }
-        }
-        TypeInfo::Tuple { elements } => elements
-            .iter()
-            .map(|&e| abi_size_inner(e, store, repr_plan, visiting))
-            .sum(),
-        TypeInfo::Struct { fields } => fields
-            .iter()
-            .map(|&(_, ty)| abi_size_inner(ty, store, repr_plan, visiting))
-            .sum(),
-        TypeInfo::Enum { variants } => {
-            // §07.3.A: Tagged-pointer enums are a single 8-byte slot
-            // regardless of variant count or payload size. Check before the
-            // niche/explicit-tag computation since the encoding is uniform.
-            if is_tagged_ptr_encoded(ty, store, repr_plan) {
-                visiting.remove(&ty);
-                return 8;
-            }
-            if let Some(size) = niche_enum_size(ty, variants, store, repr_plan, visiting) {
-                visiting.remove(&ty);
-                return size;
-            }
-            // Enum layout: {tag, [M x i64] payload} — tag width varies
-            // per enum via min_tag_width (§07.1 discriminant narrowing).
-            // Each variant field occupies at least one full i64 slot (8 bytes),
-            // matching resolve_enum() in layout_resolver.rs.
-            let tag_size = u64::from(ori_repr::min_tag_width(variants.len()).size_bytes());
-            let max_payload: u64 = variants
-                .iter()
-                .map(|v| {
-                    v.fields
-                        .iter()
-                        .map(|&f| {
-                            let size = abi_size_inner(f, store, repr_plan, visiting);
-                            // Round up to 8-byte i64 slot boundary
-                            size.div_ceil(8) * 8
-                        })
-                        .sum::<u64>()
-                })
-                .max()
-                .unwrap_or(0);
-            if max_payload == 0 {
-                tag_size // All-unit enum: { tag } = tag_size bytes
-            } else {
-                // Tag is padded to 8 due to [M x i64] payload alignment
-                8 + max_payload
-            }
-        }
-        _ => 8, // Fallback: pointer-sized
-    };
-
-    visiting.remove(&ty);
-    result
-}
+//
+// Size + alignment walkers live in [`size`] (re-exported above); this module
+// owns the passing-mode classification and calling-convention policy.
 
 /// Compute the passing mode for a function parameter.
 pub fn compute_param_passing(
@@ -299,9 +132,8 @@ pub fn compute_param_passing(
     if size <= 16 {
         ParamPassing::Direct
     } else {
-        let info = store.get(ty);
         ParamPassing::Indirect {
-            alignment: info.alignment(),
+            alignment: indirect_alignment(ty, store, repr_plan),
         }
     }
 }
@@ -320,22 +152,46 @@ pub fn compute_return_passing(
     if size <= 16 {
         ReturnPassing::Direct
     } else {
-        let info = store.get(ty);
         ReturnPassing::Sret {
-            alignment: info.alignment(),
+            alignment: indirect_alignment(ty, store, repr_plan),
         }
     }
 }
 
-/// Select the calling convention for a function.
+/// The kind of function a calling convention is selected for.
 ///
-/// - `@main` and `@extern` functions use C calling convention
-/// - All other Ori functions use `fastcc` for better optimization
-pub fn select_call_conv(name: &str, is_main: bool, is_extern: bool) -> CallConv {
-    if is_main || is_extern || name.starts_with("ori_") {
-        CallConv::C
+/// Single policy home (AB-6) — every site assigning a `CallConv` routes
+/// through [`select_call_conv`] with the site's context; direct
+/// `CallConv::` assignment outside this module is a policy leak.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallConvSite {
+    /// Ordinary Ori function (incl. capturing lambdas) — `fastcc`.
+    OriFunction,
+    /// `@main` entry point — C ABI (invoked by the runtime entry wrapper).
+    Main,
+    /// Non-capturing lambda — `ccc` so the declaration matches the closure
+    /// calling convention `(ptr %env, user_args...)` directly.
+    NonCapturingLambda,
+    /// Test wrapper invoked by the test harness — C ABI.
+    TestWrapper,
+}
+
+/// Select the calling convention for a function from its site context.
+pub fn select_call_conv(site: CallConvSite) -> CallConv {
+    match site {
+        CallConvSite::OriFunction => CallConv::Fast,
+        CallConvSite::Main | CallConvSite::NonCapturingLambda | CallConvSite::TestWrapper => {
+            CallConv::C
+        }
+    }
+}
+
+/// `CallConvSite` for a type-checker signature (`@main` vs ordinary).
+fn sig_call_conv_site(sig: &FunctionSig) -> CallConvSite {
+    if sig.is_main {
+        CallConvSite::Main
     } else {
-        CallConv::Fast
+        CallConvSite::OriFunction
     }
 }
 
@@ -353,34 +209,18 @@ pub fn compute_function_abi(
         "param_names and param_types must be parallel (function {:?})",
         sig.name
     );
-    let params: Vec<ParamAbi> = sig
-        .param_names
-        .iter()
-        .zip(sig.param_types.iter())
-        .map(|(&name, &ty)| ParamAbi {
-            name,
-            ty,
-            passing: compute_param_passing(ty, store, repr_plan),
-            readonly: false,
-        })
-        .collect();
-
-    let return_abi = ReturnAbi {
-        ty: sig.return_type,
-        passing: compute_return_passing(sig.return_type, store, repr_plan),
-    };
-
-    let call_conv = select_call_conv(
-        "", // Name not available in sig — caller overrides if needed
-        sig.is_main,
-        false, // Extern detection happens at caller level
-    );
-
-    FunctionAbi {
-        params,
-        return_abi,
-        call_conv,
-    }
+    compute_function_abi_from_shape(
+        sig.param_names
+            .iter()
+            .copied()
+            .zip(sig.param_types.iter().copied())
+            .map(|(name, ty)| (name, ty, Ownership::Owned)),
+        sig.return_type,
+        sig_call_conv_site(sig),
+        store,
+        None,
+        repr_plan,
+    )
 }
 
 // ARC borrow-aware ABI computation
@@ -408,6 +248,78 @@ pub fn compute_param_passing_with_ownership(
     compute_param_passing(ty, store, repr_plan)
 }
 
+/// Project the uniform borrowed convention for one explicit closure argument.
+///
+/// A closure value is target-independent: indirect callers retain ownership of
+/// every explicit argument, and the generated closure wrapper adapts that
+/// borrowed physical ABI to the concrete target ABI.
+pub fn compute_closure_param_passing(
+    ty: Idx,
+    store: &TypeInfoStore<'_>,
+    repr_plan: Option<&ReprPlan>,
+    classifier: &dyn ArcClassification,
+) -> ParamPassing {
+    compute_param_passing_with_ownership(
+        ty,
+        store,
+        repr_plan,
+        Ownership::Borrowed,
+        classifier.arc_class(ty),
+    )
+}
+
+/// Assemble one physical ABI from a semantic parameter and return shape.
+///
+/// Frontend signatures, closed artifact functions, and lambdas adapt their
+/// own identities into `(name, type, ownership)` tuples. Passing modes,
+/// readonly attributes, return convention, and calling convention are then
+/// selected here exactly once. `ownership_classifier` is absent only for
+/// legacy/all-owned shapes which carry no frozen ownership facts.
+pub fn compute_function_abi_from_shape<I>(
+    params: I,
+    return_type: Idx,
+    site: CallConvSite,
+    store: &TypeInfoStore<'_>,
+    ownership_classifier: Option<&dyn ArcClassification>,
+    repr_plan: Option<&ReprPlan>,
+) -> FunctionAbi
+where
+    I: IntoIterator<Item = (Name, Idx, Ownership)>,
+{
+    let params = params
+        .into_iter()
+        .map(|(name, ty, ownership)| {
+            let passing = ownership_classifier.map_or_else(
+                || compute_param_passing(ty, store, repr_plan),
+                |classifier| {
+                    compute_param_passing_with_ownership(
+                        ty,
+                        store,
+                        repr_plan,
+                        ownership,
+                        classifier.arc_class(ty),
+                    )
+                },
+            );
+            ParamAbi {
+                name,
+                ty,
+                passing,
+                readonly: ownership_classifier.is_some() && ownership == Ownership::Borrowed,
+            }
+        })
+        .collect();
+
+    FunctionAbi {
+        params,
+        return_abi: ReturnAbi {
+            ty: return_type,
+            passing: compute_return_passing(return_type, store, repr_plan),
+        },
+        call_conv: select_call_conv(site),
+    }
+}
+
 /// Compute the complete physical ABI for a function with borrow annotations.
 ///
 /// When `annotated_sig` is provided (from borrow inference), parameters
@@ -415,7 +327,7 @@ pub fn compute_param_passing_with_ownership(
 /// (pointer, no RC at call site). All other parameters use the standard
 /// size-based passing mode.
 ///
-/// When `annotated_sig` is `None`, falls through to `compute_function_abi()`.
+/// When `annotated_sig` is `None`, falls through to `compute_function_abi`.
 pub fn compute_function_abi_with_ownership(
     sig: &FunctionSig,
     store: &TypeInfoStore<'_>,
@@ -433,42 +345,39 @@ pub fn compute_function_abi_with_ownership(
         "param_names and param_types must be parallel (function {:?})",
         sig.name
     );
-    let params: Vec<ParamAbi> = sig
+    // annotated_sig is produced by borrow inference over THIS function — a
+    // length mismatch is an upstream invariant break; the Owned fallback
+    // below exists only for the genuinely-permitted None-annotated_sig path
+    // (handled by the early return above), never for a truncated sig.
+    debug_assert_eq!(
+        annotated_sig.params.len(),
+        sig.param_types.len(),
+        "annotated_sig params must be parallel to sig param_types (function {:?})",
+        sig.name
+    );
+    let params = sig
         .param_names
         .iter()
         .zip(sig.param_types.iter())
         .enumerate()
         .map(|(i, (&name, &ty))| {
-            let (ownership, arc_class) = if i < annotated_sig.params.len() {
-                (annotated_sig.params[i].ownership, classifier.arc_class(ty))
+            let ownership = if i < annotated_sig.params.len() {
+                annotated_sig.params[i].ownership
             } else {
                 // No annotation → default to owned (standard passing)
-                (Ownership::Owned, ArcClass::Scalar)
+                Ownership::Owned
             };
+            (name, ty, ownership)
+        });
 
-            ParamAbi {
-                name,
-                ty,
-                passing: compute_param_passing_with_ownership(
-                    ty, store, repr_plan, ownership, arc_class,
-                ),
-                readonly: ownership == Ownership::Borrowed,
-            }
-        })
-        .collect();
-
-    let return_abi = ReturnAbi {
-        ty: sig.return_type,
-        passing: compute_return_passing(sig.return_type, store, repr_plan),
-    };
-
-    let call_conv = select_call_conv("", sig.is_main, false);
-
-    FunctionAbi {
+    compute_function_abi_from_shape(
         params,
-        return_abi,
-        call_conv,
-    }
+        sig.return_type,
+        sig_call_conv_site(sig),
+        store,
+        Some(classifier),
+        repr_plan,
+    )
 }
 
 // Tests

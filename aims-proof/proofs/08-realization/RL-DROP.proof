@@ -1,0 +1,100 @@
+Theorem RL-DROP: scope-exit user @drop for a drop-glue value, gated on drop-glue existence INDEPENDENT of isScalar
+
+  Preconditions:
+    - RL-DROP governs the scope-exit user-`@drop` op for a value whose TYPE
+      carries a user `@drop` (drop-glue), per Annex E §AIMS logical
+      ownership-event realization:
+      "A value whose type carries a user `@drop` SHALL receive EXACTLY ONE
+      scope-exit user-drop CALL at its death point, gated on drop-glue
+      existence INDEPENDENT of its RC repr. The user-drop op carries
+      ref-count delta 0 (it is a `@drop` call, not an RC ref-count op)."
+    - The RC dec rules (RL-2 / RL-4 / RL-5) all gate dec emission on
+      `!isScalar`: a value whose monomorphized repr is `Scalar` carries no
+      logical owner-credit obligation and provably receives NO `RcDec`
+      (that gating is the soundness basis VF-1's `RcOnScalar` invariant
+      enforces). But a value's
+      TYPE may carry drop-glue INDEPENDENT of its RC repr — a `Scalar`-repr
+      struct (`type Guard = { id: int }` with `impl Guard: Drop`) has
+      drop-glue yet no logical ownership-credit event.
+    - The RC ops cannot express a scalar value's drop (an `RcDec` on a
+      `Scalar` is rejected by VF-1), so the realization op set carries a
+      SEPARATE `userDrop` op: a drop-glue CALL with ref-count delta 0.
+      Because `userDrop` is RC-balance-neutral, the `!isScalar` RcDec
+      invariant (RL-2/4/5) is preserved untouched — a scalar value still
+      receives no `RcDec`, only the balance-neutral `@drop` call.
+    - Current compiled-projection conformance evidence, not a theorem
+      precondition: the transitional ARC carrier represents the logical
+      death-point drop event as `RcStrategy::UserDrop` (ir/repr.rs), lowered
+      from a whole-var `BurdenDec` for a scalar+drop-glue var by
+      realize/emit_unified.rs::lower_burden_ops_to_rc. A never-used
+      scalar+drop-glue local is admitted by
+      lower/burden_lower/scan_orchestration.rs::emit_unused_scalar_user_drop_decs
+      (RL-2 unused-owned dec). VF-1's check_rc_instr_scalar exempts
+      `RcDec { strategy: UserDrop }` from `RcOnScalar`. The current LLVM
+      projection (arc_emitter/rc_ops.rs::emit_rc_dec_user_drop) emits only
+      the user `@drop` call (invoke + re-raise-only cleanup pad), no field
+      walk and no `ori_rc_dec`. VM, native, direct-WebAssembly, and JIT
+      planners must satisfy the same logical event without inheriting this
+      carrier or mechanism.
+
+  Soundness property:
+    Forall value v at its death point with drop inputs
+    (hasUserDrop, isScalar):
+
+      (P1) Emission decision: RL-DROP emits a scope-exit `userDrop` for v
+           iff hasUserDrop, INDEPENDENT of isScalar. A drop-glue value
+           always drops; a `@drop`-less value never does (whatever its repr).
+
+      (P2) Scalar-soundness: a `Scalar`-repr value with drop-glue emits the
+           balance-neutral `userDrop` AND NO `RcDec`. Its RC balance is 0 —
+           the `@drop` runs without ever placing an `RcDec` on a scalar
+           (which VF-1 would reject). The `!isScalar` RcDec invariant
+           (RL-2/4/5) is preserved, NOT weakened: `userDrop` is a distinct
+           op category (delta 0), so emitting it perturbs no RC-balance
+           ledger.
+
+      (P3) Exactly-once: a drop-glue value's death-point lifecycle carries
+           exactly ONE `userDrop` op — never duplicated (no double-drop) and
+           never elided (the cure: the prior RC-only realization
+           elided a scalar value's drop because every RC dec is
+           `!isScalar`-gated).
+
+  Proof obligation:
+    Discharged in the kernel-checked Lean corpus (AimsProof.Realization,
+    §8.1 RL-DROP block) — the authority per arc.md §Realization-semantics
+    grounding. The `.proof` is the human-readable companion; the compiled
+    Lean is the verified artifact.
+
+    Part (P1) — emission decision:
+      RLDROP_emit_on_drop_glue (rldrop_emits_user_drop d = d.hasUserDrop),
+      RLDROP_scalar_value_still_drops (forall isScalar, hasUserDrop implies emit),
+      RLDROP_no_glue_no_drop (forall isScalar, NOT hasUserDrop implies no emit).
+
+    Part (P2) — scalar-soundness (balance ledger):
+      RLDROP_user_drop_balance_neutral (rcBalance [RcOp.userDrop] = 0),
+      RLDROP_scalar_lifecycle_sound (a scalar drop-glue value's lifecycle =
+      [userDrop] only, balance 0, NO RcDec — the `!isScalar` invariant held).
+
+    Part (P3) — exactly-once:
+      RLDROP_exactly_once_on_glue (rldrop_lifecycle length 1 on drop-glue
+      regardless of isScalar; length 0 without drop-glue).
+
+    Part (P4) — copy-out (§8.1.1): a drop-glue aggregate VALUE-copied into a
+    still-live container (borrowed-store arg; the callee acquires a funded
+    copy) has its death point at the CONTAINER's teardown:
+      RLDROP_copyout_exactly_once (copied-out local fields-only release +
+      container teardown = ONE userDrop),
+      RLDROP_copyout_local_death_double_drops (negative witness: booking the
+      local site as a death point while the container carries the copy
+      DOUBLE-drops — length 2),
+      RLDROP_copyout_balanced (per-site funded decs; composition nets 0).
+
+    Negative-direction witness (the cured bug, REJECTED):
+      A scalar drop-glue value's RC-only realization (no `userDrop` op,
+      `RcDec` `!isScalar`-gated to nothing) emits ZERO drop ops — the
+      `@drop` is silently elided. Rejected by RLDROP_exactly_once_on_glue
+      (the scalar drop-glue lifecycle has length 1, not 0).
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: companion to the kernel-checked AimsProof.Realization §8.1 RL-DROP block (RLDROP_emit_on_drop_glue / RLDROP_scalar_value_still_drops / RLDROP_no_glue_no_drop / RLDROP_user_drop_balance_neutral / RLDROP_scalar_lifecycle_sound / RLDROP_exactly_once_on_glue), which is the verified discharge; a dedicated section_08 engine for the userDrop op category is future work

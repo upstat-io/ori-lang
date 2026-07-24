@@ -1,0 +1,56 @@
+Theorem TF-2a: Scalar PrimOp transfer produces SCALAR sentinel
+
+  Preconditions:
+    - Instruction is `Let { PrimOp(op, args) }` per Annex E §AIMS TF-2a
+    - The typed primitive descriptor classifies `result = Scalar`
+    - Descriptor arity equals `args.len`; every operand has an explicit
+      Borrow or Consume use
+    - `op` ranges over the scalar primitive operations enumerated in §3
+      TF-2a + Appendix A row 3: integer arithmetic / float arithmetic /
+      boolean / bitwise / comparison / shift kinds
+
+  Soundness property:
+    Forall typed PrimOp kinds op whose descriptor result is Scalar.
+      transfer_tf2a(Let { PrimOp(op, _) }) = SCALAR
+    AND L-6 layer (b) monotonicity holds for the constant function
+    f(_) = SCALAR.
+
+  Proof obligation:
+    Two-part discharge:
+      (a) Output enumeration — for each scalar PrimOp kind, the forward transfer
+          rule per Appendix A row 3 emits `dst.state := SCALAR` on every
+          per-dimension column (same shape as TF-1 row 1).
+      (b) L-6 layer (b) monotonicity — TF-2a is a constant function:
+          f(_) = SCALAR. Trivially monotone per the same argument as TF-1
+          (constant functions preserve every partial order by L-4
+          reflexivity on the constant codomain element).
+
+    Part (a) — PrimOp kind enumeration (representative coverage of the
+    primitive operation categories per Annex E §AIMS TF-2a):
+      Integer arithmetic: IntAdd / IntSub / IntMul / IntDiv / IntRem
+      Float arithmetic: FloatAdd / FloatMul
+      Boolean: BoolAnd / BoolOr / BoolNot
+      Bitwise: BitAnd / BitOr / BitXor / BitNot / Shl / Shr
+      Comparison: IntEq / IntLt / FloatEq
+      All 19 representative PrimOp kinds produce SCALAR per Appendix A row 3.
+      Per Annex E §AIMS TF-2a + §1.8 L-9: these descriptor-classified
+      outputs are scalar primitives outside the carrier-product domain;
+      SCALAR applies regardless of arity or signedness. Heap-producing typed
+      primitives are outside this quantifier and are governed by TF-2b.
+
+    Part (b) — constant-function monotonicity:
+      Identical argument to TF-1 Part (b): f(_) = SCALAR is constant;
+      L-4 reflexivity gives SCALAR ≤ SCALAR; hence f(a) ≤ f(b) for any
+      (a, b) in the input domain.
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) per-rule discharge per
+        section_04::verify_tf2a_primop_scalar — constant-function check)
+      case_analysis (PRIMARY — Appendix A row 3 forward-transfer enumeration
+        across 19 PrimOp kinds per section_04::verify_tf2a_primop_scalar)
+      lattice (SECONDARY — accepts gracefully)
+      refinement (SECONDARY — accepts gracefully)
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-2a via 19 descriptor-classified scalar PrimOp kinds + constant-function monotonicity check

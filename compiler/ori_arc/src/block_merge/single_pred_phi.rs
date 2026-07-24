@@ -1,4 +1,4 @@
-//! Phase 5: Eliminate block params on single-predecessor blocks.
+//! Eliminates block parameters on single-predecessor blocks.
 //!
 //! After Phase 4 merges single-predecessor Jump chains, some blocks may
 //! still have `params` with exactly one predecessor. Two cases:
@@ -30,8 +30,7 @@ pub(crate) fn eliminate_single_pred_params(func: &mut ArcFunction) {
     let predecessors = compute_predecessors(func);
     let entry_idx = func.entry.index();
 
-    // We need mutable access to `func.blocks[a_idx]` and `func.blocks[b_idx]`
-    // inside the loop, so we can't use an iterator over `predecessors`.
+    // Why: Index iteration permits disjoint mutable access to predecessor and successor blocks.
     #[expect(
         clippy::needless_range_loop,
         reason = "loop body mutates func.blocks at both a_idx and b_idx"
@@ -49,20 +48,20 @@ pub(crate) fn eliminate_single_pred_params(func: &mut ArcFunction) {
 
         let a_idx = predecessors[b_idx][0];
 
-        // Check if the single predecessor is a Jump with args
-        let is_jump_with_args = matches!(
-            &func.blocks[a_idx].terminator,
+        // Single destructure: predecessor terminating in a Jump targeting
+        // `b` with args carries the incoming param values.
+        let jump_args = match &func.blocks[a_idx].terminator {
             ArcTerminator::Jump { args, target, .. }
-                if !args.is_empty() && target.index() == b_idx
-        );
+                if !args.is_empty() && target.index() == b_idx =>
+            {
+                Some(args.clone())
+            }
+            _ => None,
+        };
 
-        if is_jump_with_args {
+        if let Some(jump_args) = jump_args {
             // Jump predecessor: convert params to Let bindings.
             let b_params = func.blocks[b_idx].params.clone();
-            let jump_args = match &func.blocks[a_idx].terminator {
-                ArcTerminator::Jump { args, .. } => args.clone(),
-                _ => unreachable!(),
-            };
 
             debug_assert_eq!(
                 b_params.len(),

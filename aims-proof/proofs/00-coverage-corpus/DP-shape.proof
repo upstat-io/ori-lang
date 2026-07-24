@@ -1,0 +1,53 @@
+Theorem DP-1: is_rc_needed truth table
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+      sec-Per-Dimension-Symbol-Set
+    - is_rc_needed: AimsState -> Bool per Annex E §AIMS DP-1 +
+      Appendix C truth table
+    - is_scalar(s) per L-9 (SCALAR is sentinel; excluded from lattice
+      operations)
+
+  Soundness property:
+    Forall s in AimsState.
+      is_rc_needed(s)
+        iff (s.access = O and s.consumption != Dead and not is_scalar(s))
+
+  Proof obligation:
+    Case analysis on (Access, Consumption, is_scalar) tuple per
+    Appendix C DP-1 truth table:
+      Case (s.access = Borrowed, any consumption, any is_scalar):
+        DP-1 returns false.
+        Soundness: predicate false (first conjunct fails).
+      Case (s.access = O, s.consumption = Dead, any is_scalar):
+        DP-1 returns false.
+        Soundness: predicate false (second conjunct fails).
+      Case (s.access = O, s.consumption != Dead, is_scalar = true):
+        DP-1 returns false.
+        Soundness: predicate false (third conjunct fails).
+      Case (s.access = O, s.consumption != Dead, is_scalar = false):
+        DP-1 returns true.
+        Soundness: predicate true (all three conjuncts hold);
+        s carries a refcountable owned non-scalar value requiring RC.
+
+    Exhaustiveness: the four cases cover all (Access, Consumption,
+    is_scalar) tuples; Access in {Borrowed, O} (2 values), Consumption
+    in {Dead, L, A, U} (4 values), is_scalar in {true, false} (2
+    values) -> 16 product combinations; cases above partition the 16
+    combinations by predicate value.
+
+    Live-variable set typed pre-pass dependency: NOT REQUIRED for DP-1
+    (DP-1 is a pure boolean predicate over canonical AimsState
+    dimensions; only DP-5 consumes the live-variable set per
+    Annex E §AIMS DP-5 + the proof-checker design Engine-per-Category-Inventory
+    DP row).
+
+    Engines dispatched:
+      case_analysis (for the (Access, Consumption, is_scalar) tuple
+                     enumeration above; refinement engine NOT dispatched
+                     per the proof-checker design DP row clarification —
+                     refinement has no DP work)
+
+  Expected:
+    status: valid
+    reason: section_05 case_analysis engine discharges DP-1 via 16-state Appendix C truth-table enumeration; DP-shape coverage flipped per the section-05 coverage manifest

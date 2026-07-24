@@ -1,6 +1,6 @@
 @main () -> int = {
     let fns = [x -> x + 1, x -> x * 2, x -> x - 1];
-    let result = catch(expr: () -> {
+    let result = catch(expr: {
         let idx = 0;
         for f in fns do {
             if idx == 1 then panic(msg: "test unwind closure");

@@ -1,12 +1,11 @@
 //! Enum-specific LLVM type resolution.
 //!
-//! Extracted from `layout_resolver.rs` for file size hygiene.
-//! Contains `resolve_enum()` and its three encoding-specific helpers:
+//! Contains `resolve_enum` and its three encoding-specific helpers:
 //! explicit tag, tagless (single-variant), and niche-encoded.
 
 use inkwell::types::BasicTypeEnum;
 
-use ori_types::{Idx, Tag};
+use ori_types::Idx;
 
 use super::info::EnumVariantInfo;
 use super::layout_resolver::TypeLayoutResolver;
@@ -26,21 +25,22 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
         variants: &[EnumVariantInfo],
     ) -> BasicTypeEnum<'ll> {
         if self.resolving.borrow().contains(&idx) {
-            if let Some(&named) = self.named_structs.borrow().get(&idx) {
-                return named.into();
-            }
+            // Recursive back-edge: always a heap-boxed pointer, never the
+            // named struct by-value (which would be infinitely sized).
             return self.scx.type_ptr().into();
         }
 
-        // §07.2: Check ReprPlan for niche/tagless encoding.
-        // Use resolve_fully to match the Idx used by canonical population.
-        let resolved_idx = self.store.pool().resolve_fully(idx);
-        if let Some(enum_repr) = self.repr_plan.and_then(|p| p.get_enum_repr(resolved_idx)) {
+        // Check ReprPlan for niche/tagless encoding via the SSOT ladder
+        // (plan-first, canonical fallback for variable-residue enum shapes).
+        if let Some(enum_repr) = self
+            .repr_plan
+            .and_then(|p| p.enum_repr_with_fallback(self.store.pool(), idx))
+        {
             if enum_repr.tag.is_tagless() {
                 return self.resolve_enum_tagless(idx, variants.first());
             }
             if enum_repr.tag.is_niche() {
-                return self.resolve_enum_niche(idx, variants, enum_repr);
+                return self.resolve_enum_niche(idx, variants, &enum_repr);
             }
             if enum_repr.tag.is_tagged_ptr() {
                 return self.resolve_enum_tagged_ptr(idx);
@@ -56,12 +56,12 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
         self.resolve_enum_explicit(idx, variants)
     }
 
-    /// §07.3.A: Resolve a tagged-pointer enum to a single LLVM `i64` value.
+    /// Resolve a tagged-pointer enum to a single LLVM `i64` value.
     ///
     /// The entire enum is encoded as `(payload_ptr | variant_tag)` in a
     /// 64-bit slot — there is no struct, no GEP, no per-variant LLVM type.
     /// All codegen consumers (Construct, Project, Switch, RC, drop, ABI)
-    /// dispatch on `is_tagged_ptr()` and use mask-based encode/decode.
+    /// dispatch on `is_tagged_ptr` and use mask-based encode/decode.
     ///
     /// Cycle safety: tagged-pointer eligibility (`can_use_tagged_pointer`)
     /// requires every payload to be a single-word pointer with no field
@@ -78,32 +78,29 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
         self.resolving.borrow_mut().insert(idx);
 
         // Enum payloads use [M x i64] layout where each field occupies
-        // at least one full i64 slot (8 bytes). Must match
-        // compute_variant_field_offsets() in drop_enum.rs and
-        // enum_payload_size() / pool_type_store_size() in ori_arc.
+        // at least one full i64 slot (8 bytes). The max-over-variants slot
+        // sum is shared with the ABI size walker via max_variant_payload_bytes
+        // (codegen::type_info::type_size) so the two cannot diverge. Must match
+        // compute_variant_field_offsets in drop_enum.rs and
+        // enum_payload_size / pool_type_store_size in ori_arc.
         //
-        // Unit/Never fields are zero-sized in Ori's type system
-        // but map to i64 in LLVM (because LLVM void can't be stored/phi'd).
-        // Skip them here so they don't inflate the payload size.
-        let mut max_payload_bytes: u64 = 0;
-        for variant in variants {
-            let variant_bytes: u64 = variant
-                .fields
-                .iter()
-                .map(|&f| {
-                    if !self.is_non_void_field(f) {
-                        return 0;
-                    }
-                    let ty = self.resolve(f);
-                    let size = Self::type_store_size(ty);
-                    // Round up to 8-byte i64 slot boundary
-                    size.div_ceil(8) * 8
-                })
-                .sum();
-            max_payload_bytes = max_payload_bytes.max(variant_bytes);
-        }
+        // Unit/Never fields are zero-sized in Ori's type system but map to i64
+        // in LLVM (because LLVM void can't be stored/phi'd); the shared helper
+        // skips them so they don't inflate the payload size.
+        let max_payload_bytes =
+            super::type_size::max_variant_payload_bytes(variants, self.store.pool(), |f| {
+                // A recursive variant field is a boxed `ptr` (one i64 slot)
+                // per the boxing SSOT — sized from the box, not by recursing
+                // into the field type (which would inline a mutually- or
+                // self-recursive back-edge when resolved standalone).
+                if self.position_is_rc_boxed(idx, f) {
+                    Self::type_store_size(self.scx.type_ptr().into())
+                } else {
+                    Self::type_store_size(self.resolve(f))
+                }
+            });
 
-        // §07.1: Use narrowed tag type (i8 for ≤256 variants) instead of i64.
+        // Use narrowed tag type (i8 for ≤256 variants) instead of i64.
         let tag_ty = match ori_repr::min_tag_width(variants.len()) {
             ori_repr::IntWidth::I8 => self.scx.type_i8(),
             ori_repr::IntWidth::I16 => self.scx.type_i16(),
@@ -126,7 +123,7 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
 
     /// Resolve single-variant enum (newtype erasure): no tag, struct IS the payload.
     ///
-    /// §07.2: `EnumTag::None` means a single-variant enum. The LLVM type is
+    /// `EnumTag::None` means a single-variant enum. The LLVM type is
     /// just the payload fields — no tag field at all.
     fn resolve_enum_tagless(
         &self,
@@ -140,12 +137,24 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
 
         // Single variant — resolve its fields as the struct body.
         // Tagless variants typically have 1-2 fields; Vec allocation is minimal.
+        //
+        // A recursive back-edge field is a heap-boxed `ptr` per the boxing SSOT
+        // (`position_is_rc_boxed`) — resolving it standalone would inline a
+        // self/mutually-recursive type. Mirror `resolve_struct_field`: box it
+        // to `ptr` so Construct/Project/drop/RC (which consult the same oracle)
+        // agree with the layout.
         if let Some(variant) = variant {
             let field_types: Vec<BasicTypeEnum<'ll>> = variant
                 .fields
                 .iter()
                 .filter(|&&f| self.is_non_void_field(f))
-                .map(|&f| self.resolve(f))
+                .map(|&f| {
+                    if self.position_is_rc_boxed(idx, f) {
+                        self.scx.type_ptr().into()
+                    } else {
+                        self.resolve(f)
+                    }
+                })
                 .collect();
 
             if field_types.is_empty() {
@@ -168,7 +177,7 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
 
     /// Resolve niche-encoded enum: no explicit tag field, payload IS the struct.
     ///
-    /// §07.2: `EnumTag::Niche` means the discriminant is encoded in an invalid
+    /// `EnumTag::Niche` means the discriminant is encoded in an invalid
     /// bit pattern of a payload field. The LLVM type is the data variant's
     /// payload (same layout as the inner type for simple cases like `Option<bool>`).
     fn resolve_enum_niche(
@@ -225,9 +234,6 @@ impl<'ll> TypeLayoutResolver<'_, 'll, '_> {
     /// (because LLVM void can't be stored/phi'd). Used by enum layout
     /// methods to skip phantom fields that don't contribute to payload size.
     fn is_non_void_field(&self, field: Idx) -> bool {
-        let pool = self.store.pool();
-        let resolved = pool.resolve_fully(field);
-        let tag = pool.tag(resolved);
-        !matches!(tag, Tag::Unit | Tag::Never)
+        super::field_is_non_void(self.store.pool(), field)
     }
 }

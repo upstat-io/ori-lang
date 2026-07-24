@@ -16,6 +16,7 @@
 //! `declare_runtime()` eagerly declares all functions. Used by unit tests
 //! that need the full set available in the LLVM module.
 
+mod families;
 pub(crate) mod runtime_functions;
 mod types;
 
@@ -61,13 +62,23 @@ fn resolve_ty(builder: &mut IrBuilder, ty: Ty) -> LLVMTypeId {
 }
 
 /// Apply an attribute to a declared function.
-fn apply_attr(builder: &mut IrBuilder, func: FunctionId, attr: Attr) {
+///
+/// `param_count` is the FINAL declared parameter count (after any sret
+/// pointer prepend) — `Attr::NoaliasLastParam` resolves against it.
+fn apply_attr(builder: &mut IrBuilder, func: FunctionId, attr: Attr, param_count: u32) {
     match attr {
         Attr::Nounwind => builder.add_nounwind_attribute(func),
         Attr::Noreturn => builder.add_noreturn_attribute(func),
         Attr::Cold => builder.add_cold_attribute(func),
         Attr::NoaliasReturn => builder.add_noalias_return_attribute(func),
         Attr::MemArgmemRW => builder.add_memory_argmem_readwrite_attribute(func),
+        Attr::NoaliasLastParam => {
+            assert!(
+                param_count > 0,
+                "Attr::NoaliasLastParam requires at least one declared parameter"
+            );
+            builder.add_noalias_attribute(func, param_count - 1);
+        }
     }
 }
 
@@ -76,7 +87,7 @@ fn apply_attr(builder: &mut IrBuilder, func: FunctionId, attr: Attr) {
 /// For return types > 16 bytes (`Str`, `List`, `Map`), the x86-64 `SysV` ABI
 /// requires sret convention: the caller allocates stack space and passes
 /// a pointer as the first argument; the callee writes the result there.
-/// We declare these as void-returning with an sret pointer prepended.
+/// Declares these as void-returning with a prepended sret pointer.
 fn declare_spec(builder: &mut IrBuilder, spec: &RtFn) -> FunctionId {
     let mut params: Vec<LLVMTypeId> = spec
         .params
@@ -103,16 +114,9 @@ fn declare_spec(builder: &mut IrBuilder, spec: &RtFn) -> FunctionId {
         builder.add_noalias_attribute(id, 0);
     }
 
-    // COW functions: last param (out_ptr) is always a fresh stack alloca from
-    // the caller — it never aliases any other accessible pointer. Marking it
-    // noalias lets LLVM optimize stores to the output without alias concerns.
-    if spec.name.ends_with("_cow") && !spec.params.is_empty() {
-        let out_ptr_idx = spec.params.len() as u32 - 1;
-        builder.add_noalias_attribute(id, out_ptr_idx);
-    }
-
+    let param_count = u32::try_from(params.len()).expect("runtime fn param count fits u32");
     for &attr in spec.attrs {
-        apply_attr(builder, id, attr);
+        apply_attr(builder, id, attr, param_count);
     }
     id
 }
@@ -157,7 +161,7 @@ pub fn try_declare_single(
 /// Used by tests that need the full set available. Production code uses
 /// `IrBuilder::runtime_fn()` for on-demand declaration.
 pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
-    for spec in RT_FUNCTIONS {
+    for spec in RT_FUNCTIONS.iter() {
         declare_single(builder, spec.name);
     }
 }

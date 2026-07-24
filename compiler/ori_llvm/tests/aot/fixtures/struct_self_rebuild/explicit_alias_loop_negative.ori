@@ -1,0 +1,15 @@
+// Over-fire negative: the loop-carried struct is bound to an intermediate
+// `let s = r` used by BOTH projections, so its whole-struct alias inc is NOT
+// elided (s is used twice -> Many cardinality). The kept inc backs both
+// duplications; the fix must not perturb this already-correct shape. Must run
+// leak-clean.
+type Pair = { a: [int], b: [int] }
+
+@main () -> int = {
+    let r = Pair { a: [1], b: [2] };
+    for i in 0..30 do {
+        let s = r;
+        r = Pair { a: s.a, b: s.b };
+    };
+    if r.a.len() == 1 then 0 else 1
+}

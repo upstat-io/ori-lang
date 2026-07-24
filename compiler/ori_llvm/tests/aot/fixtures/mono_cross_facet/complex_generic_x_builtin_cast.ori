@@ -1,0 +1,12 @@
+// Diagonal 2: complex-generic arg (`[Option<int>]` — Option nested in a list)
+// x builtin Apply/cast. `xs.len() as int` and `xs[0].unwrap() as int` both
+// route through the `__cast` protocol-builtin Apply over a nested-generic
+// container. Scalar-payload Options keep it leak-clean. Semantic pin: a wrong
+// list-mono, index, or dropped cast changes the printed value.
+
+@main () -> void = {
+    let $xs = [Some(10), Some(20), Some(30)];
+    let $n = xs.len() as int;
+    let $first = xs[0].unwrap() as int;
+    print(msg: `{n} {first}`);
+}

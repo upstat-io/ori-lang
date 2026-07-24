@@ -1,0 +1,3 @@
+trait Sized {
+    @size (self) -> int
+}

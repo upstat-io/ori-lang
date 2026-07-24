@@ -8,7 +8,7 @@ impl Person {
     @greet (self) -> str = "Hi, I'm " + self.name;
 }
 
-impl Greetable for Person {
+impl Person: Greetable {
     @greet (self) -> str = "Hello from " + self.name;
 }
 

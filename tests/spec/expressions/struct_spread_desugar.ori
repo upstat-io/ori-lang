@@ -1,0 +1,61 @@
+// Spec: 14-expressions.md § Struct literals + spread — `Point { ...p, x: 10 }`.
+// Exercises the parser's `StructWithSpread` production and its canonical desugar
+// to explicit field assignments (ori_canon `desugar_struct_with_spread`): a
+// spread copies the source struct's fields, then explicit fields override.
+// Covers the VALID same-struct-type spread (desugar correctness). The invalid
+// cross-struct / subset / superset soundness path is a separate concern.
+
+use std.testing { assert_eq }
+
+type Point = { x: int, y: int }
+
+// =============================================================================
+// Override one field via spread: `{ ...p, x: 10 }` keeps y, overrides x
+// =============================================================================
+
+@spread_override () -> Point = {
+    let $p = Point { x: 1, y: 2 };
+    Point { ...p, x: 10 }
+}
+
+@test_spread_override_x tests @spread_override () -> void = {
+    assert_eq(actual: spread_override().x, expected: 10)
+}
+
+@test_spread_override_y tests @spread_override () -> void = {
+    assert_eq(actual: spread_override().y, expected: 2)
+}
+
+// =============================================================================
+// Pure copy via spread: `{ ...p }` reproduces every field
+// =============================================================================
+
+@spread_copy () -> Point = {
+    let $p = Point { x: 7, y: 8 };
+    Point { ...p }
+}
+
+@test_spread_copy_x tests @spread_copy () -> void = {
+    assert_eq(actual: spread_copy().x, expected: 7)
+}
+
+@test_spread_copy_y tests @spread_copy () -> void = {
+    assert_eq(actual: spread_copy().y, expected: 8)
+}
+
+// =============================================================================
+// Override all fields explicitly after spread: later wins
+// =============================================================================
+
+@spread_override_all () -> Point = {
+    let $p = Point { x: 1, y: 2 };
+    Point { ...p, x: 100, y: 200 }
+}
+
+@test_spread_override_all_x tests @spread_override_all () -> void = {
+    assert_eq(actual: spread_override_all().x, expected: 100)
+}
+
+@test_spread_override_all_y tests @spread_override_all () -> void = {
+    assert_eq(actual: spread_override_all().y, expected: 200)
+}

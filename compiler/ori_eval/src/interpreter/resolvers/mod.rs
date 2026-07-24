@@ -54,25 +54,25 @@ pub enum MethodResolution {
 /// Collection method types that require evaluator access.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CollectionMethod {
-    /// [T].map(transform: T -> U) -> [U]
+    /// `[T].map(transform: T -> U) -> [U]`
     Map,
-    /// [T].filter(predicate: T -> bool) -> [T]
+    /// `[T].filter(predicate: T -> bool) -> [T]`
     Filter,
-    /// [T].fold(initial: U, op: (U, T) -> U) -> U
+    /// `[T].fold(initial: U, op: (U, T) -> U) -> U`
     Fold,
-    /// [T].find(predicate: T -> bool) -> Option<T>
+    /// `[T].find(predicate: T -> bool) -> Option<T>`
     Find,
-    /// Range<T>.`collect()` -> [T]
+    /// `Range<T>.collect() -> [T]`
     Collect,
     /// {K: V}.map(transform: (K, V) -> (K2, V2)) -> {K2: V2}
     MapEntries,
     /// {K: V}.filter(predicate: (K, V) -> bool) -> {K: V}
     FilterEntries,
-    /// [T].any(predicate: T -> bool) -> bool
+    /// `[T].any(predicate: T -> bool) -> bool`
     Any,
-    /// [T].all(predicate: T -> bool) -> bool
+    /// `[T].all(predicate: T -> bool) -> bool`
     All,
-    /// [T].join(sep: str) -> str
+    /// `[T].join(sep: str) -> str`
     Join,
 
     // Iterator methods (adapters + consumers)

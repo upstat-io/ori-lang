@@ -1,0 +1,110 @@
+// Spec: Clause 14 (Formattable trait, string interpolation) — user enum impls
+// Matrix: user sum-type (enum) with an explicit Formattable impl,
+// interpolated with a format spec, must dispatch the user format() on BOTH
+// the interpreter AND the LLVM backend (dual-execution parity). Pre-fix the
+// LLVM lowering routes every non-primitive FormatWith to ori_format_int and
+// fails IR verification; the interpreter dispatches correctly.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// User enum + explicit Formattable + format spec  (positive pin)
+// =============================================================================
+
+type Shape = Circle(radius: int) | Square(side: int) | Empty;
+
+impl Shape: Formattable {
+    @format (self, spec: FormatSpec) -> str = {
+        match self {
+            Circle(radius:) -> "circle(" + str(radius) + ")",
+            Square(side:) -> "square(" + str(side) + ")",
+            Empty -> "empty"
+        }
+    }
+}
+
+@test_enum_format_called tests @enum_format_called () -> void = {
+    let c = Circle(radius: 5);
+    let s = Square(side: 9);
+    let e = Empty;
+    // With a format spec, the user's format() runs (returns its raw string).
+    assert_eq(actual: `{c:>20}`, expected: "circle(5)");
+    assert_eq(actual: `{s:^10}`, expected: "square(9)");
+    assert_eq(actual: `{e:<8}`, expected: "empty")
+}
+
+@enum_format_called () -> str = {
+    let c = Circle(radius: 1);
+    `{c:>10}`
+}
+
+// =============================================================================
+// User enum + Formattable reading spec.width  (positive pin — spec passthrough)
+// =============================================================================
+
+type Labeled = Item(name: str) | Blank;
+
+impl Labeled: Formattable {
+    @format (self, spec: FormatSpec) -> str = {
+        let w = match spec.width {
+            Some(n) -> str(n),
+            None -> "none"
+        };
+        match self {
+            Item(name:) -> name + ":w=" + w,
+            Blank -> "blank:w=" + w
+        }
+    }
+}
+
+@test_enum_spec_width_passed tests @enum_spec_width_passed () -> void = {
+    let i = Item(name: "hi");
+    assert_eq(actual: `{i:>20}`, expected: "hi:w=20");
+    assert_eq(actual: `{i:>5}`, expected: "hi:w=5")
+}
+
+@enum_spec_width_passed () -> str = {
+    let i = Item(name: "x");
+    `{i:>10}`
+}
+
+// =============================================================================
+// User enum WITHOUT a format spec  (regression guard — to_str() path unchanged)
+// =============================================================================
+
+type Point = Pt(x: int, y: int);
+
+impl Point: Printable {
+    @to_str (self) -> str =
+        match self { Pt(x:, y:) -> "(" + str(x) + "," + str(y) + ")" }
+}
+
+@test_enum_no_spec_to_str tests @enum_no_spec_to_str () -> void = {
+    let p = Pt(x: 3, y: 4);
+    // No format spec: interpolation goes through to_str(), not FormatWith.
+    assert_eq(actual: `pt={p}`, expected: "pt=(3,4)")
+}
+
+@enum_no_spec_to_str () -> str = {
+    let p = Pt(x: 0, y: 0);
+    `{p}`
+}
+
+// =============================================================================
+// Printable-only user type WITH a format spec  (positive pin — branch (b))
+// to_str() = "(3,4)" then width/align applied via the str-format path.
+// =============================================================================
+
+@test_enum_printable_only_with_spec tests @enum_printable_only_with_spec () -> void = {
+    let p = Pt(x: 3, y: 4);
+    assert_eq(actual: `{p:>12}`, expected: "       (3,4)");
+    assert_eq(actual: `{p:<12}`, expected: "(3,4)       ");
+    assert_eq(actual: `{p:*^11}`, expected: "***(3,4)***")
+}
+
+@enum_printable_only_with_spec () -> str = {
+    let p = Pt(x: 1, y: 1);
+    `{p:>8}`
+}
+
+@main () -> void = print(msg: "User-enum Formattable tests");

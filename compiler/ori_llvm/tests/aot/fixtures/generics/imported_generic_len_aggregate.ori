@@ -1,0 +1,14 @@
+// Regression: an imported prelude generic `len<T: Len>` monomorphized on an
+// aggregate receiver ([int]/{str:int}/Set<int>) left the borrowed receiver a raw
+// ptr; emit_list_length / emit_map_length / emit_set_length did extract_value on
+// a ptr -> None -> the body returned the unit-default 0 under AOT (3 under interp).
+// The `len("abc")` line is the embedded negative control: str is already carved
+// out (str_to_ptr_forwarded) and must stay correct (3).
+@main () -> int = {
+    let a = len(collection: [1, 2, 3]);
+    let m = len(collection: {"a": 1, "b": 2});
+    let set3: Set<int> = [1, 2, 3].iter().collect();
+    let st = len(collection: set3);
+    let s = len(collection: "abc");
+    if a == 3 && m == 2 && st == 3 && s == 3 then 0 else 1
+}

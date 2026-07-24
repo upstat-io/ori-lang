@@ -36,7 +36,7 @@ impl Interpreter<'_> {
                 return Ok(Value::Bool(right_val.is_truthy()));
             }
             BinaryOp::Coalesce => {
-                // In canonical mode, we compare TypeIds directly (always available).
+                // Canonical mode compares TypeIds directly (always available).
                 let canon = self.canon_ref();
                 let is_chaining = canon.arena.ty(left) == canon.arena.ty(binary_id);
 
@@ -87,7 +87,6 @@ impl Interpreter<'_> {
         }
 
         // Ordering operators on user types: dispatch through compare method.
-        // The compare method returns Ordering, which we convert to bool.
         if matches!(
             op,
             BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq
@@ -110,6 +109,23 @@ impl Interpreter<'_> {
                 Ok(_) => {
                     Err(EvalError::new("compare method must return Ordering".to_string()).into())
                 }
+                Err(e) => Err(e),
+            };
+        }
+
+        // Equality operators on nominal user types: dispatch through the `eq`
+        // method (user `@eq` impl, or derived structural eq). LLVM calls the user
+        // `@eq` for `==` on these types; structural `evaluate_binary` here would
+        // diverge for a non-structural manual `@eq` (e.g. compares a subset of
+        // fields). The type checker requires `Eq` for `==`, so a registered `eq`
+        // always resolves. `!=` negates the `eq` result.
+        if matches!(op, BinaryOp::Eq | BinaryOp::NotEq)
+            && matches!(left_val, Value::Struct(_) | Value::Variant { .. })
+        {
+            let eq_result = self.eval_method_call(left_val, self.op_names.eq, vec![right_val]);
+            return match eq_result {
+                Ok(Value::Bool(b)) => Ok(Value::Bool(if op == BinaryOp::NotEq { !b } else { b })),
+                Ok(_) => Err(EvalError::new("eq method must return bool".to_string()).into()),
                 Err(e) => Err(e),
             };
         }
@@ -173,12 +189,9 @@ impl Interpreter<'_> {
             }
             Value::Int(n) if target == tn.char_ => {
                 let raw = n.raw();
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    clippy::cast_sign_loss,
-                    reason = "char::from_u32 validates the value"
-                )]
-                if let Some(c) = char::from_u32(raw as u32) {
+                // Validate BEFORE narrowing — truncating i64 to u32 first
+                // would wrap values like 2^32 + 65 into the valid range.
+                if let Some(c) = u32::try_from(raw).ok().and_then(char::from_u32) {
                     Ok(Value::Char(c))
                 } else if fallible {
                     return Ok(Value::None);

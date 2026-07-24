@@ -1,0 +1,32 @@
+// (Cross-pattern) Multi-block CFG: borrowed [int] param + 3-way nested
+// branching + Return from each leaf block. Verifies the pre-compute set
+// covers Return-as-transfer when the function has 3+ exit blocks
+// (catches block-id enumeration bugs in the cross-block walk).
+
+@borrow_multi_block_then_return (xs: [int], a: bool, b: bool) -> [int] = {
+    if a then {
+        if b then {
+            print(msg: `case-aa: {xs.len()}`);
+            xs
+        } else {
+            print(msg: `case-ab: {xs[0]}`);
+            xs
+        }
+    } else {
+        print(msg: `case-other: {xs.len()}`);
+        xs
+    }
+};
+
+@main () -> int = {
+    let original_aa = [1, 2, 3];
+    let r_aa = borrow_multi_block_then_return(xs: original_aa, a: true, b: true);
+    let original_ab = [4, 5];
+    let r_ab = borrow_multi_block_then_return(xs: original_ab, a: true, b: false);
+    let original_other = [6, 7, 8, 9];
+    let r_other = borrow_multi_block_then_return(xs: original_other, a: false, b: false);
+    let aa_ok = r_aa.len() == 3 && r_aa[0] == 1;
+    let ab_ok = r_ab.len() == 2 && r_ab[0] == 4;
+    let other_ok = r_other.len() == 4 && r_other[0] == 6;
+    if aa_ok && ab_ok && other_ok then 0 else 1
+}

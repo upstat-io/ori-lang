@@ -1,24 +1,23 @@
 //! Cross-block reuse planner.
 //!
-//! Consumes semantic facts (death/alloc events) from AIMS analysis and
-//! validates them against CFG geometry (dominator/post-dominator trees).
+//! Consumes logical donor/recipient facts from AIMS analysis and validates
+//! them against CFG geometry (dominator/post-dominator trees).
 //!
-//! Runs as part of step 7 in the pipeline (Section 06.2), AFTER RC emission
-//! (step 6) and BEFORE COW annotations (step 11a). This ordering is
-//! critical: RC emission may insert trampoline blocks (edge cleanup),
-//! which changes the CFG. The `ReusePlanner` must see the post-edge-cleanup
-//! CFG.
+//! The current transitional pipeline runs this after logical release placement
+//! and before COW annotations. Production freezes only the eligible pair and
+//! owner-credit transfer here; a VM or compiled layout plan selects and
+//! validates any storage-recycling mechanism.
 //!
 //! # v1 scope
 //!
-//! Static-unique cross-block reuse only. Dynamic cross-block reuse
-//! (`MaybeShared`) requires two-point CFG expansion — optimization
-//! opportunity; runtime `IsShared` fallback handles this case correctly.
+//! Static-unique cross-block eligibility only. `MaybeShared` requires a
+//! sharing-observation obligation; the physical planner chooses how to
+//! discharge it. The current carrier's `IsShared` CFG expansion is one
+//! projection, not an AIMS rule.
 //!
 //! # Reference
 //!
-//! - solutions.md Decision 4 (cross-block reuse)
-//! - Lean 4 `ExpandResetReuse.lean` (dominator-guided reuse)
+//! - Dominator-guided reset/reuse expansion (counting-immutable-beans technique)
 //! - FP2 reuse credits (Lorenzen et al., ICFP 2023)
 
 use rustc_hash::FxHashSet;
@@ -30,7 +29,7 @@ use crate::ir::{ArcBlockId, ArcFunction};
 
 use super::{AllocEvent, DeathEvent, ReuseOpportunity};
 
-/// Cross-block reuse planner.
+/// Cross-block logical reuse-eligibility planner.
 ///
 /// Consumes semantic facts (death/alloc events) from AIMS analysis
 /// and validates them against CFG geometry. Built lazily — dominator
@@ -45,7 +44,7 @@ pub(crate) struct ReusePlanner<'a> {
 }
 
 impl<'a> ReusePlanner<'a> {
-    pub fn new(func: &'a ArcFunction) -> Self {
+    pub(super) fn new(func: &'a ArcFunction) -> Self {
         Self {
             func,
             dom_tree: None,
@@ -53,9 +52,10 @@ impl<'a> ReusePlanner<'a> {
         }
     }
 
-    /// Find cross-block reuse opportunities from unmatched death/alloc events.
+    /// Find cross-block reuse opportunities from unmatched donor/recipient
+    /// events.
     ///
-    /// # Matching rule (Section 05.1)
+    /// # Matching rule
     ///
     /// For `DeathEvent d` and `AllocEvent a`:
     /// 1. `d.uniqueness` is `Unique` (v1: static-unique only)
@@ -70,14 +70,15 @@ impl<'a> ReusePlanner<'a> {
     /// Prefer nearest dominated/post-dominating target by block index
     /// (proxy for dominator depth). Same-shape preference is moot in v1
     /// (same-type implies same-shape).
-    pub fn find_opportunities(
+    pub(super) fn find_opportunities(
         &mut self,
         remaining_deaths: &[&DeathEvent],
         remaining_allocs: &[&AllocEvent],
     ) -> Vec<ReuseOpportunity> {
         // v1: only Unique deaths for cross-block reuse.
-        // MaybeShared cross-block: optimization opportunity — runtime IsShared
-        // fallback handles correctness; CFG expansion would eliminate the check.
+        // MaybeShared cross-block: the logical facts require a sharing
+        // observation. This transitional planner handles only statically
+        // unique pairs and leaves mechanism selection downstream.
         let unique_deaths: Vec<_> = remaining_deaths
             .iter()
             .filter(|d| d.uniqueness == Uniqueness::Unique)
@@ -97,7 +98,7 @@ impl<'a> ReusePlanner<'a> {
         }
 
         // Build dominator trees (lazy — only when needed).
-        // Spec: Section 05.1 — cost control: only build when candidates exist.
+        // Cost control: only build when candidates exist.
         let dom_tree = self
             .dom_tree
             .get_or_insert_with(|| DominatorTree::build(self.func));

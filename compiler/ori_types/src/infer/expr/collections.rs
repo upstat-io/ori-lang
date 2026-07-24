@@ -2,9 +2,12 @@
 
 use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
+use crate::{
+    ContextKind, Expected, ExpectedOrigin, Idx, IterMethodRoute, SequenceKind, Tag, TypeCheckError,
+};
+
 use super::super::InferEngine;
 use super::infer_expr;
-use crate::{ContextKind, Expected, ExpectedOrigin, Idx, SequenceKind, Tag, TypeCheckError};
 
 /// Check-direction dispatch for `iter.collect()` when the expected type is `Set<T>`.
 ///
@@ -13,9 +16,7 @@ use crate::{ContextKind, Expected, ExpectedOrigin, Idx, SequenceKind, Tag, TypeC
 /// default `[T]`. Returns `Some(ty)` with the unified Set type when the dispatch
 /// fires, `None` otherwise (the caller falls through to default infer+check).
 ///
-/// Extracted from `check_expr` in `infer/expr/mod.rs` to keep that module
-/// routing-only per `impl-hygiene.md §Side-Logic Rule` — the
-/// `MethodCall + expected Set` gate is collection-specific policy that
+/// The `MethodCall + expected Set` gate is collection-specific policy that
 /// belongs alongside the other `Collect`-trait helpers in this module.
 pub(crate) fn check_collect_method_call(
     engine: &mut InferEngine<'_>,
@@ -336,5 +337,13 @@ pub(crate) fn check_collect_to_set(
     let elem = engine.pool().iterator_elem(resolved);
     let set_ty = engine.pool_mut().set(elem);
     engine.store_type(expr_id.raw() as usize, set_ty);
+    engine.record_iter_route(
+        expr_id,
+        IterMethodRoute {
+            iter_ty: None,
+            adapter_ty: None,
+            collect_ty: Some(set_ty),
+        },
+    );
     Some(set_ty)
 }

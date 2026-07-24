@@ -3,7 +3,7 @@
 //! End-to-end tests verifying that trait methods, impl methods, and built-in
 //! method dispatch produce correct native code through the LLVM backend.
 //!
-//! Covers roadmap Section 3 items:
+//! Covers trait-system behaviors:
 //! - 3.0: Core library traits (Len, `IsEmpty`, Option, Result, Comparable, Eq)
 //! - 3.1: Trait declarations (default methods)
 //! - 3.2: Trait implementations (inherent impl, trait impl, method resolution)
@@ -20,7 +20,7 @@ use crate::util::{assert_aot_success, compile_and_run_capture};
 // 3.0.1: Len Trait — .len() codegen
 
 #[test]
-fn test_aot_list_len_basic() {
+fn test_aot_list_len_three_elements() {
     assert_aot_success(
         include_str!("fixtures/traits/aot_list_len_basic.ori"),
         "list_len_basic",
@@ -804,7 +804,7 @@ fn test_aot_int_into_float_zero() {
 // Regression: Analysis-only ARC lowering path coverage
 //
 // These tests exercise the impl-method analysis-only ARC lowering path
-// that feeds §03.5 range analysis. The codegen pipeline lowers impl method
+// that feeds interprocedural range analysis. The codegen pipeline lowers impl method
 // bodies into analysis-only ARC functions with type-qualified names. These
 // tests verify that the analysis-only lowering doesn't interfere with
 // normal codegen, including default trait methods and multi-impl types.
@@ -967,17 +967,18 @@ fn test_aot_option_debug_empty_list() {
 
 // Map debug formatting tests
 
-/// Map debug should format as `{key: value, ...}` not `<?>`.
-/// Keys use Printable semantics (unquoted strings), values use Debug semantics.
+/// Map debug should format as `{"key": value, ...}` not `<?>`.
+/// Per Spec Clause 8.12, `{K: V}` Debug QUOTES string keys (`{"a": 1}`); values
+/// use Debug semantics. The spec is SSOT over the prior unquoted-key expectation.
 #[test]
 fn test_aot_map_debug_str_keys() {
     let (exit_code, stdout, stderr) =
         compile_and_run_capture(include_str!("fixtures/traits/aot_map_debug_str_keys.ori"));
     assert_eq!(exit_code, 0, "map_debug_str_keys failed: {stderr}");
-    // Map iteration order may vary; check both entries are present
+    // Map iteration order may vary; check both entries are present (quoted keys).
     assert!(
-        stdout.contains("x: 1") && stdout.contains("y: 2"),
-        "Expected map entries 'x: 1' and 'y: 2' in output, got: '{stdout}'"
+        stdout.contains("\"x\": 1") && stdout.contains("\"y\": 2"),
+        "Expected map entries '\"x\": 1' and '\"y\": 2' in output, got: '{stdout}'"
     );
 }
 
@@ -1016,9 +1017,12 @@ fn test_aot_map_debug_nested_list_value() {
         "fixtures/traits/aot_map_debug_nested_list_value.ori"
     ));
     assert_eq!(exit_code, 0, "map_debug_nested_list_value failed: {stderr}");
+    // Spec Clause 8.12: `{K: V}` Debug QUOTES string keys (`{"a": 1, "b": 2}`);
+    // the nested `[int]` value formats inline. The spec is SSOT over the prior
+    // unquoted-key expectation.
     assert!(
-        stdout.contains("a: [1, 2]"),
-        "Expected 'a: [1, 2]' in output, got: '{stdout}'"
+        stdout.contains("\"a\": [1, 2]"),
+        "Expected '\"a\": [1, 2]' in output, got: '{stdout}'"
     );
 }
 
@@ -1030,9 +1034,12 @@ fn test_aot_option_debug_map_payload() {
         "fixtures/traits/aot_option_debug_map_payload.ori"
     ));
     assert_eq!(exit_code, 0, "option_debug_map_payload failed: {stderr}");
+    // Spec Clause 8.12.1: {K: V} Debug QUOTES string keys (`{"x": 1}`); the
+    // Option payload formats inline as `Some(...)`. The spec is SSOT over the
+    // prior unquoted-key expectation.
     assert!(
-        stdout.contains("Some({x: 1})"),
-        "Expected 'Some({{x: 1}})' in output, got: '{stdout}'"
+        stdout.contains("Some({\"x\": 1})"),
+        "Expected 'Some({{\"x\": 1}})' in output, got: '{stdout}'"
     );
     // Negative pin: must NOT contain the old broken output
     assert!(

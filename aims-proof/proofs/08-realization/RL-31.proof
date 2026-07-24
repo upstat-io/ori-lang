@@ -1,0 +1,62 @@
+Theorem RL-31: neutral disjoint-Borrowed-parameter fact (CRITICAL)
+
+  Preconditions:
+    - RL-31 governs a backend-neutral `ParameterDisjointnessFact`, not LLVM
+      metadata. Final realization freezes the fact once; VM, native, compiled
+      WebAssembly, JIT, and LLVM consumers transport it without rerunning AIMS.
+    - A pair is `proven` only when both parameters are Borrowed and BOTH
+      disjointness facets hold:
+        (a) every call site proves provenance disjointness;
+        (b) type-level disjointness holds through `BurdenSpec.field_type`.
+    - The provenance facet uses the full 8-clause sufficient condition:
+        (1) both params Borrowed;
+        (2) conjunction across ALL call sites;
+        (3) root-set extraction filters `project_alias_sources` to variables
+            with no upstream source;
+        (4) disjoint root sets prove distinct source aggregates;
+        (5) a fresh allocation contributes its own root;
+        (6) untraceable arguments fail conservatively;
+        (7) same-root fields are disjoint only when neither field path is a
+            prefix of the other;
+        (8) cross-function reasoning consumes the CALLERS' function-local
+            `borrow_sources` and `project_alias_sources`, not IC-2/IC-3 alone.
+    - RL-31 is the CRITICAL burden-prototype C5 closure and belongs to the
+      Lean/checker cross-validation set.
+
+  Soundness property:
+    (P1) `ParameterDisjointnessFact.proven` iff the all-sites provenance facet
+         and type facet both hold. Any failing/untraceable/overlapping site,
+         or either facet alone, yields `notProven`.
+
+    (P2) When a site proves disjointness, the two argument root sets have no
+         common source aggregate. Same-root field proofs require the nested
+         prefix-overlap test.
+
+    (P3) The neutral fact is the authority. LLVM may project it to parameter
+         `noalias` or alias-scope metadata only when a separate ABI/placement
+         proof preserves the relation. An unproven fact or invalid placement
+         forbids the target metadata. Other backends may use different physical
+         encodings without changing the AIMS fact.
+
+  Proof obligation:
+    The refinement engine checks:
+      - six provenance rows covering disjoint roots, fresh roots,
+        untraceable failure, disjoint same-root fields, prefix overlap, and a
+        non-Borrowed parameter;
+      - the all-sites conjunction in both directions;
+      - the dual-facet conjunction and type-only negative witness;
+      - LLVM projection fidelity as a distinct target corollary.
+
+    Lean 4 proves root-set soundness constructively, freezes
+    `ParameterDisjointnessFact` from the dual facets, and separately proves
+    `RL31_llvm_projection_fidelity` plus the unproven negative corollary.
+
+    Engines dispatched:
+      refinement (PRIMARY —
+        section_08::verify_rl31_neutral_parameter_disjointness)
+      rc_counting (SECONDARY — gracious-accept per coverage manifest)
+      case_analysis (SECONDARY — gracious-accept per coverage manifest)
+
+  Expected:
+    status: valid
+    reason: section_08 refinement discharges the neutral RL-31 fact through the full 8-clause all-sites provenance proof and the dual-facet conjunction, with conservative negative witnesses; LLVM alias metadata is validated only as a separate target projection

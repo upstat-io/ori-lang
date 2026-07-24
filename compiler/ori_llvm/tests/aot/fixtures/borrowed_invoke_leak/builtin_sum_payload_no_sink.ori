@@ -1,0 +1,25 @@
+// Pin 4 (builtin EnumVariant family, no-sink): fresh `Option<[int]>` (`Some([..])`)
+// and `Result<[int], str>` (`Ok([..])`) — niche/builtin sum Constructs owning a
+// heap [int] payload — are borrowed into user fns returning int. Each fresh
+// EnumVariant root dies on its borrowing call's edges with no dead-param sink;
+// the bare inline dec frees the live wrapper (and its [int]) before the read.
+// The EnumVariant-root admission covers the builtin Option/Result Constructs.
+// Spec: Annex E §AIMS RL-2 + RL-4.
+@opt_total (o: Option<[int]>) -> int = match o {
+    Some(xs) -> xs.fold(initial: 0, op: (acc, x) -> acc + x),
+    None -> 0,
+};
+
+@res_total (r: Result<[int], str>) -> int = match r {
+    Ok(xs) -> xs.fold(initial: 0, op: (acc, x) -> acc + x),
+    Err(_) -> -1,
+};
+
+@main () -> int = {
+    let o = Some([7, 8]);
+    let r = Ok([4, 5]);
+    let a = opt_total(o: o);
+    let b = res_total(r: r);
+
+    if a == 15 && b == 9 then 0 else 1
+}

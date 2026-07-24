@@ -1,0 +1,13 @@
+// Effect-only marker capabilities have no provider ABI and cannot be bound.
+
+#compile_fail(code: "E2001", message: "marker capability `Suspend` cannot be explicitly bound")
+@test_reject_suspend_provider tests _ () -> void = {
+    let _ = with Suspend = 1 in 1;
+    ()
+}
+
+#compile_fail(code: "E2001", message: "marker capability `Unsafe` cannot be explicitly bound")
+@test_reject_unsafe_provider tests _ () -> void = {
+    let _ = with Unsafe = 1 in 1;
+    ()
+}

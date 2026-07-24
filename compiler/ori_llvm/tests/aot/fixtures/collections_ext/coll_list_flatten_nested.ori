@@ -1,0 +1,6 @@
+@nested () -> [[int]] = [[1, 2], [3, 4]];
+
+@main () -> int = {
+    let $x = nested().flatten();
+    if x.length() == 4 then 0 else 1
+}

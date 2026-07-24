@@ -1,0 +1,12 @@
+// Option.ok_or ownership when the payload and fallback error alias
+use std.testing { assert_eq }
+
+@ok_or_managed_alias () -> Result<str, str> = {
+    let value = "managed ".concat(other: "ok_or alias");
+    let option: Option<str> = Some(value);
+    option.ok_or(err: value)
+}
+
+@test_ok_or_managed_alias tests @ok_or_managed_alias () -> void = {
+    assert_eq(actual: ok_or_managed_alias(), expected: Ok("managed ok_or alias"))
+}

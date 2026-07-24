@@ -1,0 +1,60 @@
+// Spec: 08-declarations.md § Function Declarations, § Type Definitions
+// grammar.ebnf `params` (function_decl / lambda_tail)
+// and `sum_body` are newline-silent productions — a declaration whose params
+// or variants are stacked one-per-line (the formatter's multi-line shape)
+// must parse, type-check, and execute identically to the single-line form.
+
+use std.testing { assert_eq }
+
+// Multi-line stacked function params
+@process_multiline_data (
+    input_data: int,
+    count: int,
+) -> int = input_data + count;
+
+@test_multiline_function_params tests @process_multiline_data () -> void = {
+    assert_eq(actual: process_multiline_data(input_data: 3, count: 4), expected: 7)
+}
+
+// Multi-line stacked typed-lambda params
+@test_multiline_typed_lambda_params tests _ () -> void = {
+    let add = (
+        a: int,
+        b: int,
+    ) -> int = a + b;
+    assert_eq(actual: add(a: 2, b: 5), expected: 7)
+}
+
+// Lambda body after `->` on the next line
+@test_lambda_body_after_arrow_newline tests _ () -> void = {
+    let increment = x ->
+        x + 1;
+    assert_eq(actual: increment(2), expected: 3)
+}
+
+// Multi-line sum type, bare first variant, continuation on its own line
+type MultilineEvent =
+    Click(x: int, y: int)
+    | KeyPress(key: char);
+
+@classify_multiline_event (e: MultilineEvent) -> int = match e {
+    Click(x, y) -> x + y,
+    KeyPress(key) -> key.to_int()
+}
+
+@test_multiline_sum_click tests @classify_multiline_event () -> void = {
+    assert_eq(actual: classify_multiline_event(e: Click(x: 3, y: 4)), expected: 7)
+}
+
+@test_multiline_sum_keypress tests @classify_multiline_event () -> void = {
+    assert_eq(actual: classify_multiline_event(e: KeyPress(key: 'a')), expected: 97)
+}
+
+// Multi-line struct body after `=` newline
+type MultilinePoint =
+    { x: int, y: int }
+
+@test_multiline_struct_body tests _ () -> void = {
+    let p = MultilinePoint { x: 1, y: 2 };
+    assert_eq(actual: p.x + p.y, expected: 3)
+}

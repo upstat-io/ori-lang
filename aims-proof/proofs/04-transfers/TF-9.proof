@@ -1,0 +1,88 @@
+Theorem TF-9: Reuse transfer produces FRESH with shape inherited from Reset
+
+  Preconditions:
+    - Instruction is `Reuse { token, args }` per Annex E §AIMS TF-9 +
+      Appendix A row 9
+    - `token` originates from a preceding `Reset` per RL-11 (same-block)
+      or RL-12 (cross-block); the Reset captured the original Construct's
+      shape (ReusableStruct or ReusableEnum) per the shape-inheritance
+      contract
+    - FRESH = `(Owned, Linear, Once, Unique, BlockLocal, shape, {may_alloc=true})`
+      per §3 TF-9 + Appendix A
+    - `shape` is INHERITED from the Reset token's original Construct shape;
+      Reuse is restricted to ReusableCtor shapes per RL-11 (CollectionReuse
+      handled separately as TF-9a)
+    - Structural pairing of Reset/Reuse validated at §08 RL-11/RL-12; §04
+      proves only forward-transfer correctness of the Reuse instruction
+
+  Soundness property:
+    Forall shape in {ReusableStruct, ReusableEnum}.
+      transfer_tf9(Reuse { token, _ }) where token.shape = shape
+        = FRESH(shape) = (Owned, Linear, Once, Unique, BlockLocal, shape,
+                         {may_alloc=true})
+    AND L-6 layer (b) monotonicity holds: TF-9 depends ONLY on the
+    statically-paired Reset token's shape, not on input AimsState; per-
+    shape f(_) = FRESH(shape) is constant.
+
+  Proof obligation:
+    Three-part discharge:
+      (a) Shape-inheritance enumeration — for each Reuse-eligible shape
+          (ReusableStruct, ReusableEnum), verify TF-9 emits FRESH(shape).
+      (b) Per-dimension column verification — the 6 non-shape columns
+          (Access, Consumption, Cardinality, Uniqueness, Locality, Effect)
+          are constants per Appendix A row 9.
+      (c) L-6 layer (b) monotonicity — TF-9 is per-token constant: for
+          fixed Reset-token shape, f(_) = FRESH(shape). For ANY pair of
+          input states (a, b) with a ≤ b, f(a) = f(b) = FRESH(shape),
+          hence f(a) ≤ f(b) by L-4 reflexivity.
+
+    Part (a) — shape-inheritance enumeration (2 Reuse-eligible shapes per
+    Annex E §AIMS Shape lattice + RL-11):
+      ReusableStruct: nominal struct type with stable type-id for
+        same-type Reset/Reuse pairing.
+      ReusableEnum: nominal enum variant with stable variant-id +
+        compatible payload layout.
+      Both inherit exactly one logical owner credit plus the Unique
+      invariant from the Reset of the dying value (RL-11 requires
+      Uniqueness = Unique for source).
+      CollectionBuffer + NonReusable + ContextHole NOT eligible for
+      Reuse (CollectionReuse uses TF-9a; NonReusable + ContextHole
+      have no nominal type-id for pairing).
+
+    Part (b) — per-dimension column verification (6 columns):
+      access = Owned per Appendix A row 9 — reused allocation owned by
+        the result.
+      consumption = Linear — fresh allocation slot, exactly-once consumed.
+      cardinality = Once — fresh allocation; downstream uses via TF-11.
+      uniqueness = Unique — one-logical-owner invariant inherited from
+        Reset (RL-11 requires source Unique).
+      locality = BlockLocal — Reuse fires within same allocation site or
+        dominator-validated cross-block region (RL-11 + RL-12 same-block /
+        post-dominator guarantee).
+      effect = {may_alloc=true} = 0b001 — Reuse is allocation-equivalent
+        at the AIMS layer. A satisfying physical plan may recycle, replace,
+        or otherwise realize storage while preserving the same fresh logical
+        result and exact owner-credit transfer.
+
+    Part (c) — per-token constant-function monotonicity:
+      For fixed Reset-token shape (Reusable* variant), TF-9 emits
+      FRESH(shape) — a constant function on its input AimsState.
+      Per L-4 reflexivity:
+        FRESH(shape) ≤ FRESH(shape) holds (componentwise on the product
+        lattice — every dimension reflexively comparable).
+      Verified via product_le(fresh(shape), fresh(shape)) = Some(true)
+      for each of the 2 Reuse-eligible shapes.
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) per-token constant-function
+        check per section_04::verify_tf9_reuse_fresh_inherited_shape)
+      case_analysis (PRIMARY — Appendix A row 9 forward-transfer-matrix
+        enumeration + 2-shape Reuse-eligibility enumeration per
+        section_04::verify_tf9_reuse_fresh_inherited_shape)
+      lattice (SECONDARY — accepts gracefully; product-order at §02)
+      refinement (SECONDARY — accepts gracefully; TF-9 emits FRESH
+        directly, not via refine())
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-9 via 2-shape Reuse-eligibility enumeration with inherited shape mapping + per-token constant-function monotonicity check

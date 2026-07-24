@@ -1,0 +1,50 @@
+// Axis 6 — Diagnostic message quality for E2001 refutable-pattern errors.
+// Each test pins a specific substring of the rendered message — reverting the
+// fix or weakening the renderer turns these tests red.
+
+use std.testing { assert_eq }
+
+type AddrBook = {
+    name: str,
+    addrs: [str],
+}
+
+// =============================================================================
+// Message includes the required-length phrasing for non-empty list patterns
+// =============================================================================
+
+#compile_fail(code: "E2001", message: "this list pattern requires exactly")
+@test_e2001_lists_uncovered_shape_for_list tests _ () -> void = {
+    let items = [1, 2, 3];
+    let [$a, $b] = items
+}
+
+// =============================================================================
+// Message recommends `match` per Spec 15-patterns.md § Pattern Refutability
+// =============================================================================
+
+#compile_fail(code: "E2001", message: "match")
+@test_e2001_suggests_match_for_list tests _ () -> void = {
+    let items = [1, 2, 3];
+    let [$x, $y] = items
+}
+
+// =============================================================================
+// Path prefix for nested struct: "at struct field"
+// =============================================================================
+
+#compile_fail(code: "E2001", message: "at struct field")
+@test_e2001_path_for_nested_struct tests _ () -> void = {
+    let p = AddrBook { name: "Eric", addrs: ["one", "two"] };
+    let { name: $n, addrs: [$a, $b] } = p
+}
+
+// =============================================================================
+// Path prefix for nested tuple: "at element N"
+// =============================================================================
+
+#compile_fail(code: "E2001", message: "at element 1")
+@test_e2001_path_for_nested_tuple tests _ () -> void = {
+    let pair: (int, [int]) = (42, [1, 2, 3]);
+    let ($a, [$x, $y]) = pair
+}

@@ -2,14 +2,15 @@
 //!
 //! Provides the runtime's interaction with the outside world:
 //! - **Print**: `ori_print`, `ori_print_int`, `ori_print_float`, `ori_print_bool`
-//! - **Panic**: `ori_panic`, `ori_panic_cstr` (with JIT recovery + user handler dispatch)
+//! - **Panic**: `ori_panic`, `ori_panic_cstr`, bounds panic helpers
 //! - **Assert**: `ori_assert`, `ori_assert_eq_*`
 //! - **Catch/recover**: `ori_catch_cleanup`, `ori_catch_recover`
-//! - **JIT recovery**: LLVM `invoke`/`landingpad` for test wrappers; legacy `setjmp`/`longjmp` fallback in `jit_run_protected` (`jit_recovery`)
+//! - **JIT recovery**: LLVM `invoke`/`landingpad` for test wrappers; `setjmp`/`longjmp` fallback in `jit_run_protected` (`jit_recovery`)
 //! - **Panic handler**: `ori_register_panic_handler` for user `@panic` functions (`panic_state`)
 
 pub(crate) mod jit_recovery;
 mod panic_state;
+mod trace;
 
 use std::ffi::{c_char, CStr};
 
@@ -20,6 +21,10 @@ pub use jit_recovery::{jit_run_protected, JmpBuf};
 pub use panic_state::{
     did_panic, get_panic_message, ori_register_panic_handler, reset_panic_state,
     set_panic_state_for_test,
+};
+pub use trace::{
+    OriError, OriTraceEntry, _ori_error_with_trace, _ori_format_error_trace,
+    _ori_inject_trace_entry,
 };
 
 #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
@@ -36,7 +41,7 @@ extern "C-unwind" {
     fn ori_raise_exception() -> !;
 }
 
-// ── Print functions ──────────────────────────────────────────────────────
+// Print functions
 
 /// Print a string to stdout.
 #[no_mangle]
@@ -71,16 +76,21 @@ pub extern "C" fn ori_print_bool(b: bool) {
     println!("{b}");
 }
 
-// ── Panic functions ──────────────────────────────────────────────────────
+// Panic functions
 
-/// Panic with a message.
+/// Panic with a message. OWNS the message: the caller transfers its message
+/// reference (callers pass a fresh +1 — ARC marks the arg Owned and dup-incs
+/// still-live messages; non-ARC emission sites inc explicitly).
 ///
 /// Dispatch order:
-/// 1. Store panic state (for JIT test assertions)
-/// 2. If user `@panic` handler registered and not re-entrant: call trampoline
-/// 3. Raise C exception (`_Unwind_RaiseException` on Itanium, `RaiseException` on MSVC).
+/// 1. Store panic state (for JIT test assertions) — copies the message text
+/// 2. Release the original message buffer (exactly-once: no caller-side
+///    release fires on any panic path; SSO/slice/immortal-aware)
+/// 3. If user `@panic` handler registered and not re-entrant: call trampoline
+/// 4. Raise C exception (`_Unwind_RaiseException` on Itanium, `RaiseException` on MSVC).
 ///    `catch(expr:)` landing pads catch the exception; uncaught panics propagate
-///    to the JIT test wrapper's catch-all landing pad.
+///    to the JIT test wrapper or process-main boundary, which emits the default
+///    diagnostic only after proving the panic was not caught by Ori code.
 #[no_mangle]
 pub extern "C-unwind" fn ori_panic(s: *const OriStr) {
     let msg = if s.is_null() {
@@ -90,16 +100,33 @@ pub extern "C-unwind" fn ori_panic(s: *const OriStr) {
         let ori_str = unsafe { &*s };
         // SAFETY: OriStr::as_str reads from the inline SSO buffer or heap data pointer.
         let text = unsafe { ori_str.as_str() };
-        text.to_string()
+        let text = text.to_string();
+
+        // Release the transferred message reference — the text was copied
+        // above, and `ori_catch_recover` reads thread-local state, never this
+        // buffer. ori_str_rc_dec skips SSO (bit-63 flag survives the union
+        // read of `heap.data`), routes slices to the original buffer, and
+        // no-ops on immortal (MAX_REFCOUNT) headers.
+        // SAFETY: heap union fields are plain i64/ptr reads valid for any
+        // 24-byte OriStr; ori_str_rc_dec classifies SSO/heap/slice itself.
+        unsafe {
+            crate::rc::ori_str_rc_dec(
+                ori_str.heap.data,
+                ori_str.heap.cap,
+                Some(crate::rc::ori_str_drop_buffer),
+            );
+        }
+        text
     };
 
     // Store panic state in thread-local storage
     panic_state::store_panic(&msg);
 
-    // Call user @panic handler if registered (AOT only, not re-entrant).
-    // If no handler is registered, print the default panic message.
-    if !panic_state::call_panic_trampoline(&msg) {
-        eprintln!("ori panic: {msg}");
+    // A registered user handler replaces the runtime's default uncaught report.
+    // The default report itself is deferred until an outer boundary proves the
+    // exception was not consumed by `catch(expr:)`.
+    if panic_state::call_panic_trampoline(&msg) {
+        panic_state::mark_panic_reported_by_handler();
     }
 
     dispatch_panic(msg);
@@ -120,11 +147,29 @@ pub extern "C-unwind" fn ori_panic_cstr(s: *const c_char) {
 
     panic_state::store_panic(&msg);
 
-    if !panic_state::call_panic_trampoline(&msg) {
-        eprintln!("ori panic: {msg}");
+    if panic_state::call_panic_trampoline(&msg) {
+        panic_state::mark_panic_reported_by_handler();
     }
 
     dispatch_panic(msg);
+}
+
+/// Panic after an invalid list or string index, reporting the failed bounds.
+#[cold]
+pub(crate) fn panic_index_out_of_bounds(index: i64, length: i64) {
+    let msg = format!(
+        "index out of bounds: index {index}, length {length}; use 0 <= index < length (Spec: Clause 14.1.2)\0"
+    );
+    ori_panic_cstr(msg.as_ptr().cast::<c_char>());
+}
+
+/// Panic after an invalid list index without touching collection storage.
+///
+/// Compact stack-backed lists use this entry point because they intentionally
+/// have no RC header for a general collection runtime to release.
+#[no_mangle]
+pub extern "C-unwind" fn ori_panic_index_out_of_bounds(index: i64, length: i64) {
+    panic_index_out_of_bounds(index, length);
 }
 
 /// Choose the correct panic recovery mechanism.
@@ -140,6 +185,10 @@ pub extern "C-unwind" fn ori_panic_cstr(s: *const c_char) {
     reason = "C-unwind ABI is for unwind semantics, not actual C interop — String stays in Rust frames"
 )]
 extern "C-unwind" fn dispatch_panic(msg: String) -> ! {
+    // Why: a second panic during drop cleanup cannot unwind safely.
+    if super::rc::drop_cleanup_active() {
+        super::rc::ori_drop_double_panic_abort();
+    }
     #[cfg(not(all(target_os = "windows", target_env = "msvc")))]
     {
         if super::jit_recovery::is_jit_mode() {
@@ -172,7 +221,7 @@ extern "C-unwind" fn aot_raise_exception(_msg: String) -> ! {
     unsafe { ori_raise_exception() }
 }
 
-// ── Catch/recover ────────────────────────────────────────────────────────
+// Catch/recover
 
 /// Free a caught exception from a `catch(expr:)` landing pad.
 ///
@@ -220,7 +269,40 @@ pub extern "C" fn ori_catch_recover() -> OriStr {
     OriStr::from_owned(&text)
 }
 
-// ── Assert functions ─────────────────────────────────────────────────────
+/// Emit the runtime's default diagnostic for a panic that reached a true
+/// uncaught boundary.
+///
+/// LLVM-generated process-main and test-wrapper boundaries call this only
+/// after catching an exception that escaped all source-level `catch(expr:)`
+/// handlers. A registered user `@panic` handler suppresses this default while
+/// preserving the stored message for recovery and test failure reporting.
+#[no_mangle]
+pub extern "C" fn ori_report_uncaught_panic() {
+    if let Some(msg) = panic_state::default_report_message() {
+        eprintln!("ori panic: {msg}");
+    }
+}
+
+/// Report the invariant failure where a native panic exhausted the exception
+/// stack without reaching a generated catch boundary.
+///
+/// The Itanium C shim calls this only after `_Unwind_RaiseException` returns.
+/// Keeping the message here preserves the original panic state and gives users
+/// a plain cause plus concrete evidence to include in a defect report.
+#[no_mangle]
+pub extern "C" fn ori_report_unhandled_exception(unwind_code: i32) {
+    ori_report_uncaught_panic();
+    eprintln!(
+        "ori: fatal — an uncaught panic reached the end of the native exception stack \
+         (unwinder code {unwind_code})"
+    );
+    eprintln!(
+        "ori: this is a compiler/runtime defect; report it with `ori --version` \
+         and the source program"
+    );
+}
+
+// Assert functions
 
 /// Assert that a condition is true.
 ///

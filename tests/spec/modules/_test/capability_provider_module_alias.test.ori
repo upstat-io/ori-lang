@@ -1,0 +1,22 @@
+// Module-alias calls preserve the imported signature's ordered capability
+// provider schema and pass the lexical provider into the qualified target.
+
+use std.testing { assert_eq }
+use "../capability_provider_lib" as counter_lib
+
+type AliasCounter = { value: int }
+
+impl AliasCounter: ImportedCounter {
+    @increment (self) -> int = self.value + 1;
+}
+
+@test_module_alias_capability_provider tests _ () -> void = {
+    let first = AliasCounter { value: 10 };
+    let second = AliasCounter { value: 40 };
+    let result = with ImportedCounter = first in {
+        let direct = counter_lib.imported_increment();
+        let transitive = with ImportedCounter = second in counter_lib.imported_forward();
+        direct + transitive
+    };
+    assert_eq(actual: result, expected: 52)
+}

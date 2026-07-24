@@ -1,0 +1,23 @@
+# Supply-chain hardening for the Ori compiler workspace (cargo-deny).
+# Dependency-audit gate: advisories (known-vuln), bans (duplicate/wildcard),
+# sources (registry/git allowlist). Defends against pulled-in vulnerable or
+# unexpected-origin crates and surfaces AI-suggested dependencies for review.
+#
+# Bedding-in: the lefthook `dep-audit` gate runs this warn-only via a shell
+# wrapper (`cargo deny check ... || echo ...` followed by an unconditional
+# `exit 0`) that surfaces findings without blocking. Promote to gating by
+# removing BOTH the `|| echo ...` warn-wrapper AND the trailing `exit 0` in
+# lefthook.yml once the advisory/source baseline is clean.
+
+[advisories]
+version = 2
+yanked = "warn"
+ignore = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
+
+[sources]
+unknown-registry = "warn"
+unknown-git = "warn"

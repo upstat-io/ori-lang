@@ -1,0 +1,15 @@
+// Diagonal 1: cross-module import (import_sig_by_name mono dispatch) x
+// complex-generic arg ([int]) x builtin Apply/cast. The imported generic
+// `id<[int]>` + `first<int>` mono instances lower in the host's merged pool;
+// the `[int]` result routes its length through the `__cast` protocol-builtin
+// Apply. Reverting the `import_sig_by_name` lookup re-surfaces E5001 for both
+// imported generics. Semantic pin: "3 10".
+
+use "./xfacet_idlib" { id, first }
+
+@main () -> void = {
+    let $xs = id(x: [10, 20, 30]);
+    let $n = xs.len() as int;
+    let $head = first(items: id(x: [10, 99]));
+    print(msg: `{n} {head}`);
+}

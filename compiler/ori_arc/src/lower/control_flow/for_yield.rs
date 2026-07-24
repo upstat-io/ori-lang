@@ -4,46 +4,69 @@
 //! element and collecting results. Three strategies based on iterable type:
 //!
 //! - **Option**: 0-or-1 element list via `Construct(ListLiteral, [])` or `[body_val]`.
-//! - **Range**: Iterator-based loop with `ori_list_new` + `ori_list_push`.
-//! - **Iterator/Collection**: Same as range — convert to iterator, loop, push.
+//! - **Range**: Direct counter loop with `ori_list_new` + `ori_list_push`.
+//! - **Iterator/Collection**: Convert to an iterator, loop, and push.
 
-use ori_ir::canon::{CanBindingPatternId, CanId};
 use ori_ir::Name;
 use ori_types::{Idx, Tag};
 
-use crate::ir::{ArcValue, ArcVarId, LitValue, PrimOp};
+use crate::ir::{ArcValue, ArcVarId, LitValue, MethodCallForm, YieldExtent};
 
-use super::super::expr::{ArcLowerer, ForYieldContext, LoopContext};
+use super::super::expr::{ArcLowerer, ForYieldContext, ForYieldShape};
+use super::iterator_flow::IteratorFlowSetup;
+
+struct YieldIteratorSetup {
+    flow: IteratorFlowSetup,
+    allocation: YieldListAllocation,
+}
+
+#[derive(Clone, Copy)]
+enum RangeEnd {
+    Exclusive,
+    Inclusive,
+}
+
+/// Carries allocation identity and normalized extent evidence between yield strategies.
+#[derive(Clone, Copy)]
+pub(super) struct YieldListAllocation {
+    /// Builder identity used by list mutation and realization.
+    pub(super) list_ptr: ArcVarId,
+    /// Lowered element-size operand for runtime list operations.
+    pub(super) elem_size_var: ArcVarId,
+    /// Semantic list element type.
+    pub(super) elem_ty: Idx,
+    /// Physical compatibility size passed to the current list runtime ABI.
+    pub(super) elem_size: u64,
+    /// Extent normalized to the runtime capacity ABI.
+    pub(super) extent: YieldExtent,
+}
 
 impl ArcLowerer<'_> {
     /// Dispatch for-yield to the appropriate strategy based on iterable type.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "lowering params are all semantically distinct"
-    )]
     pub(crate) fn lower_for_yield(
         &mut self,
-        pattern: CanBindingPatternId,
+        shape: ForYieldShape,
         iter_val: ArcVarId,
         iter_ty: Idx,
         tag: Tag,
-        guard: CanId,
-        body: CanId,
-        result_ty: Idx,
+        label: ori_ir::Name,
     ) -> ArcVarId {
         tracing::debug!(
-            pattern = ?pattern,
+            pattern = ?shape.pattern,
             ?tag,
-            has_guard = guard.is_valid(),
+            has_guard = shape.guard.is_valid(),
             "for_yield: enter"
         );
         if tag == Tag::Option {
             let elem_ty = self.pool.option_inner(iter_ty);
-            self.lower_for_yield_option(pattern, iter_val, elem_ty, guard, body, result_ty)
+            self.lower_for_yield_option(shape, iter_val, elem_ty, label)
+        } else if tag == Tag::Range {
+            let extent = self.yield_extent(shape.iter, iter_val, iter_ty, tag);
+            self.lower_for_yield_range(shape, iter_val, extent, label)
         } else {
-            // Range, Iterator, List, Set, Str, Map — all go through iterator loop.
+            let extent = self.yield_extent(shape.iter, iter_val, iter_ty, tag);
             let (iter_handle, elem_ty) = self.prepare_iterator(iter_val, iter_ty, tag);
-            self.lower_for_yield_iterator(pattern, iter_handle, elem_ty, guard, body, result_ty)
+            self.lower_for_yield_iterator(shape, iter_handle, elem_ty, extent, label)
         }
     }
 
@@ -52,10 +75,15 @@ impl ArcLowerer<'_> {
     /// Returns `(iterator_ptr_var, element_type)`.
     fn prepare_iterator(&mut self, iter_val: ArcVarId, iter_ty: Idx, tag: Tag) -> (ArcVarId, Idx) {
         if tag == Tag::Range {
-            let iter_name = self.interner.intern("iter");
-            let iter_handle = self
-                .builder
-                .emit_apply(Idx::INT, iter_name, vec![iter_val], None);
+            let iter_name = self
+                .interner
+                .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
+
+            let iter_handle =
+                self.builder
+                    .emit_apply(Idx::INT, iter_name, vec![iter_val], None, None);
+            self.builder
+                .note_method_call(iter_handle, iter_ty, MethodCallForm::Instance);
             (iter_handle, Idx::INT)
         } else if tag.is_iterator() {
             let elem_ty = self.pool.iterator_elem(iter_ty);
@@ -63,10 +91,15 @@ impl ArcLowerer<'_> {
         } else {
             let elem_ty = self.extract_yield_elem_type(tag, iter_ty);
 
-            let iter_name = self.interner.intern("iter");
-            let iter_handle = self
-                .builder
-                .emit_apply(Idx::INT, iter_name, vec![iter_val], None);
+            let iter_name = self
+                .interner
+                .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::Iter.name());
+
+            let iter_handle =
+                self.builder
+                    .emit_apply(Idx::INT, iter_name, vec![iter_val], None, None);
+            self.builder
+                .note_method_call(iter_handle, iter_ty, MethodCallForm::Instance);
 
             (iter_handle, elem_ty)
         }
@@ -87,261 +120,315 @@ impl ArcLowerer<'_> {
         }
     }
 
-    // lower_for_yield_option moved to for_yield_option.rs
-
-    /// Lower `for x in <iterator> yield body` — dynamic list building.
+    /// Lowers an iterator-backed comprehension into a growable list.
     ///
-    /// Uses `ori_list_new` to create a heap-allocated growable list,
-    /// `ori_list_push` to append each body result, and `ori_list_take`
-    /// to extract the final list struct and free the wrapper.
-    ///
-    /// Mutable variables from the enclosing scope are threaded through
-    /// the loop as header/exit block parameters (SSA phi nodes), matching
-    /// the for-do pattern in `for_iterator.rs`. This ensures assignments
-    /// to outer mutable variables inside the body are correctly propagated.
-    ///
-    /// ```text
-    /// entry:     list_ptr = ori_list_new(8, elem_size)
-    ///            jump → header(mut0, mut1, ...)
-    /// header:    next = __iter_next(iter)
-    ///            has_more = (tag != 0)
-    ///            branch(has_more, body, exit_prep)
-    /// body:      elem = project(next, 1)
-    ///            body_val = lower(body)
-    ///            ori_list_push(list_ptr, body_val, elem_size)
-    ///            jump → header(mut0', mut1', ...)
-    /// exit_prep: jump → exit(mut0, mut1, ...)
-    /// exit:      ori_iter_drop(iter)
-    ///            result = ori_list_take(list_ptr)
-    /// ```
-    #[expect(
-        clippy::too_many_lines,
-        reason = "iterator loop lowering with mutable-var SSA merge is inherently sequential"
-    )]
+    /// Mutable bindings flow through header and exit parameters. Exhaustion and
+    /// break paths converge before the iterator is dropped and the list is taken.
     fn lower_for_yield_iterator(
         &mut self,
-        pattern: CanBindingPatternId,
+        shape: ForYieldShape,
         iter_val: ArcVarId,
         elem_ty: Idx,
-        guard: CanId,
-        body: CanId,
-        result_ty: Idx,
+        extent: YieldExtent,
+        label: ori_ir::Name,
     ) -> ArcVarId {
-        let header_block = self.builder.new_block();
-        let body_block = self.builder.new_block();
-        let exit_block = self.builder.new_block();
-        // Branch can't carry args, so the normal exit path (iterator
-        // exhausted) goes header → exit_prep → exit with mutable params.
-        let exit_prep_block = self.builder.new_block();
-
-        // Collect outer mutable bindings for SSA merge through the loop,
-        // matching the for-do pattern in for_iterator.rs.
-        let pre_scope = self.scope.clone();
-        let mut mut_info: Vec<(Name, ArcVarId, Idx)> = Vec::new();
-        for (name, var) in pre_scope.mutable_bindings() {
-            let var_ty = self.builder.var_type_or_unit(var);
-            mut_info.push((name, var, var_ty));
-        }
-
-        // Determine the body result element type from the list result type.
-        // result_ty is `List<T>` — extract T for the element size.
-        let body_elem_ty = if self.pool.tag(result_ty) == Tag::List {
-            self.pool.list_elem(result_ty)
-        } else {
-            elem_ty // fallback: use iterator element type
-        };
+        let setup = self.prepare_yield_iterator_loop(shape.result_ty, elem_ty, extent);
 
         tracing::debug!(
-            pattern = ?pattern,
-            header_bb = header_block.index(),
-            body_bb = body_block.index(),
-            exit_bb = exit_block.index(),
-            mutable_vars = mut_info.len(),
-            has_guard = guard.is_valid(),
+            pattern = ?shape.pattern,
+            header_bb = setup.flow.header_block.index(),
+            body_bb = setup.flow.body_block.index(),
+            exit_bb = setup.flow.exit_block.index(),
+            mutable_vars = setup.flow.header_mut_params.len(),
+            has_guard = shape.guard.is_valid(),
             "for_yield_iterator: enter"
         );
 
-        // Allocate growable list: ori_list_new(initial_cap=8, elem_size)
-        let list_new = self.interner.intern("ori_list_new");
-        let eight = self
-            .builder
-            .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(8)), None);
-        let body_elem_size = self.compute_elem_size(body_elem_ty);
-        let elem_size_var = self.builder.emit_let(
-            Idx::INT,
-            ArcValue::Literal(LitValue::Int(body_elem_size)),
-            None,
-        );
-        // ori_list_new returns ptr (opaque); use INT type in ARC IR (scalar, no RC).
-        let list_ptr =
-            self.builder
-                .emit_apply(Idx::INT, list_new, vec![eight, elem_size_var], None);
-
-        // Header params: mutable vars from enclosing scope.
-        let mut header_mut_params = Vec::new();
-        for &(name, pre_var, var_ty) in &mut_info {
-            let param = self.builder.add_block_param(header_block, var_ty);
-            header_mut_params.push((name, pre_var, param));
-        }
-
-        // Exit block params: mutable vars.
-        let mut exit_mut_params = Vec::new();
-        for &(name, _, var_ty) in &mut_info {
-            let param = self.builder.add_block_param(exit_block, var_ty);
-            exit_mut_params.push((name, param));
-        }
-
-        // Entry jump: pass current mutable var values to header.
-        let entry_args: Vec<_> = header_mut_params
-            .iter()
-            .map(|(_, pre_var, _)| *pre_var)
-            .collect();
-        self.builder.terminate_jump(header_block, entry_args);
-
-        // Header: bind mutable params, call __iter_next.
-        self.builder.position_at(header_block);
-        self.scope = pre_scope.clone();
-        for &(name, _, param_var) in &header_mut_params {
-            self.scope.bind_mutable(name, param_var);
-        }
-
-        let iter_next = self
-            .interner
-            .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::IterNext.name());
-        // Use INT result type to suppress ARC RC on the wrapper struct.
-        // Pass elem_ty marker so the LLVM emitter can size the scratch buffer.
-        let elem_ty_marker =
-            self.builder
-                .emit_let(elem_ty, ArcValue::Literal(LitValue::Int(0)), None);
-        let next_result =
-            self.builder
-                .emit_apply(Idx::INT, iter_next, vec![iter_val, elem_ty_marker], None);
-
-        let tag = self.builder.emit_project(Idx::INT, next_result, 0, None);
-        let zero = self
-            .builder
-            .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(0)), None);
-        let has_more = self.builder.emit_let(
-            Idx::BOOL,
-            ArcValue::PrimOp {
-                op: PrimOp::Binary(ori_ir::BinaryOp::NotEq),
-                args: vec![tag, zero],
-            },
-            None,
-        );
-
-        if guard.is_valid() {
-            let guarded_block = self.builder.new_block();
-            self.builder
-                .terminate_branch(has_more, guarded_block, exit_prep_block);
-
-            self.builder.position_at(guarded_block);
-            let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
-            self.bind_for_pattern(pattern, elem, elem_ty);
-            let guard_val = self.lower_expr(guard);
-
-            let guard_skip = self.builder.new_block();
-            self.builder
-                .terminate_branch(guard_val, body_block, guard_skip);
-
-            // Guard skip: jump back to header with unmodified mutable vars.
-            self.builder.position_at(guard_skip);
-            let skip_args: Vec<_> = header_mut_params
-                .iter()
-                .map(|&(_, _, param)| param)
-                .collect();
-            self.builder.terminate_jump(header_block, skip_args);
-        } else {
-            self.builder
-                .terminate_branch(has_more, body_block, exit_prep_block);
-        }
-
-        // Body: extract element, evaluate body, push to list.
-        self.builder.position_at(body_block);
-        let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
-        self.bind_for_pattern(pattern, elem, elem_ty);
-
-        // Intern list_push before setting up LoopContext (break/continue need it).
+        let (next_result, has_more) = self.emit_iterator_next(iter_val, elem_ty);
         let list_push = self.interner.intern("ori_list_push");
-
-        // Set up LoopContext so break/continue work inside the yield body.
-        // Matches the for-do pattern in for_iterator.rs.
-        let mutable_var_entries: Vec<_> = header_mut_params
-            .iter()
-            .map(|&(name, _, param)| (name, param))
-            .collect();
-        let prev_loop = self.loop_ctx.take();
-        self.loop_ctx = Some(LoopContext {
-            exit_block,
-            continue_block: header_block,
-            mutable_vars: mutable_var_entries,
-            yield_ctx: Some(ForYieldContext {
-                list_ptr,
-                elem_size: elem_size_var,
+        self.push_iterator_loop_context(
+            label,
+            iter_val,
+            &setup.flow,
+            Some(ForYieldContext {
+                list_ptr: setup.allocation.list_ptr,
+                elem_size: setup.allocation.elem_size_var,
                 list_push_name: list_push,
             }),
-        });
+        );
 
-        let body_val = self.lower_expr(body);
+        self.lower_iterator_guard(
+            shape.pattern,
+            elem_ty,
+            shape.guard,
+            next_result,
+            has_more,
+            &setup.flow,
+        );
+        self.lower_yield_iterator_body(shape, elem_ty, next_result, list_push, &setup);
+        self.loop_ctx_stack.pop();
+        self.finish_yield_iterator(iter_val, shape.result_ty, setup)
+    }
 
-        if !self.builder.is_terminated() {
-            // Normal body completion: push result and jump to header.
-            // (If break/continue terminated, the handlers already handled
-            // the push and jump — skip this to avoid dead code.)
-            self.builder.emit_apply(
-                Idx::UNIT,
-                list_push,
-                vec![list_ptr, body_val, elem_size_var],
-                None,
-            );
+    fn prepare_yield_iterator_loop(
+        &mut self,
+        result_ty: Idx,
+        fallback_elem_ty: Idx,
+        extent: YieldExtent,
+    ) -> YieldIteratorSetup {
+        let body_elem_ty = if self.pool.tag(result_ty) == Tag::List {
+            self.pool.list_elem(result_ty)
+        } else {
+            fallback_elem_ty
+        };
+        let allocation = self.allocate_yield_list(body_elem_ty, extent);
+        let flow = self.prepare_iterator_flow(None);
+        YieldIteratorSetup { flow, allocation }
+    }
 
-            // Jump back to header with updated mutable var values.
-            let mut back_args: Vec<ArcVarId> = Vec::new();
-            back_args.extend(
-                header_mut_params
-                    .iter()
-                    .map(|&(name, _, param)| self.scope.lookup(name).unwrap_or(param)),
-            );
-            self.builder.terminate_jump(header_block, back_args);
+    /// Allocate a list builder while preserving normalized extent evidence.
+    pub(super) fn allocate_yield_list(
+        &mut self,
+        elem_ty: Idx,
+        extent: YieldExtent,
+    ) -> YieldListAllocation {
+        let list_new = self.interner.intern("ori_list_new");
+        let extent = representable_yield_extent(extent);
+        let capacity = match extent {
+            YieldExtent::StaticExact(exact) => {
+                let exact = i64::try_from(exact)
+                    .unwrap_or_else(|_| unreachable!("yield extent was normalized above"));
+                self.builder
+                    .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(exact)), None)
+            }
+            YieldExtent::RuntimeExact(var) => var,
+            YieldExtent::Unknown => {
+                self.builder
+                    .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(8)), None)
+            }
+        };
+        let elem_size = self.compute_elem_size(elem_ty);
+        let elem_size_var =
+            self.builder
+                .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(elem_size)), None);
+
+        let list_ptr = self.builder.emit_apply(
+            Idx::INT,
+            list_new,
+            vec![capacity, elem_size_var],
+            None,
+            None,
+        );
+
+        YieldListAllocation {
+            list_ptr,
+            elem_size_var,
+            elem_ty,
+            elem_size: elem_size.cast_unsigned(),
+            extent,
+        }
+    }
+
+    fn yield_extent(
+        &mut self,
+        iter_expr: ori_ir::canon::CanId,
+        iter_val: ArcVarId,
+        iter_ty: Idx,
+        tag: Tag,
+    ) -> YieldExtent {
+        if tag != Tag::Range {
+            return YieldExtent::Unknown;
+        }
+        let ori_ir::canon::CanExpr::Range { end, .. } = *self.arena.kind(iter_expr) else {
+            return YieldExtent::Unknown;
+        };
+        if !end.is_valid() {
+            return YieldExtent::Unknown;
         }
 
-        self.loop_ctx = prev_loop;
+        let start = self.builder.get_field_literal_int(iter_val, 0);
+        let end = self.builder.get_field_literal_int(iter_val, 1);
+        let step = self.builder.get_field_literal_int(iter_val, 2);
+        let inclusive = self.builder.get_field_literal_int(iter_val, 3);
+        if let (Some(start), Some(end), Some(step), Some(inclusive)) = (start, end, step, inclusive)
+        {
+            let end_kind = if inclusive == 0 {
+                RangeEnd::Exclusive
+            } else {
+                RangeEnd::Inclusive
+            };
+            return range_cardinality(start, end, step, end_kind)
+                .map_or(YieldExtent::Unknown, YieldExtent::StaticExact);
+        }
 
-        // Exit prep: normal loop exhaustion path.
-        self.builder.position_at(exit_prep_block);
-        let prep_args: Vec<_> = header_mut_params
+        let len_name = self.interner.intern("len");
+        let len = self
+            .builder
+            .emit_apply(Idx::INT, len_name, vec![iter_val], None, None);
+        self.builder
+            .note_method_call(len, iter_ty, MethodCallForm::Instance);
+        YieldExtent::RuntimeExact(len)
+    }
+
+    fn lower_yield_iterator_body(
+        &mut self,
+        shape: ForYieldShape,
+        elem_ty: Idx,
+        next_result: ArcVarId,
+        list_push: Name,
+        setup: &YieldIteratorSetup,
+    ) {
+        self.builder.position_at(setup.flow.body_block);
+        let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
+        self.bind_for_pattern(shape.pattern, elem, elem_ty);
+        let body_val = self.lower_expr(shape.body);
+        if self.builder.is_terminated() {
+            return;
+        }
+        self.builder.emit_apply(
+            Idx::UNIT,
+            list_push,
+            vec![
+                setup.allocation.list_ptr,
+                body_val,
+                setup.allocation.elem_size_var,
+            ],
+            None,
+            None,
+        );
+
+        let back_args = setup
+            .flow
+            .header_mut_params
+            .iter()
+            .map(|&(name, _, param)| self.scope.lookup(name).unwrap_or(param))
+            .collect();
+        self.builder
+            .terminate_jump(setup.flow.header_block, back_args);
+    }
+
+    fn finish_yield_iterator(
+        &mut self,
+        iter_val: ArcVarId,
+        result_ty: Idx,
+        setup: YieldIteratorSetup,
+    ) -> ArcVarId {
+        self.builder.position_at(setup.flow.exit_prep_block);
+        let prep_args = setup
+            .flow
+            .header_mut_params
             .iter()
             .map(|&(_, _, param)| param)
             .collect();
-        self.builder.terminate_jump(exit_block, prep_args);
+        self.builder
+            .terminate_jump(setup.flow.exit_block, prep_args);
 
-        // Exit: drop the iterator handle, then extract the final list.
-        self.builder.position_at(exit_block);
+        self.builder.position_at(setup.flow.exit_block);
         let iter_drop = self.interner.intern("ori_iter_drop");
         self.builder
-            .emit_apply(Idx::UNIT, iter_drop, vec![iter_val], None);
-
-        // Restore scope with final mutable var values from the exit block.
-        self.scope = pre_scope;
-        for &(name, param) in &exit_mut_params {
+            .emit_apply(Idx::UNIT, iter_drop, vec![iter_val], None, None);
+        self.scope = setup.flow.pre_scope;
+        for &(name, param) in &setup.flow.exit_mut_params {
             self.scope.bind_mutable(name, param);
         }
-
         let list_take = self.interner.intern("ori_list_take");
-        self.builder
-            .emit_apply(result_ty, list_take, vec![list_ptr], None)
+        let result = self.builder.emit_apply(
+            result_ty,
+            list_take,
+            vec![setup.allocation.list_ptr],
+            None,
+            None,
+        );
+
+        self.builder.note_yield_allocation(
+            setup.allocation.list_ptr,
+            result,
+            setup.allocation.elem_ty,
+            setup.allocation.elem_size_var,
+            setup.allocation.elem_size,
+            setup.allocation.extent,
+        );
+        result
     }
 
-    /// Compute element size in bytes for a given type.
+    /// Computes the LLVM/runtime ABI element size for list allocation and push.
     ///
-    /// Used to pass `elem_size` to `ori_list_new` and `ori_list_push`.
-    /// Must match `TypeLayoutResolver::type_store_size()` in `ori_llvm`
-    /// (sum of field sizes, no alignment padding).
+    /// This physical compatibility value is not backend-neutral layout authority.
     pub(super) fn compute_elem_size(&self, elem_ty: Idx) -> i64 {
         Self::type_store_size(elem_ty, self.pool, 0)
     }
 
     fn type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) -> i64 {
         super::type_layout::pool_type_store_size(ty, pool, depth)
+    }
+}
+
+fn range_cardinality(start: i64, end: i64, step: i64, end_kind: RangeEnd) -> Option<u64> {
+    if step == 0 {
+        return None;
+    }
+    let start = i128::from(start);
+    let end = i128::from(end);
+    let step = i128::from(step);
+    let inclusive = i128::from(matches!(end_kind, RangeEnd::Inclusive));
+    let span = if step > 0 {
+        let end = end + inclusive;
+        (end - start).max(0)
+    } else {
+        let end = end - inclusive;
+        (start - end).max(0)
+    };
+    let step_abs = step.abs();
+    let count = (span + step_abs - 1) / step_abs;
+    u64::try_from(count).ok()
+}
+
+fn representable_yield_extent(extent: YieldExtent) -> YieldExtent {
+    match extent {
+        YieldExtent::StaticExact(exact) if i64::try_from(exact).is_err() => YieldExtent::Unknown,
+        representable => representable,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{range_cardinality, representable_yield_extent, RangeEnd};
+    use crate::ir::YieldExtent;
+
+    #[test]
+    fn range_cardinality_handles_full_width_signed_boundaries() {
+        assert_eq!(
+            range_cardinality(i64::MIN, i64::MAX, 1, RangeEnd::Exclusive),
+            Some(u64::MAX)
+        );
+        assert_eq!(
+            range_cardinality(i64::MAX, i64::MIN, -1, RangeEnd::Exclusive),
+            Some(u64::MAX)
+        );
+        assert_eq!(
+            range_cardinality(i64::MIN, i64::MAX, 1, RangeEnd::Inclusive),
+            None
+        );
+        assert_eq!(
+            range_cardinality(i64::MAX, i64::MIN, -1, RangeEnd::Inclusive),
+            None
+        );
+    }
+
+    #[test]
+    fn range_cardinality_fails_closed_for_zero_step() {
+        assert_eq!(range_cardinality(0, 10, 0, RangeEnd::Exclusive), None);
+    }
+
+    #[test]
+    fn static_yield_extent_fails_closed_above_runtime_capacity_range() {
+        assert_eq!(
+            representable_yield_extent(YieldExtent::StaticExact(i64::MAX.cast_unsigned())),
+            YieldExtent::StaticExact(i64::MAX.cast_unsigned())
+        );
+        assert_eq!(
+            representable_yield_extent(YieldExtent::StaticExact(i64::MAX.cast_unsigned() + 1)),
+            YieldExtent::Unknown
+        );
     }
 }

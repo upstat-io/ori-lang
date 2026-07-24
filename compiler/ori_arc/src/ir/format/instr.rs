@@ -12,7 +12,7 @@ use crate::ir::{
 use ori_ir::StringInterner;
 use ori_types::Pool;
 
-use super::{fmt_strategy, fmt_var, fmt_var_typed};
+use super::{fmt_atomicity_suffix, fmt_strategy, fmt_var, fmt_var_typed};
 
 /// Format a single ARC instruction.
 ///
@@ -118,6 +118,7 @@ pub fn fmt_instr(
             var,
             count,
             strategy,
+            atomicity,
         } => {
             write!(
                 out,
@@ -129,9 +130,14 @@ pub fn fmt_instr(
             if *count > 1 {
                 write!(out, " x{count}").unwrap();
             }
+            out.push_str(fmt_atomicity_suffix(*atomicity));
         }
 
-        ArcInstr::RcDec { var, strategy } => {
+        ArcInstr::RcDec {
+            var,
+            strategy,
+            atomicity,
+        } => {
             write!(
                 out,
                 "RcDec {} [{}]",
@@ -139,6 +145,51 @@ pub fn fmt_instr(
                 fmt_strategy(*strategy),
             )
             .unwrap();
+            out.push_str(fmt_atomicity_suffix(*atomicity));
+        }
+
+        ArcInstr::RcDecPartial { var, skip_fields } => {
+            write!(
+                out,
+                "rc_dec_partial {} skip={:?}",
+                fmt_var(func, *var),
+                skip_fields
+            )
+            .unwrap();
+        }
+
+        ArcInstr::RcDecField { base, field } => {
+            write!(out, "rc_dec_field {}.{}", fmt_var(func, *base), field).unwrap();
+        }
+
+        ArcInstr::RcDecVariant { var } => {
+            write!(out, "rc_dec_variant({})", fmt_var(func, *var)).unwrap();
+        }
+
+        ArcInstr::BurdenInc { var } => {
+            write!(out, "burden_inc {}", fmt_var(func, *var)).unwrap();
+        }
+
+        ArcInstr::BurdenDec { var } => {
+            write!(out, "burden_dec {}", fmt_var(func, *var)).unwrap();
+        }
+
+        ArcInstr::BurdenDecPartial { var, skip_fields } => {
+            write!(
+                out,
+                "burden_dec_partial {} skip={:?}",
+                fmt_var(func, *var),
+                skip_fields
+            )
+            .unwrap();
+        }
+
+        ArcInstr::BurdenDecField { base, field } => {
+            write!(out, "burden_dec_field {}.{}", fmt_var(func, *base), field).unwrap();
+        }
+
+        ArcInstr::BurdenDecVariant { var } => {
+            write!(out, "burden_dec_variant({})", fmt_var(func, *var)).unwrap();
         }
 
         // Reuse operations
@@ -336,7 +387,7 @@ pub fn fmt_terminator(
     }
 }
 
-// ── Formatting helpers ──
+// Formatting helpers
 
 /// Format a literal or variable value (rhs of a Let instruction).
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]

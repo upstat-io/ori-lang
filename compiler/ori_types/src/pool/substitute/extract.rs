@@ -23,9 +23,7 @@ pub fn extract_var_from_types(
     target_var_id: u32,
 ) -> Option<Idx> {
     match pool.tag(generic_ty) {
-        // §08.3b.1 — match both `Tag::Var` (pre-normalization) and
-        // `Tag::BoundVar` (post-normalization scheme-body leaves per
-        // `types.md §SC-1`).
+        // Match both `Tag::Var` (pre-normalization) and `Tag::BoundVar`.
         Tag::Var | Tag::BoundVar => extract_var_leaf(pool, generic_ty, concrete_ty, target_var_id),
 
         // Single-child containers

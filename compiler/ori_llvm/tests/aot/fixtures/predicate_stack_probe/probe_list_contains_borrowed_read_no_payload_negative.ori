@@ -1,0 +1,5 @@
+@main () -> int = {
+    let items = ["one long string element here that exceeds sso", "two long string element here that exceeds sso"];
+    let has = items.contains(value: "one long string element here that exceeds sso");
+    if has then 0 else 1
+}

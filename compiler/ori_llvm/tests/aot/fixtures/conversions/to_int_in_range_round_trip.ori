@@ -1,0 +1,5 @@
+@main () -> int = {
+    let pos = 9.9;
+    let neg = -9.9;
+    if pos.to_int() == 9 && neg.to_int() == -9 then 0 else 1
+}

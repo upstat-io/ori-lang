@@ -1,0 +1,48 @@
+Theorem TF-1: Scalar literal transfer produces SCALAR sentinel
+
+  Preconditions:
+    - Instruction is `Let { Literal(kind) }` per Annex E §AIMS TF-1
+    - `kind` ranges over the scalar literal categories enumerated in §3 TF-1:
+      int / float / bool / char / byte / duration / size / Ordering / unit / Never
+    - SCALAR is the sentinel per Annex E §AIMS L-9 — NOT a lattice element
+
+  Soundness property:
+    Forall literal kinds k. transfer_tf1(Let { Literal(k) }) = SCALAR
+    AND L-6 layer (b) monotonicity holds for the constant function f(_) = SCALAR.
+
+  Proof obligation:
+    Two-part discharge:
+      (a) Output enumeration — for each of the 10 literal kinds, the forward
+          transfer rule per Appendix A row 1 emits `dst.state := SCALAR` on
+          every per-dimension column (Access / Consumption / Cardinality /
+          Uniqueness / Locality / Shape / Effect all = SCALAR).
+      (b) L-6 layer (b) monotonicity — TF-1 is a constant function: for ANY
+          pair of input states (a, b) with a ≤ b, f(a) = f(b) = SCALAR; by
+          L-4 reflexivity SCALAR ≤ SCALAR, hence f(a) ≤ f(b).
+
+    Part (a) — literal-kind enumeration (10 kinds per Annex E §AIMS TF-1):
+      int / float / bool / char / byte — primitive scalar payloads, no RC;
+      duration / size — unit-tagged 64-bit integer payloads, no RC;
+      Ordering — three-variant enum {Less, Equal, Greater}, payload-free;
+      unit — singleton `()`, payload-free;
+      Never — uninhabited bottom type, never constructed but kind enumerable.
+      All 10 collapse to the SCALAR sentinel row in Appendix A.
+
+    Part (b) — constant-function monotonicity:
+      Constant f(_) = c is trivially monotone: forall a, b. f(a) = f(b) = c,
+      and c ≤ c by L-4 reflexivity. SCALAR ≤ SCALAR holds definitionally
+      (the only valid comparison on SCALAR per L-9 — incomparability with
+      non-SCALAR states is intentional and not in this proof's scope).
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) per-rule discharge per
+        section_04::verify_tf1_scalar_literal — constant-function check)
+      case_analysis (PRIMARY — Appendix A row 1 forward-transfer enumeration
+        across 10 literal kinds per section_04::verify_tf1_scalar_literal)
+      lattice (SECONDARY — accepts gracefully; primary engines discharged)
+      refinement (SECONDARY — accepts gracefully; refinement is TF-6 / TF-6a
+        territory, not TF-1)
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-1 via 10-kind literal enumeration + constant-function monotonicity check

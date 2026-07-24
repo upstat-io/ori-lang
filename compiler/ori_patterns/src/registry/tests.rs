@@ -1,26 +1,22 @@
 use super::*;
 
 #[test]
-fn test_registry_has_all_patterns() {
+fn registry_resolves_every_function_exp_kind_to_a_named_pattern() {
     let registry = PatternRegistry::new();
-    assert_eq!(registry.len(), 15);
+    assert_eq!(registry.len(), FunctionExpKind::ALL.len());
 
-    // Verify each pattern is accessible (all FunctionExpKind variants are covered)
-    let _ = registry.get(FunctionExpKind::Recurse);
-    let _ = registry.get(FunctionExpKind::Parallel);
-    let _ = registry.get(FunctionExpKind::Spawn);
-    let _ = registry.get(FunctionExpKind::Timeout);
-    let _ = registry.get(FunctionExpKind::Cache);
-    let _ = registry.get(FunctionExpKind::With);
-    let _ = registry.get(FunctionExpKind::Print);
-    let _ = registry.get(FunctionExpKind::Panic);
-    let _ = registry.get(FunctionExpKind::Catch);
-    let _ = registry.get(FunctionExpKind::Todo);
-    let _ = registry.get(FunctionExpKind::Unreachable);
-    let _ = registry.get(FunctionExpKind::Channel);
-    let _ = registry.get(FunctionExpKind::ChannelIn);
-    let _ = registry.get(FunctionExpKind::ChannelOut);
-    let _ = registry.get(FunctionExpKind::ChannelAll);
+    // Cross-crate exhaustiveness: every FunctionExpKind variant declared in
+    // ori_ir must resolve to a registered Pattern with a non-empty name. A
+    // variant added to ori_ir::FunctionExpKind but left unregistered here is
+    // caught because `get`'s exhaustive match forces the registration AND this
+    // test proves each one yields a usable pattern.
+    for kind in FunctionExpKind::ALL {
+        let pattern = registry.get(kind);
+        assert!(
+            !pattern.name().is_empty(),
+            "{kind:?} must resolve to a pattern with a non-empty name"
+        );
+    }
 }
 
 #[test]
@@ -64,25 +60,12 @@ fn test_required_props() {
 }
 
 #[test]
-fn test_kinds_iterator() {
+fn kinds_iterator_yields_exactly_the_canonical_inventory() {
     let registry = PatternRegistry::new();
     let kinds: Vec<_> = registry.kinds().collect();
-    assert_eq!(kinds.len(), 15);
-    assert!(kinds.contains(&FunctionExpKind::Recurse));
-    assert!(kinds.contains(&FunctionExpKind::Parallel));
-    assert!(kinds.contains(&FunctionExpKind::Spawn));
-    assert!(kinds.contains(&FunctionExpKind::Timeout));
-    assert!(kinds.contains(&FunctionExpKind::Cache));
-    assert!(kinds.contains(&FunctionExpKind::With));
-    assert!(kinds.contains(&FunctionExpKind::Print));
-    assert!(kinds.contains(&FunctionExpKind::Panic));
-    assert!(kinds.contains(&FunctionExpKind::Catch));
-    assert!(kinds.contains(&FunctionExpKind::Todo));
-    assert!(kinds.contains(&FunctionExpKind::Unreachable));
-    assert!(kinds.contains(&FunctionExpKind::Channel));
-    assert!(kinds.contains(&FunctionExpKind::ChannelIn));
-    assert!(kinds.contains(&FunctionExpKind::ChannelOut));
-    assert!(kinds.contains(&FunctionExpKind::ChannelAll));
+    // kinds() derives from FunctionExpKind::ALL — pin it to the canonical
+    // inventory so neither side can drift without the other.
+    assert_eq!(kinds.as_slice(), FunctionExpKind::ALL.as_slice());
 }
 
 #[test]

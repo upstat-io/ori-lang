@@ -1,6 +1,6 @@
 //! Unit tests for `ListData` zero-copy slicing.
 
-// Arc is the intentional test subject — we verify Arc::ptr_eq for sharing.
+// Arc is the intentional test subject — Arc::ptr_eq asserts sharing.
 #![expect(clippy::disallowed_types, reason = "testing Arc sharing behavior")]
 
 use std::sync::Arc;
@@ -114,6 +114,39 @@ fn shared_mutation_clones() {
     assert_eq!(list.len(), 5);
 
     // No longer sharing backing
+    assert!(!Arc::ptr_eq(
+        list.backing().inner(),
+        clone.backing().inner()
+    ));
+}
+
+#[test]
+fn set_unique_ref_mutates_in_place() {
+    // rc==1: `set` (the `IndexSet.updated` substrate) keeps the same backing.
+    let mut list = sample_list();
+    let before = Arc::as_ptr(list.backing().inner());
+
+    list.set(1, Value::int(9));
+
+    assert_eq!(
+        Arc::as_ptr(list.backing().inner()),
+        before,
+        "unique-ref set must mutate in place (no reallocation)"
+    );
+    assert_eq!(list[1], Value::int(9));
+}
+
+#[test]
+fn set_shared_ref_clones_alias_unchanged() {
+    // rc>1: `set` forces a copy; the alias keeps the original elements.
+    let list = sample_list();
+    let mut clone = list.clone();
+    assert!(Arc::ptr_eq(list.backing().inner(), clone.backing().inner()));
+
+    clone.set(0, Value::int(99));
+
+    assert_eq!(clone[0], Value::int(99));
+    assert_eq!(list[0], Value::int(0), "alias must be unaffected");
     assert!(!Arc::ptr_eq(
         list.backing().inner(),
         clone.backing().inner()

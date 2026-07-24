@@ -1,0 +1,2 @@
+@make () -> [int] = for i in 0..=10 by 2 yield i;
+@main () -> int = if make().length() == 6 then 0 else 1;

@@ -1,15 +1,30 @@
 {
     "name": "ori-lang",
     "displayName": "Ori Language",
-    "description": "Syntax highlighting for the Ori programming language",
-    "version": "2026.4.26",
+    "description": "Syntax highlighting, language configuration, and snippets for the Ori programming language",
+    "version": "2026.7.24",
     "publisher": "ori-lang",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/upstat-io/ori-lang"
+    },
     "engines": {
         "vscode": "^1.75.0"
     },
     "categories": [
         "Programming Languages"
     ],
+    "scripts": {
+        "test": "node test/tokenize.js",
+        "package": "vsce package",
+        "install-extension": "vsce package -o ori-lang.vsix && code --install-extension ori-lang.vsix --force"
+    },
+    "devDependencies": {
+        "@vscode/vsce": "^3.9.2",
+        "vscode-oniguruma": "^2.0.1",
+        "vscode-textmate": "^9.0.0"
+    },
     "contributes": {
         "languages": [
             {
@@ -28,7 +43,22 @@
             {
                 "language": "ori",
                 "scopeName": "source.ori",
-                "path": "./syntaxes/ori.tmLanguage.json"
+                "path": "./syntaxes/ori.tmLanguage.json",
+                "unbalancedBracketScopes": [
+                    "keyword.operator.comparison.ori",
+                    "keyword.operator.bitwise.shift.ori",
+                    "keyword.operator.arrow.ori",
+                    "keyword.operator.fat-arrow.ori",
+                    "keyword.operator.pipe.ori",
+                    "keyword.operator.assignment.compound.ori",
+                    "keyword.operator.logical.ori"
+                ]
+            }
+        ],
+        "snippets": [
+            {
+                "language": "ori",
+                "path": "./snippets/ori.code-snippets"
             }
         ]
     }

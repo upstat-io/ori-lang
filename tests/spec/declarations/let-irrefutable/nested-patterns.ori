@@ -1,0 +1,81 @@
+// Axis 4 — Nested-pattern path coverage for the predicate's NestedRefutable arm.
+// Tuple/Struct outer with a refutable list sub-pattern produces E2001 with a
+// path-prefixed message. Counter-tests verify irrefutable nested forms still
+// compile.
+
+use std.testing { assert_eq }
+
+type Profile = {
+    name: str,
+    addrs: [str],
+}
+
+type Nested = {
+    profile: Profile,
+}
+
+type Pair = {
+    name: str,
+    age: int,
+}
+
+// =============================================================================
+// Tuple outer with refutable list inner — slot 1
+// =============================================================================
+
+#compile_fail(code: "E2001")
+@test_let_tuple_with_refutable_list_inner_rejects tests _ () -> void = {
+    let pair: (int, [int]) = (42, [1, 2, 3]);
+    let ($a, [$x, $y]) = pair
+}
+
+// =============================================================================
+// Tuple outer with refutable list inner — slot 2 of 3
+// =============================================================================
+
+#compile_fail(code: "E2001")
+@test_let_tuple_three_with_refutable_list_inner_rejects tests _ () -> void = {
+    let triple: (int, str, [int]) = (42, "x", [1, 2, 3]);
+    let ($a, $b, [$p, $q, ..rest]) = triple
+}
+
+// =============================================================================
+// Struct outer with refutable list inner — field `addrs`
+// =============================================================================
+
+#compile_fail(code: "E2001")
+@test_let_struct_field_with_refutable_list_inner_rejects tests _ () -> void = {
+    let p = Profile { name: "Eric", addrs: ["one", "two"] };
+    let { name: $n, addrs: [$a, $b] } = p
+}
+
+// =============================================================================
+// Deeply nested struct — refutable list inside a nested struct field
+// =============================================================================
+
+#compile_fail(code: "E2001")
+@test_let_nested_struct_with_refutable_list_inner_rejects tests _ () -> void = {
+    let n = Nested { profile: Profile { name: "Eric", addrs: ["one", "two"] } };
+    let { profile: { name: $name, addrs: [$a, $b] } } = n
+}
+
+// =============================================================================
+// Counter-tests — irrefutable nested forms compile
+// =============================================================================
+
+@test_let_tuple_with_simple_inner_accepts tests _ () -> void = {
+    let ($a, $b) = (1, 2);
+    assert_eq(actual: a + b, expected: 3)
+}
+
+@test_let_struct_with_field_alias_accepts tests _ () -> void = {
+    let person = Pair { name: "Eric", age: 42 };
+    let { name: $n, age: $a } = person;
+    assert_eq(actual: a, expected: 42)
+}
+
+@test_let_struct_with_rest_only_in_field_accepts tests _ () -> void = {
+    let p = Profile { name: "Eric", addrs: ["one", "two"] };
+    let { name: $n, addrs: [..rest] } = p;
+    assert_eq(actual: rest.len(), expected: 2)
+}

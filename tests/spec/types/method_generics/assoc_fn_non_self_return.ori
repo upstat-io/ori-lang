@@ -1,0 +1,24 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+//
+// Associated function (no self) on a generic impl whose RETURN type is NOT the
+// owning type (`-> Result<Box<T>, str>`, not `-> Box<T>`). Negative pin: the
+// LLVM mono-collection shell key shall derive from the owning impl receiver
+// (`Box<T>`), never from the return type — return-type-shell derivation would
+// key on `Result<Box<T>, str>` and mis-resolve. Same associated-function
+// dispatch path as dedup_receiver_type_assoc_fn.ori on a non-Self return shape;
+// interp passes, LLVM panics 'no method try_new on type int' until fixed.
+
+use std.testing { assert_eq }
+
+type Box<T> = { value: T }
+
+impl<T> Box<T> {
+    @try_new (v: T) -> Result<Box<T>, str> = Ok(Box { value: v });
+}
+
+@test_assoc_fn_non_self_return tests _ () -> void = {
+    let r: Result<Box<int>, str> = Box.try_new(v: 7);
+    let b: Box<int> = r.unwrap();
+    assert_eq(actual: b.value, expected: 7)
+}

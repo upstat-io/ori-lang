@@ -11,9 +11,6 @@ use std::path::{Path, PathBuf};
 
 use crate::diff;
 
-#[cfg(test)]
-mod tests;
-
 /// Check if bless mode is active.
 ///
 /// Only `ORI_BLESS=1` enables bless mode. Any other value (including
@@ -55,23 +52,18 @@ pub fn clean_stale_baselines(
         || active_revisions.len() == 1 && active_revisions[0].is_empty());
 
     if has_revisions {
-        // Test has revisions — delete non-revision baseline if it exists.
-        // Only deletes the unambiguous non-revision file (stem.suffix).
-        // Stale revision-specific cleanup is NOT done here because the
-        // naming convention (stem.<rev>.suffix) is ambiguous with artifact
-        // role suffixes (stem.before.suffix). Consumers handle specific
-        // revision cleanup in their TestStrategy implementation.
+        // Why: only the unambiguous `stem.suffix` is deleted; `stem.<rev>.suffix`
+        // collides with artifact role suffixes (`stem.before.suffix`), so
+        // revision-specific cleanup is delegated to `TestStrategy`.
         let non_rev = parent.join(format!("{stem}.{suffix}"));
         if non_rev.exists() {
             fs::remove_file(&non_rev)?;
             deleted.push(non_rev);
         }
     }
-    // No else branch: when there are no revisions, we do NOT scan for
-    // stale revision-specific baselines because the naming convention
-    // (stem.<middle>.suffix) is ambiguous with artifact role suffixes
-    // (stem.before.suffix) and sibling test baselines. Consumers handle
-    // specific cleanup in their TestStrategy::clean_stale_revisions().
+    // Why: no-revision case scans for nothing — `stem.<middle>.suffix` is
+    // ambiguous with artifact roles and sibling baselines; consumers clean
+    // those via `TestStrategy::clean_stale_revisions()`.
 
     Ok(deleted)
 }
@@ -127,3 +119,6 @@ pub fn compare_or_bless(
         })
     }
 }
+
+#[cfg(test)]
+mod tests;

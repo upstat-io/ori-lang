@@ -21,14 +21,17 @@ use ori_ir::TokenKind;
 /// - Set intersection: O(1) via bitwise AND
 ///
 /// # Example
-/// ```ignore
+///
+/// ```
+/// use ori_ir::TokenKind;
+/// use ori_parse::TokenSet;
+///
 /// const STMT_BOUNDARY: TokenSet = TokenSet::new()
 ///     .with(TokenKind::At)
 ///     .with(TokenKind::Use);
 ///
-/// if STMT_BOUNDARY.contains(&TokenKind::At) {
-///     // O(1) lookup
-/// }
+/// assert!(STMT_BOUNDARY.contains(&TokenKind::At));
+/// assert!(!STMT_BOUNDARY.contains(&TokenKind::Eof));
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TokenSet([u128; 2]);

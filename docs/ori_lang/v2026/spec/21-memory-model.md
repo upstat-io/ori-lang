@@ -7,9 +7,16 @@ section: "Language"
 
 # 21 Memory model
 
-Ori uses Automatic Reference Counting (ARC) without cycle detection. This is made possible by language design choices that structurally prevent reference cycles.
+Ori specifies automatic, exactly-once ownership cleanup without tracing cycle detection. Language design choices structurally prevent reference cycles, and every admitted executor shall preserve the same value, lifetime, drop, and error behavior.
 
-## 21.1 Why pure ARC works
+NOTE  The reference compiler's current compiled projection uses Automatic
+Reference Counting (ARC). The backend-neutral compile-time ownership calculus
+is documented in Annex E §AIMS. The historical “ARC Intelligent Memory System”
+expansion is non-normative and does not restrict AIMS to that projection.
+
+AIMS spans a product lattice over Access, Consumption, Cardinality, Uniqueness, Locality, Shape, and Effect dimensions, with interprocedural contracts and a layered verification stack; it does not mandate a counter-based physical realization.
+
+## 21.1 Why cycle-free automatic ownership works
 
 Most languages using ARC require either cycle detection (Python, PHP) or manual weak reference annotations (Swift, Objective-C). Ori requires neither because its execution model produces directed acyclic graphs (DAGs) by construction.
 
@@ -89,20 +96,20 @@ let f = () -> x + 1;  // f contains a copy of 5, not a reference to x
 
 This eliminates the most common source of cycles in functional-style code.
 
-### 21.1.5 Closure representation
+### 21.1.5 Closure capture semantics
 
-A closure is represented as a struct containing captured values:
+A closure semantically carries a capture aggregate containing its captured values. The selected physical plan may encode that aggregate as inline fields, an environment object or handle, a struct, or another validated representation. The following sketch shows logical capture fields, not an ABI or machine layout:
 
 ```ori
 let x = 10;
 let y = "hello";
 let f = () -> `{y}: {x}`;
 
-// f is approximately:
+// f logically carries:
 // type _Closure_f = { captured_x: int, captured_y: str }
 ```
 
-For reference-counted types (lists, maps, custom types), the closure stores the reference (incrementing the reference count), not a deep copy of the data.
+For ownership-bearing types (lists, maps, custom types), the closure stores a value sharing the same logical storage identity and receives its own owner credit rather than deep-copying the data. A counter-based projection may realize that credit with an increment; the counter is not language semantics.
 
 ### 21.1.6 Self-referential types forbidden
 
@@ -128,7 +135,7 @@ type Graph = { nodes: [NodeData], edges: [(int, int)] }
 
 ### 21.1.7 Summary
 
-Pure ARC works in Ori because:
+Cycle-free automatic ownership works in Ori because:
 
 1. **Blocks enforce DAGs** — Data flows forward through `{ }` blocks, `try`, `match`
 2. **Value capture prevents closure cycles** — No reference back to enclosing scope
@@ -137,34 +144,29 @@ Pure ARC works in Ori because:
 
 These are not conventions — they are language invariants enforced by the compiler.
 
-## 21.2 Reference counting
+## 21.2 Logical ownership credits
 
-| Operation | Effect |
-|-----------|--------|
-| Value creation | Count = 1 |
-| Reference copy | Count + 1 |
-| Reference drop | Count - 1 |
-| Count = 0 | Value destroyed |
+| Operation | Logical effect |
+|-----------|----------------|
+| Owned value creation | Establish one owner credit |
+| Owned duplication | Establish one additional owner credit |
+| Ownership transfer | Move one credit without creating or discharging it |
+| Owner death | Discharge one credit |
+| Final owner death | Run the exact drop plan and reclaim the selected physical storage |
 
-References are copied on assignment, argument passing, field storage, return, closure capture.
+Owned values may be duplicated or transferred by assignment, argument passing, field storage, return, and closure capture according to the compiler's inferred ownership contract.
 
-References are dropped when variables go out of scope or are reassigned.
+Owner credits are discharged when their bindings die or are replaced and have not transferred the credit elsewhere.
 
-### 21.2.1 Atomicity
+### 21.2.1 Thread-safe physical realization
 
-All reference count operations are atomic. This ensures correct deallocation when values are shared across concurrent tasks.
+An executor shall use a physical ownership mechanism safe for the value's proved thread reachability. A potentially shared value requires a shared-safe capability; a proven thread-confined value may use a confined specialization.
 
-| Operation | Atomic Instruction | Memory Ordering |
-|-----------|-------------------|-----------------|
-| Increment | Fetch-add | Relaxed |
-| Decrement | Fetch-sub | Release |
-| Deallocation check | Fence before free | Acquire |
+Permitted mechanisms include atomic or non-atomic counters, ownership transfer, regions, static storage, locks, tags, side tables, or another validated realization. The mechanism shall preserve every logical owner-credit event, exactly-once cleanup, visibility, and observable behavior.
 
-Increment uses Relaxed ordering because the incrementing thread already has access to the object. Decrement uses Release ordering to ensure all prior writes to the object are visible to other threads that may subsequently decrement. The Acquire fence before deallocation ensures the deallocating task observes all prior writes to the object from all other tasks.
+NOTE  The current compiled ARC runtime uses atomic fetch-add/fetch-sub operations and a fence before final reclamation for potentially shared objects. That is an informative projection detail documented in Annex E §ARC Runtime, not a language requirement or an AIMS fact.
 
-The observable behavior shall be identical regardless of whether atomic or non-atomic operations are used.
-
-NOTE  An implementation may use non-atomic operations for values that provably do not escape the current task. This is an optimization; the observable behavior is identical.
+The observable behavior shall be identical for every admitted mechanism.
 
 ## 21.3 Destruction
 
@@ -180,18 +182,20 @@ trait Drop {
 }
 ```
 
-When a value's reference count reaches zero, its `Drop.drop` method is called if implemented. Drop is called before memory is reclaimed.
+When a value reaches its exactly-once logical death point, its `Drop.drop` method is called if implemented. Drop runs before the value's selected storage is reclaimed.
+
+A physical projection may discover the final-owner event with a reference count, but that counter is not part of the language semantics and counter-free values still obey the same rule.
 
 `Drop` is included in the prelude.
 
 ### 21.3.2 Destructor timing
 
-Destructors run when reference count reaches zero:
+Destructors run at the final logical owner/cleanup event:
 
 | Context | Timing |
 |---------|--------|
 | Local binding out of scope | Immediately at scope end |
-| Last reference dropped | Immediately after drop |
+| Final logical owner relinquished | Immediately after the ownership release |
 | Field of struct dropped | After struct destructor |
 | Collection element | When removed or collection dropped |
 
@@ -274,11 +278,11 @@ impl AsyncResource: Drop {
 
 When a task is cancelled, destructors still run during unwinding.
 
-## 21.4 Reference counting optimizations
+## 21.4 Ownership and storage optimizations
 
-An implementation may optimize reference counting operations provided the following observable behavior is preserved:
+An implementation may optimize logical ownership events and physical storage operations provided the following observable behavior is preserved:
 
-1. Every reference-counted value is deallocated no later than the end of the scope in which it becomes unreachable
+1. Every ownership-bearing value completes cleanup no later than the end of the scope in which it becomes unreachable
 2. `Drop.drop` is called exactly once per value, in the order specified by [§ Destruction Order](#2133-destruction-order)
 3. No value is accessed after deallocation
 
@@ -288,13 +292,13 @@ The following optimizations are permitted:
 
 | Optimization | Description |
 |-------------|-------------|
-| Scalar elision | No reference counting operations for scalar types (see [§ Type Classification](#217-type-classification)) |
-| Borrow inference | Omit increment/decrement for parameters that are borrowed and do not outlive the callee |
-| Move optimization | Elide the increment/decrement pair when a value is transferred on last use |
-| Redundant pair elimination | Remove an increment immediately followed by a decrement on the same value |
-| Constructor reuse | Reuse the existing allocation when the reference count is one (requires a runtime uniqueness check) |
-| Copy-on-write | Mutating operations on collections and strings check reference uniqueness at runtime. If the reference count is one, the operation mutates in place; if shared, the operation copies before mutating. |
-| Seamless slicing | Slice operations (`take`, `skip`, `slice`, `substring`, `trim`) may return a zero-copy view into the original allocation rather than copying elements. The view shares the original allocation's reference count. |
+| Scalar elision | No ownership bookkeeping for scalar types without cleanup obligations (see [§ Type Classification](#217-type-classification)) |
+| Borrow inference | Omit owner-credit creation/discharge for parameters that are borrowed and do not outlive the callee |
+| Move optimization | Transfer the existing owner credit on last use without a create/discharge pair |
+| Redundant pair elimination | Remove an adjacent logical credit/debit pair on the same value when no observation intervenes |
+| Constructor reuse | Reuse selected physical storage when there is one logical owner and the physical plan satisfies every cleanup and extent obligation |
+| Copy-on-write | Mutating operations on collections and strings may mutate in place only when logical sharing permits it and any required physical sharing observation succeeds; otherwise they copy before mutation |
+| Seamless slicing | Slice operations (`take`, `skip`, `slice`, `substring`, `trim`) may return a zero-copy view sharing the original logical storage identity and carrying the required ownership credit |
 | Small value inlining | Small values (e.g., short strings ≤23 bytes) may be stored inline without heap allocation. The threshold is implementation-defined. |
 | Early drop | Deallocate a value before scope end when it is provably unreferenced for the remainder of the scope |
 | Tail-modulo-cons (TRMC) | Tail-recursive functions that construct values can rewrite allocation patterns to build results in-place, avoiding intermediate allocations. |
@@ -304,15 +308,17 @@ These are permissions, not requirements. A conforming implementation may perform
 
 NOTE  Copy-on-write preserves value semantics: `let b = a; b = b.push(value: x)` shall not modify `a`, regardless of whether the implementation copies or mutates in place. The optimization is transparent to user code.
 
-### 21.4.2 AIMS — ARC Intelligent Memory System
+### 21.4.2 AIMS — backend-neutral ownership calculus
 
-The reference implementation uses AIMS, a unified semantic framework that replaces traditional sequential optimization passes (borrow inference → liveness → RC insertion → reuse → elimination) with a single abstract interpreter over a multi-dimensional product lattice. All memory facts about every variable — ownership, consumption pattern, usage count, uniqueness proof, escape scope, reuse shape, and effect classification — are computed simultaneously in one converging backward dataflow analysis. All outputs (RC operations, reuse tokens, copy-on-write annotations, drop hints, FIP certification) are projections of the same converged state.
+The reference compiler uses AIMS, one backend-neutral logical ownership calculus over a multi-dimensional product lattice. It freezes ownership, consumption, usage, uniqueness, lifetime, reuse eligibility, cleanup, unwind, and effect facts once.
+
+VM, LLVM, native, compiled-WebAssembly, and JIT paths consume the same frozen facts and independently validate their physical mechanisms; no backend may rerun AIMS or reconstruct its policy.
 
 NOTE  AIMS is an implementation strategy, not a language requirement. A conforming implementation may use any optimization approach that preserves the observable behavior specified above.
 
 ## 21.5 Ownership and borrowing
 
-Every reference-counted value has exactly one _owner_. The owner is the binding, field, or container element that holds the value.
+Every live owned handle carries one logical _owner credit_. A binding, field, or container element may carry such a credit; an explicit logical duplication creates another owner, while a borrow creates none.
 
 ### 21.5.1 Ownership transfer
 
@@ -323,11 +329,11 @@ Ownership transfers on:
 - Returning from a function
 - Storage in a container element or struct field
 
-On transfer, the previous owner relinquishes access. The reference count does not change; ownership moves without an increment/decrement pair.
+On transfer, the previous owner relinquishes access and the same logical credit moves to the recipient. No credit is created or discharged.
 
 ### 21.5.2 Borrowed references
 
-A _borrowed reference_ provides temporary read access to a value without incrementing the reference count. A borrowed reference shall not outlive its owner.
+A _borrowed reference_ provides temporary read access without creating an owner credit. A borrowed reference shall not outlive its governing owner.
 
 The compiler infers ownership and borrowing. There is no user-visible syntax for ownership annotations or borrow markers.
 
@@ -349,45 +355,49 @@ type Node = { next: Option<Node> }  // compile error
 
 ## 21.7 Type classification
 
-Every type is classified as either _scalar_ or _reference_ for the purpose of reference counting. Classification is determined by type containment, not by representation size.
+Every type is classified as either _scalar_ or _ownership-bearing_ for logical cleanup. Classification is determined by type containment and declared behavior, not by representation size or physical placement.
 
 ### 21.7.1 Scalar types
 
-A type is scalar if it requires no reference counting. The following types are scalar:
+A type is scalar if it carries no owner-credit or cleanup obligation. The following types are scalar:
 
 - Primitive types: `int`, `float`, `bool`, `char`, `byte`, `Duration`, `Size`, `Ordering`
 - `unit` and `never`
 - Compound types (structs, enums, tuples, `Option<T>`, `Result<T, E>`, `Range<T>`) whose fields are all scalar
 
-### 21.7.2 Reference types
+### 21.7.2 Ownership-bearing types
 
-A type is a reference type if it requires reference counting. The following types are reference types:
+A type is ownership-bearing if it carries shared identity, owner-credit, or cleanup obligations. The following types are ownership-bearing:
 
-- Heap-allocated types: `str`, `[T]`, `{K: V}`, `Set<T>`, `Channel<T>`
-- Function types and iterator types
-- Compound types containing at least one reference type field
+- Identity-bearing built-ins: `str`, `[T]`, `{K: V}`, `Set<T>`, `Channel<T>`
+- Function and iterator types with captured or service-owned state
+- Compound types containing at least one ownership-bearing field
 
 ### 21.7.3 Transitive rule
 
-Classification is transitive: if any field of a compound type is a reference type, the compound type is a reference type.
+Classification is transitive: if any field of a compound type is ownership-bearing, the compound type is ownership-bearing.
 
 | Type | Classification | Reason |
 |------|---------------|--------|
 | `int` | Scalar | Primitive |
 | `(int, float, bool)` | Scalar | All fields scalar |
 | `{ x: int, y: int }` | Scalar | All fields scalar |
-| `str` | Reference | Heap-allocated |
-| `{ id: int, name: str }` | Reference | `name` is reference |
-| `Option<str>` | Reference | Inner type is reference |
+| `str` | Ownership-bearing | Carries string storage identity |
+| `{ id: int, name: str }` | Ownership-bearing | `name` carries an ownership obligation |
+| `Option<str>` | Ownership-bearing | Inner type is ownership-bearing |
 | `Option<int>` | Scalar | Inner type is scalar |
-| `[int]` | Reference | List is heap-allocated |
-| `Result<int, str>` | Reference | `str` is reference |
+| `[int]` | Ownership-bearing | Carries list storage identity |
+| `Result<int, str>` | Ownership-bearing | `str` carries an ownership obligation |
 
-Classification is independent of type size. A struct with ten `int` fields is scalar. A struct with one `str` field is a reference type regardless of its total size.
+Classification is independent of type size and storage. A struct with ten `int` fields is scalar.
+
+A struct with one `str` field is ownership-bearing regardless of its total size or a physical plan's inline, stack, region, or heap choice.
 
 ### 21.7.4 Value types
 
-A type that implements the `Value` trait is stored inline (bitwise copy, no reference counting, no `Drop`). All fields of a `Value` type shall themselves be `Value`. The `Value` trait implies `Clone` and `Sendable`.
+A type that implements the `Value` trait has bitwise-copy value semantics with no owner-credit or `Drop` obligation. All fields of a `Value` type shall themselves be `Value`.
+
+The `Value` trait implies `Clone` and `Sendable`; physical placement remains target-owned.
 
 Primitive scalar types (`int`, `float`, `bool`, `char`, `byte`, `void`, `Duration`, `Size`, `Ordering`) implicitly satisfy `Value`. User-defined types opt in via the type declaration:
 
@@ -399,17 +409,17 @@ A `Value` type shall not exceed 512 bytes. Types exceeding 256 bytes produce a w
 
 ### 21.7.5 Generic type parameters
 
-Unresolved type parameters are conservatively treated as reference types. After monomorphization, all type parameters are concrete and classification is exact.
+Unresolved type parameters are conservatively treated as ownership-bearing. After monomorphization, all type parameters are concrete and classification is exact.
 
 ## 21.8 Constraints
 
 - Self-referential types are compile errors
 - Destruction in reverse creation order
-- Values destroyed when reference count reaches zero
+- Values destroyed exactly once at their logical death point
 
-## 21.9 ARC safety invariants
+## 21.9 Automatic ownership safety invariants
 
-Ori uses ARC without cycle detection. The following invariants shall be maintained by all language features to ensure ARC remains viable.
+The following invariants shall be maintained by all language features so automatic ownership cleanup remains cycle-free and exactly once under every admitted physical realization.
 
 ### 21.9.1 Invariant 1: value capture
 
@@ -453,9 +463,9 @@ If weak references are added to the language, they shall:
 
 ### 21.9.6 Task isolation
 
-Values shared across task boundaries are reference-counted. Each task may independently increment and decrement the reference count of a shared value. Atomic reference count operations (see [§ Atomicity](#2121-atomicity)) ensure that deallocation occurs exactly once, regardless of which task drops the last reference.
+Values crossing task boundaries use ownership transfer or explicit logical sharing. Each receiving task carries the exact owner credit required by the shared plan, and the selected physical mechanism shall provide a shared-safe capability and exactly-once final cleanup regardless of which task discharges the last credit.
 
-A task shall not hold a borrowed reference to a value owned by another task. All cross-task value sharing uses ownership transfer or reference count increment.
+A task shall not hold a borrowed reference to a value owned by another task. All cross-task value sharing uses ownership transfer or an explicit shared owner credit.
 
 See [Concurrency Model § Task Isolation](22-concurrency-model.md#2213-task-isolation) for task isolation rules.
 

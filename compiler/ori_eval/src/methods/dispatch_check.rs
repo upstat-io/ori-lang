@@ -16,9 +16,9 @@ use super::dispatch_builtin_method_str;
 /// Check if the evaluator can dispatch a builtin method for the given type.
 ///
 /// Queries both resolver paths:
-/// - [`CollectionMethodResolver`](crate::interpreter::resolvers::collection::CollectionMethodResolver)
+/// - [`CollectionMethodResolver`](crate::interpreter::resolvers::CollectionMethodResolver)
 ///   (priority 1): handles iterator, collection, and closure-taking methods
-/// - [`BuiltinMethodResolver`](crate::interpreter::resolvers::builtin::BuiltinMethodResolver)
+/// - [`BuiltinMethodResolver`](crate::interpreter::resolvers::BuiltinMethodResolver)
 ///   (priority 2): handles primitive type methods
 ///
 /// Returns `true` if a handler exists (even if it would fail with wrong args).
@@ -29,10 +29,24 @@ use super::dispatch_builtin_method_str;
 /// This is an enforcement-testing API. It verifies dispatch routing, not
 /// behavioral correctness. Used by cross-phase enforcement tests in `oric`.
 ///
-/// ```ignore
+/// ```
+/// use ori_eval::can_dispatch_builtin;
+/// use ori_ir::StringInterner;
+/// use ori_registry::TypeTag;
+///
+/// let interner = StringInterner::new();
 /// for type_def in ori_registry::BUILTIN_TYPES {
+///     // Channels require live runtime objects and cannot be probed statically.
+///     if type_def.tag == TypeTag::Channel {
+///         continue;
+///     }
 ///     for method in type_def.methods {
-///         assert!(can_dispatch_builtin(type_def.tag, method.name, &interner));
+///         assert!(
+///             can_dispatch_builtin(type_def.tag, method.name, &interner),
+///             "{}.{} has no evaluator dispatch",
+///             type_def.name,
+///             method.name,
+///         );
 ///     }
 /// }
 /// ```
@@ -44,6 +58,15 @@ pub fn can_dispatch_builtin(tag: TypeTag, method: &str, interner: &StringInterne
         return true;
     }
 
+    // Map/Set BuiltinMethodResolver path — static method set check.
+    // Map/Set dispatch routes through `Interpreter::dispatch_{map,set}_method`
+    // (key handling may invoke user `@hash`/`@eq`), which `dispatch_builtin_method_str`
+    // does NOT exercise (it lacks interpreter access). Mirror the interpreter
+    // dispatchers' handled method sets statically.
+    if is_map_set_dispatched_for_tag(tag, method) {
+        return true;
+    }
+
     // BuiltinMethodResolver path — try dispatch with minimal value.
     // Returns true if the handler exists (any result except UndefinedMethod).
     let Some(receiver) = minimal_value_for_tag(tag) else {
@@ -52,6 +75,61 @@ pub fn can_dispatch_builtin(tag: TypeTag, method: &str, interner: &StringInterne
 
     let result = dispatch_builtin_method_str(receiver, method, vec![], interner);
     !is_undefined_method_error(&result)
+}
+
+/// Check if a method is handled by `Interpreter::dispatch_{map,set}_method`.
+///
+/// Map/Set dispatch requires interpreter access (non-primitive keys invoke user
+/// `@hash`/`@eq`), so it cannot be exercised via `dispatch_builtin_method_str`.
+/// Must stay in sync with `dispatch_map_method` / `dispatch_set_method` in
+/// `methods/collections.rs`.
+pub(crate) fn is_map_set_dispatched_for_tag(tag: TypeTag, method: &str) -> bool {
+    match tag {
+        TypeTag::Map => matches!(
+            method,
+            "len"
+                | "length"
+                | "is_empty"
+                | "contains_key"
+                | "contains"
+                | "get"
+                | "insert"
+                | "remove"
+                | "keys"
+                | "values"
+                | "entries"
+                | "iter"
+                | "equals"
+                | "hash"
+                | "clone"
+                | "debug"
+                | "to_str"
+                | "merge"
+                | "update"
+                | "updated"
+        ),
+        TypeTag::Set => matches!(
+            method,
+            "iter"
+                | "len"
+                | "length"
+                | "is_empty"
+                | "contains"
+                | "insert"
+                | "remove"
+                | "union"
+                | "intersection"
+                | "difference"
+                | "to_list"
+                | "into"
+                | "clone"
+                | "equals"
+                | "hash"
+                | "debug"
+                | "to_str"
+        ),
+        _ => false,
+    }
 }
 
 /// Check if a method is handled by the `CollectionMethodResolver`.
@@ -117,7 +195,7 @@ fn is_collection_dispatched(tag: TypeTag, method: &str) -> bool {
 /// Construct the simplest possible `Value` for a `TypeTag`.
 ///
 /// Returns `None` for types without a direct `Value` representation
-/// (Unit, Never, Iterator, DEI, Channel, Function). Iterator and DEI
+/// (Never, Iterator, DEI, Channel, Function). Iterator and DEI
 /// are handled entirely by `CollectionMethodResolver` and checked via
 /// `is_collection_dispatched`.
 fn minimal_value_for_tag(tag: TypeTag) -> Option<Value> {
@@ -128,6 +206,7 @@ fn minimal_value_for_tag(tag: TypeTag) -> Option<Value> {
         TypeTag::Str => Some(Value::string("")),
         TypeTag::Char => Some(Value::Char(' ')),
         TypeTag::Byte => Some(Value::Byte(0)),
+        TypeTag::Unit => Some(Value::Void),
         TypeTag::Duration => Some(Value::Duration(0)),
         TypeTag::Size => Some(Value::Size(0)),
         TypeTag::Ordering => Some(Value::ordering_equal()),
@@ -140,8 +219,7 @@ fn minimal_value_for_tag(tag: TypeTag) -> Option<Value> {
         TypeTag::Tuple => Some(Value::tuple(vec![])),
         TypeTag::Error => Some(Value::error("test")),
         // No Value representation or dispatched entirely by CollectionMethodResolver
-        TypeTag::Unit
-        | TypeTag::Never
+        TypeTag::Never
         | TypeTag::Iterator
         | TypeTag::DoubleEndedIterator
         | TypeTag::Channel

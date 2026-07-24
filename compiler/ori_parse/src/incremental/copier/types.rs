@@ -56,11 +56,17 @@ impl AstCopier<'_> {
             }
             ParsedType::Infer => ParsedType::Infer,
             ParsedType::SelfType => ParsedType::SelfType,
-            ParsedType::AssociatedType { base, assoc_name } => {
+            ParsedType::AssociatedType {
+                base,
+                assoc_name,
+                type_args,
+            } => {
                 let new_base = self.copy_parsed_type_id(*base, new_arena);
+                let new_args = self.copy_parsed_type_range(*type_args, new_arena);
                 ParsedType::AssociatedType {
                     base: new_base,
                     assoc_name: *assoc_name,
+                    type_args: new_args,
                 }
             }
             ParsedType::ConstExpr(expr_id) => {

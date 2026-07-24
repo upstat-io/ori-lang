@@ -1,0 +1,15 @@
+// Apply-alias Direct shape (`@id<T>(x: T) -> T = x`) over an Option<str>
+// element. Exercises a sum-type-wrapped heap payload through the Direct
+// alias class. Runs under ORI_CHECK_LEAKS — exit 0 + zero leaks == coverage.
+
+@id<T> (x: T) -> T = x;
+
+@main () -> int = {
+    let o = Some("present");
+    let aliased = id(x: o);
+    let n = match aliased {
+        Some(s) -> s.len(),
+        None -> 0,
+    };
+    if n == 7 then 0 else 1
+}

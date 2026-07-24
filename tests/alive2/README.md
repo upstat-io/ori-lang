@@ -13,14 +13,15 @@ Curated Ori functions verified by [Alive2](https://github.com/AliveToolkit/alive
 **Include:**
 - Pure arithmetic functions (int, float operations)
 - Simple control flow (if/else, small-bound recursion)
-- No runtime calls (`_ori_rc_inc`, `_ori_rc_dec`, `_ori_alloc`, `_ori_panic`)
+- No runtime calls (`ori_rc_inc`, `ori_rc_dec`, `ori_alloc`, `ori_panic`)
 - No exception handling (`invoke`/`landingpad`)
 - No indirect calls (closures)
-- No COW checks (`_ori_is_unique`)
+- No COW checks (`ori_rc_is_unique`)
 
 **Exclude (produce false positives):**
-- RC operations (Alive2 can't model custom allocators)
+- RC operations (Alive2 can't model custom allocators) — incl. `ori_rc_alloc`/`ori_rc_free`/`ori_*alloc*`/`ori_*free*`/`ori_*drop*`/`ori_*rc_inc`/`ori_*rc_dec`/`ori_*buffer*`/`ori_*elem_dec`/`ori_panic`
 - Exception handling (not modeled by Alive2)
+- COW uniqueness checks (`ori_rc_is_unique`)
 - Large loop nests (>256 iterations, Z3 timeout)
 - Variadic functions
 - Checked-overflow intrinsics that branch to panic blocks
@@ -79,5 +80,5 @@ build/alive2-results/
 
 ### Consumers
 
-- **Section 11 (CI Integration)**: uploads `build/alive2-results/` as CI artifact, compares nightly/weekly runs
-- **Section 12 (Regression Dashboard)**: tracks verification trends across runs, detects new failures
+- **CI integration**: uploads `build/alive2-results/` as a CI artifact, compares nightly/weekly runs
+- **Regression dashboard**: tracks verification trends across runs, detects new failures

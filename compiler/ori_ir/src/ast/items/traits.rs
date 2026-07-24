@@ -7,7 +7,9 @@
 
 use super::super::ranges::{GenericParamRange, ParamRange};
 use super::super::Visibility;
-use crate::{CfgAttr, ExprId, Name, ParsedType, ParsedTypeRange, Span, Spanned, TargetAttr};
+use crate::{
+    CapabilityRef, CfgAttr, ExprId, Name, ParsedType, ParsedTypeRange, Span, Spanned, TargetAttr,
+};
 
 /// Generic parameter: type param (`T`, `T: Bound`) or const param (`$N: int`).
 ///
@@ -179,9 +181,15 @@ impl TraitItem {
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct TraitMethodSig {
     pub name: Name,
+    /// Method-level generic parameters: `<T, U: Bound>`.
+    /// Empty range when the method has no generics.
+    pub generics: GenericParamRange,
     pub params: ParamRange,
     /// The parsed return type.
     pub return_ty: ParsedType,
+    /// Method-level where clauses: `where T: Clone, U: Default`.
+    /// Empty when the method has no where clause.
+    pub where_clauses: Vec<WhereClause>,
     pub span: Span,
 }
 
@@ -195,9 +203,15 @@ impl Spanned for TraitMethodSig {
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct TraitDefaultMethod {
     pub name: Name,
+    /// Method-level generic parameters: `<T, U: Bound>`.
+    /// Empty range when the method has no generics.
+    pub generics: GenericParamRange,
     pub params: ParamRange,
     /// The parsed return type.
     pub return_ty: ParsedType,
+    /// Method-level where clauses: `where T: Clone, U: Default`.
+    /// Empty when the method has no where clause.
+    pub where_clauses: Vec<WhereClause>,
     pub body: ExprId,
     pub span: Span,
 }
@@ -245,12 +259,12 @@ impl Spanned for TraitAssocType {
 /// }
 ///
 /// // Trait impl
-/// impl Printable for Point {
+/// impl Point: Printable {
 ///     @to_string (self) -> str = "..."
 /// }
 ///
 /// // Trait impl with type arguments
-/// impl Add<int> for Point {
+/// impl Point: Add<int> {
 ///     @add (self, rhs: int) -> Point = ...
 /// }
 /// ```
@@ -290,6 +304,26 @@ impl ImplDef {
     pub fn is_trait_impl(&self) -> bool {
         self.trait_path.is_some()
     }
+
+    /// The implemented type's name — the LAST segment of `self_path`.
+    ///
+    /// INVARIANT: the parser builds the impl subject's `ParsedType::Named`
+    /// from `path.last()`, so the type name is always the final segment;
+    /// any leading segments are qualifiers. Every consumer (registration,
+    /// dispatch, mangling) resolves the name through this accessor — reading
+    /// `self_path.first()` mis-resolves a qualified path to its qualifier.
+    pub fn type_name(&self) -> Option<Name> {
+        self.self_path.last().copied()
+    }
+
+    /// Semantic owner name, including primitive receiver spellings whose
+    /// parser path is intentionally empty.
+    pub fn semantic_type_name(&self, interner: &crate::StringInterner) -> Option<Name> {
+        self.type_name().or_else(|| match &self.self_ty {
+            ParsedType::Primitive(id) => id.name().map(|name| interner.intern(name)),
+            _ => None,
+        })
+    }
 }
 
 impl Spanned for ImplDef {
@@ -302,19 +336,37 @@ impl Spanned for ImplDef {
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct ImplMethod {
     pub name: Name,
+    /// Method-level generic parameters: `<T, U: Bound>`.
+    /// Empty range when the method has no generics.
+    pub generics: GenericParamRange,
     pub params: ParamRange,
     /// The parsed return type.
     pub return_ty: ParsedType,
+    /// Capabilities required by this method: `uses Http, FileSystem`.
+    /// Empty for `def_impl_method` (stateless) and methods without `uses`.
+    pub capabilities: Vec<CapabilityRef>,
+    /// Method-level where clauses: `where T: Clone, U: Default`.
+    /// Empty when the method has no where clause.
+    pub where_clauses: Vec<WhereClause>,
     pub body: ExprId,
     pub span: Span,
 }
 
 impl From<&TraitDefaultMethod> for ImplMethod {
     fn from(default: &TraitDefaultMethod) -> Self {
+        // INVARIANT: copy generics + where_clauses — the inherited default body
+        // references method-level binders that must remain in scope on the impl
+        // side for body type-checking.
+        // Capabilities are not part of TraitDefaultMethod (trait method_sig +
+        // default_method productions in grammar.ebnf carry no `[ uses_clause ]`),
+        // so impl-side capabilities default to empty when inheriting a default.
         Self {
             name: default.name,
+            generics: default.generics,
             params: default.params,
             return_ty: default.return_ty.clone(),
+            capabilities: Vec::new(),
+            where_clauses: default.where_clauses.clone(),
             body: default.body,
             span: default.span,
         }
@@ -324,7 +376,7 @@ impl From<&TraitDefaultMethod> for ImplMethod {
 /// Associated type definition in an impl block.
 ///
 /// ```ori
-/// impl Iterator for List<T> {
+/// impl List<T>: Iterator {
 ///     type Item = T
 /// }
 /// ```

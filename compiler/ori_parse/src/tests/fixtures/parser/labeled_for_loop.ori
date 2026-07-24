@@ -1,0 +1,1 @@
+@f () -> void = for:items x in [1, 2, 3] do break;

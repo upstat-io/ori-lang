@@ -14,11 +14,11 @@
 //!
 //! # Key Types
 //!
-//! - [`SimpleCx`](context::SimpleCx): Minimal LLVM context (module + types)
+//! - [`SimpleCx`]: Minimal LLVM context (module + types)
 //! - [`IrBuilder`](codegen::IrBuilder): ID-based LLVM instruction builder
 //! - [`FunctionCompiler`](codegen::function_compiler::FunctionCompiler): Two-pass compilation
 //! - [`TypeInfoStore`](codegen::TypeInfoStore): Type information cache
-//! - [`LLVMEvaluator`](evaluator::LLVMEvaluator): JIT evaluation
+//! - [`OwnedLLVMEvaluator`](evaluator::OwnedLLVMEvaluator): JIT evaluation
 
 #![warn(clippy::allow_attributes_without_reason)]
 #![allow(
@@ -42,90 +42,39 @@
     clippy::similar_names,
     reason = "workspace equivalent — codegen uses similar names intentionally"
 )]
-#![allow(
-    clippy::cognitive_complexity,
-    reason = "workspace equivalent — codegen match arms are complex"
-)]
 #![allow(clippy::module_name_repetitions, reason = "workspace equivalent")]
 #![allow(clippy::must_use_candidate, reason = "workspace equivalent")]
 
-// -- V2 codegen pipeline --
+// V2 codegen pipeline
 pub mod codegen;
 pub mod context;
 
-// -- Monomorphization --
-pub mod monomorphize;
+// Monomorphization
 
-// -- Evaluator (JIT) --
+// Evaluator (JIT)
 pub mod evaluator;
 
-// -- Runtime bindings --
+mod drop_symbol;
+
+// Runtime bindings
 pub mod runtime;
 
-// -- AOT compilation --
+// AOT compilation
 pub mod aot;
 
-// -- Verification --
+// Verification
 pub mod verify;
 
-// -- Initialization --
+// Range-analysis inputs
+
+// Initialization
 mod init;
 
-// -- Re-exports --
+// Re-exports
 pub use context::SimpleCx;
+pub use drop_symbol::{drop_glue_symbol, DROP_GLUE_PREFIX};
 pub use init::install_fatal_error_handler;
 pub use inkwell;
-
-/// Collect unconstrained function identities (pub or trait impl).
-///
-/// Returns `(Option<Idx>, Name)` pairs: `None` for pub top-level functions,
-/// `Some(self_type)` for trait impl methods (disambiguation).
-///
-/// Tracks ordinals for same-type same-name method duplicates (e.g., two
-/// `impl Index<...>` on the same type). Registers both the base qualified
-/// name and ordinal-suffixed variants to match the analysis-only ARC
-/// lowering format.
-pub fn collect_unconstrained_fn_names(
-    function_sigs: &[ori_types::FunctionSig],
-    trait_impl_fn_names: &[(ori_types::Idx, ori_ir::Name)],
-    interner: Option<&ori_ir::StringInterner>,
-) -> Vec<(Option<ori_types::Idx>, ori_ir::Name)> {
-    let mut names = Vec::new();
-    for sig in function_sigs {
-        if sig.is_public {
-            names.push((None, sig.name));
-        }
-    }
-    // Track ordinals for same-type same-name duplicates.
-    let mut method_ordinals: rustc_hash::FxHashMap<(ori_types::Idx, ori_ir::Name), usize> =
-        rustc_hash::FxHashMap::default();
-    for &(self_type, name) in trait_impl_fn_names {
-        names.push((Some(self_type), name));
-        // Register qualified names matching the analysis-only ARC lowering format
-        // Ordinal-qualified names are registered for same-type
-        // same-name duplicates so `is_qualified_unconstrained()` finds them
-        if let Some(interner) = interner {
-            let ordinal = {
-                let entry = method_ordinals.entry((self_type, name)).or_insert(0);
-                let ord = *entry;
-                *entry += 1;
-                ord
-            };
-            let method_str = interner.lookup(name);
-            let qualified = if ordinal == 0 {
-                interner.intern(&format!("__impl_{}_{method_str}", self_type.raw()))
-            } else {
-                interner.intern(&format!(
-                    "__impl_{}_{}_{ordinal}",
-                    self_type.raw(),
-                    method_str
-                ))
-            };
-            names.push((None, qualified));
-        }
-    }
-    names
-}
 
 #[cfg(test)]
 mod tests;

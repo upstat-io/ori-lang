@@ -1,4 +1,4 @@
-// Regression: BUG-04-071 — repr-opt narrows [int] to i8, but iterator map
+// Regression: repr-opt narrows [int] to i8, but iterator map
 // produces canonical i64 values. Narrowing must not leak into the iterator
 // pipeline. Exit code 0 = pass, nonzero = specific failure.
 @main () -> int = {

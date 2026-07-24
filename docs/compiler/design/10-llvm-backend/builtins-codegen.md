@@ -27,7 +27,7 @@ This trade-off — inline code generation versus runtime function calls — appl
 
 ### Where Ori Sits
 
-Ori uses a **declarative registration system** where each built-in method is registered with a handler function that emits LLVM IR. Simple methods emit inline instructions; complex methods emit calls to runtime functions. The `declare_builtins!` macro generates both the dispatch logic and the registration table from a single declaration, guaranteeing that registration and dispatch stay synchronized.
+Ori's LLVM backend uses a **declarative physical-handler system**. Simple methods emit inline instructions; complex methods emit calls to runtime functions. The `declare_builtins!` macro generates LLVM dispatch logic and an enumerable handler table from a single declaration. This table owns LLVM coverage only. Language semantics, parameter ownership, and runtime identity belong to `ori_registry` and the shared executable carrier.
 
 ## What Makes Ori's Builtins System Distinctive
 
@@ -39,19 +39,19 @@ A single `declare_builtins!` invocation in each submodule generates two artifact
 
 2. **`REGISTERED: &[BuiltinRegistration]`** — an enumerable list of all registered builtins, used for sync tests and the `BuiltinTable`.
 
-This dual-generation design makes an entire class of bugs impossible: you cannot register a builtin without providing a dispatch handler, and you cannot dispatch to an unregistered builtin. The macro is the single source of truth for what builtins exist and how they are dispatched.
+This dual-generation design keeps LLVM registration and dispatch synchronized: an LLVM handler cannot be registered without a dispatch arm. It is not the single source of truth for which language methods exist or how ownership transfers.
 
 ### Sync Testing Against the Type Checker
 
-The `ori_registry` crate maintains the single source of truth for built-in methods (`ori_registry::BUILTIN_TYPES`) — the methods that can be called on built-in types without requiring an explicit `impl` block. The type checker, evaluator, and builtins codegen system each consume this registry. If any consumer drifts — the type checker allows `str.reverse()` but codegen doesn't handle it, or codegen handles `int.clamp()` but the type checker doesn't know about it — the program will either fail at codegen (missing handler) or silently fall through to runtime dispatch (unnecessary overhead).
+The `ori_registry` crate maintains the single source of truth for built-in methods (`ori_registry::BUILTIN_TYPES`) — the methods that can be called without an explicit `impl` block. The type checker, evaluator, AIMS, executable compiler, VM, and LLVM projection consume typed portions of this registry. `MethodDef` owns semantic signature and ownership; `MethodRuntime` identifies shared runtime operations. A physical backend may implement an identity inline or through a helper, but cannot infer its contract from spelling.
 
 Sync tests in each consumer automatically iterate `ori_registry::BUILTIN_TYPES` and verify that every registered method is handled. Adding a new built-in method to the registry without updating all consumers triggers a test failure.
 
-### Receiver Borrowing Metadata
+### Ownership Is Upstream
 
-Each builtin registration includes a `receiver_borrowed` flag that the ARC emitter uses to decide whether to increment the receiver's reference count before the call. Borrowed receivers (`.len()`, `.is_empty()`, `.contains()`) skip the increment — the method only reads the receiver, so there is no need to extend its lifetime. Owned receivers (methods that consume or modify the receiver) get the normal RC treatment.
+LLVM builtin registrations contain only the physical `(type_name, method_name)` handler key. Receiver and parameter ownership come from the registry-backed AIMS contract and realized call instruction. The emitter must not add or remove RC operations based on whether a handler happens to inline the method.
 
-This per-method borrowing information is not available from the type system alone — it is a codegen-level optimization that depends on the method's implementation, not its signature.
+> **Current gap — spelling-based physical dispatch.** `BuiltinCtx` and `declare_builtins!` still select many LLVM handlers by type and method strings, and not every operation carries a closed `MethodRuntime` identity yet. This is acceptable only as a documented migration state. Production execution must carry typed operation identity through the shared artifact, reject missing identities, and make both VM and LLVM dispatch exhaustive over that identity.
 
 ## BuiltinCtx
 
@@ -121,7 +121,12 @@ List operations span the full range from simple inline code to complex runtime i
 
 ### COW List Operations
 
-The Copy-on-Write list operations are the most complex builtins. Each COW function receives the list's components (data pointer, length, capacity), the element to operate on, the element size, and **element RC callbacks** — function pointers that know how to increment or decrement the reference count of a single element.
+- Copy-on-Write list operations are the most complex LLVM builtins.
+- Each current COW helper receives the list's physical components, element
+  size, and **element RC callbacks**.
+- Production `CompiledLayoutPlan` construction selects and binds these LLVM
+  callback projections to upstream logical retain/release identities.
+- AIMS does not generate callbacks.
 
 | Method | Runtime Function | Element Callbacks |
 |--------|-----------------|-------------------|
@@ -132,7 +137,13 @@ The Copy-on-Write list operations are the most complex builtins. Each COW functi
 | `remove` | `ori_list_remove_cow` | dec only |
 | `concat` | `ori_list_concat_cow` | inc + dec |
 
-The element callbacks are generated by `element_fn_gen.rs` — one `extern "C" fn(*mut u8)` for increment, one for decrement, per element type. For `[int]`, both callbacks are null (integers need no RC). For `[str]`, the callbacks increment/decrement the string's data pointer. For `[[int]]`, the callbacks handle the nested list's RC. These are cached per type to avoid regeneration.
+- `element_fn_gen.rs` generates the current LLVM callback projection: one
+  `extern "C" fn(*mut u8)` for increment and one for decrement per element layout.
+- `[int]` uses null callbacks; `[str]` callbacks operate on the compiled string
+  reference; `[[int]]` callbacks project the nested list's bound drop plan.
+- Production caches by compiled-plan identity and keeps each callback bound to
+  the validated plan that selected it.
+- Direct callback derivation from `TypeInfo` is a current migration gap.
 
 ### Maps and Sets
 
@@ -197,31 +208,25 @@ Prelude functions (`print`, `assert`, `assert_eq`, `panic`, `dbg`, etc.) are not
 
 ## BuiltinTable
 
-The `BuiltinTable` provides O(1) lookup for builtin existence and metadata. It is a two-level `FxHashMap`: type name → method name → `BuiltinRegistration`. Built once from `REGISTERED` at module initialization, it serves three purposes:
-
-1. **Early rejection** — before attempting builtin dispatch, check if `(type, method)` is registered. This avoids entering the match cascade for methods that will definitely fall through.
-
-2. **Sync tests** — test infrastructure iterates the table to verify parity with `ori_registry::BUILTIN_TYPES`.
-
-3. **Receiver metadata** — the `receiver_borrowed` flag drives ARC behavior at call sites.
+`BuiltinTable` is a test-only, two-level `FxHashMap` from type name to method name to `BuiltinRegistration`. Test infrastructure builds it from the `REGISTERED` arrays to enumerate LLVM coverage and compare that coverage with `ori_registry::BUILTIN_TYPES`. Production dispatch uses the generated submodule match chain directly; the table does not own semantics or runtime routing.
 
 ## Adding a New Built-in Method
 
-Adding a new built-in method (for example, `str.repeat`) requires exactly four changes:
+Adding a new built-in method (for example, `str.repeat`) starts at the semantic registry and then supplies each applicable physical projection:
 
-1. **Implement the handler** in the appropriate submodule. The handler receives a `BuiltinCtx` and returns `Option<ValueId>`.
+1. **Add the `MethodDef`** to `ori_registry::BUILTIN_TYPES`, including parameter ownership and a `MethodRuntime` identity when execution uses a shared runtime operation.
 
-2. **Register in `declare_builtins!`** within the same submodule: `("str", "repeat", emit_str_repeat, true)`. The macro handles dispatch routing and table registration.
+2. **Teach AIMS and executable lowering to consume the typed registry facts**. Do not add a name-based ownership exception.
 
-3. **Add to `ori_registry::BUILTIN_TYPES`** in the registry crate. Add a `MethodDef` entry to the appropriate `TypeDef`.
+3. **Implement the VM operation or adapter** when the method is available to VM execution.
 
-4. **Add runtime function** (if needed) to `RT_FUNCTIONS` in `runtime_functions.rs` and implement it in `ori_rt`.
+4. **Implement and register the LLVM physical handler** in `declare_builtins!`, or map the shared runtime identity to `RT_FUNCTIONS` and `ori_rt`.
 
-No other files need modification. The sync tests verify that all registrations match. The macro handles dispatch and table population.
+Coverage tests must compare each physical consumer against the registry and shared operation identity. The LLVM macro checks only its own handler table; it cannot certify cross-backend semantic or ownership parity.
 
 ## Prior Art
 
-**[rustc](https://github.com/rust-lang/rust)** — Rust's codegen does not have a comparable "builtins" system because Rust's built-in methods are implemented as actual trait impls (e.g., `impl Add for i32`) that go through normal monomorphization and codegen. LLVM intrinsics are used for specific operations (`@llvm.ctpop` for `count_ones`, `@llvm.fabs` for `f64::abs`), but there is no dispatch table for method-level builtin handling. Ori's approach is necessary because Ori's interpreter and LLVM backend share a language-level method interface that doesn't map directly to trait impls.
+**[rustc](https://github.com/rust-lang/rust)** — Rust's codegen does not have a comparable "builtins" system because Rust's built-in methods are implemented as actual trait impls (e.g., `impl Add for i32`) that go through normal monomorphization and codegen. LLVM intrinsics are used for specific operations (`@llvm.ctpop` for `count_ones`, `@llvm.fabs` for `f64::abs`), but there is no dispatch table for method-level builtin handling. Ori instead gives evaluator, VM, and compiled execution one language-level method interface whose typed semantic and ownership facts live above every physical handler.
 
 **[V8](https://github.com/nicknisi/v8)** (JavaScript) — V8's "Torque" language defines built-in functions in a domain-specific language that generates both the interpreter bytecode handlers and the optimizing compiler's inline code. This is structurally similar to Ori's `declare_builtins!` macro — a single source generates both dispatch and implementation. V8's approach is more sophisticated (Torque generates multiple tiers of code), but the principle of single-source builtin definition is the same.
 
@@ -235,6 +240,6 @@ No other files need modification. The sync tests verify that all registrations m
 
 **Inline codegen vs. runtime calls.** Each builtin handler must decide whether to emit inline instructions or call a runtime function. The heuristic is: if the operation can be expressed in 1–5 LLVM instructions with no loops, inline it. If it requires loops, heap allocation, or complex logic (UTF-8 string processing, hash table operations), call the runtime. The boundary is fuzzy — `contains` on lists uses an inline loop (it's a performance-critical path), while `sort` uses a runtime call (the sorting algorithm is complex).
 
-**Per-method borrowing vs. type-level borrowing.** The `receiver_borrowed` flag is per-method, not per-type. An alternative — marking entire types as "always borrowed for reads" — would be simpler but incorrect for methods like `clone()` that need ownership semantics even though they only "read" the value. Per-method granularity trades registration verbosity for correct RC behavior.
+**Per-method ownership vs. type-level defaults.** Receiver and parameter ownership are typed per method in `MethodDef`; they are not inferred by a backend from the receiver type or method spelling. A type-level default would be simpler but incorrect for methods such as `clone()` whose ownership contract differs from superficially read-only operations. Per-method contracts add registry detail in exchange for correct, shared RC behavior.
 
 **Single BuiltinCtx vs. method-specific contexts.** All handlers receive the same `BuiltinCtx`, even though some handlers use only a few fields. A method-specific context (different struct for collection methods vs. primitive methods) would be more precise but would fragment the API and make the macro more complex. The uniform context trades a few unused fields for API simplicity.

@@ -283,7 +283,7 @@ mod trailing_commas_tests {
 mod integration_tests {
     use super::*;
 
-    /// Test the full nested formatting scenario from spec lines 93-95.
+    /// Test the full nested formatting scenario from Spec: Annex D §Independent Breaking.
     #[test]
     fn nested_constructs_break_independently() {
         let config = FormatConfig::default();

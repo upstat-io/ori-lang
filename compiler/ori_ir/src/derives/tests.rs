@@ -35,7 +35,25 @@ fn test_derived_trait_method_name() {
     assert_eq!(DerivedTrait::Comparable.method_name(), "compare");
 }
 
-// --- New tests for macro-generated metadata ---
+#[test]
+fn executable_body_names_round_trip_through_derive_metadata() {
+    let id = DerivedImplId::new(17);
+    for &trait_kind in DerivedTrait::ALL {
+        let body_name = trait_kind.executable_body_name(id);
+        assert_eq!(
+            DerivedTrait::from_executable_body_name(&body_name),
+            Some((trait_kind, id))
+        );
+    }
+
+    assert_eq!(DerivedTrait::from_executable_body_name("to_str"), None);
+    assert_eq!(
+        DerivedTrait::from_executable_body_name("to_str$derived$invalid"),
+        None
+    );
+}
+
+// Macro-generated metadata tests
 
 #[test]
 fn all_contains_every_variant() {
@@ -125,11 +143,9 @@ fn supports_sum_types_correctness() {
     assert!(DerivedTrait::Hashable.supports_sum_types());
     assert!(DerivedTrait::Printable.supports_sum_types());
     assert!(DerivedTrait::Debug.supports_sum_types());
-    assert!(!DerivedTrait::Default.supports_sum_types()); // Default cannot be derived for sum types
+    assert!(!DerivedTrait::Default.supports_sum_types());
     assert!(DerivedTrait::Comparable.supports_sum_types());
 }
-
-// --- Cross-crate sync enforcement ---
 
 #[test]
 fn all_derived_traits_round_trip() {
@@ -159,7 +175,7 @@ fn all_derived_traits_round_trip() {
     }
 }
 
-// --- DerivedMethodShape tests ---
+// DerivedMethodShape tests
 
 #[test]
 fn shape_has_self() {

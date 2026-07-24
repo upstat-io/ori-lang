@@ -1,0 +1,2 @@
+trait Identity { @inner (self) -> int; @outer (self) -> int; }
+pub def impl Identity { @inner (self) -> int = { 1 } @outer (self) -> int = { self.inner() } }

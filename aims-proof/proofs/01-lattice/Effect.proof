@@ -1,0 +1,79 @@
+Theorem L-3: Effect lattice dimension vs EffectSummary contract record reconciliation
+
+  Preconditions:
+    - The Effect LATTICE DIMENSION is the per-variable 3-flag product
+      over {may_alloc, may_share, may_throw} per Annex E §AIMS.7
+      (height 3; componentwise OR join)
+    - The EffectSummary CONTRACT RECORD is the per-function 7-flag derivation
+      over {may_allocate, may_deallocate, may_share, may_throw,
+      has_unbounded_stack, may_read_inaccessible, alloc_only_on_slow_path}
+      per Annex E §AIMS IC-5 (7 fields)
+    - The two are NOT the same algebra (per Annex E §AIMS.7 CRITICAL note)
+    - EffectSummary is computed from INSTRUCTIONS + callee contracts
+      per Annex E §AIMS IC-5 derivation procedure, NOT joined componentwise
+      from per-variable EffectClass values
+
+  Soundness property:
+    Effect lattice dimension (per-variable; Annex E §AIMS.7):
+
+      Effect_dim = <may_alloc: Bool, may_share: Bool, may_throw: Bool>
+
+      Carrier: 3-bit flag product
+      Ordering: componentwise Bool implication
+      Join: componentwise OR
+      Height: 3
+
+    EffectSummary contract record (per-function; Annex E §AIMS IC-5):
+
+      EffectSummary = <
+        may_allocate: Bool,
+        may_deallocate: Bool,
+        may_share: Bool,
+        may_throw: Bool,
+        has_unbounded_stack: Bool,
+        may_read_inaccessible: Bool,
+        alloc_only_on_slow_path: Bool
+      >
+
+    Reconciliation claim:
+
+      EffectSummary IS NOT joinOver(per-variable Effect_dim)
+
+      Specifically:
+        (a) The 4 EffectSummary fields beyond the shared 3-flag overlap
+            (may_deallocate, has_unbounded_stack, may_read_inaccessible,
+            alloc_only_on_slow_path) are NOT lattice-joined from
+            per-variable state:
+              - may_deallocate: derived from callee contracts +
+                instruction-stream analysis (Owned params, Set/SetTag,
+                analysis showing owned -> dead transitions)
+              - has_unbounded_stack: derived from unbounded-recursion detection
+              - may_read_inaccessible: derived from global / thread-local /
+                non-arg reads
+              - alloc_only_on_slow_path: derived POST-REALIZATION (after
+                step 10) per Annex E §AIMS IC-5 timing clause
+        (b) Per-variable Effect on call results (ALL = {alloc, share, throw})
+            does NOT poison the caller's EffectSummary
+            per Annex E §AIMS.7 CRITICAL note
+        (c) refine() (TF-6) does NOT narrow per-variable EffectClass from
+            call results; narrowing is precision work, not correctness work
+        (d) The 3-flag overlap (may_alloc, may_share, may_throw) IS sourced
+            from instructions + callee contracts via OR join over the
+            instruction stream, NOT joined from per-variable EffectClass
+
+      Closes gemini S01-R0-F2 arity-mismatch finding: the prior framing
+      (which appeared to imply EffectSummary = per-variable-join) is
+      explicitly rejected; the canonical derivation is INSTRUCTION-STREAM
+      + CALLEE-CONTRACT-INHERITED per Annex E §AIMS IC-5.
+
+  Proof obligation:
+    sorry -- discharged by sec-02 + sec-06 (IC-5 derivation correctness)
+
+    Engines dispatched:
+      lattice (validates the 3-flag dimension's join properties)
+      monotonicity (validates EffectSummary OR-join over instruction stream
+                    preserves monotonicity per L-6)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-02 + sec-06 discharges reconciliation proof

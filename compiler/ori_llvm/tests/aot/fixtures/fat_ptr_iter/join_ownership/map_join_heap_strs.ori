@@ -1,0 +1,9 @@
+// Adapter-produced owned elements through join: map yields fresh heap strings
+// (>23 bytes, no SSO) that the join consumer must free after use.
+@main () -> void = {
+    let $joined = ["alpha-alpha-alpha-alpha-alpha", "beta-beta-beta-beta-beta-beta"]
+        .iter()
+        .map(transform: (s: str) -> str = s + "-suffix-suffix-suffix-suffix")
+        .join(separator: ", ");
+    print(msg: joined)
+}

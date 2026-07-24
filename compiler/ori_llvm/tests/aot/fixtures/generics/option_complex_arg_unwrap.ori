@@ -1,0 +1,10 @@
+// Regression pin: nested-generic receiver method-mono dispatch
+// (`Option<[int]>.unwrap()`) — the recorder substitutes the full concrete
+// receiver Idx, so a re-collapse re-surfaces a missing-mono E5001 at codegen.
+@main () -> int = {
+    let $simple = Some(42);
+    let $complex = Some([10, 20, 30]);
+    let $s = simple.unwrap();
+    let $c = complex.unwrap();
+    if s == 42 && c.length() == 3 then 0 else 1
+}

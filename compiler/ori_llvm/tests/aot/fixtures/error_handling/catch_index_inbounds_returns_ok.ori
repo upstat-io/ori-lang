@@ -1,0 +1,8 @@
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let result = catch(expr: xs[1]);
+    match result {
+        Ok(v) -> if v == 20 then 0 else 2,
+        Err(_) -> 1
+    }
+}

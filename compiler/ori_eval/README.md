@@ -4,7 +4,7 @@
 
 ## Role in the pipeline
 
-The evaluator runs in parallel to the LLVM backend (see `canon.md §1` "Evaluator (parallel)" row). It consumes `CanExpr` + `DecisionTreePool` directly — no re-typechecking, no re-canonicalization, no codegen — and produces runtime values.
+The evaluator runs in parallel to the LLVM backend. It consumes `CanExpr` + `DecisionTreePool` directly — no re-typechecking, no re-canonicalization, no codegen — and produces runtime values.
 
 Two primary use cases:
 1. **Const-evaluation** — compile-time execution of `$name`-bound constants and `$fn()` const functions.
@@ -55,4 +55,4 @@ cargo st
 
 ## References
 
-- `CLAUDE.md §Fix Completeness` — "Interpreter and LLVM produce identical results" contract
+- — "Interpreter and LLVM produce identical results" contract

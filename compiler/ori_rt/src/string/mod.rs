@@ -9,10 +9,9 @@
 mod convert;
 mod methods;
 mod ops;
+mod prelude;
 
-pub use convert::*;
-pub use methods::*;
-pub use ops::*;
+pub use prelude::*;
 
 use crate::rc::ori_rc_realloc;
 

@@ -3,9 +3,8 @@
 
 use std.testing { assert_eq }
 
-// Size is stored as u64 bytes (non-negative).
-// Max constructable via from_bytes: 9223372036854775807 (i64::MAX)
-// u64::MAX = 18446744073709551615
+// Size is stored as a non-negative i64 byte count.
+// Maximum Size: 9223372036854775807 (i64::MAX)
 
 // =============================================================================
 // Subtraction — Negative Result
@@ -31,25 +30,21 @@ use std.testing { assert_eq }
 // Addition Overflow
 // =============================================================================
 
-// Two large sizes that exceed u64::MAX when added
+// MAX + 1 exceeds the signed Size range.
 #fail("integer overflow in size addition")
 @test_size_add_overflow tests @_size_add () -> void = {
     let max_bytes = Size.from_bytes(b: 9223372036854775807);
-    // doubled = 2 * (2^63 - 1) = 2^64 - 2 (valid, within u64)
-    let doubled = max_bytes + max_bytes;
-    // 2^64 - 2 + 2 = 2^64 > u64::MAX (overflow!)
-    let _ = doubled + 2b;
+    let _ = max_bytes + 1b;
     ()
 }
 
 @_size_add () -> bool = true;
 
-// Near boundary: 2 * MAX_BYTES is valid (2^64 - 2 < u64::MAX)
+// Near boundary: (MAX - 1) + 1 reaches MAX without overflowing.
 @test_size_add_near_boundary tests @_size_add_ok () -> void = {
+    let near_max = Size.from_bytes(b: 9223372036854775806);
     let max_bytes = Size.from_bytes(b: 9223372036854775807);
-    let doubled = max_bytes + max_bytes;
-    // Should not panic — 2 * (2^63 - 1) = 2^64 - 2 is within u64
-    assert_eq(actual: doubled + 0b, expected: doubled)
+    assert_eq(actual: near_max + 1b, expected: max_bytes)
 }
 
 @_size_add_ok () -> bool = true;
@@ -58,7 +53,7 @@ use std.testing { assert_eq }
 // Multiplication Overflow
 // =============================================================================
 
-// Large size * 3 exceeds u64::MAX
+// Large size * 3 exceeds the signed Size range.
 #fail("integer overflow in size multiplication")
 @test_size_mul_overflow tests @_size_mul () -> void = {
     let big = Size.from_bytes(b: 9223372036854775807);

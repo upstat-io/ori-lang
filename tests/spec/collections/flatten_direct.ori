@@ -1,0 +1,32 @@
+// Direct List.flatten() — the direct-list-method call surface (no `.iter()`
+// prefix), pinned separately from the Iterator-path flatten corpus in
+// tests/spec/traits/iterator/methods.ori. Codegen and typeck were sibling
+// fixes over the same registry entry; typeck has landed, so the interpreter
+// backend already passes these value-exact assertions. The LLVM backend
+// still requires the codegen fix before these pass under --backend=llvm.
+
+use std.testing { assert_eq }
+
+// --- Nested: [[int]] -> [int] ---
+
+@flattened_nested () -> [int] = [[1, 2], [3, 4]].flatten();
+
+@test_flatten_direct_nested tests @flattened_nested () -> void = {
+    assert_eq(actual: flattened_nested(), expected: [1, 2, 3, 4])
+}
+
+// --- Triple-nested: [[[int]]] -> [[int]], one level only (not recursive) ---
+
+@flattened_triple_nested () -> [[int]] = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]].flatten();
+
+@test_flatten_direct_triple_nested tests @flattened_triple_nested () -> void = {
+    assert_eq(actual: flattened_triple_nested(), expected: [[1, 2], [3, 4], [5, 6], [7, 8]])
+}
+
+// --- Non-nested: [int] -> [int] unchanged (identity passthrough) ---
+
+@flattened_non_nested () -> [int] = [1, 2, 3].flatten();
+
+@test_flatten_direct_non_nested tests @flattened_non_nested () -> void = {
+    assert_eq(actual: flattened_non_nested(), expected: [1, 2, 3])
+}

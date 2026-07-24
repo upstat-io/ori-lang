@@ -377,6 +377,33 @@ fn fold_takes_two_params() {
 }
 
 #[test]
+fn higher_order_callbacks_are_borrowed_by_the_runtime_adapter() {
+    for (name, callback_position) in [
+        ("all", 0),
+        ("any", 0),
+        ("filter", 0),
+        ("find", 0),
+        ("flat_map", 0),
+        ("fold", 1),
+        ("for_each", 0),
+        ("map", 0),
+        ("rfind", 0),
+        ("rfold", 1),
+    ] {
+        let method = ITERATOR
+            .methods
+            .iter()
+            .find(|method| method.name == name)
+            .unwrap_or_else(|| panic!("method should exist"));
+        assert_eq!(
+            method.params[callback_position].ownership,
+            Ownership::Borrow,
+            "`{name}` borrows the callback during the runtime call; lazy adapters retain their own copy"
+        );
+    }
+}
+
+#[test]
 fn join_takes_str_separator() {
     let m = ITERATOR
         .methods

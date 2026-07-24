@@ -1,0 +1,77 @@
+// Spec: 14-expressions.md § Index/Field Assignment (Clause 14.12)
+//
+// Index/field assignment (`x[i] = v`, `x.f = v`) parses to an AssignTarget
+// chain, then the type-directed desugar rewrites it to the pure-reassignment
+// form (`x = x.updated(key: i, value: v)` / `x = { ...x, f: v }`). These are
+// POSITIVE pins for the shipped feature.
+//
+// Invalid-assignment-target rejection (E1020 — `f()[0] = x`, `(a+b)[0] = x`,
+// `a?.b = x`, `a.m() = x`, `a.m()[0] = x`, `(a as T).f = x`) is a PARSE error.
+// The test harness cannot attribute a module-level parse error to a per-function
+// #compile_fail, so those negatives are pinned in the ori_parse Rust matrix
+// (`compiler/ori_parse/src/tests/assign_target.rs`), not here.
+//
+// `**=` compound-assignment coverage is blocked on the unshipped `**` power
+// operator + `**=` token (spec-defined, target-only).
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Index assignment — list element
+// =============================================================================
+
+@test_index_assign tests @index_assign () -> void = {
+    assert_eq(actual: index_assign(), expected: 9)
+}
+
+@index_assign () -> int = {
+    let xs = [1, 2, 3];
+    xs[0] = 9;
+    xs[0]
+}
+
+// =============================================================================
+// Index compound assignment — desugars to read + binary + write
+// =============================================================================
+
+@test_index_compound_assign tests @index_compound () -> void = {
+    assert_eq(actual: index_compound(), expected: 3)
+}
+
+@index_compound () -> int = {
+    let xs = [1, 2, 3];
+    xs[0] += 2;
+    xs[0]
+}
+
+// =============================================================================
+// Field assignment — struct field
+// =============================================================================
+
+type Counter = { value: int }
+
+@test_field_assign tests @field_assign () -> void = {
+    assert_eq(actual: field_assign(), expected: 5)
+}
+
+@field_assign () -> int = {
+    let c = Counter { value: 0 };
+    c.value = 5;
+    c.value
+}
+
+// =============================================================================
+// Multi-step chain — field then index
+// =============================================================================
+
+type Bag = { items: [int] }
+
+@test_field_index_chain tests @field_index_chain () -> void = {
+    assert_eq(actual: field_index_chain(), expected: 7)
+}
+
+@field_index_chain () -> int = {
+    let b = Bag { items: [1, 2, 3] };
+    b.items[0] = 7;
+    b.items[0]
+}

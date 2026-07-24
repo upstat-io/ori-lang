@@ -1,0 +1,7 @@
+@source () -> [[int]] = [[1, 2], [], [3]];
+
+@main () -> int = {
+    // An empty inner list contributes 0 to the two-pass sum-then-copy length.
+    let $x = source().flatten();
+    if x.length() == 3 then 0 else 1
+}

@@ -1,0 +1,119 @@
+Theorem RL-1: owner-credit realization when an owned value gains a simultaneous owner
+
+  Preconditions:
+    - RcInc is the historical compiled-projection carrier for a logical
+      owner-credit event; RL-1 does not prescribe a counter or backend
+    - RL-1 governs logical owner-credit realization per Annex E §AIMS:
+      an owner-credit event is required when an owned value gains a
+      simultaneous owner.
+    - The realization rules have the common signature
+      ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; RL-1 is discharged here
+      against the sec-01 Realization.proof sorry obligation.
+    - RL-1 consumes the converged AimsStateMap from Step 4
+      (analyze_function) per Annex E §AIMS PL-2; emission runs in
+      Step 5 (realize_rc_reuse, pre-merge).
+    - Shipped emission sites:
+        * emit_rc/forward_walk.rs::emit_terminator_rc — terminator-position
+          inc emission.
+        * realize/mod.rs::inject_cow_borrowed_receiver_incs (lines 406-478)
+          — RcInc before a COW call whose receiver is a borrowed function
+          parameter, so the dynamic sharing observation sees multiple owner
+          credits and takes the COW slow path (the extra logical credit is
+          matched by the slow path's release of the old buffer).
+        * realize/mod.rs::realize_rc_reuse (lines 106-182) Sub-step B
+          dispatches unified RC emission via emit_unified::emit_rc_unified
+          (line 140), routing every inc/dec decision through
+          realize/decide.rs.
+    - RL-1 is gated by DP-3 (is_rc_inc_elidable, Appendix C): an inc is
+      ELIDED exactly when Cardinality = Once AND Consumption is Linear or
+      Affine (the value is used once, so no new owned reference is created —
+      a move (Linear) transfers the existing reference, a borrow (Affine)
+      reads it non-consumingly and releases it via its own RL-2 scope-exit
+      dec). RL-1 emits the inc in every other duplication case (the value is
+      still live afterward).
+    - depends-on sec-05: DP-3 (is_rc_inc_elidable) soundness is proven at
+      sec-05; RL-1's emission decision consumes that predicate.
+
+  Soundness property:
+    Forall value v born with one logical owner credit (TF-3 FRESH), and
+    forall duplication of v to an Owned parameter at a program point where
+    v remains live afterward:
+
+      (P1) Emission decision: RL-1 emits an RcInc for the duplication iff
+           NOT is_rc_inc_elidable(state(v)) — i.e. iff NOT (Cardinality(v)
+           = Once AND Consumption(v) is Linear or Affine). A single-use
+           value's inc is elided because the single use creates no new owned
+           reference (move transfers the sole reference; borrow releases via
+           its own scope-exit dec).
+
+      (P2) Owner-credit preservation: over v's full
+           lifecycle, every owner credit created — the one from birth plus
+           every RL-1 duplication credit — is released exactly once by a
+           matching logical release
+           (RL-2 at the callee's last use of the Owned param, or the
+           caller's last use), or by an ownership handoff. The net
+           owner-credit balance returns to zero; no owner leaks and none is
+           double-released. Physical counters are only one satisfying
+           projection of this ledger.
+
+    RL-1 preserves canonical evaluator behavior and exact OwnershipEvent
+    balance while omitting an additional credit proved unnecessary.
+
+  Proof obligation:
+    Constructive discharge by the rc_counting engine via per-instruction
+    RC-delta arithmetic + balance-equation witness construction (per
+    the proof-checker design sec-Engine-per-Category-Inventory; the foundational-axiom policy
+    sec-Per-Engine-Constructive-Proof-Shape forbids classical existence of
+    a balancing witness — the witness is constructed).
+
+    Part (P1) — emission decision (cross-check against DP-3):
+
+      The verifier enumerates a decision grid over (Cardinality,
+      Consumption) and asserts RL-1's emit-inc decision equals
+      NOT dp3_inc_elidable(card, cons) on every row:
+        (Once, Linear) -> elide (single-use move transfers the reference)
+        (Once, Affine) -> elide (single-use borrow; own scope-exit dec balances)
+        (Many, Unrestricted) -> emit (live after dup)
+        (Many, Affine) -> emit (live after dup)
+        (Once, Unrestricted) -> emit (re-used)
+      Coverage gate: 5 decisions, each cross-checked against the
+      sec-05-proven DP-3 predicate. A divergence between RL-1's emission and
+      the DP-3 gate fails the proof.
+
+    Part (P2) — RC-count preservation (balance ledger):
+
+      A value lifecycle is modeled as an ordered sequence of RcEvents
+      (Alloc / IncLiveDup / ElideIncMove / DecLastUse / TransferOut); the
+      verifier computes net = (refs_created) - (refs_released) and asserts
+      net = 0 for every sound lifecycle. Discharged cases:
+        live_dup_owned_param_balanced — alloc, RL-1 inc on dup, callee dec,
+                                          caller dec at last use -> net 0.
+        moved_once_inc_elided_balanced — alloc, inc elided, ownership
+                                          transfers out -> net 0.
+        two_live_dups_balanced — alloc, two RL-1 incs, three decs
+                                          -> net 0.
+
+    Negative-direction witnesses (the balance check has teeth — a wrong
+    emission schedule is REJECTED):
+      NEG_inc_on_moved_once_leaks — RL-1 wrongly emitting an inc on a
+                                          moved-once value (failing to elide)
+                                          leaves an extra reference: net = +1
+                                          (leak). Rejected.
+      NEG_inc_without_matching_dec_leaks— an inc with no matching callee dec:
+                                          net = +1 (leak). Rejected.
+      Coverage gate: 5 ledger cases (3 sound + 2 negative witnesses).
+
+    Engines dispatched:
+      rc_counting (PRIMARY — section_08::verify_rl1_inc_on_live_duplication;
+        per-instruction RC-delta arithmetic over the balance ledger +
+        DP-3 emission-decision cross-check; emits Fail on a balance
+        violation or an emission/DP-3 divergence)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row once rc_counting has discharged)
+      case_analysis (SECONDARY — gracious-accept per the coverage-manifest
+        RL row once rc_counting has discharged)
+
+  Expected:
+    status: valid
+    reason: section_08 rc_counting engine discharges RL-1 via (P1) the inc-emission decision cross-checked against the DP-3 elision gate over a 5-row (Cardinality x Consumption) grid and (P2) the RC-count-preservation balance ledger (3 sound lifecycles + 2 negative-direction witnesses), grounded in the shipped emit_rc/forward_walk.rs + realize/mod.rs inject_cow_borrowed_receiver_incs emission sites routed through realize/decide.rs

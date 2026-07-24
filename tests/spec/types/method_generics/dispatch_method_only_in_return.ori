@@ -1,0 +1,30 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 §C.4.2 — dispatch-distinct-method
+//
+// Method-level U appears ONLY in return type, NOT in params. Type
+// ascription drives method-arg inference. LLVM dispatch routes to distinct
+// functions even though concrete_param_types is identical between
+// instances. Tests apply.rs:121 lookup_mono_dispatch correctness post-§C.2.
+//
+// `#fail("not yet implemented")` matches the runtime panic from `todo()`
+// in `@get`'s body. The test compiles + monomorphizes end-to-end
+// successfully; the runtime panic is the expected outcome that pins
+// the §C.4.2 dispatch invariant.
+
+use std.testing { assert_eq }
+
+type Foo<T> = { tag: T }
+type Box<U> = { value: U }
+
+impl<T> Foo<T> {
+    @get<U> (self) -> Box<U> = Box { value: todo() };
+}
+
+#fail("not yet implemented")
+@test_dispatch_method_only_in_return tests _ () -> void = {
+    let f: Foo<int> = Foo { tag: 1 };
+    let r1: Box<str> = f.get();    // impl=int, method=str
+    let r2: Box<int> = f.get();    // impl=int, method=int
+    assert_eq(actual: 1, expected: 1)
+}

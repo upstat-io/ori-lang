@@ -1,7 +1,7 @@
 // §05.3.4 DUAL-EXEC PARITY: annotated empty list with push + len.
 // Matrix: B=int × C=push+len × D=annotated. Same axis as empty_list_annotated_with_push.ori
 // but shaped as an @main program so `diagnostics/dual-exec-verify.sh` can compare
-// interpreter vs AOT output byte-for-byte per CLAUDE.md §Fix Completeness.
+// interpreter vs AOT output byte-for-byte.
 //
 // The parity sample in §05.3.4 MUST include this annotated-axis program because
 // §07 close-out (line 104-106) inherits the sample verbatim and the annotated

@@ -1,0 +1,10 @@
+// BUG-04-090 §03 cross-type: Set<int> — heap set, fat-pointer-backed.
+// Constructed via .iter().collect() per the standard Ori Set construction
+// pattern (tests/spec/collections/cow/set_cow.ori).
+@id <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let s: Set<int> = [10, 20, 30].iter().collect();
+    let s2 = id(x: s);
+    if s2.len() == 3 then 0 else 1
+}

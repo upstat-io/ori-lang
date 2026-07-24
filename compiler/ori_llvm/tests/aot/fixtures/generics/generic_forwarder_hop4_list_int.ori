@@ -1,0 +1,12 @@
+// BUG-04-090 §03 cell B (4-hop): depth probe for fixpoint stability.
+// Each forwarder hop adds one spurious dec; verifies the fixpoint correctly
+// converges across the SCC at depth >= 4.
+@id <T> (x: T) -> T = x;
+@wrap <T> (x: T) -> T = id(x: x);
+@wrap2 <T> (x: T) -> T = wrap(x: x);
+@wrap3 <T> (x: T) -> T = wrap2(x: x);
+
+@main () -> int = {
+    let xs = wrap3(x: [100, 200, 300, 400]);
+    if xs.len() == 4 && xs[3] == 400 then 0 else 1
+}

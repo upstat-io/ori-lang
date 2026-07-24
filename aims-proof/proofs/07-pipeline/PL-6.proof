@@ -1,0 +1,262 @@
+Theorem PL-6: adding a pass requires updating ordering + proving no constraint violation — the meta-theorem governing pipeline extension
+
+  Preconditions:
+    - The AIMS pipeline is a 12-step strictly-ordered sequence per
+      Annex E §AIMS §6. PL-6 is the META-RULE that
+      governs how the schedule itself may be EXTENDED: it does not fix a
+      single ordered pair (the way PL-2/PL-3/PL-4/PL-4a do) but constrains
+      every act of adding a new pass to the schedule.
+    - PL-6 statement (per Annex E §AIMS PL-6 + Annex E §AIMS §6
+      "Do NOT add passes without updating the pipeline. Do NOT call out of
+      order."): adding a pass requires (1) updating the pipeline ordering to
+      place the new pass at a declared position, (2) proving the insertion
+      violates no existing ordering constraint, and (3) a matched commit pair
+      touching BOTH the pipeline AND its tests.
+    - PL-6 type signature (per Pipeline.proof lines 54-57, the sorry
+      obligation this theorem discharges):
+        type : NewPass -> List Constraint
+        adding a pass requires updating ordering + proving no constraint
+        violation; matched commit pair touching both pipeline + tests.
+    - The existing ordering constraints the meta-rule must preserve are the
+      shipped §07.1 + §07.2 ordered pairs over the per-function suffix
+      schedule (Steps 3..12 with sub-steps 3a/4a/5a/8a):
+        PL-1 Steps 1-2 (interprocedural prefix) before any per-function step
+        PL-2 Step 4 (analyze_function) < Step 5 (realize_rc_reuse)
+        PL-3 Step 5 (realize_rc_reuse) < Step 9 (merge_blocks)
+        PL-4 Step 9 (merge_blocks) < Step 10 (realize_annotations)
+        PL-4a Step 8a (unwind_cleanup) < Step 9 (merge_blocks)
+      A NewPass insertion is VALID iff, after insertion, every one of these
+      ordered-pair predicates still holds AND the NewPass's own declared
+      ordering dependencies (which existing steps it must follow / precede)
+      are satisfied by its declared position.
+    - Shipped grounding for the meta-rule's enforcement surface:
+        (a) The pipeline ordering is encoded as the straight-line statement
+            sequence of ori_arc::pipeline::aims_pipeline::run_aims_pipeline
+            (compiler/ori_arc/src/pipeline/aims_pipeline/mod.rs
+            lines 163-287) + postprocess::verify_and_merge
+            (compiler/ori_arc/src/pipeline/aims_pipeline/
+            postprocess.rs lines 15-51). Inserting a pass = adding a statement
+            at a chosen position in this sequence; "updating ordering" is
+            literally editing this driver.
+        (b) The "Do NOT add passes without updating the pipeline. Do NOT call
+            out of order." directive (Annex E §AIMS §6
+            sec-Pipeline-ordering, the last bullet) is the human-readable
+            statement of the meta-rule.
+        (c) The "matched commit pair touching both pipeline + tests" leg
+            mirrors the project-wide PL-6 discipline (Pipeline.proof line 57):
+            a pipeline-ordering edit lands with its ordering tests in the same
+            commit, so a constraint regression is caught at commit time.
+            Annex E §AIMS §6 (relationship to §8) ("PL-6 governs in-pipeline
+            passes; post-pipeline ops on output") fixes the SCOPE of the
+            meta-rule to in-pipeline insertions.
+    - This theorem reasons over the SET of ordering constraints the schedule
+      must satisfy AFTER a hypothetical NewPass insertion. It is downstream of
+      PL-2/PL-3/PL-4/PL-4a (the constraints it must preserve) and is the
+      meta-level companion of PL-5 (a pass added out of order would read a
+      stale or absent summary — a PL-5 violation the PL-6 constraint-check
+      prevents at insertion time).
+
+  Soundness property:
+    Forall NewPass p with a declared position pos(p) in the per-function
+    schedule and a declared dependency set deps(p) = (must_follow(p),
+    must_precede(p)) over the existing attributed steps.
+      Let SCHED' = SCHED with p inserted at pos(p).
+      Three conjuncts SHALL hold for p to be an ADMISSIBLE insertion:
+
+      (P1) Ordering-updated:
+        p carries a declared position pos(p) in SCHED' (the insertion is not
+        "called out of order" — it occupies an explicit ordinal, not an
+        ad-hoc call site). Equivalently: SCHED' is a total order in which p
+        has a unique position.
+
+      (P2) No-existing-constraint-violation:
+        Every existing ordered-pair predicate still holds in SCHED':
+          position'(Step 4) < position'(Step 5) (PL-2)
+          position'(Step 5) < position'(Step 9) (PL-3)
+          position'(Step 9) < position'(Step 10) (PL-4)
+          position'(Step 8a) < position'(Step 9) (PL-4a)
+        AND p's own declared dependencies are satisfied:
+          forall s in must_follow(p). position'(s) < pos(p)
+          forall s in must_precede(p). pos(p) < position'(s)
+
+      (P3) Matched-commit-pair:
+        The insertion is accompanied by a test update in the same change set
+        (the ordering tests that pin the preserved predicates). Modeled as:
+        p declares `tests_updated = true`; an insertion claiming admissibility
+        without the matched test leg is rejected.
+
+  Proof obligation:
+    Three-part constructive discharge corresponding to (P1), (P2), (P3), by
+    structural induction over the post-insertion schedule SCHED' + case
+    analysis on whether the NewPass's declared position + dependencies +
+    test-leg are well-formed.
+
+    Part (P1) — Ordering-updated (structural induction over SCHED'):
+
+      Base case — empty insertion:
+        With no NewPass, SCHED' = SCHED is the shipped total order
+        (pl_suffix_schedule's monotone positions). PL-2/PL-3/PL-4/PL-4a all
+        hold (discharged by §07.2). The schedule is admissible.
+
+      Inductive step — single NewPass insertion at pos(p):
+        Inserting p at pos(p) and renumbering the suffix positions yields
+        SCHED' in which every original step retains its relative order and p
+        occupies a unique ordinal. The insertion is "updating the ordering"
+        (editing the run_aims_pipeline straight-line sequence, mod.rs lines
+        163-287) — NOT an out-of-order ad-hoc call. (P1) holds: p has a
+        declared position.
+
+    Part (P2) — No-existing-constraint-violation (case analysis on pos(p)
+    relative to each preserved pair):
+
+      Case pos(p) outside an ordered pair's span (before both endpoints or
+      after both):
+        Inserting p before Step 4 or after Step 10 shifts both endpoints of
+        every pair by the same offset; relative order is preserved, so every
+        predicate position'(before) < position'(after) still holds.
+
+      Case pos(p) strictly between an ordered pair's endpoints (e.g. between
+      Step 4 and Step 5):
+        Inserting p between Step 4 and Step 5 keeps position'(Step 4) < pos(p)
+        < position'(Step 5), so PL-2 still holds; the other pairs (whose spans
+        do not contain pos(p), or contain it on the same side of both
+        endpoints) are likewise preserved. The verifier re-checks ALL four
+        predicates on SCHED' and accepts only when every one holds.
+
+      Case pos(p) violating a preserved pair (e.g. inserting a pass that
+      MOVES realize_annotations before merge_blocks):
+        Such an insertion makes position'(Step 9) > position'(Step 10),
+        violating PL-4. The verifier's re-check of the PL-4 predicate Fails;
+        the insertion is REJECTED. This is the constructive heart of the
+        meta-rule — an admissible insertion is exactly one whose SCHED'
+        satisfies every preserved predicate.
+
+      Case p's own dependencies unsatisfied (must_follow / must_precede):
+        If p declares it must follow Step 4 (it consumes the AimsStateMap)
+        but is placed before Step 4, position'(Step 4) < pos(p) is false; the
+        verifier Fails. p is rejected — placing it there would read an absent
+        state map (a PL-5 violation). Symmetrically for must_precede.
+
+      In every admissible case the verifier confirms ALL preserved predicates
+      hold AND p's declared dependencies are satisfied; in every inadmissible
+      case it Fails. (P2) discharged.
+
+    Part (P3) — Matched-commit-pair (case analysis on the test leg):
+
+      Case tests_updated true:
+        The insertion declares its ordering tests updated in the same change
+        set — the matched commit pair (pipeline edit + ordering-test edit)
+        exists. The verifier accepts the test leg.
+
+      Case tests_updated false:
+        The insertion claims admissibility without the matched test leg — a
+        pipeline-ordering change with no test pinning the preserved
+        predicates. Per Annex E §AIMS PL-6 + Pipeline.proof line 57 the
+        matched commit pair is REQUIRED; the verifier Fails. (P3) discharged.
+
+    Coverage gate — admissibility-case enumeration:
+
+      The verifier models a representative set of NewPass insertions against
+      the shipped pl_suffix_schedule and discharges, for each, the triple
+      (P1 ordering-updated, P2 no-constraint-violation, P3 matched-commit-
+      pair). It asserts:
+        - an admissible insertion (declared position + dependencies satisfied
+          + tests updated) is ACCEPTED, with every preserved predicate
+          (PL-2/PL-3/PL-4/PL-4a) re-verified to hold on SCHED'.
+        - an insertion that violates a preserved predicate is REJECTED.
+        - an insertion that leaves a declared dependency unsatisfied is
+          REJECTED.
+        - an insertion lacking the matched test leg is REJECTED.
+
+      Coverage axes:
+        Ordering-updated (P1): the admissible-insertion case verified to
+          occupy a unique declared position in SCHED'.
+        No-constraint-violation (P2): the four preserved ordered-pair
+          predicates re-verified on SCHED' for the admissible case + the
+          predicate-violating and dependency-violating cases rejected.
+        Matched-commit-pair (P3): the tests-updated case accepted, the
+          tests-missing case rejected.
+
+    Negative-direction witness — out-of-order insertion rejected:
+
+      An insertion that places a state-map consumer before Step 4
+      analyze_function (the "Do NOT call out of order" prohibition, Annex E §AIMS
+      sec-Critical-Rules) leaves position'(Step 4) < pos(p) false; the
+      verifier Fails the dependency check. The pass would read an absent
+      AimsStateMap — a PL-5 staleness/absence bug. The meta-rule rejects it
+      at insertion time.
+
+    Negative-direction witness — constraint-violating insertion rejected:
+
+      An insertion that reorders Step 10 realize_annotations ahead of Step 9
+      merge_blocks makes position'(Step 9) > position'(Step 10), violating
+      PL-4 (phase 2 would read position-keyed maps invalidated by merge — see
+      PL-3/PL-4). The verifier re-checks PL-4 on SCHED' and Fails. The
+      meta-rule rejects any insertion that breaks a preserved predicate.
+
+    Negative-direction witness — test-less insertion rejected:
+
+      An insertion claiming admissibility with tests_updated = false is a
+      pipeline edit with no ordering test pinning the preserved predicates —
+      a regression would slip past commit. Per PL-6's matched-commit-pair leg
+      the verifier Fails. The meta-rule requires the test leg.
+
+    Cycle-soundness witness — PL-6 is the meta-companion of the ordered pairs
+    + PL-5:
+
+      PL-6 governs SCHEDULE EXTENSION; the ordered-pair rules PL-2/PL-3/PL-4/
+      PL-4a are the constraints it preserves, and PL-5 is the staleness
+      invariant it protects (an out-of-order insertion would read a stale or
+      absent summary). PL-6 consumes the ordered-pair predicates as its
+      "preserved set"; it produces no predicate they consume. The dependency
+      chain is acyclic:
+        PL-2 + PL-3 + PL-4 + PL-4a --> PL-6 (the preserved constraints an
+                                            insertion must not violate)
+        PL-5 --> PL-6 (the staleness invariant an
+                                            out-of-order insertion would break)
+      PL-6 is a sink of this dependency tree.
+
+    Algorithm-citation declaration:
+      property: pipeline-extension admissibility — a new pass is
+                           admissible iff it occupies a declared position,
+                           violates no existing ordering constraint, and lands
+                           with a matched ordering-test commit
+      published: standard pass-manager extension discipline — adding
+                           a pass to an optimization pipeline requires
+                           declaring its position + its pass dependencies +
+                           preserving the analysis-validity constraints of
+                           existing passes; the same shape governs LLVM's
+                           PassManager pass-dependency / analysis-preservation
+                           declarations from the published reference-compiler corpus
+      determinism: deterministic — admissibility of a given NewPass
+                           insertion is a fixed function of its declared
+                           position, its declared dependency set, and the
+                           fixed pl_suffix_schedule's preserved predicates;
+                           no schedule freedom beyond the declared position
+      reference impl: ori_arc::pipeline::aims_pipeline::run_aims_pipeline
+                           (mod.rs lines 163-287, the straight-line statement
+                           sequence that IS the ordering an insertion edits) +
+                           postprocess::verify_and_merge (postprocess.rs lines
+                           15-51) + the "Do NOT add passes without updating the
+                           pipeline. Do NOT call out of order." directive
+                           (Annex E §AIMS §6)
+
+    Engines dispatched:
+      structural_induction (PRIMARY — structural induction over the
+        post-insertion schedule SCHED' per section_07::
+        verify_pl6_adding_a_pass_meta_rule; the verifier models a NewPass with
+        declared position + dependency set + test leg, builds SCHED', and
+        discharges (P1) ordering-updated via the unique-position check, (P2)
+        no-constraint-violation via re-checking the four preserved ordered-pair
+        predicates PL-2/PL-3/PL-4/PL-4a on SCHED' PLUS the NewPass's declared
+        dependencies, and (P3) matched-commit-pair via the test-leg flag;
+        emits Fail on a predicate violation, an unsatisfied dependency, or a
+        missing test leg)
+      case_analysis (SECONDARY — per-case grid over the admissible vs
+        predicate-violating vs dependency-violating vs test-less insertion
+        cases; gracious-accept once structural_induction has discharged the
+        meta-rule obligation per the coverage-manifest PL row)
+
+  Expected:
+    status: valid
+    reason: section_07 structural_induction engine discharges PL-6 via the post-insertion schedule SCHED' — (P1) an admissible NewPass occupies a unique declared position (ordering updated, not called out of order), (P2) every preserved ordered-pair predicate PL-2/PL-3/PL-4/PL-4a still holds on SCHED' AND the NewPass's declared dependencies are satisfied (a predicate-violating or dependency-violating insertion is rejected), and (P3) the insertion lands with a matched ordering-test commit (a test-less insertion is rejected); grounded in the shipped run_aims_pipeline straight-line ordering (mod.rs lines 163-287) + the "Do NOT add passes without updating the pipeline. Do NOT call out of order." directive (Annex E §AIMS §6); PL-6 is the meta-companion of PL-5 (an out-of-order insertion would read a stale/absent summary); case_analysis secondary-accepting per the coverage-manifest PL row

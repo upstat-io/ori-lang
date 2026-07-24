@@ -1,7 +1,5 @@
 //! Test modules for the evaluator.
 //!
-//! Comprehensive test suites for evaluator components.
-//!
 //! ## Organization
 //!
 //! - `function_val_tests.rs` - Type conversion functions (int, float, str, byte)

@@ -47,10 +47,9 @@ pub enum DecisionSource {
     CollectionSpec,
 }
 
-/// Reason for a narrowing decision — used in audit trail and debug tracing.
+/// Reason for a narrowing decision, retained for audit and debug tracing.
 ///
-/// `ValueRange` is a placeholder populated by the canonical pass (replaced by
-/// the real interval lattice in the range analysis pass).
+/// `ValueRange` carries the range evidence supplied by representation analysis.
 #[derive(Debug, Clone)]
 pub enum DecisionReason {
     /// Type is canonically this width (no narrowing applied).

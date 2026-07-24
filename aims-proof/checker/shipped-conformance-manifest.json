@@ -1,0 +1,74 @@
+{
+  "$schema": "./shipped-conformance-manifest.schema.json",
+  "description": "Locality-blocked proven-rule set per the locality shipped-conformance cross-walk. Each rule is proven sound against the 5-variant target Locality calculus (proof_status: complete) but cannot be confirmed shipped-conformant until the unified-locality dimension lands in the shared AIMS calculus. The cross-walk emits divergent-pending(blocked-by: unified-locality-dimension) for every rule below while shipped Locality is 4-variant OR ParamContract.may_escape is a stored field.",
+  "blocked_by": "unified-locality-dimension",
+  "rules": [
+    {
+      "id": "RL-15a",
+      "proof_artifact": "aims-proof/proofs/08-realization/RL-15a.proof",
+      "unblock_condition": "shipped Locality has 5 variants incl. ArgEscaping AND ParamContract.may_escape is a derived method (not a stored field)",
+      "blocked_by": "unified-locality-dimension",
+      "annotation_targets": [
+        "Annex E §AIMS Locality",
+        "Annex E §AIMS RL-15a"
+      ]
+    },
+    {
+      "id": "RL-18a",
+      "proof_artifact": "aims-proof/proofs/08-realization/RL-18a.proof",
+      "unblock_condition": "shipped Locality has 5 variants incl. ArgEscaping AND ParamContract.may_escape is a derived method (not a stored field)",
+      "blocked_by": "unified-locality-dimension",
+      "annotation_targets": [
+        "Annex E §AIMS RL-18a",
+        "Annex E §AIMS IC-3 ParamContract"
+      ]
+    },
+    {
+      "id": "DP-7",
+      "proof_artifact": "aims-proof/proofs/05-decisions/DP-7.proof",
+      "unblock_condition": "shipped Locality has 5 variants incl. ArgEscaping AND ParamContract.may_escape is a derived method (not a stored field)",
+      "blocked_by": "unified-locality-dimension",
+      "annotation_targets": [
+        "Annex E §AIMS DP-7",
+        "Annex E §AIMS DP-8"
+      ]
+    },
+    {
+      "id": "DP-8",
+      "proof_artifact": "aims-proof/proofs/05-decisions/DP-8.proof",
+      "unblock_condition": "shipped Locality has 5 variants incl. ArgEscaping AND ParamContract.may_escape is a derived method (not a stored field)",
+      "blocked_by": "unified-locality-dimension",
+      "annotation_targets": [
+        "Annex E §AIMS DP-8"
+      ]
+    },
+    {
+      "id": "CN-6",
+      "proof_artifact": "aims-proof/proofs/03-canonicalization/CN-6.proof",
+      "unblock_condition": "shipped Locality has 5 variants incl. ArgEscaping AND ParamContract.may_escape is a derived method (not a stored field)",
+      "blocked_by": "unified-locality-dimension",
+      "annotation_targets": [
+        "Annex E §AIMS CN-6"
+      ]
+    },
+    {
+      "id": "CN-8",
+      "proof_artifact": "aims-proof/proofs/03-canonicalization/CN-8.proof",
+      "unblock_condition": "shipped Locality has 5 variants incl. ArgEscaping AND ParamContract.may_escape is a derived method (not a stored field)",
+      "blocked_by": "unified-locality-dimension",
+      "annotation_targets": [
+        "Annex E §AIMS CN-8"
+      ]
+    },
+    {
+      "id": "IC-3",
+      "proof_artifact": "aims-proof/proofs/06-interprocedural/IC-3-param-join.proof",
+      "unblock_condition": "shipped Locality has 5 variants incl. ArgEscaping AND ParamContract.may_escape is a derived method (not a stored field)",
+      "blocked_by": "unified-locality-dimension",
+      "annotation_targets": [
+        "Annex E §AIMS IC-3",
+        "Annex E §AIMS IC-2"
+      ]
+    }
+  ]
+}

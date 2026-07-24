@@ -1,0 +1,14 @@
+// Apply-alias Direct shape (`@id<T>(x: T) -> T = x`) over a str element.
+// Caller `aliased = id(x: s)`: dst aliases the consumed arg (same RC slot).
+// AOT mirror of tests/spec/aims/apply_alias_coverage/direct_str.ori; runs
+// under ORI_CHECK_LEAKS — exit 0 + zero leaks == apply-alias Direct/str
+// burden coverage holds. Sibling spec test asserts the same value on the
+// interpreter for dual-backend parity.
+
+@id<T> (x: T) -> T = x;
+
+@main () -> int = {
+    let s = "hello world";
+    let aliased = id(x: s);
+    if aliased.len() == 11 then 0 else 1
+}

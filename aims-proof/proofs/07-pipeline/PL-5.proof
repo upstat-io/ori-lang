@@ -1,0 +1,303 @@
+Theorem PL-5: no pass relies on stale summaries — every summary is read strictly after its latest production, and the Step 4a rollback-and-replay supersedes discarded TRMC-rewritten summaries
+
+  Preconditions:
+    - The AIMS pipeline is a 12-step strictly-ordered sequence per
+      Annex E §AIMS §6. PL-5 is the cross-cutting
+      sequencing invariant over the WHOLE schedule (not a single ordered
+      pair): every summary a pipeline step produces SHALL be observed by its
+      downstream consumers at the values current at consumption time. A
+      consumer reading a summary produced BEFORE the latest mutation of that
+      summary reads a STALE value — a sequencing bug.
+        Step 1: analyze_program() — produces MemoryContract map
+        Step 3: compute_var_reprs() — produces ValueRepr (var_reprs)
+        Step 3a: normalize_function() — TRMC rewrite (may mutate IR)
+        Step 4: analyze_function() — produces converged AimsStateMap
+        Step 4a: verify_trmc_soundness() — on TRMC failure rolls back to
+                                            pre-TRMC IR + re-runs Steps 3-4,
+                                            REPLACING ValueRepr + AimsStateMap
+        Step 5: realize_rc_reuse() — consumes AimsStateMap (phase 1)
+        Step 10: realize_annotations() — consumes AimsStateMap (phase 2)
+    - PL-5 statement (per Annex E §AIMS PL-5 + Annex E §AIMS
+      sec-Non-Negotiable-Invariants #3): "No pass may rely on stale
+      summaries. If a pipeline step modifies IR or updates an effect
+      summary, all downstream consumers must see updated values. A verifier
+      that runs before its inputs are available is a sequencing bug."
+    - PL-5 type signature (per Pipeline.proof lines 48-52, the sorry
+      obligation this theorem discharges):
+        type : Pipeline -> Bool
+        no pass SHALL rely on stale summaries; if a pipeline step modifies
+        IR or updates an effect summary, all downstream consumers MUST see
+        updated values (verifier-before-input = sequencing bug).
+    - PL-5 is gated end-to-end by the Ori-owned checker; it is NOT in the CI gate's
+      Lean 4 critical-proof subset (scoped to §01A bootstrap + §08 RL-31 +
+      §11 coexistence handshake only per section-07 success criterion line
+      10). The CI gate lists §07 in depends_on solely to recurse
+      aims-proof/proofs/07-pipeline/ into the CI checker corpus.
+    - Shipped per-function driver: ori_arc::pipeline::aims_pipeline::
+      run_aims_pipeline (compiler/ori_arc/src/pipeline/
+      aims_pipeline/mod.rs lines 163-287). The summary production / consumption
+      straight-line statements within one body:
+        (a) Step 3 — `func.var_reprs = compute_var_reprs(...)` runs inside
+            trmc::normalize_with_trmc (mod.rs lines 169-170 dispatch; the
+            assignment is at trmc.rs lines 47-50). Produces ValueRepr.
+        (b) Step 4 — `let state_map = { ... analyze_function(func, ...) }`
+            (mod.rs lines 182-191). Produces the converged AimsStateMap; it
+            reads config.contracts (Step 1's MemoryContract map, mod.rs line
+            187) and &norm_result.context_regions (Step 3a output, mod.rs
+            line 188).
+        (c) Step 4a — `let (state_map, trmc_rewrite_survived) =
+            verify_trmc_soundness(func, state_map, ...)` REBINDS `state_map`
+            (mod.rs lines 195-196). The `let (state_map, ...)` shadows the
+            Step-4 binding — every later read of `state_map` resolves to the
+            REBOUND value, never the pre-Step-4a one.
+        (d) Step 5 — `realize_rc_reuse(func, &state_map, ...)` (mod.rs lines
+            246-256) reads the REBOUND `state_map`.
+        (e) Step 10 — `realize_annotations(func, ..., state_map, ...)` via
+            apply_phase_2_annotations (mod.rs lines 277 + 291-300) reads the
+            REBOUND `state_map`.
+    - Shipped Step 4a rollback-and-replay: ori_arc::pipeline::aims_pipeline::
+      trmc::verify_trmc_soundness (compiler/ori_arc/src/
+      pipeline/aims_pipeline/trmc.rs lines 109-162). On TRMC structural-
+      verification failure (errors non-empty, trmc.rs lines 121-127) it
+      restores the pre-TRMC function and RE-RUNS Steps 3-4 on the restored
+      CFG:
+        - `*func = original;` restores pre-TRMC IR (trmc.rs line 144).
+        - `func.var_reprs = compute_var_reprs(func, ...)` RECOMPUTES ValueRepr
+          for the restored IR (trmc.rs line 145) — superseding the discarded
+          TRMC-rewritten var_reprs.
+        - `func.var_rc_strategies = compute_var_rc_strategies(...)` refreshes
+          the PIN-6 strategy cache (trmc.rs line 147).
+        - `let restored_regions = normalize_function(func, None).context_regions`
+          re-detects context regions on the restored CFG (trmc.rs lines 149-150).
+        - `let restored_map = analyze_function(func, ..., &restored_regions,
+          restored_immortals)` RECOMPUTES the AimsStateMap (trmc.rs lines
+          151-157) — superseding the discarded TRMC-rewritten state map.
+        - `(restored_map, false)` returns the RESTORED map as the function's
+          result (trmc.rs line 158); run_aims_pipeline binds THIS to
+          `state_map` (mod.rs line 195).
+      The pre-TRMC function is saved BEFORE the rewrite for exactly this
+      rollback (trmc.rs lines 56-64 save `pre_trmc_func`; the doc comment
+      trmc.rs lines 13-14 states "`pre_trmc_func` is saved before TRMC
+      rewrite for semantic rollback"). The rewrite is idempotent — "at most 2
+      iterations" (trmc.rs line 12 + the debug_assert at trmc.rs lines 80-86).
+    - This theorem reasons over the LINEAR per-function pipeline DAG's
+      SUMMARY-DEPENDENCY graph: each summary (MemoryContract, ValueRepr,
+      AimsStateMap) has a LATEST production position, and every consumer
+      reads at a STRICTLY-LATER position than that latest production. PL-5 is
+      downstream of PL-1/PL-1a (interprocedural prefix populated once) and
+      PL-2/PL-3 (the ordered pairs that keep the AimsStateMap consumers after
+      its producer); it is the umbrella sequencing invariant those ordered
+      pairs each contribute to.
+
+  Soundness property:
+    Forall function F processed by run_aims_pipeline, and forall summary S in
+    {MemoryContract, ValueRepr (var_reprs), AimsStateMap}.
+      Let prod_latest(S) = position of the LATEST statement that produces or
+      mutates S on F (the Step-4a re-run counts as a production when rollback
+      fires), and let reads(S) = the set of positions at which a downstream
+      pass reads S.
+      Two conjuncts SHALL hold:
+
+      (P1) Read-after-latest-production:
+        Forall r in reads(S). prod_latest(S) < r.
+        Every consumer reads S strictly after the last statement that
+        produced or mutated S — no consumer observes a value superseded by a
+        later mutation.
+
+      (P2) Rollback-supersession (Step 4a replay):
+        When Step 4a TRMC rollback fires on F, the ValueRepr recomputed at
+        Step 4a (trmc.rs line 145) and the AimsStateMap recomputed at Step 4a
+        (trmc.rs lines 151-157) are the LATEST productions of those summaries:
+          prod_latest(ValueRepr) = position(Step 4a re-run)
+          prod_latest(AimsStateMap) = position(Step 4a re-run)
+        and BOTH are strictly less than every downstream consumer position
+        (Step 5 realize_rc_reuse, Step 10 realize_annotations). The discarded
+        TRMC-rewritten ValueRepr + AimsStateMap (produced at Steps 3/4 BEFORE
+        the rollback) are NOT read by any downstream pass: the `let (state_map,
+        ...)` rebind at mod.rs line 195 shadows the pre-rollback binding, and
+        the restored func's var_reprs field (trmc.rs line 145) overwrites the
+        rewritten field in place.
+
+  Proof obligation:
+    Two-part constructive discharge corresponding to (P1) and (P2), by
+    structural induction over the per-function summary-dependency DAG +
+    case analysis on the Step 4a rollback / no-rollback split.
+
+    Part (P1) — Read-after-latest-production (structural induction over the
+    summary-dependency DAG):
+
+      Base case — MemoryContract (produced Step 1, consumed Step 4):
+        Step 1 analyze_program produces the MemoryContract map ONCE over the
+        whole program before the per-function loop (PL-1). Step 4
+        analyze_function reads it via config.contracts (mod.rs line 187).
+        No pipeline step mutates the contract map mid-per-function-loop, so
+        prod_latest(MemoryContract) = position(Step 1) < position(Step 4).
+        The contract read is non-stale.
+
+      Inductive step — ValueRepr (produced Step 3, possibly re-produced
+      Step 4a, consumed Step 4 + downstream):
+        Step 3 compute_var_reprs assigns func.var_reprs (trmc.rs lines
+        47-50). Step 4 analyze_function reads var_reprs through the
+        ArcFunction it analyzes (mod.rs lines 184-190). If NO rollback fires,
+        prod_latest(ValueRepr) = position(Step 3) < position(Step 4). If
+        rollback fires, Step 4a re-produces var_reprs (trmc.rs line 145) AND
+        re-runs Step 4 (trmc.rs lines 151-157) on the restored IR, so the
+        Step-4a-produced var_reprs feed the Step-4a-rebuilt state map — still
+        produced-before-consumed within the rollback block. By the induction
+        hypothesis each downstream read of ValueRepr (via the AimsStateMap it
+        fed) follows its latest production.
+
+      Inductive step — AimsStateMap (produced Step 4, rebound Step 4a,
+      consumed Step 5 + Step 10):
+        Step 4 binds `state_map` (mod.rs line 182). Step 4a REBINDS it (mod.rs
+        line 195) — the `let (state_map, ...)` shadow means every later
+        identifier `state_map` resolves to the Step-4a value. Step 5
+        realize_rc_reuse reads `&state_map` (mod.rs line 250) and Step 10
+        realize_annotations reads `state_map` (mod.rs line 277 +
+        apply_phase_2_annotations). Both reads are at positions strictly
+        greater than position(Step 4a). Therefore prod_latest(AimsStateMap) =
+        position(Step 4a) < min(position(Step 5), position(Step 10)). No
+        consumer reads the pre-Step-4a state map.
+
+      Termination:
+        The three summaries {MemoryContract, ValueRepr, AimsStateMap} are the
+        only cross-step summaries on the per-function suffix; each has been
+        shown to be read strictly after its latest production. (P1) discharged.
+
+    Part (P2) — Rollback-supersession (case analysis on the Step 4a split):
+
+      Case no-rollback (did_trmc_transform false, OR TRMC verified clean):
+        verify_trmc_soundness returns the INPUT state_map unchanged (trmc.rs
+        lines 116-117 early-return when did_trmc_transform is false; trmc.rs
+        lines 128-131 return the verified map when errors is empty). The
+        Step-4-produced summaries are the latest productions; downstream reads
+        (Step 5, Step 10) follow them. No staleness.
+
+      Case rollback (did_trmc_transform true AND TRMC verification failed):
+        errors is non-empty (trmc.rs lines 121-127). The rollback block
+        (trmc.rs lines 143-158) executes:
+          - restores pre-TRMC IR (`*func = original`, trmc.rs line 144) —
+            the TRMC-rewritten IR is DISCARDED;
+          - recomputes var_reprs for the restored IR (trmc.rs line 145) —
+            the TRMC-rewritten ValueRepr is SUPERSEDED in the same field;
+          - re-detects context regions (trmc.rs lines 149-150);
+          - recomputes the AimsStateMap (`restored_map`, trmc.rs lines
+            151-157) — the TRMC-rewritten state map is SUPERSEDED;
+          - returns `(restored_map, false)` (trmc.rs line 158).
+        run_aims_pipeline binds restored_map to `state_map` (mod.rs line 195),
+        shadowing the discarded pre-rollback binding. Every downstream pass
+        (Step 5 realize_rc_reuse, Step 10 realize_annotations) reads the
+        restored_map / restored var_reprs — NOT the discarded TRMC-rewritten
+        summaries. prod_latest(ValueRepr) = prod_latest(AimsStateMap) =
+        position(Step 4a re-run), each < every downstream consumer position.
+        No downstream pass observes the stale rewritten state. (P2) discharged.
+
+    Coverage gate — summary-dependency edge enumeration:
+
+      The verifier models the shipped per-function schedule as an ordered
+      list of (summary, production-position, [read-positions]) records and
+      discharges, for every summary S and every read r of S, the predicate
+      prod_latest(S) < r. It also models the Step 4a rollback as a
+      SECOND production of {ValueRepr, AimsStateMap} at the Step-4a position,
+      asserts that production is the latest before any downstream read, and
+      asserts the discarded pre-rollback productions have NO surviving read
+      (the rebind shadows them).
+
+      Coverage axes:
+        Read-after-production (P1): the three summary records {MemoryContract,
+          ValueRepr, AimsStateMap}, each verified read strictly after its
+          latest production across all its consumers.
+        Rollback-supersession (P2): the Step-4a re-production of {ValueRepr,
+          AimsStateMap} verified as the latest production whose value every
+          downstream consumer reads; the pre-rollback productions verified to
+          have zero surviving downstream read.
+
+    Negative-direction witness — read-before-production rejected:
+
+      Hypothetically scheduling Step 5 (realize_rc_reuse) to read the
+      AimsStateMap BEFORE Step 4 binds it (or before Step 4a rebinds it on
+      rollback) would have realize_rc_reuse consume an absent or
+      pre-convergence map — exactly the "verifier that runs before its inputs
+      are available" sequencing bug PL-5 forbids (Annex E §AIMS
+      sec-Non-Negotiable-Invariants #3). The verifier rejects any schedule
+      with a read of S at a position <= prod_latest(S).
+
+    Negative-direction witness — stale-rewritten-summary read rejected:
+
+      Hypothetically scheduling Step 5 to read the PRE-rollback (TRMC-
+      rewritten) state map after the rollback discarded the rewritten IR
+      would feed realization a summary computed against IR that no longer
+      exists. The shipped rebind at mod.rs line 195 + the in-place var_reprs
+      overwrite at trmc.rs line 145 make the rewritten summaries
+      unreachable to downstream reads. The verifier rejects any schedule in
+      which a downstream consumer reads a summary production that a later
+      rollback re-production superseded.
+
+    Cycle-soundness witness — PL-5 is the umbrella the ordered pairs serve:
+
+      PL-5 is the cross-cutting sequencing invariant; the ordered-pair rules
+      PL-1/PL-1a/PL-2/PL-3/PL-4/PL-4a each fix one boundary that contributes
+      to it. Its antecedents are PL-1 (Step 1 contract map populated once),
+      PL-2 (Step 4 before Step 5 — state map produced before consumed), and
+      PL-10 (the TRMC rollback that re-runs Steps 3-4 on the restored CFG
+      per PL-5). PL-5 produces no summary the ordered-pair rules consume; it
+      observes their ordering. The dependency chain is acyclic:
+        PL-1 + PL-1a --> PL-5 (prefix-once + callee-first feed the
+                              non-stale contract / state-map productions)
+        PL-2 --> PL-5 (Step 4 before Step 5 keeps the state map
+                              non-stale at its consumer)
+        PL-10 --> PL-5 (rollback re-runs Steps 3-4 so the restored
+                              summaries supersede the rewritten ones)
+      PL-5 is a sink of this dependency tree.
+
+    Algorithm-citation declaration:
+      property: pipeline summary-staleness freedom — every summary
+                           (MemoryContract, ValueRepr, AimsStateMap) is read
+                           strictly after its latest production, and the
+                           Step 4a rollback re-production supersedes the
+                           discarded TRMC-rewritten summaries
+      published: standard "reaching-definitions / no-stale-read"
+                           dataflow discipline — a use must observe the
+                           latest reaching definition, never a definition a
+                           later assignment killed; the same shape governs
+                           SSA def-use validity and the analysis-summary
+                           invalidation discipline in Lean 4 src/Lean/
+                           Compiler/IR from the published reference-compiler corpus
+      determinism: deterministic — the straight-line `let state_map`
+                           (mod.rs line 182) then `let (state_map, ...)` rebind
+                           (mod.rs line 195) then `&state_map` read (mod.rs
+                           line 250) is a fixed shadowing order enforced by
+                           Rust's lexical scoping; the in-place var_reprs
+                           overwrite (trmc.rs line 145) is a fixed field
+                           assignment; no schedule freedom exists
+      reference impl: ori_arc::pipeline::aims_pipeline::run_aims_pipeline
+                           (mod.rs Step 3 dispatch lines 169-170, Step 4
+                           analyze_function lines 182-191, Step 4a
+                           verify_trmc_soundness rebind lines 195-196, Step 5
+                           realize_rc_reuse lines 246-256, Step 10 via
+                           apply_phase_2_annotations lines 277 + 291-300) +
+                           ori_arc::pipeline::aims_pipeline::trmc::
+                           verify_trmc_soundness (trmc.rs lines 109-162:
+                           rollback restore line 144, var_reprs recompute
+                           line 145, AimsStateMap recompute lines 151-157,
+                           restored-map return line 158) + the pre-TRMC save
+                           (trmc.rs lines 56-64 + doc lines 13-14)
+
+    Engines dispatched:
+      structural_induction (PRIMARY — structural induction over the
+        per-function summary-dependency DAG per section_07::
+        verify_pl5_no_stale_summaries; the verifier models each summary's
+        latest production position + its read positions and discharges (P1)
+        read-after-latest-production via the predicate prod_latest(S) < r for
+        every read r, and (P2) rollback-supersession via the Step-4a
+        re-production being the latest production whose value every downstream
+        consumer reads while the discarded pre-rollback productions have zero
+        surviving read; emits Fail on any read-before-production or
+        stale-rewritten-read violation)
+      case_analysis (SECONDARY — per-case grid over the no-rollback vs
+        rollback Step 4a split; gracious-accept once structural_induction has
+        discharged the staleness obligation per the coverage-manifest PL row)
+
+  Expected:
+    status: valid
+    reason: section_07 structural_induction engine discharges PL-5 via the per-function summary-dependency DAG — (P1) every summary (MemoryContract Step 1, ValueRepr Step 3, AimsStateMap Step 4) is read strictly after its latest production (prod_latest(S) < r for every read r) and (P2) the Step 4a rollback re-production supersedes the discarded TRMC-rewritten summaries (verify_trmc_soundness recomputes var_reprs at trmc.rs line 145 + AimsStateMap at trmc.rs lines 151-157 on the restored CFG, run_aims_pipeline rebinds state_map at mod.rs line 195 shadowing the pre-rollback binding, so Step 5 realize_rc_reuse and Step 10 realize_annotations read the restored non-stale map); grounded in the shipped run_aims_pipeline driver (mod.rs lines 163-287) + trmc::verify_trmc_soundness (trmc.rs lines 109-162); PL-5 is gated end-to-end by the Ori-owned checker, NOT in the CI gate's Lean 4 critical-proof subset (§01A + §08 RL-31 + §11 only per section-07 success criterion line 10); case_analysis secondary-accepting per the coverage-manifest PL row

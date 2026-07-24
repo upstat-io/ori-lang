@@ -18,6 +18,45 @@ fn typed_module_basic() {
 }
 
 #[test]
+#[should_panic(expected = "must exactly match ordered const_bindings values")]
+fn method_mono_rejects_const_binding_value_divergence() {
+    MonoInstance::new_method_with_const_bindings(
+        Name::from_raw(1),
+        MethodProducer::Impl(ImplMethodId::new(0, ori_ir::ExprId::new(1))),
+        Vec::new(),
+        vec![GenericArg::Const(ConstValue::Int(2))],
+        vec![MonoConstBinding {
+            name: Name::from_raw(2),
+            value: ConstValue::Int(3),
+        }],
+        ConcreteMethodMono {
+            receiver_type: Idx::INT,
+            param_types: Vec::new(),
+            return_type: Idx::INT,
+            body_type_map: Vec::new(),
+        },
+    );
+}
+
+#[test]
+#[should_panic(expected = "must exactly match ordered const_bindings values")]
+fn method_mono_rejects_const_binding_count_divergence() {
+    MonoInstance::new_method_with_const_bindings(
+        Name::from_raw(1),
+        MethodProducer::Impl(ImplMethodId::new(0, ori_ir::ExprId::new(1))),
+        Vec::new(),
+        vec![GenericArg::Const(ConstValue::Int(2))],
+        Vec::new(),
+        ConcreteMethodMono {
+            receiver_type: Idx::INT,
+            param_types: Vec::new(),
+            return_type: Idx::INT,
+            body_type_map: Vec::new(),
+        },
+    );
+}
+
+#[test]
 fn function_sig_simple() {
     let mut pool = Pool::new();
     let name = Name::from_raw(1);
@@ -46,6 +85,7 @@ fn function_sig_generic() {
         param_types: vec![Idx::INT],
         return_type: Idx::INT,
         capabilities: vec![],
+        capability_params: vec![],
         is_public: true,
         is_test: false,
         is_main: false,
@@ -58,6 +98,7 @@ fn function_sig_generic() {
         param_defaults: vec![],
         param_hashes: vec![0; 1],
         return_hash: 0,
+        return_projection: None,
     };
 
     assert!(sig.is_generic());
@@ -123,6 +164,7 @@ fn effect_class_reads_only() {
         param_types: vec![],
         return_type: Idx::STR,
         capabilities: vec![clock, env],
+        capability_params: vec![],
         is_public: false,
         is_test: false,
         is_main: false,
@@ -135,6 +177,7 @@ fn effect_class_reads_only() {
         param_defaults: vec![],
         param_hashes: vec![],
         return_hash: 0,
+        return_projection: None,
     };
 
     assert_eq!(sig.effect_class(&interner), EffectClass::ReadsOnly);
@@ -154,6 +197,7 @@ fn effect_class_has_effects() {
         param_types: vec![],
         return_type: Idx::STR,
         capabilities: vec![http],
+        capability_params: vec![],
         is_public: false,
         is_test: false,
         is_main: false,
@@ -166,6 +210,7 @@ fn effect_class_has_effects() {
         param_defaults: vec![],
         param_hashes: vec![],
         return_hash: 0,
+        return_projection: None,
     };
 
     assert_eq!(sig.effect_class(&interner), EffectClass::HasEffects);
@@ -187,6 +232,7 @@ fn effect_class_mixed_caps_is_has_effects() {
         param_types: vec![],
         return_type: Idx::UNIT,
         capabilities: vec![clock, http],
+        capability_params: vec![],
         is_public: false,
         is_test: false,
         is_main: false,
@@ -199,6 +245,7 @@ fn effect_class_mixed_caps_is_has_effects() {
         param_defaults: vec![],
         param_hashes: vec![],
         return_hash: 0,
+        return_projection: None,
     };
 
     assert_eq!(sig.effect_class(&interner), EffectClass::HasEffects);
@@ -266,6 +313,7 @@ fn type_def_export() {
         visibility: Visibility::Public,
         merkle_hash: 0,
         repr: None,
+        burden: None,
     });
 
     assert_eq!(module.type_count(), 1);

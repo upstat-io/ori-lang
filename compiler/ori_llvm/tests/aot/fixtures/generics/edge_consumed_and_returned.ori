@@ -1,0 +1,15 @@
+// BUG-04-090 edge: param consumed by callee AND returned.
+// x is consumed by `iter()`
+// (an Apply to an Owned parameter) AND returned. Verifies that
+// `transfers_through_return` is gated on `return_flow_params` (the
+// Return-flow subset), NOT the full `consumed_params` (which would
+// mistakenly suppress on the iter() consumption).
+@iter_then_return <T> (x: [T]) -> [T] = {
+    let n = x.iter().count();
+    x
+};
+
+@main () -> int = {
+    let xs = iter_then_return(x: [100, 200, 300]);
+    if xs.len() == 3 && xs[2] == 300 then 0 else 1
+}

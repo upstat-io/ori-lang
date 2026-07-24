@@ -3,12 +3,11 @@
 //! Formatting for trait definitions including super traits and items.
 
 use crate::comments::CommentIndex;
-use crate::formatter::Formatter;
 use ori_ir::ast::items::{TraitDef, TraitItem};
 use ori_ir::{CommentList, StringLookup, Visibility};
 
 use super::parsed_types::format_parsed_type;
-use super::ModuleFormatter;
+use super::{BodyBreakPolicy, ModuleFormatter};
 
 impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// Format a trait definition including super traits and items.
@@ -67,27 +66,15 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                 self.format_params(method.params);
                 self.ctx.emit(" -> ");
                 format_parsed_type(&method.return_ty, self.arena, self.interner, &mut self.ctx);
-                self.ctx.emit(" = ");
-
-                // Pass current column and indent level so width decisions and
-                // line breaks account for full context
-                let current_column = self.ctx.column();
-                let current_indent = self.ctx.indent_level();
-                let mut expr_formatter =
-                    Formatter::with_config(self.arena, self.interner, *self.ctx.config())
-                        .with_indent_level(current_indent)
-                        .with_starting_column(current_column);
-                expr_formatter.format(method.body);
-                let body_output = expr_formatter.ctx.as_str().trim_end();
-                self.ctx.emit(body_output);
-                // Trailing semicolon for non-block expression bodies
-                if !body_output.ends_with('}') {
-                    self.ctx.emit(";");
-                }
+                self.emit_expr_body(method.body, BodyBreakPolicy::OverflowOnly);
             }
             TraitItem::AssocType(assoc) => {
                 self.ctx.emit("type ");
                 self.ctx.emit(self.interner.lookup(assoc.name));
+                if let Some(default_type) = &assoc.default_type {
+                    self.ctx.emit(" = ");
+                    format_parsed_type(default_type, self.arena, self.interner, &mut self.ctx);
+                }
             }
         }
     }

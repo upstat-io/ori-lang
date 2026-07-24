@@ -1,0 +1,12 @@
+// BUG-04-090 §03 cross-type: struct containing [int] field — heap struct.
+// Struct itself is heap-allocated (carries [int] which is fat-pointer +
+// heap buffer); the param-return-alias rule still applies at the struct
+// level because Struct flows through Return as an Owned param.
+type Bag = { items: [int], tag: int };
+
+@id <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let b = id(x: Bag { items: [1, 2, 3], tag: 42 });
+    if b.tag == 42 && b.items.len() == 3 && b.items[0] == 1 then 0 else 1
+}

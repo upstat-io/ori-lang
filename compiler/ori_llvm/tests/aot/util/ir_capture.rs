@@ -7,6 +7,7 @@ use std::fs;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use ori_llvm::aot::mangle::Mangler;
 use tempfile::TempDir;
 
 use super::binary::{ir_capture_binary, ori_binary, stdlib_path};
@@ -16,6 +17,18 @@ use super::binary::{ir_capture_binary, ori_binary, stdlib_path};
 /// Uses the debug `ori` binary for IR capture. Returns the IR string from
 /// compilation stderr. Panics if compilation fails.
 pub fn compile_and_capture_ir(source: &str) -> String {
+    compile_and_capture_ir_with_repr_policy(source, true)
+}
+
+/// Compile with representation optimization disabled and capture LLVM IR.
+///
+/// Use this for codegen tests whose subject would otherwise be removed or
+/// rewritten by range or layout projection before the tested pass runs.
+pub fn compile_and_capture_ir_no_repr_opt(source: &str) -> String {
+    compile_and_capture_ir_with_repr_policy(source, false)
+}
+
+fn compile_and_capture_ir_with_repr_policy(source: &str, repr_opt: bool) -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
     let id = COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -27,7 +40,8 @@ pub fn compile_and_capture_ir(source: &str) -> String {
 
     fs::write(&source_path, source).expect("Failed to write source");
 
-    let compile_result = Command::new(ir_capture_binary())
+    let mut command = Command::new(ir_capture_binary());
+    command
         .args([
             "build",
             source_path.to_str().unwrap(),
@@ -35,9 +49,11 @@ pub fn compile_and_capture_ir(source: &str) -> String {
             binary_path.to_str().unwrap(),
         ])
         .env("ORI_STDLIB", stdlib_path())
-        .env("ORI_DEBUG_LLVM", "1")
-        .output()
-        .expect("Failed to execute ori build");
+        .env("ORI_DEBUG_LLVM", "1");
+    if !repr_opt {
+        command.env("ORI_NO_REPR_OPT", "1");
+    }
+    let compile_result = command.output().expect("Failed to execute ori build");
 
     assert!(
         compile_result.status.success(),
@@ -50,31 +66,120 @@ pub fn compile_and_capture_ir(source: &str) -> String {
 
 /// Extract a single function's LLVM IR from a full module dump.
 ///
-/// Finds `define ... @func_name(` and returns everything up to the next
-/// `define` or end of IR. Panics if the function is not found.
+/// Finds the exact `define ... @func_name(` line and returns that function's
+/// body. Calls and declarations using the same symbol do not match.
 pub fn extract_function_ir<'a>(full_ir: &'a str, func_name: &str) -> &'a str {
-    let search = format!("@{func_name}(");
-    let start = full_ir.find(&search).unwrap_or_else(|| {
-        panic!(
-            "function {func_name} not found in IR.\n\
+    let mut offset = 0;
+    let define_start = full_ir
+        .split_inclusive('\n')
+        .find_map(|line| {
+            let line_start = offset;
+            offset += line.len();
+            (line.trim_start().starts_with("define ")
+                && llvm_function_symbol(line) == Some(func_name))
+            .then(|| line_start + line.find("define ").unwrap_or(0))
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "function {func_name} not found in IR.\n\
              Available functions: {:?}",
-            full_ir
-                .lines()
-                .filter(|l| l.starts_with("define "))
-                .collect::<Vec<_>>()
-        );
-    });
+                full_ir
+                    .lines()
+                    .filter_map(llvm_function_symbol)
+                    .collect::<Vec<_>>()
+            )
+        });
 
-    // Find the "define" line containing this function
-    let define_start = full_ir[..start].rfind("define ").unwrap_or(start);
-
-    // Find the next "define" or end of IR section
     let rest = &full_ir[define_start..];
-    let end = rest[1..]
-        .find("\ndefine ")
-        .map_or(rest.len(), |pos| pos + 1);
+    let end = rest.find("\n}").map_or(rest.len(), |pos| pos + 2);
 
     &full_ir[define_start..define_start + end]
+}
+
+/// Resolve the unique closed-executable body for a derived method.
+///
+/// Derived methods use collision-safe artifact identities such as
+/// `eq$derived$0`; they do not retain the source-level `Type.eq` symbol. The
+/// fixtures using this helper must therefore contain exactly one realized
+/// derived body for `method_name`.
+pub fn resolve_derived_function_name<'a>(ir: &'a str, method_name: &str) -> &'a str {
+    let artifact_prefix = Mangler::new().mangle_function("", &format!("{method_name}$derived$"));
+    let mut resolved = None;
+
+    for symbol in ir.lines().filter_map(llvm_function_symbol) {
+        let Some(id) = symbol.strip_prefix(&artifact_prefix) else {
+            continue;
+        };
+        if id.is_empty() || !id.chars().all(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        if let Some(previous) = resolved {
+            assert!(
+                previous == symbol,
+                "multiple derived {method_name} functions found in IR: \
+                 {previous} and {symbol}"
+            );
+        } else {
+            resolved = Some(symbol);
+        }
+    }
+
+    resolved.unwrap_or_else(|| {
+        panic!(
+            "derived {method_name} function not found in IR.\n\
+             Available functions: {:?}",
+            ir.lines()
+                .filter_map(llvm_function_symbol)
+                .collect::<Vec<_>>()
+        )
+    })
+}
+
+fn llvm_function_symbol(line: &str) -> Option<&str> {
+    let line = line.trim_start();
+    if !line.starts_with("define ") && !line.starts_with("declare ") {
+        return None;
+    }
+
+    let symbol = line.split_once('@')?.1;
+    if let Some(quoted) = symbol.strip_prefix('"') {
+        let end = quoted.find("\"(")?;
+        Some(&quoted[..end])
+    } else {
+        let end = symbol.find('(')?;
+        Some(&symbol[..end])
+    }
+}
+
+/// Resolve a function's attributes through its LLVM `#N` attribute group.
+///
+/// Searches declarations and definitions and accepts both plain and quoted
+/// symbol spellings.
+pub fn resolve_function_attrs(ir: &str, func_name: &str) -> String {
+    let search_plain = format!("@{func_name}(");
+    let search_quoted = format!("@\"{func_name}\"(");
+    let declaration = ir
+        .lines()
+        .find(|line| {
+            (line.contains("declare") || line.contains("define"))
+                && (line.contains(&search_plain) || line.contains(&search_quoted))
+        })
+        .unwrap_or_else(|| panic!("{func_name} should be declared or defined in IR"));
+
+    let line = declaration.trim_end_matches('{').trim();
+    let group_ref = line
+        .rsplit_once('#')
+        .map(|(_, number)| format!("#{}", number.trim()))
+        .unwrap_or_default();
+    if group_ref.is_empty() {
+        return String::new();
+    }
+
+    let group_prefix = format!("attributes {group_ref} = ");
+    ir.lines()
+        .find(|line| line.starts_with(&group_prefix))
+        .map(|line| line[group_prefix.len()..].to_string())
+        .unwrap_or_default()
 }
 
 /// Count "bridge-only" blocks in a function's LLVM IR.
@@ -168,7 +273,7 @@ pub fn count_single_pred_phis(function_ir: &str) -> usize {
         .count()
 }
 
-/// Count phi nodes whose result is never used elsewhere in the function.
+/// Count phi nodes whose result has no uses in the function.
 ///
 /// A dead phi `%vN = phi T [...]` defines a value that is never referenced
 /// as an operand in any other instruction.
@@ -203,9 +308,7 @@ pub fn count_dead_phis(function_ir: &str) -> usize {
 }
 
 /// Check whether `%name` appears as a standalone SSA variable in `line`.
-///
-/// Handles the `%v3` vs `%v34` ambiguity by requiring a word boundary
-/// (non-alphanumeric, non-underscore) after the variable name.
+/// Requires a word boundary so `%v3` does not match `%v34`.
 fn is_ssa_var_used_in(var_name: &str, line: &str) -> bool {
     let mut search_from = 0;
     while let Some(pos) = line[search_from..].find(var_name) {
@@ -224,7 +327,18 @@ fn is_ssa_var_used_in(var_name: &str, line: &str) -> bool {
 /// Compile an Ori program to LLVM IR and return the IR text.
 ///
 /// Returns `Ok(ir_text)` on success, `Err(stderr)` on compilation failure.
+#[must_use = "success or failure must be handled"]
 pub fn compile_to_llvm_ir(source: &str) -> Result<String, String> {
+    compile_to_llvm_ir_with_target(source, None)
+}
+
+/// Compile an Ori program to LLVM IR for an explicit non-host target.
+#[must_use = "success or failure must be handled"]
+pub fn compile_to_llvm_ir_for_target(source: &str, target: &str) -> Result<String, String> {
+    compile_to_llvm_ir_with_target(source, Some(target))
+}
+
+fn compile_to_llvm_ir_with_target(source: &str, target: Option<&str>) -> Result<String, String> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
     let id = COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -234,14 +348,18 @@ pub fn compile_to_llvm_ir(source: &str) -> Result<String, String> {
 
     fs::write(&source_path, source).expect("Failed to write source");
 
-    let compile_result = Command::new(ori_binary())
-        .args([
-            "build",
-            source_path.to_str().unwrap(),
-            "--emit=llvm-ir",
-            "-o",
-            ir_path.to_str().unwrap(),
-        ])
+    let mut command = Command::new(ori_binary());
+    command.args([
+        "build",
+        source_path.to_str().unwrap(),
+        "--emit=llvm-ir",
+        "-o",
+        ir_path.to_str().unwrap(),
+    ]);
+    if let Some(target) = target {
+        command.arg(format!("--target={target}"));
+    }
+    let compile_result = command
         .env("ORI_STDLIB", stdlib_path())
         .output()
         .expect("Failed to execute ori build");
@@ -252,3 +370,6 @@ pub fn compile_to_llvm_ir(source: &str) -> Result<String, String> {
 
     fs::read_to_string(&ir_path).map_err(|e| format!("Failed to read IR file: {e}"))
 }
+
+#[cfg(test)]
+mod tests;

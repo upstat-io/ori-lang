@@ -1,0 +1,30 @@
+// Pin 10 (negative GREEN guard — the Project-extract decline gate):
+// in ONE function a fresh sum `Box = Wrap(xs: [int])` is borrowed into a user
+// call (`probe`, returning int = the carrier) AND its heap payload is EXTRACTED
+// via a match (`Wrap(xs) -> xs`), with the extract read AFTER the borrowed call
+// on the normal successor. The same-alloc `Project` view (the extracted `xs`)
+// is LIVE across the carrier's release edge, so a no-sink edge release would
+// double-free the buffer the extract still holds. The no-sink mode must DECLINE
+// (dead-param mode only) — leak-free via the base path. Must stay clean.
+type Box = Wrap(xs: [int]);
+
+@probe (b: Box) -> int = match b {
+    Wrap(xs) -> xs.len(),
+};
+
+@do_extract () -> int = {
+    let b = Wrap(xs: [7, 8, 9]);
+    let extracted = match b {
+        Wrap(xs) -> xs,
+    };
+    let n = probe(b: b);
+    let m = extracted.len();
+
+    n + m
+}
+
+@main () -> int = {
+    let total = do_extract();
+
+    if total == 6 then 0 else 1
+}

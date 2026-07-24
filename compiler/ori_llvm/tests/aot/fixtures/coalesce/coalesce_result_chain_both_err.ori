@@ -1,4 +1,4 @@
-// Regression: BUG-02-002 — Result<int, str> ?? Result<int, str> when both Err
+// Regression: Result<int, str> ?? Result<int, str> when both Err
 // Second Err wins
 @main () -> int = {
     let a: Result<int, str> = Err("first");

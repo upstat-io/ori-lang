@@ -1,0 +1,27 @@
+Theorem RL-11a: MaybeShared donor transfer depends on sharing observation
+
+  Preconditions:
+    - DP-6 admits the MaybeShared donor as a candidate.
+    - A sharing observation yields one-owner or multiple-owner.
+
+  Soundness property:
+    Forall MaybeShared owned donor d and recipient r:
+      (P1) one-owner permits donor-to-recipient owner-credit transfer.
+      (P2) multiple-owner forbids transfer and requires an independent logical
+           birth for r.
+    The theorem does not select IsShared, a branch, Reset/Reuse, allocation, or
+    storage mechanisms.
+
+  Proof obligation:
+    Enumerate both observation results.
+    Coverage gate: 2 outcomes. Transfer on the multiple-owner result is the
+    negative-direction witness and is rejected.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl11a_dynamic_reuse)
+      rc_counting (SECONDARY — gracious-accept)
+      refinement (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: RL-11a admits owner-credit transfer only on the one-owner observation outcome and requires independent birth for multiple owners

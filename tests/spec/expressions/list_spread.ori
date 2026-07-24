@@ -1,0 +1,114 @@
+// Spec: 14-expressions.md § List literals + spread — `[...expr, elem, ...]`.
+// Exercises the parser's `ListWithSpread` production and its canonical desugar
+// to concatenation across every spread arrangement: pure concat, leading and
+// trailing literal mixes, interleaving, repeated spreads, empty-operand spread,
+// single-spread copy, and a non-int element type for type-generality.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Pure concat: `[...a, ...b]` joins two lists end-to-end
+// =============================================================================
+
+@spread_concat () -> [int] = {
+    let $a = [1, 2];
+    let $b = [3, 4];
+    [...a, ...b]
+}
+
+@test_spread_concat tests @spread_concat () -> void = {
+    assert_eq(actual: spread_concat(), expected: [1, 2, 3, 4])
+}
+
+// =============================================================================
+// Trailing literal: `[...a, elem]`
+// =============================================================================
+
+@spread_then_literal () -> [int] = {
+    let $a = [1, 2];
+    [...a, 99]
+}
+
+@test_spread_then_literal tests @spread_then_literal () -> void = {
+    assert_eq(actual: spread_then_literal(), expected: [1, 2, 99])
+}
+
+// =============================================================================
+// Leading literal: `[elem, ...a]`
+// =============================================================================
+
+@literal_then_spread () -> [int] = {
+    let $a = [2, 3];
+    [1, ...a]
+}
+
+@test_literal_then_spread tests @literal_then_spread () -> void = {
+    assert_eq(actual: literal_then_spread(), expected: [1, 2, 3])
+}
+
+// =============================================================================
+// Interleaved: `[elem, ...a, elem, ...b]`
+// =============================================================================
+
+@interleaved_spread () -> [int] = {
+    let $a = [2, 3];
+    let $b = [5, 6];
+    [1, ...a, 4, ...b]
+}
+
+@test_interleaved_spread tests @interleaved_spread () -> void = {
+    assert_eq(actual: interleaved_spread(), expected: [1, 2, 3, 4, 5, 6])
+}
+
+// =============================================================================
+// Repeated spread of the same source: `[...a, ...a]`
+// =============================================================================
+
+@repeated_spread () -> [int] = {
+    let $a = [7, 8];
+    [...a, ...a]
+}
+
+@test_repeated_spread tests @repeated_spread () -> void = {
+    assert_eq(actual: repeated_spread(), expected: [7, 8, 7, 8])
+}
+
+// =============================================================================
+// Empty-operand spread: `[...empty, elem]` contributes no elements
+// =============================================================================
+
+@empty_operand_spread () -> [int] = {
+    let $empty = [];
+    [...empty, 1, 2]
+}
+
+@test_empty_operand_spread tests @empty_operand_spread () -> void = {
+    assert_eq(actual: empty_operand_spread(), expected: [1, 2])
+}
+
+// =============================================================================
+// Single-spread copy: `[...a]` reproduces the source
+// =============================================================================
+
+@single_spread_copy () -> [int] = {
+    let $a = [10, 20, 30];
+    [...a]
+}
+
+@test_single_spread_copy tests @single_spread_copy () -> void = {
+    assert_eq(actual: single_spread_copy(), expected: [10, 20, 30])
+}
+
+// =============================================================================
+// Non-int element type: spread generalizes over the element type
+// =============================================================================
+
+@str_element_spread () -> [str] = {
+    let $a = ["x", "y"];
+    let $b = ["z"];
+    [...a, ...b]
+}
+
+@test_str_element_spread tests @str_element_spread () -> void = {
+    assert_eq(actual: str_element_spread(), expected: ["x", "y", "z"])
+}

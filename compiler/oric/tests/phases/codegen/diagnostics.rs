@@ -137,10 +137,10 @@ fn from_optimization_passes_failed() {
 
 #[test]
 fn from_optimization_invalid_pipeline() {
-    let err = ori_llvm::aot::OptimizationError::InvalidPipeline {
-        pipeline: "default<O99>".into(),
-        message: "unknown opt level".into(),
-    };
+    let pipeline = "default<O99>\0".to_string();
+    let source = std::ffi::CString::new(pipeline.as_str())
+        .expect_err("embedded null byte must reject the pipeline");
+    let err = ori_llvm::aot::OptimizationError::InvalidPipeline { pipeline, source };
     let problem: CodegenProblem = err.into();
     let diag = problem.into_diagnostic();
 
@@ -252,6 +252,21 @@ fn from_linker_link_failed() {
     assert!(diag.message.contains("exit code 1"));
     assert!(diag.notes.iter().any(|n| n.contains("undefined reference")));
     assert!(diag.notes.iter().any(|n| n.contains("cc -o")));
+}
+
+#[test]
+fn missing_entry_point_names_ori_fix() {
+    let problem = CodegenProblem::MissingEntryPoint {
+        path: "app.ori".into(),
+    };
+    let diag = problem.into_diagnostic();
+
+    assert_eq!(diag.code, ErrorCode::E5006);
+    assert!(diag.message.contains("app.ori"));
+    assert!(diag.message.contains("no @main function was declared"));
+    assert!(diag.suggestions.iter().any(|suggestion| {
+        suggestion.contains("add an @main function") && suggestion.contains("--lib")
+    }));
 }
 
 #[test]

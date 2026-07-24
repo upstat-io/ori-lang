@@ -240,12 +240,17 @@ fn compute_var_reprs_matches_types() {
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::INT, Idx::STR, list_int, func_ty, tup],
         var_reprs: Vec::new(),
+        var_rc_strategies: Vec::new(),
         spans: vec![vec![None, None, None]],
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
+        ..Default::default()
     };
 
     let classifier = ArcClassifier::new(&pool);
@@ -275,12 +280,17 @@ fn compute_var_reprs_empty_function() {
         entry: ArcBlockId::new(0),
         var_types: vec![],
         var_reprs: Vec::new(),
+        var_rc_strategies: Vec::new(),
         spans: vec![vec![]],
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
+        ..Default::default()
     };
 
     let classifier = ArcClassifier::new(&pool);
@@ -288,13 +298,27 @@ fn compute_var_reprs_empty_function() {
     assert!(reprs.is_empty());
 }
 
-// RcStrategy::from_var
+#[test]
+#[should_panic(expected = "representation and type tables must have identical lengths")]
+fn rc_strategy_derivation_rejects_parallel_table_mismatch_in_every_profile() {
+    let pool = Pool::new();
+    let _ = derive_var_rc_strategies(&[ValueRepr::Scalar], &[], &pool);
+}
+
+// RcStrategy::from_repr
+
+#[test]
+#[should_panic(expected = "cannot classify a scalar representation")]
+fn scalar_representation_has_no_rc_strategy_fallback() {
+    let pool = Pool::new();
+    let _ = RcStrategy::from_repr(ValueRepr::Scalar, &pool, Idx::INT);
+}
 
 #[test]
 fn rc_strategy_str_is_fat_pointer() {
     let pool = Pool::new();
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::FatValue, &pool, Idx::STR),
+        RcStrategy::from_repr(ValueRepr::FatValue, &pool, Idx::STR),
         RcStrategy::FatPointer,
     );
 }
@@ -304,7 +328,7 @@ fn rc_strategy_list_is_heap_pointer() {
     let mut pool = Pool::new();
     let list_str = pool.list(Idx::STR);
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::RcPointer, &pool, list_str),
+        RcStrategy::from_repr(ValueRepr::RcPointer, &pool, list_str),
         RcStrategy::HeapPointer,
     );
 }
@@ -314,7 +338,7 @@ fn rc_strategy_tuple_is_aggregate_fields() {
     let mut pool = Pool::new();
     let tup = pool.tuple(&[Idx::INT, Idx::STR]);
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::Aggregate, &pool, tup),
+        RcStrategy::from_repr(ValueRepr::Aggregate, &pool, tup),
         RcStrategy::AggregateFields,
     );
 }
@@ -324,7 +348,7 @@ fn rc_strategy_result_is_inline_enum() {
     let mut pool = Pool::new();
     let res = pool.result(Idx::INT, Idx::STR);
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::Aggregate, &pool, res),
+        RcStrategy::from_repr(ValueRepr::Aggregate, &pool, res),
         RcStrategy::InlineEnum,
     );
 }
@@ -334,7 +358,7 @@ fn rc_strategy_option_is_inline_enum() {
     let mut pool = Pool::new();
     let opt = pool.option(Idx::STR);
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::Aggregate, &pool, opt),
+        RcStrategy::from_repr(ValueRepr::Aggregate, &pool, opt),
         RcStrategy::InlineEnum,
     );
 }
@@ -344,7 +368,7 @@ fn rc_strategy_closure_is_closure() {
     let mut pool = Pool::new();
     let func_ty = pool.function(&[Idx::INT], Idx::INT);
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::FatValue, &pool, func_ty),
+        RcStrategy::from_repr(ValueRepr::FatValue, &pool, func_ty),
         RcStrategy::Closure,
     );
 }
@@ -354,7 +378,7 @@ fn rc_strategy_map_is_heap_pointer() {
     let mut pool = Pool::new();
     let map_ty = pool.map(Idx::STR, Idx::INT);
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::RcPointer, &pool, map_ty),
+        RcStrategy::from_repr(ValueRepr::RcPointer, &pool, map_ty),
         RcStrategy::HeapPointer,
     );
 }
@@ -376,7 +400,7 @@ fn rc_strategy_enum_is_inline_enum() {
         ],
     );
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::Aggregate, &pool, enum_ty),
+        RcStrategy::from_repr(ValueRepr::Aggregate, &pool, enum_ty),
         RcStrategy::InlineEnum,
     );
 }
@@ -392,7 +416,7 @@ fn rc_strategy_struct_is_aggregate_fields() {
         ],
     );
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::Aggregate, &pool, st),
+        RcStrategy::from_repr(ValueRepr::Aggregate, &pool, st),
         RcStrategy::AggregateFields,
     );
 }
@@ -402,12 +426,12 @@ fn rc_strategy_set_is_heap_pointer() {
     let mut pool = Pool::new();
     let set_ty = pool.set(Idx::INT);
     assert_eq!(
-        RcStrategy::from_var(ValueRepr::RcPointer, &pool, set_ty),
+        RcStrategy::from_repr(ValueRepr::RcPointer, &pool, set_ty),
         RcStrategy::HeapPointer,
     );
 }
 
-// §02.3 regression: trivial compound types get Scalar repr after triviality unification.
+// regression: trivial compound types get Scalar repr after triviality unification.
 
 #[test]
 fn compute_var_reprs_trivial_compounds_are_scalar() {
@@ -447,12 +471,17 @@ fn compute_var_reprs_trivial_compounds_are_scalar() {
         entry: ArcBlockId::new(0),
         var_types: vec![opt_int, tuple_trivial, result_trivial],
         var_reprs: Vec::new(),
+        var_rc_strategies: Vec::new(),
         spans: vec![Vec::new()],
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
+        ..Default::default()
     };
 
     let classifier = ArcClassifier::new(&pool);
@@ -465,5 +494,48 @@ fn compute_var_reprs_trivial_compounds_are_scalar() {
         reprs[2],
         ValueRepr::Scalar,
         "Result<int, Ordering> → Scalar"
+    );
+}
+
+// RcAtomicity carrier SITE pins.
+//
+// The transitional carrier has both variants; its compatibility default is
+// `Atomic`, matching the shipped compiled runtime. AIMS freezes neutral thread
+// reachability and future physical planners select a satisfying mechanism.
+// These pins guard only the legacy carrier and its current default.
+
+#[test]
+fn rc_atomicity_default_is_atomic() {
+    // Compatibility pin: the construction-site default reproduces the shipped
+    // unconditionally-atomic runtime. Reverting `default_atomic()` to
+    // `NonAtomic` flips this — the negative-space guard against a silent
+    // non-atomic emission before the runtime path exists.
+    assert_eq!(RcAtomicity::default_atomic(), RcAtomicity::Atomic);
+    assert!(RcAtomicity::default_atomic().is_atomic());
+}
+
+#[test]
+fn rc_atomicity_is_atomic_distinguishes_variants() {
+    assert!(RcAtomicity::Atomic.is_atomic());
+    assert!(!RcAtomicity::NonAtomic.is_atomic());
+}
+
+#[test]
+fn rc_atomicity_atomic_renders_no_suffix() {
+    // Atomic dumps byte-identically to before the carrier landed (empty
+    // suffix) — the current ARC snapshot baselines depend on this.
+    assert_eq!(
+        crate::ir::format::fmt_atomicity_suffix(RcAtomicity::Atomic),
+        ""
+    );
+}
+
+#[test]
+fn rc_atomicity_non_atomic_renders_suffix() {
+    // Negative-space pin: a physical adapter selecting NonAtomic renders the
+    // explicit suffix.
+    assert_eq!(
+        crate::ir::format::fmt_atomicity_suffix(RcAtomicity::NonAtomic),
+        " [non-atomic]"
     );
 }

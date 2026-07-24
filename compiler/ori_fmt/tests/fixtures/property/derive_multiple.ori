@@ -1,0 +1,2 @@
+#derive(Eq, Clone, Debug)
+type Point = { x: int, y: int }

@@ -4,7 +4,7 @@
 
 ## Role in the pipeline
 
-Sub-layer 7a inside `ori_llvm` codegen (`canon.md §1`). Runs after phase 7 ARC realization, before phase 8 LLVM IR emission. Consumes realized `ArcFunction` + the type pool, produces a `ReprPlan` that is the single source of truth for:
+Sub-layer 7a inside `ori_llvm` codegen. Runs after phase 7 ARC realization, before phase 8 LLVM IR emission. Consumes realized `ArcFunction` + the type pool, produces a `ReprPlan` that is the single source of truth for:
 
 - Struct layout (field offsets, padding, alignment)
 - Enum discriminant encoding
@@ -15,11 +15,12 @@ Every codegen consumer queries `ReprPlan` rather than re-deriving layout indepen
 
 ## Architecture
 
-- `plan/` — `ReprPlan` type + construction
+- `plan.rs`, `plan/` — `ReprPlan` state, decisions, attributes, and queries
 - `layout/` — layout computation (field offsets, alignment, padding)
-- `discriminant/` — enum discriminant encoding
-- `abi/` — pass-by-value / pass-by-ref decisions
-- `repr_pragma/` — `#repr(...)` pragma interpretation
+- `canonical/`, `enum_repr.rs` — canonical machine and enum representations
+- `narrowing/` — integer and floating-point representation narrowing
+- `executable/` — frozen callable, effect, drop, and runtime facts
+- `pipeline/` — representation-plan construction and metadata propagation
 
 ## Dependencies
 
@@ -43,6 +44,6 @@ cargo test -p ori_repr
 
 ## Where to look
 
-- `ReprPlan` entry point: `src/plan/mod.rs`
+- `ReprPlan` entry point: `src/plan.rs`
 - Layout algorithm: `src/layout/`
-- `#repr` pragma handling: `src/repr_pragma/`
+- Representation attributes: `src/plan/repr_attr.rs`

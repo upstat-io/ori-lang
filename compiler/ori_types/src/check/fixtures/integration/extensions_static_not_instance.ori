@@ -1,0 +1,5 @@
+extend int {
+    @factory () -> int = 7;
+}
+
+@bad_instance_call (value: int) -> int = value.factory();

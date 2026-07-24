@@ -1,0 +1,2 @@
+@make () -> [int] = for i in 5..0 yield i;
+@main () -> int = if make().length() == 0 then 0 else 1;

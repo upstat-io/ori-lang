@@ -4,8 +4,6 @@
 //! so that hot-path operations (method dispatch, print routing, operator lookup,
 //! format spec construction) use `Name` comparison (`u32 == u32`) instead of
 //! repeated hash lookups via `interner.intern("...")`.
-//!
-//! Extracted from `interpreter/mod.rs` to keep that file under the 500-line limit.
 
 use ori_ir::{Name, StringInterner};
 
@@ -158,6 +156,8 @@ pub(crate) struct OpNames {
     pub(crate) bit_not: Name,
     pub(crate) index: Name,
     pub(crate) compare: Name,
+    pub(crate) eq: Name,
+    pub(crate) hash: Name,
 }
 
 impl OpNames {
@@ -181,73 +181,8 @@ impl OpNames {
             bit_not: interner.intern("bit_not"),
             index: interner.intern("index"),
             compare: interner.intern("compare"),
-        }
-    }
-}
-
-/// Pre-interned names for `FormatSpec` value construction.
-///
-/// These names are interned once at Interpreter construction so that
-/// `build_format_spec_value` avoids repeated hash lookups when constructing
-/// the Ori-side `FormatSpec` struct for user `Formattable::format()` calls.
-#[derive(Clone, Copy)]
-pub(crate) struct FormatNames {
-    pub(crate) format_spec: Name,
-    pub(crate) fill: Name,
-    pub(crate) align: Name,
-    pub(crate) sign: Name,
-    pub(crate) width: Name,
-    pub(crate) precision: Name,
-    pub(crate) format_type: Name,
-    pub(crate) alignment: Name,
-    pub(crate) left: Name,
-    pub(crate) center: Name,
-    pub(crate) right: Name,
-    pub(crate) sign_type: Name,
-    pub(crate) plus: Name,
-    pub(crate) minus: Name,
-    pub(crate) space: Name,
-    pub(crate) ft_type: Name,
-    pub(crate) binary: Name,
-    pub(crate) octal: Name,
-    pub(crate) hex: Name,
-    pub(crate) hex_upper: Name,
-    pub(crate) exp: Name,
-    pub(crate) exp_upper: Name,
-    pub(crate) fixed: Name,
-    pub(crate) percent: Name,
-    pub(crate) format: Name,
-}
-
-impl FormatNames {
-    /// Pre-intern all format-related names.
-    pub(crate) fn new(interner: &StringInterner) -> Self {
-        Self {
-            format_spec: interner.intern("FormatSpec"),
-            fill: interner.intern("fill"),
-            align: interner.intern("align"),
-            sign: interner.intern("sign"),
-            width: interner.intern("width"),
-            precision: interner.intern("precision"),
-            format_type: interner.intern("format_type"),
-            alignment: interner.intern("Alignment"),
-            left: interner.intern("Left"),
-            center: interner.intern("Center"),
-            right: interner.intern("Right"),
-            sign_type: interner.intern("Sign"),
-            plus: interner.intern("Plus"),
-            minus: interner.intern("Minus"),
-            space: interner.intern("Space"),
-            ft_type: interner.intern("FormatType"),
-            binary: interner.intern("Binary"),
-            octal: interner.intern("Octal"),
-            hex: interner.intern("Hex"),
-            hex_upper: interner.intern("HexUpper"),
-            exp: interner.intern("Exp"),
-            exp_upper: interner.intern("ExpUpper"),
-            fixed: interner.intern("Fixed"),
-            percent: interner.intern("Percent"),
-            format: interner.intern("format"),
+            eq: interner.intern("eq"),
+            hash: interner.intern("hash"),
         }
     }
 }

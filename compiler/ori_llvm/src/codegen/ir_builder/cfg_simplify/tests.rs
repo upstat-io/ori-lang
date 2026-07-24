@@ -345,3 +345,51 @@ fn cfg_simplify_skips_duplicate_phi_conflict() {
     );
     assert!(func.verify(false), "valid after simplification");
 }
+
+/// A self-loop block (`bb: br label %bb`) is a genuine infinite loop, not a
+/// removable empty trampoline. Eliminating it would erase the block while its
+/// predecessor still branches to it, producing malformed IR ("Referring to a
+/// basic block in another function"). Negative pin: reverting the self-loop
+/// guard in `eliminate_empty_blocks` makes `func.verify(false)` fail here.
+#[test]
+fn cfg_simplify_preserves_self_loop_block() {
+    let ctx = Context::create();
+    let (_module, func) = make_test_function(&ctx, "test_self_loop");
+    let builder = ctx.create_builder();
+
+    let entry = ctx.append_basic_block(func, "entry");
+    let loop_hdr = ctx.append_basic_block(func, "loop");
+
+    // entry: br label %loop
+    builder.position_at_end(entry);
+    builder.build_unconditional_branch(loop_hdr).unwrap();
+
+    // loop: br label %loop  (empty self-loop — only a br to itself)
+    builder.position_at_end(loop_hdr);
+    builder.build_unconditional_branch(loop_hdr).unwrap();
+
+    assert_eq!(func.get_basic_blocks().len(), 2, "pre: 2 blocks");
+
+    let stats = simplify_cfg(func);
+
+    // The self-loop block must NOT be removed — its predecessor (entry, after
+    // any merge) branches to it, and the block branches to itself.
+    assert!(
+        func.get_basic_blocks().iter().any(|b| {
+            b.get_terminator().is_some_and(|t| {
+                use inkwell::values::AsValueRef;
+                let r = t.as_value_ref();
+                unsafe {
+                    llvm_sys::core::LLVMGetNumSuccessors(r) == 1
+                        && llvm_sys::core::LLVMGetSuccessor(r, 0) == b.as_mut_ptr()
+                }
+            })
+        }),
+        "self-loop block survives simplification (removed_count={})",
+        stats.blocks_removed,
+    );
+    assert!(
+        func.verify(false),
+        "valid after simplification — no dangling br to a removed block",
+    );
+}

@@ -6,9 +6,6 @@
 
 use crate::directive::{Directive, DirectiveLine};
 
-#[cfg(test)]
-mod tests;
-
 /// A single test revision extracted from directives.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RevisionConfig {
@@ -85,3 +82,6 @@ pub fn filter_directives_for_revision<'a>(
         .filter(|d| d.revision.is_none() || d.revision.as_deref() == Some(revision))
         .collect()
 }
+
+#[cfg(test)]
+mod tests;

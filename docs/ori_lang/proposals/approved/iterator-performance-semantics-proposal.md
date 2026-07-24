@@ -460,3 +460,9 @@ range_expr = expr ".." [ expr ] [ "by" expr ] .
 | Infinite ranges | `start..` syntax for unbounded ascending int ranges |
 | Infinite iterators | Developer responsibility to bound; lint warnings recommended |
 | Double-ended | O(1) for rev(), efficient last() |
+
+---
+
+## Errata (added 2026-06-16)
+
+> **Amended by `auto-vectorization-proposal.md`**: This proposal's "Compiler Optimizations → Not Guaranteed" list states that "Vectorization (SIMD) for numeric operations" is not guaranteed and "may be added in future compiler versions." That line is superseded. Automatic vectorization is now a **provability-gated guarantee**: where the compiler can prove lane independence (value semantics, primitive `Value` lane type, capability-pure and panic-free body, statically-analyzable trip count), eligible loops are vectorized by default, with the cost-model veto diagnosable via `ori explain --vectorization`. Reorder-unsafe reductions (checked-integer `+`/`*`, floating-point `+`/`*`) remain scalar by default to preserve observable results (overflow-panic ordering and FP rounding) unless opted in via `#fast_math`. See `auto-vectorization-proposal.md` for the full gate, the reduction-reassociation stance, and the dual-execution-parity contract. The "Parallelization of sequential iteration" non-guarantee is unchanged.

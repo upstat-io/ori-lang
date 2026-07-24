@@ -890,7 +890,7 @@ The `#derive` attribute generates trait implementations automatically for user-d
 **Derivation Rules:**
 
 - `Eq`: Field-wise equality comparison; newtypes delegate to underlying type
-- `Hashable`: Combined field hashes using `hash_combine`; warning if derived without `Eq`; newtypes delegate to underlying type
+- `Hashable`: Products combine non-`void` field hashes from seed `0` in declaration order; sums combine the declaration ordinal before their non-`void` payload fields; newtypes return the underlying hash directly
 - `Comparable`: Lexicographic comparison by field declaration order; sum type variants compare by declaration order; newtypes delegate to underlying type
 - `Clone`: Field-wise cloning via `.clone()` method; newtypes delegate to underlying type
 - `Default`: Field-wise default construction; cannot be derived for sum types (ambiguous variant); newtypes delegate to underlying type
@@ -1039,11 +1039,11 @@ trait Clone {
 ```
 
 `Clone` creates an independent copy of a value. The clone operation:
-- For value types: returns a copy of the value
-- For reference types: allocates new memory with refcount 1
+- For `Value` types: returns the same semantic value without introducing a cleanup obligation
+- For ownership-bearing types: creates an independent logical value and exactly one corresponding owner-credit topology
 - Element-wise recursive: cloning a container clones each element via `.clone()`
 
-After cloning, original and clone have independent reference counts. Modifying the clone does not affect the original.
+After cloning, original and clone are independent logical values, and modifying one does not affect the other. An implementation may initially share physical storage through copy-on-write, allocate distinct storage, use regions, or choose another validated mechanism; `Clone` does not mandate allocation or a reference counter.
 
 ### 8.9.1 Standard Implementations
 
@@ -1084,7 +1084,7 @@ Some types do not implement `Clone`:
 
 ## 8.10 Drop Trait
 
-The `Drop` trait enables custom cleanup when a value's reference count reaches zero:
+The `Drop` trait enables custom cleanup at a value's exactly-once logical death point:
 
 ```ori
 trait Drop {
@@ -1094,13 +1094,15 @@ trait Drop {
 
 ### 8.10.1 Execution Timing
 
-Drop is called when the ARC reference count reaches zero:
+Drop is called when the final logical owner/cleanup obligation ends. A physical
+projection may use a zero reference count to detect that event, but the language
+rule also applies to counter-free values:
 
 ```ori
 {
-    let resource = acquire_resource();  // refcount: 1
-    use_resource(resource);             // refcount may increase
-}                                       // refcount: 0, drop called
+    let resource = acquire_resource();  // one logical owner
+    use_resource(resource);             // may borrow or transfer ownership
+}                                       // final owner ends; drop called
 ```
 
 For values not shared, drop occurs at scope exit. Drop is also called on early exit (via `?`, `break`, or panic).
@@ -1534,20 +1536,20 @@ let (p, c) = channel<Handle>(buffer: 10);  // error: Handle is not Sendable
 
 ### 8.14.7 Value Trait
 
-The `Value` trait marks types that are stored inline, copied by value (bitwise copy), and completely bypass ARC (automatic reference counting).
+The `Value` trait marks types with trivial logical duplication and cleanup semantics: copying the value requires no user-defined cleanup and introduces no ownership-bearing child obligation. It is representation evidence, not a storage mandate; a physical planner may place or encode the value however it proves the same semantics.
 
 ```ori
 trait Value: Clone, Eq {}
 ```
 
-`Value` is a marker trait with no methods. It shall not be manually implemented. The compiler verifies a type satisfies `Value` when all of the following hold:
+`Value` is a marker trait with no methods and shall not be manually implemented. The compiler verifies a type satisfies `Value` when all of the following hold:
 
 1. All fields recursively satisfy `Value`
 2. The type does not implement `Drop`
 3. The type is not recursive (no heap indirection)
 4. The type size does not exceed 512 bytes
 
-A type that satisfies `Value` automatically satisfies `Clone` (via bitwise copy) and `Sendable`.
+A type that satisfies `Value` automatically satisfies `Clone` without user code and satisfies `Sendable`. A backend may use a byte copy only when its validated physical layout makes that operation sound.
 
 NOTE  A type exceeding 256 bytes but not 512 bytes produces a warning. Types exceeding 512 bytes produce an error.
 

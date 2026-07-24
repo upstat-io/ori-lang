@@ -1,0 +1,19 @@
+// Cell 3 — multi-param generic struct with a PERMUTED return. `swap` returns
+// Pair<B, A> from Pair<A, B>; the concrete instantiation is Pair<str, int>.
+// This is the F1-critical case: substitute_in_pool preserves the Applied arg
+// order, so the concrete struct keeps the {str-fat, i64} layout. The
+// resolve_fully matching-args fallback would collapse to the generic {i64,i64}
+// and fail LLVM IR verification.
+use std.testing { assert_eq }
+
+type Pair<A, B> = { a: A, b: B }
+
+@swap<A, B> (p: Pair<A, B>) -> Pair<B, A> = Pair { a: p.b, b: p.a }
+
+@main () -> int = {
+    let $p = Pair { a: 7, b: "x" };
+    let $q = swap(p: p);
+    assert_eq(actual: q.a, expected: "x");
+    assert_eq(actual: q.b, expected: 7);
+    0
+}

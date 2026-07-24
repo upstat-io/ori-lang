@@ -3,9 +3,7 @@
 use std.testing { assert_eq, assert }
 // Tests for list indexing, map indexing, and # length placeholder
 
-// =============================================================================
 // List Indexing - Basic
-// =============================================================================
 
 @test_list_index_first tests @list_index_first () -> void = {
     let list = [10, 20, 30];
@@ -35,9 +33,7 @@ use std.testing { assert_eq, assert }
 
 @list_single_element () -> int = [42][0];
 
-// =============================================================================
 // List Indexing - With Variables
-// =============================================================================
 
 @test_list_index_var tests @list_index_var () -> void = {
     let list = [1, 2, 3, 4, 5];
@@ -61,9 +57,7 @@ use std.testing { assert_eq, assert }
     list[1 + 1]
 }
 
-// =============================================================================
 // List Indexing - # Length Placeholder
-// =============================================================================
 
 @test_hash_last tests @hash_last () -> void = {
     let list = [10, 20, 30];
@@ -115,9 +109,7 @@ use std.testing { assert_eq, assert }
     list[# - 5]
 }
 
-// =============================================================================
 // Map Indexing - Basic
-// =============================================================================
 //
 // STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - map returns value, not Option
 // Per spec, map["key"] should return Option<V>, but evaluator returns V and panics on missing.
@@ -149,9 +141,7 @@ use std.testing { assert_eq, assert }
     map["any"]
 }
 
-// =============================================================================
 // Map Indexing - With Variables
-// =============================================================================
 
 @test_map_index_var tests @map_index_var () -> void = {
     let map = {"key": 42};
@@ -176,9 +166,7 @@ use std.testing { assert_eq, assert }
     map["prefix" + "_" + "suffix"] ?? 0
 }
 
-// =============================================================================
 // Map Indexing - With Coalesce
-// =============================================================================
 
 @test_map_coalesce_found tests @map_coalesce_found () -> void = {
     let map = {"key": 42};
@@ -196,12 +184,8 @@ use std.testing { assert_eq, assert }
 
 @map_coalesce_missing () -> int = { {"key": 42}["missing"] ?? 99 }
 
-// =============================================================================
 // String Indexing
-// =============================================================================
-//
-// STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - returns char, should return str
-// Per spec, str[i] should return single-codepoint str, but evaluator returns char.
+// Spec: 14.1.2 str implements Index<int, str> — single codepoint, panics OOB.
 
 @test_str_index_first tests @str_index_first () -> void = {
     let s = "hello";
@@ -227,9 +211,18 @@ use std.testing { assert_eq, assert }
 
 @str_index_middle () -> str = "hello"[2];
 
-// =============================================================================
+#fail("out of bounds")
+@test_str_index_oob tests @str_index_oob () -> void = {
+    let _ = str_index_oob();
+    ()
+}
+
+@str_index_oob () -> str = {
+    let s = "hi";
+    s[5]
+}
+
 // Nested Indexing
-// =============================================================================
 
 @test_nested_list tests @nested_list () -> void = {
     let matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
@@ -251,9 +244,7 @@ use std.testing { assert_eq, assert }
     records[0]["name"] ?? ""
 }
 
-// =============================================================================
 // Index with Struct Fields
-// =============================================================================
 
 type Container = { items: [int] }
 
@@ -267,9 +258,7 @@ type Container = { items: [int] }
     c.items[1]
 }
 
-// =============================================================================
 // Index Result Used in Expressions
-// =============================================================================
 
 @test_index_in_arithmetic tests @index_in_arithmetic () -> void = {
     let list = [10, 20, 30];
@@ -304,9 +293,7 @@ type Container = { items: [int] }
     if list[0] > 0 then "positive" else "non-positive"
 }
 
-// =============================================================================
 // Index with Function Results
-// =============================================================================
 
 @get_list () -> [int] = [100, 200, 300];
 
@@ -330,9 +317,7 @@ type Container = { items: [int] }
     list[get_index()]
 }
 
-// =============================================================================
 // Chained Indexing
-// =============================================================================
 
 @test_chain_list_index tests @chain_list_index () -> void = {
     let list = [[1, 2], [3, 4], [5, 6]];
@@ -350,13 +335,10 @@ type Container = { items: [int] }
 
 @triple_nested () -> int = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]][1][1][1];
 
-// =============================================================================
 // Index Assignment
-// =============================================================================
-// SKIP: Index assignment (list[i] = x) not currently supported. Pending design proposal
-// for copy-on-write index assignment (see errata on index-trait-proposal.md).
+// Regression: list index assignment desugars to copy-on-write `updated`
+// reassignment and makes the replacement visible through the original binding.
 
-#skip("index assignment not supported - pending design proposal")
 @test_list_assign tests @list_assign () -> void = {
     let list = [1, 2, 3];
     list[1] = 99;
@@ -369,9 +351,7 @@ type Container = { items: [int] }
     list[1]
 }
 
-// =============================================================================
 // Edge Cases
-// =============================================================================
 
 @test_single_element_hash tests @single_element_hash () -> void = {
     let list = [42];

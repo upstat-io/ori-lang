@@ -1,18 +1,22 @@
 //! Single CLI argument parsing for build options.
-//!
-//! Extracted from `build_options/mod.rs` to keep the parent module
-//! under the 500-line production file limit.
 
 use std::path::PathBuf;
 
 use super::{BuildOptions, DebugLevel, EmitType, LinkMode, LtoMode, OptLevel};
 
 /// Parse a single CLI argument into `BuildOptions`.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "linear if/else CLI flag parser — one branch per flag"
-)]
 pub(super) fn parse_single_arg(options: &mut BuildOptions, arg: &str) {
+    if parse_profile_arg(options, arg)
+        || parse_output_arg(options, arg)
+        || parse_link_arg(options, arg)
+        || parse_target_arg(options, arg)
+    {
+        return;
+    }
+    parse_representation_arg(options, arg);
+}
+
+fn parse_profile_arg(options: &mut BuildOptions, arg: &str) -> bool {
     if arg == "--release" {
         options.release = true;
         options.opt_level = OptLevel::O2;
@@ -33,19 +37,35 @@ pub(super) fn parse_single_arg(options: &mut BuildOptions, arg: &str) {
         } else {
             eprintln!("warning: unknown debug level '{level}', using full");
         }
-    } else if let Some(output) = arg.strip_prefix("-o=") {
+    } else {
+        return false;
+    }
+    true
+}
+
+fn parse_output_arg(options: &mut BuildOptions, arg: &str) -> bool {
+    if let Some(output) = arg.strip_prefix("-o=") {
         options.output = Some(PathBuf::from(output));
     } else if let Some(output) = arg.strip_prefix("--output=") {
         options.output = Some(PathBuf::from(output));
     } else if let Some(dir) = arg.strip_prefix("--out-dir=") {
         options.out_dir = Some(PathBuf::from(dir));
+    } else if let Some(remarks) = arg.strip_prefix("--emit-rc-remarks=") {
+        options.emit_rc_remarks = Some(PathBuf::from(remarks));
     } else if let Some(emit) = arg.strip_prefix("--emit=") {
         if let Some(e) = EmitType::parse(emit) {
             options.emit = Some(e);
         } else {
             eprintln!("warning: unknown emit type '{emit}', options: obj, llvm-ir, llvm-bc, asm");
         }
-    } else if arg == "--lib" {
+    } else {
+        return false;
+    }
+    true
+}
+
+fn parse_link_arg(options: &mut BuildOptions, arg: &str) -> bool {
+    if arg == "--lib" {
         options.lib = true;
     } else if arg == "--dylib" {
         options.dylib = true;
@@ -67,7 +87,14 @@ pub(super) fn parse_single_arg(options: &mut BuildOptions, arg: &str) {
         } else {
             eprintln!("warning: unknown LTO mode '{lto}', using off");
         }
-    } else if let Some(jobs) = arg.strip_prefix("--jobs=") {
+    } else {
+        return false;
+    }
+    true
+}
+
+fn parse_target_arg(options: &mut BuildOptions, arg: &str) -> bool {
+    if let Some(jobs) = arg.strip_prefix("--jobs=") {
         options.jobs_explicit = true;
         if jobs == "auto" {
             options.jobs = None;
@@ -89,7 +116,14 @@ pub(super) fn parse_single_arg(options: &mut BuildOptions, arg: &str) {
         options.wasm_opt = true;
     } else if arg == "-v" || arg == "--verbose" {
         options.verbose = true;
-    } else if arg == "--no-repr-opt" {
+    } else {
+        return false;
+    }
+    true
+}
+
+fn parse_representation_arg(options: &mut BuildOptions, arg: &str) {
+    if arg == "--no-repr-opt" {
         options.narrowing_policy = ori_repr::NarrowingPolicy::Disabled;
         options.narrowing_policy_explicit = true;
     } else if let Some(policy) = arg.strip_prefix("--repr-opt=") {

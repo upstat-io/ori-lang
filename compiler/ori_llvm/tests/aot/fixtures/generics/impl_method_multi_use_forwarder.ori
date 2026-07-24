@@ -1,0 +1,21 @@
+// Multi-use-then-return impl forwarder: the borrow-read `self.items.len()`
+// raises the use count of `self` before the conditional returns `self` on
+// BOTH arms. The branch aliases of `self` are same-allocation views of a
+// value moving through to the Return — NOT duplications; classifying them
+// emits paired alias inc/decs whose split over-releases the moved-through
+// allocation (double-free).
+type Wrapper = { items: [int] };
+
+impl Wrapper {
+    @touch (self) -> Wrapper = {
+        let $n = self.items.len();
+
+        if n > 0 then self else self
+    }
+}
+
+@main () -> int = {
+    let w = Wrapper { items: [5, 6, 7] };
+    let w2 = w.touch();
+    if w2.items.len() == 3 && w2.items[2] == 7 then 0 else 1
+}

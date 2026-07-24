@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Detect and optionally clean untracked temp/scratch files from the worktree.
 #
-# Designed to run as a subsection close-out step in /continue-roadmap and
-# /tpr-review workflows. Catches debug dumps, one-off test scripts, editor
-# backups, and other detritus that accumulates during development.
+# Catches debug dumps, one-off test scripts, editor backups, and other
+# worktree detritus.
 #
 # Usage:
 #   diagnostics/repo-hygiene.sh              # List detected temp files (default)
 #   diagnostics/repo-hygiene.sh --check      # Exit 1 if temp files found (CI gate)
 #   diagnostics/repo-hygiene.sh --clean      # Remove detected temp files
 #   diagnostics/repo-hygiene.sh --gitignore  # Show patterns to add to .gitignore
+#   diagnostics/repo-hygiene.sh --check-root # Exit 1 if root has unrecognized entries
 #   diagnostics/repo-hygiene.sh --help       # Show this help
 
 set -euo pipefail
@@ -19,7 +19,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ── Defaults ──────────────────────────────────────────────────────────────
 
-MODE="list"       # list | check | clean | gitignore
+MODE="list"       # list | check | clean | gitignore | check-root
 NO_COLOR="${NO_COLOR:-}"
 COLOR=true
 
@@ -33,9 +33,10 @@ Detect and optionally clean untracked temp/scratch files from the worktree.
 
 Modes:
   (default)     List detected temp files with categories
-  --check       Exit 0 if clean, exit 1 if temp files found (CI/skill gate)
+  --check       Exit 0 if clean, exit 1 if temp files found
   --clean       Remove detected temp files (prints what it removes)
   --gitignore   Suggest .gitignore patterns for detected files
+  --check-root  Exit 0 if root matches .root-inventory, 1 otherwise (CI gate)
 
 Options:
   --no-color    Disable colored output
@@ -48,7 +49,6 @@ Categories detected:
   BACKUP    Editor backup files (*.orig, *.bak, *.rej, *~ anywhere)
   ARTIFACT  Build artifacts outside target/ (*.o, *.a, *.so, *.dylib at root)
   STALE     Stale temp files that .gitignore should catch but didn't
-  TPR_STALE Stale TPR run dirs in /tmp/{ori-tpr,tpr-round}-* older than 72 hours
 
 Exit codes:
   0   Clean (no temp files) or successful --clean
@@ -62,6 +62,7 @@ while [[ $# -gt 0 ]]; do
         --check)    MODE="check"; shift ;;
         --clean)    MODE="clean"; shift ;;
         --gitignore) MODE="gitignore"; shift ;;
+        --check-root) MODE="check-root"; shift ;;
         --no-color) COLOR=false; shift ;;
         --color)    COLOR=true; NO_COLOR=""; shift ;;
         --help|-h)  usage; exit 0 ;;
@@ -178,33 +179,7 @@ for f in "${UNTRACKED[@]}"; do
     esac
 done
 
-# ── TPR_STALE: tpr-review scratch dirs older than 72 hours ──
-# Matches both patterns used over the skill's lifetime:
-#   /tmp/ori-tpr-*/      — legacy (pre-f386c7cd refactor)
-#   /tmp/tpr-round-*/    — current (mktemp -d -t "tpr-round-${repo}-XXXXXXXX")
-# Both prefixes are specific enough that no other tool creates them.
-# Contents are reviewer-produced ephemera (prompt.md, *-stdout/stderr/report.txt)
-# — no user data, no source files. The 72h age gate prevents touching live runs.
-declare -a TPR_STALE_DIRS=()
-TPR_STALE_BYTES=0
-NOW=$(date +%s)
-TPR_MAX_AGE=259200  # 72 hours in seconds
-for tpr_glob in "/tmp/ori-tpr-*/" "/tmp/tpr-round-*/"; do
-    if compgen -G "$tpr_glob" > /dev/null 2>&1; then
-        for tpr_dir in $tpr_glob; do
-            [[ -d "$tpr_dir" ]] || continue
-            dir_mtime=$(stat -c '%Y' "$tpr_dir" 2>/dev/null || echo "$NOW")
-            age=$(( NOW - dir_mtime ))
-            if [[ $age -ge $TPR_MAX_AGE ]]; then
-                TPR_STALE_DIRS+=("$tpr_dir")
-                dir_bytes=$(du -sb "$tpr_dir" 2>/dev/null | awk '{print $1}')
-                TPR_STALE_BYTES=$(( TPR_STALE_BYTES + dir_bytes ))
-            fi
-        done
-    fi
-done
-
-TOTAL=$(( ${#DUMP_FILES[@]} + ${#SCRATCH_FILES[@]} + ${#BACKUP_FILES[@]} + ${#ARTIFACT_FILES[@]} + ${#STALE_FILES[@]} + ${#TPR_STALE_DIRS[@]} ))
+TOTAL=$(( ${#DUMP_FILES[@]} + ${#SCRATCH_FILES[@]} + ${#BACKUP_FILES[@]} + ${#ARTIFACT_FILES[@]} + ${#STALE_FILES[@]} ))
 
 # ── Output ────────────────────────────────────────────────────────────────
 
@@ -241,16 +216,6 @@ case "$MODE" in
         print_category "ARTIFACT — build artifacts"      "$RED"    "${ARTIFACT_FILES[@]}"
         print_category "STALE — should be in .gitignore" "$YELLOW" "${STALE_FILES[@]}"
 
-        if [[ ${#TPR_STALE_DIRS[@]} -gt 0 ]]; then
-            local mb=$(( TPR_STALE_BYTES / 1048576 ))
-            printf "\n${YELLOW}${BOLD}TPR_STALE — /tmp/{ori-tpr,tpr-round}-* dirs >72h old${RESET} ${DIM}(%d dir%s, ~%d MB)${RESET}\n" \
-                "${#TPR_STALE_DIRS[@]}" "$( [[ ${#TPR_STALE_DIRS[@]} -ne 1 ]] && echo 's' || echo '' )" "$mb"
-            for d in "${TPR_STALE_DIRS[@]}"; do
-                local age_h=$(( (NOW - $(stat -c '%Y' "$d" 2>/dev/null || echo "$NOW")) / 3600 ))
-                printf "  %s ${DIM}(%dh old)${RESET}\n" "$d" "$age_h"
-            done
-        fi
-
         printf "\n${DIM}Run with --clean to remove, or --check for CI gating.${RESET}\n"
         ;;
 
@@ -267,10 +232,6 @@ case "$MODE" in
         for f in "${DUMP_FILES[@]}" "${SCRATCH_FILES[@]}" "${BACKUP_FILES[@]}" "${ARTIFACT_FILES[@]}" "${STALE_FILES[@]}"; do
             printf "  %s\n" "$f"
         done
-        for d in "${TPR_STALE_DIRS[@]}"; do
-            printf "  %s (stale TPR run)\n" "$d"
-        done
-
         printf "\nRun ${BOLD}diagnostics/repo-hygiene.sh --clean${RESET} to remove.\n"
         exit 1
         ;;
@@ -288,13 +249,6 @@ case "$MODE" in
         for f in "${ALL_FILES[@]}"; do
             printf "  ${RED}rm${RESET} %s\n" "$f"
             rm -f "$ROOT_DIR/$f"
-        done
-
-        # Clean stale TPR run directories (these are in /tmp, not the worktree)
-        for d in "${TPR_STALE_DIRS[@]}"; do
-            age_h=$(( (NOW - $(stat -c '%Y' "$d" 2>/dev/null || echo "$NOW")) / 3600 ))
-            printf "  ${RED}rm -rf${RESET} %s ${DIM}(%dh old)${RESET}\n" "$d" "$age_h"
-            rm -rf "$d"
         done
 
         printf "\n${GREEN}Done.${RESET} Removed %d item%s.\n" \
@@ -324,5 +278,62 @@ case "$MODE" in
             printf "\n# Core dumps\n"
             printf "core\ncore.*\n"
         fi
+        ;;
+
+    check-root)
+        # Allowlist gate: every entry in the repo root must be declared in
+        # .root-inventory. Anything else is a stray (test artifact, debug
+        # dump, editor cruft) and blocks the commit until resolved.
+        INVENTORY_FILE="$ROOT_DIR/.root-inventory"
+        if [[ ! -f "$INVENTORY_FILE" ]]; then
+            printf "${RED}repo-hygiene: missing %s${RESET}\n" "$INVENTORY_FILE" >&2
+            exit 2
+        fi
+
+        # Parse inventory: drop comments and blank lines, take first whitespace-
+        # delimited field per line, sort+dedupe.
+        ALLOWED=$(sed -e 's/#.*$//' -e 's/[[:space:]]*$//' "$INVENTORY_FILE" \
+                  | awk 'NF{print $1}' | sort -u)
+        # ACTUAL = top-level entries that git considers "in" the repo:
+        # tracked files + untracked-not-ignored. This deliberately excludes
+        # gitignored build/test outputs (target/, *.log) so the gate fires
+        # on REAL strays — anything a contributor could accidentally commit —
+        # without false-failing on routine local artifacts.
+        ACTUAL=$(cd "$ROOT_DIR" \
+                 && git ls-files --cached --others --exclude-standard \
+                 | awk -F/ 'NF{print $1}' | sort -u)
+
+        STRAYS=$(comm -23 <(printf '%s\n' "$ACTUAL") <(printf '%s\n' "$ALLOWED"))
+        MISSING=$(comm -13 <(printf '%s\n' "$ACTUAL") <(printf '%s\n' "$ALLOWED"))
+
+        if [[ -z "$STRAYS" ]]; then
+            printf "${GREEN}root-inventory: clean${RESET}"
+            if [[ -n "$MISSING" ]]; then
+                MISS_COUNT=$(printf '%s\n' "$MISSING" | wc -l | awk '{print $1}')
+                printf " ${DIM}(%d inventory entr%s not on disk)${RESET}" \
+                    "$MISS_COUNT" "$( [[ $MISS_COUNT -ne 1 ]] && echo 'ies' || echo 'y' )"
+            fi
+            printf "\n"
+            exit 0
+        fi
+
+        STRAY_COUNT=$(printf '%s\n' "$STRAYS" | wc -l | awk '{print $1}')
+        printf "${RED}${BOLD}root-inventory: %d unrecognized root entr%s${RESET}\n" \
+            "$STRAY_COUNT" "$( [[ $STRAY_COUNT -ne 1 ]] && echo 'ies' || echo 'y' )"
+        while IFS= read -r s; do
+            [[ -z "$s" ]] && continue
+            if [[ -d "$ROOT_DIR/$s" ]]; then
+                printf "  ${RED}+${RESET} %s/\n" "$s"
+            else
+                printf "  ${RED}+${RESET} %s\n" "$s"
+            fi
+        done <<< "$STRAYS"
+
+        printf "\n${BOLD}.root-inventory${RESET} declares which entries are permitted at the\n"
+        printf "repository root. To resolve, choose ONE per offender:\n\n"
+        printf "  1. ${BOLD}Remove${RESET}      stray test/debug artifact   ${DIM}rm <name> | git rm <name>${RESET}\n"
+        printf "  2. ${BOLD}Gitignore${RESET}   build/cache output           ${DIM}echo '/<name>' >> .gitignore${RESET}\n"
+        printf "  3. ${BOLD}Bless${RESET}       legitimate new top-level     ${DIM}edit .root-inventory${RESET}\n"
+        exit 1
         ;;
 esac

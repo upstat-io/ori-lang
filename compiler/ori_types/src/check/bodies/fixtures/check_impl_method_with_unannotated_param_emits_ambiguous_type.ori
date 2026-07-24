@@ -1,0 +1,2 @@
+type Foo = { f: int };
+impl Foo { @process (self, x) -> void = { () } }

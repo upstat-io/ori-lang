@@ -7,7 +7,8 @@
 //! - Struct patterns (`{ x, y }`) or `{ $x, y }`
 //! - List patterns with optional rest (`[a, b, ..rest]`)
 
-use super::helpers::COMMA_SEPARATOR_WIDTH;
+use super::metrics::COMMA_SEPARATOR_WIDTH;
+use crate::formatter::BindingPrefix;
 use ori_ir::{BindingPattern, StringLookup};
 
 /// Calculate width of a binding pattern (for `let` bindings — includes `$` for immutable).
@@ -18,7 +19,7 @@ pub(super) fn binding_pattern_width<I: StringLookup>(
     pattern: &BindingPattern,
     interner: &I,
 ) -> usize {
-    binding_pattern_width_inner(pattern, interner, false)
+    binding_pattern_width_inner(pattern, interner, BindingPrefix::Emit)
 }
 
 /// Calculate width of a for-loop binding pattern — excludes `$` prefix.
@@ -30,21 +31,21 @@ pub(super) fn for_binding_pattern_width<I: StringLookup>(
     pattern: &BindingPattern,
     interner: &I,
 ) -> usize {
-    binding_pattern_width_inner(pattern, interner, true)
+    binding_pattern_width_inner(pattern, interner, BindingPrefix::Suppress)
 }
 
 /// Shared width calculator with optional `$` suppression.
 fn binding_pattern_width_inner<I: StringLookup>(
     pattern: &BindingPattern,
     interner: &I,
-    suppress_dollar: bool,
+    dollar_prefix: BindingPrefix,
 ) -> usize {
     match pattern {
         BindingPattern::Name { name, mutable } => {
-            let prefix = if suppress_dollar {
-                0
-            } else {
+            let prefix = if dollar_prefix.should_emit() {
                 usize::from(mutable.is_immutable())
+            } else {
+                0
             };
             prefix + interner.lookup(*name).len()
         }
@@ -58,7 +59,7 @@ fn binding_pattern_width_inner<I: StringLookup>(
             // "(" + elements + ")" + optional trailing comma for single element
             let mut total = 1;
             for (i, elem) in elements.iter().enumerate() {
-                total += binding_pattern_width_inner(elem, interner, suppress_dollar);
+                total += binding_pattern_width_inner(elem, interner, dollar_prefix);
                 if i < elements.len() - 1 {
                     total += COMMA_SEPARATOR_WIDTH;
                 }
@@ -78,15 +79,14 @@ fn binding_pattern_width_inner<I: StringLookup>(
             let mut total = 2;
             for (i, field) in fields.iter().enumerate() {
                 let name_w = interner.lookup(field.name).len();
-                let dollar_w = if suppress_dollar {
-                    0
-                } else {
+                let dollar_w = if dollar_prefix.should_emit() {
                     usize::from(field.mutable.is_immutable() && field.pattern.is_none())
+                } else {
+                    0
                 };
                 if let Some(pat) = &field.pattern {
                     // "name: pattern"
-                    total +=
-                        name_w + 2 + binding_pattern_width_inner(pat, interner, suppress_dollar);
+                    total += name_w + 2 + binding_pattern_width_inner(pat, interner, dollar_prefix);
                 } else {
                     // Shorthand: just "name" or "$name"
                     total += dollar_w + name_w;
@@ -102,7 +102,7 @@ fn binding_pattern_width_inner<I: StringLookup>(
             // "[" + elements + "]"
             let mut total = 1;
             for (i, elem) in elements.iter().enumerate() {
-                total += binding_pattern_width_inner(elem, interner, suppress_dollar);
+                total += binding_pattern_width_inner(elem, interner, dollar_prefix);
                 if i < elements.len() - 1 {
                     total += COMMA_SEPARATOR_WIDTH;
                 }
@@ -113,7 +113,7 @@ fn binding_pattern_width_inner<I: StringLookup>(
                 }
                 // "..$rest" or "..rest"
                 total += 2 + interner.lookup(*rest_name).len();
-                if !suppress_dollar && rest_mut.is_immutable() {
+                if dollar_prefix.should_emit() && rest_mut.is_immutable() {
                     total += 1; // "$" prefix
                 }
             }

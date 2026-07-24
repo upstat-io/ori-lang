@@ -11,7 +11,7 @@
 use ori_types::Idx;
 
 use crate::codegen::type_info::TypeInfo;
-use crate::codegen::value_id::ValueId;
+use crate::codegen::value_id::{FunctionId, ValueId};
 
 use super::super::super::ArcIrEmitter;
 
@@ -23,7 +23,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// native LLVM type before comparing.
     ///
     /// For strings, returns a pointer to `ori_str_eq` directly (same signature).
-    /// For primitives, generates an inline comparison function.
+    /// For primitives, generates an inline comparison function. Compound
+    /// builtin types get a callback wrapper around recursive structural
+    /// equality so they can be compared by map/set runtime operations.
     ///
     /// Returns a function pointer `ValueId`, or `None` if the element type
     /// is not yet supported for equality comparison.
@@ -43,6 +45,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let func_id = self.builder.runtime_fn("ori_str_eq");
             self.eq_thunk_cache.insert(elem_ty, func_id);
             return Some(self.builder.get_function_ptr(func_id));
+        }
+
+        // User-defined Eq (manual `impl T: Eq` or `#derive(Eq)`): synthesize a
+        // receiver-qualified thunk for the exact producer identity.
+        if let Some((eq_fid, eq_abi)) = self.user_eq_callable(elem_ty) {
+            return self.gen_user_eq_thunk(elem_ty, eq_fid, &eq_abi);
+        }
+
+        if matches!(
+            &elem_info,
+            TypeInfo::Option { .. }
+                | TypeInfo::Result { .. }
+                | TypeInfo::Tuple { .. }
+                | TypeInfo::List { .. }
+                | TypeInfo::Map { .. }
+                | TypeInfo::Set { .. }
+        ) {
+            return self.gen_compound_eq_thunk(elem_ty);
         }
 
         let type_suffix = match &elem_info {
@@ -74,7 +94,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_func = self.builder.current_function();
 
         // Set up the function
-        self.builder.set_ccc(func_id);
+        self.builder.set_module_local(func_id);
         self.builder.add_nounwind_attribute(func_id);
 
         let entry = self.builder.append_block(func_id, "entry");
@@ -96,6 +116,62 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         }
 
         self.eq_thunk_cache.insert(elem_ty, func_id);
+        Some(self.builder.get_function_ptr(func_id))
+    }
+
+    /// Generate the C callback required when a map/set element uses compound
+    /// structural equality.
+    ///
+    /// The runtime passes pointers to stored values. The thunk loads the native
+    /// aggregate values and reuses the regular recursive equality dispatcher.
+    /// Cache insertion precedes body emission so recursively nested collection
+    /// types can refer back to this callback without regenerating it.
+    fn gen_compound_eq_thunk(&mut self, elem_ty: Idx) -> Option<ValueId> {
+        let ptr_ty = self.builder.ptr_type();
+        let bool_ty = self.builder.bool_type();
+        let func_name = format!("_ori_eq_compound${}", elem_ty.raw());
+        let func_id = self
+            .builder
+            .get_or_declare_function(&func_name, &[ptr_ty, ptr_ty], bool_ty);
+
+        if self.builder.function_has_body(func_id) {
+            self.eq_thunk_cache.insert(elem_ty, func_id);
+            return Some(self.builder.get_function_ptr(func_id));
+        }
+
+        // Break recursive callback-generation cycles before emitting the body.
+        self.eq_thunk_cache.insert(elem_ty, func_id);
+
+        let saved_pos = self.builder.save_position();
+        let saved_func = self.builder.current_function();
+        let saved_emitter_func = self.current_function;
+        let saved_cleanup_pad = self.current_cleanup_pad.take();
+        let saved_intercepted_unwind = self.intercepted_unwind.take();
+
+        self.builder.set_module_local(func_id);
+        self.builder.add_nounwind_attribute(func_id);
+        let entry = self.builder.append_block(func_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(func_id);
+        self.current_function = func_id;
+
+        let a_ptr = self.builder.get_param(func_id, 0);
+        let b_ptr = self.builder.get_param(func_id, 1);
+        let elem_llvm_ty = self.resolve_type(elem_ty);
+        let a_val = self.builder.load(elem_llvm_ty, a_ptr, "eq.a");
+        let b_val = self.builder.load(elem_llvm_ty, b_ptr, "eq.b");
+        let result =
+            ori_stack::ensure_sufficient_stack(|| self.emit_element_equals(a_val, b_val, elem_ty))?;
+        self.builder.ret(result);
+
+        self.intercepted_unwind = saved_intercepted_unwind;
+        self.current_cleanup_pad = saved_cleanup_pad;
+        self.current_function = saved_emitter_func;
+        self.builder.restore_position(saved_pos);
+        if let Some(f) = saved_func {
+            self.builder.set_current_function(f);
+        }
+
         Some(self.builder.get_function_ptr(func_id))
     }
 
@@ -125,8 +201,81 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | TypeInfo::Byte => self.builder.icmp_eq(a_val, b_val, "eq"),
             // Float equality (ordered — NaN != NaN)
             TypeInfo::Float => self.builder.fcmp_oeq(a_val, b_val, "eq"),
-            _ => unreachable!("non-primitive passed to gen_primitive_eq"),
+            TypeInfo::Unit
+            | TypeInfo::Never
+            | TypeInfo::Str
+            | TypeInfo::Ordering
+            | TypeInfo::List { .. }
+            | TypeInfo::Map { .. }
+            | TypeInfo::Set { .. }
+            | TypeInfo::Tuple { .. }
+            | TypeInfo::Option { .. }
+            | TypeInfo::Result { .. }
+            | TypeInfo::Range
+            | TypeInfo::Struct { .. }
+            | TypeInfo::Enum { .. }
+            | TypeInfo::Iterator { .. }
+            | TypeInfo::Channel { .. }
+            | TypeInfo::Function { .. }
+            | TypeInfo::Error => unreachable!("non-primitive passed to gen_primitive_eq"),
         }
+    }
+
+    /// Synthesize an `fn(ptr,ptr)->i1` equality thunk that calls the user `@eq`
+    /// impl for a user-Eq map/set key type. Threads each operand by-value
+    /// (`Direct`) or by-pointer (`Indirect`/`Reference`) per its ABI, mirroring
+    /// `emit_user_drop_via_pointer`. Borrowed operands — no RC ops. Returns the
+    /// thunk's function pointer, cached by `Idx`.
+    fn gen_user_eq_thunk(
+        &mut self,
+        elem_ty: Idx,
+        eq_fid: FunctionId,
+        eq_abi: &crate::codegen::abi::FunctionAbi,
+    ) -> Option<ValueId> {
+        use crate::codegen::abi::ParamPassing;
+        let ptr_ty = self.builder.ptr_type();
+        let bool_ty = self.builder.bool_type();
+        let func_name = format!("_ori_eq_user${}", elem_ty.raw());
+        let func_id = self
+            .builder
+            .get_or_declare_function(&func_name, &[ptr_ty, ptr_ty], bool_ty);
+        if self.builder.function_has_body(func_id) {
+            self.eq_thunk_cache.insert(elem_ty, func_id);
+            return Some(self.builder.get_function_ptr(func_id));
+        }
+        let saved_pos = self.builder.save_position();
+        let saved_func = self.builder.current_function();
+        self.builder.set_module_local(func_id);
+        self.builder.add_nounwind_attribute(func_id);
+        let entry = self.builder.append_block(func_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(func_id);
+        let a_ptr = self.builder.get_param(func_id, 0);
+        let b_ptr = self.builder.get_param(func_id, 1);
+        let resolved = self.pool.resolve_fully(elem_ty);
+        let self_ty = self.resolve_type(resolved);
+        // @eq (self, other: Self) -> bool: both operands share the self ABI.
+        let pa = eq_abi
+            .params
+            .first()
+            .map_or(ParamPassing::Reference, |p| p.passing);
+        let pb = eq_abi.params.get(1).map_or(pa, |p| p.passing);
+        let a_arg = match pa {
+            ParamPassing::Direct => self.builder.load(self_ty, a_ptr, "eq.a"),
+            _ => a_ptr,
+        };
+        let b_arg = match pb {
+            ParamPassing::Direct => self.builder.load(self_ty, b_ptr, "eq.b"),
+            _ => b_ptr,
+        };
+        let result = self.builder.call(eq_fid, &[a_arg, b_arg], "eq.r")?;
+        self.builder.ret(result);
+        self.builder.restore_position(saved_pos);
+        if let Some(f) = saved_func {
+            self.builder.set_current_function(f);
+        }
+        self.eq_thunk_cache.insert(elem_ty, func_id);
+        Some(self.builder.get_function_ptr(func_id))
     }
 
     /// Get or generate an LLVM hash thunk for hashing elements of `elem_ty`.
@@ -158,6 +307,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return Some(self.builder.get_function_ptr(func_id));
         }
 
+        // User-defined Hashable (manual `impl T: Hashable` or `#derive(Hashable)`):
+        // synthesize a thunk that calls the user `@hash` impl. Without this a
+        // user-Hashable map/set key fell through to `_ => return None` → null
+        // key_hash → SIGSEGV in ori_map_literal_put / set ops / collect_set.
+        let hash_name = self.interner.intern("hash");
+        if let Some((hash_fid, hash_abi)) = self.user_method(elem_ty, hash_name) {
+            return self.gen_user_hash_thunk(elem_ty, hash_fid, &hash_abi);
+        }
+
         let type_suffix = match &elem_info {
             TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => "int",
             TypeInfo::Float => "float",
@@ -187,7 +345,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_func = self.builder.current_function();
 
         // Set up the function
-        self.builder.set_ccc(func_id);
+        self.builder.set_module_local(func_id);
         self.builder.add_nounwind_attribute(func_id);
 
         let entry = self.builder.append_block(func_id, "entry");
@@ -237,7 +395,73 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
             // f64 — bitcast to i64
             TypeInfo::Float => self.builder.bitcast(a_val, i64_ty, "hash.bits"),
-            _ => unreachable!("non-primitive passed to gen_primitive_hash"),
+            TypeInfo::Unit
+            | TypeInfo::Never
+            | TypeInfo::Str
+            | TypeInfo::Ordering
+            | TypeInfo::List { .. }
+            | TypeInfo::Map { .. }
+            | TypeInfo::Set { .. }
+            | TypeInfo::Tuple { .. }
+            | TypeInfo::Option { .. }
+            | TypeInfo::Result { .. }
+            | TypeInfo::Range
+            | TypeInfo::Struct { .. }
+            | TypeInfo::Enum { .. }
+            | TypeInfo::Iterator { .. }
+            | TypeInfo::Channel { .. }
+            | TypeInfo::Function { .. }
+            | TypeInfo::Error => unreachable!("non-primitive passed to gen_primitive_hash"),
         }
+    }
+
+    /// Synthesize an `fn(ptr)->i64` hash thunk that calls the user `@hash` impl
+    /// for a user-Hashable map/set key type. Threads `self` by-value (`Direct`)
+    /// or by-pointer (`Indirect`/`Reference`) per its ABI, mirroring
+    /// `emit_user_drop_via_pointer`. Borrowed `self` — no RC ops. Returns the
+    /// thunk's function pointer, cached by `Idx`.
+    fn gen_user_hash_thunk(
+        &mut self,
+        elem_ty: Idx,
+        hash_fid: FunctionId,
+        hash_abi: &crate::codegen::abi::FunctionAbi,
+    ) -> Option<ValueId> {
+        use crate::codegen::abi::ParamPassing;
+        let ptr_ty = self.builder.ptr_type();
+        let i64_ty = self.builder.i64_type();
+        let func_name = format!("_ori_hash_user${}", elem_ty.raw());
+        let func_id = self
+            .builder
+            .get_or_declare_function(&func_name, &[ptr_ty], i64_ty);
+        if self.builder.function_has_body(func_id) {
+            self.hash_thunk_cache.insert(elem_ty, func_id);
+            return Some(self.builder.get_function_ptr(func_id));
+        }
+        let saved_pos = self.builder.save_position();
+        let saved_func = self.builder.current_function();
+        self.builder.set_module_local(func_id);
+        self.builder.add_nounwind_attribute(func_id);
+        let entry = self.builder.append_block(func_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(func_id);
+        let key_ptr = self.builder.get_param(func_id, 0);
+        let resolved = self.pool.resolve_fully(elem_ty);
+        let self_ty = self.resolve_type(resolved);
+        let pa = hash_abi
+            .params
+            .first()
+            .map_or(ParamPassing::Reference, |p| p.passing);
+        let arg = match pa {
+            ParamPassing::Direct => self.builder.load(self_ty, key_ptr, "hash.self"),
+            _ => key_ptr,
+        };
+        let result = self.builder.call(hash_fid, &[arg], "hash.r")?;
+        self.builder.ret(result);
+        self.builder.restore_position(saved_pos);
+        if let Some(f) = saved_func {
+            self.builder.set_current_function(f);
+        }
+        self.hash_thunk_cache.insert(elem_ty, func_id);
+        Some(self.builder.get_function_ptr(func_id))
     }
 }

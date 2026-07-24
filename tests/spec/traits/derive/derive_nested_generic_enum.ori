@@ -1,0 +1,124 @@
+// Spec: 06-types.md § Derive — derived traits on a nested-generic SUM-type instantiation
+// Formal semantics: a derived method must resolve for EVERY concrete instantiation a call
+// site can demand, including an inner instantiation reachable ONLY by nesting a generic sum
+// type inside itself (`Holder<Holder<int>>` -> inner `Holder<int>`), a generic struct inside
+// a generic sum (`Holder<Wrap<int>>` -> inner `Wrap<int>`), or a generic sum inside a generic
+// struct (`Wrap<Holder<int>>` -> inner `Holder<int>`). The OUTER instantiation's derived
+// `equals`/`hash`/`debug` body dispatches its variant-payload field to the INNER
+// instantiation's derived method; if the inner method is never collected for emission, the
+// LLVM backend emits a raw `icmp` on the payload struct (`icmp on non-int operands`) and
+// starves — while the interpreter (parity oracle) dispatches dynamically and works.
+//
+// This is the ENUM-path sibling of derive_nested_generic_matrix.ori (struct path); it
+// exercises the `Tag::Enum` arm of the derive transitive-mono worklist
+// (`collect_applied_heads` / `nested_derive_instantiations` / `compile_enum_derives`).
+// Single-level cells are the positive controls that already work and must KEEP working;
+// the nested cells are the negative dual-exec pins for BUG-04-234.
+//
+// Trait dimension for the enum nesting shapes: {Eq, Hashable, Clone, Debug, Printable}
+// each route through a DISTINCT codegen arm of the worklist (Eq/Hashable via
+// FieldOp::{Equals,Hash} in field_ops, Debug/Printable via compile_format_fields,
+// Clone via compile_clone_fields) and all are clean dual-exec pins (interp PASS,
+// LLVM starve pre-fix). Comparable + Default are N/A here, blocked by SEPARATE,
+// orthogonal defects unrelated to the BUG-04-234 LLVM derive-mono starve:
+//   - Comparable on a generic sum: interp E6099 "cannot compare variant with variant"
+//     (BUG-04-210) — fails on BOTH backends, so it is not a dual-exec pin for this bug.
+//   - Default `.default()` on a generic instantiation: unresolved associated fn
+//     (BUG-03-013) — the derive RESOLVES but the call does not.
+
+use std.testing { assert, assert_eq }
+
+#[derive(Eq, Hashable, Clone, Debug, Printable)]
+type Holder<T> = Empty | Full(inner: T);
+
+#[derive(Eq, Hashable, Clone, Debug, Printable)]
+type Wrap<T> = { inner: T };
+
+// --- Control: single-level generic sum derive must keep working (no nesting) ---
+
+@test_single_level_sum_eq tests @single_level_sum_eq () -> void = {
+    assert(cond: Full(inner: 1) == Full(inner: 1));
+    assert(cond: Full(inner: 1) != Empty)
+}
+@single_level_sum_eq () -> bool = { Full(inner: 1) == Full(inner: 1) }
+
+// --- Self-nest: enum-in-enum `Holder<Holder<int>>`, every derived trait ---
+
+@test_enum_in_enum_int_eq tests @enum_in_enum_int_eq () -> void = {
+    let a = Full(inner: Full(inner: 7));
+    let b = Full(inner: Full(inner: 7));
+    let c = Full(inner: Full(inner: 8));
+    assert(cond: a == b);
+    assert(cond: a != c)
+}
+@enum_in_enum_int_eq () -> bool = {
+    Full(inner: Full(inner: 7)) == Full(inner: Full(inner: 7))
+}
+
+@test_enum_in_enum_int_hash tests @enum_in_enum_int_hash () -> void = {
+    let a = Full(inner: Full(inner: 7));
+    let b = Full(inner: Full(inner: 7));
+    let c = Full(inner: Full(inner: 8));
+    assert(cond: a.hash() == b.hash());
+    assert(cond: a.hash() != c.hash())
+}
+@enum_in_enum_int_hash () -> int = { Full(inner: Full(inner: 7)).hash() }
+
+@test_enum_in_enum_str_debug tests @enum_in_enum_str_debug () -> void = {
+    assert(cond: Full(inner: Full(inner: "hi")).debug().contains(substr: "hi"))
+}
+@enum_in_enum_str_debug () -> str = { Full(inner: Full(inner: "hi")).debug() }
+
+// --- struct-in-enum: `Holder<Wrap<int>>` (sum payload is a generic struct instantiation) ---
+
+@test_struct_in_enum_eq tests @struct_in_enum_eq () -> void = {
+    assert(cond: Full(inner: Wrap { inner: 9 }) == Full(inner: Wrap { inner: 9 }));
+    assert(cond: Full(inner: Wrap { inner: 9 }) != Full(inner: Wrap { inner: 10 }))
+}
+@struct_in_enum_eq () -> bool = {
+    Full(inner: Wrap { inner: 9 }) == Full(inner: Wrap { inner: 9 })
+}
+
+// --- enum-in-struct: `Wrap<Holder<int>>` (struct field is a generic sum instantiation) ---
+
+@test_enum_in_struct_eq tests @enum_in_struct_eq () -> void = {
+    assert(cond: Wrap { inner: Full(inner: 4) } == Wrap { inner: Full(inner: 4) });
+    assert(cond: Wrap { inner: Full(inner: 4) } != Wrap { inner: Empty })
+}
+@enum_in_struct_eq () -> bool = {
+    Wrap { inner: Full(inner: 4) } == Wrap { inner: Full(inner: 4) }
+}
+
+@test_enum_in_struct_hash tests @enum_in_struct_hash () -> void = {
+    let a = Wrap { inner: Full(inner: 4) };
+    let b = Wrap { inner: Full(inner: 4) };
+    assert(cond: a.hash() == b.hash())
+}
+@enum_in_struct_hash () -> int = { Wrap { inner: Full(inner: 4) }.hash() }
+
+// --- Clone: enum-in-enum `Holder<Holder<int>>` (CloneFields arm) ---
+
+@test_enum_in_enum_clone tests @enum_in_enum_clone () -> void = {
+    let a = Full(inner: Full(inner: 6));
+    let b = a.clone();
+    assert(cond: a == b)
+}
+@enum_in_enum_clone () -> bool = {
+    let a = Full(inner: Full(inner: 6));
+    a.clone() == a
+}
+
+// --- Printable: enum-in-enum `Holder<Holder<str>>` (FormatFields arm) ---
+
+@test_enum_in_enum_printable tests @enum_in_enum_printable () -> void = {
+    assert(cond: Full(inner: Full(inner: "ok")).to_str().contains(substr: "ok"))
+}
+@enum_in_enum_printable () -> str = { Full(inner: Full(inner: "ok")).to_str() }
+
+// --- Clone + Printable: enum-in-struct `Wrap<Holder<int>>` (mixed arms) ---
+
+@test_enum_in_struct_clone tests @enum_in_struct_clone () -> void = {
+    let a = Wrap { inner: Full(inner: 3) };
+    assert(cond: a.clone() == a)
+}
+@enum_in_struct_clone () -> bool = { Wrap { inner: Full(inner: 3) }.clone() == Wrap { inner: Full(inner: 3) } }

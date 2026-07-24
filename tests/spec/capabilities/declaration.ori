@@ -25,6 +25,24 @@ use std.testing { assert_eq }
 
 @process<T> (data: T) -> T uses Logger where T: Clone = data;
 
+type MockHttp = { enabled: bool }
+
+impl MockHttp: Http {
+    @get (self, url: str) -> Result<str, Error> = Ok(url);
+    @post (self, url: str, body: str) -> Result<str, Error> = Ok(body);
+    @put (self, url: str, body: str) -> Result<str, Error> = Ok(body);
+    @delete (self, url: str) -> Result<str, Error> = Ok(url);
+}
+
+type MockLogger = { enabled: bool }
+
+impl MockLogger: Logger {
+    @debug (self, msg: str) -> void = ();
+    @info (self, msg: str) -> void = ();
+    @warn (self, msg: str) -> void = ();
+    @error (self, msg: str) -> void = ();
+}
+
 // =============================================================================
 // Tests
 // =============================================================================
@@ -40,7 +58,7 @@ use std.testing { assert_eq }
 // Test function with capability can be called (when capability is provided)
 @test_with_capability tests @fetch_data () -> void = {
     // Provide a mock capability
-    let result = with Http = "mock" in fetch_data(url: "test");
+    let result = with Http = MockHttp { enabled: true } in fetch_data(url: "test");
     assert_eq(
         actual: result,
         expected: "test",
@@ -49,7 +67,7 @@ use std.testing { assert_eq }
 
 // Test generic function with capability
 @test_generic_with_capability tests @process () -> void = {
-    let result = with Logger = "mock" in process(data: 42);
+    let result = with Logger = MockLogger { enabled: true } in process(data: 42);
     assert_eq(
         actual: result,
         expected: 42,

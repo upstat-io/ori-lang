@@ -1,0 +1,18 @@
+// Pin 11 (negative GREEN guard): a non-collection Construct root. A struct
+// holding a heap field is passed BORROWED at a user-call Invoke. The struct
+// `Construct` is NOT a ListLiteral/MapLiteral/SetLiteral, so the no-sink
+// collection mode (gate a) never makes it a candidate — its release stays with
+// the existing whole-var drop-glue path. Must stay clean (unperturbed).
+type Holder = { items: [int] }
+
+@holder_len (h: Holder) -> int = {
+    let n = h.items.len();
+
+    n
+}
+
+@main () -> int = {
+    let n = holder_len(h: Holder { items: [7, 8] });
+
+    if n == 2 then 0 else 1
+}

@@ -1,0 +1,51 @@
+// Spec: 18-modules.md Module Alias — qualified struct literal `alias.Type { .. }`
+//
+// The grammar defines `struct_literal = type_path "{" ...` with
+// `type_path = identifier { "." identifier }`, so a module-alias-qualified head
+// before `{` is grammar-valid. Regression: a dotted head `geom.Point` used to
+// parse `.Point` as a field-access postfix and orphan the `{` (E1002). This
+// pins the qualified struct literal end-to-end — parse -> typeck (resolve the
+// qualified type against the aliased module's registered types) -> canon ->
+// eval / LLVM (construct + field read) — on BOTH backends.
+
+use std.testing { assert_eq }
+use "../struct_lib" as geom
+
+@helper () -> int = 42;
+
+// Single-dot qualified struct literal — the core deliverable.
+@test_qualified_struct_literal tests @helper () -> void = {
+    let p = geom.Point { x: 3, y: 4 };
+    assert_eq(actual: p.x, expected: 3);
+    assert_eq(actual: p.y, expected: 4)
+}
+
+// Qualified struct literal with spread — `...base` then an override.
+// `tag` is supplied ONLY by the spread and never overridden, so this fails if
+// the qualified head resolves its field layout by a bare terminal name: the
+// spread is then dropped and `tag` never reaches the literal.
+@test_qualified_struct_literal_spread tests @helper () -> void = {
+    let base = geom.Wrapped { value: 1, tag: 7 };
+    let w = geom.Wrapped { ...base, value: 9 };
+    assert_eq(actual: w.value, expected: 9);
+    assert_eq(actual: w.tag, expected: 7)
+}
+
+// Zero-valued fields — clamps the literal against the default-looking shape a
+// constructor would produce, without depending on a cross-module call.
+@test_qualified_struct_literal_zero_fields tests @helper () -> void = {
+    let p = geom.Point { x: 0, y: 0 };
+    assert_eq(actual: p.x, expected: 0);
+    assert_eq(actual: p.y, expected: 0)
+}
+
+// Parity oracle: a qualified literal matches the qualified constructor call of
+// the same shape. Also pins that a provider type reaching the consumer only
+// through an imported signature resolves — it used to poison to an error type,
+// which the evaluator tolerated while the compiled backend could not realize it.
+@test_qualified_literal_matches_assoc_fn_oracle tests @helper () -> void = {
+    let via_fn = geom.origin();
+    let via_lit = geom.Point { x: 0, y: 0 };
+    assert_eq(actual: via_lit.x, expected: via_fn.x);
+    assert_eq(actual: via_lit.y, expected: via_fn.y)
+}

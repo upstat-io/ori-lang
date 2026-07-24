@@ -1,13 +1,11 @@
-//! Post-emission processing: verification, tail calls, block merging, FBIP.
-//!
-//! Contains steps 6–9 (`verify_and_merge`), steps 11–12 (`emit_postprocess`),
-//! and the FBIP enforcement check.
+//! Verification and control-flow finalization after ownership-event emission.
 
 use super::AimsPipelineConfig;
+use crate::aims::contract::ContractMapExt;
 use crate::ir::ArcFunction;
 use crate::lower::ArcProblem;
 
-/// Verify, AIMS-verify, detect tail calls, merge blocks (steps 6–9).
+/// Verifies ownership facts, lowers tail calls and unwind cleanup, then merges blocks.
 ///
 /// Returns `Err` if verification fails under explicit verification mode
 /// (`ORI_VERIFY_ARC=1`). The error contains the list of ICE-level
@@ -26,7 +24,10 @@ pub(crate) fn verify_and_merge(
         config.interner,
         config.observer,
     );
-    if let Some(contract) = config.contracts.get(&func.name) {
+    {
+        let contract = config
+            .contracts
+            .get_required(&func.name, "aims_verify_postprocess");
         let _span = tracing::info_span!("aims_verify").entered();
         crate::pipeline::run_aims_verify(func, contract, "after AIMS emission", config.verify_arc)?;
     }
@@ -47,10 +48,17 @@ pub(crate) fn verify_and_merge(
         crate::block_merge::merge_blocks(func);
     }
     super::trace_pipeline_checkpoint(func, "merge_blocks", config.interner, config.observer);
+    crate::aims::validate_primitive_facts(func, config.classifier)?;
+    super::trace_pipeline_checkpoint(
+        func,
+        "validate_primitive_facts_post_merge",
+        config.interner,
+        config.observer,
+    );
     Ok(())
 }
 
-/// Post-emission steps: final verify + FBIP (steps 11–12).
+/// Performs final verification and produces user-facing FBIP diagnostics.
 ///
 /// Returns `Err` if the final verification fails under explicit verification
 /// mode. On success, returns the list of user-facing FBIP diagnostics.
@@ -64,12 +72,55 @@ pub(crate) fn emit_postprocess(
     }
     super::trace_pipeline_checkpoint(func, "verify_final", config.interner, config.observer);
 
+    // INVARIANT: Every burden-emitting variable has zero net credit at function exits.
+    run_burden_balance(func, config.verify_arc, config.interner)?;
+    super::trace_pipeline_checkpoint(
+        func,
+        "verify_burden_balance",
+        config.interner,
+        config.observer,
+    );
+
     let problems = check_fbip(func, config);
     super::trace_pipeline_checkpoint(func, "fbip_enforcement", config.interner, config.observer);
     Ok(problems)
 }
 
-/// Check FBIP enforcement and auto-FBIP detection (step 12).
+/// Enforces VF-1 under explicit or debug verification.
+///
+/// Explicit verification returns errors; debug verification logs warnings.
+fn run_burden_balance(
+    func: &ArcFunction,
+    verify: bool,
+    interner: &ori_ir::StringInterner,
+) -> Result<(), Vec<crate::verify::VerifyError>> {
+    let enabled = verify || cfg!(debug_assertions);
+    if !enabled {
+        return Ok(());
+    }
+    let errors = crate::aims::verify::burden_balance::verify_burden_balance(func);
+    if errors.is_empty() {
+        return Ok(());
+    }
+    let verify_errors: Vec<crate::verify::VerifyError> = errors
+        .into_iter()
+        .map(crate::verify::VerifyError::BurdenImbalance)
+        .collect();
+    if verify {
+        return Err(verify_errors);
+    }
+    let fn_name = interner.lookup(func.name);
+    for e in &verify_errors {
+        tracing::warn!(
+            phase = "verify_burden_balance",
+            function = fn_name,
+            "ARC IR verification: {e}"
+        );
+    }
+    Ok(())
+}
+
+/// Produces explicit and inferred FBIP diagnostics.
 fn check_fbip(func: &ArcFunction, config: &AimsPipelineConfig<'_>) -> Vec<ArcProblem> {
     let mut problems = Vec::new();
     if func.is_fbip {

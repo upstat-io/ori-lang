@@ -42,46 +42,35 @@ impl RcOpKind {
 /// Source of truth for RC function names:
 /// `compiler/ori_llvm/src/codegen/runtime_decl/runtime_functions.rs`
 pub(super) fn classify_rc_call(name: &str) -> Option<RcOpKind> {
-    // Alloc: core + collection literal allocation wrappers
-    if name == "ori_rc_alloc"
-        || name == "ori_list_alloc_data"
-        || name == "ori_map_literal_alloc"
-        || name == "ori_set_literal_alloc"
-    {
-        return Some(RcOpKind::Alloc);
+    // `name` is an LLVM symbol read back from emitted IR — string-domain by
+    // nature (the str-keyed runtime table is the symbol SSOT, not the Ori
+    // `Name` interner). Single classification match = one dispatch point.
+    match name {
+        // Alloc: core + collection literal allocation wrappers
+        "ori_rc_alloc"
+        | "ori_list_alloc_data"
+        | "ori_map_literal_alloc"
+        | "ori_set_literal_alloc" => Some(RcOpKind::Alloc),
+        // Inc: core + type-specific inc
+        "ori_rc_inc" | "ori_str_rc_inc" | "ori_list_rc_inc" => Some(RcOpKind::Inc),
+        // Dec: core whole-object variants via the SSOT predicate (a future
+        // dec ABI variant cannot silently drift past this classifier).
+        name if super::is_rc_dec_symbol(name) => Some(RcOpKind::Dec),
+        // Dec: type-specific dec wrappers
+        "ori_str_rc_dec"
+        | "ori_buffer_rc_dec"
+        | "ori_map_buffer_rc_dec"
+        | "ori_set_buffer_rc_dec" => Some(RcOpKind::Dec),
+        // Free: core + free wrappers + unique-drop functions
+        "ori_rc_free"
+        | "ori_list_free_data"
+        | "ori_buffer_drop_unique"
+        | "ori_set_buffer_drop_unique"
+        | "ori_map_buffer_drop_unique" => Some(RcOpKind::Free),
+        // Cow: shared predicate from verify/mod.rs
+        _ if super::is_cow_function(name) => Some(RcOpKind::Cow),
+        _ => None,
     }
-
-    // Inc: core + type-specific inc
-    if name == "ori_rc_inc" || name == "ori_str_rc_inc" || name == "ori_list_rc_inc" {
-        return Some(RcOpKind::Inc);
-    }
-
-    // Dec: core + type-specific dec
-    if name == "ori_rc_dec"
-        || name == "ori_str_rc_dec"
-        || name == "ori_buffer_rc_dec"
-        || name == "ori_map_buffer_rc_dec"
-        || name == "ori_set_buffer_rc_dec"
-    {
-        return Some(RcOpKind::Dec);
-    }
-
-    // Free: core + free wrappers + unique-drop functions
-    if name == "ori_rc_free"
-        || name == "ori_list_free_data"
-        || name == "ori_buffer_drop_unique"
-        || name == "ori_set_buffer_drop_unique"
-        || name == "ori_map_buffer_drop_unique"
-    {
-        return Some(RcOpKind::Free);
-    }
-
-    // Cow: shared predicate from verify/mod.rs
-    if super::is_cow_function(name) {
-        return Some(RcOpKind::Cow);
-    }
-
-    None
 }
 
 /// Per-basic-block RC operation counts.

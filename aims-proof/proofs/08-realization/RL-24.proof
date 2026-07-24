@@ -1,0 +1,23 @@
+Theorem RL-24: bidirectional matching of logical owner-credit/release pairs
+
+  Preconditions:
+    - A candidate owner-credit and release refer to the same logical identity.
+    - Forward and backward dataflow facts are available across blocks.
+
+  Soundness property:
+    A pair is matched iff both directions identify the same credit discharge.
+    This is a logical event relation; physical counter instructions and their
+    placement are projection details.
+
+  Proof obligation:
+    Enumerate both, forward-only, backward-only, and neither directions.
+    Coverage gate: 4 cases; only the both-directions case matches.
+
+    Engines dispatched:
+      rc_counting (PRIMARY — section_08::verify_rl24_bidirectional_pair_matching)
+      refinement (SECONDARY — gracious-accept)
+      case_analysis (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: RL-24 matches logical owner-credit/release pairs only when both dataflow directions agree

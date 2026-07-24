@@ -222,7 +222,7 @@ fn salsa_trait_bounds() {
     assert_salsa_compatible::<VariantDescriptor>();
 }
 
-// === Descriptor Generation Tests ===
+// Descriptor generation tests
 //
 // These tests verify that Pool::describe() and Pool::describe_transitive()
 // correctly generate TypeDescriptors from live Pool types.
@@ -591,7 +591,7 @@ fn describe_child_hashes_match_pool_hashes() {
     }
 }
 
-// === Reconstruction Tests ===
+// Reconstruction tests
 
 /// Key exit criteria test: reconstruct (Map<str, List<int>>) -> Option<bool>
 /// in a fresh pool and verify all hashes match the original.

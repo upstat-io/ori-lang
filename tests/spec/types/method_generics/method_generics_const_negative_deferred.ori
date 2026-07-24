@@ -1,0 +1,26 @@
+// Spec: Clause 8.2.2 Fixed-Capacity List; Clause 8.3.1 Const Generic Parameters
+//
+// A fixed-list capacity identifier must resolve to a declared const in the
+// lexical scope. An undeclared name is rejected during type checking, before
+// evaluator or LLVM realization can observe it.
+
+use std.testing { assert_eq }
+
+type Vec<T> = { items: [T] }
+
+impl<T> Vec<T> {
+    @first_n<$N: int> (self) -> [T, max N] = self.items.take(count: N).to_fixed<$N>();
+
+    // `$M` is not declared by this method or any enclosing const scope.
+    @bad_const_flow<$N: int> (self) -> int = {
+        let bounded: [T, max M] = self.first_n();
+        bounded.len()
+    }
+}
+
+#compile_fail(code: "E2056", message: "declare it in `<$M: int>` or use a declared const")
+@test_unresolved_const_var tests _ () -> void = {
+    let v = Vec { items: [1, 2, 3, 4, 5] };
+    let n = v.bad_const_flow();
+    assert_eq(actual: n, expected: 0)
+}

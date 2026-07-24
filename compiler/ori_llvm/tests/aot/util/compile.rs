@@ -118,6 +118,85 @@ pub fn assert_aot_success(source: &str, test_name: &str) {
     }
 }
 
+/// Compile + run `source`; assert clean exit (0) and exact one-line stdout.
+///
+/// Catches all three failure shapes: compile failure (-1), crash /
+/// double-free / leak (non-zero exit incl. signal codes), and silent wrong
+/// value (stdout mismatch).
+pub fn assert_cell_output(source: &str, test_name: &str, expected_stdout: &str) {
+    let (exit_code, stdout, stderr) = compile_and_run_capture(source);
+    assert_eq!(
+        exit_code, 0,
+        "{test_name}: expected clean exit, got {exit_code}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(
+        stdout.trim(),
+        expected_stdout,
+        "{test_name}: wrong value on stdout\nstderr:\n{stderr}"
+    );
+}
+
+/// Compile + run a multi-file Ori program; assert clean exit (0) and exact
+/// one-line stdout.
+///
+/// Multi-file counterpart of [`assert_cell_output`]; `files[0]` is the entry
+/// point. Catches all three failure shapes: compile failure (-1), crash /
+/// double-free / leak (non-zero exit incl. signal codes), and silent wrong
+/// value (stdout mismatch).
+pub fn assert_multifile_cell_output(
+    files: &[(&str, &str)],
+    test_name: &str,
+    expected_stdout: &str,
+) {
+    let (exit_code, stdout, stderr) = compile_multifile_and_run_capture(files);
+    assert_eq!(
+        exit_code, 0,
+        "{test_name}: expected clean exit, got {exit_code}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(
+        stdout.trim(),
+        expected_stdout,
+        "{test_name}: wrong value on stdout\nstderr:\n{stderr}"
+    );
+}
+
+/// Assert that `exit_code` represents a panic (not compile failure, not clean
+/// exit, not a non-panic crash signal).
+///
+/// Valid panic termination paths, in order of "correctness":
+///
+/// 1. Exit code 1 — `ori_run_main` / LLVM-generated `main()` caught the
+///    panic cleanly via `invoke`/`landingpad` (Itanium) or SEH (MSVC).
+///    This is the designed flow; §Unwinding ABI and
+///    `ori_run_main` doc comment: "1: panic".
+/// 2. SIGABRT (exit code 134 / signal -134) — panic bubbled past the
+///    main wrapper and hit `abort()` (e.g., uncaught unwind on an
+///    older toolchain path, or when the caller path lacks a landingpad).
+/// 3. Windows `STATUS_STACK_BUFFER_OVERRUN` (`0xC0000409` /
+///    `-1_073_740_791`) — MSVC `abort()` triggering
+///    `__fastfail(FAST_FAIL_FATAL_APP_EXIT)`.
+/// 4. Windows exit code 3 — traditional MSVC `abort()` exit code.
+///
+/// Rejects compile failures (`exit_code == -1`), clean exits (0), and
+/// other crash signals (SIGSEGV -139/139, SIGBUS -135/135) that would
+/// indicate a memory-safety bug rather than a controlled panic.
+pub fn assert_panic_exit(exit_code: i32, label: &str, stderr: &str) {
+    const STATUS_STACK_BUFFER_OVERRUN: i32 = -1_073_740_791; // 0xC0000409
+    assert_ne!(exit_code, -1, "{label}: compilation failed:\n{stderr}");
+    assert_ne!(exit_code, 0, "{label}: should panic, but exited 0");
+    // Accept the four valid panic-termination codes enumerated above.
+    let is_panic_exit = exit_code == 1
+        || exit_code == -134
+        || exit_code == 134
+        || exit_code == STATUS_STACK_BUFFER_OVERRUN
+        || exit_code == 3;
+    assert!(
+        is_panic_exit,
+        "{label}: expected panic exit (1, SIGABRT 134/-134, Windows 0xC0000409/3), \
+         got exit code {exit_code}:\n{stderr}",
+    );
+}
+
 /// Compile and run an Ori program, capturing stdout output.
 ///
 /// Returns `(exit_code, stdout, stderr)`.
@@ -160,6 +239,56 @@ pub fn compile_and_run_capture(source: &str) -> (i32, String, String) {
     (exit_code, stdout, stderr)
 }
 
+/// Compile and run an Ori program with extra environment variables set on the
+/// child process, capturing output.
+///
+/// `extra_env` is a list of `(name, value)` pairs applied to the run step (the
+/// compiled binary), in addition to the always-on `ORI_CHECK_LEAKS=1`. Use this
+/// to capture `ORI_TRACE_RC=1` RC event traces (`[RC] alloc/inc/dec/free`
+/// lines, per `ori_rt::rc::debug`) for refcount-balance assertions.
+///
+/// Returns `(exit_code, stdout, stderr)`.
+pub fn compile_and_run_with_env(source: &str, extra_env: &[(&str, &str)]) -> (i32, String, String) {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source_path = temp_dir.path().join(format!("test_{id}.ori"));
+    let binary_path = temp_dir
+        .path()
+        .join(format!("test_{id}{}", std::env::consts::EXE_SUFFIX));
+
+    fs::write(&source_path, source).expect("Failed to write source");
+
+    let compile_result = Command::new(ori_binary())
+        .args([
+            "build",
+            source_path.to_str().unwrap(),
+            "-o",
+            binary_path.to_str().unwrap(),
+        ])
+        .env("ORI_STDLIB", stdlib_path())
+        .output()
+        .expect("Failed to execute ori build");
+
+    if !compile_result.status.success() {
+        let stderr = String::from_utf8_lossy(&compile_result.stderr).to_string();
+        return (-1, String::new(), stderr);
+    }
+
+    let mut run_cmd = Command::new(&binary_path);
+    run_cmd.env("ORI_CHECK_LEAKS", "1");
+    for (name, value) in extra_env {
+        run_cmd.env(name, value);
+    }
+    let run_result = run_cmd.output().expect("Failed to execute binary");
+
+    let exit_code = exit_code_from_status(run_result.status);
+    let stdout = String::from_utf8_lossy(&run_result.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&run_result.stderr).to_string();
+    (exit_code, stdout, stderr)
+}
+
 /// Compile and run an Ori program with arguments, capturing output.
 ///
 /// Returns `(exit_code, stdout, stderr)`. Enables `ORI_CHECK_LEAKS=1`.
@@ -193,6 +322,62 @@ pub fn compile_and_run_with_args(source: &str, args: &[&str]) -> (i32, String, S
 
     let run_result = Command::new(&binary_path)
         .args(args)
+        .env("ORI_CHECK_LEAKS", "1")
+        .output()
+        .expect("Failed to execute binary");
+
+    let exit_code = exit_code_from_status(run_result.status);
+    let stdout = String::from_utf8_lossy(&run_result.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&run_result.stderr).to_string();
+    (exit_code, stdout, stderr)
+}
+
+/// Compile and run an Ori program with extra environment variables set on the
+/// COMPILE (`ori build`) step, capturing output.
+///
+/// `build_env` is a list of `(name, value)` pairs applied to the `ori build`
+/// invocation, in addition to the always-on `ORI_STDLIB`. The run step still
+/// sets `ORI_CHECK_LEAKS=1`. Use this for compile-time flags that gate the
+/// AIMS pipeline (e.g. `ORI_DISABLE_BURDEN_OPS=1` skips Step 4b burden-op
+/// emission); the run-step `compile_and_run_with_env`
+/// cannot reach a compile-time flag because it sets env on the child binary.
+///
+/// Returns `(exit_code, stdout, stderr)`.
+pub fn compile_and_run_with_build_env(
+    source: &str,
+    build_env: &[(&str, &str)],
+) -> (i32, String, String) {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source_path = temp_dir.path().join(format!("test_{id}.ori"));
+    let binary_path = temp_dir
+        .path()
+        .join(format!("test_{id}{}", std::env::consts::EXE_SUFFIX));
+
+    fs::write(&source_path, source).expect("Failed to write source");
+
+    let mut build_cmd = Command::new(ori_binary());
+    build_cmd
+        .args([
+            "build",
+            source_path.to_str().unwrap(),
+            "-o",
+            binary_path.to_str().unwrap(),
+        ])
+        .env("ORI_STDLIB", stdlib_path());
+    for (name, value) in build_env {
+        build_cmd.env(name, value);
+    }
+    let compile_result = build_cmd.output().expect("Failed to execute ori build");
+
+    if !compile_result.status.success() {
+        let stderr = String::from_utf8_lossy(&compile_result.stderr).to_string();
+        return (-1, String::new(), stderr);
+    }
+
+    let run_result = Command::new(&binary_path)
         .env("ORI_CHECK_LEAKS", "1")
         .output()
         .expect("Failed to execute binary");

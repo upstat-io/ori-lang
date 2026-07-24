@@ -1,0 +1,18 @@
+// 1-hop forwarder over [int] — pins the post-fix realized ARC IR shape.
+// Post-fix invariant: forward_list_int's body must contain zero scope-exit
+// RcDec instructions on x. Without the fix, x receives a spurious decrement
+// that double-frees the [int] allocation when the caller drops at scope exit.
+//
+// The gate that enforces this invariant lives in the AIMS realize_rc_reuse
+// pass — it consults transfers_through_return on x's contract and suppresses
+// the scope-exit dec on Return-flow paths.
+//
+// The companion call_forward_list_int site verifies the caller-side shape:
+// ownership transfers cleanly into the forwarder via Invoke; the unwind
+// successor cleans up the originally-owned construct.
+//
+// @test-arc-pass: realize_rc_reuse
+
+@forward_list_int (x: [int]) -> [int] = x;
+
+@call_forward_list_int () -> [int] = forward_list_int(x: [1, 2, 3]);

@@ -1,0 +1,14 @@
+// Provider for the cross-module generic manual Hashable closure pins.
+
+pub type ImportedManual<T> = { value: T }
+
+impl<T: Eq> ImportedManual<T>: Eq {
+    @eq (self, other: ImportedManual<T>) -> bool = self.value == other.value;
+}
+
+impl<T: Hashable> ImportedManual<T>: Hashable {
+    @hash (self) -> int = self.value.hash();
+}
+
+pub @make_imported_manual (value: int) -> ImportedManual<int> =
+    ImportedManual { value }

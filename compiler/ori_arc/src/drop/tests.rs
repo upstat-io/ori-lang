@@ -246,7 +246,13 @@ fn struct_with_one_rc_field() {
     let c = cls(&pool);
 
     let info = compute_drop_info(s, &c, &pool).unwrap();
-    assert_eq!(info.kind, DropKind::Fields(vec![(1, Idx::STR)]));
+    assert_eq!(
+        info.kind,
+        DropKind::Fields {
+            fields: vec![(1, Idx::STR)],
+            user_drop: None
+        }
+    );
 }
 
 #[test]
@@ -266,7 +272,10 @@ fn struct_with_multiple_rc_fields() {
     let info = compute_drop_info(s, &c, &pool).unwrap();
     assert_eq!(
         info.kind,
-        DropKind::Fields(vec![(0, Idx::STR), (2, list_int)])
+        DropKind::Fields {
+            fields: vec![(0, Idx::STR), (2, list_int)],
+            user_drop: None
+        }
     );
 }
 
@@ -279,7 +288,13 @@ fn tuple_with_rc_element() {
     let c = cls(&pool);
 
     let info = compute_drop_info(tup, &c, &pool).unwrap();
-    assert_eq!(info.kind, DropKind::Fields(vec![(1, Idx::STR)]));
+    assert_eq!(
+        info.kind,
+        DropKind::Fields {
+            fields: vec![(1, Idx::STR)],
+            user_drop: None
+        }
+    );
 }
 
 #[test]
@@ -292,7 +307,10 @@ fn tuple_all_rc_elements() {
     let info = compute_drop_info(tup, &c, &pool).unwrap();
     assert_eq!(
         info.kind,
-        DropKind::Fields(vec![(0, Idx::STR), (1, list_int)])
+        DropKind::Fields {
+            fields: vec![(0, Idx::STR), (1, list_int)],
+            user_drop: None
+        }
     );
 }
 
@@ -319,10 +337,13 @@ fn enum_with_rc_variant_fields() {
     let info = compute_drop_info(e, &c, &pool).unwrap();
     assert_eq!(
         info.kind,
-        DropKind::Enum(vec![
-            vec![],              // variant 0: int field — scalar
-            vec![(0, Idx::STR)], // variant 1: str field — needs Dec
-        ])
+        DropKind::Enum {
+            variants: vec![
+                vec![],              // variant 0: int field — scalar
+                vec![(0, Idx::STR)], // variant 1: str field — needs Dec
+            ],
+            user_drop: None
+        }
     );
 }
 
@@ -352,11 +373,14 @@ fn enum_with_mixed_variant_fields() {
     let info = compute_drop_info(e, &c, &pool).unwrap();
     assert_eq!(
         info.kind,
-        DropKind::Enum(vec![
-            vec![],              // variant 0: unit
-            vec![(0, Idx::STR)], // variant 1: str field at 0
-            vec![(0, list_str)], // variant 2: list field at 0
-        ])
+        DropKind::Enum {
+            variants: vec![
+                vec![],              // variant 0: unit
+                vec![(0, Idx::STR)], // variant 1: str field at 0
+                vec![(0, list_str)], // variant 2: list field at 0
+            ],
+            user_drop: None
+        }
     );
 }
 
@@ -393,10 +417,13 @@ fn option_str_is_enum_drop() {
     let info = compute_drop_info(opt, &c, &pool).unwrap();
     assert_eq!(
         info.kind,
-        DropKind::Enum(vec![
-            vec![],              // None
-            vec![(0, Idx::STR)], // Some(str)
-        ])
+        DropKind::Enum {
+            variants: vec![
+                vec![],              // None
+                vec![(0, Idx::STR)], // Some(str)
+            ],
+            user_drop: None
+        }
     );
 }
 
@@ -411,10 +438,13 @@ fn result_str_int_drops_ok_only() {
     let info = compute_drop_info(res, &c, &pool).unwrap();
     assert_eq!(
         info.kind,
-        DropKind::Enum(vec![
-            vec![(0, Idx::STR)], // Ok(str) — needs Dec
-            vec![],              // Err(int) — scalar
-        ])
+        DropKind::Enum {
+            variants: vec![
+                vec![(0, Idx::STR)], // Ok(str) — needs Dec
+                vec![],              // Err(int) — scalar
+            ],
+            user_drop: None
+        }
     );
 }
 
@@ -427,10 +457,13 @@ fn result_int_str_drops_err_only() {
     let info = compute_drop_info(res, &c, &pool).unwrap();
     assert_eq!(
         info.kind,
-        DropKind::Enum(vec![
-            vec![],              // Ok(int) — scalar
-            vec![(0, Idx::STR)], // Err(str) — needs Dec
-        ])
+        DropKind::Enum {
+            variants: vec![
+                vec![],              // Ok(int) — scalar
+                vec![(0, Idx::STR)], // Err(str) — needs Dec
+            ],
+            user_drop: None
+        }
     );
 }
 
@@ -443,10 +476,13 @@ fn result_str_str_drops_both() {
     let info = compute_drop_info(res, &c, &pool).unwrap();
     assert_eq!(
         info.kind,
-        DropKind::Enum(vec![
-            vec![(0, Idx::STR)], // Ok(str)
-            vec![(0, Idx::STR)], // Err(str)
-        ])
+        DropKind::Enum {
+            variants: vec![
+                vec![(0, Idx::STR)], // Ok(str)
+                vec![(0, Idx::STR)], // Err(str)
+            ],
+            user_drop: None
+        }
     );
 }
 
@@ -492,7 +528,13 @@ fn named_type_resolves_to_struct_drop() {
     let c = cls(&pool);
 
     let info = compute_drop_info(named_idx, &c, &pool).unwrap();
-    assert_eq!(info.kind, DropKind::Fields(vec![(0, Idx::STR)]));
+    assert_eq!(
+        info.kind,
+        DropKind::Fields {
+            fields: vec![(0, Idx::STR)],
+            user_drop: None
+        }
+    );
 }
 
 // Closure env drop
@@ -560,10 +602,12 @@ fn collect_deduplicates_types() {
                 ArcInstr::RcDec {
                     var: ArcVarId::new(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
                 ArcInstr::RcDec {
                     var: ArcVarId::new(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
             ],
             terminator: ArcTerminator::Unreachable,
@@ -571,12 +615,17 @@ fn collect_deduplicates_types() {
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::STR],
         var_reprs: Vec::new(),
+        var_rc_strategies: Vec::new(),
         spans: vec![vec![None, None]],
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
+        ..Default::default()
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -613,10 +662,12 @@ fn collect_multiple_types() {
                 ArcInstr::RcDec {
                     var: ArcVarId::new(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
                 ArcInstr::RcDec {
                     var: ArcVarId::new(1),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
             ],
             terminator: ArcTerminator::Unreachable,
@@ -624,12 +675,17 @@ fn collect_multiple_types() {
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::STR, list_str],
         var_reprs: Vec::new(),
+        var_rc_strategies: Vec::new(),
         spans: vec![vec![None, None]],
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
+        ..Default::default()
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -668,18 +724,24 @@ fn collect_skips_scalar_rc_dec() {
             body: vec![ArcInstr::RcDec {
                 var: ArcVarId::new(0),
                 strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             }],
             terminator: ArcTerminator::Unreachable,
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::INT],
         var_reprs: Vec::new(),
+        var_rc_strategies: Vec::new(),
         spans: vec![vec![None]],
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
+        ..Default::default()
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -703,7 +765,13 @@ fn struct_with_nested_option_str_field() {
 
     let info = compute_drop_info(s, &c, &pool).unwrap();
     // Field 1 is option[str] which is DefiniteRef → needs Dec.
-    assert_eq!(info.kind, DropKind::Fields(vec![(1, opt_str)]));
+    assert_eq!(
+        info.kind,
+        DropKind::Fields {
+            fields: vec![(1, opt_str)],
+            user_drop: None
+        }
+    );
 }
 
 #[test]
@@ -716,7 +784,7 @@ fn result_of_scalars_returns_none() {
     assert!(compute_drop_info(res, &c, &pool).is_none());
 }
 
-// §02.3 regression: trivial compound types get no drop after triviality unification.
+// regression: trivial compound types get no drop after triviality unification.
 
 #[test]
 fn result_int_ordering_returns_none() {
@@ -734,20 +802,13 @@ fn iterator_compute_drop_info_returns_none() {
     let iter = pool.iterator(Idx::INT);
     let c = cls(&pool);
 
-    // semantic pin: Iterator<int> is non-trivial (needs
-    // `ori_iter_drop` at scope exit), BUT `compute_drop_info` must
-    // return `None` so that `collect_drop_infos` does not ask the
-    // codegen layer to generate a per-type `_ori_drop$Iterator<int>`
-    // function. The ARC emitter dispatches iterator drops inline via
-    // `RcStrategy::Iterator` (top-level) and the `Tag::Iterator` arm
-    // of `dec_value_rc_inner` (compound traversal); both emit
-    // `ori_iter_drop(ptr)` directly. Generating a drop function would
-    // call `ori_rc_free` on a Box-allocated pointer and corrupt
-    // memory.
+    // Iterator<int> uses the registry-owned iterator-drop identity, not a
+    // structural per-type plan. Treating its Box-managed state as an ordinary
+    // RC allocation would select the wrong release adapter.
     let info = compute_drop_info(iter, &c, &pool);
     assert!(
         info.is_none(),
-        "Iterator<int> must not produce a per-type drop function — ori_iter_drop is emitted inline"
+        "Iterator<int> must not produce a structural per-type drop plan"
     );
 }
 
@@ -762,6 +823,427 @@ fn double_ended_iterator_compute_drop_info_returns_none() {
     let info = compute_drop_info(deiter, &c, &pool);
     assert!(
         info.is_none(),
-        "DoubleEndedIterator<int> must not produce a per-type drop function — ori_iter_drop is emitted inline"
+        "DoubleEndedIterator<int> must not produce a structural per-type drop plan"
+    );
+}
+
+// structural-equivalence pin
+//
+// For every concrete type currently exercised by the surrounding tests,
+// the BurdenSpec-lifted wrapper at `compute_drop_info` MUST produce the
+// same `DropInfo` shape (kind discriminant + nested structure) as the
+// pre-migration `compute_drop_kind` would have produced. The pre-migration
+// expected shapes are hard-coded here as a snapshot vs reading from a
+// separate fixture file: keeping the snapshot inline makes drift
+// immediately visible in code review, and the cell count (one per
+// existing test cell) is bounded by the matrix that drop/tests.rs already
+// pins.
+//
+// Fails if the wrapper rewrite drops a `Variant` arm, collapses a
+// `Fields` to `Trivial`, reorders fields within a struct/tuple/variant,
+// or swaps key/value channels on a Map.
+
+#[test]
+fn drop_info_via_burden_matches_legacy() {
+    let mut pool = Pool::new();
+
+    // Intern every fixture type first, then construct the classifier
+    // (the classifier holds an immutable `&Pool` borrow for its lifetime).
+    let list_int = pool.list(Idx::INT);
+    let list_str = pool.list(Idx::STR);
+    let map_int_str = pool.map(Idx::INT, Idx::STR);
+    let struct_one_rc = pool.struct_type(
+        Name::from_raw(1000),
+        &[
+            (Name::from_raw(1001), Idx::INT),
+            (Name::from_raw(1002), Idx::STR),
+        ],
+    );
+    let tup = pool.tuple(&[Idx::INT, Idx::STR]);
+    let enum_mixed = pool.enum_type(
+        Name::from_raw(2000),
+        &[
+            EnumVariant {
+                name: Name::from_raw(2001),
+                field_types: vec![Idx::INT],
+            },
+            EnumVariant {
+                name: Name::from_raw(2002),
+                field_types: vec![Idx::STR],
+            },
+        ],
+    );
+    let opt_str = pool.option(Idx::STR);
+    let res_str_int = pool.result(Idx::STR, Idx::INT);
+
+    let c = cls(&pool);
+
+    // Triviality cells — `compute_drop_info` returns `None` (scalar) OR
+    // `Some(DropInfo { kind: Trivial })` (heap with no RC children).
+    assert!(compute_drop_info(Idx::INT, &c, &pool).is_none());
+    assert!(compute_drop_info(Idx::FLOAT, &c, &pool).is_none());
+    assert!(compute_drop_info(Idx::BOOL, &c, &pool).is_none());
+    assert_eq!(
+        compute_drop_info(Idx::STR, &c, &pool).unwrap().kind,
+        DropKind::Trivial,
+    );
+
+    // List<int> — element scalar → Trivial.
+    assert_eq!(
+        compute_drop_info(list_int, &c, &pool).unwrap().kind,
+        DropKind::Trivial,
+    );
+
+    // List<str> — Collection { element_type: str }.
+    assert_eq!(
+        compute_drop_info(list_str, &c, &pool).unwrap().kind,
+        DropKind::Collection {
+            element_type: Idx::STR,
+        },
+    );
+
+    // Map<int, str> — Map { dec_keys: false, dec_values: true }.
+    assert_eq!(
+        compute_drop_info(map_int_str, &c, &pool).unwrap().kind,
+        DropKind::Map {
+            key_type: Idx::INT,
+            value_type: Idx::STR,
+            dec_keys: false,
+            dec_values: true,
+        },
+    );
+
+    // Struct with one RC field — Fields(vec![(1, Idx::STR)]).
+    assert_eq!(
+        compute_drop_info(struct_one_rc, &c, &pool).unwrap().kind,
+        DropKind::Fields {
+            fields: vec![(1, Idx::STR)],
+            user_drop: None
+        },
+    );
+
+    // Tuple with mixed scalar + RC — Fields(vec![(1, Idx::STR)]).
+    assert_eq!(
+        compute_drop_info(tup, &c, &pool).unwrap().kind,
+        DropKind::Fields {
+            fields: vec![(1, Idx::STR)],
+            user_drop: None
+        },
+    );
+
+    // Enum with mixed variant RC fields — Enum([[], [(0, STR)]]).
+    assert_eq!(
+        compute_drop_info(enum_mixed, &c, &pool).unwrap().kind,
+        DropKind::Enum {
+            variants: vec![vec![], vec![(0, Idx::STR)]],
+            user_drop: None
+        },
+    );
+
+    // Option<str> — Enum([[], [(0, STR)]]).
+    assert_eq!(
+        compute_drop_info(opt_str, &c, &pool).unwrap().kind,
+        DropKind::Enum {
+            variants: vec![vec![], vec![(0, Idx::STR)]],
+            user_drop: None
+        },
+    );
+
+    // Result<str, int> — Enum([[(0, STR)], []]).
+    assert_eq!(
+        compute_drop_info(res_str_int, &c, &pool).unwrap().kind,
+        DropKind::Enum {
+            variants: vec![vec![(0, Idx::STR)], vec![]],
+            user_drop: None
+        },
+    );
+
+    // Closure environment with mixed captures — ClosureEnv(vec![(1, STR)]).
+    let env_kind = compute_closure_env_drop(&[Idx::INT, Idx::STR], &c);
+    assert_eq!(env_kind, DropKind::ClosureEnv(vec![(1, Idx::STR)]));
+
+    // Closure environment with no RC captures — Trivial.
+    let env_trivial = compute_closure_env_drop(&[Idx::INT, Idx::FLOAT], &c);
+    assert_eq!(env_trivial, DropKind::Trivial);
+}
+
+// positive pin — `Option<str>` regression
+//
+// The same observation as `option_str_is_enum_drop` above, but written
+// against the BurdenSpec-lifted wrapper specifically. Co-existing with
+// the original test makes accidental rewrites to the wrapper visible —
+// dropping the positive pin would also delete this test name from the
+// suite roster, surfacing the regression at audit time.
+
+#[test]
+fn drop_info_via_burden_for_option_str() {
+    let mut pool = Pool::new();
+    let opt = pool.option(Idx::STR);
+    let c = cls(&pool);
+
+    let Some(info) = compute_drop_info(opt, &c, &pool) else {
+        panic!("Option<str> has non-trivial drop");
+    };
+    assert_eq!(info.ty, opt);
+    assert_eq!(
+        info.kind,
+        DropKind::Enum {
+            variants: vec![
+                vec![],              // None
+                vec![(0, Idx::STR)], // Some(str)
+            ],
+            user_drop: None
+        }
+    );
+}
+
+// negative pin — newly-monomorphized generic
+//
+// Engineered fixture: intern a fresh `Result<List<str>, str>` AFTER the
+// pool already contains an unrelated `Result` cell, then call the
+// wrapper for the freshly-interned type. The wrapper MUST observe the
+// freshly-monomorphized shape (Enum with both RC variants) — NOT a
+// stale entry from the earlier interning, NOT a default-empty shape.
+//
+// Guards against introduce-then-cache regressions where the wrapper
+// might short-circuit on a global cache keyed by something other than
+// the exact `Idx`.
+
+#[test]
+fn drop_info_via_burden_for_newly_monomorphized_generic() {
+    let mut pool = Pool::new();
+
+    // Intern both Result cells BEFORE constructing the classifier.
+    // Pre-existing Result cell (scalar both sides → Trivial).
+    let res_scalar = pool.result(Idx::INT, Idx::INT);
+    // NEW Result cell with structurally distinct payloads. Idx must
+    // differ from the prior one because the inner types differ.
+    let list_str = pool.list(Idx::STR);
+    let res_fresh = pool.result(list_str, Idx::STR);
+    assert_ne!(
+        res_fresh, res_scalar,
+        "the fresh monomorphization must intern as a distinct Idx",
+    );
+
+    let c = cls(&pool);
+
+    // Pre-existing scalar Result remains Trivial.
+    assert!(compute_drop_info(res_scalar, &c, &pool).is_none());
+
+    // Wrapper must observe the freshly-composed shape for the new cell.
+    let Some(info) = compute_drop_info(res_fresh, &c, &pool) else {
+        panic!("Result<List<str>, str> has non-trivial drop");
+    };
+    assert_eq!(info.ty, res_fresh);
+    assert_eq!(
+        info.kind,
+        DropKind::Enum {
+            variants: vec![
+                vec![(0, list_str)], // Ok(List<str>) — needs Dec
+                vec![(0, Idx::STR)], // Err(str) — needs Dec
+            ],
+            user_drop: None
+        }
+    );
+}
+
+// type_drop_may_unwind — may-unwind drop predicate.
+//
+// The local "@drop" fact is parameterized via `has_user_drop`, so the drop-tree
+// recursion + cycle-soundness are exercised white-box here, independent of the
+// current LLVM `method_functions` adapter. `drop_types` is the set of Idxs
+// that carry a user `@drop`.
+//
+// KNOWN LIMITATION (consistent with Step-0 emission, NOT a new unsoundness):
+// `compute_drop_info` is RC-filtered — an all-scalar-field Drop struct reports
+// no RC need and is omitted from a parent's child list, so a NESTED all-scalar
+// Drop type is not reached through the structure walk. The top-level local
+// check still catches an all-scalar Drop type directly. Realistic Drop types
+// own heap/str fields (RC'd) and are fully covered. The nested-all-scalar gap
+// is a facet of the burden-registry-not-threaded condition; Step-0 `@drop`
+// emission shares the same RC-filtered structure, so the predicate matches
+// emission reality.
+
+fn may_unwind(ty: Idx, pool: &Pool, drop_types: &[Idx]) -> bool {
+    let c = cls(pool);
+    let mut memo: rustc_hash::FxHashMap<Idx, bool> = rustc_hash::FxHashMap::default();
+    let has_user_drop = |t: Idx| drop_types.contains(&t);
+    type_drop_may_unwind(ty, &c, pool, &has_user_drop, &mut memo)
+}
+
+#[test]
+fn may_unwind_scalar_and_trivial_never_unwind() {
+    let pool = Pool::new();
+    assert!(!may_unwind(Idx::INT, &pool, &[]));
+    assert!(!may_unwind(Idx::FLOAT, &pool, &[]));
+    assert!(!may_unwind(Idx::STR, &pool, &[])); // str: Trivial, no @drop
+}
+
+#[test]
+fn may_unwind_list_of_scalar_does_not_unwind() {
+    let mut pool = Pool::new();
+    let list = pool.list(Idx::INT);
+    assert!(!may_unwind(list, &pool, &[]));
+}
+
+#[test]
+fn may_unwind_top_level_all_scalar_drop_type_is_caught_by_local_check() {
+    // An all-scalar Drop struct collapses to Trivial/None in compute_drop_info
+    // (user_drop hardcoded None); the local-check-first path catches it.
+    let mut pool = Pool::new();
+    let s = pool.struct_type(Name::from_raw(700), &[(Name::from_raw(701), Idx::INT)]);
+    assert!(may_unwind(s, &pool, &[s])); // s itself carries @drop
+    assert!(!may_unwind(s, &pool, &[])); // no @drop anywhere
+}
+
+#[test]
+fn may_unwind_struct_with_drop_field_unwinds() {
+    // Realistic shape: the inner Drop type owns a `str` (RC'd, so it appears in
+    // the outer struct's drop-tree). Outer has no @drop of its own.
+    let mut pool = Pool::new();
+    let inner = pool.struct_type(Name::from_raw(710), &[(Name::from_raw(711), Idx::STR)]);
+    let outer = pool.struct_type(Name::from_raw(712), &[(Name::from_raw(713), inner)]);
+    assert!(may_unwind(outer, &pool, &[inner])); // reached via the inner field
+    assert!(!may_unwind(outer, &pool, &[])); // str-only drop tree, no @drop
+}
+
+#[test]
+fn may_unwind_collection_of_drop_element_unwinds() {
+    // `[DropElem]` where DropElem owns a str and carries @drop.
+    let mut pool = Pool::new();
+    let elem = pool.struct_type(Name::from_raw(720), &[(Name::from_raw(721), Idx::STR)]);
+    let list = pool.list(elem);
+    assert!(may_unwind(list, &pool, &[elem]));
+    assert!(!may_unwind(list, &pool, &[])); // list of non-@drop structs
+}
+
+#[test]
+fn may_unwind_map_value_drop_unwinds_keys_do_not_when_scalar() {
+    let mut pool = Pool::new();
+    let val = pool.struct_type(Name::from_raw(730), &[(Name::from_raw(731), Idx::STR)]);
+    let map = pool.map(Idx::INT, val); // scalar key, Drop value
+    assert!(may_unwind(map, &pool, &[val])); // reached via dec_values
+    assert!(!may_unwind(map, &pool, &[]));
+}
+
+#[test]
+fn may_unwind_map_key_drop_unwinds() {
+    let mut pool = Pool::new();
+    let key = pool.struct_type(Name::from_raw(740), &[(Name::from_raw(741), Idx::STR)]);
+    let map = pool.map(key, Idx::INT); // Drop key, scalar value
+    assert!(may_unwind(map, &pool, &[key])); // reached via dec_keys
+}
+
+#[test]
+fn may_unwind_enum_variant_payload_drop_unwinds() {
+    // Option<DropElem> — the Some payload reaches a @drop type.
+    let mut pool = Pool::new();
+    let elem = pool.struct_type(Name::from_raw(750), &[(Name::from_raw(751), Idx::STR)]);
+    let opt = pool.option(elem);
+    assert!(may_unwind(opt, &pool, &[elem]));
+    assert!(!may_unwind(opt, &pool, &[]));
+}
+
+#[test]
+fn may_unwind_negative_pin_plain_str_struct_does_not_unwind() {
+    // Negative pin: a struct owning only str/list (Trivial element drops) with
+    // NO @drop anywhere must NOT be classified may-unwind — else every
+    // collection-bearing function would get spurious landing pads.
+    let mut pool = Pool::new();
+    let list_str = pool.list(Idx::STR);
+    let s = pool.struct_type(
+        Name::from_raw(760),
+        &[
+            (Name::from_raw(761), Idx::STR),
+            (Name::from_raw(762), list_str),
+        ],
+    );
+    assert!(!may_unwind(s, &pool, &[]));
+}
+
+// Consumer attribution: read-only logical drop-plan -> Idx-chain attribution
+// for the provenance DAG. Physical symbol or table identities are projections.
+
+#[test]
+fn consumer_attribution_scalar_root_yields_no_edges() {
+    // A scalar root has no structural per-type drop plan.
+    let pool = Pool::new();
+    let c = cls(&pool);
+    let edges = compute_consumer_attribution(Idx::INT, &c, &pool, ori_types::PROVENANCE_MAX_DEPTH);
+    assert!(
+        edges.is_empty(),
+        "a scalar root generates no structural drop plan"
+    );
+}
+
+#[test]
+fn consumer_attribution_nested_struct_descends_with_chain() {
+    // Outer { inner: Inner }, Inner { s: str } — each level has a drop plan.
+    let mut pool = Pool::new();
+    let inner = pool.struct_type(Name::from_raw(50), &[(Name::from_raw(51), Idx::STR)]);
+    let outer = pool.struct_type(Name::from_raw(52), &[(Name::from_raw(53), inner)]);
+    let c = cls(&pool);
+
+    let edges = compute_consumer_attribution(outer, &c, &pool, ori_types::PROVENANCE_MAX_DEPTH);
+
+    // Root + Inner + str, each attributed once, chain root-first.
+    let by_type = |t: Idx| edges.iter().find(|e| e.type_idx == t);
+
+    let root_edge = by_type(outer).unwrap_or_else(|| panic!("missing root edge:\n{edges:?}"));
+    assert_eq!(root_edge.walked_chain, vec![outer]);
+
+    let inner_edge = by_type(inner).unwrap_or_else(|| panic!("missing Inner edge:\n{edges:?}"));
+    assert_eq!(inner_edge.walked_chain, vec![outer, inner]);
+
+    let str_edge = by_type(Idx::STR).unwrap_or_else(|| panic!("missing str edge:\n{edges:?}"));
+    assert_eq!(str_edge.walked_chain, vec![outer, inner, Idx::STR]);
+}
+
+#[test]
+fn consumer_attribution_skips_iterator_child_no_phantom_edge() {
+    // A struct field of iterator type is `needs_rc` (NonTrivial), so it lands in
+    // the parent's `DropKind::Fields` children, but iterator cleanup uses a
+    // runtime identity and has no structural per-type plan. The descent must not
+    // invent one. The drop-bearing `str` sibling remains the positive pair.
+    let mut pool = Pool::new();
+    let iter = pool.iterator(Idx::INT);
+    let outer = pool.struct_type(
+        Name::from_raw(80),
+        &[(Name::from_raw(81), iter), (Name::from_raw(82), Idx::STR)],
+    );
+    let c = cls(&pool);
+
+    let edges = compute_consumer_attribution(outer, &c, &pool, ori_types::PROVENANCE_MAX_DEPTH);
+
+    assert!(
+        edges.iter().any(|e| e.type_idx == outer),
+        "the root drop plan must be attributed:\n{edges:?}"
+    );
+    assert!(
+        edges.iter().any(|e| e.type_idx == Idx::STR),
+        "the str child drop plan must still be attributed:\n{edges:?}"
+    );
+    assert!(
+        edges.iter().all(|e| e.type_idx != iter),
+        "the iterator child has no structural drop plan:\n{edges:?}"
+    );
+}
+
+#[test]
+fn consumer_attribution_dedups_diamond_to_one_edge_per_plan() {
+    // Root { a: Shared, b: Shared }, Shared { s: str } has one shared plan.
+    let mut pool = Pool::new();
+    let shared = pool.struct_type(Name::from_raw(60), &[(Name::from_raw(61), Idx::STR)]);
+    let root = pool.struct_type(
+        Name::from_raw(62),
+        &[(Name::from_raw(63), shared), (Name::from_raw(64), shared)],
+    );
+    let c = cls(&pool);
+
+    let edges = compute_consumer_attribution(root, &c, &pool, ori_types::PROVENANCE_MAX_DEPTH);
+    let shared_edges = edges.iter().filter(|e| e.type_idx == shared).count();
+    assert_eq!(
+        shared_edges, 1,
+        "a logical drop plan is attributed exactly once"
     );
 }

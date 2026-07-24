@@ -81,6 +81,18 @@ pub(super) fn is_cow_function(name: &str) -> bool {
     name.starts_with("ori_") && name.ends_with("_cow")
 }
 
+/// Returns true if the callee is a core whole-object RC decrement.
+///
+/// Covers both ABI variants of the same semantic operation: `ori_rc_dec`
+/// (nounwind, `catch_unwind`+abort drop path) and `ori_rc_dec_unwind`
+/// (recoverable user-`@drop` unwind path). `name` is an LLVM symbol read
+/// back from emitted IR — string-domain by nature (the str-keyed runtime
+/// table is the symbol SSOT). Shared between `rc_balance`, `rc_histogram`,
+/// and `cow_rules`.
+pub(super) fn is_rc_dec_symbol(name: &str) -> bool {
+    matches!(name, "ori_rc_dec" | "ori_rc_dec_unwind")
+}
+
 /// Extract the name of the callee from a call/invoke instruction.
 ///
 /// LLVM convention: the last operand of a call instruction is the callee.

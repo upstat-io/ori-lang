@@ -1,6 +1,6 @@
 // AOT test for iter_join with long float strings (exceeds 23-byte SSO).
 // Exercises: heap-backed OriStr path in the to_str trampoline.
-// Regression: BUG-05-002 — heap-backed temporaries leaked without ori_str_rc_dec.
+// Regression: heap-backed temporaries leaked without ori_str_rc_dec.
 
 @main () -> int = {
     let result = [-2.2250738585072014e-308].iter().join(separator: ", ");

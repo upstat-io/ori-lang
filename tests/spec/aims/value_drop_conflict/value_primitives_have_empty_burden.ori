@@ -1,0 +1,25 @@
+// Value primitives carry an empty burden — a program using only
+// scalar-Value types (int/float/bool) allocates no heap, so AIMS emits
+// no RC operations. This is the positive pin for the Value empty-burden
+// path (Spec: Annex E §AIMS): the BurdenRegistry's empty UserBurdenSpec
+// for Value-marked / scalar types means the burden walker lands no
+// BurdenInc/BurdenDec, and codegen emits zero ori_rc_inc/ori_rc_dec.
+//
+// The zero-RC-op property is pinned at the IR level by the AOT test
+// compiler/ori_llvm/tests/aot/value_empty_burden.rs
+// (test_value_only_program_emits_zero_rc_ops, via ORI_DUMP_AFTER_LLVM).
+// This spec test pins the observable behavior end-to-end through both
+// the interpreter and the LLVM backend (dual-execution parity).
+
+use std.testing { assert_eq };
+
+@compute_value_only () -> int = {
+    let a = 1;
+    let b = 2;
+    let c = a + b;
+    c
+};
+
+@test_value_only_computation_round_trips tests @compute_value_only () -> void = {
+    assert_eq(actual: compute_value_only(), expected: 3);
+};

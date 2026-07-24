@@ -1,0 +1,31 @@
+# Corpus-under-flag baseline failing-ID SET (Spec: Annex E §AIMS).
+#
+# This is the LEFT operand of the predicate-stack-retirement readiness gate:
+# the SET of AOT-corpus test IDs that fail on the burden-default path under the
+# SAME verification environment `test-all.sh` and CI export:
+#
+#     ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1 cargo test -p ori_llvm --test aot
+#
+# The verification gates are part of the metric: a run WITHOUT them counts only
+# behavioral failures (leaks / double-frees / wrong output) and silently excludes
+# every VF-1 burden-imbalance verification failure — an under-count that diverges
+# from what `test-all.sh` and CI report. Re-capture ONLY with the gates set
+# (diagnostics/aot-guardrail.sh exports them by default).
+#
+# Gate semantics: failing_ids_under_flag MUST be a SUBSET of this set (zero
+# regressions); the terminal target is the EMPTY set (suite green under
+# verification). Shrink-only: remove IDs as they are fixed; never add.
+#
+#
+# Captured: 2026-06-16 re-bless to the TRUE current failing set under the gated
+# floor env (ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1).
+# Prior baseline (520 entries) was heavily stale: 462 now pass, 18 failing-at-HEAD
+# were unlisted. elem_dec_scope::test_str_list_explicit_last_owner pruned: cured by
+# the Phase-6.66e @iter-survivor-surplus suppress + 4 over-fire guards.
+# elem_dec_scope::test_str_list_slice_then_iter +
+# match_alias::test_closure_option_str_capture_two_call_no_leak pruned: cured by
+# the Phase-6.66f sharing-view-slice + iter-consume surplus-inc suppress (72-cell floor).
+# elem_dec_scope::test_set_str_union pruned: cured by the Phase-6.65
+# borrowed-non-receiver-arg relocation for set-algebra ops (union/intersection/
+# difference) — the borrowed `other` arg's premature inline dec relocates to both
+# successor edges of the may-unwind call (set_algebra_relocation_names) — 47->46.

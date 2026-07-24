@@ -1,5 +1,5 @@
 @make_adder (base: int) -> (int) -> int = {
-    (n: int) -> base + n
+    (n: int) -> int = base + n
 };
 
 @main () -> int = {

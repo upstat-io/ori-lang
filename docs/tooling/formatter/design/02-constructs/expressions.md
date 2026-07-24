@@ -298,7 +298,7 @@ let name: str = "Alice"
 ```ori
 let { x, y } = point
 let (first, second) = pair
-let [$head, ..tail] = items
+let [..rest] = items
 let { position: { x, y }, velocity } = entity
 ```
 

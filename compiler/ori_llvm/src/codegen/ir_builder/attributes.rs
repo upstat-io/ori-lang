@@ -11,7 +11,7 @@ use super::IrBuilder;
 use crate::codegen::value_id::{FunctionId, LLVMTypeId};
 
 impl IrBuilder<'_, '_> {
-    // -- Function attributes --
+    // Function attributes
 
     /// Add the `uwtable` attribute to a function.
     ///
@@ -50,6 +50,18 @@ impl IrBuilder<'_, '_> {
         f.add_attribute(AttributeLoc::Function, attr);
     }
 
+    /// Whether a function carries the `nounwind` attribute.
+    ///
+    /// Runtime declarations carry `Nounwind` per their `RtFn` attrs; the
+    /// may-unwind set (`ori_panic_cstr`, `ori_list_get`,
+    /// `ori_list_updated_cow`, ...) does not.
+    #[must_use]
+    pub fn function_has_nounwind_attr(&self, func: FunctionId) -> bool {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("nounwind");
+        f.get_enum_attribute(AttributeLoc::Function, kind).is_some()
+    }
+
     /// Add the `noinline` attribute to a function.
     ///
     /// Prevents LLVM from inlining this function. Used for cold paths like
@@ -57,6 +69,17 @@ impl IrBuilder<'_, '_> {
     pub fn add_noinline_attribute(&mut self, func: FunctionId) {
         let f = self.arena.get_function(func);
         let kind = Attribute::get_named_enum_kind_id("noinline");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 0);
+        f.add_attribute(AttributeLoc::Function, attr);
+    }
+
+    /// Require inlining of a private specialization at every call site.
+    ///
+    /// Used only for closed-program physical clones whose specialization fact
+    /// becomes substantially more useful after caller/callee optimization.
+    pub fn add_alwaysinline_attribute(&mut self, func: FunctionId) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("alwaysinline");
         let attr = self.scx.llcx.create_enum_attribute(kind, 0);
         f.add_attribute(AttributeLoc::Function, attr);
     }
@@ -148,7 +171,7 @@ impl IrBuilder<'_, '_> {
         f.add_attribute(AttributeLoc::Function, attr);
     }
 
-    // -- Parameter attributes --
+    // Parameter attributes
 
     /// Add the `sret(T)` attribute to a function parameter.
     ///
@@ -267,7 +290,7 @@ impl IrBuilder<'_, '_> {
         f.add_attribute(AttributeLoc::Param(param_index), attr);
     }
 
-    // -- Per-call-site attributes --
+    // Per-call-site attributes
 
     /// Add `noalias` to a parameter of the most recently emitted call.
     ///

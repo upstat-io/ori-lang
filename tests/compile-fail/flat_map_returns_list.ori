@@ -1,10 +1,10 @@
 // Regression: flat_map closure must return Iterator<U>, not a List.
 // The closure here returns `[int]` (a list) instead of `Iterator<int>`.
-// See: bug-tracker/plans/BUG-02-013/
+// See:
 
 #[compile_fail(code: "E2001", message: "Iterator")]
 @bad_flat_map_list tests _ () -> void = {
-    let _ = [1, 2, 3].iter()
+    let _: [int] = [1, 2, 3].iter()
         .flat_map(transform: (x: int) -> [int] = [x, x * 10])
         .collect();
     ()

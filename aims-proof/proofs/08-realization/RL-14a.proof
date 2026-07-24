@@ -1,0 +1,39 @@
+Theorem RL-14a: cleanup obligations preserve exact logical identities
+
+  Preconditions:
+    - RL-14a consumes realized logical release and user-drop events.
+    - CleanupObligation records event ids, drop-plan id, field order, normal
+      exits, unwind exits, and logical lifetime-end events.
+    - Physical cleanup encoding is a planner and adapter concern.
+
+  Soundness property:
+    Forall exact cleanup obligation C:
+
+      (P1) Every release event in C is covered on each applicable normal exit.
+
+      (P2) Every release event in C is covered on each applicable unwind exit.
+
+      (P3) Event ids, drop-plan id, and ordered traversal are unchanged.
+
+      (P4) Logical lifetime-end event ids are unchanged.
+
+  Proof obligation:
+    Constructive discharge by checking exact membership and order. The
+    negative direction rejects a missing unwind release or changed identity.
+
+    Part (P1/P2/P3/P4) - cleanup grid:
+      normal_exit_complete -> true
+      unwind_exit_complete -> true
+      logical_identity_preserved -> true
+      lifetime_end_identity_preserved -> true
+      Coverage gate: 4 cleanup cases.
+
+    Engines dispatched:
+      case_analysis (PRIMARY - section_08::verify_rl14a_cleanup_obligation;
+        cleanupCoversNormalAndUnwind plus identity checks)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL row)
+      refinement (SECONDARY - gracious-accept per the coverage-manifest RL row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-14a by preserving exact CleanupObligation releases, drop plan, traversal order, normal/unwind coverage, and logical lifetime-end identity

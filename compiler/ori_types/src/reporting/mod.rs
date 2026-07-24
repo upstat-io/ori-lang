@@ -51,7 +51,7 @@ impl<'a> TypeErrorRenderer<'a> {
         Self::add_context(&mut diag, &error.context);
 
         // Add suggestions
-        Self::add_suggestions(&mut diag, &error.suggestions);
+        self.add_suggestions(&mut diag, &error.suggestions);
 
         diag
     }
@@ -76,11 +76,16 @@ impl<'a> TypeErrorRenderer<'a> {
     }
 
     /// Build the primary label text for the error location.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive TypeErrorKind → label dispatch"
-    )]
     fn primary_label_text(&self, error: &TypeCheckError) -> String {
+        if let Some(label) = self.primary_effect_label(&error.kind) {
+            return label;
+        }
+        if let Some(label) = self.primary_ownership_label(&error.kind) {
+            return label;
+        }
+        if let Some(label) = self.primary_trait_label(&error.kind) {
+            return label;
+        }
         match &error.kind {
             TypeErrorKind::Mismatch {
                 expected,
@@ -100,8 +105,24 @@ impl<'a> TypeErrorRenderer<'a> {
                 )
             }
             TypeErrorKind::UnknownIdent { .. } => "not found in this scope".to_string(),
+            TypeErrorKind::UndeclaredFixedListCapacityConst { name } => format!(
+                "`${}` is not declared as a capacity const",
+                self.format_name(*name)
+            ),
+            TypeErrorKind::NonPositiveFixedListCapacity { value } => {
+                format!("capacity {value} is not positive")
+            }
+            TypeErrorKind::InvalidFixedListCapacityExpression { .. } => {
+                "capacity is not an evaluable integer expression".to_string()
+            }
+            TypeErrorKind::UnresolvedTrait { trait_name } => {
+                format!("trait `{}` not registered", self.format_name(*trait_name))
+            }
             TypeErrorKind::UndefinedField { field, .. } => {
                 format!("unknown field `{}`", self.format_name(*field))
+            }
+            TypeErrorKind::UnknownMethod { method, .. } => {
+                format!("no method `{}`", self.format_name(*method))
             }
             TypeErrorKind::ArityMismatch {
                 expected, found, ..
@@ -135,6 +156,12 @@ impl<'a> TypeErrorRenderer<'a> {
                     .collect();
                 format!("missing {}", names.join(", "))
             }
+            _ => unreachable!("non-core label handled before core label dispatch"),
+        }
+    }
+
+    fn primary_trait_label(&self, kind: &TypeErrorKind) -> Option<String> {
+        let label = match kind {
             TypeErrorKind::DuplicateField { field, .. } => {
                 format!("duplicate `{}`", self.format_name(*field))
             }
@@ -166,69 +193,64 @@ impl<'a> TypeErrorRenderer<'a> {
                 expected_key,
                 found_key,
                 ..
-            } => {
-                format!(
-                    "expected key `{}`, found `{}`",
-                    self.format_type(*expected_key),
-                    self.format_type(*found_key)
-                )
-            }
+            } => format!(
+                "expected key `{}`, found `{}`",
+                self.format_type(*expected_key),
+                self.format_type(*found_key)
+            ),
             TypeErrorKind::AmbiguousIndex { ty } => {
                 format!("ambiguous index on `{}`", self.format_type(*ty))
             }
             TypeErrorKind::CannotDeriveForSumType {
                 type_name,
                 trait_kind,
-            } => {
-                format!(
-                    "cannot derive `{}` for sum type `{}`",
-                    trait_kind.trait_name(),
-                    self.format_name(*type_name)
-                )
-            }
+            } => format!(
+                "cannot derive `{}` for sum type `{}`",
+                trait_kind.trait_name(),
+                self.format_name(*type_name)
+            ),
             TypeErrorKind::CannotDeriveWithoutSupertrait {
                 type_name,
                 trait_kind,
                 required,
-            } => {
-                format!(
-                    "cannot derive `{}` without `{}` for `{}`",
-                    trait_kind.trait_name(),
-                    required.trait_name(),
-                    self.format_name(*type_name)
-                )
-            }
-            TypeErrorKind::HashInvariantViolation { type_name } => {
-                format!(
-                    "`Hashable` may violate hash invariant for `{}`",
-                    self.format_name(*type_name)
-                )
-            }
-            TypeErrorKind::NonHashableMapKey { key_type } => {
-                format!(
-                    "`{}` cannot be used as map key (missing `Hashable`)",
-                    self.format_type(*key_type)
-                )
-            }
+            } => format!(
+                "cannot derive `{}` without `{}` for `{}`",
+                trait_kind.trait_name(),
+                required.trait_name(),
+                self.format_name(*type_name)
+            ),
+            TypeErrorKind::HashInvariantViolation { type_name } => format!(
+                "`Hashable` may violate hash invariant for `{}`",
+                self.format_name(*type_name)
+            ),
+            TypeErrorKind::NonHashableMapKey { key_type } => format!(
+                "`{}` cannot be used as map key (missing `Hashable`)",
+                self.format_type(*key_type)
+            ),
             TypeErrorKind::FieldMissingTraitInDerive {
                 trait_name,
                 field_name,
                 field_type,
                 ..
-            } => {
-                format!(
-                    "field `{}` of type `{}` does not implement `{}`",
-                    self.format_name(*field_name),
-                    self.format_type(*field_type),
-                    self.format_name(*trait_name),
-                )
-            }
+            } => format!(
+                "field `{}` of type `{}` does not implement `{}`",
+                self.format_name(*field_name),
+                self.format_type(*field_type),
+                self.format_name(*trait_name),
+            ),
             TypeErrorKind::TraitNotDerivable { trait_name } => {
                 format!(
                     "trait `{}` cannot be derived",
                     self.format_name(*trait_name)
                 )
             }
+            _ => return None,
+        };
+        Some(label)
+    }
+
+    fn primary_effect_label(&self, kind: &TypeErrorKind) -> Option<String> {
+        let label = match kind {
             TypeErrorKind::InvalidFormatSpec { spec, .. } => {
                 format!("invalid format spec `{spec}`")
             }
@@ -236,45 +258,108 @@ impl<'a> TypeErrorRenderer<'a> {
                 expr_type,
                 format_type,
                 ..
-            } => {
-                format!(
-                    "`{format_type}` not valid for `{}`",
-                    self.format_type(*expr_type)
-                )
-            }
-            TypeErrorKind::IntoNotImplemented { ty, target } => {
-                if let Some(t) = target {
-                    format!(
-                        "`{}` has no `Into<{}>`",
-                        self.format_type(*ty),
-                        self.format_type(*t)
-                    )
-                } else {
-                    format!("`{}` has no `Into` impl", self.format_type(*ty))
-                }
-            }
+            } => format!(
+                "`{format_type}` not valid for `{}`",
+                self.format_type(*expr_type)
+            ),
+            TypeErrorKind::IntoNotImplemented { ty, target } => match target {
+                Some(target) => format!(
+                    "`{}` has no `Into<{}>`",
+                    self.format_type(*ty),
+                    self.format_type(*target)
+                ),
+                None => format!("`{}` has no `Into` impl", self.format_type(*ty)),
+            },
             TypeErrorKind::AmbiguousInto { ty } => {
                 format!("ambiguous `.into()` on `{}`", self.format_type(*ty))
             }
             TypeErrorKind::MissingPrintable { ty } => {
                 format!("`{}` does not implement `Printable`", self.format_type(*ty))
             }
-            TypeErrorKind::AssignToImmutable { name } => {
-                format!(
-                    "cannot assign to `{}` — binding is immutable",
-                    self.format_name(*name)
-                )
-            }
+            TypeErrorKind::AssignToImmutable { name } => format!(
+                "cannot assign to `{}` — binding is immutable",
+                self.format_name(*name)
+            ),
+            TypeErrorKind::IndexAssignNotSupported { ty } => format!(
+                "type `{}` does not support index assignment",
+                self.format_type(*ty)
+            ),
+            TypeErrorKind::AssignThroughParameter { name } => format!(
+                "cannot assign through parameter `{}`",
+                self.format_name(*name)
+            ),
             TypeErrorKind::UnsupportedFeature { feature } => {
                 format!("`{feature}` is not yet supported")
             }
-            TypeErrorKind::InvalidReprAttribute { type_name, reason } => {
-                format!(
-                    "invalid `#repr` on `{}`: {reason}",
-                    self.format_name(*type_name)
-                )
+            TypeErrorKind::InvalidReprAttribute { type_name, reason } => format!(
+                "invalid `#repr` on `{}`: {reason}",
+                self.format_name(*type_name)
+            ),
+            _ => return None,
+        };
+        Some(label)
+    }
+
+    fn primary_ownership_label(&self, kind: &TypeErrorKind) -> Option<String> {
+        let label = match kind {
+            TypeErrorKind::ConditionalPartialMove { aggregate, field } => format!(
+                "conditional partial move of `{}.{}`",
+                self.format_name(*aggregate),
+                self.format_name(*field)
+            ),
+            TypeErrorKind::UseAfterDropEarly { binding } => format!(
+                "use of `{}` after `drop_early` consumed it",
+                self.format_name(*binding)
+            ),
+            TypeErrorKind::DropPartialMove {
+                aggregate,
+                field,
+                type_name,
+            } => format!(
+                "partial move of `{}.{}` on Drop type `{}`",
+                self.format_name(*aggregate),
+                self.format_name(*field),
+                self.format_name(*type_name)
+            ),
+            TypeErrorKind::ValueDropConflict { type_name } => format!(
+                "`Value` and `Drop` on `{}` are mutually exclusive",
+                self.format_name(*type_name)
+            ),
+            TypeErrorKind::RefutablePattern { .. } => {
+                "refutable pattern in let-binding".to_string()
             }
-        }
+            TypeErrorKind::PreContractNotBool { actual } => format!(
+                "pre() must be `bool`, found `{}`",
+                self.format_type(*actual)
+            ),
+            TypeErrorKind::PostContractVoidReturn => {
+                "post() cannot apply to a `void`-returning function".to_string()
+            }
+            TypeErrorKind::PreContractUnknownIdent { name } => {
+                format!("unknown identifier `{}` in pre()", self.format_name(*name))
+            }
+            TypeErrorKind::BreakValueInVoidLoop { loop_kind } => {
+                format!("`break` value not allowed in {}", loop_kind.description())
+            }
+            TypeErrorKind::ContinueValueInNonCollectingLoop { loop_kind } => format!(
+                "`continue` value not allowed in {}",
+                loop_kind.description()
+            ),
+            TypeErrorKind::OrPatternBindingMismatch { name, reason } => {
+                use crate::OrBindingMismatchReason;
+                let var = self.format_name(*name);
+                match reason {
+                    OrBindingMismatchReason::NameDivergence => {
+                        format!("or-pattern binds `{var}` on only some alternatives")
+                    }
+                    OrBindingMismatchReason::TypeDivergence { .. } => {
+                        format!("or-pattern binds `{var}` at different types across alternatives")
+                    }
+                }
+            }
+            _ => return None,
+        };
+        Some(label)
     }
 
     /// Generate a specific primary label for a `TypeProblem`.
@@ -336,14 +421,34 @@ impl<'a> TypeErrorRenderer<'a> {
     ///
     /// Text-only suggestions (no substitutions) go to `diag.suggestions` as
     /// plain strings. Span-bearing suggestions go to `diag.structured_suggestions`.
-    fn add_suggestions(diag: &mut Diagnostic, suggestions: &[Suggestion]) {
+    ///
+    /// Name-bearing suggestions (`names` non-empty) have their `{N}`
+    /// placeholders resolved here via the interner-backed `format_name`, so the
+    /// raw `Name(..)` Debug form never reaches the user (the SSOT for `Name`
+    /// rendering is render-time, matching the message + label paths).
+    fn add_suggestions(&self, diag: &mut Diagnostic, suggestions: &[Suggestion]) {
         for suggestion in suggestions {
             if suggestion.is_text_only() {
-                diag.suggestions.push(suggestion.message.clone());
+                diag.suggestions
+                    .push(self.resolve_suggestion_names(suggestion));
             } else {
                 diag.structured_suggestions.push(suggestion.clone());
             }
         }
+    }
+
+    /// Resolve `{N}` placeholders in a suggestion's message from its `names`
+    /// operands via the interner-backed `format_name`. No-op (returns the
+    /// message verbatim) when `names` is empty.
+    fn resolve_suggestion_names(&self, suggestion: &Suggestion) -> String {
+        if suggestion.names.is_empty() {
+            return suggestion.message.clone();
+        }
+        let mut rendered = suggestion.message.clone();
+        for (i, name) in suggestion.names.iter().enumerate() {
+            rendered = rendered.replace(&format!("{{{i}}}"), &self.format_name(*name));
+        }
+        rendered
     }
 }
 

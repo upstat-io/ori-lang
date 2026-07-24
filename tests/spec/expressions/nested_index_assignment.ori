@@ -1,0 +1,51 @@
+// Spec: 14-expressions.md § Index/Field Assignment (Clause 14.12); Spec §13.6.2
+//
+// Nested index assignment desugars right-to-left (proposal §Mixed Chains):
+// `grid[x][y] = v` → `grid = grid.updated(key: x, value: grid[x].updated(key: y, value: v))`.
+// Intermediate reads use `index`. POSITIVE pins; FAIL today, green after the
+// section-03 desugar lands.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// 2-level nested list
+// =============================================================================
+
+@test_nested_index_2level tests @nested_index_2level () -> void = {
+    assert_eq(actual: nested_index_2level(), expected: 5)
+}
+
+@nested_index_2level () -> int = {
+    let grid = [[1, 2], [3, 4]];
+    grid[0][1] = 5;
+    grid[0][1]
+}
+
+// =============================================================================
+// 3-level nested list
+// =============================================================================
+
+@test_nested_index_3level tests @nested_index_3level () -> void = {
+    assert_eq(actual: nested_index_3level(), expected: 99)
+}
+
+@nested_index_3level () -> int = {
+    let cube = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
+    cube[1][0][1] = 99;
+    cube[1][0][1]
+}
+
+// =============================================================================
+// Nested assignment preserves the untouched sibling at the outer level
+// =============================================================================
+
+@test_nested_index_preserves_outer tests @nested_index_preserves_outer () -> void = {
+    assert_eq(actual: nested_index_preserves_outer(), expected: 3)
+}
+
+@nested_index_preserves_outer () -> int = {
+    let grid = [[1, 2], [3, 4]];
+    grid[0][1] = 9;
+    // grid[1] row untouched
+    grid[1][0]
+}

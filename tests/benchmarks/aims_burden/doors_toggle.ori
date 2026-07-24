@@ -1,0 +1,48 @@
+// Benchmark: Doors toggle (in-place COW mutation of a uniquely-owned [bool])
+// Shape: the classic "100 doors" bit-toggle
+// loop — build a fresh [bool] of n doors, then for every pass k in 1..=n
+// toggle each k-th door in place via `doors[idx] = !doors[idx]`.
+//
+// RC focus: `doors` is a uniquely-owned [bool] that never aliases. Each
+// `doors[idx] = !doors[idx]` desugars to `doors = doors.updated(key: idx,
+// value: !doors[idx])` — the COW in-place path. Phase 5 emits the burden ops
+// for the reassignment; Phase 6 DP-6 (Uniqueness != Shared) proves `doors`
+// is the sole owner so the update mutates in place (no per-iteration realloc,
+// no per-toggle RC traffic). A predicate-stack / non-unique verdict would copy
+// the whole n-element buffer per toggle — this benchmark isolates that.
+
+@run_doors (n: int) -> int = {
+    let doors: [bool] = for _ in 0..n yield false;
+    let pass = 1;
+    loop {
+        if pass > n then break;
+        let idx = pass - 1;
+        loop {
+            if idx >= n then break;
+            doors[idx] = !doors[idx];
+            idx = idx + pass;
+        };
+        pass = pass + 1;
+    };
+    // Count open doors — exactly the perfect squares <= n.
+    let open = 0;
+    for d in doors do {
+        open = open + (if d then 1 else 0);
+    };
+    open
+}
+
+@main () -> int = {
+    let n = 10000;
+    let repeats = 1000;
+    let total = 0;
+    let r = 0;
+    loop {
+        if r >= repeats then break;
+        total = total + run_doors(n: n);
+        r = r + 1;
+    };
+    // floor(sqrt(10000)) = 100 open doors per run.
+    let expected = 100 * repeats;
+    if total == expected then 0 else 1
+}

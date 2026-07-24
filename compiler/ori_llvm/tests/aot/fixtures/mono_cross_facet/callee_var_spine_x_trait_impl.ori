@@ -1,0 +1,28 @@
+// Diagonal 6: typeck callee-var-mapping spine x trait-impl method on a generic
+// receiver. `relay<T>` threads its `Box<T>` into `inner<T>` (the callee-var
+// spine — relay's `T` must map into inner's `T` at the call site); the
+// trait-impl method `.get()` is then dispatched on the concrete `Box<int>` /
+// `Box<str>` spine result. Both legs mono at `int` and `str`. (The trait-impl
+// `.get()` is on the concrete spine RESULT, not inside the generic body —
+// method dispatch on a generic-type-param receiver inside a generic body is a
+// separate open mono-collection gap, reported alongside this matrix.)
+
+type Box<T> = { value: T }
+
+trait Get<T> {
+    @get (self) -> T
+}
+
+impl<T> Box<T>: Get<T> {
+    @get (self) -> T = self.value;
+}
+
+@inner<T> (b: Box<T>) -> Box<T> = b;
+
+@relay<T> (b: Box<T>) -> Box<T> = inner(b: b);
+
+@main () -> void = {
+    let $bi = relay(b: Box { value: 11 });
+    let $bs = relay(b: Box { value: "z" });
+    print(msg: `{bi.get()} {bs.get()}`);
+}

@@ -2,8 +2,7 @@
 //!
 //! When `?` propagates an `Err(Error(...))`, these helpers append a
 //! `TraceEntryData` with the current source location (function, file,
-//! line, column). Extracted from `can_eval/mod.rs` to keep the main
-//! dispatch module focused.
+//! line, column).
 
 use ori_ir::canon::CanId;
 use ori_patterns::{TraceEntryData, Value};

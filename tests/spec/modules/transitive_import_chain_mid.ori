@@ -1,0 +1,10 @@
+// Spec: 18-modules.md § Imports
+// Design: (modules not yet in design docs)
+//
+// Middle hop of a 3-hop import chain — imports the deepest leaf
+// (transitive_import_leaf_deep.ori) and is itself imported by
+// transitive_import_chain_top.ori.
+
+use "./transitive_import_leaf_deep" { deep_negate }
+
+pub @deep_mid_offset (x: int) -> int = deep_negate(x: x) + 100;

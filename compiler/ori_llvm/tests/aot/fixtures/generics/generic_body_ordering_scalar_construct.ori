@@ -1,0 +1,46 @@
+// Regression: constructing / projecting a builtin niche-scalar `Ordering`
+// variant inside a generic body monomorphized over `Ordering` emitted
+// `insert_value on non-struct value (index 0)` (construct side) and
+// `extract_value on non-struct value (index 0)` (project / match side) on
+// --backend=llvm — `Ordering` lowers to a scalar `i8` (TypeInfo::Ordering) but
+// `Tag::Ordering` is a primitive sum with no tagged-ptr/tagless/niche-encoded
+// branch, so the `CtorKind::EnumVariant` emitter fell through to the
+// explicit-tag struct path and the `Project { field: 0 }` tag read fell through
+// to `extract_value` on the `i8`. The interpreter passed; LLVM failed the whole
+// module. The cure is a scalar-integer-LLVM-type guard at both emission sites:
+// construct emits `const_int(i8, variant)` directly (Less=0/Equal=1/Greater=2);
+// project reads the `i8` value as the discriminant (zero-extended to the
+// dst width for the decision-tree `Switch` / `icmp`).
+//
+// Exercised through a LOCAL generic (the RCA's isolation surface) so the test
+// pins the scalar-Ordering codegen independent of the imported-prelude
+// free-function registration path.
+
+@cmp<T: Comparable> (a: T, b: T) -> Ordering = a.compare(other: b);
+
+@classify (o: Ordering) -> int = match o {
+    Less -> 100,
+    Equal -> 200,
+    Greater -> 300,
+};
+
+@main () -> int = {
+    // construct (cmp<int> body builds an Ordering) + match (Project tag).
+    let $lt = cmp(a: 3, b: 5);
+    if classify(o: lt) != 100 then 1
+    else {
+        let $eq = cmp(a: 5, b: 5);
+        if classify(o: eq) != 200 then 2
+        else {
+            let $gt = cmp(a: 9, b: 1);
+            if classify(o: gt) != 300 then 3
+            // predicate methods on a generic-body Ordering result.
+            else if !lt.is_less() then 4
+            else if !eq.is_equal() then 5
+            else if !gt.is_greater() then 6
+            // direct Ordering construction + match (no generic).
+            else if classify(o: Equal) != 200 then 7
+            else 0
+        }
+    }
+};

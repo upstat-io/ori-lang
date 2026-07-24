@@ -1,14 +1,6 @@
-// AOT integration test for plans/empty-container-typeck-phase-contract §08.2 —
-// polymorphic-lambda host module with imported `assert_eq<int>` call.
-//
-// Today (pre-§08.3): compilation fails with "unresolved type variable at
-// codegen" originating from `ori_llvm::codegen::type_info::store::get_impl()`
-// because the poly-lambda return-type `Tag::Var(Unbound)` leaks past typeck
-// PC-2 (producer-side defaulting pre-pass is scope-by-empty-literal only).
-//
-// After §08.3: the sibling pass `default_unbound_vars_from_polylambda_returns`
-// defaults the unbound return var to `Idx::NEVER` before `validate_body_types`
-// runs. Compilation succeeds, binary runs, `assert_eq<int>` passes, exit 0.
+// Polymorphic identity lambda in the host module with an imported
+// `assert_eq<int>` call — pins imported-generic monomorphization against a
+// poly-lambda-inferred scalar (i64) result type.
 
 use std.testing { assert_eq }
 

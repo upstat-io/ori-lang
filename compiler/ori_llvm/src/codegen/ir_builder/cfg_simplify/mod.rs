@@ -37,6 +37,10 @@ use inkwell::values::{AsValueRef, FunctionValue};
 use llvm_sys::core;
 use llvm_sys::prelude::LLVMBasicBlockRef;
 
+mod empty_blocks;
+
+use empty_blocks::eliminate_empty_blocks;
+
 /// Statistics from the CFG simplification pass.
 #[derive(Debug, Default)]
 pub struct SimplifyStats {
@@ -108,6 +112,10 @@ fn simplify_redundant_branches(function: FunctionValue<'_>, stats: &mut Simplify
 }
 
 /// Build predecessor map: block -> list of unique predecessor blocks.
+///
+/// INVARIANT: every block of the function gets an entry (empty for blocks
+/// with zero predecessors), so a missing key for an in-function block is an
+/// invariant violation, never "no predecessors".
 fn build_pred_map(
     function: FunctionValue<'_>,
 ) -> FxHashMap<LLVMBasicBlockRef, Vec<LLVMBasicBlockRef>> {
@@ -131,78 +139,12 @@ fn build_pred_map(
     map
 }
 
-/// Eliminate empty blocks. Returns the number removed in this pass.
-fn eliminate_empty_blocks(function: FunctionValue<'_>) -> u32 {
-    let blocks = function.get_basic_blocks();
-    let entry_ref = match blocks.first() {
-        Some(b) => b.as_mut_ptr(),
-        None => return 0,
-    };
-
-    let pred_map = build_pred_map(function);
-
-    // Collect candidates: (block, target)
-    let mut candidates: Vec<(inkwell::basic_block::BasicBlock<'_>, LLVMBasicBlockRef)> = Vec::new();
-
-    for block in &blocks {
-        let block_ref = block.as_mut_ptr();
-
-        if block_ref == entry_ref {
-            continue;
-        }
-        if has_phi_nodes(block_ref) {
-            continue;
-        }
-        if !is_single_unconditional_br(block) {
-            continue;
-        }
-
-        let target = unsafe {
-            let term = core::LLVMGetBasicBlockTerminator(block_ref);
-            core::LLVMGetSuccessor(term, 0)
-        };
-        candidates.push((*block, target));
-    }
-
-    // Process ONE candidate per pass to avoid stale pred_map issues.
-    // The fixed-point loop in simplify_cfg handles subsequent candidates
-    // by rebuilding the pred_map each iteration.
-    for (empty_block, target_ref) in &candidates {
-        let empty_ref = empty_block.as_mut_ptr();
-        let preds = pred_map.get(&empty_ref).cloned().unwrap_or_default();
-
-        if would_create_duplicate_phi(*target_ref, empty_ref, &preds) {
-            continue;
-        }
-
-        // Step 1: Rewrite phi incoming entries in the target block.
-        rewrite_phis(*target_ref, empty_ref, &preds);
-
-        // Step 2: Redirect predecessors' terminators to jump to target.
-        for &pred_ref in &preds {
-            redirect_terminator(pred_ref, empty_ref, *target_ref);
-        }
-
-        // Step 3: Remove the empty block.
-        unsafe {
-            let term = core::LLVMGetBasicBlockTerminator(empty_ref);
-            if !term.is_null() {
-                core::LLVMInstructionEraseFromParent(term);
-            }
-            core::LLVMRemoveBasicBlockFromParent(empty_ref);
-        }
-        return 1;
-    }
-
-    0
-}
-
 /// Merge the entry block with its sole successor when:
 ///
 /// 1. Entry block contains only `br label %header`
 /// 2. Header has exactly one predecessor (the entry block)
 ///
-/// Instead of moving instructions, we swap block positions: move header
+/// The transformation swaps block positions: move header
 /// before entry (making it the new entry), then delete the old entry.
 /// Loop headers with back-edges (>1 predecessor) are left alone — these
 /// are structurally necessary preheaders.
@@ -224,7 +166,9 @@ fn merge_entry_block(function: FunctionValue<'_>) -> bool {
 
     // Check header has exactly one predecessor (the entry block).
     let pred_map = build_pred_map(function);
-    let preds = pred_map.get(&header_ref).cloned().unwrap_or_default();
+    let preds = pred_map.get(&header_ref).cloned().unwrap_or_else(|| {
+        unreachable!("build_pred_map pre-populates every block of the function")
+    });
     if preds.len() != 1 || preds[0] != entry_ref {
         return false;
     }
@@ -294,7 +238,9 @@ fn merge_single_predecessor_pass(function: FunctionValue<'_>) -> u32 {
         let succ_ref = unsafe { core::LLVMGetSuccessor(term_ref, 0) };
 
         // Successor must have exactly one predecessor (this block).
-        let preds = pred_map.get(&succ_ref).cloned().unwrap_or_default();
+        let preds = pred_map.get(&succ_ref).cloned().unwrap_or_else(|| {
+            unreachable!("build_pred_map pre-populates every block of the function")
+        });
         if preds.len() != 1 || preds[0] != block_ref {
             continue;
         }
@@ -309,12 +255,9 @@ fn merge_single_predecessor_pass(function: FunctionValue<'_>) -> u32 {
             continue;
         }
 
-        // SAFETY: block_ref ends with `br label %succ_ref`, and succ_ref
-        // has exactly one predecessor (block_ref). We:
-        //   1. Erase the br from the predecessor
-        //   2. Move all instructions from successor to predecessor
-        //   3. Update phi incoming blocks in successor's successors
-        //   4. Delete the empty successor
+        // SAFETY: `block_ref` ends with a branch to its sole-predecessor `succ_ref`.
+        // - The branch is erased before moving successor instructions.
+        // - Successor phi inputs are redirected before the empty block is deleted.
         unsafe {
             core::LLVMInstructionEraseFromParent(term_ref);
 
@@ -370,7 +313,6 @@ unsafe fn update_phi_incoming_block(
         let num = core::LLVMCountIncoming(inst);
         let has_old = (0..num).any(|i| core::LLVMGetIncomingBlock(inst, i) == old_bb);
         if has_old {
-            // Rebuild the phi with old_bb replaced by new_bb.
             let mut values = Vec::with_capacity(num as usize);
             let mut blocks = Vec::with_capacity(num as usize);
             for i in 0..num {
@@ -460,9 +402,9 @@ fn would_create_duplicate_phi(
 /// Rewrite phi nodes in `target`: replace incoming entries from `old_block`
 /// with entries from its predecessors.
 ///
-/// Since LLVM's C API has no `LLVMSetIncomingBlock`, we rebuild each
-/// affected phi: collect (value, block) pairs with `old_block` entries
-/// replaced by predecessor entries, build a new phi, RAUW, delete old.
+/// Rebuild affected phi nodes because LLVM's C API cannot mutate incoming blocks.
+///
+/// Each `old_block` entry expands to the predecessor entries before RAUW.
 fn rewrite_phis(
     target: LLVMBasicBlockRef,
     old_block: LLVMBasicBlockRef,

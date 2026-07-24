@@ -2,9 +2,10 @@
 
 use ori_ir::{Span, TokenKind};
 
-use super::{slice_source, span, CookResult, TokenCooker};
 use crate::lex_error::LexError;
 use crate::parse_helpers::{parse_float_skip_underscores, parse_int_skip_underscores};
+
+use super::{slice_source, span, CookResult, TokenCooker};
 
 impl TokenCooker<'_> {
     /// Shared skeleton for integer cooking: slice source, strip prefix,

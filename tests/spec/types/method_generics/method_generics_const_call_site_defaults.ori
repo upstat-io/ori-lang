@@ -1,0 +1,25 @@
+// Spec: Clause 8.2.2 Fixed-Capacity List; Clause 8.3.1 Const Generic Parameters
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+//
+// Annotation-free method calls preserve explicit and default const bindings
+// through realization. Zero remains valid for const generics unrelated to a
+// fixed-list capacity.
+
+use std.testing { assert_eq }
+
+type Vec<T> = { items: [T] }
+
+impl<T> Vec<T> {
+    @first_n<$N: int> (self) -> [T, max N] = self.items.take(count: N).to_fixed<$N>();
+    @default_first_n<$N: int = 2> (self) -> [T, max N] = self.items.take(count: N).to_fixed<$N>();
+    @unrelated<$N: int> (self) -> int = N;
+}
+
+@test_annotation_free_const_bindings tests _ () -> void = {
+    let values = Vec { items: [10, 20, 30, 40] };
+    let explicit = values.first_n<3>();
+    let defaulted = values.default_first_n();
+    assert_eq(actual: explicit, expected: [10, 20, 30]);
+    assert_eq(actual: defaulted, expected: [10, 20]);
+    assert_eq(actual: values.unrelated<0>(), expected: 0)
+}

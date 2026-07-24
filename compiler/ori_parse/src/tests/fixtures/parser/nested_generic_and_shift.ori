@@ -1,0 +1,5 @@
+
+@test () -> Result<Result<int, str>, str> = {
+    let x = 8 >> 2;
+    Ok(Ok(x))
+}

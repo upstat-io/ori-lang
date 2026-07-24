@@ -30,7 +30,7 @@ pub struct BranchRefinement {
 /// Extract range refinements from a `Branch` terminator's condition.
 ///
 /// `cond_var` is the `ArcVarId` from `Branch { cond, .. }`.
-/// `body` is the block's body instructions — we trace `cond_var` back
+/// `body` is the block's body instructions; refinement traces `cond_var` back
 /// to the `ArcInstr` that produced it (e.g., a `PrimOp` comparison).
 ///
 /// Returns refinements for variables that can be narrowed in each branch.
@@ -90,7 +90,7 @@ pub fn refine_from_branch<S: std::hash::BuildHasher>(
 
     let x_range = ranges.get(&x).copied().unwrap_or(Top);
 
-    // We need y to be a known constant for the simple refinement.
+    // Why: Simple refinement requires `y` to be a known constant.
     let Some(c) = ranges.get(&args[1]).and_then(ValueRange::is_constant) else {
         return vec![];
     };

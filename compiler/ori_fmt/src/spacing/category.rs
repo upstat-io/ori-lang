@@ -78,6 +78,8 @@ pub enum TokenCategory {
     Void,
     /// where
     Where,
+    /// while
+    While,
     /// with
     With,
     /// yield
@@ -353,6 +355,7 @@ impl TokenCategory {
                 | TokenCategory::Uses
                 | TokenCategory::Void
                 | TokenCategory::Where
+                | TokenCategory::While
                 | TokenCategory::With
                 | TokenCategory::Yield
                 | TokenCategory::Tests
@@ -363,13 +366,9 @@ impl TokenCategory {
     }
 }
 
-impl From<&TokenKind> for TokenCategory {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive TokenKind → spacing category dispatch"
-    )]
-    fn from(kind: &TokenKind) -> Self {
-        match kind {
+macro_rules! token_category {
+    ($kind:expr) => {
+        match $kind {
             TokenKind::Int(_) => TokenCategory::Int,
             TokenKind::Float(_) => TokenCategory::Float,
             TokenKind::String(_)
@@ -412,6 +411,7 @@ impl From<&TokenKind> for TokenCategory {
             TokenKind::Uses => TokenCategory::Uses,
             TokenKind::Void => TokenCategory::Void,
             TokenKind::Where => TokenCategory::Where,
+            TokenKind::While => TokenCategory::While,
             TokenKind::With => TokenCategory::With,
             TokenKind::Yield => TokenCategory::Yield,
             TokenKind::Tests => TokenCategory::Tests,
@@ -506,6 +506,12 @@ impl From<&TokenKind> for TokenCategory {
             // Return is recognized but invalid - treat as error for spacing
             TokenKind::Return | TokenKind::Error => TokenCategory::Error,
         }
+    };
+}
+
+impl From<&TokenKind> for TokenCategory {
+    fn from(kind: &TokenKind) -> Self {
+        token_category!(kind)
     }
 }
 

@@ -59,6 +59,14 @@ pub trait Clone {
     @clone (self) -> Self
 }
 
+// Runs at refcount-zero before deallocation (spec: drop-trait-proposal.md).
+// Declared here so `register_imported_traits` registers a TraitEntry, letting
+// `impl Type: Drop` resolve its trait_idx. AOT drop-unwind codegen is a separate,
+// not-yet-implemented concern.
+pub trait Drop {
+    @drop (self) -> void
+}
+
 // Has a default value
 pub trait Default {
     @default () -> Self
@@ -219,6 +227,12 @@ pub trait Shr<Rhs = int> {
 // Subscript access: x[k] -> x.index(key: k)
 pub trait Index<Key, Value> {
     @index (self, key: Key) -> Value
+}
+
+// Subscript assignment: x[k] = v -> x = x.updated(key: k, value: v)
+// Value-semantic write-side companion to Index: returns a new collection.
+pub trait IndexSet<Key, Value> {
+    @updated (self, key: Key, value: Value) -> Self
 }
 
 // =============================================================================

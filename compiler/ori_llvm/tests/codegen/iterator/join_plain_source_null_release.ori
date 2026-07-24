@@ -1,0 +1,12 @@
+// FileCheck test: join over a plain source also receives no generated release
+// verdict; runtime state knows that borrowed source yields need no release.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ptr null, i64 24, ptr %join.out)
+
+@main () -> void = {
+    let $plain = ["gamma-gamma-gamma-gamma-gamma", "delta-delta-delta-delta-delta"]
+        .iter()
+        .join(separator: ", ");
+    print(msg: plain)
+}

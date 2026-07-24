@@ -6,8 +6,11 @@ type FileHandle = { fd: int }
 #[derive(Eq)]
 type Container = { data: FileHandle }
 
-#[compile_fail("field type does not implement trait required by derive")]
+// E2032 fires at the `#[derive(Eq)]` declaration above (field `FileHandle` lacks `Eq`),
+// independent of any use site. The empty body keeps the in-test-span error set empty so
+// the harness matches the module-level derive error; a `==` use site here would instead
+// raise an in-span E2020 (operator requires `Eq`) and mask the derive error this test pins.
+#[compile_fail(code: "E2032")]
 @test_field_missing tests _ () -> void = {
-    let _ = Container { data: FileHandle { fd: 1 } } == Container { data: FileHandle { fd: 1 } };
     ()
 }

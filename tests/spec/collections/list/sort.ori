@@ -63,3 +63,10 @@ use std.testing { assert_eq }
 @test_sort_with_negatives tests @sort_with_negatives () -> void = {
     assert_eq(actual: sort_with_negatives(), expected: [-3, -1, 0, 2, 5])
 }
+
+@sort_orderings () -> [Ordering] = [Greater, Less, Equal].sort();
+
+@test_sort_orderings tests @sort_orderings () -> void = {
+    assert_eq(actual: sort_orderings(), expected: [Less, Equal, Greater]);
+    assert_eq(actual: [Less].compare(other: [Equal]), expected: Less)
+}

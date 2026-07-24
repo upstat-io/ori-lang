@@ -1,17 +1,17 @@
 //! Closure (partial application) emission for [`ArcIrEmitter`].
 //!
-//! Handles `PartialApply` instructions: allocating closure environments
-//! and generating environment drop functions. Wrapper function generation
-//! lives in the sibling [`closure_wrappers`](super::closure_wrappers) module.
+//! Handles `PartialApply` environment allocation and drop functions.
+//! [`closure_wrappers`](super::closure_wrappers) provides wrapper generation.
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_arc::ownership::Ownership;
-use ori_ir::{Name, CLOSURE_FIELD_ENV};
+use ori_arc::{ClosureAdapterPlan, ClosureAdapterSource, DropKind};
+use ori_ir::Name;
 use ori_types::Idx;
 
 use super::context::EmittedValue;
 use super::ArcIrEmitter;
-use crate::codegen::abi::ParamAbi;
+use crate::codegen::abi::{compute_closure_param_passing, FunctionAbi, ParamAbi};
 use crate::codegen::type_info::TypeLayoutResolver;
 use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
 
@@ -46,24 +46,51 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "ArcIrEmitter: PartialApply — closure creation"
         );
 
-        // Look up the callee (lambda function), already compiled and registered
-        let Some(&(callee_func_id, ref callee_abi)) = self.ctx.functions.get(&callee) else {
-            tracing::warn!(
-                name = callee_name_str,
-                "emit_partial_apply: callee not found"
-            );
-            let closure_ty = self.builder.closure_type();
-            let null_ptr = self.builder.const_null_ptr();
-            let closure =
-                self.builder
-                    .build_struct(closure_ty, &[null_ptr, null_ptr], "partial_apply");
-            self.def_var(dst, EmittedValue::Aggregate(closure));
+        let Some((callee_func_id, callee_abi, frozen_adapter)) =
+            self.resolve_partial_apply_target(dst, callee, args.len())
+        else {
             return;
         };
 
-        // Non-capturing fast path: lambda already has closure-compatible ABI,
-        // so use its function pointer directly — no wrapper needed.
-        if is_non_capturing && args.is_empty() {
+        let num_captures = args.len();
+        let remaining_params: Vec<ParamAbi> = callee_abi.params[num_captures..]
+            .iter()
+            .enumerate()
+            .map(|(residual_index, target)| {
+                let ty = frozen_adapter.as_ref().map_or(target.ty, |adapter| {
+                    adapter.slots()[num_captures + residual_index].ty
+                });
+                ParamAbi {
+                    name: target.name,
+                    ty,
+                    passing: compute_closure_param_passing(
+                        ty,
+                        self.type_info,
+                        self.repr_plan,
+                        self.classifier,
+                    ),
+                    readonly: true,
+                }
+            })
+            .collect();
+
+        // Non-capturing fast path: use the target function pointer directly
+        // only when both its logical adapter and physical residual ABI already
+        // match the target-independent closure convention.
+        let residual_abi_matches_target =
+            remaining_params
+                .iter()
+                .map(|param| param.passing)
+                .eq(callee_abi.params[num_captures..]
+                    .iter()
+                    .map(|param| param.passing));
+        if is_non_capturing
+            && args.is_empty()
+            && frozen_adapter
+                .as_ref()
+                .is_none_or(|adapter| !adapter.requires_retain())
+            && residual_abi_matches_target
+        {
             let fn_ptr = self.builder.get_function_ptr(callee_func_id);
             let null_env = self.builder.const_null_ptr();
             let closure_ty = self.builder.closure_type();
@@ -74,53 +101,129 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
-        let callee_abi = callee_abi.clone();
-        let num_captures = args.len();
-
         // Capture types (from ARC IR variable types)
         let capture_types: Vec<Idx> = args.iter().map(|&v| func.var_type(v)).collect();
 
-        // Remaining user params (the closure awaits these)
-        let remaining_params: Vec<ParamAbi> = callee_abi.params[num_captures..].to_vec();
-
         // Capture ownership: which captures are borrowed (skip RcInc in wrapper — body borrows from env).
-        let capture_ownership: Vec<Ownership> = self
-            .ctx
-            .lambda_capture_ownership
-            .get(&callee)
-            .cloned()
-            .unwrap_or_else(|| {
-                tracing::warn!(
-                    name = callee_name_str,
-                    captures = num_captures,
-                    "lambda_capture_ownership missing — defaulting to all-Owned (conservative)"
-                );
-                vec![Ownership::Owned; num_captures]
-            });
+        let capture_ownership: Vec<Ownership> = if frozen_adapter.is_some() {
+            Vec::new()
+        } else {
+            self.ctx
+                .lambda_capture_ownership
+                .get(&callee)
+                .cloned()
+                .unwrap_or_else(|| {
+                    tracing::warn!(
+                        name = callee_name_str,
+                        captures = num_captures,
+                        "unbound LLVM entry is missing transitional capture ownership"
+                    );
+                    vec![Ownership::Owned; num_captures]
+                })
+        };
 
-        // == Allocate and pack the environment ==
+        // Allocate and pack the environment
         let env_ptr = if capture_types.is_empty() {
             self.builder.const_null_ptr()
         } else {
             self.build_closure_env(args, &capture_types)
         };
 
-        // == Generate wrapper function ==
+        // Generate wrapper function
         let target_is_nounwind = self.ctx.nounwind_functions.contains(&callee);
         let wrapper_fn_ptr = self.generate_closure_wrapper(
             callee_func_id,
             &callee_abi,
             &capture_types,
+            frozen_adapter.as_ref(),
             &capture_ownership,
             &remaining_params,
+            is_non_capturing,
             target_is_nounwind,
         );
 
-        // == Build fat-pointer closure { wrapper_fn_ptr, env_ptr } ==
+        // Build fat-pointer closure { wrapper_fn_ptr, env_ptr }
         let closure_ty = self.builder.closure_type();
         let closure =
             self.builder
                 .build_struct(closure_ty, &[wrapper_fn_ptr, env_ptr], "partial_apply");
+        self.def_var(dst, EmittedValue::Aggregate(closure));
+    }
+
+    /// Resolve and validate the closed target facts required for closure emission.
+    fn resolve_partial_apply_target(
+        &mut self,
+        dst: ArcVarId,
+        callee: Name,
+        capture_count: usize,
+    ) -> Option<(FunctionId, FunctionAbi, Option<ClosureAdapterPlan>)> {
+        let callee_name = self.interner.lookup(callee);
+        let Some(&(callee_func_id, ref callee_abi)) = self.ctx.functions.get(&callee) else {
+            tracing::warn!(name = callee_name, "emit_partial_apply: callee not found");
+            self.emit_invalid_partial_apply(dst, "partial_apply");
+            return None;
+        };
+
+        let frozen_adapter = self.ctx.closure_adapters.get(&callee).cloned();
+        if self.ctx.executable_facts_bound && frozen_adapter.is_none() {
+            self.builder.record_codegen_error_with_msg(format!(
+                "validated executable has no closure adapter for target {callee_name}"
+            ));
+            self.emit_invalid_partial_apply(dst, "partial_apply.invalid");
+            return None;
+        }
+
+        if frozen_adapter.as_ref().is_some_and(|adapter| {
+            adapter.capture_count() != capture_count
+                || adapter.slots().len() != callee_abi.params.len()
+                || adapter
+                    .slots()
+                    .iter()
+                    .zip(&callee_abi.params)
+                    .enumerate()
+                    .any(|(index, (slot, param))| {
+                        slot.ty != param.ty
+                            || if index < capture_count {
+                                slot.source != ClosureAdapterSource::EnvironmentCapture
+                            } else {
+                                slot.source != ClosureAdapterSource::BorrowedCallArgument
+                            }
+                    })
+        }) {
+            self.builder.record_codegen_error_with_msg(format!(
+                "closure adapter for {callee_name} disagrees with its emitted target signature"
+            ));
+            self.emit_invalid_partial_apply(dst, "partial_apply.invalid");
+            return None;
+        }
+
+        if frozen_adapter.is_none()
+            && callee_abi.params[capture_count..].iter().any(|param| {
+                compute_closure_param_passing(
+                    param.ty,
+                    self.type_info,
+                    self.repr_plan,
+                    self.classifier,
+                ) != param.passing
+            })
+        {
+            self.builder.record_codegen_error_with_msg(format!(
+                "closure target {callee_name} needs an ownership adapter for its residual signature"
+            ));
+            self.emit_invalid_partial_apply(dst, "partial_apply.invalid");
+            return None;
+        }
+
+        Some((callee_func_id, callee_abi.clone(), frozen_adapter))
+    }
+
+    /// Bind a null closure after a target-validation failure.
+    fn emit_invalid_partial_apply(&mut self, dst: ArcVarId, label: &str) {
+        let closure_ty = self.builder.closure_type();
+        let null_ptr = self.builder.const_null_ptr();
+        let closure = self
+            .builder
+            .build_struct(closure_ty, &[null_ptr, null_ptr], label);
         self.def_var(dst, EmittedValue::Aggregate(closure));
     }
 
@@ -184,8 +287,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Generate a drop function for a closure environment.
     ///
-    /// The drop function RC-decrements each captured variable that is
-    /// reference-counted, then frees the environment via `ori_rc_free`.
+    /// Builds the `DropKind::ClosureEnv(fields)` descriptor via the
+    /// `ori_arc::compute_closure_env_drop` SSOT (the single source of truth
+    /// for which captures need RC and their logical indices), then walks
+    /// those fields decrementing each through the shared `dec_value_rc`
+    /// helper — the single tag-aware inline-value RC-dec dispatch (buffer dec
+    /// for List/Set/Map, inline-enum dec for Option/Result/Enum, aggregate
+    /// fields for Struct/Tuple, dynamic env-header dec for closures). Finally
+    /// frees the environment via `ori_rc_free`.
+    ///
+    /// Closure-env-specific concerns kept local: the per-instance env struct
+    /// type (closure envs are not interned in the type pool), the +1 field
+    /// offset (field 0 is the `drop_fn` slot; capture `i` lives at field
+    /// `i + 1`), and the `ori_rc_free` payload size.
     fn generate_env_drop_fn(
         &mut self,
         env_struct_ty_id: LLVMTypeId,
@@ -200,10 +314,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
 
+        // Save emitter's tracked current_function so helpers that append
+        // blocks (emit_drop_rc_dec → emit_closure_field_rc_dec) use the drop
+        // function's id, not the caller's.
+        let saved_current_function = self.current_function;
+
         // Declare: void @_ori_partial_N_drop(ptr %data)
         let ptr_ty = self.builder.ptr_type();
         let func_id = self.builder.declare_void_function(&func_name, &[ptr_ty]);
-        self.builder.set_ccc(func_id);
+        self.builder.set_module_local(func_id);
         self.builder.add_nounwind_attribute(func_id);
         self.builder.add_cold_attribute(func_id);
         self.builder.add_uwtable_attribute(func_id);
@@ -214,87 +333,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let entry = self.builder.append_block(func_id, "entry");
         self.builder.position_at_end(entry);
         self.builder.set_current_function(func_id);
+        self.current_function = func_id;
 
         let data_ptr = self.builder.get_param(func_id, 0);
 
-        // RC dec each captured variable that needs it.
-        //
-        // The env struct physically owns each capture (it was copied into
-        // the env by build_closure_env). The drop function must dec all
-        // RC-needing captures regardless of the lambda's borrow annotation —
-        // the annotation controls the lambda BODY's treatment, not env ownership.
-        //
-        // Collections (List, Set, Map) need special handling: their drop
-        // functions expect a pointer to the full `{len, cap, data}` struct,
-        // but `ori_rc_dec` only passes the raw data buffer pointer. Use
-        // the buffer RC dec helpers instead, which extract len/cap/data
-        // from the full value and call the appropriate runtime function.
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "capture count bounded by lambda arity, well within u32 range"
-        )]
-        for (i, &cap_ty) in capture_types.iter().enumerate() {
-            let needs_rc = self.classifier.needs_rc(cap_ty);
-            if needs_rc {
-                let field_ty = self.resolve_type(cap_ty);
-                let field_ptr = self.builder.struct_gep(
-                    env_struct_ty_id,
-                    data_ptr,
-                    (i + 1) as u32, // +1: field 0 is drop_fn
-                    &format!("cap.{i}.ptr"),
-                );
-                let field_val = self.builder.load(field_ty, field_ptr, &format!("cap.{i}"));
-
-                let resolved = self.pool.resolve_fully(cap_ty);
-                let tag = self.pool.tag(resolved);
-                match tag {
-                    ori_types::Tag::List | ori_types::Tag::Set => {
-                        self.emit_buffer_rc_dec_list_or_set(field_val, resolved, tag);
-                    }
-                    ori_types::Tag::Map => {
-                        self.emit_buffer_rc_dec_map(field_val, resolved);
-                    }
-                    ori_types::Tag::Function => {
-                        // Closure: { fn_ptr, env_ptr } — extract env_ptr,
-                        // null-check, load dynamic drop_fn from env header.
-                        if let Some(env_ptr) = self.builder.extract_value(
-                            field_val,
-                            CLOSURE_FIELD_ENV,
-                            &format!("cap.{i}.env"),
-                        ) {
-                            if !self.builder.is_const_null_ptr(env_ptr) {
-                                let is_null =
-                                    self.builder.is_null_ptr(env_ptr, &format!("cap.{i}.null"));
-                                let do_dec =
-                                    self.builder.append_block(func_id, &format!("cap.{i}.dec"));
-                                let skip_blk =
-                                    self.builder.append_block(func_id, &format!("cap.{i}.skip"));
-                                self.builder.cond_br(is_null, skip_blk, do_dec);
-
-                                self.builder.position_at_end(do_dec);
-                                let ptr_ty = self.builder.ptr_type();
-                                let drop_fn_val =
-                                    self.builder
-                                        .load(ptr_ty, env_ptr, &format!("cap.{i}.drop_fn"));
-                                let rc_dec_id = self.builder.runtime_fn("ori_rc_dec");
-                                self.builder.call(rc_dec_id, &[env_ptr, drop_fn_val], "");
-                                self.builder.br(skip_blk);
-
-                                self.builder.position_at_end(skip_blk);
-                            }
-                        }
-                    }
-                    _ => {
-                        let data_ptrs = self.extract_rc_data_ptrs(field_val, cap_ty);
-                        let drop_fn = self.get_or_generate_drop_fn(cap_ty);
-                        let rc_dec_id = self.builder.runtime_fn("ori_rc_dec");
-                        for data_ptr_val in data_ptrs {
-                            self.builder.call(rc_dec_id, &[data_ptr_val, drop_fn], "");
-                        }
-                    }
-                }
-            }
-        }
+        self.emit_closure_env_field_decs(env_struct_ty_id, data_ptr, capture_types);
 
         // Free the env struct
         let size_val = self.builder.const_i64(env_size as i64);
@@ -316,12 +359,60 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         }
 
-        // Restore builder position
+        // Restore builder position and emitter's current_function trackers
+        self.current_function = saved_current_function;
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
             self.builder.set_current_function(f);
         }
 
         func_id
+    }
+
+    /// Decrement each RC-owning captured field of a closure environment.
+    ///
+    /// The set of fields needing RC and their logical capture indices come
+    /// from `ori_arc::compute_closure_env_drop` — the SSOT shared with the
+    /// `DropKind::ClosureEnv` codegen arm. Each field is loaded from its
+    /// physical slot (`+1` past the `drop_fn` header) and decremented via the
+    /// shared `dec_value_rc` SSOT. `dec_value_rc` itself dispatches per tag
+    /// (buffer dec for List/Set/Map, inline-enum dec for Option/Result/Enum,
+    /// aggregate-field dec for Struct/Tuple, dynamic env-header dec for
+    /// closure captures), so collection captures route through the same
+    /// buffer-dec path as every other inline collection value — no parallel
+    /// per-tag dispatch in the closure path.
+    fn emit_closure_env_field_decs(
+        &mut self,
+        env_struct_ty_id: LLVMTypeId,
+        data_ptr: ValueId,
+        capture_types: &[Idx],
+    ) {
+        let DropKind::ClosureEnv(fields) =
+            ori_arc::compute_closure_env_drop(capture_types, self.classifier)
+        else {
+            // No captured variable needs RC — nothing to walk before free.
+            return;
+        };
+
+        for (capture_index, field_type) in fields {
+            // Physical env layout: field 0 is the drop_fn slot, captures
+            // start at field 1. The logical capture index from the burden
+            // spec maps to physical field `capture_index + 1`.
+            let physical_index = capture_index + 1;
+            let field_llvm_ty = self.resolve_type(field_type);
+            let field_ptr = self.builder.struct_gep(
+                env_struct_ty_id,
+                data_ptr,
+                physical_index,
+                &format!("cap.{capture_index}.ptr"),
+            );
+            let field_val =
+                self.builder
+                    .load(field_llvm_ty, field_ptr, &format!("cap.{capture_index}"));
+            // A captured struct/enum value with a user `@drop` runs its
+            // `@drop` at closure-env teardown before the field walk.
+            self.emit_user_drop_for_inline_value(field_type, field_val);
+            self.dec_value_rc(field_val, field_type);
+        }
     }
 }

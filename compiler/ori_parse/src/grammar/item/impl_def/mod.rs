@@ -4,16 +4,17 @@ use crate::context::ParseContext;
 use crate::grammar::attr::ParsedAttrs;
 use crate::{committed, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
-    DefImplDef, GenericParamRange, ImplAssocType, ImplDef, ImplMethod, ParsedTypeRange, TokenKind,
-    Visibility,
+    DefImplDef, GenericParamRange, ImplAssocType, ImplDef, ImplMethod, ParsedType, ParsedTypeRange,
+    TokenKind, Visibility,
 };
 
 impl Parser<'_> {
     /// Parse an impl block.
     ///
-    /// Syntax: impl [<T>] Type { methods } or impl [<T>] Trait for Type { methods }
+    /// Syntax: impl [<T>] Type { methods } (inherent) or impl [<T>] Type: Trait { methods } (trait impl)
     ///
     /// Returns `EmptyErr` if no `impl` keyword is present.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_impl(&mut self, attrs: ParsedAttrs) -> ParseOutcome<ImplDef> {
         if !self.cursor.check(&TokenKind::Impl) {
             return ParseOutcome::empty_err_expected(
@@ -36,23 +37,45 @@ impl Parser<'_> {
             GenericParamRange::EMPTY
         };
 
-        // Parse the first type (could be trait or self_ty)
-        // Supports both simple `Box` and generic `Box<T>`
-        let (first_path, first_ty) = require!(self, self.parse_impl_type(), "type after `impl`");
+        // Subject may be a primitive type-name keyword (`impl str: Trait`); gate on the
+        // 6-primitive helper, not the broader check_type_keyword, so Never/void reject.
+        // The post-colon trait path stays Ident-only, so `impl Foo: str` also rejects.
+        let (first_path, first_ty) = if let Some((type_id, name_str)) =
+            crate::grammar::item::generics::primitive_type_keyword(self.cursor.current_kind())
+        {
+            let name = self.cursor.interner().intern(name_str);
+            self.cursor.advance();
+            (vec![name], ParsedType::Primitive(type_id))
+        } else {
+            require!(self, self.parse_impl_type(), "type after `impl`")
+        };
 
-        // Check for `for` keyword to determine if this is a trait impl
+        // Determine trait vs inherent impl.
         let (trait_path, trait_type_args, self_path, self_ty) =
-            if self.cursor.check(&TokenKind::For) {
+            if self.cursor.check(&TokenKind::Colon) {
+                // Spec: grammar.ebnf trait_impl — subject-first `impl Type: Trait`.
+                // First type is the subject (self_ty); the post-colon type is the trait.
                 self.cursor.advance();
-                // Parse the implementing type
-                let (impl_path, impl_ty) =
-                    require!(self, self.parse_impl_type(), "type after `for`");
-                // Extract type args from trait type (first_ty is a ParsedType::Named with type_args)
-                let trait_type_args = match &first_ty {
+                let (trait_path, trait_ty) =
+                    require!(self, self.parse_impl_type(), "trait path after `:`");
+                // trait_type_args come from the post-colon trait, not the subject.
+                let trait_type_args = match &trait_ty {
                     ori_ir::ParsedType::Named { type_args, .. } => *type_args,
                     _ => ParsedTypeRange::EMPTY,
                 };
-                (Some(first_path), trait_type_args, impl_path, impl_ty)
+                (Some(trait_path), trait_type_args, first_path, first_ty)
+            } else if self.cursor.check(&TokenKind::For) {
+                // Spec: grammar.ebnf trait_impl has no `for`-form — reject with migration help.
+                let for_span = self.cursor.current_span();
+                return ParseOutcome::consumed_err(
+                    ParseError::new(
+                        ori_diagnostic::ErrorCode::E1019,
+                        "trait impl must be written `impl Type: Trait`, not `impl Trait for Type`",
+                        for_span,
+                    )
+                    .with_help("rewrite `impl Trait for Type` as `impl Type: Trait`"),
+                    for_span,
+                );
             } else {
                 (None, ParsedTypeRange::EMPTY, first_path, first_ty)
             };
@@ -78,7 +101,7 @@ impl Parser<'_> {
                 assoc_types.push(at);
             } else if self.cursor.check(&TokenKind::At) {
                 // Method: @name (...) -> Type = body
-                let method = committed!(self.parse_impl_method());
+                let method = committed!(self.parse_impl_method(false));
                 methods.push(method);
             } else {
                 return ParseOutcome::consumed_err(
@@ -115,12 +138,31 @@ impl Parser<'_> {
     }
 
     /// Parse a method in an impl block.
-    pub(crate) fn parse_impl_method(&mut self) -> Result<ImplMethod, ParseError> {
+    ///
+    /// Grammar (per `docs/ori_lang/v2026/spec/grammar.ebnf`):
+    /// ```text
+    /// method          = "@" identifier [ generics ] params "->" type [ uses_clause ] [ where_clause ] "=" expression [ ";" ] .
+    /// def_impl_method = "@" identifier [ generics ] params "->" type [ where_clause ] "=" expression [ ";" ] .  /* no self, no uses */
+    /// ```
+    ///
+    /// `def_impl_context` selects the `def impl` variant: `uses_clause` is
+    /// rejected with a parse-error diagnostic. Stateless-default contract.
+    pub(crate) fn parse_impl_method(
+        &mut self,
+        def_impl_context: bool,
+    ) -> Result<ImplMethod, ParseError> {
         let start_span = self.cursor.current_span();
 
         // @name
         self.cursor.expect(&TokenKind::At)?;
         let name = self.cursor.expect_ident()?;
+
+        // Optional method-level generics: <T, U: Bound>
+        let generics = if self.cursor.check(&TokenKind::Lt) {
+            self.parse_generics().into_result()?
+        } else {
+            GenericParamRange::EMPTY
+        };
 
         // (params)
         self.cursor.expect(&TokenKind::LParen)?;
@@ -130,6 +172,29 @@ impl Parser<'_> {
         // -> Type
         self.cursor.expect(&TokenKind::Arrow)?;
         let return_ty = self.parse_type_required().into_result()?;
+
+        // Optional uses clause: uses Http, FileSystem
+        // Forbidden in `def impl` methods (stateless-default contract).
+        let capabilities = if self.cursor.check(&TokenKind::Uses) {
+            if def_impl_context {
+                let uses_span = self.cursor.current_span();
+                return Err(ParseError::new(
+                    ori_diagnostic::ErrorCode::E1002,
+                    "`uses` clause not allowed in `def impl` method (def-impl methods are stateless by definition)".to_string(),
+                    uses_span,
+                ));
+            }
+            self.parse_uses_clause().into_result()?
+        } else {
+            Vec::new()
+        };
+
+        // Optional method-level where clauses: where T: Clone
+        let where_clauses = if self.cursor.check(&TokenKind::Where) {
+            self.parse_where_clauses().into_result()?
+        } else {
+            Vec::new()
+        };
 
         // = body
         self.cursor.expect(&TokenKind::Eq)?;
@@ -144,8 +209,11 @@ impl Parser<'_> {
 
         Ok(ImplMethod {
             name,
+            generics,
             params,
             return_ty,
+            capabilities,
+            where_clauses,
             body,
             span: start_span.merge(end_span),
         })
@@ -187,6 +255,7 @@ impl Parser<'_> {
     /// - No type parameters (no generics)
     /// - No `for Type` clause (anonymous implementation)
     /// - Methods must not have `self` parameter (stateless)
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_def_impl(&mut self, visibility: Visibility) -> ParseOutcome<DefImplDef> {
         if !self.cursor.check(&TokenKind::Def) {
             return ParseOutcome::empty_err_expected(
@@ -218,8 +287,8 @@ impl Parser<'_> {
 
         while !self.cursor.check(&TokenKind::RBrace) && !self.cursor.is_at_end() {
             if self.cursor.check(&TokenKind::At) {
-                // Method: @name (...) -> Type = body
-                let method = committed!(self.parse_impl_method());
+                // Method: @name (...) -> Type = body (def-impl context: forbids `uses` clause)
+                let method = committed!(self.parse_impl_method(true));
                 methods.push(method);
             } else {
                 return ParseOutcome::consumed_err(

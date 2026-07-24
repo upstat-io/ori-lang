@@ -1,0 +1,3130 @@
+Theorem L-1: Lattice join commutativity
+
+  Preconditions:
+    - a, b are AimsState elements per the canonical proof notation
+    - join is the product-lattice componentwise join per Annex E §AIMS.8 L-1
+
+  Soundness property:
+    Forall a, b in AimsState. join(a, b) = join(b, a)
+
+  Proof obligation:
+    sorry -- discharged by sec-02 lattice algebra proofs
+
+    Engines dispatched:
+      lattice
+      monotonicity
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-02 discharges L-1 lattice join commutativity
+
+Theorem L-2: Lattice join associativity
+
+  Preconditions:
+    - a, b, c are AimsState elements per the canonical proof notation
+    - join is the product-lattice componentwise join per Annex E §AIMS.8 L-2
+
+  Soundness property:
+    Forall a, b, c in AimsState. join(join(a, b), c) = join(a, join(b, c))
+
+  Proof obligation:
+    sorry -- discharged by sec-02 lattice algebra proofs
+
+    Engines dispatched:
+      lattice
+      monotonicity
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-02 discharges L-2 lattice join associativity
+
+Theorem L-3: Lattice join idempotence
+
+  Preconditions:
+    - a is an AimsState element per the canonical proof notation
+    - join is the product-lattice componentwise join per Annex E §AIMS.8 L-3
+
+  Soundness property:
+    Forall a in AimsState. join(a, a) = a
+
+  Proof obligation:
+    sorry -- discharged by sec-02 lattice algebra proofs
+
+    Engines dispatched:
+      lattice
+      monotonicity
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-02 discharges L-3 lattice join idempotence
+
+Theorem L-4: Partial order reflexive antisymmetric transitive
+
+  Preconditions:
+    - a, b, c are AimsState elements per the canonical proof notation
+    - Partial order le is defined as a le b iff join(a, b) = b per Annex E §AIMS.8 L-4
+
+  Soundness property:
+    Forall a, b, c in AimsState.
+      reflexive: a le a
+      antisymmetric: (a le b) and (b le a) implies a = b
+      transitive: (a le b) and (b le c) implies a le c
+
+  Proof obligation:
+    sorry -- discharged by sec-02 lattice algebra proofs
+
+    Engines dispatched:
+      lattice
+      monotonicity
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-02 discharges L-4 partial order axioms
+
+Theorem L-5: Finite lattice height
+
+  Preconditions:
+    - Each AimsState dimension has finite height per Annex E §AIMS.8 L-5
+    - Per-dimension heights: Access 1, Consumption 3, Cardinality 2, Uniqueness 2, Locality 4, Shape 1, Effect 3
+
+  Soundness property:
+    height(AimsState) = sum of per-dimension heights = 1 + 3 + 2 + 2 + 4 + 1 + 3 = 16
+    No ascending chain in AimsState exceeds length 16.
+
+  Proof obligation:
+    sorry -- discharged by sec-02 lattice algebra proofs
+
+    Engines dispatched:
+      lattice
+      monotonicity
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-02 discharges L-5 finite lattice height
+
+Theorem L-6: Transfer functions monotone
+
+  Preconditions:
+    - f is a transfer function over AimsState per Annex E §AIMS.8 L-6
+    - le is the lattice partial order
+
+  Soundness property:
+    Forall a, b in AimsState. (a le b) implies (f(a) le f(b))
+
+  Proof obligation:
+    sorry -- discharged by sec-02 lattice algebra proofs
+
+    Engines dispatched:
+      lattice
+      monotonicity
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-02 discharges L-6 transfer function monotonicity
+
+Theorem L-7: Canonicalization idempotent
+
+  Preconditions:
+    - canonicalize is the lattice canonicalization function per Annex E §AIMS
+    - L-7 (idempotence) per Annex E §AIMS.8 L-7
+
+  Soundness property:
+    Forall s in AimsState. canonicalize(canonicalize(s)) = canonicalize(s)
+
+  Proof obligation:
+    sorry -- discharged by sec-02 lattice algebra proofs
+
+    Engines dispatched:
+      lattice
+      monotonicity
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-02 discharges L-7 canonicalization idempotence
+
+Theorem L-8: Canonicalization preserves joins
+
+  Preconditions:
+    - canonicalize is the lattice canonicalization function per Annex E §AIMS
+    - L-8 (join preservation) per Annex E §AIMS.8 L-8
+
+  Soundness property:
+    Forall a, b in AimsState. canonicalize(join(a, b)) = join(a, b)
+
+  Proof obligation:
+    sorry -- discharged by sec-02 lattice algebra proofs
+
+    Engines dispatched:
+      lattice
+      monotonicity
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-02 discharges L-8 canonicalization preserves joins
+
+Theorem L-9: SCALAR sentinel excluded from lattice operations
+
+  Preconditions:
+    - SCALAR is the scalar sentinel per Annex E §AIMS.8 L-9
+    - SCALAR is NOT a lattice element
+
+  Soundness property:
+    Forall a in AimsState. join(a, SCALAR) is undefined.
+    Analysis SHALL exclude scalars from the state map.
+    TF-8 (Select) excludes SCALAR operand BEFORE join (pre-filter, not lattice join with SCALAR).
+
+  Proof obligation:
+    sorry -- discharged by sec-02 lattice algebra proofs
+
+    Engines dispatched:
+      lattice
+      monotonicity
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-02 discharges L-9 SCALAR sentinel exclusion
+
+Theorem L-10: Dimension extension requires per-rule proofs
+
+  Preconditions:
+    - Adding a new dimension D to the AimsState product lattice per Annex E §AIMS.8 L-10
+    - The extension MUST preserve the prior axioms L-1 through L-8
+
+  Soundness property:
+    Forall new dimension D added to AimsState.
+      (a) D has finite height (re-prove L-5 for D),
+      (b) D has a defined join operation,
+      (c) canonicalization extends to cover D's interaction with prior dims,
+      (d) L-1 through L-8 still hold for the extended product.
+
+  Proof obligation:
+    sorry -- discharged by sec-02 lattice algebra proofs
+
+    Engines dispatched:
+      lattice
+      monotonicity
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-02 discharges L-10 dimension-extension axiom
+
+Theorem CN-1: Dead bidirectional Absent
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+    - CN-1 per Annex E §AIMS (Dead-Absent bidirectional)
+
+  Soundness property:
+    Forall s in AimsState.
+      (s.consumption = Dead implies canonicalize(s).cardinality = absent)
+      and
+      (s.cardinality = absent implies canonicalize(s).consumption = Dead)
+
+  Proof obligation:
+    sorry -- discharged by sec-03 canonicalization proofs
+
+    Engines dispatched:
+      case_analysis
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-03 discharges CN-1 Dead-Absent bidirectional
+
+Theorem CN-2: Linear and Absent infeasible
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+    - CN-2 per Annex E §AIMS (Linear-Absent infeasibility); subsumed by CN-1 but retained for explicit documentation
+
+  Soundness property:
+    Forall s in AimsState.
+      (s.consumption = Linear and s.cardinality = absent)
+      implies canonicalize(s).consumption = Dead
+
+  Proof obligation:
+    sorry -- discharged by sec-03 canonicalization proofs
+
+    Engines dispatched:
+      case_analysis
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-03 discharges CN-2 Linear-Absent infeasibility
+
+Theorem CN-3: Shared blocks reuse shape
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+    - CN-3 per Annex E §AIMS (Shared blocks Reusable shape)
+    - Applies to ALL reusable shapes: R_S, R_V, C, ContextHole
+
+  Soundness property:
+    Forall s in AimsState.
+      (s.uniqueness = Shared and s.shape is not NonReusable)
+      implies canonicalize(s).shape = NonReusable
+
+  Proof obligation:
+    sorry -- discharged by sec-03 canonicalization proofs
+
+    Engines dispatched:
+      case_analysis
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-03 discharges CN-3 Shared blocks Reusable shape
+
+Theorem CN-4: REMOVED anti-monotone canonicalization that broke L-2 and L-4
+
+  Preconditions:
+    - This rule was REMOVED from Annex E §AIMS
+    - The former rule promoted MaybeShared to Unique for BlockLocal AND Owned AND <= Once
+    - Promotion was anti-monotone (broke L-2 associativity and L-4 partial-order axioms)
+
+  Soundness property:
+    REMOVED. Uniqueness is ESTABLISHED by transfer functions (TF-3 FRESH output)
+    or by the Uniqueness lattice dimension (§AIMS §3.4) as direct source of truth;
+    NEVER re-derived in canonicalization.
+
+  Proof obligation:
+    sorry -- this rule is no longer active; subsumed by TF-3 plus Uniqueness dimension
+
+    Engines dispatched:
+      case_analysis
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 REMOVAL confirmation entry CN-4; no active theorem to discharge
+
+Theorem CN-5: Unique and Dead preserves reusable shape
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+    - CN-5 per Annex E §AIMS (no rule collapses shape for Unique + Dead)
+
+  Soundness property:
+    Forall s in AimsState.
+      (s.uniqueness = Unique and s.consumption = Dead and s.shape is not NonReusable)
+      implies canonicalize(s).shape = s.shape
+
+  Proof obligation:
+    sorry -- discharged by sec-03 canonicalization proofs
+
+    Engines dispatched:
+      case_analysis
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-03 discharges CN-5 Unique-Dead shape preservation
+
+Theorem CN-6: Wide-locality uniqueness ceiling
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+    - CN-6 per Annex E §AIMS (HeapEscaping or wider with Unique implies MaybeShared)
+    - Exception clause for return values is bounded to §AIMS §7 Return Provenance
+
+  Soundness property:
+    Forall s in AimsState.
+      (s.locality ge HeapEscaping and s.uniqueness = Unique)
+      implies canonicalize(s).uniqueness = MaybeShared
+
+  Proof obligation:
+    sorry -- discharged by sec-03 canonicalization proofs
+
+    Engines dispatched:
+      case_analysis
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-03 discharges CN-6 wide-locality uniqueness ceiling
+
+Theorem CN-7: REMOVED decision-predicate result not lattice-state mutation
+
+  Preconditions:
+    - This rule was REMOVED from Annex E §AIMS
+    - The former rule about Shared + CollectionBuffer mutation mode was a
+      decision-predicate result, not a lattice-state mutation
+    - Covered by DP-9 (Shared implies IsolationRequired)
+
+  Soundness property:
+    REMOVED. Canonicalization rules SHALL only mutate lattice dimensions.
+    Assigning mutation_obligation is a DECISION, not a state mutation.
+    The case is covered by DP-9 (Shared implies IsolationRequired).
+
+  Proof obligation:
+    sorry -- this rule is no longer active; subsumed by the DP-9
+             mutation_obligation classifier
+
+    Engines dispatched:
+      case_analysis
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 REMOVAL confirmation entry CN-7; no active theorem to discharge
+
+Theorem CN-8: Borrowed locality ceiling
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+    - CN-8 per Annex E §AIMS (Borrowed + locality wider than FunctionLocal implies FunctionLocal)
+    - Placed BEFORE CN-6 in canonicalization order (locality precise when CN-6 fires)
+
+  Soundness property:
+    Forall s in AimsState.
+      (s.access = Borrowed and s.locality > FunctionLocal)
+      implies canonicalize(s).locality = FunctionLocal
+
+  Proof obligation:
+    sorry -- discharged by sec-03 canonicalization proofs
+
+    Engines dispatched:
+      case_analysis
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-03 discharges CN-8 borrowed locality ceiling
+
+Theorem TF-1: Let Literal forward transfer
+
+  Preconditions:
+    - dst is defined by Let { Literal } at program point p per Annex E §AIMS TF-1
+    - Literal types: int, float, bool, char, byte, duration, size, Ordering, unit, Never
+
+  Soundness property:
+    Forall literal. TF(s, Let { Literal })[dst] = SCALAR
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-1 scalar literal forward transfer
+
+Theorem TF-2: Let Var forward transfer transparent alias
+
+  Preconditions:
+    - dst is defined by Let { Var(v) } at program point p per Annex E §AIMS TF-2
+    - Transparent alias: dst inherits v's full state per IA-5 step (1)
+
+  Soundness property:
+    Forall v. TF(s, Let { Var(v) })[dst] = state(v)
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-2 transparent alias forward transfer
+
+Theorem TF-2a: Let PrimOp forward transfer
+
+  Preconditions:
+    - dst is defined by Let { PrimOp } at program point p per Annex E §AIMS TF-2a
+    - PrimOps are scalar arithmetic primitives
+
+  Soundness property:
+    Forall primop. TF(s, Let { PrimOp(args) })[dst] = SCALAR
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-2a PrimOp forward transfer
+
+Theorem TF-3: Construct produces FRESH state
+
+  Preconditions:
+    - dst is defined by Construct(ctor) at program point p per Annex E §AIMS TF-3
+    - shape_from_ctor mapping: Struct to R_S, EnumVariant to R_V, ListLiteral/SetLiteral/MapLiteral to C, Tuple/Closure to Phi
+
+  Soundness property:
+    Forall ctor.
+      TF(s, Construct(ctor))[dst]
+        = FRESH(shape_from_ctor(ctor))
+        = (O, L, 1, u, bl, shape_from_ctor(ctor), {alloc})
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-3 Construct FRESH forward transfer
+
+Theorem TF-4: Project forward transfer Borrowed inherits source
+
+  Preconditions:
+    - dst is defined by Project(src, field) at program point p per Annex E §AIMS TF-4
+    - Borrow source tracked in borrow_sources side-table per §AIMS §7
+
+  Soundness property:
+    Forall src, field.
+      TF(s, Project(src, field))[dst]
+        = (B, L, 1, src.uniqueness, src.locality, NonReusable, NONE)
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-4 Project forward transfer
+
+Theorem TF-5: Apply no-contract forward transfer CONSERVATIVE
+
+  Preconditions:
+    - dst is defined by Apply(func, args) WITHOUT contract per Annex E §AIMS TF-5
+    - CONSERVATIVE = (O, Unrestricted, omega, MaybeShared, Unknown, NonReusable, ALL)
+
+  Soundness property:
+    Forall apply call without contract. TF(s, Apply(func, args))[dst] = CONSERVATIVE
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-5 Apply no-contract forward transfer
+
+Theorem TF-5a: ApplyIndirect forward transfer CONSERVATIVE
+
+  Preconditions:
+    - dst is defined by ApplyIndirect(closure, args) per Annex E §AIMS TF-5a
+    - Closures have no contract; defaults CONSERVATIVE
+
+  Soundness property:
+    Forall apply_indirect call. TF(s, ApplyIndirect(closure, args))[dst] = CONSERVATIVE
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-5a ApplyIndirect forward transfer
+
+Theorem TF-6: Apply with-contract forward transfer refine
+
+  Preconditions:
+    - dst is defined by Apply(func, args) WITH callee contract per Annex E §AIMS TF-6
+    - refine narrows uniqueness, locality, shape from CONSERVATIVE to contract's values
+
+  Soundness property:
+    Forall apply call with contract.
+      TF(s, Apply(func, args))[dst] = refine(CONSERVATIVE, callee.return_contract)
+      where refine narrows uniqueness, locality, shape; leaves Access, Consumption, Cardinality, Effect at CONSERVATIVE
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-6 Apply with-contract refine
+
+Theorem TF-6a: Invoke with-contract forward transfer
+
+  Preconditions:
+    - dst is defined by Invoke(func, args) WITH callee contract per Annex E §AIMS TF-6a
+    - Same refine semantics as TF-6
+
+  Soundness property:
+    Forall invoke call with contract.
+      TF(s, Invoke(func, args))[dst] = refine(CONSERVATIVE, callee.return_contract)
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-6a Invoke with-contract refine
+
+Theorem TF-6b: Invoke no-contract forward transfer
+
+  Preconditions:
+    - dst is defined by Invoke(func, args) WITHOUT callee contract per Annex E §AIMS TF-6b
+    - Same CONSERVATIVE default as TF-5
+
+  Soundness property:
+    Forall invoke call without contract. TF(s, Invoke(func, args))[dst] = CONSERVATIVE
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-6b Invoke no-contract forward transfer
+
+Theorem TF-6c: InvokeIndirect forward transfer
+
+  Preconditions:
+    - dst is defined by InvokeIndirect(closure, args) per Annex E §AIMS TF-6c
+    - Same CONSERVATIVE default as TF-5a
+
+  Soundness property:
+    Forall invoke_indirect call. TF(s, InvokeIndirect(closure, args))[dst] = CONSERVATIVE
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-6c InvokeIndirect forward transfer
+
+Theorem TF-7: PartialApply forward transfer FRESH Phi
+
+  Preconditions:
+    - dst is defined by PartialApply(func, captured_args) at program point p per Annex E §AIMS TF-7
+    - Closure captured args feed via capture_state_update (TF-13)
+
+  Soundness property:
+    Forall partial_apply.
+      TF(s, PartialApply(func, captured_args))[dst]
+        = FRESH(Phi)
+        = (O, L, 1, u, bl, Phi, {alloc})
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-7 PartialApply FRESH forward transfer
+
+Theorem TF-8: Select forward transfer scalar-exclusion join
+
+  Preconditions:
+    - dst is defined by Select(cond, true_val, false_val) at program point p per Annex E §AIMS TF-8
+    - SCALAR is sentinel; excluded from lattice operations per L-9
+    - Mixed-SCALAR cases handled by pre-filter, not direct join with SCALAR
+
+  Soundness property:
+    Forall cond, true_val, false_val.
+      both SCALAR: TF[dst] = SCALAR
+      one SCALAR: TF[dst] inherits non-SCALAR with uniqueness := max(MaybeShared, non_scalar.uniqueness)
+      neither SCALAR: TF[dst] = join(state(true_val), state(false_val))
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-8 Select scalar-exclusion join
+
+Theorem TF-9: Reuse forward transfer FRESH inherited shape
+
+  Preconditions:
+    - dst is defined by Reuse(token, args) at program point p per Annex E §AIMS TF-9
+    - Shape inherited from Reset token's original Construct shape
+
+  Soundness property:
+    Forall reuse.
+      TF(s, Reuse(token, args))[dst]
+        = FRESH(token.original_shape)
+        = (O, L, 1, u, bl, token.original_shape, {alloc})
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-9 Reuse FRESH inherited shape
+
+Theorem TF-9a: CollectionReuse forward transfer FRESH C
+
+  Preconditions:
+    - dst is defined by CollectionReuse(old_var, args) at program point p per Annex E §AIMS TF-9a
+    - Shape always C (CollectionBuffer)
+
+  Soundness property:
+    Forall collection_reuse.
+      TF(s, CollectionReuse(old_var, args))[dst]
+        = FRESH(C)
+        = (O, L, 1, u, bl, C, {alloc})
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-9a CollectionReuse FRESH forward transfer
+
+Theorem TF-10: IsShared forward transfer SCALAR
+
+  Preconditions:
+    - dst is defined by IsShared(var) at program point p per Annex E §AIMS TF-10
+    - Boolean result, no RC
+
+  Soundness property:
+    Forall is_shared. TF(s, IsShared(var))[dst] = SCALAR
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-10 IsShared forward transfer
+
+Theorem TF-10a: Reset forward transfer SCALAR with liveness demand
+
+  Preconditions:
+    - dst is defined by Reset(var) at program point p per Annex E §AIMS TF-10a
+    - Reuse token: opaque handle, not refcounted; consumed by paired Reuse
+    - TF-11 emits (token, Once) at Reuse to prevent dead-code elimination
+
+  Soundness property:
+    Forall reset. TF(s, Reset(var))[dst] = SCALAR.
+    Token liveness: SCALAR for RC; structural pairing demand emitted at Reuse via TF-11.
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-10a Reset SCALAR with liveness demand
+
+Theorem TF-15: Set forward transfer no dst
+
+  Preconditions:
+    - Set(base, field, value) per Annex E §AIMS TF-15
+    - In-place mutation: no destination
+    - IA-5 step (1) handles value promotion (Owned, locality widening to base.locality)
+
+  Soundness property:
+    Forall set. TF(s, Set(base, field, value)) defines no dst variable.
+    base receives DIRECT demand via TF-11; value receives (value, Once, Linear) plus IA-5 promotion.
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-15 Set forward transfer (no dst)
+
+Theorem TF-15a: SetTag forward transfer no dst only base receives demand
+
+  Preconditions:
+    - SetTag(base, tag) per Annex E §AIMS TF-15a
+    - In-place tag mutation: no destination
+    - tag is scalar u64; only base receives backward demand
+
+  Soundness property:
+    Forall set_tag. TF(s, SetTag(base, tag)) defines no dst variable.
+    Backward (TF-11): (base, Once) only; no value operand.
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-15a SetTag forward transfer (no dst)
+
+Theorem TF-11: Standard backward-demand pattern
+
+  Preconditions:
+    - Variable v is an operand of instruction i per Annex E §AIMS TF-11
+    - Demand: (operand, cardinality=Once, consumption=Linear)
+    - Accumulation across multiple uses: seq_add (NOT lattice max)
+
+  Soundness property:
+    Forall instruction i with operand v.
+      backwardDemand(i)[v] = (v, Once, Linear)
+    Multiple-use accumulation: seq_add (Linear + Linear = Unrestricted; Once + Once = Many).
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-11 standard backward-demand pattern
+
+Theorem TF-11a: Terminator demands
+
+  Preconditions:
+    - Terminator t in {Return, Jump, Branch, Switch, Invoke, InvokeIndirect, Resume, Unreachable} per Annex E §AIMS TF-11a
+    - Per-terminator demand table per Annex E §AIMS
+
+  Soundness property:
+    Forall terminator t with operand list.
+      Return value: (value, Once)
+      Jump args: (arg, Once) per arg
+      Branch cond: (cond, Once)
+      Switch scrutinee: (scrutinee, Once)
+      Invoke args: (arg, Once) per arg; IC-3 refinement applies
+      InvokeIndirect closure+args: (closure, Once), (arg, Once) per arg
+      Resume / Unreachable: no demands
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-11a terminator demands
+
+Theorem TF-12: PartialApply emits no TF-11 demand
+
+  Preconditions:
+    - PartialApply(func, captured_args) per Annex E §AIMS TF-12
+    - Captured arg demand handled by TF-13 capture_state_update, NOT TF-11
+
+  Soundness property:
+    Forall partial_apply with captured_args.
+      backwardDemand(PartialApply)[captured_arg] = empty (TF-11 NOT applied)
+    Per-arg state transitions via TF-13 capture_state_update.
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-12 PartialApply no-direct-demand
+
+Theorem TF-13: capture_state_update transfers closure-context state to captured variables
+
+  Preconditions:
+    - PartialApply captures vars per Annex E §AIMS TF-13
+    - closure_state.locality drives access promotion (Borrowed plus
+      HeapEscaping would let the closure outlive its source without Owned
+      promotion)
+    - closure cardinality le Once preserves linear; > Once widens to Unrestricted
+
+  Soundness property:
+    Forall captured var v, closure_state cs.
+      cs.locality ge HeapEscaping
+        implies capture_state_update(v.state, cs).access := Owned
+      cs.cardinality le Once
+        implies capture_state_update(v.state, cs) updates via
+          consumption := seq_add(v.consumption, Affine);
+          cardinality := seq_add(v.cardinality, Once);
+          locality := max(v.locality, cs.locality)
+      cs.cardinality > Once
+        implies capture_state_update(v.state, cs) widens to Unrestricted, Many, max(loc).
+    Result SHALL be monotone per L-6.
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-13 capture_state_update
+
+Theorem TF-14: propagate_project_source_demand widens source cardinality and locality
+
+  Preconditions:
+    - dst is defined by Project(src, field) per Annex E §AIMS TF-14
+    - Backward demand from dst widens src's cardinality and locality
+
+  Soundness property:
+    Forall dst, src, field.
+      project_backward_demand(dst, src):
+        src.cardinality := seq_add(src.cardinality, dst.cardinality)
+        src.locality := max(src.locality, dst.locality)
+        src.consumption := seq_add(src.consumption, Affine)
+      No access promotion.
+
+  Proof obligation:
+    sorry -- discharged by sec-04 transfer function proofs
+
+    Engines dispatched:
+      case_analysis
+      monotonicity
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-04 discharges TF-14 Project backward propagation
+
+Theorem DP-1: needs_ownership_events truth table
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+    - needs_ownership_events predicate per Annex E §AIMS DP-1
+    - is_scalar(s) per L-9 (SCALAR sentinel exclusion)
+
+  Soundness property:
+    Forall s in AimsState.
+      needs_ownership_events(s)
+        iff (s.access = O and s.consumption is not Dead and not is_scalar(s))
+
+  Proof obligation:
+    sorry -- discharged by sec-05 decision predicate proofs
+
+    Engines dispatched:
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-05 discharges DP-1 needs_ownership_events truth table
+
+Theorem DP-2: is_release_unnecessary truth table
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+    - is_release_unnecessary predicate per Annex E §AIMS DP-2
+    - Gates supplementary release events only; terminal RL-2/RL-4/RL-5 own
+      their logic
+
+  Soundness property:
+    Forall s in AimsState.
+      is_release_unnecessary(s)
+        iff (s.cardinality = absent or s.consumption = Dead)
+
+  Proof obligation:
+    sorry -- discharged by sec-05 decision predicate proofs
+
+    Engines dispatched:
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-05 discharges DP-2 is_release_unnecessary truth table
+
+Theorem DP-3: is_additional_credit_elidable truth table
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+    - is_additional_credit_elidable predicate per Annex E §AIMS DP-3
+    - Single-use (Once) + Linear-or-Affine consumption are the true cases
+
+  Soundness property:
+    Forall s in AimsState.
+      is_additional_credit_elidable(s)
+        iff (s.cardinality = 1 and (s.consumption = Linear or
+             s.consumption = Affine))
+
+  Proof obligation:
+    sorry -- discharged by sec-05 decision predicate proofs
+
+    Engines dispatched:
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-05 discharges DP-3 is_additional_credit_elidable truth table
+
+Theorem DP-4: needs_sharing_observation truth table
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+    - needs_sharing_observation predicate per Annex E §AIMS DP-4
+    - ProvenUnique and ProvenShared need no observation; MaybeShared requires
+      an observation before selecting the same-identity or isolation outcome
+
+  Soundness property:
+    Forall s in AimsState.
+      needs_sharing_observation(s)
+        iff (s.uniqueness = MaybeShared)
+
+  Proof obligation:
+    sorry -- discharged by sec-05 decision predicate proofs
+
+    Engines dispatched:
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-05 discharges DP-4 needs_sharing_observation truth table
+
+Theorem DP-5: can_mutate_in_place context-dependent check
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+    - can_mutate_in_place predicate per Annex E §AIMS DP-5
+    - Consumes borrow_sources, project_alias_sources, live-variable set at point p
+    - DP-5 NOT pure function of AimsState (only context-dependent DP besides DP-9)
+
+  Soundness property:
+    Forall s, var, field, point.
+      can_mutate_in_place(s, var, field, point)
+        iff (s.access = O
+             and s.uniqueness = Unique
+             and no_active_overlapping_borrows(var, field, point))
+    where no_active_overlapping_borrows enforces:
+      (1) direct borrows (borrow_sources): not live at point OR path-disjoint from field
+      (2) transitive aliases (project_alias_sources non-borrow): not live at point
+
+  Proof obligation:
+    sorry -- discharged by sec-05 decision predicate proofs
+
+    Engines dispatched:
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-05 discharges DP-5 can_mutate_in_place
+
+Theorem DP-6: is_reuse_candidate truth table
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+    - is_reuse_candidate predicate per Annex E §AIMS DP-6
+    - Shared blocks reuse via CN-3; non-reusable shape disqualifies
+
+  Soundness property:
+    Forall s in AimsState.
+      is_reuse_candidate(s)
+        iff (s.access = O
+             and s.uniqueness is not Shared
+             and s.shape is not NonReusable)
+
+  Proof obligation:
+    sorry -- discharged by sec-05 decision predicate proofs
+
+    Engines dispatched:
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-05 discharges DP-6 is_reuse_candidate truth table
+
+Theorem DP-7: is_event_pair_elision_eligible truth table
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+    - is_event_pair_elision_eligible predicate per Annex E §AIMS DP-7
+    - Scope: callee's PARAMETER state; ArgEscaping floor in TF-11 applies to caller, not callee contract
+    - Param inc/dec pair elision only; does NOT apply to fresh-allocation terminal dec
+
+  Soundness property:
+    Forall s in AimsState (callee parameter).
+      is_event_pair_elision_eligible(s)
+        iff (is_local(s)
+             and s.access = O
+             and s.consumption = Linear
+             and s.cardinality = 1
+             and s.uniqueness = Unique
+             and not is_scalar(s))
+
+  Proof obligation:
+    sorry -- discharged by sec-05 decision predicate proofs
+
+    Engines dispatched:
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-05 discharges DP-7 is_event_pair_elision_eligible truth table
+
+Theorem DP-8: is_local truth table
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+    - is_local predicate per Annex E §AIMS DP-8
+    - ArgEscaping NOT local (escapes into callee)
+
+  Soundness property:
+    Forall s in AimsState.
+      is_local(s)
+        iff (s.locality in {BlockLocal, FunctionLocal})
+
+  Proof obligation:
+    sorry -- discharged by sec-05 decision predicate proofs
+
+    Engines dispatched:
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-05 discharges DP-8 is_local truth table
+
+Theorem DP-9: mutation_obligation context-dependent classifier
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+    - mutation_obligation classifier per Annex E §AIMS DP-9
+    - MutationObligation in {SameIdentityAdmissible, IsolationRequired,
+      SharingObservationRequired}
+    - Context: var, field, point + IC-3 ParamContract.uniqueness when applicable
+
+  Soundness property:
+    Forall s, var, field, point.
+      Unique and can_mutate_in_place implies SameIdentityAdmissible
+      Unique and not can_mutate_in_place implies IsolationRequired
+      MaybeShared and param with IC-3 Unique and can_mutate_in_place implies
+        SameIdentityAdmissible
+      MaybeShared otherwise implies SharingObservationRequired
+      Shared implies IsolationRequired
+
+  Proof obligation:
+    sorry -- discharged by sec-05 decision predicate proofs
+
+    Engines dispatched:
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-05 discharges DP-9 mutation_obligation classifier
+
+Theorem DP-10: REMOVED Backward analysis does not prove absence of existing aliases
+
+  Preconditions:
+    - This rule was REMOVED from Annex E §AIMS
+    - The former rule claimed Owned + Linear + Once implies one logical owner
+    - Unsound: backward analysis proves no FUTURE duplication, not absence of EXISTING aliases
+    - Owned + Linear + Once does NOT imply one logical owner; one use may store into a data structure and create an alias
+
+  Soundness property:
+    REMOVED. Uniqueness is ONLY established by the Uniqueness lattice dimension
+    OR by fresh allocation (TF-3); never derived from Consumption x Cardinality.
+    Subsumed by TF-3 (fresh establishes Unique) + Uniqueness dimension as direct truth source.
+
+  Proof obligation:
+    sorry -- this rule is no longer active; subsumed by TF-3 plus Uniqueness dimension
+
+    Engines dispatched:
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 REMOVAL confirmation entry DP-10; no active theorem to discharge
+
+Theorem IC-1: SCC decomposition and topological ordering
+
+  Preconditions:
+    - Call graph G is the function-level call graph per Annex E §AIMS IC-1
+    - SCCs decomposed via Tarjan's algorithm; topologically ordered callees-before-callers
+
+  Soundness property:
+    Forall function f in G.
+      f is processed in SCC topological order;
+      every callee of f reached before f within the SCC fixpoint loop.
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+
+    Engines dispatched:
+      fixpoint
+      interprocedural_summary
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges IC-1 SCC decomposition
+
+Theorem IC-2: ParamContract initialization at most-optimistic state
+
+  Preconditions:
+    - Each parameter initializes at the most optimistic ParamContract per Annex E §AIMS IC-2
+    - Initial: (B, empty, absent, bl, u, may_share=false)
+
+  Soundness property:
+    Forall function f, parameter p.
+      initial_contract(p) = (B, empty, absent, bl, u, false)
+    Fixpoint promotes monotonically toward CONSERVATIVE.
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+
+    Engines dispatched:
+      fixpoint
+      interprocedural_summary
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges IC-2 ParamContract initialization
+
+Theorem IC-3: ParamContract componentwise max plus may_share OR monotone fixpoint
+
+  Preconditions:
+    - ParamContract iteration step per Annex E §AIMS IC-3
+    - Join: componentwise max over (access, consumption, cardinality, locality, uniqueness); may_share OR
+    - Iterate until any dim changes; fixpoint guaranteed by IC-7 bound
+
+  Soundness property:
+    Forall call site with arg state s_arg, callee parameter p with contract c_old.
+      c_new := componentwise_max(c_old, s_arg) for (access, consumption, cardinality, locality, uniqueness)
+             plus may_share_new := OR(c_old.may_share, s_arg.may_share)
+      iterate; SHALL converge per IC-7 bound.
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+
+    Engines dispatched:
+      fixpoint
+      interprocedural_summary
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges IC-3 ParamContract join
+
+Theorem IC-4: ReturnContract per-dim join over return paths
+
+  Preconditions:
+    - ReturnContract per Annex E §AIMS IC-4
+    - 4 dims: uniqueness, preserves_freshness, locality, shape
+    - Join semantics: uniqueness(join), preserves_freshness(AND), locality(join), shape(join)
+
+  Soundness property:
+    Forall function f with return paths R = {r_1, ..., r_k}.
+      ReturnContract(f).uniqueness = join over R of return_extract(r_i).uniqueness
+      ReturnContract(f).preserves_freshness = AND over R of return_extract(r_i).preserves_freshness
+      ReturnContract(f).locality = join over R of return_extract(r_i).locality
+      ReturnContract(f).shape = join over R of return_extract(r_i).shape
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+
+    Engines dispatched:
+      fixpoint
+      interprocedural_summary
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges IC-4 ReturnContract join
+
+Theorem IC-5: EffectSummary derivation from instruction stream and callee contracts
+
+  Preconditions:
+    - EffectSummary 7-flag record per Annex E §AIMS IC-5
+    - Fields: may_allocate, may_deallocate, may_share, may_throw, has_unbounded_stack, may_read_inaccessible, alloc_only_on_slow_path
+    - Derived from INSTRUCTIONS plus callee contracts (NOT per-variable EffectClass per §AIMS §3.7)
+
+  Soundness property:
+    Forall function f with instruction stream I.
+      EffectSummary(f).may_allocate = OR over I of instr_may_allocate(i) plus callee may_allocate
+      EffectSummary(f).may_deallocate = OR over I plus callee may_deallocate plus Owned params plus Set/SetTag implicit drops
+      EffectSummary(f).may_share = OR over I plus callee may_share
+      EffectSummary(f).may_throw = OR over I plus callee may_throw plus Invoke/Resume
+      EffectSummary(f).has_unbounded_stack = OR over I plus callee has_unbounded_stack plus unbounded recursion
+      EffectSummary(f).may_read_inaccessible = OR over I plus callee may_read_inaccessible
+      EffectSummary(f).alloc_only_on_slow_path = AND post-realization (Step 10); intraprocedural-only
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+
+    Engines dispatched:
+      fixpoint
+      interprocedural_summary
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges IC-5 EffectSummary derivation
+
+Theorem IC-6: FipContract sum-type tier join
+
+  Preconditions:
+    - FipContract sum type per Annex E §AIMS IC-6
+    - Tiers: Never, Bounded(n), Conditional, Certified
+    - Join: Never absorbs all; Conditional absorbs Bounded/Certified; Bounded(n) join Bounded(m) = Bounded(max(n,m))
+    - Timing: POST-REALIZATION (Step 5a); inits to Never in Step 1
+
+  Soundness property:
+    Forall FipContract values a, b.
+      Never join _ = Never
+      Conditional join Bounded = Conditional; Conditional join Certified = Conditional
+      Bounded(n) join Bounded(m) = Bounded(max(n,m))
+      Certified join Certified = Certified
+      Certified IFF zero unmatched alloc/dealloc in realized IR (post-realization).
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+
+    Engines dispatched:
+      fixpoint
+      interprocedural_summary
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges IC-6 FipContract tier join
+
+Theorem IC-7: Convergence iteration limit
+
+  Preconditions:
+    - SCC fixpoint convergence bound per Annex E §AIMS IC-7
+    - Iteration limit derived from domain heights: param_count x 13 + 8 + 6 + 4
+      where 13 = param dims, 8 = return dims, 6 = EffectSummary, 4 = ContextBehavior
+    - FipContract excluded (post-realization)
+
+  Soundness property:
+    Forall call graph G.
+      SCC fixpoint converges in at most param_count x 13 + 8 + 6 + 4 iterations.
+      If exceeded: widen all to most conservative AND emit diagnostic.
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+
+    Engines dispatched:
+      fixpoint
+      interprocedural_summary
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges IC-7 convergence bound
+
+Theorem IC-8: REMOVED derived parameter uniqueness unsoundly from caller consumption patterns
+
+  Preconditions:
+    - This rule was REMOVED from Annex E §AIMS
+    - The former rule derived parameter uniqueness from caller consumption patterns
+    - Unsound: a caller with a MaybeShared argument used linearly may still carry multiple logical owner credits through upstream aliases
+    - Same root cause as DP-10
+
+  Soundness property:
+    REMOVED. Parameter uniqueness is established by the SCC fixpoint (IC-2 + IC-3)
+    natural convergence; never derived from caller-side consumption observations alone.
+
+  Proof obligation:
+    sorry -- this rule is no longer active; subsumed by IC-2 plus IC-3 SCC fixpoint convergence
+
+    Engines dispatched:
+      fixpoint
+      interprocedural_summary
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 REMOVAL confirmation entry IC-8; no active theorem to discharge
+
+Theorem IC-8a: Address-taken and closure non-enumerable call sites initialize CONSERVATIVE
+
+  Preconditions:
+    - Address-taken function or closure with non-enumerable call sites per Annex E §AIMS IC-8a
+    - Initial parameter contract: CONSERVATIVE (O, Unrestricted, omega, Unknown, MaybeShared, may_share=true)
+    - Known-call-site closures (immediately-invoked / single-use) participate normally per IC-2/IC-3
+
+  Soundness property:
+    Forall function f with address-taken or non-enumerable call sites.
+      initial_param_contract(p) = (O, Unrestricted, omega, Unknown, MaybeShared, true)
+    No optimistic-then-fixpoint promotion; the initial state IS the contract.
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+
+    Engines dispatched:
+      fixpoint
+      interprocedural_summary
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges IC-8a non-enumerable call site init
+
+Theorem IA-1: Backward-direction soundness
+
+  Preconditions:
+    - Backward dataflow direction per Annex E §AIMS IA-1
+    - Block exit state seeded from successors; entry state computed by walking instructions in reverse
+    - Bidirectional interaction: forward transfer sets definition-time dims; backward demand accumulates use-time dims
+
+  Soundness property:
+    Forall function F.
+      analyze_function(F) walks F's blocks in REVERSE postorder;
+      within each block, instructions processed in REVERSE; at each instruction:
+        (1) backward transfer of forward (alias transfer via seq_add or TF-14);
+        (2) backward operand demand per TF-11/TF-11a;
+        (3) remove defined variable from entry-state map.
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+
+    Engines dispatched:
+      structural_induction
+      fixpoint
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges IA-1 backward-direction soundness
+
+Theorem IA-2: Reverse postorder traversal
+
+  Preconditions:
+    - Block traversal order per Annex E §AIMS IA-2
+    - Reverse postorder ensures predecessors processed AFTER successors (backward direction)
+
+  Soundness property:
+    Forall function F.
+      analyze_function(F) processes blocks in reverse postorder of F's CFG.
+      Successors of B reached BEFORE B; predecessors of B reached AFTER B.
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+
+    Engines dispatched:
+      structural_induction
+      fixpoint
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges IA-2 reverse postorder traversal
+
+Theorem IA-3: Block exit state alt_join over successor entries
+
+  Preconditions:
+    - Block exit state computation per Annex E §AIMS IA-3
+    - alt_join is the lattice join (max) across CFG branches
+    - Terminal blocks (Return/Resume/Unreachable) seed from TF-11a terminator demands
+
+  Soundness property:
+    Forall block B with successors S = {s_1, ..., s_k}.
+      block_exit_state(B) = alt_join over S of block_entry_state(s_i)
+    Terminal blocks: seeded from TF-11a demands (Return value, Resume no demand, etc.).
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+
+    Engines dispatched:
+      structural_induction
+      fixpoint
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges IA-3 block exit alt_join
+
+Theorem IA-4: Cross-block locality widening
+
+  Preconditions:
+    - Cross-block locality widening per Annex E §AIMS IA-4
+    - Variables flowing across block boundaries widen to FunctionLocal at minimum
+    - Ensures BlockLocal optimization confined to single-block scope
+
+  Soundness property:
+    Forall variable v flowing from block B_def to block B_use, B_def is not B_use.
+      v.locality := max(v.locality, FunctionLocal)
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+
+    Engines dispatched:
+      structural_induction
+      fixpoint
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges IA-4 cross-block locality widening
+
+Theorem IA-5: Per-instruction transfer two-step
+
+  Preconditions:
+    - Two-step backward transfer per Annex E §AIMS IA-5
+    - Step (1): backward transfer of forward (alias transfer)
+    - Step (2): backward operand demand per TF-11
+
+  Soundness property:
+    Forall instruction i at point p.
+      step (1) by instruction type:
+        Let { Var(v) } (transparent alias): destination's accumulated demand transfers to source via seq_add + max
+        Project (borrow): TF-14 propagation
+        Select (conditional alias): destination's full demand transfers to BOTH true_val and false_val via seq_add
+        Construct/Reuse/CollectionReuse (aggregate builders): destination's LOCALITY transfers to args; args ALWAYS promoted to access := O
+        Set/SetTag (in-place, no dst): no alias transfer; value.access := O unconditional (Set only); locality widened to base.locality (Set only)
+        non-aliasing definitions: step (1) no backward transfer
+      step (2):
+        applies TF-11 (or TF-13 for PartialApply) for operand demand.
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+
+    Engines dispatched:
+      structural_induction
+      fixpoint
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges IA-5 per-instruction transfer two-step
+
+Theorem IA-6: Return value widening
+
+  Preconditions:
+    - Return value widening per Annex E §AIMS IA-6
+    - Returned values widen to Owned plus HeapEscaping locality at minimum
+
+  Soundness property:
+    Forall variable v returned by terminator Return(v).
+      v.access := O
+      v.locality := max(v.locality, HeapEscaping)
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+
+    Engines dispatched:
+      structural_induction
+      fixpoint
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges IA-6 return value widening
+
+Theorem IA-7: Convergence bound
+
+  Preconditions:
+    - Convergence bound per Annex E §AIMS IA-7
+    - CHAIN_HEIGHT = 16 = sum of per-dim heights (Access 1 + Consumption 3 + Cardinality 2 + Uniqueness 2 + Locality 4 + Shape 1 + Effect 3)
+    - Limit: CHAIN_HEIGHT x |variables| x |blocks|
+
+  Soundness property:
+    Forall function F.
+      analyze_function(F) converges in at most 16 x |variables(F)| x |blocks(F)| iterations.
+      If exceeded: widen all to TOP (O, Unrestricted, omega, Shared, Unknown, NonReusable, ALL).
+      Uses Shared (not MaybeShared); safety net.
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+
+    Engines dispatched:
+      structural_induction
+      fixpoint
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges IA-7 convergence bound
+
+Theorem IA-8: Immortal-variable exclusion
+
+  Preconditions:
+    - Variables carrying the backend-neutral Immortal classification per
+      Annex E §AIMS IA-8
+    - Treated as scalars in the analysis; recorded in AimsStateMap.immortals: Vec<bool>
+
+  Soundness property:
+    Forall function F, variable v.
+      immortal(v) implies (v excluded from AimsStateMap entries AND v treated as SCALAR for RC/COW/reuse/drop-hint emission)
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+
+    Engines dispatched:
+      structural_induction
+      fixpoint
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges IA-8 immortal-variable exclusion
+
+Theorem IA-9: N-ary join permutation invariance
+
+  Preconditions:
+    - N-ary alt_join at CFG merges per Annex E §AIMS IA-9
+    - Follows from L-1 (commutativity) plus L-2 (associativity)
+
+  Soundness property:
+    Forall block B with successor states S = {s_1, ..., s_n}, any permutation pi.
+      alt_join(s_1, ..., s_n) = alt_join(s_{pi(1)}, ..., s_{pi(n)})
+    Fold order over successor states SHALL NOT affect the result.
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+
+    Engines dispatched:
+      structural_induction
+      fixpoint
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges IA-9 N-ary join permutation invariance
+
+Theorem PL-1: Interprocedural-first across all functions before any per-function step
+
+  Preconditions:
+    - Pipeline ordering per Annex E §AIMS PL-1
+    - Steps 1-2 (interprocedural: analyze_program, apply_ownership) run once across all functions
+    - Steps 3-12 (per-function) run after Steps 1-2 complete
+
+  Soundness property:
+    Forall pipeline P over function set Funcs.
+      Step 1 (analyze_program) runs once over Funcs;
+      Step 2 (apply_ownership) runs once over Funcs;
+      both complete BEFORE any Step 3-12 begins on any function.
+
+  Proof obligation:
+    sorry -- discharged by sec-07 pipeline ordering proofs
+
+    Engines dispatched:
+      structural_induction
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-07 discharges PL-1 interprocedural-first ordering
+
+Theorem PL-1a: Per-function SCC topological order
+
+  Preconditions:
+    - Per-function pipeline (Steps 3-12) per Annex E §AIMS PL-1a
+    - SCC decomposition from IC-1; processed callees-before-callers
+
+  Soundness property:
+    Forall function f in Funcs.
+      Per-function Steps 3-12 process f in SCC topological order;
+      f's callees realized before f reaches Step 5/5a/10 (FipContract POST-REALIZATION inheritance).
+
+  Proof obligation:
+    sorry -- discharged by sec-07 pipeline ordering proofs
+
+    Engines dispatched:
+      structural_induction
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-07 discharges PL-1a SCC topological order
+
+Theorem PL-2: Step 4 analyze before Step 5 realize
+
+  Preconditions:
+    - Pipeline ordering per Annex E §AIMS PL-2
+    - Step 4 = analyze_function (produces converged AimsStateMap)
+    - Step 5 = realize_rc_reuse (consumes AimsStateMap for RC + reuse + arg_ownership emission)
+
+  Soundness property:
+    Forall function f.
+      Step 5 on f reads AimsStateMap produced by Step 4 on f;
+      executing Step 5 before Step 4 violates PL-5 (no stale summaries).
+
+  Proof obligation:
+    sorry -- discharged by sec-07 pipeline ordering proofs
+
+    Engines dispatched:
+      structural_induction
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-07 discharges PL-2 analyze-before-realize
+
+Theorem PL-3: Step 5 realize phase 1 before Step 9 merge
+
+  Preconditions:
+    - Pipeline ordering per Annex E §AIMS PL-3
+    - Step 5 = realize_rc_reuse (phase 1, pre-merge); uses position-keyed AimsStateMap
+    - Step 9 = merge_blocks (invalidates position-keyed maps)
+
+  Soundness property:
+    Forall function f.
+      Step 5 (phase 1 realize) on f completes BEFORE Step 9 (merge_blocks) on f;
+      position-keyed AimsStateMap fields (entry_states, exit_states, instr_states) consumed by Step 5 are INVALID after Step 9.
+
+  Proof obligation:
+    sorry -- discharged by sec-07 pipeline ordering proofs
+
+    Engines dispatched:
+      structural_induction
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-07 discharges PL-3 realize-phase-1 before merge
+
+Theorem PL-4: Step 10 realize phase 2 after Step 9 merge
+
+  Preconditions:
+    - Pipeline ordering per Annex E §AIMS PL-4
+    - Step 10 = realize_annotations (phase 2, post-merge); uses ArcVarId-keyed AimsStateMap
+    - Step 9 = merge_blocks (preserves entry block IDs that Step 10 walks)
+
+  Soundness property:
+    Forall function f.
+      Step 10 (phase 2 realize) on f runs AFTER Step 9 (merge_blocks);
+      Step 10 uses ArcVarId-keyed lookups (var_state_at_block_entry) surviving merge_blocks.
+
+  Proof obligation:
+    sorry -- discharged by sec-07 pipeline ordering proofs
+
+    Engines dispatched:
+      structural_induction
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-07 discharges PL-4 realize-phase-2 after merge
+
+Theorem PL-4a: Step 8a unwind_cleanup before Step 9 merge
+
+  Preconditions:
+    - Pipeline ordering per Annex E §AIMS PL-4a
+    - Step 8a = unwind_cleanup (Invoke-unwind RC cleanup; alters CFG via invoke/resume edges)
+    - Step 9 = merge_blocks (CFG cleanup)
+
+  Soundness property:
+    Forall function f.
+      Step 8a (unwind_cleanup) on f runs BEFORE Step 9 (merge_blocks) on f;
+      Unwind cleanup alters CFG (invoke/resume edges) that merge_blocks's CFG cleanup depends on.
+
+  Proof obligation:
+    sorry -- discharged by sec-07 pipeline ordering proofs
+
+    Engines dispatched:
+      structural_induction
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-07 discharges PL-4a unwind_cleanup before merge
+
+Theorem PL-5: No stale summaries
+
+  Preconditions:
+    - No-stale-summaries invariant per Annex E §AIMS PL-5
+    - Any pass modifying IR or updating effect summary requires downstream consumers to see updated values
+
+  Soundness property:
+    Forall pipeline step s_k.
+      s_k's output is observable to every subsequent step s_{k+1}, s_{k+2}, ...;
+      no step relies on stale summaries from prior phases.
+    A verifier running BEFORE its inputs are available is a sequencing bug.
+
+  Proof obligation:
+    sorry -- discharged by sec-07 pipeline ordering proofs
+
+    Engines dispatched:
+      structural_induction
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-07 discharges PL-5 no-stale-summaries invariant
+
+Theorem PL-6: Adding-a-pass meta-rule
+
+  Preconditions:
+    - Adding-a-pass meta-rule per Annex E §AIMS PL-6
+    - New pass requires updating pipeline ordering AND proving no constraint violation
+
+  Soundness property:
+    Forall new pass p inserted at position k.
+      pipeline_ordering(P with p at k) satisfies PL-1, PL-1a, PL-2, PL-3, PL-4, PL-4a, PL-5;
+      p's dependencies are positioned BEFORE p; p's consumers AFTER p;
+      p produces no stale summary for downstream consumers.
+
+  Proof obligation:
+    sorry -- discharged by sec-07 pipeline ordering proofs
+
+    Engines dispatched:
+      structural_induction
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-07 discharges PL-6 adding-a-pass meta-rule
+
+Theorem PL-7: TRMC normalization detect candidate
+
+  Preconditions:
+    - TRMC normalization at Step 3a per Annex E §AIMS PL-7
+    - Detect tail-recursive functions returning constructor applications
+    - ContextBehavior contract on MemoryContract tracks 4 fields (Leijen + Lorenzen, JFP 2025)
+
+  Soundness property:
+    Forall function f.
+      detect_trmc_candidate(f) iff
+        (f is self-recursive)
+        AND (recursive call in tail position of constructor argument)
+        AND (constructor in return path).
+    Context region = span from recursive call to wrapping constructor.
+
+  Proof obligation:
+    sorry -- discharged by sec-07 pipeline ordering proofs
+
+    Engines dispatched:
+      structural_induction
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-07 discharges PL-7 TRMC candidate detection
+
+Theorem PL-8: TRMC candidate predicate
+
+  Preconditions:
+    - TRMC candidate predicate per Annex E §AIMS PL-8
+    - Equivalent to PL-7 detection step
+
+  Soundness property:
+    Forall function f.
+      is_trmc_candidate(f) iff
+        (f is self-recursive AND tail-position recursive call within constructor argument AND wrapping constructor on return path).
+
+  Proof obligation:
+    sorry -- discharged by sec-07 pipeline ordering proofs
+
+    Engines dispatched:
+      structural_induction
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-07 discharges PL-8 TRMC candidate predicate
+
+Theorem PL-9: TRMC rewrite idempotency
+
+  Preconditions:
+    - TRMC rewrite at Step 3a per Annex E §AIMS PL-9
+    - Candidate normalized to accept ContextHole parameter (Shape = ContextHole)
+    - Internal ABI change; external arity preserved via wrapper thunk
+
+  Soundness property:
+    Forall TRMC-candidate function f.
+      rewrite_trmc(rewrite_trmc(f)) = rewrite_trmc(f)
+    External calling convention preserved via wrapper thunk allocating initial ContextHole.
+
+  Proof obligation:
+    sorry -- discharged by sec-07 pipeline ordering proofs
+
+    Engines dispatched:
+      structural_induction
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-07 discharges PL-9 TRMC rewrite idempotency
+
+Theorem PL-10: TRMC structural verify and rollback
+
+  Preconditions:
+    - TRMC structural verify at Step 4a per Annex E §AIMS PL-10
+    - Five structural checks (a-e); on failure: rollback to pre-TRMC IR AND re-run Steps 3-4
+    - Constitutes VF-7 tier (a) for TRMC
+
+  Soundness property:
+    Forall TRMC-rewritten function f.
+      verify_trmc_soundness(f) iff
+        (a) ContextHole threaded correctly through recursive calls
+        AND (b) no new allocations on allocation-free paths
+        AND (c) rewritten CFG well-formed
+        AND (d) external arity and calling convention preserved
+        AND (e) constructor args evaluated in same order.
+      On failure: rollback to pre-TRMC IR AND re-run Steps 3-4 (PL-5: no stale summaries).
+
+  Proof obligation:
+    sorry -- discharged by sec-07 pipeline ordering proofs
+
+    Engines dispatched:
+      structural_induction
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-07 discharges PL-10 TRMC structural verify
+
+Theorem PL-11: ContextBehavior initialization and join
+
+  Preconditions:
+    - ContextBehavior 4-field record per Annex E §AIMS PL-11
+    - Initial: preserves_context=true, consumes_hole=true, requires_unique_context=false, may_resume_nonlinearly=false
+    - Join: preserves_context(AND), consumes_hole(AND), requires_unique_context(OR), may_resume_nonlinearly(OR)
+
+  Soundness property:
+    Forall function f and predecessor ContextBehaviors {cb_1, ..., cb_k}.
+      initial_context_behavior = (true, true, false, false)
+      joined.preserves_context = AND over k of cb_i.preserves_context
+      joined.consumes_hole = AND over k of cb_i.consumes_hole
+      joined.requires_unique_context = OR over k of cb_i.requires_unique_context
+      joined.may_resume_nonlinearly = OR over k of cb_i.may_resume_nonlinearly
+
+  Proof obligation:
+    sorry -- discharged by sec-07 pipeline ordering proofs
+
+    Engines dispatched:
+      structural_induction
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-07 discharges PL-11 ContextBehavior join
+
+Theorem RL-1: Owner-credit event realization
+
+  Preconditions:
+    - Logical owner-credit rule per Annex E §AIMS RL-1
+    - An owner-credit event is required when an owned value gains a
+      simultaneous owner
+
+  Soundness property:
+    Forall function f, variable v, call site c.
+      simultaneous_owner_creation(v, c) implies realize ownerCredit(v) at c.
+    A physical plan may project the event to a counter increment, another
+    ownership carrier, or no instruction when its validated mechanism makes
+    the credit structural.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-1 owner-credit realization
+
+Theorem RL-2: Last-use release realization
+
+  Preconditions:
+    - Last-use release rule per Annex E §AIMS RL-2
+    - A release event is realized at last use unless ownership transfers
+    - Ownership-transferring last uses: Return, Construct/Reuse/CollectionReuse arg, Set value, PartialApply capture, Apply/Invoke to Owned param, Jump arg (RL-4 exemption)
+
+  Soundness property:
+    Forall function f, variable v in owned_non_scalar_vars(f).
+      RL-2 realizes release(v) at last_use(v) UNLESS last_use(v) transfers
+      ownership;
+      For every definition site that creates an owned allocation identity
+      for v, the realized IR contains a matching logical debit or ownership
+      transfer on every CFG path from definition to function exit.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-2 last-use release
+
+Theorem RL-3: Ownership-event pairs elided when proven unnecessary
+
+  Preconditions:
+    - Logical event-elision rule per Annex E §AIMS RL-3
+    - DP-2 (is_release_unnecessary), DP-3
+      (is_additional_credit_elidable), and DP-7
+      (is_event_pair_elision_eligible) gate elision
+
+  Soundness property:
+    Forall function f, variable v, program point p.
+      DP-2(s_v) implies no supplementary release(v) at p
+      DP-3(s_v) implies no additional ownerCredit(v) at p
+      DP-7(s_v) on a callee parameter implies elide the matching
+        ownerCredit/release pair at the boundary.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-3 lattice-proven event elision
+
+Theorem RL-4: Edge-specific release events
+
+  Preconditions:
+    - Edge-specific releases per Annex E §AIMS RL-4
+    - Owned non-scalar alive at block exit and dead at successor entry:
+      realize release on that edge
+    - Jump argument exemption: variables passed as Jump args transfer ownership to successor block param
+
+  Soundness property:
+    Forall function f, variable v, CFG edge (B, S).
+      v owned non-scalar AND v alive at B's exit AND v dead at S's entry AND v not Jump arg on (B, S)
+        implies realize release(v) on edge (B, S).
+      Borrowed variables: NOT covered by RL-4.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-4 edge-specific releases
+
+Theorem RL-5: Dead-at-entry cleanup
+
+  Preconditions:
+    - Dead-at-entry cleanup per Annex E §AIMS RL-5
+    - Owned non-scalar block param with Cardinality = absent at entry:
+      immediate cleanup release
+    - Borrowed Absent params: NOT covered
+
+  Soundness property:
+    Forall function f, block B, variable v in block_params(B).
+      v owned non-scalar AND v.cardinality at B's entry = absent
+        implies realize cleanup(v) at B's entry.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-5 dead-at-entry cleanup
+
+Theorem RL-6: Proven-unique mutation preserves identity
+
+  Preconditions:
+    - Same-identity mutation obligation per Annex E §AIMS RL-6
+    - Uniqueness = Unique and DP-5 true admits mutation of the same logical
+      identity without a sharing observation
+
+  Soundness property:
+    Forall function f, Set/SetTag instruction i with base b.
+      s_b.uniqueness = Unique AND DP-5(s_b, var, field, point) = true
+        implies mutation preserves the logical identity and needs no sharing
+        observation.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-6 same-identity mutation
+
+Theorem RL-7: MaybeShared mutation requires sharing observation
+
+  Preconditions:
+    - Sharing-observation obligation per Annex E §AIMS RL-7
+    - Uniqueness = MaybeShared requires an observation before selecting the
+      same-identity or isolation outcome
+
+  Soundness property:
+    Forall function f, Set/SetTag instruction i with base b.
+      s_b.uniqueness = MaybeShared
+        implies observe sharing; observed unique -> SameIdentityAdmissible;
+        observed shared -> IsolationRequired.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-7 sharing observation
+
+Theorem RL-8: Proven-shared mutation requires isolation
+
+  Preconditions:
+    - Mutation-isolation obligation per Annex E §AIMS RL-8
+    - Uniqueness = Shared requires isolating the mutation from aliases
+
+  Soundness property:
+    Forall function f, Set/SetTag instruction i with base b.
+      s_b.uniqueness = Shared
+        implies IsolationRequired without a sharing observation.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-8 mutation isolation
+
+Theorem RL-9: Sharing-observation representation equivalence
+
+  Preconditions:
+    - Observation-form equivalence per Annex E §AIMS RL-9
+    - Explicit and compact representations must choose the same admissible
+      logical mutation outcome
+
+  Soundness property:
+    Forall sharing observations O.
+      explicit_observation_outcome(O) = compact_observation_outcome(O).
+    The theorem does not prescribe either physical representation.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-9 observation equivalence
+
+Theorem RL-10: Disjoint field mutation needs no aggregate isolation
+
+  Preconditions:
+    - Disjoint field mutation obligation per Annex E §AIMS RL-10
+    - DP-5 enforces field-aware disjointness in Step 1
+    - SetTag excluded: tag change invalidates ALL payload fields
+
+  Soundness property:
+    Forall function f, Set instruction Set(base, field_F, value).
+      (active borrows from same source AND all from disjoint fields)
+        implies safe without aggregate isolation;
+      SetTag conflicts with ALL active borrows regardless of field.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-10 disjoint field mutation
+
+Theorem RL-11: Same-block donor/recipient credit transfer
+
+  Preconditions:
+    - Same-block credit transfer per Annex E §AIMS RL-11
+    - Donor precedes recipient with no intervening throw, owner creation, or
+      alias use
+    - Donor Uniqueness = Unique
+
+  Soundness property:
+    Forall function f, block B with donor d at p_d and recipient r at p_r
+    where p_d < p_r within B.
+      (s_d.uniqueness = Unique
+       AND no_intervening_throw(p_d, p_r)
+       AND no_intervening_owner_creation(p_d, p_r)
+       AND no_intervening_use_of_aliases(p_d, p_r))
+        implies one donor credit may transfer to r.
+    Reset/Reuse or another storage mechanism is a target-carrier choice.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-11 same-block credit transfer
+
+Theorem RL-11a: MaybeShared donor observation outcomes
+
+  Preconditions:
+    - MaybeShared donor rule per Annex E §AIMS RL-11a
+    - A sharing observation selects transfer when isolated or a fresh
+      recipient credit when shared
+    - Requires DP-6 eligibility
+
+  Soundness property:
+    Forall function f, candidate reuse site with dying value v.
+      DP-6(s_v) = true AND s_v.uniqueness = MaybeShared implies:
+        observed unique -> transfer donor credit to recipient;
+        observed shared -> preserve donor credit and create a fresh recipient
+          credit.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-11a donor observation
+
+Theorem RL-12: Cross-block donor/recipient credit transfer
+
+  Preconditions:
+    - Cross-block credit transfer per Annex E §AIMS RL-12
+    - Death block dominates allocation block; allocation block post-dominates death block (EXCLUDING unwind edges)
+    - Both share same innermost loop header (or neither in loop)
+    - Dying value statically Unique
+    - No throw on the donor-to-recipient path
+
+  Soundness property:
+    Forall function f, blocks B_d (death) and B_a (allocation).
+      (B_d dominates B_a
+       AND B_a post-dominates B_d (excluding unwind)
+       AND same_innermost_loop(B_d, B_a)
+       AND s_v_dying.uniqueness = Unique
+       AND no_block_on_path_throws)
+        implies donor/recipient credit transfer is sound.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-12 cross-block credit transfer
+
+Theorem RL-13: REMOVED Construct plus Once does not imply one logical owner at death
+
+  Preconditions:
+    - This rule was REMOVED from Annex E §AIMS
+    - The former rule claimed Construct + Once implies one logical owner at death
+    - Unsound: one use may store into a data structure and create another
+      logical owner
+    - Same root cause as DP-10
+
+  Soundness property:
+    REMOVED. Reuse eligibility SOLELY via Uniqueness dimension (DP-6 + RL-11/RL-12).
+    Subsumed by TF-3 (fresh allocation establishes Uniqueness=Unique) + Uniqueness dimension as direct source of truth.
+
+  Proof obligation:
+    sorry -- this rule is no longer active; subsumed by Uniqueness dimension + DP-6 + RL-11 plus RL-12
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 REMOVAL confirmation entry RL-13; no active theorem to discharge
+
+Theorem RL-14: Locality freezes a backend-neutral LifetimeBound
+
+  Preconditions:
+    - RL-14 consumes converged Locality and a stable allocation-site identity.
+    - AllocationFacts contains no physical placement or ownership mechanism.
+
+  Soundness property:
+    BlockLocal maps to block lifetime; FunctionLocal maps to function lifetime;
+    HeapEscaping maps to escaping; Unknown maps to Unknown. ArgEscaping is
+    governed by RL-15a. These are admissibility bounds, not storage choices.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-14 backend-neutral LifetimeBound freezing
+
+Theorem RL-14a: CleanupObligation preserves exact logical event identity
+
+  Preconditions:
+    - Logical release events, drop plan, field order, and exit identities are known or explicitly Unknown.
+    - Both normal and unwind exits are part of the contract.
+
+  Soundness property:
+    Every exact release event appears on the required normal and unwind paths;
+    drop-plan, field-order, lifetime-end, and event identities are unchanged by
+    target projection.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-14a exact CleanupObligation coverage
+
+Theorem RL-15: ExtentClass is representation-owned projection evidence
+
+  Preconditions:
+    - Representation supplies StaticShape(type) or RuntimeSized(storage-site).
+    - AllocationFacts is already frozen.
+
+  Soundness property:
+    Replacing ExtentClass in ProjectionInput cannot change AllocationFacts.
+    Static/dynamic extent constrains a target plan but is not an AIMS fact.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-15 representation-owned extent seam
+
+Theorem RL-15a: ArgEscaping freezes an exact nonempty CallerExtent
+
+  Preconditions:
+    - Locality is ArgEscaping.
+    - Caller-use evidence carries stable call-site identity and protocol.
+
+  Soundness property:
+    A nonempty caller-use list maps to CallerExtent with every call site and
+    BorrowOnly, MayShare, or OwnershipTransfer protocol preserved exactly.
+    Missing caller-use evidence maps to Unknown, never an invented extent.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-15a exact CallerExtent freezing
+
+Theorem RL-16: Missing evidence freezes conservative AllocationFacts
+
+  Preconditions:
+    - Allocation evidence is absent, conflicting, or has the wrong site identity.
+
+  Soundness property:
+    Lifetime becomes Unknown, OwnerBound becomes Unbounded,
+    ThreadReachability becomes PotentiallyShared, ExternalVisibility becomes
+    Unknown, and ownership-observation and cleanup obligations remain Unknown. No physical
+    fallback mechanism is selected.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-16 conservative AllocationFacts defaults
+
+Theorem RL-17: OwnerBound is a dynamic upper bound
+
+  Preconditions:
+    - Exact retain-event identities and escape evidence are available or conservative.
+
+  Soundness property:
+    N straight-line retain sites imply at most N extra simultaneous owners.
+    Local uniqueness without a loop, global, or external-retention path implies
+    one owner. A loop/global path or external retention forces Unbounded and
+    takes precedence over local uniqueness.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-17 dynamic OwnerBound derivation and precedence
+
+Theorem RL-18: A physical plan must prove capability satisfaction
+
+  Preconditions:
+    - AllocationFacts and representation-owned ExtentClass are frozen.
+    - A target proposes LayoutCapabilities without changing those inputs.
+
+  Soundness property:
+    Satisfies checks allocation-site identity, lifetime and extent coverage,
+    owner capacity, exact ownership-observation and cleanup identity, unwind coverage,
+    thread safety, and external visibility. Capability refinement separately
+    pins external-contract identity; a stronger capability under that same
+    identity preserves satisfaction.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-18 VmLayoutPlan and CompiledLayoutPlan Satisfies admission
+
+Theorem RL-18a: VM and compiled plans erase to one exact AIMS trace
+
+  Preconditions:
+    - A VmLayoutPlan and CompiledLayoutPlan satisfy the same facts and extent.
+    - Their physical placements and ownership mechanisms may differ.
+
+  Soundness property:
+    Each validated plan refines aimsTrace(facts), preserving exact OwnershipObservationFacts
+    and CleanupObligation identity. Therefore vmPlanTrace equals
+    compiledPlanTrace even when the mechanisms differ.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-18a validated VM/compiled logical-event parity
+
+Theorem RL-19: Locality and call-graph evidence freeze ThreadReachability
+
+  Preconditions:
+    - Converged Locality and cross-thread boundary evidence are available.
+
+  Soundness property:
+    Unknown Locality or a proven thread-boundary path maps to PotentiallyShared;
+    otherwise the value maps to Confined. This is a logical reachability fact,
+    not an atomicity or instruction-selection decision.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-19 backend-neutral ThreadReachability derivation
+
+Theorem RL-20: PotentiallyShared requires a shared-safe capability
+
+  Preconditions:
+    - ThreadReachability is frozen and a target advertises ThreadCapability.
+
+  Soundness property:
+    PotentiallyShared is covered only by sharedSafe. Confined is covered by
+    confinedOnly or sharedSafe. AIMS admits capabilities and does not prescribe
+    atomic RC, a lock, ownership transfer, or any other physical mechanism.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-20 target-owned thread-capability admission
+
+Theorem RL-21: A no-thread-boundary proof freezes all facts as Confined
+
+  Preconditions:
+    - Whole-program analysis proves no spawn, channel, or foreign/opaque path can cross a thread boundary.
+
+  Soundness property:
+    programThreadReachability maps every allocation to Confined. Physical
+    planners remain free to use a confined-specialized or conservative
+    shared-safe mechanism, subject to Satisfies.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-21 whole-program Confined reachability fact
+
+Theorem RL-22: KnownSafe pair elimination
+
+  Preconditions:
+    - KnownSafe pair elimination per Annex E §AIMS RL-22
+    - A logical owner credit is proven outstanding with no intervening release;
+      no physical-counter premise
+    - Initial: KnownSafe := false at function entry
+    - Transfer: ownerCredit(v) -> KnownSafe(v) := true; release(v) -> false
+      for v, SSA aliases, and borrow aliases
+    - Mutation or deallocation hazards -> false for all affected identities
+
+  Soundness property:
+    Forall function f, variable v, program point p with an inner
+    ownerCredit(v) / release(v) pair.
+      KnownSafe(v) at p = true
+        implies eliminate the inner logical event pair on v at p.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-22 KnownSafe pair elimination
+
+Theorem RL-23: KnownSafe flag propagation at joins
+
+  Preconditions:
+    - KnownSafe propagation at CFG merges per Annex E §AIMS RL-23
+    - KnownSafe := true ONLY IF ALL predecessors agree
+
+  Soundness property:
+    Forall block B with predecessors P = {p_1, ..., p_k}, variable v.
+      KnownSafe(v) at B's entry = true
+        iff Forall p_i in P. KnownSafe(v) at p_i's exit = true.
+    AND-join semantics.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-23 KnownSafe AND-join at merges
+
+Theorem RL-24: Global logical-event refinement via bidirectional dataflow
+
+  Preconditions:
+    - Global event refinement per Annex E §AIMS RL-24
+    - Bidirectional dataflow: bottom-up release + top-down owner credit
+    - Identifies matching (ownerCredit, release) pairs across blocks
+
+  Soundness property:
+    Forall function f, variable v.
+      pair_identification(v) := matching
+        (ownerCredit(v) at p_credit, release(v) at p_release)
+        across any CFG path from p_credit to p_release.
+      Bottom-up analysis identifies available releases; top-down analysis
+      identifies available owner credits.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-24 bidirectional logical event refinement
+
+Theorem RL-25: Pair eliminable condition
+
+  Preconditions:
+    - Pair-eliminable condition per Annex E §AIMS RL-25
+    - Eliminable when: KnownSafe = true OR both forward/backward paths safe AND no CFG hazard (path count alignment)
+
+  Soundness property:
+    Forall function f, identified pair (ownerCredit(v), release(v)).
+      eliminable iff
+        (KnownSafe(v) = true at intermediate points)
+        OR (forward_safe(v) AND backward_safe(v) AND path_count_aligned(v)).
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-25 pair-eliminable condition
+
+Theorem RL-26: Logical event-ordering barrier restrictions
+
+  Preconditions:
+    - Event-ordering barriers per Annex E §AIMS RL-26
+    - Barriers for v include ownership-transferring or sharing-observing calls,
+      sharing observations, and aggregate mutations affecting v
+    - release(v) additionally cannot move past any use of v or aliases
+
+  Soundness property:
+    Forall function f, variable v, candidate motion of logical event e(v)
+    from p_old to p_new.
+      e = ownerCredit(v): MUST NOT cross any barrier for v
+      e = release(v): MUST NOT cross any barrier for v AND MUST NOT cross any
+        use of v or aliases.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-26 logical event-ordering barriers
+
+Theorem RL-27: Selective logical event ordering at call sites
+
+  Preconditions:
+    - Selective event ordering per Annex E §AIMS RL-27
+    - Order affected pending events before calls when a callee parameter is
+      Owned + non-Dead or Borrowed + may_share=true
+    - Borrowed + may_share=false + pure functions require no ordering barrier
+
+  Soundness property:
+    Forall function f, call site c with callee parameters P.
+      order_affected_events_before(c) iff exists p in P.
+        (p.access = O AND p.consumption is not Dead)
+        OR (p.access = Borrowed AND p.may_share = true).
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-27 selective barriers at call sites
+
+Theorem RL-28: Unknown callees conservatively order pending events
+
+  Preconditions:
+    - Unknown-callee ordering per Annex E §AIMS RL-28
+    - FFI, indirect, and no-contract calls order all pending logical events
+      before entry
+
+  Soundness property:
+    Forall function f, call site c with unknown callee.
+      order_all_pending_events_before(c).
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-28 unknown-callee event ordering
+
+Theorem RL-29: Backend-neutral fresh-self-allocation facts
+
+  Preconditions:
+    - Fresh-self-allocation facts per Annex E §AIMS RL-29
+    - Gate solely on ReturnContract.returns_fresh_self_alloc
+    - Preserved freshness and uniqueness are insufficient for passthrough or
+      consumed-storage results
+
+  Soundness property:
+    Forall function f.
+      freeze FreshSelfAllocationFact.proven iff every return path yields
+      storage allocated by f with no upstream alias. LLVM may separately emit
+      return noalias only for a proven direct-pointer ABI return.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-29 neutral fresh-self-allocation facts and target projection fidelity
+
+Theorem RL-30: Backend-neutral whole-function memory-access facts
+
+  Preconditions:
+    - MemoryAccessFact derivation per Annex E §AIMS RL-30
+    - Inputs are IC-3 + IC-5 + realized-operation may_write_inaccessible;
+      may_throw fails closed for panic/TLS runtime writes
+    - Every untyped call or runtime operation fails closed to ReadWrite
+
+  Soundness property:
+    Forall function f.
+      RL-30 freezes ReadOnly iff no write source is possible; otherwise
+      ReadWrite. ReadOnly permits both argument and inaccessible-memory reads.
+      LLVM separately maps ReadOnly to generic memory(read) and ReadWrite to
+      omitted.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-30 neutral memory-access facts and target projection fidelity
+
+Theorem RL-31: Backend-neutral disjoint-Borrowed-parameter fact
+
+  Preconditions:
+    - Disjoint Borrowed parameters per Annex E §AIMS RL-31
+    - Proven fact means two Borrowed params cannot alias the same memory
+    - Proof requires cross-function provenance summary (not in IC-2/IC-3 alone)
+    - Per-call-site disjointness from callers' borrow_sources + project_alias_sources
+    - VF-2 (contract consistency) verifies
+
+  Soundness property:
+    Forall function f with Borrowed parameter pair (p_i, p_j).
+      cross_call_site_provenance_summary(p_i, p_j) shows disjoint root sets at all call sites
+        and the type facet holds implies ParameterDisjointnessFact.proven.
+    ANY call site or facet failing -> ParameterDisjointnessFact.notProven.
+    LLVM alias metadata is a separate target projection that additionally
+    requires sound ABI and metadata placement.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-31 neutral parameter-disjointness facts and target projection fidelity
+
+Theorem RL-32: Borrow inference initial Borrowed
+
+  Preconditions:
+    - Borrow inference per Annex E §AIMS RL-32
+    - All non-scalar parameters initialize Borrowed
+    - Fixpoint promotes to Owned based on demand
+
+  Soundness property:
+    Forall function f, non-scalar parameter p.
+      initial_borrow_inference(p) = Borrowed;
+      fixpoint promotes p to Owned iff demand requires.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-32 borrow inference initial Borrowed
+
+Theorem RL-33: Projection propagation Owned
+
+  Preconditions:
+    - Projection propagation per Annex E §AIMS RL-33
+    - If projected field promoted to Owned: source variable also promoted to Owned
+
+  Soundness property:
+    Forall function f, source variable v, projected field dst = Project(v, field).
+      ownership(dst) = O implies ownership(v) := O.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-33 projection propagation Owned
+
+Theorem RL-34: Tail call preservation
+
+  Preconditions:
+    - Tail call preservation per Annex E §AIMS RL-34
+    - Every ownership handoff or release must occur before the tail call
+    - Transfer ownership only when the callee parameter is Owned
+    - Callee Borrowed: tail-call requires the caller's release obligation to
+      be discharged before the call
+
+  Soundness property:
+    Forall function f, tail call c with arg v to callee parameter p.
+      p.access = O implies tail call permitted; ownership of v transfers to
+        the callee before c
+      p.access = Borrowed implies tail call requires release(v) before c.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization rule proofs
+
+    Engines dispatched:
+      rc_counting
+      refinement
+      case_analysis
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges RL-34 tail call preservation
+
+Theorem VF-1: Layer 1 structural well-formedness
+
+  Preconditions:
+    - Layer 1 structural well-formedness per Annex E §AIMS VF-1
+    - Five dedicated checks: UseBeforeDef, DanglingBlockRef, RcOnScalar, DecOnBorrowed (parameter-restricted), ArgOwnershipLenMismatch
+    - Three checkpoints: after AIMS emission (Step 6); after full pipeline (Step 11); after post-pipeline passes (sec-8 RL-22 through RL-26)
+    - Target field-drop events that exactly discharge CleanupObligation are
+      distinguished from borrowed-parameter decrements by DecOnBorrowed
+
+  Soundness property:
+    Forall function F with realized ARC IR.
+      VF-1(F) iff
+        (no_use_before_def(F)
+         AND no_dangling_block_ref(F)
+         AND no_rc_on_scalar(F)
+         AND no_dec_on_borrowed_parameter(F)
+         AND arg_ownership_len_consistent(F)).
+
+  Proof obligation:
+    sorry -- discharged by sec-09 verification layer proofs
+
+    Engines dispatched:
+      structural_induction
+      refinement
+      rc_counting
+      interprocedural_summary
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-09 discharges VF-1 layer 1 structural well-formedness
+
+Theorem VF-2: Layer 2 AIMS contract consistency
+
+  Preconditions:
+    - Layer 2 AIMS contract consistency per Annex E §AIMS VF-2
+    - Four sub-checks: (a) AbsentParamHasUses; (b) RL-31 neutral disjointness;
+      (c) RL-29 fresh-self-allocation fact agreement; (d) RL-30 neutral
+      memory-access fact derivability
+    - Target spelling and placement are separate backend-fidelity obligations
+
+  Soundness property:
+    Forall function F with realized IR and MemoryContract C.
+      VF-2(F, C) iff
+        (a) Forall parameter p with p.cardinality = absent. no_live_use(F, p)
+        AND (b) every frozen RL-31 fact is backed by a disjointness proof
+        AND (c) every frozen RL-29 fact matches IC-4 returns_fresh_self_alloc
+        AND (d) every frozen RL-30 fact derives from IC-5 + ParamContract +
+                realized operations.
+
+  Proof obligation:
+    sorry -- discharged by sec-09 verification layer proofs
+
+    Engines dispatched:
+      structural_induction
+      refinement
+      rc_counting
+      interprocedural_summary
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-09 discharges VF-2 layer 2 AIMS contract consistency
+
+Theorem VF-3: Layer 3 oracle re-derivation
+
+  Preconditions:
+    - Layer 3 oracle per Annex E §AIMS VF-3
+    - Re-derives MemoryContract from realized IR; compares against inferred contract
+    - Compares along access, consumption, effects dimensions
+    - Unsafe mismatches (analysis more optimistic than realization) = errors
+
+  Soundness property:
+    Forall function F with inferred contract C_inferred and realized IR.
+      C_rederived := re-derive_memory_contract_from(F)
+      VF-3(F) iff
+        (Forall dim in {access, consumption, effects}.
+          C_rederived.dim le C_inferred.dim (analysis le realization; no optimistic divergence)).
+
+  Proof obligation:
+    sorry -- discharged by sec-09 verification layer proofs
+
+    Engines dispatched:
+      structural_induction
+      refinement
+      rc_counting
+      interprocedural_summary
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-09 discharges VF-3 layer 3 oracle re-derivation
+
+Theorem VF-4: Layer 4 FIP certification
+
+  Preconditions:
+    - Layer 4 FIP certification per Annex E §AIMS VF-4
+    - Proves FipContract::Certified functions have zero unmatched alloc/dealloc in realized IR
+    - Failures wrapped as FipStructural in the shared VerifyError stream
+
+  Soundness property:
+    Forall function F with MemoryContract.fip = Certified.
+      VF-4(F) iff
+        Forall reachable function-exit path P in F.
+          count_alloc_sites(P) - count_dec_sites(P) = 0.
+    RL-2 + RL-4 + RL-5 ensure dec emission; VF-4 audits the result.
+
+  Proof obligation:
+    sorry -- discharged by sec-09 verification layer proofs
+
+    Engines dispatched:
+      structural_induction
+      refinement
+      rc_counting
+      interprocedural_summary
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-09 discharges VF-4 layer 4 FIP certification
+
+Theorem VF-5: End-to-end verification mandate
+
+  Preconditions:
+    - End-to-end verification mandate per Annex E §AIMS VF-5
+    - Every active subsystem requires implementation + invariant enforcement + tests
+    - Missing any of the three = incomplete
+
+  Soundness property:
+    Forall active subsystem S in AIMS.
+      end_to_end_verified(S) iff
+        (impl(S) shipped
+         AND invariant_enforcement(S) shipped
+         AND tests(S) shipped (structural + behavioral + regression)).
+
+  Proof obligation:
+    sorry -- discharged by sec-09 verification layer proofs
+
+    Engines dispatched:
+      structural_induction
+      refinement
+      rc_counting
+      interprocedural_summary
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-09 discharges VF-5 end-to-end verification mandate
+
+Theorem VF-6: Contracts-and-realization agreement
+
+  Preconditions:
+    - Contracts-and-realization agreement per Annex E §AIMS VF-6
+    - If MemoryContract says FipContract::Certified -> realized IR has zero unmatched alloc/dealloc
+
+  Soundness property:
+    Forall function F with MemoryContract C.
+      C.fip = Certified implies VF-4(F) = true (zero unmatched alloc/dealloc).
+    Contract disproven by realization -> correct the contract; do NOT leave stale.
+
+  Proof obligation:
+    sorry -- discharged by sec-09 verification layer proofs
+
+    Engines dispatched:
+      structural_induction
+      refinement
+      rc_counting
+      interprocedural_summary
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-09 discharges VF-6 contracts-and-realization agreement
+
+Theorem VF-7: Active-rewrite three-tier discipline
+
+  Preconditions:
+    - Active-rewrite three-tier discipline per Annex E §AIMS VF-7
+    - Each active rewrite requires ALL three tiers: (a) compile-time structural verification; (b) test-time behavioral verification; (c) documented proof sketch
+    - TRMC: (a) = PL-10's five checks; (b) = TRMC spec tests; (c) = constrained-rewrite proof sketch
+    - Post-pipeline RL-22/26: (a) = VF-1+VF-2+VF-3 re-verify; (b) = RC-motion regression tests; (c) = RC ops only
+
+  Soundness property:
+    Forall active rewrite R in AIMS.
+      active_rewrite_sound(R) iff
+        (a) compile_time_structural_verification(R) shipped
+        AND (b) test_time_behavioral_verification(R) shipped
+        AND (c) documented_proof_sketch(R) shipped.
+    Lacking any tier = R not active.
+
+  Proof obligation:
+    sorry -- discharged by sec-09 verification layer proofs
+
+    Engines dispatched:
+      structural_induction
+      refinement
+      rc_counting
+      interprocedural_summary
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-09 discharges VF-7 active-rewrite three-tier discipline
+
+Theorem VF-8: Stack-applies-to-all-rules including target-only
+
+  Preconditions:
+    - Stack-applies-to-all-rules per Annex E §AIMS VF-8
+    - The verification stack applies to ALL rules including unimplemented sec-8 rules
+    - Unimplemented rule without verification layer planned = spec gap
+
+  Soundness property:
+    Forall rule R in {L, CN, TF, DP, IC, IA, PL, RL, VF}.
+      (R is implemented OR R is target-only)
+        implies R has a verification layer planned or shipped.
+    R without verification layer planned = spec gap.
+
+  Proof obligation:
+    sorry -- discharged by sec-09 verification layer proofs
+
+    Engines dispatched:
+      structural_induction
+      refinement
+      rc_counting
+      interprocedural_summary
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-09 discharges VF-8 stack-applies-to-all-rules

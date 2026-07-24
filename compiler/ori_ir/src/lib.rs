@@ -40,21 +40,32 @@ macro_rules! static_assert_size {
 /// Separator used in monomorphized function names.
 ///
 /// When a generic function is monomorphized, its name is suffixed with this
-/// separator followed by the encoded type arguments (e.g., `foo$m$int_str`).
+/// separator followed by the encoded type arguments (e.g., `foo$m$3_int4_bool`).
 ///
 /// **Sync point**: Used by `ori_llvm` (monomorphize) and `ori_arc` (`arg_ownership`).
 /// Both crates MUST use this constant — never inline `"$m$"`.
 pub const MONO_SEPARATOR: &str = "$m$";
 
+/// Separator that splits impl-level args from method-level args inside a
+/// monomorphized method name (e.g., `bar$m$3_int$im$3_str`). Its presence
+/// distinguishes a method-instance mangling from a top-level mangling — a
+/// top-level mangled name never contains `$im$`.
+///
+/// **Sync point**: Used by `ori_llvm` (monomorphize). Consumers MUST use this
+/// constant — never inline `"$im$"`.
+pub const IMPL_METHOD_SEPARATOR: &str = "$im$";
+
+mod macros;
+
 mod arena;
 pub mod ast;
 pub mod builtin_constants;
 mod builtin_type;
+pub mod cabi;
 pub mod canon;
 mod comment;
 mod derives;
 mod expr_id;
-pub mod format_spec;
 pub mod hash_constants;
 pub mod incremental;
 mod interner;
@@ -63,6 +74,7 @@ mod name;
 mod parsed_type;
 mod pattern_resolution;
 mod span;
+mod sparse_side_table;
 pub mod tag_constants;
 mod token;
 mod traits;
@@ -71,7 +83,13 @@ pub mod visitor;
 
 pub use arena::{ExprArena, SharedArena};
 pub use ast::{
+    // Module-alias qualified-name builder
+    qualified_alias_name,
+    // Assignment-target access steps
+    AccessStep,
+    AccessStepRange,
     ArmRange,
+    BackendSkip,
     BinaryOp,
     BindingPattern,
     // CallNamed types
@@ -112,6 +130,7 @@ pub use ast::{
     // Impl types
     ImplDef,
     ImplMethod,
+    ImportCycleGuard,
     ImportErrorKind,
     ImportPath,
     // List with spread types
@@ -145,7 +164,9 @@ pub use ast::{
     TargetAttr,
     TemplatePart,
     TemplatePartRange,
+    TestBackend,
     TestDef,
+    TestId,
     TraitAssocType,
     TraitBound,
     // Trait types
@@ -167,9 +188,10 @@ pub use ast::{
     WhereClause,
 };
 pub use builtin_type::BuiltinType;
+pub use cabi::CAbiKind;
 pub use comment::{Comment, CommentKind, CommentList};
 pub use derives::strategy::{CombineOp, DeriveStrategy, FieldOp, FormatOpen, StructBody, SumBody};
-pub use derives::{DerivedMethodInfo, DerivedMethodShape, DerivedTrait};
+pub use derives::{DerivedImplId, DerivedMethodInfo, DerivedMethodShape, DerivedTrait};
 pub use expr_id::{
     BindingPatternId, ExprId, ExprRange, FunctionExpId, FunctionSeqId, MatchPatternId,
     MatchPatternRange, ParsedTypeId, ParsedTypeRange, StmtId, StmtRange,
@@ -181,14 +203,14 @@ pub use name::Name;
 pub use parsed_type::ParsedType;
 pub use pattern_resolution::{PatternKey, PatternResolution};
 pub use span::{Span, SpanError};
+pub use sparse_side_table::SparseSideTable;
 pub use tag_constants::{
     min_tag_bytes, CLOSURE_FIELD_ENV, CLOSURE_FIELD_FN, FIELD_CAP, FIELD_DATA, FIELD_LEN,
     OPTION_TAG_NONE, OPTION_TAG_SOME, OPTION_VARIANT_NONE, OPTION_VARIANT_SOME, RANGE_FIELD_END,
     RANGE_FIELD_START, RESULT_TAG_ERR, RESULT_TAG_OK, RESULT_VARIANT_ERR, RESULT_VARIANT_OK,
 };
 pub use token::{
-    DurationUnit, SizeUnit, Token, TokenCapture, TokenFlags, TokenIdx, TokenKind, TokenList,
-    TokenTag,
+    DurationUnit, SizeUnit, Token, TokenCapture, TokenFlags, TokenKind, TokenList, TokenTag,
 };
 pub use traits::{Named, Spanned, Typed};
 pub use type_id::TypeId;

@@ -1,0 +1,18 @@
+// 1-hop generic forwarder over str — heap-typed fat-pointer surface.
+//
+// str is a heap-typed value (FatVal: ptr + len), distinct from list/map
+// element-aware RC paths. Exercises the generic-forwarder fat-pointer/string
+// code path: id<str>(x: str) -> str = x must not emit a scope-exit RcDec on
+// x. Cross-backend parity check.
+
+use std.testing { assert_eq }
+
+@id <T> (x: T) -> T = x;
+
+@forward_str_1hop_call () -> str = id(x: "hello world");
+
+@test_forward_str_1hop_preserves_value tests @forward_str_1hop_call () -> void = {
+    let s = forward_str_1hop_call();
+    assert_eq(actual: s, expected: "hello world");
+    assert_eq(actual: s.len(), expected: 11)
+}

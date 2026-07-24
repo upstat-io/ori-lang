@@ -4,6 +4,7 @@
 //! `to_uppercase`, `to_lowercase`, `replace`, `repeat`, `push_char`,
 //! and `next_char`.
 
+use crate::io::panic_index_out_of_bounds;
 use crate::next_capacity;
 use crate::rc::{ori_rc_alloc, ori_rc_inc, ori_rc_is_unique, ori_rc_realloc};
 use crate::slice_encoding::{is_slice_cap, make_slice_cap, slice_byte_offset};
@@ -93,6 +94,40 @@ pub extern "C" fn ori_str_substring(s: *const OriStr, start: i64, end: i64) -> O
     }
 }
 
+/// Index a string by codepoint position — `str[index]`.
+///
+/// Returns the single codepoint at `index` as a fresh `str` (always fits SSO,
+/// max 4 UTF-8 bytes). Panics on out-of-bounds. Negative indices are treated
+/// as out-of-bounds (matches `ori_list_get`'s `list[i]` convention).
+///
+/// # Parameters
+/// - `s`: pointer to the source string
+/// - `index`: codepoint position (0-based)
+#[no_mangle]
+pub extern "C-unwind" fn ori_str_index(s: *const OriStr, index: i64) -> OriStr {
+    if s.is_null() {
+        panic_index_out_of_bounds(index, 0);
+        return OriStr::EMPTY;
+    }
+    // SAFETY: s validated non-null above; pointer from LLVM codegen is valid per runtime protocol.
+    let s_ref = unsafe { &*s };
+    // SAFETY: OriStr's byte content is always valid UTF-8 per the runtime's string invariant.
+    let s_str = unsafe { s_ref.as_str() };
+    if index < 0 {
+        let length = i64::try_from(s_str.chars().count()).unwrap_or(i64::MAX);
+        panic_index_out_of_bounds(index, length);
+        return OriStr::EMPTY;
+    }
+    if let Some(ch) = s_str.chars().nth(index as usize) {
+        let mut buf = [0u8; 4];
+        OriStr::from_bytes(ch.encode_utf8(&mut buf).as_bytes())
+    } else {
+        let length = i64::try_from(s_str.chars().count()).unwrap_or(i64::MAX);
+        panic_index_out_of_bounds(index, length);
+        OriStr::EMPTY
+    }
+}
+
 /// Check if a string contains a substring.
 #[no_mangle]
 pub extern "C" fn ori_str_contains(s: *const OriStr, needle: *const OriStr) -> bool {
@@ -143,10 +178,11 @@ pub extern "C" fn ori_str_trim(s: *const OriStr) -> OriStr {
 
 /// Convert a string to uppercase.
 ///
-/// COW optimization: if the string is ASCII-only and uniquely owned on the
-/// heap, the transformation is done in place (ASCII case change preserves
-/// byte length). For SSO strings, the bytes are copied and transformed
-/// inline. Non-ASCII strings fall through to Rust's `to_uppercase()`.
+/// Returns storage independent from the borrowed input. SSO strings are copied
+/// and transformed inline; heap strings allocate a fresh result. A borrowed
+/// transform cannot mutate a uniquely owned heap input: the source value may
+/// remain observable after the call even when its runtime refcount is one.
+/// Non-ASCII strings use Rust's Unicode case conversion.
 #[no_mangle]
 pub extern "C" fn ori_str_to_uppercase(s: *const OriStr) -> OriStr {
     let s_ref = if s.is_null() {
@@ -167,7 +203,7 @@ pub extern "C" fn ori_str_to_uppercase(s: *const OriStr) -> OriStr {
         return OriStr::from_owned(&unsafe { s_ref.as_str() }.to_uppercase());
     }
 
-    // ASCII: byte length is preserved -- can do in-place or SSO
+    // ASCII: byte length is preserved. SSO values are copied inline.
     if s_ref.is_sso() {
         // SAFETY: is_sso() returned true, so the sso variant is active.
         let mut sso = unsafe { s_ref.sso };
@@ -177,17 +213,8 @@ pub extern "C" fn ori_str_to_uppercase(s: *const OriStr) -> OriStr {
         return OriStr { sso };
     }
 
-    // Heap: try in-place if unique (not a slice — slices share parent buffer)
-    // SAFETY: is_sso() returned false, so the heap variant is active.
-    let heap = unsafe { &s_ref.heap };
-    if !heap.data.is_null() && !is_slice_cap(heap.cap) && ori_rc_is_unique(heap.data) {
-        // SAFETY: heap.data is non-null, uniquely owned, and allocated with at least `len` bytes.
-        let data = unsafe { std::slice::from_raw_parts_mut(heap.data, len) };
-        data.make_ascii_uppercase();
-        return *s_ref;
-    }
-
-    // Shared heap or slice: allocate new
+    // Heap strings and slices produce independent storage. Dynamic RC
+    // uniqueness is not proof that the borrowed source is dead in the program.
     let mut result = Vec::with_capacity(len);
     result.extend(bytes.iter().map(u8::to_ascii_uppercase));
     OriStr::from_bytes(&result)
@@ -195,7 +222,7 @@ pub extern "C" fn ori_str_to_uppercase(s: *const OriStr) -> OriStr {
 
 /// Convert a string to lowercase.
 ///
-/// Same COW strategy as `ori_str_to_uppercase`.
+/// Same borrowed-input strategy as `ori_str_to_uppercase`.
 #[no_mangle]
 pub extern "C" fn ori_str_to_lowercase(s: *const OriStr) -> OriStr {
     let s_ref = if s.is_null() {
@@ -222,15 +249,6 @@ pub extern "C" fn ori_str_to_lowercase(s: *const OriStr) -> OriStr {
             b.make_ascii_lowercase();
         }
         return OriStr { sso };
-    }
-
-    // SAFETY: is_sso() returned false, so the heap variant is active.
-    let heap = unsafe { &s_ref.heap };
-    if !heap.data.is_null() && !is_slice_cap(heap.cap) && ori_rc_is_unique(heap.data) {
-        // SAFETY: heap.data is non-null, uniquely owned, and allocated with at least `len` bytes.
-        let data = unsafe { std::slice::from_raw_parts_mut(heap.data, len) };
-        data.make_ascii_lowercase();
-        return *s_ref;
     }
 
     let mut result = Vec::with_capacity(len);

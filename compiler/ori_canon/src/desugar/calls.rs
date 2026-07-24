@@ -18,6 +18,7 @@ impl Lowerer<'_> {
     /// arguments are kept in source order.
     pub(crate) fn desugar_call_named(
         &mut self,
+        call_expr_id: ExprId,
         func: ExprId,
         args: CallArgRange,
         span: Span,
@@ -35,16 +36,19 @@ impl Lowerer<'_> {
         let params = self.resolve_func_params(func_kind);
 
         let lowered_args = self.reorder_and_lower_args(&src_args, params.as_deref());
+        let lowered_args = self.append_capability_args(call_expr_id, lowered_args, span);
         let args_range = self.arena.push_expr_list(&lowered_args);
 
-        self.push(
+        let can_id = self.push(
             CanExpr::Call {
                 func: lowered_func,
                 args: args_range,
             },
             span,
             ty,
-        )
+        );
+        self.record_mono_dispatch_if_present(call_expr_id, can_id);
+        can_id
     }
 
     // MethodCallNamed → MethodCall
@@ -55,34 +59,55 @@ impl Lowerer<'_> {
     /// from `impl_sigs`.
     pub(crate) fn desugar_method_call_named(
         &mut self,
+        call_expr_id: ExprId,
         receiver: ExprId,
         method: Name,
         args: CallArgRange,
         span: Span,
         ty: TypeId,
     ) -> ori_ir::canon::CanId {
-        let lowered_receiver = self.lower_expr(receiver);
+        // Get source call arguments (named).
+        let src_args: Vec<(Option<Name>, ExprId)> = self
+            .src
+            .get_call_args(args)
+            .iter()
+            .map(|a| (a.name, a.value))
+            .collect();
 
-        // Get source call arguments.
-        let src_args = self.src.get_call_args(args);
-        let src_args: Vec<(Option<Name>, ExprId)> =
-            src_args.iter().map(|a| (a.name, a.value)).collect();
+        // Lower a module-alias-qualified named call as a free call; its
+        // namespace receiver is not a runtime `self` value.
+        if let Some(qualified) = self.typed.resolve_module_alias_call(call_expr_id) {
+            return self.lower_module_alias_call(call_expr_id, qualified, &src_args, span, ty);
+        }
+
+        // A routed call threads `recv.iter()` as the receiver (typed as the
+        // iterator) so the materialized iterator is a real IR node.
+        let (lowered_receiver, receiver_ty, adapter_ty) =
+            self.lower_method_receiver(call_expr_id, receiver, span);
 
         // Try to resolve the method signature for reordering and default filling.
-        let params = self.resolve_method_params(method);
+        // Pass the (possibly iterator) receiver's type so same-named methods on
+        // different impls resolve to their own signature.
+        let params = self.resolve_method_params(method, receiver_ty);
 
         let lowered_args = self.reorder_and_lower_args(&src_args, params.as_deref());
         let args_range = self.arena.push_expr_list(&lowered_args);
 
-        self.push(
+        let method_ty = adapter_ty.map_or(ty, |idx| TypeId::from_raw(idx.raw()));
+        let adapter_call = self.push(
             CanExpr::MethodCall {
                 receiver: lowered_receiver,
                 method,
                 args: args_range,
             },
             span,
-            ty,
-        )
+            method_ty,
+        );
+        let can_id = self.finish_eager_iter_adapter(adapter_call, adapter_ty, span, ty);
+        // Named-argument methods share the positional MethodCall shape and
+        // must retain typecheck's mono-dispatch identity for closure parameters.
+        self.record_mono_dispatch_if_present(call_expr_id, can_id);
+        can_id
     }
 
     /// Reorder named arguments to match parameter order, filling omitted
@@ -93,7 +118,7 @@ impl Lowerer<'_> {
     /// remaining slots left-to-right. Empty slots are filled by lowering the
     /// parameter's default expression. If `params` is `None`, arguments stay
     /// in source order (fallback for lambdas and error recovery).
-    fn reorder_and_lower_args(
+    pub(crate) fn reorder_and_lower_args(
         &mut self,
         src_args: &[(Option<Name>, ExprId)],
         params: Option<&[(Name, Option<ExprId>)]>,
@@ -119,37 +144,31 @@ impl Lowerer<'_> {
                     }
                 }
 
-                // Fill empty slots: first try unnamed positional args, then defaults.
                 let mut unnamed_iter = unnamed.into_iter();
                 for (i, slot) in slots.iter_mut().enumerate() {
                     if slot.is_none() {
                         if let Some(val) = unnamed_iter.next() {
                             *slot = Some(val);
                         } else if let Some(default_expr) = params[i].1 {
-                            // Lower the default expression from the function signature.
                             *slot = Some(self.lower_expr(default_expr));
                         }
                     }
                 }
 
-                // Collect: all slots (filled by named args, positional args, or defaults),
-                // then any remaining unnamed args (error recovery — more args than params).
+                // INVARIANT: Excess positional arguments remain ordered for recovery.
                 let mut result: Vec<ori_ir::canon::CanId> = slots.into_iter().flatten().collect();
                 result.extend(unnamed_iter);
                 result
             }
-            _ => {
-                // No signature available — keep source order.
-                src_args
-                    .iter()
-                    .map(|&(_, value)| self.lower_expr(value))
-                    .collect()
-            }
+            _ => src_args
+                .iter()
+                .map(|&(_, value)| self.lower_expr(value))
+                .collect(),
         }
     }
 
     /// Try to resolve parameter info (names + defaults) from a function expression.
-    fn resolve_func_params(
+    pub(crate) fn resolve_func_params(
         &self,
         func_kind: ori_ir::ExprKind,
     ) -> Option<Vec<(Name, Option<ExprId>)>> {
@@ -172,12 +191,38 @@ impl Lowerer<'_> {
     }
 
     /// Try to resolve parameter info (names + defaults) from a method signature.
-    fn resolve_method_params(&self, method: Name) -> Option<Vec<(Name, Option<ExprId>)>> {
-        self.typed
-            .impl_sigs
-            .iter()
-            .find(|(name, _)| *name == method)
-            .map(|(_, sig)| {
+    ///
+    /// `receiver_ty` disambiguates same-named methods across impls: among the impls
+    /// defining `method`, the one whose `self` (param 0) type equals the receiver is
+    /// preferred, so each receiver fills its OWN defaults. Falls back to the first
+    /// name-match when the receiver type is unknown or no `self` type matches
+    /// (generic impls, where `self` is a type variable not equal to the concrete
+    /// receiver type).
+    pub(crate) fn resolve_method_params(
+        &self,
+        method: Name,
+        receiver_ty: Option<ori_types::Idx>,
+    ) -> Option<Vec<(Name, Option<ExprId>)>> {
+        let self_name = self.interner.intern("self");
+        let by_receiver = receiver_ty.and_then(|recv| {
+            self.typed.impl_sigs.iter().find(|entry| {
+                entry.name == method
+                    && entry.sig.param_names.first().copied() == Some(self_name)
+                    && entry.sig.param_types.first().copied() == Some(recv)
+            })
+        });
+        by_receiver
+            .or_else(|| {
+                self.typed
+                    .impl_sigs
+                    .iter()
+                    .find(|entry| entry.name == method)
+            })
+            .map(|entry| {
+                let sig = &entry.sig;
+                // Positional method arguments exclude the separate `self`
+                // receiver, so drop its signature slot before aligning defaults.
+                let skip = usize::from(sig.param_names.first().copied() == Some(self_name));
                 sig.param_names
                     .iter()
                     .zip(
@@ -186,6 +231,7 @@ impl Lowerer<'_> {
                             .copied()
                             .chain(std::iter::repeat(None)),
                     )
+                    .skip(skip)
                     .map(|(&name, default)| (name, default))
                     .collect()
             })

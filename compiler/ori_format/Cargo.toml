@@ -1,0 +1,14 @@
+[package]
+name = "ori_format"
+description = "Scalar format-spec parser + emission kernel shared by the interpreter and AOT runtime backends"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Std-only leaf — the single source of truth for scalar `{value:spec}` formatting.
+# Intentionally zero workspace dependencies so the AOT runtime can link it lean.
+
+[lints]
+workspace = true

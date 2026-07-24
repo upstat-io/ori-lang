@@ -9,8 +9,8 @@ use std::fmt;
 use crate::arena::to_u32;
 use crate::Name;
 
-use super::expr::ConstValue;
-use super::tree::DecisionTree;
+use super::support::ConstValue;
+use super::tree::{DecisionTree, LeafDiscardPaths};
 
 /// Index into a [`ConstantPool`]. References a compile-time-folded value.
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
@@ -81,12 +81,17 @@ pub struct ConstantPool {
 }
 
 impl ConstantPool {
-    // Pre-interned sentinel IDs.
+    /// Unit sentinel interned at pool construction.
     pub const UNIT: ConstantId = ConstantId(0);
+    /// Boolean `true` sentinel interned at pool construction.
     pub const TRUE: ConstantId = ConstantId(1);
+    /// Boolean `false` sentinel interned at pool construction.
     pub const FALSE: ConstantId = ConstantId(2);
+    /// Integer zero sentinel interned at pool construction.
     pub const ZERO: ConstantId = ConstantId(3);
+    /// Integer one sentinel interned at pool construction.
     pub const ONE: ConstantId = ConstantId(4);
+    /// Empty-string sentinel interned at pool construction.
     pub const EMPTY_STR: ConstantId = ConstantId(5);
 
     /// Create a new constant pool with pre-interned sentinels.
@@ -172,18 +177,49 @@ pub type SharedDecisionTree = std::sync::Arc<DecisionTree>;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DecisionTreePool {
     trees: Vec<SharedDecisionTree>,
+    /// Blank-pattern cleanup carriers in static decision-tree success order.
+    ///
+    /// Entry `tree_discard_paths[t][n]` belongs to the `n`th Leaf/Guard
+    /// success in the same edge/default/on-fail preorder used by ARC emission.
+    tree_discard_paths: Vec<Vec<LeafDiscardPaths>>,
 }
 
 impl DecisionTreePool {
     /// Create an empty pool.
     pub fn new() -> Self {
-        Self { trees: Vec::new() }
+        Self {
+            trees: Vec::new(),
+            tree_discard_paths: Vec::new(),
+        }
     }
 
-    /// Store a decision tree and return its ID.
+    /// Store a decision tree with empty cleanup carriers and return its ID.
     pub fn push(&mut self, tree: DecisionTree) -> DecisionTreeId {
+        let leaf_discard_paths = vec![Vec::new(); decision_tree_success_count(&tree)];
+        self.push_with_leaf_discards(tree, leaf_discard_paths)
+    }
+
+    /// Store a decision tree with its exact blank-pattern cleanup carriers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the carrier count does not match the tree's static Leaf/Guard
+    /// success count.
+    pub fn push_with_leaf_discards(
+        &mut self,
+        tree: DecisionTree,
+        leaf_discard_paths: Vec<LeafDiscardPaths>,
+    ) -> DecisionTreeId {
+        let success_count = decision_tree_success_count(&tree);
+        assert_eq!(
+            leaf_discard_paths.len(),
+            success_count,
+            "decision tree has {success_count} success nodes but {} cleanup carriers",
+            leaf_discard_paths.len()
+        );
         let id = DecisionTreeId::new(to_u32(self.trees.len(), "decision trees"));
         self.trees.push(SharedDecisionTree::new(tree));
+        self.tree_discard_paths.push(leaf_discard_paths);
         id
     }
 
@@ -201,6 +237,11 @@ impl DecisionTreePool {
         SharedDecisionTree::clone(&self.trees[id.index()])
     }
 
+    /// Get blank-pattern cleanup carriers in static success-node order.
+    pub fn leaf_discard_paths(&self, id: DecisionTreeId) -> &[LeafDiscardPaths] {
+        self.tree_discard_paths[id.index()].as_slice()
+    }
+
     /// Number of stored trees.
     pub fn len(&self) -> usize {
         self.trees.len()
@@ -209,5 +250,20 @@ impl DecisionTreePool {
     /// Returns `true` if no trees are stored.
     pub fn is_empty(&self) -> bool {
         self.trees.is_empty()
+    }
+}
+
+fn decision_tree_success_count(tree: &DecisionTree) -> usize {
+    match tree {
+        DecisionTree::Switch { edges, default, .. } => {
+            let edge_count = edges
+                .iter()
+                .map(|(_, subtree)| decision_tree_success_count(subtree))
+                .sum::<usize>();
+            edge_count + default.as_deref().map_or(0, decision_tree_success_count)
+        }
+        DecisionTree::Leaf { .. } => 1,
+        DecisionTree::Guard { on_fail, .. } => 1 + decision_tree_success_count(on_fail),
+        DecisionTree::Fail => 0,
     }
 }

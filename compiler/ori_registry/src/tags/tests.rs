@@ -43,8 +43,11 @@ fn type_tag_name_returns_correct_ori_names() {
         assert_eq!(tag.name(), name, "TypeTag::{tag:?}.name() mismatch");
     }
 
-    // Verify we tested every variant
-    assert_eq!(expected.len(), TypeTag::all().len());
+    assert_eq!(
+        expected.len(),
+        TypeTag::all().len(),
+        "expected table must cover every TypeTag variant"
+    );
 }
 
 #[test]
@@ -176,9 +179,6 @@ fn each_registered_type_has_exactly_one_memory_strategy() {
     use crate::defs::BUILTIN_TYPES;
 
     for type_def in BUILTIN_TYPES {
-        // Each TypeDef has exactly one MemoryStrategy — this is enforced
-        // by the struct field being a single enum value. Verify it's a
-        // known variant (not some future variant we haven't handled).
         let strategy = type_def.memory;
         assert!(
             strategy == MemoryStrategy::Copy
@@ -210,7 +210,9 @@ fn each_registered_type_has_exactly_one_memory_strategy() {
 
     assert_eq!(
         copy_types,
-        vec!["int", "float", "bool", "char", "byte", "Duration", "Size", "Ordering", "Range"]
+        vec![
+            "int", "float", "bool", "char", "byte", "void", "Duration", "Size", "Ordering", "Range"
+        ]
     );
     assert_eq!(
         arc_types,
@@ -246,45 +248,30 @@ fn ownership_is_const_constructible() {
 // OpStrategy tests
 
 #[test]
-fn op_strategy_size_matches_pointer_width() {
-    let expected = if cfg!(target_pointer_width = "64") {
-        24
-    } else {
-        12
-    };
-    assert_eq!(
-        std::mem::size_of::<OpStrategy>(),
-        expected,
-        "OpStrategy size should match pointer width"
-    );
+fn op_strategy_size_is_compact() {
+    assert_eq!(std::mem::size_of::<OpStrategy>(), 1);
 }
 
 #[test]
 fn op_strategy_variants_equality() {
-    assert_eq!(OpStrategy::IntInstr, OpStrategy::IntInstr);
-    assert_eq!(OpStrategy::FloatInstr, OpStrategy::FloatInstr);
-    assert_eq!(OpStrategy::UnsignedCmp, OpStrategy::UnsignedCmp);
-    assert_eq!(OpStrategy::BoolLogic, OpStrategy::BoolLogic);
+    assert_eq!(OpStrategy::SignedInteger, OpStrategy::SignedInteger);
+    assert_eq!(OpStrategy::FloatingPoint, OpStrategy::FloatingPoint);
+    assert_eq!(
+        OpStrategy::UnsignedComparison,
+        OpStrategy::UnsignedComparison
+    );
+    assert_eq!(OpStrategy::BooleanLogic, OpStrategy::BooleanLogic);
     assert_eq!(OpStrategy::Unsupported, OpStrategy::Unsupported);
 
-    assert_ne!(OpStrategy::IntInstr, OpStrategy::FloatInstr);
-    assert_ne!(OpStrategy::IntInstr, OpStrategy::Unsupported);
+    assert_ne!(OpStrategy::SignedInteger, OpStrategy::FloatingPoint);
+    assert_ne!(OpStrategy::SignedInteger, OpStrategy::Unsupported);
 }
 
 #[test]
 fn op_strategy_runtime_call_equality() {
-    let a = OpStrategy::RuntimeCall {
-        fn_name: "ori_str_concat",
-        returns_bool: false,
-    };
-    let b = OpStrategy::RuntimeCall {
-        fn_name: "ori_str_concat",
-        returns_bool: false,
-    };
-    let c = OpStrategy::RuntimeCall {
-        fn_name: "ori_str_eq",
-        returns_bool: true,
-    };
+    let a = OpStrategy::RuntimeCall(RuntimeOperator::StringConcat);
+    let b = OpStrategy::RuntimeCall(RuntimeOperator::StringConcat);
+    let c = OpStrategy::RuntimeCall(RuntimeOperator::StringEqual);
 
     assert_eq!(a, b);
     assert_ne!(a, c);
@@ -292,52 +279,81 @@ fn op_strategy_runtime_call_equality() {
 
 #[test]
 fn op_strategy_runtime_call_is_const_constructible() {
-    const CONCAT: OpStrategy = OpStrategy::RuntimeCall {
-        fn_name: "ori_str_concat",
-        returns_bool: false,
-    };
-    const EQ: OpStrategy = OpStrategy::RuntimeCall {
-        fn_name: "ori_str_eq",
-        returns_bool: true,
-    };
+    const CONCAT: OpStrategy = OpStrategy::RuntimeCall(RuntimeOperator::StringConcat);
+    const EQ: OpStrategy = OpStrategy::RuntimeCall(RuntimeOperator::StringEqual);
     // Const context verified by the const declarations above.
     assert_ne!(CONCAT, EQ);
 }
 
 #[test]
 fn op_strategy_debug_output() {
-    let s = format!("{:?}", OpStrategy::IntInstr);
-    assert_eq!(s, "IntInstr");
+    let s = format!("{:?}", OpStrategy::SignedInteger);
+    assert_eq!(s, "SignedInteger");
 
     let s = format!(
         "{:?}",
-        OpStrategy::RuntimeCall {
-            fn_name: "ori_str_eq",
-            returns_bool: true
+        OpStrategy::RuntimeCall(RuntimeOperator::StringEqual)
+    );
+    assert!(s.contains("StringEqual"));
+}
+
+#[test]
+fn runtime_operator_descriptors_separate_ownership_from_allocation() {
+    let list = RuntimeOperator::ListConcat.descriptor();
+    assert!(list.is_valid_for(2));
+    assert_eq!(
+        list.result,
+        PrimitiveResultOwnership::OwnedFromConsumedOrIndependent {
+            eligible_inputs: PrimitiveOperandSet::FIRST_TWO
         }
     );
-    assert!(s.contains("ori_str_eq"));
-    assert!(s.contains("true"));
+    assert_eq!(
+        list.operand_uses,
+        &[PrimitiveOperandUse::Consume, PrimitiveOperandUse::Consume]
+    );
+    assert_eq!(
+        list.allocation,
+        PrimitiveAllocationEffect::StrategyDependent
+    );
+
+    let string = RuntimeOperator::StringConcat.descriptor();
+    assert!(string.is_valid_for(2));
+    assert_eq!(string.result, PrimitiveResultOwnership::IndependentOwned);
+    assert_eq!(string.allocation, PrimitiveAllocationEffect::MayAllocate);
+}
+
+#[test]
+fn primitive_descriptor_validation_fails_closed() {
+    assert!(!RuntimeOperator::ListConcat.descriptor().is_valid_for(1));
+
+    let borrowed_takeover = PrimitiveDescriptor {
+        result: PrimitiveResultOwnership::OwnedFromConsumedOrIndependent {
+            eligible_inputs: PrimitiveOperandSet::FIRST_TWO,
+        },
+        operand_uses: &[PrimitiveOperandUse::Borrow, PrimitiveOperandUse::Borrow],
+        allocation: PrimitiveAllocationEffect::StrategyDependent,
+    };
+    assert!(!borrowed_takeover.is_valid_for(2));
 }
 
 #[test]
 fn op_strategy_hash_consistency() {
     use std::hash::{Hash, Hasher};
 
-    fn hash_of(v: &OpStrategy) -> u64 {
+    fn hash_of(v: OpStrategy) -> u64 {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         v.hash(&mut h);
         h.finish()
     }
 
-    let a = OpStrategy::IntInstr;
-    let b = OpStrategy::IntInstr;
-    assert_eq!(hash_of(&a), hash_of(&b));
+    let a = OpStrategy::SignedInteger;
+    let b = OpStrategy::SignedInteger;
+    assert_eq!(hash_of(a), hash_of(b));
 
     // Different variants should (likely) have different hashes
-    let c = OpStrategy::FloatInstr;
+    let c = OpStrategy::FloatingPoint;
     // Not guaranteed but extremely likely for these simple variants
-    assert_ne!(hash_of(&a), hash_of(&c));
+    assert_ne!(hash_of(a), hash_of(c));
 }
 
 // ReturnTag tests

@@ -1,0 +1,9 @@
+type MaybeIter = Empty | Holds(it: Iterator<int>);
+
+@main () -> int = {
+    let x: MaybeIter = Holds(it: [1, 2, 3].iter());
+    match x {
+        Empty -> 0,
+        Holds(it) -> 0
+    }
+}

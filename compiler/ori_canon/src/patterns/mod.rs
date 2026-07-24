@@ -1,28 +1,9 @@
-//! Pattern compilation — match patterns to decision trees.
+//! Canonical pattern compilation using Maranget-style decision trees.
 //!
-//! Called by `lower.rs` when lowering `ExprKind::Match`. Converts Ori's
-//! `MatchPattern` variants to the flattened `FlatPattern` representation,
-//! then compiles the pattern matrix to a `DecisionTree` using the Maranget
-//! (2008) algorithm.
-//!
-//! The compiled tree is stored in `DecisionTreePool` and referenced by
-//! `DecisionTreeId` on the `CanExpr::Match` node.
-//!
-//! # Strategy
-//!
-//! This module delegates to existing infrastructure in `ori_arc::decision_tree`:
-//! - `flatten::flatten_pattern()` — arena `MatchPattern` → self-contained `FlatPattern`
-//! - `compile::compile()` — `PatternMatrix` → `DecisionTree`
-//!
-//! No algorithm duplication. Section 07 may move the algorithm here if needed.
-//!
-//! # Prior Art
-//!
-//! - Maranget (2008) "Compiling Pattern Matching to Good Decision Trees"
-//! - Roc `crates/compiler/mono/src/ir/decision_tree.rs`
-//! - Elm `compiler/src/Optimize/DecisionTree.hs`
-//!
-//! See `eval_v2` Section 03 for the full pattern compilation specification.
+//! Source patterns flatten into self-contained matrix cells before matrix
+//! specialization produces a tree and its blank-pattern cleanup carriers.
+
+mod decision_tree;
 
 use ori_ir::ast::patterns::MatchPattern;
 use ori_ir::canon::tree::{DecisionTree, FlatPattern, PathInstruction, PatternRow, ScrutineePath};
@@ -30,35 +11,20 @@ use ori_ir::PatternKey;
 
 use crate::lower::Lowerer;
 
-/// Compile match arm patterns into a decision tree.
-///
-/// Converts each arm's `MatchPattern` into a `FlatPattern` via
-/// `ori_arc::decision_tree::flatten`, then builds a `PatternMatrix`
-/// and compiles it with the Maranget algorithm.
-///
-/// # Arguments
-///
-/// - `lowerer`: The active lowerer (provides source arena, type info, and pool).
-/// - `arms`: Pattern + optional guard for each match arm.
-/// - `arm_range_start`: The `ArmRange.start` value, needed to construct `PatternKey::Arm`
-///   for resolving ambiguous bindings via `TypedModule::resolve_pattern()`.
-/// - `scrutinee_ty`: The type of the scrutinee expression (for variant resolution).
-///
-/// # Returns
-///
-/// A compiled `DecisionTree` ready for storage in the `DecisionTreePool`.
+/// Compile match arms into a decision tree and blank-pattern cleanup carriers.
 pub(crate) fn compile_patterns(
     lowerer: &Lowerer<'_>,
     arms: &[(MatchPattern, Option<ori_ir::canon::CanId>)],
     arm_range_start: u32,
     scrutinee_ty: ori_types::Idx,
-) -> DecisionTree {
+) -> decision_tree::compile::CompiledDecisionTree {
     if arms.is_empty() {
-        return DecisionTree::Fail;
+        return decision_tree::compile::CompiledDecisionTree {
+            tree: DecisionTree::Fail,
+            leaf_discard_paths: Vec::new(),
+        };
     }
 
-    // Build the pattern matrix: one row per arm, one column (the scrutinee).
-    // Guards are already lowered to CanId by the caller.
     let matrix: Vec<PatternRow> = arms
         .iter()
         .enumerate()
@@ -71,36 +37,23 @@ pub(crate) fn compile_patterns(
                 arm_index,
                 guard: *guard,
                 bindings: vec![],
+                discard_paths: vec![],
             }
         })
         .collect();
 
-    // Initial paths: one column = root scrutinee at empty path.
     let paths: Vec<ScrutineePath> = vec![Vec::new()];
 
-    ori_arc::decision_tree::compile::compile(matrix, paths)
+    decision_tree::compile::compile(matrix, paths)
 }
 
-/// Flatten a single arm pattern, handling `PatternResolution::UnitVariant`.
-///
-/// The type checker may resolve ambiguous `Binding` patterns to `UnitVariant`
-/// (e.g., `None` looks like a variable name but is actually an enum variant
-/// with no fields). We check `typed.resolve_pattern()` and convert these to
-/// `FlatPattern::Variant` with the resolved index before passing to
-/// `flatten_pattern()`.
-///
-/// When the type checker lacks resolution (e.g., untyped lambda parameters in
-/// higher-order methods like `.map()`/`.fold()`), we fall back to pool-based
-/// resolution: if the binding name starts with uppercase and is a variant of
-/// the scrutinee's enum type, treat it as a variant pattern. This mirrors the
-/// legacy evaluator's value-based fallback in `try_match`.
+/// Flatten an arm while resolving ambiguous bindings to unit variants.
 fn flatten_arm_pattern(
     lowerer: &Lowerer<'_>,
     pattern: &MatchPattern,
     key: PatternKey,
     scrutinee_ty: ori_types::Idx,
 ) -> FlatPattern {
-    // Check if this Binding pattern was resolved to a unit variant by the type checker.
     if let MatchPattern::Binding(name) = pattern {
         if let Some(ori_ir::PatternResolution::UnitVariant { variant_index, .. }) =
             lowerer.typed.resolve_pattern(key)
@@ -112,9 +65,7 @@ fn flatten_arm_pattern(
             };
         }
 
-        // Fallback: resolve uppercase binding names as unit variants via the pool.
-        // Handles cases where the type checker lacks resolution (e.g., lambda
-        // parameters in higher-order methods where element types aren't propagated).
+        // Why: Higher-order lambda inputs may lack a type-checker pattern resolution.
         if let Some(idx) = try_resolve_unit_variant(lowerer, *name, scrutinee_ty) {
             return FlatPattern::Variant {
                 variant_name: *name,
@@ -124,12 +75,8 @@ fn flatten_arm_pattern(
         }
     }
 
-    let ctx = ori_arc::decision_tree::flatten::FlattenCtx::new(
-        lowerer.src,
-        lowerer.pool,
-        lowerer.interner,
-    );
-    ctx.flatten(pattern, scrutinee_ty)
+    let ctx = decision_tree::flatten::FlattenCtx::new(lowerer.src, lowerer.pool, lowerer.interner);
+    ctx.to_flat_pattern(pattern, scrutinee_ty)
 }
 
 /// Compile multi-clause function parameter patterns into a decision tree.
@@ -145,13 +92,16 @@ fn flatten_arm_pattern(
 ///
 /// # Returns
 ///
-/// A compiled `DecisionTree` ready for storage in the `DecisionTreePool`.
+/// A compiled tree plus blank-pattern cleanup carriers for `DecisionTreePool`.
 pub(crate) fn compile_multi_clause_patterns(
     clauses: &[Vec<FlatPattern>],
     guards: &[Option<ori_ir::canon::CanId>],
-) -> DecisionTree {
+) -> decision_tree::compile::CompiledDecisionTree {
     if clauses.is_empty() {
-        return DecisionTree::Fail;
+        return decision_tree::compile::CompiledDecisionTree {
+            tree: DecisionTree::Fail,
+            leaf_discard_paths: Vec::new(),
+        };
     }
 
     let col_count = clauses[0].len();
@@ -165,11 +115,10 @@ pub(crate) fn compile_multi_clause_patterns(
             arm_index,
             guard: *guard,
             bindings: vec![],
+            discard_paths: vec![],
         })
         .collect();
 
-    // Initial paths: for single-column, root at empty path.
-    // For multi-column, each column projects via TupleIndex.
     let paths: Vec<ScrutineePath> = if col_count == 1 {
         vec![Vec::new()]
     } else {
@@ -182,14 +131,10 @@ pub(crate) fn compile_multi_clause_patterns(
             .collect()
     };
 
-    ori_arc::decision_tree::compile::compile(matrix, paths)
+    decision_tree::compile::compile(matrix, paths)
 }
 
-/// Flatten a function parameter pattern into a `FlatPattern`.
-///
-/// Handles `Option<MatchPattern>` from `Param.pattern`:
-/// - `None` → binding (the parameter name)
-/// - `Some(pattern)` → flatten via the standard pipeline
+/// Flatten a parameter's optional explicit pattern.
 pub(crate) fn flatten_param_pattern(
     lowerer: &Lowerer<'_>,
     param: &ori_ir::ast::items::Param,
@@ -197,9 +142,7 @@ pub(crate) fn flatten_param_pattern(
     match &param.pattern {
         None => FlatPattern::Binding(param.name),
         Some(pattern) => {
-            // Use UNIT type as scrutinee_ty since multi-clause functions lack type info.
-            // This works for all literal patterns (Int, String, Bool) which don't need
-            // type resolution, and for variant patterns via the registry-based fallback.
+            // Why: Multi-clause parameters have no scrutinee type at this stage.
             flatten_arm_pattern(lowerer, pattern, PatternKey::Arm(0), ori_types::Idx::UNIT)
         }
     }

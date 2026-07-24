@@ -9,7 +9,7 @@ trait Adder {
 
 type MyAdder = { base: int }
 
-impl Adder for MyAdder {
+impl MyAdder: Adder {
     @add_value (self, x: int) -> int = self.base + x;
 }
 

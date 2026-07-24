@@ -1,8 +1,8 @@
-//! Flag computation for pool types (`types.md §TF-*`).
+//! Flag computation for pool types.
 //!
 //! Called by `Pool::intern` + `Pool::intern_complex` at type-interning time
 //! to precompute `TypeFlags`. Flags propagate from children using
-//! `TypeFlags::propagate_from` per `types.md §TF-3`.
+//! `TypeFlags::propagate_from` per.
 
 use crate::{Tag, TypeFlags};
 
@@ -164,8 +164,8 @@ impl Pool {
     }
 
     /// Scheme propagation. Extra layout:
-    /// `[var_count, var_id_0, ..., var_id_{N-1}, body_idx]` per `types.md §SC-1`.
-    /// Propagates `PROPAGATE_MASK` from the body (`types.md §TF-3`).
+    /// `[var_count, var_id_0, ..., var_id_{N-1}, body_idx]` per.
+    /// Propagates `PROPAGATE_MASK` from the body (TF-3).
     fn compute_flags_scheme(&self, extra: &[u32]) -> TypeFlags {
         let var_count = extra[0] as usize;
         let body_idx = extra[1 + var_count] as usize;

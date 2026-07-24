@@ -1,0 +1,17 @@
+// Host module — list of int matrix cell.
+// Calls `identity<[int]>` and `first<int>` from `./generics`. The mono
+// dispatch through `import_sig_by_name` is exercised both for
+// indirect-passing types (`[int]` is a 24-byte `{ len, cap, data }` fat
+// pointer, passed indirectly as it exceeds the 16-byte direct-passing
+// threshold) AND for scalar (`int` is direct).
+
+use "./generics" { identity, first }
+use std.testing { assert_eq }
+
+@main () -> int = {
+    let $xs = [10, 20, 30];
+    let $copy = identity(x: xs);
+    assert_eq(actual: first(items: copy), expected: 10);
+    assert_eq(actual: first(items: identity(x: [42, 43, 44])), expected: 42);
+    0
+}

@@ -56,41 +56,13 @@ impl TrackingAllocator {
 
 unsafe impl GlobalAlloc for TrackingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let ptr = System.alloc(layout);
-        if !ptr.is_null() {
-            let size = layout.size();
-            let current = self.allocated.fetch_add(size, Ordering::SeqCst) + size;
-            self.allocation_count.fetch_add(1, Ordering::SeqCst);
-            // Update peak if current exceeds it
-            let mut peak = self.peak.load(Ordering::SeqCst);
-            while current > peak {
-                match self.peak.compare_exchange_weak(
-                    peak,
-                    current,
-                    Ordering::SeqCst,
-                    Ordering::SeqCst,
-                ) {
-                    Ok(_) => break,
-                    Err(p) => peak = p,
-                }
-            }
-        }
-        ptr
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        self.allocated.fetch_sub(layout.size(), Ordering::SeqCst);
-        System.dealloc(ptr, layout);
-    }
-
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        let new_ptr = System.realloc(ptr, layout, new_size);
-        if !new_ptr.is_null() {
-            let old_size = layout.size();
-            if new_size > old_size {
-                let diff = new_size - old_size;
-                let current = self.allocated.fetch_add(diff, Ordering::SeqCst) + diff;
-                // Update peak
+        unsafe {
+            let ptr = System.alloc(layout);
+            if !ptr.is_null() {
+                let size = layout.size();
+                let current = self.allocated.fetch_add(size, Ordering::SeqCst) + size;
+                self.allocation_count.fetch_add(1, Ordering::SeqCst);
+                // Update peak if current exceeds it
                 let mut peak = self.peak.load(Ordering::SeqCst);
                 while current > peak {
                     match self.peak.compare_exchange_weak(
@@ -103,12 +75,46 @@ unsafe impl GlobalAlloc for TrackingAllocator {
                         Err(p) => peak = p,
                     }
                 }
-            } else {
-                self.allocated
-                    .fetch_sub(old_size - new_size, Ordering::SeqCst);
             }
+            ptr
         }
-        new_ptr
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        unsafe {
+            self.allocated.fetch_sub(layout.size(), Ordering::SeqCst);
+            System.dealloc(ptr, layout);
+        }
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        unsafe {
+            let new_ptr = System.realloc(ptr, layout, new_size);
+            if !new_ptr.is_null() {
+                let old_size = layout.size();
+                if new_size > old_size {
+                    let diff = new_size - old_size;
+                    let current = self.allocated.fetch_add(diff, Ordering::SeqCst) + diff;
+                    // Update peak
+                    let mut peak = self.peak.load(Ordering::SeqCst);
+                    while current > peak {
+                        match self.peak.compare_exchange_weak(
+                            peak,
+                            current,
+                            Ordering::SeqCst,
+                            Ordering::SeqCst,
+                        ) {
+                            Ok(_) => break,
+                            Err(p) => peak = p,
+                        }
+                    }
+                } else {
+                    self.allocated
+                        .fetch_sub(old_size - new_size, Ordering::SeqCst);
+                }
+            }
+            new_ptr
+        }
     }
 }
 

@@ -1,4 +1,7 @@
-use ori_ir::Span;
+use ori_ir::{ExprArena, Name, Span, StringInterner};
+use rustc_hash::FxHashSet;
+
+use crate::{Idx, Pool, TraitRegistry, TypeRegistry};
 
 use super::*;
 
@@ -128,7 +131,190 @@ fn module_checker_finish_with_pool() {
     assert_eq!(pool.tag(list_int), crate::Tag::List);
 }
 
-// --- Transitive metadata forwarding tests ---
+#[test]
+fn finish_with_pool_exports_monomorphized_list_collection_burden() {
+    // Export-path pin: a burden registered against a monomorphized builtin
+    // collection instance (`[str]`, which has no nominal `TypeEntry`) lands in
+    // the `TypeRegistry::collection_burdens` side-table and MUST surface on
+    // `TypedModule.collection_burdens` after `finish_with_pool`. The side-table
+    // is excluded from `types` (sourced from `into_entries`), so without the
+    // explicit export the collection-instance burden would never reach the ARC
+    // codegen pipeline. Spec: Annex E §AIMS.
+    use crate::registry::burden::{UserBurdenSpec, UserOwnedField};
+
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    // Monomorphize `[str]` in the pool — a genuine builtin collection instance
+    // with NO nominal `TypeEntry` (struct / enum / newtype / alias).
+    let list_str = checker.pool_mut().list(Idx::STR);
+    assert!(
+        checker.type_registry().get_by_idx(list_str).is_none(),
+        "Precondition: a monomorphized [str] instance has no nominal TypeEntry"
+    );
+
+    // The element-burden shape `compose_user_burden` produces for `[str]`: the
+    // buffer owns its `str` elements.
+    let spec = UserBurdenSpec {
+        self_owned_identity: true,
+        owned_fields: vec![UserOwnedField {
+            field_path: vec![0],
+            field_type: Idx::STR,
+        }],
+        borrowed_fields: vec![],
+        variant_burdens: vec![],
+        element_burden: Some(Idx::STR),
+        drop_operation: None,
+        user_drop: None,
+    };
+    let canonical = checker
+        .type_registry_mut()
+        .register_user_burden(list_str, spec.clone());
+    assert_eq!(
+        canonical, list_str,
+        "Side-table registration is canonical at the [str] instance Idx"
+    );
+    // Burden landed in the side-table, NOT on a nominal entry.
+    assert!(
+        checker.type_registry().get_by_idx(list_str).is_none(),
+        "Burden for [str] lives in the collection_burdens side-table, not a TypeEntry"
+    );
+
+    let (result, _pool) = checker.finish_with_pool();
+
+    // The export carries the side-table entry verbatim.
+    assert_eq!(
+        result.typed.collection_burdens.len(),
+        1,
+        "TypedModule.collection_burdens carries the [str] instance burden"
+    );
+    let (exported_idx, exported_spec) = &result.typed.collection_burdens[0];
+    assert_eq!(
+        *exported_idx, list_str,
+        "Exported entry keyed by the [str] Idx"
+    );
+    assert_eq!(
+        exported_spec, &spec,
+        "Exported spec is structurally identical to the registered burden"
+    );
+}
+
+#[test]
+fn finish_with_pool_collection_burdens_sorted_and_excludes_nominal_entries() {
+    // Pins two export-path invariants: (1) `collection_burdens` is sorted
+    // ascending by `Idx` for Salsa-deterministic output; (2) nominal-type
+    // burdens (struct / enum / newtype) stay on `types`, NEVER on the
+    // side-table export. Spec: Annex E §AIMS.
+    use crate::registry::burden::{UserBurdenSpec, UserOwnedField};
+    use ori_ir::Span;
+
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    // Two monomorphized collection instances: `[str]` and `{str: str}`. Their
+    // pool Idx ordering is not guaranteed, so the export must sort.
+    let list_str = checker.pool_mut().list(Idx::STR);
+    let map_str_str = checker.pool_mut().map(Idx::STR, Idx::STR);
+
+    let list_spec = UserBurdenSpec {
+        self_owned_identity: true,
+        owned_fields: vec![UserOwnedField {
+            field_path: vec![0],
+            field_type: Idx::STR,
+        }],
+        borrowed_fields: vec![],
+        variant_burdens: vec![],
+        element_burden: Some(Idx::STR),
+        drop_operation: None,
+        user_drop: None,
+    };
+    let map_spec = UserBurdenSpec {
+        self_owned_identity: true,
+        owned_fields: vec![UserOwnedField {
+            field_path: vec![0],
+            field_type: Idx::STR,
+        }],
+        borrowed_fields: vec![],
+        variant_burdens: vec![],
+        element_burden: Some(Idx::STR),
+        drop_operation: None,
+        user_drop: None,
+    };
+    checker
+        .type_registry_mut()
+        .register_user_burden(map_str_str, map_spec);
+    checker
+        .type_registry_mut()
+        .register_user_burden(list_str, list_spec);
+
+    // A nominal struct WITH a burden — must surface on `types`, never on the
+    // side-table export.
+    let nominal_idx = Idx::from_raw(951);
+    let nominal_name = Name::from_raw(0x20009);
+    let nominal_spec = UserBurdenSpec {
+        self_owned_identity: false,
+        owned_fields: vec![UserOwnedField {
+            field_path: vec![0],
+            field_type: Idx::STR,
+        }],
+        borrowed_fields: vec![],
+        variant_burdens: vec![],
+        element_burden: None,
+        drop_operation: None,
+        user_drop: None,
+    };
+    checker.type_registry_mut().register_struct(
+        nominal_name,
+        nominal_idx,
+        vec![],
+        vec![],
+        Span::DUMMY,
+        crate::registry::Visibility::Public,
+        0,
+        None,
+        Some(nominal_spec.clone()),
+    );
+
+    let (result, _pool) = checker.finish_with_pool();
+
+    // Exactly the two collection instances, sorted ascending by Idx.
+    let exported = &result.typed.collection_burdens;
+    assert_eq!(
+        exported.len(),
+        2,
+        "Both monomorphized collection instances export; nominal burden does not"
+    );
+    assert!(
+        exported.windows(2).all(|w| w[0].0.raw() < w[1].0.raw()),
+        "collection_burdens is sorted ascending by Idx for Salsa determinism"
+    );
+    let exported_idxs: Vec<Idx> = exported.iter().map(|(idx, _)| *idx).collect();
+    assert!(
+        exported_idxs.contains(&list_str) && exported_idxs.contains(&map_str_str),
+        "Both [str] and {{str: str}} instance burdens are exported"
+    );
+    assert!(
+        !exported_idxs.contains(&nominal_idx),
+        "Nominal-struct burden stays on `types`, never the side-table export"
+    );
+
+    // The nominal burden rode out on `types`, not the side-table.
+    let nominal_entry = result
+        .typed
+        .types
+        .iter()
+        .find(|te| te.idx == nominal_idx)
+        .unwrap_or_else(|| panic!("nominal struct present in TypedModule.types"));
+    assert_eq!(
+        nominal_entry.burden.as_ref(),
+        Some(&nominal_spec),
+        "Nominal burden travels on its TypeEntry, not collection_burdens"
+    );
+}
+
+// Transitive metadata forwarding tests
 
 #[test]
 fn exported_metadata_includes_imported_entries() {
@@ -250,7 +436,7 @@ fn exported_metadata_multiple_imported_modules() {
     assert!(hashes.contains(&0xD001));
 }
 
-// --- Transitive collection-surface forwarding tests ---
+// Transitive collection-surface forwarding tests
 
 /// Regression: the A→B→C collection-surface forwarding path must
 /// be pinned end-to-end. Module C exports a public `[int]` function. Module B
@@ -286,7 +472,7 @@ fn exported_collection_surfaces_forward_transitively_a_b_c() {
 
     // Step 3: Module A imports B's surfaces (which contain C's forwarded hash).
     let mut checker_a = ModuleChecker::new(&arena, &interner);
-    checker_a.set_imported_collection_surfaces(result_b.typed.exported_collection_surfaces.clone());
+    checker_a.set_imported_collection_surfaces(result_b.typed.exported_collection_surfaces);
     let (result_a, _pool_a) = checker_a.finish_with_pool();
 
     // A should see C's hash through the full transitive chain.
@@ -319,7 +505,7 @@ fn exported_collection_surfaces_diamond_dedup() {
     let (result_d, _) = checker_d.finish_with_pool();
 
     // Module A imports both B and D
-    let mut combined = result_b.typed.exported_collection_surfaces.clone();
+    let mut combined = result_b.typed.exported_collection_surfaces;
     combined.extend(&result_d.typed.exported_collection_surfaces);
 
     let mut checker_a = ModuleChecker::new(&arena, &interner);

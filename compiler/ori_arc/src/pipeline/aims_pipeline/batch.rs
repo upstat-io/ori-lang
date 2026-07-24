@@ -1,269 +1,309 @@
-//! Batch orchestration: run AIMS pipeline on all functions.
+//! Whole-program AIMS orchestration.
 //!
-//! Contains the batch entry point (`run_aims_pipeline_all`), the second-pass
-//! TRMC contract refresh and FIP recomputation (`run_second_pass`), and
-//! ownership application (`apply_aims_ownership`).
+//! The batch freezes external contracts, computes interprocedural contracts,
+//! realizes each function, refreshes TRMC contracts, and freezes one artifact.
+
+use std::hash::BuildHasher;
 
 use ori_ir::Name;
-use ori_types::Pool;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::AimsPipelineConfig;
-use crate::aims::contract::{MemoryContract, ParamContract};
+use super::{AimsPipelineConfig, CheckpointObserver};
+use crate::aims::contract::{ContractMapExt, MemoryContract, ParamContract};
 use crate::aims::lattice::AccessClass;
-use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::ArcFunction;
+#[cfg(test)]
+use crate::ir::{ArcInstr, ArcTerminator};
 use crate::lower::ArcProblem;
 use crate::ownership::Ownership;
-use crate::ArcClassification;
+use crate::pipeline::{ArcPipelineBatchOutcome, ArcPipelineContext};
 
-/// Run the AIMS pipeline on all functions (batch entry point).
-///
-/// Called from within `run_arc_pipeline_all` when the `aims` feature is active.
-///
-/// 1. Compute interprocedural contracts via `aims::analyze_program()`
-/// 2. Apply ownership to function parameters
-/// 3. Run per-function pipeline for each function
-pub(crate) fn run_aims_pipeline_all(
+#[cfg(test)]
+use second_pass::reconcile_post_emission_may_deallocate;
+use second_pass::{run_second_pass, SecondPassContext};
+
+mod second_pass;
+
+/// Realizes a whole program with immutable contracts for external call bodies.
+pub(crate) fn run_aims_pipeline_all_with_external_contracts<S: BuildHasher>(
     functions: &mut [ArcFunction],
-    classifier: &dyn ArcClassification,
-    interner: &ori_ir::StringInterner,
-    pool: &Pool,
-    builtins: &BuiltinOwnershipSets,
-    verify_arc: bool,
-) -> Result<Vec<ArcProblem>, Vec<crate::verify::VerifyError>> {
-    // Step 1: interprocedural analysis -> MemoryContract per function.
-    let mut contracts = {
-        let _span = tracing::info_span!("analyze_program").entered();
-        crate::aims::interprocedural::analyze_program(functions, classifier, builtins, interner)
-    };
+    context: &ArcPipelineContext<'_, S>,
+) -> Result<ArcPipelineBatchOutcome, Vec<crate::verify::VerifyError>> {
+    run_aims_pipeline_all_impl(functions, context, None)
+}
 
-    // Step 2: apply ownership to function parameters.
+/// Realizes a whole program while reporting stable checkpoints.
+pub(crate) fn run_aims_pipeline_all_with_observer<'a, S: BuildHasher>(
+    functions: &mut [ArcFunction],
+    context: &ArcPipelineContext<'a, S>,
+    observer: &'a CheckpointObserver<'a>,
+) -> Result<ArcPipelineBatchOutcome, Vec<crate::verify::VerifyError>> {
+    run_aims_pipeline_all_impl(functions, context, Some(observer))
+}
+
+fn run_aims_pipeline_all_impl<'a, S: BuildHasher>(
+    functions: &mut [ArcFunction],
+    context: &ArcPipelineContext<'a, S>,
+    observer: Option<&'a CheckpointObserver<'a>>,
+) -> Result<ArcPipelineBatchOutcome, Vec<crate::verify::VerifyError>> {
+    let classifier = context.classifier;
+    let interner = context.interner;
+    let pool = context.pool;
+    let builtins = context.builtins;
+    let type_registry = context.type_registry;
+    let callable_boundary_facts = context.callable_boundaries;
+    let verify_arc = context.verify_arc;
+    let external_contracts = context.external_contracts;
+    let callable_boundaries =
+        callable_boundary_facts
+            .validate(functions, pool)
+            .map_err(|errors| {
+                errors
+                    .into_iter()
+                    .map(crate::verify::VerifyError::from)
+                    .collect::<Vec<_>>()
+            })?;
+    // INVARIANT: Interprocedural transfer reads one frozen primitive policy table.
+    crate::aims::freeze_primitive_facts(functions, classifier)?;
+
+    let program_analysis = {
+        let _span = tracing::info_span!("analyze_program").entered();
+        crate::aims::interprocedural::analyze_program_with_external_contracts_boundaries_and_types(
+            functions,
+            classifier,
+            builtins,
+            interner,
+            external_contracts,
+            &callable_boundaries,
+            Some(type_registry),
+        )
+    };
+    let mut contracts = program_analysis.contracts;
+    let exact_transfer_witnesses = program_analysis.exact_transfer_witnesses;
+
     {
         let _span = tracing::info_span!("apply_ownership").entered();
         apply_aims_ownership(functions, &contracts);
     }
+    for function in functions.iter() {
+        super::trace_pipeline_checkpoint(function, "ownership_applied", interner, observer);
+    }
 
-    // Steps 3-14: per-function pipeline.
+    // INVARIANT: Local-callable coverage is derived independently of contract insertion.
+    let func_names: FxHashSet<Name> = functions.iter().map(|f| f.name).collect();
+    let exact_callables: FxHashSet<Name> = func_names
+        .iter()
+        .copied()
+        .chain(external_contracts.keys().copied())
+        .collect();
+
     let config = AimsPipelineConfig {
         classifier,
         contracts: &contracts,
+        func_names: &func_names,
+        exact_callables: &exact_callables,
         pool,
         interner,
         builtins,
         verify_arc,
-        observer: None,
+        observer,
+        type_registry,
+        exact_transfer_witnesses: &exact_transfer_witnesses,
     };
 
-    let mut all_problems = Vec::new();
-    let mut total_rc = crate::pipeline::rc_count::RcOpCount::default();
-    // Collect post-emission missed_reuses for second-pass FIP recomputation.
-    // Preserves the full count (not just bool) so Bounded(n) contracts can
-    // be re-verified with accurate evidence.
-    let mut reuse_updates: Vec<(Name, usize)> = Vec::new();
-    // Track TRMC-rewritten functions for contract refresh (Bug 2).
-    let mut trmc_rewritten: Vec<Name> = Vec::new();
-    for func in functions.iter_mut() {
-        let result = super::run_aims_pipeline(func, &config)?;
-        all_problems.extend(result.problems);
-        reuse_updates.push((func.name, result.missed_reuses));
-        if result.was_trmc_rewritten {
-            trmc_rewritten.push(func.name);
-        }
-        let rc = crate::pipeline::rc_count::count_rc_ops(func);
-        total_rc.inc += rc.inc;
-        total_rc.dec += rc.dec;
-    }
+    let mut execution = run_function_pipelines(functions, &config)?;
 
-    // Second pass: TRMC contract refresh -> may_deallocate -> FIP.
     run_second_pass(
-        functions,
+        SecondPassContext {
+            functions,
+            trmc_rewritten: &execution.trmc_rewritten,
+            reuse_updates: &execution.reuse_updates,
+            classifier,
+            verify_arc,
+            interner,
+            builtins,
+            exact_callables: &exact_callables,
+            type_registry,
+            callable_boundaries: &callable_boundaries,
+        },
         &mut contracts,
-        &trmc_rewritten,
-        &reuse_updates,
-        classifier,
-        verify_arc,
     )?;
 
-    // Contract coherence oracle: verify inferred contracts match what the
-    // realization pipeline actually emitted. Only under ORI_VERIFY_ARC=1.
     if verify_arc {
-        let _span = tracing::info_span!("contract_coherence_oracle").entered();
-        for (func, &(_, missed_reuses)) in functions.iter().zip(reuse_updates.iter()) {
-            if let Some(contract) = contracts.get(&func.name) {
-                let mismatches = crate::aims::verify::oracle::verify_coherence(
-                    func,
-                    contract,
-                    u32::try_from(missed_reuses).unwrap_or(u32::MAX),
-                );
-                let unsafe_mismatches: Vec<_> = mismatches
-                    .into_iter()
-                    .filter(crate::aims::verify::oracle::CoherenceMismatch::is_unsafe)
-                    .collect();
-                if !unsafe_mismatches.is_empty() {
-                    all_problems.push(ArcProblem::ContractCoherenceViolation {
-                        func_name: interner.lookup(func.name).to_owned(),
-                        mismatches: unsafe_mismatches,
-                    });
-                }
-            }
-        }
+        execution.problems.extend(contract_coherence_problems(
+            functions,
+            &contracts,
+            &execution.reuse_updates,
+            interner,
+        ));
     }
 
+    trace_physical_rc_counts(functions.len(), execution.total_rc);
+
+    // INVARIANT: Frozen contracts cover exactly the realized function bodies.
+    contracts.retain(|name, _| func_names.contains(name));
+
+    freeze_batch_outcome(
+        functions,
+        contracts,
+        execution.problems,
+        pool,
+        type_registry,
+    )
+}
+
+struct PipelineExecution {
+    problems: Vec<ArcProblem>,
+    reuse_updates: Vec<(Name, usize)>,
+    trmc_rewritten: Vec<Name>,
+    total_rc: crate::pipeline::rc_count::RcOpCount,
+}
+
+fn run_function_pipelines(
+    functions: &mut [ArcFunction],
+    config: &AimsPipelineConfig<'_>,
+) -> Result<PipelineExecution, Vec<crate::verify::VerifyError>> {
+    let mut execution = PipelineExecution {
+        problems: Vec::new(),
+        reuse_updates: Vec::new(),
+        trmc_rewritten: Vec::new(),
+        total_rc: crate::pipeline::rc_count::RcOpCount::default(),
+    };
+    for function in functions {
+        let result = super::run_aims_pipeline(function, config)?;
+        execution.problems.extend(result.problems);
+        execution
+            .reuse_updates
+            .push((function.name, result.missed_reuses));
+        if result.was_trmc_rewritten {
+            execution.trmc_rewritten.push(function.name);
+        }
+        let rc = crate::pipeline::rc_count::count_rc_ops(function);
+        execution.total_rc.inc += rc.inc;
+        execution.total_rc.dec += rc.dec;
+    }
+    Ok(execution)
+}
+
+fn contract_coherence_problems(
+    functions: &[ArcFunction],
+    contracts: &FxHashMap<Name, MemoryContract>,
+    reuse_updates: &[(Name, usize)],
+    interner: &ori_ir::StringInterner,
+) -> Vec<ArcProblem> {
+    let _span = tracing::info_span!("contract_coherence_oracle").entered();
+    let mut problems = Vec::new();
+    for (function, &(_, missed_reuses)) in functions.iter().zip(reuse_updates) {
+        let contract = contracts.get_required(&function.name, "contract_coherence_oracle");
+        let Ok(missed_reuses) = u32::try_from(missed_reuses) else {
+            unreachable!("missed-reuse count exceeds the u32 coherence-oracle domain");
+        };
+        let mismatches = crate::aims::verify::oracle::verify_coherence(
+            function,
+            contract,
+            contracts,
+            interner,
+            missed_reuses,
+        );
+        let unsafe_mismatches: Vec<_> = mismatches
+            .into_iter()
+            .filter(crate::aims::verify::oracle::CoherenceMismatch::is_unsafe)
+            .collect();
+        if !unsafe_mismatches.is_empty() {
+            problems.push(ArcProblem::ContractCoherenceViolation {
+                func_name: interner.lookup(function.name).to_owned(),
+                mismatches: unsafe_mismatches,
+            });
+        }
+    }
+    problems
+}
+
+fn trace_physical_rc_counts(function_count: usize, total_rc: crate::pipeline::rc_count::RcOpCount) {
+    // INVARIANT: This trace measures the compiled-counter adapter, not an AIMS fact.
     tracing::debug!(
-        functions = functions.len(),
+        functions = function_count,
         rc_inc = total_rc.inc,
         rc_dec = total_rc.dec,
         rc_total = total_rc.total(),
         "AIMS pipeline RC operation totals"
     );
-
-    Ok(all_problems)
 }
 
-/// Second pass: refresh contracts for TRMC-rewritten functions, then
-/// update `may_deallocate` and FIP classifications.
-///
-/// Ordering: (1) TRMC contract refresh, (2) `may_deallocate` update,
-/// (3) FIP recomputation, (4) FIP re-verification.
-fn run_second_pass(
+fn freeze_batch_outcome(
     functions: &[ArcFunction],
-    contracts: &mut FxHashMap<Name, MemoryContract>,
-    trmc_rewritten: &[Name],
-    reuse_updates: &[(Name, usize)],
-    classifier: &dyn crate::ArcClassification,
-    verify_arc: bool,
-) -> Result<(), Vec<crate::verify::VerifyError>> {
-    // Phase 1: full contract refresh for TRMC-rewritten functions.
-    // Re-run analysis + extraction on the rewritten IR to get accurate
-    // ContextBehavior, FipContract, and EffectSummary.
-    if !trmc_rewritten.is_empty() {
-        let _span = tracing::info_span!("trmc_contract_refresh").entered();
-        for &name in trmc_rewritten {
-            // Find the rewritten function.
-            let Some(func) = functions.iter().find(|f| f.name == name) else {
-                continue;
-            };
-            // Re-analyze with current contracts as peer context.
-            let state_map = crate::aims::intraprocedural::analyze_function(
-                func,
-                classifier,
-                contracts,
-                &[],
-                Vec::new(),
-            );
-            let context_regions = crate::aims::normalize::detect_context_regions(func);
-            // No SCC peers needed — TRMC rewrite is per-function and
-            // the function's own contract is already in `contracts`.
-            let new_contract = crate::aims::interprocedural::extract_contract(
-                func,
-                &state_map,
-                classifier,
-                contracts,
-                &rustc_hash::FxHashSet::default(),
-                &context_regions,
-            );
-            if let Some(old) = contracts.get_mut(&name) {
-                tracing::debug!(
-                    func = name.raw(),
-                    old_unbounded = old.effects.has_unbounded_stack,
-                    new_unbounded = new_contract.effects.has_unbounded_stack,
-                    "TRMC full contract refresh"
-                );
-                *old = new_contract;
-            }
-        }
-    }
+    contracts: FxHashMap<Name, MemoryContract>,
+    problems: Vec<ArcProblem>,
+    pool: &ori_types::Pool,
+    type_registry: &ori_types::TypeRegistry,
+) -> Result<ArcPipelineBatchOutcome, Vec<crate::verify::VerifyError>> {
+    // INVARIANT: Backends consume frozen facts and do not rerun AIMS analysis.
+    let function_effects = functions
+        .iter()
+        .map(|function| {
+            let contract = contracts.get_required(&function.name, "freeze_function_effects");
+            (function.name, contract.function_effect_facts(function))
+        })
+        .collect();
+    let fresh_return_facts = functions
+        .iter()
+        .map(|function| {
+            let contract = contracts.get_required(&function.name, "freeze_fresh_return_facts");
+            (function.name, contract.fresh_self_allocation_facts())
+        })
+        .collect();
+    let param_disjointness = functions
+        .iter()
+        .map(|function| {
+            let param_types: Vec<_> = function.params.iter().map(|param| param.ty).collect();
+            (
+                function.name,
+                crate::aims::realize::rl31_disjoint::prove_param_disjointness(&param_types, pool),
+            )
+        })
+        .collect();
+    let frozen_closure_adapters =
+        crate::freeze_closure_adapter_plans(functions, &contracts, pool, type_registry).map_err(
+            |errors| {
+                errors
+                    .into_iter()
+                    .map(crate::verify::VerifyError::ClosureAbi)
+                    .collect::<Vec<_>>()
+            },
+        )?;
 
-    // Phase 2: update contracts with post-emission may_deallocate facts.
-    {
-        let _span = tracing::info_span!("post_emission_fip_update").entered();
-        let mut downgrades = 0u32;
-        for (name, missed_reuses) in reuse_updates {
-            if let Some(contract) = contracts.get_mut(name) {
-                contract.effects.may_deallocate = *missed_reuses > 0;
-                if crate::aims::verify::fip::recompute_fip_for_may_deallocate(contract) {
-                    downgrades += 1;
-                    tracing::debug!(
-                        func = name.raw(),
-                        "FIP contract downgraded to Never after may_deallocate update"
-                    );
-                }
-            }
-        }
-        if downgrades > 0 {
-            tracing::info!(
-                downgrades,
-                "FIP contracts downgraded after may_deallocate update"
-            );
-        }
-    }
-
-    // Phase 3: re-verify FIP contracts with corrected data.
-    {
-        let _span = tracing::info_span!("post_emission_fip_verify").entered();
-        debug_assert_eq!(
-            functions.len(),
-            reuse_updates.len(),
-            "reuse_updates must match functions 1:1"
-        );
-        for (func, (update_name, missed_reuses)) in functions.iter().zip(reuse_updates.iter()) {
-            debug_assert_eq!(
-                func.name, *update_name,
-                "reuse_updates order must match functions order"
-            );
-            if let Some(contract) = contracts.get(&func.name) {
-                let evidence = crate::aims::realize::FipEvidence {
-                    fip_gates: vec![],
-                    missed_reuses: *missed_reuses,
-                };
-                let fip_errors =
-                    crate::aims::verify::fip::verify_fip_contract(func.name, contract, &evidence);
-                if !fip_errors.is_empty() {
-                    for e in &fip_errors {
-                        tracing::error!("FIP post-recompute verification failed: {e}");
-                    }
-                    if verify_arc {
-                        // Second pass: ALL FIP errors are blocking because
-                        // may_deallocate facts have been recomputed.
-                        return Err(fip_errors
-                            .into_iter()
-                            .map(|e| crate::verify::VerifyError::FipStructural {
-                                message: e.to_string(),
-                            })
-                            .collect());
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
+    Ok(ArcPipelineBatchOutcome {
+        problems,
+        contracts,
+        function_effects,
+        fresh_return_facts,
+        param_disjointness,
+        closure_adapters: frozen_closure_adapters.adapters,
+        retain_plans: frozen_closure_adapters.retain_plans,
+        callable_facts: frozen_closure_adapters.callable_facts,
+    })
 }
 
-/// Apply AIMS ownership annotations to function parameters.
-///
-/// Sets `ArcParam.ownership` on each function from its `MemoryContract`.
-/// Replaces `borrow::apply_borrows()` in the old pipeline.
+/// Applies each [`MemoryContract`] parameter access class to the corresponding IR parameter.
 pub(crate) fn apply_aims_ownership(
     functions: &mut [ArcFunction],
     contracts: &FxHashMap<Name, MemoryContract>,
 ) {
     for func in functions {
-        let Some(contract) = contracts.get(&func.name) else {
-            continue;
-        };
+        let contract = contracts.get_required(&func.name, "apply_aims_ownership");
         for (param, pc) in func.params.iter_mut().zip(&contract.params) {
-            param.ownership = param_contract_to_ownership(*pc);
+            param.ownership = param_contract_to_ownership(pc);
         }
     }
 }
 
-/// Convert a `ParamContract` access class to the `Ownership` enum used by
-/// `ArcParam`. This bridges the AIMS contract representation with the
-/// existing ARC IR parameter ownership field.
-fn param_contract_to_ownership(pc: ParamContract) -> Ownership {
+/// Maps parameter access into the IR ownership carrier.
+fn param_contract_to_ownership(pc: &ParamContract) -> Ownership {
     match pc.access {
         AccessClass::Borrowed => Ownership::Borrowed,
         AccessClass::Owned => Ownership::Owned,
     }
 }
+
+#[cfg(test)]
+mod tests;

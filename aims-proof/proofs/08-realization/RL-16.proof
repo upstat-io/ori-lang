@@ -1,0 +1,37 @@
+Theorem RL-16: freezeAllocationFacts is total and conservative
+
+  Preconditions:
+    - The allocation site is known.
+    - Logical analysis evidence may be absent or conflict with the site.
+
+  Soundness property:
+    Forall site s with missing evidence:
+
+      (P1) freezeAllocationFacts(s, none) = unknownAllocationFacts(s).
+
+      (P2) lifetime = Unknown and owners = Unbounded.
+
+      (P3) thread = PotentiallyShared and visibility = Unknown.
+
+      (P4) ownership-observation and cleanup facts remain Unknown.
+
+    No physical placement is inferred from the conservative default.
+
+  Proof obligation:
+    Constructive totality check plus negative witnesses against invented
+    lifetime, owner, event, cleanup, thread, or visibility precision.
+
+    Part (P1/P2/P3/P4) - unknown grid:
+      conservative bounds -> true
+      no invented identities -> true
+      Coverage gate: 2 conservative groups.
+
+    Engines dispatched:
+      case_analysis (PRIMARY - section_08::verify_rl16_conservative_unknown;
+        freeze_allocation_facts_total_conservative)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL row)
+      refinement (SECONDARY - gracious-accept per the coverage-manifest RL row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-16 because missing evidence freezes Unknown lifetime and visibility, Unbounded owners, PotentiallyShared thread reachability, and unknown event obligations

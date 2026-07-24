@@ -23,7 +23,7 @@ use std::fmt;
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 #[repr(u8)]
 pub enum Tag {
-    // === Primitives (0-15) ===
+    // Primitives (0-15)
     // data: unused (0)
     /// 64-bit signed integer.
     Int = 0,
@@ -52,7 +52,7 @@ pub enum Tag {
 
     // Reserved: 12-15 for future primitives
 
-    // === Simple Containers (16-31) ===
+    // Simple Containers (16-31)
     // data: child Idx.raw()
     /// List type `[T]`.
     List = 16,
@@ -74,7 +74,7 @@ pub enum Tag {
 
     // Reserved: 23-31 for future simple containers
 
-    // === Two-Child Containers (32-47) ===
+    // Two-Child Containers (32-47)
     // data: index into extra[] with two consecutive Idx values
     /// Map type `{K: V}`.
     Map = 32,
@@ -89,7 +89,7 @@ pub enum Tag {
 
     // Reserved: 35-47 for future two-child types
 
-    // === Complex Types (48-79) ===
+    // Complex Types (48-79)
     // data: index into extra[] with length prefix
     /// Function type `(P1, P2, ...) -> R`.
     Function = 48,
@@ -102,7 +102,7 @@ pub enum Tag {
 
     // Reserved: 52-79 for future complex types
 
-    // === Named Types (80-95) ===
+    // Named Types (80-95)
     // data: index into extra[]
     /// Named type reference (not yet resolved).
     Named = 80,
@@ -113,7 +113,7 @@ pub enum Tag {
 
     // Reserved: 83-95 for future named types
 
-    // === Type Variables (96-111) ===
+    // Type Variables (96-111)
     // data: variable id (into var_states)
     /// Unbound type variable (unification target).
     Var = 96,
@@ -124,14 +124,14 @@ pub enum Tag {
 
     // Reserved: 99-111 for future variable types
 
-    // === Type Schemes (112-127) ===
+    // Type Schemes (112-127)
     // data: index into extra[]
     /// Quantified type scheme (forall vars. body).
     Scheme = 112,
 
     // Reserved: 113-127 for future scheme types
 
-    // === Special (240-255) ===
+    // Special (240-255)
     /// Type projection (associated type).
     Projection = 240,
     /// Module namespace type.
@@ -186,7 +186,16 @@ impl Tag {
         matches!(self, Self::Var | Self::BoundVar | Self::RigidVar)
     }
 
-    // === Merkle Hash Classification ===
+    /// Check if this tag routes arithmetic through the checked-integer
+    /// codegen path (`OpStrategy::SignedInteger`; see `codegen-rules.md`
+    /// `emit_int_binary_op`). `int`, `byte`, `Duration`, and `Size` all
+    /// share this path; `float`/`bool`/`char` do not.
+    #[inline]
+    pub const fn is_checked_int_arithmetic(self) -> bool {
+        matches!(self, Self::Int | Self::Byte | Self::Duration | Self::Size)
+    }
+
+    // Merkle Hash Classification
     //
     // Every tag falls into exactly one of three categories for Merkle hashing:
     // 1. `has_child_in_data()` — data = child Idx (simple containers)

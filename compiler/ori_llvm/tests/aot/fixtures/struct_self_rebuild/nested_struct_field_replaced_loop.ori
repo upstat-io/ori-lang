@@ -1,0 +1,16 @@
+// Nested-struct field replaced fresh each iteration: the carrier's partial
+// dec releases the struct-typed field at refcount zero. The release must go
+// through the value-traversal glue (per-member typed release) — pairing the
+// inner list buffer with the OUTER struct's drop fn reads a sibling field out
+// of list payload bytes (misaligned-pointer dec, type confusion). Must run
+// leak-clean.
+type Inner = { data: [int] }
+type Pair = { i: Inner, b: [int] }
+
+@main () -> int = {
+    let r = Pair { i: Inner { data: [1] }, b: [2] };
+    for k in 0..30 do {
+        r = Pair { i: Inner { data: [k] }, b: r.b };
+    };
+    if r.b.len() == 1 then 0 else 1
+}

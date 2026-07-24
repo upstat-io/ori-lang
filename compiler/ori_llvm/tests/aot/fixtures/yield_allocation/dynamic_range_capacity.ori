@@ -1,0 +1,2 @@
+@make (end: int, step: int) -> [int] = for i in 0..end by step yield i;
+@main () -> int = if make(end: 11, step: 2).length() == 6 then 0 else 1;

@@ -20,7 +20,7 @@ use super::{
     FloatRange,
 };
 
-// ── is_f32_exact ────────────────────────────────────────────────────
+// is_f32_exact
 
 #[test]
 fn test_f32_exact_zero() {
@@ -123,11 +123,11 @@ fn test_not_f32_exact_deep_subnormal() {
     // The f64→f32→f64 roundtrip loses precision for this value.
     let val = 1e-45_f64;
     // is_f32_exact already handles this case correctly via roundtrip check.
-    // Just verify our function agrees with the manual roundtrip.
+    // Verify `is_f32_exact` agrees with the manual roundtrip.
     assert!(!is_f32_exact(val));
 }
 
-// ── FloatRange lattice ──────────────────────────────────────────────
+// FloatRange lattice
 
 #[test]
 fn test_join_bottom_bottom() {
@@ -181,7 +181,7 @@ fn test_join_top_top() {
     assert_eq!(FloatRange::Top.join(FloatRange::Top), FloatRange::Top);
 }
 
-// ── FloatRange::observe ─────────────────────────────────────────────
+// FloatRange::observe
 
 #[test]
 fn test_observe_f32_exact_value() {
@@ -222,7 +222,7 @@ fn test_observe_mixed_values() {
     assert_eq!(r, FloatRange::Top);
 }
 
-// ── FloatRange::observe_arithmetic ──────────────────────────────────
+// FloatRange::observe_arithmetic
 
 #[test]
 fn test_observe_arithmetic_from_bottom() {
@@ -239,7 +239,7 @@ fn test_observe_arithmetic_from_top() {
     assert_eq!(FloatRange::Top.observe_arithmetic(), FloatRange::Top);
 }
 
-// ── FloatRange::can_narrow_to_f32 ───────────────────────────────────
+// FloatRange::can_narrow_to_f32
 
 #[test]
 fn test_can_narrow_f32exact() {
@@ -257,7 +257,7 @@ fn test_cannot_narrow_bottom() {
     assert!(!FloatRange::Bottom.can_narrow_to_f32());
 }
 
-// ── FloatFieldSummaryTable ───────────────────────────────────────────
+// FloatFieldSummaryTable
 
 #[test]
 fn test_table_empty_returns_bottom() {
@@ -332,7 +332,7 @@ fn test_table_no_construct_sites_all_bottom() {
     assert_eq!(table.get(Idx::BOOL, 0), FloatRange::Bottom);
 }
 
-// ── narrow_float_fields ──────────────────────────────────────────────
+// narrow_float_fields
 
 /// Helper: create a `FieldRepr` with canonical f64 float type.
 fn float_field(index: u32) -> FieldRepr {
@@ -768,10 +768,11 @@ fn test_semantic_pin_narrowed_repr_differs_from_canonical() {
     }
 }
 
-// ── collect_float_field_summaries ───────────────────────────────────
+// collect_float_field_summaries
 
 use ori_arc::ir::{
     ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue,
+    PrimitiveFacts,
 };
 use ori_arc::uniqueness::{CowAnnotations, DropHints};
 use ori_arc::ArcVarId;
@@ -792,8 +793,13 @@ fn make_arc_func(blocks: Vec<ArcBlock>, var_types: Vec<Idx>) -> ArcFunction {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: CowAnnotations::default(),
+        primitive_facts: PrimitiveFacts::default(),
         drop_hints: DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 

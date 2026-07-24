@@ -9,3 +9,16 @@ type Opaque = { data: int }
     let _ = `value: {x}`;
     ()
 }
+
+// Negative pin: the spec-present `{x:spec}` form requires Formattable, which is
+// co-extensive with Printable (`Formattable: Printable` supertrait + blanket
+// `impl<T: Printable> T: Formattable`). A non-Printable type with a format spec
+// must be rejected exactly as the no-spec form is — the with-spec path must NOT
+// bypass the capability check.
+// Spec: Clause 14 (string interpolation), Clause 9 (Printable/Formattable).
+#[compile_fail("does not implement `Printable`")]
+@test_interpolation_spec_missing_formattable tests _ () -> void = {
+    let x = Opaque { data: 42 };
+    let _ = `value: {x:>8}`;
+    ()
+}

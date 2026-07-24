@@ -1,0 +1,10 @@
+let $FORWARD_CAPACITY = $FORWARD_BASE * 2;
+let $FORWARD_BASE = 2;
+let $FORWARD_ALIAS = $FORWARD_ALIAS_MIDDLE;
+let $FORWARD_ALIAS_MIDDLE = $FORWARD_ALIAS_BASE;
+let $FORWARD_ALIAS_BASE = 3;
+
+@forward_module_capacity (items: [int]) -> void = {
+    let bounded: [int, max FORWARD_CAPACITY] = items;
+    let aliased: [int, max FORWARD_ALIAS] = items;
+}

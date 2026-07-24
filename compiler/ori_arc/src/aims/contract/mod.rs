@@ -1,9 +1,9 @@
 //! Memory contracts for interprocedural analysis.
 //!
 //! [`MemoryContract`] describes a function's memory behavior: how it uses
-//! parameters, what it returns, and what effects it has. Produced by
-//! interprocedural analysis (Section 03), consumed by intraprocedural
-//! analysis (Section 02) at call sites and by emission (Section 04).
+//! parameters, what it returns, and what effects it has. Produced by the
+//! interprocedural fixpoint, consumed by intraprocedural analysis at call
+//! sites and by AIMS realization emission.
 //!
 //! # Current State
 //!
@@ -13,21 +13,34 @@
 //!   are refined by SCC fixed-point iteration
 //! - `EffectSummary` fields are computed from function body instructions
 //! - `FipContract` is inferred from converged effect state and token
-//!   balance (`extract_contract()` in `interprocedural/extract.rs`)
+//!   balance (`extract_contract` in `interprocedural/extract.rs`)
 //! - `ContextBehavior` is computed from `ContextRegion` metadata during
-//!   contract extraction (Section 13.1); `default()` for non-TRMC functions
+//!   contract extraction; `default` for non-TRMC functions
 //! - `is_fbip` is `!effects.may_allocate` (inferred metadata)
 
 mod context;
+mod effect;
+mod exact_transfer;
+mod param;
 #[cfg(test)]
 mod tests;
 
 pub use context::{ContextBehavior, ContextRegion};
+pub use effect::{
+    EffectSummary, FipContract, FreshSelfAllocationFacts, FunctionEffectFacts, MemoryAccessClass,
+};
+pub use exact_transfer::{
+    CleanupAuthority, ExactAggregateTransfer, ExactFieldPath, ExactFieldTransfer,
+    ExactFieldTransferKind, ExactTransferState, ResidualDisposition,
+};
+pub use param::{CalleeOwnerDemand, ParamContract, ReturnAliasShape};
 
 use super::lattice::{AccessClass, Cardinality, Consumption, Locality, ShapeClass, Uniqueness};
-use crate::ir::ArcParam;
+use crate::ir::{ArcFunction, ArcInstr, ArcParam, ArcTerminator};
 use crate::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
-use crate::uniqueness::UniquenessSummary;
+
+use std::collections::HashMap;
+use std::hash::BuildHasher;
 
 use ori_ir::Name;
 use ori_types::Idx;
@@ -35,9 +48,9 @@ use ori_types::Idx;
 /// Memory contract for a function.
 ///
 /// Describes parameter ownership, return value uniqueness, effect summary,
-/// constructor-context behavior, and FIP certification. Produced by
-/// interprocedural analysis (Section 03), consumed by intraprocedural
-/// analysis (Section 02) at call sites and by emission (Section 04).
+/// constructor-context behavior, and FIP certification. Produced by the
+/// interprocedural fixpoint, consumed by intraprocedural analysis at call
+/// sites and by AIMS realization emission.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemoryContract {
     /// Per-parameter contracts, in parameter order.
@@ -54,9 +67,8 @@ pub struct MemoryContract {
     ///
     /// Inferred metadata: `!effects.may_allocate` (no fresh allocations).
     /// This does NOT replace `#fbip` as the user-facing enforcement annotation,
-    /// and does NOT change `is_auto_fbip()` behavior. It makes FBIP status
+    /// and does NOT change `is_auto_fbip` behavior. It makes FBIP status
     /// visible to interprocedural analysis without running the post-pipeline check.
-    /// (Section 09.2 Effect Activation.)
     pub is_fbip: bool,
 }
 
@@ -101,8 +113,8 @@ impl MemoryContract {
     /// Used in SCC fixed-point iteration: if `join(old, new) == old`, the
     /// contract has converged.
     #[must_use]
-    pub fn join(&self, other: &Self) -> Self {
-        debug_assert_eq!(
+    pub(crate) fn join(&self, other: &Self) -> Self {
+        assert_eq!(
             self.params.len(),
             other.params.len(),
             "cannot join contracts with different parameter counts"
@@ -114,14 +126,87 @@ impl MemoryContract {
                 .zip(other.params.iter())
                 .map(|(a, b)| a.join(b))
                 .collect(),
-            return_info: self.return_info.join(&other.return_info),
-            effects: self.effects.join(&other.effects),
+            return_info: self.return_info.join(other.return_info),
+            effects: self.effects.join(other.effects),
             context_behavior: self.context_behavior.join(&other.context_behavior),
             fip: self.fip.join(&other.fip),
             // is_fbip: AND (conservative direction — if either side allocates,
             // the joined contract is not FBIP).
             is_fbip: self.is_fbip && other.is_fbip,
         }
+    }
+
+    /// Realize the backend-neutral memory-access classification for RL-30.
+    ///
+    /// This consumes the final post-AIMS body as well as its final contract.
+    /// `EffectSummary` describes ownership/FIP effects, not arbitrary runtime
+    /// or I/O writes, so a contract alone cannot prove a whole-function memory
+    /// attribute. Until IC-5 carries typed inaccessible-memory effects, every
+    /// call is untyped and therefore fails closed. This includes apparently
+    /// known calls and runtime I/O, panic, and thread-local-state operations;
+    /// their names never substitute for typed write effects.
+    #[must_use]
+    pub fn function_effect_facts(&self, function: &ArcFunction) -> FunctionEffectFacts {
+        let may_write_inaccessible = function.blocks.iter().any(|block| {
+            block.body.iter().any(|instruction| {
+                matches!(
+                    instruction,
+                    ArcInstr::Apply { .. } | ArcInstr::ApplyIndirect { .. }
+                )
+            }) || matches!(
+                block.terminator,
+                ArcTerminator::Invoke { .. }
+                    | ArcTerminator::InvokeIndirect { .. }
+                    | ArcTerminator::Resume
+            )
+        });
+        let structurally_read_only = function.blocks.iter().all(|block| {
+            block.body.iter().all(|instruction| {
+                matches!(
+                    instruction,
+                    ArcInstr::Let { .. }
+                        | ArcInstr::Project { .. }
+                        | ArcInstr::Construct { .. }
+                        | ArcInstr::Select { .. }
+                )
+            }) && matches!(
+                block.terminator,
+                ArcTerminator::Return { .. }
+                    | ArcTerminator::Jump { .. }
+                    | ArcTerminator::Branch { .. }
+                    | ArcTerminator::Switch { .. }
+                    | ArcTerminator::Unreachable
+            )
+        });
+        let no_writes = !self.effects.may_allocate
+            && !self.effects.may_deallocate
+            && !self.effects.may_share
+            && !self.effects.may_throw
+            && !may_write_inaccessible
+            && structurally_read_only
+            && self.params.iter().all(|param| {
+                param.cardinality == Cardinality::Absent
+                    || (param.access == AccessClass::Borrowed && !param.may_share)
+            });
+        FunctionEffectFacts::new(
+            self.effects,
+            may_write_inaccessible,
+            if no_writes {
+                MemoryAccessClass::ReadOnly
+            } else {
+                MemoryAccessClass::ReadWrite
+            },
+        )
+    }
+
+    /// Freeze the backend-neutral RL-29 return-allocation fact.
+    ///
+    /// `preserves_freshness` is deliberately insufficient: a result may remain
+    /// unique while forwarding caller-owned or consumed storage. Only the
+    /// stronger path-universal self-allocation proof excludes upstream aliases.
+    #[must_use]
+    pub const fn fresh_self_allocation_facts(&self) -> FreshSelfAllocationFacts {
+        FreshSelfAllocationFacts::new(self.return_info.returns_fresh_self_alloc)
     }
 
     /// Convert to [`AnnotatedSig`] for compatibility during migration.
@@ -134,7 +219,7 @@ impl MemoryContract {
     /// - `ParamContract.access == Borrowed` → `Ownership::Borrowed`
     /// - `ParamContract.access == Owned` → `Ownership::Owned`
     pub fn to_annotated_sig(&self, func_params: &[ArcParam], return_type: Idx) -> AnnotatedSig {
-        debug_assert_eq!(
+        assert_eq!(
             self.params.len(),
             func_params.len(),
             "MemoryContract params must match function params"
@@ -165,92 +250,6 @@ impl MemoryContract {
             return_type,
         }
     }
-
-    /// Convert to [`UniquenessSummary`] for compatibility during migration.
-    ///
-    /// Per-parameter uniqueness is always `MaybeShared` (the current system
-    /// doesn't track per-param uniqueness from callers).
-    pub fn to_uniqueness_summary(&self) -> UniquenessSummary {
-        let legacy_uniqueness = aims_to_legacy_uniqueness(self.return_info.uniqueness);
-        UniquenessSummary {
-            params: self
-                .params
-                .iter()
-                .map(|_| crate::uniqueness::Uniqueness::MaybeShared)
-                .collect(),
-            return_val: legacy_uniqueness,
-            preserves_freshness: self.return_info.preserves_freshness,
-        }
-    }
-}
-
-/// Per-parameter memory contract.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ParamContract {
-    /// Whether the parameter is owned or borrowed.
-    pub access: AccessClass,
-    /// How the parameter is consumed.
-    pub consumption: Consumption,
-    /// How many times the parameter is used.
-    pub cardinality: Cardinality,
-    /// May this parameter's value escape the callee (stored, returned, shared)?
-    pub may_escape: bool,
-    /// May this parameter's value be shared (refcount > 1) by the callee?
-    pub may_share: bool,
-    /// Locality lower bound: the callee guarantees this parameter stays at
-    /// least this local (v1: always `Unknown`).
-    pub locality_bound: Locality,
-    /// Caller-guaranteed uniqueness at entry (Section 09.1).
-    ///
-    /// When ALL call sites pass this parameter with `Owned + Linear + Once`,
-    /// the interprocedural analysis tightens this to `Unique` — the callee
-    /// can trust that the argument's runtime RC == 1 at entry. This is the
-    /// callee-side dual of COW-aware borrowing (07.3.1).
-    ///
-    /// Default: `MaybeShared` (no caller guarantee).
-    pub uniqueness: Uniqueness,
-}
-
-impl ParamContract {
-    /// Conservative: owned, unrestricted, many uses, may escape/share, unknown locality,
-    /// no caller uniqueness guarantee.
-    pub const CONSERVATIVE: Self = Self {
-        access: AccessClass::Owned,
-        consumption: Consumption::Unrestricted,
-        cardinality: Cardinality::Many,
-        may_escape: true,
-        may_share: true,
-        locality_bound: Locality::Unknown,
-        uniqueness: Uniqueness::MaybeShared,
-    };
-
-    /// Most-optimistic: borrowed, dead, absent, no escape/share, block-local, unique.
-    ///
-    /// Used as starting point for fixed-point iteration. All dimensions
-    /// are at their bottom (most optimistic) values.
-    pub const OPTIMISTIC: Self = Self {
-        access: AccessClass::Borrowed,
-        consumption: Consumption::Dead,
-        cardinality: Cardinality::Absent,
-        may_escape: false,
-        may_share: false,
-        locality_bound: Locality::BlockLocal,
-        uniqueness: Uniqueness::Unique,
-    };
-
-    /// Componentwise join toward conservative.
-    #[must_use]
-    pub fn join(&self, other: &Self) -> Self {
-        Self {
-            access: self.access.join(other.access),
-            consumption: self.consumption.join(other.consumption),
-            cardinality: self.cardinality.join(other.cardinality),
-            may_escape: self.may_escape || other.may_escape,
-            may_share: self.may_share || other.may_share,
-            locality_bound: self.locality_bound.join(other.locality_bound),
-            uniqueness: self.uniqueness.join(other.uniqueness),
-        }
-    }
 }
 
 /// Return value information in a memory contract.
@@ -261,10 +260,35 @@ pub struct ReturnContract {
     /// Whether the function preserves freshness: if all RC'd inputs are
     /// `Unique`, the output is guaranteed `Unique`.
     pub preserves_freshness: bool,
-    /// Locality of the returned value (v1: `HeapEscaping` for most).
+    /// Logical lifetime bound of the returned value. The shipped carrier uses
+    /// the legacy `HeapEscaping` label for most escaping results; it does not
+    /// select heap placement.
     pub locality: Locality,
     /// Shape class of the return value.
     pub shape: ShapeClass,
+    /// Whether every path returns a fresh, independently owned buffer identity
+    /// with no upstream alias.
+    /// The buffer may be produced directly by this body (`Construct`/`Reuse`/
+    /// `CollectionReuse` or `@ori_list_take`) or by a callee carrying the same
+    /// path-universal proof; it is never caller-provided or consumed-input
+    /// storage. Stronger than `preserves_freshness ∧ uniqueness`, this licenses
+    /// caller-side analyses to admit the Invoke/Apply result as a fresh collection
+    /// root. Orthogonal to
+    /// `uniqueness`/`preserves_freshness` — set independently, consumed only by
+    /// the fresh-collection-root admission, so it never perturbs the
+    /// uniqueness/freshness-driven store-dup accounting.
+    /// Spec: Annex E §AIMS RL-1 + RL-29 (fresh + Unique non-aliasing).
+    pub returns_fresh_self_alloc: bool,
+    /// Whether the return value is a sharing view of a borrowed input's
+    /// backing identity on every path — a seamless-slice co-reference
+    /// (`slice`/`substring`/`take`/`drop`) whose producer creates the view's
+    /// independent logical owner. The typed provenance CREDIT fact classifies
+    /// that result on the source's identity class in addition to the source
+    /// borrow-read, never as a fresh birth. Orthogonal to `uniqueness` /
+    /// `returns_fresh_self_alloc` (a view is NEVER a fresh self-alloc);
+    /// carried for the provenance-ledger emitter, consumed by no emission
+    /// path here. Spec: Annex E §AIMS §12 (sharing-view producer = CREDIT).
+    pub returns_sharing_view: bool,
 }
 
 impl ReturnContract {
@@ -274,6 +298,8 @@ impl ReturnContract {
         preserves_freshness: false,
         locality: Locality::Unknown,
         shape: ShapeClass::NonReusable,
+        returns_fresh_self_alloc: false,
+        returns_sharing_view: false,
     };
 
     /// Most-optimistic: unique return, freshness preserved.
@@ -284,195 +310,76 @@ impl ReturnContract {
         // Shape isn't monotonically ordered in a useful way for return values;
         // NonReusable is the safe starting point.
         shape: ShapeClass::NonReusable,
+        // Optimistic-init: assume fresh self-alloc so the monotone SCC fixpoint
+        // join (AND) only ever CLEARS it. The extractor recomputes the true
+        // value from the body each pass; `true ∧ extractor` lets a consistently
+        // fresh-self-alloc return survive, `true ∧ false` clears a non-fresh one.
+        returns_fresh_self_alloc: true,
+        // Same monotone AND-join shape as `returns_fresh_self_alloc`: the
+        // extractor's per-pass value is authoritative; `true ∧ false` clears.
+        returns_sharing_view: true,
     };
 
     /// Componentwise join toward conservative.
     #[must_use]
-    pub fn join(&self, other: &Self) -> Self {
+    pub(crate) fn join(self, other: Self) -> Self {
         Self {
             uniqueness: self.uniqueness.join(other.uniqueness),
             preserves_freshness: self.preserves_freshness && other.preserves_freshness,
             locality: self.locality.join(other.locality),
             shape: self.shape.join(other.shape),
+            returns_fresh_self_alloc: self.returns_fresh_self_alloc
+                && other.returns_fresh_self_alloc,
+            returns_sharing_view: self.returns_sharing_view && other.returns_sharing_view,
         }
     }
 }
 
-/// Effect summary: what memory effects may the function produce?
+/// Extension trait asserting the AIMS Invariant IC-1 required-lookup contract
+/// on the interprocedural contract map (`HashMap<Name, MemoryContract, S>` for
+/// any `S: BuildHasher`).
 ///
-/// Distinct from [`super::lattice::EffectClass`], which is a per-variable,
-/// per-program-point lattice dimension. `EffectSummary` is a per-function
-/// summary aggregated across the entire function body.
+/// IC-1 mandates that every `MemoryContract` queried by intraprocedural / RC /
+/// realization passes MUST exist — the SCC fixpoint (PL-1a) orders callees
+/// before callers, so by the time any caller queries a callee's contract, the
+/// callee has been fully analyzed and inserted into the map. A missing entry
+/// is an internal pipeline-ordering invariant violation, never a recoverable
+/// runtime condition.
 ///
-/// FP² Theorem 2 (Lorenzen et al., ICFP 2023) requires:
-/// - `may_allocate == false` → FBIP (no fresh allocations)
-/// - `may_allocate == false && may_deallocate == false` → fully in-place (FIP)
-///
-/// `may_deallocate` is a post-emission fact: computed from
-/// `FipEvidence.missed_reuses > 0` after realization (Section 12.1).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "6 independent effect flags from FP² paper (may_allocate, alloc_only_on_slow_path, \
-              may_deallocate, may_share, may_throw, has_unbounded_stack); \
-              enum would add complexity without benefit"
-)]
-pub struct EffectSummary {
-    /// May the function allocate on any code path?
-    pub may_allocate: bool,
-    /// Allocations are only on slow paths guarded by uniqueness checks.
-    ///
-    /// When `may_allocate && alloc_only_on_slow_path`, the function is
-    /// FIP-eligible with Conditional preconditions.
-    pub alloc_only_on_slow_path: bool,
-    /// May the function deallocate on any code path?
-    ///
-    /// `true` if any consumed value with reusable shape was NOT matched
-    /// by a reuse opportunity — the function frees memory without reusing
-    /// it. Computed post-emission from `FipEvidence.missed_reuses > 0`.
-    ///
-    /// When `may_allocate == false && may_deallocate == false`, the
-    /// function is fully in-place (FIP per FP² Theorem 2).
-    pub may_deallocate: bool,
-    /// May the function create shared references?
-    pub may_share: bool,
-    /// May the function throw exceptions/panics?
-    pub may_throw: bool,
-    /// Does this function have unbounded stack growth?
-    ///
-    /// `true` if the function contains non-tail-recursive calls to itself
-    /// or to mutual-recursion partners. Functions where all recursive calls
-    /// are in tail position (rewritten to loops by the tail-call pass) are
-    /// considered constant-stack.
-    ///
-    /// Unlike `may_allocate`/`may_share`/`may_throw`, this is NOT accumulated
-    /// per-block during analysis. It is set once in `extract_contract()` from
-    /// SCC membership and syntactic tail-position checks.
-    pub has_unbounded_stack: bool,
+/// A silent fallback to `MemoryContract::default` would produce unsound
+/// results: the optimistic default (all-`Borrowed` / `Dead` / `Absent`
+/// params, no effects) inflates safety claims through every downstream
+/// `refine` call (TF-6) and `EffectSummary` join (IC-5), producing
+/// miscompilation rather than a clean panic.
+pub trait ContractMapExt {
+    /// Look up the contract for `name`, panicking with an attributed
+    /// IC-1-violation message when absent. `site` identifies the lookup site
+    /// (callee module + function) so the panic message points at the pipeline
+    /// edge that broke the invariant.
+    fn get_required(&self, name: &Name, site: &'static str) -> &MemoryContract;
+
+    /// Mutable variant of [`get_required`](Self::get_required).
+    fn get_mut_required(&mut self, name: &Name, site: &'static str) -> &mut MemoryContract;
 }
 
-impl EffectSummary {
-    /// Conservative: may allocate, deallocate, share, throw, and unbounded stack.
-    pub const CONSERVATIVE: Self = Self {
-        may_allocate: true,
-        alloc_only_on_slow_path: false,
-        may_deallocate: true,
-        may_share: true,
-        may_throw: true,
-        has_unbounded_stack: true,
-    };
-
-    /// Most-optimistic: no effects.
-    pub const OPTIMISTIC: Self = Self {
-        may_allocate: false,
-        alloc_only_on_slow_path: false,
-        may_deallocate: false,
-        may_share: false,
-        may_throw: false,
-        has_unbounded_stack: false,
-    };
-
-    /// Componentwise join (OR for effect flags, AND for slow-path-only).
-    #[must_use]
-    pub fn join(&self, other: &Self) -> Self {
-        Self {
-            may_allocate: self.may_allocate || other.may_allocate,
-            // Both sides must be slow-path-only for the join to be slow-path-only.
-            alloc_only_on_slow_path: self.alloc_only_on_slow_path && other.alloc_only_on_slow_path,
-            may_deallocate: self.may_deallocate || other.may_deallocate,
-            may_share: self.may_share || other.may_share,
-            may_throw: self.may_throw || other.may_throw,
-            // Either side unbounded → joined is unbounded.
-            has_unbounded_stack: self.has_unbounded_stack || other.has_unbounded_stack,
-        }
+impl<S: BuildHasher> ContractMapExt for HashMap<Name, MemoryContract, S> {
+    #[inline]
+    fn get_required(&self, name: &Name, site: &'static str) -> &MemoryContract {
+        self.get(name).unwrap_or_else(|| {
+            unreachable!(
+                "AIMS Invariant IC-1 violation at {site}: contract for {name:?} not in map. \
+                 SCC ordering (PL-1a) should guarantee callee analyzed before caller."
+            )
+        })
     }
-}
 
-/// FIP certification status.
-///
-/// Based on FP² (Lorenzen et al., ICFP 2023): a function is FIP when
-/// it can run with no allocation, no deallocation, and constant stack
-/// space, provided arguments are unique.
-///
-/// Ordering: `Certified < Bounded(n) < Conditional < Never`
-/// (Certified is most optimistic).
-///
-/// Section 09.2 Effect Activation: FIP classification is now inferred
-/// from the converged effect state, not from a separate certification pass.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FipContract {
-    /// Function cannot be certified FIP.
-    Never,
-    /// Function is FIP when the specified parameters are unique.
-    ///
-    /// The `Vec<bool>` is indexed by parameter position in
-    /// `MemoryContract.params`. `true` = this parameter must be unique.
-    Conditional {
-        /// Which parameters must be unique for FIP certification.
-        requires_unique_params: Vec<bool>,
-    },
-    /// Function is unconditionally FIP (all allocations matched by reuses,
-    /// or no allocations at all). `may_allocate` may be `true` for
-    /// token-balanced functions; FBIP (allocation-free) is tracked separately
-    /// by `MemoryContract::is_fbip`.
-    Certified,
-    /// Function allocates at most `n` constructors beyond what it reuses.
-    ///
-    /// `FIPTree`'s `fip(n)` pattern — e.g., tree insertion allocates exactly
-    /// one node (`Bounded(1)`). Compiler-inferred from allocation balance
-    /// tracking (`allocs - reuses = n`), not a user annotation.
-    Bounded(u16),
-}
-
-impl FipContract {
-    /// Componentwise join: weakens toward `Never`.
-    ///
-    /// Ordering: `Certified < Bounded(n) < Conditional < Never`.
-    /// For `Bounded`, takes the max (more allocations = weaker).
-    #[must_use]
-    pub fn join(&self, other: &Self) -> Self {
-        match (self, other) {
-            (Self::Never, _) | (_, Self::Never) => Self::Never,
-
-            // Conditional + Conditional: union of required-unique params.
-            (
-                Self::Conditional {
-                    requires_unique_params: a,
-                },
-                Self::Conditional {
-                    requires_unique_params: b,
-                },
-            ) => {
-                debug_assert_eq!(a.len(), b.len(), "FipContract param counts must match");
-                Self::Conditional {
-                    requires_unique_params: a.iter().zip(b.iter()).map(|(x, y)| *x || *y).collect(),
-                }
-            }
-
-            // Conditional absorbs Bounded and Certified.
-            // Bounded absorbs Certified. Both: weaker side wins (self.clone()/other.clone()).
-            (Self::Conditional { .. }, Self::Certified | Self::Bounded(_))
-            | (Self::Bounded(_), Self::Certified) => self.clone(),
-            (Self::Certified | Self::Bounded(_), Self::Conditional { .. })
-            | (Self::Certified, Self::Bounded(_)) => other.clone(),
-
-            // Bounded + Bounded: take the max allocation count.
-            (Self::Bounded(a), Self::Bounded(b)) => Self::Bounded((*a).max(*b)),
-
-            (Self::Certified, Self::Certified) => Self::Certified,
-        }
-    }
-}
-
-/// Convert AIMS [`Uniqueness`] to the legacy [`crate::uniqueness::Uniqueness`].
-///
-/// Both enums have identical variants. This bridge exists because the AIMS
-/// lattice defines its own `Uniqueness` (with `PartialOrd`/`Ord`) while the
-/// legacy uniqueness analysis has a separate type.
-fn aims_to_legacy_uniqueness(u: Uniqueness) -> crate::uniqueness::Uniqueness {
-    match u {
-        Uniqueness::Unique => crate::uniqueness::Uniqueness::Unique,
-        Uniqueness::MaybeShared => crate::uniqueness::Uniqueness::MaybeShared,
-        Uniqueness::Shared => crate::uniqueness::Uniqueness::Shared,
+    #[inline]
+    fn get_mut_required(&mut self, name: &Name, site: &'static str) -> &mut MemoryContract {
+        self.get_mut(name).unwrap_or_else(|| {
+            unreachable!(
+                "AIMS Invariant IC-1 violation at {site}: contract for {name:?} not in map. \
+                 SCC ordering (PL-1a) should guarantee callee analyzed before caller."
+            )
+        })
     }
 }

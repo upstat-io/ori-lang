@@ -3,10 +3,18 @@
 //! Caches compiled object files and other artifacts to avoid recompilation.
 
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use super::hash::{combine_hashes, hash_string, ContentHash};
+
+mod atomic;
+
+use atomic::{publish_bytes_atomically, publish_generation_bytes, publish_generation_file};
+
+const ENTRY_ENVELOPE_VERSION: &[u8] = b"ori-artifact-entry-v1\n";
+const CACHE_KEY_HEX_LEN: usize = 16;
+const SHA256_HEX_LEN: usize = 64;
 
 /// Configuration for the artifact cache.
 #[derive(Debug, Clone)]
@@ -125,6 +133,82 @@ impl CacheKey {
     }
 }
 
+fn object_file_stem(key: &CacheKey, object_id: &str) -> Result<String, CacheError> {
+    if !is_lowercase_hex(object_id, SHA256_HEX_LEN) {
+        return Err(CacheError::Invalid {
+            message: "object ID must be a 64-character lowercase SHA-256 hexadecimal digest"
+                .to_string(),
+        });
+    }
+
+    Ok(format!("{}-{object_id}", key.to_filename()))
+}
+
+fn encode_entry_envelope(object_file: &str, manifest: &[u8]) -> Vec<u8> {
+    let mut envelope = ENTRY_ENVELOPE_VERSION.to_vec();
+    envelope.extend_from_slice(object_file.as_bytes());
+    envelope.push(b'\n');
+    envelope.extend_from_slice(manifest);
+    envelope
+}
+
+fn decode_entry_envelope(envelope: &[u8]) -> Option<(&str, &[u8])> {
+    let entry = envelope.strip_prefix(ENTRY_ENVELOPE_VERSION)?;
+    let file_name_end = entry.iter().position(|byte| *byte == b'\n')?;
+    let object_file = std::str::from_utf8(&entry[..file_name_end]).ok()?;
+    if !is_safe_object_file_name(object_file) {
+        return None;
+    }
+
+    Some((object_file, &entry[file_name_end + 1..]))
+}
+
+fn is_safe_object_file_name(file_name: &str) -> bool {
+    if file_name.contains('/')
+        || file_name.contains('\\')
+        || Path::new(file_name)
+            .file_name()
+            .and_then(|name| name.to_str())
+            != Some(file_name)
+    {
+        return false;
+    }
+
+    let Some(stem) = file_name.strip_suffix(".o") else {
+        return false;
+    };
+    let mut parts = stem.split('-');
+    let Some(key_hash) = parts.next() else {
+        return false;
+    };
+    let Some(object_id) = parts.next() else {
+        return false;
+    };
+    let Some(process_id) = parts.next() else {
+        return false;
+    };
+    let Some(generation) = parts.next() else {
+        return false;
+    };
+
+    parts.next().is_none()
+        && is_lowercase_hex(key_hash, CACHE_KEY_HEX_LEN)
+        && is_lowercase_hex(object_id, SHA256_HEX_LEN)
+        && is_ascii_decimal(process_id)
+        && is_ascii_decimal(generation)
+}
+
+fn is_lowercase_hex(value: &str, expected_len: usize) -> bool {
+    value.len() == expected_len
+        && value
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+fn is_ascii_decimal(value: &str) -> bool {
+    !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
+}
+
 /// Artifact cache for storing compiled objects.
 #[derive(Debug)]
 pub struct ArtifactCache {
@@ -155,17 +239,10 @@ impl ArtifactCache {
             message: e.to_string(),
         })?;
 
-        // Write version file for cache invalidation
+        // Publish the version marker atomically so concurrent cache openers
+        // never expose a truncated marker.
         let version_file = config.cache_dir.join("version");
-        let mut file = File::create(&version_file).map_err(|e| CacheError::IoError {
-            path: version_file.clone(),
-            message: e.to_string(),
-        })?;
-        file.write_all(config.compiler_version.as_bytes())
-            .map_err(|e| CacheError::IoError {
-                path: version_file,
-                message: e.to_string(),
-            })?;
+        publish_bytes_atomically(&version_file, config.compiler_version.as_bytes())?;
 
         Ok(Self {
             config,
@@ -174,87 +251,86 @@ impl ArtifactCache {
         })
     }
 
-    /// Get the path where an object file would be cached.
-    #[must_use]
-    pub fn object_path(&self, key: &CacheKey) -> PathBuf {
-        self.objects_dir.join(format!("{}.o", key.to_filename()))
-    }
-
-    /// Get the path where metadata would be stored.
-    #[must_use]
-    pub fn meta_path(&self, key: &CacheKey) -> PathBuf {
+    fn meta_path(&self, key: &CacheKey) -> PathBuf {
         self.meta_dir.join(format!("{}.json", key.to_filename()))
     }
 
-    /// Check if a cached artifact exists.
-    #[must_use]
-    pub fn has(&self, key: &CacheKey) -> bool {
-        self.object_path(key).exists()
-    }
-
-    /// Get a cached object file.
+    /// Return a cache entry only after the caller validates its manifest.
     ///
-    /// Returns the path to the cached object if it exists.
-    pub fn get(&self, key: &CacheKey) -> Option<PathBuf> {
-        let path = self.object_path(key);
-        if path.exists() {
-            Some(path)
+    /// The cache owns publication ordering and generation lookup. The caller
+    /// owns the manifest schema and semantic request identity.
+    pub fn get_verified(
+        &self,
+        key: &CacheKey,
+        verify: impl FnOnce(&Path, &[u8]) -> bool,
+    ) -> Option<PathBuf> {
+        let envelope = fs::read(self.meta_path(key)).ok()?;
+        let (object_file, manifest) = decode_entry_envelope(&envelope)?;
+        let object = self.objects_dir.join(object_file);
+        if object.is_file() && verify(&object, manifest) {
+            Some(object)
         } else {
             None
         }
     }
 
-    /// Store an object file in the cache.
-    pub fn put(&self, key: &CacheKey, object_data: &[u8]) -> Result<PathBuf, CacheError> {
-        let path = self.object_path(key);
-
-        // Write object file
-        let mut file = File::create(&path).map_err(|e| CacheError::IoError {
-            path: path.clone(),
-            message: e.to_string(),
-        })?;
-
-        file.write_all(object_data)
-            .map_err(|e| CacheError::IoError {
-                path: path.clone(),
-                message: e.to_string(),
-            })?;
-
-        Ok(path)
+    /// Publish object bytes and their caller-authored manifest as one entry.
+    pub fn publish(
+        &self,
+        key: &CacheKey,
+        object_id: &str,
+        object_data: &[u8],
+        manifest: &[u8],
+    ) -> Result<(), CacheError> {
+        let object_stem = object_file_stem(key, object_id)?;
+        let object_file = publish_generation_bytes(&self.objects_dir, &object_stem, object_data)?;
+        self.publish_manifest(key, &object_file, manifest)
     }
 
-    /// Store an object file by copying from an existing path.
-    pub fn put_file(&self, key: &CacheKey, source: &Path) -> Result<PathBuf, CacheError> {
-        let dest = self.object_path(key);
-
-        fs::copy(source, &dest).map_err(|e| CacheError::IoError {
-            path: dest.clone(),
-            message: e.to_string(),
-        })?;
-
-        Ok(dest)
+    /// Publish an object file and its caller-authored manifest as one entry.
+    pub fn publish_file(
+        &self,
+        key: &CacheKey,
+        object_id: &str,
+        source: &Path,
+        manifest: &[u8],
+    ) -> Result<(), CacheError> {
+        let object_stem = object_file_stem(key, object_id)?;
+        let object_file = publish_generation_file(&self.objects_dir, &object_stem, source)?;
+        self.publish_manifest(key, &object_file, manifest)
     }
 
-    /// Remove a cached artifact.
+    fn publish_manifest(
+        &self,
+        key: &CacheKey,
+        object_file: &str,
+        manifest: &[u8],
+    ) -> Result<(), CacheError> {
+        if !is_safe_object_file_name(object_file) {
+            return Err(CacheError::Invalid {
+                message: "generated object filename is not a safe cache-directory component"
+                    .to_string(),
+            });
+        }
+
+        let envelope = encode_entry_envelope(object_file, manifest);
+        publish_bytes_atomically(&self.meta_path(key), &envelope)
+    }
+
+    /// Invalidate a cache entry while preserving its immutable object generation.
+    ///
+    /// A concurrent linker may still hold the object path returned by
+    /// [`Self::get_verified`]. [`Self::clear`] reclaims retained generations.
     pub fn remove(&self, key: &CacheKey) -> Result<(), CacheError> {
-        let obj_path = self.object_path(key);
         let meta_path = self.meta_path(key);
-
-        if obj_path.exists() {
-            fs::remove_file(&obj_path).map_err(|e| CacheError::IoError {
-                path: obj_path,
-                message: e.to_string(),
-            })?;
-        }
-
-        if meta_path.exists() {
-            fs::remove_file(&meta_path).map_err(|e| CacheError::IoError {
+        match fs::remove_file(&meta_path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(CacheError::IoError {
                 path: meta_path,
-                message: e.to_string(),
-            })?;
+                message: error.to_string(),
+            }),
         }
-
-        Ok(())
     }
 
     /// Clear the entire cache.
@@ -300,9 +376,11 @@ impl ArtifactCache {
                 message: e.to_string(),
             })?;
 
-            if let Ok(meta) = entry.metadata() {
-                total += meta.len();
-            }
+            let meta = entry.metadata().map_err(|e| CacheError::IoError {
+                path: entry.path(),
+                message: e.to_string(),
+            })?;
+            total += meta.len();
         }
 
         Ok(total)
@@ -310,13 +388,13 @@ impl ArtifactCache {
 
     /// Get the number of cached objects.
     pub fn count(&self) -> Result<usize, CacheError> {
-        let count = fs::read_dir(&self.objects_dir)
+        let count = fs::read_dir(&self.meta_dir)
             .map_err(|e| CacheError::IoError {
-                path: self.objects_dir.clone(),
+                path: self.meta_dir.clone(),
                 message: e.to_string(),
             })?
             .filter_map(std::result::Result::ok)
-            .filter(|e| e.path().extension().is_some_and(|ext| ext == "o"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
             .count();
 
         Ok(count)

@@ -1,18 +1,9 @@
-//! Computed return types for builtin methods with `ReturnTag::Fresh`.
+//! Computed return types for builtin methods registered as `ReturnTag::Fresh`.
 //!
-//! Most methods with `ReturnTag::Fresh` in the registry genuinely return a fresh
-//! type variable (higher-order methods where the return depends on a closure
-//! argument). A handful need specific type construction for better inference:
-//!
-//! - `list.zip` — returns `[(_elem_, U)]`, not bare `fresh`
-//! - `iter.map` — DEI-aware: returns `DEI<U>` or `Iterator<U>`
-//! - `iter.zip` — returns `Iterator<(_elem_, U)>`
-//! - `iter.flatten`/`flat_map` — returns `Iterator<U>`
-//! - `result.trace_entries` / `error.trace_entries` — returns `[TraceEntry]`
-//!
-//! Called only when `find_method()` returns a `MethodDef` with
-//! `returns == ReturnTag::Fresh`. All other return tags are handled
-//! by [`super::super::registry_bridge::return_tag_to_idx`].
+//! Higher-order methods normally return a fresh variable. Shape-sensitive
+//! collection, iterator, and trace methods construct their precise container
+//! result here; other return tags use
+//! [`super::super::registry_bridge::return_tag_to_idx`].
 
 use crate::infer::InferEngine;
 use crate::{Idx, Tag};
@@ -29,14 +20,63 @@ pub(super) fn resolve_computed_return(
 ) -> Idx {
     match tag {
         Tag::List => computed_list_return(engine, receiver_ty, method_name),
+        Tag::Range => computed_range_return(engine, method_name),
         Tag::Iterator | Tag::DoubleEndedIterator => {
             computed_iterator_return(engine, receiver_ty, method_name)
         }
-        // Spec: Clause 14.3 — Traceable trait: trace_entries() -> [TraceEntry]
+        // Spec: Clause 9.9 — Traceable trait: trace_entries() -> [TraceEntry]
         Tag::Result | Tag::Error => match method_name {
             "trace_entries" => computed_trace_entries(engine),
+            // Why: a `Result<_,_>` shape (not a bare fresh var) gives the closure
+            // return an Ok/Err slot to bind. Guarded on Tag::Result only — a
+            // Tag::Error poison receiver falls through (`result_ok`/`result_err` assert Tag::Result).
+            "map" | "map_err" | "and_then" | "or_else" if tag == Tag::Result => {
+                computed_result_closure_return(engine, receiver_ty, method_name)
+            }
             _ => engine.fresh_var(),
         },
+        _ => engine.fresh_var(),
+    }
+}
+
+/// Range methods with Annex C eager return shapes.
+fn computed_range_return(engine: &mut InferEngine<'_>, method: &str) -> Idx {
+    match method {
+        // The element variable is pinned to the transform closure's return by
+        // `unify_higher_order_constraints` after argument inference.
+        "map" => {
+            let elem = engine.fresh_var();
+            engine.pool_mut().list(elem)
+        }
+        // `fold`'s accumulator is constrained by both `initial` and `op`.
+        _ => engine.fresh_var(),
+    }
+}
+
+/// Result closure-methods: construct the `Result<_,_>` shape that preserves the
+/// untransformed slot and freshens the transformed slot. `map`/`and_then`
+/// transform the Ok type (Err preserved); `map_err`/`or_else` transform the Err
+/// type (Ok preserved). The fresh slot is pinned to the closure return by
+/// `unify_higher_order_constraints` (`closure_unify` Result-family arm).
+/// Precondition: `receiver_ty` resolves to `Tag::Result`.
+fn computed_result_closure_return(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method: &str,
+) -> Idx {
+    match method {
+        // Ok transformed, Err preserved.
+        "map" | "and_then" => {
+            let err = engine.pool().result_err(receiver_ty);
+            let fresh_ok = engine.fresh_var();
+            engine.pool_mut().result(fresh_ok, err)
+        }
+        // Err transformed, Ok preserved.
+        "map_err" | "or_else" => {
+            let ok = engine.pool().result_ok(receiver_ty);
+            let fresh_err = engine.fresh_var();
+            engine.pool_mut().result(ok, fresh_err)
+        }
         _ => engine.fresh_var(),
     }
 }
@@ -63,6 +103,29 @@ fn computed_list_return(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: 
             let other_elem = engine.fresh_var();
             let pair = engine.pool_mut().tuple(&[elem, other_elem]);
             engine.pool_mut().list(pair)
+        }
+        "map" => {
+            let elem = engine.fresh_var();
+            engine.pool_mut().list(elem)
+        }
+        "filter" => {
+            let elem = engine.pool().list_elem(receiver_ty);
+            engine.pool_mut().list(elem)
+        }
+        "find" => {
+            let elem = engine.pool().list_elem(receiver_ty);
+            engine.pool_mut().option(elem)
+        }
+        // INVARIANT: Resolve linked generic elements before testing for a nested list.
+        "flatten" => {
+            let elem_raw = engine.pool().list_elem(receiver_ty);
+            let elem = engine.pool().resolve_fully(elem_raw);
+            if engine.pool().tag(elem) == Tag::List {
+                let inner = engine.pool().list_elem(elem);
+                engine.pool_mut().list(inner)
+            } else {
+                receiver_ty
+            }
         }
         _ => engine.fresh_var(),
     }

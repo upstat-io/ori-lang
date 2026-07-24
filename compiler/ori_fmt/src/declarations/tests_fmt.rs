@@ -2,50 +2,57 @@
 //!
 //! Formatting for test function declarations.
 
-use crate::formatter::Formatter;
-use crate::width::ALWAYS_STACKED;
-use ori_ir::ast::items::TestDef;
+use crate::formatter::emit_escaped_str;
+use ori_ir::ast::items::{ExpectedError, TestBackend, TestDef};
 use ori_ir::{ExprId, StringLookup};
 
 use super::parsed_types::format_parsed_type;
-use super::ModuleFormatter;
+use super::{BodyBreakPolicy, ModuleFormatter};
 
 impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// Format a test definition including attributes and body.
     pub fn format_test(&mut self, test: &TestDef) {
         // Skip attribute
         if let Some(reason) = test.skip_reason {
-            self.ctx.emit("#skip(\"");
-            self.ctx.emit(self.interner.lookup(reason));
-            self.ctx.emit("\")");
+            self.ctx.emit("#skip(");
+            let s = self.interner.lookup(reason);
+            emit_escaped_str(&mut self.ctx, s);
+            self.ctx.emit(")");
             self.ctx.emit_newline();
         }
 
-        // Compile fail attribute
-        if !test.expected_errors.is_empty() {
-            self.ctx.emit("#compile_fail");
-            // Only emit details if there's a message
-            if let Some(first_err) = test.expected_errors.first() {
-                if let Some(msg) = first_err.message {
-                    self.ctx.emit("(\"");
-                    self.ctx.emit(self.interner.lookup(msg));
-                    self.ctx.emit("\")");
-                }
-            }
+        // One #skip(backend: ..., reason: ...) attribute per backend-conditional skip.
+        for skip in &test.skip_backends {
+            self.ctx.emit("#skip(backend: \"");
+            self.ctx.emit(match skip.backend {
+                TestBackend::Interpreter => "interpreter",
+                TestBackend::Llvm => "llvm",
+            });
+            self.ctx.emit("\", reason: ");
+            let s = self.interner.lookup(skip.reason);
+            emit_escaped_str(&mut self.ctx, s);
+            self.ctx.emit(")");
+            self.ctx.emit_newline();
+        }
+
+        // One #compile_fail attribute per ExpectedError (each entry parsed one).
+        for err in &test.expected_errors {
+            self.emit_compile_fail_attr(err);
             self.ctx.emit_newline();
         }
 
         // Fail attribute
         if let Some(expected) = test.fail_expected {
-            self.ctx.emit("#fail(\"");
-            self.ctx.emit(self.interner.lookup(expected));
-            self.ctx.emit("\")");
+            self.ctx.emit("#fail(");
+            let s = self.interner.lookup(expected);
+            emit_escaped_str(&mut self.ctx, s);
+            self.ctx.emit(")");
             self.ctx.emit_newline();
         }
 
-        // Test name
+        // Source-authored test name
         self.ctx.emit("@");
-        self.ctx.emit(self.interner.lookup(test.name));
+        self.ctx.emit(self.interner.lookup(test.display_name));
 
         // Targets: attached tests list specific targets, floating tests use `_`
         if test.targets.is_empty() {
@@ -71,49 +78,47 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         self.format_test_body(test.body);
     }
 
-    /// Format a test body, breaking to new line if it doesn't fit after `= `.
-    ///
-    /// Per grammar: expression bodies require trailing `;` but block bodies
-    /// ending with `}` do not.
+    /// Emit a single `#compile_fail(...)` attribute, faithfully round-tripping
+    /// the keyed `ExpectedError` fields. Shorthand `#compile_fail("msg")` is used
+    /// only when `message` is the sole set field; otherwise the keyed form in the
+    /// canonical order `code, message, line, column` (only set fields emitted).
+    fn emit_compile_fail_attr(&mut self, err: &ExpectedError) {
+        self.ctx.emit("#compile_fail(");
+        if let (Some(msg), None, None, None) = (err.message, err.code, err.line, err.column) {
+            let s = self.interner.lookup(msg);
+            emit_escaped_str(&mut self.ctx, s);
+            self.ctx.emit(")");
+            return;
+        }
+        let mut first = true;
+        if let Some(code) = err.code {
+            self.emit_join_sep(&mut first);
+            self.ctx.emit("code: ");
+            let s = self.interner.lookup(code);
+            emit_escaped_str(&mut self.ctx, s);
+        }
+        if let Some(msg) = err.message {
+            self.emit_join_sep(&mut first);
+            self.ctx.emit("message: ");
+            let s = self.interner.lookup(msg);
+            emit_escaped_str(&mut self.ctx, s);
+        }
+        if let Some(line) = err.line {
+            self.emit_join_sep(&mut first);
+            self.ctx.emit(format!("line: {line}"));
+        }
+        if let Some(column) = err.column {
+            self.emit_join_sep(&mut first);
+            self.ctx.emit(format!("column: {column}"));
+        }
+        self.ctx.emit(")");
+    }
+
+    /// Format a test body. Delegates the inline-vs-newline-vs-internal-break
+    /// decision to the shared `emit_expr_body` (SSOT in `function_body`).
+    /// `allow_force_newline = false`: test bodies keep their existing layout
+    /// (no if/for force-newline) and gain ONLY the over-width-head break.
     fn format_test_body(&mut self, body: ExprId) {
-        // Calculate body width to determine if it fits inline
-        let body_width = self.width_calc.width(body);
-
-        // Check if body fits after " = " on current line
-        let space_after_eq = 3; // " = "
-        let fits_inline =
-            body_width != ALWAYS_STACKED && self.ctx.fits(space_after_eq + body_width);
-
-        let ends_with_brace;
-
-        if fits_inline {
-            // Inline: " = body"
-            self.ctx.emit(" = ");
-            let current_column = self.ctx.column();
-            let mut expr_formatter =
-                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
-                    .with_starting_column(current_column);
-            expr_formatter.format(body);
-            let body_output = expr_formatter.ctx.as_str().trim_end();
-            ends_with_brace = body_output.ends_with('}');
-            self.ctx.emit(body_output);
-        } else {
-            // Body doesn't fit - always-stacked constructs (run/try/match) stay on same line
-            // and break internally. Other constructs also stay on same line.
-            self.ctx.emit(" = ");
-            let current_column = self.ctx.column();
-            let mut expr_formatter =
-                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
-                    .with_starting_column(current_column);
-            expr_formatter.format(body);
-            let body_output = expr_formatter.ctx.as_str().trim_end();
-            ends_with_brace = body_output.ends_with('}');
-            self.ctx.emit(body_output);
-        }
-
-        // Trailing semicolon for non-block expression bodies
-        if !ends_with_brace {
-            self.ctx.emit(";");
-        }
+        self.emit_expr_body(body, BodyBreakPolicy::OverflowOnly);
     }
 }

@@ -1,0 +1,15 @@
+// Cross-block positive: the loop-carried struct is re-threaded through TWO
+// Jump-arg hops (the if-merge block-param plus the loop latch) before the
+// rebuild consumes its self-projections. Per-predecessor-edge attribution
+// must resolve the merged name back to the loop lineage so the sibling
+// moved-field union still unifies. Must run leak-clean.
+type Pair = { a: [int], b: [int] }
+
+@main () -> int = {
+    let r = Pair { a: [1], b: [2] };
+    for i in 0..30 do {
+        let t = if i % 2 == 0 then r else r;
+        r = Pair { a: t.a, b: t.b };
+    };
+    if r.a.len() == 1 then 0 else 1
+}

@@ -9,13 +9,31 @@ section: "AIMS"
 
 ## The Allocation Problem in Functional Programming
 
-Functional programs have a distinctive allocation pattern: they deconstruct values and immediately construct new ones. A list map walks a linked list, pattern-matching each node into its head and tail, applying a function to the head, and constructing a new node with the transformed value. Each iteration drops an old node (free) and allocates a new one (malloc) of exactly the same type and size.
+Functional programs have a distinctive storage-lifetime pattern: they
+deconstruct values and immediately construct shape-compatible new ones. A list
+map walks a list, projects an element, applies a function, and constructs a new
+result.
 
-This pattern is ubiquitous — it appears in every map, filter, fold, and recursive transformation. And it is wasteful: the free and malloc cancel out. The old node's memory is returned to the allocator, and then the allocator immediately hands back a block of the same size. If the old node is **uniquely owned** (reference count == 1), its memory could be reused directly — no free, no malloc, no allocator involvement at all.
+Physical projections can waste that opportunity differently: a conventional
+heap projection may free an old allocation and call `malloc`, while a VM,
+region, arena, or inline projection may churn an equivalent storage identity.
+
+This pattern is ubiquitous in map, filter, fold, and recursive transforms.
+Reuse requires all of the following:
+
+- The old value is **logically unique**.
+- Its lifetime ends at the replacement.
+- Neutral extent/shape evidence proves compatibility.
+
+The selected physical plan can then reuse its storage identity directly. AIMS
+proves the logical reuse event but does not choose the storage mechanism.
 
 This insight was formalized independently by two research groups. [Ullrich and de Moura](https://arxiv.org/abs/1908.05647) (2019) described the "reset/reuse" optimization for [Lean 4](https://github.com/leanprover/lean4). [Reinking, Xie, de Moura, and Leijen](https://www.microsoft.com/en-us/research/publication/perceus-garbage-free-reference-counting-with-reuse/) (2021) extended this into the [Perceus](https://www.microsoft.com/en-us/research/publication/perceus-garbage-free-reference-counting-with-reuse/) framework for [Koka](https://github.com/koka-lang/koka), adding the concept of **FBIP** (Functional But In-Place).
 
-AIMS integrates reuse as a unified dimension of its lattice analysis, using `ShapeClass` and `Uniqueness` to drive reuse decisions from the same converged state that drives RC placement.
+AIMS integrates reuse with its lattice analysis, using `ShapeClass` and
+`Uniqueness` to derive logical donor/recipient eligibility and ownership
+transfer from the same converged state that drives ownership-event placement.
+Physical storage recycling and any counter actions remain planner-owned.
 
 ## How AIMS Drives Reuse
 
@@ -23,7 +41,11 @@ In a traditional pipeline, reuse detection runs as a separate pass after RC inse
 
 1. **Shape tracking**: The `ShapeClass` dimension classifies each variable's constructor shape during backward analysis. Values from `Construct` instructions get shapes like `ReusableCtor(Struct)`, `ReusableCtor(EnumVariant)`, `CollectionBuffer`, etc. Non-constructible values get `NonReusable`.
 
-2. **Uniqueness proof**: The `Uniqueness` dimension tracks whether a value is provably unique (RC == 1), maybe shared, or definitely shared. Reuse is only safe when the value is unique or when a runtime `IsShared` check is emitted.
+2. **Uniqueness proof**: The `Uniqueness` dimension tracks whether a value is
+   provably unique, maybe shared, or definitely shared. Reuse is safe only when
+   uniqueness is proved statically or an exact logical uniqueness observation
+   is required. The physical plan decides whether that observation reads a
+   counter, tag, side table, or needs no runtime operation.
 
 3. **Reuse events**: During post-convergence processing, the analysis emits `ReusableAllocation` events at program points where a variable with a matching shape is being decremented near a construction of the same type.
 
@@ -67,9 +89,9 @@ A pairing is only valid when all of the following hold:
 
 | Constraint | Reason |
 |-----------|--------|
-| **Type match** | The old allocation's size and layout must be compatible with the new value. Conservative structural equality. |
+| **Shape/extent match** | AIMS requires compatible logical constructor shape; neutral representation evidence and the selected physical plan prove storage extent/alignment compatibility. |
 | **No intervening use** | The decremented variable must not be read between the `RcDec` and `Construct`. |
-| **Needs RC** | The type must be heap-allocated. Stack values have no allocation to reuse. |
+| **Reusable storage identity** | The selected physical plan must expose storage whose lifetime ends here and whose capacity/observability rules admit reuse. Heap, region, arena, frame, and inline candidates are all possible; syntax or locality alone is insufficient. |
 | **Not a collection** | Collections use variable-capacity buffers. Constructor-level reuse is not meaningful (see Collection Recycling below). |
 | **Shape compatible** | The `ShapeClass` of the old value must match the new construction's shape. |
 
@@ -79,7 +101,7 @@ Expansion lowers each `Reset`/`Reuse` pair into a conditional structure with fas
 
 ```mermaid
 flowchart TB
-    Entry["IsShared(x)"] --> Check{"RC > 1?"}
+    Entry["ObserveUniqueness(x)"] --> Check{"Logically shared?"}
     Check -->|"No (unique)"| Fast["Fast Path
     Set fields in-place
     Skip redundant RcInc
@@ -103,11 +125,18 @@ flowchart TB
 
 2. **Projection-increment erasure**: Identify `RcInc` on projected field variables between `Reset` and `Reuse`. On the fast path, these are redundant — projected fields of a unique parent are implicitly owned.
 
-3. **Generate IsShared check**: Emit `IsShared { var: x }` testing whether the refcount exceeds 1.
+3. **Generate uniqueness observation**: Emit the shared logical `IsShared`
+   event when static facts are insufficient. The selected physical adapter
+   chooses a sufficient observation mechanism.
 
-4. **Fast path (unique, RC == 1)**: Reuse in place — emit `Set` for each field, apply self-set elimination, omit erased `RcInc`.
+4. **Fast path (logically unique)**: Reuse the plan-selected storage — emit
+   `Set` for each logical field, apply self-set elimination, and discharge only
+   ownership events explicitly licensed by the frozen facts.
 
-5. **Slow path (shared, RC > 1)**: Cannot reuse — emit `RcDec`, fresh `Construct`, restore erased `RcInc`.
+5. **Slow path (logically multiple-owner)**: Cannot reuse. The current ARC IR
+   emits `RcDec`, a fresh `Construct`, and any erased `RcInc`; these names carry
+   logical release/construction/retain events, while the physical plan selects
+   their mechanisms.
 
 6. **Merge block**: Join block receives the result from whichever path was taken.
 
@@ -117,10 +146,14 @@ A `Set` that writes a value back to the same field it was projected from is a no
 
 ## Collection Recycling
 
-A separate optimization handles collection buffer reuse. When a list or set is decremented and a new empty collection of the same type is constructed, the `CollectionReuse` instruction recycles the old collection's buffer:
+A separate optimization handles collection storage reuse. When a list or set's
+logical lifetime ends and a new empty collection of a compatible type is
+constructed, `CollectionReuse` records the opportunity to recycle capacity:
 
-- **Fast path (unique)**: Clear contents, reset length to 0, keep the allocated buffer
-- **Slow path (shared)**: Decrement old collection, allocate fresh
+- **Fast path (unique)**: Run exact child cleanup, reset logical length to zero,
+  and retain the plan-selected capacity/storage identity.
+- **Slow path (shared)**: Preserve the old value's release obligation and obtain
+  fresh logical storage through the selected plan.
 
 This targets loop patterns like `for x in list yield f(x)`, where the result list often has the same length as the source.
 
@@ -130,19 +163,19 @@ This targets loop patterns like `for x in list yield f(x)`, where the result lis
 
 AIMS computes FIP status as follows:
 
-1. **Allocation balance**: The `fip_construct_count` and `fip_consumed_count` fields of `AimsStateMap` track the token balance
+1. **Logical acquisition/cleanup balance**: The transitional `fip_construct_count` and `fip_consumed_count` fields of `AimsStateMap` track logical storage-acquisition and lifetime-end cleanup obligations, not target allocator calls
 2. **FipContract assignment**: Based on the balance:
-   - `Certified`: Exact match — zero unmatched allocations
+   - `Certified`: Exact match — zero unmatched logical storage-acquisition and lifetime-end cleanup obligations
    - `Conditional`: FIP only if specific arguments are unique at call sites
-   - `Bounded(n)`: FIP with at most n bounded allocations
+   - `Bounded(n)`: FIP with at most n unmatched logical storage-acquisition obligations
    - `Never`: No FIP certification possible
-3. **Enforcement**: Functions annotated with `#fbip` are verified by `check_fbip_enforcement()` — if any allocation is unmatched, a diagnostic is emitted
+3. **Enforcement**: Functions annotated with `#fbip` are verified by `check_fbip_enforcement()` — if any logical storage-acquisition obligation is unmatched, a diagnostic is emitted
 
 FBIP diagnostics are available with `ORI_DUMP_AFTER_ARC=1`.
 
 ## Prior Art
 
-**[Lean 4](https://github.com/leanprover/lean4)** (`src/Lean/Compiler/IR/ExpandResetReuse.lean`) pioneered the token-based reset/reuse pattern. AIMS follows Lean's design with additions for cross-block detection, projection-increment erasure, self-set elimination, collection recycling, and lattice-driven eligibility.
+**[Lean 4](https://github.com/leanprover/lean4)** (`src/Lean/Compiler/IR/ExpandResetReuse.lean`) pioneered the token-based reset/reuse shape — the historical influence here. AIMS's formulation is Ori's own, proven independently (see Spec: Annex E §AIMS): it adds cross-block detection, projection-increment erasure, self-set elimination, collection recycling, and lattice-driven eligibility.
 
 **[Koka](https://github.com/koka-lang/koka)** and the [Perceus paper](https://www.microsoft.com/en-us/research/publication/perceus-garbage-free-reference-counting-with-reuse/) formalize reuse as part of the Perceus framework and introduce the FBIP concept. The [FP2 paper](https://www.microsoft.com/en-us/research/publication/fp2-fully-in-place-functional-programming/) (2023) extends this with guaranteed zero-net-allocation for qualifying functions. AIMS implements FBIP as a lattice-derived certification rather than a separate diagnostic pass.
 
@@ -154,6 +187,10 @@ FBIP diagnostics are available with `ORI_DUMP_AFTER_ARC=1`.
 
 **Detection then expansion vs direct emission.** Separating detection (producing `Reset`/`Reuse` intermediates) from expansion (lowering to `IsShared` + branches) keeps each phase focused. Direct emission would avoid the intermediate instructions but would make the detection phase much more complex.
 
-**Conservative type matching.** Reuse requires exact type equality, not structural compatibility. This is safe but may miss opportunities where two types have identical layout. Relaxing the constraint would require layout analysis.
+**Conservative logical and physical matching.**
+
+- AIMS requires exact logical type/constructor compatibility.
+- A physical plan additionally proves extent, alignment, field mapping, and observability compatibility.
+- One backend's coincidental byte layout cannot justify relaxed logical equality.
 
 **Collection exclusion.** Collections are excluded from constructor-level reuse because their buffer size depends on capacity, not element count. Collection recycling handles the buffer-level optimization separately.

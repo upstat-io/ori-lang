@@ -23,6 +23,7 @@ mod cow;
 mod for_yield;
 mod function_param;
 mod generalize;
+mod join_ownership;
 mod map_set;
 mod method_collect;
 mod nested_list;

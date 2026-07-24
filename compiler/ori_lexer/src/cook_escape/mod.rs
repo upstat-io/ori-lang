@@ -1,4 +1,4 @@
-//! Spec-strict escape processing for the V2 cooking layer.
+//! Spec-strict escape processing for the cooking layer.
 //!
 //! Each literal context (string, char, template) has its own valid escape set
 //! per the grammar specification. Invalid escapes push errors into the
@@ -6,21 +6,22 @@
 //!
 //! # Architecture
 //!
-//! `unescape_string_v2` and `unescape_template_v2` are thin wrappers around
+//! `unescape_string` and `unescape_template` are thin wrappers around
 //! `unescape_with_context`, which implements the shared scanning loop
-//! parameterized by [`EscapeContext`]. `unescape_char_v2` is structurally
+//! parameterized by [`EscapeContext`]. `unescape_char` is structurally
 //! different (single-char, returns `char`) and remains standalone.
 //!
 //! # Grammar Reference
 //!
-//! - String escapes (line 102): `\"` `\\` `\n` `\t` `\r` `\0` `\u{...}`
-//! - Char escapes (line 127): `\'` `\\` `\n` `\t` `\r` `\0` `\u{...}`
-//! - Template escapes (line 107): `` \` `` `\\` `\n` `\t` `\r` `\0` `\u{...}`
-//! - Template braces (line 108): `{{` → `{`, `}}` → `}`
-//! - Unicode escapes (line 111): `\u{` `hex_digit` { `hex_digit` } `}`
+//! - String escapes (`escape_seq` production): `\"` `\\` `\n` `\t` `\r` `\0` `\u{...}`
+//! - Char escapes (`char_escape` production): `\'` `\\` `\n` `\t` `\r` `\0` `\u{...}`
+//! - Template escapes (`template_escape` production): `` \` `` `\\` `\n` `\t` `\r` `\0` `\u{...}`
+//! - Template braces (`template_brace` production): `{{` → `{`, `}}` → `}`
+//! - Unicode escapes (`unicode_escape` production): `\u{` `hex_digit` { `hex_digit` } `}`
+
+use ori_ir::Span;
 
 use crate::lex_error::{LexError, LexErrorContext, UnicodeEscapeDetail};
-use ori_ir::Span;
 
 /// Escape processing context, parameterizing the shared unescape loop.
 ///
@@ -133,7 +134,9 @@ fn parse_unicode_escape(
 
     // Check for invalid characters before '}'
     if i < bytes.len() && bytes[i] != b'}' {
-        let ch = content[i..].chars().next().unwrap_or('?');
+        let Some(ch) = content[i..].chars().next() else {
+            unreachable!("unicode-escape cursor points inside a nonempty UTF-8 suffix");
+        };
         let ch_offset = backslash_offset + 1 + i as u32;
         let span = Span::new(ch_offset, ch_offset + ch.len_utf8() as u32);
         errors.push(LexError::invalid_unicode_escape(
@@ -199,8 +202,9 @@ fn parse_unicode_escape(
     let consumed = i + 1;
     let hex_str = &content[digit_start..i];
 
-    // Parse hex value — safe because we validated all digits are hex
-    let codepoint = u32::from_str_radix(hex_str, 16).unwrap_or(u32::MAX);
+    let Ok(codepoint) = u32::from_str_radix(hex_str, 16) else {
+        unreachable!("validated Unicode escape must contain at most six hexadecimal digits");
+    };
 
     // Check for surrogate codepoints (U+D800–U+DFFF)
     if (0xD800..=0xDFFF).contains(&codepoint) {
@@ -290,8 +294,8 @@ fn unescape_with_context(
                         i += 1 + bytes_consumed;
                     }
                     // TODO(lexer): \xHH hex byte escapes — spec-required
-                    // (Spec: Clause 7 line 292, grammar.ebnf lines 116-118).
-                    // Not yet implemented; tracked in roadmap section 15C.13.
+                    // (Spec: Clause 7; grammar.ebnf `hex_escape` production).
+                    // Not yet implemented.
 
                     // Common escapes (\\ \n \t \r \0) + invalid escape fallback
                     _ => {
@@ -317,7 +321,7 @@ fn unescape_with_context(
             && i + 1 < bytes.len()
             && ((b == b'{' && bytes[i + 1] == b'{') || (b == b'}' && bytes[i + 1] == b'}'))
         {
-            // Template brace-pair collapsing: {{ → {, }} → } (spec line 108)
+            // Template brace-pair collapsing: {{ → {, }} → } (`template_brace` production)
             result.push(b as char);
             i += 2;
         } else {
@@ -326,7 +330,9 @@ fn unescape_with_context(
                 result.push(b as char);
                 i += 1;
             } else {
-                let ch = content[i..].chars().next().unwrap_or('\0');
+                let Some(ch) = content[i..].chars().next() else {
+                    unreachable!("escape cooker cursor points inside a nonempty UTF-8 suffix");
+                };
                 result.push(ch);
                 i += ch.len_utf8();
             }
@@ -338,13 +344,13 @@ fn unescape_with_context(
 
 /// Unescape a string literal's content (between the `"`s).
 ///
-/// Valid escapes per grammar line 102: `\"` `\\` `\n` `\t` `\r` `\0` `\u{...}`.
+/// Valid escapes per grammar `escape_seq` production: `\"` `\\` `\n` `\t` `\r` `\0` `\u{...}`.
 /// `\'` is **not** valid in strings — a `SingleQuoteEscapeInString` error is pushed,
 /// but the `'` character is still added to the output (error recovery).
 ///
 /// Fast path: if no backslashes, returns `None` to signal the caller can
 /// intern the source slice directly.
-pub(crate) fn unescape_string_v2(
+pub(crate) fn unescape_string(
     content: &str,
     base_offset: u32,
     errors: &mut Vec<LexError>,
@@ -354,23 +360,19 @@ pub(crate) fn unescape_string_v2(
 
 /// Unescape a char literal's content (between the `'`s).
 ///
-/// Valid escapes per grammar line 127: `\'` `\\` `\n` `\t` `\r` `\0` `\u{...}`.
+/// Valid escapes per grammar `char_escape` production: `\'` `\\` `\n` `\t` `\r` `\0` `\u{...}`.
 /// `\"` is **not** valid in char literals.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "source offsets bounded by u32 — entire source file < u32::MAX bytes"
 )]
-pub(crate) fn unescape_char_v2(
-    content: &str,
-    base_offset: u32,
-    errors: &mut Vec<LexError>,
-) -> char {
+pub(crate) fn unescape_char(content: &str, base_offset: u32, errors: &mut Vec<LexError>) -> char {
     let mut chars = content.char_indices();
     match chars.next() {
         Some((_, '\\')) => match chars.next() {
             Some((_, '\'')) => '\'',
             Some((_, '"')) => {
-                // \" is NOT valid in char literals per grammar line 127
+                // \" is NOT valid in char literals per grammar `char_escape` production
                 errors.push(LexError::double_quote_escape_in_char(Span::new(
                     base_offset,
                     base_offset + 2,
@@ -412,12 +414,12 @@ pub(crate) fn unescape_char_v2(
 
 /// Unescape a template literal's content (between delimiters).
 ///
-/// Valid escapes per grammar line 107: `` \` `` `\\` `\n` `\t` `\r` `\0` `\u{...}`.
-/// Brace escapes per grammar line 108: `{{` → `{`, `}}` → `}`.
+/// Valid escapes per grammar `template_escape` production: `` \` `` `\\` `\n` `\t` `\r` `\0` `\u{...}`.
+/// Brace escapes per grammar `template_brace` production: `{{` → `{`, `}}` → `}`.
 ///
 /// Fast path: if no backslashes and no consecutive braces, returns `None`
 /// to signal the caller can intern the source slice directly.
-pub(crate) fn unescape_template_v2(
+pub(crate) fn unescape_template(
     content: &str,
     base_offset: u32,
     errors: &mut Vec<LexError>,

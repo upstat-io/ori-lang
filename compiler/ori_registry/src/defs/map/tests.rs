@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn map_method_count() {
-    assert_eq!(MAP.methods.len(), 18);
+    assert_eq!(MAP.methods.len(), 20);
 }
 
 #[test]
@@ -102,6 +102,22 @@ fn map_insert_takes_key_and_value() {
     assert_eq!(m.params[0].ownership, Ownership::Owned);
     assert_eq!(m.params[1].ty, ReturnTag::ValueType);
     assert_eq!(m.params[1].ownership, Ownership::Owned);
+}
+
+#[test]
+fn map_updated_is_index_set_trait_with_insert_params() {
+    let m = MAP
+        .methods
+        .iter()
+        .find(|m| m.name == "updated")
+        .unwrap_or_else(|| panic!("updated method should exist"));
+    assert_eq!(m.trait_name, Some("IndexSet"), "Map.updated");
+    assert_eq!(m.returns, ReturnTag::SelfType);
+    assert_eq!(m.params.len(), 2);
+    assert_eq!(m.params[0].name, "key");
+    assert_eq!(m.params[0].ty, ReturnTag::KeyType);
+    assert_eq!(m.params[1].name, "value");
+    assert_eq!(m.params[1].ty, ReturnTag::ValueType);
 }
 
 #[test]

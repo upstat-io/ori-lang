@@ -10,20 +10,6 @@ use ori_ir::{CfgAttr, Name, TargetAttr, TokenKind};
 
 use super::ParsedAttrs;
 
-/// Check whether a string is a valid Ori identifier (feature name).
-///
-/// Spec §25.3.2: Feature names shall start with a letter or underscore,
-/// contain only letters, digits, and underscores, and be non-empty.
-fn is_valid_feature_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(c) if c.is_ascii_alphabetic() || c == '_' => {
-            chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-        }
-        _ => false,
-    }
-}
-
 impl Parser<'_> {
     /// Parse a `target` attribute body like `(os: "linux")`, returning the `TargetAttr` directly.
     ///
@@ -384,5 +370,19 @@ impl Parser<'_> {
                 self.cursor.current_span(),
             ));
         }
+    }
+}
+
+/// Check whether a string is a valid Ori identifier (feature name).
+///
+/// Spec §25.3.2: Feature names shall start with a letter or underscore,
+/// contain only letters, digits, and underscores, and be non-empty.
+fn is_valid_feature_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {
+            chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        }
+        _ => false,
     }
 }

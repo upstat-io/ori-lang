@@ -1,0 +1,44 @@
+// [T].all(predicate:) / [T].any(predicate:) return bool.
+//
+// Regression: the registry classifies List.all / List.any with
+// ReturnTag::Concrete(TypeTag::Bool) (NOT ReturnTag::Fresh) because a quantifier
+// always returns bool regardless of the predicate. These cells pin the
+// behavioral oracle (true/false per predicate) through both backends
+// (interpreter + --backend=llvm dual-execution), and the bound-result cell pins
+// that the result type-checks when bound to a let (a Fresh misclassification
+// would leave an unconstrained type variable -> E2005 "cannot infer type").
+
+use std.testing { assert_eq }
+
+// all — every element satisfies the predicate
+@all_true () -> bool = [1, 2, 3].all(predicate: x -> x > 0);
+@test_all_true tests @all_true () -> void = {
+    assert_eq(actual: all_true(), expected: true)
+}
+
+@all_false () -> bool = [1, 2, 3].all(predicate: x -> x > 2);
+@test_all_false tests @all_false () -> void = {
+    assert_eq(actual: all_false(), expected: false)
+}
+
+// any — at least one element satisfies the predicate
+@any_true () -> bool = [1, 2, 3].any(predicate: x -> x > 2);
+@test_any_true tests @any_true () -> void = {
+    assert_eq(actual: any_true(), expected: true)
+}
+
+@any_false () -> bool = [1, 2, 3].any(predicate: x -> x > 5);
+@test_any_false tests @any_false () -> void = {
+    assert_eq(actual: any_false(), expected: false)
+}
+
+// Bound-result cell — bind the quantifier result to a let, then return it.
+// Type-checks because all/any are Concrete(Bool); a Fresh classification would
+// fail inference here.
+@all_bound () -> bool = {
+    let $r = [1, 2, 3].all(predicate: x -> x > 0);
+    r
+}
+@test_all_bound tests @all_bound () -> void = {
+    assert_eq(actual: all_bound(), expected: true)
+}

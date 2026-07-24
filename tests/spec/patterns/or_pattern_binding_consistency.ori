@@ -1,0 +1,167 @@
+// Spec: Clause 15 (patterns) — or-pattern `A | B`: bindings in both
+// sides SHALL have identical names + types. Or-pattern alternatives binding
+// DIFFERENT names (or a name on only ONE alternative, or the same name at
+// DIFFERENT types) are an or-pattern soundness hole: a name bound on only one
+// alternative is unbound when the other alternative matches at runtime.
+// NEGATIVE pins assert the typecheck-time reject (E2052 name-divergence /
+// E2053 type-divergence); POSITIVE pins assert well-formed or-patterns still
+// typecheck + run. Cells reach each bind site inside Or: variant-payload
+// Binding, At (`p @`), struct-shorthand, partial (name on one side only).
+use std.testing { assert_eq }
+
+type Mixed = AsInt(v: int) | AsStr(v: str);
+type Shape = Circle(r: int) | Square(s: int);
+type Boxed = Box(item: Mixed);
+type ShapeBox = SBox(shape: Shape);
+
+// =============================================================================
+// NEGATIVE PINS — or-pattern binding divergence MUST fail to compile
+// =============================================================================
+
+// --- name divergence (the repro): `n` vs `m` across alternatives → E2052 ---
+#compile_fail(code: "E2052", message: "must bind the same names")
+@test_or_name_divergence tests @_ond () -> void = {
+    let r: Result<int, int> = Ok(1);
+    let _ = match r {
+        Ok(n) | Err(m) -> 0,
+        _ -> 1
+    };
+    ()
+}
+@_ond () -> bool = true;
+
+// --- name divergence, binding USED on only one alternative (soundness) → E2052 ---
+#compile_fail(code: "E2052", message: "must bind the same names")
+@test_or_name_divergence_used tests @_ondu () -> void = {
+    let r: Result<int, int> = Err(2);
+    let _ = match r {
+        Ok(n) | Err(m) -> n,
+        _ -> 0
+    };
+    ()
+}
+@_ondu () -> bool = true;
+
+// --- type divergence: same name `v`, int on one side, str on the other → E2053 ---
+#compile_fail(code: "E2053", message: "must have the same type")
+@test_or_type_divergence tests @_otd () -> void = {
+    let x: Mixed = AsInt(1);
+    let _ = match x {
+        AsInt(v) | AsStr(v) -> 0
+    };
+    ()
+}
+@_otd () -> bool = true;
+
+// --- partial binding: name on EXACTLY ONE alternative (rustc E0408 case) → E2052 ---
+#compile_fail(code: "E2052", message: "must bind the same names")
+@test_or_partial_binding tests @_opb () -> void = {
+    let opt: Option<int> = None;
+    let _ = match opt {
+        Some(x) | None -> 0,
+        _ -> 1
+    };
+    ()
+}
+@_opb () -> bool = true;
+
+// --- At-pattern (`p @`) divergence inside Or: `p` bound on only one side → E2052 ---
+#compile_fail(code: "E2052", message: "must bind the same names")
+@test_or_at_divergence tests @_oad () -> void = {
+    let r: Result<int, int> = Ok(1);
+    let _ = match r {
+        Ok(n) | p @ Err(n) -> 0,
+        _ -> 1
+    };
+    ()
+}
+@_oad () -> bool = true;
+
+// --- struct-shorthand (variant field punning) divergence: `r` vs `s` → E2052 ---
+#compile_fail(code: "E2052", message: "must bind the same names")
+@test_or_field_punning_divergence tests @_ofpd () -> void = {
+    let sh: Shape = Circle(r: 1);
+    let _ = match sh {
+        Circle(r:) | Square(s:) -> 0
+    };
+    ()
+}
+@_ofpd () -> bool = true;
+
+// --- nested or INSIDE a variant payload: `x` vs `y` diverge one level deep → E2052 ---
+// Exercises the recursive `check_match_pattern` Or-arm reached THROUGH a
+// constructor sub-pattern (not just top-level), the single-chokepoint claim.
+#compile_fail(code: "E2052", message: "must bind the same names")
+@test_or_nested_payload_divergence tests @_onpd () -> void = {
+    let b: Boxed = Box(item: AsInt(1));
+    let _ = match b {
+        Box(AsInt(x) | AsStr(y)) -> 0
+    };
+    ()
+}
+@_onpd () -> bool = true;
+
+// Generic-type-parameter cells (same-param `Result<T, T>` accept + divergent
+// `Result<T, U>` reject) are deferred to BUG-02-062: the same-param positive is
+// over-rejected upstream, and a `#compile_fail` on a generic function decl is not
+// isolated by the harness (its body error poisons the whole file's RUN cells).
+// The concrete type-divergence path is covered by `test_or_type_divergence` above.
+
+// =============================================================================
+// POSITIVE PINS — well-formed or-patterns still typecheck + run (preserve)
+// =============================================================================
+
+// --- identical name + type on both alternatives → OK, binding usable ---
+@or_same_name_used () -> int = {
+    let r: Result<int, int> = Err(7);
+    match r {
+        Ok(n) | Err(n) -> n,
+        _ -> 0
+    }
+}
+@test_or_same_name_used tests @or_same_name_used () -> void =
+    assert_eq(actual: or_same_name_used(), expected: 7);
+
+// --- value-only alternatives (no bindings) → OK (no divergence possible) ---
+@or_value_only () -> str = {
+    let opt: Option<int> = Some(2);
+    match opt {
+        Some(1) | Some(2) | Some(_) -> "has value",
+        None -> "empty"
+    }
+}
+@test_or_value_only tests @or_value_only () -> void =
+    assert_eq(actual: or_value_only(), expected: "has value");
+
+// --- or-pattern binding referenced by an arm GUARD (pattern × guard interaction) → OK ---
+@or_binding_in_guard () -> int = {
+    let r: Result<int, int> = Err(9);
+    match r {
+        Ok(n) | Err(n) if n > 0 -> n,
+        _ -> 0
+    }
+}
+@test_or_binding_in_guard tests @or_binding_in_guard () -> void =
+    assert_eq(actual: or_binding_in_guard(), expected: 9);
+
+// --- nested or INSIDE a payload, same name + same type both alternatives → OK ---
+// Positive companion to test_or_nested_payload_divergence: the recursive
+// check_or_pattern chokepoint commits the validated common binding when the
+// nested alternatives agree (Circle/Square both carry int, bound as `n`).
+@or_nested_payload_same () -> int = {
+    let sb: ShapeBox = SBox(shape: Square(s: 7));
+    match sb {
+        SBox(Circle(n) | Square(n)) -> n
+    }
+}
+@test_or_nested_payload_same tests @or_nested_payload_same () -> void =
+    assert_eq(actual: or_nested_payload_same(), expected: 7);
+
+// The positive companion `or_generic_same` (`Result<T, T>` with `Ok(n) | Err(n) -> n`,
+// same name + same type param on both alternatives, should typecheck) is deferred:
+// the two identical-`T` payload positions resolve to distinct type vars upstream of
+// the reconcile, wrongly tripping E2053. Tracked as BUG-02-062 (sound over-rejection);
+// re-add the positive cell here when it lands. Only the CONCRETE type-divergence reject
+// path is pinned (`test_or_type_divergence` at line 47, using Mixed/AsInt/AsStr); the
+// generic type-variable interior (same-`T` accept AND repeated-type-param divergence) has
+// no current pin and is deferred to BUG-02-062 — do not claim coverage that does not exist.

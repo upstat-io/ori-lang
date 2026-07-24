@@ -2,7 +2,7 @@
 //!
 //! These names appear as `Apply` callees in ARC IR. Most are intercepted by
 //! the LLVM emitter (they never become real function calls), while `Iter` and
-//! `IterDrop` go through normal function dispatch — see [`ProtocolBuiltin::is_intercepted()`].
+//! `IterDrop` go through normal function dispatch; see `ProtocolBuiltin::is_intercepted()`.
 //! Each variant carries per-argument ownership semantics so borrow inference
 //! and RC insertion handle them correctly without falling through to the
 //! "unknown callee → all Owned" default.
@@ -26,6 +26,12 @@ pub enum ProtocolBuiltin {
     IterDrop,
     /// Set collection from iterator. Iterator owned (consumed).
     CollectSet,
+    /// `value as Target` conversion. Value borrowed (read, not consumed).
+    ///
+    /// ARC IR has no cast instruction; `lower_cast` emits `Apply __cast`.
+    /// The LLVM emitter intercepts supported primitive pairs inline;
+    /// unsupported pairs fall through to normal dispatch.
+    Cast,
 }
 
 /// Argument ownership for protocol builtin parameters.
@@ -43,6 +49,7 @@ impl ProtocolBuiltin {
         Self::IterNext,
         Self::IterDrop,
         Self::CollectSet,
+        Self::Cast,
     ];
 
     /// The internal name emitted in ARC IR.
@@ -53,6 +60,7 @@ impl ProtocolBuiltin {
             Self::IterNext => "__iter_next",
             Self::IterDrop => "ori_iter_drop",
             Self::CollectSet => "__collect_set",
+            Self::Cast => "__cast",
         }
     }
 
@@ -64,6 +72,7 @@ impl ProtocolBuiltin {
             "__iter_next" => Some(Self::IterNext),
             "ori_iter_drop" => Some(Self::IterDrop),
             "__collect_set" => Some(Self::CollectSet),
+            "__cast" => Some(Self::Cast),
             _ => None,
         }
     }
@@ -76,7 +85,7 @@ impl ProtocolBuiltin {
     pub const fn is_intercepted(self) -> bool {
         match self {
             Self::Iter | Self::IterDrop => false,
-            Self::Index | Self::IterNext | Self::CollectSet => true,
+            Self::Index | Self::IterNext | Self::CollectSet | Self::Cast => true,
         }
     }
 
@@ -84,7 +93,7 @@ impl ProtocolBuiltin {
     pub const fn arg_count(self) -> usize {
         match self {
             Self::Index | Self::IterNext => 2,
-            Self::Iter | Self::IterDrop | Self::CollectSet => 1,
+            Self::Iter | Self::IterDrop | Self::CollectSet | Self::Cast => 1,
         }
     }
 
@@ -99,7 +108,9 @@ impl ProtocolBuiltin {
                 ProtocolArgOwnership::Borrowed,
                 ProtocolArgOwnership::Borrowed,
             ],
-            Self::Iter => &[ProtocolArgOwnership::Borrowed],
+            // Cast reads the source value and produces a converted value;
+            // the caller retains ownership of the source.
+            Self::Iter | Self::Cast => &[ProtocolArgOwnership::Borrowed],
             // `ori_iter_drop` consumes the iterator handle
             // (frees the Box-allocated state), just like `__collect_set`
             // consumes the iterator it drains. Marking `Owned` tells

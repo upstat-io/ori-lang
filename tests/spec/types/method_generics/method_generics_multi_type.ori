@@ -1,0 +1,20 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 Cross-type coverage — multiple type vars <T, U>
+
+use std.testing { assert_eq }
+
+type Pair<T, U> = { first: T, second: U }
+type Cell<X> = { value: X }
+
+impl<X> Cell<X> {
+    @map<T, U> (self, f: (X) -> T, g: (X) -> U) -> Pair<T, U> =
+        Pair { first: f(self.value), second: g(self.value) };
+}
+
+@test_multi_type tests _ () -> void = {
+    let c = Cell { value: 5 };
+    let p: Pair<int, str> = c.map(f: x -> x + 1, g: x -> `{x}`);
+    assert_eq(actual: p.first, expected: 6);
+    assert_eq(actual: p.second, expected: "5")
+}

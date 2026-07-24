@@ -1,0 +1,25 @@
+// Regression pin (tagged-pointer payload survival).
+//
+// `MaybeIter` is eligible for `EnumTag::TaggedPtr`: <=8 variants and the
+// `Holds` variant carries a single single-word pointer (`Iterator<int>` lowers
+// to `MachineRepr::UnmanagedPtr` per `is_taggable_pointer`). A tagged-pointer
+// enum lowers to a bare LLVM `i64`, so `is_scalar_int_type` returns TRUE for
+// it — if the `CtorKind::EnumVariant` scalar-int guard in `emit_construct`
+// fired BEFORE the tagged-ptr check, the constructor would emit a bare
+// `const_int(i64, variant)` and DROP the payload pointer, losing the iterator.
+//
+// This program constructs `Holds(it: ...)` (Construct side) and then matches
+// the payload back out and consumes it (Project side). The result is `3` ONLY
+// when the `(payload | tag)` encoding survived construction — the i8/i64
+// scalar-construct path would lose the high-bit pointer and never reach 3.
+
+type MaybeIter = Empty | Holds(it: Iterator<int>);
+
+@main () -> int = {
+    let x: MaybeIter = Holds(it: [1, 2, 3].iter());
+    let n = match x {
+        Empty -> 0,
+        Holds(it) -> it.count()
+    };
+    if n == 3 then 0 else 1
+}

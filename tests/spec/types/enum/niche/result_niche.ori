@@ -1,6 +1,5 @@
-// Spec: §07.2 Niche Filling — Result<bool, Ordering> niche optimization
-// Regression: repr-opt section-07 — niche-encoded Result match correctness
-// Result<bool, Ordering> uses niche encoding when both types have available niches.
+// Spec: Annex E §Representation Optimization.
+// Regression: Equal-byte Result payload arms preserve every semantic value.
 
 use std.testing { assert_eq }
 
@@ -84,13 +83,47 @@ use std.testing { assert_eq }
     }
 }
 
-// === All five values are distinct ===
-
-@test_result_all_distinct tests @result_all_distinct () -> void = {
-    assert_eq(actual: result_all_distinct(), expected: true)
+@test_result_ordering_bool_ok_greater tests @result_ordering_bool_ok_greater () -> void = {
+    assert_eq(actual: result_ordering_bool_ok_greater(), expected: "ok:Greater")
 }
 
-@result_all_distinct () -> bool = {
+@result_ordering_bool_ok_greater () -> str = {
+    let $x: Result<Ordering, bool> = Ok(Greater);
+    match x {
+        Ok(o) -> match o {
+            Less -> "ok:Less",
+            Equal -> "ok:Equal",
+            Greater -> "ok:Greater"
+        },
+        Err(v) -> `err:{v}`
+    }
+}
+
+@test_result_map_err_bool_to_ordering_preserves_greater tests @result_map_err_bool_to_ordering_preserves_greater () -> void = {
+    assert_eq(actual: result_map_err_bool_to_ordering_preserves_greater(), expected: Err(Greater))
+}
+
+@result_map_err_bool_to_ordering_preserves_greater () -> Result<bool, Ordering> = {
+    let x: Result<bool, bool> = Err(true);
+    x.map_err((v: bool) -> Ordering = if v then Greater else Less)
+}
+
+@test_result_map_bool_to_ordering_preserves_greater tests @result_map_bool_to_ordering_preserves_greater () -> void = {
+    assert_eq(actual: result_map_bool_to_ordering_preserves_greater(), expected: Ok(Greater))
+}
+
+@result_map_bool_to_ordering_preserves_greater () -> Result<Ordering, bool> = {
+    let x: Result<bool, bool> = Ok(true);
+    x.map((v: bool) -> Ordering = if v then Greater else Less)
+}
+
+// Every value uses its expected Result arm.
+
+@test_result_values_use_expected_arm tests @result_values_use_expected_arm () -> void = {
+    assert_eq(actual: result_values_use_expected_arm(), expected: true)
+}
+
+@result_values_use_expected_arm () -> bool = {
     let $ok_t: Result<bool, Ordering> = Ok(true);
     let $ok_f: Result<bool, Ordering> = Ok(false);
     let $err_l: Result<bool, Ordering> = Err(Less);

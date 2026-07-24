@@ -1,0 +1,15 @@
+// RL-2 forwarder-result release NEGATIVE over-fire pin (gate e — FRESH-Construct owner):
+// a `[int]` built by a `Construct List` (`let xs = [..]`) flows into a forwarder
+// (`identity(x: xs)`) whose result is borrow-consumed (`.len()`). The forwarder class
+// CONTAINS the `Construct List` dst, which OWNS the allocation and retains its own
+// scope-exit release — a whole-var forwarder-result release would double-free it. Pins
+// that `class_has_fresh_construct_owner` declines the release when the transferred-in
+// allocation has an in-class FRESH-Construct owner. Reverting gate (e) surfaces an
+// exit-134 double-free (the `host`/imported-generic shape).
+@identity <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let copy = identity(x: xs);
+    if copy.len() == 3 && copy[0] == 10 then 0 else 1
+}

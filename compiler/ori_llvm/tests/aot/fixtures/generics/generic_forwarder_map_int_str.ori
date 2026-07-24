@@ -1,0 +1,9 @@
+// BUG-04-090 §03 cross-type: {int: str} — heap map mixing scalar keys and
+// heap values. Same fat-pointer shape; param-return-alias rule fires
+// regardless of K/V types.
+@id <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let m = id(x: {1: "one", 2: "two", 3: "three"});
+    if m.len() == 3 then 0 else 1
+}

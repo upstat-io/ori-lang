@@ -90,7 +90,7 @@ fn test_link_output_extensions() {
 ///
 /// Scenario: Simple executable linking.
 #[test]
-fn test_gcc_linker_basic() {
+fn test_gcc_linker_emits_objects_libpaths_and_libs() {
     let target = linux_target();
     let mut linker = GccLinker::new(&target);
 
@@ -303,7 +303,7 @@ fn test_gcc_linker_raw_args() {
 ///
 /// Scenario: Windows executable linking.
 #[test]
-fn test_msvc_linker_basic() {
+fn test_msvc_linker_emits_out_objects_and_libs() {
     let target = windows_msvc_target();
     let mut linker = MsvcLinker::new(&target);
 

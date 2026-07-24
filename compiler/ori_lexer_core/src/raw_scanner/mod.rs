@@ -120,8 +120,6 @@ impl<'a> RawScanner<'a> {
         }
     }
 
-    // EOF
-
     fn eof(&mut self) -> RawToken {
         if self.cursor.is_eof() {
             if let Some(_depth) = self.template_depth.pop() {
@@ -188,7 +186,7 @@ impl<'a> RawScanner<'a> {
         }
     }
 
-    // Comments
+    // Slash, slash-equals, and line comments
 
     fn slash_or_comment(&mut self, start: u32) -> RawToken {
         self.cursor.advance(); // consume first '/'

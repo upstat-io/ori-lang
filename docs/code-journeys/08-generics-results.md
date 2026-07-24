@@ -1,0 +1,791 @@
+---
+journey: 8
+slug: generics
+theme: "I am generic"
+date: 2026-03-20
+status: PASS
+expected: 57
+eval_result: 57
+aot_result: 57
+difficulty: moderate
+prerequisites:
+  - "Basic programming knowledge"
+  - "Understanding of parameterized types"
+  - "Understanding of structs and function calls"
+learning_objectives:
+  - "See how generic functions are monomorphized to concrete LLVM IR"
+  - "Understand how generic structs are lowered to LLVM struct types"
+  - "Compare ideal vs actual codegen for identity/projection functions"
+  - "Observe that monomorphization eliminates all type-parameter overhead"
+features:
+  - generics
+  - monomorphization
+  - generic_structs
+  - type_inference
+feature_description: "Generic functions, generic structs, monomorphization, and type inference"
+score: 10.0
+score_breakdown:
+  instruction_efficiency: 10
+  arc_correctness: 10
+  attributes_safety: 10
+  control_flow: 10
+  ir_quality: 10
+  binary_quality: 10
+  other_findings: 10
+score_metrics:
+  instruction_ratio: 1.00
+  instruction_ratio_max: 1.00
+  arc_violations: 0
+  arc_has_unbalanced: false
+  arc_has_scalar_rc: false
+  attr_applicable: 21
+  attr_correct: 21
+  attr_has_wrong: false
+  cf_defects: 0
+  cf_incorrect: false
+  ir_unjustified: 0
+  ir_incorrect: false
+  bin_defects: 0
+  bin_hard_fail: false
+  other_critical: 0
+  other_high: 0
+  other_low: 0
+overflow_check: PASS
+bugs_found: []
+related_journeys:
+  - journey: 1
+    relationship: "Same overflow checking pattern on arithmetic"
+  - journey: 4
+    relationship: "Both test struct construction and field access"
+---
+
+# Journey 8: "I am generic"
+
+> **Historical architecture note (2026-07-14):** This journey preserves the LLVM IR and scores observed on 2026-03-20. AIMS owns backend-neutral ownership and effect facts; `nounwind`, `memory(...)`, calling conventions, and monomorphized machine layouts are downstream projections. The VM, LLVM/native, compiled-WASM, and JIT paths must consume the same closed executable artifact. LLVM-local attribute inference described below is a historical implementation detail, not a second semantic authority.
+
+## Source
+
+```ori
+// Journey 8: "I am generic"
+// Slug: generics
+// Difficulty: moderate
+// Features: generics, monomorphization, generic_structs, type_inference
+// Expected: identity(42) + first(10, 20) + get_value(Box { value: 5 }) = 42 + 10 + 5 = 57
+
+type Box<T> = { value: T }
+
+@identity<T> (x: T) -> T = x;
+
+@first<A, B> (a: A, b: B) -> A = a;
+
+@get_value<T> (b: Box<T>) -> T = b.value;
+
+@main () -> int = {
+    let a = identity(x: 42);                   // = 42
+    let b = first(a: 10, b: 20);               // = 10
+    let c = get_value(b: Box { value: 5 });     // = 5
+    a + b + c                                   // = 57
+}
+```
+
+## Execution Results
+
+| Backend | Exit Code | Expected | Stdout | Stderr | Status |
+|---------|-----------|----------|--------|--------|--------|
+| Eval    | 57        | 57       | (none) | (none) | PASS   |
+| AOT     | 57        | 57       | (none) | (none) | PASS   |
+
+## Compiler Pipeline
+
+### 1. Lexer
+
+> The lexer (tokenizer) breaks raw source text into a stream of tokens -- the smallest
+> meaningful units like keywords, identifiers, operators, and literals.
+
+**Tokens**: 141 | **Keywords**: 8 | **Identifiers**: 25 | **Errors**: 0
+
+<details>
+<summary>Token stream (user module)</summary>
+
+```text
+Type Ident(Box) Lt Ident(T) Gt Eq LBrace Ident(value) Colon Ident(T) RBrace
+Fn(@) Ident(identity) Lt Ident(T) Gt LParen Ident(x) Colon Ident(T) RParen
+  Arrow Ident(T) Eq Ident(x) Semi
+Fn(@) Ident(first) Lt Ident(A) Comma Ident(B) Gt LParen Ident(a) Colon Ident(A)
+  Comma Ident(b) Colon Ident(B) RParen Arrow Ident(A) Eq Ident(a) Semi
+Fn(@) Ident(get_value) Lt Ident(T) Gt LParen Ident(b) Colon Ident(Box) Lt Ident(T)
+  Gt RParen Arrow Ident(T) Eq Ident(b) Dot Ident(value) Semi
+Fn(@) Ident(main) LParen RParen Arrow Ident(int) Eq LBrace
+  Let Ident(a) Eq Ident(identity) LParen Ident(x) Colon Lit(42) RParen Semi
+  Let Ident(b) Eq Ident(first) LParen Ident(a) Colon Lit(10) Comma Ident(b) Colon Lit(20) RParen Semi
+  Let Ident(c) Eq Ident(get_value) LParen Ident(b) Colon Ident(Box) LBrace Ident(value) Colon Lit(5) RBrace RParen Semi
+  Ident(a) Plus Ident(b) Plus Ident(c)
+RBrace
+```
+
+</details>
+
+### 2. Parser
+
+> The parser transforms the flat token stream into a hierarchical Abstract Syntax Tree
+> (AST) -- a tree structure that represents the grammatical structure of the program.
+
+**Nodes**: 22 | **Max depth**: 4 | **Functions**: 4 | **Types**: 1 | **Errors**: 0
+
+<details>
+<summary>AST (simplified)</summary>
+
+```text
+Module
++-- TypeDecl Box<T>
+|   +-- Field: value: T
++-- FnDecl @identity<T>
+|   +-- Params: (x: T)
+|   +-- Return: T
+|   +-- Body: Ident(x)
++-- FnDecl @first<A, B>
+|   +-- Params: (a: A, b: B)
+|   +-- Return: A
+|   +-- Body: Ident(a)
++-- FnDecl @get_value<T>
+|   +-- Params: (b: Box<T>)
+|   +-- Return: T
+|   +-- Body: Field(b, value)
++-- FnDecl @main
+    +-- Return: int
+    +-- Body: Block
+        +-- Let a = Call(@identity, x: 42)
+        +-- Let b = Call(@first, a: 10, b: 20)
+        +-- Let c = Call(@get_value, b: Box { value: 5 })
+        +-- BinOp(+)
+            +-- BinOp(+)
+            |   +-- Ident(a)
+            |   +-- Ident(b)
+            +-- Ident(c)
+```
+
+</details>
+
+### 3. Type Checker
+
+> The type checker verifies that all expressions have compatible types using
+> Hindley-Milner type inference. It resolves type variables, checks constraints,
+> and ensures type safety without requiring explicit type annotations everywhere.
+
+**Constraints**: 16 | **Types inferred**: 8 | **Unifications**: 12 | **Mono instances**: 3 | **Errors**: 0
+
+<details>
+<summary>Inferred types and monomorphization</summary>
+
+```ori
+// Type parameters resolved via unification:
+//   identity<T> at call site: T = int
+//   first<A, B> at call site: A = int, B = int
+//   get_value<T> at call site: T = int
+//   Box<T> instantiated as Box<int> = { value: int }
+
+@identity<T> (x: T) -> T = x
+//  monomorphized to: identity$m$int (x: int) -> int
+
+@first<A, B> (a: A, b: B) -> A = a
+//  monomorphized to: first$m$int_int (a: int, b: int) -> int
+
+@get_value<T> (b: Box<T>) -> T = b.value
+//  monomorphized to: get_value$m$int (b: Box<int>) -> int
+
+@main () -> int = {
+    let a: int = identity(x: 42)       // -> int (from identity<int>)
+    let b: int = first(a: 10, b: 20)   // -> int (from first<int, int>)
+    let c: int = get_value(b: Box { value: 5 })  // -> int (from get_value<int>)
+    a + b + c                           // -> int (Add<int, int> -> int)
+}
+```
+
+</details>
+
+### 4. Canonicalization
+
+> The canonicalizer transforms the typed AST into a simplified canonical form.
+> It desugars syntactic sugar, lowers complex expressions, and prepares the IR
+> for backend consumption.
+
+**Transforms**: 4 | **Desugared**: 0 | **Errors**: 0
+
+<details>
+<summary>Key transformations</summary>
+
+```text
+- Generic function calls replaced with monomorphized call targets
+- Box<int> struct construction lowered to canonical struct literal
+- Field access b.value lowered to canonical field projection
+- Function bodies lowered to canonical expression form
+```
+
+</details>
+
+### 5. ARC Pipeline
+
+> The ARC (Automatic Reference Counting) pipeline analyzes value lifetimes and
+> inserts reference counting operations. It performs borrow inference to minimize
+> RC overhead -- parameters that are only read can be borrowed rather than owned.
+> On the AIMS branch, analysis uses the unified lattice for intraprocedural and
+> interprocedural passes.
+
+**RC ops inserted**: 0 | **Elided**: 0 | **Net ops**: 0
+
+<details>
+<summary>ARC annotations</summary>
+
+```text
+@identity$m$int: no heap values -- pure scalar passthrough (FBIP certified)
+@first$m$int_int: no heap values -- pure scalar passthrough (FBIP certified)
+@get_value$m$int: no heap values -- Box<int> is a value type (single i64 field, FBIP certified)
+@main: no heap values -- all values are scalars (int, FBIP certified)
+
+AIMS intraprocedural: all 4 functions converged in 1 iteration
+AIMS interprocedural: 4/4 user functions FIP-certified, 4/4 FBIP
+```
+
+</details>
+
+### Backend: Interpreter
+
+> The interpreter (eval path) executes the canonical IR directly, without
+> compilation. It serves as the reference implementation for correctness testing.
+
+**Result**: 57 | **Status**: PASS
+
+<details>
+<summary>Evaluation trace</summary>
+
+```text
+@main()
+  +-- let a = @identity(x: 42)
+  |         +-- return x = 42
+  +-- let b = @first(a: 10, b: 20)
+  |         +-- return a = 10
+  +-- let c = @get_value(b: Box { value: 5 })
+  |         +-- b.value = 5
+  +-- a + b + c
+       +-- 42 + 10 = 52
+       +-- 52 + 5 = 57
+-> 57
+```
+
+</details>
+
+### Backend: LLVM Codegen
+
+> The LLVM backend compiles the canonical IR to LLVM IR, which is then compiled
+> to native machine code via LLVM's optimization and code generation pipeline.
+> This path produces ahead-of-time compiled binaries.
+
+#### ARC Pipeline
+
+**RC ops inserted**: 0 | **Elided**: 0 | **Net ops**: 0
+
+<details>
+<summary>ARC annotations</summary>
+
+```text
+@identity$m$int: +0 rc_inc, +0 rc_dec (no heap values)
+@first$m$int_int: +0 rc_inc, +0 rc_dec (no heap values)
+@get_value$m$int: +0 rc_inc, +0 rc_dec (no heap values)
+@main: +0 rc_inc, +0 rc_dec (no heap values)
+```
+
+</details>
+
+#### Generated LLVM IR
+
+```llvm
+; ModuleID = '08-generics'
+source_filename = "08-generics"
+
+%ori.Box = type { i64 }
+
+@ovf.msg = private unnamed_addr constant [29 x i8] c"integer overflow on addition\00", align 1
+
+; Function Attrs: nounwind uwtable
+; --- @main ---
+define noundef i64 @_ori_main() #0 {
+bb0:
+  %call = call fastcc i64 @"_ori_identity$24m$24int"(i64 42)
+  %call1 = call fastcc i64 @"_ori_first$24m$24int_int"(i64 10, i64 20)
+  %call2 = call fastcc i64 @"_ori_get_value$24m$24int"(%ori.Box { i64 5 })
+  %add = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %call, i64 %call1)
+  %add.val = extractvalue { i64, i1 } %add, 0
+  %add.ovf = extractvalue { i64, i1 } %add, 1
+  br i1 %add.ovf, label %add.ovf_panic, label %add.ok
+
+add.ok:
+  %add3 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %add.val, i64 %call2)
+  %add.val4 = extractvalue { i64, i1 } %add3, 0
+  %add.ovf5 = extractvalue { i64, i1 } %add3, 1
+  br i1 %add.ovf5, label %add.ovf_panic7, label %add.ok6
+
+add.ovf_panic:
+  call void @ori_panic_cstr(ptr @ovf.msg)
+  unreachable
+
+add.ok6:
+  ret i64 %add.val4
+
+add.ovf_panic7:
+  call void @ori_panic_cstr(ptr @ovf.msg)
+  unreachable
+}
+
+; Function Attrs: nounwind memory(none) uwtable
+; --- first$m$int_int ---
+define fastcc noundef i64 @"_ori_first$24m$24int_int"(i64 noundef %0, i64 noundef %1) #1 {
+bb0:
+  ret i64 %0
+}
+
+; Function Attrs: nounwind memory(none) uwtable
+; --- get_value$m$int ---
+define fastcc noundef i64 @"_ori_get_value$24m$24int"(%ori.Box noundef %0) #1 {
+bb0:
+  %proj.0 = extractvalue %ori.Box %0, 0
+  ret i64 %proj.0
+}
+
+; Function Attrs: nounwind memory(none) uwtable
+; --- identity$m$int ---
+define fastcc noundef i64 @"_ori_identity$24m$24int"(i64 noundef %0) #1 {
+bb0:
+  ret i64 %0
+}
+
+; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
+declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64) #2
+
+; Function Attrs: cold noreturn
+declare void @ori_panic_cstr(ptr) #3
+
+; Function Attrs: nounwind uwtable
+define noundef i32 @main() #0 {
+entry:
+  %ori_main_result = call i64 @_ori_main()
+  %exit_code = trunc i64 %ori_main_result to i32
+  %leak_check = call i32 @ori_check_leaks()
+  %has_leak = icmp ne i32 %leak_check, 0
+  %final_exit = select i1 %has_leak, i32 %leak_check, i32 %exit_code
+  ret i32 %final_exit
+}
+
+; Function Attrs: nounwind
+declare i32 @ori_check_leaks() #4
+
+attributes #0 = { nounwind uwtable }
+attributes #1 = { nounwind memory(none) uwtable }
+attributes #2 = { nocallback nofree nosync nounwind speculatable willreturn memory(none) }
+attributes #3 = { cold noreturn }
+attributes #4 = { nounwind }
+```
+
+#### Disassembly
+
+```asm
+_ori_main:
+  sub    $0x28,%rsp
+  mov    $0x2a,%edi           ; identity(42)
+  call   _ori_identity$m$int
+  mov    %rax,0x10(%rsp)      ; save a
+  mov    $0xa,%edi            ; first(10, 20)
+  mov    $0x14,%esi
+  call   _ori_first$m$int_int
+  mov    %rax,0x8(%rsp)       ; save b
+  mov    $0x5,%edi            ; get_value(Box{5})
+  call   _ori_get_value$m$int
+  mov    0x8(%rsp),%rcx
+  mov    %rax,%rdx
+  mov    0x10(%rsp),%rax
+  mov    %rdx,0x18(%rsp)
+  add    %rcx,%rax            ; a + b
+  mov    %rax,0x20(%rsp)
+  seto   %al
+  jo     .ovf_panic1
+  mov    0x18(%rsp),%rcx
+  mov    0x20(%rsp),%rax
+  add    %rcx,%rax            ; (a+b) + c
+  mov    %rax,(%rsp)
+  seto   %al
+  jo     .ovf_panic2
+  jmp    .ret
+.ovf_panic1:
+  lea    ovf.msg(%rip),%rdi
+  call   ori_panic_cstr
+.ret:
+  mov    (%rsp),%rax
+  add    $0x28,%rsp
+  ret
+.ovf_panic2:
+  lea    ovf.msg(%rip),%rdi
+  call   ori_panic_cstr
+
+_ori_first$m$int_int:
+  mov    %rdi,%rax
+  ret
+
+_ori_get_value$m$int:
+  mov    %rdi,%rax
+  ret
+
+_ori_identity$m$int:
+  mov    %rdi,%rax
+  ret
+
+main:
+  push   %rax
+  call   _ori_main
+  mov    %eax,0x4(%rsp)       ; save exit code
+  call   ori_check_leaks      ; RC leak detection
+  mov    %eax,%ecx
+  mov    0x4(%rsp),%eax
+  cmp    $0x0,%ecx
+  cmovne %ecx,%eax            ; use leak code if nonzero
+  pop    %rcx
+  ret
+```
+
+## Deep Scrutiny
+
+### 1. Instruction Purity
+
+| # | Function | Actual | Ideal | Ratio | Verdict |
+|---|----------|--------|-------|-------|---------|
+| 1 | @identity$m$int | 1 | 1 | 1.00x | OPTIMAL |
+| 2 | @first$m$int_int | 1 | 1 | 1.00x | OPTIMAL |
+| 3 | @get_value$m$int | 2 | 2 | 1.00x | OPTIMAL |
+| 4 | @main | 16 | 16 | 1.00x | OPTIMAL |
+
+All four monomorphized functions produce the minimum possible instruction count.
+
+**@identity$m$int**: Single `ret i64 %0` -- the identity function compiles to a single return. Zero overhead from generics.
+
+**@first$m$int_int**: Single `ret i64 %0` -- ignores second parameter, returns first. Optimal projection.
+
+**@get_value$m$int**: `extractvalue %ori.Box %0, 0` + `ret i64 %proj.0` -- extracts the single field from the Box struct and returns it. Minimal two-instruction sequence.
+
+**@main**: 3 calls + 2 overflow-checked additions (each requiring: call to `@llvm.sadd.with.overflow.i64`, 2 extractvalue, 1 branch, 1 panic call, 1 unreachable) + 1 return = 16 instructions. Every instruction is justified by either computation or safety checking.
+
+### 2. ARC Purity
+
+| Function | rc_inc | rc_dec | Balanced | Borrow Elision | Move Semantics |
+|----------|--------|--------|----------|----------------|----------------|
+| @identity$m$int | 0 | 0 | YES | N/A | N/A |
+| @first$m$int_int | 0 | 0 | YES | N/A | N/A |
+| @get_value$m$int | 0 | 0 | YES | N/A | N/A |
+| @main | 0 | 0 | YES | N/A | N/A |
+
+**Verdict**: No heap values in any function. All operations are on scalars (i64) or value-type structs (Box<int> = single i64). Zero RC operations. OPTIMAL. AIMS interprocedural analysis confirms all 4 functions as FIP/FBIP certified.
+
+### 3. Attributes & Calling Convention
+
+| Function | fastcc | nounwind | uwtable | memory | noundef(ret) | noundef(params) | Notes |
+|----------|--------|----------|---------|--------|--------------|-----------------|-------|
+| @identity$m$int | YES | YES | YES | none | YES | YES (1/1) | |
+| @first$m$int_int | YES | YES | YES | none | YES | YES (2/2) | |
+| @get_value$m$int | YES | YES | YES | none | YES | YES (1/1) | [NOTE-3] |
+| @main (entry) | N/A | YES | YES | N/A | YES | N/A | |
+| @main (wrapper) | N/A | YES | YES | N/A | YES | N/A | |
+| ori_panic_cstr | N/A | N/A | N/A | N/A | N/A | cold=YES, noreturn=YES | |
+| ori_check_leaks | N/A | N/A | N/A | N/A | N/A | nounwind=YES | |
+
+**Compliance**: 21/21 applicable attributes correct (100.0%).
+
+All three monomorphized helper functions share the historical `memory(none)` attribute. Their captured LLVM bodies only manipulate by-value data, but production emission must additionally validate complete AIMS effect facts covering accessible and inaccessible reads and writes before projecting that attribute.
+
+### 4. Control Flow & Block Layout
+
+| Function | Blocks | Empty Blocks | Redundant Branches | Phi Nodes | Notes |
+|----------|--------|-------------|-------------------|-----------|-------|
+| @identity$m$int | 1 | 0 | 0 | 0 | |
+| @first$m$int_int | 1 | 0 | 0 | 0 | |
+| @get_value$m$int | 1 | 0 | 0 | 0 | |
+| @main | 5 | 0 | 0 | 0 | |
+
+**Verdict**: Clean control flow. The 5 blocks in @main are all necessary: entry (bb0), two add.ok blocks (one per overflow check), and two panic blocks. No empty blocks, no redundant branches, no trivial phi nodes.
+
+### 5. Overflow Checking
+
+**Status**: PASS
+
+| Operation | Checked | Correct | Notes |
+|-----------|---------|---------|-------|
+| add (a + b) | YES | YES | Uses llvm.sadd.with.overflow.i64, panics on overflow |
+| add ((a+b) + c) | YES | YES | Uses llvm.sadd.with.overflow.i64, panics on overflow |
+
+Both integer additions in `@main` are checked with `@llvm.sadd.with.overflow.i64`. Panic paths call `ori_panic_cstr` with an overflow message. The monomorphized functions perform no arithmetic and thus need no overflow checking.
+
+### 6. Binary Analysis
+
+| Metric | Value |
+|--------|-------|
+| Binary size | 6.25 MiB (debug) |
+| .text section | 869.6 KiB |
+| .rodata section | 133.5 KiB |
+| User code | 157 bytes (4 user fns + wrapper) |
+| Runtime | >99.9% of .text |
+
+#### Disassembly: @identity$m$int
+
+```asm
+_ori_identity$m$int:
+  mov    %rdi,%rax
+  ret
+```
+
+2 instructions, 4 bytes. The `mov` is the x86_64 calling convention return value transfer (argument in %rdi, return in %rax). Cannot be elided at this optimization level.
+
+#### Disassembly: @first$m$int_int
+
+```asm
+_ori_first$m$int_int:
+  mov    %rdi,%rax
+  ret
+```
+
+2 instructions, 4 bytes. Identical to identity -- first parameter in %rdi is moved to %rax for return.
+
+#### Disassembly: @get_value$m$int
+
+```asm
+_ori_get_value$m$int:
+  mov    %rdi,%rax
+  ret
+```
+
+2 instructions, 4 bytes. Box<int> is a single-field struct containing i64 -- passed in %rdi by the calling convention. Field extraction is a no-op at the machine level.
+
+#### Disassembly: @main
+
+```asm
+_ori_main:
+  sub    $0x28,%rsp
+  mov    $0x2a,%edi           ; identity(42)
+  call   _ori_identity$m$int
+  mov    %rax,0x10(%rsp)      ; save a
+  mov    $0xa,%edi            ; first(10, 20)
+  mov    $0x14,%esi
+  call   _ori_first$m$int_int
+  mov    %rax,0x8(%rsp)       ; save b
+  mov    $0x5,%edi            ; get_value(Box{5})
+  call   _ori_get_value$m$int
+  ; ... overflow-checked a + b, then (a+b) + c ...
+  ret
+```
+
+31 instructions, 137 bytes (debug build). All spills to stack are expected at -O0.
+
+### 7. Optimal IR Comparison
+
+#### @identity$m$int: Ideal vs Actual
+
+```llvm
+; IDEAL (1 instruction)
+define fastcc noundef i64 @"_ori_identity$24m$24int"(i64 noundef %0) nounwind memory(none) {
+  ret i64 %0
+}
+```
+
+```llvm
+; ACTUAL (1 instruction)
+define fastcc noundef i64 @"_ori_identity$24m$24int"(i64 noundef %0) #1 {
+bb0:
+  ret i64 %0
+}
+```
+
+**Delta**: +0 instructions. OPTIMAL.
+
+#### @first$m$int_int: Ideal vs Actual
+
+```llvm
+; IDEAL (1 instruction)
+define fastcc noundef i64 @"_ori_first$24m$24int_int"(i64 noundef %0, i64 noundef %1) nounwind memory(none) {
+  ret i64 %0
+}
+```
+
+```llvm
+; ACTUAL (1 instruction)
+define fastcc noundef i64 @"_ori_first$24m$24int_int"(i64 noundef %0, i64 noundef %1) #1 {
+bb0:
+  ret i64 %0
+}
+```
+
+**Delta**: +0 instructions. OPTIMAL.
+
+#### @get_value$m$int: Ideal vs Actual
+
+```llvm
+; IDEAL (2 instructions)
+define fastcc noundef i64 @"_ori_get_value$24m$24int"(%ori.Box noundef %0) nounwind memory(none) {
+  %v = extractvalue %ori.Box %0, 0
+  ret i64 %v
+}
+```
+
+```llvm
+; ACTUAL (2 instructions)
+define fastcc noundef i64 @"_ori_get_value$24m$24int"(%ori.Box noundef %0) #1 {
+bb0:
+  %proj.0 = extractvalue %ori.Box %0, 0
+  ret i64 %proj.0
+}
+```
+
+**Delta**: +0 instructions. OPTIMAL.
+
+#### @main: Ideal vs Actual
+
+```llvm
+; IDEAL (16 instructions -- with overflow checking)
+define noundef i64 @_ori_main() nounwind {
+  %a = call fastcc i64 @"_ori_identity$24m$24int"(i64 42)
+  %b = call fastcc i64 @"_ori_first$24m$24int_int"(i64 10, i64 20)
+  %c = call fastcc i64 @"_ori_get_value$24m$24int"(%ori.Box { i64 5 })
+  %r1 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %a, i64 %b)
+  %v1 = extractvalue { i64, i1 } %r1, 0
+  %o1 = extractvalue { i64, i1 } %r1, 1
+  br i1 %o1, label %panic1, label %ok1
+ok1:
+  %r2 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %v1, i64 %c)
+  %v2 = extractvalue { i64, i1 } %r2, 0
+  %o2 = extractvalue { i64, i1 } %r2, 1
+  br i1 %o2, label %panic2, label %ok2
+ok2:
+  ret i64 %v2
+panic1:
+  call void @ori_panic_cstr(ptr @ovf.msg)
+  unreachable
+panic2:
+  call void @ori_panic_cstr(ptr @ovf.msg)
+  unreachable
+}
+```
+
+```llvm
+; ACTUAL (16 instructions)
+; [identical structure to ideal -- see Generated LLVM IR section above]
+```
+
+**Delta**: +0 instructions. OPTIMAL.
+
+#### Module Summary
+
+| Function | Ideal | Actual | Delta | Justified | Verdict |
+|----------|-------|--------|-------|-----------|---------|
+| @identity$m$int | 1 | 1 | +0 | N/A | OPTIMAL |
+| @first$m$int_int | 1 | 1 | +0 | N/A | OPTIMAL |
+| @get_value$m$int | 2 | 2 | +0 | N/A | OPTIMAL |
+| @main | 16 | 16 | +0 | N/A | OPTIMAL |
+
+### 8. Generics: Monomorphization Quality
+
+This journey tests the compiler's monomorphization pipeline -- how generic functions are specialized to concrete types at compile time.
+
+**Monomorphization strategy**: The Ori compiler performs whole-program monomorphization during the type checking phase. Each generic function call with concrete type arguments generates a specialized instance. The LLVM backend receives fully monomorphized IR with no remaining type parameters.
+
+**Naming convention**: Monomorphized instances use the `$m$` separator followed by type names. For example:
+- `identity<int>` becomes `identity$m$int`
+- `first<int, int>` becomes `first$m$int_int`
+- `get_value<int>` becomes `get_value$m$int`
+
+In the LLVM IR, `$` is encoded as `$24` in quoted names (e.g., `@"_ori_identity$24m$24int"`).
+
+**Key observations**:
+
+1. **Zero abstraction cost**: Every monomorphized function compiles to exactly the same IR as a hand-written non-generic equivalent would. `identity<int>` produces the same single `ret i64 %0` as a non-generic `@identity_int (x: int) -> int = x` would.
+
+2. **Struct monomorphization**: `Box<T>` instantiated as `Box<int>` becomes `%ori.Box = type { i64 }`. The generic struct is fully specialized to its concrete layout. The `extractvalue` instruction for field access is a compile-time offset, not a runtime operation.
+
+3. **Type erasure is complete**: No type tags, no vtables, no runtime type information. The monomorphized functions are indistinguishable from hand-written specialized functions. This is the expected behavior for a monomorphization-based generics system (like Rust, C++, or Zig).
+
+4. **Calling convention correctness**: All monomorphized functions use `fastcc` (internal calling convention), while `@_ori_main` correctly uses the C calling convention since it is the entry point.
+
+5. **Single-field struct optimization**: `Box<int>` is a single-field struct containing `i64`. The compiler passes it directly in a register (via `%ori.Box { i64 5 }` as a literal argument). At the machine level, field extraction is a no-op -- all three helper functions compile to identical `mov %rdi, %rax; ret`.
+
+6. **Memory attribute projection**: All three monomorphized helper functions were marked `memory(none)` because their captured LLVM bodies operate on by-value data. Under the production seam, this remains legal only when the bound AIMS artifact proves no accessible or inaccessible reads or writes.
+
+7. **AIMS pipeline integration**: All 4 functions converge in a single intraprocedural iteration with zero cross-dimension interactions. The interprocedural pass certifies all 4 as FIP (frame-independent) and FBIP (fully borrowing), while the captured compiled-counter projection confirms that this monomorphization introduces no hidden allocation or RC overhead. Other physical plans require their own satisfaction checks.
+
+8. **RC leak detection in entry wrapper**: The `main()` C wrapper now integrates `ori_check_leaks()` to detect RC leaks at program exit. If any leaks are detected, the leak check exit code overrides the program's exit code. For this journey, no leaks are possible (all values are scalars), so the leak check always returns 0 and the program exit code 57 passes through unchanged.
+
+## Findings
+
+| # | Severity | Category | Description | Status | First Seen |
+|---|----------|----------|-------------|--------|------------|
+| 1 | NOTE | Monomorphization | Zero-cost abstraction: all generic functions compile to optimal IR | CONFIRMED | J8 |
+| 2 | NOTE | Instruction Purity | All 4 user functions at exactly 1.00x ratio | CONFIRMED | J8 |
+| 3 | NOTE | Attributes | All helper functions memory(none) -- correct for by-value struct extractvalue | CONFIRMED | J8 |
+| 4 | NOTE | Attributes | Full 100% attribute compliance (21/21) | CONFIRMED | J8 |
+| 5 | NOTE | Binary | RC leak detection integrated into entry wrapper | NEW | J8 |
+
+### NOTE-1: Zero-cost abstraction achieved
+
+**Location**: All monomorphized functions
+**Impact**: Positive -- generics add zero runtime overhead
+**Found in**: Generics: Monomorphization Quality (Category 8)
+
+### NOTE-2: Perfect instruction efficiency across all functions
+
+**Location**: All 4 user functions
+**Impact**: Positive -- every function achieves the theoretical minimum instruction count
+**Found in**: Instruction Purity (Category 1)
+
+### NOTE-3: get_value correctly marked memory(none)
+
+**Location**: `@"_ori_get_value$24m$24int"` shares attribute group `#1 = { nounwind memory(none) uwtable }` with `identity` and `first`
+**Impact**: Historical positive observation -- LLVM emitted `memory(none)` for a by-value `extractvalue`. The current contract requires complete AIMS effect facts to authorize that projection; the LLVM body scan is not the authority.
+**Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-4: Full attribute compliance maintained
+
+**Location**: All functions
+**Impact**: Positive -- 21/21 applicable attributes correct across all user functions, entry points, and runtime declarations. 100% compliance.
+**Found in**: Attributes & Calling Convention (Category 3)
+
+### NOTE-5: RC leak detection in entry wrapper
+
+**Location**: `@main()` C wrapper now calls `ori_check_leaks()` after `_ori_main()` returns
+**Impact**: Positive -- provides runtime verification that no RC leaks occur. The wrapper uses `select` to override the exit code if leaks are detected. For this scalar-only journey, the check is a no-op but validates the leak detection infrastructure.
+**Found in**: Binary Analysis (Category 6)
+
+## Codegen Quality Score
+
+| Category | Weight | Score | Notes |
+|----------|--------|-------|-------|
+| Instruction Efficiency | 15% | 10/10 | 1.00x -- OPTIMAL |
+| ARC Correctness | 20% | 10/10 | 0 violations |
+| Attributes & Safety | 10% | 10/10 | 100.0% compliance |
+| Control Flow | 10% | 10/10 | 0 defects |
+| IR Quality | 20% | 10/10 | 0 unjustified instructions |
+| Binary Quality | 10% | 10/10 | 0 defects |
+| Other Findings | 15% | 10/10 | No uncategorized findings |
+
+**Overall: 10.0 / 10**
+
+## Verdict
+
+Journey 8's dated LLVM measurement achieved a perfect score. Monomorphization produced fully specialized functions indistinguishable from hand-written equivalents -- all four user functions hit the theoretical minimum instruction count.
+
+The three helper functions carried `memory(none)` in the captured IR; current production validity requires that attribute to be projected from complete AIMS effect facts. The entry wrapper integrated `ori_check_leaks()` and observed zero leaks for this scalar-only journey.
+
+## Cross-Journey Observations
+
+| Feature | First Tested | This Journey | Status |
+|---------|-------------|--------------|--------|
+| Overflow checking | J1 | J8 | CONFIRMED |
+| fastcc usage | J1 | J8 | CONFIRMED |
+| nounwind on all user functions | J1 | J8 | CONFIRMED |
+| noundef on @main wrapper return | J1 | J8 | CONFIRMED |
+| Struct field access via extractvalue | J4 | J8 | CONFIRMED |
+| memory(none) on pure functions | J8 | J8 | CONFIRMED |
+| RC leak detection in entry wrapper | J8 | J8 | NEW |
+
+The monomorphization pipeline remains the highlight of this journey. All user functions achieve OPTIMAL instruction counts with zero overhead from generics. The `Box<int>` struct type demonstrates optimal behavior -- a single `i64` field accessed via zero-cost `extractvalue` at the IR level and a simple register move at the machine level. The new `ori_check_leaks()` integration in the entry wrapper adds runtime leak verification without affecting user code quality.

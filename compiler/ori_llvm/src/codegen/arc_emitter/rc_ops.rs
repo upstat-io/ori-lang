@@ -1,46 +1,12 @@
 //! Per-strategy RC increment/decrement functions.
 //!
-//! Each [`RcStrategy`] variant has a dedicated `emit_rc_inc_*` and
-//! `emit_rc_dec_*` function. These replace the monolithic Pool-querying
-//! handlers that previously lived inline in `emit_instr`.
-//!
-//! # Strategy → handler mapping
-//!
-//! | Strategy          | Inc handler              | Dec handler               |
-//! |-------------------|--------------------------|---------------------------|
-//! | `HeapPointer`     | `emit_rc_inc_heap`       | `emit_rc_dec_heap`        |
-//! | `FatPointer`      | `emit_rc_inc_fat`        | `emit_rc_dec_fat`         |
-//! | `Closure`         | `emit_rc_inc_closure`    | `emit_rc_dec_closure`     |
-//! | `AggregateFields` | `emit_rc_inc_aggregate`  | `emit_rc_dec_aggregate`   |
-//! | `InlineEnum`      | `emit_rc_inc_inline_enum`| `emit_rc_dec_inline_enum` |
-//!
-//! # `InlineEnum`
-//!
-//! `InlineEnum` Inc and Dec both perform a tag-switch with per-variant
-//! field traversal. The container itself is stack-allocated (no container
-//! refcount), but inner RC-typed fields need inc/dec for correct sharing.
-//!
-//! # Design: no `extract_rc_data_ptrs` calls
-//!
-//! None of the handlers in this module call `extract_rc_data_ptrs`. Each
-//! strategy knows its own layout and extracts pointers directly:
-//!
-//! - `HeapPointer`: slice-aware for List/Set (data+cap → `ori_list_rc_inc`); Map field 2
-//! - `FatPointer`: always field 1 (the `data_ptr` half)
-//! - `Closure`: field 1 (`env_ptr`) with null-check
-//! - `AggregateFields`: struct/tuple field traversal via [`inc_value_rc`] / [`dec_value_rc`]
-//! - `InlineEnum`: Inc via `emit_inline_enum_inc`; Dec via `emit_inline_enum_dec` (both tag-switch)
-//!
-//! `extract_rc_data_ptrs` remains in `mod.rs` for non-RC uses (closure env
-//! drop, drop function generation, builtin clone).
-//!
-//! Pool queries are still used for type tags and field enumeration. These will
-//! be eliminated in Section 01.4 when `ValueRepr` propagation makes layouts
-//! fully explicit.
+//! Each [`RcStrategy`] selects a handler whose layout protocol matches the
+//! carrier. Inline enums traverse only the active payload; `UserDrop` values call
+//! the user destructor without touching a container counter.
 
 use ori_arc::ir::{ArcFunction, ArcVarId, RcStrategy};
-use ori_ir::{CLOSURE_FIELD_ENV, FIELD_CAP, FIELD_DATA};
-use ori_types::Tag;
+use ori_ir::{FIELD_CAP, FIELD_DATA};
+use ori_types::{Idx, Tag};
 
 use super::ArcIrEmitter;
 
@@ -57,23 +23,31 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) {
         let val = self.var(var);
         if val.is_none() {
-            tracing::warn!(
+            // INVARIANT: Ignoring an undefined retain undercounts a live allocation.
+            tracing::error!(
                 var = var.raw(),
                 ?strategy,
-                "skipping RcInc on undefined variable"
+                "RcInc on undefined variable — realized ARC IR use-before-def"
             );
+            self.builder.record_codegen_error_with_msg(format!(
+                "RcInc on undefined variable v{} ({strategy:?}) — realized ARC IR use-before-def",
+                var.raw()
+            ));
             return;
         }
 
-        // Temporary validation: verify strategy matches Pool-derived expectation.
-        // Removed once all Pool queries are eliminated from the emitter (Section 01.4).
+        // Why: debug-only cross-check that the instruction's strategy matches the
+        // Pool-derived expectation; `UserDrop` is excluded because `from_repr`
+        // rejects Scalar repr and never produces it.
         #[cfg(debug_assertions)]
-        if let Some(repr) = func.var_repr(var) {
-            let expected = RcStrategy::from_var(repr, self.pool, func.var_type(var));
-            debug_assert_eq!(
-                strategy, expected,
-                "RcStrategy mismatch for var {var:?}: instruction has {strategy:?}, Pool says {expected:?}",
-            );
+        if strategy != RcStrategy::UserDrop {
+            if let Some(repr) = func.var_repr(var) {
+                let expected = RcStrategy::from_repr(repr, self.pool, func.var_type(var));
+                debug_assert_eq!(
+                    strategy, expected,
+                    "RcStrategy mismatch for var {var:?}: instruction has {strategy:?}, Pool says {expected:?}",
+                );
+            }
         }
 
         match strategy {
@@ -83,6 +57,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             RcStrategy::AggregateFields => self.emit_rc_inc_aggregate(var, count, func),
             RcStrategy::InlineEnum => self.emit_rc_inc_inline_enum(var, count, func),
             RcStrategy::Iterator => self.emit_rc_inc_iterator(var, count),
+            // A scalar-repr value carrying a user `@drop` has no RC header —
+            // inc is a no-op (Spec: Annex E §AIMS RL-DROP, balance-neutral).
+            RcStrategy::UserDrop => {}
         }
     }
 
@@ -90,22 +67,38 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     pub(super) fn emit_rc_dec(&mut self, var: ArcVarId, strategy: RcStrategy, func: &ArcFunction) {
         let val = self.var(var);
         if val.is_none() {
-            tracing::warn!(
+            // INVARIANT: Ignoring an undefined release leaks a live allocation.
+            tracing::error!(
                 var = var.raw(),
                 ?strategy,
-                "skipping RcDec on undefined variable"
+                "RcDec on undefined variable — realized ARC IR use-before-def"
             );
+            self.builder.record_codegen_error_with_msg(format!(
+                "RcDec on undefined variable v{} ({strategy:?}) — realized ARC IR use-before-def",
+                var.raw()
+            ));
             return;
         }
 
-        // Temporary validation: verify strategy matches Pool-derived expectation.
+        // INVARIANT: Header-only projections and scalar stack yields own no storage.
+        if self.is_length_projection_result(func, var)
+            || self.is_scalar_stack_slot_yield_receiver(func, var)
+        {
+            return;
+        }
+
+        // Why: debug-only cross-check that the instruction's strategy matches the
+        // Pool-derived expectation; `UserDrop` is excluded because `from_repr`
+        // rejects Scalar repr and never produces it.
         #[cfg(debug_assertions)]
-        if let Some(repr) = func.var_repr(var) {
-            let expected = RcStrategy::from_var(repr, self.pool, func.var_type(var));
-            debug_assert_eq!(
-                strategy, expected,
-                "RcStrategy mismatch for var {var:?}: instruction has {strategy:?}, Pool says {expected:?}",
-            );
+        if strategy != RcStrategy::UserDrop {
+            if let Some(repr) = func.var_repr(var) {
+                let expected = RcStrategy::from_repr(repr, self.pool, func.var_type(var));
+                debug_assert_eq!(
+                    strategy, expected,
+                    "RcStrategy mismatch for var {var:?}: instruction has {strategy:?}, Pool says {expected:?}",
+                );
+            }
         }
 
         match strategy {
@@ -115,6 +108,88 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             RcStrategy::AggregateFields => self.emit_rc_dec_aggregate(var, func),
             RcStrategy::InlineEnum => self.emit_rc_dec_inline_enum(var, func),
             RcStrategy::Iterator => self.emit_rc_dec_iterator(var),
+            RcStrategy::UserDrop => self.emit_rc_dec_user_drop(var, func),
+        }
+    }
+
+    // UserDrop handlers
+
+    /// Dec a scalar-repr value whose type carries a user `@drop`.
+    ///
+    /// Scalar values carry no RC header or managed fields, so this operation is
+    /// counter-neutral and runs only the user destructor.
+    fn emit_rc_dec_user_drop(&mut self, var: ArcVarId, func: &ArcFunction) {
+        let val = self.var(var);
+        let ty = func.var_type(var);
+        let resolved = self.pool.resolve_fully(ty);
+        // INVARIANT: A UserDrop strategy always resolves a user destructor.
+        if self.user_drop_method(resolved).is_none() {
+            let mut registered: Vec<_> = self
+                .ctx
+                .user_drop_functions
+                .keys()
+                .map(|candidate| candidate.raw())
+                .collect();
+            registered.sort_unstable();
+            tracing::error!(
+                var = var.raw(),
+                ty = ty.raw(),
+                resolved = resolved.raw(),
+                registered = ?registered,
+                "RcDec UserDrop on a type with no user @drop — realized ARC IR invariant violation"
+            );
+            self.builder.record_codegen_error_with_msg(format!(
+                "RcDec UserDrop on v{} whose type v{} resolves to v{}, but the executable user-drop table contains {:?} — realized ARC IR invariant violation",
+                var.raw(),
+                ty.raw(),
+                resolved.raw(),
+                registered,
+            ));
+            return;
+        }
+        self.emit_inline_user_drop(resolved, val, "user_drop", None);
+    }
+
+    /// Emit an inline-value user `@drop` with its recoverable-panic cleanup pad.
+    ///
+    /// Recoverable Itanium panics enter a cleanup pad. `unwind_rc_walk` supplies
+    /// the managed fields still owed before re-raising; `None` denotes a scalar
+    /// value with no field cleanup.
+    fn emit_inline_user_drop(
+        &mut self,
+        resolved: Idx,
+        val: super::ValueId,
+        block_prefix: &str,
+        unwind_rc_walk: Option<Idx>,
+    ) {
+        let itanium = self.builder.eh_model() == crate::codegen::eh_model::EhModel::Itanium;
+        let unwinds = self.drop_may_unwind(resolved) && itanium;
+        if unwinds {
+            let cont = self
+                .builder
+                .append_block(self.current_function, &format!("{block_prefix}.cont"));
+            let cleanup = self
+                .builder
+                .append_block(self.current_function, &format!("{block_prefix}.cleanup"));
+            if self.invoke_user_drop_for_inline_value(resolved, val, cont, cleanup) {
+                self.builder.position_at_end(cleanup);
+                let personality = self.builder.runtime_fn("ori_eh_personality");
+                let lp = self
+                    .builder
+                    .landingpad(personality, true, &format!("{block_prefix}.lp"));
+                if let Some(walk_ty) = unwind_rc_walk {
+                    let enter = self.builder.runtime_fn("ori_drop_cleanup_enter");
+                    self.builder.call(enter, &[], "");
+                    self.dec_value_rc(val, walk_ty);
+                    let exit = self.builder.runtime_fn("ori_drop_cleanup_exit");
+                    self.builder.call(exit, &[], "");
+                }
+                self.builder.resume(lp);
+
+                self.builder.position_at_end(cont);
+            }
+        } else {
+            self.emit_user_drop_for_inline_value(resolved, val);
         }
     }
 
@@ -133,7 +208,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         match tag {
             Tag::List | Tag::Set => {
-                // Slice-aware: extract data + cap, call ori_list_rc_inc
                 if let Some(dp) = self.builder.extract_value(val, FIELD_DATA, "rc_inc.data") {
                     let cap = self
                         .builder
@@ -166,8 +240,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let resolved = self.pool.resolve_fully(ty);
         let tag = self.pool.tag(resolved);
 
-        // Check drop hints: if this RcDec is on a provably unique collection,
-        // use the fast unique-drop path (no atomic RC decrement).
         let is_unique = func
             .drop_hints
             .is_unique_drop(self.current_block_idx, self.current_instr_idx);
@@ -207,221 +279,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     fn emit_rc_dec_aggregate(&mut self, var: ArcVarId, func: &ArcFunction) {
         let val = self.var(var);
         let ty = func.var_type(var);
+        let resolved = self.pool.resolve_fully(ty);
+        if self.user_drop_method(resolved).is_some() {
+            // Heap-field-bearing aggregate: run the `@drop` first, walking the
+            // RC fields on the unwind path (`unwind_rc_walk = Some(ty)`).
+            self.emit_inline_user_drop(resolved, val, "agg_drop", Some(ty));
+        }
         self.dec_value_rc(val, ty);
-    }
-
-    // Closure handlers
-
-    /// Inc a closure (`{fn_ptr, env_ptr}`).
-    ///
-    /// Extract `env_ptr` (field 1), null-check (zero-capture closures have
-    /// null env), then call `ori_rc_inc` on the non-null env.
-    pub(super) fn emit_rc_inc_closure(&mut self, val: super::ValueId, count: u32) {
-        let func_id = self.builder.runtime_fn("ori_rc_inc");
-
-        let Some(env_ptr) = self
-            .builder
-            .extract_value(val, CLOSURE_FIELD_ENV, "rc_inc.env")
-        else {
-            return;
-        };
-
-        // Non-capturing closures have a constant null env pointer — skip.
-        if self.builder.is_const_null_ptr(env_ptr) {
-            return;
-        }
-
-        let is_null = self.builder.is_null_ptr(env_ptr, "rc_inc.null");
-        let do_inc = self
-            .builder
-            .append_block(self.current_function, "rc_inc.do");
-        let skip = self
-            .builder
-            .append_block(self.current_function, "rc_inc.skip");
-        self.builder.cond_br(is_null, skip, do_inc);
-
-        self.builder.position_at_end(do_inc);
-        for _ in 0..count {
-            self.emit_rt_call(func_id, &[env_ptr], "");
-        }
-        self.builder.br(skip);
-
-        self.builder.position_at_end(skip);
-    }
-
-    /// Dec a closure (`{fn_ptr, env_ptr}`).
-    ///
-    /// Extract `env_ptr`, null-check, then load the drop function pointer
-    /// from the env header and call `ori_rc_dec(env_ptr, drop_fn)`.
-    pub(super) fn emit_rc_dec_closure(&mut self, val: super::ValueId) {
-        let Some(env_ptr) = self
-            .builder
-            .extract_value(val, CLOSURE_FIELD_ENV, "rc_dec.env")
-        else {
-            return;
-        };
-
-        // Non-capturing closures have a constant null env pointer —
-        // skip the entire RcDec (no blocks, no branches, no dead code).
-        if self.builder.is_const_null_ptr(env_ptr) {
-            return;
-        }
-
-        let is_null = self.builder.is_null_ptr(env_ptr, "rc_dec.null");
-        let do_dec = self
-            .builder
-            .append_block(self.current_function, "rc_dec.do");
-        let skip = self
-            .builder
-            .append_block(self.current_function, "rc_dec.skip");
-        self.builder.cond_br(is_null, skip, do_dec);
-
-        self.builder.position_at_end(do_dec);
-        let ptr_ty = self.builder.ptr_type();
-        let drop_fn = self.builder.load(ptr_ty, env_ptr, "rc_dec.drop_fn");
-        let func_id = self.builder.runtime_fn("ori_rc_dec");
-        self.emit_rt_call(func_id, &[env_ptr, drop_fn], "");
-        self.builder.br(skip);
-
-        self.builder.position_at_end(skip);
-    }
-
-    // InlineEnum handlers
-
-    /// Inc an inline enum — tag-switch with per-variant RC field inc.
-    ///
-    /// Inline enums (Result, Enum, Option) are stack-allocated, so there
-    /// is no container refcount. But their RC-typed fields (strings, lists,
-    /// recursive pointers, etc.) must be incremented when the value is
-    /// shared. Mirrors `emit_rc_dec_inline_enum` structurally.
-    fn emit_rc_inc_inline_enum(&mut self, var: ArcVarId, count: u32, func: &ArcFunction) {
-        let val = self.var(var);
-        let ty = func.var_type(var);
-        let resolved = self.pool.resolve_fully(ty);
-        let pool_tag = self.pool.tag(resolved);
-        self.emit_inline_enum_inc(val, resolved, pool_tag, count);
-    }
-
-    /// Dec an inline enum (Result, Enum) — tag-switch with per-variant cleanup.
-    ///
-    /// Delegates to `emit_inline_enum_dec` which performs:
-    /// 1. Store to alloca
-    /// 2. Load tag
-    /// 3. Switch on tag
-    /// 4. Per-variant: extract RC fields, call `ori_rc_dec` for each
-    fn emit_rc_dec_inline_enum(&mut self, var: ArcVarId, func: &ArcFunction) {
-        let val = self.var(var);
-        let ty = func.var_type(var);
-        let resolved = self.pool.resolve_fully(ty);
-        let pool_tag = self.pool.tag(resolved);
-        self.emit_inline_enum_dec(val, resolved, pool_tag);
-    }
-
-    // Iterator handlers
-
-    /// `Inc` for an iterator handle is a **no-op**.
-    ///
-    /// Iterators are Box-allocated with no RC header, and in idiomatic
-    /// Ori they are moved (not copied) — each `iter_next` call consumes
-    /// the old handle and returns a new one. If `RcInc` is ever emitted
-    /// for an iterator, something upstream tried to duplicate a value
-    /// that has unique ownership semantics; there is no refcount header
-    /// to bump. We don't emit a runtime call so we don't corrupt
-    /// memory, but we leave a trace event so the situation is
-    /// discoverable during debugging.
-    #[expect(
-        clippy::unused_self,
-        reason = "part of the strategy-dispatch API on ArcIrEmitter — called by emit_rc_inc() alongside every other emit_rc_inc_<strategy> method"
-    )]
-    fn emit_rc_inc_iterator(&mut self, var: ArcVarId, count: u32) {
-        tracing::trace!(
-            var = var.raw(),
-            count,
-            "RcInc on iterator handle — no-op (iterators are move-only)"
-        );
-    }
-
-    /// `Dec` for an iterator handle: emit `ori_iter_drop(ptr)`.
-    ///
-    /// The runtime function frees the Box-allocated iterator state.
-    /// There is no refcount header, so `ori_rc_dec` would corrupt
-    /// memory by reading a non-existent header — we bypass that path
-    /// entirely.
-    fn emit_rc_dec_iterator(&mut self, var: ArcVarId) {
-        let val = self.var(var);
-        self.call_iter_drop(val);
-    }
-
-    /// Call `ori_iter_drop(ptr)` — frees Box-allocated iterator state.
-    pub(super) fn call_iter_drop(&mut self, ptr: super::ValueId) {
-        let func_id = self.builder.runtime_fn("ori_iter_drop");
-        self.emit_rt_call(func_id, &[ptr], "");
-    }
-
-    // Call helpers
-
-    /// Call `ori_rc_inc(ptr)` for each pointer, `count` times.
-    pub(super) fn call_rc_inc_all(&mut self, ptrs: &[super::ValueId], count: u32) {
-        if ptrs.is_empty() {
-            return;
-        }
-        let func_id = self.builder.runtime_fn("ori_rc_inc");
-        for &ptr in ptrs {
-            for _ in 0..count {
-                self.emit_rt_call(func_id, &[ptr], "");
-            }
-        }
-    }
-
-    /// Call `ori_list_rc_inc(data, cap)` — slice-aware RC inc for list/set.
-    ///
-    /// Unlike `call_rc_inc_all` which calls `ori_rc_inc(data)` directly,
-    /// this passes `cap` so the runtime can check `is_slice_cap(cap)` and
-    /// find the original allocation's RC header for slices.
-    pub(super) fn call_list_rc_inc(
-        &mut self,
-        data: super::ValueId,
-        cap: super::ValueId,
-        count: u32,
-    ) {
-        let func_id = self.builder.runtime_fn("ori_list_rc_inc");
-        for _ in 0..count {
-            self.emit_rt_call(func_id, &[data, cap], "");
-        }
-    }
-
-    /// Call `ori_rc_dec(ptr, drop_fn)` for each pointer.
-    pub(super) fn call_rc_dec_all(&mut self, ptrs: &[super::ValueId], drop_fn: super::ValueId) {
-        if ptrs.is_empty() {
-            return;
-        }
-        let func_id = self.builder.runtime_fn("ori_rc_dec");
-        for &ptr in ptrs {
-            self.emit_rt_call(func_id, &[ptr, drop_fn], "");
-        }
-    }
-
-    /// Call `ori_str_rc_inc(data_ptr, cap)` — handles SSO, heap, and slices.
-    pub(super) fn call_str_rc_inc(
-        &mut self,
-        data_ptr: super::ValueId,
-        cap: super::ValueId,
-        count: u32,
-    ) {
-        let func_id = self.builder.runtime_fn("ori_str_rc_inc");
-        for _ in 0..count {
-            self.emit_rt_call(func_id, &[data_ptr, cap], "");
-        }
-    }
-
-    /// Call `ori_str_rc_dec(data_ptr, cap, drop_fn)` — handles SSO, heap, and slices.
-    pub(super) fn call_str_rc_dec(
-        &mut self,
-        data_ptr: super::ValueId,
-        cap: super::ValueId,
-        drop_fn: super::ValueId,
-    ) {
-        let func_id = self.builder.runtime_fn("ori_str_rc_dec");
-        self.emit_rt_call(func_id, &[data_ptr, cap, drop_fn], "");
     }
 }

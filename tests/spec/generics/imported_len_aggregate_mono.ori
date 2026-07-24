@@ -1,0 +1,28 @@
+// Regression: an imported prelude generic `len<T: Len>` monomorphized on an
+// aggregate receiver ([T]/{K:V}/Set<T>) left the borrowed receiver param a raw
+// ptr in the monomorphized body — the entry-block struct-value load was elided,
+// so emit_{list,map,set}_length's extract_value on the zero placeholder returned
+// the unit-default 0 under LLVM (0 vs the interpreter's 3 — a dual-execution
+// parity break). str is the negative control: `str.len` reads via
+// str_to_ptr_forwarded (pointer forwarding) and was always correct.
+// Dual-backend (interpreter + LLVM).
+
+use std.testing { assert_eq };
+
+@test_imported_len_list_mono tests _ () -> void = {
+    assert_eq(actual: len(collection: [1, 2, 3]), expected: 3)
+}
+
+@test_imported_len_map_mono tests _ () -> void = {
+    assert_eq(actual: len(collection: {"a": 1, "b": 2}), expected: 2)
+}
+
+@test_imported_len_set_mono tests _ () -> void = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+
+    assert_eq(actual: len(collection: s), expected: 3)
+}
+
+@test_imported_len_str_negative_control tests _ () -> void = {
+    assert_eq(actual: len(collection: "abc"), expected: 3)
+}

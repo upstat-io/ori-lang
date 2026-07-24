@@ -1,0 +1,31 @@
+// Spec: 18-modules.md Module Alias — qualified type in signature position
+//
+// Negative pins: a module-qualified type path (`geom.Point`) in a parameter or
+// return annotation names a real type, so a mismatched value must be rejected
+// at parity with an unqualified annotation. `ParsedType::AssociatedType` covers
+// both a module-qualified path and an associated-type projection (`Self.Item`);
+// resolving the qualified path as a projection finds no impl binding and yields
+// the error type, which unifies with every operand — the annotation then
+// type-checks against anything and every check through that signature is
+// silently disabled. These clamp the parameter and return positions.
+
+use std.testing { assert_eq }
+use "./struct_lib" as geom
+
+@consume (p: geom.Point) -> int = p.x;
+
+@produce () -> geom.Point = geom.Point { x: 1, y: 2 };
+
+// Wrong argument against a qualified PARAMETER annotation -> E2001.
+#compile_fail(code: "E2001")
+@test_qualified_param_annotation_rejects_wrong_arg tests _ () -> void = {
+    let $n = consume(p: 42);
+    assert_eq(actual: n, expected: 0)
+}
+
+// Qualified RETURN annotation binds to a mismatched local annotation -> E2001.
+#compile_fail(code: "E2001")
+@test_qualified_return_annotation_rejects_wrong_binding tests _ () -> void = {
+    let $n: int = produce();
+    assert_eq(actual: n, expected: 0)
+}

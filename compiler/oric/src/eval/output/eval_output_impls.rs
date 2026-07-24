@@ -1,6 +1,5 @@
 //! Manual `PartialEq` and `Hash` implementations for `EvalOutput`.
 //!
-//! Extracted from `output/mod.rs` to keep the file within the 500-line limit.
 //! These impls are inherent to the type defined in `mod.rs`.
 
 use std::hash::{Hash, Hasher};

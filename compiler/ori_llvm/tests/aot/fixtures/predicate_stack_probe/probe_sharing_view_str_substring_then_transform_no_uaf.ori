@@ -1,0 +1,6 @@
+@main () -> int = {
+    let s = "the quick brown fox jumps over the lazy dog";
+    let sub = s.substring(start: 4, end: 43);
+    let upper = sub.to_uppercase();
+    if upper == "QUICK BROWN FOX JUMPS OVER THE LAZY DOG" then 0 else 1
+}

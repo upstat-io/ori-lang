@@ -20,15 +20,6 @@ use crate::codegen::value_id::ValueId;
 use super::super::super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
-    /// Emit `str.length()` — call `ori_str_len(*const OriStr) -> i64`.
-    ///
-    /// SSO-safe: the runtime helper dispatches on the SSO flag byte.
-    pub(crate) fn emit_str_length(&mut self, receiver: ValueId) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_str_len");
-        let ptr = self.str_to_ptr(receiver, "str_len.self");
-        self.emit_rt_call(func_id, &[ptr], "str.len")
-    }
-
     /// Emit `str.length()` with borrowed parameter forwarding.
     ///
     /// When the receiver is a borrowed parameter, forwards its pointer directly
@@ -43,9 +34,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.emit_rt_call(func_id, &[ptr], "str.len")
     }
 
-    /// Emit `str.is_empty()` — `ori_str_len(s) == 0`.
-    pub(crate) fn emit_str_is_empty(&mut self, receiver: ValueId) -> Option<ValueId> {
-        let len = self.emit_str_length(receiver)?;
+    /// Emit `str.is_empty()` — `ori_str_len(s) == 0` — with the same borrowed-
+    /// parameter forwarding as [`Self::emit_str_length_forwarded`] (read the len
+    /// via the source pointer when the receiver is a borrowed pointer-only param).
+    pub(crate) fn emit_str_is_empty_forwarded(
+        &mut self,
+        receiver: ValueId,
+        var: ArcVarId,
+    ) -> Option<ValueId> {
+        let len = self.emit_str_length_forwarded(receiver, var)?;
         let zero = self.builder.const_i64(0);
         Some(self.builder.icmp_eq(len, zero, "str.is_empty"))
     }
@@ -93,6 +90,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .call_with_sret(func_id, &[ptr, start, end], str_ty, "ori_str_substring")
     }
 
+    /// Emit `str[index]` — bounds-checked single-codepoint access, returns `str`.
+    ///
+    /// Calls `ori_str_index(*const OriStr, index) -> str` (sret-returned, since
+    /// `str`'s ABI size (24 bytes) exceeds the 16-byte direct-return threshold).
+    /// Panics on out-of-bounds (matches `emit_list_index`'s direct-return, no
+    /// `Option` wrapper — Spec: Clause 14.1.2).
+    pub(crate) fn emit_str_index(&mut self, receiver: ValueId, index: ValueId) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_str_index");
+        let ptr = self.str_to_ptr(receiver, "str_index.self");
+        let str_ty = self.resolve_type(ori_types::Idx::STR);
+        // May-unwind sret callee: route through the invoke-aware sret call
+        // so an armed `catch(expr:)` unwind edge (per `intercepted_unwind`)
+        // is honored — `call_with_sret` always emits a plain `call`.
+        self.emit_rt_call_with_sret(func_id, &[ptr, index], str_ty, "ori_str_index")
+    }
+
     /// Emit `str.replace(from, to)` — `(str, str, str) -> str` runtime call.
     pub(crate) fn emit_str_replace(
         &mut self,
@@ -131,16 +144,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let str_ptr = self.str_to_ptr(receiver, "chars.self");
 
         let data_fn = self.builder.runtime_fn("ori_str_data");
-        let data_ptr = self
-            .builder
-            .call(data_fn, &[str_ptr], "chars.data")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let data_ptr = self.builder.call(data_fn, &[str_ptr], "chars.data")?;
 
         let len_fn = self.builder.runtime_fn("ori_str_len");
-        let len = self
-            .builder
-            .call(len_fn, &[str_ptr], "chars.len")
-            .unwrap_or_else(|| self.builder.const_i64(0));
+        let len = self.builder.call(len_fn, &[str_ptr], "chars.len")?;
 
         let list_ty = self.list_struct_type();
         let out_alloca =
@@ -170,28 +177,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         // Self string — extract data, len, and cap
         let self_ptr = self.str_to_ptr(receiver, "split.self");
-        let data_ptr = self
-            .emit_rt_call(data_fn, &[self_ptr], "split.self.data")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
-        let str_len = self
-            .emit_rt_call(len_fn, &[self_ptr], "split.self.len")
-            .unwrap_or_else(|| self.builder.const_i64(0));
+        let data_ptr = self.emit_rt_call(data_fn, &[self_ptr], "split.self.data")?;
+        let str_len = self.emit_rt_call(len_fn, &[self_ptr], "split.self.len")?;
         // Cap field (field 1) — needed for slice detection in the runtime.
         // For SSO strings cap is meaningless (str_len <= 23 → no slicing).
         // For heap strings cap >= 0. For slices cap has SLICE_FLAG.
         let str_cap = self
             .builder
-            .extract_value(receiver, FIELD_CAP, "split.self.cap")
-            .unwrap_or_else(|| self.builder.const_i64(0));
+            .extract_value(receiver, FIELD_CAP, "split.self.cap")?;
 
         // Separator string
         let sep_ptr = self.str_to_ptr(separator, "split.sep");
-        let sep_data = self
-            .emit_rt_call(data_fn, &[sep_ptr], "split.sep.data")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
-        let sep_len = self
-            .emit_rt_call(len_fn, &[sep_ptr], "split.sep.len")
-            .unwrap_or_else(|| self.builder.const_i64(0));
+        let sep_data = self.emit_rt_call(data_fn, &[sep_ptr], "split.sep.data")?;
+        let sep_len = self.emit_rt_call(len_fn, &[sep_ptr], "split.sep.len")?;
 
         // elem_dec_fn for [str] element cleanup
         let elem_dec_fn = self.get_or_generate_elem_dec_fn(str_ty);

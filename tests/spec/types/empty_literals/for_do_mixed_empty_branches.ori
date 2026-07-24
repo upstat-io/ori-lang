@@ -3,7 +3,8 @@
 // E2001 branch-type mismatch via bidirectional unification — defaulting
 // must NOT silently reconcile `[]` (list) with `{}` (map).
 
-#compile_fail("E2001")
+#compile_fail(code: "E2001")
+@for_do_mixed_empty_branches tests _ () -> void = { () }
 @main () -> int = {
     for x in [1, 2, 3] do (if x == 1 then [] else {});
     0

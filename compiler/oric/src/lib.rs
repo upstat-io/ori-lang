@@ -71,6 +71,8 @@ pub mod ast_dump;
 pub mod commands;
 pub mod db;
 pub mod debug_flags;
+pub(crate) mod dump_common;
+pub mod dump_orchestrator;
 pub mod imports;
 pub mod input;
 pub mod ir;
@@ -79,6 +81,8 @@ pub mod ir_dump;
 pub mod llvm_dump;
 pub mod parser;
 pub mod query;
+#[cfg(feature = "llvm")]
+pub mod realization;
 
 // Re-export lex function from the ori_lexer crate (single source of truth)
 pub use ori_lexer::lex;
@@ -92,6 +96,7 @@ pub mod test_support;
 pub mod testing;
 pub mod tracing_setup;
 pub mod typeck;
+pub mod version;
 
 // Re-exports: only types actually consumed by external crates (ori-lsp, benches)
 // and by internal modules via `oric::` paths. IR types are accessed internally

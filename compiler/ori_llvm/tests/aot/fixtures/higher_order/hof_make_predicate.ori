@@ -1,5 +1,5 @@
 @make_gt (threshold: int) -> (int) -> bool = {
-    (n: int) -> n > threshold
+    (n: int) -> bool = n > threshold
 };
 
 @main () -> int = {

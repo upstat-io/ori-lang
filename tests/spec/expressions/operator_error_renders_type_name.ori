@@ -1,0 +1,54 @@
+// Spec: 14-expressions.md "Equality" — operands shall implement `Eq`.
+// The test harness must render type-check errors with the REAL type name, not a
+// `<type>` placeholder. The E2020 operator error on a no-`Eq` user type carries
+// the type Idx; the Pool-aware renderer resolves it to the real name, while a
+// lossy Pool-less render path falls back to `<type>`. These #compile_fail pins
+// assert the harness matcher sees the real type name — they only pass once the
+// matcher routes through the Pool-aware renderer.
+
+// Named struct without Eq: the E2020 message must name `Widget`, not `<type>`.
+#compile_fail("`Widget`")
+@test_named_struct_eq_error_names_type tests @named_struct_eq_error_names_type () -> void = {
+    let a = Widget { w: 1 };
+    let b = Widget { w: 2 };
+    let r = a == b;
+    print(msg: r.debug())
+}
+
+type Widget = { w: int }
+
+// Generic applied type without Eq: the E2020 message must name `Pair`, not `<type>`.
+#compile_fail("`Pair")
+@test_applied_generic_eq_error_names_type tests @applied_generic_eq_error_names_type () -> void = {
+    let a = mk_pair();
+    let b = mk_pair();
+    let r = a == b;
+    print(msg: r.debug())
+}
+
+type Pair<T> = { fst: T, snd: T }
+@mk_pair () -> Pair<int> = Pair { fst: 1, snd: 2 };
+
+// Sum type without Eq: the E2020 message must name `Shape`, not `<type>`.
+#compile_fail("`Shape`")
+@test_sum_type_eq_error_names_type tests @sum_type_eq_error_names_type () -> void = {
+    let a = mk_circle();
+    let b = mk_square();
+    let r = a == b;
+    print(msg: r.debug())
+}
+
+type Shape = Circle(r: int) | Square(s: int);
+@mk_circle () -> Shape = Circle(r: 1);
+@mk_square () -> Shape = Square(s: 2);
+
+// Regression guard: the `Eq` trait-name substring (operator/trait part of the
+// message) still matches — the fix only ADDS the real type name where `<type>`
+// was, it does not change the operator/trait wording.
+#compile_fail("Eq")
+@test_eq_trait_name_still_matches tests @eq_trait_name_still_matches () -> void = {
+    let a = Widget { w: 1 };
+    let b = Widget { w: 2 };
+    let r = a == b;
+    print(msg: r.debug())
+}

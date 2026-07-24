@@ -1,0 +1,33 @@
+// Spec: 06-types.md § Derive — nested-generic struct derive, str equality/hash/clone cells
+
+use std.testing { assert }
+
+#[derive(Eq, Hashable, Comparable, Clone)]
+#[derive(Debug, Printable, Default)]
+type Wrap<T> = { inner: T }
+
+@test_nested_str_eq tests @nested_str_eq () -> void = {
+    assert(cond: Wrap { inner: Wrap { inner: "x" } } == Wrap { inner: Wrap { inner: "x" } });
+    assert(cond: Wrap { inner: Wrap { inner: "x" } } != Wrap { inner: Wrap { inner: "y" } })
+}
+@nested_str_eq () -> bool = {
+    Wrap { inner: Wrap { inner: "x" } } == Wrap { inner: Wrap { inner: "x" } }
+}
+
+@test_nested_str_hash tests @nested_str_hash () -> void = {
+    let a = Wrap { inner: Wrap { inner: "x" } };
+    let b = Wrap { inner: Wrap { inner: "x" } };
+    assert(cond: a.hash() == b.hash())
+}
+@nested_str_hash () -> bool = {
+    Wrap { inner: Wrap { inner: "x" } }.hash() == Wrap { inner: Wrap { inner: "x" } }.hash()
+}
+
+@test_nested_str_clone tests @nested_str_clone () -> void = {
+    let a = Wrap { inner: Wrap { inner: "x" } };
+    assert(cond: a.clone() == a)
+}
+@nested_str_clone () -> bool = {
+    let a = Wrap { inner: Wrap { inner: "x" } };
+    a.clone() == a
+}

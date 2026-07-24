@@ -1,0 +1,143 @@
+// Spec: 14-expressions.md "Equality" — operands shall implement `Eq`.
+// Struct/variant `==`/`!=` REQUIRE `Eq` (derived or manual) per spec,
+// exactly as ordering `< <= > >=` requires `Comparable`. typeck rejects `==` on a
+// user type with no `Eq` impl (E2020), so the eval/LLVM dual-exec divergence on
+// no-Eq structs is unreachable.
+
+use std.testing { assert }
+
+// =============================================================================
+// Types
+// =============================================================================
+
+type Plain = { x: int, y: int }                 // no Eq -> `==` is a compile error
+#derive(Eq) type Derived = { x: int, y: int }   // derived Eq
+#derive(Eq) type Tagged = Circle(r: int) | Square(s: int);  // derived Eq sum type
+
+type ManualFull = { a: int, b: int }            // manual Eq
+impl ManualFull: Eq {
+    @eq (self, other: ManualFull) -> bool = self.a == other.a && self.b == other.b;
+}
+
+// =============================================================================
+// Positive pins: struct/variant WITH Eq (derived or manual) — `==`/`!=` work
+// =============================================================================
+
+@test_derived_eq_equal tests @derived_eq_equal () -> void = {
+    assert(cond: derived_eq_equal())
+}
+@derived_eq_equal () -> bool = {
+    let a = Derived { x: 1, y: 2 };
+    let b = Derived { x: 1, y: 2 };
+    a == b
+}
+
+@test_derived_eq_unequal tests @derived_eq_unequal () -> void = {
+    assert(cond: derived_eq_unequal())
+}
+@derived_eq_unequal () -> bool = {
+    let a = Derived { x: 1, y: 2 };
+    let b = Derived { x: 1, y: 3 };
+    !(a == b)
+}
+
+@test_derived_ne tests @derived_ne () -> void = {
+    assert(cond: derived_ne())
+}
+@derived_ne () -> bool = {
+    let a = Derived { x: 1, y: 2 };
+    let b = Derived { x: 1, y: 3 };
+    a != b
+}
+
+@test_manual_full_eq tests @manual_full_eq () -> void = {
+    assert(cond: manual_full_eq())
+}
+@manual_full_eq () -> bool = {
+    let a = ManualFull { a: 1, b: 2 };
+    let b = ManualFull { a: 1, b: 2 };
+    a == b
+}
+
+@test_manual_full_ne tests @manual_full_ne () -> void = {
+    assert(cond: manual_full_ne())
+}
+@manual_full_ne () -> bool = {
+    let a = ManualFull { a: 1, b: 2 };
+    let b = ManualFull { a: 9, b: 2 };
+    a != b
+}
+
+// Variant WITH #derive(Eq): == / != work (matrix cell pairing the struct path)
+@test_variant_derived_eq tests @variant_derived_eq () -> void = {
+    assert(cond: variant_derived_eq())
+}
+@variant_derived_eq () -> bool = {
+    let a = Circle(r: 3);
+    let b = Circle(r: 3);
+    a == b
+}
+
+@test_variant_derived_payload_ne tests @variant_derived_payload_ne () -> void = {
+    assert(cond: variant_derived_payload_ne())
+}
+@variant_derived_payload_ne () -> bool = {
+    let a = Circle(r: 3);
+    let b = Circle(r: 4);
+    a != b
+}
+
+@test_variant_derived_tag_ne tests @variant_derived_tag_ne () -> void = {
+    assert(cond: variant_derived_tag_ne())
+}
+@variant_derived_tag_ne () -> bool = {
+    let a = Circle(r: 3);
+    let b = Square(s: 3);
+    a != b
+}
+
+// =============================================================================
+// Negative pins: user type WITHOUT Eq — `==` / `!=` rejected at typeck (E2020).
+// Parallels the existing #compile_fail("Comparable") ordering pins.
+// =============================================================================
+
+#compile_fail("Eq")
+@test_plain_eq_requires_eq tests @plain_eq_requires_eq () -> void = {
+    let a = Plain { x: 1, y: 2 };
+    let b = Plain { x: 1, y: 2 };
+    let r = a == b;
+    print(msg: r.debug())
+}
+
+#compile_fail("Eq")
+@test_plain_ne_requires_eq tests @plain_ne_requires_eq () -> void = {
+    let a = Plain { x: 1, y: 2 };
+    let b = Plain { x: 1, y: 2 };
+    let r = a != b;
+    print(msg: r.debug())
+}
+
+// Sum type without Eq: == rejected (E2020).
+#compile_fail("Eq")
+@test_bare_variant_eq_requires_eq tests @bare_variant_eq_requires_eq () -> void = {
+    let a = mk_a();
+    let b = mk_b();
+    let r = a == b;
+    print(msg: r.debug())
+}
+
+type Bare = A | B;
+@mk_a () -> Bare = A;
+@mk_b () -> Bare = B;
+
+// =============================================================================
+// Negative pin: ordering on a no-Comparable struct still requires Comparable.
+// =============================================================================
+
+#compile_fail("Comparable")
+@test_plain_no_ordering tests @plain_no_ordering () -> void = {
+    let a = Plain { x: 1, y: 2 };
+    let b = Plain { x: 1, y: 3 };
+    let r = a < b;
+    print(msg: r.debug())
+}

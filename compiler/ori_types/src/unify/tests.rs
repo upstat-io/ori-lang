@@ -1,4 +1,5 @@
 use super::*;
+use crate::{GeneralizedVarState, Tag, VarState};
 
 #[test]
 fn unify_identical_primitives() {
@@ -107,6 +108,37 @@ fn unify_lists_with_variable() {
     let mut engine = UnifyEngine::new(&mut pool);
     assert!(engine.unify(list_var, list_int).is_ok());
     assert_eq!(engine.resolve(var), Idx::INT);
+}
+
+// Regression: a variable nested inside an error-bearing compound type must
+// bind through unification. `Error` shares the poison slot (Idx::ERROR), so
+// `Result<str, Error>` carries HAS_ERROR; the early-out must still bind the
+// free error parameter rather than leaving it dangling (which surfaced a
+// spurious E2005 on `let r: Result<str, Error> = Ok("x"); is_ok(result: r)`).
+#[test]
+fn unify_result_error_binds_nested_variable() {
+    let mut pool = Pool::new();
+    let var = pool.fresh_var();
+    let annotated = pool.result(Idx::STR, Idx::ERROR);
+    let inferred = pool.result(Idx::STR, var);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    assert!(engine.unify(annotated, inferred).is_ok());
+    // The free error parameter must resolve to the Error type, not remain unbound.
+    assert_eq!(engine.resolve(var), Idx::ERROR);
+}
+
+// Negative pin: cascade suppression is retained — a concrete-vs-error mismatch
+// in a non-variable position does NOT surface a diagnostic.
+#[test]
+fn unify_error_bearing_concrete_mismatch_is_suppressed() {
+    let mut pool = Pool::new();
+    let a = pool.result(Idx::STR, Idx::ERROR);
+    let b = pool.result(Idx::INT, Idx::BOOL);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    // str-vs-int mismatch inside the error-bearing Result is suppressed (no Err).
+    assert!(engine.unify(a, b).is_ok());
 }
 
 #[test]
@@ -269,13 +301,13 @@ fn generalize_identity_function() {
     let vars = engine.pool().scheme_vars(scheme);
     assert_eq!(vars.len(), 1);
 
-    // §08.3b — Body is structurally a function `BoundVar -> BoundVar`, NOT
-    // the original `fn_ty` Idx. Generalization now rewrites scheme bodies
-    // to `Tag::BoundVar` leaves per `types.md §SC-1` (cell A pins the full
-    // shape; this test stays as a scheme-construction smoke check).
+    // Body is structurally a function `BoundVar -> BoundVar`, NOT the
+    // original `fn_ty` Idx. Generalization rewrites scheme bodies to
+    // `Tag::BoundVar` leaves (cell A pins the full shape; this test
+    // stays as a scheme-construction smoke check).
     let body = engine.pool().scheme_body(scheme);
     assert_eq!(engine.pool().tag(body), Tag::Function);
-    let params: Vec<Idx> = engine.pool().function_params(body).clone();
+    let params: Vec<Idx> = engine.pool().function_params(body);
     let ret = engine.pool().function_return(body);
     assert_eq!(params.len(), 1);
     assert_eq!(engine.pool().tag(params[0]), Tag::BoundVar);
@@ -304,13 +336,12 @@ fn generalize_does_not_generalize_outer_vars() {
     assert_eq!(vars.len(), 1);
 }
 
-// §08.3b — Scheme-body canonicalization: Generalized -> BoundVar migration.
+// Scheme-body canonicalization: Generalized -> BoundVar migration.
 //
-// Target: types.md §SC-1 — scheme bodies SHALL contain `Tag::BoundVar` leaves
-// with `data = var_id`, not `Tag::Var(VarState::Generalized)`. These cells pin
+// Target: scheme bodies SHALL contain `Tag::BoundVar` leaves with
+// `data = var_id`, not `Tag::Var(VarState::Generalized)`. These cells pin
 // the post-migration shape and are RED until `rewrite_body_generalized_to_bound_var`
-// lands in `generalize()`. See plans/empty-container-typeck-phase-contract/
-// section-08-codegen-poly-lambda.md §08.3b.
+// lands in `generalize()`.
 
 /// Cell A — poly-lambda single-call at concrete type.
 ///
@@ -318,7 +349,7 @@ fn generalize_does_not_generalize_outer_vars() {
 /// the resulting scheme's body carries `Tag::BoundVar` at every position that
 /// referenced the generalized var — not `Tag::Var`. Additionally, the
 /// `BoundVar`'s `data` field equals the scheme's declared `var_id`
-/// (types.md §SC-1: "data = `var_id` matching one of the scheme's declared var ids").
+///
 #[test]
 fn generalize_identity_lambda_body_contains_bound_var_leaves() {
     let mut pool = Pool::new();
@@ -333,20 +364,20 @@ fn generalize_identity_lambda_body_contains_bound_var_leaves() {
     let body = engine.pool().scheme_body(scheme);
     assert_eq!(engine.pool().tag(body), Tag::Function);
 
-    let params: Vec<Idx> = engine.pool().function_params(body).clone();
+    let params: Vec<Idx> = engine.pool().function_params(body);
     let ret = engine.pool().function_return(body);
     assert_eq!(params.len(), 1);
 
-    // Post-migration assertions: RED until §08.3b lands.
+    // Post-migration assertions: RED until the BoundVar scheme-body rewrite lands.
     assert_eq!(
         engine.pool().tag(params[0]),
         Tag::BoundVar,
-        "types.md §SC-1: scheme body param must be Tag::BoundVar (not Tag::Var)"
+        ": scheme body param must be Tag::BoundVar (not Tag::Var)"
     );
     assert_eq!(
         engine.pool().tag(ret),
         Tag::BoundVar,
-        "types.md §SC-1: scheme body return must be Tag::BoundVar (not Tag::Var)"
+        ": scheme body return must be Tag::BoundVar (not Tag::Var)"
     );
 
     // BoundVar.data == var_id for scheme-declared binders.
@@ -382,14 +413,14 @@ fn generalize_then_instantiate_twice_yields_independent_fresh_vars() {
 
     // First instantiation — unify with int.
     let inst1 = engine.instantiate(scheme);
-    let inst1_params: Vec<Idx> = engine.pool().function_params(inst1).clone();
+    let inst1_params: Vec<Idx> = engine.pool().function_params(inst1);
     let inst1_ret = engine.pool().function_return(inst1);
     assert!(engine.unify(inst1_params[0], Idx::INT).is_ok());
     assert_eq!(engine.resolve(inst1_ret), Idx::INT);
 
     // Second instantiation — unify with str. Must NOT be affected by inst1's int.
     let inst2 = engine.instantiate(scheme);
-    let inst2_params: Vec<Idx> = engine.pool().function_params(inst2).clone();
+    let inst2_params: Vec<Idx> = engine.pool().function_params(inst2);
     let inst2_ret = engine.pool().function_return(inst2);
     assert!(engine.unify(inst2_params[0], Idx::STR).is_ok());
     assert_eq!(engine.resolve(inst2_ret), Idx::STR);
@@ -415,7 +446,7 @@ fn generalize_unused_poly_lambda_canonicalizes_to_bound_var_body() {
 
     // Scheme never instantiated — body STILL must be canonicalized.
     let body = engine.pool().scheme_body(scheme);
-    let params: Vec<Idx> = engine.pool().function_params(body).clone();
+    let params: Vec<Idx> = engine.pool().function_params(body);
     let ret = engine.pool().function_return(body);
 
     assert_eq!(engine.pool().tag(params[0]), Tag::BoundVar);
@@ -446,18 +477,18 @@ fn generalize_nested_lambda_rewrites_both_binders_to_bound_var() {
 
     // Outer fn: param(0)=BoundVar, return=inner fn.
     let body = engine.pool().scheme_body(scheme);
-    let outer_params: Vec<Idx> = engine.pool().function_params(body).clone();
+    let outer_params: Vec<Idx> = engine.pool().function_params(body);
     let outer_ret = engine.pool().function_return(body);
     assert_eq!(engine.pool().tag(outer_params[0]), Tag::BoundVar);
     assert_eq!(engine.pool().tag(outer_ret), Tag::Function);
 
     // Inner fn: param(0)=BoundVar, return=Tuple<BoundVar, BoundVar>.
-    let inner_params: Vec<Idx> = engine.pool().function_params(outer_ret).clone();
+    let inner_params: Vec<Idx> = engine.pool().function_params(outer_ret);
     let inner_ret = engine.pool().function_return(outer_ret);
     assert_eq!(engine.pool().tag(inner_params[0]), Tag::BoundVar);
     assert_eq!(engine.pool().tag(inner_ret), Tag::Tuple);
 
-    let tuple_elems: Vec<Idx> = engine.pool().tuple_elems(inner_ret).clone();
+    let tuple_elems: Vec<Idx> = engine.pool().tuple_elems(inner_ret);
     assert_eq!(tuple_elems.len(), 2);
     assert_eq!(engine.pool().tag(tuple_elems[0]), Tag::BoundVar);
     assert_eq!(engine.pool().tag(tuple_elems[1]), Tag::BoundVar);
@@ -481,7 +512,7 @@ fn generalize_return_position_polymorphic_type_rewrites_nested_var() {
     let scheme = engine.generalize(fn_ty);
 
     let body = engine.pool().scheme_body(scheme);
-    let params: Vec<Idx> = engine.pool().function_params(body).clone();
+    let params: Vec<Idx> = engine.pool().function_params(body);
     let ret = engine.pool().function_return(body);
 
     assert_eq!(
@@ -534,10 +565,10 @@ fn instantiate_identity_scheme() {
     let scheme = pool.scheme(&[var_id], fn_ty);
 
     // Mark the var as generalized
-    *pool.var_state_mut(var_id) = VarState::Generalized {
+    *pool.var_state_mut(var_id) = VarState::Generalized(GeneralizedVarState {
         id: var_id,
         name: None,
-    };
+    });
 
     let mut engine = UnifyEngine::new(&mut pool);
 
@@ -566,10 +597,10 @@ fn instantiate_twice_gives_different_vars() {
     let var_id = pool.data(var);
     let fn_ty = pool.function(&[var], var);
     let scheme = pool.scheme(&[var_id], fn_ty);
-    *pool.var_state_mut(var_id) = VarState::Generalized {
+    *pool.var_state_mut(var_id) = VarState::Generalized(GeneralizedVarState {
         id: var_id,
         name: None,
-    };
+    });
 
     let mut engine = UnifyEngine::new(&mut pool);
 
@@ -599,10 +630,10 @@ fn let_polymorphism_example() {
 
     // Create scheme manually (since generalize needs the engine)
     let id_scheme = pool.scheme(&[x_id], id_ty);
-    *pool.var_state_mut(x_id) = VarState::Generalized {
+    *pool.var_state_mut(x_id) = VarState::Generalized(GeneralizedVarState {
         id: x_id,
         name: None,
-    };
+    });
 
     let mut engine = UnifyEngine::new(&mut pool);
 
@@ -708,10 +739,10 @@ fn substitute_through_borrowed() {
     let var_id = pool.data(var);
     let borrowed_ty = pool.borrowed(var, crate::LifetimeId::STATIC);
     let scheme = pool.scheme(&[var_id], borrowed_ty);
-    *pool.var_state_mut(var_id) = VarState::Generalized {
+    *pool.var_state_mut(var_id) = VarState::Generalized(GeneralizedVarState {
         id: var_id,
         name: None,
-    };
+    });
 
     let mut engine = UnifyEngine::new(&mut pool);
 
@@ -811,7 +842,7 @@ fn occurs_check_finds_var_in_dei() {
     assert!(matches!(result, Err(UnifyError::InfiniteType { .. })));
 }
 
-// BUG-02-007 — Generalization compound-tag delegation (impl-hygiene §Algorithmic DRY).
+// Generalization compound-tag delegation.
 //
 // `collect_free_vars_inner` historically open-coded a tag-dispatch ladder over
 // the seven simple containers, Map, Result, Borrowed, Function, Tuple, and
@@ -923,7 +954,7 @@ fn generalize_collects_free_var_under_every_compound_tag() {
         );
         count += 1;
     }
-    // Self-verifying matrix completeness (tests.md §Matrix Testing Rule):
+    // Self-verifying matrix completeness:
     // proves the loop visited every cell — a silent skip would be worse than
     // no matrix at all.
     assert_eq!(count, 13, "matrix must visit every cell");
@@ -995,12 +1026,12 @@ fn generalize_collects_free_var_under_enum_variant_payload() {
 /// Cell — behavior delta: `Tag::Scheme` body containing a free outer-rank var.
 ///
 /// Schemes whose body references a Var from an enclosing rank must propagate
-/// that free var to outer generalization. `types.md §SC-1` explicitly allows
+/// that free var to outer generalization. explicitly allows
 /// free `Tag::Var` leaves in scheme bodies; delegation must recurse into the
 /// scheme body to collect them.
 ///
 /// `Tag::BoundVar` leaves inside the body do NOT trigger collection because
-/// they set `HAS_BOUND_VAR`, not `HAS_VAR` (`types.md §TF-1`); the top-level
+/// they set `HAS_BOUND_VAR`, not `HAS_VAR` (TF-1); the top-level
 /// `HAS_VAR` fast-path returns early on a body containing only bound vars.
 #[test]
 fn generalize_collects_free_var_under_scheme_body() {
@@ -1069,4 +1100,73 @@ fn generalize_delegation_is_load_bearing_for_nested_struct_in_list() {
     );
     let vars = engine.pool().scheme_vars(scheme);
     assert_eq!(vars.len(), 1);
+}
+
+// `instantiate()` on a scheme body carrying a STRUCT field whose field ty is a
+// `Tag::BoundVar` must substitute the inline field var to the fresh instantiation
+// var via the `var_subst` path. Without a `Tag::Struct` arm in `substitute`
+// (`_ => ty`), the field would stay `BoundVar`.
+#[test]
+fn instantiate_substitutes_inline_struct_bound_var_field() {
+    use ori_ir::Name;
+
+    let mut pool = Pool::new();
+    let bound_id = pool.allocate_var_id_with_rank(Rank::FIRST.next());
+    let bound_node = pool.bound_var(bound_id);
+    let struct_body = pool.struct_type(Name::from_raw(11), &[(Name::from_raw(12), bound_node)]);
+    let scheme = pool.scheme(&[bound_id], struct_body);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    let instance = engine.instantiate(scheme);
+
+    assert_eq!(
+        engine.pool().tag(instance),
+        Tag::Struct,
+        "instantiated scheme body must remain a Struct; got {instance:?}",
+    );
+    let (_, field_ty) = engine.pool().struct_field(instance, 0);
+    assert_eq!(
+        engine.pool().tag(field_ty),
+        Tag::Var,
+        "the inline struct field BoundVar must be substituted to a fresh Var; got {:?}",
+        engine.pool().tag(field_ty),
+    );
+}
+
+// `instantiate()` on a scheme body carrying an ENUM variant payload that is a
+// `Tag::BoundVar` must substitute the inline payload var to the fresh
+// instantiation var. Without a `Tag::Enum` arm in `substitute` (`_ => ty`), the
+// payload would stay `BoundVar`.
+#[test]
+fn instantiate_substitutes_inline_enum_bound_var_payload() {
+    use ori_ir::Name;
+
+    let mut pool = Pool::new();
+    let bound_id = pool.allocate_var_id_with_rank(Rank::FIRST.next());
+    let bound_node = pool.bound_var(bound_id);
+    let enum_body = pool.enum_type(
+        Name::from_raw(21),
+        &[crate::EnumVariant {
+            name: Name::from_raw(22),
+            field_types: vec![bound_node],
+        }],
+    );
+    let scheme = pool.scheme(&[bound_id], enum_body);
+
+    let mut engine = UnifyEngine::new(&mut pool);
+    let instance = engine.instantiate(scheme);
+
+    assert_eq!(
+        engine.pool().tag(instance),
+        Tag::Enum,
+        "instantiated scheme body must remain an Enum; got {instance:?}",
+    );
+    let (_, payloads) = engine.pool().enum_variant(instance, 0);
+    assert_eq!(payloads.len(), 1, "variant must keep its single payload");
+    assert_eq!(
+        engine.pool().tag(payloads[0]),
+        Tag::Var,
+        "the inline enum payload BoundVar must be substituted to a fresh Var; got {:?}",
+        engine.pool().tag(payloads[0]),
+    );
 }

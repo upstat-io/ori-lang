@@ -49,9 +49,28 @@ SemVer forbids leading zeros, so `02` becomes `2`, `06` becomes `6` in Cargo ver
 
 | Location | Mechanism |
 |----------|-----------|
-| `compiler/oric/src/main.rs` | `include_str!("../../../BUILD_NUMBER")` |
+| `compiler/oric/src/version.rs` | `include_str!("../../../BUILD_NUMBER")` via `report_version()` (see Dev Builds below) |
 | `website/playground-wasm/src/lib.rs` | `include_str!("../../../BUILD_NUMBER")` |
 | `website/src/components/landing/Hero.astro` | Reads `BUILD_NUMBER` at build time |
+
+### Dev Builds (debug)
+
+`compiler/oric/src/version.rs::report_version()` is the single source for the
+`ori` banner. A release build (`--release`, what CI and the install script ship)
+reports `BUILD_NUMBER` verbatim. A debug build (`target/debug/ori`, what
+`cargo run` and `cargo build` produce) replaces the date with the local UTC build
+day, keeps the stage from `BUILD_NUMBER`, sets the counter to `0`, and appends
+`-dev`:
+
+| Build | `BUILD_NUMBER` = `2026.04.17.1-alpha`, built 2026-06-01 |
+|-------|--------------------------------------------------------|
+| Release | `2026.04.17.1-alpha` |
+| Dev | `2026.06.01.0-alpha-dev` |
+
+The committed `BUILD_NUMBER` advances only on a CI nightly; without one its date
+goes stale, so a debug binary keying off the file alone would report a months-old
+date. Recomputing the date for debug builds keeps local versions current without
+touching the release path.
 
 ### Cargo.toml (derived from BUILD_NUMBER)
 
@@ -75,7 +94,8 @@ All Cargo.toml versions are derived from `BUILD_NUMBER` via `sync-version.sh`. W
 
 | Location | Format |
 |----------|--------|
-| `ori --version` | `Ori Compiler 2026.02.28.1-alpha` |
+| `ori --version` (release) | `Ori Compiler 2026.02.28.1-alpha` |
+| `ori --version` (debug) | `Ori Compiler <today>.0-alpha-dev` (see Dev Builds) |
 | `ori help` | `Ori Compiler 2026.02.28.1-alpha` |
 | Website hero badge | `v2026.02.28.1-alpha` |
 | Playground footer | `Ori build 2026.02.28.1-alpha` |

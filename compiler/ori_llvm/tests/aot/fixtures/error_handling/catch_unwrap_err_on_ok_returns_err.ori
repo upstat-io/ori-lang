@@ -1,0 +1,8 @@
+@main () -> int = {
+    let r: Result<int, str> = Ok(5);
+    let result = catch(expr: r.unwrap_err());
+    match result {
+        Err(_) -> 0,
+        Ok(_) -> 1
+    }
+}

@@ -41,12 +41,38 @@ impl IrBuilder<'_, '_> {
         )
     }
 
+    /// Check if an LLVM type is a non-aggregate scalar integer (i1/i8/i32/i64).
+    ///
+    /// Returns `true` ONLY for `IntType` — float, pointer, struct, array, and
+    /// vector types return `false`. Narrower than [`Self::is_single_slot_type`]
+    /// (which also accepts float/pointer scalars): a niche-encoded sum lowered
+    /// to a pointer/float scalar is NOT a bare-discriminant integer and must
+    /// keep its own construction path.
+    ///
+    /// Used by `Construct EnumVariant` to detect a primitive sum (e.g.
+    /// `Ordering` = i8, or a future scalar niche) whose variant value IS the
+    /// integer discriminant, so the constructor emits `const_int(ty, variant)`
+    /// directly instead of an `insertvalue`/`build_struct` on a scalar.
+    pub fn is_scalar_int_type(&self, ty: LLVMTypeId) -> bool {
+        matches!(self.arena.get_type(ty), BasicTypeEnum::IntType(_))
+    }
+
+    /// Register and return the LLVM type of an existing value.
+    ///
+    /// Used when an alloca must match a value already in SSA form (e.g.,
+    /// storing a wrapper struct to a temporary for type-safe field-slot
+    /// extraction) and the producing pool `Idx` is not in scope.
+    pub fn register_value_type(&mut self, val: ValueId) -> LLVMTypeId {
+        let ty = self.arena.get_value(val).get_type();
+        self.arena.push_type(ty)
+    }
+
     /// Check if a value is a struct (SSA aggregate), not a pointer or scalar.
     pub fn is_struct_value(&self, val: ValueId) -> bool {
         matches!(self.arena.get_value(val), BasicValueEnum::StructValue(_))
     }
 
-    /// Check if a value is a pointer (used by §07.2 niche switch for ptr niches).
+    /// Check if a value is a pointer (used by niche switch for ptr niches).
     pub fn is_pointer_value(&self, val: ValueId) -> bool {
         matches!(self.arena.get_value(val), BasicValueEnum::PointerValue(_))
     }
@@ -114,7 +140,7 @@ impl IrBuilder<'_, '_> {
     ///
     /// Returns `None` if the type is not a struct or the field index is
     /// out of bounds. Used by enum tag access to determine the tag's LLVM
-    /// type (i8/i16/i32/i64) after discriminant narrowing (§07.1).
+    /// type (i8/i16/i32/i64) after discriminant narrowing.
     pub fn struct_field_type(&mut self, ty: LLVMTypeId, field_index: u32) -> Option<LLVMTypeId> {
         let llvm_ty = self.arena.get_type(ty);
         let BasicTypeEnum::StructType(st) = llvm_ty else {
@@ -126,7 +152,7 @@ impl IrBuilder<'_, '_> {
 
     /// Create an integer constant whose type matches a struct's field at
     /// `field_index`. Used to build tag constants that match the narrowed
-    /// tag type (i8/i16/i32/i64) of enum structs (§07.1).
+    /// tag type (i8/i16/i32/i64) of enum structs.
     ///
     /// Falls back to `const_i64` if the struct type or field is unavailable.
     pub fn const_int_for_struct_field(
@@ -171,7 +197,7 @@ impl IrBuilder<'_, '_> {
         field_ty == val_ty
     }
 
-    // Safe value extraction — replaces panicking `into_*_value()`.
+    // Safe value extraction — replaces panicking `into_*_value`.
     //
     // Returns `ValueId` (not raw inkwell types) to avoid lifetime issues.
 

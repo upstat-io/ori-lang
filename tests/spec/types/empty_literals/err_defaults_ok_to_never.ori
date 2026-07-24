@@ -1,0 +1,14 @@
+// §11.1: `let r = Err("boom")` (no outer annotation) defaults the ok slot
+// to Never, producing `Result<Never, str>`. The Err payload remains `str`.
+
+use std.testing { assert }
+
+@test_err_defaults_ok_to_never tests @err_defaults_ok_to_never () -> void = {
+    let r = Err("boom");
+    assert(cond: is_err(result: r))
+}
+
+@err_defaults_ok_to_never () -> bool = {
+    let r = Err("boom");
+    is_err(result: r)
+}

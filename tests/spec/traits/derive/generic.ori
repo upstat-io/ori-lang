@@ -1,5 +1,5 @@
 // Spec: 06-types.md § Derive — Generic type conditional derivation
-// Formal semantics: impl<T: Trait> Trait for GenericType<T>
+// Formal semantics: impl<T: Trait> GenericType<T>: Trait
 //
 // §3.15: Derived Traits Formal Semantics
 

@@ -9,10 +9,10 @@ repository.workspace = true
 [dependencies]
 # Shared IR types (ExprKind, ExprArena, CanExpr, CanArena, etc.)
 ori_ir.workspace = true
+# Shared scalar format-spec types (std-only leaf SSOT; format desugar parses specs)
+ori_format.workspace = true
 # Type system (Pool, Idx, type checking results)
 ori_types.workspace = true
-# ARC analysis (type classification, decision tree compilation)
-ori_arc.workspace = true
 
 # Utilities
 rustc-hash.workspace = true

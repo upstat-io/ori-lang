@@ -53,6 +53,17 @@ pub(crate) fn compare_values(
         (Value::Tuple(a_elems), Value::Tuple(b_elems)) => compare_lists(a_elems, b_elems, interner),
         // Ordering comparison
         (Value::Ordering(a), Value::Ordering(b)) => Ok(a.to_tag().cmp(&b.to_tag())),
+        // Struct: derived Comparable is lexicographic over fields in layout
+        // (= declaration) order; both operands share the type (Self), so fields
+        // align by index. Same structural-recursion seam this comparator already
+        // uses for List/Tuple/Option/Result — not a dispatch to a derived method.
+        (Value::Struct(a_s), Value::Struct(b_s)) => {
+            compare_lists(&a_s.fields[..], &b_s.fields[..], interner)
+        }
+        // Newtype: compare the wrapped inner value.
+        (Value::Newtype { inner: a_in, .. }, Value::Newtype { inner: b_in, .. }) => {
+            compare_values(a_in, b_in, interner)
+        }
         _ => Err(EvalError::new(format!(
             "cannot compare {} with {}",
             a.type_name(),
@@ -169,23 +180,9 @@ pub(crate) fn equals_values(
             }
             Ok(true)
         }
-        // Map/Set — same keys with same values (order-independent, BTreeMap-based)
-        (Value::Map(a), Value::Map(b)) | (Value::Set(a), Value::Set(b)) => {
-            if a.len() != b.len() {
-                return Ok(false);
-            }
-            for (key, a_val) in a.iter() {
-                match b.get(key.as_str()) {
-                    Some(b_val) => {
-                        if !equals_values(a_val, b_val, interner)? {
-                            return Ok(false);
-                        }
-                    }
-                    None => return Ok(false),
-                }
-            }
-            Ok(true)
-        }
+        // Map/Set — same multiset of entries (order-independent, structural over
+        // stored key+value Values). The bucketed MapData PartialEq encodes this.
+        (Value::Map(a), Value::Map(b)) | (Value::Set(a), Value::Set(b)) => Ok(**a == **b),
         _ => Err(EvalError::new(format!(
             "cannot compare {} with {} for equality",
             a.type_name(),
@@ -221,12 +218,12 @@ pub(crate) fn hash_combine(seed: i64, value: i64) -> i64 {
         .wrapping_add(seed >> 2))
 }
 
-/// Compute the hash of a value recursively.
+/// Compute the structural hash of a builtin value recursively.
 ///
-/// Handles all hashable types. For primitives, uses identity (int) or
-/// `DefaultHasher` (str). For compound types, combines element hashes
-/// with `hash_combine`. Float normalization ensures `-0.0` and `+0.0`
-/// produce the same hash, and all NaN representations hash identically.
+/// User-defined structs, sums, and newtypes are rejected because only
+/// interpreter method dispatch can honor their actual `Hashable` implementation.
+/// Float normalization ensures `-0.0` and `+0.0` produce the same hash, and all
+/// NaN representations hash identically.
 pub(crate) fn hash_value(v: &Value, interner: &StringInterner) -> Result<i64, EvalError> {
     match v {
         Value::Int(n) => Ok(n.raw()),
@@ -273,7 +270,7 @@ pub(crate) fn hash_value(v: &Value, interner: &StringInterner) -> Result<i64, Ev
         Value::Map(map) => {
             let mut h = 0_i64;
             for (key, val) in map.iter() {
-                let key_hash = fnv1a_hash(key.as_bytes());
+                let key_hash = hash_value(key, interner)?;
                 let val_hash = hash_value(val, interner)?;
                 h ^= hash_combine(key_hash, val_hash);
             }
@@ -286,33 +283,15 @@ pub(crate) fn hash_value(v: &Value, interner: &StringInterner) -> Result<i64, Ev
             }
             Ok(h)
         }
-        // Struct: FNV-1a over field values (matching derived hash)
-        Value::Struct(sv) => {
-            let mut hash = FNV_OFFSET_BASIS;
-            for field_val in sv.fields.iter() {
-                let field_hash = (hash_value(field_val, interner)?).cast_unsigned();
-                hash ^= field_hash;
-                hash = hash.wrapping_mul(FNV_PRIME);
-            }
-            Ok(hash.cast_signed())
-        }
-        // Variant: discriminant (variant name hash) + payload fields
-        Value::Variant {
-            variant_name,
-            fields,
-            ..
-        } => {
-            let mut hash = FNV_OFFSET_BASIS;
-            let variant_str = interner.lookup(*variant_name);
-            let discriminant = fnv1a_hash(variant_str.as_bytes()).cast_unsigned();
-            hash ^= discriminant;
-            hash = hash.wrapping_mul(FNV_PRIME);
-            for field in fields.as_ref() {
-                let field_hash = (hash_value(field, interner)?).cast_unsigned();
-                hash ^= field_hash;
-                hash = hash.wrapping_mul(FNV_PRIME);
-            }
-            Ok(hash.cast_signed())
+        Value::Struct(sv) => Err(EvalError::new(format!(
+            "cannot structurally hash {}; invoke its Hashable method",
+            interner.lookup(sv.type_name)
+        ))),
+        Value::Variant { type_name, .. } | Value::Newtype { type_name, .. } => {
+            Err(EvalError::new(format!(
+                "cannot structurally hash {}; invoke its Hashable method",
+                interner.lookup(*type_name)
+            )))
         }
         _ => Err(EvalError::new(format!("cannot hash {}", v.type_name()))),
     }

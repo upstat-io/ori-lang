@@ -1,0 +1,13 @@
+// Regression: semantic type pin. A tail-less try synthesizes
+// Result<void, E>, NOT Result<int, E>. Used where Result<int, str> is
+// expected, it must be a type mismatch (E2001) — this proves the synthesized
+// Ok type is void, not int/inferred. Before fix: PANIC in infer_try_seq.
+// Spec: 16-control-flow.md:508 (try type = Result<T,E>, T = block value type);
+//       11-blocks-and-scope.md:302 (all-`;` block produces void).
+#compile_fail(code: "E2001")
+@try_tailless_type_mismatch tests _ () -> void = { () }
+
+@try_tailless_void_ok_rejects_int () -> Result<int, str> =
+    try { let $x = 1; };
+
+@main () -> int = 0;

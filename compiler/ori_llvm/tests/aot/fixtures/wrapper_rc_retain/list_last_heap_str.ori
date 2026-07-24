@@ -1,4 +1,4 @@
-// Regression: BUG-04-013 — List.last must RC-retain heap string element
+// Regression: List.last must RC-retain heap string element
 @make () -> [str] = ["hello world this is a long heap string", "another long heap string here"];
 
 @main () -> int = {

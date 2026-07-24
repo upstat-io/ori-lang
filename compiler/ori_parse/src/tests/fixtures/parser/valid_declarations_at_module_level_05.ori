@@ -1,0 +1,3 @@
+trait Printable {
+    @to_str (self) -> str
+}

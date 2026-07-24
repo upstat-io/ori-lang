@@ -1,9 +1,8 @@
 //! String emission helpers for derived format codegen (Printable & Debug).
 //!
-//! Provides LLVM IR generation for string literals, concatenation, and
-//! field-to-string conversion. Used by `compile_format_fields()` to build
-//! formatted representations like `"TypeName(val1, val2)"` (Printable) or
-//! `"TypeName { f1: val1, f2: val2 }"` (Debug).
+//! Emits string literals, concatenation, and field conversion for Printable
+//! forms like `"TypeName(val1, val2)"` and Debug forms like
+//! `"TypeName { f1: val1, f2: val2 }"`.
 
 use ori_ir::DerivedTrait;
 use ori_types::Idx;
@@ -11,7 +10,7 @@ use ori_types::Idx;
 use super::super::function_compiler::FunctionCompiler;
 use super::super::type_info::TypeInfo;
 use super::super::value_id::{LLVMTypeId, ValueId};
-use super::emit_method_call_for_derive;
+use super::{emit_boxed_self_method_call, emit_method_call_for_derive};
 
 /// Emit a string literal as an Ori str value via `ori_str_from_raw`.
 ///
@@ -46,9 +45,8 @@ pub(super) fn emit_str_literal<'a>(
 /// (decrements RC on the data buffer), and seamless slices (finds original
 /// buffer). The `drop_fn` is null because strings contain no nested references.
 ///
-/// Used by `compile_format_fields` to clean up intermediate concatenation results
-/// that are overwritten and become unreachable. Without these calls, every
-/// intermediate string in the format loop leaks.
+/// Intermediate concatenation results require this decrement before overwrite;
+/// otherwise each heap-backed intermediate leaks.
 pub(super) fn emit_str_rc_dec<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     str_val: ValueId,
@@ -92,6 +90,11 @@ pub(super) fn emit_str_concat<'a>(
 /// The `trait_kind` parameter determines which method to call on nested struct
 /// types (e.g., `to_str` for Printable, `debug` for Debug) and whether to
 /// quote string values (Debug quotes, Printable doesn't).
+///
+/// `boxed` is true when the field position is a boxed recursive back-edge per
+/// `repr_box_oracle` — `val` is then an RC `ptr` to the heap value, passed
+/// directly as the nested method's self argument; otherwise `val` is the inline
+/// field value.
 pub(super) fn emit_field_to_string<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     trait_kind: DerivedTrait,
@@ -99,19 +102,26 @@ pub(super) fn emit_field_to_string<'a>(
     field_type: Idx,
     name: &str,
     str_ty_id: LLVMTypeId,
+    boxed: bool,
 ) -> ValueId {
     let info = fc.type_info().get(field_type);
     match &info {
         TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
             // Integer narrowing may produce i8/i16/i32 struct fields —
             // sext back to canonical i64 for the runtime formatting call.
+            // Duration/Size carry units; route to their unit-aware formatters.
             let widened = fc
                 .builder_mut()
                 .sext_to_i64_if_narrower(val, &format!("{name}.sext"));
-            let f = fc.builder_mut().runtime_fn("ori_str_from_int");
+            let (rt_name, fallback) = match &info {
+                TypeInfo::Duration => ("ori_str_from_duration", "<duration>"),
+                TypeInfo::Size => ("ori_str_from_size", "<size>"),
+                _ => ("ori_str_from_int", "<int>"),
+            };
+            let f = fc.builder_mut().runtime_fn(rt_name);
             fc.builder_mut()
                 .call_with_sret(f, &[widened], str_ty_id, name)
-                .unwrap_or_else(|| emit_str_literal(fc, "<int>", name, str_ty_id))
+                .unwrap_or_else(|| emit_str_literal(fc, fallback, name, str_ty_id))
         }
         TypeInfo::Float => {
             // Float narrowing may produce f32 struct fields —
@@ -149,31 +159,58 @@ pub(super) fn emit_field_to_string<'a>(
                 val
             }
         }
+        // Why: a char field renders as its character (Printable) or single-
+        // quoted+escaped (Debug) to match the evaluator and the element path —
+        // NOT the raw i32 codepoint. The runtime takes the i32 char directly.
         TypeInfo::Char => {
-            let i64_ty = fc.builder_mut().i64_type();
-            let char_as_i64 = fc.builder_mut().sext(val, i64_ty, &format!("{name}.sext"));
-            let f = fc.builder_mut().runtime_fn("ori_str_from_int");
+            let rt_name = if trait_kind == DerivedTrait::Debug {
+                "ori_char_debug_format"
+            } else {
+                "ori_str_from_char"
+            };
+            let f = fc.builder_mut().runtime_fn(rt_name);
             fc.builder_mut()
-                .call_with_sret(f, &[char_as_i64], str_ty_id, name)
+                .call_with_sret(f, &[val], str_ty_id, name)
                 .unwrap_or_else(|| emit_str_literal(fc, "<char>", name, str_ty_id))
         }
-        TypeInfo::Byte | TypeInfo::Ordering => {
+        // Printable keeps the byte-specific hexadecimal representation. Debug
+        // follows `(self as int) as str`, using the shared integer formatter.
+        TypeInfo::Byte => {
             let i64_ty = fc.builder_mut().i64_type();
-            let as_i64 = fc.builder_mut().sext(val, i64_ty, &format!("{name}.sext"));
-            let f = fc.builder_mut().runtime_fn("ori_str_from_int");
+            let as_i64 = fc.builder_mut().zext(val, i64_ty, &format!("{name}.zext"));
+            let rt_name = if trait_kind == DerivedTrait::Debug {
+                "ori_str_from_int"
+            } else {
+                "ori_byte_printable_format"
+            };
+            let f = fc.builder_mut().runtime_fn(rt_name);
             fc.builder_mut()
                 .call_with_sret(f, &[as_i64], str_ty_id, name)
                 .unwrap_or_else(|| emit_str_literal(fc, "<byte>", name, str_ty_id))
         }
-        TypeInfo::Struct { .. } => {
-            let nested_name = fc.type_idx_to_name(field_type);
+        // An `Ordering`-typed field renders its variant name (Less/Equal/Greater),
+        // matching the interpreter — NOT the raw i8 tag.
+        TypeInfo::Ordering => {
+            let i64_ty = fc.builder_mut().i64_type();
+            let tag_i64 = fc.builder_mut().sext(val, i64_ty, &format!("{name}.sext"));
+            let f = fc.builder_mut().runtime_fn("ori_str_from_ordering");
+            fc.builder_mut()
+                .call_with_sret(f, &[tag_i64], str_ty_id, name)
+                .unwrap_or_else(|| emit_str_literal(fc, "<ordering>", name, str_ty_id))
+        }
+        // A nested struct/enum field renders via its own derived `to_str`/`debug`
+        // method. A boxed recursive back-edge (`Tree` inside `Node(left, right)`)
+        // arrives as a `ptr` to the heap value and is passed directly; an inline
+        // field value is stored to an alloca by the call helper.
+        TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => {
             let method = fc.intern(trait_kind.method_name());
-            if let Some(type_name) = nested_name {
-                if let Some((fid, abi)) = fc.get_method_function(type_name, method) {
-                    return emit_method_call_for_derive(fc, fid, &abi, &[val], name);
+            if let Some((fid, abi)) = fc.get_derived_method_for_type(field_type, method) {
+                if boxed {
+                    return emit_boxed_self_method_call(fc, fid, &abi, val, name);
                 }
+                return emit_method_call_for_derive(fc, fid, &abi, &[val], name);
             }
-            emit_str_literal(fc, "<struct>", name, str_ty_id)
+            emit_str_literal(fc, "<composite>", name, str_ty_id)
         }
         _ => emit_str_literal(fc, "<?>", name, str_ty_id),
     }

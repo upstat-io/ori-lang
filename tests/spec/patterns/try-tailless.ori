@@ -1,0 +1,38 @@
+// Regression: tail-less try block panicked in infer_try_seq
+// (index out of bounds 4294967295 — the block's `result` field is
+// ExprId::INVALID (u32::MAX) for any block with no trailing tail expression;
+// infer_try_seq indexed it unconditionally). A tail-less `try { stmts }` has
+// block value type void, so it synthesizes Result<void, E>.
+// Spec: 16-control-flow.md:508 (try type = Result<T,E>, T = block value type);
+//       11-blocks-and-scope.md:302 (a block whose every expression is
+//       `;`-terminated produces void).
+//
+// Clean matrix — both inference branches plus a non-let tail-less shape.
+
+use std.testing { assert_ok }
+
+// Cell b (propagation branch): expected Result<void, str> is pushed down at
+// the try expression; the tail-less body yields void, E pinned to str.
+@try_tailless_irrefutable_propagation () -> Result<void, str> =
+    try { let $x = 1; };
+
+// Cell a (non-propagation branch): the try is inferred with no pushed Result
+// type (bare `let r = ...`); the error type resolves via the later unification
+// of the tail `r` with the function return type.
+@try_tailless_irrefutable_nonpropagation () -> Result<void, str> = {
+    let r = try { let $x = 1; };
+    r
+};
+
+// Tail-less via a non-let expression statement — isolates the "tail-less"
+// dimension from the inner-let-pattern dimension. `1;` is `;`-terminated, so
+// the block value is void.
+@try_tailless_expr_statement_only () -> Result<void, str> =
+    try { 1; };
+
+// Behavioral pin: a tail-less try wraps its void block value in Ok.
+@try_tailless_synthesizes_ok_void tests _ () -> void = {
+    assert_ok(result: try_tailless_irrefutable_propagation());
+    assert_ok(result: try_tailless_irrefutable_nonpropagation());
+    assert_ok(result: try_tailless_expr_statement_only());
+}

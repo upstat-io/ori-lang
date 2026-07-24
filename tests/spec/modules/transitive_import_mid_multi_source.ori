@@ -1,0 +1,13 @@
+// Spec: 18-modules.md § Imports
+// Design: (modules not yet in design docs)
+//
+// Accumulation variant: imports items from TWO DIFFERENT leaf modules —
+// pins that a module's own `use` imports accumulate into ONE shared scope
+// rather than a fresh scope per import that would lose earlier sibling
+// imports.
+
+use "./transitive_import_leaf" { leaf_triple }
+use "./transitive_import_leaf_secondary" { leaf_b_increment }
+
+pub @mid_multi_combine (x: int) -> int =
+    leaf_b_increment(x: leaf_triple(x: x));

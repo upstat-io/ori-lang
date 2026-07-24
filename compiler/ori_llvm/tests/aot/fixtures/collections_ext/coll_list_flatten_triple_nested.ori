@@ -1,0 +1,7 @@
+@nested () -> [[[int]]] = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
+
+@main () -> int = {
+    // One-level flatten: [[[int]]] -> [[int]], length 4 (NOT fully recursive to [int] length 8).
+    let $x = nested().flatten();
+    if x.length() == 4 then 0 else 1
+}

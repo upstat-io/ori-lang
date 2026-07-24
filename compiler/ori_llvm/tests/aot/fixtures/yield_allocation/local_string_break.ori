@@ -1,0 +1,8 @@
+@local_words () -> int = {
+    let words = for i in 0..4 yield {
+        if i == 2 then break;
+        "this string is deliberately longer than the SSO threshold"
+    };
+    words.length()
+}
+@main () -> int = if local_words() == 2 then 0 else 1;

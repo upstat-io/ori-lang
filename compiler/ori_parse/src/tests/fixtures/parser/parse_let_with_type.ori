@@ -1,0 +1,1 @@
+@test () -> void = let x: int = 1;

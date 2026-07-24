@@ -1,0 +1,7 @@
+@scaled (n: int, factor: int = 10) -> int = n * factor;
+
+@main () -> int = {
+    let a = scaled(n: 5);
+    let b = scaled(n: 5, factor: 3);
+    if a == 50 && b == 15 then 0 else 1
+}

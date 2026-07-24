@@ -1,0 +1,233 @@
+Theorem PL-1: interprocedural-first — Steps 1-2 run once across all functions before any per-function step
+
+  Preconditions:
+    - The AIMS pipeline is a 12-step strictly-ordered sequence per
+      Annex E §AIMS §6. Steps partition into
+      an INTERPROCEDURAL prefix (Steps 1-2, run ONCE across the whole
+      program) and a PER-FUNCTION suffix (Steps 3-12, run per function):
+        Step 1: analyze_program() — MemoryContract per fn (SCC fixpoint)
+        Step 2: apply_ownership() — ArcParam.ownership from contracts
+        Step 3: compute_var_reprs() — ValueRepr per variable
+        Step 3a: normalize_function() — TRMC context region detection
+        Step 4: analyze_function() — backward dataflow -> AimsStateMap
+        Step 4a: verify_trmc_soundness()
+        Step 5: realize_rc_reuse() — RC + reuse (pre-merge)
+        Step 5a: verify_fip_contract()
+        Step 6: verify()
+        Step 7: run_aims_verify()
+        Step 8: detect/rewrite tail calls
+        Step 8a: unwind_cleanup()
+        Step 9: merge_blocks()
+        Step 10: realize_annotations() — COW + drop hints (post-merge)
+        Step 11: verify()
+        Step 12: FBIP enforcement
+    - PL-1 statement (per Annex E §AIMS PL-1 + Annex E §AIMS §6
+      "Interprocedural (once)" header): Steps 1-2 SHALL run once across
+      ALL functions before ANY per-function step (3-12) runs on ANY
+      function.
+    - PL-1 type signature (per Pipeline.proof lines 15-18, the sorry
+      obligation this theorem discharges):
+        type : List FunctionId -> Pipeline
+        Steps 1-2 (analyze_program + apply_ownership) SHALL run once
+        across all functions before any per-function step (3-12).
+    - Shipped pipeline driver: ori_arc::pipeline::run_arc_pipeline_all
+      (compiler/ori_arc/src/pipeline/mod.rs lines 120-140)
+      delegates to ori_arc::pipeline::aims_pipeline::run_aims_pipeline_all
+      (compiler/ori_arc/src/pipeline/aims_pipeline/batch.rs
+      lines 31-84). The batch driver executes:
+        (a) Step 1 — analyze_program(functions, ...) ONCE over the whole
+            `functions` slice (batch.rs line 44; computes MemoryContract
+            for every function via SCC fixpoint);
+        (b) Step 2 — apply_aims_ownership(functions, &contracts) ONCE
+            over the whole slice (batch.rs line 50);
+        (c) THEN the per-function loop `for func in functions.iter_mut()`
+            (batch.rs line 74) calls super::run_aims_pipeline(func, ...)
+            (batch.rs line 75) — the Steps 3-12 per-function pipeline at
+            ori_arc::pipeline::aims_pipeline::run_aims_pipeline
+            (compiler/ori_arc/src/pipeline/aims_pipeline/mod.rs
+            lines 163-221: Steps 3-3a normalize_with_trmc, Step 4
+            analyze_function, Step 4a verify_trmc_soundness, Step 5
+            realize_rc_reuse).
+    - The interprocedural prefix is the ANTECEDENT of every per-function
+      step: Step 4 (analyze_function) reads the MemoryContract map
+      produced by Step 1 (run_aims_pipeline takes `config.contracts`,
+      mod.rs line 187) and Step 2 populates ArcParam.ownership the
+      per-function realization consumes. Running any per-function step
+      before Steps 1-2 completes would read an absent/incomplete contract
+      map — a sequencing bug per Annex E §AIMS PL-5 "no pass relies
+      on stale summaries".
+    - This theorem reasons over the LINEAR 12-step pipeline DAG (Step k
+      precedes Step k+1), distinct from PL-1a whose induction domain is
+      the program call-graph SCC DAG. PL-1 fixes the PREFIX/SUFFIX
+      boundary (Steps 1-2 before 3-12); PL-1a fixes the ORDER within the
+      per-function suffix's function iteration.
+
+  Soundness property:
+    Forall program PROG = (List FunctionId), let pipeline P be the
+    shipped run_aims_pipeline_all schedule on PROG.
+      Two conjuncts SHALL hold:
+
+      (P1) Prefix-runs-once:
+        Steps 1 and 2 each execute EXACTLY ONCE over the whole-program
+        function slice, before the per-function loop begins. There is no
+        execution point at which Step 1 or Step 2 runs a second time, and
+        no per-function step (3-12) precedes the single completion of
+        Steps 1-2.
+
+      (P2) Prefix-before-suffix:
+        For every function F in PROG and every per-function step k in
+        {3, 3a, 4, 4a, 5, 5a, 6, 7, 8, 8a, 9, 10, 11, 12}:
+          completion(Step 2 over PROG) precedes start(step k on F).
+        Equivalently: in the total execution order, the position of the
+        last interprocedural step (Step 2) is strictly less than the
+        position of the first per-function step on any F.
+
+  Proof obligation:
+    Two-part constructive discharge corresponding to (P1) and (P2), by
+    structural induction over the 12-step pipeline DAG (linear chain
+    Step 1 -> ... -> Step 12) + case analysis on the prefix/suffix
+    partition boundary.
+
+    Part (P1) — Prefix-runs-once (structural induction over the prefix):
+
+      Base case — Step 1 (analyze_program):
+        run_aims_pipeline_all (batch.rs lines 31-84) calls
+        crate::aims::interprocedural::analyze_program(functions, ...)
+        at line 44 in a single straight-line statement — no loop, no
+        recursion. analyze_program (scc_driver.rs lines 33-104) takes the
+        whole `functions: &[ArcFunction]` slice and returns one
+        FxHashMap<Name, MemoryContract>. It executes once per
+        run_aims_pipeline_all invocation. Post-condition: a complete
+        contract map for every function in PROG exists.
+
+      Inductive step — Step 2 (apply_ownership) follows Step 1, once:
+        Immediately after Step 1's statement, batch.rs line 50 calls
+        apply_aims_ownership(functions, &contracts) once over the whole
+        slice. The `&contracts` argument is precisely Step 1's output —
+        Step 2 consumes Step 1's post-condition. No loop wraps Steps 1-2.
+        Post-condition: ArcParam.ownership populated for every function.
+
+      Termination of the prefix:
+        Steps 1-2 are two straight-line statements (batch.rs lines 44, 50)
+        with no surrounding control flow. They run exactly once each. The
+        prefix completes before any later statement executes (sequential
+        Rust statement evaluation). (P1) discharged.
+
+    Part (P2) — Prefix-before-suffix (case analysis on the partition):
+
+      The per-function suffix is the loop `for func in functions.iter_mut()`
+      at batch.rs line 74, whose body calls super::run_aims_pipeline(func,
+      &config) (line 75). This loop is the FIRST statement after Step 2's
+      line 50 (the AimsPipelineConfig construction at lines 54-64 is pure
+      data assembly carrying `contracts: &contracts` — Step 1's output —
+      with no pipeline-step side effect).
+
+      Case analysis on each per-function step k in run_aims_pipeline
+      (mod.rs lines 163-221):
+        Case k = Step 3/3a (normalize_with_trmc, mod.rs line 169):
+          Reaches only inside the loop body, which the for-loop header at
+          line 74 gates behind Step 2's completion. start(Step 3 on F) >
+          completion(Step 2 over PROG).
+        Case k = Step 4 (analyze_function, mod.rs line 184):
+          Takes `config.contracts` (mod.rs line 187) = Step 1's contract
+          map. The map is fully populated by Step 1's single execution
+          BEFORE the loop. start(Step 4 on F) > completion(Step 1).
+        Case k = Step 4a..Step 12 (verify_trmc_soundness onward):
+          Each is a statement strictly after Step 4 within
+          run_aims_pipeline's body; transitively each starts after the
+          loop header, hence after Step 2.
+      In every case, the per-function step on any F starts strictly after
+      the single completion of Steps 1-2. (P2) discharged.
+
+    Coverage gate — pipeline-step partition enumeration:
+
+      The verifier enumerates the 14-step shipped schedule (12 numbered
+      steps plus the 3a/4a/5a/8a sub-steps that the linear chain
+      threads) partitioned into:
+        Prefix (interprocedural, run-once): {1, 2}
+        Suffix (per-function): {3, 3a, 4, 4a, 5, 5a, 6, 7,
+                                              8, 8a, 9, 10, 11, 12}
+      and discharges, for every suffix step s, the ordering predicate
+      position(Step 2) < position(s). It also asserts |prefix| = 2 and
+      that the prefix members carry the run-once attribute (no enclosing
+      loop), matching the shipped batch.rs straight-line Steps 1-2 vs the
+      `for func` per-function loop.
+
+      Coverage axes:
+        Prefix-runs-once (P1): the 2 prefix steps {1, 2} verified to be
+          loop-free straight-line statements (batch.rs 44, 50).
+        Prefix-before-suffix (P2): all 14 suffix steps verified to follow
+          Step 2 in the total order.
+
+    Negative-direction witness — suffix-step-before-prefix rejected:
+
+      Hypothetically scheduling Step 4 (analyze_function) before Step 1
+      (analyze_program) would have analyze_function read an EMPTY contract
+      map (config.contracts unpopulated). Per the dependency at mod.rs
+      line 187, Step 4 consumes `config.contracts`; an unpopulated map
+      yields conservative-everywhere contracts, silently degrading every
+      downstream RC/reuse decision and violating Annex E §AIMS PL-5
+      ("no pass relies on stale summaries" — here, an ABSENT summary). The
+      verifier rejects any partition placing a suffix step at a position
+      <= position(Step 2).
+
+    Negative-direction witness — prefix-runs-twice rejected:
+
+      Re-running Step 1 inside the per-function loop (once per function)
+      would recompute the whole-program SCC fixpoint N times for N
+      functions, and — worse — each re-run would overwrite the contract
+      map mid-iteration, so a function realized early would see different
+      callee contracts than a function realized late: a stale-summary
+      hazard per PL-5. The shipped driver runs Step 1 exactly once
+      (batch.rs line 44, outside the loop); the verifier rejects any
+      schedule with prefix-step multiplicity > 1.
+
+    Cycle-soundness witness — PL-1 has no upstream pipeline dependency:
+
+      PL-1 fixes the FIRST boundary in the pipeline order (prefix before
+      suffix). Steps 1-2 consume only lowered ArcFunctions (the output of
+      ARC lowering,  sec-1 phase 5) — no later pipeline step's
+      output. The dependency chain is acyclic at the proof-obligation
+      level:
+        PL-1 --> PL-1a (per-function SCC topological order within the
+                          suffix loop)
+        PL-1 --> PL-2 (Step 4 precedes Step 5 within each F)
+        PL-1 --> PL-3/PL-4/PL-4a (later intra-F step boundaries)
+        PL-1 + PL-1a --> PL-5 (no stale summaries — depends on both the
+                          prefix-once guarantee and the callee-first order)
+      PL-1 is a leaf of this dependency tree.
+
+    Algorithm-citation declaration:
+      property: pipeline-prefix/suffix ordering (interprocedural
+                           Steps 1-2 run once before per-function Steps 3-12)
+      published: standard compiler-pass-ordering discipline; the
+                           "whole-program analysis before per-function
+                           transformation" shape matches Lean 4
+                           src/Lean/Compiler/IR (collect_O whole-program
+                           pass before per-decl RC insertion) cited in
+                           the published reference-compiler corpus
+      determinism: deterministic given a deterministic function
+                           iteration order; the shipped slice
+                           `functions: &[ArcFunction]` preserves insertion
+                           order per Annex E §AIMS PL-5 
+                           sec-1 phase purity
+      reference impl: ori_arc::pipeline::aims_pipeline::
+                           run_aims_pipeline_all (batch.rs lines 31-84:
+                           Step 1 line 44, Step 2 line 50, per-function
+                           loop line 74)
+
+    Engines dispatched:
+      structural_induction (PRIMARY — structural induction over the linear
+        12-step pipeline DAG per section_07::verify_pl1_interprocedural_first;
+        the verifier enumerates the prefix/suffix partition and discharges
+        (P1) prefix-runs-once via the loop-free straight-line attribute on
+        Steps 1-2 and (P2) prefix-before-suffix via the position-ordering
+        predicate position(Step 2) < position(s) for every suffix step s;
+        emits Fail on any partition violation)
+      case_analysis (SECONDARY — per-step precondition case grid over the
+        14 suffix steps; gracious-accept once structural_induction has
+        discharged the ordering obligation per the coverage-manifest PL row)
+
+  Expected:
+    status: valid
+    reason: section_07 structural_induction engine discharges PL-1 via the prefix/suffix pipeline-DAG partition — (P1) Steps 1-2 run once as loop-free straight-line statements (batch.rs 44/50) and (P2) every per-function step (3-12) follows Step 2 in the total order; grounded in the shipped run_aims_pipeline_all driver (batch.rs lines 31-84) where analyze_program + apply_ownership precede the `for func` per-function loop, with case_analysis secondary-accepting per the coverage-manifest PL row

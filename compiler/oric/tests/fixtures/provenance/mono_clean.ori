@@ -1,0 +1,6 @@
+type Pair = { left: int, right: int }
+
+@main () -> int = {
+    let p = Pair { left: 3, right: 4 };
+    p.left + p.right
+}

@@ -1,0 +1,64 @@
+// Axis 2 — Four binding-site call paths for let-pattern irrefutability.
+// Each site must fire E2001 on a refutable list pattern.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Block-statement let
+// =============================================================================
+
+#compile_fail(code: "E2001")
+@test_block_let_refutable_list_rejects tests _ () -> void = {
+    let items = [1, 2, 3];
+    {
+        let [$x, $y] = items
+    }
+}
+
+// =============================================================================
+// Bare let expression
+// =============================================================================
+
+#compile_fail(code: "E2001")
+@test_expr_let_refutable_list_rejects tests _ () -> void = {
+    let items = [1, 2, 3];
+    let [$x, $y] = items
+}
+
+// =============================================================================
+// Try-block let (fifth binding site)
+// =============================================================================
+//
+// Regression: a tail-less try block (no trailing tail expression)
+// set its block `result` to ExprId::INVALID (u32::MAX); infer_try_seq indexed
+// it unconditionally and panicked. ANY tail-less try panicked — the refutable
+// inner pattern was incidental. A tail-less `try { let [$a,$b] = items }` must
+// reach the refutable-list-pattern check and emit E2001. Broader tail-less try
+// coverage lives in tests/spec/patterns/try-tailless*.ori.
+
+#compile_fail(code: "E2001")
+@test_try_block_let_refutable_list_rejects tests _ () -> void = {
+    let items = [1, 2, 3];
+    let _ = try { let [$x, $y] = items }
+}
+
+// =============================================================================
+// For-loop binding
+// =============================================================================
+
+#compile_fail(code: "E2001")
+@test_for_loop_refutable_list_rejects tests _ () -> void = {
+    for [$x, $y] in [[1, 2]] do { }
+}
+
+// =============================================================================
+// Match-arm-body let
+// =============================================================================
+
+#compile_fail(code: "E2001")
+@test_match_arm_body_let_refutable_list_rejects tests _ () -> void = {
+    let items = [1, 2, 3];
+    let _ = match items {
+        [x, ..rest] -> { let [$a, $b] = rest }
+    }
+}

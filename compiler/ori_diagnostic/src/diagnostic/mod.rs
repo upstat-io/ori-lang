@@ -6,8 +6,13 @@
 //! Factory functions for common patterns live in [`factories`].
 
 mod factories;
+mod suggestion;
 
-pub use factories::*;
+pub use factories::{
+    expected_expression, missing_pattern_arg, type_mismatch, unclosed_delimiter, unexpected_token,
+    unknown_identifier, unknown_pattern_arg,
+};
+pub use suggestion::Suggestion;
 
 use ori_ir::Span;
 use std::fmt;
@@ -58,13 +63,6 @@ pub enum Applicability {
     Unspecified,
 }
 
-impl Applicability {
-    /// Check if this suggestion can be safely auto-applied.
-    pub fn is_machine_applicable(&self) -> bool {
-        matches!(self, Applicability::MachineApplicable)
-    }
-}
-
 /// A text substitution for a code fix.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct Substitution {
@@ -81,124 +79,6 @@ impl Substitution {
             span,
             snippet: snippet.into(),
         }
-    }
-}
-
-/// A structured suggestion with substitutions and applicability.
-///
-/// Supports two forms:
-/// - **Text-only**: A human-readable message with no code substitutions.
-///   Created via `text()`, `did_you_mean()`, `wrap_in()`.
-/// - **Span-bearing**: A message with exact code substitutions for `ori fix`.
-///   Created via `new()`, `machine_applicable()`, `maybe_incorrect()`, etc.
-///
-/// Suggestions have a `priority` field (lower = more likely relevant) used
-/// for ordering when multiple suggestions are presented.
-///
-/// # Salsa Compatibility
-/// Derives `Eq, PartialEq, Hash` for use in Salsa query results.
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub struct Suggestion {
-    /// Human-readable message describing the fix.
-    pub message: String,
-    /// The text substitutions to make (empty for text-only suggestions).
-    pub substitutions: Vec<Substitution>,
-    /// How confident we are in this suggestion.
-    pub applicability: Applicability,
-    /// Priority (lower = more likely to be relevant).
-    /// 0 = most likely, 1 = likely, 2 = possible, 3 = unlikely.
-    pub priority: u8,
-}
-
-impl Suggestion {
-    /// Create a new suggestion with a single substitution.
-    pub fn new(
-        message: impl Into<String>,
-        span: Span,
-        snippet: impl Into<String>,
-        applicability: Applicability,
-        priority: u8,
-    ) -> Self {
-        Suggestion {
-            message: message.into(),
-            substitutions: vec![Substitution::new(span, snippet)],
-            applicability,
-            priority,
-        }
-    }
-
-    /// Create a text-only suggestion (no code substitution).
-    pub fn text(message: impl Into<String>, priority: u8) -> Self {
-        Suggestion {
-            message: message.into(),
-            substitutions: Vec::new(),
-            applicability: Applicability::Unspecified,
-            priority,
-        }
-    }
-
-    /// Create a text-only suggestion with a single code replacement.
-    pub fn text_with_replacement(
-        message: impl Into<String>,
-        priority: u8,
-        span: Span,
-        new_text: impl Into<String>,
-    ) -> Self {
-        Suggestion {
-            message: message.into(),
-            substitutions: vec![Substitution::new(span, new_text)],
-            applicability: Applicability::MaybeIncorrect,
-            priority,
-        }
-    }
-
-    /// Create a "did you mean" suggestion (priority 0).
-    pub fn did_you_mean(suggestion: impl Into<String>) -> Self {
-        Self::text(format!("did you mean `{}`?", suggestion.into()), 0)
-    }
-
-    /// Create a suggestion to wrap in something (priority 1).
-    pub fn wrap_in(wrapper: &str, example: &str) -> Self {
-        Self::text(format!("wrap the value in `{wrapper}`: `{example}`"), 1)
-    }
-
-    /// Create a machine-applicable suggestion (safe to auto-apply).
-    pub fn machine_applicable(
-        message: impl Into<String>,
-        span: Span,
-        snippet: impl Into<String>,
-    ) -> Self {
-        Self::new(message, span, snippet, Applicability::MachineApplicable, 0)
-    }
-
-    /// Create a suggestion that might be incorrect.
-    pub fn maybe_incorrect(
-        message: impl Into<String>,
-        span: Span,
-        snippet: impl Into<String>,
-    ) -> Self {
-        Self::new(message, span, snippet, Applicability::MaybeIncorrect, 0)
-    }
-
-    /// Create a suggestion with placeholders.
-    pub fn has_placeholders(
-        message: impl Into<String>,
-        span: Span,
-        snippet: impl Into<String>,
-    ) -> Self {
-        Self::new(message, span, snippet, Applicability::HasPlaceholders, 0)
-    }
-
-    /// Add another substitution to this suggestion.
-    #[must_use]
-    pub fn with_substitution(mut self, span: Span, snippet: impl Into<String>) -> Self {
-        self.substitutions.push(Substitution::new(span, snippet));
-        self
-    }
-
-    /// Check if this is a text-only suggestion (no code substitutions).
-    pub fn is_text_only(&self) -> bool {
-        self.substitutions.is_empty()
     }
 }
 
@@ -487,20 +367,6 @@ impl Diagnostic {
     /// Check if this is an error (vs warning/note).
     pub fn is_error(&self) -> bool {
         matches!(self.severity, Severity::Error)
-    }
-
-    /// Check if this diagnostic has any machine-applicable fixes.
-    pub fn has_machine_applicable_fix(&self) -> bool {
-        self.structured_suggestions
-            .iter()
-            .any(|s| s.applicability.is_machine_applicable())
-    }
-
-    /// Get all machine-applicable suggestions.
-    pub fn machine_applicable_fixes(&self) -> impl Iterator<Item = &Suggestion> {
-        self.structured_suggestions
-            .iter()
-            .filter(|s| s.applicability.is_machine_applicable())
     }
 }
 

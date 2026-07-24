@@ -9,7 +9,7 @@ use std.testing { assert_eq }
 
 type Color = { r: int, g: int, b: int }
 
-impl Formattable for Color {
+impl Color: Formattable {
     @format (self, spec: FormatSpec) -> str =
         "rgb(" + str(self.r) + "," + str(self.g) + "," + str(self.b) + ")";
 }
@@ -31,7 +31,7 @@ impl Formattable for Color {
 
 type Tag = { label: str }
 
-impl Formattable for Tag {
+impl Tag: Formattable {
     @format (self, spec: FormatSpec) -> str = {
         let w = match spec.width {
             Some(n) -> str(n),
@@ -58,7 +58,7 @@ impl Formattable for Tag {
 
 type AlignTest = { value: str }
 
-impl Formattable for AlignTest {
+impl AlignTest: Formattable {
     @format (self, spec: FormatSpec) -> str = {
         let align_str = match spec.align {
             Some(a) -> match a {
@@ -90,7 +90,7 @@ impl Formattable for AlignTest {
 
 type FillTest = { value: str }
 
-impl Formattable for FillTest {
+impl FillTest: Formattable {
     @format (self, spec: FormatSpec) -> str = {
         let fill_str = match spec.fill {
             Some(c) -> str(c),

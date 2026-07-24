@@ -1,4 +1,4 @@
-// Spec: 12-modules.md § Imports
+// Spec: 18-modules.md § Imports
 // Design: (modules not yet in design docs)
 //
 // Tests for importing functions, variables, and closures via use statement.

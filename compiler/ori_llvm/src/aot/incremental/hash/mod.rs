@@ -106,32 +106,35 @@ impl SourceHasher {
     ///
     /// Uses a fast hash algorithm (`FxHash` via std Hasher) for speed.
     pub fn hash_file(&mut self, path: &Path) -> Result<ContentHash, HashError> {
-        // Check cache first (metadata-based quick check)
-        if let Some(cached) = self.cache.get(path) {
-            if let Ok(meta) = fs::metadata(path) {
-                let current_size = meta.len();
-                let current_mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+        // Single stat: shared by the cache quick-check and the cache update,
+        // and an unreadable file surfaces as an error instead of silently
+        // bypassing the cache.
+        let meta = fs::metadata(path).map_err(|e| HashError::IoError {
+            path: path.to_path_buf(),
+            message: e.to_string(),
+        })?;
+        let current_size = meta.len();
+        // Why: platforms without mtime support degrade to a never-matching
+        // sentinel — always rehash (conservative, never stale).
+        let current_mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
 
-                if cached.size == current_size && cached.mtime == current_mtime {
-                    return Ok(cached.content_hash);
-                }
+        // Cache quick-check (metadata-based)
+        if let Some(cached) = self.cache.get(path) {
+            if cached.size == current_size && cached.mtime == current_mtime {
+                return Ok(cached.content_hash);
             }
         }
 
-        // Compute fresh hash
+        // Compute fresh hash and update the cache
         let hash = self.compute_hash(path)?;
-
-        // Update cache
-        if let Ok(meta) = fs::metadata(path) {
-            self.cache.insert(
-                path.to_path_buf(),
-                FileMetadata {
-                    size: meta.len(),
-                    mtime: meta.modified().unwrap_or(SystemTime::UNIX_EPOCH),
-                    content_hash: hash,
-                },
-            );
-        }
+        self.cache.insert(
+            path.to_path_buf(),
+            FileMetadata {
+                size: current_size,
+                mtime: current_mtime,
+                content_hash: hash,
+            },
+        );
 
         Ok(hash)
     }

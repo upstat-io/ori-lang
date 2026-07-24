@@ -1,0 +1,11 @@
+@first (xs: [str]) -> str = xs[0];
+
+@main () -> int = {
+    let xs = ["gamma string exceeding the sso width!", "delta string exceeding the sso width!"];
+    let result = catch(expr: first(xs: xs));
+    let again = first(xs: xs);
+    match result {
+        Ok(v) -> if v == "gamma string exceeding the sso width!" && again == "gamma string exceeding the sso width!" then 0 else 2,
+        Err(_) -> 1
+    }
+}

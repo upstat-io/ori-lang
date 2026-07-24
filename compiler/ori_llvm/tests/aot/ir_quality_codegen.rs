@@ -3,7 +3,10 @@
 //! Verify sum type payload extraction, surgical struct field loading,
 //! and skip-codegen-after-noreturn optimizations.
 
-use crate::util::{compile_and_capture_ir, compile_and_run, extract_function_ir};
+use crate::util::{
+    compile_and_capture_ir, compile_and_capture_ir_no_repr_opt, compile_and_run,
+    extract_function_ir,
+};
 
 // Sum type payload extraction
 
@@ -242,7 +245,7 @@ fn test_noreturn_panic_else_arm_continues() {
 /// Checked arithmetic overflow panic (`emit_checked_binop`) should still
 /// have `unreachable` after the panic call — regression guard.
 ///
-/// This path was already correct before §06.2. The test guards against
+/// This path predates the block-merge rework. The test guards against
 /// accidentally breaking it while implementing noreturn pruning.
 #[test]
 fn test_checked_binop_overflow_still_has_unreachable() {
@@ -283,7 +286,7 @@ fn test_checked_binop_overflow_still_has_unreachable() {
 
 /// Tail-recursive `gcd` should compile to a loop, not a recursive `call`.
 ///
-/// The ARC loop-lowering pass (§09.2) replaces `Apply @gcd(b, rem)` with
+/// The ARC loop-lowering pass replaces `Apply @gcd(b, rem)` with
 /// a `Jump(header, [b, rem])` back-edge. The LLVM IR should contain a
 /// `br label` loop back-edge instead of `call @_ori_gcd`.
 #[test]
@@ -319,19 +322,19 @@ fn test_tail_recursive_gcd_has_no_self_call() {
 /// Each unique overflow message should appear exactly once in the IR.
 ///
 /// When multiple arithmetic operations of the same kind exist (e.g., two
-/// additions), the overflow panic message ("integer overflow on addition")
+/// additions), the overflow panic message ("integer overflow in addition")
 /// should be deduplicated to a single global constant — not emitted once
 /// per operation site.
 #[test]
 fn test_overflow_string_dedup_single_global_per_message() {
-    let ir = compile_and_capture_ir(include_str!(
+    let ir = compile_and_capture_ir_no_repr_opt(include_str!(
         "fixtures/ir_quality_codegen/overflow_string_dedup_single_global_per_message.ori"
     ));
 
     // Count occurrences of the addition overflow message.
-    // With dedup, "integer overflow on addition" appears exactly once as
+    // With dedup, "integer overflow in addition" appears exactly once as
     // a global constant, even though there are 3 addition sites.
-    let add_msg_count = ir.matches("integer overflow on addition").count();
+    let add_msg_count = ir.matches("integer overflow in addition").count();
     assert_eq!(
         add_msg_count, 1,
         "expected exactly 1 global for addition overflow message, found {add_msg_count}.\n\
@@ -339,7 +342,7 @@ fn test_overflow_string_dedup_single_global_per_message() {
     );
 
     // Similarly, multiplication overflow message appears once despite 2 mul sites.
-    let mul_msg_count = ir.matches("integer overflow on multiplication").count();
+    let mul_msg_count = ir.matches("integer overflow in multiplication").count();
     assert_eq!(
         mul_msg_count, 1,
         "expected exactly 1 global for multiplication overflow message, found {mul_msg_count}."

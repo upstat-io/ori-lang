@@ -34,6 +34,17 @@ fn lookup_from(pairs: &[(u32, AimsState)]) -> impl Fn(ArcVarId) -> AimsState + '
     }
 }
 
+fn assert_linear_once(demand: BackwardDemand, expected_var: ArcVarId) {
+    assert_eq!(
+        demand,
+        BackwardDemand {
+            var: expected_var,
+            cardinality: Cardinality::Once,
+            consumption: Consumption::Linear,
+        }
+    );
+}
+
 // Forward transfer: Let
 
 #[test]
@@ -71,6 +82,48 @@ fn let_primop_is_scalar() {
     };
     let result = transfer_def(&instr, &top_lookup).expect("should define a variable");
     assert!(result.state.is_scalar());
+}
+
+#[test]
+fn resolved_list_concat_is_owned_and_allocating() {
+    let instr = ArcInstr::Let {
+        dst: var(2),
+        ty: ori_types::Idx::from_raw(0),
+        value: ArcValue::PrimOp {
+            op: crate::ir::PrimOp::Binary(ori_ir::BinaryOp::Add),
+            args: vec![var(0), var(1)],
+        },
+    };
+    let fact = crate::ir::PrimitiveFact::resolve(
+        ori_registry::OpStrategy::RuntimeCall(ori_registry::RuntimeOperator::ListConcat),
+        2,
+    )
+    .expect("list concat descriptor");
+    let mut function = crate::ir::ArcFunction::default();
+    assert!(function.primitive_facts.insert(var(2), fact).is_none());
+
+    let result = transfer_def_resolved(&function, &instr, &top_lookup)
+        .expect("list concat should define a variable");
+
+    assert_eq!(result.state.access, AccessClass::Owned);
+    assert_eq!(result.state.uniqueness, Uniqueness::Unique);
+    assert_eq!(result.state.shape, ShapeClass::NonReusable);
+    assert!(result.state.effect.may_alloc);
+}
+
+#[test]
+#[should_panic(expected = "validated PrimOp v2 in function")]
+fn resolved_primitive_never_uses_the_test_only_fallback() {
+    let instr = ArcInstr::Let {
+        dst: var(2),
+        ty: ori_types::Idx::from_raw(0),
+        value: ArcValue::PrimOp {
+            op: crate::ir::PrimOp::Binary(ori_ir::BinaryOp::Add),
+            args: vec![var(0), var(1)],
+        },
+    };
+
+    let _ = transfer_def_resolved(&crate::ir::ArcFunction::default(), &instr, &top_lookup);
 }
 
 // Forward transfer: Construct
@@ -218,6 +271,7 @@ fn apply_conservative_is_owned_maybe_shared() {
         func: ori_ir::Name::new(0, 0),
         args: vec![var(0)],
         arg_ownership: vec![crate::ir::ArgOwnership::Owned],
+        mono_instance_id: None,
     };
     let result = transfer_def(&instr, &top_lookup).expect("should define a variable");
     assert_eq!(result.state.access, AccessClass::Owned);
@@ -253,7 +307,7 @@ fn partial_apply_is_fresh_non_reusable() {
     };
     let result = transfer_def(&instr, &top_lookup).expect("should define a variable");
     // PartialApply creates a closure → FRESH base with may_alloc effect
-    // (Section 09.2: precise effect computation).
+    // (precise effect computation).
     let expected = AimsState {
         effect: EffectClass {
             may_alloc: true,
@@ -355,6 +409,7 @@ fn rc_inc_has_no_def() {
         var: var(0),
         count: 1,
         strategy: crate::ir::RcStrategy::HeapPointer,
+        atomicity: crate::ir::RcAtomicity::default_atomic(),
     };
     assert!(transfer_def(&instr, &top_lookup).is_none());
 }
@@ -364,6 +419,7 @@ fn rc_dec_has_no_def() {
     let instr = ArcInstr::RcDec {
         var: var(0),
         strategy: crate::ir::RcStrategy::HeapPointer,
+        atomicity: crate::ir::RcAtomicity::default_atomic(),
     };
     assert!(transfer_def(&instr, &top_lookup).is_none());
 }
@@ -397,6 +453,7 @@ fn invoke_def_is_conservative() {
         func: ori_ir::Name::new(0, 0),
         args: vec![var(0)],
         arg_ownership: vec![crate::ir::ArgOwnership::Owned],
+        mono_instance_id: None,
         normal: crate::ir::ArcBlockId::new(1),
         unwind: crate::ir::ArcBlockId::new(2),
     };
@@ -432,9 +489,24 @@ fn backward_construct_demands_once_per_arg() {
     };
     let demands = backward_demands(&instr);
     assert_eq!(demands.len(), 3);
-    for (_, card) in &demands {
-        assert_eq!(*card, Cardinality::Once);
+    for (demand, expected_var) in demands.into_iter().zip([var(0), var(1), var(2)]) {
+        assert_linear_once(demand, expected_var);
     }
+}
+
+#[test]
+fn backward_project_has_no_standard_demand() {
+    let instr = ArcInstr::Project {
+        dst: var(1),
+        ty: ori_types::Idx::from_raw(0),
+        value: var(0),
+        field: 0,
+    };
+
+    assert!(
+        backward_demands(&instr).is_empty(),
+        "TF-14 transfers destination demand to the projection source"
+    );
 }
 
 #[test]
@@ -466,11 +538,13 @@ fn backward_apply_indirect_includes_closure() {
     };
     let demands = backward_demands(&instr);
     assert_eq!(demands.len(), 3);
-    assert_eq!(demands[0], (var(0), Cardinality::Once));
+    assert_linear_once(demands[0], var(0));
+    assert_linear_once(demands[1], var(1));
+    assert_linear_once(demands[2], var(2));
 }
 
 #[test]
-fn backward_select_demands_all_three() {
+fn backward_select_directly_demands_only_condition() {
     let instr = ArcInstr::Select {
         dst: var(3),
         ty: ori_types::Idx::from_raw(0),
@@ -479,10 +553,8 @@ fn backward_select_demands_all_three() {
         false_val: var(2),
     };
     let demands = backward_demands(&instr);
-    assert_eq!(demands.len(), 3);
-    assert_eq!(demands[0].0, var(0)); // cond
-    assert_eq!(demands[1].0, var(1)); // true_val
-    assert_eq!(demands[2].0, var(2)); // false_val
+    assert_eq!(demands.len(), 1);
+    assert_linear_once(demands[0], var(0));
 }
 
 #[test]
@@ -491,10 +563,12 @@ fn backward_rc_ops_have_no_demands() {
         var: var(0),
         count: 1,
         strategy: crate::ir::RcStrategy::HeapPointer,
+        atomicity: crate::ir::RcAtomicity::default_atomic(),
     };
     let dec = ArcInstr::RcDec {
         var: var(0),
         strategy: crate::ir::RcStrategy::HeapPointer,
+        atomicity: crate::ir::RcAtomicity::default_atomic(),
     };
     assert!(backward_demands(&inc).is_empty());
     assert!(backward_demands(&dec).is_empty());
@@ -521,7 +595,9 @@ fn backward_collection_reuse_includes_old_var() {
     };
     let demands = backward_demands(&instr);
     assert_eq!(demands.len(), 3);
-    assert_eq!(demands[0], (var(0), Cardinality::Once));
+    assert_linear_once(demands[0], var(0));
+    assert_linear_once(demands[1], var(1));
+    assert_linear_once(demands[2], var(2));
 }
 
 #[test]
@@ -535,8 +611,8 @@ fn backward_reuse_includes_token() {
     };
     let demands = backward_demands(&instr);
     assert_eq!(demands.len(), 2);
-    assert_eq!(demands[0], (var(0), Cardinality::Once)); // token
-    assert_eq!(demands[1], (var(1), Cardinality::Once)); // arg
+    assert_linear_once(demands[0], var(0));
+    assert_linear_once(demands[1], var(1));
 }
 
 // Backward terminator demands
@@ -546,7 +622,7 @@ fn backward_return_demands_value() {
     let term = ArcTerminator::Return { value: var(0) };
     let demands = backward_terminator_demands(&term);
     assert_eq!(demands.len(), 1);
-    assert_eq!(demands[0], (var(0), Cardinality::Once));
+    assert_linear_once(demands[0], var(0));
 }
 
 #[test]
@@ -558,7 +634,7 @@ fn backward_branch_demands_cond() {
     };
     let demands = backward_terminator_demands(&term);
     assert_eq!(demands.len(), 1);
-    assert_eq!(demands[0], (var(0), Cardinality::Once));
+    assert_linear_once(demands[0], var(0));
 }
 
 #[test]
@@ -571,81 +647,81 @@ fn backward_unreachable_has_no_demands() {
     assert!(backward_terminator_demands(&ArcTerminator::Unreachable).is_empty());
 }
 
-// RC reasoning predicates
+// Logical ownership-event predicates
 
 #[test]
-fn rc_dec_unnecessary_when_dead() {
+fn release_event_unnecessary_when_dead() {
     let state = AimsState {
         consumption: Consumption::Dead,
         cardinality: Cardinality::Absent,
         ..AimsState::FRESH
     };
-    assert!(is_rc_dec_unnecessary(&state));
+    assert!(is_release_event_unnecessary(&state));
 }
 
 #[test]
-fn rc_dec_necessary_when_live() {
+fn release_event_necessary_when_live() {
     let state = AimsState {
         consumption: Consumption::Unrestricted,
         cardinality: Cardinality::Many,
         ..AimsState::FRESH
     };
-    assert!(!is_rc_dec_unnecessary(&state));
+    assert!(!is_release_event_unnecessary(&state));
 }
 
 #[test]
-fn rc_inc_elidable_for_linear_once() {
+fn additional_credit_elidable_for_linear_once() {
     let state = AimsState {
         consumption: Consumption::Linear,
         cardinality: Cardinality::Once,
         ..AimsState::FRESH
     };
-    assert!(is_rc_inc_elidable(&state));
+    assert!(is_additional_credit_elidable(&state));
 }
 
 #[test]
-fn rc_inc_not_elidable_for_many() {
+fn additional_credit_not_elidable_for_many() {
     let state = AimsState {
         consumption: Consumption::Linear,
         cardinality: Cardinality::Many,
         ..AimsState::FRESH
     };
-    assert!(!is_rc_inc_elidable(&state));
+    assert!(!is_additional_credit_elidable(&state));
 }
 
 #[test]
-fn rc_inc_not_elidable_for_unrestricted() {
+fn additional_credit_not_elidable_for_unrestricted() {
     let state = AimsState {
         consumption: Consumption::Unrestricted,
         cardinality: Cardinality::Once,
         ..AimsState::FRESH
     };
-    assert!(!is_rc_inc_elidable(&state));
+    assert!(!is_additional_credit_elidable(&state));
 }
 
-// COW mode
+// COW mutation obligations
 
 #[test]
-fn cow_mode_unique_is_static_unique() {
+fn unique_permits_same_identity_mutation() {
     assert_eq!(
-        cow_mode_from_uniqueness(Uniqueness::Unique),
-        CowModeFromAims::StaticUnique
+        cow_obligation_from_uniqueness(Uniqueness::Unique),
+        CowMutationObligation::SameIdentityPermitted
     );
 }
 
 #[test]
-fn cow_mode_maybe_shared_is_dynamic() {
+fn maybe_shared_requires_sharing_observation() {
     assert_eq!(
-        cow_mode_from_uniqueness(Uniqueness::MaybeShared),
-        CowModeFromAims::Dynamic
+        cow_obligation_from_uniqueness(Uniqueness::MaybeShared),
+        CowMutationObligation::SharingObservationRequired
     );
 }
 
 #[test]
-fn cow_mode_shared_is_static_shared() {
+fn shared_requires_alias_isolation() {
     assert_eq!(
-        cow_mode_from_uniqueness(Uniqueness::Shared),
-        CowModeFromAims::StaticShared
+        cow_obligation_from_uniqueness(Uniqueness::Shared),
+        CowMutationObligation::AliasIsolationRequired
     );
 }
 
@@ -862,6 +938,7 @@ fn transfer_def_covers_all_instr_variants() {
                 func: ori_ir::Name::new(0, 0),
                 args: vec![],
                 arg_ownership: vec![],
+                mono_instance_id: None,
             },
             true,
         ),
@@ -907,6 +984,7 @@ fn transfer_def_covers_all_instr_variants() {
                 var: var(0),
                 count: 1,
                 strategy: crate::ir::RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             },
             false,
         ),
@@ -914,6 +992,7 @@ fn transfer_def_covers_all_instr_variants() {
             ArcInstr::RcDec {
                 var: var(0),
                 strategy: crate::ir::RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             },
             false,
         ),

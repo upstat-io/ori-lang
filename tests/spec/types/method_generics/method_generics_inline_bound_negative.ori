@@ -1,0 +1,28 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §05 Phase B residual — inline-bound enforcement negative pin
+//
+// Negative pin: a method declaring `<T: Hashable>` MUST reject a call where
+// the supplied type does NOT satisfy `Hashable`. Without inline-bound
+// enforcement, this call would silently typecheck (INVERTED-TDD:gated-deliverable
+// per impl-hygiene.md §Finding Categories).
+//
+// `NonHashable` is a bare struct without `: Hashable` declaration — per
+// CLAUDE.md §Trait Defaults, Hashable requires explicit declaration (unlike
+// Eq/Clone/Debug/Printable which are structural).
+
+#compile_fail(message: "does not satisfy trait bound")
+@method_generics_inline_bound_negative tests _ () -> void = { () }
+
+type Box<T> = { value: T }
+type NonHashable = { x: int }
+
+impl<U> Box<U> {
+    @needs_hash<T: Hashable> (self, key: T) -> int = 0;
+}
+
+@trigger_inline_bound_failure () -> int = {
+    let b: Box<int> = Box { value: 0 };
+    let nh: NonHashable = NonHashable { x: 1 };
+    b.needs_hash(key: nh)
+}

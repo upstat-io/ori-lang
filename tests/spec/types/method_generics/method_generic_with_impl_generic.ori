@@ -1,0 +1,16 @@
+use std.testing { assert_eq }
+
+// An impl-level generic (T from the receiver) AND a method-level generic (U from
+// the method binder) present together: a single instantiation substitutes both
+// the impl-level T and the method-level U.
+type Box<T> = { inner: T }
+
+impl<T> Box<T> {
+    @tag<U> (self, u: U) -> U = u;
+}
+
+@t tests @tag () -> void = {
+    let b = Box { inner: 42 };
+    let $r = b.tag(u: "hi");
+    assert_eq(actual: r, expected: "hi")
+}

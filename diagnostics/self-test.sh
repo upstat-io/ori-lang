@@ -7,7 +7,7 @@
 # Runs every diagnostic script on fixture programs, verifying expected
 # output patterns (not exact match). Reports pass/fail per script per fixture.
 #
-# Fixtures: 20 entries (11 pass, 5 aims-heavy, 3 expected-fail, 1 infra).
+# Fixtures span pass, aims-heavy, expected-fail, and infra categories.
 # See diagnostics/fixtures/FIXTURES.md for the canonical fixture list and
 # self-test contracts per category.
 #
@@ -50,11 +50,12 @@ echo ""
 if [[ -t 1 ]]; then
     C_RED='\033[0;31m'
     C_GREEN='\033[0;32m'
+    C_YELLOW='\033[0;33m'
     C_BOLD='\033[1m'
     C_DIM='\033[2m'
     C_NC='\033[0m'
 else
-    C_RED="" C_GREEN="" C_BOLD="" C_DIM="" C_NC=""
+    C_RED="" C_GREEN="" C_YELLOW="" C_BOLD="" C_DIM="" C_NC=""
 fi
 
 # --- Counters ---
@@ -265,6 +266,17 @@ run_test "simple.ori passes all checks" \
     "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/simple.ori"
 run_test "clean.ori passes all checks" \
     "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/clean.ori"
+run_test "cow_sharing.ori warnings remain non-gating" \
+    "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/cow_sharing.ori"
+run_test_output_contains "RC heuristic warning has a truthful terminal verdict" \
+    "Checks completed with warnings; no gating check failed." \
+    "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/cow_sharing.ori"
+run_test_output_contains "RC heuristic warning names the confirmation probes" \
+    "--rc-trace --valgrind or rc-stats.sh --rc-remarks" \
+    "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/cow_sharing.ori"
+run_test_output_not_contains "diagnose-aot.sh never reports a negative build duration" \
+    "Built in -" \
+    "$SCRIPT_DIR/diagnose-aot.sh" --no-color "$FIXTURES_DIR/simple.ori"
 run_test_output_contains "diagnose-aot.sh --help shows --release" "--release" \
     "$SCRIPT_DIR/diagnose-aot.sh" --help
 run_test_output_contains "diagnose-aot.sh --help shows --both-builds" "--both-builds" \
@@ -294,6 +306,9 @@ run_test "simple.ori interpreter == AOT" \
     "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/simple.ori"
 run_test "clean.ori interpreter == AOT" \
     "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/clean.ori"
+run_test_output_not_contains "dual-exec-debug.sh never reports a negative duration" \
+    "(-" \
+    "$SCRIPT_DIR/dual-exec-debug.sh" --no-color "$FIXTURES_DIR/simple.ori"
 
 # Mismatch path: verify auto-diagnostics output (uses ORI_BIN wrapper for deterministic divergence)
 SAVED_ORI_BIN="${ORI_BIN:-}"
@@ -331,11 +346,29 @@ run_test "all debug flags consistent" \
     "$SCRIPT_DIR/check-debug-flags.sh"
 echo ""
 
+# ─── check-tracing-coverage.sh ────────────────────────────────────
+printf "${C_BOLD}check-tracing-coverage.sh${C_NC}\n"
+run_test "all tracing dependencies have production coverage" \
+    "$SCRIPT_DIR/check-tracing-coverage.sh"
+echo ""
+
 # ─── valgrind-aot.sh ──────────────────────────────────────────────
 printf "${C_BOLD}valgrind-aot.sh${C_NC}\n"
 run_test_output_contains "valgrind-aot.sh --help shows usage" "Usage:" \
     "$SCRIPT_DIR/valgrind-aot.sh" --help
 # Skip actual Valgrind execution (may not be installed, slow)
+echo ""
+
+# ─── aot-guardrail.sh ─────────────────────────────────────────────
+printf "${C_BOLD}aot-guardrail.sh${C_NC}\n"
+run_test_output_contains "aot-guardrail.sh --help shows --floor" "--floor" \
+    "$SCRIPT_DIR/aot-guardrail.sh" --help
+run_test_output_contains "aot-guardrail.sh --help documents the gated floor env" \
+    "ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1" \
+    "$SCRIPT_DIR/aot-guardrail.sh" --help
+run_test_exit_code "aot-guardrail.sh rejects unknown flag (exit 2)" 2 \
+    "$SCRIPT_DIR/aot-guardrail.sh" --bogus-flag
+# Skip the actual corpus run (rebuilds oric+ori_rt, runs the full AOT suite — slow).
 echo ""
 
 # ─── dual-exec-verify.sh ────────────────────────────────────────
@@ -448,6 +481,30 @@ run_test_output_contains "cow_sharing.ori ARC has RcInc (sharing)" "RcInc" \
     "$SCRIPT_DIR/arc-dump.sh" --no-color "$FIXTURES_DIR/cow_sharing.ori"
 echo ""
 
+printf "${C_BOLD}Entry-point ownership seam (seam-only fixtures)${C_NC}\n"
+# These fixtures are compiled for the build-time seam report only; the emitted
+# binaries are never executed, so no exit-code or leak contract applies.
+run_test_output_contains "entry_args_read.ori seam names the argv parameter" "param#0 name=args" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color "$FIXTURES_DIR/entry_args_read.ori"
+run_test_output_contains "entry_args_read.ori borrow-read demand is Borrow" "callee_owner_demand       = Borrow" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color "$FIXTURES_DIR/entry_args_read.ori"
+run_test_output_contains "entry_args_read.ori seam is CONSISTENT" "seam: CONSISTENT" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color "$FIXTURES_DIR/entry_args_read.ori"
+run_test_output_contains "entry_args_consumed.ori iter-consume demand is WholeValue" "callee_owner_demand       = WholeValue" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color "$FIXTURES_DIR/entry_args_consumed.ori"
+run_test_output_contains "entry_args_consumed.ori seam is DIVERGENT" "seam: DIVERGENT" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color "$FIXTURES_DIR/entry_args_consumed.ori"
+run_test_output_contains "entry-ownership --compare separates the pair on iter_consumes" "iter_consumes = true" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color --compare \
+    "$FIXTURES_DIR/entry_args_read.ori" "$FIXTURES_DIR/entry_args_consumed.ori"
+# The physical column is identical across the pair, so it never appears in the
+# differing-fields section — the semantic columns are what separate them.
+run_test_output_not_contains "entry-ownership --compare shows no wrapper_owns_on_normal difference" \
+    "A:  wrapper_owns_on_normal" \
+    "$SCRIPT_DIR/entry-ownership.sh" --no-color --compare \
+    "$FIXTURES_DIR/entry_args_read.ori" "$FIXTURES_DIR/entry_args_consumed.ori"
+echo ""
+
 printf "${C_BOLD}Expected-fail fixtures${C_NC}\n"
 # leak.ori: diagnose-aot reports failure + imbalance
 run_test_expect_fail "leak.ori diagnose-aot exits non-zero" \
@@ -484,6 +541,14 @@ else
     printf "  ${C_DIM}SKIP${C_NC}  release binary not found — run: cargo b --release\n"
     SKIP=$((SKIP + 3))
 fi
+echo ""
+
+# ─── alive2-verify.sh modellability content-scan ──────────────────
+# Runs UNCONDITIONALLY — the --classify-function content-scan needs no alive-tv
+# and no compiler build, so this regression gate is live in CI.
+printf "${C_BOLD}alive2-verify.sh classify-modellability${C_NC}\n"
+run_test "classify-modellability matrix (self-verified cell count, no alive-tv)" \
+    bash "$ROOT_DIR/tests/alive2/test-classify-modellability.sh"
 echo ""
 
 # ─── alive2-verify.sh ─────────────────────────────────────────────

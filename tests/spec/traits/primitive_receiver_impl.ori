@@ -1,0 +1,50 @@
+use std.testing { assert_eq };
+
+// Trait impls + inherent impls on builtin primitive type-name receivers.
+// Spec: grammar.ebnf:312 `trait_impl` — the subject is a `type`, and a primitive
+// type name (str/int/bool/float/char/byte) is a valid subject. The subject-position
+// primitive branch in parse_impl_body accepts these; the post-colon trait path stays
+// Ident-only, so a primitive in trait position is still rejected.
+
+trait Doubler {
+  @doubled (self) -> int
+}
+
+impl int: Doubler {
+  @doubled (self) -> int = self * 2;
+}
+
+impl bool: Doubler {
+  @doubled (self) -> int = if self then 2 else 0;
+}
+
+// trait impl on str with a generic trait argument.
+trait Convert<T> {
+  @to_t (self) -> T
+}
+
+impl str: Convert<int> {
+  @to_t (self) -> int = self.len();
+}
+
+// inherent impl on a primitive subject (no trait, no colon).
+impl str {
+  @shout_len (self) -> int = self.len();
+}
+
+@test_primitive_trait_impl_int tests _ () -> void = {
+  assert_eq(actual: (5).doubled(), expected: 10)
+}
+
+@test_primitive_trait_impl_bool tests _ () -> void = {
+  assert_eq(actual: true.doubled(), expected: 2);
+  assert_eq(actual: false.doubled(), expected: 0)
+}
+
+@test_primitive_trait_impl_str_generic_arg tests _ () -> void = {
+  assert_eq(actual: "hello".to_t(), expected: 5)
+}
+
+@test_primitive_inherent_impl tests _ () -> void = {
+  assert_eq(actual: "world".shout_len(), expected: 5)
+}

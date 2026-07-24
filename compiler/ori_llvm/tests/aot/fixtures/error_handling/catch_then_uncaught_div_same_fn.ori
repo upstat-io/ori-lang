@@ -1,0 +1,13 @@
+// Scoping pin: a same-frame `catch(expr: 1 / 0)` (Err arm
+// reached) followed by a SUBSEQUENT uncaught `5 / 0` in the same @main. The
+// caught div routes its panic to the catch landing pad; the uncaught div MUST
+// keep the plain abort path (its result var is NOT in catch_scoped_checked_ops),
+// so the program still aborts. Proves the catch-unwind target is scoped
+// per-dispatch, not leaked function-wide. Pre-fix this also aborts (the first
+// div is uncatchable, so @main aborts at the first `1 / 0`); its discriminating
+// value is post-fix: the first div is caught and the SECOND must still abort.
+@main () -> int = {
+    let r = catch(expr: 1 / 0);
+    let _ = if is_err(result: r) then 0 else 1;
+    5 / 0
+}

@@ -359,7 +359,11 @@ Tracing instrumentation is a form of documentation that is also executable. Publ
 
 When the same fact must appear in multiple locations, one location is the source of truth and all others are derived or validated against it. This principle prevents the most insidious category of compiler bugs: silent divergence between components that must agree.
 
-The `DerivedTrait` enum in `ori_ir` is the canonical example. It defines the set of traits that can be derived. Four consuming crates (`ori_types`, `ori_eval`, `ori_llvm`, and `library/std`) must each handle every variant. Adding a variant to the enum without updating all four consumers is a synchronization failure that may compile successfully but produce incorrect behavior at runtime, because each consumer has its own match expression that silently falls through to a default case.
+The `DerivedTrait` enum in `ori_ir` is a canonical example. It defines the set of traits that can be derived.
+
+Type checking, the evaluator, executable synthesis, the VM, compiled projections, and `library/std` must agree on every variant. A physical backend may project a shared derived body or typed operation, but it may not become an independent semantic author.
+
+Adding a variant without updating the closed consumer set is a synchronization failure that may compile successfully but produce incorrect behavior at runtime.
 
 The defense against drift is *mechanical enforcement*. Shared methods like `from_name()` and `all_variants()` on the source-of-truth type allow consuming crates to iterate the full set. Tests in each consumer verify coverage against the source:
 
@@ -379,7 +383,15 @@ When centralization is not possible because consuming crates add phase-specific 
 
 Manual mirroring, where a developer is expected to remember to update parallel lists in separate crates, is not a synchronization strategy. It is a bug waiting for a sufficiently busy afternoon.
 
-The principle extends beyond enums. Centralized registries that are validated by tests (such as `ori_registry::BUILTIN_TYPES`, which declares every built-in type and its methods in a single location consumed by the type checker, evaluator, and LLVM backend) use test-time enforcement to prevent drift between consumers. Error code registries, operator precedence tables, and keyword lists all follow the same pattern: one authoritative location, mechanical validation everywhere else.
+The principle extends beyond enums. Centralized registries that are validated by tests (such as `ori_registry::BUILTIN_TYPES`, which declares every built-in type, method, and typed strategy descriptor) prevent drift across the type checker, evaluator, AIMS, executable-artifact construction, VM, native, compiled-WASM, and JIT consumers.
+
+Error code registries, operator precedence tables, and keyword lists all follow the same pattern: one authoritative location, mechanical validation everywhere else.
+
+Semantic facts and physical projections require the same discipline. AIMS is the sole logical author of ownership, lifetime, cleanup, transfer, COW/reuse, effect, unwind, freshness, provenance, and disjointness decisions for physical execution. It is not a physical emitter.
+
+The closed executable artifact transports those facts, typed `RuntimeOperation` identities, and the `ExecutableDropPlan`. `VmLayoutPlan` and `CompiledLayoutPlan(TargetSpec)` independently validate their mechanisms; LLVM attributes, C ABI calls, VM opcodes, native instructions, WASM operations, and JIT guards are sibling downstream projections.
+
+A backend must validate the artifact and fail closed when a fact is unavailable; it must never rerun AIMS, reconstruct policy from physical layout, or maintain a parallel semantic table.
 
 When adding a new cross-cutting feature (a new operator, a new derived trait, a new built-in function), the first step is to identify all the synchronization points. The second step is to update them all atomically, in a single commit that touches every affected location. The third step is to verify that the synchronization tests pass. If no synchronization test exists for the category of change being made, writing one is part of the feature work, not a follow-up task. A feature that adds a new variant without adding a synchronization test is incomplete.
 

@@ -1,0 +1,7 @@
+@head3 (xs: [int]) -> [int] = xs.slice(start: 0, end: 3);
+
+@main () -> int = {
+    let src = [10, 20, 30, 40, 50];
+    let ys = head3(xs: src);
+    if ys.len() == 3 && ys[0] == 10 then 0 else 1
+}

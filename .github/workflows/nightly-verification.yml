@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install LLVM 21
         run: |
@@ -69,7 +69,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install LLVM 21
         run: |
@@ -104,7 +104,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install LLVM 21
         run: |
@@ -128,7 +128,7 @@ jobs:
 
       - name: Cache alive-tv binary
         id: alive2-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: build/alive2/alive-tv
           key: ${{ steps.alive2-key.outputs.key }}
@@ -151,7 +151,7 @@ jobs:
     timeout-minutes: 30
     needs: alive2-build
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install LLVM 21
         run: |
@@ -173,7 +173,7 @@ jobs:
           echo "key=alive2-llvm${LLVM_MAJOR}-${ALIVE2_COMMIT}-${{ hashFiles('scripts/build-alive2.sh') }}" >> "$GITHUB_OUTPUT"
 
       - name: Restore alive-tv binary
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: build/alive2/alive-tv
           key: ${{ steps.alive2-key.outputs.key }}
@@ -185,7 +185,7 @@ jobs:
         run: diagnostics/alive2-verify.sh --corpus --timeout 60 --check-survival --json
 
       - name: Upload results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: always()
         with:
           name: alive2-curated-results
@@ -200,7 +200,7 @@ jobs:
     needs: alive2-curated
     if: github.event_name == 'schedule' && github.event.schedule == '0 4 * * 0'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install LLVM 21
         run: |
@@ -222,7 +222,7 @@ jobs:
           echo "key=alive2-llvm${LLVM_MAJOR}-${ALIVE2_COMMIT}-${{ hashFiles('scripts/build-alive2.sh') }}" >> "$GITHUB_OUTPUT"
 
       - name: Restore alive-tv binary
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: build/alive2/alive-tv
           key: ${{ steps.alive2-key.outputs.key }}
@@ -236,7 +236,7 @@ jobs:
             --suppress tests/alive2/suppressed.json --check-survival --json
 
       - name: Upload results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: always()
         with:
           name: alive2-full-results

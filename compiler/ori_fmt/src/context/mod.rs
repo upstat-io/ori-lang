@@ -30,15 +30,15 @@ pub const INDENT_WIDTH: usize = 4;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FormatConfig {
     /// Maximum line width before breaking to multiple lines.
-    /// Defaults to 100 characters (Spec line 19).
+    /// Defaults to 100 characters (Spec: Annex D §General Rules, Line Width).
     pub max_width: usize,
 
     /// Indentation size in spaces.
-    /// Defaults to 4 spaces (Spec line 18).
+    /// Defaults to 4 spaces (Spec: Annex D §General Rules, Indentation).
     pub indent_size: usize,
 
     /// Whether to add trailing commas in multi-line lists.
-    /// Defaults to `Always` (Spec line 20).
+    /// Defaults to `Always` (Spec: Annex D §General Rules, Trailing Commas).
     pub trailing_commas: TrailingCommas,
 }
 
@@ -85,7 +85,7 @@ impl FormatConfig {
 pub enum TrailingCommas {
     /// Always add trailing commas in multi-line (default).
     ///
-    /// Spec line 20: "Trailing commas required in multi-line"
+    /// Spec: Annex D §General Rules — "Trailing commas required in multi-line".
     #[default]
     Always,
 
@@ -251,7 +251,8 @@ impl<E: Emitter> FormatContext<E> {
     }
 
     /// Emit a text fragment.
-    pub fn emit(&mut self, text: &str) {
+    pub fn emit(&mut self, text: impl AsRef<str>) {
+        let text = text.as_ref();
         self.emitter.emit(text);
         self.column += text.len();
         self.shape = self.shape.consume(text.len());
@@ -290,14 +291,16 @@ impl<E: Emitter> FormatContext<E> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// use ori_fmt::{FormatContext, TokenCategory};
+    ///
+    /// let mut ctx = FormatContext::new();
     /// ctx.emit_token(TokenCategory::Ident, "foo");
     /// ctx.emit_token(TokenCategory::Plus, "+");  // Auto-adds space before
     /// ctx.emit_token(TokenCategory::Ident, "bar"); // Auto-adds space before
-    /// // Result: "foo + bar"
+    /// assert_eq!(ctx.output(), "foo + bar");
     /// ```
     pub fn emit_token(&mut self, category: TokenCategory, text: &str) {
-        // Check if we need spacing before this token
         if let Some(action) = self.spacing_for(category) {
             match action {
                 SpaceAction::Space => self.emit_space(),
@@ -350,8 +353,9 @@ impl<E: Emitter> FormatContext<E> {
         self.emitter.emit_indent(indent_width);
         self.column = indent_width;
         // After newline, shape has full width. Consume the indent width.
-        // Note: next_line() already accounts for shape.indent, but emit_indent
-        // may be called with different indent levels, so we sync by consuming.
+        // Why: next_line() already accounts for shape.indent, but emit_indent
+        // may be called with different indent levels, so syncing by consuming
+        // keeps shape.width consistent.
         self.shape = Shape {
             width: self.config.max_width.saturating_sub(indent_width),
             offset: indent_width,

@@ -1,0 +1,8 @@
+@main () -> int = {
+    let r: Result<int, str> = Err("boom");
+    let result = catch(expr: r.unwrap());
+    match result {
+        Err(_) -> 0,
+        Ok(_) -> 1
+    }
+}

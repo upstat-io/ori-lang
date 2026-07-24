@@ -1,0 +1,29 @@
+// Spec: 06-types.md § Derive — nested-generic struct derive, str formatting and bool equality
+
+use std.testing { assert }
+
+#[derive(Eq, Hashable, Comparable, Clone)]
+#[derive(Debug, Printable, Default)]
+type Wrap<T> = { inner: T }
+
+@test_nested_str_debug tests @nested_str_debug () -> void = {
+    assert(cond: Wrap { inner: Wrap { inner: "x" } }.debug() != "")
+}
+@nested_str_debug () -> str = {
+    Wrap { inner: Wrap { inner: "x" } }.debug()
+}
+
+@test_nested_str_printable tests @nested_str_printable () -> void = {
+    assert(cond: Wrap { inner: Wrap { inner: "x" } }.to_str() != "")
+}
+@nested_str_printable () -> str = {
+    Wrap { inner: Wrap { inner: "x" } }.to_str()
+}
+
+@test_nested_bool_eq tests @nested_bool_eq () -> void = {
+    assert(cond: Wrap { inner: Wrap { inner: true } } == Wrap { inner: Wrap { inner: true } });
+    assert(cond: Wrap { inner: Wrap { inner: true } } != Wrap { inner: Wrap { inner: false } })
+}
+@nested_bool_eq () -> bool = {
+    Wrap { inner: Wrap { inner: true } } == Wrap { inner: Wrap { inner: true } }
+}

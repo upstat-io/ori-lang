@@ -36,9 +36,8 @@ use crate::ir::{ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
 
 /// Eliminate block params that are loop-invariant.
 ///
-/// A param is invariant when all non-self incoming values agree on a
-/// single `ArcVarId`. Replaces uses of the param with the common
-/// value, then removes the param and its corresponding Jump args.
+/// A parameter is invariant when all non-self incoming values agree on one
+/// `ArcVarId`. Its uses resolve to that value, and its jump arguments vanish.
 #[tracing::instrument(skip_all, name = "phase7_invariant_param")]
 pub(crate) fn eliminate_invariant_params(func: &mut ArcFunction) {
     // Collect (block_index, param_position, replacement_var) triples.

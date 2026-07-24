@@ -1,0 +1,4 @@
+
+#derive(Eq) type P3Pair<A, B> = { a: A, b: B }
+@p3_cmp (p: P3Pair<int, str>, q: P3Pair<int, str>) -> bool = p == q;
+@test_p3 tests @p3_cmp () -> void = ();

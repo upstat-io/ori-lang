@@ -1,0 +1,11 @@
+// skip DISCARDS a map-produced fresh element: the discard happens inside the
+// skip adapter, which must free the fresh element it pulls and forgets; join
+// releases only the passed-through fresh elements.
+@main () -> void = {
+    let $joined = ["alpha-beta-gamma-alpha-beta-gamma", "delta-epsilon-zeta-delta-epsilon", "eta-theta-iota-eta-theta-iota"]
+        .iter()
+        .map(transform: (s: str) -> str = s + "-suffix-suffix-suffix-suffix")
+        .skip(count: 1)
+        .join(separator: ", ");
+    print(msg: joined)
+}

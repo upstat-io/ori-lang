@@ -4,7 +4,7 @@
 
 @main () -> int = {
     let base = 100;
-    let add_base = (n: int) -> base + n;
+    let add_base = (n: int) -> int = base + n;
     let result = level1(f: add_base, x: 0);
     // level1: x=1, level2: x=2, level3: f(2) = 102
     if result == 102 then 0 else 1

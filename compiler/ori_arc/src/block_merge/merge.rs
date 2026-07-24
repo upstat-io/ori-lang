@@ -14,7 +14,7 @@
 use rustc_hash::FxHashSet;
 
 use crate::graph::compute_pred_counts;
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ValueRepr};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 
 use super::compact::compact_blocks;
 
@@ -140,14 +140,11 @@ pub(super) fn lower_parallel_copy(
 
     if has_overlap {
         // Slow path: copy all args to fresh temps first, then temps to params.
-        // Use fresh_var_repr to preserve repr metadata for ref-typed params.
+        // Copy the source's complete realized metadata with its value.
         let temps: Vec<ArcVarId> = args
             .iter()
             .zip(params.iter())
-            .map(|(arg, (_, ty))| {
-                let repr = func.var_repr(*arg).unwrap_or(ValueRepr::Scalar);
-                func.fresh_var_repr(*ty, repr)
-            })
+            .map(|(arg, (_, ty))| func.fresh_var_like_typed(*arg, *ty))
             .collect();
 
         // Phase 1: args → temps.

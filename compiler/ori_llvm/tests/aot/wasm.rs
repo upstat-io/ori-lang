@@ -485,6 +485,37 @@ fn test_wasm_opt_runner_custom_path() {
     );
 }
 
+/// Regression pin: a missing wasm-opt binary produces a message naming the
+/// cause (not found) and the fix (install Binaryen, put it on PATH) instead
+/// of pointing at the nonexistent `--wasm-opt-path` CLI flag.
+#[test]
+fn test_wasm_opt_runner_missing_binary_message_names_cause_and_fix() {
+    let runner = WasmOptRunner::new().with_path("/definitely/nonexistent/path/wasm-opt-xyz");
+
+    let result = runner.run(
+        std::path::Path::new("in.wasm"),
+        std::path::Path::new("out.wasm"),
+    );
+
+    let WasmError::InvalidConfig { message } = result.expect_err("missing binary must error")
+    else {
+        panic!("expected WasmError::InvalidConfig");
+    };
+
+    assert!(
+        message.contains("not found"),
+        "message must name the cause: {message}"
+    );
+    assert!(
+        message.contains("Install Binaryen") && message.contains("PATH"),
+        "message must name the fix (install Binaryen, PATH): {message}"
+    );
+    assert!(
+        !message.contains("--wasm-opt-path"),
+        "message must not reference the nonexistent --wasm-opt-path CLI flag: {message}"
+    );
+}
+
 /// Test: WASM linker executable output
 ///
 /// Scenario from Zig `wasm/export`:

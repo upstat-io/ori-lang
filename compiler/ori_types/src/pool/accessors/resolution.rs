@@ -9,7 +9,7 @@ use crate::{Idx, Tag};
 use super::super::{Pool, VarState};
 
 impl Pool {
-    // === Named Type Resolution Registration ===
+    // Named Type Resolution Registration
 
     /// Register a resolution from a Named/Applied type to its concrete definition.
     ///
@@ -18,6 +18,31 @@ impl Pool {
     /// codegen can resolve types without accessing `TypeRegistry`.
     pub fn set_resolution(&mut self, named: Idx, concrete: Idx) {
         self.resolutions.insert(named, concrete);
+    }
+
+    /// Record the `CAbiKind` of an FFI `c_*` type's distinct Named `Idx`.
+    /// Called at FFI resolution alongside `set_resolution`; the kind carries
+    /// the C-ABI width identity the resolution-to-`Idx::INT` discards.
+    /// `ori_repr` reads it at the extern ABI boundary.
+    pub fn set_cabi_kind(&mut self, named: Idx, kind: ori_ir::CAbiKind) {
+        self.cabi_kinds.insert(named, kind);
+    }
+
+    /// Look up the `CAbiKind` of a type `Idx`. `None` for any non-FFI type —
+    /// the carrier never leaks to non-FFI types (the width-leakage guard).
+    #[must_use]
+    pub fn cabi_kind(&self, idx: Idx) -> Option<ori_ir::CAbiKind> {
+        self.cabi_kinds.get(&idx).copied()
+    }
+
+    /// Attach the FFI carrier — concrete resolution + `CAbiKind` width identity
+    /// — to a `Named` FFI type `Idx`, as a pair. Single home for the FFI
+    /// named-type registration step shared by every resolution site; the two
+    /// attachments always travel together, so a half-attached state (resolution
+    /// without kind) is unrepresentable through this entry point.
+    pub fn attach_ffi_carrier(&mut self, named: Idx, concrete: Idx, kind: ori_ir::CAbiKind) {
+        self.set_resolution(named, concrete);
+        self.set_cabi_kind(named, kind);
     }
 
     /// Register a newtype constructor: `type N = Existing` produces an entry
@@ -30,8 +55,9 @@ impl Pool {
     ///
     /// Consumers (`ori_arc::lower`) call `newtype_underlying(name)` at call
     /// sites to detect newtype constructor invocations and emit transparent
-    /// `Let { Var(arg) }` instead of unresolvable `PartialApply`. See
-    /// `repr.md §RP-24` for the layout-transparent invariant this preserves.
+    /// `Let { Var(arg) }` instead of unresolvable `PartialApply`, preserving
+    /// the layout-transparent newtype invariant (a newtype shares its
+    /// underlying type's representation).
     pub fn register_newtype_ctor(&mut self, name: ori_ir::Name, underlying: Idx) {
         self.newtype_ctors.insert(name, underlying);
     }
@@ -106,7 +132,24 @@ impl Pool {
     /// falls back to searching for a `Named` resolution with the same name.
     ///
     /// Returns the fully-resolved type, or the input if no resolution exists.
+    ///
+    /// INVARIANT: terminates on self-similar nested `Applied` types. An
+    /// `Applied(Wrap, [Applied(Wrap, [int])])` key collides on name + arity with
+    /// the inner `Applied(Wrap, [int])` it nests, so `Applied`-arg matching is
+    /// guarded against re-entering a type already on the resolution stack (the
+    /// in-progress set threaded by [`Self::resolve_fully_guarded`]); a re-entered
+    /// type yields its own unresolved leaf.
     pub fn resolve_fully(&self, idx: Idx) -> Idx {
+        // Why: `Vec::new()` does not allocate until the first `push`, so the
+        // common non-`Applied`-matching path stays allocation-free; the guard
+        // cost is paid only when `Applied`-arg matching actually recurses.
+        let mut in_progress: Vec<Idx> = Vec::new();
+        self.resolve_fully_guarded(idx, &mut in_progress)
+    }
+
+    /// [`Self::resolve_fully`] threading the in-progress `Applied`-resolution
+    /// stack used to break self-referential `Applied`-arg matching cycles.
+    fn resolve_fully_guarded(&self, idx: Idx, in_progress: &mut Vec<Idx>) -> Idx {
         // Bounds check: return early for indices outside the pool.
         if idx.raw() as usize >= self.items.len() {
             return idx;
@@ -116,7 +159,7 @@ impl Pool {
             return resolved;
         }
         if self.tag(current) == Tag::Applied {
-            if let Some(concrete) = self.resolve_applied_via_matching_args(current) {
+            if let Some(concrete) = self.resolve_applied_via_matching_args(current, in_progress) {
                 return concrete;
             }
         }
@@ -127,12 +170,12 @@ impl Pool {
     ///
     /// Stops at (a) the first non-`Tag::Var` item, (b) a malformed `var_id`
     /// outside `var_states`, or (c) the depth limit. Returns the resolved
-    /// leaf. Bounds-check on `var_id` is retained after §08.3b retired the
-    /// Generalized-leak path (scheme bodies now hold `Tag::BoundVar` per
-    /// `types.md §SC-1`), because genuinely malformed inputs — e.g.,
+    /// leaf. Bounds-check on `var_id` is retained even though the
+    /// Generalized-leak path is retired (scheme bodies now hold
+    /// `Tag::BoundVar` per invariant SC-1), because genuinely malformed inputs — e.g.,
     /// cross-pool `var_id` collisions caught by the pool re-intern path —
     /// can still reach this accessor.
-    fn chase_var_links(&self, idx: Idx) -> Idx {
+    pub(crate) fn chase_var_links(&self, idx: Idx) -> Idx {
         let mut current = idx;
         for _ in 0..16 {
             if current.raw() as usize >= self.items.len() {
@@ -164,13 +207,33 @@ impl Pool {
     /// then matches. Falls back to bare `Named` keys for non-generic
     /// aliases (e.g., `Applied("Shape", [])` resolving to a registered
     /// `Named("Shape")`).
-    fn resolve_applied_via_matching_args(&self, current: Idx) -> Option<Idx> {
+    ///
+    /// `in_progress` is the stack of `Applied` indices currently being resolved.
+    /// A self-referential candidate — an outer `Applied(Wrap, [Applied(Wrap,
+    /// [int])])` key matched while resolving the inner `Applied(Wrap, [int])` —
+    /// re-enters this method on the same `current`; the in-progress guard returns
+    /// `None` for that re-entry so the cycle breaks and the genuine resolution
+    /// (or the unresolved leaf) wins.
+    fn resolve_applied_via_matching_args(
+        &self,
+        current: Idx,
+        in_progress: &mut Vec<Idx>,
+    ) -> Option<Idx> {
+        // Why: a type already on the resolution stack cannot resolve in terms
+        // of itself; treat the re-entered candidate as unresolved here.
+        if in_progress.contains(&current) {
+            return None;
+        }
+        in_progress.push(current);
+
         let name = self.applied_name(current);
         let resolved_args: Vec<Idx> = self
             .applied_args(current)
             .iter()
-            .map(|&a| self.resolve_fully(a))
+            .map(|&a| self.resolve_fully_guarded(a, in_progress))
             .collect();
+
+        let mut matched: Option<Idx> = None;
 
         // Match Applied keys with the same name whose args resolve equal.
         for &key in self.resolutions.keys() {
@@ -184,28 +247,33 @@ impl Pool {
             let all_match = key_args
                 .iter()
                 .zip(&resolved_args)
-                .all(|(k, r)| self.resolve_fully(*k) == *r);
+                .all(|(k, r)| self.resolve_fully_guarded(*k, in_progress) == *r);
             if all_match {
                 if let Some(concrete) = self.resolve(key) {
-                    return Some(concrete);
+                    matched = Some(concrete);
+                    break;
                 }
             }
         }
 
         // Non-generic fallback: Named resolution for the same name.
-        for &key in self.resolutions.keys() {
-            if self.tag(key) != Tag::Named || self.named_name(key) != name {
-                continue;
-            }
-            if let Some(concrete) = self.resolve(key) {
-                return Some(concrete);
+        if matched.is_none() {
+            for &key in self.resolutions.keys() {
+                if self.tag(key) != Tag::Named || self.named_name(key) != name {
+                    continue;
+                }
+                if let Some(concrete) = self.resolve(key) {
+                    matched = Some(concrete);
+                    break;
+                }
             }
         }
 
-        None
+        in_progress.pop();
+        matched
     }
 
-    // === Variable Lookup ===
+    // Variable Lookup
 
     /// Find the pool [`Idx`] for a `Tag::Var` item whose `data` (`var_id`)
     /// matches `var_id`, or `None` if no such entry exists.
@@ -215,7 +283,7 @@ impl Pool {
     /// need to map a `var_id` back to a pool handle — e.g., for
     /// `resolve_fully` on a scheme var's equivalence-class root —
     /// MUST use this method rather than open-coding a `FIRST_DYNAMIC..len`
-    /// scan (`impl-hygiene.md §Algorithmic DRY`).
+    /// scan.
     ///
     /// Cost: `O(pool_len)` linear scan. This is acceptable because the
     /// method is called `O(scheme_var_count)` times per body validation,
@@ -227,3 +295,6 @@ impl Pool {
             .find(|&idx| self.tag(idx) == Tag::Var && self.data(idx) == var_id)
     }
 }
+
+#[cfg(test)]
+mod tests;

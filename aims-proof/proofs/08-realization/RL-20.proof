@@ -1,0 +1,35 @@
+Theorem RL-20: PotentiallyShared requires a shared-safe capability
+
+  Preconditions:
+    - ThreadReachability has been frozen by RL-19.
+    - A physical planner advertises ThreadCapability.
+
+  Soundness property:
+    Forall thread fact T and capability C:
+
+      (P1) potentiallyShared is covered only by sharedSafe.
+
+      (P2) confined is covered by confinedOnly or sharedSafe.
+
+    The theorem defines an admission relation, not one mandatory physical
+    synchronization implementation.
+
+  Proof obligation:
+    Exhaustive ThreadReachability x ThreadCapability case analysis.
+
+    Part (P1/P2) - capability grid:
+      potentiallyShared + confinedOnly -> false
+      potentiallyShared + sharedSafe -> true
+      confined + confinedOnly -> true
+      confined + sharedSafe -> true
+      Coverage gate: 4 capability cases.
+
+    Engines dispatched:
+      case_analysis (PRIMARY - section_08::verify_rl20_thread_capability;
+        potentially_shared_requires_safe_capability)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL row)
+      refinement (SECONDARY - gracious-accept per the coverage-manifest RL row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-20 because potentiallyShared requires sharedSafe while confined admits either physical capability

@@ -1,0 +1,46 @@
+// Spec: 13-variables.md §13.6.2 — IndexSet trait (write-side companion to Index)
+// The IndexSet<Key, Value> trait is defined in the prelude with
+// @updated (self, key: Key, value: Value) -> Self. A user type may implement
+// it; the value-semantic contract returns a new value distinct from the receiver.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// User-defined IndexSet impl — struct keyed by int, replaced field-by-field
+// =============================================================================
+
+type Pair = { first: int, second: int }
+
+impl Pair: IndexSet<int, int> {
+    @updated (self, key: int, value: int) -> Self =
+        if key == 0 then Pair { first: value, second: self.second }
+        else Pair { first: self.first, second: value };
+}
+
+@pair_update_first () -> int = {
+    let p = Pair { first: 10, second: 20 };
+    let q = p.updated(key: 0, value: 99);
+    q.first
+}
+
+@test_pair_update_first tests @pair_update_first () -> void =
+    assert_eq(actual: pair_update_first(), expected: 99);
+
+@pair_update_second () -> int = {
+    let p = Pair { first: 10, second: 20 };
+    let q = p.updated(key: 1, value: 99);
+    q.second
+}
+
+@test_pair_update_second tests @pair_update_second () -> void =
+    assert_eq(actual: pair_update_second(), expected: 99);
+
+// Value-semantic: receiver is unaffected by updated() (returns a NEW value).
+@pair_update_leaves_original () -> int = {
+    let p = Pair { first: 10, second: 20 };
+    let q = p.updated(key: 0, value: 99);
+    p.first
+}
+
+@test_pair_update_leaves_original tests @pair_update_leaves_original () -> void =
+    assert_eq(actual: pair_update_leaves_original(), expected: 10);

@@ -1,0 +1,19 @@
+// Negative over-fire pin for as-compiled impl-method contracts: a
+// CONDITIONAL impl-method forwarder publishes may-flow
+// `transfers_through_return` for both params; the caller-side binding must
+// not double-free the returned or the non-returned Wrapper (the method is
+// compiled contract-blind, so the published pair only re-describes the
+// structural transfer behavior).
+type W = { items: [int] };
+
+impl W {
+    @pick (self, other: W, c: bool) -> W = if c then self else other;
+}
+
+@main () -> int = {
+    let a = W { items: [1, 2, 3] };
+    let b = W { items: [4, 5, 6] };
+    let w = a.pick(other: b, c: true);
+
+    if w.items[0] == 1 then 0 else 1
+}

@@ -4,9 +4,8 @@
 //! exit must pass through A. Computed via CHK on the reverse CFG with
 //! a virtual exit node unifying all exit blocks (`Return`/`Resume`/`Unreachable`).
 //!
-//! Used by cross-block reset/reuse detection to verify that a `Construct`
-//! block always executes after the `RcDec` block — preventing memory leaks
-//! when the `Construct` is on only one branch of a conditional.
+//! Cross-block reset/reuse requires a `Construct` block to post-dominate the
+//! `RcDec` block; otherwise one conditional branch can omit reconstruction.
 //!
 //! Reference: Cooper, Harvey, Kennedy — "A Simple, Fast Dominance Algorithm" (2001)
 
@@ -132,6 +131,21 @@ impl PostDominatorTree {
         ipdom.truncate(n);
 
         Self { ipdom }
+    }
+
+    /// The immediate post-dominator of `block`, if any.
+    ///
+    /// Returns `None` when `block` is an exit block (its ipdom is the virtual
+    /// exit), is unreachable, or is out of range. A real block index otherwise —
+    /// the nearest block that every forward path from `block` passes through.
+    pub fn immediate_post_dominator(&self, block: ArcBlockId) -> Option<ArcBlockId> {
+        let n = self.ipdom.len();
+        match self.ipdom.get(block.index()).copied().flatten() {
+            Some(dom) if dom != block.index() && dom < n => {
+                Some(ArcBlockId::new(u32::try_from(dom).unwrap_or(u32::MAX)))
+            }
+            _ => None,
+        }
     }
 
     /// Does block `a` post-dominate block `b`?

@@ -238,10 +238,17 @@ impl Parser<'_> {
         // Parse iterator expression
         let iter = require!(self, self.parse_expr(), "iterator expression");
 
-        // Check for optional guard: `if condition`
+        // Check for optional guard: `if condition`. Parse with IN_LOOP — the
+        // for-desugar places the guard per-iteration inside the for's own loop,
+        // so a guard-position break/continue targets this for (valid even with
+        // no enclosing loop), mirroring the while condition.
         let guard = if self.cursor.check(&TokenKind::If) {
             self.cursor.advance();
-            require!(self, self.parse_expr(), "guard condition")
+            require!(
+                self,
+                self.with_context(ParseContext::IN_LOOP, Self::parse_expr),
+                "guard condition"
+            )
         } else {
             ExprId::INVALID
         };
@@ -283,6 +290,56 @@ impl Parser<'_> {
                 body,
                 is_yield,
             },
+            span.merge(end_span),
+        )))
+    }
+
+    /// Parse while expression: `while cond do body`.
+    ///
+    /// Supports optional label: `while:label cond do body`.
+    /// Sugar for `loop { if !cond then break; body }`; desugared in `ori_canon`.
+    ///
+    /// Guard: returns `EmptyErr` if not at `while`.
+    pub(super) fn parse_while_expr(&mut self) -> ParseOutcome<ExprId> {
+        if !self.cursor.check(&TokenKind::While) {
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::While,
+                self.cursor.current_span().start as usize,
+            );
+        }
+
+        let span = self.cursor.current_span();
+        committed!(self.cursor.expect(&TokenKind::While));
+
+        let label = self.parse_optional_label();
+
+        // Parse condition with IN_LOOP (the condition is inside the while's own
+        // loop per the spec desugar `loop { if !cond then break; body }`, so
+        // condition-position break/continue is valid even with no enclosing loop)
+        // and NO_STRUCT_LIT — `do` delimits the condition, mirroring how `then`
+        // delimits an `if` condition.
+        let cond = require!(
+            self,
+            self.with_context(
+                ParseContext::NO_STRUCT_LIT.with(ParseContext::IN_LOOP),
+                Self::parse_expr
+            ),
+            "condition in while expression"
+        );
+
+        committed!(self.cursor.expect(&TokenKind::Do));
+        self.cursor.skip_newlines();
+
+        // Parse body with IN_LOOP context (enables break/continue).
+        let body = require!(
+            self,
+            self.with_context(ParseContext::IN_LOOP, Self::parse_expr),
+            "while loop body"
+        );
+
+        let end_span = self.arena.get_expr(body).span;
+        ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
+            ExprKind::While { label, cond, body },
             span.merge(end_span),
         )))
     }

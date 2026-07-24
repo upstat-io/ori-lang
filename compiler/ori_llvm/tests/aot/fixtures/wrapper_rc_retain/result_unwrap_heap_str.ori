@@ -1,4 +1,4 @@
-// Regression: BUG-04-013 — Result.unwrap must RC-retain heap string payload
+// Regression: Result.unwrap must RC-retain heap string payload
 @make () -> Result<str, str> = Ok("hello world this is a long heap string");
 
 @main () -> int = {

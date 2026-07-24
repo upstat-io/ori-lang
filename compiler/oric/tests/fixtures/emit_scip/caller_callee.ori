@@ -1,0 +1,7 @@
+@helper (n: int) -> int = {
+    n + 1
+};
+
+@run (x: int) -> int = {
+    helper(n: x)
+};

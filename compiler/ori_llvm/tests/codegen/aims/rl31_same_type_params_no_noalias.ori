@@ -1,0 +1,17 @@
+// RL-31 NEGATIVE pin — same-type params must NOT receive noalias.
+// Spec: Annex E §AIMS RL-31 clause 4 + clause 7. `combine(a: [int], b: [int])`
+// has two SAME-type pointer params. Their reachable-memory closures intersect
+// (both reach `[int]`) AND the type system accepts `combine(x, x)` (same
+// surface type), so the SUFFICIENT condition fails clauses 4 + 7. A `noalias`
+// here would be a miscompile: a caller may legally pass the same value to both.
+// The proof MUST omit `noalias` — the params keep readonly but acquire no
+// noalias. The contract-layer per-call-site provenance path (not type-level)
+// owns the same-type case.
+//
+// @function: _ori_combine
+// CHECK: define fastcc noundef i64 @_ori_combine(ptr noundef nonnull readonly dereferenceable(24) %0, ptr noundef nonnull readonly dereferenceable(24) %1)
+// CHECK-NOT: ptr noalias noundef nonnull readonly dereferenceable(24) %0
+
+@combine (a: [int], b: [int]) -> int = a.len() + b.len();
+
+@main () -> void = print(msg: combine(a: [1], b: [2]).to_str());

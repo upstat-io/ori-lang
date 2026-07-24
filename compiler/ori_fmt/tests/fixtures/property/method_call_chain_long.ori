@@ -1,0 +1,1 @@
+@f (x: int) -> int = x.foo().bar().baz().qux().quux();

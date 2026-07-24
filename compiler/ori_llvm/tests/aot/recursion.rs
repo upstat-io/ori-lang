@@ -189,7 +189,7 @@ fn test_rec_tower_of_hanoi_count() {
 // Deep tail recursion (TCO stress tests)
 
 #[test]
-fn test_tail_rec_gcd_correct() {
+fn test_tail_rec_gcd_pair_matrix_results() {
     // gcd is tail-recursive — loop lowering should handle it.
     assert_aot_success(
         include_str!("fixtures/recursion/tail_rec_gcd_correct.ori"),

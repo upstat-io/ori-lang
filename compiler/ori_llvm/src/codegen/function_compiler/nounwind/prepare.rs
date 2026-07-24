@@ -1,11 +1,8 @@
-//! Preparation phase: lower functions through ARC pipeline without emitting LLVM IR.
+//! Preparation of validated artifact functions without emitting LLVM IR.
 
-use ori_arc::lower_function_can;
 use ori_arc::verify::VerifyError;
-use ori_ir::canon::CanonResult;
 use ori_ir::{Function, Name};
-use ori_types::{FunctionSig, Idx};
-use rustc_hash::FxHashMap;
+use ori_types::FunctionSig;
 use tracing::debug;
 
 use super::types::{PreparedFunction, PreparedLambda};
@@ -14,18 +11,15 @@ use crate::codegen::function_compiler::FunctionCompiler;
 use crate::codegen::value_id::FunctionId;
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
-    /// Lower all non-generic functions through the ARC pipeline without
-    /// emitting LLVM IR.
+    /// Prepare every non-generic source function from its exact artifact family.
     ///
-    /// Buffers results for two-pass nounwind analysis. Functions are removed
-    /// from `arc_cache` (zero-copy move). Functions not in the cache fall back
-    /// to inline lowering.
-    pub fn prepare_all_cached(
+    /// Buffers results for two-pass nounwind analysis. Missing bodies fail
+    /// closed through the artifact projection seam; canonical IR is not a
+    /// physical-backend fallback.
+    pub fn prepare_all_from_artifact(
         &mut self,
         module_functions: &[Function],
         function_sigs: &[FunctionSig],
-        canon: &CanonResult,
-        arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
     ) -> Vec<PreparedFunction> {
         let mut prepared = Vec::new();
 
@@ -43,7 +37,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             let Some(sig) = sig_map.get(&func.name) else {
                 continue;
             };
-            if sig.is_generic() {
+            if sig.requires_specialization() {
                 continue;
             }
 
@@ -57,36 +51,15 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             };
             let abi = abi.clone();
 
-            let (arc_func, lambdas) = if let Some(cached) = arc_cache.remove(&func.name) {
-                cached
-            } else {
-                // Fallback: lower inline from canonical IR
-                let body = canon.root_for(func.name).unwrap_or(canon.root);
-                let params: Vec<(Name, Idx)> = abi.params.iter().map(|p| (p.name, p.ty)).collect();
-                let mut problems = Vec::new();
-                let result = lower_function_can(
-                    func.name,
-                    &params,
-                    abi.return_abi.ty,
-                    body,
-                    canon,
-                    self.interner,
-                    self.pool,
-                    &mut problems,
-                    sig.is_fbip,
-                    None,
-                );
-                for problem in &problems {
-                    debug!(?problem, "ARC lowering problem (fallback)");
-                }
-                result
+            let Some((arc_func, lambdas)) = self.clone_bound_family(func.name, &abi) else {
+                continue;
             };
 
             match self.prepare_arc_function(func.name, func_id, &abi, arc_func, lambdas) {
                 Ok(pf) => prepared.push(pf),
                 Err(err) => {
                     // PC-2 contract violation — error already recorded via
-                    // `record_codegen_error()` inside the hook. Skip this
+                    // `record_codegen_error` inside the hook. Skip this
                     // function's emission; continue the batch.
                     debug!(
                         name = %self.interner.lookup(func.name),
@@ -100,16 +73,13 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         prepared
     }
 
-    /// Lower all monomorphized functions through the ARC pipeline without
-    /// emitting LLVM IR.
+    /// Prepare every monomorphized function from its exact artifact family.
     ///
-    /// Buffers results for two-pass nounwind analysis. Falls back to inline
-    /// lowering with type substitution for functions not found in the cache.
-    pub fn prepare_mono_cached(
+    /// There is no canonical-body or type-substitution fallback after the
+    /// executable artifact has closed.
+    pub fn prepare_mono_from_artifact(
         &mut self,
-        mono_functions: &[crate::monomorphize::MonoFunction],
-        canon: &CanonResult,
-        arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
+        mono_functions: &[ori_repr::monomorphize::MonoFunction],
     ) -> Vec<PreparedFunction> {
         let mut prepared = Vec::new();
 
@@ -125,30 +95,9 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             };
             let abi = abi.clone();
 
-            let (arc_func, lambdas) = if let Some(cached) = arc_cache.remove(&mono_fn.mangled_name)
-            {
-                cached
-            } else {
-                // Fallback: lower inline with type substitution
-                let body = canon.root_for(mono_fn.original_name).unwrap_or(canon.root);
-                let params: Vec<(Name, Idx)> = abi.params.iter().map(|p| (p.name, p.ty)).collect();
-                let mut problems = Vec::new();
-                let result = lower_function_can(
-                    mono_fn.mangled_name,
-                    &params,
-                    abi.return_abi.ty,
-                    body,
-                    canon,
-                    self.interner,
-                    self.pool,
-                    &mut problems,
-                    mono_fn.sig.is_fbip,
-                    Some(&mono_fn.body_type_map),
-                );
-                for problem in &problems {
-                    debug!(?problem, "ARC lowering problem (mono fallback)");
-                }
-                result
+            let Some((arc_func, lambdas)) = self.clone_bound_family(mono_fn.mangled_name, &abi)
+            else {
+                continue;
             };
 
             match self.prepare_arc_function(mono_fn.mangled_name, func_id, &abi, arc_func, lambdas)
@@ -164,6 +113,57 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             }
         }
 
+        prepared
+    }
+
+    /// Prepare the exact artifact parents returned by
+    /// [`Self::declare_artifact_remainder`].
+    ///
+    /// The declaration pass owns inventory selection; preparation consumes the
+    /// frozen list verbatim so the two physical phases cannot disagree about
+    /// which compiler-generated bodies exist.
+    pub fn prepare_artifact_remainder_from_artifact(
+        &mut self,
+        functions: &[ori_repr::executable::FunctionId],
+    ) -> Vec<PreparedFunction> {
+        let mut prepared = Vec::with_capacity(functions.len());
+        for &function in functions {
+            let Some(program) = self.executable_program else {
+                self.builder.record_codegen_error_with_msg(
+                    "LLVM artifact-family preparation requires a closed executable program",
+                );
+                break;
+            };
+            let name = program.function(function).name;
+            if program.function_family_lambdas(function).is_none() {
+                self.builder.record_codegen_error_with_msg(format!(
+                    "closed executable artifact remainder {} is a nested lambda, not a family parent",
+                    self.interner.lookup(name)
+                ));
+                continue;
+            }
+            let Some(&(func_id, ref abi)) = self.codegen_ctx.functions.get(&name) else {
+                self.builder.record_codegen_error_with_msg(format!(
+                    "closed executable artifact remainder {} was not declared before preparation",
+                    self.interner.lookup(name)
+                ));
+                continue;
+            };
+            let abi = abi.clone();
+            let Some((arc_func, lambdas)) = self.clone_bound_family(name, &abi) else {
+                continue;
+            };
+            match self.prepare_arc_function(name, func_id, &abi, arc_func, lambdas) {
+                Ok(function) => prepared.push(function),
+                Err(error) => {
+                    debug!(
+                        name = %self.interner.lookup(name),
+                        ?error,
+                        "artifact remainder violated the physical projection contract"
+                    );
+                }
+            }
+        }
         prepared
     }
 
@@ -191,15 +191,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             "preparing function (ARC pipeline, no emit)"
         );
 
-        // Resolve BoundVar types in polymorphic lambdas before preparation.
-        let mut lambdas = lambdas;
-        crate::codegen::function_compiler::lambda_mono::resolve_all_lambda_bound_vars(
-            &mut arc_func,
-            &mut lambdas,
-            self.pool,
-            self.interner,
-            self.arc_classifier as &dyn ori_arc::ArcClassification,
-        );
+        let lambdas = lambdas;
 
         // Prepare lambdas: declare + ARC pipeline (no LLVM emission).
         // declare_and_process_lambda renames each lambda to a globally unique
@@ -207,7 +199,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // parent function's PartialApply references.
         //
         // A failing lambda fails the WHOLE parent: filter-out would leave a
-        // dangling PartialApply callee (plan §04.2 Hook 2 cascade note).
+        // dangling PartialApply callee (plan Hook 2 cascade note).
         let mut lambda_renames: Vec<(Name, Name)> = Vec::new();
         let mut prepared_lambdas: Vec<PreparedLambda> = Vec::with_capacity(lambdas.len());
         for lambda in lambdas {
@@ -222,7 +214,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Remap PartialApply callee references in the parent function to use
         // the globally unique lambda names assigned during preparation.
         if !lambda_renames.is_empty() {
-            crate::codegen::function_compiler::purity_analysis::remap_partial_apply_names(
+            crate::codegen::function_compiler::lambda_rewrite::remap_partial_apply_names(
                 &mut arc_func,
                 &lambda_renames,
             );

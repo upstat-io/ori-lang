@@ -10,7 +10,7 @@ trait Producer {
 
 type IntProducer = { value: int }
 
-impl Producer for IntProducer {
+impl IntProducer: Producer {
     type Item = int;
     @produce (self) -> Self.Item = self.value;
 }
@@ -25,7 +25,7 @@ impl Producer for IntProducer {
 // Test 2: Does it work with different types?
 type StrProducer = { text: str }
 
-impl Producer for StrProducer {
+impl StrProducer: Producer {
     type Item = str;
     @produce (self) -> Self.Item = self.text;
 }

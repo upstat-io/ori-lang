@@ -1,0 +1,86 @@
+Theorem VF-8: stack applies to ALL rules including unimplemented sec-8 and target-only surface
+
+  Preconditions:
+    - VF-8 governs the universal-coverage mandate per Annex E §AIMS VF-8:
+      "Stack applies to ALL rules — incl. unimplemented sec-8 rules.
+      Unimplemented rule without verification layer planned = spec gap." The
+      sec-01 Verification.proof restates: "verification stack applies to ALL
+      rules — incl. unimplemented sec-8 rules + target-only §AIMS §3.5 / IC-3 /
+      IC-5 surface."
+    - VF-8's concrete shape is Rule -> Bool per
+      aims-proof/proofs/01-verification/Verification.proof. Discharged here
+      against the sec-01 Verification.proof sorry obligation.
+    - Coverage applies to three rule classes: (1) implemented rules (carry an
+      ACTIVE verification layer — e.g. sec-8 RL-1..RL-5 covered by VF-1 / VF-4);
+      (2) unimplemented sec-8 rules (RL-22 through RL-26 post-pipeline, covered
+      by a PLANNED VF-7 three-tier layer); (3) target-only surface (§AIMS §3.5
+      ArgEscaping, IC-3 ParamContract, IC-5 EffectSummary — covered by a PLANNED
+      VF-2 (b)/(c)/(d) layer via RL-29 / RL-30 / RL-31). An unimplemented rule
+      with NO planned layer is a SPEC GAP.
+    - TARGET-ONLY whole-stack mandate: there is no single shipped verifier
+      function — VF-8 is the coverage invariant the verification stack asserts
+      across all rules. conformance: target-only.
+    - depends-on sec-08: the unimplemented RL-22..RL-26 + the target-only
+      RL-29/RL-30/RL-31 backend-neutral fact rules whose planned layers VF-8
+      requires.
+
+  Soundness property:
+    Forall rule R in the AIMS ruleset:
+
+      (P1) Universal coverage: R is covered by the verification stack IFF R has
+           a verification layer — an ACTIVE layer when R is implemented, a
+           PLANNED layer when R is unimplemented or target-only. Every rule
+           (implemented, unimplemented, or target-only) carries a layer.
+
+      (P2) Gap detection: an unimplemented rule with NO planned verification
+           layer is a SPEC GAP (not covered). The negative direction is
+           load-bearing — silently treating an uncovered unimplemented rule as
+           covered would let a realization rule ship with no verification.
+
+    VF-8 is the closure property of the verification stack: it guarantees no
+    rule escapes verification. An implemented rule's layer is its active
+    verifier; an unimplemented or target-only rule's layer is the planned one;
+    a rule with neither is a spec gap that VF-8 surfaces.
+
+  Proof obligation:
+    Constructive discharge by the interprocedural_summary engine via a coverage
+    check over the rule set (per the proof-checker design sec-Engine-per-Category-Inventory
+    VF row — unimplemented-rule coverage + cross-call-site provenance summary;
+    the foundational-axiom policy sec-Per-Engine-Constructive-Proof-Shape — per-node finite
+    enumeration over the rule classes).
+
+    Part (P1/P2) — universal-coverage + spec-gap grid:
+
+      The verifier models covered_by_stack(implemented, has_planned_layer) =
+      implemented OR has_planned_layer, and is_spec_gap(implemented,
+      has_planned_layer) = NOT implemented AND NOT has_planned_layer, and
+      asserts both over a grid:
+        rl1_implemented_active_layer_covered — implemented + active layer
+                                                  -> covered, not a gap.
+        rl22_unimplemented_planned_layer_covered — unimplemented RL-22 +
+                                                  planned VF-7 layer -> covered.
+        ic5_target_only_planned_layer_covered — target-only IC-5 + planned
+                                                  VF-2(d)/RL-30 layer -> covered.
+        unimplemented_no_layer_spec_gap — unimplemented + no planned
+                                                  layer -> SPEC GAP.
+      Coverage gate: 4 rules (3 covered + 1 spec gap).
+
+    Negative-direction witness (the gap detection has teeth — an uncovered rule
+    is flagged):
+      An unimplemented rule with NO planned verification layer is flagged a spec
+      gap (covered_by_stack is false, is_spec_gap is true); silently treating it
+      as covered would let a realization rule ship without any verification (the
+      VF-8 failure mode).
+
+    Engines dispatched:
+      interprocedural_summary (PRIMARY — section_09::verify_vf8_stack_applies_to_all_rules;
+        universal-coverage + spec-gap detection over the rule-class grid; emits
+        Fail on a coverage mismatch or a wrongly-classified spec gap)
+      structural_induction (SECONDARY — gracious-accept per the
+        coverage-manifest VF row)
+      refinement (SECONDARY — gracious-accept)
+      rc_counting (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: section_09 interprocedural_summary engine discharges VF-8 via (P1) universal coverage (every rule has a verification layer — active when implemented, planned when unimplemented/target-only) and (P2) spec-gap detection (an unimplemented rule with no planned layer is a spec gap): 4 rules (implemented RL-1 + unimplemented-planned RL-22 + target-only-planned IC-5 + one uncovered spec gap), with a negative-direction witness flagging the uncovered unimplemented rule

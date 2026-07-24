@@ -1,0 +1,2 @@
+@main () -> int = 42;
+// #Orphan at end

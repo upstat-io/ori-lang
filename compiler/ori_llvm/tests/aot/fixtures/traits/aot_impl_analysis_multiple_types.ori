@@ -5,7 +5,7 @@ trait Printable {
 type Point = { x: int, y: int }
 type Color = { r: int, g: int, b: int }
 
-impl Printable for Point {
+impl Point: Printable {
     @to_str (self) -> str = "point";
 }
 
@@ -13,7 +13,7 @@ impl Point {
     @distance_sq (self) -> int = self.x * self.x + self.y * self.y;
 }
 
-impl Printable for Color {
+impl Color: Printable {
     @to_str (self) -> str = "color";
 }
 

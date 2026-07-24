@@ -1,0 +1,6 @@
+@main () -> int = {
+    let s = "round trip";
+    let a = s;
+    print(msg: a);
+    0
+}

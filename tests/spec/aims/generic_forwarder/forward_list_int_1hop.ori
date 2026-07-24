@@ -1,0 +1,20 @@
+// 1-hop generic forwarder over [int] — minimal repro for the generic-
+// forwarder surface (AIMS Invariant #1: Contract <-> realization agreement).
+//
+// Verifies: id<[int]>(x: [int]) -> [int] = x produces a value the caller
+// can read fully (no double-free, no truncation) under both interpreter
+// and LLVM backends. Dual-execution parity is the spec contract.
+
+use std.testing { assert_eq }
+
+@id <T> (x: T) -> T = x;
+
+@forward_list_int_1hop_call () -> [int] = id(x: [1, 2, 3]);
+
+@test_forward_list_int_1hop_preserves_contents tests @forward_list_int_1hop_call () -> void = {
+    let xs = forward_list_int_1hop_call();
+    assert_eq(actual: xs.len(), expected: 3);
+    assert_eq(actual: xs[0], expected: 1);
+    assert_eq(actual: xs[1], expected: 2);
+    assert_eq(actual: xs[2], expected: 3)
+}

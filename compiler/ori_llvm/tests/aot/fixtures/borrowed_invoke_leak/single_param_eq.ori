@@ -1,0 +1,16 @@
+// Pin 1: single-param list-Eq. A fresh `[int]` is passed BORROWED into a
+// may-unwind user-call `Invoke` whose callee compares it (`a == [7, 8]`,
+// a read). The callee does not consume the buffer; per RL-2 the caller
+// releases it after the borrowed call. The receiver dies on the call's
+// successor edges with NO dead-param sink.
+@is_ref (a: [int]) -> bool = {
+    let r = a == [7, 8];
+
+    r
+}
+
+@main () -> int = {
+    let ok = is_ref(a: [7, 8]);
+
+    if ok then 0 else 1
+}

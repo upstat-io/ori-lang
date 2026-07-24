@@ -37,7 +37,7 @@ These values are chosen to handle deeply nested code (100k+ recursion depth) whi
 
 ## Invariants
 
-- **Stack overflow in the compiler is always a bug.** Either recursion depth exceeded its documented limit (256 per `impl-hygiene.md §Panic & Assertion` — user error, clear diagnostic) or `ensure_sufficient_stack` is missing at a recursion point.
+- **Stack overflow in the compiler is always a bug.** Either recursion depth exceeded its documented limit or `ensure_sufficient_stack` is missing at a recursion point.
 - **WASM no-op is safe**: WASM's own stack manager handles growth; the abstraction leaks nothing.
 - **Never rewrite a recursion as iteration just to avoid `ori_stack`**: iterative rewrites are valid for performance but `ori_stack` is still the floor for any remaining recursion.
 

@@ -1,0 +1,12 @@
+@main () -> int = {
+    let result: Result<int, str> = loop {
+        break Err("loop_exit_with_heap_payload");
+    };
+    let msg = match result {
+        Err(e) -> e,
+        Ok(_) -> panic(msg: "should not reach Ok branch"),
+    };
+    let h = msg.contains(substr: "loop_exit");
+    let p = msg.contains(substr: "payload");
+    if h && p then 0 else 1
+}

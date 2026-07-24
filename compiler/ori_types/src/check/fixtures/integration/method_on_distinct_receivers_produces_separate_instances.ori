@@ -1,0 +1,9 @@
+
+type Box<T> = { value: T };
+@unbox_int (b: Box<int>) -> int = b.unwrap();
+@unbox_str (b: Box<str>) -> str = b.unwrap();
+impl<T> Box<T> {
+    @unwrap (self) -> T = self.value;
+}
+@test_int tests @unbox_int () -> void = ();
+@test_str tests @unbox_str () -> void = ();

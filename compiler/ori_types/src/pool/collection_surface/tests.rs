@@ -175,3 +175,47 @@ fn deeply_nested_discovered() {
         "Deeply nested List<int> should be found"
     );
 }
+
+/// Public signatures contribute their collection indices; private ones do not.
+#[test]
+fn public_sigs_collect_private_sigs_skipped() {
+    use super::collect_public_collection_types;
+    use crate::FunctionSig;
+    use ori_ir::Name;
+
+    let mut pool = Pool::new();
+    let list_int = pool.list(Idx::INT);
+    let set_str = pool.set(Idx::STR);
+    // Distinct from every collection reachable from `public_sig` — the ONLY
+    // way this index could end up in `found` is if a private sig's types were
+    // walked, which is the exact behavior this test must falsify.
+    let list_str = pool.list(Idx::STR);
+
+    let mut public_sig = FunctionSig::synthetic(
+        Name::from_raw(1),
+        vec![Name::from_raw(2)],
+        vec![list_int],
+        set_str,
+    );
+    public_sig.is_public = true;
+    let private_sig = FunctionSig::synthetic(
+        Name::from_raw(3),
+        vec![Name::from_raw(4)],
+        vec![list_str],
+        Idx::INT,
+    );
+
+    // Pre-seeded index stays deduplicated, not doubled.
+    let mut found = vec![list_int];
+    collect_public_collection_types(&pool, &[public_sig, private_sig], &mut found);
+
+    assert_eq!(
+        found,
+        vec![list_int, set_str],
+        "public param+return collections collected once; private sig's list_str excluded"
+    );
+    assert!(
+        !found.contains(&list_str),
+        "private sig's collection type must not leak into pub_type_indices"
+    );
+}

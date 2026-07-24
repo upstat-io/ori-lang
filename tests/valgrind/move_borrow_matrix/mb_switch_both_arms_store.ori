@@ -1,0 +1,28 @@
+// Move/borrow matrix: MB11 — match where BOTH arms store the value into a container.
+// A fresh local collection is stored into a struct container in every match arm;
+// the Switch merge threads the binding through the arm block-params. Verifies the
+// dead merge-param obligation is released once per call on every arm — no +1 leak
+// on the storing arms, no double-free at the merge.
+
+type Holder = { kept: [int] }
+
+@store_both (sel: int) -> int = {
+    let base = [1, 2, 3];
+    match sel {
+        1 -> {
+            let h = Holder { kept: base };
+            h.kept.length()
+        },
+        _ -> {
+            let h = Holder { kept: base };
+            h.kept.length() + 10
+        },
+    }
+}
+
+@main () -> int = {
+    let a = store_both(sel: 1);
+    let b = store_both(sel: 0);
+
+    if a == 3 && b == 13 then 0 else 1
+}

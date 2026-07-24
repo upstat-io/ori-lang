@@ -1,38 +1,18 @@
 //! Type error kind definitions.
 //!
-//! Contains [`TypeErrorKind`] (the enum of all type check error variants),
-//! [`ArityMismatchKind`], [`ErrorContext`], and the [`ImportErrorKind`] re-export.
+//! Contains [`TypeErrorKind`] (the enum of all type check error variants).
+//! The satellite classifier enums + [`super::aux_kinds::ErrorContext`] live in
+//! the sibling [`super::aux_kinds`] module.
 
 use ori_ir::{DerivedTrait, Name, Span};
 
-use crate::type_error::{ContextKind, ExpectedOrigin, TypeProblem};
+use crate::type_error::TypeProblem;
 use crate::{Idx, ObjectSafetyViolation};
 
-/// Classifies the expression position where an unresolved type variable was
-/// observed — drives specialized E2005 diagnostic wording per plan §06.1.
-///
-/// The producer (`validate_body_types` in `check/validators/mod.rs`) inspects
-/// the `ExprKind` at the error site and selects the variant. The consumer
-/// (`TypeCheckError::message()` in `check_error/message.rs`) dispatches on
-/// the variant to produce actionable, site-specific message text. The
-/// structured form (vs. a free-form `String`) is SSOT — message wording lives
-/// in exactly one match arm.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub enum AmbiguousTypeSite {
-    /// Generic fallback — used for signature-position vars (no `ExprKind`
-    /// in scope) and for any body-expression `ExprKind` not specifically
-    /// classified below.
-    Expression,
-    /// Empty list literal `[]` (or `ListWithSpread([])` — spec-canonical
-    /// forms for an empty-literal list site). Per plan §06.1, map/set
-    /// literals stay on the generic fallback; this variant is list-only.
-    EmptyList,
-    /// Closure parameter position within a `Lambda` expression whose
-    /// parameter type could not be inferred from the receiver/context.
-    /// Signals the user should write the full `typed_lambda` form
-    /// (`(x: T) -> R = body`) per spec `grammar.ebnf:550-553`.
-    LambdaParam,
-}
+pub use super::aux_kinds::{
+    AmbiguousTypeSite, ArityMismatchKind, ErrorContext, InvalidFixedListCapacityReason,
+    NonCollectingLoopKind, OrBindingMismatchReason, VoidLoopKind,
+};
 
 /// What kind of type error occurred.
 ///
@@ -58,6 +38,15 @@ pub enum TypeErrorKind {
         similar: Vec<Name>,
     },
 
+    /// An `impl Type: Trait` references a trait that is not registered in the
+    /// `TraitRegistry` — either the prelude is unavailable (a prelude trait like
+    /// `Eq`/`Drop` was never registered) or the trait name is a typo. Guards the
+    /// `validate_assoc_types` / `check_conflicting_defaults` ICE.
+    UnresolvedTrait {
+        /// The unresolved trait name (rendered with an interner at a higher layer).
+        trait_name: Name,
+    },
+
     /// Undefined field access.
     UndefinedField {
         /// Type that was accessed.
@@ -66,6 +55,15 @@ pub enum TypeErrorKind {
         field: Name,
         /// Fields that do exist.
         available: Vec<Name>,
+    },
+
+    /// Method call on a concrete receiver with no matching builtin method,
+    /// trait/inherent impl method, or callable struct field.
+    UnknownMethod {
+        /// Receiver type the method was called on.
+        ty: Idx,
+        /// Method name that does not resolve.
+        method: Name,
     },
 
     /// Wrong number of arguments/elements.
@@ -342,6 +340,18 @@ pub enum TypeErrorKind {
         name: Name,
     },
 
+    /// Type does not support index assignment (E2050).
+    IndexAssignNotSupported {
+        /// The receiver type the index-assignment targeted.
+        ty: Idx,
+    },
+
+    /// Cannot assign through a parameter binding (E2051).
+    AssignThroughParameter {
+        /// Name of the parameter binding.
+        name: Name,
+    },
+
     /// Feature not yet supported (E2040).
     UnsupportedFeature {
         /// Description of the unsupported feature.
@@ -355,34 +365,149 @@ pub enum TypeErrorKind {
         /// Human-readable reason (e.g., "alignment must be a power of two").
         reason: String,
     },
-}
 
-/// What kind of arity mismatch occurred.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub enum ArityMismatchKind {
-    /// Function argument count.
-    Function,
-    /// Tuple element count.
-    Tuple,
-    /// Type argument count.
-    TypeArgs,
-    /// Struct field count.
-    StructFields,
-    /// Pattern element count.
-    Pattern,
-}
+    /// Conditional partial move of a non-Drop owned aggregate (E2043).
+    ///
+    /// A field of a non-Drop owned aggregate was projected on one CFG branch
+    /// but not on a sibling branch (or differently). Phase 5 ARC lowering
+    /// requires `moved_out_fields[v]` to be statically computable per-CFG-path;
+    /// conditional partial moves violate that invariant and MUST be rejected
+    /// at type-check time.
+    ConditionalPartialMove {
+        /// The aggregate variable name (e.g., `p` in `p.data`).
+        aggregate: Name,
+        /// The field that is projected asymmetrically (e.g., `data`).
+        field: Name,
+    },
 
-impl ArityMismatchKind {
-    /// Get a description of what has wrong arity.
-    pub fn description(&self) -> &'static str {
-        match self {
-            Self::Function => "arguments",
-            Self::Tuple => "tuple elements",
-            Self::TypeArgs => "type arguments",
-            Self::StructFields => "struct fields",
-            Self::Pattern => "pattern elements",
-        }
-    }
+    /// Use of a binding after `drop_early` consumed it (E2054).
+    ///
+    /// Spec: Clause 13 §13.7 (Variable Lifetime) — `drop_early(value: x)`
+    /// consumes `x` and runs its drop immediately; the binding is
+    /// inaccessible afterward and any subsequent use reads reclaimed memory
+    /// (use-after-free). A re-binding `let` shadowing the name restores
+    /// accessibility.
+    UseAfterDropEarly {
+        /// The consumed binding name (e.g., `x` in `drop_early(value: x)`).
+        binding: Name,
+    },
+
+    /// A fixed-list capacity references a const that is not declared (E2056).
+    UndeclaredFixedListCapacityConst {
+        /// The unresolved capacity name.
+        name: Name,
+    },
+
+    /// A concrete fixed-list capacity is zero or negative (E2057).
+    NonPositiveFixedListCapacity {
+        /// The rejected capacity value.
+        value: i64,
+    },
+
+    /// A fixed-list capacity is not an evaluable integer expression (E2059).
+    InvalidFixedListCapacityExpression {
+        /// The reason compile-time integer evaluation failed.
+        reason: InvalidFixedListCapacityReason,
+    },
+
+    /// Pre-condition contract type must be bool (E2044).
+    ///
+    /// Spec: Clause 15 § Function-Level Contracts — `pre(cond)` requires
+    /// `cond` to type-check as `bool`. A non-bool expression is rejected here.
+    PreContractNotBool {
+        /// Inferred type of the contract expression.
+        actual: Idx,
+    },
+
+    /// Post-condition contract cannot apply to a void-returning function (E2046).
+    ///
+    /// Spec: Clause 15 § Function-Level Contracts — `post(r -> ...)` binds
+    /// the return value to `r`; void-returning functions have no value to bind.
+    PostContractVoidReturn,
+
+    /// Pre-condition contract references an unknown identifier (E2047).
+    ///
+    /// Spec: Clause 15 § Function-Level Contracts — `pre(cond)` may only
+    /// reference function parameters and module-level bindings. Free names
+    /// (locals not yet introduced, typos) are rejected with this code in lieu
+    /// of the generic E2003 to surface contract-scope as the cause.
+    PreContractUnknownIdent {
+        /// The unknown identifier as written.
+        name: Name,
+    },
+
+    /// Refutable `BindingPattern` at let-class binding site (E2001).
+    /// Per Spec Clauses 15.4 / 16: `let <pat> = expr` SHALL require an
+    /// irrefutable pattern. Maps to error code E2001.
+    RefutablePattern {
+        /// Why the pattern is refutable (list length, nested sub-pattern).
+        reason: crate::infer::RefutableReason,
+    },
+
+    /// Or-pattern alternatives bind divergent name-sets or types (E2052/E2053).
+    /// Per Spec Clause 15 (patterns): or-pattern `A | B` alternatives SHALL
+    /// bind identical names + types. `reason` selects the error code + message.
+    OrPatternBindingMismatch {
+        /// The binding name that diverges across alternatives.
+        name: Name,
+        /// Whether the divergence is a missing name (E2052) or a type clash (E2053).
+        reason: OrBindingMismatchReason,
+    },
+
+    /// Partial move on a type implementing `Drop` (E2048).
+    ///
+    /// Per `drop-trait-proposal.md §Execution Timing`, the compiler walks
+    /// owned fields in reverse declaration order AFTER invoking the user
+    /// `@drop` body. Partial-moving a field of a `Drop` type would leave
+    /// `@drop` observing absent fields — banned regardless of CFG path
+    /// (axis disjoint from E2043's conditional-partial-move rule).
+    DropPartialMove {
+        /// The aggregate variable name (e.g., `r` in `r.name`).
+        aggregate: Name,
+        /// The field that was partially moved (e.g., `name`).
+        field: Name,
+        /// The aggregate's Drop-implementing type name (for diagnostic).
+        type_name: Name,
+    },
+
+    /// `Value` and `Drop` on the same type (E2049).
+    ///
+    /// Per Annex E §AIMS: `Value` declares inline storage with bitwise
+    /// copy semantics and no ARC. The
+    /// refcount-zero cleanup path that `@drop` hooks into never fires
+    /// for `Value` types, so pairing them is contradictory. Fires at
+    /// either the type-declaration registration surface (Surface 1 —
+    /// `Value` marker observed AND a `Drop` impl already registered) or
+    /// the `impl T: Drop` registration surface (Surface 2 — `Drop` impl
+    /// observed AND the type's trait set carries `Value`). The span
+    /// always points at the second registration; the type's name
+    /// disambiguates the two surfaces for diagnostic output.
+    ValueDropConflict {
+        /// The type name carrying both markers (e.g., `Point`).
+        type_name: Name,
+    },
+
+    /// `break value` in a void-typed loop (E0860).
+    ///
+    /// Spec: Clause 14 (Break and Continue) + Clause 16 (Loop Control) —
+    /// `while...do` and `for...do` have type `void`, so a
+    /// value attached to `break` has no destination. Only `loop { }` and
+    /// `for...yield` carry a break value.
+    BreakValueInVoidLoop {
+        /// Which void-typed loop form the `break value` appeared in.
+        loop_kind: VoidLoopKind,
+    },
+
+    /// `continue value` in a non-collecting loop (E0861).
+    ///
+    /// Spec: Clause 14 (Break and Continue) + Clause 16 (Loop Control) —
+    /// `loop`, `while`, and `for...do` do not accumulate
+    /// values, so a value attached to `continue` has no destination. Only
+    /// `for...yield` substitutes a `continue value`.
+    ContinueValueInNonCollectingLoop {
+        /// Which non-collecting loop form the `continue value` appeared in.
+        loop_kind: NonCollectingLoopKind,
+    },
 }
 
 /// Re-export the canonical `ImportErrorKind` from `ori_ir`.
@@ -390,54 +515,3 @@ impl ArityMismatchKind {
 /// Single source of truth shared by both the import resolver (`oric::imports`)
 /// and the type checker. All 6 variants are available without lossy mapping.
 pub use ori_ir::ImportErrorKind;
-
-/// Context information for a type error.
-///
-/// Tracks WHERE in code the error occurred and WHY we expected a type.
-///
-/// # Salsa Compatibility
-/// Derives `Eq, PartialEq, Hash` for use in Salsa query results.
-#[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
-pub struct ErrorContext {
-    /// What kind of context we're checking in.
-    pub checking: Option<ContextKind>,
-    /// Why we expected a particular type.
-    pub expected_because: Option<ExpectedOrigin>,
-    /// Additional notes to include in the error.
-    pub notes: Vec<String>,
-}
-
-impl ErrorContext {
-    /// Create a new error context.
-    pub fn new(checking: ContextKind) -> Self {
-        Self {
-            checking: Some(checking),
-            expected_because: None,
-            notes: Vec::new(),
-        }
-    }
-
-    /// Set why we expected a type.
-    #[must_use]
-    pub fn with_expected_origin(mut self, origin: ExpectedOrigin) -> Self {
-        self.expected_because = Some(origin);
-        self
-    }
-
-    /// Add a note to the context.
-    #[must_use]
-    pub fn with_note(mut self, note: impl Into<String>) -> Self {
-        self.notes.push(note.into());
-        self
-    }
-
-    /// Get a description of the context for error messages.
-    pub fn describe(&self) -> Option<String> {
-        self.checking.as_ref().map(ContextKind::describe)
-    }
-
-    /// Get a description of why the type was expected.
-    pub fn expectation_reason(&self) -> Option<String> {
-        self.expected_because.as_ref().map(ExpectedOrigin::describe)
-    }
-}

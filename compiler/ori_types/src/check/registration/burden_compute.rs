@@ -1,0 +1,300 @@
+//! User-type burden computation (typeck phase 0b).
+//!
+//! Computes `UserBurdenSpec` for struct / enum / newtype declarations at
+//! registration time via the Tag-first ternary partition per the Phase
+//! Boundary Cure (`Tag::Borrowed` → `borrowed_fields`; heap-owning tags +
+//! `Triviality::NonTrivial` compounds → `owned_fields`; scalars omitted).
+//! Consumed by `register_type_decl` in `user_types.rs`.
+//!
+//! Partition rules:
+//! - Scalar (`Int/Float/Bool/Char/Byte/Unit/Duration/Size/Ordering/Never`):
+//!   OMIT from both `owned_fields` and `borrowed_fields`.
+//! - `Tag::Borrowed` (target-only): `borrowed_fields`.
+//! - Heap-owning tags (`Str/List/Map/Set/Channel/Iterator/Function`) +
+//!   `Triviality::NonTrivial` compounds: `owned_fields`.
+//! - `Triviality::Unknown`: conservative `owned_fields` (PC-2 violation if
+//!   reached at typeck exit).
+//!
+//! Phase-purity: this module reads `ori_types::Tag` + `ori_types::triviality`
+//! only — `ori_arc::ArcClass` is downstream (Phase 4) and SHALL NOT leak here.
+
+use core::num::NonZeroU32;
+
+use ori_registry::burden::{TransferKind, VariantId};
+
+use crate::registry::burden::{
+    UserBurdenSpec, UserOwnedField, UserTransferRule, UserVariantBurden,
+};
+use crate::triviality::{classify_triviality, Triviality};
+use crate::{FieldDef, Idx, Pool, Tag, TypeKind, TypeRegistry, VariantDef, VariantFields};
+
+/// Per-field burden classification under the Tag-first ternary partition.
+///
+/// The `Borrowed` arm of the ternary partition is reserved for `Tag::Borrowed`
+/// which is target-only — added back when borrow-tag construction ships.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum FieldClass {
+    /// Scalar — omit from both partitions.
+    Scalar,
+    /// Owned-heap — track in `owned_fields` / `transfers_on_match`.
+    Owned,
+}
+
+/// Saturating `usize -> u32` for field-path indices.
+///
+/// Field/variant counts are bounded by source-code declarations; in practice
+/// they never approach `u32::MAX`. Saturation is a conservative correctness
+/// floor for pathological inputs.
+fn idx_u32(i: usize) -> u32 {
+    u32::try_from(i).unwrap_or(u32::MAX)
+}
+
+/// Saturating `usize -> u16` for variant `binding_index`.
+fn idx_u16(i: usize) -> u16 {
+    u16::try_from(i).unwrap_or(u16::MAX)
+}
+
+/// Classify a single field's tag for the ternary partition.
+fn classify_field_for_burden(field_ty: Idx, pool: &Pool) -> FieldClass {
+    let resolved = pool.resolve_fully(field_ty);
+    let tag = pool.tag(resolved);
+    match tag {
+        // Scalar tier — omit from both owned_fields and borrowed_fields.
+        Tag::Int
+        | Tag::Float
+        | Tag::Bool
+        | Tag::Char
+        | Tag::Byte
+        | Tag::Unit
+        | Tag::Never
+        | Tag::Duration
+        | Tag::Size
+        | Tag::Ordering
+        | Tag::Error => FieldClass::Scalar,
+        // Heap-owning leaf tags — owned.
+        Tag::Str
+        | Tag::List
+        | Tag::Map
+        | Tag::Set
+        | Tag::Channel
+        | Tag::Iterator
+        | Tag::DoubleEndedIterator
+        | Tag::Function => FieldClass::Owned,
+        // Compound / nominal / type-var tags — classify via Triviality.
+        _ => match classify_triviality(field_ty, pool) {
+            Triviality::Trivial => FieldClass::Scalar,
+            Triviality::NonTrivial | Triviality::Unknown => FieldClass::Owned,
+        },
+    }
+}
+
+/// Build a `UserBurdenSpec` from a struct's field types. Shared classification
+/// core behind [`compute_struct_burden`] (declared `FieldDef`s) and
+/// [`compute_struct_burden_from_field_types`] (materialized concrete field type
+/// lists): classifies every field via `classify_field_for_burden`, collecting
+/// the heap-owning ones. `borrowed_fields` stays empty until `Tag::Borrowed`
+/// construction ships (that tier is reserved for the target-only tag). Returns
+/// `None` when no field carries an owned obligation.
+fn build_struct_burden(
+    field_types: impl Iterator<Item = Idx>,
+    pool: &Pool,
+) -> Option<UserBurdenSpec> {
+    let mut owned = Vec::new();
+    for (i, ty) in field_types.enumerate() {
+        if let FieldClass::Owned = classify_field_for_burden(ty, pool) {
+            owned.push(UserOwnedField {
+                field_path: vec![idx_u32(i)],
+                field_type: ty,
+            });
+        }
+    }
+    if owned.is_empty() {
+        return None;
+    }
+    Some(UserBurdenSpec {
+        self_owned_identity: true,
+        owned_fields: owned,
+        borrowed_fields: Vec::new(),
+        ..UserBurdenSpec::default()
+    })
+}
+
+/// Compute burden for a struct from its field list.
+pub(crate) fn compute_struct_burden(
+    field_defs: &[FieldDef],
+    pool: &Pool,
+) -> Option<UserBurdenSpec> {
+    build_struct_burden(field_defs.iter().map(|fd| fd.ty), pool)
+}
+
+/// Compute burden from a struct's (already-substituted) field TYPES — the
+/// per-instantiation analogue of [`compute_struct_burden`], consumed by
+/// `compose_for_idx` for generic-user-struct instantiations (e.g. `Box<[int]>`)
+/// whose concrete fields are read via `Pool::struct_fields` (no `FieldDef`
+/// available).
+pub(crate) fn compute_struct_burden_from_field_types(
+    field_types: &[Idx],
+    pool: &Pool,
+) -> Option<UserBurdenSpec> {
+    build_struct_burden(field_types.iter().copied(), pool)
+}
+
+/// Compute burden from an enum's (already-substituted) variant payload TYPES —
+/// the per-instantiation analogue of [`compute_enum_burden`], consumed by
+/// `compose_for_idx` for generic-user-enum instantiations (e.g.
+/// `Either<[int], int>`) whose concrete variant payloads are read via
+/// `Pool::enum_variants` (no `VariantDef` available). Mirrors
+/// [`compute_enum_burden`]'s per-variant classification exactly; `variants` is
+/// the `(variant_name, payload_types)` list from the materialized concrete enum.
+pub(crate) fn compute_enum_burden_from_variant_payloads(
+    variants: &[(ori_ir::Name, Vec<Idx>)],
+    pool: &Pool,
+) -> Option<UserBurdenSpec> {
+    build_enum_burden(
+        variants
+            .iter()
+            .map(|(_, payloads)| payloads.iter().copied()),
+        pool,
+    )
+}
+
+fn push_variant_field(
+    fi: usize,
+    field_ty: Idx,
+    pool: &Pool,
+    transfers: &mut Vec<UserTransferRule>,
+    retained: &mut Vec<UserOwnedField>,
+) {
+    let path = vec![idx_u32(fi)];
+    match classify_field_for_burden(field_ty, pool) {
+        FieldClass::Scalar => {}
+        FieldClass::Owned => {
+            transfers.push(UserTransferRule {
+                source_field_path: path.clone(),
+                binding_index: idx_u16(fi),
+                field_type: field_ty,
+                transfer_kind: TransferKind::Move,
+            });
+            retained.push(UserOwnedField {
+                field_path: path,
+                field_type: field_ty,
+            });
+        }
+    }
+}
+
+/// Build a `UserBurdenSpec` from each variant's payload field types. Shared
+/// classification core behind [`compute_enum_burden`] (declared `VariantDef`s)
+/// and [`compute_enum_burden_from_variant_payloads`] (materialized concrete
+/// payload type lists): assigns the 1-indexed `VariantId`, classifies every
+/// payload via `push_variant_field`. Returns `None` when no variant carries a
+/// transfer/retained obligation.
+fn build_enum_burden(
+    per_variant_payloads: impl Iterator<Item = impl IntoIterator<Item = Idx>>,
+    pool: &Pool,
+) -> Option<UserBurdenSpec> {
+    let mut variant_burdens = Vec::new();
+    for (vi, payloads) in per_variant_payloads.enumerate() {
+        // Variant IDs are 1-indexed (NonZeroU32). Saturating add guards against
+        // pathological variant counts; fall back to NonZeroU32::MIN if the
+        // computed value ever lands on zero (which it cannot, by construction).
+        let nz = NonZeroU32::new(idx_u32(vi).saturating_add(1)).unwrap_or(NonZeroU32::MIN);
+        let variant_id = VariantId::new(nz);
+        let mut transfers = Vec::new();
+        let mut retained = Vec::new();
+        for (fi, ty) in payloads.into_iter().enumerate() {
+            push_variant_field(fi, ty, pool, &mut transfers, &mut retained);
+        }
+        variant_burdens.push(UserVariantBurden {
+            variant_id,
+            transfers_on_match: transfers,
+            retained_owned: retained,
+        });
+    }
+    if variant_burdens
+        .iter()
+        .all(|v| v.transfers_on_match.is_empty() && v.retained_owned.is_empty())
+    {
+        return None;
+    }
+    Some(UserBurdenSpec {
+        self_owned_identity: true,
+        variant_burdens,
+        ..UserBurdenSpec::default()
+    })
+}
+
+/// Flatten a declared variant's fields into its payload type sequence.
+fn variant_payload_types(variant: &VariantDef) -> Vec<Idx> {
+    match &variant.fields {
+        VariantFields::Unit => Vec::new(),
+        VariantFields::Tuple(field_types) => field_types.clone(),
+        VariantFields::Record(field_defs) => field_defs.iter().map(|fd| fd.ty).collect(),
+    }
+}
+
+/// Compute burden for an enum from its variant list.
+pub(crate) fn compute_enum_burden(variants: &[VariantDef], pool: &Pool) -> Option<UserBurdenSpec> {
+    build_enum_burden(variants.iter().map(variant_payload_types), pool)
+}
+
+/// Compute burden for a newtype from its underlying type index.
+pub(crate) fn compute_newtype_burden(
+    underlying: Idx,
+    pool: &Pool,
+    type_registry: &TypeRegistry,
+) -> Option<UserBurdenSpec> {
+    let resolved = pool.resolve_fully(underlying);
+    // If underlying resolves to a previously-registered user type, inherit
+    // its burden directly. Cycle composition deferred to the composition
+    // layer (monomorphized-instance burden composition).
+    if let Some(entry) = type_registry.get_by_idx(resolved) {
+        match entry.kind {
+            TypeKind::Struct(_)
+            | TypeKind::Enum { .. }
+            | TypeKind::Newtype { .. }
+            | TypeKind::Alias { .. } => return entry.burden.clone(),
+        }
+    }
+    // Underlying is a builtin / primitive / not-yet-registered.
+    let tag = pool.tag(resolved);
+    match tag {
+        Tag::Int
+        | Tag::Float
+        | Tag::Bool
+        | Tag::Char
+        | Tag::Byte
+        | Tag::Unit
+        | Tag::Never
+        | Tag::Duration
+        | Tag::Size
+        | Tag::Ordering
+        | Tag::Error => None,
+        Tag::Str
+        | Tag::List
+        | Tag::Map
+        | Tag::Set
+        | Tag::Channel
+        | Tag::Iterator
+        | Tag::DoubleEndedIterator
+        | Tag::Function => Some(UserBurdenSpec {
+            self_owned_identity: true,
+            owned_fields: vec![UserOwnedField {
+                field_path: vec![0],
+                field_type: underlying,
+            }],
+            ..UserBurdenSpec::default()
+        }),
+        _ => match classify_triviality(underlying, pool) {
+            Triviality::Trivial => None,
+            Triviality::NonTrivial | Triviality::Unknown => Some(UserBurdenSpec {
+                self_owned_identity: true,
+                owned_fields: vec![UserOwnedField {
+                    field_path: vec![0],
+                    field_type: underlying,
+                }],
+                ..UserBurdenSpec::default()
+            }),
+        },
+    }
+}

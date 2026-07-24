@@ -1,0 +1,38 @@
+// Benchmark: Fresh-allocation loop (per-iteration alloc/free churn + DP-2)
+// Shape: a tight loop that on every iteration
+// constructs a fresh owned heap value ([int]), consumes it (sums it), and
+// drops it at scope exit. Isolates per-iteration allocation/deallocation
+// churn where the burden path retires the dead-after-use value cleanly.
+//
+// RC focus: each `build_and_sum` call allocates a fresh owned `[int]` whose
+// contents depend on `base` (defeats hoisting), sums it, and returns the sum.
+// `xs` is dead after the sum loop, so Phase 5 emits a BurdenDec at its scope
+// exit and Phase 6 DP-2 (Consumption=Dead / Cardinality=Absent) elides any
+// redundant retain over the burden baseline — the value is born, consumed
+// once, and freed with a single dec. The loop multiplies the per-iteration
+// alloc + single-dec traffic; no RC survives to the caller.
+
+@build_and_sum (base: int, n: int) -> int = {
+    let xs: [int] = for i in 0..n yield base + i;
+    let s = 0;
+    for v in xs do {
+        s = s + v;
+    };
+    s
+}
+
+@main () -> int = {
+    let n = 1000;
+    let iters = 100000;
+    let total = 0;
+    let i = 0;
+    loop {
+        if i >= iters then break;
+        total = total + build_and_sum(base: i, n: n);
+        i = i + 1;
+    };
+    // sum over i in 0..iters of (n*i + n*(n-1)/2)
+    //   = n * (iters*(iters-1)/2) + iters * (n*(n-1)/2)
+    let expected = n * (iters * (iters - 1) / 2) + iters * (n * (n - 1) / 2);
+    if total == expected then 0 else 1
+}

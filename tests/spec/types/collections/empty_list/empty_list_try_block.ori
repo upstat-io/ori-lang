@@ -4,6 +4,7 @@
 // does not propagate a constraint back to the bare parameter.
 
 #compile_fail(code: "E2005")
+@empty_list_try_block tests _ () -> void = { () }
 
 @try_len (xs) -> Result<int, str> = try {
     let $n = xs.len();

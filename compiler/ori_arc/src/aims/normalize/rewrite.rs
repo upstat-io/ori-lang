@@ -5,9 +5,8 @@
 //!
 //! # Loop-header transformation
 //!
-//! Instead of changing the function's signature (which would break all
-//! callers and invalidate interprocedural contracts), we convert the
-//! self-recursion into a loop with block parameters carrying the context.
+//! Instead of changing the function's signature, which would invalidate
+//! interprocedural contracts, the rewrite uses loop parameters for context.
 //! See [`rewrite_trmc`] for the full block layout. The function signature
 //! is **unchanged**. Uses [`LitValue::Null`] for hole field placeholders.
 //!
@@ -100,6 +99,22 @@ struct RewriteInput {
     rec_args: Vec<ArcVarId>,
 }
 
+/// Fresh context vars + entry block threaded into the recursive-path rewrite.
+///
+/// Bundles the TRMC context-state triple (`ctx_has`, `ctx_res`,
+/// `ctx_hole_obj`), the loop-back result + flag vars (`new_res`, `true_var`),
+/// and the loop-header `entry_block`. All six are allocated together in
+/// `rewrite_single_region` and consumed together by `emit_recursive_path`.
+#[derive(Clone, Copy)]
+struct RecursivePathVars {
+    ctx_has: ArcVarId,
+    ctx_res: ArcVarId,
+    ctx_hole_obj: ArcVarId,
+    new_res: ArcVarId,
+    true_var: ArcVarId,
+    entry_block: ArcBlockId,
+}
+
 /// Run admission checks and extract metadata for the rewrite.
 ///
 /// Returns `None` if any gate fails.
@@ -172,36 +187,25 @@ fn rewrite_single_region(func: &mut ArcFunction, region: &ContextRegion) -> bool
     let original_block_count = func.blocks.len();
 
     // Allocate all fresh variables up front.
-    let ctx_has = func.fresh_var(ori_types::Idx::BOOL);
-    let ctx_res = func.fresh_var(return_ty);
-    let ctx_hole_obj = func.fresh_var(return_ty);
-    let false_var = func.fresh_var(ori_types::Idx::BOOL);
-    let null_sentinel = func.fresh_var(return_ty);
-    let new_res = func.fresh_var(return_ty);
-    let true_var = func.fresh_var(ori_types::Idx::BOOL);
+    let ctx_has = func.fresh_scalar_var(ori_types::Idx::BOOL);
+    let ctx_res = func.fresh_var_like_typed(input.ctor_dst, return_ty);
+    let ctx_hole_obj = func.fresh_var_like_typed(input.ctor_dst, return_ty);
+    let false_var = func.fresh_scalar_var(ori_types::Idx::BOOL);
+    let null_sentinel = func.fresh_var_like_typed(input.ctor_dst, return_ty);
+    let new_res = func.fresh_var_like_typed(input.ctor_dst, return_ty);
+    let true_var = func.fresh_scalar_var(ori_types::Idx::BOOL);
 
-    // Step 1: Allocate fresh block params for each function parameter.
-    //
-    // We must NOT reuse the function's parameter ArcVarIds here. If we did,
-    // the prologue's `Jump header [v0, v1, ...]` would pass `v0` to a block
-    // param also named `v0`. Block merge Phase 7 (invariant param elimination)
-    // would see `arg == param_var` and treat the prologue as a self-referencing
-    // back-edge, incorrectly eliminating the param.
-    //
-    // With fresh IDs, Phase 7 sees distinct vars from both predecessors and
-    // correctly identifies the params as non-invariant.
-    // (Same pattern as tail_call/rewrite.rs lines 50-68.)
-    let param_types: Vec<ori_types::Idx> = func.params.iter().map(|p| p.ty).collect();
-    let fresh_params: Vec<(ArcVarId, ori_types::Idx)> = param_types
+    // Why: Fresh IDs prevent invariant-param elimination from treating the prologue edge as a self-edge.
+    let params: Vec<(ArcVarId, ori_types::Idx)> =
+        func.params.iter().map(|p| (p.var, p.ty)).collect();
+    let fresh_params: Vec<(ArcVarId, ori_types::Idx)> = params
         .iter()
-        .map(|&ty| {
-            let fresh = func.fresh_var(ty);
+        .map(|&(source, ty)| {
+            let fresh = func.fresh_var_like_typed(source, ty);
             (fresh, ty)
         })
         .collect();
 
-    // Step 2: Create prologue block (new entry). Passes original param
-    // vars followed by 3 context init values (false, null, null).
     let param_vars: Vec<ArcVarId> = func.params.iter().map(|p| p.var).collect();
     emit_prologue(
         func,
@@ -212,8 +216,6 @@ fn rewrite_single_region(func: &mut ArcFunction, region: &ContextRegion) -> bool
         return_ty,
     );
 
-    // Step 3: Set loop header (original entry) block params wholesale.
-    // Layout: [fresh_param_0, ..., fresh_param_N, ctx_has, ctx_res, ctx_hole_obj]
     let entry_idx = entry_block.index();
     let mut header_params = fresh_params.clone();
     header_params.push((ctx_has, ori_types::Idx::BOOL));
@@ -221,22 +223,21 @@ fn rewrite_single_region(func: &mut ArcFunction, region: &ContextRegion) -> bool
     header_params.push((ctx_hole_obj, return_ty));
     func.blocks[entry_idx].params = header_params;
 
-    // Step 4: Rewrite recursive site + emit compose/first-call/loop-back blocks.
-    // Done BEFORE prepending Let bindings so the recursive block body
-    // indices used by emit_recursive_path remain valid.
+    // Why: Emit the recursive path before prepending bindings because it indexes the original body.
     emit_recursive_path(
         func,
         region,
         &input,
-        ctx_has,
-        ctx_res,
-        ctx_hole_obj,
-        new_res,
-        true_var,
-        entry_block,
+        RecursivePathVars {
+            ctx_has,
+            ctx_res,
+            ctx_hole_obj,
+            new_res,
+            true_var,
+            entry_block,
+        },
     );
 
-    // Step 5: Rewrite base-case returns.
     rewrite_base_case_returns(
         func,
         region,
@@ -247,13 +248,7 @@ fn rewrite_single_region(func: &mut ArcFunction, region: &ContextRegion) -> bool
         original_block_count,
     );
 
-    // Step 6: Prepend Let bindings that define original param vars from
-    // fresh block params. The header body references original param vars,
-    // so these bindings bridge fresh block params → original names.
-    // (Same pattern as tail_call/rewrite.rs lines 104-124.)
-    //
-    // Done after Steps 4-5 so that the recursive block body replacement
-    // and base-case return rewriting are complete.
+    // Why: Rebinding after control-flow rewrites preserves their original body indices.
     let mut let_bindings: Vec<ArcInstr> = Vec::with_capacity(fresh_params.len());
     for (i, param) in func.params.iter().enumerate() {
         let_bindings.push(ArcInstr::Let {
@@ -266,12 +261,10 @@ fn rewrite_single_region(func: &mut ArcFunction, region: &ContextRegion) -> bool
     func.blocks[entry_idx].body = let_bindings;
     func.blocks[entry_idx].body.extend(original_body);
 
-    // Maintain spans: prepend None spans for the synthetic Let bindings.
     let original_spans = std::mem::take(&mut func.spans[entry_idx]);
     func.spans[entry_idx] = vec![None; fresh_params.len()];
     func.spans[entry_idx].extend(original_spans);
 
-    // Step 7: Post-rewrite verification (debug builds only).
     if cfg!(debug_assertions) {
         verify_rewrite(func);
     }
@@ -331,21 +324,20 @@ fn emit_prologue(
 }
 
 /// Rewrite the recursive site and emit compose/first-call/loop-back blocks.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "internal helper, all params needed"
-)]
 fn emit_recursive_path(
     func: &mut ArcFunction,
     region: &ContextRegion,
     input: &RewriteInput,
-    ctx_has: ArcVarId,
-    ctx_res: ArcVarId,
-    ctx_hole_obj: ArcVarId,
-    new_res: ArcVarId,
-    true_var: ArcVarId,
-    entry_block: ArcBlockId,
+    vars: RecursivePathVars,
 ) {
+    let RecursivePathVars {
+        ctx_has,
+        ctx_res,
+        ctx_hole_obj,
+        new_res,
+        true_var,
+        entry_block,
+    } = vars;
     let return_ty = func.return_type;
 
     // Build new body: instructions before call, between call and construct.

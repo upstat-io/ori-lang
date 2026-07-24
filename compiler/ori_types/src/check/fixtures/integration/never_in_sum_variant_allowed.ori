@@ -1,0 +1,4 @@
+
+type MaybeNever = Value(v: int) | Impossible(n: Never);
+@use_it (m: MaybeNever) -> int = match m { Value(v) -> v }
+@test_use_it tests @use_it () -> void = ();

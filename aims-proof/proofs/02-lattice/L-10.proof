@@ -1,0 +1,113 @@
+Theorem L-10: Dimension extension requires per-rule proofs
+
+  Preconditions:
+    - Adding a new dimension D to the AimsState product lattice per
+      Annex E §AIMS.8 L-10
+    - The extension MUST preserve the prior axioms L-1 through L-8
+    - L-10 is the META-THEOREM governing future lattice extensions;
+      it does NOT add a new dimension itself — it constrains the
+      addition protocol
+
+  Soundness property:
+    Forall new dimension D added to AimsState, the extended product
+    lattice AimsState' = AimsState x D satisfies all of L-1..L-8 iff
+    D satisfies the following four obligations:
+      (a) D has finite height (re-prove L-5 for D);
+      (b) D has a defined join operation dim_join_D : D x D -> D;
+      (c) canonicalization extends to cover D's interaction with prior
+          dimensions (CN-N rules updated if D introduces new feasibility
+          constraints);
+      (d) L-1 through L-8 still hold for the extended product (per-dim
+          obligations + product-lift lemmas).
+
+  Proof obligation:
+    L-10 is a meta-theorem; the proof is a constructive schema that,
+    given any candidate dimension D, exhibits the per-axiom obligations
+    the addition must discharge.
+
+    The proof is the discharge SCHEMA, not a particular dimension's
+    discharge. It states: if D satisfies (a) + (b) + (c) + (d), then
+    AimsState x D satisfies L-1 through L-8. The converse is also
+    true by construction (the product-lift lemmas require per-dim
+    versions of each axiom).
+
+    Schema discharge by per-axiom componentwise-lift lemma:
+
+      L-1' (extended commutativity):
+        join_AimsState'((a, d1), (b, d2))
+          = (join_AimsState(a, b), dim_join_D(d1, d2)) (def)
+          = (join_AimsState(b, a), dim_join_D(d2, d1)) (L-1 + D-commut)
+          = join_AimsState'((b, d2), (a, d1)) (def reverse)
+        Holds iff (a) dim_join_D is commutative AND (b) AimsState has L-1.
+        Existing AimsState has L-1 by sec-02 L-1 discharge; D-commut is
+        obligation (d) component.
+
+      L-2' (extended associativity): analogous — per-dim L-2 on D +
+        product-lift implies extended product L-2.
+
+      L-3' (extended idempotence): analogous — per-dim L-3 on D +
+        product-lift implies extended product L-3.
+
+      L-4' (extended partial order): the partial order on AimsState' is
+        componentwise; (a, d1) le' (b, d2) iff a le b AND d1 le_D d2.
+        Reflexivity / antisymmetry / transitivity at the product level
+        follow from per-dim versions for all dims including D.
+
+      L-5' (extended finite height):
+        height(AimsState') = height(AimsState) + height(D) = 16 + h(D)
+        Finite iff h(D) finite (obligation (a)).
+
+      L-6' (extended transfer monotonicity): per-TF-N rule on the
+        extended product is monotone iff (i) the rule's restriction
+        to AimsState is monotone (already proven at sec-04) AND (ii)
+        the rule's restriction to D is monotone (D-side obligation;
+        a new TF-N variant per existing rule may be required if D
+        introduces D-affecting transfer semantics).
+
+      L-7' (extended canonicalization idempotence): canonicalize'
+        composes existing CN-1..CN-8 with any new CN-* rules added
+        for D (obligation (c)). Each new CN-* rule's idempotence is
+        a per-rule obligation; composition idempotence follows from
+        per-rule idempotence + fixpoint argument (analogous to L-7
+        layer (a)).
+
+      L-8' (extended canonicalization preserves joins): analogous —
+        per-CN-rule (existing + D's new rules) preserve canonical form
+        on canonical inputs; lifts to extended product.
+
+    Worked example (illustrative; NOT a discharge of any specific D):
+      Suppose D = ThreadShared = {Local, Shared}, height 1, join = max.
+      Obligations:
+        (a) height(ThreadShared) = 1; finite. PASS.
+        (b) dim_join_ThreadShared = max on {Local, Shared}. defined.
+        (c) Add CN-* rule if ThreadShared interacts with existing dims;
+            e.g., CN-9 might say "Locality = top implies ThreadShared
+            = Shared" (mirroring CN-6's wide-locality demotion). Verify
+            CN-9 is idempotent + monotone + preserves canonical-form
+            via per-pair enumeration on the relevant slice.
+        (d) Apply schema lemmas above; sec-02 L-1..L-8 lift directly
+            via componentwise extension.
+      Result: AimsState' = AimsState x ThreadShared satisfies L-1
+      through L-8.
+
+    Removal direction:
+      L-10 also constrains dimension REMOVAL (or merger). Removing D
+      from AimsState produces AimsState'' = AimsState minus D; the
+      axioms transfer trivially (dropping a dimension reduces the
+      product-tuple length; per-dim axioms on the remaining dimensions
+      are unchanged). Schema: for any d-slice to remove, verify the
+      remaining product still satisfies L-1..L-8 (mechanically true if
+      they held on the full product). Per HISTORY notes in
+      Annex E §AIMS, the removal protocol is what landed CN-4 and
+      CN-7's removal — both shown to be redundant (subsumed by other
+      rules) without violating L-1..L-8.
+
+    Engines dispatched:
+      lattice (schema verification per
+        section_02::verify_l10_dimension_extension_schema)
+      monotonicity (validates the L-6' lift — per-dim monotonicity on
+        D implies product monotonicity on AimsState x D)
+
+  Expected:
+    status: valid
+    reason: sec-02 lattice engine discharges L-10 as a meta-theorem schema; per-D obligations (a)+(b)+(c)+(d) are enumerated and the L-1'..L-8' lift lemmas constructed

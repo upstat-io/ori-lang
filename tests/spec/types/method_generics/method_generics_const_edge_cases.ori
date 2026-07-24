@@ -1,0 +1,40 @@
+// Spec: Clause 8.2.2 Fixed-Capacity List; Clause 8.3.1 Const Generic Parameters
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+//
+// Positive capacities reach the method body as exact const arguments. Zero and
+// negative capacities are rejected before evaluator or LLVM realization.
+
+use std.testing { assert_eq }
+
+type Vec<T> = { items: [T] }
+
+impl<T> Vec<T> {
+    @first_n<$N: int> (self) -> [T, max N] = self.items.take(count: N).to_fixed<$N>();
+}
+
+#compile_fail(code: "E2057", message: "fixed-list capacity must be a positive compile-time integer; supplied 0")
+@test_const_zero tests _ () -> void = {
+    let v = Vec { items: [1, 2, 3] };
+    let none: [int, max 0] = v.first_n();
+    assert_eq(actual: none.len(), expected: 0)
+}
+
+@test_const_one tests _ () -> void = {
+    let v = Vec { items: [10, 20, 30] };
+    let one: [int, max 1] = v.first_n();
+    assert_eq(actual: one.len(), expected: 1);
+    assert_eq(actual: one[0], expected: 10)
+}
+
+@test_const_large tests _ () -> void = {
+    let v = Vec { items: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] };
+    let big: [int, max 1000] = v.first_n();
+    assert_eq(actual: big.len(), expected: 10)
+}
+
+#compile_fail(code: "E2057", message: "fixed-list capacity must be a positive compile-time integer; supplied -1")
+@test_const_negative tests _ () -> void = {
+    let v = Vec { items: [1, 2, 3] };
+    let neg: [int, max -1] = v.first_n();
+    assert_eq(actual: neg.len(), expected: 0)
+}

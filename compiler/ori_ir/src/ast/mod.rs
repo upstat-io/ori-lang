@@ -24,14 +24,15 @@ mod ranges;
 mod stmt;
 
 // Re-export core expression types
-pub use expr::{Expr, ExprKind, TemplatePart};
+pub use expr::{AccessStep, Expr, ExprKind, TemplatePart};
 pub use operators::{BinaryOp, UnaryOp};
 pub use stmt::{Stmt, StmtKind};
 
 // Re-export all range types
 pub use ranges::{
-    ArmRange, CallArgRange, FieldInitRange, GenericParamRange, ListElementRange, MapElementRange,
-    MapEntryRange, NamedExprRange, ParamRange, StructLitFieldRange, TemplatePartRange,
+    AccessStepRange, ArmRange, CallArgRange, FieldInitRange, GenericParamRange, ListElementRange,
+    MapElementRange, MapEntryRange, NamedExprRange, ParamRange, StructLitFieldRange,
+    TemplatePartRange,
 };
 
 // Re-export collection types
@@ -45,12 +46,13 @@ pub use patterns::{
 
 // Re-export item types
 pub use items::{
-    CapabilityRef, CfgAttr, ConstDef, DefImplDef, ExpectedError, ExtendDef, ExtensionImport,
-    ExtensionImportItem, ExternBlock, ExternItem, ExternParam, FileAttr, Function, GenericParam,
-    ImplAssocType, ImplDef, ImplMethod, ImportErrorKind, ImportPath, Module, Param, PostContract,
-    PreContract, ReprAttrKind, StructField, TargetAttr, TestDef, TraitAssocType, TraitBound,
-    TraitDef, TraitDefaultMethod, TraitItem, TraitMethodSig, TypeDecl, TypeDeclKind, UseDef,
-    UseItem, Variant, VariantField, WhereClause,
+    qualified_alias_name, BackendSkip, CapabilityRef, CfgAttr, ConstDef, DefImplDef, ExpectedError,
+    ExtendDef, ExtensionImport, ExtensionImportItem, ExternBlock, ExternItem, ExternParam,
+    FileAttr, Function, GenericParam, ImplAssocType, ImplDef, ImplMethod, ImportCycleGuard,
+    ImportErrorKind, ImportPath, Module, Param, PostContract, PreContract, ReprAttrKind,
+    StructField, TargetAttr, TestBackend, TestDef, TestId, TraitAssocType, TraitBound, TraitDef,
+    TraitDefaultMethod, TraitItem, TraitMethodSig, TypeDecl, TypeDeclKind, UseDef, UseItem,
+    Variant, VariantField, WhereClause,
 };
 
 /// Visibility of a declaration.

@@ -1,0 +1,18 @@
+// Pin 13b (negative GREEN guard — multi-variant one-heap-payload, NON-heap arm
+// exercised): same `Mix = Tag(n: int) | Bag(xs: [int])`, but the HEAP-FREE
+// variant (`Tag`) flows through the borrow. No over-suppression and no spurious
+// release on the non-heap path (the niche-packed `Tag` carries no RC header).
+// Must stay clean. Spec: Annex E §AIMS RL-2.
+type Mix = Tag(n: int) | Bag(xs: [int]);
+
+@mix_total (m: Mix) -> int = match m {
+    Tag(n:) -> n,
+    Bag(xs:) -> xs.fold(initial: 0, op: (acc, x) -> acc + x),
+};
+
+@main () -> int = {
+    let m = Tag(n: 15);
+    let total = mix_total(m: m);
+
+    if total == 15 then 0 else 1
+}

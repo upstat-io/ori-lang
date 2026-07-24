@@ -1,0 +1,3 @@
+type Color = Red | Green | Blue;
+
+@main () -> int = 42;

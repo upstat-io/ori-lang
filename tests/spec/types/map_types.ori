@@ -276,7 +276,7 @@
 // // Map with Computed Keys
 // // =============================================================================
 //
-// #skip("computed map keys not hashable - evaluator issue")
+// #skip("BUG-07-038: computed map keys not hashable — evaluator issue")
 // @test_computed_key tests @computed_key () -> void = {
 //     let key = "dynamic",
 //     let m = {[key]: 999},
@@ -297,7 +297,7 @@
 // // STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - Option comparison issue
 // // Map spread works but test comparison with Option fails.
 //
-// #skip("Option to int comparison issue in test")
+// #skip("BUG-07-038: Option to int comparison issue in test")
 // @test_map_spread tests @map_spread () -> void = {
 //     let base = {"a": 1, "b": 2},
 //     let extended = {...base, "c": 3},
@@ -310,7 +310,7 @@
 //     {...base, "b": 2},
 // }
 //
-// #skip("Option to int comparison issue in test")
+// #skip("BUG-07-038: Option to int comparison issue in test")
 // @test_map_spread_override tests @map_spread_override () -> void = {
 //     let base = {"x": 1, "y": 2},
 //     let updated = {...base, "x": 100},
@@ -339,7 +339,7 @@
 //     m.values().fold(initial: 0, op: (acc, v) -> acc + v),
 // }
 //
-// #skip("tuple destructuring in for loop (for (k, v) in m) not implemented")
+// #skip("BUG-07-038: tuple destructuring in for loop (for (k, v) in m) not implemented")
 // @test_map_iteration tests @map_iteration () -> void = {
 //     let m = {"a": 1, "b": 2, "c": 3},
 //     let sum = map_iteration(),

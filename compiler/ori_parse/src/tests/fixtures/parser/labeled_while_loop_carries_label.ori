@@ -1,0 +1,1 @@
+@f () -> void = while:outer true do break:outer;

@@ -10,9 +10,8 @@
 
 use std::cell::RefCell;
 
-use rustc_hash::{FxHashMap, FxHashSet};
-
 use ori_types::{triviality, Idx, Pool, Tag};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::info::{EnumVariantInfo, TypeInfo};
 
@@ -34,6 +33,7 @@ static NONE_TYPE_INFO: TypeInfo = TypeInfo::Error;
 /// Only depends on Pool — struct/enum field data must be pre-flattened
 /// into Pool's extra array during type checking (prerequisite refactor
 /// required for full Struct/Enum support).
+#[derive(Debug)]
 pub struct TypeInfoStore<'tcx> {
     /// `Idx` -> `TypeInfo` mapping. Dense indexed storage.
     /// Indices 0-63 are pre-populated at construction.
@@ -70,7 +70,7 @@ impl<'tcx> TypeInfoStore<'tcx> {
     ///
     /// Triviality is lazily computed via `ori_types::triviality::classify_triviality()`
     /// — the single source of truth. For production paths, prefer
-    /// [`new_with_plan()`] which pre-computes triviality from `ReprPlan`.
+    /// [`Self::new_with_plan`] which pre-computes triviality from `ReprPlan`.
     pub fn new(pool: &'tcx Pool) -> Self {
         let mut entries = Vec::with_capacity(64);
         for i in 0..64u32 {
@@ -233,11 +233,13 @@ impl<'tcx> TypeInfoStore<'tcx> {
     }
 
     /// Inner implementation of type info computation, separated for cycle guard.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "type info dispatch table over all Tag variants"
-    )]
     fn compute_type_info_inner(&self, idx: Idx) -> TypeInfo {
+        // the registered user-facing `Error` struct (distinct Idx
+        // from the `Idx::ERROR` poison i64 sentinel) flows as a REAL struct
+        // `{ message: str }` — codegen lays it out generically (the i64
+        // `TypeInfo::Error` carries no message and is poison-only). The
+        // `str.into()` builtin constructs it; field access + the Traceable
+        // methods route through the normal struct path.
         match self.pool.tag(idx) {
             // Primitives (should already be pre-populated, but handle gracefully)
             Tag::Int => TypeInfo::Int,
@@ -303,34 +305,11 @@ impl<'tcx> TypeInfoStore<'tcx> {
             }
 
             // Enum: read variant data from Pool's extra array
-            Tag::Enum => {
-                let pool_variants = self.pool.enum_variants(idx);
-                let variants = pool_variants
-                    .into_iter()
-                    .map(|(name, field_types)| EnumVariantInfo {
-                        name,
-                        fields: field_types,
-                    })
-                    .collect();
-                TypeInfo::Enum { variants }
-            }
+            Tag::Enum => self.compute_enum_info(idx),
 
             // Named types: resolve to concrete Struct/Enum via Pool resolution table.
             // Use resolve_fully() which chains: resolve() → Applied→Named fallback.
-            Tag::Named | Tag::Applied | Tag::Alias => {
-                let resolved = self.pool.resolve_fully(idx);
-                if resolved == idx {
-                    tracing::warn!(
-                        ?idx,
-                        tag = ?self.pool.tag(idx),
-                        "Named/Applied/Alias type has no Pool resolution — \
-                         may be a generic type parameter or unregistered type"
-                    );
-                    TypeInfo::Error
-                } else {
-                    self.get(resolved)
-                }
-            }
+            Tag::Named | Tag::Applied | Tag::Alias => self.compute_resolved_info(idx),
 
             // Type variables: follow unification link chains to the resolved type.
             //
@@ -338,30 +317,7 @@ impl<'tcx> TypeInfoStore<'tcx> {
             // `Result<int, ?E>`). Unification resolves `?E = str` via
             // `VarState::Link`, but the canonical IR may store the pre-resolution
             // Idx. Follow the link chain here to find the concrete type.
-            Tag::Var => {
-                let resolved = self.pool.resolve_fully(idx);
-                if resolved != idx {
-                    return self.get(resolved);
-                }
-                // Cross-phase invariant contract (Type Checker → Codegen):
-                // All type variables must be resolved before codegen. An
-                // unresolved Tag::Var here indicates a type inference bug.
-                // Spec: impl-hygiene.md § Cross-Phase Invariant Contracts.
-                //
-                // NOTE: A targeted entry-point validation (walking function
-                // signatures at codegen entry) is the correct enforcement
-                // mechanism. An inline debug_assert!(false) here is too
-                // aggressive — it fires on types queried during lazy lookup
-                // that may not be critical to emission. The tracing::error!
-                // provides detection; TypeInfo::Error provides graceful
-                // degradation in release builds.
-                tracing::error!(
-                    ?idx,
-                    "unresolved type variable at codegen — type inference bug"
-                );
-                self.type_error_count.set(self.type_error_count.get() + 1);
-                TypeInfo::Error
-            }
+            Tag::Var => self.compute_variable_info(idx),
 
             // Iterator: opaque heap-allocated handle (runtime pointer).
             Tag::Iterator | Tag::DoubleEndedIterator => TypeInfo::Iterator {
@@ -372,26 +328,17 @@ impl<'tcx> TypeInfoStore<'tcx> {
             // bodies post-§SC-1 carry `Tag::BoundVar(var_id)` leaves;
             // substitution to concrete types happens UPSTREAM in
             // `lower_function_can` via `type_subst` threaded from
-            // `MonoFunction.body_type_map` (see `function_compiler/
-            // nounwind/prepare.rs:133`). By the time codegen queries
-            // `TypeInfoStore`, a correctly-substituted mono body has
+            // `MonoFunction.body_type_map` (threaded by
+            // `FunctionCompiler::define_function_body_arc_with_subst`). By the time
+            // codegen queries `TypeInfoStore`, a correctly-substituted mono body has
             // NO `Tag::BoundVar` leaves left.
             //
             // If a `Tag::BoundVar` reaches this arm, an upstream layer
             // (ARC lowering's type substitution, or scheme-var normalization
             // in `InferEngine::normalize_body_generalized_to_bound_var_sig`)
             // missed a leaf. Returning `TypeInfo::Error` surfaces the bug
-            // rather than masking it per `canon.md §7.1` AIMS Invariant 2.
-            Tag::BoundVar => {
-                tracing::warn!(
-                    ?idx,
-                    "Tag::BoundVar reached codegen — upstream substitution \
-                     missed a leaf (ARC lowering `type_subst` or typeck \
-                     end-of-body normalization gap)"
-                );
-                self.type_error_count.set(self.type_error_count.get() + 1);
-                TypeInfo::Error
-            }
+            // rather than masking it per AIMS Invariant 2.
+            Tag::BoundVar => self.compute_bound_variable_info(idx),
 
             // These tags should genuinely never reach codegen.
             Tag::RigidVar
@@ -408,6 +355,61 @@ impl<'tcx> TypeInfoStore<'tcx> {
                 TypeInfo::Error
             }
         }
+    }
+
+    fn compute_enum_info(&self, idx: Idx) -> TypeInfo {
+        let variants = self
+            .pool
+            .enum_variants(idx)
+            .into_iter()
+            .map(|(name, field_types)| EnumVariantInfo {
+                name,
+                fields: field_types,
+            })
+            .collect();
+        TypeInfo::Enum { variants }
+    }
+
+    fn compute_resolved_info(&self, idx: Idx) -> TypeInfo {
+        let resolved = self.pool.resolve_fully(idx);
+        if resolved != idx {
+            return self.get(resolved);
+        }
+
+        tracing::warn!(
+            ?idx,
+            tag = ?self.pool.tag(idx),
+            "Named/Applied/Alias type has no Pool resolution — \
+             may be a generic type parameter or unregistered type"
+        );
+        TypeInfo::Error
+    }
+
+    fn compute_variable_info(&self, idx: Idx) -> TypeInfo {
+        let resolved = self.pool.resolve_fully(idx);
+        if resolved != idx {
+            return self.get(resolved);
+        }
+
+        // A targeted entry-point validation is less aggressive than asserting
+        // here because lazy lookups can inspect types that emission never uses.
+        tracing::error!(
+            ?idx,
+            "unresolved type variable at codegen — type inference bug"
+        );
+        self.type_error_count.set(self.type_error_count.get() + 1);
+        TypeInfo::Error
+    }
+
+    fn compute_bound_variable_info(&self, idx: Idx) -> TypeInfo {
+        tracing::warn!(
+            ?idx,
+            "Tag::BoundVar reached codegen — upstream substitution \
+             missed a leaf (ARC lowering `type_subst` or typeck \
+             end-of-body normalization gap)"
+        );
+        self.type_error_count.set(self.type_error_count.get() + 1);
+        TypeInfo::Error
     }
 }
 

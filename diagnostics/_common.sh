@@ -11,6 +11,11 @@
 #   ORI               — set by find_ori_bin to the path of the chosen LLVM binary
 #   ORI_INTERP        — set by find_any_ori_bin to the path of any ori binary
 
+# Print a monotonic nanosecond timestamp for elapsed-time measurements.
+monotonic_now_ns() {
+    python3 -c 'import time; print(time.monotonic_ns())'
+}
+
 # Test whether a binary has LLVM support.
 # Returns 0 if LLVM is available, 1 otherwise.
 # Note: uses variable capture instead of pipeline to avoid pipefail interaction.
@@ -134,4 +139,18 @@ find_any_ori_bin() {
     echo "Tried: ${candidates[*]}" >&2
     echo "Rebuild with: cargo build" >&2
     exit 2
+}
+
+# Print a captured command stream without truncation.
+# Usage: render_captured_stream <label> <path>
+render_captured_stream() {
+    local label="$1"
+    local path="$2"
+
+    echo "  ${label}:"
+    if [[ -s "$path" ]]; then
+        sed 's/^/  │ /' "$path"
+    else
+        echo "  │ (empty)"
+    fi
 }

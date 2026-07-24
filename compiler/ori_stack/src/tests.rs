@@ -27,7 +27,7 @@ fn test_returns_closure_result() {
 }
 
 #[test]
-fn test_works_with_result_type() {
+fn test_returns_result_typed_closure_value() {
     let result: Result<i32, &str> = ensure_sufficient_stack(|| Ok(123));
     assert_eq!(result, Ok(123));
 }

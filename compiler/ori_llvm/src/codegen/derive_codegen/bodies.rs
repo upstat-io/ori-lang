@@ -12,13 +12,13 @@
 //! `setup_derive_function`; these functions only emit the body logic.
 
 use ori_ir::{CombineOp, DerivedTrait, FieldOp, FormatOpen, Name};
-use ori_types::{FieldDef, Idx};
+use ori_types::{FieldDef, Idx, Tag};
 use tracing::warn;
 
 use super::super::function_compiler::FunctionCompiler;
 use super::clone_rc::emit_clone_field_rc_inc;
 
-use super::field_ops::emit_field_operation;
+use super::field_ops::{emit_field_operation, emit_hash_combine};
 use super::string_helpers::{
     emit_field_to_string, emit_str_concat, emit_str_literal, emit_str_rc_dec,
 };
@@ -67,9 +67,6 @@ fn remap_derive_field<'a>(
     }
 }
 
-// FNV-1a constants — canonical source: ori_ir::hash_constants
-use ori_ir::{FNV_OFFSET_BASIS, FNV_PRIME};
-
 // ForEachField: Eq, Comparable, Hashable
 
 /// Generate a derived method that applies a per-field operation and combines results.
@@ -77,7 +74,7 @@ use ori_ir::{FNV_OFFSET_BASIS, FNV_PRIME};
 /// Dispatches to per-`CombineOp` helpers:
 /// - `AllTrue`: short-circuit AND (Eq)
 /// - `Lexicographic`: first non-Equal ordering (Comparable)
-/// - `HashCombine`: FNV-1a accumulation (Hashable)
+/// - `HashCombine`: `hash_combine` accumulation from zero (Hashable)
 pub(super) fn compile_for_each_field<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     trait_kind: DerivedTrait,
@@ -87,8 +84,9 @@ pub(super) fn compile_for_each_field<'a>(
     fields: &[FieldDef],
     field_op: FieldOp,
     combine: CombineOp,
+    mono: bool,
 ) {
-    let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str);
+    let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str, mono);
     match combine {
         CombineOp::AllTrue => emit_all_true_body(fc, &setup, fields, field_op),
         CombineOp::Lexicographic => emit_lexicographic_body(fc, &setup, fields, field_op),
@@ -119,17 +117,24 @@ fn emit_all_true_body<'a>(
     let true_bb = fc.builder_mut().append_block(func_id, "eq.true");
     let false_bb = fc.builder_mut().append_block(func_id, "eq.false");
 
-    for (i, field) in fields.iter().enumerate() {
+    // Equality is commutative across fields. Compare scalar fields first so a
+    // cheap mismatch avoids managed equality calls on later heap fields.
+    // Stable sorting preserves declaration order within each cost class.
+    let mut field_order: Vec<_> = fields.iter().enumerate().collect();
+    field_order.sort_by_key(|(_, field)| !fc.is_arc_scalar(field.ty));
+
+    for (comparison_index, (declaration_index, field)) in field_order.into_iter().enumerate() {
         let field_name = fc.lookup_name(field.name).to_owned();
         // Remap declaration-order index to memory-order for LLVM extract.
         #[expect(
             clippy::cast_possible_truncation,
             reason = "struct fields always < u32::MAX"
         )]
-        let mem_i = remap_derive_field(fc, setup.type_idx, i as u32);
+        let mem_i = remap_derive_field(fc, setup.type_idx, declaration_index as u32);
         let self_field =
             fc.builder_mut()
                 .extract_value(self_val, mem_i, &format!("eq.self.{field_name}"));
+
         let other_field =
             fc.builder_mut()
                 .extract_value(other_val, mem_i, &format!("eq.other.{field_name}"));
@@ -150,10 +155,10 @@ fn emit_all_true_body<'a>(
             str_ty_id,
         );
 
-        if i + 1 < fields.len() {
+        if comparison_index + 1 < fields.len() {
             let next_bb = fc
                 .builder_mut()
-                .append_block(func_id, &format!("eq.field.{}", i + 1));
+                .append_block(func_id, &format!("eq.field.{}", comparison_index + 1));
             fc.builder_mut().cond_br(cmp, next_bb, false_bb);
             fc.builder_mut().position_at_end(next_bb);
         } else {
@@ -189,6 +194,8 @@ fn emit_lexicographic_body<'a>(
         return;
     }
 
+    // Comparable is specified as declaration-order lexicographic; unlike Eq,
+    // its field order cannot be cost-sorted without changing semantics.
     for (i, field) in fields.iter().enumerate() {
         let field_name = fc.lookup_name(field.name).to_owned();
         // Remap declaration-order index to memory-order for LLVM extract.
@@ -245,7 +252,7 @@ fn emit_lexicographic_body<'a>(
     }
 }
 
-/// FNV-1a accumulation: hash each field into a running hash value.
+/// Hash each non-Unit field into a zero-seeded running hash value.
 fn emit_hash_combine_body<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     setup: &DeriveSetup,
@@ -255,10 +262,14 @@ fn emit_hash_combine_body<'a>(
     let self_val = setup.self_val.expect("HashCombine has self");
     let str_ty_id = setup.str_ty_id.expect("HashCombine needs str_ty_id");
 
-    let mut hash = fc.builder_mut().const_i64(FNV_OFFSET_BASIS as i64);
-    let prime = fc.builder_mut().const_i64(FNV_PRIME as i64);
+    let mut hash = fc.builder_mut().const_i64(0);
 
     for (i, field) in fields.iter().enumerate() {
+        let resolved = fc.pool().resolve_fully(field.ty);
+        if fc.pool().tag(resolved) == Tag::Unit {
+            continue;
+        }
+
         let field_name = fc.lookup_name(field.name).to_owned();
         // Remap declaration-order index to memory-order for LLVM extract.
         #[expect(
@@ -272,6 +283,7 @@ fn emit_hash_combine_body<'a>(
 
         let Some(fv) = field_val else {
             warn!(field = %field_name, "extract_value failed in derive HashCombine");
+            fc.builder_mut().record_codegen_error();
             continue;
         };
 
@@ -285,12 +297,7 @@ fn emit_hash_combine_body<'a>(
             str_ty_id,
         );
 
-        let xored = fc
-            .builder_mut()
-            .xor(hash, field_as_i64, &format!("hash.xor.{field_name}"));
-        hash = fc
-            .builder_mut()
-            .mul(xored, prime, &format!("hash.mul.{field_name}"));
+        hash = emit_hash_combine(fc, hash, field_as_i64, &format!("hash.{field_name}"));
     }
 
     emit_derive_return(fc, setup.func_id, &setup.abi, Some(hash));
@@ -314,8 +321,9 @@ pub(super) fn compile_format_fields<'a>(
     separator: &str,
     suffix: &str,
     include_names: bool,
+    mono: bool,
 ) {
-    let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str);
+    let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str, mono);
     let self_val = setup.self_val.expect("FormatFields has self");
     let str_ty_id = setup.str_ty_id.expect("FormatFields needs str_ty_id");
 
@@ -347,6 +355,13 @@ pub(super) fn compile_format_fields<'a>(
             fc.builder_mut()
                 .extract_value(self_val, mem_i, &format!("fmt.{field_name_str}"));
         if let Some(fv) = field_val {
+            // A boxed recursive back-edge field is extracted as an RC `ptr`
+            // (its LLVM field type is `ptr`); render it via the pointer path.
+            let boxed = crate::codegen::type_info::repr_box_oracle::position_is_rc_boxed(
+                fc.type_info().pool(),
+                setup.type_idx,
+                field.ty,
+            );
             let field_str = emit_field_to_string(
                 fc,
                 trait_kind,
@@ -354,6 +369,7 @@ pub(super) fn compile_format_fields<'a>(
                 field.ty,
                 &format!("fmt.{field_name_str}"),
                 str_ty_id,
+                boxed,
             );
             let old = result;
             result = emit_str_concat(fc, result, field_str, &format!("cat.val.{i}"), str_ty_id);
@@ -385,8 +401,8 @@ pub(super) fn compile_format_fields<'a>(
 /// Generate `clone(self: Self) -> Self`.
 ///
 /// Clone returns the same struct value (shallow copy). For fields that are
-/// heap-allocated (str, list, map, set, closures, nested fat structs), we
-/// must RC-increment the field's data pointer so the original and clone
+/// heap-allocated (str, list, map, set, closures, nested fat structs), cloning
+/// RC-increments the field's data pointer so the original and clone
 /// have independent RC lifecycles.
 pub(super) fn compile_clone_fields<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
@@ -395,8 +411,9 @@ pub(super) fn compile_clone_fields<'a>(
     type_idx: Idx,
     type_name_str: &str,
     fields: &[FieldDef],
+    mono: bool,
 ) {
-    let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str);
+    let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str, mono);
     let self_val = setup.self_val.expect("CloneFields has self");
 
     // RC-increment each heap-allocated field so the clone has independent
@@ -436,8 +453,9 @@ pub(super) fn compile_default_construct<'a>(
     type_idx: Idx,
     type_name_str: &str,
     _fields: &[FieldDef],
+    mono: bool,
 ) {
-    let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str);
+    let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str, mono);
 
     // `const_zero` on a struct type recursively zeros all fields:
     // int → 0, float → 0.0, bool → false, ptr → null, str → {0, 0, null}

@@ -1,0 +1,10 @@
+@main () -> int = {
+    let xs = [0];
+    let sum = 0;
+    for i in 1..=3 do {
+        xs = [i, i + 1];
+        xs = xs.push(7);
+        sum = sum + xs[0];
+    };
+    if sum == 6 && xs.len() == 3 then 0 else 1
+}

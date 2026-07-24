@@ -1,0 +1,26 @@
+// POSITIVE PIN — valid generic-struct field construction (over-rejection clamp).
+// Routing struct field-value checks through the diagnostic-emitting path must NOT
+// falsely reject valid generic-struct construction: a concrete field at its
+// declared type + a type-parameter field at any consistent type type-check + run.
+// Spec: 08-declarations.md § Type Definitions + § Generics.
+
+use std.testing { assert_eq }
+
+type Pair<T> = { tag: int, value: T }
+type Holder<T> = { a: T, b: T }
+
+@test_generic_concrete_plus_param tests @_use_pair () -> void = {
+    let $p = Pair { tag: 1, value: "hello" };
+    assert_eq(actual: p.tag, expected: 1);
+    assert_eq(actual: p.value, expected: "hello")
+}
+
+@_use_pair (p: Pair<str>) -> int = p.tag;
+
+@test_generic_shared_param_consistent tests @_use_holder () -> void = {
+    let $h = Holder { a: 1, b: 2 };
+    assert_eq(actual: h.a, expected: 1);
+    assert_eq(actual: h.b, expected: 2)
+}
+
+@_use_holder (h: Holder<int>) -> int = h.a + h.b;

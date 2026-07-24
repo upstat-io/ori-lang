@@ -1,0 +1,23 @@
+type Counted = { tag: str }
+
+impl Counted: Drop {
+    @drop (self) -> void = print(msg: `drop-{self.tag}`);
+}
+
+type Bomb = { tag: str }
+
+impl Bomb: Drop {
+    @drop (self) -> void = {
+        print(msg: `bomb-{self.tag}`);
+        panic(msg: "bomb")
+    }
+}
+
+type Mixed = { items: [Counted], trigger: Bomb }
+
+@main () -> void = {
+    let m = [Mixed {
+        items: [Counted { tag: "a" }, Counted { tag: "b" }],
+        trigger: Bomb { tag: "T" },
+    }]
+}

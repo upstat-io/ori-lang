@@ -146,6 +146,27 @@ fn test_parse_tuple_type() {
 }
 
 #[test]
+fn test_parse_parenthesized_type_vs_one_tuple() {
+    // Parenthesized type: (int) should be int
+    let (ty, _) = parse_type_with_arena("(int)");
+    assert_eq!(ty, Some(ParsedType::primitive(TypeId::INT)));
+
+    // One-element tuple: (int,) should be a tuple containing int
+    let (ty, arena) = parse_type_with_arena("(int,)");
+    match ty {
+        Some(ParsedType::Tuple(elems)) => {
+            assert_eq!(elems.len(), 1);
+            let ids = arena.get_parsed_type_list(elems);
+            assert_eq!(
+                *arena.get_parsed_type(ids[0]),
+                ParsedType::primitive(TypeId::INT)
+            );
+        }
+        _ => panic!("expected one-element Tuple"),
+    }
+}
+
+#[test]
 fn test_parse_function_type() {
     let (ty, arena) = parse_type_with_arena("() -> int");
     match ty {
@@ -305,7 +326,9 @@ fn test_parse_self_associated_type() {
     // Self.Item - associated type access on Self
     let (ty, arena) = parse_type_with_arena("Self.Item");
     match ty {
-        Some(ParsedType::AssociatedType { base, assoc_name }) => {
+        Some(ParsedType::AssociatedType {
+            base, assoc_name, ..
+        }) => {
             assert_eq!(*arena.get_parsed_type(base), ParsedType::SelfType);
             // Note: assoc_name is a Name, we just verify it was parsed
             let _ = assoc_name;
@@ -319,7 +342,9 @@ fn test_parse_generic_associated_type() {
     // T.Item - associated type access on a type variable
     let (ty, arena) = parse_type_with_arena("T.Item");
     match ty {
-        Some(ParsedType::AssociatedType { base, assoc_name }) => {
+        Some(ParsedType::AssociatedType {
+            base, assoc_name, ..
+        }) => {
             match arena.get_parsed_type(base) {
                 ParsedType::Named { type_args, .. } => {
                     assert!(type_args.is_empty());
@@ -329,6 +354,48 @@ fn test_parse_generic_associated_type() {
             let _ = assoc_name;
         }
         _ => panic!("expected AssociatedType, got {ty:?}"),
+    }
+}
+
+#[test]
+fn test_parse_qualified_path_binds_args_to_terminal_segment() {
+    // `type = type_path [ type_args ]` — the generic args attach to the
+    // terminal segment of the whole dotted path, and every earlier segment
+    // stays bare.
+    let (ty, arena) = parse_type_with_arena("a.b.C<int>");
+    let Some(ParsedType::AssociatedType {
+        base, type_args, ..
+    }) = ty
+    else {
+        panic!("expected AssociatedType, got {ty:?}");
+    };
+    assert_eq!(type_args.len(), 1, "args bind to the terminal segment");
+
+    let Some(ParsedType::AssociatedType {
+        base: inner_base,
+        type_args: mid_args,
+        ..
+    }) = Some(arena.get_parsed_type(base))
+    else {
+        panic!("expected a nested AssociatedType for the middle segment");
+    };
+    assert!(mid_args.is_empty(), "middle segment carries no args");
+
+    match arena.get_parsed_type(*inner_base) {
+        ParsedType::Named { type_args, .. } => {
+            assert!(type_args.is_empty(), "head segment carries no args");
+        }
+        other => panic!("expected Named head, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_single_segment_keeps_its_args() {
+    // A one-segment path still binds its own args; the dot-loop runs zero times.
+    let (ty, _arena) = parse_type_with_arena("Option<int>");
+    match ty {
+        Some(ParsedType::Named { type_args, .. }) => assert_eq!(type_args.len(), 1),
+        _ => panic!("expected Named, got {ty:?}"),
     }
 }
 

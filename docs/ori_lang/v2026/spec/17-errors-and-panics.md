@@ -37,8 +37,8 @@ The following operations cause implicit panics:
 
 | Operation | Condition | Panic message |
 |-----------|-----------|---------------|
-| List index | Index out of bounds | "index out of bounds: index N, length M" |
-| String index | Index out of bounds | "index out of bounds: index N, length M" |
+| List index | Index out of bounds | "index out of bounds: index N, length M; use 0 <= index < length (Spec: Clause 14.1.2)" |
+| String index | Index out of bounds | "index out of bounds: index N, length M; use 0 <= index < length (Spec: Clause 14.1.2)" |
 | `.unwrap()` | Called on `None` | "called unwrap on None" |
 | `.unwrap()` | Called on `Err(e)` | "called unwrap on Err: {e}" |
 | Division | Divisor is zero | "division by zero" |

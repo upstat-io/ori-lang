@@ -1,6 +1,6 @@
 // Spec: 14-expressions.md § Lambda; 08-types.md § Generic Types
 //
-// TDD matrix for plans/empty-container-typeck-phase-contract §08.2 —
+// TDD matrix for —
 // poly-lambda presence must not break imported `assert_eq<T>` monomorphization.
 // Absorbs BUG-04-042.
 //
@@ -11,7 +11,7 @@
 // `Tag::Var(Unbound)` generalizes to `Tag::Var(Generalized)` without ever
 // receiving a concrete-type constraint. `validate_body_types`
 // (`compiler/ori_types/src/check/validators/mod.rs`) exempts `Generalized`
-// per `types.md §SC-1` shipped divergence, so PC-2 does not fire. The
+// per shipped divergence, so PC-2 does not fire. The
 // surviving `Tag::Var` reaches
 // `ori_llvm::codegen::type_info::store::get_impl()` where
 // `pool.resolve_fully()` cannot chase non-`Link` VarStates — emitting the
@@ -21,7 +21,7 @@
 // Fix (target §08.3): sibling pass `default_unbound_vars_from_polylambda_returns`
 // that defaults poly-lambda return-position `Unbound` vars to `Idx::NEVER`
 // before `validate_body_types` runs. The `Generalized`/`Rigid` exemptions
-// stay intact (load-bearing for let-polymorphism per `types.md §SC-1`).
+// stay intact.
 //
 // Expected TDD status BEFORE §08.3 lands:
 // - INTERPRETER (`cargo st`): all tests pass — the producer-side leak
@@ -145,7 +145,7 @@ use std.testing { assert_eq }
 // shape. Diagnostic triangulation:
 // - If this cell passes today while the `std.testing.assert_eq` cells fail,
 //   the bug is specifically in the IMPORTED-mono path (body_type_map at
-//   `compiler/oric/src/test/runner/llvm_backend.rs:317-355`).
+//   `compiler/oric/src/test/runner/llvm_backend.rs::body_type_map`).
 // - If both cells fail, the bug lives in shared lambda_mono / TypeInfoStore
 //   infrastructure consumed by both local and imported mono.
 // ============================================================================
@@ -185,7 +185,7 @@ use std.testing { assert_eq }
 
 // ============================================================================
 // Nested-container substitution pin — guards `apply_bound_var_map` at
-// `compiler/ori_llvm/src/codegen/function_compiler/lambda_mono/type_resolve.rs:142-175`.
+// `compiler/ori_llvm/src/codegen/function_compiler/lambda_mono/type_resolve.rs::apply_bound_var_map`.
 // ----------------------------------------------------------------------------
 // Per the §08 Reviewer-surfaced reconnaissance block, that helper only
 // fixes top-level vars; nested generics inside containers (`[T]`,

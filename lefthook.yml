@@ -5,55 +5,198 @@
 #   Any:    go install github.com/evilmartians/lefthook@latest
 # Then run: lefthook install
 
+# Output set. lefthook's default omits `execution_out`, so a failed hook prints
+# only its name marker and never its captured stdout/stderr — the fail reason.
+# Listing all eight types = default set + `execution_out`, so a hook failure
+# shows WHY inline. Do NOT drop `execution_out`.
+output:
+  - meta
+  - summary
+  - success
+  - failure
+  - execution
+  - execution_out
+  - execution_info
+  - skips
+
 pre-commit:
   commands:
+    version-bump:
+      # BUILD_NUMBER auto-refresh at a day boundary — see
+      # `./scripts/auto-bump-if-stale.sh --help` equivalent (header comment).
+      # BUILD_NUMBER is otherwise a manually-bumped CalVer marker with no
+      # freshness check of its own, so it silently drifts stale for months
+      # if nobody runs bump-build.sh before a release. Runs on every commit
+      # (no glob restriction — it is a date check, not a file-content check);
+      # no-ops same-day, self-heals + self-stages BUILD_NUMBER and its synced
+      # mirrors (Cargo.toml etc.) the instant the commit crosses into a new
+      # UTC day. Mirrors build.rs's git-identity stamp: both recompute from
+      # live state instead of trusting a static file.
+      run: ./scripts/auto-bump-if-stale.sh
     fmt:
+      # fmt-all.sh formats the whole workspace and stages exactly the files it
+      # reformats (whole-tree, not just already-staged). Do NOT add stage_fixed
+      # here — it only re-stages already-staged files and would re-open the
+      # unstaged-reformat hole.
       glob: "*.{rs,toml,ori,sh,json,yml,yaml,js,ts}"
       run: ./fmt-all.sh
-      stage_fixed: true
-    full-check:
-      glob: "*.{rs,toml,ori,sh,json,yml,yaml,js,ts}"
-      run: ./full-check.sh
+    sprawl-lint:
+      # PARAM_SPRAWL detector — see impl-hygiene.md §Finding Categories.
+      # Bedding-in mode (--warn-only): always exits 0; surfaces findings to
+      # stderr without gating commits. Promote to gating by dropping --warn-only
+      # once the rule has shown true-positive rate is reliable in practice.
+      glob: "**/*.rs"
+      run: python3 scripts/sprawl-lint.py --warn-only
+    test-weakening-lint:
+      # Diff-driven detector for test-weakening edits — see
+      # `python3 scripts/test-weakening-lint.py --help` for full reference.
+      # Diff-pair gate: P1-P5 fire ONLY when production code (compiler/**/*.rs)
+      # is ALSO modified in the same diff, so a standalone test refactor
+      # never trips this lint. Existing-test-only: never flags new test files.
+      # Bedding-in mode (--warn-only): always exits 0; surfaces findings to
+      # stderr without gating commits. Promote to gating by dropping --warn-only
+      # once dogfood shows true-positive rate is reliable.
+      glob: "**/*.{rs,ori}"
+      run: python3 scripts/test-weakening-lint.py --warn-only
+    version-naming-lint:
+      # Version/revision-marker naming detector (NAME-33 / NAMING:version-suffix)
+      # — see impl-hygiene.md NAME-33 + `python3 scripts/version-naming-lint.py
+      # --help`. Mechanically gates ONLY the near-zero-false-positive V/v+digit
+      # subset (LexerV2, parse_v2); revision words (Legacy/Deprecated/Old/New)
+      # and bare ordinals are NAME-33 reviewer-time only.
+      # Bedding-in mode (--warn-only): always exits 0; surfaces findings to
+      # stderr without gating commits. Promote to gating by dropping --warn-only
+      # once dogfood shows true-positive rate is reliable.
+      glob: "**/*.{rs,ori}"
+      run: python3 scripts/version-naming-lint.py --warn-only
+    operation-name-lint:
+      # Operation-name-without-operation detector (NAME-34 / TEST-34) — see
+      # impl-hygiene.md NAME-34 + `python3 scripts/operation-name-lint.py --help`.
+      # Mechanically gates ONLY the near-zero-false-positive subset: a Rust
+      # `let cloned = <expr>;` whose initializer performs no clone (the residue a
+      # clippy `redundant_clone` autofix leaves). `copied`/`duplicated`, `.ori`
+      # value-semantics copies, and the `*_clone`-test-body case are NAME-34/
+      # TEST-34/TEST-35 reviewer-time only.
+      # Bedding-in mode (--warn-only): always exits 0; surfaces findings to
+      # stderr without gating commits. Promote to gating by dropping --warn-only
+      # once dogfood shows true-positive rate is reliable.
+      glob: "**/*.rs"
+      run: python3 scripts/operation-name-lint.py --warn-only
+    banned-suppression-lint:
+      # SPEC-74 total-ban gate — no #[allow]/#[expect] of clippy::too_many_lines
+      # or clippy::cognitive_complexity is ever valid; the cure is splitting the
+      # function per SPEC-15, never a reason=. GATING from day one (zero false
+      # positives: the banned token in an added .rs suppression has no legitimate
+      # form, and the gate reads no reason text so none can argue past it).
+      # Staged-additions only; the pre-existing backlog burns down via a tracked
+      # campaign — `--full` inventories it and replaces this mode as the
+      # whole-tree gate once the count reaches zero.
+      glob: "**/*.rs"
+      run: python3 scripts/banned-suppression-lint.py
+    crate-dag-lint:
+      # Crate-dependency-DAG fitness + canon-consumer registration
+      # (scripts/crate-dag-lint.py --help). Checks: no forbidden crate-DAG edge;
+      # every registered ori_ir::canon consumer depends on ori_ir; every
+      # ori_ir::canon importer is registered (fix: add a ConsumerEntry to
+      # ori_ir::canon::consumers::CANON_CONSUMERS).
+      # Bedding-in mode (--warn-only): the unregistered-consumer source-scan is
+      # new; surfaces findings to stderr without gating. Promote to gating by
+      # dropping --warn-only once the source-scan true-positive rate is reliable.
+      glob: "**/*.rs"
+      run: python3 scripts/crate-dag-lint.py --warn-only
+    comment-refactor-narration-lint:
+      # Refactor-narration comment detector (COMMENT-11 / COMMENT-26
+      # self-referential-narration) — see impl-hygiene.md COMMENT-11 +
+      # COMMENT-26 + `python3 scripts/comment-refactor-narration-lint.py
+      # --help`. Mechanically gates ONLY the near-zero-false-positive subset:
+      # a "split out of X" / "extracted from X" / "factored out of X" /
+      # "lives apart from X" comment citing a line-cap/hygiene reason, or a
+      # "previously ... consolidated as a cure" history narration. The wider
+      # temporal/geographical-framing surface (COMMENT-45/46) stays
+      # reviewer-time — this is the ast-lint companion until the CPG
+      # comment-extraction (`Comment {repo:'ori'}`) lands per intelligence.md.
+      # Bedding-in mode (--warn-only): new; surfaces findings to stderr
+      # without gating. Promote to gating once the true-positive rate is
+      # reliable.
+      glob: "**/*.{rs,ori}"
+      run: python3 scripts/comment-refactor-narration-lint.py --warn-only
+    debug-flags-consistency:
+      # ORI_* debug-flag registry consistency (diagnostics/check-debug-flags.sh):
+      # every flag used in source (raw std::env::var_os) is registered under
+      # oric/src/debug_flags/ (orphan check), and every registered flag is used
+      # (stale check). Catches an unregistered or stale debug flag at commit time
+      # instead of late in the full test run. Fast grep-based scan, exact (no
+      # heuristics), gated blocking on Rust source changes.
+      glob: "**/*.rs"
+      run: bash diagnostics/check-debug-flags.sh
+    tracing-coverage:
+      # Direct tracing dependencies must have live production use. ori_parse
+      # additionally pins the public/module/grammar spans justified by the
+      # parser-observability ADR, including skip_all on every required boundary.
+      glob: "{compiler/*/Cargo.toml,compiler/*/src/**/*.rs}"
+      run: bash diagnostics/check-tracing-coverage.sh
+    prose-lint:
+      # Source-side internal-vocabulary leak detector — see
+      # `../scripts/prose-lint.py --help` for the full pattern reference.
+      # Catches BUG-IDs (BUG-XX-NNN), methodology vocab (TPR Round, semantic
+      # /negative pin, INVERTED-TDD, TDD matrix, PIN-N + IR-/DERIVE-/MIXED-
+      # prefixes), reviewer-tool names, and internal-doc path references that
+      # must not appear in the public OSS compiler repo.
+      # SSOT lives in the wrapper repo (scripts/prose-lint.py); .lefthook
+      # /prose-lint.sh is the cross-repo invocation shim with graceful-skip
+      # for standalone OSS clones (no wrapper checkout).
+      # Bedding-in mode (--exit-zero inside the shim): warns to stderr without
+      # gating. Promote by dropping --exit-zero once existing PIN-N / BUG-ID
+      # / methodology leaks are cleaned.
+      glob: "**/*.{rs,ori}"
+      run: .lefthook/prose-lint.sh {staged_files}
     version-sync:
       glob: "**/Cargo.toml|**/package.json|**/BaseLayout.astro"
       run: ./scripts/sync-version.sh --check
     spec-proposal-gate:
       glob: "docs/ori_lang/v2026/spec/**"
       run: .lefthook/check-spec-proposal-gate.sh
-    intel-query-ssot:
-      glob: ".claude/**/*.md"
-      run: .lefthook/check-intel-query-ssot.sh
-
-post-commit:
-  commands:
-    intel-sync:
+    aims-spec-drift:
+      # Drift detector between annex-e-system-considerations.md §AIMS
+      # (compiler_repo, public spec) and .claude/rules/aims-rules.md +
+      # arc.md (wrapper-side, implementer surface). Compares rule-label
+      # sets per category (TF/CN/IC/PL/RL/VF). Exit 1 on drift fails the
+      # commit. Triggers on spec edits in compiler_repo; wrapper-side
+      # rule edits trigger their own wrapper-lefthook gate.
+      glob: "docs/ori_lang/v2026/spec/annex-e-system-considerations.md"
+      run: python3 ../.claude/skills/sync-aims-spec/check.py --check
+    root-inventory:
+      run: diagnostics/repo-hygiene.sh --check-root --no-color
+    aims-proof-check:
+      # A commit touching aims-proof/proofs/** runs the proof checker over the
+      # affected proof corpus; a regression (non-valid verdict / .expected
+      # mismatch / fatal §17 divergence) blocks the commit. The §17
+      # shipped-conformance gate treats divergent-pending as non-fatal.
+      glob: "aims-proof/proofs/**"
+      run: aims-proof/scripts/check-proofs.sh {staged_files}
+    aims-proof-lean-placeholder:
+      # A commit touching any aims-proof Lean file runs the no-placeholder lint
+      # (sorry / admit / ': True := by trivial' / standalone axiom); a hit blocks.
+      glob: "aims-proof/**/*.lean"
+      run: aims-proof/scripts/lean-no-placeholder-lint.sh
+    dep-audit:
+      # Supply-chain dependency-audit gate (cargo-deny) — config in deny.toml.
+      # Runs advisories (known-vuln/unmaintained) + bans (duplicate/wildcard) +
+      # sources (registry/git allowlist) on dependency-manifest changes; surfaces
+      # vulnerable / unexpected-origin / newly-added dependencies for review
+      # before they reach the tree.
+      # Bedding-in mode: presence-guarded (skips when cargo-deny is absent) and
+      # warn-only (never blocks). Promote to gating by removing BOTH the
+      # `|| echo ...` warn-wrapper AND the trailing `exit 0` below, once the
+      # advisory/source baseline is clean.
+      glob: "{Cargo.toml,Cargo.lock,**/Cargo.toml,deny.toml}"
       run: |
-        if [ -x ../lang_intelligence/scripts/sync-ori-graph.sh ]; then
-          CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD -- 'compiler/*.rs' 'library/*.ori' 'library/*.rs')
-          if [ -n "$CHANGED" ]; then
-            mkdir -p ../lang_intelligence/logs
-            setsid --fork ../lang_intelligence/scripts/sync-ori-graph.sh --changed "$CHANGED" >> ../lang_intelligence/logs/ori-sync.log 2>&1 < /dev/null
-          fi
+        if ! command -v cargo-deny >/dev/null 2>&1; then
+          echo "dep-audit: cargo-deny not installed - skipping (cargo install cargo-deny)" >&2
+          exit 0
         fi
-      # Fire-and-forget: setsid --fork starts the sync in a new session detached
-      # from lefthook's process group so it survives past hook completion.
-      # Bare '&' was silently killed by lefthook's pgid cleanup (discovered §03 close-out).
-      # If lang_intelligence doesn't exist, the -x test fails silently.
-      # Scoped to compiler/ and library/ per repos.yaml include roots.
-    intel-plan-sync:
-      run: |
-        if [ -x ../lang_intelligence/scripts/sync-plan-bug-graph.sh ]; then
-          CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD -- 'plans/*.md' 'plans/**/*.md')
-          if [ -n "$CHANGED" ]; then
-            mkdir -p ../lang_intelligence/logs
-            setsid --fork ../lang_intelligence/scripts/sync-plan-bug-graph.sh --full >> ../lang_intelligence/logs/plan-bug-sync.log 2>&1 < /dev/null
-          fi
-        fi
-      # Fire-and-forget: setsid --fork starts the rebuild in a new session so it
-      # survives past lefthook's hook completion (bare '&' was silently killed).
-      # If lang_intelligence doesn't exist, the -x test fails silently.
-      # Scoped to plans/**.md — any plan file change triggers a full DAG rebuild
-      # (dag.py classifiers are whole-corpus: incremental is unsound, see §03 context).
+        cargo deny check advisories bans sources || echo "dep-audit: findings above (bedding-in warn-only; not blocking)" >&2
+        exit 0
 
 commit-msg:
   commands:
@@ -61,3 +204,8 @@ commit-msg:
       run: .lefthook/commit-msg.sh {1}
     spec-proposal-gate:
       run: .lefthook/check-spec-proposal-msg.sh {1}
+    test-change-gate:
+      # Require a `Test-Change: <justification>` line in the commit body
+      # when the commit touches BOTH tests/spec/** AND compiler/**/*.rs.
+      # Presence-only check; review pipelines judge quality.
+      run: .lefthook/check-test-change-msg.sh {1}

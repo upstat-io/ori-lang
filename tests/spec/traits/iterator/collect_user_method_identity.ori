@@ -1,0 +1,13 @@
+// Regression: a user method returning Set keeps its resolved method identity.
+use std.testing { assert }
+
+type Collector = { seed: int }
+
+impl Collector {
+    @collect (self) -> Set<int> = [self.seed, self.seed + 1].iter().collect();
+}
+
+@test_user_collect_returning_set tests _ () -> void = {
+    let values = Collector { seed: 40 }.collect();
+    assert(cond: values.len() == 2 && values.contains(40) && values.contains(41))
+}

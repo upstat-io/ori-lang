@@ -57,9 +57,38 @@ fn discover_recursive(dir: &Path, files: &mut Vec<TestFile>) {
             }
             discover_recursive(&path, files);
         } else if path.extension().is_some_and(|e| e == "ori") {
-            files.push(TestFile::new(path));
+            // Skip formatter golden fixtures (a `.ori` with a sibling
+            // `.ori.expected`): their correctness is owned by the formatter
+            // golden test (`ori_fmt/tests/`), not the spec harness. Their
+            // `#compile_fail` / `#skip` / `#fail` attributes are formatter
+            // round-trip test data, not spec assertions, so executing them as
+            // spec tests is incidental. An explicit single-file invocation
+            // (`discover_tests_in`) still runs them.
+            let mut expected = path.clone().into_os_string();
+            expected.push(".expected");
+            if !Path::new(&expected).exists() {
+                files.push(TestFile::new(path));
+            }
         }
     }
+}
+
+/// Discover tests across multiple files / directories.
+///
+/// Chains `discover_tests_in` over `paths` in argument order, deduplicating
+/// files that appear more than once (repeated file args, or a file nested
+/// under an earlier directory arg). First occurrence wins.
+pub fn discover_tests_in_all(paths: &[PathBuf]) -> Vec<TestFile> {
+    let mut seen: rustc_hash::FxHashSet<PathBuf> = rustc_hash::FxHashSet::default();
+    let mut files = Vec::new();
+    for path in paths {
+        for file in discover_tests_in(path) {
+            if seen.insert(file.path.clone()) {
+                files.push(file);
+            }
+        }
+    }
+    files
 }
 
 /// Discover tests in a specific file or directory.

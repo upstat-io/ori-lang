@@ -43,7 +43,7 @@ fn test_hash() {
 fn test_infer() {
     assert!(TypeId::INFER.is_infer());
     assert!(!TypeId::INT.is_infer());
-    // INFER no longer overlaps with DURATION
+    // INVARIANT: INFER is disjoint from DURATION
     assert!(!TypeId::DURATION.is_infer());
 }
 
@@ -51,7 +51,7 @@ fn test_infer() {
 fn test_self_type() {
     assert!(TypeId::SELF_TYPE.is_self_type());
     assert!(!TypeId::INT.is_self_type());
-    // SELF_TYPE no longer overlaps with SIZE
+    // INVARIANT: SELF_TYPE is disjoint from SIZE
     assert!(!TypeId::SIZE.is_self_type());
 }
 

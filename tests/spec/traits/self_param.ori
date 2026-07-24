@@ -35,11 +35,11 @@ trait Measurable {
 
 type Rectangle = { width: int, height: int }
 
-impl Describable for Rectangle {
+impl Rectangle: Describable {
     @describe (self) -> str = "Rectangle(" + str(self.width) + "x" + str(self.height) + ")";
 }
 
-impl Measurable for Rectangle {
+impl Rectangle: Measurable {
     @measure (self) -> int = self.width * self.height;
 }
 
@@ -65,7 +65,7 @@ trait Comparable {
     @compare_to (self, other: int) -> bool
 }
 
-impl Comparable for Counter {
+impl Counter: Comparable {
     @compare_to (self, other: int) -> bool = self.value == other;
 }
 

@@ -1,0 +1,29 @@
+// Lattice alias-tracking on the Result inner-alias destructure shape —
+// AOT mirror of the
+// Ori spec test at tests/spec/aims/burden_alias_tracking.ori.
+// Runs the exact repro shape through full Phase 5 emission +
+// burden-op elimination + LLVM lowering + execution under ORI_CHECK_LEAKS.
+//
+// Shape: Result<{str: int}, str> with Ok payload containing `inner`
+// whose lifetime survives the Result's destructure. Test exits 0 on
+// success; non-zero / FATAL double-free / leak == criterion 3 fail.
+
+@build_map () -> {str: int} = {
+    let m = {"alpha": 1, "beta": 2, "gamma": 3};
+    m
+}
+
+@wrap_ok (m: {str: int}) -> Result<{str: int}, str> = Ok(m);
+
+@main () -> int = {
+    let m = build_map();
+    let result = wrap_ok(m: m);
+    let extracted = match result {
+        Ok(inner) -> inner,
+        Err(_) -> panic(msg: "should be Ok"),
+    };
+    let a = extracted["alpha"].unwrap_or(default: 0);
+    let b = extracted["beta"].unwrap_or(default: 0);
+    let g = extracted["gamma"].unwrap_or(default: 0);
+    if a + b + g == 6 then 0 else 1
+}

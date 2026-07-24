@@ -1,0 +1,13 @@
+// BUG-04-090 §03 cross-type: closure capturing [int].
+// The closure's env_ptr is heap-allocated (carries the [int] capture);
+// per closure-aware RC (RE-1), the param-return-alias
+// rule fires on the closure value, which propagates RC-management to
+// the env_ptr. RL-7 closure-aware RC interaction.
+@id <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let thunk = () -> xs.len();
+    let f = id(x: thunk);
+    if f() == 3 then 0 else 1
+}

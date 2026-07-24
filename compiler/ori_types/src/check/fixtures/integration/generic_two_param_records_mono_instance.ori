@@ -1,0 +1,5 @@
+
+@pair <A, B> (a: A, b: B) -> (A, B) = (a, b);
+@caller () -> (int, str) = pair(a: 42, b: "hello");
+@test_caller tests @caller () -> void = ();
+@test_pair tests @pair () -> void = ();

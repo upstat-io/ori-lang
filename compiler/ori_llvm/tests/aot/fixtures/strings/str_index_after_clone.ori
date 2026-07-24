@@ -1,0 +1,7 @@
+@main () -> int = {
+    let s1 = "hello";
+    let s2 = s1.clone();
+    let c1 = s1[0];
+    let c2 = s2[0];
+    if c1 == "h" && c2 == "h" && c1 == c2 then 0 else 1
+}

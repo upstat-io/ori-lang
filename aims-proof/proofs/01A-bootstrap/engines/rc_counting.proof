@@ -1,0 +1,87 @@
+Theorem CH-103: rc_counting engine bootstrap (bounded-loop RC balance)
+
+  Preconditions:
+    - L is a basic block containing a linear loop body that uses
+      v exactly once per iteration per Annex E §AIMS TF-11
+      (operand demand)
+    - the loop runs N iterations with N a finite non-negative
+      integer
+    - v has Access = Owned and Consumption = Linear at the entry
+      of each iteration per the loop invariant
+    - rc_counting engine discharges per-instruction RC-delta
+      arithmetic over integers per the foundational-axiom policy
+      sec-Per-Engine-Constructive-Proof-Shape
+    - the goal is to bound the total number of RcInc and RcDec
+      operations emitted by the realization phase for v across N
+      iterations
+
+  Soundness property:
+    Forall N in nat.
+      (the linear loop iterates N times) implies
+      (the number of RcInc operations on v plus the number of
+       RcDec operations on v across the N iterations is at most
+       2 * N + 2);
+      i.e. each iteration contributes at most one RcInc and one
+        RcDec pair; the loop entry and exit contribute at most
+        one additional RcInc and RcDec pair; the bound is
+        deterministic and finite.
+
+  Proof obligation:
+    Structural induction on N with per-iteration RC-delta
+    arithmetic per the rc_counting engine.
+
+      Base case (N = 0):
+        Loop body executes zero times. RC contribution from the
+        body is zero. Loop entry RcInc (if any) and loop exit
+        RcDec (if any) bound by 2 (the entry and exit pair).
+        Total RC ops at most 2; satisfies 2 * 0 + 2 = 2.
+
+      Inductive step (assume bound holds at N; prove at N + 1):
+        Inductive hypothesis: at N iterations the bound is
+        2 * N + 2.
+        Extending to N + 1 iterations executes the body one more
+        time. The body uses v once per the linear-loop invariant;
+        per Annex E §AIMS TF-11 standard demand
+        (operand, cardinality = Once, consumption = Linear), the
+        realization phase emits at most one RcInc and one RcDec
+        for the body's use of v per iteration (RL-1 and RL-2).
+        Therefore the (N + 1) iteration adds at most 2 RC ops to
+        the running total: 2 * N + 2 + 2 = 2 * (N + 1) + 2.
+
+    RC-balance equation witness:
+      Define balance(k) = (count of RcInc on v in iterations 0..k)
+        minus (count of RcDec on v in iterations 0..k).
+      At iteration boundaries (entry of each iteration), balance
+        is zero by the loop invariant: every RcInc inserted in the
+        body is paired with an RcDec before the next iteration.
+      At loop exit, balance is zero plus the optional entry-exit
+        adjustment (at most one inc-dec pair).
+      Therefore total inc + dec count is bounded by 2 * N + 2;
+      no unbalanced sequence escapes.
+
+    Closed-world coverage:
+      Every loop iteration is one of N copies of the same body;
+      the per-iteration RC contribution is bounded by 2 (RL-1 plus
+      RL-2 for a single use). Entry and exit contribute at most 2
+      additional ops. No other instruction in the loop body emits
+      RC ops on v (TF-2 Let Var transparent alias; TF-4 Project is
+      a borrow not a use; TF-N/A RcInc and RcDec themselves do not
+      emit recursive RC).
+
+    Lattice validation:
+      Consumption = Linear is preserved across loop iterations per
+      the loop invariant; Access = Owned is preserved; Cardinality
+      accumulates via seq_add (Once + Once = Many) inside the loop
+      body when the same value is used multiple times within one
+      iteration, but the linear-loop precondition restricts the
+      body to exactly one use per iteration. CN-1 (Dead implies
+      Absent) does not fire at any iteration entry because
+      Consumption = Linear is not equal to Dead.
+
+    Engines dispatched:
+      rc_counting (per-iteration RC-delta arithmetic; balance
+                   equation witness; structural induction on N)
+
+  Expected:
+    status: valid
+    reason: 01A bootstrap discharged via §01A Implementation Items (engine constructive verification + Lean 4 cross-validation)

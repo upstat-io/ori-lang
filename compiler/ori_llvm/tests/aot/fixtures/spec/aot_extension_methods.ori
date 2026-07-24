@@ -1,0 +1,14 @@
+extend str {
+    @shout (self) -> str = self + "!";
+}
+
+extend [T] {
+    @item_tally (self) -> int = self.len();
+    @empty (self) -> bool = self.len() == 0;
+}
+
+@main () -> int = {
+    let text = "hello".shout();
+    let items: [int] = [1, 2, 3];
+    if text == "hello!" && items.item_tally() == 3 && !items.empty() then 0 else 1
+}

@@ -1,0 +1,9 @@
+// IR pin: a same-frame `catch(expr: 1 / 0)` makes @main
+// may-unwind. The checked div-by-zero panic is emitted as `invoke
+// @ori_panic_cstr` to a catch landing pad, so `_ori_main` MUST NOT be marked
+// `nounwind` and MUST carry a `landingpad`. Pins the landing pad surviving to
+// codegen (the exit-code cells cannot observe the nounwind attribute / IR shape).
+@main () -> int = {
+    let result = catch(expr: 1 / 0);
+    if result.is_err() then 0 else 1
+}

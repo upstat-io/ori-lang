@@ -1,0 +1,7 @@
+// Negative pin: integer overflow with NO catch in scope MUST
+// still abort. Clamps the emit_checked_binop inline-panic site's boundary.
+@main () -> int = {
+    let big = 9223372036854775807;
+    let x = big + 1;
+    x
+}

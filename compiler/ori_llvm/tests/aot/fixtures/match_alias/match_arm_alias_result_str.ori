@@ -1,0 +1,12 @@
+@main () -> int = {
+    let result = catch(
+        expr: panic(msg: "assertion failed: \"hello\" != \"world\""),
+    );
+    let msg = match result {
+        Err(e) -> e,
+        Ok(_) -> panic(msg: "should have panicked"),
+    };
+    let h = msg.contains(substr: "\"hello\"");
+    let w = msg.contains(substr: "\"world\"");
+    if h && w then 0 else 1
+}

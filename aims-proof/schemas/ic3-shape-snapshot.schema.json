@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://upstat-io/ori-lang/aims-proof/schemas/ic3-shape-snapshot.schema.json",
+  "title": "IC-3 ParamContract shape snapshot",
+  "description": "Canonical shape of the IC-3 ParamContract that DP-9 row (c) consumes. Written by run-section-05-proofs.sh at PASS; read by check-section-06-dp9-compatibility.sh at section-06 close-out to verify section-06's IC-3 proof discharge did not alter the shape or derivation section-05 DP-9 assumed. Lattice value sets per Annex E AIMS sec-1.1..sec-1.5; derivation envelope per Annex E AIMS sec-5.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "head_sha",
+    "generated_at_sha",
+    "ic3_param_contract_shape",
+    "ic3_derivation_envelope",
+    "aims_rules_md_anchor"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "generated_at_sha": { "type": "string" },
+    "ic3_param_contract_shape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "access_lattice",
+        "consumption_lattice",
+        "cardinality_lattice",
+        "locality_bound_lattice",
+        "uniqueness_lattice_via_1_4_join"
+      ],
+      "properties": {
+        "access_lattice": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["Borrowed", "Owned"] }
+        },
+        "consumption_lattice": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["Dead", "Linear", "Affine", "Unrestricted"] }
+        },
+        "cardinality_lattice": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["Absent", "Once", "Many"] }
+        },
+        "locality_bound_lattice": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["BlockLocal", "FunctionLocal", "ArgEscaping", "HeapEscaping", "Unknown"] }
+        },
+        "uniqueness_lattice_via_1_4_join": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["Unique", "MaybeShared", "Shared"] }
+        }
+      }
+    },
+    "ic3_derivation_envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tf_n_forward_input_sources", "join_kind", "canonicalization_pass", "dp_n_consumed"],
+      "properties": {
+        "tf_n_forward_input_sources": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "join_kind": { "type": "string", "const": "componentwise_max" },
+        "canonicalization_pass": { "type": "string", "const": "CN-1..CN-8" },
+        "dp_n_consumed": {
+          "type": "array",
+          "const": []
+        }
+      }
+    },
+    "aims_rules_md_anchor": { "type": "string" }
+  }
+}

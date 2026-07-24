@@ -1,0 +1,7 @@
+@main () -> int = {
+    let m = { "alpha key exceeding the sso inline threshold here": 1 };
+    let ks = m.keys();
+    let n = 0;
+    for k in ks do { n = n + k.len(); };
+    if n > 0 then 0 else 1
+}

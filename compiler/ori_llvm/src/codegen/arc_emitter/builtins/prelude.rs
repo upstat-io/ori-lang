@@ -4,8 +4,9 @@
 //! that have no canonical IR body. Each function dispatches on argument types
 //! to emit inline LLVM IR or runtime calls.
 //!
-//! This module is the unified replacement for scattered special-case
-//! interceptions (e.g., `hash_combine`) in `emit_invoke()` and `emit_apply()`.
+//! This module is the unified interception point for these prelude builtins
+//! (e.g., `hash_combine`); `emit_invoke()` and `emit_apply()` carry no
+//! per-builtin special cases.
 
 use ori_arc::ir::{ArcFunction, ArcVarId};
 
@@ -16,22 +17,20 @@ use crate::codegen::value_id::ValueId;
 /// Prelude functions with complete AOT codegen (sorted).
 ///
 /// Must stay in sync with `try_emit_prelude_function()` match arms and
-/// `ori_eval/src/interpreter/mod.rs::register_prelude()`.
-#[allow(
-    dead_code,
-    reason = "used by sync tests for prelude coverage verification"
-)]
-pub(crate) const HANDLED_PRELUDE_NAMES: &[&str] = &["byte", "float", "hash_combine", "int", "str"];
-
-/// Prelude functions recognized but not yet implementable in AOT codegen.
+/// `ori_eval/src/interpreter/prelude.rs::register_prelude()`.
 ///
-/// These need runtime infrastructure (iterators, error construction, thread
-/// locals) that isn't available in the AOT pipeline yet.
-#[allow(
-    dead_code,
-    reason = "documents pending prelude AOT support for sync completeness"
-)]
-pub(crate) const PENDING_PRELUDE_NAMES: &[&str] = &["Error", "repeat", "thread_id"];
+/// Consumed by `is_callee_intercepted` (`arc_emitter/context.rs`) to route
+/// these names through prelude interception.
+pub(crate) const HANDLED_PRELUDE_NAMES: &[&str] = &[
+    "byte",
+    "drop_early",
+    "float",
+    "hash_combine",
+    "int",
+    "repeat",
+    "str",
+    "thread_id",
+];
 
 /// Try to emit a prelude builtin function call.
 ///
@@ -48,10 +47,27 @@ pub(in crate::codegen::arc_emitter) fn try_emit_prelude_function<'scx: 'ctx, 'ct
         "int" => emit_int(emitter, args, arc_func),
         "float" => emit_float(emitter, args, arc_func),
         "byte" => emit_byte(emitter, args, arc_func),
+        "drop_early" => emit_drop_early(emitter, args, arc_func),
         "hash_combine" => emit_hash_combine(emitter, args),
-        // Not yet implementable — need runtime infrastructure.
+        "repeat" => emit_repeat(emitter, args, arc_func),
+        "thread_id" => emit_thread_id(emitter, args),
         _ => None,
     }
+}
+
+/// Emit `drop_early(value)` — decrement the reference count of the value.
+fn emit_drop_early<'scx: 'ctx, 'ctx>(
+    emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+    args: &[ArcVarId],
+    arc_func: &ArcFunction,
+) -> Option<ValueId> {
+    if args.is_empty() {
+        return None;
+    }
+    let arg_ty = arc_func.var_type(args[0]);
+    let arg_val = emitter.var(args[0]);
+    emitter.dec_value_rc(arg_val, arg_ty);
+    Some(emitter.builder.const_i64(0))
 }
 
 /// Emit `str(value)` — dispatch on argument type to `ori_str_from_*` runtime.
@@ -89,7 +105,9 @@ fn emit_int<'scx: 'ctx, 'ctx>(
 
     match &type_info {
         TypeInfo::Int => Some(arg_val),
-        TypeInfo::Float => Some(emitter.builder.fp_to_si(arg_val, i64_ty, "int_cast")),
+        // Checked conversion — panics on NaN / infinity / out-of-range
+        // (parity with eval's `function_val_int`).
+        TypeInfo::Float => emitter.emit_checked_float_to_int(arg_val, "int_cast"),
         TypeInfo::Bool | TypeInfo::Byte | TypeInfo::Char => {
             Some(emitter.builder.zext(arg_val, i64_ty, "int_cast"))
         }
@@ -120,7 +138,9 @@ fn emit_float<'scx: 'ctx, 'ctx>(
     }
 }
 
-/// Emit `byte(value)` — inline LLVM casts.
+/// Emit `byte(value)` — range-checked conversions (parity with the
+/// interpreter's `function_val_byte`: int errors outside 0..=255 and char
+/// accepts only ASCII per Spec Clause 8.11.3).
 fn emit_byte<'scx: 'ctx, 'ctx>(
     emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
     args: &[ArcVarId],
@@ -132,13 +152,65 @@ fn emit_byte<'scx: 'ctx, 'ctx>(
     let arg_ty = arc_func.var_type(args[0]);
     let type_info = emitter.type_info.get(arg_ty);
     let arg_val = emitter.var(args[0]);
-    let i8_ty = emitter.builder.i8_type();
 
     match &type_info {
         TypeInfo::Byte => Some(arg_val),
-        TypeInfo::Int | TypeInfo::Char => Some(emitter.builder.trunc(arg_val, i8_ty, "byte_cast")),
+        TypeInfo::Int => emitter.emit_checked_int_to_byte(arg_val, "byte_cast"),
+        TypeInfo::Char => emitter.emit_checked_char_to_byte(arg_val, "byte_cast"),
         _ => None,
     }
+}
+
+/// Emit `repeat(value)` — construct an infinite iterator over copies of `value`.
+///
+/// Calls `ori_iter_repeat(value_ptr, elem_size, elem_dec_fn)`. The runtime
+/// memcpy's the value into a master buffer; because that creates a reference
+/// the iterator holds for its whole lifetime (it may outlive the borrowed
+/// source binding), the value's RC is incremented here before the copy —
+/// mirroring `emit_option_iter`. The master's reference is released by the
+/// runtime's `Drop for IterState` via `elem_dec_fn`; each yielded element is
+/// inc'd by the consumer (e.g. `collect`).
+fn emit_repeat<'scx: 'ctx, 'ctx>(
+    emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+    args: &[ArcVarId],
+    arc_func: &ArcFunction,
+) -> Option<ValueId> {
+    // The free prelude `repeat(value:) -> Iterator<T>` takes EXACTLY one arg.
+    // The string method `str.repeat(count:) -> str` lowers to the same
+    // `Apply @repeat(self, count)` callee name with TWO args; decline it here so
+    // it falls through to the string-method emitter (name-only prelude dispatch
+    // would otherwise shadow the method).
+    if args.len() != 1 {
+        return None;
+    }
+    let value_ty = arc_func.var_type(args[0]);
+    let value_val = emitter.var(args[0]);
+
+    // RC-retain the value: the runtime memcpy's the value bytes into the
+    // master buffer, creating a second reference to any inner RC-managed data.
+    // The master outlives the (borrowed) source, so without this retain both
+    // the source and the iterator master would dec the same RC → double-free.
+    emitter.inc_value_rc(value_val, value_ty, 1);
+
+    // Store the value to an alloca so the runtime can read it through a pointer.
+    let value_llvm = emitter.resolve_type(value_ty);
+    let alloca = emitter.builder.alloca(value_llvm, "repeat.val.a");
+    emitter.builder.store(value_val, alloca);
+
+    let elem_size =
+        crate::codegen::abi::abi_size(value_ty, emitter.type_info, emitter.repr_plan) as i64;
+    let elem_size_val = emitter.builder.const_i64(elem_size);
+
+    // elem_dec_fn releases the master's reference at iterator drop (null for
+    // scalar elements).
+    let elem_dec_fn = emitter.get_or_generate_elem_dec_fn(value_ty);
+
+    let func_id = emitter.builder.runtime_fn("ori_iter_repeat");
+    emitter.emit_rt_call(
+        func_id,
+        &[alloca, elem_size_val, elem_dec_fn],
+        "repeat.iter",
+    )
 }
 
 /// Emit `hash_combine(a, b)` — delegates to the existing inline emitter.
@@ -152,4 +224,21 @@ fn emit_hash_combine<'scx: 'ctx, 'ctx>(
     let a = emitter.var(args[0]);
     let b = emitter.var(args[1]);
     Some(emitter.emit_hash_combine(a, b))
+}
+
+/// Emit `thread_id()` — a 0-arg scalar builtin returning the current OS thread
+/// id as `int` (`i64`). Lowers to a direct `ori_thread_id()` runtime call (no
+/// args, no RC — scalar result per RE-2); the runtime reads a thread-local and
+/// never unwinds. The eval oracle `function_val_thread_id` shares the same
+/// `ThreadId` Debug-parse algorithm (dual-exec parity is structural — both
+/// backends compute `id > 0`, not a fixed value).
+fn emit_thread_id<'scx: 'ctx, 'ctx>(
+    emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+    args: &[ArcVarId],
+) -> Option<ValueId> {
+    if !args.is_empty() {
+        return None;
+    }
+    let func_id = emitter.builder.runtime_fn("ori_thread_id");
+    emitter.emit_rt_call(func_id, &[], "thread_id")
 }

@@ -2,7 +2,7 @@
     let base = "AAAAAAAAAAAAAAAAAAAAAAAA,BBBBBBBBBBBBBBBBBBBBBBBB,CCCCCCCCCCCC";
     // Take a substring that contains a comma — it's a seamless slice
     let sub = base.substring(start: 0, end: 49);
-    // Now split the slice-backed string — this is the TPR-04-006 regression case
+    // Now split the slice-backed string — this is the slice-backed split regression case
     let parts = sub.split(sep: ",");
     let total = 0;
     for p in parts do {

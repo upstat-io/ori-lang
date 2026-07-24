@@ -10,9 +10,7 @@ use ori_ir::{ExprArena, ExprId, ExprKind};
 /// Simple items can pack multiple per line when a list breaks.
 /// Complex items always go one per line.
 ///
-/// # Spec Reference
-///
-/// Lines 225-242: Simple = literals, identifiers
+/// Spec: Annex D §Width-Based Breaking (simple items pack, complex break).
 ///
 /// # Simple Items
 ///

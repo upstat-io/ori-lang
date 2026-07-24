@@ -1,28 +1,40 @@
 ---
 title: "Memory Model"
-description: "AIMS memory management — value semantics, reference counting, copy-on-write, and cycle prevention."
+description: "AIMS memory management — value semantics, ownership, deterministic cleanup, copy-on-write, and cycle prevention."
 order: 20
 part: "Advanced Patterns"
 ---
 
 # Memory Model
 
-Ori uses **AIMS** (ARC Intelligent Memory System) for memory management — no garbage collector pauses, no manual memory management, and no borrow checker. You write code with value semantics (every assignment is a logical copy), and AIMS makes it fast by automatically managing reference counts, reusing allocations, and applying copy-on-write.
+Ori uses **AIMS**, one backend-neutral ownership calculus, for memory management
+— no required tracing-collector pauses, manual memory management, or
+source-level borrow checker. You write code with value semantics (every
+assignment is a logical copy), and AIMS proves the ownership, lifetime, cleanup,
+sharing, copy-on-write, and reuse obligations once. The historical “ARC
+Intelligent Memory System” expansion names the first compiled projection; it
+does not require LLVM or a reference counter.
+
+AIMS is backend-neutral. It does not require LLVM, choose heap versus stack storage, prescribe an object header, or mandate a particular reference-counting instruction.
+
+The VM and compiled targets choose their own physical layouts and mechanisms, then validate them against the same frozen AIMS facts. The tree-walking evaluator remains a representation-independent behavior oracle and does not implement a second memory calculus.
 
 ## How It Works
 
-Under the hood, AIMS uses reference counting. Every heap-allocated value has a reference count. When you assign a value, the count increases. When a reference goes out of scope, the count decreases. When it hits zero, the memory is freed.
+Conceptually, AIMS tracks logical ownership obligations. A conservative physical plan can realize those obligations with reference counting: sharing a managed value retains it, ending an ownership obligation releases it, and the last release permits cleanup.
+
+When AIMS proves sharing impossible or a lifetime tightly bounded, a physical plan may omit the counter or use inline, stack, arena, region, or another validated representation.
 
 ```ori
-let a = [1, 2, 3];      // ref count = 1
-let b = a;              // ref count = 2 (a and b share the data)
-// b goes out of scope  // ref count = 1
-// a goes out of scope  // ref count = 0, memory freed
+let a = [1, 2, 3];      // one logical owner
+let b = a;              // two logical values may share physical storage
+// b's ownership ends   // one logical owner remains
+// a's ownership ends   // cleanup obligation becomes due
 ```
 
 ### Deterministic Cleanup
 
-Unlike garbage collection, ARC frees memory immediately when the last reference is gone:
+Unlike tracing garbage collection, an admitted Ori executor performs cleanup at the lifetime end proved by the shared plan. A reference-counted projection commonly reclaims storage on its last release; another projection may use an equally deterministic mechanism:
 
 ```ori
 @process_file (path: str) -> void uses FileSystem = {
@@ -39,20 +51,20 @@ This predictability is valuable for resource-constrained environments and real-t
 | Feature | GC | AIMS |
 |---------|----|----|
 | Pause times | Unpredictable | None |
-| Memory overhead | Higher | Lower |
-| Cleanup timing | Eventually | Immediate |
+| Memory overhead | Requires tracing headroom | Selected and proven per target |
+| Cleanup timing | Eventually | At the proved lifetime end |
 | Performance | Variable | Consistent |
 | In-place mutation | Requires barriers | COW (automatic) |
 
 Ori chose AIMS for:
 - Predictable performance — no stop-the-world pauses
-- Lower memory overhead — no GC headroom needed
-- Immediate cleanup — resources freed when last reference drops
+- Lower memory overhead — no tracing-GC headroom needed
+- Deterministic cleanup — resources are released at their proved lifetime end
 - Copy-on-write — value semantics at near-mutating performance
 
 ## Preventing Reference Cycles
 
-Reference counting can't handle reference cycles. If A references B and B references A, neither can ever be freed. Ori's design prevents cycles structurally — no cycle detector needed:
+Reference counting cannot reclaim an isolated reference cycle: if A references B and B references A, neither count reaches zero. Ori prevents cycles structurally, so no cycle detector is needed:
 
 ### 1. Sequential Data Flow
 
@@ -98,13 +110,13 @@ Instead, use:
 - Separate parent/child structures
 - Tree patterns where children don't reference parents
 
-## Value Types vs Reference Types
+## Value Types vs Managed Types
 
-Ori classifies every type as either _scalar_ (no reference counting) or _reference_ (reference counted).
+Ori records whether a value is scalar or carries logical ownership/drop obligations. That classification is semantic; a target's physical planner decides whether satisfying it needs a counter, inline bits, an arena handle, or another representation.
 
 ### Scalar Types
 
-Copied directly — no reference counting overhead:
+Copied directly — no managed-ownership overhead:
 
 ```ori
 let x = 42;
@@ -117,24 +129,26 @@ Scalar types include:
 - `void`, `Never`
 - Structs/enums/tuples where ALL fields are scalar
 
-### Reference Types
+### Managed Types
 
-Shared with reference counting:
+May share physical storage under the selected plan:
 
 ```ori
 let a = [1, 2, 3];
 let b = a;  // b and a share the same underlying data
 ```
 
-Reference types include:
-- `str` (heap strings; short strings ≤23 bytes use Small String Optimization)
+Managed types include:
+- `str` (a physical plan may inline short strings)
 - `[T]` (lists), `{K: V}` (maps), `Set<T>`
 - Function types, iterator types
-- Any struct/enum containing at least one reference field
+- Any struct/enum containing at least one managed field
 
 ### The Value Trait
 
-Types that implement `Value` are stored inline with bitwise copy — no heap allocation, no reference counting, no `Drop`. All fields must also be `Value`:
+Types that implement `Value` admit a direct value representation with no logical drop burden. A physical plan may store them inline and copy their bits.
+
+All fields must also be `Value`:
 
 ```ori
 type Point: Value, Eq = { x: float, y: float }
@@ -143,7 +157,7 @@ let a = Point { x: 1.0, y: 2.0 };
 let b = a;  // Bitwise copy, zero overhead
 ```
 
-All primitives implicitly satisfy `Value`. User types opt in via the type declaration. Maximum size: 512 bytes (warning above 256).
+All primitives implicitly satisfy `Value`, while user types opt in through the type declaration. The maximum size is 512 bytes, with a warning above 256 bytes.
 
 ### How to Know Which Is Which
 
@@ -152,19 +166,21 @@ All primitives implicitly satisfy `Value`. User types opt in via the type declar
 | `int`, `float`, `bool` | Scalar | Primitive |
 | `(int, float)` | Scalar | All fields scalar |
 | `{ x: int, y: int }` | Scalar | All fields scalar |
-| `str` | Reference | Heap-allocated (or SSO) |
-| `{ id: int, name: str }` | Reference | `name` is reference |
-| `Option<str>` | Reference | Inner type is reference |
+| `str` | Managed | Carries string storage semantics |
+| `{ id: int, name: str }` | Managed | `name` carries a burden |
+| `Option<str>` | Managed | Inner type carries a burden |
 | `Option<int>` | Scalar | Inner type is scalar |
-| `[int]` | Reference | List is heap-allocated |
+| `[int]` | Managed | Carries list storage semantics |
 
 ## Copy-on-Write (COW)
 
-Ori has value semantics — every assignment is a logical copy. But the compiler optimizes this via copy-on-write: when you "modify" a shared collection, the runtime checks if the reference count is 1. If unique, it mutates in place. If shared, it copies first.
+Ori has value semantics — every assignment is a logical copy. The compiler optimizes this through copy-on-write.
+
+AIMS may prove a collection unique statically; otherwise the selected physical plan uses its sharing mechanism to choose safe in-place reuse or a copy. Reference count `1` is one possible compiled probe, not an AIMS rule.
 
 ```ori
 let a = [1, 2, 3];
-let b = a;           // a and b share data (ref count = 2)
+let b = a;           // a and b may share physical data
 
 // This triggers a copy because a is shared
 a = a.push(value: 4);  // a gets its own copy: [1, 2, 3, 4]
@@ -182,20 +198,22 @@ let text = "hello world";
 let word = text.substring(start: 0, end: 5);  // "hello" — no copy
 ```
 
-The slice shares the parent's reference count. When the parent is dropped and only the slice remains, subsequent mutations materialize the slice into an independent allocation.
+The slice shares the parent's logical storage identity. Its physical plan keeps that storage alive.
+
+A later mutation materializes independent storage when required to preserve value semantics.
 
 ### Small String Optimization (SSO)
 
-Strings of 23 bytes or fewer are stored inline — no heap allocation, no reference counting. This covers most identifiers, short messages, and single-line strings.
+Physical plans may store short strings inline, avoiding separate storage and count metadata. The threshold is target- and plan-specific rather than part of Ori's language semantics.
 
 ```ori
-let short = "hello";  // Stored inline (5 bytes ≤ 23)
-let long = "this is a string that definitely exceeds twenty-three bytes";  // Heap allocated
+let short = "hello";  // Eligible for an inline representation
+let long = "this is a string long enough to require managed storage on many targets";
 ```
 
 ## The Clone Trait
 
-To get an explicit independent copy of a reference type, use `.clone()`:
+To request an explicit independent copy of a managed type, use `.clone()`:
 
 ```ori
 let a = [1, 2, 3];
@@ -225,7 +243,7 @@ let p2 = p1.clone();  // Independent copy
 
 ## The Drop Trait
 
-Custom cleanup logic when a value's reference count reaches zero:
+Custom cleanup logic when the value's logical cleanup obligation becomes due:
 
 ```ori
 trait Drop {
@@ -247,7 +265,11 @@ Values are destroyed in reverse creation order within a scope:
 }
 ```
 
-Struct fields: reverse declaration order. List elements: back-to-front. Map entries: no guaranteed order.
+Destruction order for nested values is:
+
+- struct fields in reverse declaration order;
+- list elements from back to front;
+- map entries in no guaranteed order.
 
 ### Early Drop
 
@@ -300,7 +322,9 @@ let x = 20;  // Shadowing, creates new binding
 f();  // Still returns 10 (captured value)
 ```
 
-For reference types (lists, maps, strings), the closure stores the reference (incrementing the reference count), not a deep copy. This is efficient — you share the data, and COW ensures independence if either side mutates.
+For managed values such as lists, maps, and strings, closure capture is still a logical value copy rather than an eager deep copy. AIMS freezes the capture's ownership and cleanup obligations; each executor realizes them using its selected closure and storage plan.
+
+COW preserves independence if either side later changes.
 
 ## AIMS Safety Invariants
 
@@ -314,13 +338,13 @@ The Ori language maintains these invariants to ensure memory safety without a ga
 
 ## Quick Reference
 
-### AIMS Reference Counting
+### AIMS Logical Ownership
 
 ```ori
-let a = value;         // ref count = 1
-let b = a;             // ref count = 2
-// b drops            // ref count = 1
-// a drops            // ref count = 0, freed
+let a = value;         // one logical owner
+let b = a;             // another logical value
+// b drops             // its ownership obligation ends
+// a drops             // final cleanup obligation becomes due
 ```
 
 ### Clone
@@ -329,10 +353,10 @@ let b = a;             // ref count = 2
 let copy = original.clone();  // Independent copy
 ```
 
-### Value vs Reference
+### Value vs Managed
 
-| Scalar (no RC) | Reference (RC) |
-|----------------|----------------|
+| Scalar/value | Managed burden |
+|--------------|----------------|
 | `int`, `float`, `bool` | `str`, `[T]`, `{K: V}` |
 | `char`, `byte`, `Duration` | `Set<T>`, function types |
 | All-scalar structs/tuples | Structs with any ref field |

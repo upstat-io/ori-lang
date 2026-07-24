@@ -9,8 +9,7 @@
 //! If `ORI_LOG` is set but contains a malformed filter directive, a warning
 //! is printed to stderr and the fallback chain (`RUST_LOG` → `warn` default)
 //! takes over. The warning ensures the user knows their explicit configuration
-//! was not applied — silent swallowing of parse errors is a correctness
-//! violation per CLAUDE.md.
+//! was not applied — parse errors are surfaced, never silently swallowed.
 
 use std::sync::OnceLock;
 use tracing_subscriber::{prelude::*, EnvFilter, Registry};

@@ -1,0 +1,18 @@
+type JsonValue = { data: str }
+
+trait Index<Key, Value> {
+    @index (self, key: Key) -> Value
+}
+
+impl JsonValue: Index<int, str> {
+    @index (self, key: int) -> str = self.data;
+}
+
+impl JsonValue: Index<str, str> {
+    @index (self, key: str) -> str = self.data;
+}
+
+@both_keys () -> str = {
+    let value = JsonValue { data: "value" };
+    value[0] + value["key"]
+}

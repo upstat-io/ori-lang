@@ -1,0 +1,198 @@
+// Spec: 09-properties-of-types.md §9.7.3 Format Types (scientific `e` / `E`)
+// The exponent renders C-printf-%e style: explicit `+`/`-` sign + zero-padded
+// minimum-2-digit magnitude. Also pins the decade-carry case where mantissa
+// rounding bumps the exponent across a power-of-ten boundary, plus f64 extremes
+// (subnormal, MAX) where the mantissa must stay in [1,10).
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Spec examples (exact): sign + zero-pad on a 1-digit exponent
+// =============================================================================
+
+@sci_lower () -> str = `{1234.5:e}`;
+
+@test_sci_lower tests @sci_lower () -> void = {
+    assert_eq(actual: sci_lower(), expected: "1.2345e+03")
+}
+
+@sci_upper () -> str = `{1234.5:E}`;
+
+@test_sci_upper tests @sci_upper () -> void = {
+    assert_eq(actual: sci_upper(), expected: "1.2345E+03")
+}
+
+// =============================================================================
+// Precision interaction
+// =============================================================================
+
+@sci_prec2 () -> str = `{1234.5:.2e}`;
+
+@test_sci_prec2 tests @sci_prec2 () -> void = {
+    assert_eq(actual: sci_prec2(), expected: "1.23e+03")
+}
+
+@sci_prec0 () -> str = `{1234.5:.0e}`;
+
+@test_sci_prec0 tests @sci_prec0 () -> void = {
+    assert_eq(actual: sci_prec0(), expected: "1e+03")
+}
+
+// =============================================================================
+// Negative exponent — zero-padded magnitude with `-` sign
+// =============================================================================
+
+@sci_neg_exp () -> str = `{0.0001:.0e}`;
+
+@test_sci_neg_exp tests @sci_neg_exp () -> void = {
+    assert_eq(actual: sci_neg_exp(), expected: "1e-04")
+}
+
+// =============================================================================
+// Two-digit exponent (exact f64)
+// =============================================================================
+
+@sci_exp12 () -> str = `{1.0e12:.0e}`;
+
+@test_sci_exp12 tests @sci_exp12 () -> void = {
+    assert_eq(actual: sci_exp12(), expected: "1e+12")
+}
+
+// =============================================================================
+// Zero value -> "0e+00"
+// =============================================================================
+
+@sci_zero () -> str = `{0.0:e}`;
+
+@test_sci_zero tests @sci_zero () -> void = {
+    assert_eq(actual: sci_zero(), expected: "0e+00")
+}
+
+// =============================================================================
+// Decade-carry: mantissa rounding bumps the exponent (absorbed defect)
+// 9.999 at precision .0 rounds to 10 -> must re-derive exponent -> "1e+01"
+// =============================================================================
+
+@sci_carry () -> str = `{9.999:.0e}`;
+
+@test_sci_carry tests @sci_carry () -> void = {
+    assert_eq(actual: sci_carry(), expected: "1e+01")
+}
+
+// =============================================================================
+// Negative mantissa — sign on mantissa, exponent path unchanged
+// =============================================================================
+
+@sci_neg_mantissa () -> str = `{-1234.5:.4e}`;
+
+@test_sci_neg_mantissa tests @sci_neg_mantissa () -> void = {
+    assert_eq(actual: sci_neg_mantissa(), expected: "-1.2345e+03")
+}
+
+// =============================================================================
+// Three-digit exponent — unbounded width (no 2-digit cap)
+// =============================================================================
+
+@sci_exp300 () -> str = `{1.5e300:e}`;
+
+@test_sci_exp300 tests @sci_exp300 () -> void = {
+    assert_eq(actual: sci_exp300(), expected: "1.5e+300")
+}
+
+// =============================================================================
+// Subnormal f64 — mantissa must stay in [1,10), NOT underflow to "inf"
+// =============================================================================
+
+@sci_subnormal () -> str = `{5.0e-324:e}`;
+
+@test_sci_subnormal tests @sci_subnormal () -> void = {
+    assert_eq(actual: sci_subnormal(), expected: "5e-324")
+}
+
+// =============================================================================
+// Sign spec `+` on a positive mantissa, with scientific format
+// =============================================================================
+
+@sci_plus_sign () -> str = `{1234.5:+e}`;
+
+@test_sci_plus_sign tests @sci_plus_sign () -> void = {
+    assert_eq(actual: sci_plus_sign(), expected: "+1.2345e+03")
+}
+
+// =============================================================================
+// Decade-carry at .0 across a 2-digit boundary (99.96 -> 100 -> 1e+02)
+// =============================================================================
+
+@sci_carry2 () -> str = `{99.96:.0e}`;
+
+@test_sci_carry2 tests @sci_carry2 () -> void = {
+    assert_eq(actual: sci_carry2(), expected: "1e+02")
+}
+
+// =============================================================================
+// Precision beyond f64's ~15 significant digits (Rust {:.*e} delegation)
+// =============================================================================
+
+@sci_prec17 () -> str = `{1234.5:.17e}`;
+
+@test_sci_prec17 tests @sci_prec17 () -> void = {
+    assert_eq(actual: sci_prec17(), expected: "1.23450000000000000e+03")
+}
+
+// =============================================================================
+// f64 MAX-scale exponent (3-digit, mantissa stays in [1,10))
+// =============================================================================
+
+@sci_exp308 () -> str = `{1.0e308:e}`;
+
+@test_sci_exp308 tests @sci_exp308 () -> void = {
+    assert_eq(actual: sci_exp308(), expected: "1e+308")
+}
+
+// =============================================================================
+// Uppercase-E with precision + negative exponent (E-capitalization coverage)
+// =============================================================================
+
+@sci_upper_neg_exp () -> str = `{0.0001:.0E}`;
+
+@test_sci_upper_neg_exp tests @sci_upper_neg_exp () -> void = {
+    assert_eq(actual: sci_upper_neg_exp(), expected: "1E-04")
+}
+
+// =============================================================================
+// NaN / Inf finite-guard: the exponent path must NEVER run on a non-finite
+// value. The spec does not define a scientific string for NaN/Inf, so these
+// pin the `if !f.is_finite()` guard's Rust-Display output ("NaN" / "inf") and,
+// as a negative pin, that the unguarded `f.abs().log10().floor()` garbage
+// exponent ("NaNe2147483647") is never produced.
+// =============================================================================
+
+@sci_inf () -> str = {
+    let $z = 0.0;
+    let $inf = 1.0 / z;
+    `{inf:e}`
+}
+
+@test_sci_inf tests @sci_inf () -> void = {
+    assert_eq(actual: sci_inf(), expected: "inf")
+}
+
+@sci_nan () -> str = {
+    let $z = 0.0;
+    let $nan = z / z;
+    `{nan:e}`
+}
+
+@test_sci_nan tests @sci_nan () -> void = {
+    assert_eq(actual: sci_nan(), expected: "NaN")
+}
+
+@sci_inf_upper () -> str = {
+    let $z = 0.0;
+    let $inf = 1.0 / z;
+    `{inf:E}`
+}
+
+@test_sci_inf_upper tests @sci_inf_upper () -> void = {
+    assert_eq(actual: sci_inf_upper(), expected: "inf")
+}

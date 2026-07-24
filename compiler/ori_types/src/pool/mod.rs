@@ -1,18 +1,10 @@
-//! Unified type pool - single source of truth for all types.
+//! Interned structural type storage.
 //!
-//! The Pool stores all types using a unified representation:
-//! - Types are referenced by [`Idx`] (32-bit indices)
-//! - Each type is an [`Item`] with tag and data
-//! - Complex types use an extra array for variable-length data
-//! - Pre-computed [`TypeFlags`] enable O(1) property queries
-//!
-//! # Design (from Zig `InternPool`, Roc Subs)
-//!
-//! - Hash-based deduplication ensures each unique type exists once
-//! - Primitives are pre-interned at fixed indices for O(1) lookup
-//! - Structure-of-Arrays (`SoA`) layout for cache-friendly bulk operations
+//! [`Idx`] values address deduplicated [`Item`] entries, parallel flags and
+//! hashes, and variable-length extra data. Primitive indices are fixed.
 
 mod accessors;
+mod bootstrap;
 mod collection_surface;
 mod construct;
 pub mod descriptor;
@@ -20,38 +12,24 @@ mod flags_compute;
 mod format;
 mod hashing;
 mod interning;
+pub mod prelude;
+mod queries;
 pub mod re_intern;
+mod structural_eq;
 pub mod substitute;
-
-pub use collection_surface::walk_collection_types;
-pub use construct::*;
-pub use descriptor::{TypeDescriptor, VariantDescriptor};
-pub use re_intern::{
-    re_intern_sig, re_intern_sig_with_var_remap, re_intern_type, re_intern_type_with_var_remap,
-};
-pub use substitute::{
-    build_mono_body_type_map, extend_var_subst_with_roots, extract_var_from_types,
-    substitute_in_pool, BodyTypeMapSink,
-};
 
 use rustc_hash::FxHashMap;
 
-use crate::{Idx, Item, Rank, Tag, TypeFlags};
+use crate::{Idx, Item, Rank, TypeFlags};
 
-/// The unified type pool - stores all types in the compilation.
-///
-/// All types in the system are stored here and referenced by `Idx`.
-/// This provides:
-/// - O(1) type equality (index comparison)
-/// - Automatic deduplication (each unique type stored once)
-/// - Pre-computed metadata (flags, hashes)
-/// - Cache-friendly access patterns
-// Clone is intentional — used for the merged_pool pattern in cross-module
-// re-interning (see `oric::test::runner`). Pool is large (~10 Vecs), so
-// clones are O(n); avoid accidental cloning outside the merge path.
-#[derive(Clone)]
+pub use prelude::*;
+pub use substitute::register_concrete_applied_resolutions;
+
+/// Deduplicated type storage addressed by [`Idx`].
+/// Parallel metadata supports constant-time equality and property queries.
+// Why: Cross-module re-interning needs an owned merged pool despite O(n) cloning.
+#[derive(Clone, Debug)]
 pub struct Pool {
-    // === Core Storage (parallel arrays) ===
     /// All type items (tag + data).
     items: Vec<Item>,
     /// Pre-computed flags for each item (flags[i] corresponds to items[i]).
@@ -59,16 +37,13 @@ pub struct Pool {
     /// Stable hashes for each item (hashes[i] corresponds to items[i]).
     hashes: Vec<u64>,
 
-    // === Extra Data ===
     /// Variable-length data for complex types.
     /// Layout depends on tag (see documentation on each type).
     extra: Vec<u32>,
 
-    // === Deduplication ===
     /// Hash -> Idx mapping for deduplication.
     intern_map: FxHashMap<u64, Idx>,
 
-    // === Named Type Resolution ===
     /// Maps Named/Applied Idx -> concrete Struct/Enum Idx.
     ///
     /// Populated during type registration to bridge the gap between
@@ -76,44 +51,46 @@ pub struct Pool {
     /// Pool definitions (Struct/Enum with full field data).
     resolutions: FxHashMap<Idx, Idx>,
 
-    // === Newtype Registry ===
-    /// Maps newtype `Name` -> underlying `Idx` for newtype declarations
-    /// (`type N = Existing`).
-    ///
-    /// Newtypes are layout-transparent per `repr.md §RP-24` (same `abi_size`,
-    /// `abi_alignment`, `layout`, `niche` as the inner type) but nominally
-    /// distinct at the type level. Constructor calls `N(value)` and accessors
-    /// `n.unwrap()` / `n.inner` should lower to no-op transparent wraps in
-    /// codegen. This map is the SSOT for "which names are newtype constructors"
-    /// — `ori_arc::lower` consults it to dispatch newtype calls to transparent
-    /// `Let { Var(arg) }` instead of unresolvable `PartialApply` (the prior
-    /// behavior surfaced as `emit_partial_apply: callee not found name="UserId"`
-    /// per plan §08.3c).
-    ///
-    /// Unlike `resolutions`, this map is keyed by `Name`, not `Idx`, because
-    /// the lowering pass sees the constructor's source-level name (`Ident`,
-    /// `FunctionRef`, `TypeRef`) before any pool lookup.
+    /// Symbolic C-ABI kind for each nominal `c_*` type.
+    /// Scalar resolution preserves source ergonomics; this table retains
+    /// target-dependent width identity for FFI boundaries.
+    cabi_kinds: FxHashMap<Idx, ori_ir::CAbiKind>,
+
+    /// Underlying type for each nominal, layout-transparent newtype name.
+    /// Name keys let lowering recognize constructors before an `Idx` lookup.
+    /// Spec: Clause 8.6.3.
     newtype_ctors: FxHashMap<ori_ir::Name, Idx>,
 
-    // === Type Variables ===
+    /// Registered user-facing `Error` struct, distinct from the poison sentinel.
+    /// Consumers use it to select the `TypeTag::Error` behavior table.
+    error_struct_idx: Option<Idx>,
+
     /// State for each type variable.
     var_states: Vec<VarState>,
     /// Counter for generating fresh variable IDs.
     next_var_id: u32,
 }
 
+/// State carried by an unbound type variable.
+#[derive(Clone, Debug)]
+pub struct UnboundVarState {
+    pub(crate) id: u32,
+    pub(crate) rank: Rank,
+    pub(crate) name: Option<ori_ir::Name>,
+}
+
+/// State carried by a generalized type variable.
+#[derive(Clone, Debug)]
+pub struct GeneralizedVarState {
+    pub(crate) id: u32,
+    pub(crate) name: Option<ori_ir::Name>,
+}
+
 /// State of a type variable.
 #[derive(Clone, Debug)]
 pub enum VarState {
     /// Unbound variable - waiting to be unified.
-    Unbound {
-        /// Unique identifier for this variable.
-        id: u32,
-        /// Rank (scope depth) for generalization.
-        rank: Rank,
-        /// Optional name for better error messages.
-        name: Option<ori_ir::Name>,
-    },
+    Unbound(UnboundVarState),
 
     /// Linked to another type - follow the link.
     Link {
@@ -128,227 +105,7 @@ pub enum VarState {
     },
 
     /// Generalized variable - must be instantiated before use.
-    Generalized {
-        /// Original variable ID.
-        id: u32,
-        /// Optional name for error messages.
-        name: Option<ori_ir::Name>,
-    },
-}
-
-impl Pool {
-    /// Create a new pool with pre-interned primitives.
-    pub fn new() -> Self {
-        let mut pool = Self {
-            items: Vec::with_capacity(256),
-            flags: Vec::with_capacity(256),
-            hashes: Vec::with_capacity(256),
-            extra: Vec::with_capacity(1024),
-            intern_map: FxHashMap::default(),
-            resolutions: FxHashMap::default(),
-            newtype_ctors: FxHashMap::default(),
-            var_states: Vec::new(),
-            next_var_id: 0,
-        };
-
-        // Pre-intern primitive types at fixed indices
-        pool.intern_primitives();
-
-        pool
-    }
-
-    /// Pre-intern all primitive types at their fixed indices.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "primitive count is a small constant, always fits u32"
-    )]
-    fn intern_primitives(&mut self) {
-        // Primitives must be interned in exact order to match Idx constants
-        self.intern_primitive_at(Tag::Int, Idx::INT);
-        self.intern_primitive_at(Tag::Float, Idx::FLOAT);
-        self.intern_primitive_at(Tag::Bool, Idx::BOOL);
-        self.intern_primitive_at(Tag::Str, Idx::STR);
-        self.intern_primitive_at(Tag::Char, Idx::CHAR);
-        self.intern_primitive_at(Tag::Byte, Idx::BYTE);
-        self.intern_primitive_at(Tag::Unit, Idx::UNIT);
-        self.intern_primitive_at(Tag::Never, Idx::NEVER);
-        self.intern_primitive_at(Tag::Error, Idx::ERROR);
-        self.intern_primitive_at(Tag::Duration, Idx::DURATION);
-        self.intern_primitive_at(Tag::Size, Idx::SIZE);
-        self.intern_primitive_at(Tag::Ordering, Idx::ORDERING);
-
-        // Pad to FIRST_DYNAMIC with error placeholders
-        while (self.items.len() as u32) < Idx::FIRST_DYNAMIC {
-            self.items.push(Item::primitive(Tag::Error));
-            self.flags.push(TypeFlags::HAS_ERROR);
-            self.hashes.push(0);
-        }
-
-        debug_assert_eq!(self.items.len() as u32, Idx::FIRST_DYNAMIC);
-    }
-
-    /// Intern a primitive type at a specific index.
-    #[allow(
-        clippy::cast_possible_truncation,
-        reason = "items.len() always fits u32 — pool indices are u32"
-    )]
-    fn intern_primitive_at(&mut self, tag: Tag, expected_idx: Idx) {
-        let idx = Idx::from_raw(self.items.len() as u32);
-        debug_assert_eq!(idx, expected_idx, "Primitive index mismatch for {tag:?}");
-
-        let item = Item::primitive(tag);
-        let flags = Self::compute_primitive_flags(tag);
-        let hash = Self::compute_primitive_hash(tag);
-
-        self.items.push(item);
-        self.flags.push(flags);
-        self.hashes.push(hash);
-        self.intern_map.insert(hash, idx);
-    }
-
-    /// Compute flags for a primitive type.
-    fn compute_primitive_flags(tag: Tag) -> TypeFlags {
-        let mut flags = TypeFlags::IS_PRIMITIVE | TypeFlags::IS_RESOLVED | TypeFlags::IS_MONO;
-
-        match tag {
-            Tag::Error => {
-                flags |= TypeFlags::HAS_ERROR;
-            }
-            Tag::Never => {
-                // Never is special - it's resolved but can unify with anything
-            }
-            _ => {
-                flags |= TypeFlags::IS_COPYABLE;
-            }
-        }
-
-        flags
-    }
-
-    /// Compute hash for a primitive type.
-    fn compute_primitive_hash(tag: Tag) -> u64 {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = rustc_hash::FxHasher::default();
-        (tag as u8).hash(&mut hasher);
-        hasher.finish()
-    }
-
-    // === Query Methods ===
-
-    /// Get the tag for a type index.
-    #[inline]
-    pub fn tag(&self, idx: Idx) -> Tag {
-        self.items[idx.raw() as usize].tag
-    }
-
-    /// Get the data field for a type index.
-    #[inline]
-    pub fn data(&self, idx: Idx) -> u32 {
-        self.items[idx.raw() as usize].data
-    }
-
-    /// Get the item for a type index.
-    #[inline]
-    pub fn item(&self, idx: Idx) -> Item {
-        self.items[idx.raw() as usize]
-    }
-
-    /// Get the flags for a type index.
-    #[inline]
-    pub fn flags(&self, idx: Idx) -> TypeFlags {
-        self.flags[idx.raw() as usize]
-    }
-
-    /// Get the hash for a type index.
-    #[inline]
-    pub fn hash(&self, idx: Idx) -> u64 {
-        self.hashes[idx.raw() as usize]
-    }
-
-    /// Look up a type by its Merkle hash.
-    ///
-    /// Returns `Some(idx)` if a type with this hash exists in the pool,
-    /// `None` otherwise. O(1) via `intern_map`.
-    ///
-    /// Used for hash-first import resolution: when importing a function from
-    /// another module, we can resolve its parameter/return types by Merkle hash
-    /// instead of re-walking the AST — provided those types already exist in
-    /// the local pool.
-    #[inline]
-    pub fn lookup_by_hash(&self, merkle_hash: u64) -> Option<Idx> {
-        self.intern_map.get(&merkle_hash).copied()
-    }
-
-    /// Get the variable state for a variable ID.
-    ///
-    /// # Panics
-    /// Panics if `var_id` is out of bounds. Use `var_state_checked()` when
-    /// the `var_id` might be from a Generalized type variable that leaked
-    /// past type checking.
-    #[inline]
-    pub fn var_state(&self, var_id: u32) -> &VarState {
-        debug_assert!(
-            (var_id as usize) < self.var_states.len(),
-            "var_state: var_id {} out of bounds (pool has {} vars)",
-            var_id,
-            self.var_states.len()
-        );
-        &self.var_states[var_id as usize]
-    }
-
-    /// Get mutable access to variable state.
-    ///
-    /// # Panics
-    /// Panics if `var_id` is out of bounds.
-    #[inline]
-    pub fn var_state_mut(&mut self, var_id: u32) -> &mut VarState {
-        debug_assert!(
-            (var_id as usize) < self.var_states.len(),
-            "var_state_mut: var_id {} out of bounds (pool has {} vars)",
-            var_id,
-            self.var_states.len()
-        );
-        &mut self.var_states[var_id as usize]
-    }
-
-    /// Safely get variable state, returning `None` if `var_id` is out of bounds.
-    ///
-    /// Use this when the `var_id` might be from a Generalized type variable
-    /// that leaked past type checking into codegen/repr phases.
-    #[inline]
-    pub fn var_state_checked(&self, var_id: u32) -> Option<&VarState> {
-        self.var_states.get(var_id as usize)
-    }
-
-    /// Return the number of `var_id`s the pool has allocated.
-    ///
-    /// Equivalent to `var_states.len() as u32`. Any `var_id < next_var_id()`
-    /// is guaranteed to have a backing `VarState` slot; callers preparing
-    /// to re-intern or substitute foreign `var_id`s can pass this directly
-    /// to [`Self::ensure_var_capacity`] instead of walking cache maps to
-    /// re-derive the bound.
-    #[inline]
-    pub fn next_var_id(&self) -> u32 {
-        self.next_var_id
-    }
-
-    /// Get the number of types in the pool.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.items.len()
-    }
-
-    /// Check if the pool is empty (only has primitives).
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.items.len() <= Idx::FIRST_DYNAMIC as usize
-    }
-}
-
-impl Default for Pool {
-    fn default() -> Self {
-        Self::new()
-    }
+    Generalized(GeneralizedVarState),
 }
 
 #[cfg(test)]

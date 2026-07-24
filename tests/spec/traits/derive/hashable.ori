@@ -1,4 +1,4 @@
-// Spec: 07-properties-of-types.md § Hashable + Derive
+// Spec: 09-properties-of-types.md § Hashable + Derive
 // Formal semantics: hash_combine over fields; variant discriminant included
 //
 // §3.15: Derived Traits Formal Semantics
@@ -15,6 +15,15 @@ type Single = { value: int }
 
 #[derive(Eq, Hashable)]
 type Nested = { origin: Point, label: str }
+
+#derive(Eq, Hashable)
+type UnitFields = { left: int, empty: (), right: int }
+
+#derive(Eq, Hashable)
+type OnlyUnit = { empty: () }
+
+#derive(Eq, Hashable)
+type UserId = int;
 
 // --- Sum types ---
 
@@ -112,3 +121,65 @@ type Shape = Circle(radius: int) | Rectangle(w: int, h: int);
     assert(cond: Red.hash() == Red.hash())
 }
 @pl_consistency () -> int = Red.hash();
+
+// --- Exact product fold: seed zero, declaration order, Unit skipped ---
+
+@test_product_fold_exact tests @product_fold_exact () -> void = {
+    let left = 3;
+    let right = 7;
+    let value = UnitFields { left, empty: (), right };
+    let expected = hash_combine(
+        seed: hash_combine(seed: 0, value: left.hash()),
+        value: right.hash(),
+    );
+    assert(cond: value.hash() == expected)
+}
+@product_fold_exact () -> bool = {
+    let left = 3;
+    let right = 7;
+    let value = UnitFields { left, empty: (), right };
+    let expected = hash_combine(
+        seed: hash_combine(seed: 0, value: left.hash()),
+        value: right.hash(),
+    );
+    value.hash() == expected
+}
+
+@test_only_unit_hashes_to_zero tests @only_unit_hash () -> void = {
+    assert(cond: OnlyUnit { empty: () }.hash() == 0)
+}
+@only_unit_hash () -> int = OnlyUnit { empty: () }.hash();
+
+// --- Exact sum fold: declaration ordinal before active payload ---
+
+@test_sum_ordinal_exact tests @sum_ordinal_exact () -> void = {
+    let radius = 5;
+    let expected_circle = hash_combine(
+        seed: hash_combine(seed: 0, value: 0),
+        value: radius.hash(),
+    );
+    assert(cond: Red.hash() == hash_combine(seed: 0, value: 0));
+    assert(cond: Green.hash() == hash_combine(seed: 0, value: 1));
+    assert(cond: Circle(radius: radius).hash() == expected_circle)
+}
+@sum_ordinal_exact () -> bool = {
+    let radius = 5;
+    let expected_circle = hash_combine(
+        seed: hash_combine(seed: 0, value: 0),
+        value: radius.hash(),
+    );
+    Red.hash() == hash_combine(seed: 0, value: 0)
+        && Green.hash() == hash_combine(seed: 0, value: 1)
+        && Circle(radius: radius).hash() == expected_circle
+}
+
+// --- Newtype derivation delegates exactly to the underlying hash ---
+
+@test_newtype_hash_delegates tests @newtype_hash_delegates () -> void = {
+    let raw = 42;
+    assert(cond: UserId(raw).hash() == raw.hash())
+}
+@newtype_hash_delegates () -> bool = {
+    let raw = 42;
+    UserId(raw).hash() == raw.hash()
+}

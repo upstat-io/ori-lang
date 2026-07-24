@@ -1,0 +1,10 @@
+@main () -> int = {
+    let xs = ["epsilon string exceeding the sso width!", "zeta string exceeding the sso width!!"];
+    let result = catch(expr: xs[9]);
+    let n = len(collection: xs);
+    let still = xs[0];
+    match result {
+        Err(_) -> if n == 2 && still == "epsilon string exceeding the sso width!" then 0 else 2,
+        Ok(_) -> 1
+    }
+}

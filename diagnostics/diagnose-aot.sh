@@ -37,10 +37,13 @@
 #   2 = usage error
 
 set -uo pipefail
-# Note: no -e because we intentionally handle failures per-section
+# No -e: failures are handled per-section, deliberately not fatal
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/_common.sh"
+# Shared strip_ansi stdin filter (no per-script copy).
+# shellcheck source=../scripts/lib/ansi.sh
+source "$SCRIPT_DIR/../scripts/lib/ansi.sh"
 
 # --- Defaults ---
 USE_VALGRIND=0
@@ -126,7 +129,7 @@ fi
 if [[ "$USE_BOTH_BUILDS" -eq 1 ]]; then
     require_both_builds
     # --both-builds: run the full battery for each profile, then compare
-    # per-section results. We recurse with all original flags minus
+    # per-section results. Recurses with all original flags minus
     # --both-builds (passthrough), plus _DIAGNOSE_AOT_RESULTS to capture
     # per-section structured output for comparison.
 
@@ -198,7 +201,7 @@ else
 fi
 
 # Export ORI_BIN so helper scripts (rc-stats.sh, ir-dump.sh, codegen-audit.sh,
-# arc-dump.sh, disasm-ori.sh) use the same binary we resolved above, rather
+# arc-dump.sh, disasm-ori.sh) use the same binary resolved above, rather
 # than re-resolving via their own find_ori_bin which may choose a different
 # build profile.
 export ORI_BIN="$ORI"
@@ -208,6 +211,7 @@ tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 basename_file="$(basename "$FILE")"
 has_failure=0
+has_warning=0
 
 # Results array (indexed by section number)
 declare -a results
@@ -221,14 +225,12 @@ echo -e "${C_BOLD}Diagnostic Report: ${basename_file}${C_NC}${C_DIM} (${build_pr
 echo "════════════════════════════════════════════════════════"
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 1: Compilation
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[1/9] Compilation${C_NC}"
 
-start_time=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
+start_time=$(monotonic_now_ns)
 if ORI_VERIFY_ARC=1 "$ORI" build "$FILE" -o "$tmpdir/binary" 2>"$tmpdir/build_err.txt"; then
-    end_time=$(date +%s%N 2>/dev/null || python3 -c "import time; print(int(time.time()*1e9))")
+    end_time=$(monotonic_now_ns)
     elapsed_ms=$(( (end_time - start_time) / 1000000 ))
     elapsed_s=$(awk "BEGIN { printf \"%.2f\", $elapsed_ms / 1000 }")
     results[1]="$SYM_PASS"
@@ -250,9 +252,7 @@ else
 fi
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 2: Execution
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[2/9] Execution${C_NC}"
 
 rc_trace_env=()
@@ -288,9 +288,7 @@ if [[ $stderr_size -gt 0 ]]; then
 fi
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 3: Leak Check
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[3/9] Leak Check${C_NC}"
 
 leak_env=(env ORI_CHECK_LEAKS=1)
@@ -298,7 +296,6 @@ if [[ $USE_RC_TRACE -eq 1 ]]; then
     leak_env+=(ORI_TRACE_RC=1)
 fi
 "${leak_env[@]}" "$tmpdir/binary" > /dev/null 2>"$tmpdir/leak_stderr.txt"
-leak_exit=$?
 
 if grep -q "RC live count" "$tmpdir/leak_stderr.txt"; then
     # Extract the live count from the output
@@ -321,9 +318,7 @@ else
 fi
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 4: RC Stats
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[4/9] RC Stats${C_NC}"
 
 color_flag="--no-color"
@@ -335,15 +330,16 @@ if "$SCRIPT_DIR/rc-stats.sh" "$color_flag" "$FILE" > "$tmpdir/rc_stats.txt" 2>/d
     echo -e "  ${SYM_PASS}  All functions balanced"
 else
     results[4]="$SYM_WARN"
-    result_details[4]="imbalanced"
-    echo -e "  ${SYM_WARN}  Imbalanced functions detected:"
+    result_details[4]="heuristic imbalance; confirm with --rc-trace --valgrind or rc-stats.sh --rc-remarks"
+    has_warning=1
+    echo -e "  ${SYM_WARN}  Static RC counts are imbalanced; this is not a memory-safety verdict."
+    echo -e "  ${C_DIM}Confirm with: diagnose-aot.sh --rc-trace --valgrind ${FILE}${C_NC}"
+    echo -e "  ${C_DIM}Inspect burden-sole survivors with: rc-stats.sh --rc-remarks ${FILE}${C_NC}"
 fi
 sed 's/^/  │ /' "$tmpdir/rc_stats.txt"
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 5: LLVM IR
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[5/9] LLVM IR${C_NC}"
 
 ir_file="${tmpdir}/ir-${basename_file%.ori}.ll"
@@ -360,9 +356,7 @@ else
 fi
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 6: Codegen Audit
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[6/9] Codegen Audit${C_NC}"
 
 audit_color_flag="--no-color"
@@ -387,6 +381,7 @@ case $audit_exit in
         else
             results[6]="$SYM_WARN"
             result_details[6]="warnings detected"
+            has_warning=1
             echo -e "  ${SYM_WARN}  Warnings detected:"
         fi
         sed 's/^/  │ /' "$tmpdir/codegen_audit.txt"
@@ -408,9 +403,7 @@ case $audit_exit in
 esac
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 7: ARC IR
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[7/9] ARC IR${C_NC}"
 
 arc_file="${tmpdir}/arc-${basename_file%.ori}.txt"
@@ -427,9 +420,7 @@ else
 fi
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 8: Valgrind
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[8/9] Valgrind${C_NC}"
 
 if [[ "$USE_VALGRIND" -eq 1 ]]; then
@@ -437,17 +428,27 @@ if [[ "$USE_VALGRIND" -eq 1 ]]; then
         valgrind --leak-check=full --error-exitcode=42 \
             "$tmpdir/binary" > /dev/null 2>"$tmpdir/valgrind.txt"
         vg_exit=$?
-        if [[ $vg_exit -eq 42 ]]; then
-            results[8]="$SYM_FAIL"
-            result_details[8]="errors detected"
-            has_failure=1
-            echo -e "  ${SYM_FAIL}  Valgrind found errors:"
-            grep -E "^==[0-9]+==" "$tmpdir/valgrind.txt" | tail -20 | sed 's/^/  │ /'
-        else
-            results[8]="$SYM_PASS"
-            result_details[8]="clean"
-            echo -e "  ${SYM_PASS}  No memory errors detected"
-        fi
+        case $vg_exit in
+            0)
+                results[8]="$SYM_PASS"
+                result_details[8]="clean"
+                echo -e "  ${SYM_PASS}  No memory errors detected"
+                ;;
+            42)
+                results[8]="$SYM_FAIL"
+                result_details[8]="errors detected"
+                has_failure=1
+                echo -e "  ${SYM_FAIL}  Valgrind found errors:"
+                grep -E "^==[0-9]+==" "$tmpdir/valgrind.txt" | tail -20 | sed 's/^/  │ /'
+                ;;
+            *)
+                results[8]="$SYM_FAIL"
+                result_details[8]="infrastructure exit=${vg_exit}"
+                has_failure=1
+                echo -e "  ${SYM_FAIL}  Valgrind did not complete (exit ${vg_exit}):"
+                tail -20 "$tmpdir/valgrind.txt" | sed 's/^/  │ /'
+                ;;
+        esac
     else
         results[8]="$SYM_SKIP"
         result_details[8]="valgrind not installed"
@@ -460,9 +461,7 @@ else
 fi
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Section 9: Disassembly
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[9/9] Disassembly${C_NC}"
 
 if [[ "$VERBOSE" -eq 1 ]]; then
@@ -475,6 +474,7 @@ if [[ "$VERBOSE" -eq 1 ]]; then
     else
         results[9]="$SYM_FAIL"
         result_details[9]="disassembly failed"
+        has_failure=1
         echo -e "  ${SYM_FAIL}  Failed to disassemble"
     fi
 else
@@ -484,9 +484,7 @@ else
 fi
 echo ""
 
-# ═══════════════════════════════════════════════════════════
 # Summary
-# ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}Summary${C_NC}"
 echo "════════════════════════════════════════════════════════"
 
@@ -496,18 +494,21 @@ for i in 1 2 3 4 5 6 7 8 9; do
 done
 
 echo ""
-if [[ $has_failure -eq 0 ]]; then
-    echo -e "${C_GREEN}All checks passed.${C_NC}"
-else
+if [[ $has_failure -ne 0 ]]; then
     echo -e "${C_RED}One or more checks failed.${C_NC}"
+elif [[ $has_warning -ne 0 ]]; then
+    echo -e "${C_YELLOW}Checks completed with warnings; no gating check failed.${C_NC}"
+    echo "Review each WARN section and run its named confirmation command."
+else
+    echo -e "${C_GREEN}All checks passed.${C_NC}"
 fi
 
 # Write per-section results for --both-builds comparison (if requested via env)
 if [[ -n "${_DIAGNOSE_AOT_RESULTS:-}" ]]; then
-    # Strip ANSI color codes from status symbols for comparison
-    strip_ansi() { echo -e "$1" | sed 's/\x1b\[[0-9;]*m//g'; }
     for i in 1 2 3 4 5 6 7 8 9; do
-        status=$(strip_ansi "${results[$i]}")
+        # echo -e interprets the literal \033 escapes stored in C_* status
+        # symbols; strip_ansi (shared, scripts/lib/ansi.sh) then removes them.
+        status=$(echo -e "${results[$i]}" | strip_ansi)
         echo "${section_names[$i]}|${status}" >> "$_DIAGNOSE_AOT_RESULTS"
     done
 fi

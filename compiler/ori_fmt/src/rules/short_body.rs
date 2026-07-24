@@ -4,9 +4,7 @@
 //!
 //! ~20 character threshold. Bodies under 20 chars stay with yield/do.
 //!
-//! # Spec Reference
-//!
-//! Lines 751-766
+//! Spec: Annex D §Width-Based Breaking (`for...do`/`yield`).
 
 use ori_ir::{ExprArena, ExprId, ExprKind};
 
@@ -80,8 +78,7 @@ pub fn is_short_body(arena: &ExprArena, expr_id: ExprId) -> bool {
             true
         }
 
-        // For other expressions, we'd need width calculation
-        // which is done at the orchestration layer
+        // Why: other expressions need width calculation, done at the orchestration layer
         _ => false,
     }
 }
@@ -91,8 +88,6 @@ pub fn is_short_body(arena: &ExprArena, expr_id: ExprId) -> bool {
 /// These are expressions that are guaranteed to be short enough
 /// without needing width calculation.
 pub fn is_always_short(arena: &ExprArena, expr_id: ExprId) -> bool {
-    // Same logic as is_short_body for now
-    // The distinction will matter when we integrate with width calculation
     is_short_body(arena, expr_id)
 }
 

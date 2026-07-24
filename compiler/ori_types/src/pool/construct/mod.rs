@@ -2,7 +2,7 @@
 //!
 //! Provides ergonomic methods for creating compound types.
 
-use crate::{Idx, LifetimeId, Pool, Rank, Tag, VarState};
+use crate::{Idx, LifetimeId, Pool, Rank, Tag, UnboundVarState, VarState};
 
 /// Variant definition for creating enum types in the Pool.
 ///
@@ -20,7 +20,7 @@ pub struct EnumVariant {
 pub const DEFAULT_RANK: Rank = Rank::FIRST;
 
 impl Pool {
-    // === Simple Container Constructors ===
+    // Simple Container Constructors
 
     /// Create a list type `[elem]`.
     pub fn list(&mut self, elem: Idx) -> Idx {
@@ -60,7 +60,7 @@ impl Pool {
         self.intern(Tag::DoubleEndedIterator, elem.raw())
     }
 
-    // === Two-Child Container Constructors ===
+    // Two-Child Container Constructors
 
     /// Create a map type `{key: value}`.
     pub fn map(&mut self, key: Idx, value: Idx) -> Idx {
@@ -72,7 +72,7 @@ impl Pool {
         self.intern_complex(Tag::Result, &[ok.raw(), err.raw()])
     }
 
-    // === Borrowed Reference Constructor ===
+    // Borrowed Reference Constructor
 
     /// Create a borrowed reference type `&T` with a lifetime.
     ///
@@ -81,7 +81,7 @@ impl Pool {
         self.intern_complex(Tag::Borrowed, &[inner.raw(), lifetime.raw()])
     }
 
-    // === Function Constructor ===
+    // Function Constructor
 
     /// Create a function type `(params...) -> ret`.
     #[allow(
@@ -115,7 +115,7 @@ impl Pool {
         self.function(&[], ret)
     }
 
-    // === Tuple Constructor ===
+    // Tuple Constructor
 
     /// Create a tuple type `(elems...)`.
     ///
@@ -149,7 +149,7 @@ impl Pool {
         self.tuple(&[a, b, c])
     }
 
-    // === Scheme Constructor ===
+    // Scheme Constructor
 
     /// Create a type scheme (quantified type).
     ///
@@ -174,7 +174,7 @@ impl Pool {
         self.intern_complex(Tag::Scheme, &extra)
     }
 
-    // === Type Variable Constructors ===
+    // Type Variable Constructors
 
     /// Create a fresh unbound type variable.
     pub fn fresh_var(&mut self) -> Idx {
@@ -186,11 +186,11 @@ impl Pool {
         let id = self.next_var_id;
         self.next_var_id += 1;
 
-        self.var_states.push(VarState::Unbound {
+        self.var_states.push(VarState::Unbound(UnboundVarState {
             id,
             rank,
             name: None,
-        });
+        }));
 
         self.intern(Tag::Var, id)
     }
@@ -204,11 +204,11 @@ impl Pool {
         while self.next_var_id < min_count {
             let id = self.next_var_id;
             self.next_var_id += 1;
-            self.var_states.push(VarState::Unbound {
+            self.var_states.push(VarState::Unbound(UnboundVarState {
                 id,
                 rank: DEFAULT_RANK,
                 name: None,
-            });
+            }));
         }
     }
 
@@ -234,11 +234,11 @@ impl Pool {
     pub fn allocate_var_id_with_rank(&mut self, rank: Rank) -> u32 {
         let id = self.next_var_id;
         self.next_var_id += 1;
-        self.var_states.push(VarState::Unbound {
+        self.var_states.push(VarState::Unbound(UnboundVarState {
             id,
             rank,
             name: None,
-        });
+        }));
         id
     }
 
@@ -252,11 +252,11 @@ impl Pool {
         let id = self.next_var_id;
         self.next_var_id += 1;
 
-        self.var_states.push(VarState::Unbound {
+        self.var_states.push(VarState::Unbound(UnboundVarState {
             id,
             rank,
             name: Some(name),
-        });
+        }));
 
         self.intern(Tag::Var, id)
     }
@@ -271,9 +271,19 @@ impl Pool {
         self.intern(Tag::RigidVar, id)
     }
 
+    /// Return the interned `Tag::RigidVar` Idx for an EXISTING `var_id`.
+    ///
+    /// Unlike [`rigid_var`], this does NOT allocate a new `var_states` slot — it
+    /// re-interns the leaf for a `var_id` that already names a rigid binding (the
+    /// hash-dedup returns the existing Idx). Used by monomorphization to map an
+    /// impl-level rigid generic's body leaf to its concrete type.
+    pub fn rigid_var_idx(&mut self, var_id: u32) -> Idx {
+        self.intern(Tag::RigidVar, var_id)
+    }
+
     /// Create a `Tag::BoundVar` leaf referencing a scheme-declared `var_id`.
     ///
-    /// Per `types.md §SC-1`, scheme bodies SHALL store bound variables as
+    /// Per, scheme bodies SHALL store bound variables as
     /// `Tag::BoundVar` with `data == var_id` matching one of the enclosing
     /// scheme's declared var ids. Unlike [`fresh_var`] / [`rigid_var`], this
     /// constructor does NOT allocate a new `var_states` slot — the supplied
@@ -282,13 +292,13 @@ impl Pool {
     /// generalization pass).
     ///
     /// Used by `unify::generalization::generalize` to canonicalize scheme
-    /// bodies during the §08.3b migration retiring the
-    /// `Tag::Var(VarState::Generalized)` body representation.
+    /// bodies, retiring the `Tag::Var(VarState::Generalized)` body
+    /// representation.
     pub fn bound_var(&mut self, var_id: u32) -> Idx {
         self.intern(Tag::BoundVar, var_id)
     }
 
-    // === Applied Type Constructor ===
+    // Applied Type Constructor
 
     /// Create an applied generic type `T<args...>`.
     #[allow(
@@ -309,6 +319,48 @@ impl Pool {
         self.intern_complex(Tag::Applied, &extra)
     }
 
+    /// Intern the generic shell of `receiver` (read from `source`) into `self`.
+    ///
+    /// Maps a concrete instantiation `Box<int>` to its generic shell `Box<_>`
+    /// so every instantiation of one impl block (`Box<int>`, `Box<str>`,
+    /// `Box<[int]>`) interns to a BYTE-IDENTICAL shell `Idx`. The shell keys
+    /// the per-receiver inherent-method monomorphization dispatch table.
+    ///
+    /// `self` is a dedicated interning pool; `source` is the read-only type
+    /// pool the receiver lives in. The split keeps `source` immutable (codegen
+    /// pools are shared `&Pool`), while structural interning in `self` still
+    /// yields stable, content-addressed shell identities.
+    ///
+    /// For `Tag::Applied` the head's direct type arguments are erased to
+    /// positional `Tag::BoundVar`s — the head name + arity discriminate the
+    /// impl block; argument contents do not. Non-applied receivers (a
+    /// non-generic struct/enum/newtype) carry no generic head args to erase
+    /// and are copied faithfully via `re_intern_type`.
+    pub fn generic_shell(&mut self, source: &Pool, receiver: Idx) -> Idx {
+        // Derive the shell from the receiver's own `Tag::Applied` structure when
+        // present. Do NOT `resolve_fully` first: a concrete generic instantiation
+        // (`Box<int>`) may carry a registered `Applied -> Struct` resolution (for
+        // codegen field layout) that would collapse it to its concrete struct and
+        // erase the generic shell. `resolve_fully` is only needed to reach an
+        // `Applied` through a `Named` indirection.
+        let resolved = if source.tag(receiver) == Tag::Applied {
+            receiver
+        } else {
+            source.resolve_fully(receiver)
+        };
+        if source.tag(resolved) == Tag::Applied {
+            let name = source.applied_name(resolved);
+            let arity = source.applied_arg_count(resolved);
+            let args: Vec<Idx> = (0..arity)
+                .map(|i| self.bound_var(u32::try_from(i).unwrap_or(u32::MAX)))
+                .collect();
+            self.applied(name, &args)
+        } else {
+            let mut cache = rustc_hash::FxHashMap::default();
+            crate::pool::re_intern::re_intern_type(source, resolved, self, &mut cache)
+        }
+    }
+
     /// Create a named type reference.
     #[allow(
         clippy::cast_possible_truncation,
@@ -323,7 +375,7 @@ impl Pool {
         )
     }
 
-    // === Struct Constructor ===
+    // Struct Constructor
 
     /// Create a struct type with named fields.
     ///
@@ -350,7 +402,7 @@ impl Pool {
         self.intern_complex(Tag::Struct, &extra)
     }
 
-    // === Enum Constructor ===
+    // Enum Constructor
 
     /// Create an enum type with variants.
     ///
@@ -384,7 +436,7 @@ impl Pool {
         self.intern_complex(Tag::Enum, &extra)
     }
 
-    // === Common Patterns ===
+    // Common Patterns
 
     /// Create `[str]` (list of strings).
     pub fn list_str(&mut self) -> Idx {

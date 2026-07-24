@@ -1,0 +1,19 @@
+// (Cross-pattern) Depth-3 SSA-alias chain: borrowed [int] param + 3
+// successive Let-aliases + Return. Per §03 line 300 the
+// `aliased-value-keeps-rc.alias_test` finding confirmed alias-chain
+// depth ≥ 3 generalizes the bug shape; this AOT pin verifies the
+// pre-compute set covers the full chain depth.
+
+@borrow_alias_chain_then_return (xs: [int]) -> [int] = {
+    let alias1 = xs;
+    let alias2 = alias1;
+    let alias3 = alias2;
+    print(msg: `len: {alias3.len()}`);
+    alias3
+};
+
+@main () -> int = {
+    let original = [21, 42, 63];
+    let returned = borrow_alias_chain_then_return(xs: original);
+    if returned.len() == 3 && returned[0] == 21 && returned[2] == 63 then 0 else 1
+}

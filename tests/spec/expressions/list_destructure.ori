@@ -1,0 +1,191 @@
+// Spec: 10-patterns.md § List Destructuring; 15-patterns.md § Pattern Refutability (CF-3 irrefutability context)
+//
+// Regression coverage:
+//   - BUG-04-086 (LLVM list-pattern destructuring used field projection on the
+//     fat-pointer struct {len, cap, data} instead of __index protocol calls).
+//   - BUG-02-022 (CF-3 enforcement: refutable list patterns in let-bindings
+//     produce E2001).
+//
+// MIGRATION NOTE (2026-05-05, BUG-02-022 close): the original let-form
+// regression cells used refutable patterns (`let [$a] = [42]`,
+// `let [$a, $b, ..rest] = items`) that are now CF-3 violations. The
+// let-form cells were transient pending CF-3 enforcement, and the
+// match-form pins are the permanent
+// regression guard. This file now preserves the match-form pins +
+// representative compile-fail negative pins; per-shape coverage of refutable
+// `let` patterns lives in `tests/spec/declarations/let-irrefutable/`
+// (BUG-02-022's matrix corpus).
+
+use std.testing { assert, assert_eq, assert_ne }
+
+type Point = { x: int, y: int }
+
+// =============================================================================
+// CF-3 negative pins — refutable `let` patterns rejected with E2001
+// =============================================================================
+// These cells correspond to the original "Length axis" + "Cross-type axis"
+// cells. The full per-shape matrix (all 9 list shapes × 5 element types
+// + nested patterns + binding sites) lives in
+// `tests/spec/declarations/let-irrefutable/`. The cells here are
+// representative pins so this file's regression intent is self-contained.
+
+#compile_fail(code: "E2001")
+@test_list_destructure_single_head_no_rest_rejects tests _ () -> void = {
+    let [$a] = [42]
+}
+
+#compile_fail(code: "E2001")
+@test_list_destructure_single_head_with_rest_rejects tests _ () -> void = {
+    let [$a, ..rest] = [10, 20, 30]
+}
+
+#compile_fail(code: "E2001")
+@test_list_destructure_three_heads_no_rest_rejects tests _ () -> void = {
+    let [$a, $b, $c] = [1, 2, 3]
+}
+
+#compile_fail(code: "E2001")
+@test_list_destructure_three_heads_with_rest_rejects tests _ () -> void = {
+    let [$a, $b, $c, ..rest] = [1, 2, 3, 4, 5]
+}
+
+#compile_fail(code: "E2001")
+@test_list_destructure_str_rejects tests _ () -> void = {
+    let [$a, $b, ..rest] = ["hello", "world", "extra"]
+}
+
+#compile_fail(code: "E2001")
+@test_list_destructure_struct_field_within_element_rejects tests _ () -> void = {
+    let [{ x: $a, y: $b }, ..rest] = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }]
+}
+
+#compile_fail(code: "E2001")
+@test_list_destructure_with_wildcard_rejects tests _ () -> void = {
+    let [_, $b] = [99, 7]
+}
+
+#compile_fail(code: "E2001")
+@test_list_destructure_immutable_rest_form_rejects tests _ () -> void = {
+    let [$a, ..$rest] = [1, 2, 3]
+}
+
+#compile_fail(code: "E2001")
+@test_list_destructure_inside_for_yield_rejects tests _ () -> void = {
+    let _ = for x in [[1, 2, 3], [4, 5, 6]] yield {
+        let [$a, $b, ..rest] = x;
+        a + b
+    }
+}
+
+#compile_fail(code: "E2001")
+@test_list_destructure_inside_lambda_rejects tests _ () -> void = {
+    let f = lst -> {
+        let [$x, $y, ..rest] = lst;
+        x * y
+    };
+    f([6, 7, 8])
+}
+
+// =============================================================================
+// Irrefutable rest-only — compiles; seamless slice co-owns the original buffer
+// =============================================================================
+
+@test_list_destructure_rest_only tests _ () -> void = {
+    let items = [1, 2, 3];
+    let [..rest] = items;
+    assert_eq(actual: rest.len(), expected: 3)
+}
+
+@test_list_destructure_empty_list_with_rest_only tests _ () -> void = {
+    let items: [int] = [];
+    let [..rest] = items;
+    assert_eq(actual: rest.len(), expected: 0)
+}
+
+// =============================================================================
+// Match-path parity — decision_tree/emit.rs::PathInstruction::ListElement fix
+// =============================================================================
+// These are the permanent regression guard for BUG-04-086. Match patterns
+// permit refutable shapes per Spec/15-patterns.md § Pattern Refutability, so they remain
+// CF-3-compatible.
+
+@test_match_list_two_heads tests @match_list_two_heads () -> void = {
+    assert_eq(actual: match_list_two_heads(), expected: 210)
+}
+
+@match_list_two_heads () -> int = {
+    match [10, 20, 30] {
+        [a, b, ..rest] -> a + b * 10,
+        _ -> 0
+    }
+}
+
+@test_match_list_three_heads_no_rest tests @match_list_three_heads_no_rest () -> void = {
+    assert_eq(actual: match_list_three_heads_no_rest(), expected: 6)
+}
+
+@match_list_three_heads_no_rest () -> int = {
+    match [1, 2, 3] {
+        [a, b, c] -> a + b + c,
+        _ -> 0
+    }
+}
+
+@test_match_list_str_elements tests @match_list_str_elements () -> void = {
+    assert_eq(actual: match_list_str_elements(), expected: "xy")
+}
+
+@match_list_str_elements () -> str = {
+    match ["x", "y", "z"] {
+        [a, b, ..rest] -> a + b,
+        _ -> ""
+    }
+}
+
+// =============================================================================
+// Semantic + negative pins via match — permanent post-CF-3 regression guard
+// =============================================================================
+
+@test_list_destructure_semantic_pin_via_match tests _ () -> void = {
+    let items = [1, 2, 3];
+    let result = match items {
+        [first, second, ..rest] -> first + second,
+        _ -> -1
+    };
+    assert_eq(actual: result, expected: 3)
+}
+
+@test_list_destructure_negative_pin_via_match tests _ () -> void = {
+    let items = [1, 2, 3];
+    let result = match items {
+        [first, second, ..rest] -> first + second,
+        _ -> -1
+    };
+    assert_ne(actual: result, unexpected: 6)
+}
+
+// =============================================================================
+// Reference / always-passing — pin behavior the BUG-04-086 fix MUST preserve
+// =============================================================================
+
+@test_match_list_too_short_falls_through_to_wildcard tests @match_list_too_short_falls_through_to_wildcard () -> void = {
+    assert_eq(actual: match_list_too_short_falls_through_to_wildcard(), expected: 0)
+}
+
+@match_list_too_short_falls_through_to_wildcard () -> int = {
+    match [42] {
+        [a, b] -> a + b,
+        _ -> 0
+    }
+}
+
+#fail("out of bounds")
+@test_direct_indexing_oob_panics tests @direct_indexing_oob_panics () -> void = {
+    let _ = direct_indexing_oob_panics();
+    ()
+}
+
+@direct_indexing_oob_panics () -> int = {
+    let xs = [42];
+    xs[1]
+}

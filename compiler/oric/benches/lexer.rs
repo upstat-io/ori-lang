@@ -106,7 +106,7 @@ fn bench_lexer_incremental(c: &mut Criterion) {
     let source = generate_n_functions(100);
 
     // First pass to warm up cache
-    let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), source.clone());
+    let file = SourceFile::new(&db, PathBuf::from("/bench.ori"), source);
     let _ = tokens(&db, file);
 
     c.bench_function("lexer/incremental_cached", |b| {

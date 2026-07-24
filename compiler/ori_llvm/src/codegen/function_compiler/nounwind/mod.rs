@@ -11,20 +11,16 @@
 //!
 //! # Known limitations
 //!
-//! Impl methods are compiled via the old immediate-emit path
-//! ([`FunctionCompiler::emit_arc_function`]) **before** the two-pass analysis
-//! runs. This means impl methods calling monomorphized generic functions will
-//! use `invoke` instead of `call`, even if the callee is trivially nounwind.
-//! This is safe (using `invoke` is always correct) but generates unnecessary
-//! overhead. A future refactor could fold impl methods into the two-pass batch.
+//! Impl methods use [`FunctionCompiler::emit_arc_function`] before the two-pass
+//! analysis. Calls from impl methods to monomorphized generic functions
+//! therefore use the conservative `invoke` form even for nounwind callees.
 //!
-//! # NOTE: Derived methods handled separately
+//! # Derived methods
 //!
-//! Derived trait methods (`$eq`, `$compare`, `$hash`, `$clone`, `$default`)
-//! are emitted by `derive_codegen` outside this two-pass pipeline. Pure
-//! derives are marked `nounwind` directly in `setup_derive_function()` using
-//! `DerivedTrait::is_nounwind_derived()`. Impure derives (`$to_str`, `$debug`)
-//! are left unmarked.
+//! Open-world derived methods are emitted by `derive_codegen`; closed-executable
+//! derived artifact bodies enter this two-pass pipeline. Both paths use
+//! `DerivedTrait::is_nounwind_derived()` so Printable and Debug stay
+//! conservatively may-unwind.
 //!
 //! # Submodules
 //!
@@ -35,7 +31,10 @@
 
 mod analyze;
 mod emit;
+mod policy;
 mod prepare;
 mod types;
 
-pub use types::PreparedFunction;
+pub use types::{NounwindAnalyzedFunctions, PreparedFunction};
+
+use policy::derived_artifact_allows_nounwind;

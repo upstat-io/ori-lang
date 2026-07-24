@@ -1,0 +1,67 @@
+Theorem TF-10a: Reset transfer produces SCALAR sentinel (logical reuse witness)
+
+  Preconditions:
+    - Instruction is `Reset { var }` per Annex E §AIMS TF-10a +
+      Appendix A row 12
+    - `Reset` emits an opaque logical reuse witness consumed by paired
+      `Reuse` (RL-11 same-block) or `Reuse` (RL-12 cross-block); the
+      witness carries no logical owner credit. It is not a physical pointer,
+      slot, allocator token, or backend handle.
+    - Token-liveness demand (TF-11 emits `(token, Once)` at Reuse)
+      prevents dead-code elimination — proven at §04.3 TF-11; §04.2
+      TF-10a proves only the forward-transfer SCALAR row
+    - Structural pairing of Reset/Reuse validated at §08 RL-11/RL-12
+
+  Soundness property:
+    Forall Reset { var }.
+      transfer_tf10a(Reset) = SCALAR
+    AND L-6 layer (b) monotonicity holds for the constant function
+    f(_) = SCALAR.
+
+  Proof obligation:
+    Two-part discharge:
+      (a) Output verification — TF-10a emits `dst := SCALAR` regardless
+          of `var`'s AimsState. Appendix A row 12 shows SCALAR across
+          every per-dimension column. The reuse witness is opaque, has no
+          owner credit, and has no lattice-element representation.
+      (b) L-6 layer (b) monotonicity — TF-10a is a constant function:
+          for ANY pair of input states (a, b) with a ≤ b,
+          f(a) = f(b) = SCALAR; by L-4 reflexivity SCALAR ≤ SCALAR,
+          hence f(a) ≤ f(b).
+
+    Part (a) — SCALAR-output verification:
+      The Reset result is a logical reuse witness. Per Appendix A row 12 +
+      Annex E §AIMS TF-10a + §1.8 L-9, the witness is the SCALAR
+      sentinel — no owner credit and no lattice-element representation.
+      Verified: transfer_tf10a() emits Tagged::Scalar regardless of
+      input AimsState. The token is consumed by a paired Reuse
+      instruction (RL-11 same-block or RL-12 cross-block); TF-11
+      backward demand emits `(token, Once)` at the Reuse site to
+      prevent dead-code elimination — that liveness obligation is
+      proven at §04.3 TF-11 and is OUT-OF-SCOPE for this forward-
+      transfer proof.
+      Note: per Annex E §AIMS TF-10a, the witness has L-9 SCALAR
+      property at AIMS level despite being a Reset-Reuse coupling
+      mechanism; the structural pairing is enforced via the §08
+      RL-11/RL-12 rules + emission-time validation, not the forward
+      transfer.
+
+    Part (b) — constant-function monotonicity:
+      Constant f(_) = SCALAR is trivially monotone: forall a, b.
+      f(a) = f(b) = SCALAR, and SCALAR ≤ SCALAR holds definitionally
+      per L-4 reflexivity. Same argument as TF-10 part (b).
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) per-rule discharge per
+        section_04::verify_tf10a_reset_scalar — constant-function
+        check)
+      case_analysis (PRIMARY — Appendix A row 12 forward-transfer
+        enumeration per section_04::verify_tf10a_reset_scalar)
+      lattice (SECONDARY — accepts gracefully; L-9 SCALAR-not-a-
+        lattice-element discharged at §02)
+      refinement (SECONDARY — accepts gracefully; TF-10a emits SCALAR
+        directly, not via refine())
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-10a via SCALAR-output verification + constant-function monotonicity check

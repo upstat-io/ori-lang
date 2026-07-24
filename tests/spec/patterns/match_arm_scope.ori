@@ -1,0 +1,290 @@
+// Spec: 15-patterns.md § Pattern bindings; 16-control-flow.md § match.
+// Conformance: a name bound in one match arm's pattern is visible ONLY within
+// that arm (its guard + body). A cross-arm reference to a sibling arm's binding
+// is an unbound-identifier error at compile time; a pattern binding never escapes
+// the match into the enclosing scope. Regression pins for per-arm scope isolation
+// in infer_match. Each negative pin uses a REFUTABLE arm-1 so the sibling arm is
+// reachable and the surfaced error is the cross-arm leak, not a redundant-arm
+// diagnostic.
+use std.testing { assert_eq }
+
+type Box = { x: int }
+type Tri = A(n: int) | B(n: int) | C;
+
+// =============================================================================
+// NEGATIVE PINS — cross-arm reference MUST fail to compile (unbound identifier)
+// =============================================================================
+
+// --- variant binding, body position ---
+#compile_fail("unknown identifier")
+@test_variant_body_leak tests @_vbl () -> void = {
+    let opt: Option<int> = Some(1);
+    let _ = match opt {
+        Some(n) -> 0,
+        None -> n
+    };
+    ()
+}
+@_vbl () -> bool = true;
+
+// --- variant binding, guard position ---
+#compile_fail("unknown identifier")
+@test_variant_guard_leak tests @_vgl () -> void = {
+    let opt: Option<int> = Some(1);
+    let _ = match opt {
+        Some(n) -> 0,
+        None if n > 0 -> 1,
+        _ -> 2
+    };
+    ()
+}
+@_vgl () -> bool = true;
+
+// --- tuple binding, body position (literal first element makes arm-1 refutable) ---
+#compile_fail("unknown identifier")
+@test_tuple_body_leak tests @_tbl () -> void = {
+    let p: (int, int) = (1, 2);
+    let _ = match p {
+        (1, b) -> 0,
+        _ -> b
+    };
+    ()
+}
+@_tbl () -> bool = true;
+
+// --- list rest binding, body position ---
+#compile_fail("unknown identifier")
+@test_list_body_leak tests @_lbl () -> void = {
+    let xs: [int] = [1, 2, 3];
+    let _ = match xs {
+        [h, ..t] -> 0,
+        [] -> h
+    };
+    ()
+}
+@_lbl () -> bool = true;
+
+// --- struct shorthand binding (inside refutable Some), body position ---
+#compile_fail("unknown identifier")
+@test_struct_shorthand_leak tests @_ssl () -> void = {
+    let ob: Option<Box> = Some(Box { x: 5 });
+    let _ = match ob {
+        Some({ x }) -> 0,
+        None -> x
+    };
+    ()
+}
+@_ssl () -> bool = true;
+
+// --- struct non-shorthand binding {x: a} (distinct recursive bind path) ---
+#compile_fail("unknown identifier")
+@test_struct_nonshorthand_leak tests @_snl () -> void = {
+    let ob: Option<Box> = Some(Box { x: 5 });
+    let _ = match ob {
+        Some({ x: a }) -> 0,
+        None -> a
+    };
+    ()
+}
+@_snl () -> bool = true;
+
+// --- at-pattern binding, body position ---
+#compile_fail("unknown identifier")
+@test_at_body_leak tests @_abl () -> void = {
+    let opt: Option<int> = Some(1);
+    let _ = match opt {
+        y @ Some(_) -> 0,
+        None -> y
+    };
+    ()
+}
+@_abl () -> bool = true;
+
+// --- nested bind inside variant payload, body position ---
+#compile_fail("unknown identifier")
+@test_nested_body_leak tests @_nbl () -> void = {
+    let opt: Option<(int, int)> = Some((1, 2));
+    let _ = match opt {
+        Some((a, b)) -> 0,
+        None -> a
+    };
+    ()
+}
+@_nbl () -> bool = true;
+
+// --- or-pattern same-name binding must NOT leak to a sibling arm ---
+#compile_fail("unknown identifier")
+@test_or_body_leak tests @_obl () -> void = {
+    let t: Tri = A(1);
+    let _ = match t {
+        A(n) | B(n) -> 0,
+        C -> n
+    };
+    ()
+}
+@_obl () -> bool = true;
+
+// --- bare binding must NOT escape the match into the enclosing block ---
+#compile_fail("unknown identifier")
+@test_bare_binding_escape tests @_bbe () -> void = {
+    let k = 7;
+    let _ = match k { n -> 0 };
+    let _ = n;
+    ()
+}
+@_bbe () -> bool = true;
+
+// --- variant binding must NOT escape the match into the enclosing block ---
+#compile_fail("unknown identifier")
+@test_variant_escape tests @_ve () -> void = {
+    let opt: Option<int> = Some(1);
+    let _ = match opt { Some(n) -> 0, None -> 1 };
+    let _ = n;
+    ()
+}
+@_ve () -> bool = true;
+
+// =============================================================================
+// POSITIVE PINS — same-arm references MUST still typecheck (no regression)
+// =============================================================================
+
+@same_arm_body () -> int = {
+    let opt: Option<int> = Some(7);
+    match opt {
+        Some(n) -> n,
+        None -> 0
+    }
+}
+
+@same_arm_guard () -> int = {
+    let opt: Option<int> = Some(7);
+    match opt {
+        Some(n) if n > 0 -> n,
+        _ -> 0
+    }
+}
+
+@two_arm_same_name () -> int = {
+    let r: Result<int, int> = Ok(7);
+    match r {
+        Ok(n) -> n,
+        Err(n) -> n
+    }
+}
+
+@or_pattern_same_arm () -> int = {
+    let t: Tri = A(7);
+    match t {
+        A(n) | B(n) -> n,
+        C -> 0
+    }
+}
+
+@nested_same_arm () -> int = {
+    let opt: Option<(int, int)> = Some((3, 4));
+    match opt {
+        Some((a, b)) -> a + b,
+        None -> 0
+    }
+}
+
+// Generic scrutinee: the per-arm enter_scope bumps the unification rank; verify a
+// payload binding at elevated rank survives scope exit with no generalization
+// artifact (type-dimension matrix cell).
+@generic_unwrap_or<T> (opt: Option<T>, fallback: T) -> T = match opt {
+    Some(v) -> v,
+    None -> fallback
+}
+
+@test_positive_arms tests @same_arm_body () -> void = {
+    assert_eq(actual: same_arm_body(), expected: 7);
+    assert_eq(actual: same_arm_guard(), expected: 7);
+    assert_eq(actual: two_arm_same_name(), expected: 7);
+    assert_eq(actual: or_pattern_same_arm(), expected: 7);
+    assert_eq(actual: nested_same_arm(), expected: 7);
+    assert_eq(actual: generic_unwrap_or(opt: Some(7), fallback: 0), expected: 7);
+    assert_eq(actual: generic_unwrap_or(opt: None, fallback: 3), expected: 3);
+    ()
+}
+
+// =============================================================================
+// GUARD-POSITION negative pins — per pattern shape (matrix completion)
+// =============================================================================
+
+// --- tuple binding, guard position ---
+#compile_fail("unknown identifier")
+@test_tuple_guard_leak tests @_tgl () -> void = {
+    let p: (int, int) = (1, 2);
+    let _ = match p {
+        (1, b) -> 0,
+        _ if b > 0 -> 1,
+        _ -> 2
+    };
+    ()
+}
+@_tgl () -> bool = true;
+
+// --- list rest binding, guard position ---
+#compile_fail("unknown identifier")
+@test_list_guard_leak tests @_lgl () -> void = {
+    let xs: [int] = [1, 2, 3];
+    let _ = match xs {
+        [h, ..t] -> 0,
+        [] if h > 0 -> 1,
+        _ -> 2
+    };
+    ()
+}
+@_lgl () -> bool = true;
+
+// --- struct shorthand binding, guard position ---
+#compile_fail("unknown identifier")
+@test_struct_shorthand_guard_leak tests @_ssgl () -> void = {
+    let b: Box = Box { x: 1 };
+    let _ = match b {
+        { x: 1 } -> 0,
+        _ if x > 0 -> 1,
+        _ -> 2
+    };
+    ()
+}
+@_ssgl () -> bool = true;
+
+// --- at-pattern binding, guard position ---
+#compile_fail("unknown identifier")
+@test_at_guard_leak tests @_agl () -> void = {
+    let opt: Option<int> = Some(1);
+    let _ = match opt {
+        y @ Some(_) -> 0,
+        None if is_some(option: y) -> 1,
+        _ -> 2
+    };
+    ()
+}
+@_agl () -> bool = true;
+
+// --- nested binding in variant, guard position ---
+#compile_fail("unknown identifier")
+@test_nested_guard_leak tests @_ngl () -> void = {
+    let p: Option<(int, int)> = Some((1, 2));
+    let _ = match p {
+        Some((a, b)) -> 0,
+        _ if a > 0 -> 1,
+        _ -> 2
+    };
+    ()
+}
+@_ngl () -> bool = true;
+
+// --- or-pattern binding, guard position ---
+#compile_fail("unknown identifier")
+@test_or_guard_leak tests @_ogl () -> void = {
+    let r: Result<int, int> = Ok(1);
+    let _ = match r {
+        Ok(n) | Err(n) -> 0,
+        _ if n > 0 -> 1,
+        _ -> 2
+    };
+    ()
+}
+@_ogl () -> bool = true;

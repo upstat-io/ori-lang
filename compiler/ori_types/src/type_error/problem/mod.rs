@@ -6,7 +6,7 @@
 //!
 //! # Design
 //!
-//! Based on Elm's approach from `Reporting/Error/Type.hs`:
+//! Historical influence: the Elm type-problem SHAPE (`Reporting/Error/Type.hs`):
 //! - Pattern-match on type combinations to identify specific problems
 //! - Each problem knows how to generate targeted suggestions
 //! - Problems have severity levels (error, warning, info)

@@ -6,7 +6,8 @@
 //!
 //! # Module Structure
 //!
-//! - [`helpers`]: Argument validation and shared utilities
+//! - [`arguments`]: Argument validation
+//! - [`debug_format`]: Structural Debug rendering
 //! - [`numeric`]: Methods on `int` and `float` types
 //! - [`list`]: Methods on `list` type
 //! - [`collections`]: Methods on `str`, `map`, `range`, and `set` types
@@ -15,11 +16,13 @@
 //! - [`ordering`]: Methods on `Ordering` type
 //! - [`compare`]: Value comparison utilities
 
+pub(crate) mod arguments;
 mod collections;
 pub(crate) mod compare;
+pub(crate) mod debug_format;
 mod dispatch_check;
 mod error;
-pub(crate) mod helpers;
+pub(crate) mod length;
 mod list;
 mod names;
 mod numeric;
@@ -55,7 +58,14 @@ pub(crate) fn dispatch_associated_function(
     ctx: &DispatchCtx<'_>,
 ) -> EvalResult {
     let method_str = ctx.interner.lookup(method);
-    if type_name == ctx.names.duration {
+    if type_name == ctx.names.void {
+        if method_str == "default" {
+            arguments::require_args("default", 0, args.len())?;
+            Ok(Value::Void)
+        } else {
+            Err(no_such_method(method_str, "void").into())
+        }
+    } else if type_name == ctx.names.duration {
         units::dispatch_duration_associated(method_str, &args)
     } else if type_name == ctx.names.size {
         units::dispatch_size_associated(method_str, &args)
@@ -78,17 +88,17 @@ fn dispatch_tuple_method(
 ) -> EvalResult {
     let n = ctx.names;
     if method == n.clone_ {
-        helpers::require_args("clone", 0, args.len())?;
+        arguments::require_args("clone", 0, args.len())?;
         Ok(receiver)
     } else if method == n.len {
-        helpers::require_args("len", 0, args.len())?;
+        arguments::require_args("len", 0, args.len())?;
         let Value::Tuple(elems) = &receiver else {
             unreachable!("dispatch_tuple_method called with non-tuple receiver")
         };
-        helpers::len_to_value(elems.len(), "tuple")
+        length::len_to_value(elems.len(), "tuple")
     // Comparable trait - lexicographic element comparison
     } else if method == n.compare {
-        helpers::require_args("compare", 1, args.len())?;
+        arguments::require_args("compare", 1, args.len())?;
         let Value::Tuple(a_elems) = &receiver else {
             unreachable!("dispatch_tuple_method called with non-tuple receiver")
         };
@@ -108,21 +118,43 @@ fn dispatch_tuple_method(
         ))
     // Eq trait - element-wise equality
     } else if method == n.equals {
-        helpers::require_args("equals", 1, args.len())?;
+        arguments::require_args("equals", 1, args.len())?;
         let eq = compare::equals_values(&receiver, &args[0], ctx.interner)?;
         Ok(Value::Bool(eq))
     // Hashable trait - recursive element hash
     } else if method == n.hash {
-        helpers::require_args("hash", 0, args.len())?;
+        arguments::require_args("hash", 0, args.len())?;
         Ok(Value::int(compare::hash_value(&receiver, ctx.interner)?))
     // Debug trait - structural representation
     } else if method == n.debug {
-        helpers::require_args("debug", 0, args.len())?;
-        Ok(Value::string(helpers::debug_value(&receiver, ctx.interner)))
+        arguments::require_args("debug", 0, args.len())?;
+        Ok(Value::string(debug_format::debug_value(
+            &receiver,
+            ctx.interner,
+        )))
     } else {
         let method_str = ctx.interner.lookup(method);
         Err(no_such_method(method_str, "tuple").into())
     }
+}
+
+/// Whether `v` is a compound `Printable` whose `to_str` renders via
+/// `display_value()` (no per-type `to_str` in the dispatchers below).
+/// Primitives, str, Error, Ordering, Duration, Size implement their own
+/// `to_str` and are excluded so they keep it.
+fn is_compound_printable(v: &Value) -> bool {
+    matches!(
+        v,
+        Value::Some(_)
+            | Value::None
+            | Value::Ok(_)
+            | Value::Err(_)
+            | Value::List(_)
+            | Value::Tuple(_)
+            | Value::Map(_)
+            | Value::Set(_)
+            | Value::Variant { .. }
+    )
 }
 
 /// Dispatch a built-in method call using pre-interned `Name` comparison.
@@ -139,17 +171,35 @@ pub(crate) fn dispatch_builtin_method(
     args: Vec<Value>,
     ctx: &DispatchCtx<'_>,
 ) -> EvalResult {
+    // Printable `to_str` for compound types (Option/Result/List/Tuple/Map/Set/
+    // Variant). The registry marks these `Printable` (spec §9.7.5), but the
+    // per-type dispatchers below only implement primitive `to_str`. The blanket
+    // `impl<T: Printable> T: Formattable` desugar (`ori_canon`) routes
+    // non-primitive `{x:spec}` through `to_str()`, so this must produce the
+    // spec rendering (`"Some(42)"`, `"(1, 2, 3)"`, `"[1, 2, 3]"`) matching the
+    // LLVM backend's `emit_element_to_str` for dual-execution parity. Primitive
+    // receivers keep their own `to_str` (they fall through this guard).
+    if method == ctx.names.to_str && is_compound_printable(&receiver) {
+        arguments::require_args("to_str", 0, args.len())?;
+        return Ok(Value::string(receiver.display_value()));
+    }
     match &receiver {
         Value::Int(_) => numeric::dispatch_int_method(receiver, method, args, ctx),
         Value::Float(_) => numeric::dispatch_float_method(receiver, method, args, ctx),
         Value::Bool(_) => variants::dispatch_bool_method(receiver, method, args, ctx),
         Value::Char(_) => variants::dispatch_char_method(receiver, method, args, ctx),
         Value::Byte(_) => variants::dispatch_byte_method(receiver, method, args, ctx),
+        Value::Void => dispatch_unit_method(method, &args, ctx),
         Value::List(_) => list::dispatch_list_method(receiver, method, args, ctx),
         Value::Str(_) => collections::dispatch_string_method(receiver, method, args, ctx),
-        Value::Map(_) => collections::dispatch_map_method(receiver, method, args, ctx),
         Value::Range(_) => collections::dispatch_range_method(receiver, method, args, ctx),
-        Value::Set(_) => collections::dispatch_set_method(receiver, method, args, ctx),
+        // Map/Set route through Interpreter::dispatch_{map,set}_method (key handling
+        // may invoke user @hash/@eq), intercepted before this free-function path.
+        Value::Map(_) | Value::Set(_) => {
+            unreachable!(
+                "Map/Set dispatch routes through interpreter methods, not dispatch_builtin_method"
+            )
+        }
         // Iterator methods are dispatched by CollectionMethodResolver (priority 1),
         // not the builtin resolver. See interpreter/method_dispatch/iterator.rs.
         Value::Some(_) | Value::None => {
@@ -171,20 +221,70 @@ pub(crate) fn dispatch_builtin_method(
     }
 }
 
+fn dispatch_unit_method(method: Name, args: &[Value], ctx: &DispatchCtx<'_>) -> EvalResult {
+    let names = ctx.names;
+    if method == names.clone_ {
+        arguments::require_args("clone", 0, args.len())?;
+        Ok(Value::Void)
+    } else if method == names.equals {
+        arguments::require_args("equals", 1, args.len())?;
+        Ok(Value::Bool(matches!(args.first(), Some(Value::Void))))
+    } else if method == names.compare {
+        arguments::require_args("compare", 1, args.len())?;
+        if matches!(args.first(), Some(Value::Void)) {
+            Ok(compare::ordering_to_value(std::cmp::Ordering::Equal))
+        } else {
+            Err(ori_patterns::wrong_arg_type("compare", "void").into())
+        }
+    } else if method == names.hash {
+        arguments::require_args("hash", 0, args.len())?;
+        Ok(Value::int(0))
+    } else if method == names.debug {
+        arguments::require_args("debug", 0, args.len())?;
+        Ok(Value::string("()"))
+    } else if ctx.interner.lookup(method) == "default" {
+        arguments::require_args("default", 0, args.len())?;
+        Ok(Value::Void)
+    } else {
+        let method_str = ctx.interner.lookup(method);
+        Err(no_such_method(method_str, "void").into())
+    }
+}
+
 /// Dispatch a built-in method call by string name (test-only convenience).
 ///
-/// **Warning:** Interns all 97+ builtin method names on every call. Do not
-/// use in production paths. This exists solely for tests that construct
-/// method names as strings.
+/// **Warning:** Interns the complete builtin method-name registry on every
+/// call. Do not use in production paths. This exists solely for tests that
+/// construct method names as strings.
 ///
-/// Internally delegates to [`dispatch_builtin_method`] with a freshly-built
+/// Internally delegates to `dispatch_builtin_method` with a freshly-built
 /// `DispatchCtx`, so dispatch behavior is identical to the production path.
+///
+/// Map/Set receivers route through `Interpreter::dispatch_map_method` /
+/// `Interpreter::dispatch_set_method` in production (key handling may invoke
+/// user `@hash`/`@eq`, which needs interpreter access). This convenience cannot
+/// build an interpreter, so for Map/Set it reports handler existence statically
+/// via the dispatch-check method sets — a handled method returns a benign
+/// argument error; an unhandled one returns `UndefinedMethod`.
 pub fn dispatch_builtin_method_str(
     receiver: Value,
     method: &str,
     args: Vec<Value>,
     interner: &StringInterner,
 ) -> EvalResult {
+    if matches!(receiver, Value::Map(_) | Value::Set(_)) {
+        let tag = match receiver {
+            Value::Map(_) => ori_registry::TypeTag::Map,
+            _ => ori_registry::TypeTag::Set,
+        };
+        return if dispatch_check::is_map_set_dispatched_for_tag(tag, method) {
+            // Handler exists — return a benign (non-UndefinedMethod) arg error.
+            Err(ori_patterns::wrong_arg_type(method, "map/set (handler exists)").into())
+        } else {
+            Err(no_such_method(method, receiver.type_name()).into())
+        };
+    }
+
     let names = BuiltinMethodNames::new(interner);
     let ctx = DispatchCtx {
         names: &names,

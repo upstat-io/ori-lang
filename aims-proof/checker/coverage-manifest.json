@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "_doc": "Coverage manifest per the design-validation gate IT 120 + the proof-checker design sec-Engine-per-Category-Inventory. Enumerates 10 active proof-shape categories (L / CN / TF / DP / IC / IA / PL / RL / VF / CH) mapped onto the 8-engine checker inventory. Consumed by aims-proof/scripts/run-coverage-corpus.sh. Each entry's expected_outcome is 'unimplemented_engine_shape' at scaffold time per the §00 PASS-gate clause (e) — engines are stubs; parser-can-parse + dispatcher-can-route is the gate, not full shape discharge. Engines ship subsequent Agent dispatches; expected_outcome flips to 'valid' as shape discharge lands per category. Adding a new category requires /create-plan --inline per routing.md §3 case (b) + matched the proof-checker design Engine-per-Category-Inventory edit + matched coverage-corpus golden file.",
+  "categories": [
+    {
+      "category": "L",
+      "engines": ["lattice", "monotonicity"],
+      "golden_corpus_entry": "proofs/00-coverage-corpus/L-shape.proof",
+      "expected_outcome": "valid"
+    },
+    {
+      "category": "CN",
+      "engines": ["case_analysis", "lattice"],
+      "golden_corpus_entry": "proofs/00-coverage-corpus/CN-shape.proof",
+      "expected_outcome": "valid"
+    },
+    {
+      "category": "TF",
+      "engines": ["case_analysis", "monotonicity", "lattice", "refinement"],
+      "golden_corpus_entry": "proofs/00-coverage-corpus/TF-shape.proof",
+      "expected_outcome": "valid"
+    },
+    {
+      "category": "DP",
+      "engines": ["case_analysis"],
+      "golden_corpus_entry": "proofs/00-coverage-corpus/DP-shape.proof",
+      "expected_outcome": "valid"
+    },
+    {
+      "category": "IC",
+      "engines": ["fixpoint", "interprocedural_summary", "case_analysis"],
+      "golden_corpus_entry": "proofs/00-coverage-corpus/IC-shape.proof",
+      "expected_outcome": "unimplemented_engine_shape"
+    },
+    {
+      "category": "IA",
+      "engines": ["structural_induction", "fixpoint", "case_analysis"],
+      "golden_corpus_entry": "proofs/00-coverage-corpus/IA-shape.proof",
+      "expected_outcome": "unimplemented_engine_shape"
+    },
+    {
+      "category": "PL",
+      "engines": ["structural_induction", "case_analysis"],
+      "golden_corpus_entry": "proofs/00-coverage-corpus/PL-shape.proof",
+      "expected_outcome": "unimplemented_engine_shape"
+    },
+    {
+      "category": "RL",
+      "engines": ["rc_counting", "refinement", "case_analysis"],
+      "golden_corpus_entry": "proofs/00-coverage-corpus/RL-shape.proof",
+      "expected_outcome": "valid"
+    },
+    {
+      "category": "VF",
+      "engines": ["structural_induction", "refinement", "rc_counting", "interprocedural_summary"],
+      "golden_corpus_entry": "proofs/00-coverage-corpus/VF-shape.proof",
+      "expected_outcome": "valid"
+    },
+    {
+      "category": "CH",
+      "engines": ["structural_induction", "interprocedural_summary", "case_analysis", "lattice", "refinement", "rc_counting", "monotonicity", "fixpoint"],
+      "golden_corpus_entry": "proofs/00-coverage-corpus/CH-shape.proof",
+      "expected_outcome": "valid"
+    }
+  ]
+}

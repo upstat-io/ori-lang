@@ -1,0 +1,175 @@
+Theorem CH-1: Burden-registry-lattice composition soundness
+
+  Preconditions:
+    - BR is the burden-registry typed pre-pass output for function F
+      (per-variable burden annotations consumed by the consumer per the
+       burden-prototype design at docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md)
+    - L is the lattice analysis converged AimsStateMap for F per IA-7
+    - consume_stack(F, BR, L) is the burden-elimination consumer:
+      walks F's instruction stream; for each variable v with burden
+      entries in BR, validates the elimination decision (DP-2 dec
+      unnecessary OR DP-3 inc elidable) against L[v]'s converged
+      lattice state
+    - Lean 4 cross-validation MANDATORY per the dual-prover Lean formalization
+      critical-proof set (the Lean 4 cross-validation strategy)
+
+  Soundness property:
+    Forall v in vars(F).
+      consume_stack(F, BR, L)[v] is consistent with L[v] under
+      DP-2 (is_rc_dec_unnecessary) and DP-3 (is_rc_inc_elidable);
+      no double-counting (burden writes do not race-invalidate
+      elimination decisions);
+      per-class coexistence well-formedness holds (lattice classes
+      + burden classes do not overlap in their elimination claims).
+
+  Proof obligation:
+    sorry -- discharged by sec-11 coexistence handshake proofs
+
+    Engines dispatched:
+      structural_induction
+      interprocedural_summary
+      case_analysis
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-11 discharges CH-1 composition proof
+
+Theorem CH-2: DP-2 / DP-3 elimination consumer composition with predicate-stack-derived ops
+
+  Preconditions:
+    - DP-2 (is_rc_dec_unnecessary) and DP-3 (is_rc_inc_elidable) are
+      pure-state predicates per Annex E §AIMS
+    - Predicate-stack-derived ops are the burden-prototype burden-registry
+      writes derived from active stack burden tracking
+    - Coexistence claim: consume_stack reads BR + L; emits eliminations
+      consistent with both — NO double-counting on stack consumers
+
+  Soundness property:
+    Forall v with burden(v) AND L[v].cardinality = absent.
+      consume_stack emits exactly one elimination decision for v
+      (not two — burden-derived AND lattice-derived emissions are
+      THE SAME decision, not stacked).
+      Equivalently: predicate-stack ops do NOT race-invalidate the
+      lattice's DP-2 / DP-3 elimination claim.
+
+  Proof obligation:
+    sorry -- discharged by sec-11 coexistence handshake proofs
+
+    Engines dispatched:
+      structural_induction
+      interprocedural_summary
+      case_analysis
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-11 discharges CH-2 composition proof
+
+Theorem CH-3: Per-class coexistence with active stack burden — three sub-classes
+
+  Preconditions:
+    - Three AIMS variable classes participate in burden coexistence:
+        sub-class A: Owned x Linear x Once x Unique (RL-2 logical-release class)
+        sub-class B: Borrowed x Linear x Once x Unique (caller-owned class)
+        sub-class C: MaybeShared x Many (RL-7 dynamic COW candidate)
+    - Burden-registry annotations classify each variable into one of these
+      three classes; coexistence requires per-class well-formedness
+
+  Soundness property:
+    Forall v in vars(F).
+      class_of(v) = A: consume_stack honors RL-2 last-use release and RL-14a
+        exact cleanup-event identity; burden annotation MUST agree.
+      class_of(v) = B: consume_stack honors Borrowed caller ownership;
+        no callee-owned release emission; burden annotation MUST agree.
+      class_of(v) = C: consume_stack honors RL-7 dynamic COW slow-path;
+        burden annotation MUST flag MaybeShared.
+      RL-14 LifetimeBound and RL-15 ExtentClass are orthogonal to this class
+      partition; any physical plan is admitted separately by RL-18.
+      No variable in two classes; no variable without class assignment;
+      coexistence well-formedness = total + disjoint class partition.
+
+  Proof obligation:
+    sorry -- discharged by sec-11 coexistence handshake proofs
+
+    Engines dispatched:
+      structural_induction
+      interprocedural_summary
+      case_analysis
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-11 discharges CH-3 composition proof
+
+Theorem CH-4: AimsStateMap immutability under burden-registry mutation
+
+  Preconditions:
+    - L is the converged AimsStateMap for function F (output of IA-7)
+    - BR is the burden-registry computed AFTER L's convergence per
+      the burden-prototype design (acyclic dependency: BR reads L, L does not
+      depend on BR)
+    - consume_stack walks the instruction stream with BOTH L (read-only)
+      and BR (read-only) as inputs
+
+  Soundness property:
+    Forall mutation_event M of BR.
+      L is NOT modified by M;
+      L's per-variable AimsState values remain canonical (CN invariants
+      preserved);
+      L's per-block_entry_states + block_exit_states maps remain at
+      their post-IA-7 converged values.
+    Burden-registry mutations are SIDE-EFFECT-FREE w.r.t. AimsStateMap;
+    no shared mutable state between BR computation and L computation.
+
+  Proof obligation:
+    sorry -- discharged by sec-11 coexistence handshake proofs
+
+    Engines dispatched:
+      structural_induction
+      interprocedural_summary
+      case_analysis
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-11 discharges CH-4 composition proof
+
+Theorem CH-5: Phase-ordering composition — PL-1 interprocedural-first with burden-registry as Step 1 typed pre-pass
+
+  Preconditions:
+    - PL-1 mandates interprocedural-first ordering (Steps 1-2 across all
+      functions before any per-function step) per Annex E §AIMS
+    - Burden-registry pre-pass per the burden-prototype design is a typed pre-pass
+      input that lands on AimsStateMap (per Annex E §AIMS §2
+      invariant 5(c)) — NOT a new lattice dimension; NOT an independent
+      ownership-policy or realization path
+    - Burden-registry runs as Step 1 typed pre-pass (BEFORE analyze_program)
+      or as Step 4-companion pre-pass (BEFORE analyze_function), depending
+      on per-variable vs per-function granularity
+
+  Soundness property:
+    Forall function F.
+      pipeline order with burden-registry pre-pass inserted preserves
+      PL-1 interprocedural-first invariant;
+      burden-registry's BR(F) reads ONLY from F's call-graph predecessors'
+      computed values (or F's own pre-pass values), NOT from F's
+      not-yet-computed lattice values;
+      PL-5 (no stale summaries) preserved: burden-registry pre-pass
+      outputs become typed inputs to subsequent pipeline steps without
+      circular dependency;
+      PL-6 (adding-a-pass meta-rule) honored: pipeline ordering updated
+      + constraint-no-violation proven.
+
+  Proof obligation:
+    sorry -- discharged by sec-11 coexistence handshake proofs
+
+    Engines dispatched:
+      structural_induction
+      interprocedural_summary
+      case_analysis
+      lattice
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-11 discharges CH-5 composition proof

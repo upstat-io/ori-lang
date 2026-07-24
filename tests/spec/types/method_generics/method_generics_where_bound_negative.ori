@@ -1,0 +1,27 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §05 Phase B residual — where-clause bound enforcement negative pin
+//
+// Mirrors method_generics_inline_bound_negative.ori but exercises the trailing
+// `where T: Hashable` form via check_method_where_clauses instead of the inline
+// `<T: Hashable>` form via check_method_inline_bounds. Both helpers cover the
+// same dispatch path; this pin clamps the where-clause angle of the matrix.
+//
+// Hashable requires explicit declaration per CLAUDE.md §Trait Defaults — a bare
+// struct does NOT satisfy it (unlike Eq/Clone/Debug/Printable which are structural).
+
+#compile_fail(message: "does not satisfy trait bound")
+@method_generics_where_bound_negative tests _ () -> void = { () }
+
+type Box<T> = { value: T }
+type NonHashable = { x: int }
+
+impl<U> Box<U> {
+    @needs_hash<T> (self, key: T) -> int where T: Hashable = 0;
+}
+
+@trigger_where_bound_failure () -> int = {
+    let b: Box<int> = Box { value: 0 };
+    let nh: NonHashable = NonHashable { x: 1 };
+    b.needs_hash(key: nh)
+}

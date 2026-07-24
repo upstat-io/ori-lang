@@ -3,9 +3,7 @@
 
 use std.testing { assert, assert_eq }
 
-// =============================================================================
 // List — next_back() basic
-// =============================================================================
 
 @list_next_back_first () -> int = {
     let iter = [10, 20, 30].iter();
@@ -39,9 +37,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: list_next_back_all(), expected: [3, 2, 1])
 }
 
-// =============================================================================
 // List — interleaved next() and next_back()
-// =============================================================================
 
 @list_interleaved () -> (int, int) = {
     let iter = [1, 2, 3, 4, 5].iter();
@@ -87,9 +83,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: list_interleaved_full(), expected: [1, 5, 2, 4, 3])
 }
 
-// =============================================================================
 // Range — next_back()
-// =============================================================================
 
 @range_next_back () -> int = {
     let iter = (0..5).iter();
@@ -125,9 +119,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: range_interleaved(), expected: [0, 4, 1, 3])
 }
 
-// =============================================================================
 // String — next_back()
-// =============================================================================
 
 @str_next_back () -> char = {
     let iter = "hello".iter();
@@ -159,9 +151,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: back, expected: 'o')
 }
 
-// =============================================================================
 // Empty iterator — next_back() returns None
-// =============================================================================
 
 @empty_list_next_back () -> bool = {
     let iter = [].iter();
@@ -175,9 +165,7 @@ use std.testing { assert, assert_eq }
     assert(condition: empty_list_next_back())
 }
 
-// =============================================================================
 // Mapped adapter — next_back() with transform
-// =============================================================================
 
 @mapped_next_back () -> int = {
     let iter = [1, 2, 3].iter().map(x -> x * 10);
@@ -209,9 +197,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: back, expected: 30)
 }
 
-// =============================================================================
 // Filtered adapter — next_back() with predicate
-// =============================================================================
 
 @filtered_next_back () -> int = {
     let iter = [1, 2, 3, 4, 5, 6].iter().filter(x -> x % 2 == 0);
@@ -242,4 +228,38 @@ use std.testing { assert, assert_eq }
     let (front, back) = filtered_interleaved();
     assert_eq(actual: front, expected: 2);
     assert_eq(actual: back, expected: 6)
+}
+
+@test_next_back_result_types tests _ () -> void = {
+    let (list_back_raw, _) = [1].iter().next_back();
+    let list_back: Option<int> = list_back_raw;
+    assert_eq(actual: list_back, expected: Some(1));
+    let (list_front_raw, _) = [1].iter().next();
+    let list_front: Option<int> = list_front_raw;
+    assert_eq(actual: list_front, expected: Some(1));
+    let empty_values: [int] = [];
+    let (empty_back_raw, _) = empty_values.iter().next_back();
+    let empty_back: Option<int> = empty_back_raw;
+    assert_eq(actual: empty_back, expected: None);
+    let (range_back_raw, _) = (0..2).iter().next_back();
+    let range_back: Option<int> = range_back_raw;
+    assert_eq(actual: range_back, expected: Some(1));
+    let (range_front_raw, _) = (0..2).iter().next();
+    let range_front: Option<int> = range_front_raw;
+    assert_eq(actual: range_front, expected: Some(0));
+    let (str_back_raw, _) = "ab".iter().next_back();
+    let str_back: Option<char> = str_back_raw;
+    assert_eq(actual: str_back, expected: Some('b'));
+    let (str_front_raw, _) = "ab".iter().next();
+    let str_front: Option<char> = str_front_raw;
+    assert_eq(actual: str_front, expected: Some('a'));
+    let (mapped_back_raw, _) = [1, 2].iter().map(x -> x * 10).next_back();
+    let mapped_back: Option<int> = mapped_back_raw;
+    assert_eq(actual: mapped_back, expected: Some(20));
+    let (filtered_back_raw, _) = [1, 2].iter().filter(x -> x % 2 == 0).next_back();
+    let filtered_back: Option<int> = filtered_back_raw;
+    assert_eq(actual: filtered_back, expected: Some(2));
+    let (filtered_front_raw, _) = [1, 2].iter().filter(x -> x % 2 == 0).next();
+    let filtered_front: Option<int> = filtered_front_raw;
+    assert_eq(actual: filtered_front, expected: Some(2))
 }

@@ -1,0 +1,1 @@
+type Single = { value: int }

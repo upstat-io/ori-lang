@@ -1,0 +1,12 @@
+// Mixed heap + scalar (no over-widening): the scalar field contributes nothing
+// to the sibling union (RC-carrying fields only); the heap field's accounting
+// is the single-field shape. Must run leak-clean.
+type Pair = { a: [int], n: int }
+
+@main () -> int = {
+    let r = Pair { a: [1], n: 7 };
+    for i in 0..30 do {
+        r = Pair { a: r.a, n: r.n + 1 };
+    };
+    if r.n == 37 then 0 else 1
+}

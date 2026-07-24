@@ -36,7 +36,7 @@ fn scan_with_eof(source: &str) -> Vec<RawToken> {
     tokens
 }
 
-// ─── Property Tests ────────────────────────────────────────────
+// Property Tests
 
 #[test]
 fn total_len_equals_source_len() {
@@ -125,24 +125,19 @@ fn template_depth_empty_after_complete_scan() {
     }
 }
 
-// ─── Byte Coverage ─────────────────────────────────────────────
+// Byte Coverage
 
 #[test]
-fn all_256_bytes_produce_valid_token() {
-    for byte in 0u8..=255 {
-        let source = [byte];
-        // We need valid UTF-8 for SourceBuffer, so use from_utf8_lossy
-        // For non-UTF-8 bytes, we test via raw cursor construction instead
-        if let Ok(s) = std::str::from_utf8(&source) {
-            let buf = SourceBuffer::new(s);
-            let mut scanner = RawScanner::new(buf.cursor());
-            let tok = scanner.next_token();
-            // Should not panic and should produce a token
-            assert!(
-                tok.tag == RawTag::Eof || tok.len > 0,
-                "byte {byte} produced invalid token: {tok:?}",
-            );
-        }
+fn all_ascii_bytes_produce_valid_token() {
+    for byte in 0u8..=127 {
+        let source = char::from(byte).to_string();
+        let buf = SourceBuffer::new(&source);
+        let mut scanner = RawScanner::new(buf.cursor());
+        let tok = scanner.next_token();
+        assert!(
+            tok.tag == RawTag::Eof || tok.len > 0,
+            "byte {byte} produced invalid token: {tok:?}",
+        );
     }
 }
 
@@ -161,7 +156,7 @@ fn all_printable_ascii_produce_valid_tokens() {
     }
 }
 
-// ─── Whitespace & Newlines ─────────────────────────────────────
+// Whitespace & Newlines
 
 #[test]
 fn whitespace_spaces_and_tabs() {
@@ -213,7 +208,7 @@ fn empty_source() {
     assert_eq!(tokens[0].tag, RawTag::Eof);
 }
 
-// ─── Comments ──────────────────────────────────────────────────
+// Comments
 
 #[test]
 fn line_comment() {
@@ -239,7 +234,7 @@ fn slash_followed_by_non_slash() {
     assert_eq!(tags, vec![RawTag::Slash, RawTag::Ident]);
 }
 
-// ─── Identifiers ───────────────────────────────────────────────
+// Identifiers
 
 #[test]
 fn simple_identifiers() {
@@ -287,7 +282,7 @@ fn keywords_are_ident() {
     assert_eq!(scan_tags("false"), vec![RawTag::Ident]);
 }
 
-// ─── Operators (single-char) ───────────────────────────────────
+// Operators (single-char)
 
 #[test]
 fn single_char_operators() {
@@ -308,7 +303,7 @@ fn single_char_operators() {
     assert_eq!(scan_tags("?"), vec![RawTag::Question]);
 }
 
-// ─── Operators (compound) ──────────────────────────────────────
+// Operators (compound)
 
 #[test]
 fn compound_operators() {
@@ -325,6 +320,40 @@ fn compound_operators() {
     assert_eq!(scan_tags("::"), vec![RawTag::ColonColon]);
     assert_eq!(scan_tags("<<"), vec![RawTag::Shl]);
     assert_eq!(scan_tags("??"), vec![RawTag::QuestionQuestion]);
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "short operator symbols have length fitting in u32"
+)]
+#[test]
+fn cross_language_operator_habits_are_single_error_tokens() {
+    for source in ["===", "!==", "++"] {
+        let tokens = scan(source);
+        assert_eq!(
+            tokens.len(),
+            1,
+            "{source:?} should recover as one raw error token"
+        );
+        assert_eq!(tokens[0].tag, RawTag::InvalidByte);
+        assert_eq!(
+            tokens[0].len,
+            source.len() as u32,
+            "{source:?} error token should cover the whole operator"
+        );
+    }
+}
+
+#[test]
+fn adjacent_minuses_remain_independent_unary_tokens() {
+    assert_eq!(
+        scan_tags("--42"),
+        vec![RawTag::Minus, RawTag::Minus, RawTag::Int]
+    );
+    assert_eq!(
+        scan_tags("--value"),
+        vec![RawTag::Minus, RawTag::Minus, RawTag::Ident]
+    );
 }
 
 #[test]
@@ -356,7 +385,7 @@ fn compound_assignment_tokens() {
     );
 }
 
-// ─── Delimiters ────────────────────────────────────────────────
+// Delimiters
 
 #[test]
 fn delimiters() {
@@ -386,7 +415,7 @@ fn backslash_is_error_detection() {
     assert_eq!(scan_tags("\\"), vec![RawTag::Backslash]);
 }
 
-// ─── Numeric Literals ──────────────────────────────────────────
+// Numeric Literals
 
 #[test]
 fn integer_literals() {
@@ -446,6 +475,78 @@ fn int_dot_ident_is_not_float() {
 }
 
 #[test]
+fn numeric_dot_boundary_matrix() {
+    let cases: &[(&str, &[RawTag])] = &[
+        ("t.0", &[RawTag::Ident, RawTag::Dot, RawTag::Int]),
+        (
+            "(t.0).1",
+            &[
+                RawTag::LeftParen,
+                RawTag::Ident,
+                RawTag::Dot,
+                RawTag::Int,
+                RawTag::RightParen,
+                RawTag::Dot,
+                RawTag::Int,
+            ],
+        ),
+        (
+            "t.0.name",
+            &[
+                RawTag::Ident,
+                RawTag::Dot,
+                RawTag::Int,
+                RawTag::Dot,
+                RawTag::Ident,
+            ],
+        ),
+        (
+            "t.name.0",
+            &[
+                RawTag::Ident,
+                RawTag::Dot,
+                RawTag::Ident,
+                RawTag::Dot,
+                RawTag::Int,
+            ],
+        ),
+        ("0.1", &[RawTag::Float]),
+        ("t.0.1", &[RawTag::Ident, RawTag::Dot, RawTag::Float]),
+        ("0..1", &[RawTag::Int, RawTag::DotDot, RawTag::Int]),
+        (
+            "t.0..1",
+            &[
+                RawTag::Ident,
+                RawTag::Dot,
+                RawTag::Int,
+                RawTag::DotDot,
+                RawTag::Int,
+            ],
+        ),
+        (
+            "t.0..=1",
+            &[
+                RawTag::Ident,
+                RawTag::Dot,
+                RawTag::Int,
+                RawTag::DotDotEqual,
+                RawTag::Int,
+            ],
+        ),
+    ];
+    let mut visited = 0;
+    for &(source, expected) in cases {
+        assert_eq!(
+            scan_tags(source),
+            expected,
+            "unexpected numeric/dot token boundary for {source:?}"
+        );
+        visited += 1;
+    }
+    assert_eq!(visited, cases.len(), "every matrix cell must run");
+}
+
+#[test]
 fn exponent_without_dot() {
     assert_eq!(scan_tags("1e5"), vec![RawTag::Float]);
     assert_eq!(scan_tags("1E10"), vec![RawTag::Float]);
@@ -453,7 +554,7 @@ fn exponent_without_dot() {
     assert_eq!(scan_tags("1e-5"), vec![RawTag::Float]);
 }
 
-// ─── Duration Literals ─────────────────────────────────────────
+// Duration Literals
 
 #[test]
 fn duration_integer() {
@@ -468,7 +569,7 @@ fn duration_integer() {
 
 #[test]
 fn duration_decimal() {
-    // Decimal durations are valid per grammar.ebnf lines 136-137
+    // Decimal durations are valid per grammar.ebnf `duration_literal` production
     assert_eq!(scan_tags("0.5s"), vec![RawTag::Duration]);
     assert_eq!(scan("0.5s")[0].len, 4);
     assert_eq!(scan_tags("1.5ms"), vec![RawTag::Duration]);
@@ -490,7 +591,7 @@ fn duration_suffix_not_consumed_if_followed_by_ident() {
     assert_eq!(tags, vec![RawTag::Int, RawTag::Ident]);
 }
 
-// ─── Size Literals ─────────────────────────────────────────────
+// Size Literals
 
 #[test]
 fn size_integer() {
@@ -519,7 +620,7 @@ fn size_suffix_not_consumed_if_followed_by_ident() {
     assert_eq!(tags, vec![RawTag::Int, RawTag::Ident]);
 }
 
-// ─── String Literals ───────────────────────────────────────────
+// String Literals
 
 #[test]
 fn simple_string() {
@@ -560,7 +661,7 @@ fn adjacent_strings() {
     );
 }
 
-// ─── Character Literals ────────────────────────────────────────
+// Character Literals
 
 #[test]
 fn simple_char() {
@@ -582,8 +683,6 @@ fn unterminated_char_eof() {
 
 #[test]
 fn empty_char_literal() {
-    // '' — opening ' consumed, then immediate ' is "empty char" -> UnterminatedChar(1)
-    // Then second ' starts a new char_literal, consumes opening ', hits EOF -> UnterminatedChar(1)
     let tags = scan_tags("''");
     assert_eq!(
         tags,
@@ -593,16 +692,13 @@ fn empty_char_literal() {
 
 #[test]
 fn multichar_literal_recovered_as_single_token() {
-    // 'ab' — too many characters, but should produce ONE error token, not three.
-    // Before fix: UnterminatedChar('a), Ident(b), UnterminatedChar(')
     let tags = scan_tags("'ab'");
     assert_eq!(tags, vec![RawTag::UnterminatedChar]);
-    assert_eq!(scan("'ab'")[0].len, 4); // covers entire 'ab'
+    assert_eq!(scan("'ab'")[0].len, 4);
 }
 
 #[test]
 fn multichar_literal_three_chars() {
-    // 'xyz' — recovery consumes to closing quote
     let tags = scan_tags("'xyz'");
     assert_eq!(tags, vec![RawTag::UnterminatedChar]);
     assert_eq!(scan("'xyz'")[0].len, 5);
@@ -671,7 +767,7 @@ fn char_unicode_4byte() {
     assert_eq!(scan("'😀'")[0].len, 6); // ' + 4-byte char + '
 }
 
-// ─── Template Literals ─────────────────────────────────────────
+// Template Literals
 
 #[test]
 fn template_complete() {
@@ -844,7 +940,7 @@ fn template_unterminated_interpolation_only_expr() {
     );
 }
 
-// ─── Format Spec in Template Interpolation ─────────────────────
+// Format Spec in Template Interpolation
 
 #[test]
 fn template_format_spec_simple() {
@@ -976,7 +1072,7 @@ fn template_format_spec_with_multiple_interpolations() {
 }
 
 #[test]
-fn template_format_spec_length_correct() {
+fn format_spec_token_length_includes_leading_colon() {
     // Verify FormatSpec token length includes the leading ':'
     let tokens = scan("`{x:>10.2f}`");
     // Tokens: TemplateHead(`{), Ident(x), FormatSpec(:>10.2f), TemplateTail(}`)
@@ -985,14 +1081,12 @@ fn template_format_spec_length_correct() {
     assert_eq!(format_spec.len, 7); // ":>10.2f" = 7 bytes
 }
 
-// ─── Invalid Bytes ─────────────────────────────────────────────
+// Invalid Bytes
 
 #[test]
 fn non_ascii_byte_is_invalid() {
-    // Non-ASCII in UTF-8 context — the SourceBuffer accepts &str so
-    // we can test with a multi-byte UTF-8 char
-    let tags = scan_tags("\u{00E9}"); // é (2 bytes: 0xC3 0xA9)
-                                      // Each non-ASCII byte produces InvalidByte
+    // UTF-8 encodes `é` as two non-ASCII bytes, each reported separately.
+    let tags = scan_tags("é");
     assert_eq!(tags.len(), 2);
     assert!(tags.iter().all(|t| *t == RawTag::InvalidByte));
 }
@@ -1004,7 +1098,7 @@ fn control_chars_are_invalid() {
     assert_eq!(tags, vec![RawTag::InvalidByte]);
 }
 
-// ─── Adjacent Tokens ───────────────────────────────────────────
+// Adjacent Tokens
 
 #[test]
 fn adjacent_no_whitespace() {
@@ -1043,7 +1137,7 @@ fn complex_expression() {
     );
 }
 
-// ─── Iterator impl ────────────────────────────────────────────
+// Iterator impl
 
 #[test]
 fn iterator_yields_tokens_then_none() {
@@ -1056,7 +1150,7 @@ fn iterator_yields_tokens_then_none() {
     assert_eq!(tokens[2].tag, RawTag::Ident);
 }
 
-// ─── Tokenize convenience function ─────────────────────────────
+// Tokenize convenience function
 
 #[test]
 fn tokenize_convenience() {
@@ -1067,7 +1161,7 @@ fn tokenize_convenience() {
     assert_eq!(tokens[4].tag, RawTag::Int);
 }
 
-// ─── Realistic Ori Code ────────────────────────────────────────
+// Realistic Ori Code
 
 #[test]
 fn realistic_let_binding() {
@@ -1119,7 +1213,7 @@ fn realistic_function_def() {
 
 #[test]
 fn realistic_attribute_and_test() {
-    let source = "@test tests\n@target () -> void";
+    let source = include_str!("fixtures/attribute_test.ori").trim_end();
     let tags = scan_tags(source);
     assert_eq!(
         tags,
@@ -1142,7 +1236,7 @@ fn realistic_attribute_and_test() {
     );
 }
 
-// ─── Unicode Escape in Character Literals ───────────────────────
+// Unicode Escape in Character Literals
 
 #[test]
 fn char_unicode_escape_emoji() {
@@ -1188,7 +1282,7 @@ fn char_unicode_escape_malformed_no_brace() {
 }
 
 #[test]
-fn string_unicode_escape_scans_correctly() {
+fn unicode_escape_scans_as_one_string_token_with_full_length() {
     // "\u{1F600}" — string with unicode escape
     // " (1) + \ (1) + u{1F600} (8) + " (1) = 11
     assert_eq!(scan_tags("\"\\u{1F600}\""), vec![RawTag::String]);

@@ -1,0 +1,61 @@
+Theorem TF-N-A: logical ownership effects are destination-free and demand-free
+
+  Preconditions:
+    - The canonical logical effect set is
+      {OwnerCredit, Release, Cleanup}.
+    - Logical effects are calculus terms. They do not name a reference
+      counter, storage layout, or instruction encoding.
+    - The current transitional carrier set is enumerated separately as
+      {RcInc, RcDec, BurdenInc, BurdenDec}. Carrier membership establishes
+      coverage only; it does not promote those names into the calculus.
+    - Burden-op elimination soundness remains the §11 CH-1/CH-2 obligation.
+      TF-N/A classifies only the transfer shape.
+
+  Soundness property:
+    Forall event in {OwnerCredit, Release, Cleanup}.
+      transfer_tf_n_a(event) = NoDst
+      AND backward_demand_tf_n_a(event) = empty
+      AND L-6 layer (b) monotonicity holds vacuously.
+
+    Forall carrier in {RcInc, RcDec, BurdenInc, BurdenDec}.
+      refines_tf_n_a_shape(carrier)
+      AND transfer_tf_n_a(carrier) = NoDst
+      AND backward_demand_tf_n_a(carrier) = empty.
+
+  Proof obligation:
+    Four-part discharge:
+      (a) Logical classification — enumerate OwnerCredit, Release, Cleanup and
+          prove each has no SSA destination and creates no TF-11 demand.
+      (b) Transitional coverage — enumerate RcInc, RcDec, BurdenInc, BurdenDec
+          and prove each refines the same no-destination/no-demand shape.
+      (c) Separation — assert the logical event names and transitional carrier
+          names are disjoint sets. Changing a carrier cannot change TF-N/A.
+      (d) Coverage gate — exactly 3 logical rows + 4 carrier-refinement rows =
+          7 checked cases; no row may be dropped.
+
+    Logical-event semantics:
+      OwnerCredit records one additional logical owner.
+      Release discharges one logical owner credit.
+      Cleanup records terminal discharge and cleanup obligations.
+      None defines a value, and none is an operand use for backward demand.
+
+    Transitional-carrier interpretation:
+      RcInc / RcDec and BurdenInc / BurdenDec are current MIR spellings that
+      project or defer the logical events. Appendix A's side-effect-only rows
+      carry "—" across every dimension. Physical counter motion and
+      reclamation remain projection concerns.
+
+    Negative-direction witness:
+      Treating BurdenInc or BurdenDec as a different logical transfer class, or
+      treating RcInc/RcDec as the canonical calculus vocabulary, violates the
+      required logical/carrier separation and is rejected.
+
+    Engines dispatched:
+      monotonicity (PRIMARY — vacuous L-6 layer (b) discharge)
+      case_analysis (PRIMARY — 3 logical effects + 4 transitional carriers)
+      lattice (SECONDARY — accepts gracefully; no codomain element)
+      refinement (SECONDARY — accepts gracefully; no destination)
+
+  Expected:
+    status: valid
+    reason: section_04 verifies three destination-free logical ownership effects separately from four transitional carrier refinements, with seven-case coverage and no TF-11 demand

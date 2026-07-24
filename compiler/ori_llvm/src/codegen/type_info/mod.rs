@@ -10,10 +10,10 @@
 //!
 //! # Module Layout
 //!
-//! - **[`info`]** — `TypeInfo` enum + methods (`storage_type`, `size`, `alignment`, triviality)
-//! - **[`store`]** — `TypeInfoStore` cached `Idx` → `TypeInfo` mapping
-//! - **[`layout_resolver`]** — `TypeLayoutResolver`: recursive LLVM type resolution with cycle detection
-//! - **[`enum_layout`]** — Enum-specific LLVM type resolution (tagless, niche, explicit)
+//! - **`info`** — `TypeInfo` enum + methods (`storage_type`, `size`, `alignment`, triviality)
+//! - **`store`** — `TypeInfoStore` cached `Idx` → `TypeInfo` mapping
+//! - **`layout_resolver`** — `TypeLayoutResolver`: recursive LLVM type resolution with cycle detection
+//! - **`enum_layout`** — Enum-specific LLVM type resolution (tagless, niche, explicit)
 //!
 //! # References
 //!
@@ -24,6 +24,7 @@
 mod enum_layout;
 mod info;
 mod layout_resolver;
+pub(crate) mod repr_box_oracle;
 mod repr_lowering;
 mod store;
 pub(crate) mod type_size;
@@ -31,6 +32,18 @@ pub(crate) mod type_size;
 pub use info::{EnumVariantInfo, TypeInfo};
 pub use layout_resolver::TypeLayoutResolver;
 pub use store::TypeInfoStore;
+
+/// True if an enum-variant field occupies storage in the lowered LLVM struct.
+///
+/// Void-typed fields (`Tag::Unit` / `Tag::Never`) are skipped by enum layout
+/// resolution; ABI size/alignment computation must skip the same fields so
+/// the two layouts agree.
+pub(crate) fn field_is_non_void(pool: &ori_types::Pool, field: ori_types::Idx) -> bool {
+    !matches!(
+        pool.tag(pool.resolve_fully(field)),
+        ori_types::Tag::Unit | ori_types::Tag::Never
+    )
+}
 
 // Tests
 

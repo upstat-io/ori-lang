@@ -1,0 +1,39 @@
+Theorem RL-15a: ArgEscaping freezes a complete nonempty caller extent
+
+  Preconditions:
+    - Locality = ArgEscaping.
+    - Each CallerUse carries a stable CallSiteId and CallerProtocol.
+    - CallerProtocol is borrowOnly, mayShare, or ownershipTransfer.
+
+  Soundness property:
+    Forall nonempty caller-use sequence U:
+
+      (P1) lifetimeFromLocality(ArgEscaping, U) = callerExtent(U).
+
+      (P2) Every CallSiteId and CallerProtocol in U is preserved exactly.
+
+      (P3) Empty caller-use evidence yields LifetimeBound.unknown.
+
+    The caller extent constrains lifetime and ownership obligations without
+    prescribing caller storage or metadata.
+
+  Proof obligation:
+    Constructive nonempty-list discharge with one row for each protocol and a
+    fail-closed empty-evidence witness.
+
+    Part (P1/P2/P3) - caller-use grid:
+      borrowOnly site -> preserved
+      mayShare site -> preserved
+      ownershipTransfer site -> preserved
+      empty uses -> unknown
+      Coverage gate: 4 caller-use cases.
+
+    Engines dispatched:
+      case_analysis (PRIMARY - section_08::verify_rl15a_caller_extent;
+        exact CallerUse identity and completeness)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL row)
+      refinement (SECONDARY - gracious-accept per the coverage-manifest RL row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-15a by preserving the nonempty CallerUse sequence and failing closed to LifetimeBound.unknown when caller evidence is absent

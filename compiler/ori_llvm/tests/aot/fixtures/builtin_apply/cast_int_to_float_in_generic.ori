@@ -1,0 +1,8 @@
+@conv <T> (marker: T, n: int) -> bool = {
+    let f = n as float;
+    f > 2.5
+}
+
+@main () -> int = {
+    if conv(marker: "g", n: 5) then 0 else 1
+}

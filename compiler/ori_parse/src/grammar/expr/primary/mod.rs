@@ -8,9 +8,10 @@
 //! doesn't match, enabling clean ordered alternation.
 
 mod bindings;
+mod block_map;
 mod collections;
 mod control_flow;
-mod helpers;
+mod disambiguation;
 mod literals;
 mod specials;
 
@@ -28,6 +29,7 @@ impl Parser<'_> {
         clippy::too_many_lines,
         reason = "exhaustive primary expression token dispatch — one branch per token kind"
     )]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_primary(&mut self) -> ParseOutcome<ExprId> {
         debug!(
             pos = self.cursor.position(),
@@ -38,7 +40,7 @@ impl Parser<'_> {
             "parse_primary"
         );
 
-        // === Context-sensitive keywords requiring multi-token lookahead ===
+        // Context-sensitive keywords requiring multi-token lookahead
         //
         // These stay as an if-chain because they need `next_is_lparen()`,
         // `is_with_capability_syntax()`, or `match_function_exp_kind()` before
@@ -98,7 +100,7 @@ impl Parser<'_> {
             return self.parse_function_exp(kind);
         }
 
-        // === Fast path: tag-based direct dispatch ===
+        // Fast path: tag-based direct dispatch
         //
         // For the most common primary tokens, dispatch directly to the correct
         // sub-parser without going through one_of!'s snapshot/restore/TokenSet
@@ -131,6 +133,7 @@ impl Parser<'_> {
             TokenKind::TAG_IF => return self.parse_if_expr(),
             TokenKind::TAG_LET => return self.parse_let_expr(),
             TokenKind::TAG_LOOP => return self.parse_loop_expr(),
+            TokenKind::TAG_WHILE => return self.parse_while_expr(),
             TokenKind::TAG_SOME | TokenKind::TAG_NONE | TokenKind::TAG_OK | TokenKind::TAG_ERR => {
                 return self.parse_variant_primary()
             }
@@ -161,7 +164,7 @@ impl Parser<'_> {
             }
         }
 
-        // === Fallback: full one_of! dispatch ===
+        // Fallback: full one_of! dispatch
         //
         // Handles soft keywords and other rare cases not covered by the fast
         // path (e.g., `print`/`panic` as identifiers, `for` as loop).
@@ -178,6 +181,7 @@ impl Parser<'_> {
             self.parse_if_expr(),
             self.parse_let_expr(),
             self.parse_loop_expr(),
+            self.parse_while_expr(),
             self.parse_for_loop(),
             self.parse_control_flow_primary(),
             self.parse_template_literal(),

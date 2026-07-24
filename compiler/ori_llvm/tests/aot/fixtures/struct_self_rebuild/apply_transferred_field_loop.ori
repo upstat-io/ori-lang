@@ -1,0 +1,16 @@
+// Guard 1 (non-ConstructArg transfer kind): one field passes through an
+// identity forwarder call (Apply to an Owned transfers-through-return param)
+// while the other is a plain self-projection in the same rebuild. The sibling
+// union must count the Apply-owned transfer; the plain projection's partial-dec
+// must not release the forwarded buffer. Must run leak-clean.
+type Pair = { a: [int], b: [int] }
+
+@forward (xs: [int]) -> [int] = xs;
+
+@main () -> int = {
+    let r = Pair { a: [1], b: [2] };
+    for i in 0..30 do {
+        r = Pair { a: r.a, b: forward(xs: r.b) };
+    };
+    if r.a.len() == 1 then 0 else 1
+}

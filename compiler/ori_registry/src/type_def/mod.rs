@@ -21,7 +21,7 @@ use crate::tags::{MemoryStrategy, TypeParamArity, TypeTag};
 /// # Extensibility
 ///
 /// New required fields produce compile errors in every `TypeDef`
-/// definition (Sections 03-07), enforcing immediate full coverage.
+/// definition, enforcing immediate full coverage.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TypeDef {
     /// The type's identity tag.
@@ -42,8 +42,9 @@ pub struct TypeDef {
     /// All methods defined on this type.
     ///
     /// Includes inherent methods, trait implementations, and associated
-    /// functions. The full method set that the type checker accepts,
-    /// the evaluator dispatches, and the LLVM backend emits.
+    /// functions. This is the full method set accepted by the type checker;
+    /// entries marked [`MethodDef::backend_required`] are obligations for
+    /// every admitted executor.
     pub methods: &'static [MethodDef],
 
     /// Operator lowering strategies for this type.

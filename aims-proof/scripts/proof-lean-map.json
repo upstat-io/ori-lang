@@ -1,0 +1,2019 @@
+{
+  "schema": "proof-lean-map/v1",
+  "description": "Per-.proof to primary AimsProof Lean theorem map. SSOT for the .proof<->Lean mapping AND the statement-parity check (lean-statement-parity.sh). kind=theorem|composition_folded rows are parity-enforced; other kinds carry faithful classification, never a stub theorem.",
+  "rows": [
+    {
+      "proof_id": "CH-1",
+      "proof_path": "proofs/00-coverage-corpus/CH-shape.proof",
+      "kind": "coverage_shape",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a700 engine-coverage smoke shape; not a rule theorem"
+    },
+    {
+      "proof_id": "CN-6",
+      "proof_path": "proofs/00-coverage-corpus/CN-shape.proof",
+      "kind": "coverage_shape",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a700 engine-coverage smoke shape; not a rule theorem"
+    },
+    {
+      "proof_id": "DP-1",
+      "proof_path": "proofs/00-coverage-corpus/DP-shape.proof",
+      "kind": "coverage_shape",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a700 engine-coverage smoke shape; not a rule theorem"
+    },
+    {
+      "proof_id": "IA-1 + IA-7",
+      "proof_path": "proofs/00-coverage-corpus/IA-shape.proof",
+      "kind": "coverage_shape",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a700 engine-coverage smoke shape; not a rule theorem"
+    },
+    {
+      "proof_id": "IC-3",
+      "proof_path": "proofs/00-coverage-corpus/IC-shape.proof",
+      "kind": "coverage_shape",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a700 engine-coverage smoke shape; not a rule theorem"
+    },
+    {
+      "proof_id": "L-1",
+      "proof_path": "proofs/00-coverage-corpus/L-shape.proof",
+      "kind": "coverage_shape",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a700 engine-coverage smoke shape; not a rule theorem"
+    },
+    {
+      "proof_id": "PL-2",
+      "proof_path": "proofs/00-coverage-corpus/PL-shape.proof",
+      "kind": "coverage_shape",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a700 engine-coverage smoke shape; not a rule theorem"
+    },
+    {
+      "proof_id": "RL-2",
+      "proof_path": "proofs/00-coverage-corpus/RL-shape.proof",
+      "kind": "coverage_shape",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a700 engine-coverage smoke shape; not a rule theorem"
+    },
+    {
+      "proof_id": "TF-3",
+      "proof_path": "proofs/00-coverage-corpus/TF-shape.proof",
+      "kind": "coverage_shape",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a700 engine-coverage smoke shape; not a rule theorem"
+    },
+    {
+      "proof_id": "VF-1 + VF-4",
+      "proof_path": "proofs/00-coverage-corpus/VF-shape.proof",
+      "kind": "coverage_shape",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a700 engine-coverage smoke shape; not a rule theorem"
+    },
+    {
+      "proof_id": "CN-1",
+      "proof_path": "proofs/00-smoke-test/cn-1-bidirectional.proof",
+      "kind": "coverage_shape",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a700 smoke-test; not a rule theorem"
+    },
+    {
+      "proof_id": "IC-1",
+      "proof_path": "proofs/01-contracts/Contract.proof",
+      "kind": "foundation",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701 signature/definition skeleton (unimplemented_engine_shape)"
+    },
+    {
+      "proof_id": "DP-1",
+      "proof_path": "proofs/01-decisions/Decision.proof",
+      "kind": "foundation",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701 signature/definition skeleton (unimplemented_engine_shape)"
+    },
+    {
+      "proof_id": "IC-2",
+      "proof_path": "proofs/01-interprocedural/Interprocedural.proof",
+      "kind": "foundation",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701 signature/definition skeleton (unimplemented_engine_shape)"
+    },
+    {
+      "proof_id": "IA-1",
+      "proof_path": "proofs/01-intraprocedural/Intraprocedural.proof",
+      "kind": "foundation",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701 signature/definition skeleton (unimplemented_engine_shape)"
+    },
+    {
+      "proof_id": "L-3",
+      "proof_path": "proofs/01-lattice/Effect.proof",
+      "kind": "foundation",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701 signature/definition skeleton (unimplemented_engine_shape)"
+    },
+    {
+      "proof_id": "L-1",
+      "proof_path": "proofs/01-lattice/Lattice.proof",
+      "kind": "foundation",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701 signature/definition skeleton (unimplemented_engine_shape)"
+    },
+    {
+      "proof_id": "L-2",
+      "proof_path": "proofs/01-lattice/Product.proof",
+      "kind": "foundation",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701 signature/definition skeleton (unimplemented_engine_shape)"
+    },
+    {
+      "proof_id": "PL-1",
+      "proof_path": "proofs/01-pipeline/Pipeline.proof",
+      "kind": "foundation",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701 signature/definition skeleton (unimplemented_engine_shape)"
+    },
+    {
+      "proof_id": "RL-1",
+      "proof_path": "proofs/01-realization/Realization.proof",
+      "kind": "foundation",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701 signature/definition skeleton (unimplemented_engine_shape)"
+    },
+    {
+      "proof_id": "TF-1",
+      "proof_path": "proofs/01-side-tables/SideTables.proof",
+      "kind": "foundation",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701 signature/definition skeleton (unimplemented_engine_shape)"
+    },
+    {
+      "proof_id": "CH-1",
+      "proof_path": "proofs/01-theorems/Composition.proof",
+      "kind": "foundation",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701 signature/definition skeleton (unimplemented_engine_shape)"
+    },
+    {
+      "proof_id": "L-1",
+      "proof_path": "proofs/01-theorems/Theorems.proof",
+      "kind": "foundation",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701 signature/definition skeleton (unimplemented_engine_shape)"
+    },
+    {
+      "proof_id": "TF-2",
+      "proof_path": "proofs/01-transfers/Transfer.proof",
+      "kind": "foundation",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701 signature/definition skeleton (unimplemented_engine_shape)"
+    },
+    {
+      "proof_id": "VF-1",
+      "proof_path": "proofs/01-verification/Verification.proof",
+      "kind": "foundation",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701 signature/definition skeleton (unimplemented_engine_shape)"
+    },
+    {
+      "proof_id": "CH-101",
+      "proof_path": "proofs/01A-bootstrap/engines/case_analysis.proof",
+      "kind": "bootstrap",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701A checker-bootstrap KERNEL trust-set proof; not a rule theorem"
+    },
+    {
+      "proof_id": "CH-106",
+      "proof_path": "proofs/01A-bootstrap/engines/fixpoint.proof",
+      "kind": "bootstrap",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701A checker-bootstrap KERNEL trust-set proof; not a rule theorem"
+    },
+    {
+      "proof_id": "CH-108",
+      "proof_path": "proofs/01A-bootstrap/engines/interprocedural_summary.proof",
+      "kind": "bootstrap",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701A checker-bootstrap KERNEL trust-set proof; not a rule theorem"
+    },
+    {
+      "proof_id": "CH-104",
+      "proof_path": "proofs/01A-bootstrap/engines/lattice.proof",
+      "kind": "bootstrap",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701A checker-bootstrap KERNEL trust-set proof; not a rule theorem"
+    },
+    {
+      "proof_id": "CH-105",
+      "proof_path": "proofs/01A-bootstrap/engines/monotonicity.proof",
+      "kind": "bootstrap",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701A checker-bootstrap KERNEL trust-set proof; not a rule theorem"
+    },
+    {
+      "proof_id": "CH-103",
+      "proof_path": "proofs/01A-bootstrap/engines/rc_counting.proof",
+      "kind": "bootstrap",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701A checker-bootstrap KERNEL trust-set proof; not a rule theorem"
+    },
+    {
+      "proof_id": "CH-102",
+      "proof_path": "proofs/01A-bootstrap/engines/refinement.proof",
+      "kind": "bootstrap",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701A checker-bootstrap KERNEL trust-set proof; not a rule theorem"
+    },
+    {
+      "proof_id": "CH-107",
+      "proof_path": "proofs/01A-bootstrap/engines/structural_induction.proof",
+      "kind": "bootstrap",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701A checker-bootstrap KERNEL trust-set proof; not a rule theorem"
+    },
+    {
+      "proof_id": "RL-102",
+      "proof_path": "proofs/01A-bootstrap/kernel/dispatch-monotonicity.proof",
+      "kind": "bootstrap",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701A checker-bootstrap KERNEL trust-set proof; not a rule theorem"
+    },
+    {
+      "proof_id": "RL-103",
+      "proof_path": "proofs/01A-bootstrap/kernel/engine-composition-acyclicity.proof",
+      "kind": "bootstrap",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701A checker-bootstrap KERNEL trust-set proof; not a rule theorem"
+    },
+    {
+      "proof_id": "RL-101",
+      "proof_path": "proofs/01A-bootstrap/kernel/parser-soundness.proof",
+      "kind": "bootstrap",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "\u00a701A checker-bootstrap KERNEL trust-set proof; not a rule theorem"
+    },
+    {
+      "proof_id": "L-1",
+      "proof_path": "proofs/02-lattice/L-1.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Lattice",
+      "lean_theorem": "L1_join_comm",
+      "parity_tokens": [
+        "AimsState",
+        "join"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "L-10",
+      "proof_path": "proofs/02-lattice/L-10.proof",
+      "kind": "doc_encoded",
+      "lean_module": "AimsProof.Lattice",
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "lean_encoding": "\u00a7L-10 \u2014 dimension-extension schema (meta-theorem)",
+      "note": "meta/model obligation faithfully encoded as Lean doc-comment section"
+    },
+    {
+      "proof_id": "L-2",
+      "proof_path": "proofs/02-lattice/L-2.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Lattice",
+      "lean_theorem": "L2_rawJoin_assoc",
+      "parity_tokens": [
+        "AimsState",
+        "rawJoin"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "L-3",
+      "proof_path": "proofs/02-lattice/L-3.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Lattice",
+      "lean_theorem": "L3_join_idem_of_canonical",
+      "parity_tokens": [
+        "AimsState",
+        "join"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "L-4",
+      "proof_path": "proofs/02-lattice/L-4.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Lattice",
+      "lean_theorem": "L4_le_refl",
+      "parity_tokens": [
+        "AimsState",
+        "le"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "L-5",
+      "proof_path": "proofs/02-lattice/L-5.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Lattice",
+      "lean_theorem": "L5_finite_height",
+      "parity_tokens": [
+        "height"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "L-6",
+      "proof_path": "proofs/02-lattice/L-6.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "L6_const_monotone",
+      "parity_tokens": [
+        "AimsState",
+        "le"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "L-7",
+      "proof_path": "proofs/02-lattice/L-7.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Lattice",
+      "lean_theorem": "L7_canonicalize_idem",
+      "parity_tokens": [
+        "AimsState",
+        "canonicalize"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "L-8",
+      "proof_path": "proofs/02-lattice/L-8.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Lattice",
+      "lean_theorem": "L8_canonicalize_preserves_join",
+      "parity_tokens": [
+        "AimsState",
+        "canonicalize",
+        "join"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "L-9",
+      "proof_path": "proofs/02-lattice/L-9.proof",
+      "kind": "doc_encoded",
+      "lean_module": "AimsProof.Lattice",
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "lean_encoding": "\u00a7L-9 \u2014 SCALAR sentinel exclusion (model-level invariant)",
+      "note": "meta/model obligation faithfully encoded as Lean doc-comment section"
+    },
+    {
+      "proof_id": "CN-1",
+      "proof_path": "proofs/03-canonicalization/CN-1.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Canonicalization",
+      "lean_theorem": "CN1_dead_absent",
+      "parity_tokens": [
+        "consumption",
+        "cardinality"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "CN-2",
+      "proof_path": "proofs/03-canonicalization/CN-2.proof",
+      "kind": "composition_folded",
+      "lean_module": "AimsProof.Canonicalization",
+      "lean_theorem": "CN1_dead_absent",
+      "parity_tokens": [
+        "consumption",
+        "cardinality"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "CN-3",
+      "proof_path": "proofs/03-canonicalization/CN-3.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Canonicalization",
+      "lean_theorem": "CN3_shared_blocks_reuse",
+      "parity_tokens": [
+        "Uniqueness",
+        "Shape"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "CN-4-REMOVED",
+      "proof_path": "proofs/03-canonicalization/CN-4-REMOVED.proof",
+      "kind": "removed",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "lean_encoding": "rule removed for unsoundness; removal-soundness proof",
+      "note": "removed rule; no standalone Lean theorem"
+    },
+    {
+      "proof_id": "CN-5",
+      "proof_path": "proofs/03-canonicalization/CN-5.proof",
+      "kind": "doc_encoded",
+      "lean_module": "AimsProof.Canonicalization",
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "lean_encoding": "\u00a7CN-5 \u2014 Unique+Dead preserves reusable shape (forbids a collapse, adds no theorem)",
+      "note": "forbids-a-collapse rule faithfully encoded as Lean doc-comment"
+    },
+    {
+      "proof_id": "CN-6-Extraction-Reconciliation",
+      "proof_path": "proofs/03-canonicalization/CN-6-Extraction-Reconciliation.proof",
+      "kind": "composition_folded",
+      "lean_module": "AimsProof.Canonicalization",
+      "lean_theorem": "CN6_wide_locality_uniqueness_ceiling",
+      "parity_tokens": [
+        "Locality",
+        "Uniqueness"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "CN-6",
+      "proof_path": "proofs/03-canonicalization/CN-6.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Canonicalization",
+      "lean_theorem": "CN6_wide_locality_uniqueness_ceiling",
+      "parity_tokens": [
+        "Locality",
+        "Uniqueness"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "CN-7-REMOVED",
+      "proof_path": "proofs/03-canonicalization/CN-7-REMOVED.proof",
+      "kind": "removed",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "lean_encoding": "rule removed for unsoundness; removal-soundness proof",
+      "note": "removed rule; no standalone Lean theorem"
+    },
+    {
+      "proof_id": "CN-8",
+      "proof_path": "proofs/03-canonicalization/CN-8.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Canonicalization",
+      "lean_theorem": "CN8_borrowed_locality_ceiling",
+      "parity_tokens": [
+        "Borrowed",
+        "Locality"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "CN-Ordering",
+      "proof_path": "proofs/03-canonicalization/CN-Ordering.proof",
+      "kind": "composition_folded",
+      "lean_module": "AimsProof.Canonicalization",
+      "lean_theorem": "CN_canonicalize_idempotent",
+      "parity_tokens": [
+        "canonicalize"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "CN-Fixpoint-OneRound",
+      "proof_path": "proofs/03-canonicalization/Fixpoint.proof",
+      "kind": "composition_folded",
+      "lean_module": "AimsProof.Canonicalization",
+      "lean_theorem": "CN_canonicalize_idempotent",
+      "parity_tokens": [
+        "canonicalize"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-Composition",
+      "proof_path": "proofs/04-transfers/Composition.proof",
+      "kind": "composition_folded",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "L6_const_monotone",
+      "parity_tokens": [
+        "AimsState",
+        "le"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "IA-5-step-1",
+      "proof_path": "proofs/04-transfers/IA-5-step-1.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "IA5_step1_and_raw_block_walk_sound",
+      "parity_tokens": [
+        "IA5Step1Instr",
+        "ia5Step1Conforms",
+        "RawDemand",
+        "foldl"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "IA-MF1",
+      "proof_path": "proofs/04-transfers/IA-MF1-moved-fields-convergence.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.MovedFields",
+      "lean_theorem": "MF1_no_change_at_derived_cap",
+      "parity_tokens": [
+        "iterate",
+        "bound"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-1",
+      "proof_path": "proofs/04-transfers/TF-1.proof",
+      "kind": "doc_encoded",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "lean_encoding": "SCALAR-sentinel row (L-9 model exclusion); no AimsState forward image",
+      "note": "SCALAR/no-AimsState-image rule faithfully encoded as Lean doc-comment"
+    },
+    {
+      "proof_id": "TF-10",
+      "proof_path": "proofs/04-transfers/TF-10.proof",
+      "kind": "doc_encoded",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "lean_encoding": "SCALAR-sentinel row (L-9 model exclusion); no AimsState forward image",
+      "note": "SCALAR/no-AimsState-image rule faithfully encoded as Lean doc-comment"
+    },
+    {
+      "proof_id": "TF-10a",
+      "proof_path": "proofs/04-transfers/TF-10a.proof",
+      "kind": "doc_encoded",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "lean_encoding": "SCALAR-sentinel row (L-9 model exclusion); no AimsState forward image",
+      "note": "SCALAR/no-AimsState-image rule faithfully encoded as Lean doc-comment"
+    },
+    {
+      "proof_id": "TF-11",
+      "proof_path": "proofs/04-transfers/TF-11.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF11_raw_demand_timing_sound",
+      "parity_tokens": [
+        "RawDemand",
+        "seqAdd",
+        "foldl",
+        "observe"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-11a",
+      "proof_path": "proofs/04-transfers/TF-11a.proof",
+      "kind": "composition_folded",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF11_seq_add_consumption_comm",
+      "parity_tokens": [
+        "seq_add",
+        "Consumption"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-12",
+      "proof_path": "proofs/04-transfers/TF-12.proof",
+      "kind": "doc_encoded",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "lean_encoding": "PartialApply emits NO TF-11 demand (Transfer.lean header); no demand image",
+      "note": "SCALAR/no-AimsState-image rule faithfully encoded as Lean doc-comment"
+    },
+    {
+      "proof_id": "TF-13",
+      "proof_path": "proofs/04-transfers/TF-13.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF13_capture_state_update_monotone",
+      "parity_tokens": [
+        "AimsState",
+        "le"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-14",
+      "proof_path": "proofs/04-transfers/TF-14.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF14_project_demand_sound",
+      "parity_tokens": [
+        "ScalarLiveness",
+        "ProducerDomainLaws",
+        "RawDemand",
+        "scalarProjectContribution",
+        "cardinality",
+        "locality"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-15",
+      "proof_path": "proofs/04-transfers/TF-15.proof",
+      "kind": "doc_encoded",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "lean_encoding": "Set in-place, no dst (Transfer.lean header); no forward image",
+      "note": "SCALAR/no-AimsState-image rule faithfully encoded as Lean doc-comment"
+    },
+    {
+      "proof_id": "TF-15a",
+      "proof_path": "proofs/04-transfers/TF-15a.proof",
+      "kind": "doc_encoded",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "lean_encoding": "SetTag in-place, no dst (Transfer.lean header); no forward image",
+      "note": "SCALAR/no-AimsState-image rule faithfully encoded as Lean doc-comment"
+    },
+    {
+      "proof_id": "TF-2",
+      "proof_path": "proofs/04-transfers/TF-2.proof",
+      "kind": "doc_encoded",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "lean_encoding": "identity \u2192 state(v) (Transfer.lean header); transparent alias",
+      "note": "SCALAR/no-AimsState-image rule faithfully encoded as Lean doc-comment"
+    },
+    {
+      "proof_id": "TF-2a",
+      "proof_path": "proofs/04-transfers/TF-2a.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF2a_scalar_primitive_transfer",
+      "parity_tokens": [
+        "PrimitiveOperandUse",
+        "transferPrimitive",
+        "scalar"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-2b",
+      "proof_path": "proofs/04-transfers/TF-2b.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF2b_dual_consume_rows_preserve_one_result_owner",
+      "parity_tokens": [
+        "PrimitiveStrategy",
+        "consumedInputs",
+        "producedOwnerCount"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-3",
+      "proof_path": "proofs/04-transfers/TF-3.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF3_construct_fresh",
+      "parity_tokens": [
+        "Construct",
+        "FRESH"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-4",
+      "proof_path": "proofs/04-transfers/TF-4.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF4_project_monotone",
+      "parity_tokens": [
+        "AimsState",
+        "le"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-5",
+      "proof_path": "proofs/04-transfers/TF-5.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF5_apply_no_contract_conservative",
+      "parity_tokens": [
+        "CONSERVATIVE"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-5a",
+      "proof_path": "proofs/04-transfers/TF-5a.proof",
+      "kind": "composition_folded",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF5_apply_no_contract_conservative",
+      "parity_tokens": [
+        "CONSERVATIVE"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-6",
+      "proof_path": "proofs/04-transfers/TF-6.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF6_refine_narrows",
+      "parity_tokens": [
+        "refine"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-6a",
+      "proof_path": "proofs/04-transfers/TF-6a.proof",
+      "kind": "composition_folded",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF6_refine_narrows",
+      "parity_tokens": [
+        "refine"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-6b",
+      "proof_path": "proofs/04-transfers/TF-6b.proof",
+      "kind": "composition_folded",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF5_apply_no_contract_conservative",
+      "parity_tokens": [
+        "CONSERVATIVE"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-6c",
+      "proof_path": "proofs/04-transfers/TF-6c.proof",
+      "kind": "composition_folded",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF5_apply_no_contract_conservative",
+      "parity_tokens": [
+        "CONSERVATIVE"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-7",
+      "proof_path": "proofs/04-transfers/TF-7.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF7_partial_apply_fresh",
+      "parity_tokens": [
+        "FRESH"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-8",
+      "proof_path": "proofs/04-transfers/TF-8.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF8_uniqueness_downgrade_table",
+      "parity_tokens": [
+        "Uniqueness",
+        "MaybeShared"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-9",
+      "proof_path": "proofs/04-transfers/TF-9.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF9_reuse_fresh",
+      "parity_tokens": [
+        "FRESH"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-9a",
+      "proof_path": "proofs/04-transfers/TF-9a.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": "TF9a_collection_reuse_fresh",
+      "parity_tokens": [
+        "FRESH",
+        "CollectionBuffer"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "TF-N-A",
+      "proof_path": "proofs/04-transfers/TF-N-A.proof",
+      "kind": "doc_encoded",
+      "lean_module": "AimsProof.Transfer",
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "lean_encoding": "RcInc/RcDec + BurdenInc/BurdenDec side-effect-only, no dst; no forward image",
+      "note": "SCALAR/no-AimsState-image rule faithfully encoded as Lean doc-comment"
+    },
+    {
+      "proof_id": "DP-1",
+      "proof_path": "proofs/05-decisions/DP-1.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Decision",
+      "lean_theorem": "DP1_is_rc_needed_table",
+      "parity_tokens": [
+        "is_rc_needed",
+        "Owned"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "DP-10-REMOVED",
+      "proof_path": "proofs/05-decisions/DP-10-REMOVED.proof",
+      "kind": "removed",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "lean_encoding": "rule removed for unsoundness; removal-soundness proof",
+      "note": "removed rule; no standalone Lean theorem"
+    },
+    {
+      "proof_id": "DP-2",
+      "proof_path": "proofs/05-decisions/DP-2.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Decision",
+      "lean_theorem": "DP2_is_rc_dec_unnecessary_table",
+      "parity_tokens": [
+        "is_rc_dec_unnecessary"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "DP-3",
+      "proof_path": "proofs/05-decisions/DP-3.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Decision",
+      "lean_theorem": "DP3_is_rc_inc_elidable_table",
+      "parity_tokens": [
+        "is_rc_inc_elidable"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "DP-4",
+      "proof_path": "proofs/05-decisions/DP-4.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Decision",
+      "lean_theorem": "DP4_needs_cow_check_table",
+      "parity_tokens": [
+        "needs_cow_check",
+        "MaybeShared"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "DP-5",
+      "proof_path": "proofs/05-decisions/DP-5.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Decision",
+      "lean_theorem": "DP5_can_mutate_in_place_table",
+      "parity_tokens": [
+        "can_mutate_in_place"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "DP-6",
+      "proof_path": "proofs/05-decisions/DP-6.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Decision",
+      "lean_theorem": "DP6_is_reuse_candidate_table",
+      "parity_tokens": [
+        "is_reuse_candidate"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "DP-7",
+      "proof_path": "proofs/05-decisions/DP-7.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Decision",
+      "lean_theorem": "DP7_is_rc_skip_eligible_table",
+      "parity_tokens": [
+        "is_rc_skip_eligible"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "DP-8",
+      "proof_path": "proofs/05-decisions/DP-8.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Decision",
+      "lean_theorem": "DP8_is_local_table",
+      "parity_tokens": [
+        "is_local",
+        "Locality"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "DP-9",
+      "proof_path": "proofs/05-decisions/DP-9.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Decision",
+      "lean_theorem": "DP9_cow_mode_table",
+      "parity_tokens": [
+        "cow_mode"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "IC-1",
+      "proof_path": "proofs/06-interprocedural/IC-1-scc-topological.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Interprocedural",
+      "lean_theorem": "IC1_callee_processed_before_caller",
+      "parity_tokens": [
+        "callee",
+        "caller"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "IC-2",
+      "proof_path": "proofs/06-interprocedural/IC-2-param-init.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Interprocedural",
+      "lean_theorem": "IC2_optimistic_is_bottom",
+      "parity_tokens": [
+        "ParamContract"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "IC-3",
+      "proof_path": "proofs/06-interprocedural/IC-3-param-join.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Interprocedural",
+      "lean_theorem": "IC3_paramcontract_join_comm",
+      "parity_tokens": [
+        "ParamContract",
+        "join"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "IC-4",
+      "proof_path": "proofs/06-interprocedural/IC-4-return-contract.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Interprocedural",
+      "lean_theorem": "IC4_returncontract_join_comm",
+      "parity_tokens": [
+        "ReturnContract",
+        "join"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "IC-5",
+      "proof_path": "proofs/06-interprocedural/IC-5-effect-summary.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Interprocedural",
+      "lean_theorem": "IC5_effectsummary_join_comm",
+      "parity_tokens": [
+        "EffectSummary",
+        "join"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "IC-6",
+      "proof_path": "proofs/06-interprocedural/IC-6-fipcontract.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Interprocedural",
+      "lean_theorem": "IC6_fip_contract_join_lattice",
+      "parity_tokens": [
+        "FipContract",
+        "join"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "IC-7",
+      "proof_path": "proofs/06-interprocedural/IC-7-convergence.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Interprocedural",
+      "lean_theorem": "IC7_fixpoint_converges",
+      "parity_tokens": [
+        "converge"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "IC-8-REMOVED",
+      "proof_path": "proofs/06-interprocedural/IC-8-removal-soundness.proof",
+      "kind": "removed",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "lean_encoding": "rule removed for unsoundness; removal-soundness proof",
+      "note": "removed rule; no standalone Lean theorem"
+    },
+    {
+      "proof_id": "IC-8a",
+      "proof_path": "proofs/06-interprocedural/IC-8a-address-taken.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Interprocedural",
+      "lean_theorem": "IC8a_conservative_upper_bounds",
+      "parity_tokens": [
+        "ParamContract"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "PL-1",
+      "proof_path": "proofs/07-pipeline/PL-1.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Pipeline",
+      "lean_theorem": "PL1_prefix_before_suffix",
+      "parity_tokens": [
+        "before"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "PL-10",
+      "proof_path": "proofs/07-pipeline/PL-10.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Pipeline",
+      "lean_theorem": "PL10_all_pass_survives",
+      "parity_tokens": [
+        "pass"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "PL-11",
+      "proof_path": "proofs/07-pipeline/PL-11.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Pipeline",
+      "lean_theorem": "PL11_contextbehavior_join_comm",
+      "parity_tokens": [
+        "ContextBehavior",
+        "join"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "PL-1a",
+      "proof_path": "proofs/07-pipeline/PL-1a.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Pipeline",
+      "lean_theorem": "PL1a_callee_visited_before_caller",
+      "parity_tokens": [
+        "callee",
+        "caller"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "PL-2",
+      "proof_path": "proofs/07-pipeline/PL-2.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Pipeline",
+      "lean_theorem": "PL2_analyze_before_realize",
+      "parity_tokens": [
+        "analyze",
+        "realize",
+        "before"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "PL-3",
+      "proof_path": "proofs/07-pipeline/PL-3.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Pipeline",
+      "lean_theorem": "PL3_realize_before_merge",
+      "parity_tokens": [
+        "realize",
+        "merge",
+        "before"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "PL-4",
+      "proof_path": "proofs/07-pipeline/PL-4.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Pipeline",
+      "lean_theorem": "PL4_annotations_after_merge",
+      "parity_tokens": [
+        "merge"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "PL-4a",
+      "proof_path": "proofs/07-pipeline/PL-4a.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Pipeline",
+      "lean_theorem": "PL4a_unwind_before_merge",
+      "parity_tokens": [
+        "unwind",
+        "merge",
+        "before"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "PL-5",
+      "proof_path": "proofs/07-pipeline/PL-5.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Pipeline",
+      "lean_theorem": "PL5_no_stale_summaries",
+      "parity_tokens": [
+        "stale"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "PL-6",
+      "proof_path": "proofs/07-pipeline/PL-6.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Pipeline",
+      "lean_theorem": "PL6_shift_strict_mono",
+      "parity_tokens": [
+        "mono"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "PL-7",
+      "proof_path": "proofs/07-pipeline/PL-7.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Pipeline",
+      "lean_theorem": "PL7_contextbehavior_four_fields",
+      "parity_tokens": [
+        "ContextBehavior"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "PL-8",
+      "proof_path": "proofs/07-pipeline/PL-8.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Pipeline",
+      "lean_theorem": "PL8_candidate_iff_all_three",
+      "parity_tokens": [
+        "candidate"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "PL-9",
+      "proof_path": "proofs/07-pipeline/PL-9.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Pipeline",
+      "lean_theorem": "PL9_external_arity_preserved",
+      "parity_tokens": [
+        "arity"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "PL-comp",
+      "proof_path": "proofs/07-pipeline/PL-comp.proof",
+      "kind": "composition_folded",
+      "lean_module": "AimsProof.Pipeline",
+      "lean_theorem": "PLcomp_pipeline_composes",
+      "parity_tokens": [
+        "compose"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-1-RL-2-composition",
+      "proof_path": "proofs/08-realization/RL-1-RL-2-composition.proof",
+      "kind": "composition_folded",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL1_duplication_balanced",
+      "parity_tokens": [
+        "balanced"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-1",
+      "proof_path": "proofs/08-realization/RL-1.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL1_emit_iff_not_elidable",
+      "parity_tokens": [
+        "elidable"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-10",
+      "proof_path": "proofs/08-realization/RL-10.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL10_disjoint_field_in_place",
+      "parity_tokens": [
+        "field"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-11",
+      "proof_path": "proofs/08-realization/RL-11.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL11_same_block_reuse",
+      "parity_tokens": [
+        "reuse"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-11a",
+      "proof_path": "proofs/08-realization/RL-11a.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL11a_dynamic_unique_arm",
+      "parity_tokens": [
+        "reuse",
+        "Unique"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-12",
+      "proof_path": "proofs/08-realization/RL-12.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL12_cross_block_reuse",
+      "parity_tokens": [
+        "reuse"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-13",
+      "proof_path": "proofs/08-realization/RL-13.proof",
+      "kind": "removed",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "lean_encoding": "rule removed for unsoundness; removal-soundness proof",
+      "note": "removed rule; no standalone Lean theorem"
+    },
+    {
+      "proof_id": "RL-14",
+      "proof_path": "proofs/08-realization/RL-14.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "lifetime_from_locality_sound",
+      "parity_tokens": [
+        "lifetimeFromLocality",
+        "LifetimeBound"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-14a",
+      "proof_path": "proofs/08-realization/RL-14a.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "cleanup_complete_on_normal_and_unwind",
+      "parity_tokens": [
+        "cleanupCoversNormalAndUnwind",
+        "CleanupObligation"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-15",
+      "proof_path": "proofs/08-realization/RL-15.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "extent_class_is_repr_owned",
+      "parity_tokens": [
+        "ProjectionInput",
+        "ExtentClass"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-15a",
+      "proof_path": "proofs/08-realization/RL-15a.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "caller_extent_sites_complete",
+      "parity_tokens": [
+        "CallerUse",
+        "callerExtent"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-16",
+      "proof_path": "proofs/08-realization/RL-16.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "freeze_allocation_facts_total_conservative",
+      "parity_tokens": [
+        "freezeAllocationFacts",
+        "unknownAllocationFacts"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-17",
+      "proof_path": "proofs/08-realization/RL-17.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "owner_bound_is_dynamic_upper_bound",
+      "parity_tokens": [
+        "ownerBound",
+        "ownerCapacity"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-18",
+      "proof_path": "proofs/08-realization/RL-18.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "validated_vm_plan_sound",
+      "parity_tokens": [
+        "Satisfies",
+        "ValidatedVmPlan"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-18a",
+      "proof_path": "proofs/08-realization/RL-18a.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "vm_compiled_event_parity",
+      "parity_tokens": [
+        "vmPlanTrace",
+        "compiledPlanTrace"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-19",
+      "proof_path": "proofs/08-realization/RL-19.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "thread_reachability_from_locality_callgraph",
+      "parity_tokens": [
+        "threadReachabilityFrom",
+        "ThreadReachability"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-2",
+      "proof_path": "proofs/08-realization/RL-2.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL2_dec_at_last_use",
+      "parity_tokens": [
+        "dec"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-20",
+      "proof_path": "proofs/08-realization/RL-20.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "potentially_shared_requires_safe_capability",
+      "parity_tokens": [
+        "potentiallyShared",
+        "sharedSafe"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-21",
+      "proof_path": "proofs/08-realization/RL-21.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "no_thread_boundary_all_confined",
+      "parity_tokens": [
+        "programThreadReachability",
+        "confined"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-22",
+      "proof_path": "proofs/08-realization/RL-22.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL22_eliminate_iff_known_safe",
+      "parity_tokens": [
+        "known",
+        "safe"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-23",
+      "proof_path": "proofs/08-realization/RL-23.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL23_join_all_preds",
+      "parity_tokens": [
+        "pred"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-24",
+      "proof_path": "proofs/08-realization/RL-24.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL24_matched_iff_bidirectional",
+      "parity_tokens": [
+        "bidirectional"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-25",
+      "proof_path": "proofs/08-realization/RL-25.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL25_eliminable_decision",
+      "parity_tokens": [
+        "eliminable"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-26",
+      "proof_path": "proofs/08-realization/RL-26.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL26_barrier_blocks",
+      "parity_tokens": [
+        "barrier"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-27",
+      "proof_path": "proofs/08-realization/RL-27.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL27_flush_decision",
+      "parity_tokens": [
+        "flush"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-28",
+      "proof_path": "proofs/08-realization/RL-28.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL28_unknown_callee_flushes_all",
+      "parity_tokens": [
+        "flush"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-29",
+      "proof_path": "proofs/08-realization/RL-29.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL29_neutral_fresh_self_allocation_decision",
+      "parity_tokens": [
+        "FreshSelfAllocationFact",
+        "returnsFreshSelfAlloc"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-3",
+      "proof_path": "proofs/08-realization/RL-3.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL3_elide_iff_any_predicate",
+      "parity_tokens": [
+        "elide"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-30",
+      "proof_path": "proofs/08-realization/RL-30.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL30_neutral_memory_access_decision",
+      "parity_tokens": [
+        "MemoryAccessFact",
+        "mayWriteInaccessible"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-31",
+      "proof_path": "proofs/08-realization/RL-31.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL31_neutral_parameter_disjointness_sound",
+      "parity_tokens": [
+        "ArgProvenance",
+        "rootSet"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-32",
+      "proof_path": "proofs/08-realization/RL-32.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL32_borrowed_default",
+      "parity_tokens": [
+        "Borrowed"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-33",
+      "proof_path": "proofs/08-realization/RL-33.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL33_field_owned_promotes_source",
+      "parity_tokens": [
+        "Owned"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-34",
+      "proof_path": "proofs/08-realization/RL-34.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL34_owned_transfers",
+      "parity_tokens": [
+        "Owned"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-4",
+      "proof_path": "proofs/08-realization/RL-4.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL4_edge_dec_decision",
+      "parity_tokens": [
+        "edge",
+        "dec"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-5",
+      "proof_path": "proofs/08-realization/RL-5.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL5_dead_at_entry_cleanup",
+      "parity_tokens": [
+        "dead"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-6",
+      "proof_path": "proofs/08-realization/RL-6.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL6_static_unique_in_place",
+      "parity_tokens": [
+        "Unique"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-7",
+      "proof_path": "proofs/08-realization/RL-7.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL7_dynamic_cow",
+      "parity_tokens": [
+        "MaybeShared"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-8",
+      "proof_path": "proofs/08-realization/RL-8.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL8_static_shared_copy",
+      "parity_tokens": [
+        "Shared"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-9",
+      "proof_path": "proofs/08-realization/RL-9.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL9_contraction_equiv",
+      "parity_tokens": [
+        "contract"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-DROP",
+      "proof_path": "proofs/08-realization/RL-DROP.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RLDROP_scalar_lifecycle_sound",
+      "parity_tokens": [
+        "userDrop",
+        "scalar"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "RL-comp",
+      "proof_path": "proofs/08-realization/RL-comp.proof",
+      "kind": "composition_folded",
+      "lean_module": "AimsProof.Realization",
+      "lean_theorem": "RL3_elision_net_preserving",
+      "parity_tokens": [
+        "net"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "VF-1",
+      "proof_path": "proofs/09-verification/VF-1.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Verification",
+      "lean_theorem": "VF1_catches_structural",
+      "parity_tokens": [
+        "structural"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "VF-2",
+      "proof_path": "proofs/09-verification/VF-2.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Verification",
+      "lean_theorem": "VF2_catches_contract",
+      "parity_tokens": [
+        "contract"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "VF-3",
+      "proof_path": "proofs/09-verification/VF-3.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Oracle",
+      "lean_theorem": "VF3_independent_oracle_acceptance_iff",
+      "parity_tokens": [
+        "RealizedParamEvidence",
+        "oracleAccepts",
+        "iterTransferAgrees",
+        "vf3_safe"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "VF-4",
+      "proof_path": "proofs/09-verification/VF-4.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Verification",
+      "lean_theorem": "VF4_catches_fip",
+      "parity_tokens": [
+        "fip"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "VF-5",
+      "proof_path": "proofs/09-verification/VF-5.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Verification",
+      "lean_theorem": "VF5_three_tier_conjunction",
+      "parity_tokens": [
+        "tier"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "VF-6",
+      "proof_path": "proofs/09-verification/VF-6.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Verification",
+      "lean_theorem": "VF6_certified_requires_both",
+      "parity_tokens": [
+        "certified"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "VF-7",
+      "proof_path": "proofs/09-verification/VF-7.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Verification",
+      "lean_theorem": "VF7_three_tier_conjunction",
+      "parity_tokens": [
+        "tier"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "VF-8",
+      "proof_path": "proofs/09-verification/VF-8.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Verification",
+      "lean_theorem": "VF8_covered_iff_not_gap",
+      "parity_tokens": [
+        "gap"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "VF-comp",
+      "proof_path": "proofs/09-verification/VF-comp.proof",
+      "kind": "composition_folded",
+      "lean_module": "AimsProof.Verification",
+      "lean_theorem": "VFcomp_stack_covers_union",
+      "parity_tokens": [
+        "union"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "CH-1",
+      "proof_path": "proofs/11-coexistence/CH-1.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Coexistence",
+      "lean_theorem": "CH1_lattice_bridge",
+      "parity_tokens": [
+        "burden",
+        "bridge"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "CH-2",
+      "proof_path": "proofs/11-coexistence/CH-2.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Coexistence",
+      "lean_theorem": "CH2_single_elimination",
+      "parity_tokens": [
+        "elimination"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "CH-3",
+      "proof_path": "proofs/11-coexistence/CH-3.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Coexistence",
+      "lean_theorem": "CH3_classes_disjoint",
+      "parity_tokens": [
+        "class"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "CH-4",
+      "proof_path": "proofs/11-coexistence/CH-4.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Coexistence",
+      "lean_theorem": "CH4_state_map_immutable",
+      "parity_tokens": [
+        "state",
+        "map"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "CH-5",
+      "proof_path": "proofs/11-coexistence/CH-5.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Coexistence",
+      "lean_theorem": "CH5_analyze_before_realize",
+      "parity_tokens": [
+        "analyze",
+        "realize",
+        "before"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "CH-comp",
+      "proof_path": "proofs/11-coexistence/CH-comp.proof",
+      "kind": "composition_folded",
+      "lean_module": "AimsProof.Coexistence",
+      "lean_theorem": "CHcomp_handshake_union",
+      "parity_tokens": [
+        "union"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "Handshake",
+      "proof_path": "proofs/11-coexistence/Handshake.proof",
+      "kind": "definition",
+      "lean_module": null,
+      "lean_theorem": null,
+      "parity_tokens": [],
+      "note": "definition_only SSOT; check-proofs.sh skips; no Lean theorem"
+    },
+    {
+      "proof_id": "T1",
+      "proof_path": "proofs/12-provenance/T1-partition-soundness.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Partition",
+      "lean_theorem": "samerep_birthsite_sound",
+      "parity_tokens": [
+        "birthsite",
+        "samerep"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "T2",
+      "proof_path": "proofs/12-provenance/T2-compositional-placement.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.Ledger",
+      "lean_theorem": "compositional_placement_sound",
+      "parity_tokens": [
+        "threeclauses",
+        "ledgersafe"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "T3",
+      "proof_path": "proofs/12-provenance/T3-keepalive-running-refcount.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.RunningCount",
+      "lean_theorem": "keep_alive_redundancy_sound_iff_whole_pair",
+      "parity_tokens": [
+        "runningrc",
+        "neverbelow"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "T4",
+      "proof_path": "proofs/12-provenance/T4-contract-boundary-composition.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.ContractBoundary",
+      "lean_theorem": "T4_contract_boundary_and_result_plan_sound",
+      "parity_tokens": [
+        "boundaryInstrs",
+        "calleeConforms",
+        "invokeBoundaryEvents",
+        "FunctionExitInventory",
+        "FrozenFunctionResultPlan",
+        "borrowedIndirectCallableRowEvents"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "T5",
+      "proof_path": "proofs/12-provenance/T5-frame-limited-robustness.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.ContractBoundary",
+      "lean_theorem": "T5_frame_untouched_class_ledger_verbatim",
+      "parity_tokens": [
+        "mergeclasses",
+        "deriveledger"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "T6",
+      "proof_path": "proofs/12-provenance/T6-per-field-decomposition.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.FieldDecomposition",
+      "lean_theorem": "FD_authority_union_skipset_sound",
+      "parity_tokens": [
+        "fieldhasmoveauthority",
+        "payloadevents",
+        "threeclauses"
+      ],
+      "note": ""
+    },
+    {
+      "proof_id": "CH-comp-PV",
+      "proof_path": "proofs/12-provenance/comp-partition-side-table.proof",
+      "kind": "theorem",
+      "lean_module": "AimsProof.ProvenanceComposition",
+      "lean_theorem": "CHcomp_partition_side_table",
+      "parity_tokens": [
+        "eliminateatclass",
+        "handshakeaccepts"
+      ],
+      "note": ""
+    }
+  ]
+}

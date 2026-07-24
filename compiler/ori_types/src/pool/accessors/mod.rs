@@ -21,7 +21,7 @@ use crate::{Idx, LifetimeId, Tag};
 use super::Pool;
 
 impl Pool {
-    // === Function Accessors ===
+    // Function Accessors
 
     /// Get function parameter count.
     ///
@@ -70,7 +70,7 @@ impl Pool {
         Idx::from_raw(self.extra[extra_idx + 1 + count])
     }
 
-    // === Tuple Accessors ===
+    // Tuple Accessors
 
     /// Get tuple element count.
     ///
@@ -129,7 +129,7 @@ impl Pool {
         self.intern_map.get(&hash).copied()
     }
 
-    // === Map/Result Accessors ===
+    // Map/Result Accessors
 
     /// Get map key type.
     ///
@@ -171,7 +171,7 @@ impl Pool {
         Idx::from_raw(self.extra[extra_idx + 1])
     }
 
-    // === Borrowed & Container Accessors ===
+    // Borrowed & Container Accessors
 
     /// Get the inner type of a borrowed reference.
     ///
@@ -271,7 +271,7 @@ impl Pool {
         Idx::from_raw(self.data(idx))
     }
 
-    // === Scheme/Generic Accessors ===
+    // Scheme/Generic Accessors
 
     /// Get scheme quantified variable IDs.
     ///

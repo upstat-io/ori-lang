@@ -1,0 +1,17 @@
+// Spec: 08-types.md § 8.3.1 Const Generic Parameters
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+
+use std.testing { assert_eq }
+
+type Vec<T> = { items: [T] }
+
+impl<T> Vec<T> {
+    @first_n<$N: int> (self) -> [T, max N] = self.items.take(count: N).to_fixed<$N>();
+}
+
+@test_const_int tests _ () -> void = {
+    let v = Vec { items: [1, 2, 3, 4, 5] };
+    let three: [int, max 3] = v.first_n();
+    assert_eq(actual: three.len(), expected: 3);
+    assert_eq(actual: three[0], expected: 1)
+}

@@ -21,7 +21,7 @@
 //!
 //! # Matrix coverage
 //!
-//! - **`enum_tagged_ptr_iter`**: exact Codex repro — iterator payload
+//! - **`enum_tagged_ptr_iter`**: canonical repro — iterator payload
 //!   in a tagged-pointer-eligible enum. Semantic pin.
 //! - **`struct_iter_field`**: iterator field in a user struct.
 //! - **`tuple_iter_element`**: iterator element in a tuple.
@@ -30,11 +30,10 @@
 //!   cleanup must continue to work (no double-free, no leak) under
 //!   the new IterDrop=Owned ownership contract.
 //!
-//! Spec: `plans/repr-opt/section-07-enum-repr.md` §07.R
 
 use crate::util::assert_aot_success;
 
-/// Semantic pin: the exact Codex repro. An enum with an iterator
+/// Semantic pin: the canonical repro. An enum with an iterator
 /// payload that goes out of scope without being consumed must not
 /// leak. This is the canonical regression guard — reverting the fix
 /// would cause this test to fail with exit code 2 (leak detected).
@@ -134,7 +133,7 @@ fn result_match_unused_binding_no_leak() {
 ///
 /// The correct behavior is path-sensitive: the drop is suppressed
 /// on paths that actually execute the projection, retained on paths
-/// that don't. Codex iteration 6 found this gap with an
+/// that don't. The gap was found with an
 /// `if flag then <match with consume> else 0` repro.
 #[test]
 fn enum_conditional_consume_no_leak() {

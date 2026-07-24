@@ -1,0 +1,13 @@
+// FileCheck test: a same-named user `map` function cannot affect join
+// ownership because LLVM performs no adapter-name provenance analysis.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ptr null, i64 24, ptr %join.out)
+
+@map (it: Iterator<str>) -> Iterator<str> = it;
+
+@main () -> void = {
+    let $joined = map(["echo-echo-echo-echo-echo", "foxtrot-foxtrot-foxtrot-foxtrot"].iter())
+        .join(separator: ", ");
+    print(msg: joined)
+}

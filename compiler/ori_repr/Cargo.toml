@@ -8,10 +8,12 @@ repository.workspace = true
 
 [dependencies]
 ori_ir.workspace = true
+ori_registry.workspace = true
 ori_types.workspace = true
 ori_arc.workspace = true
 rustc-hash.workspace = true
 tracing.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true

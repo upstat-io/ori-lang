@@ -1,87 +1,89 @@
 # Ori Language Support for VS Code
 
-Syntax highlighting for the [Ori programming language](https://github.com/ori-lang/ori).
+Syntax highlighting, language configuration, and snippets for the [Ori programming language](https://github.com/upstat-io/ori-lang).
+
+The TextMate grammar follows the authoritative spec grammar at `docs/ori_lang/v2026/spec/grammar.ebnf`.
 
 ## Features
 
-- Syntax highlighting for `.ori` files
-- Bracket matching and auto-closing
+- Syntax highlighting for `.ori` files (full lexical surface: template strings with interpolation, char/byte/duration/size literals, attributes, FFI blocks, labels, contracts, capabilities)
+- Bracket matching, auto-closing, and colorized bracket pairs
 - Comment toggling (`Ctrl+/` or `Cmd+/`)
+- Indentation rules for expression-bodied declarations (`@f () -> int =` indents the next line)
+- Snippets for common declaration shapes (`fn`, `type`, `trait`, `impl`, `match`, `test`, ...)
 
-## Installation (Development Mode)
+## Installation
 
-Since this extension is in-repo, you can load it directly in VS Code without publishing:
+Modern VS Code (1.74+) only loads extensions registered in its `extensions.json` registry — dropping or symlinking a folder into `~/.vscode/extensions/` no longer works. Install via a packaged `.vsix`.
 
-### Option 1: Symbolic Link (Recommended for Development)
+### Option 1: VSIX install (Recommended)
 
-1. Find your VS Code extensions directory:
-   - **Linux**: `~/.vscode/extensions/`
-   - **macOS**: `~/.vscode/extensions/`
-   - **Windows**: `%USERPROFILE%\.vscode\extensions\`
+```bash
+cd <repo-root>/editors/vscode-ori
+npm install
+npm run install-extension
+```
 
-2. Create a symbolic link:
-   ```bash
-   # Linux/macOS
-   ln -s /home/eric/ori_lang/editors/vscode-ori ~/.vscode/extensions/ori-lang
+This packages the extension with `vsce` and installs it via `code --install-extension`. Under WSL2 the `code` CLI installs into the Remote-WSL server (`~/.vscode-server/extensions/`) automatically.
 
-   # Windows (PowerShell as Admin)
-   New-Item -ItemType SymbolicLink -Path "$env:USERPROFILE\.vscode\extensions\ori-lang" -Target "C:\path\to\ori_lang\editors\vscode-ori"
-   ```
+Then run "Developer: Reload Window" from the command palette (or restart VS Code).
 
-3. Restart VS Code or run "Developer: Reload Window" from the command palette.
+To update after grammar changes: re-run `npm run install-extension` and reload the window.
 
 ### Option 2: Debug Mode (F5)
 
 1. Open the `editors/vscode-ori` folder in VS Code
-2. Press `F5` to launch a new VS Code window with the extension loaded
-3. Open any `.ori` file in the new window to see syntax highlighting
-
-### Option 3: Copy Folder
-
-Copy the entire `editors/vscode-ori` folder to your extensions directory:
-```bash
-cp -r /home/eric/ori_lang/editors/vscode-ori ~/.vscode/extensions/ori-lang
-```
+2. Press `F5` to launch an Extension Development Host window with the extension loaded
+3. Open any `.ori` file in the new window
 
 ## Syntax Highlighting
 
-The extension highlights:
+| Element | Example | Scope |
+|---------|---------|-------|
+| Functions | `@fibonacci`, `@main` | `entity.name.function.ori` |
+| Constants / const generics | `let $timeout`, `<$N: int>` | `variable.other.constant.ori` |
+| Keywords | `if`, `then`, `else`, `match`, `let`, `type`, `impl`, `while`, `yield` | `keyword.control.ori` / `keyword.declaration.ori` |
+| Modifiers | `pub`, `suspend`, `unsafe`, `extern` | `storage.modifier.ori` |
+| Pattern expressions | `recurse(`, `parallel(`, `timeout(`, `try {` | `keyword.control.pattern.ori` |
+| Built-in functions | `print(`, `len(`, `panic(`, `embed(` | `support.function.builtin.ori` |
+| Primitive types | `int`, `str`, `bool`, `Never` | `support.type.primitive.ori` |
+| Built-in types | `Option`, `Result`, `Duration`, `CPtr` | `support.type.builtin.ori` |
+| Variants | `Ok`, `Err`, `Some`, `None`, `Less` | `support.constant.variant.ori` |
+| User types | `Point`, `UserId` | `entity.name.type.ori` |
+| Named args / fields | `f(over: xs)`, punning `f(x:)` | `variable.parameter.ori` |
+| Strings + escapes | `"hi\n"`, `\u{1F600}`, `\xFF` | `string.quoted.double.ori` |
+| Template strings | `` `value: {x:>10.2f}` `` | `string.interpolated.ori` |
+| Char / byte literals | `'a'`, `'\x41'`, `b'x'`, `b'\xFF'` | `string.quoted.single.{char,byte}.ori` |
+| Numbers | `1_000`, `0xFF`, `0b1010`, `2.5e-8` | `constant.numeric.*.ori` |
+| Duration / Size | `100ms`, `0.5s`, `1.5kb`, `10tb` | `constant.numeric.{duration,size}.ori` |
+| Doc comments | `// * field:`, `// ! Error:`, `// > example` | `comment.line.documentation.*.ori` |
+| Attributes | `#derive(Eq)`, `#skip("...")`, `#!target(...)` | `meta.attribute.ori` |
+| Labels | `loop:outer`, `break:outer value` | `entity.name.label.ori` |
+| Contracts | `pre(x > 0)`, `post(r -> r >= 0)` | `keyword.other.contract.ori` |
+| Capabilities | `uses Http, Clock` | `keyword.other.capability.ori` |
+| FFI | `extern "c" from "lib" { ... }`, `out`/`owned`/`borrowed` | `meta.extern.ori` |
+| Future-reserved words | `asm`, `inline`, `static`, `union`, `view` | `invalid.deprecated.reserved.ori` |
 
-| Element | Example | Color Category |
-|---------|---------|----------------|
-| Functions | `@fibonacci` | Function |
-| Config vars | `$timeout` | Constant |
-| Keywords | `if`, `let`, `type`, `impl` | Keyword |
-| Patterns | `map(`, `filter(`, `fold(` | Support Function |
-| Types | `int`, `str`, `Result` | Type |
-| Named args | `.over:`, `.transform:` | Parameter |
-| Result/Option | `Ok`, `Err`, `Some`, `None` | Constant |
-| Strings | `"hello"` | String |
-| Numbers | `42`, `3.14`, `30s` | Number |
-| Comments | `// comment` | Comment |
-| Attributes | `#[derive(Eq)]` | Attribute |
-
-## Updating
-
-Since this is symlinked, any changes to the grammar files will take effect after reloading VS Code ("Developer: Reload Window").
+Words that are NOT Ori keywords render as plain identifiers by design: `return`, `async`, `await`, `fn`, `nil` (Ori has no `return` — the last expression is the block value).
 
 ## Troubleshooting
 
 **Extension not loading?**
-- Ensure the symlink is correct: `ls -la ~/.vscode/extensions/ori-lang`
+
+- Verify it is registered: `code --list-extensions | grep ori-lang` (run inside WSL for Remote-WSL windows)
 - Check VS Code's extension host log: Help > Toggle Developer Tools > Console
 
 **Syntax not highlighting?**
-- Verify the file has `.ori` extension
+
+- Verify the file has the `.ori` extension
 - Check the language mode in the status bar (should say "Ori")
 - Try "Developer: Reload Window"
 
 ## Development
 
-To modify the syntax highlighting:
+1. Edit `syntaxes/ori.tmLanguage.json` (keep it conformant to `docs/ori_lang/v2026/spec/grammar.ebnf` — the spec is the source of truth)
+2. Run the tokenization tests: `npm install && npm test` (asserts scopes with `vscode-textmate` + `vscode-oniguruma`, the engine VS Code runs)
+3. Dump scopes for any file: `node test/tokenize.js path/to/file.ori`
+4. Reload the VS Code window and eyeball the conformance corpus in `tests/spec/` (`tests/spec/lexical/` exercises every literal form)
 
-1. Edit `syntaxes/ori.tmLanguage.json`
-2. Reload VS Code window
-3. Test with sample `.ori` files in `tests/run-pass/`
-
-Use VS Code's "Developer: Inspect Editor Tokens and Scopes" to debug highlighting issues.
+Use "Developer: Inspect Editor Tokens and Scopes" to debug token scopes interactively.

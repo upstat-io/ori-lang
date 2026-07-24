@@ -10,7 +10,6 @@ mod size_hint;
 mod traits;
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
 
 use super::heap::Heap;
 use super::Value;
@@ -68,11 +67,12 @@ pub enum IteratorValue {
     },
     /// Iterator over pre-collected map entries `(key, value)`.
     ///
-    /// `BTreeMap` iterators are stateful/mutable, incompatible with functional
+    /// `MapData`'s bucketed iterator is borrow-tied, incompatible with functional
     /// `next()`. At `.iter()` time, entries are collected into a
-    /// `Vec<(String, Value)>` (O(n) once), then iterated by position.
+    /// `Vec<(Value, Value)>` of `(original_key, value)` (O(n) once), then iterated
+    /// by position.
     Map {
-        entries: Heap<Vec<(String, Value)>>,
+        entries: Heap<Vec<(Value, Value)>>,
         pos: usize,
     },
     /// Iterator over a set's elements (collected to Vec for positional access).
@@ -206,8 +206,8 @@ impl IteratorValue {
     }
 
     /// Create a map iterator from pre-collected entries.
-    pub fn from_map(map: &BTreeMap<String, Value>) -> Self {
-        let entries: Vec<(String, Value)> =
+    pub fn from_map(map: &super::map_data::MapData) -> Self {
+        let entries: Vec<(Value, Value)> =
             map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         IteratorValue::Map {
             entries: Heap::new(entries),

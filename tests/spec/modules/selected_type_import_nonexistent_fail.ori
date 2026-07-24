@@ -1,0 +1,13 @@
+// Spec: 18-modules.md § Imports — selected type import (BUG-02-101)
+//
+// Negative pin: a selected import of a name exported by NEITHER the type nor the
+// value namespace still fails with a clear not-found diagnostic (E2003). Guards
+// against the fix silently succeeding on a genuinely-absent symbol.
+
+use std.testing { assert_eq }
+use "./selected_type_import_lib" { Nonexistent }
+
+#compile_fail(code: "E2003")
+@test_nonexistent_selected_import_rejected tests _ () -> void = {
+    assert_eq(actual: 1, expected: 1)
+}

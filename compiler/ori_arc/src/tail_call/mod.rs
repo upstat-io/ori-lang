@@ -1,36 +1,13 @@
-//! Tail call detection pass for ARC IR.
+//! Self-recursive tail-call detection for ARC IR.
 //!
-//! Identifies self-recursive tail calls and annotates them on
-//! [`ArcFunction::tail_calls`] for the loop-lowering rewrite pass (§09.2).
+//! Detection runs after `rc_elim` and before `block_merge`. It accepts direct
+//! `Apply`-then-`Return` calls and cross-block calls whose result flows through
+//! a merge parameter to `Return`. Any intervening instruction must be an
+//! `RcDec` whose subject is not a call argument, so the rewrite can hoist it.
+//! Indirect calls and mutual recursion are excluded because callee identity or
+//! frame compatibility is not proven.
 //!
-//! # Pipeline placement
-//!
-//! Runs AFTER `rc_elim` (all RC operations are in final positions) and
-//! BEFORE `block_merge` (which cleans up dead blocks after TCO rewrite).
-//!
-//! # Detection algorithm
-//!
-//! Finds the cross-block tail call pattern:
-//! ```text
-//! bb_call:
-//!   %result = Apply @func_name(args...)
-//!   [optional RcDec ops — verified safe to hoist]
-//!   Jump bb_merge([result])
-//!
-//! bb_merge: (%param)
-//!   Return %param
-//! ```
-//!
-//! Also detects direct tail calls (Apply + Return in same block).
-//!
-//! A tail call is **eligible** when:
-//! 1. `Apply.func == func.name` (self-recursion only)
-//! 2. No `ApplyIndirect` (callee identity unknown at compile time)
-//! 3. All instructions between Apply and the terminator are `RcDec`
-//! 4. No `RcDec` target is among the Apply's arguments (safe to hoist)
-//!
-//! Mutual recursion (A calls B calls A) is excluded — callee stack frame
-//! compatibility cannot be verified at compile time.
+//! Rewrite diagnostics use the shared `ori_arc::tail_call` target.
 
 mod rewrite;
 
@@ -43,7 +20,7 @@ use rustc_hash::FxHashSet;
 /// A detected self-recursive tail call site.
 ///
 /// Stores the block and the kind of call (body `Apply` or terminator
-/// `Invoke`). The rewrite pass (§09.2) uses this to replace the call
+/// `Invoke`). The rewrite pass uses this to replace the call
 /// with a loop back-edge.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TailCallSite {
@@ -66,7 +43,7 @@ pub enum TailCallKind {
 
 /// Detect self-recursive tail calls in an ARC function.
 ///
-/// Returns a list of tail call sites. The rewrite pass (§09.2) consumes
+/// Returns a list of tail call sites. The rewrite pass consumes
 /// these to perform loop lowering.
 ///
 /// Only self-recursion is detected (`Apply.func == func.name`). Mutual
@@ -96,11 +73,8 @@ pub(crate) fn detect_tail_calls(func: &ArcFunction) -> Vec<TailCallSite> {
         }
     }
 
-    // Also check Invoke terminators — user function calls are lowered as
-    // Invoke (not body Apply) because they may unwind. The pattern is:
-    //   bb_call: Invoke @self(args) → normal: bb_normal, unwind: bb_unwind
-    //   bb_normal: [RcDec only] → Jump bb_merge([dst]) or Return dst
-    //   bb_merge: (%param) → Return %param
+    // User calls may appear as invokes; their normal path may contain cleanup
+    // and optionally pass the result through a merge before returning.
     find_invoke_tail_calls(func, func_name, &mut sites);
 
     tracing::debug!(count = sites.len(), "tail call detection complete");
@@ -147,7 +121,8 @@ fn find_cross_block_tail_calls(
 ///
 /// Verifies:
 /// - The `Apply` calls `func_name` (self-recursion)
-/// - All instructions after the `Apply` (before the terminator) are `RcDec`
+/// - All instructions after the `Apply` (before the terminator) are
+///   release-cleanup (RcDec/BurdenDec) instructions
 /// - No `RcDec` target is among the `Apply`'s arguments (safe to hoist)
 fn find_tail_apply_in_block(
     block: &ArcBlock,
@@ -171,17 +146,16 @@ fn find_tail_apply_in_block(
             continue;
         }
 
-        // All instructions after Apply must be RcDec (or nothing).
+        // All instructions after Apply must be release-cleanup
+        // (RcDec + paired BurdenDec) or nothing.
         let remaining = &block.body[instr_idx + 1..];
-        let all_rc_decs = remaining
-            .iter()
-            .all(|i| matches!(i, ArcInstr::RcDec { .. }));
+        let all_release_cleanup = remaining.iter().all(ArcInstr::is_release_cleanup_instr);
 
-        if !all_rc_decs {
+        if !all_release_cleanup {
             tracing::trace!(
                 block = ?block.id,
                 instr_idx,
-                "tail call rejected: non-RcDec instructions after Apply"
+                "tail call rejected: non-release-cleanup instructions after Apply"
             );
             continue;
         }
@@ -223,7 +197,7 @@ fn find_tail_apply_in_block(
 ///
 /// bb_normal:
 ///   [optional RcDec ops]
-///   Jump bb_merge([dst])   — or —   Return dst
+///   Jump bb_merge([dst]) — or — Return dst
 ///
 /// bb_merge: (%param)
 ///   Return %param
@@ -248,15 +222,16 @@ fn find_invoke_tail_calls(func: &ArcFunction, func_name: Name, sites: &mut Vec<T
 
         let normal_block = &func.blocks[normal.index()];
 
-        // Normal block body must be empty or only RcDec instructions.
-        let all_rc_decs = normal_block
+        // Normal block body must be empty or only release-cleanup
+        // (RcDec + paired BurdenDec) instructions.
+        let all_release_cleanup = normal_block
             .body
             .iter()
-            .all(|i| matches!(i, ArcInstr::RcDec { .. }));
-        if !all_rc_decs {
+            .all(ArcInstr::is_release_cleanup_instr);
+        if !all_release_cleanup {
             tracing::trace!(
                 block = ?block.id,
-                "invoke tail call rejected: non-RcDec instructions in normal block"
+                "invoke tail call rejected: non-release-cleanup instructions in normal block"
             );
             continue;
         }
@@ -312,7 +287,7 @@ fn find_invoke_tail_calls(func: &ArcFunction, func_name: Name, sites: &mut Vec<T
     }
 }
 
-// Pre-emission tail-position analysis (Section 12.2)
+// Pre-emission tail-position analysis
 
 /// Check whether a function has any non-tail recursive calls to SCC peers.
 ///

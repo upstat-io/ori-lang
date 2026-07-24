@@ -1,0 +1,83 @@
+Theorem RL-30: backend-neutral whole-function memory-access fact derivation
+
+  Preconditions:
+    - RL-30 governs a backend-neutral AIMS fact. The final realization owner
+      combines IC-3 ParamContract facts, the final IC-5 EffectSummary, and
+      realized-operation effects exactly once. VM, native, compiled WASM, JIT,
+      and LLVM consume the frozen result without re-running AIMS analysis.
+    - MemoryEffectInputs includes may_throw and may_write_inaccessible independently of
+      may_read_inaccessible. Untyped calls, I/O, panic/TLS state, allocators,
+      and other unclassified non-argument writes set this input conservatively.
+    - The neutral MemoryAccessFact vocabulary is readOnly / readWrite.
+      readOnly permits reads from both argument and inaccessible memory and
+      proves only absence of writes; it is not a memory(none) claim.
+    - LLVM's spelling is a separate projection corollary: readOnly projects to
+      generic memory(read), while readWrite omits a restrictive attribute.
+      The shipped subset never projects memory(none) or memory(argmem: read).
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per the canonical
+      proof notation:264; discharged against the sec-01 Realization.proof
+      obligation.
+    - depends-on sec-06: IC-3 ParamContract + IC-5 EffectSummary; VF-2 (d)
+      validates the neutral fact derivation. Backend spelling fidelity belongs
+      to the backend verifier, not the AIMS fact definition.
+
+  Soundness property:
+    Forall final realized functions f with IC-5 EffectSummary, IC-3
+    ParamContracts, and realized-operation effects:
+
+      (P1) Neutral derivation: MemoryAccessFact(f) = readWrite IFF any proven
+           write source is present (may_allocate OR may_deallocate OR may_share
+           OR may_throw OR may_write_inaccessible OR any_arg_written);
+           otherwise readOnly. `may_throw` fails closed because the current
+           panic/unwind runtime may write TLS or diagnostic state.
+
+      (P2) Fail-closed inaccessible effects: may_write_inaccessible implies
+           readWrite. Therefore an untyped call, I/O write, or panic/TLS write
+           cannot receive a read-only fact.
+
+      (P3) Projection separation: LLVM's projection is a fidelity corollary
+           over the frozen neutral fact. readOnly maps to generic memory(read);
+           readWrite maps to omitted. No target spelling participates in P1.
+
+      (P4) Restrictive-attribute negative witness: may_write_inaccessible
+           forbids memory(none), memory(argmem: read), and generic
+           memory(read).
+
+    RL-30 exports a common neutral fact that every executable backend may
+    project subject to its own ABI and lowering constraints.
+
+  Proof obligation:
+    Constructive discharge by the refinement engine via definitional rewriting
+    of the neutral write-source disjunction, followed by a separate LLVM
+    projection-fidelity check.
+
+    Part (P1/P2) — neutral-fact grid:
+      call_free_no_write_readonly -> readOnly
+      inaccessible_read_stays_generic_readonly -> readOnly
+      allocation_is_readwrite -> readWrite
+      deallocation_is_readwrite -> readWrite
+      sharing_is_readwrite -> readWrite
+      argument_write_is_readwrite -> readWrite
+      untyped_call_inaccessible_write_is_readwrite -> readWrite
+      throwing_runtime_state_is_readwrite -> readWrite
+      Coverage gate: 8 derivations.
+
+    Part (P3/P4) — target corollary:
+      readOnly -> LLVM generic memory(read)
+      readWrite -> LLVM attribute omitted
+      Negative-direction witness: may_write_inaccessible must produce
+      readWrite + omitted, never a restrictive read/no-access spelling.
+
+    Engines dispatched:
+      refinement (PRIMARY —
+        section_08::verify_rl30_neutral_memory_fact; neutral IC-5 + IC-3 +
+        realized-operation refinement followed by separate LLVM fidelity;
+        emits Fail on an under-approximating fact or projection)
+      rc_counting (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      case_analysis (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 refinement engine discharges RL-30 via an 8-row backend-neutral memory-access grid over IC-5, IC-3, and realized-operation inaccessible writes, with may_throw and may_write_inaccessible forcing readWrite, then checks the separate LLVM fidelity corollary (readOnly -> generic memory(read), readWrite -> omitted) and rejects every restrictive attribute on an inaccessible writer

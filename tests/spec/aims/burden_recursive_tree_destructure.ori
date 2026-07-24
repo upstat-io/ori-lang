@@ -1,0 +1,39 @@
+// Recursive sum type destructured at a transfer point: Tree = Leaf | Node([Tree]).
+// A variant payload referencing its own type (`Node(children: [Tree])`) is
+// destructured + dropped via the type's compiled drop-glue. The burden walk is
+// non-recursive over type nesting (one whole-var BurdenDec/BurdenDecVariant per
+// owned moved-out var); codegen drop-glue walks fields/variants recursively at
+// lowering.
+// Spec: Annex E §AIMS RL-2 (dec at last use / scope exit).
+//
+// Positive-pin: build a nested tree, recursively sum + destructure, assert the
+// total with no leak/double-free (ORI_CHECK_LEAKS clean, interpreter + LLVM parity).
+
+use std.testing { assert_eq };
+
+type Tree = Leaf(value: int) | Node(children: [Tree]);
+
+@sum_tree (t: Tree) -> int = match t {
+    Leaf(value:) -> value,
+    Node(children:) -> children.fold(initial: 0, op: (acc, child) -> acc + sum_tree(t: child)),
+};
+
+@build_and_sum () -> int = {
+    let t = Node(children: [
+        Leaf(value: 1),
+        Node(children: [Leaf(value: 2), Leaf(value: 3)]),
+        Leaf(value: 4),
+    ]);
+    sum_tree(t: t)
+}
+
+@test_recursive_tree_destructure_sums_clean tests @build_and_sum () -> void = {
+    // 1 + 2 + 3 + 4 = 10 across the nested Node([Tree]) destructure.
+    let total = build_and_sum();
+    assert_eq(actual: total, expected: 10)
+};
+
+@test_recursive_tree_single_leaf tests @sum_tree () -> void = {
+    let total = sum_tree(t: Leaf(value: 42));
+    assert_eq(actual: total, expected: 42)
+};

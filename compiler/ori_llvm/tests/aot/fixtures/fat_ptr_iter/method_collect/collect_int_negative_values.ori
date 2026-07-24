@@ -1,4 +1,4 @@
-// BUG-04-077: negative values test signed narrowing boundary
+// Negative values test signed narrowing boundary
 @main () -> int = {
     let collected = [-1, -128, 127].iter().collect();
     let literal = [-1, -128, 127];

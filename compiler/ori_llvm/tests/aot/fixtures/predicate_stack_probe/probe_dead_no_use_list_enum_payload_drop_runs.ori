@@ -1,0 +1,23 @@
+type Loud = { tag: str }
+
+impl Loud: Drop {
+    @drop (self) -> void = {
+        print(msg: `loud-{self.tag}`);
+        panic(msg: "loud-boom")
+    }
+}
+
+type Quiet = { tag: str }
+
+impl Quiet: Drop {
+    @drop (self) -> void = print(msg: `quiet-{self.tag}`);
+}
+
+type Wrapper = Both(loud: Loud, quiet: Quiet);
+
+@main () -> void = {
+    let w = [Both(
+        loud: Loud { tag: "L" },
+        quiet: Quiet { tag: "Q" },
+    )]
+}

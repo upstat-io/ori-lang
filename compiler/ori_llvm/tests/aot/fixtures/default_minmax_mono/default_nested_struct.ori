@@ -1,0 +1,13 @@
+#[derive(Default, Eq)]
+type Inner = { a: int, b: int }
+
+#[derive(Default, Eq)]
+type Outer = { inner: Inner, tag: int }
+
+@pass_through <T> (marker: T, o: Outer) -> int = o.inner.a + o.inner.b + o.tag;
+
+@main () -> int = {
+    let o = Outer.default();
+    let sum = pass_through(marker: 0, o: o);
+    if sum == 0 then 0 else 1
+}

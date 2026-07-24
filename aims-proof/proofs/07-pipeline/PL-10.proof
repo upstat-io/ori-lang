@@ -1,0 +1,227 @@
+Theorem PL-10: TRMC structural verification (five checks (a)-(e)) + rollback to pre-TRMC IR with Steps 3-4 re-run on the restored CFG
+
+  Preconditions:
+    - The AIMS pipeline is a 12-step strictly-ordered sequence per
+      Annex E §AIMS §6. PL-10 is the §07.4 TRMC
+      structural-verification rule, governing Step 4a verify_trmc_soundness.
+    - PL-10 statement (per Annex E §AIMS PL-10): after Step 3a + Step 4
+      on the rewritten IR, structural verification runs FIVE checks:
+        (a) ContextHole threaded correctly through recursive calls;
+        (b) no new allocations on allocation-free paths;
+        (c) rewritten CFG well-formed (consistent block params, valid RC);
+        (d) function arity + calling convention preserved;
+        (e) constructor args evaluated in same order.
+      The verification is STRUCTURAL only — full semantic equivalence is beyond
+      scope; PL-10 constitutes VF-7 tier (a) for TRMC. On failure: the rewrite
+      SHALL be rolled back to pre-TRMC IR AND Steps 3-4 SHALL be re-run on the
+      restored CFG (preserving PL-5, no stale summaries).
+    - PL-10 type signature (per Pipeline.proof lines 79-88, the sorry
+      obligation this theorem discharges):
+        type : Function -> Result Function (List VerifyError)
+        structural verify (after Step 3a + Step 4 on rewritten IR): (a)-(e);
+        on failure: rewrite rolled back to pre-TRMC IR; Steps 3-4 re-run on
+        restored CFG per PL-5 (no stale summaries).
+    - PL-10 is gated end-to-end by the Ori-owned checker; it is NOT in the CI gate's
+      Lean 4 critical-proof subset (scoped to §01A bootstrap + §08 RL-31 +
+      §11 coexistence handshake only per section-07 success criterion line
+      10). The CI gate lists §07 in depends_on solely to recurse
+      aims-proof/proofs/07-pipeline/ into the CI checker corpus.
+    - Shipped structural-verification driver: ori_arc::pipeline::aims_pipeline::
+      trmc::verify_trmc_soundness (compiler/ori_arc/src/pipeline/
+      aims_pipeline/trmc.rs lines 109-162). After analysis converges
+      (Step 4), it runs the structural checks (trmc.rs line 121
+      `verify::verify_trmc_soundness(func, &state_map)` + trmc.rs lines 125-127
+      `verify::verify_trmc_burden_balance`). When `errors.is_empty()` it returns
+      `(state_map, true)` — the rewrite survives (trmc.rs lines 128-131). When
+      errors are non-empty it logs (trmc.rs lines 133-140) and rolls back.
+    - Shipped per-CFG-path structural checks: the five (a)-(e) checks are
+      realized across ori_arc::aims::normalize::verify (compiler/
+      ori_arc/src/aims/normalize/verify.rs) — e.g. check_no_residual_self_calls
+      (verify.rs lines 304-328, recursive calls eliminated -> ContextHole
+      threaded, check (a)), check_linear_context_usage (verify.rs lines
+      344-396, context var not aliased/duplicated, well-formedness + same-order
+      evaluation, checks (c)+(e)), check_null_containment (verify.rs line 398),
+      check_loop_header_args (verify.rs line 424, consistent block params,
+      check (c)), check_context_var_dominance (verify.rs line 455) — plus the
+      burden-balance dataflow (verify.rs lines 593-633, no-new-allocation /
+      RC-balance check across CFG paths, checks (b)+(c)). The aggregate empty-
+      vs-non-empty error result is the survival signal.
+    - Shipped rollback-and-replay: on non-empty errors the rollback block
+      (trmc.rs lines 143-158) executes:
+        - `*func = original;` restores pre-TRMC IR (trmc.rs line 144), where
+          `original` was saved before the rewrite (trmc.rs lines 56-64;
+          normalize_with_trmc saves `pre_trmc_func`, the rollback's `original`
+          parameter);
+        - `func.var_reprs = compute_var_reprs(func, ...)` RE-RUNS Step 3 on the
+          restored CFG (trmc.rs line 145);
+        - `func.var_rc_strategies = compute_var_rc_strategies(...)` refreshes
+          the PIN-6 cache (trmc.rs line 147);
+        - `normalize_function(func, None).context_regions` RE-RUNS Step 3a on
+          the restored CFG (trmc.rs lines 149-150);
+        - `analyze_function(func, ..., &restored_regions, restored_immortals)`
+          RE-RUNS Step 4 on the restored CFG (trmc.rs lines 151-157);
+        - returns `(restored_map, false)` — the rewrite did NOT survive
+          (trmc.rs line 158).
+      This is the PL-5 supersession path (the restored summaries replace the
+      discarded TRMC-rewritten summaries; no downstream pass observes stale
+      state — see PL-5.proof).
+    - normalize_function's own rewrite_and_verify also rolls back on
+      post-rewrite verification failure (normalize/mod.rs lines 163-186:
+      `*func = original` line 173 + debug_assert lines 179-184), so the rewrite
+      is reverted at the earliest verification stage; Step 4a's
+      verify_trmc_soundness is the downstream (post-Step-4) structural gate.
+
+  Soundness property:
+    Forall function F whose TRMC rewrite produced F'.
+      Let checks(F') = the five structural checks (a)-(e) on F'.
+      Three conjuncts SHALL hold:
+
+      (P1) Check enumeration:
+        checks(F') comprises EXACTLY five distinct structural checks (a)-(e);
+        no two checks share an identity, none is missing.
+
+      (P2) All-pass survival:
+        all_pass(checks(F')) iff verify_trmc_soundness returns
+        trmc_rewrite_survived = true. When every structural check passes, the
+        rewrite survives and the rewritten IR is kept.
+
+      (P3) Any-fail rollback:
+        any_fail(checks(F')) iff verify_trmc_soundness rolls back: it restores
+        pre-TRMC IR, re-runs Steps 3-4 on the restored CFG, and returns
+        trmc_rewrite_survived = false. A failing check NEVER leaves the
+        rewritten IR in place.
+
+  Proof obligation:
+    Three-part constructive discharge corresponding to (P1), (P2), (P3), by
+    case analysis over the five-check enumeration + the survival/rollback split
+    (case_analysis-led per the §00 PL row) + structural confirmation of the
+    rollback-and-replay path.
+
+    Part (P1) — Check enumeration (structural confirmation):
+
+      The verifier models the five checks (a)-(e) as a five-element array with
+      distinct labels:
+        (a) ContextHole threaded through recursive calls
+        (b) no new allocations on allocation-free paths
+        (c) rewritten CFG well-formed
+        (d) function arity + calling convention preserved
+        (e) constructor args evaluated in same order
+      It asserts the array length is exactly 5 and no two labels coincide. A
+      check added or dropped would diverge the count or duplicate a label —
+      Fail. This pins the (a)-(e) enumeration against the shipped check set
+      (verify.rs check functions + burden-balance dataflow). (P1) discharged.
+
+    Part (P2) — All-pass survival (case analysis on the all-pass model):
+
+      The verifier models the survival decision as
+        pl10_rewrite_survives(checks) = checks.all(|c| c.passed)
+      mirroring the shipped `if errors.is_empty() { return (state_map, true); }`
+      (trmc.rs lines 128-131). With every check passing (pl10_checks_all_pass),
+      it asserts pl10_rewrite_survives = true. A model where all checks pass yet
+      the rewrite did not survive would contradict the shipped empty-errors
+      return — Fail. (P2) discharged.
+
+    Part (P3) — Any-fail rollback (case analysis on the failing-check model):
+
+      The verifier models a rewrite where check (a) fails
+      (pl10_checks_a_fails) and asserts pl10_rewrite_survives = false. This
+      mirrors the shipped non-empty-errors path (trmc.rs lines 133-158): the
+      rewrite is rolled back to pre-TRMC IR (`*func = original`, trmc.rs line
+      144), Steps 3-4 are re-run on the restored CFG (trmc.rs lines 145 + 150 +
+      151-157), and `(restored_map, false)` is returned (trmc.rs line 158). A
+      model where a failing check still reported survival would leave the
+      rewritten IR in place and skip the rollback-and-replay — Fail. (P3)
+      discharged.
+
+    Coverage gate — five-check + survival/rollback discharge:
+
+      The verifier discharges the (a)-(e) enumeration as a length + distinctness
+      check, and the survival/rollback split as two case assertions (all-pass ->
+      survives; (a)-fails -> rolls back). Coverage axes:
+        Check enumeration (P1): the 5 distinct (a)-(e) checks.
+        All-pass survival (P2): all-pass -> survives.
+        Any-fail rollback (P3): (a)-fails -> does not survive (rollback fires).
+
+    Negative-direction witness — failing check leaves rewrite in place:
+
+      A verify_trmc_soundness implementation that returned
+      trmc_rewrite_survived = true despite a failing structural check would feed
+      codegen a TRMC-rewritten IR that did not pass structural verification —
+      exactly the unsound rewrite VF-7 tier (a) forbids. The verifier's (P3)
+      negative pin (pl10_checks_a_fails -> survives must be false) rejects this;
+      the shipped non-empty-errors branch (trmc.rs lines 133-158) restores the
+      pre-TRMC IR rather than keeping the failing rewrite.
+
+    Negative-direction witness — survival without re-running Steps 3-4:
+
+      The rollback path is not merely a revert: it re-runs Step 3
+      (compute_var_reprs, trmc.rs line 145), Step 3a (normalize_function,
+      trmc.rs lines 149-150), and Step 4 (analyze_function, trmc.rs lines
+      151-157) on the restored CFG, so the restored summaries supersede the
+      discarded TRMC-rewritten summaries (PL-5). Returning the pre-rollback
+      (stale, rewritten) state map would be a PL-5 violation; the shipped
+      `(restored_map, false)` (trmc.rs line 158) returns the re-run summaries.
+      PL-5.proof discharges the supersession soundness; PL-10 (P3) confirms the
+      rollback fires on any failing check.
+
+    Cycle-soundness witness — PL-10 sits between PL-9 and PL-5:
+
+      PL-10 (structural verify + rollback) consumes PL-9's rewritten IR and
+      feeds PL-5 (the rollback re-runs Steps 3-4 so the restored summaries
+      supersede the rewritten ones — PL-5.proof's (P2) rollback-supersession is
+      grounded in PL-10's rollback path). Its antecedent is PL-9 (the rewrite
+      whose well-formedness PL-10 checks). PL-10 consumes no output of PL-11.
+      The dependency chain is acyclic:
+        PL-9 --> PL-10 (structural verification of the rewrite)
+        PL-10 --> PL-5 (rollback re-runs Steps 3-4 -> non-stale summaries)
+      No cycle. (PL-5 is the umbrella sequencing invariant; PL-10 is one of its
+      antecedents per PL-5.proof's cycle-soundness witness.)
+
+    Algorithm-citation declaration:
+      property: TRMC structural verification soundness — five
+                           structural checks (a)-(e) gate the rewrite; on any
+                           failure the rewrite is rolled back to pre-TRMC IR and
+                           Steps 3-4 are re-run on the restored CFG (no stale
+                           summaries, PL-5)
+      published: Leijen & Lorenzen, "Tail Recursion Modulo Context",
+                           JFP 2025 (structural well-formedness of the
+                           context-hole rewrite; the constrained-rewrite
+                           soundness argument — context-hole only, arity
+                           preserved, evaluation order unchanged); standard
+                           transform-validate-rollback discipline (analyze, then
+                           transform, then verify-or-revert) shared with Lean 4
+                           src/Lean/Compiler/IR cited in Annex E §AIMS sec-Reference
+                           Repos
+      determinism: deterministic — verify_trmc_soundness runs a fixed
+                           set of structural checks and a fixed rollback-and-
+                           replay sequence; the empty-vs-non-empty errors
+                           decision is a deterministic function of the rewritten
+                           IR
+      reference impl: ori_arc::pipeline::aims_pipeline::trmc::
+                           verify_trmc_soundness (trmc.rs lines 109-162:
+                           structural-check dispatch lines 121-127, empty-errors
+                           survival lines 128-131, rollback restore line 144,
+                           Step 3 re-run line 145, Step 3a re-run lines 149-150,
+                           Step 4 re-run lines 151-157, restored-map return line
+                           158) + the per-CFG-path checks in
+                           ori_arc::aims::normalize::verify
+                           (check_no_residual_self_calls verify.rs lines
+                           304-328, check_linear_context_usage lines 344-396,
+                           check_loop_header_args line 424, verify_trmc_burden_
+                           balance lines 593-633) + the pre-TRMC save
+                           (trmc.rs lines 56-64)
+
+    Engines dispatched:
+      structural_induction (PRIMARY — confirms the five-check enumeration and
+        the survival/rollback invariants over the §07.4 TRMC structural model
+        per section_07::verify_pl10_trmc_structural_verify; agrees with
+        case_analysis on the constructive verifier)
+      case_analysis (LED — per the §00 PL-row pair per the proof-checker design-proof-
+        checker-design.md:102, the TRMC cluster is case_analysis-heavy; the
+        verifier discharges (P1) via the five-check length + distinctness
+        enumeration, (P2) via the all-pass -> survives case, and (P3) via the
+        (a)-fails -> rollback case; constructive, NOT gracious-accept)
+
+  Expected:
+    status: valid
+    reason: section_07 case_analysis-led discharge of PL-10 via the five-check enumeration + survival/rollback split — (P1) verify_trmc_soundness runs exactly five distinct structural checks (a)-(e) (verify.rs check functions + verify_trmc_burden_balance lines 593-633), (P2) all-pass -> trmc_rewrite_survived = true (trmc.rs lines 128-131), and (P3) any-fail -> rollback to pre-TRMC IR + Steps 3-4 re-run on the restored CFG (trmc.rs lines 144 + 145 + 150 + 151-157) returning trmc_rewrite_survived = false (trmc.rs line 158), preserving PL-5; PL-10 is gated end-to-end by the Ori-owned checker, NOT in the CI gate's Lean 4 critical-proof subset (§01A + §08 RL-31 + §11 only per section-07 success criterion line 10); structural_induction PRIMARY confirms over the same verifier

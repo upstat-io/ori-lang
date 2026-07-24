@@ -1,0 +1,10 @@
+@minmax_str <T> (marker: T, a: str, b: str) -> str = {
+    let lo = min(left: a, right: b);
+    let hi = max(left: a, right: b);
+    if lo == "apple" && hi == "banana" then lo else hi
+}
+
+@main () -> int = {
+    let s = minmax_str(marker: 0, a: "banana", b: "apple");
+    if s == "apple" then 0 else 1
+}

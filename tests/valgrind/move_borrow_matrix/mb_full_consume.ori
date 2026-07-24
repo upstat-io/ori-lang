@@ -1,0 +1,49 @@
+// Move/borrow matrix: MB01 — full iteration consume across all type rows.
+// Fresh collections of each element category fully consumed by for-loops;
+// verifies iter-consume ownership transfer frees every element exactly once.
+
+type Named = { name: str, id: int }
+
+@main () -> int = {
+    // Row 1: heap str elements, fully consumed
+    let total1 = 0;
+    for s in ["abcdefghijklmnopqrstuvwxyz1234", "another_long_heap_string_content"] do {
+        total1 = total1 + s.length();
+    };
+    let ok1 = total1 == 62;
+
+    // Row 2: [int] elements (nested list), fully consumed
+    let total2 = 0;
+    for xs in [[1, 2, 3], [4, 5], [6]] do {
+        total2 = total2 + xs.length();
+    };
+    let ok2 = total2 == 6;
+
+    // Row 3: Option<str> elements, fully consumed
+    let total3 = 0;
+    for o in [Some("abcdefghijklmnopqrstuvwxyz1234"), None, Some("short")] do {
+        total3 = total3 + match o {
+            Some(s) -> s.length(),
+            None -> 0,
+        };
+    };
+    let ok3 = total3 == 35;
+
+    // Row 4: closure with a heap capture, fully consumed across a loop
+    let base = "abcdefghijklmnopqrstuvwxyz1234";
+    let f = (n: int) -> int = base.length() + n;
+    let total4 = 0;
+    for i in 0..3 do {
+        total4 = total4 + f(i);
+    };
+    let ok4 = total4 == 93;
+
+    // Row 5: struct elements with heap fields, fully consumed
+    let total5 = 0;
+    for p in [Named { name: "abcdefghijklmnopqrstuvwxyz1234", id: 1 }, Named { name: "b", id: 2 }] do {
+        total5 = total5 + p.name.length() + p.id;
+    };
+    let ok5 = total5 == 34;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 then 0 else 1
+}

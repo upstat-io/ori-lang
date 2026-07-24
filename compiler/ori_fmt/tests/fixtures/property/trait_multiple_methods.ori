@@ -1,0 +1,5 @@
+trait Container {
+    @len (self) -> int
+    @is_empty (self) -> bool
+    @capacity (self) -> int
+}

@@ -1,0 +1,45 @@
+// Spec: 10-declarations.md §10.3.2 Default Associated Types, §10.6.6 Associated Type Disambiguation
+// Regression (negative pin — symbolic poison preserved): a SYMBOLIC /
+// generic-receiver projection (`C.Item` where `C` is a bound type variable)
+// legitimately cannot resolve to a concrete `type Item =` at registration
+// time. It must still map to `Idx::ERROR` poison WITHOUT a spurious
+// diagnostic — guards against the fix over-eagerly diagnosing the no-concrete-
+// receiver case. The eager-resolve arm fires ONLY when the receiver self_type
+// is concrete; for a type variable it must fall through to clean poison.
+
+use std.testing { assert, assert_eq }
+
+trait Container {
+    type Item
+    @get (self) -> Self.Item
+}
+
+// A generic function whose receiver `C` is a bound type variable. `C.Item`
+// cannot be resolved to a concrete type here — it is a legitimate symbolic
+// projection. This MUST compile cleanly (no spurious diagnostic): the fix's
+// eager-resolve arm only fires for a concrete receiver.
+@get_via_generic<C: Container> (c: C) -> C.Item = c.get();
+
+// Concrete impl so the generic can be instantiated at a call site.
+type IntBox = { value: int }
+
+impl IntBox: Container {
+    type Item = int;
+    @get (self) -> Self.Item = self.value;
+}
+
+// Positive pin: the symbolic projection, once instantiated at a concrete
+// receiver, yields the correct value on every backend.
+// Pre-fix disposition: interp PASS / LLVM FAIL (missing mono instance).
+@test_symbolic_projection_instantiated tests _ () -> void = {
+    let b = IntBox { value: 314 };
+    assert_eq(actual: get_via_generic(c: b), expected: 314)
+}
+
+// Positive pin: the generic projection signature itself type-checks (no
+// spurious diagnostic on the symbolic `C.Item` return).
+@test_symbolic_projection_compiles tests _ () -> void = {
+    let b = IntBox { value: 1 };
+    let r = get_via_generic(c: b);
+    assert(cond: r == 1)
+}

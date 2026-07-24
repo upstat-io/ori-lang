@@ -1,0 +1,27 @@
+Theorem CN-1: Dead iff Absent bidirectional canonicalization
+
+  Preconditions:
+    - s is an AimsState per the canonical proof notation
+      sec-Per-Dimension-Symbol-Set
+    - s.consumption in {Dead, Linear, Affine, Unrestricted}
+    - s.cardinality in {Absent, Once, Many}
+    - canonicalize_cn1 applies the bidirectional rule from Annex E §AIMS + sec-1 lattice consistency invariants
+
+  Soundness property:
+    Forall s in AimsState. canonicalize_cn1(s) yields (cons, card) where
+    cons = Dead iff card = Absent.
+
+  Proof obligation:
+    Finite enumeration over 4 Consumption x 3 Cardinality = 12 input states.
+    For each (cons, card), apply CN-1's bidirectional forcing rule:
+      if cons = Dead OR card = Absent: yield (Dead, Absent)
+      else: preserve (cons, card)
+    Verify the Dead iff Absent invariant holds on all 12 canonical outputs.
+
+    Engines dispatched:
+      case_analysis (finite-state enumeration over the 12-state product
+        per section_03::verify_cn1_dead_absent_bidirectional)
+
+  Expected:
+    status: valid
+    reason: section_03 case_analysis engine discharges CN-1 via 12-state finite enumeration over Consumption x Cardinality

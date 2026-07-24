@@ -145,19 +145,18 @@ pub fn derive_module_name(path: &Path, base_dir: Option<&Path>) -> String {
         .and_then(|s| s.to_str())
         .unwrap_or("module");
 
-    // If we have a base directory, compute relative path for nested modules
-    if let Some(base) = base_dir {
-        if let Ok(relative) = path.strip_prefix(base) {
-            // Remove the filename and convert directory structure to module path
-            if let Some(parent) = relative.parent() {
-                if !parent.as_os_str().is_empty() {
-                    let parent_str = parent.to_string_lossy();
-                    // Replace path separators with module separators
-                    let parent_normalized = parent_str.replace(['/', '\\'], "$");
-                    return format!("{parent_normalized}${stem}");
-                }
-            }
-        }
+    // Nested module path: only paths under `base_dir` carry directory
+    // structure. A strip_prefix miss (path outside the base) is the
+    // documented bare-stem case, not an error.
+    let nested_parent = base_dir
+        .and_then(|base| path.strip_prefix(base).ok())
+        .and_then(Path::parent)
+        .filter(|parent| !parent.as_os_str().is_empty());
+
+    if let Some(parent) = nested_parent {
+        // Replace path separators with module separators
+        let parent_normalized = parent.to_string_lossy().replace(['/', '\\'], "$");
+        return format!("{parent_normalized}${stem}");
     }
 
     stem.to_string()
@@ -412,7 +411,7 @@ pub fn resolve_relative_import(current_file: &Path, import_path: &str) -> Result
     let candidates = if base_path.extension().is_none() {
         vec![base_path.with_extension("ori"), base_path.join("mod.ori")]
     } else {
-        vec![base_path.clone()]
+        vec![base_path]
     };
 
     // Try each candidate

@@ -1,0 +1,16 @@
+// NEGATIVE PIN — shared-type-parameter field conflict (substitute_named_types path).
+// When two fields share the SAME type parameter, the first field binds the
+// parameter and the second field's value MUST unify against that binding. A
+// conflicting second value (`{ a: 1, b: "str" }` against `{ a: T, b: T }`,
+// T bound to int) MUST be rejected with E2001, never silently accepted.
+// Spec: 08-declarations.md § Type Definitions + § Generics; typeck E2001 (Mismatch).
+
+type Holder<T> = { a: T, b: T }
+
+#compile_fail(code: "E2001")
+@test_struct_shared_tparam_conflict tests @_anchor_shared_tparam () -> void = {
+    let $h = Holder { a: 1, b: "str" };
+    ()
+}
+
+@_anchor_shared_tparam () -> bool = true;

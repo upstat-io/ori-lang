@@ -1,0 +1,249 @@
+Theorem PL-4a: Step 8a (unwind_cleanup) precedes Step 9 (merge_blocks) — unwind cleanup alters the CFG (invoke / resume edges)
+
+  Preconditions:
+    - The AIMS pipeline is a 12-step strictly-ordered sequence per
+      Annex E §AIMS §6. PL-4a fixes ONE intra-
+      function step boundary: Step 8a (unwind_cleanup) SHALL precede Step 9
+      (merge_blocks).
+        Step 8: detect/rewrite tail calls — CFG optimization
+        Step 8a: unwind_cleanup() — Invoke-unwind RC cleanup
+        Step 9: merge_blocks() — CFG cleanup (downgrades trivial Invokes)
+    - PL-4a statement (per Annex E §AIMS PL-4a + Annex E §AIMS §6
+      "unwind_cleanup() (step 8a) — Invoke-unwind RC cleanup (must precede
+      merge)"): unwind_cleanup SHALL precede merge_blocks; unwind cleanup
+      adds RC-cleanup work to the Invoke unwind (Resume) edges, and
+      merge_blocks's downgrade phase would otherwise collapse those Invoke /
+      Resume edges away.
+    - PL-4a type signature (per Pipeline.proof lines 43-46, the sorry
+      obligation this theorem discharges):
+        type : Function -> Pipeline
+        unwind_cleanup (Step 8a) SHALL precede merge_blocks (Step 9);
+        unwind cleanup alters CFG (invoke / resume edges).
+    - Shipped Steps 6-9 driver: ori_arc::pipeline::aims_pipeline::
+      postprocess::verify_and_merge (compiler/ori_arc/src/
+      pipeline/aims_pipeline/postprocess.rs lines 15-51). It runs, in
+      straight-line order:
+        Step 6 verify (postprocess.rs line 21),
+        Step 7 aims_verify (postprocess.rs line 31),
+        Step 8 tail-calls detect + rewrite (postprocess.rs lines 36-37),
+        Step 8a unwind_cleanup — `crate::aims::emit_rc::unwind_cleanup::
+          add_invoke_unwind_cleanup(func, config.interner)` (postprocess.rs
+          line 42),
+        Step 9 merge_blocks — `crate::block_merge::merge_blocks(func)`
+          (postprocess.rs line 47).
+      The unwind_cleanup call (line 42) is the straight-line statement
+      immediately before the merge_blocks call (line 47).
+    - Shipped unwind pass: ori_arc::aims::emit_rc::unwind_cleanup::
+      add_invoke_unwind_cleanup (compiler/ori_arc/src/aims/
+      emit_rc/unwind_cleanup/mod.rs lines 30-...). It ALTERS the CFG's
+      Invoke / Resume edges: for each Invoke whose unwind block is an empty
+      Resume (mod.rs lines 57-67), it inserts `Apply @ori_iter_drop(iter)`
+      cleanup into that Resume unwind block (mod.rs lines 5-11). The module
+      doc (mod.rs lines 8-11) states the pass makes the unwind path
+      non-trivial precisely so that "2. The downgrade_trivial_invokes pass
+      in merge_blocks() won't collapse the Invoke into an Apply (losing the
+      unwind path). 3. The LLVM codegen emits a proper cleanup landing pad."
+    - Shipped unwind ordering doc: ori_arc::aims::emit_rc::unwind_cleanup
+      module doc (mod.rs lines 13-18) — "Runs after emit_rc_ops() /
+      realize_rc_reuse() (RC instructions present) and before merge_blocks()
+      (which would downgrade the Invoke). Specifically, it runs in
+      verify_and_merge() right before the merge_blocks() call."
+    - Shipped merge pass: ori_arc::block_merge::merge_blocks
+      (compiler/ori_arc/src/block_merge/mod.rs lines 71-95+).
+      Phase 2 downgrade_trivial_invokes (mod.rs line 79) "convert trivial
+      Invokes to Apply + Jump when the unwind block is an empty Resume and
+      the normal block has a single predecessor" (mod.rs lines 16-18). If
+      unwind_cleanup had NOT first filled the Resume block, downgrade would
+      treat the Invoke as trivial and remove the invoke / resume edge,
+      dropping the cleanup landing pad. PL-4a's ordering is what keeps the
+      Invoke non-trivial across the downgrade.
+    - This theorem reasons over the LINEAR per-function pipeline DAG; PL-4a
+      is the unwind-edge sibling of PL-3 (Step 5 precedes Step 9) and the
+      antecedent of PL-4 (Step 10 follows Step 9): the well-formed post-
+      unwind CFG is what phase 2's post-merge walk consumes.
+
+  Soundness property:
+    Forall function F processed by verify_and_merge.
+      Let pos_8a = position(Step 8a unwind_cleanup on F) and
+          pos_9 = position(Step 9 merge_blocks on F)
+      in the total intra-function execution order.
+      Two conjuncts SHALL hold:
+
+      (P1) Unwind-before-merge:
+        pos_8a < pos_9. unwind_cleanup completes — inserting the
+        ori_iter_drop cleanup into every empty-Resume Invoke unwind block —
+        strictly before merge_blocks runs its downgrade phase.
+
+      (P2) Invoke-edge-preservation:
+        Because unwind_cleanup ran first, every Invoke whose unwind path
+        needs RC cleanup has a NON-empty Resume block at merge time, so
+        merge_blocks's Phase 2 downgrade_trivial_invokes does NOT collapse
+        it into Apply + Jump. The invoke / resume CFG edge survives the
+        merge, preserving the cleanup landing pad.
+
+  Proof obligation:
+    Two-part constructive discharge corresponding to (P1) and (P2), by
+    structural induction over the per-function Steps-6-9 chain inside
+    verify_and_merge + case analysis on merge_blocks's downgrade phase.
+
+    Part (P1) — Unwind-before-merge (structural induction over the
+    verify_and_merge step chain):
+
+      Base case — Step 8a (unwind_cleanup):
+        verify_and_merge calls add_invoke_unwind_cleanup(func, ...) as a
+        straight-line statement (postprocess.rs line 42), inside a block
+        scoped by `tracing::info_span!("unwind_cleanup")` (postprocess.rs
+        lines 40-43). Post-condition: every empty-Resume Invoke unwind block
+        that needs cleanup now carries an ori_iter_drop Apply (unwind/mod.rs
+        lines 30-67).
+
+      Inductive step — no step reorders merge ahead of unwind:
+        The only statements between Step 8a (line 42) and Step 9 (line 47)
+        are the trace_pipeline_checkpoint call (postprocess.rs line 44) and
+        the `tracing::info_span!("merge_blocks")` scope entry (postprocess.rs
+        line 46). Neither merges blocks. By sequential Rust statement
+        evaluation, Step 9 cannot execute before Step 8a's statement
+        completes.
+
+      Termination — Step 9 (merge_blocks):
+        merge_blocks(func) (postprocess.rs line 47) is the next CFG-mutating
+        statement after unwind_cleanup. pos_8a < pos_9 holds on every path.
+        (P1) discharged.
+
+    Part (P2) — Invoke-edge-preservation (case analysis on merge_blocks's
+    downgrade):
+
+      Case Invoke with cleanup-bearing unwind block (the PL-4a-protected
+      case):
+        After unwind_cleanup, the Invoke's Resume unwind block contains an
+        ori_iter_drop Apply (unwind/mod.rs lines 30-67). When merge_blocks
+        Phase 2 downgrade_trivial_invokes (block_merge/mod.rs line 79)
+        evaluates this Invoke, the unwind block is NO LONGER an empty Resume
+        (its triviality precondition, block_merge/mod.rs lines 16-18, fails),
+        so the Invoke is NOT downgraded. The invoke / resume edge survives;
+        the landing pad is preserved.
+
+      Case Invoke with genuinely-empty unwind block (no cleanup needed):
+        If no iterator / RC-managed variable is live at the Invoke,
+        unwind_cleanup inserts nothing (unwind/mod.rs Phase 2 finds no live
+        iterators), the Resume stays empty, and merge_blocks correctly
+        downgrades the trivial Invoke to Apply + Jump. This is the intended
+        simplification — PL-4a does NOT forbid downgrade where no cleanup is
+        owed; it only guarantees cleanup-bearing edges survive. Soundness
+        preserved in both branches.
+
+      Case merge-before-unwind (counterfactual — rejected):
+        If merge_blocks ran before unwind_cleanup, downgrade_trivial_invokes
+        would see the unwind block as an empty Resume and collapse the
+        Invoke to Apply + Jump — destroying the invoke / resume edge BEFORE
+        unwind_cleanup could attach the ori_iter_drop cleanup. The cleanup
+        would then have nowhere to land (no Resume unwind block remains),
+        leaking iterator handles on the panic path. The verifier rejects any
+        schedule with position(Step 9) <= position(Step 8a).
+
+    Coverage gate — pipeline-step ordered-pair enumeration:
+
+      The verifier models the shipped verify_and_merge step chain as an
+      ordered step list and discharges the ordered-pair predicate
+      position(Step 8a) < position(Step 9) plus the alters-cfg-edges
+      attribute on Step 8a and the downgrades-invokes attribute on Step 9.
+      It asserts:
+        - Step 8a (unwind_cleanup) is present with the alters-invoke-edges
+          attribute.
+        - Step 9 (merge_blocks) is present with the downgrades-invokes
+          attribute.
+        - position(Step 8a) < position(Step 9) in the total order.
+        - Step 8a is the LAST CFG-edge-altering step before merge (no step
+          between 8a and 9 merges or downgrades).
+
+      Coverage axes:
+        Unwind-before-merge (P1): the (Step 8a, Step 9) ordered pair, with
+          Step 8a verified to be the immediate pre-merge CFG-edge step.
+        Invoke-edge-preservation (P2): Step 8a verified alters-invoke-edges,
+          Step 9 verified downgrades-invokes (so the protect-then-downgrade
+          ordering is what keeps cleanup-bearing edges alive).
+
+    Negative-direction witness — merge-before-unwind rejected:
+
+      Detailed in the merge-before-unwind case above: scheduling Step 9
+      before Step 8a downgrades cleanup-needing Invokes to Apply + Jump
+      before the cleanup is attached, dropping the unwind landing pad and
+      leaking iterator handles on panic. This is precisely the failure the
+      unwind module doc warns about (unwind/mod.rs lines 8-11: the pass
+      exists "so that ... the downgrade_trivial_invokes pass in
+      merge_blocks() won't collapse the Invoke into an Apply (losing the
+      unwind path)"). The verifier rejects any schedule with position(Step
+      9) <= position(Step 8a).
+
+    Negative-direction witness — unwind cleanup deferred past merge
+    rejected:
+
+      Even with Step 8 (tail calls) correctly before Step 9, deferring the
+      unwind cleanup to AFTER merge_blocks would mean merge already
+      downgraded the trivial Invokes — the cleanup would find no Resume
+      block to populate. The shipped driver runs unwind_cleanup
+      (postprocess.rs line 42) before merge_blocks (postprocess.rs line 47)
+      with no CFG-mutating step between. The verifier rejects any schedule
+      that issues unwind cleanup at a position >= pos_9.
+
+    Cycle-soundness witness — PL-4a is the unwind sibling of PL-3, antecedent
+    of PL-4:
+
+      PL-4a fixes the Step-8a-before-Step-9 boundary. It shares the
+      pre-merge half of the merge boundary with PL-3 (Step 5 phase 1 before
+      Step 9). Its successor is PL-4 (Step 10 phase 2 after Step 9): the
+      well-formed post-unwind, post-merge CFG is what phase 2's ArcVarId-
+      keyed post-merge walk consumes. The dependency chain is acyclic:
+        PL-3 --> PL-4a (both fix the pre-merge side of the Step-9 boundary)
+        PL-4a --> PL-4 (unwind-edge cleanup before merge keeps the CFG
+                      well-formed for phase 2's post-merge walk)
+        PL-4a --> PL-5 (no stale summaries — the cleanup is attached to the
+                      live CFG before merge mutates it)
+      PL-4a produces nothing PL-3 consumes; no cycle.
+
+    Algorithm-citation declaration:
+      property: intra-function pipeline-step ordering (unwind-edge
+                           cleanup runs before the CFG merge that would
+                           otherwise downgrade the Invoke / Resume edges)
+      published: standard "materialize-cleanup-edges-before-CFG-
+                           simplification" discipline — exception / landing-
+                           pad edges must carry their cleanup work before a
+                           simplifier prunes "trivial" unwind paths; matches
+                           LLVM's requirement that cleanup landing pads exist
+                           before SimplifyCFG runs, from the published reference-compiler corpus
+                            Repos
+      determinism: deterministic — add_invoke_unwind_cleanup
+                           (postprocess.rs line 42) followed by merge_blocks
+                           (postprocess.rs line 47) is a fixed straight-line
+                           ordering inside verify_and_merge; no schedule
+                           freedom exists
+      reference impl: ori_arc::pipeline::aims_pipeline::postprocess::
+                           verify_and_merge (postprocess.rs Step 8a
+                           unwind_cleanup line 42, Step 9 merge_blocks line
+                           47) + ori_arc::aims::emit_rc::unwind_cleanup::
+                           add_invoke_unwind_cleanup (unwind/mod.rs lines
+                           30-67, ordering doc lines 13-18, downgrade-guard
+                           rationale lines 8-11) + ori_arc::block_merge::
+                           merge_blocks Phase 2 downgrade_trivial_invokes
+                           (block_merge/mod.rs line 79, triviality precondition
+                           lines 16-18)
+
+    Engines dispatched:
+      structural_induction (PRIMARY — structural induction over the
+        per-function verify_and_merge step chain per section_07::
+        verify_pl4a_unwind_before_merge; the verifier models the shipped
+        Steps-6-9 chain as an ordered step list and discharges (P1)
+        unwind-before-merge via the ordered-pair predicate position(Step 8a)
+        < position(Step 9) and (P2) Invoke-edge-preservation via the
+        alters-invoke-edges attribute on Step 8a + the downgrades-invokes
+        attribute on Step 9; emits Fail on any ordering or attribute
+        violation)
+      case_analysis (SECONDARY — per-case grid over the cleanup-bearing
+        Invoke case + the genuinely-empty-unwind case + the rejected
+        merge-before-unwind case; gracious-accept once structural_induction
+        has discharged the ordering obligation per the coverage-manifest PL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_07 structural_induction engine discharges PL-4a via the per-function verify_and_merge ordered pair — (P1) Step 8a unwind_cleanup precedes Step 9 merge_blocks (position(Step 8a) < position(Step 9): add_invoke_unwind_cleanup at postprocess.rs line 42 precedes merge_blocks at postprocess.rs line 47 with no CFG-mutating step between) and (P2) the invoke / resume edge is preserved (unwind_cleanup inserts ori_iter_drop into empty-Resume unwind blocks per unwind/mod.rs lines 30-67 so merge_blocks Phase 2 downgrade_trivial_invokes at block_merge/mod.rs line 79 no longer treats the Invoke as trivial — the cleanup landing pad survives per unwind/mod.rs lines 8-18); case_analysis secondary-accepting per the coverage-manifest PL row

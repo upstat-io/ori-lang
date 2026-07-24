@@ -1,0 +1,118 @@
+Theorem TF-6: Apply (with contract) transfer = refine(CONSERVATIVE, contract)
+
+  Preconditions:
+    - Instruction is `Apply { dst, func, args }` per Annex E §AIMS TF-6
+    - `func` has `MemoryContract` available — callee analyzed; contract
+      includes a `ReturnContract` (IC-4) with `uniqueness`, `locality`,
+      `shape` narrowing fields available to refine TF-5's CONSERVATIVE
+    - `refine(base, contract)` per Annex E §AIMS TF-6 inline definition:
+      result.uniqueness := contract.uniqueness
+      result.locality := contract.locality
+      result.shape := contract.shape
+      // Access, Consumption, Cardinality, Effect preserved from base
+    - Per Appendix A row 7: `dst := (Owned, Unrestricted, Many,
+      contract.uniq, contract.loc, contract.shape, ALL)`
+
+  Soundness property:
+    Forall contract in ReturnContract.
+      transfer_tf6(Apply { _ }, contract) =
+        Tagged::State {
+          access = Owned; // preserved from CONSERVATIVE
+          consumption = Unrestricted; // preserved from CONSERVATIVE
+          cardinality = Many; // preserved from CONSERVATIVE
+          uniqueness = contract.uniqueness; // narrowed by refine()
+          locality = contract.locality; // narrowed by refine()
+          shape = contract.shape; // narrowed by refine()
+          effect = ALL = 0b111; // preserved from CONSERVATIVE
+        }
+    L-6 layer (b) monotonicity: for fixed contract c, refine(_, c) is a
+    constant function on its first argument (TF-6 always passes
+    CONSERVATIVE); trivially monotone per L-4 reflexivity.
+
+  Proof obligation:
+    Three-part discharge:
+      (a) Refine narrowing enumeration — for representative contracts,
+          verify the 3 narrowed dimensions (Uniqueness x Locality x Shape)
+          take the contract's values; the 4 preserved dimensions
+          (Access x Consumption x Cardinality x Effect) stay at
+          CONSERVATIVE.
+      (b) Per-row Appendix A correctness — Appendix A row 7 enumerates
+          exactly the 7 dimensions above; verify per-column emission.
+      (c) L-6 layer (b) monotonicity — refine(CONSERVATIVE, c) is constant
+          in the first argument (always CONSERVATIVE); trivially monotone.
+
+    Part (a) — refine narrowing on representative ReturnContracts (5 contracts
+    sampled to span the (Uniqueness x Locality x Shape) product carrier):
+      contract_1 = { uniqueness: Unique, locality: BlockLocal,
+                     shape: ReusableStruct }
+        — Tightest narrowing path: fresh allocation returns; enables
+          downstream RL-22 KnownSafe + RL-29 noalias.
+      contract_2 = { uniqueness: Unique, locality: FunctionLocal,
+                     shape: CollectionBuffer }
+        — Fresh collection return; supplies precise locality and shape to
+          backend-neutral fact freezing and representation projection.
+      contract_3 = { uniqueness: MaybeShared, locality: Unknown,
+                     shape: NonReusable }
+        — Conservative-equivalent contract (degenerate refine no-op).
+      contract_4 = { uniqueness: Shared, locality: HeapEscaping,
+                     shape: NonReusable }
+        — Pessimistic contract: callee explicitly returns shared heap.
+      contract_5 = { uniqueness: Unique, locality: ArgEscaping,
+                     shape: ReusableEnum }
+        — ArgEscaping unique return; rare but valid (callee returns
+          fresh allocation that escapes through caller's argument).
+
+      For each contract, verify TF-6 output:
+        access = Owned (preserved); consumption = Unrestricted (preserved);
+        cardinality = Many (preserved); effect = ALL = 0b111 (preserved);
+        uniqueness = contract.uniqueness (narrowed);
+        locality = contract.locality (narrowed);
+        shape = contract.shape (narrowed).
+
+    Part (b) — Appendix A row 7 column verification:
+      Row 7 = (Owned, Unrestricted, Many, contract.uniq, contract.loc,
+               contract.shape, ALL).
+      Per-column emission matches refine output: 4 preserved-from-
+      CONSERVATIVE columns + 3 narrowed-by-contract columns. Verified
+      column-by-column for each of the 5 sample contracts.
+      Per Annex E §AIMS TF-6 explicit guidance:
+        "Dimensions NOT narrowed by refine: Access (stays Owned — call
+        results always owned by caller), Consumption (stays Unrestricted —
+        caller may use result arbitrarily), Cardinality (stays Many —
+        refined by actual usage during backward demand), Effect (stays ALL
+        — EffectSummary governs this, not ReturnContract)."
+
+    Part (c) — constant-function monotonicity:
+      TF-6 always passes CONSERVATIVE as the first argument to refine:
+        transfer_tf6(contract) = refine(CONSERVATIVE, contract).
+      For fixed contract c, refine(CONSERVATIVE, c) is constant — first
+      argument always CONSERVATIVE; output depends solely on c.
+      Per L-4 reflexivity: refine(CONSERVATIVE, c) ≤ refine(CONSERVATIVE, c).
+      Hence the function f(_) = refine(CONSERVATIVE, c) is monotone for
+      any state input — same input always produces same output for given
+      contract.
+
+      Stronger monotonicity claim (not required by L-6 but verified by the
+      refinement engine): refine is monotone in its first argument for
+      fixed contract. If a ≤ b in the product order, then refine(a, c) ≤
+      refine(b, c) — the 4 preserved dimensions inherit ≤ from (a, b);
+      the 3 narrowed dimensions become equal (= c.uniq, c.loc, c.shape)
+      hence reflexively comparable. This stronger property is dispatched
+      to the refinement engine as PRIMARY discharge.
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) per-rule discharge per
+        section_04::verify_tf6_apply_contract_refine — constant-in-first-arg
+        check for refine(CONSERVATIVE, c))
+      case_analysis (PRIMARY — 5-contract sample enumeration covering the
+        (Uniqueness x Locality x Shape) carrier per
+        section_04::verify_tf6_apply_contract_refine)
+      refinement (PRIMARY — refine() narrowing-correctness check:
+        Uniqueness x Locality x Shape narrowed from CONSERVATIVE; Access x
+        Consumption x Cardinality x Effect preserved at CONSERVATIVE per
+        Annex E §AIMS TF-6 + section_04::verify_tf6_apply_contract_refine)
+      lattice (SECONDARY — accepts gracefully; product order at §02)
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis + refinement engines discharge TF-6 via 5-contract enumeration + per-column refine() narrowing-correctness check + constant-in-first-arg monotonicity

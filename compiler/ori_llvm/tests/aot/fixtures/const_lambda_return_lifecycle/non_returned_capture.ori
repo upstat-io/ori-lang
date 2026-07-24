@@ -1,0 +1,11 @@
+@main () -> int = {
+    let marker = "captured text that is deliberately longer than the small-string boundary";
+    let first = (a, b) ->
+        {
+            let marker_is_live = marker.len() > 0;
+            if marker_is_live then a else a
+        };
+    let result = first(a: [1, 2], b: [3, 4]);
+
+    if result == [1, 2] then 0 else 1
+}

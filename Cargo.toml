@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "compiler/ori_ir",
+    "compiler/ori_format",
     "compiler/ori_registry",
     "compiler/ori_diagnostic",
     "compiler/ori_lexer_core",
@@ -13,6 +14,8 @@ members = [
     "compiler/ori_fmt",
     "compiler/ori_arc",
     "compiler/ori_repr",
+    "compiler/ori_codegen",
+    "compiler/ori_vm",
     "compiler/ori_canon",
     "compiler/ori_compiler",
     "compiler/ori_stack",
@@ -24,6 +27,7 @@ members = [
 # All crates including ori_llvm are in default-members; LLVM 21 is required for oric builds.
 default-members = [
     "compiler/ori_ir",
+    "compiler/ori_format",
     "compiler/ori_registry",
     "compiler/ori_diagnostic",
     "compiler/ori_lexer_core",
@@ -35,6 +39,8 @@ default-members = [
     "compiler/ori_fmt",
     "compiler/ori_arc",
     "compiler/ori_repr",
+    "compiler/ori_codegen",
+    "compiler/ori_vm",
     "compiler/ori_canon",
     "compiler/ori_compiler",
     "compiler/ori_stack",
@@ -45,12 +51,12 @@ default-members = [
 ]
 # Excluded crates (not part of workspace at all):
 # - ori-lsp: Not yet updated to use new compiler
-exclude = [
+exclude = ["fuzz",
     "tools/ori-lsp",
 ]
 
 [workspace.package]
-version = "2026.4.26-alpha.1"
+version = "2026.7.24-alpha.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/upstat-io/ori-lang"
@@ -78,6 +84,7 @@ bincode = "1"
 
 # Internal crates (workspace members only; excluded crates use path deps directly)
 ori_ir = { path = "compiler/ori_ir" }
+ori_format = { path = "compiler/ori_format" }
 ori_registry = { path = "compiler/ori_registry" }
 ori_diagnostic = { path = "compiler/ori_diagnostic" }
 ori_lexer_core = { path = "compiler/ori_lexer_core" }
@@ -89,6 +96,8 @@ ori_eval = { path = "compiler/ori_eval" }
 ori_fmt = { path = "compiler/ori_fmt" }
 ori_arc = { path = "compiler/ori_arc" }
 ori_repr = { path = "compiler/ori_repr" }
+ori_codegen = { path = "compiler/ori_codegen" }
+ori_vm = { path = "compiler/ori_vm" }
 ori_canon = { path = "compiler/ori_canon" }
 ori_compiler = { path = "compiler/ori_compiler" }
 ori_stack = { path = "compiler/ori_stack" }
@@ -97,7 +106,16 @@ ori_stack = { path = "compiler/ori_stack" }
 [workspace.lints.rust]
 unsafe_code = "deny"
 dead_code = "deny"
-unused = "deny"
+unused = { level = "deny", priority = -1 }
+# Missing /// on pub item.
+# Staged promotion: `allow` (pre-cleanup baseline) → `warn` (post-cleanup,
+# surfaces new violations) → `deny` (gating). `clippy-all.sh` denies all
+# warnings, so `warn` here would block builds against the pre-existing
+# missing-docs sites. Run the doc-comment cleanup pass before flipping
+# to `warn`.
+missing_docs = "allow"
+# Each unsafe op in an `unsafe fn` body needs its own `unsafe {}` + SAFETY note.
+unsafe_op_in_unsafe_fn = "warn"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -120,6 +138,29 @@ must_use_candidate = "allow"
 too_many_lines = "deny"
 cognitive_complexity = "deny"
 similar_names = "allow"
+# // SAFETY: on unsafe blocks.
+# clippy::restriction tier — staged promotion `allow` (current) → `warn`
+# (post-cleanup) → `deny` (gating). `clippy-all.sh` denies warnings, so
+# `warn` here would block builds against pre-existing un-annotated unsafe
+# blocks. Run the SAFETY-annotation cleanup pass on ori_llvm, ori_rt,
+# oric before flipping to `warn`.
+undocumented_unsafe_blocks = "allow"
+
+# Additional cleanliness lints. ENABLED: hits cleared by a cleanup pass.
+fallible_impl_from = "warn"            # panic/unwrap in `impl From` -> use TryFrom
+redundant_clone = "deny"               # CL-1; nursery; hits cleared (borrow / restructure)
+needless_collect = "deny"              # CL-2; nursery; hits cleared (borrow-break FPs carry #[expect])
+# STAGED (allow now -> warn/deny after a cleanup pass; re-probe for current hit
+# counts). Several do not yet exempt tests. Staged-promotion pattern mirrors
+# missing_docs / undocumented_unsafe_blocks above.
+panic = "allow"                        # deny target (mostly test panic!())
+panic_in_result_fn = "allow"           # deny target
+unwrap_in_result = "allow"             # deny target
+arithmetic_side_effects = "allow"      # also needs clippy.toml scoping
+let_underscore_must_use = "allow"
+assertions_on_result_states = "allow"  # test weak-assertion lint
+allow_attributes = "allow"             # prefer #[expect] over #[allow]
+map_err_ignore = "allow"               # error source discarded
 
 # Optimized release profile for final/published builds.
 # Use: cargo build --profile release-lto

@@ -1,0 +1,23 @@
+// A PARTIAL by-value `match`-destructure of a Drop type — binding a proper
+// subset of fields via a rest-pattern (`{ a, .. }`) — is a double-free /
+// leak hazard: the bound field moves out (its drop now owned by the new
+// binding) while the residual still carries the type's `@drop` glue, which
+// would re-drop the moved-out field. Typeck rejects with E2048.
+//
+// Distinct from whole-value destructure (`Pair { a, b }`), which binds every
+// owned field and consumes the value exactly once.
+//
+// Spec: drop-trait-proposal.md §Execution Timing.
+
+#compile_fail(code: "E2048")
+@partial_match_destructure_rejected tests _ () -> void = { () }
+
+type Pair = { a: int, b: int }
+
+impl Pair: Drop {
+    @drop (self) -> void = ();
+}
+
+@bad (p: Pair) -> int = match p {
+    Pair { a, .. } -> a,
+};

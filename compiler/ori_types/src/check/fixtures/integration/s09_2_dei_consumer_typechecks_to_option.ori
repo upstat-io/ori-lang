@@ -1,0 +1,3 @@
+
+@p8_last () -> Option<int> = [1, 2, 3].iter().last();
+@test_p8 tests @p8_last () -> void = ();

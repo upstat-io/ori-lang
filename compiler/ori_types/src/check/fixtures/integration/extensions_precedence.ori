@@ -1,0 +1,26 @@
+type InherentWins = { value: int };
+
+impl InherentWins {
+    @rank (self) -> int = self.value;
+}
+
+extend InherentWins {
+    @rank (self) -> str = "extension";
+}
+
+trait Ranked {
+    @rank (self) -> int;
+}
+
+type TraitWins = { value: int };
+
+impl TraitWins: Ranked {
+    @rank (self) -> int = self.value;
+}
+
+extend TraitWins {
+    @rank (self) -> str = "extension";
+}
+
+@inherent_rank (value: InherentWins) -> int = value.rank();
+@trait_rank (value: TraitWins) -> int = value.rank();

@@ -11,10 +11,12 @@
 //!
 //! # Usage
 //!
-//! ```ignore
-//! use ori_llvm::aot::linker::WasmLinker;
-//! use ori_llvm::aot::wasm::WasmConfig;
+//! ```no_run
+//! use ori_llvm::aot::{TargetConfig, WasmConfig, WasmLinker};
+//! use std::path::Path;
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
+//! let target = TargetConfig::from_triple("wasm32-unknown-unknown")?;
 //! let mut linker = WasmLinker::new(&target);
 //!
 //! // Apply WASM-specific configuration
@@ -24,6 +26,8 @@
 //! // Standard linking operations
 //! linker.set_output(Path::new("output.wasm"));
 //! linker.add_object(Path::new("main.o"));
+//! # Ok(())
+//! # }
 //! ```
 
 use std::path::Path;
@@ -137,10 +141,8 @@ impl WasmLinker {
         self.cmd.arg(arg);
     }
 
-    /// Apply comprehensive WASM configuration.
-    ///
-    /// This applies memory settings, stack size, and feature flags
-    /// from a `WasmConfig` struct.
+    /// Apply memory settings, stack size, and feature flags from a
+    /// `WasmConfig`.
     pub fn apply_config(&mut self, config: &WasmConfig) {
         for arg in config.linker_args() {
             self.cmd.arg(arg);

@@ -1,0 +1,6 @@
+@main () -> int = {
+    let a: Set<str> = ["alpha string exceeding sso threshold here now", "beta string also exceeding the sso threshold"].iter().collect();
+    let b: Set<str> = ["gamma string exceeding sso threshold here now", "alpha string exceeding sso threshold here now"].iter().collect();
+    let u = a.union(other: b);
+    if u.len() == 3 then 0 else 1
+}

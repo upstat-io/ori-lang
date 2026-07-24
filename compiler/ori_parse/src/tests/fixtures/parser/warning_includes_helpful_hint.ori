@@ -1,0 +1,3 @@
+// #Detached
+
+@main () -> int = 42;

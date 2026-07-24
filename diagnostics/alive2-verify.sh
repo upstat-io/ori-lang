@@ -19,6 +19,8 @@
 #   --strict           Ignore all suppressions (for deep manual verification)
 #   --check-survival   Verify that target functions survive optimization (not inlined away)
 #   --review-suppressions  Check if suppressed entries still need suppression (stale detection)
+#   --classify-function PREOPT_LL FUNC  Print the Alive2-modellability of FUNC's pre-opt
+#                      IR ("modellable" / "unmodellable:<class>"); needs no alive-tv/build
 #   --no-color         Disable color output
 #   -h, --help         Show this help message
 #
@@ -43,6 +45,9 @@ STRICT=false
 CHECK_SURVIVAL=false
 NO_COLOR=false
 ORI_FILE=""
+CLASSIFY_MODE=false
+CLASSIFY_LL=""
+CLASSIFY_FUNC=""
 
 # --- Color helpers ---
 RED='\033[0;31m'
@@ -64,6 +69,67 @@ cecho() {
     fi
 }
 
+# --- Classify a function's Alive2-modellability from its pre-opt IR ---
+# Scans the named function's body for constructs Alive2 cannot model, per
+# tests/alive2/README.md "Corpus Selection Criteria" (the SSOT for the exclusion
+# classes). Prints "modellable" or "unmodellable:<class>" (eh|variadic|cow|rc).
+# Inputs are passed by ARGV (never interpolated into a shell-quoted heredoc) so
+# $-bearing names (@"_ori_elem_dec$3") and injection are non-issues. The runtime
+# prefix @ori_ (no leading underscore) distinguishes a runtime call from a
+# user/compiled function (@_ori_*), so a @_ori_helper call stays modellable; the
+# memory-family token match is deliberately broad (it catches embedded tokens like
+# ori_list_alloc_data / ori_buffer_drop_unique), and @ori_ is reserved runtime.
+classify_function_modellability() {
+    local llfile="$1" func="$2"
+    if [[ ! -f "$llfile" ]]; then
+        echo "error: IR file not found: $llfile"
+        return 2
+    fi
+    # Extract the function body, stripping LLVM `;` end-of-line comments so the
+    # construct scans never match a word inside a comment (e.g. "; resume later").
+    local body
+    body=$(awk -v fn="$func" '
+        BEGIN { infn = 0 }
+        !infn && /^define/ {
+            if (index($0, "@\"" fn "\"(") || index($0, "@" fn "(")) { infn = 1 }
+        }
+        infn { print }
+        infn && /^}/ { infn = 0 }
+    ' "$llfile" | sed 's/;.*//')
+    if [[ -z "$body" ]]; then
+        echo "error: function '$func' not found in $llfile"
+        return 2
+    fi
+    # Exception handling (IR opcodes) — README Exclude: "Exception handling".
+    if grep -Eq '(^|[[:space:]])(landingpad|resume)([[:space:]]|$)|(^|[[:space:]])invoke[[:space:]]' <<<"$body"; then
+        echo "unmodellable:eh"; return 0
+    fi
+    # Variadic — README Exclude: "Variadic functions".
+    if grep -Eq '(^|[[:space:]])va_arg([[:space:]]|$)|@llvm\.va_(start|end)|\.\.\.\)' <<<"$body"; then
+        echo "unmodellable:variadic"; return 0
+    fi
+    # COW uniqueness — checked BEFORE rc. Covers ori_rc_is_unique +
+    # ori_rc_is_unique_or_null (no trailing-( anchor so the _or_null variant
+    # matches). @ori_<name> is a runtime symbol (user functions are @_ori_*).
+    if grep -Eq '@ori_[a-zA-Z0-9_]*is_unique' <<<"$body"; then
+        echo "unmodellable:cow"; return 0
+    fi
+    # Memory-management runtime calls — README Exclude "RC operations (Alive2 can't
+    # model custom allocators)". The unmodellable memory family: custom allocators
+    # (ori_*alloc*: ori_alloc, ori_rc_alloc, ori_list_alloc_data, ori_*_literal_alloc),
+    # free (ori_rc_free, ori_list_free*), drop (ori_*drop*), refcount
+    # (ori_*rc_(inc|dec) across every container), buffer ops (ori_*buffer*),
+    # elem-dec drop-glue (ori_*elem_dec), and panic. PURE runtime calls
+    # (ori_compare_*, ori_format_*, ori_iter_map/...) are NOT excluded — alive-tv
+    # models them as consistent uninterpreted functions. @ori_ = runtime (user
+    # functions are @_ori_*, so a @_ori_helper call stays modellable).
+    if grep -Eq '@ori_[a-zA-Z0-9_]*(alloc|free|drop|rc_inc|rc_dec|buffer|elem_dec|panic)' <<<"$body"; then
+        echo "unmodellable:rc"; return 0
+    fi
+    echo "modellable"
+    return 0
+}
+
 # --- Parse arguments ---
 usage() {
     sed -n '2,/^$/{ s/^# //; s/^#$//; p; }' "$0"
@@ -82,12 +148,25 @@ while [[ $# -gt 0 ]]; do
         --suppress) SUPPRESS_FILE="$2"; shift 2 ;;
         --strict) STRICT=true; shift ;;
         --check-survival) CHECK_SURVIVAL=true; shift ;;
+        --classify-function) CLASSIFY_MODE=true; CLASSIFY_LL="${2:-}"; CLASSIFY_FUNC="${3:-}"; shift; [[ $# -gt 0 ]] && shift; [[ $# -gt 0 ]] && shift ;;
         --no-color) NO_COLOR=true; shift ;;
         -h|--help) usage; exit 0 ;;
         -*) echo "ERROR: Unknown option: $1" >&2; usage >&2; exit 2 ;;
         *) ORI_FILE="$1"; shift ;;
     esac
 done
+
+# --- Classify-function mode: pure pre-opt-IR modellability scan ---
+# Short-circuits BEFORE the input/alive-tv/ORI_BIN guards — it needs neither a
+# .ori target, the alive-tv binary, nor the ori compiler (only the .ll file).
+if [[ "$CLASSIFY_MODE" == "true" ]]; then
+    if [[ -z "$CLASSIFY_LL" ]] || [[ -z "$CLASSIFY_FUNC" ]]; then
+        echo "ERROR: --classify-function requires <preopt.ll> <function>" >&2
+        exit 2
+    fi
+    classify_function_modellability "$CLASSIFY_LL" "$CLASSIFY_FUNC"
+    exit $?
+fi
 
 # --- Validate inputs ---
 if [[ "$CORPUS_MODE" == "false" ]] && [[ "$ALL_CODEGEN_MODE" == "false" ]] && [[ "$REVIEW_SUPPRESSIONS" == "false" ]] && [[ -z "$ORI_FILE" ]]; then
@@ -151,36 +230,51 @@ extract_functions() {
     grep '^define' "$1" 2>/dev/null | sed 's/.*@\"\{0,1\}\([^" (]*\)\"\{0,1\}.*/\1/'
 }
 
+# --- Captured-IR paths for a .ori source (SSOT for the ir_capture.rs naming) ---
+# ir_capture.rs names each captured IR file by the source path with a leading
+# `./` stripped, every `/` -> `_`, and the `.ori` suffix dropped, under
+# RESULTS_DIR. Echoes "<preopt.ll> <postopt.ll>"; the caller splits with `read`.
+# Sanitizes whatever path it is handed (repo-relative in --review-suppressions,
+# absolute in --all-codegen / single-file), so both modes share one mapping.
+captured_ir_paths() {
+    local stem
+    stem=$(echo "$1" | sed 's|^\./||; s|/|_|g')
+    stem="${stem%.ori}"
+    echo "$RESULTS_DIR/${stem}.preopt.ll $RESULTS_DIR/${stem}.postopt.ll"
+}
+
 # --- Check if a function+file pair is in the suppression list ---
-# Uses python3 for reliable JSON parsing — available on all CI runners.
+# Suppressed iff the SOLE match predicate (get_suppression_category) finds an
+# entry — a non-empty category print means a file+function match.
 is_suppressed() {
     local func="$1" file="$2"
     if [[ "$STRICT" == "true" ]] || [[ ! -f "$SUPPRESS_FILE" ]]; then
         return 1
     fi
-    python3 -c "
-import json, sys
-with open('$SUPPRESS_FILE') as f:
-    entries = json.load(f)
-for e in entries:
-    if e.get('function') == '$func' and ('$file' == '' or e.get('file', '') == '$file'):
-        sys.exit(0)
-sys.exit(1)
-" 2>/dev/null
+    [[ -n "$(get_suppression_category "$func" "$file")" ]]
 }
 
-# --- Get suppression category for a function ---
+# --- Suppression-match predicate (SSOT for is_suppressed + category lookup) ---
+# Prints the matching entry's category; the file+function match IS the
+# suppression test, so empty output = not suppressed. suppressed.json stores
+# REPO-RELATIVE file paths; the $file passed in --all-codegen / --corpus mode is
+# ABSOLUTE, so normalize before comparing (else a file-pinned suppression
+# silently never matches). Values are passed by ARGV (sys.argv), never
+# interpolated into the python source (injection + $-bearing-name quoting
+# hazard). Uses python3 for reliable JSON parsing — available on all CI runners.
 get_suppression_category() {
     local func="$1" file="$2"
-    python3 -c "
-import json
-with open('$SUPPRESS_FILE') as f:
+    local file_rel="${file#"$ROOT_DIR"/}"
+    python3 - "$SUPPRESS_FILE" "$func" "$file_rel" "$file" <<'PY' 2>/dev/null
+import json, sys
+suppress_file, func, file_rel, file_abs = sys.argv[1:5]
+with open(suppress_file) as f:
     entries = json.load(f)
 for e in entries:
-    if e.get('function') == '$func' and ('$file' == '' or e.get('file', '') == '$file'):
+    if e.get('function') == func and (file_rel == '' or e.get('file', '') in (file_rel, file_abs)):
         print(e.get('category', 'unknown'))
         break
-" 2>/dev/null
+PY
 }
 
 # --- Review suppressions: check if suppressed entries still need suppression ---
@@ -212,11 +306,8 @@ review_suppressions() {
             echo "build failed — keep suppression"
             continue
         fi
-        local sanitized
-        sanitized=$(echo "$file" | sed 's|^\./||; s|/|_|g')
-        sanitized="${sanitized%.ori}"
-        local preopt="$RESULTS_DIR/${sanitized}.preopt.ll"
-        local postopt="$RESULTS_DIR/${sanitized}.postopt.ll"
+        local preopt postopt
+        read -r preopt postopt < <(captured_ir_paths "$file")
         if [[ ! -f "$preopt" ]] || [[ ! -f "$postopt" ]]; then
             echo "capture failed — keep suppression"
             continue
@@ -258,11 +349,8 @@ verify_file() {
     fi
 
     # Find the captured IR files
-    local basename
-    basename=$(echo "$ori_file" | sed 's|^\./||; s|/|_|g')
-    basename="${basename%.ori}"
-    local preopt="$RESULTS_DIR/${basename}.preopt.ll"
-    local postopt="$RESULTS_DIR/${basename}.postopt.ll"
+    local preopt postopt
+    read -r preopt postopt < <(captured_ir_paths "$ori_file")
 
     if [[ ! -f "$preopt" ]] || [[ ! -f "$postopt" ]]; then
         cecho "$RED" "  CAPTURE FAILED: IR files not generated for $ori_file"
@@ -303,6 +391,21 @@ verify_file() {
             FAILED=$((FAILED + 1))
             file_failed=$((file_failed + 1))
             json_record "$ori_file" "$func" "error" "" "Function not found in pre-opt IR"
+            continue
+        fi
+
+        # Content-scan: skip functions Alive2 cannot model (RC / exception-handling
+        # / COW / variadic per tests/alive2/README.md "Corpus Selection Criteria").
+        # alive-tv reports a documented false positive on these (it can't model
+        # custom allocators / invoke-landingpad / external side-effecting calls),
+        # so they are recorded `suppressed`/`unmodellable`, NOT `failed`.
+        local modellability
+        modellability=$(classify_function_modellability "$preopt" "$func")
+        if [[ "$modellability" == unmodellable:* ]]; then
+            local uclass="${modellability#unmodellable:}"
+            [[ "$VERBOSE" == "true" ]] && cecho "$YELLOW" "  UNMODELLABLE: $func ($uclass — Alive2 false-positive class)"
+            SUPPRESSED=$((SUPPRESSED + 1))
+            json_record "$ori_file" "$func" "suppressed" "unmodellable:$uclass"
             continue
         fi
 
@@ -420,7 +523,11 @@ if [[ "$JSON_OUTPUT" == "true" ]] && [[ -n "$JSON_ENTRIES_FILE" ]]; then
     [[ "$ALL_CODEGEN_MODE" == "true" ]] && json_mode="full-sweep"
     # Extract alive2 commit from build script
     alive2_commit=$(grep 'ALIVE2_COMMIT=' "$ROOT_DIR/scripts/build-alive2.sh" 2>/dev/null | head -1 | cut -d'"' -f2)
-    llvm_major=$("$ROOT_DIR/build/alive2/alive-tv" --version 2>&1 | sed -n 's/.*LLVM \([0-9]*\).*/\1/p' | head -1)
+    # alive-tv --version prints "LLVM version 21.0.0" (digits do NOT immediately
+    # follow "LLVM " — they follow "version "), so match the optional "version"
+    # word; handles both "LLVM version 21" and a bare "LLVM 21".
+    llvm_major=$("$ROOT_DIR/build/alive2/alive-tv" --version 2>&1 \
+        | grep -oiE 'LLVM[ -]+(version[ ]+)?[0-9]+' | grep -oE '[0-9]+' | head -1)
     if [[ -z "$llvm_major" ]]; then
         echo "WARNING: Could not parse LLVM version from alive-tv --version" >&2
         llvm_major="0"

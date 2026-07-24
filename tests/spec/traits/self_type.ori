@@ -34,11 +34,11 @@ trait Combinable {
 
 type Amount = { value: int }
 
-impl Cloneable for Amount {
+impl Amount: Cloneable {
     @clone (self) -> Self = Amount { value: self.value }
 }
 
-impl Combinable for Amount {
+impl Amount: Combinable {
     @combine (self, other: Self) -> Self = Amount { value: self.value + other.value }
 }
 
@@ -53,7 +53,7 @@ trait Doubler {
 
 type Number = { n: int }
 
-impl Doubler for Number {
+impl Number: Doubler {
     @value (self) -> int = self.n;
     @double (self) -> Self = Number { n: self.n * 2 }
 }
@@ -68,7 +68,7 @@ trait Identity {
 
 type Wrapper = { inner: int }
 
-impl Identity for Wrapper {
+impl Wrapper: Identity {
     @identity (self) -> Self = Wrapper { inner: self.inner }
 }
 

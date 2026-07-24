@@ -1,0 +1,1 @@
+@test () -> void = try { let $x = Ok(5); Ok(x) }

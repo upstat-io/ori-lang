@@ -241,3 +241,95 @@ use std.testing { assert, assert_eq }
 }
 
 @size_to_str_zero () -> str = 0b.to_str();
+
+// =============================================================================
+// Composite renders + derived-field path. These cells pin the formatted-unit-string
+// output across the composite-render + derived-Printable blast radius (interp == AOT
+// parity). The derived-struct cells exercise Printable formatting of a Duration/Size
+// struct field, distinct from the scalar to_str path above.
+// =============================================================================
+
+// ---- Derived Debug struct with a Duration field (emit_field_to_string path) ----
+#[derive(Debug)]
+type DurationHolder = { label: str, elapsed: Duration }
+
+@test_derived_struct_duration_field tests @derived_struct_duration_field () -> void = {
+    let h = DurationHolder { label: "build", elapsed: 2h };
+    let s = h.debug();
+    assert(cond: s.contains(substring: "2h"))
+}
+
+@derived_struct_duration_field () -> str = DurationHolder { label: "build", elapsed: 2h }.debug();
+
+// ---- Derived Debug struct with a Size field ----
+#[derive(Debug)]
+type SizeHolder = { label: str, capacity: Size }
+
+@test_derived_struct_size_field tests @derived_struct_size_field () -> void = {
+    let h = SizeHolder { label: "disk", capacity: 1tb };
+    let s = h.debug();
+    assert(cond: s.contains(substring: "1tb"))
+}
+
+@derived_struct_size_field () -> str = SizeHolder { label: "disk", capacity: 1tb }.debug();
+
+// ---- Template interpolation (Printable to_str via emit_to_str) ----
+@test_duration_interpolation tests @duration_interpolation () -> void = {
+    let d = 100ms;
+    let s = `elapsed={d}`;
+    assert(cond: s.contains(substring: "100ms"))
+}
+
+@duration_interpolation () -> str = {
+    let d = 100ms;
+    `elapsed={d}`
+}
+
+@test_size_interpolation tests @size_interpolation () -> void = {
+    let sz = 64kb;
+    let s = `cap={sz}`;
+    assert(cond: s.contains(substring: "64kb"))
+}
+
+@size_interpolation () -> str = {
+    let sz = 64kb;
+    `cap={sz}`
+}
+
+// ---- Option<Duration> debug (emit_element_to_str composite path) ----
+@test_option_duration_debug tests @option_duration_debug () -> void = {
+    let s = Some(2h).debug();
+    assert(cond: s.contains(substring: "2h"))
+}
+
+@option_duration_debug () -> str = Some(2h).debug();
+
+// ---- Result<int, Size> Err debug ----
+@test_result_size_debug tests @result_size_debug () -> void = {
+    let r: Result<int, Size> = Err(4gb);
+    let s = r.debug();
+    assert(cond: s.contains(substring: "4gb"))
+}
+
+@result_size_debug () -> str = {
+    let r: Result<int, Size> = Err(4gb);
+    r.debug()
+}
+
+// ---- NEGATIVE PIN: the formatted string must NOT be the raw nanosecond/byte
+// integer (the broken bare-int path emits the raw count). Rejects the regression. ----
+@test_duration_to_str_not_bare_int tests @duration_to_str_not_bare_int () -> void = {
+    // 2h == 7_200_000_000_000 ns; the bare-int path would emit that raw count.
+    let s = 2h.to_str();
+    assert(cond: !s.contains(substring: "7200000000000"))
+}
+
+@duration_to_str_not_bare_int () -> str = 2h.to_str();
+
+@test_size_to_str_not_bare_int tests @size_to_str_not_bare_int () -> void = {
+    // 1tb == 1_000_000_000_000 bytes; the bare-int path would emit that raw count.
+    let s = 1tb.to_str();
+    assert(cond: !s.contains(substring: "1000000000000"))
+}
+
+@size_to_str_not_bare_int () -> str = 1tb.to_str();

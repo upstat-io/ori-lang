@@ -6,7 +6,7 @@
 use super::transfer::{range_add, range_mul, range_neg, range_sub};
 use super::*;
 
-// ─── join ──────────────────────────────────────────────────────
+// join
 
 #[test]
 fn join_bottom_identity() {
@@ -77,7 +77,7 @@ fn join_nested_ranges() {
     assert_eq!(outer.join(inner), outer);
 }
 
-// ─── meet ──────────────────────────────────────────────────────
+// meet
 
 #[test]
 fn meet_top_identity() {
@@ -140,7 +140,7 @@ fn meet_nested_ranges() {
     assert_eq!(outer.meet(inner), inner);
 }
 
-// ─── fits_in ───────────────────────────────────────────────────
+// fits_in
 
 #[test]
 fn fits_in_i8_boundaries() {
@@ -204,7 +204,7 @@ fn fits_in_bottom_all_widths() {
     assert!(ValueRange::Bottom.fits_in(IntWidth::I64));
 }
 
-// ─── min_width ─────────────────────────────────────────────────
+// min_width
 
 #[test]
 fn min_width_i8_range() {
@@ -292,7 +292,7 @@ fn min_width_bottom() {
     assert_eq!(ValueRange::Bottom.min_width(), IntWidth::I8);
 }
 
-// ─── is_constant ───────────────────────────────────────────────
+// is_constant
 
 #[test]
 fn is_constant_single_value() {
@@ -318,7 +318,7 @@ fn is_constant_special() {
     assert_eq!(ValueRange::Top.is_constant(), None);
 }
 
-// ─── overlaps ──────────────────────────────────────────────────
+// overlaps
 
 #[test]
 fn overlaps_disjoint() {
@@ -365,14 +365,14 @@ fn overlaps_with_top() {
     assert!(ValueRange::Top.overlaps(&ValueRange::Top));
 }
 
-// ─── Default ───────────────────────────────────────────────────
+// Default
 
 #[test]
 fn default_is_top() {
     assert_eq!(ValueRange::default(), ValueRange::Top);
 }
 
-// ─── IntWidth::signed_range / unsigned_range ───────────────────
+// IntWidth::signed_range / unsigned_range
 
 #[test]
 fn signed_range_i8() {
@@ -441,7 +441,7 @@ fn unsigned_range_i64_is_top() {
     assert_eq!(IntWidth::I64.unsigned_range(), ValueRange::Top);
 }
 
-// ─── i64 boundary edge cases ───────────────────────────────────
+// i64 boundary edge cases
 
 #[test]
 fn min_width_i64_min_constant() {
@@ -467,7 +467,7 @@ fn fits_in_i64_boundaries() {
     assert!(full.fits_in(IntWidth::I64));
 }
 
-// ─── RangeAnalysisConfig ───────────────────────────────────────
+// RangeAnalysisConfig
 
 #[test]
 fn config_default_values() {
@@ -475,10 +475,10 @@ fn config_default_values() {
     assert_eq!(c.max_iterations, 20);
     assert_eq!(c.max_blocks, 500);
     assert_eq!(c.max_scc_iterations, 10);
-    assert_eq!(c.max_total_scc_iterations, 50);
+    assert_eq!(c.max_feedback_iterations, 5);
 }
 
-// ─── FieldSummaryTable ─────────────────────────────────────────
+// FieldSummaryTable
 
 use super::field_summary::FieldSummaryTable;
 use crate::plan::{NarrowingPolicy, ReprPlan};
@@ -511,7 +511,7 @@ fn field_summary_single_construction_site() {
 }
 
 /// Semantic pin: two construction sites produce joined ranges.
-/// This is the §03→§04 contract for struct field narrowing.
+/// This is the →contract for struct field narrowing.
 #[test]
 fn field_summary_pixel_semantic_pin() {
     let mut table = FieldSummaryTable::new();
@@ -600,7 +600,7 @@ fn field_summary_flush_joins_across_functions() {
     );
 }
 
-// ─── is_int_typed regression tests ──────────────
+// is_int_typed regression tests
 
 /// Semantic pin: `is_int_typed` returns true for `Idx::INT`.
 #[test]
@@ -693,7 +693,7 @@ fn is_int_typed_unresolved_applied() {
     );
 }
 
-// ─── Property-based tests (proptest) ──────────────────────────
+// Property-based tests (proptest)
 
 #[expect(
     clippy::disallowed_types,

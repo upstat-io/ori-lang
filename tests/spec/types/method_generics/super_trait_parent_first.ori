@@ -1,0 +1,21 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// Proposal: docs/ori_lang/proposals/approved/object-safety-rules-proposal.md
+// BUG-01-002 §03 super-trait inheritance — parent declared first
+//
+// Parent trait has a generic method; child inherits it transitively.
+// Using `Sub` at a trait-object position MUST reject with E2024 because
+// it inherits a generic method via the super-trait DAG. Tests Phase B.1
+// two-phase registration's super-trait DAG walk (parent-first ordering).
+
+trait Super {
+    @generic<T> (self) -> T
+}
+
+trait Sub: Super {
+    @ok (self) -> int
+}
+
+#compile_fail(code: "E2024")
+@super_trait_parent_first tests _ () -> void = { () }
+@uses_sub (s: Sub) -> int = s.ok();

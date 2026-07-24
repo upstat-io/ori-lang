@@ -1,0 +1,5 @@
+@main () -> int = {
+    let a: Set<int> = [5, 1, 4, 2, 3].iter().collect();
+    let b: Set<int> = [1, 2, 3, 4, 5].iter().collect();
+    if a == b then 0 else 1
+}

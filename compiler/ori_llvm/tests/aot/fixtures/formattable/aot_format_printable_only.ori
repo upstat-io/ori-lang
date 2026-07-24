@@ -1,0 +1,17 @@
+// Non-primitive `{x:spec}` desugar — branch (b): Printable-only (no explicit
+// `Formattable` impl). The canon desugar emits `FormatWith { x.to_str(), spec }`,
+// re-routing through the `Idx::STR => "ori_format_str"` arm that applies
+// width/align/fill in both backends. Exercises the AOT native-binary path (L8)
+// under `ORI_CHECK_LEAKS=1` — the `to_str()` heap `str` must round-trip leak-free.
+
+type Pt = { x: int, y: int }
+
+impl Pt: Printable {
+    @to_str (self) -> str = "(" + str(self.x) + "," + str(self.y) + ")";
+}
+
+@main () -> int = {
+    let p = Pt { x: 3, y: 4 };
+    // width 10, right-align: "(3,4)" (5 chars) -> 5 leading spaces.
+    if `{p:>10}` == "     (3,4)" && `{p:*<8}` == "(3,4)***" then 0 else 1
+}

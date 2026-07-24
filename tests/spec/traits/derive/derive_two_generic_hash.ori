@@ -1,0 +1,57 @@
+// Spec: 06-types.md § Derive — Hashable on a distinct-outer-generic receiver
+// Formal semantics: a derived `hash` must be emitted for every concrete instantiation
+// a call site can demand, including an inner instantiation reachable ONLY through a
+// distinct outer generic's field (`Outer<Inner<int>>` -> inner `Inner<int>`). The
+// mono-aware derive path emits a per-instantiation method only for
+// instantiations `compile_derives` reaches via its `module.types` iteration; the
+// inner-only `Inner<int>` instantiation STARVES on the AOT (LLVM) backend with
+// "unresolved function `hash` in apply — missing mono instance?", while the
+// interpreter (the parity oracle) computes the value correctly.
+//
+// TDD-first: these cells FAIL pre-fix on the LLVM backend (missing mono
+// instance) and PASS on the interpreter. ISOLATION: `hash` only, no `.debug()` cell
+// on the same instantiation (debug emission would materialize the inner instance and
+// MASK the hash starve). Golden hash from the interpreter (the parity oracle);
+// re-bless only if the derive-hash algorithm changes for BOTH backends together.
+
+use std.testing { assert }
+
+#[derive(Eq, Hashable, Debug)]
+type Inner<T> = { x: T }
+
+#[derive(Eq, Hashable, Debug)]
+type Outer<T> = { y: Inner<T> }
+
+// Equal nested values hash equally (determinism).
+@test_two_generic_hash_stable tests @two_hash_stable () -> void = {
+    let a = Outer { y: Inner { x: 3 } };
+    let b = Outer { y: Inner { x: 3 } };
+    assert(cond: a.hash() == b.hash())
+}
+@two_hash_stable () -> bool = {
+    let a = Outer { y: Inner { x: 3 } };
+    let b = Outer { y: Inner { x: 3 } };
+    a.hash() == b.hash()
+}
+
+// Distinct inner values must hash distinctly.
+@test_two_generic_hash_differs tests @two_hash_differs () -> void = {
+    let a = Outer { y: Inner { x: 3 } };
+    let b = Outer { y: Inner { x: 4 } };
+    assert(cond: a.hash() != b.hash())
+}
+@two_hash_differs () -> bool = {
+    let a = Outer { y: Inner { x: 3 } };
+    let b = Outer { y: Inner { x: 4 } };
+    a.hash() != b.hash()
+}
+
+// Exact-value parity oracle (L9) — golden hash from the interpreter.
+@test_two_generic_hash_exact tests @two_hash_exact () -> void = {
+    let a = Outer { y: Inner { x: 3 } };
+    assert(cond: a.hash() == 5308871541)
+}
+@two_hash_exact () -> int = {
+    let a = Outer { y: Inner { x: 3 } };
+    a.hash()
+}

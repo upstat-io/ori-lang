@@ -1,0 +1,16 @@
+// Inherent method on a generic type called on two distinct `Box<int>` receivers;
+// both call sites share one monomorphized `unwrap` body (mangled-name dedup).
+
+type Box<T> = { value: T };
+
+impl<T> Box<T> {
+    @unwrap (self) -> T = self.value;
+}
+
+@unbox (b: Box<int>) -> int = b.unwrap();
+
+@main () -> int = {
+    let lo = Box { value: 7 };
+    let hi = Box { value: -7 };
+    if unbox(b: lo) == 7 && unbox(b: hi) == -7 then 0 else 1
+}

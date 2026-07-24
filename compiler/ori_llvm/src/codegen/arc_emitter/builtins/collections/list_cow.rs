@@ -4,17 +4,81 @@
 //! owned (RC == 1), mutation happens in-place; when shared, a copy is made
 //! first. Each method returns a `{i64 len, i64 cap, ptr data}` struct.
 
-use ori_types::Idx;
+mod scalar_update;
+mod transforms;
 
-use crate::codegen::value_id::ValueId;
+use ori_arc::CowMode;
+use ori_ir::{FIELD_DATA, FIELD_LEN};
+use ori_types::{Idx, Tag};
 
+use crate::codegen::value_id::{FunctionId, ValueId};
+
+use self::scalar_update::ScalarUpdatedArgs;
 use super::super::super::ArcIrEmitter;
 
+/// Physical storage available to a list mutation receiver.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum YieldReceiverStorage {
+    /// Runtime-managed heap storage.
+    Runtime,
+    /// Stack storage retaining a runtime-compatible header.
+    ManagedStack,
+    /// Compact stack storage without a runtime allocation.
+    CompactStack,
+}
+
+#[derive(Clone, Copy)]
+enum IndexedListCowOperation {
+    Set,
+    Insert,
+}
+
+impl YieldReceiverStorage {
+    const fn is_stack(self) -> bool {
+        match self {
+            Self::Runtime => false,
+            Self::ManagedStack | Self::CompactStack => true,
+        }
+    }
+}
+
+impl IndexedListCowOperation {
+    const fn runtime_symbol(self) -> &'static str {
+        match self {
+            Self::Set => "ori_list_set_cow",
+            Self::Insert => "ori_list_insert_cow",
+        }
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Set => "set",
+            Self::Insert => "insert",
+        }
+    }
+}
+
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
+    fn emit_list_cow_call(
+        &mut self,
+        func_id: FunctionId,
+        label: &str,
+        mut args: Vec<ValueId>,
+    ) -> Option<ValueId> {
+        let list_struct_ty = self.list_struct_type();
+        let out =
+            self.builder
+                .create_entry_alloca(self.current_function, "list.cow.out", list_struct_ty);
+        args.push(out);
+        self.emit_rt_call(func_id, &args, label);
+        Some(self.builder.load(list_struct_ty, out, "list.cow.val"))
+    }
+
     /// Emit `list.push(x)` — COW push returning the (possibly mutated) list.
     ///
     /// Fast path (unique + capacity): appends in place, O(1).
     /// Slow path (shared): copies to new buffer, O(n).
+    #[must_use = "the absence of a value must be handled"]
     pub(crate) fn emit_list_push_cow(
         &mut self,
         receiver: ValueId,
@@ -22,22 +86,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         elem_ty: Idx,
         cow_mode: ValueId,
         list_ty: Idx,
+        receiver_returned: bool,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_push_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "push.elem");
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
-        let list_struct_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "push.out", list_struct_ty);
-
-        self.emit_rt_call(
+        let result = self.emit_list_cow_call(
             func_id,
-            &[
+            "push",
+            vec![
                 data_ptr,
                 len,
                 cap,
@@ -46,59 +107,32 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_align_val,
                 inc_fn,
                 cow_mode,
-                out,
             ],
-            "push",
-        );
-
-        Some(self.builder.load(list_struct_ty, out, "push.val"))
-    }
-
-    /// Emit `list.pop()` — COW pop returning the list with last element removed.
-    ///
-    /// Fast path (unique): decrements len in place, O(1).
-    /// Slow path (shared): copies to new buffer with len-1 elements.
-    #[expect(dead_code, reason = "pop dispatch not yet wired — see task #3")]
-    pub(crate) fn emit_list_pop_cow(
-        &mut self,
-        receiver: ValueId,
-        elem_ty: Idx,
-        cow_mode: ValueId,
-        list_ty: Idx,
-    ) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_list_pop_cow");
-
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
-        let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
-        let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
-
-        let list_struct_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "pop.out", list_struct_ty);
-
-        self.emit_rt_call(
-            func_id,
-            &[
-                data_ptr,
-                len,
-                cap,
-                elem_size_val,
-                elem_align_val,
-                inc_fn,
-                cow_mode,
-                out,
-            ],
-            "pop",
-        );
-
-        Some(self.builder.load(list_struct_ty, out, "pop.val"))
+        )?;
+        // INVARIANT: Only returned receivers own the element keep-alive credit.
+        let header_store_disabled = push_result_elem_header_store_disabled();
+        if !receiver_returned || header_store_disabled {
+            return Some(result);
+        }
+        let result_data = self
+            .builder
+            .extract_value(result, FIELD_DATA, "push.data")?;
+        let result_len = self.builder.extract_value(result, FIELD_LEN, "push.len")?;
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
+        let store_dec = self.builder.runtime_fn("ori_buffer_store_elem_dec");
+        self.builder
+            .call(store_dec, &[result_data, elem_dec_fn], "");
+        let store_count = self.builder.runtime_fn("ori_buffer_store_elem_count");
+        self.builder
+            .call(store_count, &[result_data, result_len], "");
+        Some(result)
     }
 
     /// Emit `list.set(index, value)` — COW index assignment returning modified list.
     ///
     /// Fast path (unique): overwrites element at index in place.
     /// Slow path (shared): copies buffer, overwrites target index.
+    #[must_use = "the absence of a value must be handled"]
     pub(crate) fn emit_list_set_cow(
         &mut self,
         receiver: ValueId,
@@ -108,21 +142,37 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         cow_mode: ValueId,
         list_ty: Idx,
     ) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_list_set_cow");
+        self.emit_indexed_list_cow(
+            receiver,
+            index,
+            elem,
+            elem_ty,
+            cow_mode,
+            list_ty,
+            IndexedListCowOperation::Set,
+        )
+    }
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
-        let elem_ptr = self.elem_to_ptr(elem, elem_ty, "set.elem");
+    fn emit_indexed_list_cow(
+        &mut self,
+        receiver: ValueId,
+        index: ValueId,
+        elem: ValueId,
+        elem_ty: Idx,
+        cow_mode: ValueId,
+        list_ty: Idx,
+        operation: IndexedListCowOperation,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn(operation.runtime_symbol());
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
+        let elem_ptr = self.elem_to_ptr(elem, elem_ty, &format!("{}.elem", operation.label()));
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
-        let list_struct_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "set.out", list_struct_ty);
-
-        self.emit_rt_call(
+        self.emit_list_cow_call(
             func_id,
-            &[
+            operation.label(),
+            vec![
                 data_ptr,
                 len,
                 cap,
@@ -132,18 +182,116 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_align_val,
                 inc_fn,
                 cow_mode,
-                out,
             ],
-            "set",
+        )
+    }
+
+    /// Emits COW replacement for `list.updated(key, value)`. Unique lists update
+    /// in place; shared lists copy first. The runtime panics on out-of-bounds keys
+    /// and consumes the value's owned reference.
+    #[must_use = "the absence of a value must be handled"]
+    pub(crate) fn emit_list_updated_cow(
+        &mut self,
+        receiver: ValueId,
+        key: ValueId,
+        elem: ValueId,
+        elem_ty: Idx,
+        cow_mode: CowMode,
+        list_ty: Idx,
+        receiver_storage: YieldReceiverStorage,
+        negated_same_index: bool,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_list_updated_cow");
+
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
+        let args = ScalarUpdatedArgs {
+            receiver,
+            key,
+            elem,
+            data_ptr,
+            len,
+            cap,
+            elem_ty,
+            cow_mode,
+            list_ty,
+            receiver_storage,
+            func_id,
+        };
+        if let Some(result) = self.try_emit_negated_bool_update(&args, negated_same_index) {
+            return Some(result);
+        }
+        // Why: Direct scalar overwrite avoids runtime calls; unsafe shapes retain COW checks.
+        if self.classifier.is_scalar(elem_ty) {
+            return self.emit_scalar_list_updated_cow(&args);
+        }
+
+        self.emit_nonscalar_list_updated_cow(&args)
+    }
+
+    fn try_emit_negated_bool_update(
+        &mut self,
+        args: &ScalarUpdatedArgs,
+        negated_same_index: bool,
+    ) -> Option<ValueId> {
+        let bool_elem = self.pool.tag(self.pool.resolve_fully(args.elem_ty)) == Tag::Bool;
+        if !bool_elem
+            || !args.receiver_storage.is_stack()
+            || args.cow_mode != CowMode::StaticUnique
+            || !negated_same_index
+        {
+            return None;
+        }
+
+        let elem_llvm_ty = self
+            .builder
+            .register_type(self.builder.scx().type_i8().into());
+        let elem_ptr = self.builder.gep(
+            elem_llvm_ty,
+            args.data_ptr,
+            &[args.key],
+            "updated.toggle.elem_ptr",
         );
 
-        Some(self.builder.load(list_struct_ty, out, "set.val"))
+        let old = self
+            .builder
+            .load(elem_llvm_ty, elem_ptr, "updated.toggle.old");
+        let one = self.builder.const_i8(1);
+        let toggled = self.builder.xor(old, one, "updated.toggle.value");
+        self.builder.store(toggled, elem_ptr);
+        Some(args.receiver)
+    }
+
+    fn emit_nonscalar_list_updated_cow(&mut self, args: &ScalarUpdatedArgs) -> Option<ValueId> {
+        let elem_ptr = self.elem_to_ptr(args.elem, args.elem_ty, "updated.elem");
+        let (elem_size_val, elem_align_val) =
+            self.elem_size_and_align(args.elem_ty, Some(args.list_ty));
+        let inc_fn = self.get_or_generate_elem_inc_fn(args.elem_ty);
+        let dec_fn = self.get_or_generate_elem_dec_fn(args.elem_ty);
+        let cow_mode = self.builder.const_i32(cow_mode_code(args.cow_mode));
+
+        self.emit_list_cow_call(
+            args.func_id,
+            "updated",
+            vec![
+                args.data_ptr,
+                args.len,
+                args.cap,
+                args.key,
+                elem_ptr,
+                elem_size_val,
+                elem_align_val,
+                inc_fn,
+                dec_fn,
+                cow_mode,
+            ],
+        )
     }
 
     /// Emit `list.insert(index, value)` — COW insert returning modified list.
     ///
     /// Fast path (unique + capacity): memmove + write in place.
     /// Slow path (shared): new allocation with element inserted.
+    #[must_use = "the absence of a value must be handled"]
     pub(crate) fn emit_list_insert_cow(
         &mut self,
         receiver: ValueId,
@@ -153,42 +301,36 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         cow_mode: ValueId,
         list_ty: Idx,
     ) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_list_insert_cow");
+        self.emit_indexed_list_cow(
+            receiver,
+            index,
+            elem,
+            elem_ty,
+            cow_mode,
+            list_ty,
+            IndexedListCowOperation::Insert,
+        )
+    }
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
-        let elem_ptr = self.elem_to_ptr(elem, elem_ty, "insert.elem");
-        let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
-        let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
-
-        let list_struct_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "insert.out", list_struct_ty);
-
-        self.emit_rt_call(
-            func_id,
-            &[
-                data_ptr,
-                len,
-                cap,
-                index,
-                elem_ptr,
-                elem_size_val,
-                elem_align_val,
-                inc_fn,
-                cow_mode,
-                out,
-            ],
-            "insert",
-        );
-
-        Some(self.builder.load(list_struct_ty, out, "insert.val"))
+    /// Emit `list.prepend(value)` through the canonical index-zero insert path.
+    #[must_use = "the absence of a value must be handled"]
+    pub(crate) fn emit_list_prepend_cow(
+        &mut self,
+        receiver: ValueId,
+        elem: ValueId,
+        elem_ty: Idx,
+        cow_mode: ValueId,
+        list_ty: Idx,
+    ) -> Option<ValueId> {
+        let index = self.builder.const_i64(0);
+        self.emit_list_insert_cow(receiver, index, elem, elem_ty, cow_mode, list_ty)
     }
 
     /// Emit `list.remove(index)` — COW remove returning modified list.
     ///
     /// Fast path (unique): memmove shift left in place.
     /// Slow path (shared): new allocation without the removed element.
+    #[must_use = "the absence of a value must be handled"]
     pub(crate) fn emit_list_remove_cow(
         &mut self,
         receiver: ValueId,
@@ -199,18 +341,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_list_remove_cow");
 
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver)?;
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
-        let list_struct_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "remove.out", list_struct_ty);
-
-        self.emit_rt_call(
+        self.emit_list_cow_call(
             func_id,
-            &[
+            "remove",
+            vec![
                 data_ptr,
                 len,
                 cap,
@@ -219,193 +357,31 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 elem_align_val,
                 inc_fn,
                 cow_mode,
-                out,
             ],
-            "remove",
-        );
-
-        Some(self.builder.load(list_struct_ty, out, "remove.val"))
-    }
-
-    /// Emit `list.concat(other)` / `list.add(other)` — COW concatenation.
-    ///
-    /// Both lists are consumed (ownership transferred to the runtime). The
-    /// runtime checks uniqueness at runtime to skip RC increments when the
-    /// source list is uniquely owned.
-    pub(crate) fn emit_list_concat_cow(
-        &mut self,
-        receiver: ValueId,
-        other: ValueId,
-        elem_ty: Idx,
-        cow_mode: ValueId,
-        list_ty: Idx,
-    ) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_list_concat_cow");
-
-        let (data1, len1, cap1) = self.extract_list_fields(receiver);
-        let (data2, len2, cap2) = self.extract_list_fields(other);
-        let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
-        let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
-
-        let list_struct_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "concat.out", list_struct_ty);
-
-        self.emit_rt_call(
-            func_id,
-            &[
-                data1,
-                len1,
-                cap1,
-                data2,
-                len2,
-                cap2,
-                elem_size_val,
-                elem_align_val,
-                inc_fn,
-                cow_mode,
-                out,
-            ],
-            "concat",
-        );
-
-        Some(self.builder.load(list_struct_ty, out, "concat.val"))
-    }
-
-    /// Emit `list.reverse()` — COW reverse returning the reversed list.
-    ///
-    /// Fast path (unique): swaps pairs from both ends inward, O(n), no allocation.
-    /// Slow path (shared): new allocation with elements in reverse order.
-    pub(crate) fn emit_list_reverse_cow(
-        &mut self,
-        receiver: ValueId,
-        elem_ty: Idx,
-        cow_mode: ValueId,
-        list_ty: Idx,
-    ) -> Option<ValueId> {
-        let func_id = self.builder.runtime_fn("ori_list_reverse_cow");
-
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
-        let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
-        let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
-
-        let list_struct_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "reverse.out", list_struct_ty);
-
-        self.emit_rt_call(
-            func_id,
-            &[
-                data_ptr,
-                len,
-                cap,
-                elem_size_val,
-                elem_align_val,
-                inc_fn,
-                cow_mode,
-                out,
-            ],
-            "reverse",
-        );
-
-        Some(self.builder.load(list_struct_ty, out, "reverse.val"))
-    }
-
-    /// Emit `list.sort()` — COW sort returning the sorted list.
-    ///
-    /// Generates a comparison thunk function for the element type, then passes
-    /// it to `ori_list_sort_cow`. The thunk has signature
-    /// `fn(*const u8, *const u8) -> i32` and loads elements by type before
-    /// comparing.
-    ///
-    /// Currently supports primitive element types (int, float, bool, char, byte, str).
-    pub(crate) fn emit_list_sort_cow(
-        &mut self,
-        receiver: ValueId,
-        elem_ty: Idx,
-        cow_mode: ValueId,
-        list_ty: Idx,
-    ) -> Option<ValueId> {
-        // Use narrowed compare thunk for narrowed int lists.
-        let compare_fn_ptr = self
-            .get_or_create_narrowed_compare_thunk(elem_ty)
-            .or_else(|| self.get_or_create_compare_thunk(elem_ty))?;
-
-        let func_id = self.builder.runtime_fn("ori_list_sort_cow");
-
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
-        let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
-        let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
-
-        let list_struct_ty = self.list_struct_type();
-        let out =
-            self.builder
-                .create_entry_alloca(self.current_function, "sort.out", list_struct_ty);
-
-        self.emit_rt_call(
-            func_id,
-            &[
-                data_ptr,
-                len,
-                cap,
-                elem_size_val,
-                elem_align_val,
-                compare_fn_ptr,
-                inc_fn,
-                cow_mode,
-                out,
-            ],
-            "sort",
-        );
-
-        Some(self.builder.load(list_struct_ty, out, "sort.val"))
-    }
-
-    /// Emit a stable sort (`TimSort`) — preserves relative order of equal elements.
-    /// Identical to `emit_list_sort_cow` but calls `ori_list_sort_stable_cow`.
-    pub(crate) fn emit_list_sort_stable_cow(
-        &mut self,
-        receiver: ValueId,
-        elem_ty: Idx,
-        cow_mode: ValueId,
-        list_ty: Idx,
-    ) -> Option<ValueId> {
-        // Use narrowed compare thunk for narrowed int lists.
-        let compare_fn_ptr = self
-            .get_or_create_narrowed_compare_thunk(elem_ty)
-            .or_else(|| self.get_or_create_compare_thunk(elem_ty))?;
-
-        let func_id = self.builder.runtime_fn("ori_list_sort_stable_cow");
-
-        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
-        let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty, Some(list_ty));
-        let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
-
-        let list_struct_ty = self.list_struct_type();
-        let out = self.builder.create_entry_alloca(
-            self.current_function,
-            "sort_stable.out",
-            list_struct_ty,
-        );
-
-        self.emit_rt_call(
-            func_id,
-            &[
-                data_ptr,
-                len,
-                cap,
-                elem_size_val,
-                elem_align_val,
-                compare_fn_ptr,
-                inc_fn,
-                cow_mode,
-                out,
-            ],
-            "sort_stable",
-        );
-
-        Some(self.builder.load(list_struct_ty, out, "sort_stable.val"))
+        )
     }
 }
+
+// Env: ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE — skips result metadata stores, debug-only.
+fn push_result_elem_header_store_disabled() -> bool {
+    let disabled = std::env::var_os("ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE").is_some();
+    if disabled {
+        tracing::info!(
+            toggle = "ORI_DISABLE_PUSH_RESULT_ELEM_HEADER_STORE",
+            effect = "skip result-buffer element destructor metadata stores",
+            "ablation toggle fired"
+        );
+    }
+    disabled
+}
+
+const fn cow_mode_code(mode: CowMode) -> i32 {
+    match mode {
+        CowMode::Dynamic => 0,
+        CowMode::StaticUnique => 1,
+        CowMode::StaticShared => 2,
+    }
+}
+
+#[cfg(test)]
+mod tests;

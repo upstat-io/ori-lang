@@ -1,0 +1,57 @@
+Theorem TF-6b: Invoke (no contract) transfer produces CONSERVATIVE
+
+  Preconditions:
+    - Instruction is `Invoke { dst, func, args, normal, unwind }` per
+      Annex E §AIMS TF-6b + Appendix A row 20
+    - `func` has NO `MemoryContract` available (unknown callee — same as
+      TF-5 condition); contract derivation unavailable for any reason
+      (opaque FFI, recursion not yet converged, dyn-trait dispatch)
+    - CONSERVATIVE per TF-5 definition (same value)
+
+  Soundness property:
+    transfer_tf6b(Invoke { _ }) = CONSERVATIVE
+      = (Owned, Unrestricted, Many, MaybeShared, Unknown, NonReusable, ALL)
+    L-6 layer (b) monotonicity: f(_) = CONSERVATIVE constant function;
+    trivially monotone per L-4 reflexivity (identical to TF-5 / TF-5a).
+
+  Proof obligation:
+    Two-part discharge:
+      (a) CONSERVATIVE-parity with TF-5 — verify transfer_tf6b() emits
+          exactly CONSERVATIVE byte-for-byte (same value as TF-5 / TF-5a).
+      (b) L-6 layer (b) monotonicity — constant-function check identical
+          to TF-5: f(_) = CONSERVATIVE is reflexively monotone on the
+          product order.
+
+    Part (a) — CONSERVATIVE-parity check:
+      transfer_tf6b() = CONSERVATIVE = (Owned, Unrestricted, Many,
+      MaybeShared, Unknown, NonReusable, ALL = 0b111). Per Appendix A
+      row 20: TF-6b emits exactly this row (identical to TF-5 row 6).
+      Engine verifies byte-for-byte equality against the canonical
+      conservative() helper in section_04.rs.
+
+    Part (b) — constant-function monotonicity:
+      Identical to TF-5 Part (c) — f(_) = CONSERVATIVE is constant on its
+      input domain; CONSERVATIVE ≤ CONSERVATIVE by L-4 reflexivity on each
+      dimension's carrier; product-order componentwise lift gives
+      f(a) ≤ f(b) for any (a, b).
+
+    Rationale for separate TF rule (per Annex E §AIMS TF-6b):
+      Invoke vs Apply distinction at the instruction-set level (Invoke is
+      a terminator with unwind-edge cleanup obligations); transfer function
+      identical because both lack contract. TF-6b exists to make the
+      lack-of-contract handling for Invoke explicit vs reusing TF-5
+      ambiguously. Unwind-edge cleanup orthogonal to forward transfer —
+      handled at Step 8a per Annex E §AIMS PL-4a.
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) constant-function discharge per
+        section_04::verify_tf6b_invoke_no_contract_conservative)
+      case_analysis (PRIMARY — Appendix A row 20 CONSERVATIVE-parity check
+        per section_04::verify_tf6b_invoke_no_contract_conservative)
+      lattice (SECONDARY — accepts gracefully)
+      refinement (SECONDARY — accepts gracefully; TF-6b emits CONSERVATIVE
+        directly, no refine())
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-6b via Appendix A row 20 CONSERVATIVE-parity check + constant-function monotonicity

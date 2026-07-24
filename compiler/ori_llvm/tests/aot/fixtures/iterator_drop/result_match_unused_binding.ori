@@ -1,4 +1,4 @@
-// TPR-07-013 matrix pin: Result<Iterator<int>, int> case. Same as
+// Matrix pin: Result<Iterator<int>, int> case. Same as
 // enum_match_unused_binding but through the built-in Result sum type.
 
 @main () -> int = {

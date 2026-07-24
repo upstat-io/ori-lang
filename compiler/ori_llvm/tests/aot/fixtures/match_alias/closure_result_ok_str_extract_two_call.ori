@@ -1,0 +1,21 @@
+// Matrix pin: closure captures `Result<str, int>` and extracts the OK-arm str
+// payload (field 0, the success variant) — the cross-variant sibling of
+// closure_env_alias (which extracts the Err-arm str, field 1). Invoked twice via
+// ApplyIndirect; each result is a same-allocation borrow-view of the captured
+// Ok-payload str. The closure-extract scan suppresses the surplus per-result dec
+// and places exactly one release at the execution-final borrow-read. Zero leaks
+// pins the field-0 extract path alongside the field-1 (`closure_env_alias`) path.
+@main () -> int = {
+    let captured: Result<str, int> = Ok("ok_captured_heap_string");
+    let lookup = () -> {
+        match captured {
+            Ok(s) -> s,
+            Err(_) -> panic(msg: "should be Ok"),
+        }
+    };
+    let first = lookup();
+    let second = lookup();
+    let h1 = first.contains(substr: "ok");
+    let h2 = second.contains(substr: "heap");
+    if h1 && h2 then 0 else 1
+}

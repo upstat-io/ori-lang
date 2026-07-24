@@ -13,7 +13,7 @@ fn with_engine(f: impl FnOnce(&mut crate::InferEngine<'_>)) {
     f(&mut engine);
 }
 
-// ── tag_to_type_tag tests ──
+// tag_to_type_tag tests
 
 /// Every `Tag` with builtin methods maps to the correct `TypeTag`.
 #[test]
@@ -117,7 +117,7 @@ fn all_tag_variants_covered() {
     );
 }
 
-// ── return_tag_to_idx: primitive/concrete tests ──
+// return_tag_to_idx: primitive/concrete tests
 
 #[test]
 fn concrete_primitives_return_fixed_idx() {
@@ -174,7 +174,7 @@ fn fresh_returns_type_variable() {
     });
 }
 
-// ── return_tag_to_idx: projection tests ──
+// return_tag_to_idx: projection tests
 
 #[test]
 fn option_of_element_on_list() {
@@ -273,7 +273,7 @@ fn err_type_extracts_result_err() {
     });
 }
 
-// ── return_tag_to_idx: fixed-inner wrappers ──
+// return_tag_to_idx: fixed-inner wrappers
 
 #[test]
 fn list_of_byte_fixed_inner() {
@@ -306,7 +306,7 @@ fn dei_of_char_fixed_inner() {
     });
 }
 
-// ── return_tag_to_idx: composite returns ──
+// return_tag_to_idx: composite returns
 
 #[test]
 fn next_result_on_iterator() {
@@ -396,7 +396,7 @@ fn iterator_of_tuple_int_element_on_iterator() {
     });
 }
 
-// ── binary_op_strategy: semantic pin tests ──
+// binary_op_strategy: semantic pin tests
 // These verify that the registry bridge correctly maps BinaryOp to OpDefs
 // for each primitive type. This is the permanent guard that ensures the
 // type checker's registry-based validation matches expected behavior.
@@ -565,12 +565,12 @@ fn non_builtin_tag_returns_none_for_ops() {
     assert_eq!(is_binary_op_supported(Tag::Named, BinaryOp::Sub), None);
 }
 
-/// Int add strategy is `IntInstr` (specific variant check).
+/// Int add strategy is `SignedInteger` (specific variant check).
 #[test]
 fn int_add_strategy_is_int_instr() {
     assert_eq!(
         binary_op_strategy(Tag::Int, BinaryOp::Add),
-        Some(OpStrategy::IntInstr)
+        Some(OpStrategy::SignedInteger)
     );
 }
 
@@ -578,14 +578,14 @@ fn int_add_strategy_is_int_instr() {
 #[test]
 fn str_add_strategy_is_runtime_call() {
     match binary_op_strategy(Tag::Str, BinaryOp::Add) {
-        Some(OpStrategy::RuntimeCall { fn_name, .. }) => {
-            assert_eq!(fn_name, "ori_str_concat");
+        Some(OpStrategy::RuntimeCall(runtime)) => {
+            assert_eq!(runtime, ori_registry::RuntimeOperator::StringConcat);
         }
         other => panic!("expected RuntimeCall, got {other:?}"),
     }
 }
 
-// ── unary_op_strategy: semantic pin tests ──
+// unary_op_strategy: semantic pin tests
 
 use ori_ir::UnaryOp;
 
@@ -654,7 +654,7 @@ fn non_builtin_unary_returns_none() {
     assert_eq!(is_unary_op_supported(Tag::Enum, UnaryOp::Not), None);
 }
 
-// ── registry_satisfies_trait: equivalence tests ──
+// registry_satisfies_trait: equivalence tests
 // These verify the bridge produces identical results to the old
 // hardcoded arrays in traits.rs for every (type, trait) combination.
 
@@ -690,8 +690,30 @@ const ALL_TRAIT_NAMES: &[&str] = &[
 ];
 
 /// Expected trait sets per type — the equivalence truth table.
-#[expect(clippy::too_many_lines, reason = "exhaustive type × trait truth table")]
 fn expected_traits(tag: TypeTag) -> &'static [&'static str] {
+    match tag {
+        TypeTag::Int | TypeTag::Float | TypeTag::Byte => expected_numeric_traits(tag),
+        TypeTag::Bool
+        | TypeTag::Str
+        | TypeTag::Char
+        | TypeTag::Ordering
+        | TypeTag::Result
+        | TypeTag::Unit => expected_scalar_traits(tag),
+        TypeTag::Duration | TypeTag::Size => expected_measure_traits(tag),
+        TypeTag::List
+        | TypeTag::Map
+        | TypeTag::Set
+        | TypeTag::Option
+        | TypeTag::Tuple
+        | TypeTag::Range => expected_compound_traits(tag),
+        TypeTag::Iterator | TypeTag::DoubleEndedIterator => expected_iterator_traits(tag),
+        TypeTag::Error | TypeTag::Channel | TypeTag::Never | TypeTag::Function => {
+            expected_special_traits(tag)
+        }
+    }
+}
+
+fn expected_numeric_traits(tag: TypeTag) -> &'static [&'static str] {
     match tag {
         TypeTag::Int => &[
             "Eq",
@@ -730,6 +752,31 @@ fn expected_traits(tag: TypeTag) -> &'static [&'static str] {
             "Rem",
             "Neg",
         ],
+        TypeTag::Byte => &[
+            "Eq",
+            "Comparable",
+            "Clone",
+            "Hashable",
+            "Printable",
+            "Debug",
+            "Add",
+            "Sub",
+            "Mul",
+            "Div",
+            "Rem",
+            "BitAnd",
+            "BitOr",
+            "BitXor",
+            "BitNot",
+            "Shl",
+            "Shr",
+        ],
+        _ => unreachable!("numeric trait table called with {tag:?}"),
+    }
+}
+
+fn expected_scalar_traits(tag: TypeTag) -> &'static [&'static str] {
+    match tag {
         TypeTag::Bool => &[
             "Eq",
             "Comparable",
@@ -761,26 +808,13 @@ fn expected_traits(tag: TypeTag) -> &'static [&'static str] {
             "Printable",
             "Debug",
         ],
-        TypeTag::Byte => &[
-            "Eq",
-            "Comparable",
-            "Clone",
-            "Hashable",
-            "Printable",
-            "Debug",
-            "Add",
-            "Sub",
-            "Mul",
-            "Div",
-            "Rem",
-            "BitAnd",
-            "BitOr",
-            "BitXor",
-            "BitNot",
-            "Shl",
-            "Shr",
-        ],
         TypeTag::Unit => &["Eq", "Comparable", "Hashable", "Clone", "Default", "Debug"],
+        _ => unreachable!("scalar trait table called with {tag:?}"),
+    }
+}
+
+fn expected_measure_traits(tag: TypeTag) -> &'static [&'static str] {
+    match tag {
         TypeTag::Duration => &[
             "Eq",
             "Comparable",
@@ -812,7 +846,12 @@ fn expected_traits(tag: TypeTag) -> &'static [&'static str] {
             "Div",
             "Rem",
         ],
-        // Compound types — derived from registry TypeDef
+        _ => unreachable!("measure trait table called with {tag:?}"),
+    }
+}
+
+fn expected_compound_traits(tag: TypeTag) -> &'static [&'static str] {
+    match tag {
         TypeTag::List => &[
             "Eq",
             "Comparable",
@@ -855,14 +894,24 @@ fn expected_traits(tag: TypeTag) -> &'static [&'static str] {
             "Len",
         ],
         TypeTag::Range => &["Printable", "Len", "IsEmpty", "Iterable"],
+        _ => unreachable!("compound trait table called with {tag:?}"),
+    }
+}
+
+fn expected_iterator_traits(tag: TypeTag) -> &'static [&'static str] {
+    match tag {
         TypeTag::Iterator => &["Iterator"],
         TypeTag::DoubleEndedIterator => &["Iterator", "DoubleEndedIterator"],
-        // Error has methods (clone, debug, to_str, etc.) — registry encodes them
+        _ => unreachable!("iterator trait table called with {tag:?}"),
+    }
+}
+
+fn expected_special_traits(tag: TypeTag) -> &'static [&'static str] {
+    match tag {
         TypeTag::Error => &["Clone", "Printable", "Debug"],
-        // Channel has Len/IsEmpty from trait_name on len/is_empty methods
         TypeTag::Channel => &["Len", "IsEmpty"],
-        // Types with no trait satisfaction
         TypeTag::Never | TypeTag::Function => &[],
+        _ => unreachable!("special trait table called with {tag:?}"),
     }
 }
 

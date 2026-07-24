@@ -50,7 +50,6 @@ use super::{ExprArena, ExprId};
 /// Note: The visitor can mutate its own state during traversal.
 /// The AST itself remains immutable.
 pub trait Visitor<'ast> {
-    /// Visit a module.
     fn visit_module(&mut self, module: &'ast Module, arena: &'ast ExprArena) {
         walk_module(self, module, arena);
     }
@@ -61,12 +60,10 @@ pub trait Visitor<'ast> {
     /// in file-level attributes (e.g., for symbol resolution or dead code analysis).
     fn visit_file_attr(&mut self, _attr: &'ast FileAttr, _arena: &'ast ExprArena) {}
 
-    /// Visit a function definition.
     fn visit_function(&mut self, function: &'ast Function, arena: &'ast ExprArena) {
         walk_function(self, function, arena);
     }
 
-    /// Visit a test definition.
     fn visit_test(&mut self, test: &'ast TestDef, arena: &'ast ExprArena) {
         walk_test(self, test, arena);
     }
@@ -112,7 +109,6 @@ pub trait Visitor<'ast> {
         self.visit_expr(&expr, arena);
     }
 
-    /// Visit a statement.
     fn visit_stmt(&mut self, stmt: &'ast Stmt, arena: &'ast ExprArena) {
         walk_stmt(self, stmt, arena);
     }
@@ -123,28 +119,23 @@ pub trait Visitor<'ast> {
         let _ = param;
     }
 
-    /// Visit a match arm.
     fn visit_match_arm(&mut self, arm: &'ast MatchArm, arena: &'ast ExprArena) {
         walk_match_arm(self, arm, arena);
     }
 
-    /// Visit a match pattern.
     fn visit_match_pattern(&mut self, pattern: &'ast MatchPattern, arena: &'ast ExprArena) {
         walk_match_pattern(self, pattern, arena);
     }
 
-    /// Visit a binding pattern.
     fn visit_binding_pattern(&mut self, pattern: &'ast BindingPattern) {
         walk_binding_pattern(self, pattern);
     }
 
-    /// Visit a map entry.
     fn visit_map_entry(&mut self, entry: &'ast MapEntry, arena: &'ast ExprArena) {
         self.visit_expr_id(entry.key, arena);
         self.visit_expr_id(entry.value, arena);
     }
 
-    /// Visit a field initializer.
     fn visit_field_init(&mut self, init: &'ast FieldInit, arena: &'ast ExprArena) {
         if let Some(value) = init.value {
             self.visit_expr_id(value, arena);

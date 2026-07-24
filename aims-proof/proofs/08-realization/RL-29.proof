@@ -1,0 +1,74 @@
+Theorem RL-29: backend-neutral fresh-self-allocation fact derivation
+
+  Preconditions:
+    - RL-29 governs a backend-neutral AIMS fact. The final realization owner
+      freezes it once from IC-4; executable backends transport and project it
+      without re-running return-provenance analysis.
+    - IC-4 carries returns_fresh_self_alloc separately from uniqueness and
+      preserves_freshness. The stronger field is true only when every return
+      path yields fresh storage with no upstream alias, directly or through a
+      callee carrying the same path-universal proof.
+    - A parameter passthrough and a result that may take over consumed input
+      storage both set returns_fresh_self_alloc = false, even when freshness is
+      otherwise preserved.
+    - LLVM return noalias is a target projection after ABI selection. It is
+      emitted only for a proven fact represented as a direct pointer.
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per the canonical
+      proof notation:264; discharged against the sec-01 Realization.proof
+      obligation.
+    - depends-on sec-06: IC-4 ReturnContract.returns_fresh_self_alloc; VF-2 (c)
+      validates neutral fact derivation, while backend verification validates
+      projection fidelity.
+
+  Soundness property:
+    Forall function return contracts C:
+
+      (P1) Neutral decision:
+           freshSelfAllocationFact(C.returns_fresh_self_alloc) = proven iff
+           C.returns_fresh_self_alloc = true; otherwise notProven.
+
+      (P2) Passthrough negative witness: caller-owned parameter storage is
+           notProven and cannot receive target noalias.
+
+      (P3) Consumed-storage negative witness: a result that may reuse consumed
+           operand storage is notProven and cannot receive target noalias.
+
+      (P4) Projection separation: LLVM maps proven + direct-pointer ABI to
+           return noalias. notProven or a non-pointer/non-direct ABI omits it.
+           LLVM spelling does not participate in P1.
+
+    RL-29 exports one neutral return-provenance fact that every executable
+    backend may project under its own ABI constraints.
+
+  Proof obligation:
+    Constructive discharge by the refinement engine via definitional rewriting
+    of the IC-4 path-universal fact, followed by a separate LLVM
+    projection-fidelity check.
+
+    Part (P1/P2/P3) - neutral-fact grid:
+      fresh_self_alloc_direct_pointer_noalias -> proven
+      parameter_passthrough_not_proven -> notProven
+      consumed_storage_not_proven -> notProven
+      fresh_self_alloc_non_pointer_abi_omits_noalias -> proven
+      Coverage gate: 4 derivations.
+
+    Part (P4) - target corollary:
+      proven + direct pointer -> LLVM return noalias
+      notProven -> omitted
+      proven + non-pointer/non-direct ABI -> omitted
+      Negative-direction witness: consumed or forwarded storage must produce
+      notProven + omitted.
+
+    Engines dispatched:
+      refinement (PRIMARY -
+        section_08::verify_rl29_neutral_fresh_self_allocation; neutral IC-4
+        return-provenance refinement followed by separate LLVM fidelity;
+        emits Fail on an overclaiming fact or projection)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL
+        row)
+      case_analysis (SECONDARY - gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 refinement engine discharges RL-29 via a 4-row backend-neutral fresh-self-allocation grid gated solely on IC-4 returns_fresh_self_alloc, with passthrough and consumed-storage negative witnesses, then checks the separate LLVM fidelity corollary (proven direct pointer -> return noalias; all other cases -> omitted)

@@ -1,5 +1,7 @@
 use super::*;
-use ori_ir::ExprArena;
+use crate::value::Value;
+use ori_ir::{ExprArena, Name, SharedArena};
+use rustc_hash::FxHashMap;
 
 fn dummy_arena() -> SharedArena {
     SharedArena::new(ExprArena::new())
@@ -137,7 +139,7 @@ fn test_memoized_function_different_args_not_cached() {
 
 #[test]
 fn test_memoized_function_cache_eviction() {
-    use super::MAX_MEMO_CACHE_SIZE;
+    use super::function_value::MAX_MEMO_CACHE_SIZE;
 
     let func = FunctionValue::new(vec![], FxHashMap::default(), dummy_arena());
     let memoized = MemoizedFunctionValue::new(func);

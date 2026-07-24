@@ -1,0 +1,89 @@
+// Spec: 10-patterns.md § match (list patterns)
+// Design: 06-pattern-matching/index.md
+//
+// Regression: a list-pattern match compiles to a length-discriminant Switch.
+// The decision-tree lowering switched on the raw list fat pointer ({len, cap,
+// data}) instead of the extracted length, so under LLVM the int Switch builder
+// received a non-integer aggregate scrutinee and aborted the module. The eval
+// backend was always correct; this is a dual-execution parity pin.
+
+use std.testing { assert_eq }
+
+// Bare length dispatch (empty / single / many) — the minimal failing shape.
+@classify_len (lst: [int]) -> str = match lst {
+    [] -> "empty",
+    [x] -> "single",
+    [head, ..tail] -> "many"
+}
+
+@test_classify_len tests @classify_len () -> void = {
+    assert_eq(actual: classify_len([]), expected: "empty");
+    assert_eq(actual: classify_len([1]), expected: "single");
+    assert_eq(actual: classify_len([1, 2]), expected: "many");
+    assert_eq(actual: classify_len([1, 2, 3, 4, 5]), expected: "many")
+}
+
+// Element bindings must read the right slots once the length switch is correct.
+@first_or_zero (lst: [int]) -> int = match lst {
+    [] -> 0,
+    [a] -> a,
+    [a, b] -> a + b,
+    [head, ..rest] -> head
+}
+
+@test_first_or_zero tests @first_or_zero () -> void = {
+    assert_eq(actual: first_or_zero([]), expected: 0);
+    assert_eq(actual: first_or_zero([7]), expected: 7);
+    assert_eq(actual: first_or_zero([3, 4]), expected: 7);
+    assert_eq(actual: first_or_zero([9, 1, 1]), expected: 9)
+}
+
+// Exact-length arms with no rest pattern (closed length set), binding the
+// elements so the list is consumed on each arm.
+@exact_len (lst: [int]) -> str = match lst {
+    [] -> "0",
+    [a] -> str(a),
+    [a, b] -> str(a + b),
+    [a, b, c] -> str(a + b + c),
+    _ -> "many"
+}
+
+@test_exact_len tests @exact_len () -> void = {
+    assert_eq(actual: exact_len([]), expected: "0");
+    assert_eq(actual: exact_len([7]), expected: "7");
+    assert_eq(actual: exact_len([1, 2]), expected: "3");
+    assert_eq(actual: exact_len([1, 2, 3]), expected: "6");
+    assert_eq(actual: exact_len([1, 2, 3, 4]), expected: "many")
+}
+
+// Heap element type (str fat-pointer elements) through the same length switch.
+@describe_strs (lst: [str]) -> str = match lst {
+    [] -> "none",
+    [only] -> only,
+    [first, ..rest] -> first
+}
+
+@test_describe_strs tests @describe_strs () -> void = {
+    assert_eq(actual: describe_strs([]), expected: "none");
+    assert_eq(actual: describe_strs(["solo"]), expected: "solo");
+    assert_eq(actual: describe_strs(["a", "b", "c"]), expected: "a")
+}
+
+// Mixed exact-literal + range dispatch at an int column (`match n { 0, 1..N }`).
+// A pure-int Switch cannot encode a range, so this must lower to a comparison
+// chain that tests `== 0` and the range bounds in order.
+@bucket (n: int) -> str = match n {
+    0 -> "zero",
+    1..10 -> "small",
+    10..100 -> "medium",
+    _ -> "large"
+}
+
+@test_bucket tests @bucket () -> void = {
+    assert_eq(actual: bucket(0), expected: "zero");
+    assert_eq(actual: bucket(1), expected: "small");
+    assert_eq(actual: bucket(9), expected: "small");
+    assert_eq(actual: bucket(10), expected: "medium");
+    assert_eq(actual: bucket(99), expected: "medium");
+    assert_eq(actual: bucket(500), expected: "large")
+}

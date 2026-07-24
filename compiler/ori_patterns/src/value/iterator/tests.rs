@@ -1,7 +1,9 @@
 #![expect(clippy::expect_used, reason = "Tests use expect for clarity")]
 
+use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 
+use super::super::map_data::MapData;
 use super::*;
 
 #[test]
@@ -136,7 +138,7 @@ fn map_iterator_basic() {
     let mut map = BTreeMap::new();
     map.insert("a".to_string(), Value::int(1));
     map.insert("b".to_string(), Value::int(2));
-    let iter = IteratorValue::from_map(&map);
+    let iter = IteratorValue::from_map(&MapData::from_primitive_entries(map));
 
     // BTreeMap iterates in sorted key order
     let (val, iter) = iter.next();
@@ -179,7 +181,7 @@ fn iterator_equality() {
     assert_ne!(a2, b);
 }
 
-// ── Adapter variant tests ───────────────────────────────────────────
+// Adapter variant tests
 
 fn make_list_iter(vals: &[i64]) -> IteratorValue {
     let items = Heap::new(vals.iter().map(|&v| Value::int(v)).collect());
@@ -437,7 +439,7 @@ fn size_hint_skip_exceeds_source() {
     assert_eq!(skip.size_hint(), (0, Some(0)));
 }
 
-// ── New adapter variant tests (Phase 2C/2D) ─────────────────────────
+// New adapter variant tests
 
 // Debug format tests
 
@@ -708,7 +710,7 @@ fn from_value_str() {
 #[test]
 fn from_value_iterator() {
     let inner = IteratorValue::from_range(0, Some(5), 1, false);
-    let val = Value::iterator(inner.clone());
+    let val = Value::iterator(inner);
     let Some(iter) = IteratorValue::from_value(&val) else {
         panic!("iterator should be iterable");
     };
@@ -774,7 +776,7 @@ fn from_value_non_iterable() {
     assert!(IteratorValue::from_value(&Value::Void).is_none());
 }
 
-// ── DoubleEndedIterator (next_back) tests ────────────────────────────
+// DoubleEndedIterator (next_back) tests
 
 #[test]
 fn list_next_back_basic() {
@@ -1065,7 +1067,7 @@ fn is_double_ended_source_variants() {
     // Map and Set are NOT double-ended
     let mut map = BTreeMap::new();
     map.insert("a".to_string(), Value::int(1));
-    assert!(!IteratorValue::from_map(&map).is_double_ended());
+    assert!(!IteratorValue::from_map(&MapData::from_primitive_entries(map)).is_double_ended());
 
     let set_items = Heap::new(vec![Value::int(1)]);
     assert!(!IteratorValue::from_set(set_items).is_double_ended());
@@ -1084,7 +1086,7 @@ fn is_double_ended_adapters() {
     assert!(mapped_de.is_double_ended());
 
     let mapped_non_de = IteratorValue::Mapped {
-        source: Box::new(non_de_source.clone()),
+        source: Box::new(non_de_source),
         transform: Box::new(Value::Bool(true)),
     };
     assert!(!mapped_non_de.is_double_ended());
@@ -1168,7 +1170,7 @@ fn size_hint_range_after_next_back() {
     assert_eq!(iter.size_hint(), (3, Some(3)));
 }
 
-// ── Reversed variant ─────────────────────────────────────────────────
+// Reversed variant
 
 #[test]
 fn reversed_is_double_ended() {
@@ -1254,7 +1256,7 @@ fn reversed_hash_consistency() {
     assert_eq!(hash_a, hash_b);
 }
 
-// ── Repeat variant tests ─────────────────────────────────────────────
+// Repeat variant tests
 
 #[test]
 fn repeat_basic() {
@@ -1332,7 +1334,7 @@ fn repeat_not_equal_to_other_variant() {
     assert_ne!(repeat, list);
 }
 
-// ── Unbounded range iterator tests ──────────────────────────────────
+// Unbounded range iterator tests
 
 #[test]
 fn unbounded_range_next_always_yields() {
@@ -1470,7 +1472,7 @@ fn from_value_unbounded_range() {
     assert_eq!(item, Some(Value::int(0)));
 }
 
-// === Copy elision tests ===
+// Copy elision tests
 // These verify that freshly-created tuples (like those from iter.next())
 // have Arc refcount 1, enabling move-based destructuring without cloning.
 

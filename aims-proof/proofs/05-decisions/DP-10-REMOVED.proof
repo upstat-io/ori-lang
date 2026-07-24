@@ -1,0 +1,200 @@
+Theorem DP-10-REMOVED: DP-10 removal soundness via constructive counterexample + 3-alternative-paths enumeration
+
+  Preconditions:
+    - Annex E §AIMS DP-10 REMOVED note: prior DP-10 claimed
+        Owned AND Linear AND Once => exactly one logical owner credit
+      and was REMOVED as unsound. The removal soundness is the proof
+      obligation discharged here.
+    - Backward analysis proves "no future duplication" (Linear + Once) but
+      NOT "no existing aliases". Uniqueness is the SSOT for one-owner claims
+      per Annex E §AIMS; DP-10 attempted to derive uniqueness from
+      Consumption + Cardinality, bypassing the Uniqueness dimension.
+    - The three alternative paths (per §1.4 + TF-3 + IC-3) subsume DP-10's
+      use cases without unsoundness:
+        (1) Uniqueness = Unique via §1.4 -> DP-7 RC-skip-eligible
+        (2) TF-3 FRESH allocation -> Uniqueness = Unique -> DP-7
+        (3) IC-3 ParamContract.uniqueness = Unique -> DP-9 row (c)
+            StaticUnique
+    - The §01A CH-102 pattern (per
+      aims-proof/proofs/01-decisions/CH-102*.proof + section_01A.rs) is
+      the precedent: constructive counterexample exhibition + 3-alternative-
+      paths enumeration. This proof mirrors that shape for DP-10's
+      removal.
+
+  Soundness property:
+    REMOVAL claim: DP-10 (Owned AND Linear AND Once => one logical owner) is unsound
+      AND every prior use case is subsumed by one of the three alternative
+      paths (Uniqueness, TF-3, IC-3).
+
+    Formally:
+      (a) Exists s in AimsState canonical, satisfying (Owned AND Linear AND
+          Once), with multiple logical owner credits (counterexample to former DP-10).
+      (b) Forall use-case-of-former-DP-10 c, exists path p in
+          {Uniqueness-direct, TF-3-fresh, IC-3-contract} such that p
+          discharges c soundly.
+
+  Proof obligation:
+    Two-part discharge:
+      (a) Constructive counterexample: exhibit s satisfying former DP-10
+          antecedent (Owned, Linear, Once) with multiple logical owner credits, establishing
+          unsoundness.
+      (b) Alternative-paths exhibition: enumerate the 3 paths and
+          demonstrate per-path subsumption of former DP-10's use cases.
+
+    Part (a) — Constructive counterexample (DP-10's unsoundness):
+
+      Consider variable v with:
+        s = (Owned, Linear, Once, MaybeShared, BlockLocal, ReusableStruct,
+             {may_alloc=true})
+        is_scalar(s) = false
+
+      Backward dataflow at this point proves:
+        Linear + Once => v used exactly once forward, then dies.
+        Owned => v owns its allocation reference.
+        Former DP-10 conclusion: v has exactly one logical owner credit.
+
+      Counterexample to DP-10 — backward analysis CANNOT prove uniqueness:
+
+        Suppose an EARLIER `store_into_data_structure` site at point p1
+        upstream of v's current use created an alias of v via a logical
+        duplication event — e.g., v was inserted into a list at p1, which
+        acquired one owner credit for its stored child. The list still holds
+        that credit. At v's current single Linear+Once
+        use (point p2), backward analysis sees:
+          - exactly one Linear use of v in the forward direction (true)
+          - no future use beyond p2 (true)
+          - therefore no future duplication credit on v (true)
+        But the EXISTING alias from p1 is invisible to
+        backward analysis. Per Annex E §AIMS: Uniqueness encodes the
+        PAST guarantee "v not duplicated"; Linearity encodes the FUTURE
+        guarantee "v consumed once." Former DP-10 conflated the two.
+
+      The variable's Uniqueness = MaybeShared (NOT Unique) precisely
+      captures this: the upstream owner acquisition at p1 prevents the
+      FRESH+Linear pipeline from achieving Unique status. Per §1.4
+      Uniqueness = SSOT
+      for one-owner claims; former DP-10's bypass was unsound.
+
+      Concrete IR sketch (BUG-XX construction; consult Annex E §AIMS Return Provenance + TF-3 for AimsState assignment rules):
+
+        # Earlier point p1 — store creates upstream alias
+        %0 = Construct(List<int>, [...]) # TF-3 FRESH: (Owned, Linear,
+                                              # Once, Unique, BlockLocal,
+                                              # CollectionBuffer, may_alloc)
+        %1 = Construct(Box<int>, [42]) # TF-3 FRESH: (Owned, Linear,
+                                              # Once, Unique, BlockLocal,
+                                              # ReusableStruct, may_alloc)
+        RcInc(%1) # logical duplication — list now
+                                              # holds an owner credit;
+                                              # %1.Uniqueness
+                                              # demotes to MaybeShared
+        Set(%0[0], %1) # %1 stored into list at p1
+        # ... %1 still live and Linear+Once on its remaining path ...
+
+        # Current point p2 — DP-10 antecedent satisfied; conclusion unsound
+        Apply(some_owned_consuming_callee, [%1]) # %1's Linear+Once use
+                                                    # Former DP-10: one owner
+                                                    # ACTUAL: two owner credits
+                                                    # (list + callee)
+
+      Former DP-10 conclusion "one logical owner" would license the callee to
+      omit its release on %1, but the extra owner credit means that omission
+      leaks one obligation. A counter-based projection is one concrete witness;
+      the unsoundness is in the logical credit ledger itself.
+
+    Part (b) — 3 alternative paths (subsumption enumeration):
+
+      Path 1: Uniqueness = Unique direct (per §1.4 -> DP-7)
+        When the analysis CAN prove Uniqueness = Unique (no upstream logical
+        duplication, no aliasing through projections, and no ownership
+        escape), DP-7 is the sound ownership-event-skip predicate. Per Annex
+        E §AIMS DP-7:
+          is_event_pair_elision_eligible(s) iff is_local AND Owned AND Linear AND
+          Once AND Unique AND non-scalar.
+        DP-7 includes Uniqueness = Unique as load-bearing conjunct
+        (see DP-7 proof, Row 5 + Shared+Linear+Once counterexample).
+        Subsumption: former DP-10's "single Linear+Once use of Owned
+        non-scalar value" use case maps onto DP-7 WITH the Uniqueness
+        gate. Cases former DP-10 incorrectly applied to (Uniqueness =
+        MaybeShared or Shared) are correctly excluded by DP-7's
+        Uniqueness = Unique conjunct.
+
+      Path 2: TF-3 FRESH allocation -> Uniqueness = Unique -> DP-7
+        TF-3 (Construct) sets dst.uniqueness := Unique by construction
+        (per Annex E §AIMS TF-3 + Appendix A Construct row). All fresh
+        allocations start Unique; only subsequent RcInc or escape
+        operations canonicalize (CN-6) Unique -> MaybeShared. When a value
+        is provably fresh AND its forward usage is Linear+Once AND it
+        does not escape (Locality <= FunctionLocal) AND no RcInc on the
+        forward path, DP-7 applies and RC-skip is sound.
+        Subsumption: former DP-10's "fresh + immediately-consumed value"
+        use case maps onto TF-3 setting Unique + DP-7. The freshness
+        is recorded structurally via TF-3, not derived via Consumption +
+        Cardinality.
+
+      Path 3: IC-3 ParamContract.uniqueness = Unique -> DP-9 row (c)
+        StaticUnique
+        When a callee parameter's IC-3 ParamContract.uniqueness = Unique
+        is established by SCC fixpoint (per Annex E §AIMS IC-2 + IC-3),
+        the caller's arg may be Uniqueness = MaybeShared but the
+        interprocedural contract proves the callee may treat the arg as
+        Unique at entry. Per Annex E §AIMS DP-9 row (c): MaybeShared
+        AND IC-3.uniqueness = Unique AND can_mutate_in_place(DP-5) = true
+        -> StaticUnique. This is the legitimate cross-procedural
+        uniqueness path; the DP-5 joint check ensures local borrow safety
+        composes with the interprocedural fixed-point.
+        Subsumption: former DP-10's "caller-arg-locally-treated-as-unique"
+        use case maps onto IC-3 + DP-5 + DP-9 composition. The
+        interprocedural contract carries the uniqueness obligation; DP-9
+        is the gate; DP-5 closes the local-borrow-safety gap.
+
+    Three-alternatives exhaustiveness:
+      The trichotomy (Path 1 direct Uniqueness, Path 2 FRESH allocation,
+      Path 3 IC-3 contract) covers every legitimate use case former DP-10
+      attempted to discharge:
+        - Direct lattice proof of Uniqueness via Uniqueness dimension
+          (Path 1).
+        - Structural proof via fresh-allocation TF-3 setting Unique
+          (Path 2).
+        - Interprocedural proof via IC-3 ParamContract (Path 3).
+      No fourth path is needed; former DP-10's antecedent (Owned + Linear
+      + Once) is strictly weaker than any of the three paths (each
+      adds the Uniqueness obligation explicitly), so former DP-10's
+      conclusion is subsumed.
+
+    §01A CH-102 pattern mirror:
+      CH-102 (in aims-proof/proofs/01-decisions/CH-102*.proof per §01A
+      `discharge_for_engine` clauses for the CoexistenceHandshake
+      category) exhibits the same shape:
+        (a) constructive counterexample establishing former rule's
+            unsoundness;
+        (b) 3-alternative-paths enumeration proving every legitimate use
+            case is subsumed;
+        (c) `case_analysis` PRIMARY engine via finite enumeration over
+            the counterexample's lattice projection + per-path
+            subsumption witness.
+      This proof artifact's structure matches CH-102's per the §05.1
+      Implementation Item the section-05 coverage manifest pattern-mirroring requirement.
+
+    Live-variable / borrow_sources / project_alias_sources / IC-3 contract
+    typed pre-pass dependency:
+      Path 3 cites IC-3 ParamContract.uniqueness as upstream input. The
+      DP-10-REMOVED soundness proof does NOT require evaluation against
+      a live IC-3 ParamContract — the proof obligation is the REMOVAL,
+      not the evaluation of a successor predicate. The three alternative
+      paths are exhibited structurally, not evaluated against a live
+      AimsStateMap. Each path's soundness is established by the
+      corresponding rule's own proof artifact (DP-7 proof for Path 1+2;
+      DP-9 proof at §05.2 for Path 3).
+
+    Engines dispatched:
+      case_analysis (PRIMARY — constructive counterexample enumeration
+        (1 witness) + 3-alternative-paths subsumption enumeration (3
+        paths) per section_05::verify_dp10_removed; the verifier checks
+        the counterexample antecedent (Owned, Linear, Once) holds AND
+        Uniqueness != Unique AND enumerates the 3 paths as the
+        subsumption witness)
+
+  Expected:
+    status: valid
+    reason: section_05 case_analysis engine discharges DP-10-REMOVED via constructive counterexample (Owned + Linear + Once with MaybeShared upstream alias) + 3-alternative-paths enumeration (Uniqueness direct, TF-3 FRESH, IC-3 ParamContract) per Annex E §AIMS DP-10 REMOVED note + §1.4 + §3 TF-3 + §5 IC-3; mirrors §01A CH-102 pattern

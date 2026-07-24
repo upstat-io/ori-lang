@@ -1,0 +1,9 @@
+trait Printable {
+    @to_str (self) -> str
+}
+
+type Num = { value: int }
+
+impl Num: Printable {
+    @to_str (self) -> str = "num";
+}

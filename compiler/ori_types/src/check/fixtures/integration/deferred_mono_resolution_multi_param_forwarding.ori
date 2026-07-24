@@ -1,0 +1,7 @@
+
+@g <A, B> (x: A, y: B) -> B = y;
+@f <A, B> (x: A, y: B) -> B = g(x: y, y: x);
+@main () -> str = f(x: 1, y: "hi");
+@test_main tests @main () -> void = ();
+@test_g tests @g () -> void = ();
+@test_f tests @f () -> void = ();

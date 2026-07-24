@@ -1,0 +1,8 @@
+# Cargo build artifacts
+/target/
+
+# Test-run artifacts emitted by scripts/run-engine-tests.sh,
+# scripts/run-smoke-test.sh, scripts/run-coverage-corpus.sh per
+# the design-validation gate
+# Implementation Items 122 + 126 + 127.
+/test-results/

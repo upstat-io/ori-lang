@@ -1,0 +1,17 @@
+use std.testing { assert_eq }
+
+// Cross-instantiation isolation: @pick<int> and @pick<str> are distinct mono
+// instances, with no first-match dedup collision between the two instantiations.
+type Boxer = { tag: int }
+
+impl Boxer {
+    @pick<T> (self, item: T) -> T = item;
+}
+
+@t tests @pick () -> void = {
+    let b = Boxer { tag: 1 };
+    let $i = b.pick(item: 7);
+    let $s = b.pick(item: "hi");
+    assert_eq(actual: i, expected: 7);
+    assert_eq(actual: s, expected: "hi")
+}

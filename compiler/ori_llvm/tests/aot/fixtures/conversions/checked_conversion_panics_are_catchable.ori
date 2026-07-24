@@ -1,0 +1,22 @@
+@main () -> int = {
+    let cast_result = catch(expr: 256 as byte);
+    let cast_caught = match cast_result {
+        Err(message) -> message.contains(substr: "out of range for byte"),
+        Ok(_) -> false,
+    };
+
+    let nan = 0.0 / 0.0;
+    let method_result = catch(expr: nan.to_int());
+    let method_caught = match method_result {
+        Err(message) -> message.contains(substr: "cannot convert NaN"),
+        Ok(_) -> false,
+    };
+
+    let prelude_result = catch(expr: int(nan));
+    let prelude_caught = match prelude_result {
+        Err(message) -> message.contains(substr: "cannot convert NaN"),
+        Ok(_) -> false,
+    };
+
+    if cast_caught && method_caught && prelude_caught then 0 else 1
+}

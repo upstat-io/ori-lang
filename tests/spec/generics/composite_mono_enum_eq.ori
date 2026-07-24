@@ -1,0 +1,25 @@
+// Regression: generic ENUM variant payloads not monomorphized.
+// The `Either<int, str>` `R` payload must materialize to `str` so derived `equals`
+// and `match` payload destructure resolve concretely on both backends. The enum
+// case had ZERO substitution coverage anywhere pre-fix. Dual-backend.
+use std.testing { assert, assert_eq }
+
+#derive(Eq) type Either<A, B> = L(value: A) | R(value: B);
+
+@either_eq (x: Either<int, str>, y: Either<int, str>) -> bool = x == y;
+
+@payload_of (e: Either<int, str>) -> str = match e {
+    R(v) -> v,
+    L(_) -> "left"
+};
+
+@test_either_eq tests _ () -> void = {
+    let $x = R(value: "hello");
+    let $y = R(value: "hello");
+    assert(cond: either_eq(x: x, y: y))
+}
+
+@test_either_match_payload tests _ () -> void = {
+    let $x = R(value: "world");
+    assert_eq(actual: payload_of(e: x), expected: "world")
+}

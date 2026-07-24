@@ -1,6 +1,6 @@
 type Point = { x: int, y: int }
 
-impl Add for Point {
+impl Point: Add {
     type Output = Point;
     @add (self, rhs: Point) -> Point = Point {
         x: self.x + rhs.x,

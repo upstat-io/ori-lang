@@ -1,13 +1,43 @@
 use rustc_hash::FxHashMap;
 
-use ori_ir::canon::{CanArena, CanNamedExpr, CanNode, CanonResult};
+use ori_ir::canon::{
+    CanArena, CanNamedExpr, CanNode, CanParam, CanonResult, GenericConstValue, MonoConstBinding,
+};
 use ori_ir::{FunctionExpKind, Name, Span, StringInterner, TypeId};
 use ori_types::Idx;
 use ori_types::Pool;
 
 use crate::ir::{ArcInstr, ArcTerminator, ArcValue, LitValue, PrimOp};
 
-use super::super::lower_function_can;
+use super::super::{lower_function_can, ArcLoweringInput, ArcProblem};
+
+fn lower_single_expr_with_bindings(
+    canon: &CanonResult,
+    body: ori_ir::canon::CanId,
+    ty: Idx,
+    interner: &StringInterner,
+    const_bindings: Option<&[MonoConstBinding]>,
+) -> (crate::ir::ArcFunction, Vec<ArcProblem>) {
+    let pool = Pool::new();
+    let mut problems = Vec::new();
+    let name = interner.intern("test_function");
+    let (func, _lambdas) = lower_function_can(
+        ArcLoweringInput {
+            name,
+            params: &[],
+            return_type: ty,
+            body,
+            canon,
+            interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings,
+            is_fbip: false,
+        },
+        &mut problems,
+    );
+    (func, problems)
+}
 
 /// Helper: create a lowerer with a single canonical expression body.
 fn lower_single_expr(
@@ -16,22 +46,7 @@ fn lower_single_expr(
     ty: Idx,
 ) -> crate::ir::ArcFunction {
     let interner = StringInterner::new();
-    let pool = Pool::new();
-
-    let mut problems = Vec::new();
-    let name = Name::from_raw(1);
-    let (func, _lambdas) = lower_function_can(
-        name,
-        &[],
-        ty,
-        body,
-        canon,
-        &interner,
-        &pool,
-        &mut problems,
-        false,
-        None,
-    );
+    let (func, problems) = lower_single_expr_with_bindings(canon, body, ty, &interner, None);
     assert!(problems.is_empty(), "unexpected problems: {problems:?}");
     func
 }
@@ -40,15 +55,7 @@ fn make_canon(kind: ori_ir::canon::CanExpr, ty: Idx) -> (CanArena, CanonResult) 
     let mut arena = CanArena::with_capacity(100);
     let node = CanNode::new(kind, Span::new(0, 10), TypeId::from_raw(ty.raw()));
     let body = arena.push(node);
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: body,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-    };
+    let canon = CanonResult::new(arena, body);
     // Reborrow from canon
     (CanArena::with_capacity(0), canon)
 }
@@ -110,13 +117,8 @@ fn lower_constant_pool_value() {
     );
     let body = arena.push(node);
     let canon = CanonResult {
-        arena,
         constants,
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: body,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
+        ..CanonResult::new(arena, body)
     };
 
     let func = lower_single_expr(&canon, body, Idx::INT);
@@ -125,6 +127,114 @@ fn lower_constant_pool_value() {
     } else {
         panic!("expected Let with constant value");
     }
+}
+
+#[test]
+fn lower_named_const_uses_exact_mono_binding() {
+    let interner = StringInterner::new();
+    let const_name = interner.intern("N");
+    let (_, canon) = make_canon(ori_ir::canon::CanExpr::Const(const_name), Idx::INT);
+    let bindings = [MonoConstBinding {
+        name: const_name,
+        value: GenericConstValue::Int(7),
+    }];
+
+    let (func, problems) =
+        lower_single_expr_with_bindings(&canon, canon.root, Idx::INT, &interner, Some(&bindings));
+
+    assert!(problems.is_empty(), "unexpected problems: {problems:?}");
+    assert!(matches!(
+        &func.blocks[0].body[0],
+        ArcInstr::Let {
+            value: ArcValue::Literal(LitValue::Int(7)),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn lower_generic_const_ident_uses_exact_mono_binding() {
+    let interner = StringInterner::new();
+    let const_name = interner.intern("N");
+    let (_, canon) = make_canon(ori_ir::canon::CanExpr::Ident(const_name), Idx::INT);
+    let bindings = [MonoConstBinding {
+        name: const_name,
+        value: GenericConstValue::Int(7),
+    }];
+
+    let (func, problems) =
+        lower_single_expr_with_bindings(&canon, canon.root, Idx::INT, &interner, Some(&bindings));
+
+    assert!(problems.is_empty(), "unexpected problems: {problems:?}");
+    assert!(matches!(
+        &func.blocks[0].body[0],
+        ArcInstr::Let {
+            value: ArcValue::Literal(LitValue::Int(7)),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn lexical_ident_shadows_same_named_mono_const_binding() {
+    let interner = StringInterner::new();
+    let name = interner.intern("N");
+    let (_, canon) = make_canon(ori_ir::canon::CanExpr::Ident(name), Idx::INT);
+    let bindings = [MonoConstBinding {
+        name,
+        value: GenericConstValue::Int(7),
+    }];
+    let pool = Pool::new();
+    let mut problems = Vec::new();
+    let (func, _lambdas) = lower_function_can(
+        ArcLoweringInput {
+            name: interner.intern("shadow"),
+            params: &[(name, Idx::INT)],
+            return_type: Idx::INT,
+            body: canon.root,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: Some(&bindings),
+            is_fbip: false,
+        },
+        &mut problems,
+    );
+
+    assert!(problems.is_empty(), "unexpected problems: {problems:?}");
+    assert!(matches!(
+        &func.blocks[0].body[0],
+        ArcInstr::Let {
+            value: ArcValue::Var(var),
+            ..
+        } if *var == func.params[0].var
+    ));
+}
+
+#[test]
+fn lower_unbound_named_const_reports_canon_invariant_violation() {
+    let interner = StringInterner::new();
+    let const_name = interner.intern("MISSING");
+    let (_, canon) = make_canon(ori_ir::canon::CanExpr::Const(const_name), Idx::INT);
+
+    let (func, problems) =
+        lower_single_expr_with_bindings(&canon, canon.root, Idx::INT, &interner, None);
+
+    assert!(matches!(
+        problems.as_slice(),
+        [ArcProblem::InternalError { message, span }]
+            if message.contains("MISSING")
+                && message.contains("without an exact monomorphization binding")
+                && *span == Span::new(0, 10)
+    ));
+    assert!(matches!(
+        &func.blocks[0].body[0],
+        ArcInstr::Let {
+            value: ArcValue::Literal(LitValue::Unit),
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -150,15 +260,7 @@ fn lower_binary_op() {
         TypeId::from_raw(Idx::INT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: add,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-    };
+    let canon = CanonResult::new(arena, add);
 
     let func = lower_single_expr(&canon, add, Idx::INT);
 
@@ -194,15 +296,7 @@ fn lower_unary_op() {
         TypeId::from_raw(Idx::INT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: neg,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-    };
+    let canon = CanonResult::new(arena, neg);
 
     let func = lower_single_expr(&canon, neg, Idx::INT);
 
@@ -234,33 +328,28 @@ fn lower_await_is_transparent() {
         TypeId::from_raw(Idx::UNIT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: await_id,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-    };
+    let canon = CanonResult::new(arena, await_id);
 
     let interner = StringInterner::new();
     let pool = Pool::new();
     let mut problems = Vec::new();
     let (func, _) = lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::UNIT,
-        await_id,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::UNIT,
+            body: await_id,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
-    // Await is now transparent — just evaluates inner expression, no problems
+    // The lowered fixture evaluates its inner expression without ARC problems.
     assert_eq!(problems.len(), 0);
     // The function should have lowered the inner unit expression
     assert!(!func.blocks.is_empty());
@@ -276,30 +365,25 @@ fn lower_function_with_params() {
         TypeId::from_raw(Idx::INT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: body,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-    };
+    let canon = CanonResult::new(arena, body);
 
     let interner = StringInterner::new();
     let pool = Pool::new();
     let mut problems = Vec::new();
     let (func, _) = lower_function_can(
-        Name::from_raw(1),
-        &[(param_name, Idx::INT)],
-        Idx::INT,
-        body,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[(param_name, Idx::INT)],
+            return_type: Idx::INT,
+            body,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert_eq!(func.params.len(), 1);
@@ -335,29 +419,24 @@ fn lower_function_ref_emits_partial_apply() {
         TypeId::from_raw(func_ty.raw()),
     );
     let body = arena.push(node);
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: body,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-    };
+    let canon = CanonResult::new(arena, body);
 
     let interner = StringInterner::new();
     let mut problems = Vec::new();
     let (func, _) = lower_function_can(
-        Name::from_raw(1),
-        &[],
-        func_ty,
-        body,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: func_ty,
+            body,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty());
@@ -372,41 +451,294 @@ fn lower_function_ref_emits_partial_apply() {
 }
 
 #[test]
-fn lower_with_capability_is_transparent() {
+fn lambda_target_preserves_callable_signature_identity() {
+    let interner = StringInterner::new();
+    let parent_name = interner.intern("nominal_lambda_parent");
+    let parameter_name = interner.intern("color");
+    let color_name = interner.intern("Color");
+    let red_name = interner.intern("Red");
+
+    let mut pool = Pool::new();
+    let named_color = pool.named(color_name);
+    let concrete_color = pool.enum_type(
+        color_name,
+        &[ori_types::EnumVariant {
+            name: red_name,
+            field_types: vec![],
+        }],
+    );
+    pool.set_resolution(named_color, concrete_color);
+    let lambda_type = pool.function(&[named_color], named_color);
+
+    let mut arena = CanArena::with_capacity(3);
+    let body = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Ident(parameter_name),
+        Span::new(10, 15),
+        TypeId::from_raw(concrete_color.raw()),
+    ));
+    let params = arena.push_params(&[CanParam {
+        name: parameter_name,
+        default: ori_ir::canon::CanId::INVALID,
+    }]);
+    let lambda = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Lambda { params, body },
+        Span::new(0, 15),
+        TypeId::from_raw(lambda_type.raw()),
+    ));
+    let canon = CanonResult::new(arena, lambda);
+
+    let mut problems = Vec::new();
+    let (parent, lambdas) = lower_function_can(
+        ArcLoweringInput {
+            name: parent_name,
+            params: &[],
+            return_type: lambda_type,
+            body: lambda,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
+        &mut problems,
+    );
+
+    assert!(problems.is_empty(), "unexpected problems: {problems:?}");
+    assert_eq!(lambdas.len(), 1);
+    assert_ne!(named_color, concrete_color);
+    assert_eq!(
+        pool.function_params(parent.var_type(crate::ArcVarId::new(0)))[0],
+        named_color
+    );
+    assert_eq!(
+        lambdas[0].params[0].ty, named_color,
+        "the target parameter must retain the closure signature's nominal type identity"
+    );
+    assert_eq!(
+        lambdas[0].return_type, named_color,
+        "the target result must use the declared closure result rather than a narrower body type"
+    );
+}
+
+#[test]
+fn lambda_captures_follow_call_source_order_and_deduplicate_references() {
+    let interner = StringInterner::new();
+    let parent_name = interner.intern("capture_order_parent");
+    let callee_name = interner.intern("callee");
+    let first_name = interner.intern("first");
+    let second_name = interner.intern("second");
+
+    let mut pool = Pool::new();
+    let callee_type = pool.function(&[Idx::INT, Idx::INT, Idx::INT], Idx::INT);
+    let lambda_type = pool.function(&[], Idx::INT);
+    let mut arena = CanArena::with_capacity(8);
+    let callee = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Ident(callee_name),
+        Span::new(1, 7),
+        TypeId::from_raw(callee_type.raw()),
+    ));
+    let first = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Ident(first_name),
+        Span::new(8, 13),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let second = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Ident(second_name),
+        Span::new(15, 21),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let repeated_first = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Ident(first_name),
+        Span::new(23, 28),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let args = arena.push_expr_list(&[first, second, repeated_first]);
+    let call = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Call { func: callee, args },
+        Span::new(1, 29),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let params = arena.push_params(&[]);
+    let lambda = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Lambda { params, body: call },
+        Span::new(0, 29),
+        TypeId::from_raw(lambda_type.raw()),
+    ));
+    let canon = CanonResult::new(arena, lambda);
+    let mut problems = Vec::new();
+
+    let (parent, lambdas) = lower_function_can(
+        ArcLoweringInput {
+            name: parent_name,
+            params: &[
+                (callee_name, callee_type),
+                (first_name, Idx::INT),
+                (second_name, Idx::INT),
+            ],
+            return_type: lambda_type,
+            body: lambda,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
+        &mut problems,
+    );
+
+    assert!(problems.is_empty(), "unexpected problems: {problems:?}");
+    assert_eq!(lambdas.len(), 1);
+    assert_eq!(lambdas[0].num_captures, 3);
+    assert_eq!(
+        lambdas[0]
+            .params
+            .iter()
+            .map(|param| param.ty)
+            .collect::<Vec<_>>(),
+        vec![callee_type, Idx::INT, Idx::INT]
+    );
+    assert!(parent.blocks[0].body.iter().any(|instruction| {
+        matches!(
+            instruction,
+            ArcInstr::PartialApply { args, .. }
+                if args == &vec![
+                    crate::ArcVarId::new(0),
+                    crate::ArcVarId::new(1),
+                    crate::ArcVarId::new(2),
+                ]
+        )
+    }));
+}
+
+#[test]
+#[should_panic(expected = "typed lambda must carry a function type before ARC lowering")]
+fn lambda_with_non_function_type_panics() {
+    let interner = StringInterner::new();
+    let mut arena = CanArena::with_capacity(2);
+    let body = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Unit,
+        Span::DUMMY,
+        TypeId::from_raw(Idx::UNIT.raw()),
+    ));
+    let params = arena.push_params(&[]);
+    let lambda = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Lambda { params, body },
+        Span::DUMMY,
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let canon = CanonResult::new(arena, lambda);
+    let pool = Pool::new();
+    let mut problems = Vec::new();
+
+    let _ = lower_function_can(
+        ArcLoweringInput {
+            name: interner.intern("invalid_lambda_parent"),
+            params: &[],
+            return_type: Idx::INT,
+            body: lambda,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
+        &mut problems,
+    );
+}
+
+#[test]
+#[should_panic(expected = "typed lambda parameter count must match its function type")]
+fn lambda_parameter_count_mismatch_panics() {
+    let interner = StringInterner::new();
+    let parameter_name = interner.intern("extra");
+    let mut pool = Pool::new();
+    let lambda_type = pool.function(&[], Idx::UNIT);
+    let mut arena = CanArena::with_capacity(2);
+    let body = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Unit,
+        Span::DUMMY,
+        TypeId::from_raw(Idx::UNIT.raw()),
+    ));
+    let params = arena.push_params(&[CanParam {
+        name: parameter_name,
+        default: ori_ir::canon::CanId::INVALID,
+    }]);
+    let lambda = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Lambda { params, body },
+        Span::DUMMY,
+        TypeId::from_raw(lambda_type.raw()),
+    ));
+    let canon = CanonResult::new(arena, lambda);
+    let mut problems = Vec::new();
+
+    let _ = lower_function_can(
+        ArcLoweringInput {
+            name: interner.intern("mismatched_lambda_parent"),
+            params: &[],
+            return_type: lambda_type,
+            body: lambda,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
+        &mut problems,
+    );
+}
+
+#[test]
+fn lower_with_capability_binds_provider_for_body() {
+    // In `with Cap = 42 in Cap`, the body reference must resolve to the bound
+    // provider variable rather than the unbound-identifier unit fallback.
+    let cap_name = Name::from_raw(300);
     let mut arena = CanArena::with_capacity(100);
-    let inner = arena.push(CanNode::new(
+    let provider = arena.push(CanNode::new(
         ori_ir::canon::CanExpr::Int(42),
         Span::new(5, 10),
         TypeId::from_raw(Idx::INT.raw()),
     ));
+    let body = arena.push(CanNode::new(
+        ori_ir::canon::CanExpr::Ident(cap_name),
+        Span::new(11, 14),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
     let with_cap = arena.push(CanNode::new(
         ori_ir::canon::CanExpr::WithCapability {
-            capability: Name::from_raw(300),
-            provider: inner, // provider is unused at codegen level
-            body: inner,
+            capability: cap_name,
+            provider,
+            body,
         },
         Span::new(0, 15),
         TypeId::from_raw(Idx::INT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: with_cap,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-    };
+    let canon = CanonResult::new(arena, with_cap);
 
     let func = lower_single_expr(&canon, with_cap, Idx::INT);
 
-    // WithCapability is transparent — just evaluates the body
+    // The provider (Int(42)) is lowered into a defining instruction.
     assert!(func.blocks[0].body.iter().any(|instr| {
         matches!(
             instr,
             ArcInstr::Let {
                 value: ArcValue::Literal(LitValue::Int(42)),
+                ..
+            }
+        )
+    }));
+
+    // The body's capability ref resolves to the bound provider var
+    // (a `Let Var(_)`), proving the binding propagated — NOT a Unit fallthrough.
+    assert!(func.blocks[0].body.iter().any(|instr| {
+        matches!(
+            instr,
+            ArcInstr::Let {
+                value: ArcValue::Var(_),
                 ..
             }
         )
@@ -430,29 +762,24 @@ fn lower_format_with_dispatches_to_runtime() {
         TypeId::from_raw(Idx::STR.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: fmt,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-    };
+    let canon = CanonResult::new(arena, fmt);
 
     let pool = Pool::new();
     let mut problems = Vec::new();
     let (func, _) = lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::STR,
-        fmt,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::STR,
+            body: fmt,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty());
@@ -488,29 +815,24 @@ fn lower_function_exp_panic_emits_unreachable() {
         TypeId::from_raw(Idx::UNIT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: panic_expr,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-    };
+    let canon = CanonResult::new(arena, panic_expr);
 
     let pool = Pool::new();
     let mut problems = Vec::new();
     let (func, _) = lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::UNIT,
-        panic_expr,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::UNIT,
+            body: panic_expr,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty());
@@ -550,30 +872,25 @@ fn lower_function_exp_todo_emits_unreachable() {
         TypeId::from_raw(Idx::UNIT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: todo_expr,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-    };
+    let canon = CanonResult::new(arena, todo_expr);
 
     let interner = StringInterner::new();
     let pool = Pool::new();
     let mut problems = Vec::new();
     let (func, _) = lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::UNIT,
-        todo_expr,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::UNIT,
+            body: todo_expr,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 
     assert!(problems.is_empty());
@@ -605,30 +922,25 @@ fn lower_post_01_concurrency_panics() {
         TypeId::from_raw(Idx::UNIT.raw()),
     ));
 
-    let canon = CanonResult {
-        arena,
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-        root: spawn_expr,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-    };
+    let canon = CanonResult::new(arena, spawn_expr);
 
     let interner = StringInterner::new();
     let pool = Pool::new();
     let mut problems = Vec::new();
     let (_, _) = lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::UNIT,
-        spawn_expr,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::UNIT,
+            body: spawn_expr,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None,
     );
 }
 
@@ -651,15 +963,7 @@ fn type_subst_replaces_generic_type_with_concrete() {
     );
     let body = arena.push(node);
 
-    let canon = CanonResult {
-        root: body,
-        arena,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-    };
+    let canon = CanonResult::new(arena, body);
 
     let interner = StringInterner::new();
     let pool = Pool::new();
@@ -670,16 +974,19 @@ fn type_subst_replaces_generic_type_with_concrete() {
     subst.insert(generic_ty, Idx::INT);
 
     let (func, _) = lower_function_can(
-        Name::from_raw(1),
-        &[],
-        Idx::INT, // return type is already concrete
-        body,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: Idx::INT,
+            body,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: Some(&subst),
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        Some(&subst),
     );
 
     assert!(problems.is_empty(), "unexpected problems: {problems:?}");
@@ -715,31 +1022,26 @@ fn type_subst_none_leaves_types_unchanged() {
     );
     let body = arena.push(node);
 
-    let canon = CanonResult {
-        root: body,
-        arena,
-        roots: vec![],
-        method_roots: vec![],
-        problems: vec![],
-        constants: ori_ir::canon::ConstantPool::new(),
-        decision_trees: ori_ir::canon::DecisionTreePool::default(),
-    };
+    let canon = CanonResult::new(arena, body);
 
     let interner = StringInterner::new();
     let pool = Pool::new();
     let mut problems = Vec::new();
 
     let (func, _) = lower_function_can(
-        Name::from_raw(1),
-        &[],
-        ty,
-        body,
-        &canon,
-        &interner,
-        &pool,
+        ArcLoweringInput {
+            name: Name::from_raw(1),
+            params: &[],
+            return_type: ty,
+            body,
+            canon: &canon,
+            interner: &interner,
+            pool: &pool,
+            type_subst: None,
+            const_bindings: None,
+            is_fbip: false,
+        },
         &mut problems,
-        false,
-        None, // no substitution
     );
 
     assert!(problems.is_empty());

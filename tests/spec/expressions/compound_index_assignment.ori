@@ -1,0 +1,73 @@
+// Spec: 14-expressions.md § Index/Field Assignment (Clause 14.12); Spec §13.6.2
+//
+// Compound assignment is a two-step desugar: `xs[i] += v` → `xs[i] = xs[i] + v`
+// → `xs = xs.updated(key: i, value: xs[i] + v)`. The target + index expressions
+// evaluate once. POSITIVE pins; FAIL today, green after the section-03 desugar
+// lands. `**=` is intentionally absent — blocked on the unshipped `**` power
+// operator (BUG-01-019).
+
+use std.testing { assert_eq }
+
+type Counter = { value: int }
+
+// =============================================================================
+// += on a list element
+// =============================================================================
+
+@test_compound_add_list tests @compound_add_list () -> void = {
+    assert_eq(actual: compound_add_list(), expected: 15)
+}
+
+@compound_add_list () -> int = {
+    let xs = [10, 20, 30];
+    xs[0] += 5;
+    xs[0]
+}
+
+// =============================================================================
+// -= and *= on list elements
+// =============================================================================
+
+@test_compound_sub_mul_list tests @compound_sub_mul_list () -> void = {
+    assert_eq(actual: compound_sub_mul_list(), expected: 100)
+}
+
+@compound_sub_mul_list () -> int = {
+    let xs = [50, 5];
+    xs[0] -= 30;
+    // xs[0] == 20
+    xs[1] *= 4;
+    // xs[1] == 20
+    xs[0] * 5
+}
+
+// =============================================================================
+// /= and %= on list elements
+// =============================================================================
+
+@test_compound_div_rem_list tests @compound_div_rem_list () -> void = {
+    assert_eq(actual: compound_div_rem_list(), expected: 5)
+}
+
+@compound_div_rem_list () -> int = {
+    let xs = [100, 17];
+    xs[0] /= 10;
+    // xs[0] == 10
+    xs[1] %= 5;
+    // xs[1] == 2
+    xs[0] / 2
+}
+
+// =============================================================================
+// += on a struct field
+// =============================================================================
+
+@test_compound_add_field tests @compound_add_field () -> void = {
+    assert_eq(actual: compound_add_field(), expected: 8)
+}
+
+@compound_add_field () -> int = {
+    let c = Counter { value: 3 };
+    c.value += 5;
+    c.value
+}

@@ -121,11 +121,29 @@ fn test_nested_list_for_do_continue() {
 // F8: Iteration in match arm
 
 /// T1-F8: [str] iteration inside a match arm — cleanup regardless of which arm executes.
+///
+/// The `Option<[str]>` payload is live-extracted (`Some(words)`) then
+/// iter-consumed; the by-value sum-aggregate's Let-Var dup-alias adds no owner,
+/// so its duplication inc is RL-1 move-once-elidable. The base walk's
+/// `use_counts >= 2` proxy over-emits it, leaking the buffer + its heap str
+/// elements when the payload transfers out via `@iter [own]`.
 #[test]
 fn test_str_list_iteration_in_match() {
     assert_aot_success(
         include_str!("../fixtures/fat_ptr_iter/control_flow/str_list_iteration_in_match.ori"),
         "str_list_iteration_in_match",
+    );
+}
+
+/// T2-F8: scalar-element `[int]` iteration inside a match arm — cross-type
+/// clamp on the sum-payload-iter-consume dup-inc suppression. The buffer is a
+/// leaf (scalar elements, no `elem_dec_fn`); the cure must free it exactly once
+/// without over-releasing on the scalar-element path.
+#[test]
+fn test_int_list_iteration_in_match() {
+    assert_aot_success(
+        include_str!("../fixtures/fat_ptr_iter/control_flow/int_list_iteration_in_match.ori"),
+        "int_list_iteration_in_match",
     );
 }
 

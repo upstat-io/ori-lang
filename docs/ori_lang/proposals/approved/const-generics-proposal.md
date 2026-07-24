@@ -8,7 +8,9 @@
 
 ## Errata (added 2026-02-20)
 
-> **Partially superseded by capability-unification-generics-proposal**: The "Allowed Const Types" restriction to `int` and `bool` is replaced by a capability-based check: any type with `Eq + Hashable` is const-eligible. Additionally, `T: Trait` bound syntax in examples will become `T with Trait`. All other sections (syntax, monomorphization, inference, const bounds) remain valid.
+> **Partially superseded by capability-unification-generics-proposal**: The "Allowed Const Types" restriction to `int` and `bool` is replaced by a capability-based check: any type with `Eq + Hashable` is const-eligible. All other sections (syntax, monomorphization, inference, const bounds) remain valid.
+>
+> **Correction (added 2026-06-16, per call-site-method-generics-grammar-alignment-proposal propagation audit)**: an earlier version of this errata stated bound syntax in examples "will become `T with Trait`". That direction was REVERTED by capability-unification-generics-proposal's own errata — `with` has exactly one meaning (expression-level capability provision, `with Cap = Expr in Expr`); type declarations and bounds use `:`. Bound syntax remains `T: Trait`, and call-site const arguments are bare values (`replicate<_, 5>`), not `with`-bounds.
 
 ---
 

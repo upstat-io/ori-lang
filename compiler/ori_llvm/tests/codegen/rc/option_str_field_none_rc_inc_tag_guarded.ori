@@ -1,0 +1,22 @@
+// FileCheck IR-shape pin (inc arm): a None-bearing Option<str> struct field
+// walked for RC inc must load the discriminant and switch BEFORE touching the
+// payload. The tag-blind bypass arm emitted an un-guarded payload extract
+// (named %rc_inc.opt_inner = extractvalue ..., 1) feeding ori_str_rc_inc with
+// no preceding tag switch, inc-on-garbage for a None. Sharing the Holder via a
+// two-element list forces the field inc walk.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: switch
+// CHECK-NOT: opt_inner
+
+type Holder = { f: Option<str> }
+
+@mk (b: bool) -> Option<str> = if b then Some("hi") else None;
+
+@count (xs: [Holder]) -> int = xs.len();
+
+@main () -> void = {
+    let h = Holder { f: mk(b: false) };
+    let xs = [h, h];
+    print(msg: count(xs: xs).to_str())
+}

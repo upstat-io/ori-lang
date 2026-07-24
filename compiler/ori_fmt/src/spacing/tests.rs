@@ -121,6 +121,7 @@ mod category_tests {
         assert!(TokenCategory::Then.is_keyword());
         assert!(TokenCategory::Else.is_keyword());
         assert!(TokenCategory::For.is_keyword());
+        assert!(TokenCategory::While.is_keyword());
         assert!(TokenCategory::Let.is_keyword());
         assert!(TokenCategory::Pub.is_keyword());
 
@@ -202,7 +203,7 @@ mod rules_tests {
         assert!(count <= 100, "Expected at most 100 rules, got {count}");
     }
 
-    // === Binary Operator Rules (Spec lines 25-30) ===
+    // Binary Operator Rules
 
     #[test]
     fn space_around_plus() {
@@ -269,7 +270,7 @@ mod rules_tests {
         );
     }
 
-    // === Delimiter Rules (Spec lines 31-35) ===
+    // Delimiter Rules
 
     #[test]
     fn no_space_empty_parens() {
@@ -334,7 +335,7 @@ mod rules_tests {
         );
     }
 
-    // === Punctuation Rules (Spec lines 36-41) ===
+    // Punctuation Rules
 
     #[test]
     fn comma_spacing() {
@@ -397,7 +398,7 @@ mod rules_tests {
         );
     }
 
-    // === Keyword Rules (Spec lines 42-47) ===
+    // Keyword Rules
 
     #[test]
     fn space_after_pub() {
@@ -461,7 +462,7 @@ mod rules_tests {
         );
     }
 
-    // === Pattern Keyword Rules ===
+    // Pattern Keyword Rules
 
     #[test]
     fn no_space_run_paren() {
@@ -517,7 +518,7 @@ mod rules_tests {
         );
     }
 
-    // === Special Rules ===
+    // Special Rules
 
     #[test]
     fn no_space_at_ident() {
@@ -563,7 +564,7 @@ mod rules_tests {
         );
     }
 
-    // === Unary Operator Rules ===
+    // Unary Operator Rules
 
     #[test]
     fn no_space_after_bang() {

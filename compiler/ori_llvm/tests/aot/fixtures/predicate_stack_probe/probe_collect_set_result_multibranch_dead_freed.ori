@@ -1,0 +1,9 @@
+@main () -> int = {
+    let s: Set<int> = [10, 20, 30].iter().collect();
+    if !s.contains(value: 10) then 1
+    else if !s.contains(value: 20) then 2
+    else if !s.contains(value: 30) then 3
+    else if s.contains(value: 40) then 4
+    else if s.len() != 3 then 5
+    else 0
+}

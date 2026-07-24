@@ -1,0 +1,12 @@
+@exercise (salt: int) -> int = {
+    let acc = 0;
+    let rows = for i in 0..10 yield (for j in 0..10 yield i * j);
+    for row in rows do { for value in row do { acc = acc + value } };
+    acc + (salt % 100)
+}
+
+@main () -> int = {
+    let total = 0;
+    for n in 0..100 do { total = total + exercise(salt: n) };
+    if total == 207450 then 0 else 1
+}

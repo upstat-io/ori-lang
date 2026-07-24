@@ -112,6 +112,15 @@ fn fixed_lexeme_delimiters() {
 }
 
 #[test]
+fn fixed_lexeme_newline() {
+    // Newline is the sole trivia variant with a fixed lexeme (`\n`), distinct
+    // from Whitespace which has none. Pins display.rs so a regression to None
+    // (collapsing it into the variable-lexeme set) fails.
+    assert_eq!(RawTag::Newline.lexeme(), Some("\n"));
+    assert_eq!(RawTag::Whitespace.lexeme(), None);
+}
+
+#[test]
 fn variable_lexeme_returns_none() {
     assert_eq!(RawTag::Ident.lexeme(), None);
     assert_eq!(RawTag::Int.lexeme(), None);
@@ -210,4 +219,28 @@ fn all_matches_name_exhaustiveness() {
     for tag in RawTag::ALL {
         assert!(!tag.name().is_empty(), "{tag:?} has empty name");
     }
+}
+
+#[test]
+fn all_covers_every_distinct_discriminant() {
+    // RawTag::ALL is the SSOT downstream drift guards derive from (tag/mod.rs).
+    // Pin its size against the discriminant set so a variant added to the enum
+    // (which the exhaustive name()/lexeme() matches force a maintainer to touch)
+    // but omitted from ALL is a test failure, not silent SSOT drift.
+    let all = RawTag::ALL;
+    let mut discriminants: Vec<u8> = all.iter().map(|t| *t as u8).collect();
+    discriminants.sort_unstable();
+    discriminants.dedup();
+    assert_eq!(
+        discriminants.len(),
+        all.len(),
+        "RawTag::ALL has {} entries but only {} distinct discriminants — a variant is duplicated or the count drifted",
+        all.len(),
+        discriminants.len()
+    );
+    assert_eq!(
+        all.len(),
+        79,
+        "RawTag::ALL must enumerate all 79 RawTag variants"
+    );
 }

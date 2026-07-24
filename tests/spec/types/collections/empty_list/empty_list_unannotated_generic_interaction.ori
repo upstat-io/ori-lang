@@ -1,11 +1,16 @@
-// Matrix §05.2 item 15 NEGATIVE PIN: unannotated empty list passed to a
-// generic free function leaves `T` unbound at the call site. Propagation
-// from the empty-literal defaulting scope doesn't reach the generic
-// signature position — `T` stays a rigid Tag::Var and the bodies-pass
-// validator fires E2005 on the ambiguous signature hole.
+// Matrix item 15 POSITIVE PIN: unannotated empty list passed to a generic free
+// function. The end-of-body defaulting (Rust !-fallback analog) defaults the
+// call-site instantiation var to Never, so `T` resolves to Never, the generic
+// call type-checks cleanly, and `.len()` returns the expected zero. At the call
+// site `T` is an instantiation var (not a rigid var), so the empty-literal
+// defaulting reaches it. The genuine E2005 signature-hole negatives live in the
+// unannotated-signature-param cells (len-only, is_empty-only, and the four
+// body-pass negatives).
 
-#compile_fail(code: "E2005")
+use std.testing { assert_eq }
 
 @generic_wrap<T> (xs: [T]) -> int = xs.len();
 
-@main () -> int = generic_wrap(xs: []);
+@test_unannotated_generic_empty tests _ () -> void = {
+    assert_eq(actual: generic_wrap(xs: []), expected: 0)
+}

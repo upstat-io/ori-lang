@@ -1,0 +1,1 @@
+@f (pair: (int, str)) -> int = match pair { (x, _) -> x }

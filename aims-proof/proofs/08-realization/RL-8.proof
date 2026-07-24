@@ -1,0 +1,29 @@
+Theorem RL-8: Shared requires mutation isolation
+
+  Preconditions:
+    - Uniqueness(v) = Shared proves multiple logical owners.
+    - DP-5 forbids same-identity mutation for Shared.
+    - DP-9's historical `StaticShared` label denotes IsolationRequired.
+
+  Soundness property:
+    Forall owned Shared value v at a mutation point:
+      (P1) IsolationRequired regardless of borrow state.
+      (P2) satisfying isolation preserves every existing owner's view.
+    The theorem does not require copying; copying is one possible projection.
+
+  Proof obligation:
+    Enumerate no-borrow and active-borrow Shared cases.
+    Coverage gate: 2 cases.
+
+    Negative-direction witness:
+      SameIdentityAdmissible for Shared is rejected because another owner would
+      observe the mutation.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl8_static_shared_mutation)
+      rc_counting (SECONDARY — gracious-accept)
+      refinement (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: RL-8 freezes mutation isolation for both Shared borrow states and rejects same-identity mutation without selecting a copy mechanism

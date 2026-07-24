@@ -1,0 +1,11 @@
+
+@d <T> (x: T) -> T = x;
+@c <T> (x: T) -> T = d(x: x);
+@b <T> (x: T) -> T = c(x: x);
+@a <T> (x: T) -> T = b(x: x);
+@main () -> int = a(x: 7);
+@test_main tests @main () -> void = ();
+@test_a tests @a () -> void = ();
+@test_b tests @b () -> void = ();
+@test_c tests @c () -> void = ();
+@test_d tests @d () -> void = ();

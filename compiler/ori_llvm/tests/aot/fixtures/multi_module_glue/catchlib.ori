@@ -1,0 +1,9 @@
+pub @safe_div (a: int, b: int) -> int = {
+    let $r = catch(expr: a / b);
+    let $f = (x: int) -> x + 1;
+
+    match r {
+        Ok(v) -> f(v),
+        Err(_) -> 0,
+    }
+}

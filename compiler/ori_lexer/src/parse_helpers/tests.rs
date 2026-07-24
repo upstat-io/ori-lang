@@ -36,7 +36,7 @@ fn test_parse_int_overflow() {
 
 #[test]
 fn test_parse_int_empty_digits_returns_none() {
-    // Finding 1: empty digit sequence must return None, not Some(0)
+    // empty digit sequence must return None, not Some(0)
     assert_eq!(parse_int_skip_underscores("", 16), None);
     assert_eq!(parse_int_skip_underscores("", 2), None);
     assert_eq!(parse_int_skip_underscores("", 10), None);
@@ -44,7 +44,7 @@ fn test_parse_int_empty_digits_returns_none() {
 
 #[test]
 fn test_parse_int_only_underscores_returns_none() {
-    // Finding 1: underscores-only = no real digits seen
+    // underscores-only = no real digits seen
     assert_eq!(parse_int_skip_underscores("___", 16), None);
     assert_eq!(parse_int_skip_underscores("_", 2), None);
     assert_eq!(parse_int_skip_underscores("__", 10), None);
@@ -71,7 +71,7 @@ fn test_parse_float_skip_underscores() {
 
 #[test]
 fn test_parse_float_overflow_returns_none() {
-    // Finding 2: overflow to infinity must return None
+    // overflow to infinity must return None
     assert_eq!(parse_float_skip_underscores("1e999"), None);
     assert_eq!(parse_float_skip_underscores("-1e999"), None);
 }

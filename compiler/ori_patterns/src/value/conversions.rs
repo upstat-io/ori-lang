@@ -120,9 +120,6 @@ impl Value {
     /// For variant values, this returns the enum type name (e.g., "Status").
     /// For Range values, returns "range" (lowercase) for method dispatch consistency.
     /// For all other types, delegates to `type_name()`.
-    ///
-    /// This method unifies the type name logic that was previously duplicated
-    /// between `Value::type_name()` and `Evaluator::get_value_type_name()`.
     pub fn type_name_with_interner<I: StringLookup>(&self, interner: &I) -> Cow<'static, str> {
         match self {
             Value::Struct(s) => Cow::Owned(interner.lookup(s.type_name).to_string()),
@@ -152,10 +149,7 @@ impl Value {
             Value::Map(map) => {
                 let inner: Vec<_> = map
                     .iter()
-                    .map(|(k, v)| {
-                        let decoded = Value::from_map_key(k);
-                        format!("{}: {}", decoded.display_value(), v.display_value())
-                    })
+                    .map(|(k, v)| format!("{}: {}", k.display_value(), v.display_value()))
                     .collect();
                 format!("{{{}}}", inner.join(", "))
             }
@@ -333,11 +327,7 @@ impl Value {
             (Value::Tuple(a), Value::Tuple(b)) => {
                 a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.equals(y))
             }
-            (Value::Set(a), Value::Set(b)) => {
-                a.len() == b.len()
-                    && a.iter()
-                        .all(|(k, v)| b.get(k).is_some_and(|bv| v.equals(bv)))
-            }
+            (Value::Set(a), Value::Set(b)) | (Value::Map(a), Value::Map(b)) => **a == **b,
             (Value::Duration(a), Value::Duration(b)) => a == b,
             (Value::Size(a), Value::Size(b)) => a == b,
             (Value::Ordering(a), Value::Ordering(b)) => a == b,

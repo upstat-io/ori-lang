@@ -42,7 +42,7 @@ fn trait_impl_method_registered_in_trait_impl_fn_names() {
 
         type Person = { name: str }
 
-        impl Greet for Person {
+        impl Person: Greet {
             @greet (self) -> str = self.name;
         }
         ",
@@ -98,7 +98,7 @@ fn default_trait_method_registered_in_trait_impl_fn_names() {
 
         type Widget = { id: int }
 
-        impl Describable for Widget {
+        impl Widget: Describable {
         }
         "#,
     );
@@ -131,7 +131,7 @@ fn trait_impl_fn_names_discriminates_trait_from_inherent() {
             @distance (self) -> int = self.x + self.y;
         }
 
-        impl Printable for Point {
+        impl Point: Printable {
             @to_str (self) -> str = "point";
         }
         "#,

@@ -1,0 +1,180 @@
+Theorem RL-1: Realization rule signatures — RL-1 through RL-34 + RL-13 confirmation-of-removal
+
+  Preconditions:
+    - Realization rules govern logical ownership events, mutation-isolation
+      obligations, donor/recipient credit transfer, backend-neutral
+      allocation-fact freezing, target-plan capability validation, logical
+      event refinement, ordering barriers, backend projection of AIMS facts,
+      and borrow inference per Annex E §AIMS.
+    - Transforming RL rules have signature
+      ArcFunction x AimsStateMap -> ArcFunction. Fact-freezing and projection
+      rules instead return AllocationFacts or prove Satisfies; they do not
+      smuggle a physical target choice through that transformation signature.
+    - 37 active RL theorems (RL-1 through RL-34 minus RL-13-REMOVED, plus
+      RL-11a / RL-14a / RL-15a / RL-18a sub-rules) per the section
+      inventory table (line 108)
+    - RL-13 was REMOVED from Annex E §AIMS (same root cause as DP-10)
+    - RL-31 (type-level disjointness) requires cross-call-site
+      provenance-summary parameter per Annex E §AIMS RL-31
+
+  Soundness property:
+    Common transformation signature where a rule rewrites realization IR:
+
+      RL-N-transform : ArcFunction x AimsStateMap -> ArcFunction
+
+    Backend-neutral allocation seam:
+
+      freeze : ArcFunction x AimsStateMap -> AllocationFacts
+      validate : AllocationFacts x ExtentClass x LayoutCapabilities -> Satisfies
+
+    Logical ownership-event cluster (RL-1 through RL-5):
+      RL-1 owner-credit event when an owned value gains a simultaneous owner
+      RL-2 release event at last use of an owned value or scope exit;
+             excludes ownership-transferring uses; includes UNUSED-owned
+             definitional cleanup for Dead/Absent
+      RL-3 event pairs elided when the lattice proves them unnecessary
+             (via DP-2, DP-3, DP-7)
+      RL-4 edge-specific release events on CFG edges with Jump-arg exemption
+      RL-5 dead-at-entry cleanup for Owned non-scalar block parameters with
+             Cardinality = absent
+
+    Mutation-isolation cluster (RL-6 through RL-10):
+      RL-6 ProvenUnique mutation preserves the same logical identity
+      RL-7 RequiresSharingObservation chooses between preserving identity and
+             isolating the mutation from aliases
+      RL-8 ProvenShared mutation requires isolation before mutation
+      RL-9 explicit and compact observation forms have identical logical
+             mutation outcomes
+      RL-10 disjoint field mutation needs no aggregate isolation when
+             field-disjoint borrows prove non-interference
+             (DP-5 field-aware disjointness; SetTag conservatively blocks)
+
+    Donor/recipient credit-transfer cluster (RL-11 through RL-12, minus
+    RL-13-REMOVED):
+      RL-11 same-block transfer: an eligible donor relinquishes one storage
+             credit that the recipient acquires under conditions (a, b, c)
+      RL-11a MaybeShared donors require a sharing observation; the isolated
+             outcome transfers credit and the shared outcome creates a fresh
+             recipient credit without consuming the donor
+      RL-12 cross-block transfer requires dominance / post-dominance, the
+             same innermost loop header, and no-throw constraints
+
+    Allocation-fact freeze cluster (RL-14 through RL-17):
+      RL-14 Locality derives a logical LifetimeBound; it never chooses stack,
+             arena, region, or managed placement.
+      RL-14a CleanupObligation preserves exact release-event, drop-plan,
+             traversal-order, normal-exit, unwind-exit, and lifetime-end identity.
+      RL-15 ExtentClass is representation-owned projection input, separate
+             from AllocationFacts.
+      RL-15a ArgEscaping freezes a nonempty exact CallerExtent containing
+             stable call-site identity and borrow/share/transfer protocol;
+             missing caller evidence becomes Unknown.
+      RL-16 missing or conflicting evidence freezes conservative defaults:
+             Lifetime Unknown, Owner Unbounded, Thread PotentiallyShared,
+             Visibility Unknown, and unknown logical event obligations.
+      RL-17 OwnerBound is a dynamic upper bound; bounded straight-line
+             additional-credit sites contribute N extra owners, while loops,
+             global reachability, or external credit creation force Unbounded
+             even for local-unique input.
+
+    Target-projection capability cluster (RL-18 through RL-18a):
+      RL-18 VmLayoutPlan and CompiledLayoutPlan are admissible only with a
+             proof of Satisfies over lifetime, repr extent, owner capacity,
+             exact ownership-observation and cleanup events, unwind coverage, thread
+             reachability, and visibility. Capability refinement separately
+             preserves external-contract identity.
+      RL-18a VM and compiled plans may choose different physical mechanisms,
+             but validated plans erase to the same exact AIMS logical trace.
+
+    Thread-reachability cluster (RL-19 through RL-21):
+      RL-19 Locality plus call-graph boundary evidence freezes Confined or
+             PotentiallyShared; Unknown is PotentiallyShared.
+      RL-20 PotentiallyShared requires a shared-safe capability, while
+             Confined admits either confined-specialized or shared-safe
+             mechanisms; AIMS does not select an atomicity implementation.
+      RL-21 a whole-program no-thread-boundary proof freezes all values as
+             Confined, still leaving mechanism selection to each target.
+
+    KnownSafe + logical event-refinement cluster (RL-22 through RL-26):
+      RL-22 KnownSafe pair elimination when a logical owner credit is proven
+             outstanding across the candidate pair (no physical counter premise)
+      RL-23 KnownSafe flag propagation at joins (AND across predecessors)
+      RL-24 bidirectional dataflow identifies matching
+             (owner-credit, release) pairs
+             across blocks
+      RL-25 pair eliminable when KnownSafe = true OR both paths safe AND
+             no CFG hazard
+      RL-26 event motion forbidden across observable barriers per Annex E
+             §AIMS RL-26 (ownership-transferring or sharing-observing calls;
+             mutation-sharing observations; aggregate mutation affecting v)
+
+    Event-ordering barriers cluster (RL-27 through RL-28):
+      RL-27 calls require selected pending logical events to be ordered before
+             entry when the callee may transfer ownership or observe sharing
+      RL-28 unknown callees conservatively order all pending logical events
+             before entry
+
+    Backend-neutral AIMS fact export (RL-29 through RL-31):
+      RL-29 FreshSelfAllocationFacts from IC-4 returns_fresh_self_alloc;
+             passthrough and consumed-storage results remain unproven; a
+             compiled backend may separately project this fact into a
+             target-specific direct-pointer ABI attribute
+      RL-30 MemoryAccessFact from IC-3 + IC-5 + realized operations;
+             ReadOnly proves no writes but permits all reads;
+             may_throw or may_write_inaccessible forces ReadWrite; a compiled
+             backend may project generic read-only metadata, never a stronger
+             claim than the conservative AIMS fact
+      RL-31 neutral disjoint-Borrowed-parameter facts; target alias metadata
+             is a separate projection; cross-call-site provenance is required
+             (cross-function alias-disjointness proof from borrow_sources +
+              project_alias_sources at each call site) — VF-2 (b) consumes
+             this; the burden-prototype C5 CRITICAL criterion
+
+    Borrow inference cluster (RL-32 through RL-34):
+      RL-32 all non-scalar parameters initialize Borrowed; fixpoint promotes
+             to Owned based on demand
+      RL-33 projection propagation: projected field Owned -> source promoted
+             Owned
+      RL-34 tail call preservation: every handoff or release is ordered before
+             the tail call; an Owned callee receives ownership, while a
+             Borrowed tail call is valid only when the caller's release
+             obligation is already discharged
+
+    RL-13 confirmation-of-removal entry:
+
+      RL-13 — Construct + Once does NOT imply one logical owner at death (REMOVED)
+
+      Removed in: Annex E §AIMS RL-13 removal note
+        (same root cause as DP-10)
+
+      Root cause: one use may store the value into a data structure and create
+        another logical owner; Construct + Cardinality=Once alone does not
+        guarantee exactly one logical owner at death.
+
+      Subsumed by:
+        - Uniqueness dimension (§AIMS §3.4) as direct source of truth for
+          reuse eligibility
+        - DP-6 + RL-11 + RL-12 reuse-candidate gating via Uniqueness
+
+      No theorem skeleton to discharge; this is a CONFIRMATION entry only.
+
+  Proof obligation:
+    sorry -- discharged by sec-08 realization-rule proofs
+            (37 active theorems: RL-1 through RL-34 minus RL-13-REMOVED,
+             plus RL-11a / RL-14a / RL-15a / RL-18a sub-rules
+             + RL-13 confirmation entry)
+
+    Engines dispatched:
+      rc_counting (historical engine name: RL-1 through RL-5 logical
+                   ownership-event balance; RL-22 through RL-26 KnownSafe +
+                   event-refinement soundness)
+      refinement (RL-29 / RL-30 / RL-31 neutral-fact validation against
+                  IC-3 + IC-4 + IC-5, then separate target fidelity)
+      case_analysis (per-rule cluster discharge: mutation isolation +
+                     donor/recipient transfer + neutral allocation facts +
+                     projection satisfaction + thread reachability + event
+                     ordering barriers + borrow inference)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-08 discharges per-rule RL proofs

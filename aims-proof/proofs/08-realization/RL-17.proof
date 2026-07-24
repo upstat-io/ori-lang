@@ -1,0 +1,39 @@
+Theorem RL-17: OwnerBound is a dynamic upper bound
+
+  Preconditions:
+    - OwnershipObservationFacts preserves exact additional-credit,
+      release, and sharing-observation identities.
+    - Loop/global reachability and external retention are conservative signals.
+
+  Soundness property:
+    Forall additional-credit event sequence R:
+
+      (P1) straight-line non-unique ownership yields OwnerBound.Bounded(|R|),
+           whose capacity is |R| + 1 including the original owner.
+
+      (P2) a local unique value without a widening signal yields Bounded(0).
+
+      (P3) loop/global or externally retainable values yield Unbounded.
+
+      (P4) loop/global precedence dominates local uniqueness.
+
+  Proof obligation:
+    Constructive classification with the load-bearing row
+    local_unique=true and loop_or_global=true -> Unbounded.
+
+    Part (P1/P2/P3/P4) - owner-bound grid:
+      local_unique_one_owner -> Bounded(0)
+      three_additional_credits_four_owners -> Bounded(3)
+      local_unique_loop_unbounded -> Unbounded
+      external_credit_creation_unbounded -> Unbounded
+      Coverage gate: 4 owner-bound cases.
+
+    Engines dispatched:
+      case_analysis (PRIMARY - section_08::verify_rl17_owner_bound;
+        ownerBound and ownerCapacity classification)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL row)
+      refinement (SECONDARY - gracious-accept per the coverage-manifest RL row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-17 with dynamic OwnerBound capacity and loop/global or external-retention precedence over local uniqueness

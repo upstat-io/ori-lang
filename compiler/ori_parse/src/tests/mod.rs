@@ -6,6 +6,7 @@
 //!   patterns, and expressions work correctly in all valid positions.
 //! - `snapshot`: Tests for parser snapshot/speculative parsing functionality
 
+mod assign_target;
 mod compositional;
 mod parser;
 mod snapshot;

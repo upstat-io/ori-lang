@@ -22,8 +22,7 @@ impl TokenKind {
     pub const TAG_TEMPLATE_FULL: u8 = TokenTag::TemplateComplete as u8;
     pub const TAG_FORMAT_SPEC: u8 = TokenTag::FormatSpec as u8;
 
-    // Keywords — reserved (12-39)
-    // TAG_ASYNC removed (was 11)
+    // Keywords — reserved (12-39); discriminant 11 is unused
     pub const TAG_BREAK: u8 = TokenTag::KwBreak as u8;
     pub const TAG_CONTINUE: u8 = TokenTag::KwContinue as u8;
     pub const TAG_RETURN: u8 = TokenTag::KwReturn as u8;
@@ -38,6 +37,7 @@ impl TokenKind {
     pub const TAG_LET: u8 = TokenTag::KwLet as u8;
     pub const TAG_LOOP: u8 = TokenTag::KwLoop as u8;
     pub const TAG_MATCH: u8 = TokenTag::KwMatch as u8;
+    pub const TAG_WHILE: u8 = TokenTag::KwWhile as u8;
     pub const TAG_PUB: u8 = TokenTag::KwPub as u8;
     pub const TAG_SELF_LOWER: u8 = TokenTag::KwSelfLower as u8;
     pub const TAG_SELF_UPPER: u8 = TokenTag::KwSelfUpper as u8;

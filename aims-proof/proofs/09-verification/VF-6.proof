@@ -1,0 +1,86 @@
+Theorem VF-6: contracts and realization agreement — composes VF-3 oracle + VF-4 FIP balance
+
+  Preconditions:
+    - VF-6 governs the contracts-realization agreement invariant per Annex E §AIMS VF-6: "Contracts and realization SHALL agree. MemoryContract says
+      FipContract::Certified -> realized IR has zero unmatched alloc/dealloc."
+      Restated by Annex E §AIMS §2 invariant 1: "Contracts and realization
+      must agree."
+    - VF-6's concrete shape is MemoryContract x ArcFunction -> Bool per
+      aims-proof/proofs/01-verification/Verification.proof: analysis inferences
+      match realized behavior. The realized-side check is what the VF-3 oracle
+      performs; VF-6 is the AGREEMENT invariant the verification stack as a whole
+      enforces. Discharged here against the sec-01 Verification.proof sorry
+      obligation.
+    - VF-6 COMPOSES VF-3 (the realized-side oracle re-derivation refinement) and
+      VF-4 (the FIP alloc-balance) into a single contract-realization
+      implication: a Certified claim requires BOTH the realized IR alloc-balanced
+      (VF-4) AND the oracle re-derivation refining the inferred contract (VF-3).
+    - TARGET-ONLY whole-stack mandate: there is no single shipped verifier
+      function — VF-6 is the agreement invariant the layered stack asserts
+      (composing the shipped VF-3 oracle.rs and VF-4 fip.rs verifiers).
+      conformance: target-only.
+    - depends-on sec-06: IC-3 + IC-5 + IC-6 contract soundness is load-bearing
+      for the contract side of the agreement.
+
+  Soundness property:
+    Forall inferred MemoryContract C and realized ArcFunction F:
+
+      (P1) Certified implies balanced-and-refined: when C claims
+           FipContract::Certified, C and F are in AGREEMENT iff F's realized IR
+           is alloc-balanced (the VF-4 verdict) AND the oracle re-derivation of
+           F refines C (the VF-3 verdict). Both sub-checks must hold.
+
+      (P2) Disagreement is an error: a Certified contract over an unbalanced
+           realized IR (VF-4 fails), or a contract the oracle cannot refine
+           (VF-3 fails), is a violation. A non-Certified contract still requires
+           oracle refinement (VF-3 applies regardless of the Certified claim);
+           the FIP balance is asserted only when Certified is claimed.
+
+    VF-6 is the agreement capstone of the verification stack: it ties the
+    contract claim to the realized behavior. A contract that claims FIP while
+    the realized IR leaks, or a contract whose inferred dimensions the oracle
+    re-derivation contradicts, breaks the through-line from proof to
+    realization.
+
+  Proof obligation:
+    Constructive discharge by the refinement engine via composition of the VF-3
+    oracle refinement and the VF-4 FIP balance into the agreement implication
+    (per the proof-checker design sec-Engine-per-Category-Inventory VF row; the foundational-axiom policy
+    sec-Per-Engine-Constructive-Proof-Shape — definitional rewriting +
+    constructive ->-introduction).
+
+    Part (P1/P2) — agreement grid:
+
+      The verifier models the agreement predicate (Certified -> balanced AND
+      oracle-refines; non-Certified -> oracle-refines) and asserts it over a
+      grid:
+        certified_balanced_refines_agree — Certified + balanced + refines
+                                              -> agreement.
+        certified_unbalanced_disagree — Certified + unbalanced
+                                              -> disagreement (VF-4 fails).
+        certified_oracle_unsafe_disagree — Certified + balanced + oracle
+                                              cannot refine -> disagreement (VF-3).
+        noncertified_refines_agree — non-Certified + refines
+                                              -> agreement (FIP not asserted).
+        noncertified_oracle_unsafe_disagree — non-Certified + oracle cannot
+                                              refine -> disagreement (VF-3 still
+                                              applies).
+      Coverage gate: 5 rows (2 agree + 3 disagree).
+
+    Negative-direction witness (the agreement has teeth — a Certified-over-
+    unbalanced contract is REJECTED):
+      A Certified contract over an unbalanced realized IR is NOT in agreement;
+      accepting it would let the contract claim FIP while the realized IR leaks.
+
+    Engines dispatched:
+      refinement (PRIMARY — section_09::verify_vf6_contracts_realization_agreement;
+        agreement implication composing VF-3 oracle refinement + VF-4 FIP
+        balance; emits Fail on an agreement/disagreement mismatch)
+      structural_induction (SECONDARY — gracious-accept per the
+        coverage-manifest VF row)
+      rc_counting (SECONDARY — gracious-accept)
+      interprocedural_summary (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: section_09 refinement engine discharges VF-6 via the contract-realization agreement implication composing VF-3 oracle refinement and VF-4 FIP balance (Certified implies alloc-balanced AND oracle-refines; non-Certified implies oracle-refines): 5 rows (2 agree + 3 disagree across VF-3/VF-4 failure modes) with a negative-direction witness rejecting a Certified contract over an unbalanced realized IR; VF-6 is a target-only whole-stack agreement mandate

@@ -109,10 +109,12 @@ fn format_function_with_rc_ops_includes_rc_inc_and_dec_in_output() {
                     var: ArcVarId::new(0),
                     count: 1,
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
                 ArcInstr::RcDec {
                     var: ArcVarId::new(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
             ],
             terminator: ArcTerminator::Return {
@@ -133,6 +135,51 @@ fn format_function_with_rc_ops_includes_rc_inc_and_dec_in_output() {
     assert!(
         output.contains("RcDec %0 [HeapPtr]"),
         "output must contain RcDec: {output}"
+    );
+}
+
+/// BurdenInc/BurdenDec format as `burden_inc %N` / `burden_dec %N`
+/// (parallel to `RcInc %N [strategy]` but no strategy slot — burden ops
+/// are trivial side-effect markers).
+#[test]
+fn format_function_with_burden_ops_includes_burden_inc_and_dec_in_output() {
+    let interner = StringInterner::new();
+    let pool = Pool::default();
+    let name = interner.intern("burden_func");
+
+    let func = ArcFunction {
+        name,
+        params: vec![],
+        return_type: Idx::NONE,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::BurdenInc {
+                    var: ArcVarId::new(0),
+                },
+                ArcInstr::BurdenDec {
+                    var: ArcVarId::new(0),
+                },
+            ],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![Idx::NONE],
+        ..Default::default()
+    };
+
+    let output = super::format_function(&func, &pool, &interner);
+
+    assert!(
+        output.contains("burden_inc %0"),
+        "output must contain burden_inc: {output}"
+    );
+    assert!(
+        output.contains("burden_dec %0"),
+        "output must contain burden_dec: {output}"
     );
 }
 

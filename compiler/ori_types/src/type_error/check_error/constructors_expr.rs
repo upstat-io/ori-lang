@@ -6,12 +6,30 @@
 use ori_diagnostic::Suggestion;
 use ori_ir::{Name, Span};
 
-use super::kind::{ErrorContext, TypeErrorKind};
+use super::kind::{
+    ErrorContext, NonCollectingLoopKind, OrBindingMismatchReason, TypeErrorKind, VoidLoopKind,
+};
 use super::TypeCheckError;
 use crate::type_error::TypeProblem;
 use crate::Idx;
 
 impl TypeCheckError {
+    /// Create an or-pattern binding-divergence error (E2052 name / E2053 type).
+    ///
+    /// Per Spec Clause 15 (patterns): or-pattern `A | B` alternatives SHALL
+    /// bind identical names + types. `reason` selects the code + message.
+    pub fn or_pattern_binding_mismatch(
+        span: Span,
+        name: Name,
+        reason: OrBindingMismatchReason,
+    ) -> Self {
+        Self::new_with_suggestion(
+            span,
+            TypeErrorKind::OrPatternBindingMismatch { name, reason },
+            "bind the same names (and types) in every `|` alternative, or use a guard",
+        )
+    }
+
     /// Create a "duplicate impl" error (E2010).
     ///
     /// Emitted when `impl Type: Trait` is defined more than once.
@@ -24,6 +42,22 @@ impl TypeCheckError {
             },
             context: ErrorContext::default(),
             suggestions: vec![Suggestion::text("remove the duplicate implementation", 0)],
+        }
+    }
+
+    /// Create an unresolved-trait error (E2003) for an `impl Type: Trait` whose
+    /// trait has no `TraitEntry` (prelude unavailable, or a typo'd trait name). Guards
+    /// the `validate_assoc_types` ICE.
+    pub fn unresolved_trait(span: Span, trait_name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::UnresolvedTrait { trait_name },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "is the prelude available (e.g. ORI_STDLIB set), or is the trait name a typo?"
+                    .to_string(),
+                1,
+            )],
         }
     }
 
@@ -69,15 +103,11 @@ impl TypeCheckError {
     ///
     /// Emitted when multiple trait impls provide the same method for a type.
     pub fn ambiguous_method(span: Span, method: Name, candidates: Vec<Name>) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: TypeErrorKind::AmbiguousMethod { method, candidates },
-            context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                "use fully-qualified syntax to disambiguate: `TraitName.method(x)`",
-                0,
-            )],
-        }
+            TypeErrorKind::AmbiguousMethod { method, candidates },
+            "use fully-qualified syntax to disambiguate: `TraitName.method(x)`",
+        )
     }
 
     /// Create a "not object-safe" error (E2024).
@@ -252,15 +282,11 @@ impl TypeCheckError {
     ///
     /// Emitted when a format spec in a template string doesn't parse.
     pub fn invalid_format_spec(span: Span, spec: String, reason: String) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: TypeErrorKind::InvalidFormatSpec { spec, reason },
-            context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                "format specs follow: [[fill]align][sign][#][0][width][.precision][type]",
-                0,
-            )],
-        }
+            TypeErrorKind::InvalidFormatSpec { spec, reason },
+            "format specs follow: [[fill]align][sign][#][0][width][.precision][type]",
+        )
     }
 
     /// Create an "into not implemented" error (E2036).
@@ -268,15 +294,11 @@ impl TypeCheckError {
     /// Emitted when `.into()` is called on a type that has no `Into`
     /// implementation for the expected target type.
     pub fn into_not_implemented(span: Span, ty: Idx, target: Option<Idx>) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: TypeErrorKind::IntoNotImplemented { ty, target },
-            context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                "implement `Into<T>` for this type, or use a different conversion method",
-                0,
-            )],
-        }
+            TypeErrorKind::IntoNotImplemented { ty, target },
+            "implement `Into<T>` for this type, or use a different conversion method",
+        )
     }
 
     /// Create an "ambiguous into" error (E2037).
@@ -284,15 +306,11 @@ impl TypeCheckError {
     /// Emitted when `.into()` is called on a type with multiple `Into`
     /// implementations and the target type cannot be inferred.
     pub fn ambiguous_into(span: Span, ty: Idx) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: TypeErrorKind::AmbiguousInto { ty },
-            context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                "add a type annotation to disambiguate: `let x: TargetType = value.into()`",
-                0,
-            )],
-        }
+            TypeErrorKind::AmbiguousInto { ty },
+            "add a type annotation to disambiguate: `let x: TargetType = value.into()`",
+        )
     }
 
     /// Create a "missing printable" error (E2038).
@@ -300,30 +318,22 @@ impl TypeCheckError {
     /// Emitted when a value used in string interpolation doesn't implement
     /// the `Printable` trait (required for `to_str()` conversion).
     pub fn missing_printable(span: Span, ty: Idx) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: TypeErrorKind::MissingPrintable { ty },
-            context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                "add `#derive(Printable)` to the type, or implement `Printable` manually",
-                0,
-            )],
-        }
+            TypeErrorKind::MissingPrintable { ty },
+            "add `#derive(Printable)` to the type, or implement `Printable` manually",
+        )
     }
 
     /// Create a "cannot assign to immutable binding" error (E2039).
     ///
     /// Emitted when assigning to a binding declared with `$` prefix (immutable).
     pub fn assign_to_immutable(span: Span, name: Name) -> Self {
-        Self {
+        Self::new_with_suggestion(
             span,
-            kind: TypeErrorKind::AssignToImmutable { name },
-            context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                "remove the `$` prefix to make this binding mutable, or use a new `let` binding",
-                0,
-            )],
-        }
+            TypeErrorKind::AssignToImmutable { name },
+            "remove the `$` prefix to make this binding mutable, or use a new `let` binding",
+        )
     }
 
     /// Create an "unsupported feature" error (E2040).
@@ -375,6 +385,44 @@ impl TypeCheckError {
             context: ErrorContext::default(),
             suggestions: vec![Suggestion::text(
                 format!("this format type is only valid for {valid_for} types"),
+                0,
+            )],
+        }
+    }
+
+    /// Create a "`break` with value in a void-typed loop" error (E0860).
+    ///
+    /// Emitted when `break value` appears inside `while...do` or `for...do`,
+    /// which have type `void`. Spec: Clause 14 § Break and Continue.
+    pub fn break_value_in_void_loop(span: Span, loop_kind: VoidLoopKind) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::BreakValueInVoidLoop { loop_kind },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "use `loop { }` to produce a value, or drop the value and carry the result \
+                 in a mutable binding",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "`continue` with value in a non-collecting loop" error (E0861).
+    ///
+    /// Emitted when `continue value` appears inside `loop`, `while`, or
+    /// `for...do`. Only `for...yield` substitutes a `continue value`.
+    /// Spec: Clause 14 § Break and Continue.
+    pub fn continue_value_in_non_collecting_loop(
+        span: Span,
+        loop_kind: NonCollectingLoopKind,
+    ) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::ContinueValueInNonCollectingLoop { loop_kind },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "remove the value (`continue` starts the next iteration), or use `for...yield` \
+                 to contribute a value per iteration",
                 0,
             )],
         }

@@ -1,0 +1,11 @@
+// BUG-04-090 §03 forwarder shape: NON-generic forwarder.
+// The param-return-alias rule does NOT key on generics — it fires on any
+// function whose body matches the structural pattern (param flows
+// directly to Return). Verifies the fix's gate is structural, not
+// generics-specific.
+@just_return_it (x: [int]) -> [int] = x;
+
+@main () -> int = {
+    let xs = just_return_it(x: [11, 22, 33]);
+    if xs.len() == 3 && xs[1] == 22 then 0 else 1
+}

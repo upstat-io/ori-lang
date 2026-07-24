@@ -35,6 +35,7 @@ mod compile_fail;
 mod conditional;
 mod repr;
 mod simple;
+mod skip_backend;
 
 use crate::{ParseError, Parser};
 use ori_diagnostic::ErrorCode;
@@ -48,6 +49,8 @@ use ori_ir::{FileAttr, Name, TokenCapture, TokenKind};
 pub struct ParsedAttrs {
     /// Skip reason for `#skip("reason")`.
     pub skip_reason: Option<Name>,
+    /// Per-backend skips for `#skip(backend: "<name>", reason: "<why>")`.
+    pub skip_backends: Vec<ori_ir::BackendSkip>,
     /// Expected compilation errors (multiple allowed).
     pub expected_errors: Vec<ori_ir::ExpectedError>,
     /// Expected error for `#fail("error")`.
@@ -73,46 +76,6 @@ pub struct ParsedAttrs {
     pub token_range: TokenCapture,
 }
 
-impl ParsedAttrs {
-    /// Returns true if any attributes besides `#target` and `#cfg` are present.
-    ///
-    /// Used to validate that non-conditional attrs aren't placed on items
-    /// that only support conditional compilation (imports, constants, impls).
-    pub fn has_non_conditional_attrs(&self) -> bool {
-        self.skip_reason.is_some()
-            || !self.expected_errors.is_empty()
-            || self.fail_expected.is_some()
-            || !self.derive_traits.is_empty()
-            || !self.repr_attrs.is_empty()
-            || self.is_fbip
-    }
-
-    /// Returns a comma-separated list of human-readable names for attributes
-    /// that are not `#target` or `#cfg`. Used in error messages.
-    pub fn non_conditional_attr_names(&self) -> String {
-        let mut names = Vec::new();
-        if self.skip_reason.is_some() {
-            names.push("#skip");
-        }
-        if !self.expected_errors.is_empty() {
-            names.push("#compile_fail");
-        }
-        if self.fail_expected.is_some() {
-            names.push("#fail");
-        }
-        if !self.derive_traits.is_empty() {
-            names.push("#derive");
-        }
-        if !self.repr_attrs.is_empty() {
-            names.push("#repr");
-        }
-        if self.is_fbip {
-            names.push("#fbip");
-        }
-        names.join(", ")
-    }
-}
-
 /// Representation attribute values.
 ///
 /// Converted to [`ori_ir::ReprAttrKind`] during type declaration parsing.
@@ -128,32 +91,6 @@ pub enum ReprAttr {
     Aligned(u64),
 }
 
-// TargetAttr and CfgAttr are defined in ori_ir and imported above.
-
-impl ParsedAttrs {
-    /// Returns true if no attributes are set.
-    ///
-    /// Note: This checks semantic content, not token capture.
-    /// An empty `ParsedAttrs` may still have `token_range` set if there
-    /// were malformed attributes that didn't parse correctly.
-    pub fn is_empty(&self) -> bool {
-        self.skip_reason.is_none()
-            && self.expected_errors.is_empty()
-            && self.fail_expected.is_none()
-            && self.derive_traits.is_empty()
-            && self.repr_attrs.is_empty()
-            && self.target.is_none()
-            && self.cfg.is_none()
-            && !self.is_fbip
-    }
-
-    /// Returns true if any tokens were captured for attributes.
-    #[allow(dead_code, reason = "API for formatters and IDE integration")]
-    pub fn has_tokens(&self) -> bool {
-        !self.token_range.is_empty()
-    }
-}
-
 /// Kind of attribute being parsed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AttrKind {
@@ -166,6 +103,80 @@ enum AttrKind {
     Cfg,
     Fbip,
     Unknown,
+}
+
+// TargetAttr and CfgAttr are defined in ori_ir and imported above.
+
+impl ParsedAttrs {
+    /// Returns true if any attributes besides `#target` and `#cfg` are present.
+    ///
+    /// Used to validate that non-conditional attrs aren't placed on items
+    /// that only support conditional compilation (imports, constants, impls).
+    pub fn has_non_conditional_attrs(&self) -> bool {
+        self.has_test_only_attrs()
+            || !self.derive_traits.is_empty()
+            || !self.repr_attrs.is_empty()
+            || self.is_fbip
+    }
+
+    /// Returns true if any test-only attribute (`#skip`, `#skip(backend:)`,
+    /// `#compile_fail`, `#fail`) is present. Test-only attributes are valid
+    /// only on a `tests`-marked declaration (Spec: Clause 19.8); on any other
+    /// host they have no field to live in and would be silently dropped.
+    pub fn has_test_only_attrs(&self) -> bool {
+        self.skip_reason.is_some()
+            || !self.skip_backends.is_empty()
+            || !self.expected_errors.is_empty()
+            || self.fail_expected.is_some()
+    }
+
+    /// The present test-only attribute names as a list. Canonical source for
+    /// both [`Self::test_only_attr_names`] and the test-only prefix of
+    /// [`Self::non_conditional_attr_names`].
+    fn test_only_attr_name_list(&self) -> Vec<&'static str> {
+        let mut names = Vec::new();
+        if self.skip_reason.is_some() || !self.skip_backends.is_empty() {
+            names.push("#skip");
+        }
+        if !self.expected_errors.is_empty() {
+            names.push("#compile_fail");
+        }
+        if self.fail_expected.is_some() {
+            names.push("#fail");
+        }
+        names
+    }
+
+    /// Returns a comma-separated list of the present test-only attribute names,
+    /// for the E1006 message when a test-only attr is rejected on a non-test host.
+    pub fn test_only_attr_names(&self) -> String {
+        self.test_only_attr_name_list().join(", ")
+    }
+
+    /// Returns a comma-separated list of human-readable names for attributes
+    /// that are not `#target` or `#cfg`. Used in error messages.
+    pub fn non_conditional_attr_names(&self) -> String {
+        let mut names = self.test_only_attr_name_list();
+        if !self.derive_traits.is_empty() {
+            names.push("#derive");
+        }
+        if !self.repr_attrs.is_empty() {
+            names.push("#repr");
+        }
+        if self.is_fbip {
+            names.push("#fbip");
+        }
+        names.join(", ")
+    }
+
+    /// Returns true if no attributes are set.
+    ///
+    /// Note: This checks semantic content, not token capture.
+    /// An empty `ParsedAttrs` may still have `token_range` set if there
+    /// were malformed attributes that didn't parse correctly.
+    pub fn is_empty(&self) -> bool {
+        !self.has_non_conditional_attrs() && self.target.is_none() && self.cfg.is_none()
+    }
 }
 
 impl AttrKind {
@@ -234,6 +245,15 @@ impl Parser<'_> {
                     if uses_brackets {
                         self.finish_attr_bracket(uses_brackets, errors);
                     }
+                }
+                AttrKind::Skip
+                    if self.cursor.check(&TokenKind::LParen)
+                        && matches!(self.cursor.peek_next_kind(), TokenKind::Ident(_)) =>
+                {
+                    // `#skip(backend: "...", reason: "...")` — keyed form.
+                    // `#skip("reason")` (string after `(`) falls to the unkeyed
+                    // `parse_string_attr` path below.
+                    self.parse_skip_backend_attr(&mut attrs, errors, uses_brackets);
                 }
                 _ => {
                     self.parse_string_attr(attr_kind, &mut attrs, errors, uses_brackets);

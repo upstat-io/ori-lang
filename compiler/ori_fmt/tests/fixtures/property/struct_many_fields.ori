@@ -1,0 +1,1 @@
+type Many = { a: int, b: str, c: bool, d: float, e: char }

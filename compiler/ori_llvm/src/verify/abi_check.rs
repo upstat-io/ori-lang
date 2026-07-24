@@ -2,7 +2,7 @@
 //!
 //! Three independent sub-checks:
 //! - **Large aggregate loads**: `load %BigStruct, ptr` for structs >16 bytes
-//!   (these trigger `FastISel` bugs in JIT — see CLAUDE.md "`FastISel` Aggregate Bug")
+//!   (these trigger `FastISel` bugs in JIT)
 //! - **Runtime arg count mismatch**: calls to `ori_*` functions with wrong arity
 //! - **Nounwind + invoke**: `invoke` on functions marked `nounwind` (should use `call`)
 

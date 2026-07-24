@@ -1,0 +1,28 @@
+Theorem CN-6: Wide-locality uniqueness ceiling
+
+  Preconditions:
+    - s.locality >= HeapEscaping (HeapEscaping or Unknown)
+    - s.uniqueness = Unique
+
+  Soundness property:
+    canonicalize_cn6(s).uniqueness = MaybeShared.
+
+  Proof obligation:
+    Finite enumeration over 2 wide-locality x Uniqueness=Unique = 2 trigger
+    input states; verify CN-6 demotes Unique to MaybeShared on both. Negative
+    enumeration over narrow locality (BlockLocal, FunctionLocal, ArgEscaping)
+    x Uniqueness=Unique verifies CN-6 does NOT fire.
+
+    Compiler at compiler/ori_arc/src/aims/lattice/mod.rs:
+    360-362 applies CN-6 unconditionally (no §AIMS §7 exception in this loop).
+    Soundness verified at the canonicalize per-variable AimsState level;
+    ReturnContract pre-widening preservation handled by
+    CN-6-Extraction-Reconciliation.proof.
+
+    Engines dispatched:
+      case_analysis (2-trigger + 3-negative locality enumeration per
+        section_03::verify_cn6_wide_locality_uniqueness_ceiling)
+
+  Expected:
+    status: valid
+    reason: section_03 case_analysis engine discharges CN-6 via 2-trigger + 3-negative locality enumeration

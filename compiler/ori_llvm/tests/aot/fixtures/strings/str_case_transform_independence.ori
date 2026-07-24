@@ -1,0 +1,11 @@
+@main () -> int = {
+    let source = "hello from a heap-backed string";
+    let upper = source.to_uppercase();
+    let lower = upper.to_lowercase();
+
+    if source == "hello from a heap-backed string"
+        && upper == "HELLO FROM A HEAP-BACKED STRING"
+        && lower == source
+    then 0
+    else 1
+}

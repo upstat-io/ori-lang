@@ -1,4 +1,4 @@
-// TPR-07-008 matrix pin: struct containing an iterator field must
+// Matrix pin: struct containing an iterator field must
 // drop the iterator at scope exit.
 
 type Holder = { it: Iterator<int> };

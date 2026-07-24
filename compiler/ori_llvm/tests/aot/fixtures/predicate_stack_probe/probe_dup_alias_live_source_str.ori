@@ -1,0 +1,12 @@
+@use_twice (s: str) -> int = {
+    let a = s;
+    let len_a = a.length();
+    let len_s = s.length();
+    len_a + len_s
+}
+
+@main () -> int = {
+    let n = use_twice(s: "duplicate me");
+    print(msg: `{n}`);
+    0
+}

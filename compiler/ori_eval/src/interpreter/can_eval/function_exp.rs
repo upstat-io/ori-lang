@@ -7,6 +7,7 @@ use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
 use super::super::Interpreter;
+use super::property_lookup::{find_prop_can_id, find_prop_value};
 use crate::errors::{map_key_not_hashable, range_bound_not_int};
 use crate::{FunctionValue, MemoizedFunctionValue, Mutability, StructValue};
 
@@ -55,20 +56,21 @@ impl Interpreter<'_> {
     }
 
     /// Evaluate a canonical map literal: `{ k: v, ... }`.
+    ///
+    /// Primitive keys bucket by `to_map_key()`; non-primitive (user-`Hashable`)
+    /// keys bucket by the user `@hash` with `@eq` collision resolution.
     pub(super) fn eval_can_map(&mut self, can_id: CanId, entries: CanMapEntryRange) -> EvalResult {
         let span = self.can_span(can_id);
         let entry_list: SmallVec<[_; 8]> =
             SmallVec::from_slice(self.canon_ref().arena.get_map_entries(entries));
-        let mut map = std::collections::BTreeMap::new();
+        let mut map = ori_patterns::MapData::new();
         for entry in &entry_list {
             let key = self.eval_can(entry.key)?;
             let value = self.eval_can(entry.value)?;
-            let key_str = key
-                .to_map_key()
+            self.bucket_insert(&mut map, key, value, "map literal")
                 .map_err(|_| Self::attach_span(map_key_not_hashable().into(), span))?;
-            map.insert(key_str, value);
         }
-        Ok(Value::map(map))
+        Ok(Value::map_data(map))
     }
 
     /// Evaluate a canonical struct literal: `Point { x: 0, y: 0 }`.
@@ -176,12 +178,12 @@ impl Interpreter<'_> {
         // Dispatch by kind with pre-evaluated values
         match kind {
             FunctionExpKind::Print => {
-                let msg = super::find_prop_value(&values, pn.msg, self.interner)?;
+                let msg = find_prop_value(&values, pn.msg, self.interner)?;
                 self.print_handler.println(&msg.display_value());
                 Ok(Value::Void)
             }
             FunctionExpKind::Panic => {
-                let msg = super::find_prop_value(&values, pn.msg, self.interner)?;
+                let msg = find_prop_value(&values, pn.msg, self.interner)?;
                 Err(EvalError::new(msg.display_value()).into())
             }
             FunctionExpKind::Todo => {
@@ -208,7 +210,7 @@ impl Interpreter<'_> {
                 tracing::warn!(
                     "pattern 'cache' is a stub — operation is called without memoization"
                 );
-                let operation = super::find_prop_value(&values, pn.operation, self.interner)?;
+                let operation = find_prop_value(&values, pn.operation, self.interner)?;
                 match operation {
                     Value::Function(_) | Value::FunctionVal(_, _) => {
                         self.eval_call(&operation, &[])
@@ -218,7 +220,7 @@ impl Interpreter<'_> {
             }
             FunctionExpKind::Parallel => {
                 tracing::warn!("pattern 'parallel' is a stub — tasks are executed sequentially");
-                let tasks = super::find_prop_value(&values, pn.tasks, self.interner)?;
+                let tasks = find_prop_value(&values, pn.tasks, self.interner)?;
                 let Value::List(task_list) = tasks else {
                     return Err(EvalError::new("parallel: tasks must be a list".to_string()).into());
                 };
@@ -237,29 +239,37 @@ impl Interpreter<'_> {
             }
             FunctionExpKind::Spawn => {
                 tracing::warn!("pattern 'spawn' is a stub — tasks are executed synchronously");
-                let tasks = super::find_prop_value(&values, pn.tasks, self.interner)?;
+                let tasks = find_prop_value(&values, pn.tasks, self.interner)?;
                 let Value::List(task_list) = tasks else {
                     return Err(EvalError::new("spawn: tasks must be a list".to_string()).into());
                 };
                 for task in task_list.iter() {
+                    // Why: spawn is fire-and-forget and returns void (Spec: 10-patterns.md
+                    // spawn). A task result/error is intentionally not propagated to the
+                    // spawner; propagating would break the fire-and-forget contract and
+                    // diverge from the LLVM backend.
                     let _ = self.eval_call(task, &[]);
                 }
                 Ok(Value::Void)
             }
             FunctionExpKind::Timeout => {
                 tracing::warn!("pattern 'timeout' is a stub — no timeout enforcement");
-                let operation = super::find_prop_value(&values, pn.operation, self.interner)?;
+                let operation = find_prop_value(&values, pn.operation, self.interner)?;
                 Ok(Value::ok(operation))
             }
             FunctionExpKind::With => {
                 tracing::warn!(
                     "pattern 'with' is a stub — resource management without type checker integration"
                 );
-                let resource = super::find_prop_value(&values, pn.acquire, self.interner)?;
-                let action_fn = super::find_prop_value(&values, pn.action, self.interner)?;
+                let resource = find_prop_value(&values, pn.acquire, self.interner)?;
+                let action_fn = find_prop_value(&values, pn.action, self.interner)?;
                 let result = self.eval_call(&action_fn, std::slice::from_ref(&resource));
-                // Always call release if provided (RAII guarantee)
-                if let Ok(release_fn) = super::find_prop_value(&values, pn.release, self.interner) {
+                // Always call release if provided (RAII guarantee).
+                if let Ok(release_fn) = find_prop_value(&values, pn.release, self.interner) {
+                    // Why: best-effort cleanup in this stub — the release result is
+                    // intentionally discarded so the action's outcome is what `with`
+                    // yields, matching the LLVM backend. Surfacing a release error here
+                    // is a behavior change deferred until `with` leaves stub status.
                     let _ = self.eval_call(&release_fn, std::slice::from_ref(&resource));
                 }
                 result
@@ -281,7 +291,7 @@ impl Interpreter<'_> {
     fn eval_can_catch(&mut self, props: ori_ir::canon::CanNamedExprRange) -> EvalResult {
         let named: SmallVec<[_; 8]> =
             SmallVec::from_slice(self.canon_ref().arena.get_named_exprs(props));
-        let expr_can_id = super::find_prop_can_id(&named, self.prop_names.expr, self.interner)?;
+        let expr_can_id = find_prop_can_id(&named, self.prop_names.expr, self.interner)?;
 
         match self.eval_can(expr_can_id) {
             Ok(v) => Ok(Value::ok(v)),
@@ -296,9 +306,9 @@ impl Interpreter<'_> {
             SmallVec::from_slice(self.canon_ref().arena.get_named_exprs(props));
         let pn = self.prop_names;
 
-        let condition_id = super::find_prop_can_id(&named, pn.condition, self.interner)?;
-        let base_id = super::find_prop_can_id(&named, pn.base, self.interner)?;
-        let step_id = super::find_prop_can_id(&named, pn.step, self.interner)?;
+        let condition_id = find_prop_can_id(&named, pn.condition, self.interner)?;
+        let base_id = find_prop_can_id(&named, pn.base, self.interner)?;
+        let step_id = find_prop_can_id(&named, pn.step, self.interner)?;
 
         // Check optional memo prop
         let memo_id = named

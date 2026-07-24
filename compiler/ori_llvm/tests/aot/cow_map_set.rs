@@ -29,7 +29,7 @@ fn test_cow_map_insert_shared_preserves_original() {
 }
 
 #[test]
-fn test_cow_map_insert_shared_values_correct() {
+fn test_cow_map_insert_shared_preserves_original_entries() {
     assert_aot_success(
         include_str!("fixtures/cow_map_set/cow_map_insert_shared_values_correct.ori"),
         "cow_map_insert_shared_values_correct",
@@ -55,7 +55,7 @@ fn test_cow_map_remove_shared_preserves_original() {
 }
 
 #[test]
-fn test_cow_map_remove_shared_values_correct() {
+fn test_cow_map_remove_shared_original_keeps_key() {
     assert_aot_success(
         include_str!("fixtures/cow_map_set/cow_map_remove_shared_values_correct.ori"),
         "cow_map_remove_shared_values_correct",
@@ -161,7 +161,7 @@ fn test_cow_map_insert_loop_100() {
 }
 
 #[test]
-fn test_cow_map_insert_loop_values_correct() {
+fn test_cow_map_insert_loop_accumulates_entries() {
     assert_aot_success(
         include_str!("fixtures/cow_map_set/cow_map_insert_loop_values_correct.ori"),
         "cow_map_insert_loop_values_correct",
@@ -203,6 +203,22 @@ fn test_cow_map_iter_after_insert() {
     assert_aot_success(
         include_str!("fixtures/cow_map_set/cow_map_iter_after_insert.ori"),
         "cow_map_iter_after_insert",
+    );
+}
+
+// Map spread merge
+// `{...a, ...b}` desugars to `a.merge(b)` (COW merge consuming both operands).
+// Drives the REAL AOT entry point (`ori build` → native binary) on the merge
+// path — the spec-corpus pin (`tests/spec/collections/map/map_spread_merge.ori`)
+// runs only interp + LLVM-JIT, so this is the L8-aot + L10-leak coverage.
+// Regression: BUG-04-189 (missing merge mono instance + premature-free of the
+// merged operands at the LLVM/AOT backend).
+
+#[test]
+fn test_aot_map_spread_merge_basic_override_struct_empty() {
+    assert_aot_success(
+        include_str!("fixtures/cow_map_set/map_spread_merge.ori"),
+        "map_spread_merge",
     );
 }
 

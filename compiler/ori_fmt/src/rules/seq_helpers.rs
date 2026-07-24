@@ -4,26 +4,18 @@ use ori_ir::{ExprArena, ExprId, ExprKind, FunctionSeq};
 
 /// Check if an expression is a try expression.
 pub fn is_try(arena: &ExprArena, expr_id: ExprId) -> bool {
-    let expr = arena.get_expr(expr_id);
-
-    if let ExprKind::FunctionSeq(seq_id) = &expr.kind {
-        let seq = arena.get_function_seq(*seq_id);
-        return matches!(seq, FunctionSeq::Try { .. });
-    }
-
-    false
+    matches!(
+        get_function_seq(arena, expr_id),
+        Some(FunctionSeq::Try { .. })
+    )
 }
 
 /// Check if an expression is a match (`function_seq`) expression.
 pub fn is_match_seq(arena: &ExprArena, expr_id: ExprId) -> bool {
-    let expr = arena.get_expr(expr_id);
-
-    if let ExprKind::FunctionSeq(seq_id) = &expr.kind {
-        let seq = arena.get_function_seq(*seq_id);
-        return matches!(seq, FunctionSeq::Match { .. });
-    }
-
-    false
+    matches!(
+        get_function_seq(arena, expr_id),
+        Some(FunctionSeq::Match { .. })
+    )
 }
 
 /// Check if an expression is any `FunctionSeq` (try, match, `for_pattern`).

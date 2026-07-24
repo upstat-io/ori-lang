@@ -1,0 +1,13 @@
+// Move/borrow matrix: MB14 — closure capturing a heap value: capture, call, drop.
+// A closure captures a heap str (>23 bytes) by value, is called once, and then the
+// closure, its env, and the captured payload all die. Verifies the capture's
+// duplication and the env drop balance — captured payload freed exactly once.
+
+@main () -> int = {
+    let cap = "abcdefghijklmnopqrstuvwxyz1234";
+    let f = (n: int) -> int = cap.length() + n;
+    let r = f(12);
+    let ok = r == 42;
+
+    if ok then 0 else 1
+}

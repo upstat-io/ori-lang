@@ -1,0 +1,34 @@
+Theorem RL-6: Unique admits same-identity mutation when local safety holds
+
+  Preconditions:
+    - Uniqueness(v) = Unique and Access(v) = Owned.
+    - DP-5 proves whether local borrows permit same-identity mutation.
+    - DP-9's historical `StaticUnique` / `StaticShared` labels denote neutral
+      SameIdentityAdmissible / IsolationRequired outcomes.
+
+  Soundness property:
+    Forall owned Unique value v at a mutation point:
+      (P1) DP-5 true -> SameIdentityAdmissible.
+      (P2) DP-5 false -> IsolationRequired.
+      (P3) either outcome preserves evaluator value semantics when satisfied.
+    No premise names a sharing check, branch, copy, counter, or storage layout.
+
+  Proof obligation:
+    Enumerate three cases:
+      unique_no_borrow_static_inplace -> SameIdentityAdmissible
+      unique_disjoint_borrow_static_inplace -> SameIdentityAdmissible
+      unique_overlapping_borrow_static_shared -> IsolationRequired
+    Coverage gate: 3 cases.
+
+    Negative-direction witness:
+      SameIdentityAdmissible with an overlapping live borrow is rejected because
+      the borrowed view would observe another value's mutation.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl6_static_unique_mutation)
+      rc_counting (SECONDARY — gracious-accept)
+      refinement (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: RL-6 enumerates Unique mutation outcomes and freezes same-identity admissibility or isolation without selecting a physical COW mechanism

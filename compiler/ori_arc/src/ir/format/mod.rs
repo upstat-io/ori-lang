@@ -18,7 +18,7 @@ mod tests;
 
 use std::fmt::Write;
 
-use crate::ir::{ArcFunction, ArcVarId, RcStrategy, ValueRepr};
+use crate::ir::{ArcFunction, ArcVarId, RcAtomicity, RcStrategy, ValueRepr};
 use crate::ownership::Ownership;
 use ori_ir::StringInterner;
 use ori_types::{Idx, Pool};
@@ -101,7 +101,7 @@ pub fn format_function(func: &ArcFunction, pool: &Pool, interner: &StringInterne
     out
 }
 
-// ── Formatting helpers ──
+// Formatting helpers
 
 /// Format a type index as a human-readable string.
 ///
@@ -153,5 +153,19 @@ pub fn fmt_strategy(strategy: RcStrategy) -> &'static str {
         RcStrategy::AggregateFields => "AggFields",
         RcStrategy::InlineEnum => "InlineEnum",
         RcStrategy::Iterator => "Iterator",
+        RcStrategy::UserDrop => "UserDrop",
+    }
+}
+
+/// Format the atomicity suffix for an RC op.
+///
+/// Returns `""` for [`RcAtomicity::Atomic`] (the construction-site default)
+/// so atomic RC ops dump byte-identically to before the carrier landed;
+/// returns `" [non-atomic]"` for [`RcAtomicity::NonAtomic`] once the
+/// thread-locality dispatch selects it.
+pub fn fmt_atomicity_suffix(atomicity: RcAtomicity) -> &'static str {
+    match atomicity {
+        RcAtomicity::Atomic => "",
+        RcAtomicity::NonAtomic => " [non-atomic]",
     }
 }

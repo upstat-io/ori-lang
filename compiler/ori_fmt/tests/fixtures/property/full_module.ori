@@ -1,0 +1,18 @@
+
+let $MAX = 100;
+
+type Point = { x: int, y: int }
+
+trait Printable {
+    @to_str (self) -> str
+}
+
+impl Point {
+    @new (x: int, y: int) -> Point = Point { x, y }
+}
+
+impl Point: Printable {
+    @to_str (self) -> str = "point";
+}
+
+@distance (p1: Point, p2: Point) -> float = 0.0;

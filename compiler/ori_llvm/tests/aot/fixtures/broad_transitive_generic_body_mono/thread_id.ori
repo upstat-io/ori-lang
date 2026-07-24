@@ -1,0 +1,14 @@
+// FAIL-FIRST: missing mono instance pre-fix (broad transitive-generic-body
+// monomorphization gap, ROOT-B). `forward_id<U>`'s body calls the generic
+// `get_id` on its own rigid `U`; the concrete instantiation records
+// `forward_id<int>` but nested `get_id<int>` (whose body calls `thread_id()`)
+// is never recorded, so AOT dispatch starves: `unresolved function
+// 'thread_id' in apply -- missing mono instance?`. Interp passes.
+@get_id<T> (x: T) -> int = thread_id();
+
+@forward_id<U> (x: U) -> int = get_id(x:);
+
+@main () -> int = {
+    let id = forward_id(x: 5);
+    if id >= 0 then 0 else 1
+}

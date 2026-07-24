@@ -11,4 +11,5 @@
 
 // Re-export ori_rt for crate-internal use (evaluator, tests).
 // No external consumers — kept pub(crate) to avoid leaking ori_rt's API surface.
-pub(crate) use ori_rt::*;
+pub(crate) use ori_rt::prelude::*;
+pub(crate) use ori_rt::{format, iterator, map, set};

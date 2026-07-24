@@ -30,8 +30,13 @@ fn register_and_lookup_trait() {
         TraitMethodDef {
             name: test_name("fmt"),
             signature: Idx::from_raw(300),
+            has_self: true,
             has_default: false,
             default_body: None,
+            scheme_var_ids: Vec::new(),
+            generic_param_metadata: Vec::new(),
+            where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
             span: test_span(),
         },
     );
@@ -92,6 +97,11 @@ fn register_and_lookup_impl() {
             signature: Idx::from_raw(301),
             has_self: true,
             body: test_expr(),
+            scheme_var_ids: Vec::new(),
+            generic_param_metadata: Vec::new(),
+            where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
+            optional_param_count: 0,
             span: test_span(),
         },
     );
@@ -101,6 +111,7 @@ fn register_and_lookup_impl() {
         trait_type_args: vec![],
         self_type,
         type_params: vec![],
+        type_param_bounds: vec![],
         methods,
         assoc_types: FxHashMap::default(),
         where_clause: vec![],
@@ -141,6 +152,11 @@ fn inherent_impl() {
             signature: Idx::from_raw(400),
             has_self: true,
             body: test_expr(),
+            scheme_var_ids: Vec::new(),
+            generic_param_metadata: Vec::new(),
+            where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
+            optional_param_count: 0,
             span: test_span(),
         },
     );
@@ -150,6 +166,7 @@ fn inherent_impl() {
         trait_type_args: vec![],
         self_type,
         type_params: vec![],
+        type_param_bounds: vec![],
         methods,
         assoc_types: FxHashMap::default(),
         where_clause: vec![],
@@ -198,6 +215,11 @@ fn method_lookup_priority() {
             signature: Idx::from_raw(300),
             has_self: true,
             body: test_expr(),
+            scheme_var_ids: Vec::new(),
+            generic_param_metadata: Vec::new(),
+            where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
+            optional_param_count: 0,
             span: test_span(),
         },
     );
@@ -207,6 +229,7 @@ fn method_lookup_priority() {
         trait_type_args: vec![],
         self_type,
         type_params: vec![],
+        type_param_bounds: vec![],
         methods: inherent_methods,
         assoc_types: FxHashMap::default(),
         where_clause: vec![],
@@ -223,6 +246,11 @@ fn method_lookup_priority() {
             signature: Idx::from_raw(400),
             has_self: true,
             body: test_expr(),
+            scheme_var_ids: Vec::new(),
+            generic_param_metadata: Vec::new(),
+            where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
+            optional_param_count: 0,
             span: test_span(),
         },
     );
@@ -232,6 +260,7 @@ fn method_lookup_priority() {
         trait_type_args: vec![],
         self_type,
         type_params: vec![],
+        type_param_bounds: vec![],
         methods: trait_methods,
         assoc_types: FxHashMap::default(),
         where_clause: vec![],
@@ -274,6 +303,7 @@ fn coherence_check() {
         trait_type_args: vec![],
         self_type,
         type_params: vec![],
+        type_param_bounds: vec![],
         methods: FxHashMap::default(),
         assoc_types: FxHashMap::default(),
         where_clause: vec![],
@@ -420,8 +450,13 @@ fn collected_methods_deduplication() {
         TraitMethodDef {
             name: foo_name,
             signature: Idx::from_raw(300),
+            has_self: true,
             has_default: true,
             default_body: Some(test_expr()),
+            scheme_var_ids: Vec::new(),
+            generic_param_metadata: Vec::new(),
+            where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
             span: test_span(),
         },
     );
@@ -436,8 +471,13 @@ fn collected_methods_deduplication() {
         TraitMethodDef {
             name: foo_name,
             signature: Idx::from_raw(400),
+            has_self: true,
             has_default: true,
             default_body: Some(test_expr()),
+            scheme_var_ids: Vec::new(),
+            generic_param_metadata: Vec::new(),
+            where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
             span: test_span(),
         },
     );
@@ -446,8 +486,13 @@ fn collected_methods_deduplication() {
         TraitMethodDef {
             name: bar_name,
             signature: Idx::from_raw(401),
+            has_self: true,
             has_default: false,
             default_body: None,
+            scheme_var_ids: Vec::new(),
+            generic_param_metadata: Vec::new(),
+            where_clause_metadata: Vec::new(),
+            fixed_list_capacity_constraints: Vec::new(),
             span: test_span(),
         },
     );
@@ -471,4 +516,147 @@ fn collected_methods_deduplication() {
         .find(|(name, _, _)| *name == bar_name)
         .expect("bar method should exist in collected methods");
     assert_eq!(bar_entry.1, b_idx);
+}
+
+// bound-chain dispatch TDD matrix — find_trait_method_via_bound_chain
+// Regression matrix for the Tag::RigidVar bound-chain walk.
+// Receiver × bound × method observable behavior:
+// NotFound / Found / Ambiguous + visited-set dedup + supertrait flattening.
+
+fn mk_trait_method(name: Name, sig: u32) -> TraitMethodDef {
+    TraitMethodDef {
+        name,
+        signature: Idx::from_raw(sig),
+        has_self: true,
+        has_default: false,
+        default_body: None,
+        scheme_var_ids: Vec::new(),
+        generic_param_metadata: Vec::new(),
+        where_clause_metadata: Vec::new(),
+        fixed_list_capacity_constraints: Vec::new(),
+        span: test_span(),
+    }
+}
+
+fn register_trait_with_method(
+    registry: &mut TraitRegistry,
+    trait_name: &str,
+    trait_idx: u32,
+    method_name: &str,
+    sig: u32,
+    super_traits: Vec<Idx>,
+) -> Idx {
+    let idx = Idx::from_raw(trait_idx);
+    let mname = test_name(method_name);
+    let mut methods = FxHashMap::default();
+    methods.insert(mname, mk_trait_method(mname, sig));
+    registry.register_trait(TraitEntry {
+        name: test_name(trait_name),
+        idx,
+        type_params: vec![],
+        super_traits,
+        methods,
+        assoc_types: FxHashMap::default(),
+        object_safety_violations: vec![],
+        span: test_span(),
+    });
+    idx
+}
+
+#[test]
+fn test_bound_chain_single_bound_with_method_found() {
+    // @f<T: Clone>(val: T) -> val.clone() — single bound provides the method.
+    let mut reg = TraitRegistry::new();
+    let clone_idx = register_trait_with_method(&mut reg, "Clone", 200, "clone", 300, vec![]);
+    match reg.find_trait_method_via_bound_chain(test_name("clone"), &[test_name("Clone")]) {
+        BoundChainLookup::Found { trait_idx, method } => {
+            assert_eq!(trait_idx, clone_idx);
+            assert_eq!(method.name, test_name("clone"));
+        }
+        other => panic!("expected Found, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_bound_chain_multi_bound_different_methods_each_found() {
+    // @f<T: Clone + Debug>(val: T) — each method resolves to its own bound.
+    let mut reg = TraitRegistry::new();
+    let clone_idx = register_trait_with_method(&mut reg, "Clone", 201, "clone", 301, vec![]);
+    let debug_idx = register_trait_with_method(&mut reg, "Debug", 202, "debug", 302, vec![]);
+    let bounds = [test_name("Clone"), test_name("Debug")];
+    match reg.find_trait_method_via_bound_chain(test_name("clone"), &bounds) {
+        BoundChainLookup::Found { trait_idx, .. } => assert_eq!(trait_idx, clone_idx),
+        other => panic!("expected Found(Clone) for clone, got {other:?}"),
+    }
+    match reg.find_trait_method_via_bound_chain(test_name("debug"), &bounds) {
+        BoundChainLookup::Found { trait_idx, .. } => assert_eq!(trait_idx, debug_idx),
+        other => panic!("expected Found(Debug) for debug, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_bound_chain_no_matching_bound_not_found() {
+    // @f<T: Clone>(val: T) -> val.frobnicate() — bound exists but lacks method.
+    let mut reg = TraitRegistry::new();
+    register_trait_with_method(&mut reg, "Clone", 203, "clone", 303, vec![]);
+    assert!(matches!(
+        reg.find_trait_method_via_bound_chain(test_name("frobnicate"), &[test_name("Clone")]),
+        BoundChainLookup::NotFound
+    ));
+}
+
+#[test]
+fn test_bound_chain_empty_bounds_not_found() {
+    // @f<T>(val: T) -> val.clone() — no bounds at all.
+    let reg = TraitRegistry::new();
+    assert!(matches!(
+        reg.find_trait_method_via_bound_chain(test_name("clone"), &[]),
+        BoundChainLookup::NotFound
+    ));
+}
+
+#[test]
+fn test_bound_chain_ambiguous_two_bounds_same_method() {
+    // @f<T: Foo + Bar>(val: T) where both Foo and Bar declare method() -> E2023.
+    let mut reg = TraitRegistry::new();
+    register_trait_with_method(&mut reg, "Foo", 204, "method", 304, vec![]);
+    register_trait_with_method(&mut reg, "Bar", 205, "method", 305, vec![]);
+    match reg.find_trait_method_via_bound_chain(
+        test_name("method"),
+        &[test_name("Foo"), test_name("Bar")],
+    ) {
+        BoundChainLookup::Ambiguous { candidates } => assert_eq!(candidates.len(), 2),
+        other => panic!("expected Ambiguous, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_bound_chain_supertrait_inherited_method_found() {
+    // @f<T: Sub>(val: T) where Sub: Base and Base declares method() — supertrait
+    // flattening via collected_methods resolves the inherited method.
+    let mut reg = TraitRegistry::new();
+    let base_idx = register_trait_with_method(&mut reg, "Base", 206, "basemethod", 306, vec![]);
+    let sub_idx =
+        register_trait_with_method(&mut reg, "Sub", 207, "submethod", 307, vec![base_idx]);
+    // The inherited basemethod resolves through the Sub bound.
+    match reg.find_trait_method_via_bound_chain(test_name("basemethod"), &[test_name("Sub")]) {
+        BoundChainLookup::Found { trait_idx, .. } => assert_eq!(trait_idx, sub_idx),
+        other => panic!("expected Found via supertrait, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_bound_chain_duplicate_bound_deduplicated_not_ambiguous() {
+    // Cyclic/duplicate-bound guard: the same trait listed twice (e.g. via a
+    // cyclic supertrait expansion) is deduplicated by the visited-set, yielding
+    // a single Found candidate — NOT a spurious Ambiguous.
+    let mut reg = TraitRegistry::new();
+    let foo_idx = register_trait_with_method(&mut reg, "Foo", 208, "method", 308, vec![]);
+    match reg.find_trait_method_via_bound_chain(
+        test_name("method"),
+        &[test_name("Foo"), test_name("Foo")],
+    ) {
+        BoundChainLookup::Found { trait_idx, .. } => assert_eq!(trait_idx, foo_idx),
+        other => panic!("expected deduplicated Found, got {other:?}"),
+    }
 }

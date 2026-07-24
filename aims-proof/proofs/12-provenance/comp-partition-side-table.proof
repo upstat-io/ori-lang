@@ -1,0 +1,181 @@
+Theorem CH-comp-PV: Provenance-partition side-table extension of the composition theorems CH-comp, PL-comp, and VF-comp
+
+  Preconditions:
+    - Invariant-5 admission avenue (c): the AIMS unified model admits a new
+      capability as a typed pre-pass input landing beside the lattice state
+      map (like the immortals bitvector) - never a new lattice dimension,
+      never a parallel emission path. The provenance PARTITION (the T1
+      birth-site union-find class map: a value's computed representative)
+      enters exactly this way: computed by a Phase-5 pre-pass, consumed at
+      burden-op sites as the classOf side table the T2 ledger engine already
+      takes AS GIVEN. Table-class equality is provably the computed T1
+      sameRep verdict, so the table carries no partition notion of its own.
+    - The committed composition theorems were proven WITHOUT the partition
+      input: CH-comp (coexistence-handshake union over CH-1..CH-5,
+      aims-proof/proofs/11-coexistence/CH-comp.proof), PL-comp (pipeline
+      composition over PL-1..PL-11, aims-proof/proofs/07-pipeline/
+      PL-comp.proof), VF-comp (verification-stack composition over
+      VF-1..VF-8, aims-proof/proofs/09-verification/VF-comp.proof). The
+      extension obligation: each composition still holds when the partition
+      side table is threaded as a typed input, BECAUSE the table is
+      read-only relative to the composed structure - it refines elimination
+      and verification decisions at class grain, never mutates the state
+      map, never spawns an emission path beside the lattice.
+    - The refined elimination verdict is the committed CH-2 consumer verdict
+      GATED on the partition class's keep bit: the refinement can only KEEP
+      or DECLINE an elimination the lattice already licensed. The gating
+      shape is the subset discipline; a general subset-HYPOTHESIS form
+      covers any refined eliminator whose fires are within the committed
+      eliminate set (the lattice stays the optimizer authority per the AIMS
+      conflict rule; the DP-2 / DP-3 decision predicates are reused
+      verbatim through the committed eliminate conjunction).
+    - The partition pre-pass occupies the analyze -> realize gap (computed
+      AFTER analyze_function - it reads the converged state map - and
+      BEFORE realize_rc_reuse, its first consumer), mirroring the CH-5
+      burden-pre-pass sequencing shape; modeled through the committed PL-6
+      admissible-insertion shift at the realize cut plus the committed PL-5
+      summary-flow non-staleness form.
+    - The partition-aware verification layer checks class-grain net-zero
+      (T2's clause 1 over the derived per-class ledger) - checkable only
+      with the side table in hand; layered onto the committed stack as an
+      appended per-layer verdict.
+    - The compiled Lean model is the calculus authority for the extension;
+      conformance of the shipped emitter to the model is established
+      empirically on the compiler's ARC-verified test surface, not here.
+
+  Soundness property:
+    Forall partition side table and forall class-grain keep function:
+
+      (P1) CH extension. The refined burden-derived and refined
+        lattice-derived verdicts are THE SAME boolean per (var, state)
+        program point (CH-2 single-elimination preserved under class-grain
+        refinement); the refined verdict set is a SUBSET of the lattice
+        verdict set and lands inside the DP-2 / DP-3 verdict-eliminable
+        set; the refined emitted-op set selects WITHIN the committed
+        emitted set (no parallel emission); the table-consulting consumer
+        returns the frozen state map UNCHANGED per event and under
+        whole-sequence replay (CH-4 preserved); and the extended handshake
+        accepts iff every layer INCLUDING the appended partition layer
+        accepts (the CH-comp union keeps its teeth: a false partition
+        verdict rejects; a committed-layer failure still rejects with the
+        layer appended).
+      (P2) PL extension. The committed PL-comp conjunction re-discharges
+        verbatim with the pre-pass inserted at its slot; every committed
+        before-pair survives the PL-6 insertion shift at the partition cut;
+        the pre-pass sits strictly inside the analyze -> realize gap
+        (producer before consumer, no back-edge); and every partition-table
+        summary flow reads strictly after its production (no stale-summary
+        violation). A pre-pass slotted AFTER its consumer is provably a
+        stale read.
+      (P3) VF extension. The extended stack accepts iff every committed
+        layer AND the partition layer accept; the new layer only ever
+        REJECTS MORE (an extended accept implies the base accept - it never
+        accepts a shape a prior layer rejects); a committed-layer failure
+        still rejects with the layer appended; the extended catch map
+        remains a complete pairwise-distinct partition over the extended
+        failure-class universe; and the layer has teeth on the committed K1
+        past-merge double-free (class-grain net-zero fails; the extended
+        stack rejects a shape every committed layer accepted).
+      (P4) The discipline has teeth (the invariant-5 parallel-path ban,
+        machine-checked). A rogue class-grain eliminator consulting ONLY
+        the partition fires on a Borrowed state the committed lattice
+        verdict refuses: its verdict set is NOT a subset of the lattice set
+        and its verdict DIVERGES from the lattice verdict at that program
+        point (a second elimination authority - the double-free shape). A
+        WRITING consumer that inserts into the state map provably breaks
+        the CH-4 leg (the map changes; a per-variable lookup diverges).
+
+  Proof obligation:
+    (P1) Discharged parametrically over the table and keep function by
+         composing the committed CH-2 identity (CH2_single_elimination),
+         the committed emitted-set membership characterization
+         (CH2_emission_order_independent), the committed CH-4 immutability
+         (CH4_state_map_immutable, CH4_replay_immutable), and the committed
+         CH-comp union characterization (CHcomp_accepts_iff_all,
+         CHcomp_any_layer_fails_rejects); instantiated at the committed T1
+         loop-CFG union-find (pfUF): the refined verdict fires at the
+         singleton-admitted items-header node, declines at the label-merge
+         node the T1 kill-criterion kept split - while the lattice verdict
+         still fires - and table-class equality is the computed sameRep
+         verdict (class_eq_iff_sameRep).
+    (P2) Discharged by re-invoking the committed PLcomp_pipeline_composes
+         verbatim, the committed PL6_insertion_preserves_order at the
+         partition cut, the committed PL2_analyze_before_realize anchor,
+         and the committed PL5_no_stale_summaries ALL-reads form over the
+         concrete partition flow list.
+    (P3) Discharged through the committed VFcomp_stack_accepts_iff_all,
+         VFcomp_any_layer_fails_stack_rejects, VFcomp_all_pass_accepted,
+         VFcomp_layers_catch_distinct, and VFcomp_every_class_caught, with
+         the layer verdict computed by the committed deriveLedger +
+         clauseNetZero over the committed K1 structures (k1Cured,
+         k1PastMerge, k1ClassOf, T2_K1_cured_clauses).
+    (P4) Discharged by the committed CH2_borrowed_not_eliminated negative
+         witness (the rogue fires where the lattice refuses; the subset and
+         single-elimination legs both break) and by computed lookup
+         divergence for the writing consumer, contrasted against the
+         committed CH4_state_map_immutable at the same instance.
+
+    Machine-checked in the compiled Lean at
+    aims-proof/lean/AimsProof/ProvenanceComposition.lean:
+      partitionTableOf_eq_iff_sameRep (the side table IS the T1 partition)
+      CHext_single_elimination_refined, CHext_gated_satisfies_subset,
+        CHext_refined_subset_of_lattice, CHext_refined_within_dp_verdicts,
+        CHext_refined_emission_order_independent,
+        CHext_refined_ops_within_committed,
+        CHext_subset_eliminator_within_lattice,
+        CHext_state_map_immutable_with_table,
+        CHext_lookup_stable_with_table, CHext_replay_immutable_with_table,
+        CHext_handshake_append_iff, CHext_partition_layer_failure_rejected,
+        CHext_base_layer_failure_still_rejected,
+        CHcomp_partition_side_table (P1 - the load-bearing extension),
+        CHext_instantiated_at_T1_partition (P1 concrete witness)
+      PLext_partition_flows_nonstale, PLext_consumer_before_prepass_stale,
+        PLext_insertion_preserves_committed_pairs,
+        PLext_prepass_in_analyze_realize_gap,
+        PLcomp_partition_side_table (P2)
+      partitionLayerVerdict, clauseNetZero_of_threeClauses,
+        VFext_stack_append_iff, VFext_layer_only_rejects_more,
+        VFext_base_failure_still_rejected, VFext_catches_injective,
+        VFext_every_class_caught, VFext_partition_layer_accepts_k1_cured,
+        VFext_partition_layer_catches_k1_double_free,
+        VFcomp_partition_side_table (P3)
+      CHext_rogue_breaks_extended_composition,
+        CHext_writing_consumer_breaks_immutability (P4 negative witnesses)
+      PV_composition_extension_bundle (conclusion bundle)
+    Bridged committed theorems and carriers consumed: eliminate,
+      eliminate_lattice_only, emittedOps, CH2_single_elimination,
+      CH2_emission_order_independent, CH2_borrowed_not_eliminated,
+      StateMap, BurdenMutation, eliminate_burden_ops,
+      CH4_state_map_immutable, CH4_replay_immutable, handshakeAccepts,
+      CHcomp_accepts_iff_all, CHcomp_any_layer_fails_rejects
+      (AimsProof.Coexistence); PipelineStep, PL2_analyze_before_realize,
+      PL6.shift, PL6_insertion_preserves_order, SummaryFlow,
+      PL5_no_stale_summaries, PLcomp_pipeline_composes, ContextBehavior,
+      TrmcRewrite, TrmcVerify (AimsProof.Pipeline); Condensation
+      (AimsProof.Interprocedural); stackAccepts,
+      VFcomp_stack_accepts_iff_all, VFcomp_any_layer_fails_stack_rejects,
+      VFcomp_all_pass_accepted, VFcomp_layers_catch_distinct,
+      VFcomp_every_class_caught, Layer, FailureClass
+      (AimsProof.Verification); deriveLedger, clauseNetZero, threeClauses,
+      walkInstrs, k1ClassOf, k1Class, k1Cured, k1PastMerge, k1NormalWalk,
+      k1UnwindWalk, T2_K1_cured_clauses, class_eq_iff_sameRep, LedgerInstr
+      (AimsProof.Ledger); PartitionUF, PartitionUF.find, pfUF,
+      PartitionUF.sameRep (AimsProof.Partition); AimsState, freshState
+      (AimsProof.Model); is_rc_dec_unnecessary, is_rc_inc_elidable
+      (AimsProof.Decision).
+    The compiled Lean (verified by lake build under the trusted kernel) is
+    the authoritative calculus; this .proof is the human-readable companion.
+
+    Engines dispatched:
+      structural_induction (PRIMARY - composition of the committed CH/PL/VF
+        constituents with the partition layer appended; union-semantics and
+        subset checks)
+      case_analysis (kept vs declined class dichotomy; base vs partition
+        layer dichotomy; the rogue-eliminator and writing-consumer
+        rejections)
+      rc_counting (the class-grain net-zero layer verdict over the derived
+        per-class ledger)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: CH composition-extension shape outside the rule-numbered CH verifier inventory (the CH dischargers serve the CH-1..CH-5 and CH-comp suffixes only). The authoritative machine-check is the compiled Lean AimsProof.ProvenanceComposition (lake build clean): CHcomp_partition_side_table discharges the coexistence-handshake extension (refined single-elimination, subset-of-lattice verdicts, within-committed emitted set, state-map immutability with the table consulted, appended-layer union), PLcomp_partition_side_table re-discharges the committed pipeline conjunction with the partition pre-pass in the analyze-realize gap under non-stale summary flows, VFcomp_partition_side_table layers the class-grain net-zero conformance check onto the committed stack (rejects-more, never accepts-more), and the rogue outside-the-lattice-set eliminator plus the state-map-writing consumer are provably rejected - the provenance partition threaded as a typed read-only side-table input per invariant 5 avenue (c).

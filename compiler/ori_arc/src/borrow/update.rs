@@ -9,8 +9,9 @@ use rustc_hash::FxHashMap;
 use ori_ir::builtin_constants::protocol::ProtocolArgOwnership;
 use ori_ir::Name;
 
+use crate::aims::intraprocedural::apply_aliases::build_let_alias_map;
 use crate::borrow::BuiltinOwnershipSets;
-use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership};
+use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership};
 use crate::ownership::{AnnotatedSig, Ownership};
 
 /// Context for callee argument ownership promotion.
@@ -84,28 +85,6 @@ fn try_mark_param_owned(
     }
 }
 
-/// Build a mapping from alias variables to their source.
-///
-/// For each `Let { dst, value: Var(src) }`, records `dst → src`. This allows
-/// ownership promotion to trace through alias chains like `v1 = v0` where `v0`
-/// is a parameter and `v1` is consumed by a Construct or returned.
-fn build_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
-    let mut aliases = FxHashMap::default();
-    for block in &func.blocks {
-        for instr in &block.body {
-            if let ArcInstr::Let {
-                dst,
-                value: ArcValue::Var(src),
-                ..
-            } = instr
-            {
-                aliases.insert(*dst, *src);
-            }
-        }
-    }
-    aliases
-}
-
 /// Resolve an alias chain to the root variable.
 ///
 /// Follows `Let { value: Var(x) }` chains: `v2 → v1 → v0 (param)`.
@@ -114,7 +93,7 @@ fn build_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
 /// The 64-step limit is purely defensive: in practice, alias chains are 1–3
 /// deep (one `Let { value: Var(x) }` per level). The limit guards against
 /// pathological or cyclic alias maps — if hit, it indicates a bug in
-/// `build_alias_map` or upstream lowering, not normal program structure.
+/// `build_let_alias_map` or upstream lowering, not normal program structure.
 fn resolve_alias(var: ArcVarId, aliases: &FxHashMap<ArcVarId, ArcVarId>) -> ArcVarId {
     let mut current = var;
     let mut steps = 0u32;
@@ -132,7 +111,7 @@ fn resolve_alias(var: ArcVarId, aliases: &FxHashMap<ArcVarId, ArcVarId>) -> ArcV
 ///
 /// Dispatches through three strategies in order:
 /// 1. **Known callee signature** (local SCC or external) — use per-param ownership.
-/// 2. **Protocol builtin** — use `ProtocolBuiltin::arg_ownership()` data.
+/// 2. **Protocol builtin** — use `ProtocolBuiltin::arg_ownership` data.
 /// 3. **Unknown, non-borrowing callee** — conservatively promote all args to owned.
 ///
 /// Callees in the `borrowing` set are assumed to borrow all arguments (no promotion).
@@ -189,7 +168,7 @@ pub(super) fn update_ownership_inner(
     builtins: &BuiltinOwnershipSets,
 ) -> bool {
     let mut changed = false;
-    let aliases = build_alias_map(func);
+    let aliases = build_let_alias_map(func);
 
     let mut ctx = PromoteCtx {
         func,
@@ -203,62 +182,7 @@ pub(super) fn update_ownership_inner(
     for block in &func.blocks {
         // Scan instructions
         for instr in &block.body {
-            match instr {
-                ArcInstr::Apply {
-                    args, func: callee, ..
-                } => {
-                    changed |= promote_callee_args(*callee, args, &mut ctx);
-                }
-
-                ArcInstr::ApplyIndirect {
-                    args,
-                    arg_ownership,
-                    ..
-                } => {
-                    // Closure operand: always borrowed — do NOT promote.
-                    // User args: promote only where arg_ownership says Owned.
-                    for (i, &arg) in args.iter().enumerate() {
-                        if arg_ownership
-                            .get(i)
-                            .is_some_and(|o| *o == ArgOwnership::Owned)
-                        {
-                            changed |= try_mark_param_owned(arg, ctx.func, ctx.my_sig, ctx.aliases);
-                        }
-                    }
-                }
-
-                ArcInstr::PartialApply { args, .. } | ArcInstr::Construct { args, .. } => {
-                    for &arg in args {
-                        changed |= try_mark_param_owned(arg, ctx.func, ctx.my_sig, ctx.aliases);
-                    }
-                }
-
-                ArcInstr::CollectionReuse { old_var, args, .. } => {
-                    // old_var is consumed (recycled buffer); args are stored elements.
-                    changed |= try_mark_param_owned(*old_var, ctx.func, ctx.my_sig, ctx.aliases);
-                    for &arg in args {
-                        changed |= try_mark_param_owned(arg, ctx.func, ctx.my_sig, ctx.aliases);
-                    }
-                }
-
-                ArcInstr::Project { dst, value, .. } => {
-                    if is_owned_var(*dst, ctx.func, ctx.my_sig, ctx.aliases) {
-                        changed |= try_mark_param_owned(*value, ctx.func, ctx.my_sig, ctx.aliases);
-                    }
-                }
-
-                // Select reads vars without consuming — no ownership propagation.
-                // RC/reset/reuse instructions are handled by the ARC pass itself.
-                ArcInstr::Let { .. }
-                | ArcInstr::Select { .. }
-                | ArcInstr::RcInc { .. }
-                | ArcInstr::RcDec { .. }
-                | ArcInstr::IsShared { .. }
-                | ArcInstr::Set { .. }
-                | ArcInstr::SetTag { .. }
-                | ArcInstr::Reset { .. }
-                | ArcInstr::Reuse { .. } => {}
-            }
+            changed |= promote_instr_ownership(instr, &mut ctx);
         }
 
         // Scan terminator
@@ -300,6 +224,81 @@ pub(super) fn update_ownership_inner(
         }
     }
 
+    changed
+}
+
+/// Per-instruction borrow-promotion step for [`update_ownership_inner`]:
+/// promotes Borrowed parameters to Owned where the instruction consumes the
+/// value at an owned position. Returns `true` if any ownership changed.
+fn promote_instr_ownership(instr: &ArcInstr, ctx: &mut PromoteCtx<'_>) -> bool {
+    let mut changed = false;
+    match instr {
+        ArcInstr::Apply {
+            args, func: callee, ..
+        } => {
+            changed |= promote_callee_args(*callee, args, ctx);
+        }
+
+        ArcInstr::ApplyIndirect {
+            args,
+            arg_ownership,
+            ..
+        } => {
+            // Closure operand: always borrowed — do NOT promote.
+            // User args: promote only where arg_ownership says Owned.
+            for (i, &arg) in args.iter().enumerate() {
+                if arg_ownership
+                    .get(i)
+                    .is_some_and(|o| *o == ArgOwnership::Owned)
+                {
+                    changed |= try_mark_param_owned(arg, ctx.func, ctx.my_sig, ctx.aliases);
+                }
+            }
+        }
+
+        ArcInstr::PartialApply { args, .. } | ArcInstr::Construct { args, .. } => {
+            for &arg in args {
+                changed |= try_mark_param_owned(arg, ctx.func, ctx.my_sig, ctx.aliases);
+            }
+        }
+
+        ArcInstr::CollectionReuse { old_var, args, .. } => {
+            // old_var is consumed (recycled buffer); args are stored elements.
+            changed |= try_mark_param_owned(*old_var, ctx.func, ctx.my_sig, ctx.aliases);
+            for &arg in args {
+                changed |= try_mark_param_owned(arg, ctx.func, ctx.my_sig, ctx.aliases);
+            }
+        }
+
+        ArcInstr::Project { dst, value, .. } => {
+            if is_owned_var(*dst, ctx.func, ctx.my_sig, ctx.aliases) {
+                changed |= try_mark_param_owned(*value, ctx.func, ctx.my_sig, ctx.aliases);
+            }
+        }
+
+        // Select reads vars without consuming — no ownership propagation.
+        // RC/reset/reuse instructions are handled by the ARC pass itself.
+        // BurdenInc/BurdenDec are trivial Phase 5 markers —
+        // their var is the subject of a burden op, not an ownership
+        // transfer point, so they contribute no borrow-promotion signal.
+        ArcInstr::Let { .. }
+        | ArcInstr::Select { .. }
+        | ArcInstr::RcInc { .. }
+        | ArcInstr::RcDec { .. }
+        | ArcInstr::RcDecPartial { .. }
+        | ArcInstr::RcDecField { .. }
+        | ArcInstr::RcDecVariant { .. }
+        | ArcInstr::BurdenInc { .. }
+        | ArcInstr::BurdenDec { .. }
+        | ArcInstr::BurdenDecPartial { .. }
+        | ArcInstr::BurdenDecField { .. }
+        | ArcInstr::BurdenDecVariant { .. }
+        | ArcInstr::IsShared { .. }
+        | ArcInstr::Set { .. }
+        | ArcInstr::SetTag { .. }
+        | ArcInstr::Reset { .. }
+        | ArcInstr::Reuse { .. } => {}
+    }
     changed
 }
 

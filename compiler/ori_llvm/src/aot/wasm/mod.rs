@@ -22,17 +22,22 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```no_run
 //! use ori_llvm::aot::wasm::{WasmConfig, WasmMemoryConfig, JsBindingGenerator};
+//! use std::path::Path;
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
 //! let config = WasmConfig::default()
 //!     .with_memory(WasmMemoryConfig::default().with_initial_pages(16))
 //!     .with_js_bindings(true);
+//! assert!(config.generate_js_bindings());
 //!
 //! // Generate WASM with JS bindings
-//! let js_gen = JsBindingGenerator::new("my_module", &exports);
+//! let js_gen = JsBindingGenerator::new("my_module", Vec::new());
 //! js_gen.generate_js(Path::new("my_module.js"))?;
 //! js_gen.generate_dts(Path::new("my_module.d.ts"))?;
+//! # Ok(())
+//! # }
 //! ```
 
 pub mod config;
@@ -391,9 +396,7 @@ export function init(
         if export.return_type == WasmType::Void {
             // No return value needed.
         } else if export.return_type == WasmType::String {
-            code.push_str(
-                "    // TODO(roadmap/section-24): Decode string result from WASM memory\n",
-            );
+            code.push_str("    // TODO: Decode string result from WASM memory\n");
             code.push_str("    return _result;\n");
         } else {
             code.push_str("    return _result;\n");

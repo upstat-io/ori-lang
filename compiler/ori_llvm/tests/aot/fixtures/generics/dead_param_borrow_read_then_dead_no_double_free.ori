@@ -1,0 +1,14 @@
+// RL-4 dead-owned-param-branch release NEGATIVE over-fire pin (borrow-read keeps it live):
+// a param BORROW-READ on a branch is LIVE on that branch (live_in carries it), so the
+// dead-param-branch pass MUST NOT emit a release at that block's entry — the existing
+// last-use machinery owns the release there. `inspect(c, x)` reads `x.len()` on BOTH
+// branches (borrow), so `x` is never dead-without-use; the pass adds nothing and the
+// existing emission releases `x` exactly once per call. Reverting the dead-at-entry
+// (`p ∉ live_in(B)`) gate would emit a spurious release on a read branch → double-free.
+@inspect <T> (c: bool, x: [T]) -> int = if c then x.len() else x.len() + 1;
+
+@main () -> int = {
+    let n = inspect(c: true, x: [1, 2, 3]);
+    let m = inspect(c: false, x: [4, 5]);
+    if n == 3 && m == 3 then 0 else 1
+}

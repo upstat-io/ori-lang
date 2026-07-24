@@ -5,17 +5,10 @@ use ori_ir::Name;
 use crate::codegen::abi::FunctionAbi;
 use crate::codegen::value_id::FunctionId;
 
-/// A function fully processed through the ARC pipeline, ready for nounwind
-/// analysis and LLVM emission.
+/// ARC function buffered until whole-module nounwind analysis completes.
 ///
-/// Created by [`FunctionCompiler::prepare_all_cached`] or
-/// [`FunctionCompiler::prepare_mono_cached`]. Enables two-pass compilation:
-/// 1. Lower all functions to ARC IR (populate this buffer)
-/// 2. Analyze nounwind on the complete set ([`FunctionCompiler::compute_nounwind_set`])
-/// 3. Emit LLVM IR using the complete nounwind set ([`FunctionCompiler::emit_prepared_functions`])
-///
-/// This ensures monomorphized callee nounwind status is available when
-/// analyzing callers, preventing unnecessary `invoke` + landing pad overhead.
+/// This ordering exposes monomorphized callee status before LLVM emission,
+/// avoiding unnecessary `invoke` instructions and landing pads.
 #[derive(Debug)]
 pub struct PreparedFunction {
     pub(in crate::codegen::function_compiler) name: Name,
@@ -25,11 +18,29 @@ pub struct PreparedFunction {
     pub(in crate::codegen::function_compiler) lambdas: Vec<PreparedLambda>,
 }
 
-/// A lambda processed through the ARC pipeline, ready for LLVM emission.
+/// Prepared functions whose complete nounwind fixed point has been computed.
 ///
-/// The lambda's LLVM function is already declared and registered in
-/// `CodegenContext::functions` during preparation — only the body emission
-/// is deferred to [`FunctionCompiler::emit_prepared_functions`].
+/// Construction and consumption stay inside nounwind analysis, making LLVM
+/// emission before the fixed point unrepresentable.
+#[derive(Debug)]
+#[must_use = "nounwind analysis must be consumed by LLVM emission"]
+pub struct NounwindAnalyzedFunctions(Vec<PreparedFunction>);
+
+impl NounwindAnalyzedFunctions {
+    pub(in crate::codegen::function_compiler::nounwind) fn new(
+        prepared: Vec<PreparedFunction>,
+    ) -> Self {
+        Self(prepared)
+    }
+
+    pub(in crate::codegen::function_compiler::nounwind) fn into_prepared(
+        self,
+    ) -> Vec<PreparedFunction> {
+        self.0
+    }
+}
+
+/// Prepared lambda whose LLVM declaration is registered before body emission.
 #[derive(Debug)]
 pub(in crate::codegen::function_compiler) struct PreparedLambda {
     pub(in crate::codegen::function_compiler) name: Name,

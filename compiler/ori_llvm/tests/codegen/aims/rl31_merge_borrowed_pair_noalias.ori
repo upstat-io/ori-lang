@@ -1,0 +1,28 @@
+// RL-31 dual-facet NEGATIVE pin — Worked Example 1b (Borrowed+Borrowed).
+// Spec: Annex E §AIMS RL-31 (P2). `merge(a: {str:int}, b: [int])` reads both
+// params (AIMS infers Borrowed → readonly Reference passing). The type-level
+// facet (b) proves the two pointee closures disjoint, BUT RL-31 `noalias` is a
+// FUNCTION attribute (D01 Option-A: "no caller can EVER pass aliasing args")
+// and is sound only under BOTH facets — (a) per-call-site provenance proven
+// disjoint at EVERY call site AND (b) type-level closure disjointness. Facet
+// (a) is unshipped, so `noalias` MUST be OMITTED: emitting on facet (b) alone
+// is the (P2)-rejected unsound verdict (distinct reachable-type closures do
+// NOT imply distinct runtime memory — a caller passing aliasing distinct-type
+// views would make the noalias a UAF). Params keep readonly/nonnull, no
+// noalias. If facet (a) ships, this pin flips back to asserting noalias.
+//
+// @function: _ori_merge
+// CHECK: define fastcc noundef i64 @_ori_merge(ptr noundef nonnull readonly dereferenceable(24) %0, ptr noundef nonnull readonly dereferenceable(24) %1)
+// CHECK-NOT: ptr noalias noundef nonnull readonly dereferenceable(24) %0
+
+@merge (a: {str: int}, b: [int]) -> int = {
+    let av = a["x"].unwrap_or(default: 0);
+    let bv = b.len();
+    av + bv
+}
+
+@main () -> void = {
+    let m = {"x": 1};
+    let l = [1, 2, 3];
+    print(msg: merge(a: m, b: l).to_str())
+}

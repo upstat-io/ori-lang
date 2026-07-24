@@ -1,9 +1,10 @@
-// FileCheck test: string copy produces RC increment.
-// When a string is copied and both the original and copy are used,
-// an ori_str_rc_inc is emitted for the sharing operation.
-//
+// FileCheck: a borrow-alias copy (`let t = s`, both names only borrow-read)
+// needs NO duplication RC increment — one allocation, one scope-exit dec.
+// Spec: Annex E §AIMS RL-1 (no duplication for a borrow-aliased read) + RL-2.
 // CHECK-LABEL: define void @_ori_main
-// CHECK: ori_str_rc_inc
+// CHECK: ori_str_from_raw
+// CHECK-NOT: ori_str_rc_inc
+// CHECK: ori_str_rc_dec
 
 @main () -> void = {
     let s = "hello";

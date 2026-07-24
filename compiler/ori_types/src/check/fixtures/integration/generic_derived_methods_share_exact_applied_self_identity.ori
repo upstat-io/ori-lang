@@ -1,0 +1,5 @@
+
+#derive(Eq, Hashable, Clone) type P3Box<T> = { value: T }
+@p3_clone (value: P3Box<int>) -> P3Box<int> = value.clone();
+@p3_clone_str (value: P3Box<str>) -> P3Box<str> = value.clone();
+@p3_hash (value: P3Box<int>) -> int = value.hash();

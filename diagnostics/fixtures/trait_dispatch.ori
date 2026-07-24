@@ -14,11 +14,11 @@ trait Processor {
 
 type Document = { title: str, pages: int }
 
-impl Measurable for Document {
+impl Document: Measurable {
     @measure (self) -> int = self.title.length() + self.pages;
 }
 
-impl Processor for Document {
+impl Document: Processor {
     @process (self, input: int) -> int = self.pages + input;
 }
 

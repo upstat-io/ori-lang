@@ -1,0 +1,1 @@
+pub let $api_base = "https://example.com";

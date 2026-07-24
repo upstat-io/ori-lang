@@ -1,128 +1,13 @@
-//! Token capture, speculative parsing, and outcome handling for the Parser.
+//! Speculative parsing and outcome handling for the Parser.
 //!
-//! Includes lazy token capture for formatters, snapshot-based speculative
-//! parsing for disambiguation, multi-token matching utilities, and the
+//! Includes snapshot-based speculative parsing for disambiguation and the
 //! `handle_outcome` helper for collecting parsed items with error recovery.
 
 use crate::outcome::ParseOutcome;
-use crate::recovery::TokenSet;
 use crate::{ParseError, Parser};
 
-use ori_ir::TokenKind;
-
 impl Parser<'_> {
-    // --- Token Capture ---
-    //
-    // These methods support lazy token capture for formatters and future macros.
-    // Instead of storing tokens directly, we capture index ranges into the
-    // cached TokenList, which is very memory efficient.
-
-    /// Execute a parser and capture its tokens.
-    ///
-    /// This is a convenience method that combines `start_capture()` and
-    /// `complete_capture()` with a parsing closure. Use when you always
-    /// need to capture tokens.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let (expr, capture) = parser.with_capture(|p| p.parse_expr())?;
-    /// ```
-    #[inline]
-    #[allow(
-        dead_code,
-        reason = "infrastructure for formatters and macro expansion"
-    )]
-    pub(crate) fn with_capture<T, F>(&mut self, f: F) -> (T, ori_ir::TokenCapture)
-    where
-        F: FnOnce(&mut Self) -> T,
-    {
-        let start = self.cursor.start_capture();
-        let result = f(self);
-        let capture = self.cursor.complete_capture(start);
-        (result, capture)
-    }
-
-    /// Execute a parser and optionally capture its tokens.
-    ///
-    /// When `needs_capture` is false, returns `TokenCapture::None` without
-    /// the overhead of tracking positions.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let needs_tokens = self.context.has(ParseContext::CAPTURE_TOKENS);
-    /// let (expr, capture) = parser.capture_if(needs_tokens, |p| p.parse_expr())?;
-    /// ```
-    #[inline]
-    #[allow(
-        dead_code,
-        reason = "infrastructure for conditional token capture in formatters"
-    )]
-    pub(crate) fn capture_if<T, F>(
-        &mut self,
-        needs_capture: bool,
-        f: F,
-    ) -> (T, ori_ir::TokenCapture)
-    where
-        F: FnOnce(&mut Self) -> T,
-    {
-        if needs_capture {
-            self.with_capture(f)
-        } else {
-            (f(self), ori_ir::TokenCapture::None)
-        }
-    }
-
-    /// Check if the current token matches any kind in the set.
-    ///
-    /// Unlike `cursor.check()`, this tests against multiple token kinds at once.
-    /// Returns `true` if any match is found.
-    #[inline]
-    #[allow(dead_code, reason = "infrastructure for multi-token error recovery")]
-    pub(crate) fn check_one_of(&self, expected: &TokenSet) -> bool {
-        expected.contains(self.cursor.current_kind())
-    }
-
-    /// Expect one of several token kinds, generating a helpful error if none match.
-    ///
-    /// Uses `TokenSet::format_expected()` to generate messages like
-    /// "expected `,`, `)`, or `}`, found `+`".
-    ///
-    /// Returns the matched token kind on success.
-    #[cold]
-    #[allow(
-        dead_code,
-        reason = "infrastructure for multi-token expect with rich errors"
-    )]
-    pub(crate) fn expect_one_of(&mut self, expected: &TokenSet) -> Result<TokenKind, ParseError> {
-        let current = self.cursor.current_kind();
-        if expected.contains(current) {
-            let matched = current.clone();
-            self.cursor.advance();
-            Ok(matched)
-        } else {
-            Err(ParseError::new(
-                ori_diagnostic::ErrorCode::E1001,
-                format!(
-                    "expected {}, found `{}`",
-                    expected.format_expected(),
-                    current.display_name()
-                ),
-                self.cursor.current_span(),
-            ))
-        }
-    }
-
-    // --- Speculative Parsing (Snapshots) ---
-    //
-    // These methods enable speculative parsing for disambiguation.
-    // Use when you need to try a parse, examine the result, and decide
-    // whether to keep or discard it.
-    //
-    // Complements progress tracking:
-    // - Progress: simple alternatives (`parse_a().or_else(|| parse_b())`)
-    // - Snapshots: complex disambiguation requiring full parse attempts
+    // Speculative parsing (snapshots).
 
     /// Create a snapshot of the current parser state.
     ///
@@ -131,7 +16,9 @@ impl Parser<'_> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// This is a schematic parser-internal fragment, not a standalone program:
+    ///
+    /// ```text
     /// let snapshot = self.snapshot();
     /// // Try parsing as type
     /// if self.parse_type().is_ok() && self.cursor.check(&TokenKind::Eq) {
@@ -162,12 +49,15 @@ impl Parser<'_> {
     /// If the parse function succeeds, returns `Some(result)`.
     /// If it fails, restores parser state and returns `None`.
     ///
-    /// This is the primary method for speculative parsing. Use when you
-    /// need to try an interpretation and fall back if it doesn't work.
+    /// Production grammar disambiguates via `snapshot()` / `restore()` inside
+    /// the `one_of!` macro; this convenience wrapper is exercised by the
+    /// snapshot test suite.
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// This is a schematic parser-internal fragment, not a standalone program:
+    ///
+    /// ```text
     /// // Try parsing as type annotation first
     /// if let Some(ty) = self.try_parse(|p| p.parse_type()) {
     ///     return Ok(TypeOrExpr::Type(ty));
@@ -176,11 +66,9 @@ impl Parser<'_> {
     /// let expr = self.parse_expr()?;
     /// Ok(TypeOrExpr::Expr(expr))
     /// ```
+    // test-only
+    #[cfg(test)]
     #[inline]
-    #[allow(
-        dead_code,
-        reason = "reserved for grammar disambiguation with backtracking"
-    )]
     pub(crate) fn try_parse<T, F>(&mut self, f: F) -> Option<T>
     where
         F: FnOnce(&mut Self) -> Result<T, ParseError>,
@@ -202,7 +90,9 @@ impl Parser<'_> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// This is a schematic parser-internal fragment, not a standalone program:
+    ///
+    /// ```text
     /// // Check if this looks like a type annotation
     /// let is_type_annotation = self.look_ahead(|p| {
     ///     p.parse_type().is_ok() && p.cursor.check(&TokenKind::Eq)
@@ -214,11 +104,9 @@ impl Parser<'_> {
     ///     // Parse as expression
     /// }
     /// ```
+    // test-only
+    #[cfg(test)]
     #[inline]
-    #[allow(
-        dead_code,
-        reason = "reserved for non-consuming lookahead in grammar disambiguation"
-    )]
     pub(crate) fn look_ahead<T, F>(&mut self, f: F) -> T
     where
         F: FnOnce(&mut Self) -> T,

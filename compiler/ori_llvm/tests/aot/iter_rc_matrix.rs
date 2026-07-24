@@ -1,24 +1,7 @@
-//! Iterator-collection RC ownership matrix tests.
+//! Iterator-collection RC ownership matrix.
 //!
-//! Comprehensive combinatorial coverage: 6 element types × 8 iteration
-//! patterns × 2 loop variants + E7 list-collect guards. Exercises every
-//! RC-relevant combination to prevent regression.
-//!
-//! Matrix dimensions:
-//!   Loop:    for-do (P1-P2, P4-P8), for-yield (P1-P8)
-//!   Type:    E1=str, E2=[int] nested, E3=Option<str>, E4=closure, E5=struct, E6=map
-//!   Pattern: P1=full, P2=break, P3=yield-transform, P4=two-call, P5=nested,
-//!            P6=guard, P7=unwind, P8=continue
-//!
-//! E7 (Set<int>) is covered via list-collect guards: the E7 fixtures
-//! exercise list collect + iteration as a positive regression guard;
-//! they do NOT exercise `__collect_set`. `Set<str>` iteration works (see `sets.rs`).
-//! E2×P5 for-yield excluded — nested yield of [int] collapses to flat int; covered by P1.
-
-#![allow(
-    clippy::needless_raw_string_hashes,
-    reason = "readability in test program literals"
-)]
+//! The fixtures cross loop form, element representation, and control-flow
+//! pattern. Set collection and nested-list flattening have separate coverage.
 
 use crate::util::assert_aot_success;
 
@@ -65,7 +48,6 @@ fn test_iter_rc_for_do_str_guard() {
 }
 
 #[test]
-#[ignore = "catch() type inference bug: returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_do_str_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_do_str_unwind.ori"),
@@ -124,7 +106,6 @@ fn test_iter_rc_for_do_nested_list_guard() {
 }
 
 #[test]
-#[ignore = "catch() type inference bug: returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_do_nested_list_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_do_nested_list_unwind.ori"),
@@ -183,7 +164,6 @@ fn test_iter_rc_for_do_option_str_guard() {
 }
 
 #[test]
-#[ignore = "catch() type inference bug: returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_do_option_str_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_do_option_str_unwind.ori"),
@@ -242,7 +222,6 @@ fn test_iter_rc_for_do_closure_guard() {
 }
 
 #[test]
-#[ignore = "catch() type inference bug: returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_do_closure_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_do_closure_unwind.ori"),
@@ -301,7 +280,6 @@ fn test_iter_rc_for_do_struct_str_guard() {
 }
 
 #[test]
-#[ignore = "catch() type inference bug: returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_do_struct_str_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_do_struct_str_unwind.ori"),
@@ -352,7 +330,6 @@ fn test_iter_rc_for_do_map_guard() {
 }
 
 #[test]
-#[ignore = "catch() type inference bug: returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_do_map_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_do_map_unwind.ori"),
@@ -368,7 +345,7 @@ fn test_iter_rc_for_do_map_continue() {
     );
 }
 
-// E7: list-collect guard — exercises list collect + iteration as a regression guard (not __collect_set)
+// E7 exercises list collection and iteration, not `__collect_set`.
 
 #[test]
 fn test_iter_rc_for_do_set_int_full() {
@@ -438,11 +415,21 @@ fn test_iter_rc_for_yield_str_guard() {
 }
 
 #[test]
-#[ignore = "catch() type inference bug: returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_yield_str_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_yield_str_unwind.ori"),
         "iter_rc_for_yield_str_unwind",
+    );
+}
+
+/// The for-yield scratch list owns elements pushed before a later iteration
+/// panics. Its unwind cleanup must read the buffer's stored element destructor
+/// and release the heap-backed string before freeing the scratch allocation.
+#[test]
+fn test_iter_rc_for_yield_heap_element_unwind() {
+    assert_aot_success(
+        include_str!("fixtures/iter_rc_matrix/iter_rc_for_yield_heap_element_unwind.ori"),
+        "iter_rc_for_yield_heap_element_unwind",
     );
 }
 
@@ -497,7 +484,6 @@ fn test_iter_rc_for_yield_nested_list_guard() {
 }
 
 #[test]
-#[ignore = "catch() type inference bug: returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_yield_nested_list_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_yield_nested_list_unwind.ori"),
@@ -564,7 +550,6 @@ fn test_iter_rc_for_yield_option_str_guard() {
 }
 
 #[test]
-#[ignore = "catch() type inference bug: returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_yield_option_str_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_yield_option_str_unwind.ori"),
@@ -631,7 +616,6 @@ fn test_iter_rc_for_yield_closure_guard() {
 }
 
 #[test]
-#[ignore = "catch() type inference bug: returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_yield_closure_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_yield_closure_unwind.ori"),
@@ -698,7 +682,6 @@ fn test_iter_rc_for_yield_struct_str_guard() {
 }
 
 #[test]
-#[ignore = "catch() type inference bug: returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_yield_struct_str_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_yield_struct_str_unwind.ori"),
@@ -757,7 +740,6 @@ fn test_iter_rc_for_yield_map_guard() {
 }
 
 #[test]
-#[ignore = "catch() type inference bug: returns Result<() -> T, str> instead of Result<T, str>"]
 fn test_iter_rc_for_yield_map_unwind() {
     assert_aot_success(
         include_str!("fixtures/iter_rc_matrix/iter_rc_for_yield_map_unwind.ori"),

@@ -1,0 +1,8 @@
+type Config = { settings: {str: int}, name: str }
+
+@main () -> int = {
+    let c = Config { settings: {"a": 1}, name: "configname_long_enough_to_heap" };
+    if c.settings.length() == 1 then {
+        if c.name.length() == 30 then 0 else 1
+    } else 2
+}

@@ -80,13 +80,9 @@ pub(crate) fn try_trivial(raw: RawTag) -> Option<(TokenKind, u8)> {
         RawTag::HashBracket => (TokenKind::HashBracket, TokenKind::TAG_HASH_BRACKET),
         RawTag::HashBang => (TokenKind::HashBang, TokenKind::TAG_HASH_BANG),
 
-        // Everything else requires full cooking.
-        //
-        // NOTE: The following multi-character operators are synthesized by the
-        // parser, not the lexer. The lexer emits their component tokens
-        // (e.g., `>` + `=`), and the parser fuses them:
-        //   >=   >>   >>=   **   **=   |>
-        // This is intentional — see parser's operator fusion logic.
+        // Why: `>=` `>>` `>>=` `**` `**=` `|>` are absent here because the parser
+        // fuses them from component tokens (e.g. `>` + `=`); the lexer emits only
+        // the components.
         _ => return None,
     })
 }

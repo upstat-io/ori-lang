@@ -101,7 +101,7 @@ struct TarjanState {
 ///
 /// Avoids recursion depth issues on deeply connected call graphs.
 /// Each frame tracks the current node, its callee iterator position,
-/// and whether we're resuming after a recursive call.
+/// and whether traversal resumes after a recursive call.
 fn strongconnect(root: Name, graph: &CallGraph, state: &mut TarjanState) {
     // Frame for the explicit call stack.
     struct Frame {
@@ -140,11 +140,13 @@ fn strongconnect(root: Name, graph: &CallGraph, state: &mut TarjanState) {
             let callee = frame.callees[frame.next_callee_idx];
             frame.next_callee_idx += 1;
 
-            if !state.indices.contains_key(&callee) {
+            if let std::collections::hash_map::Entry::Vacant(index_entry) =
+                state.indices.entry(callee)
+            {
                 // Callee not yet visited — "recurse" by pushing a new frame.
                 let idx = state.index_counter;
                 state.index_counter += 1;
-                state.indices.insert(callee, idx);
+                index_entry.insert(idx);
                 state.lowlinks.insert(callee, idx);
                 state.stack.push(callee);
                 state.on_stack.insert(callee);

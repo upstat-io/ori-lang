@@ -1,0 +1,15 @@
+// Guard 5 (late-use alias): an explicit alias is read AFTER the construct site
+// inside the iteration. The alias's release set must keep any field the alias
+// still backs; value semantics demand the post-construct read see the original.
+type Pair = { a: [int], b: [int] }
+
+@main () -> int = {
+    let r = Pair { a: [1], b: [2] };
+    let total = 0;
+    for i in 0..30 do {
+        let t = r;
+        r = Pair { a: t.a, b: t.b };
+        total = total + t.b.len();
+    };
+    if total == 30 then 0 else 1
+}

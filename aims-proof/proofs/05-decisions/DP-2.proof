@@ -1,0 +1,80 @@
+Theorem DP-2: is_rc_dec_unnecessary truth table — Absent OR Dead
+
+  Preconditions:
+    - s is a canonical AimsState per Annex E §AIMS product lattice
+    - is_rc_dec_unnecessary : AimsState -> Bool per Annex E §AIMS DP-2
+      + Appendix C truth table
+    - CN-1 invariant (Annex E §AIMS CN-1): Consumption = Dead <=>
+      Cardinality = Absent bidirectional; canonical states satisfy the
+      bidirectional equivalence
+    - DP-2 gates SUPPLEMENTARY RC ops ONLY — terminal RL-2 / RL-4 / RL-5
+      definitional cleanup decs own their own logic per Annex E §AIMS
+      RL-2 (DP-2 NEVER suppresses cleanup decs on UNUSED owned non-scalar
+      values)
+
+  Soundness property:
+    Forall s in AimsState (canonical, post-CN-1).
+      is_rc_dec_unnecessary(s)
+        <=> (s.cardinality = Absent OR s.consumption = Dead)
+
+    Under CN-1 the two clauses are bidirectionally implied; canonical
+    states satisfying either satisfy both. The disjunction is therefore
+    equivalent to (s.cardinality = Absent AND s.consumption = Dead) on
+    canonical states.
+
+  Proof obligation:
+    Three-part discharge:
+      (a) Enumerate the 4 Consumption x 3 Cardinality = 12 product states.
+      (b) Apply CN-1 canonical filter: skip the 5 infeasible combinations
+          (Dead AND != Absent: 2 states; != Dead AND Absent: 3 states).
+          Remaining canonical subset: 7 states.
+      (c) For each canonical row, verify the predicate value equals the
+          Appendix C row partition value.
+
+    Part (a) — Appendix C row partition (4 rows, exhaustive):
+      Row 1: Cardinality = Absent (under CN-1 forces Dead) -> true
+        Soundness: predicate true (first disjunct holds).
+      Row 2: any Cardinality, Consumption = Dead (under CN-1 forces Absent)
+          -> true
+        Soundness: predicate true (second disjunct holds).
+      Row 3: Cardinality = Once, Consumption != Dead -> false
+        Soundness: predicate false (neither disjunct holds).
+      Row 4: Cardinality = Many, Consumption != Dead -> false
+        Soundness: predicate false (neither disjunct holds).
+
+    Part (b) — CN-1 canonical filter:
+      Product cardinality: 4 x 3 = 12.
+      Infeasible (eliminated by CN-1):
+        - Consumption = Dead AND Cardinality in {Once, Many}: 2 states.
+        - Consumption in {Linear, Affine, Unrestricted} AND Cardinality =
+          Absent: 3 states.
+      Canonical subset: 12 - 5 = 7 states.
+        Canonical rows: (Dead, Absent),
+                       (Linear, Once), (Linear, Many),
+                       (Affine, Once), (Affine, Many),
+                       (Unrestricted, Once), (Unrestricted, Many).
+
+    Part (c) — soundness equality on canonical rows:
+      Canonical row (Dead, Absent) -> DP-2 = true (Appendix Row 1 AND Row 2).
+      Canonical rows (!= Dead, Once / Many) -> DP-2 = false (Appendix
+        Row 3 / 4).
+      Negative-direction witness: DP-2 = true on EXACTLY the (Dead, Absent)
+      canonical row; the 6 other canonical rows return false.
+
+    DP-2 gating clarification (success_criterion §05.1):
+      DP-2 gates supplementary RC-op tracking ONLY. RL-2 cleanup decs on
+      UNUSED owned non-scalar values (Cardinality = Absent OR Consumption =
+      Dead) are emitted by the definitional-cleanup rule itself per
+      Annex E §AIMS RL-2 "RL-2 includes UNUSED owned non-scalar values".
+      DP-2 NEVER suppresses cleanup decs; it gates additional supplementary
+      RC ops beyond the terminal RL-2 / RL-4 / RL-5 emissions.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — 12-product / 7-canonical enumeration per
+        section_05::verify_dp2_rc_dec_unnecessary; the verifier applies the
+        CN-1 canonical filter and checks the soundness equality on every
+        canonical row)
+
+  Expected:
+    status: valid
+    reason: section_05 case_analysis engine discharges DP-2 via 12-product / 7-canonical-post-CN-1 enumeration per Annex E §AIMS DP-2 + Appendix C + §2 CN-1

@@ -1,13 +1,14 @@
-// Note: Formatter breaks sum types with many/complex variants to multiple lines
-// with leading | on each variant line
+// Note: Formatter breaks sum types with many/complex variants to multiple lines,
+// first variant bare on its own line, continuation variants prefixed with `| `
+// (Spec: grammar.ebnf sum_body = variant { "|" variant } — `|` is a separator)
 
 type Event =
-    | Click(x: int, y: int)
+    Click(x: int, y: int)
     | KeyPress(key: char, modifiers: int)
     | Scroll(delta_x: float, delta_y: float)
     | Resize(width: int, height: int);
 
 type Message =
-    | Text(content: str)
+    Text(content: str)
     | Image(url: str, width: int, height: int)
     | Video(url: str, duration: int);

@@ -8,11 +8,11 @@ trait Printable {
 
 type Rect = { w: int, h: int }
 
-impl Categorizable for Rect {
+impl Rect: Categorizable {
     @category (self) -> str = "shape";
 }
 
-impl Printable for Rect {
+impl Rect: Printable {
     @to_str (self) -> str = "rect";
 }
 

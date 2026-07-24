@@ -76,7 +76,7 @@ mod llvm_tests {
     /// so that `build_optimization_config()` produces a `SanitizerMode` with the
     /// correct flags. Previously, `..Default::default()` left `sanitizer_env: None`,
     /// silently dropping sanitizer instrumentation.
-    /// See: plans/llvm-verification-tooling/section-08-sanitizers.md §08.R iter 13
+    /// See:.R iter 13
     #[test]
     fn test_build_optimization_config_reads_sanitizer_env() {
         use crate::commands::build::{build_optimization_config, BuildOptions, OptLevel};
@@ -132,4 +132,29 @@ mod llvm_tests {
         assert_eq!(parts.len(), 2);
         assert_eq!(parts[1].len(), 16);
     }
+}
+
+#[test]
+fn constant_failures_render_as_actionable_e2058_not_runtime_fallback() {
+    let interner = oric::ir::StringInterner::new();
+    let name = interner.intern("broken");
+    let problem = ori_ir::canon::ConstEvalProblem {
+        name,
+        span: ori_ir::Span::new(4, 12),
+        kind: ori_ir::canon::ConstEvalProblemKind::DivisionByZero,
+    };
+    let result = oric::eval::ModuleEvalResult::constant_errors(
+        "error[E2058]: constant evaluation failed".to_string(),
+        vec![problem],
+    );
+
+    let diagnostics = super::const_eval_diagnostics(&result, &interner);
+
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, ori_diagnostic::ErrorCode::E2058);
+    assert!(diagnostics[0].message.contains("divides by zero"));
+    assert!(diagnostics[0]
+        .suggestions
+        .iter()
+        .any(|suggestion| suggestion.contains("non-zero divisor")));
 }

@@ -1,0 +1,2 @@
+// * x: param doc
+@main () -> int = 42

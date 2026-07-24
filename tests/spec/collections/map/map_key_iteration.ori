@@ -1,6 +1,6 @@
 // Regression: BUG-03-005 — map iteration leaked internal type-prefixed keys
 // ("s:hello", "i:42") instead of user-visible values ("hello", 42).
-// See: plans/bug-tracker/fix-BUG-03-005.md
+// See:
 
 use std.testing { assert_eq, assert }
 

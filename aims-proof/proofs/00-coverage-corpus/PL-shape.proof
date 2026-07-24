@@ -1,0 +1,54 @@
+Theorem PL-2: Pipeline ordering — analyze before realize
+
+  Preconditions:
+    - Pipeline P per Annex E §AIMS (Steps 1-12)
+    - Step 4 = analyze_function() produces converged AimsStateMap
+    - Step 5 = realize_rc_reuse() consumes AimsStateMap to emit
+      RC + reuse + arg_ownership
+    - Step ordering per Annex E §AIMS PL-2:
+        Step 4 SHALL precede Step 5
+
+  Soundness property:
+    Forall function F in pipeline P.
+      Step 5 (realize_rc_reuse) on F reads AimsStateMap produced by
+      Step 4 (analyze_function) on F;
+      executing Step 5 BEFORE Step 4 produces undefined behavior
+      (stale or absent state map per PL-5).
+
+  Proof obligation:
+    Structural induction over pipeline P's 12-step sequence:
+      Base case: Step 1 (analyze_program, interprocedural).
+        Per PL-1, runs once across all functions before any
+        per-function step; produces MemoryContract per function;
+        post-condition: contracts available for all callees of any F.
+      Inductive step from Step k to Step k+1, k in [1, 11]:
+        Assume Step k completed with post-condition P_k;
+        Step k+1 reads Step k's post-condition (input contract);
+        per PL-5, no step relies on stale summaries.
+
+    Case analysis on Step 5's preconditions:
+      Case Step 4 ran on F:
+        AimsStateMap M_F available; M_F.block_exit_states,
+        M_F.block_entry_states, M_F.borrow_sources, M_F.events,
+        M_F.scalars, M_F.immortals all populated;
+        Step 5's emit_rc, emit_reuse, emit_arg_ownership all
+        consume M_F entries; soundness preserved.
+      Case Step 4 did NOT run on F:
+        M_F absent; Step 5 cannot dispatch; sequencing bug per
+        PL-5 (state-map-driven emission requires the state map).
+
+    Case analysis on Step 4a (verify_trmc_soundness):
+      Per Annex E §AIMS + PL-10, Step 4a runs after Step 4
+      on each F; on failure, rolls back to pre-TRMC IR AND
+      re-runs Steps 3-4 on restored CFG (PL-5: no stale summaries);
+      Step 5 reads the FINAL post-rollback AimsStateMap;
+      no stale-summary leak.
+
+    Engines dispatched:
+      structural_induction (12-step pipeline sequence + per-step
+                            post-condition propagation)
+      case_analysis (Step 5's preconditions + Step 4a rollback paths)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: PL-shape scaffold-time; engine implementation pending

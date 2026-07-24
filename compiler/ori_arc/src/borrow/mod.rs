@@ -1,12 +1,14 @@
-//! SCC-based borrow inference for ARC IR (Section 06.2).
+//! SCC-based borrow inference for ARC IR.
 //!
-//! Determines which function parameters can be **borrowed** (no RC operations
-//! at the call site) versus **owned** (caller must `rc_inc`, callee must
-//! `rc_dec`).
+//! Determines whether a function parameter is **borrowed** (the source lifetime
+//! governs access and no owner credit transfers) or **owned** (one logical owner
+//! credit transfers and the callee must transfer or discharge it). The current
+//! ARC carrier may spell extra-credit and release events `RcInc`/`RcDec`; those
+//! names are transitional physical-adapter details, not the borrow contract.
 //!
 //! # Algorithm
 //!
-//! Follows Lean 4's approach (`src/Lean/Compiler/IR/Borrow.lean`):
+//! Historical influence: Lean 4's borrow-inference SHAPE (`Lean.Compiler.IR.Borrow`).
 //!
 //! 1. **Decompose**: Build call graph, compute SCCs via Tarjan's algorithm.
 //! 2. **Initialize**: All non-scalar parameters start as `Borrowed`.
@@ -36,9 +38,10 @@
 //!
 //! When a function tail-calls another function (or itself) and passes a
 //! currently-borrowed parameter to an owned position, the parameter must be
-//! promoted to owned. Without this, RC insertion would need to insert a `Dec`
-//! after the tail call, which would break the tail call optimization (the
-//! caller's stack frame must not exist after the tail call).
+//! promoted to owned. Otherwise its caller-side release obligation would remain
+//! after the transfer; the current carrier would need an `RcDec` after the tail
+//! call, breaking the optimization because the caller's stack frame must no
+//! longer exist.
 
 mod builtins;
 mod callees;
@@ -46,10 +49,10 @@ mod derived;
 mod per_scc;
 mod update;
 
+pub(crate) use builtins::persistent_list_runtime_methods;
 pub use builtins::{
-    all_cow_method_names, borrowing_builtin_names, consuming_receiver_builtin_names,
-    consuming_receiver_only_builtin_names, consuming_second_arg_builtin_names,
-    sharing_builtin_names, BuiltinOwnershipSets,
+    accessor_retain_builtin_names, all_cow_method_names, borrow_view_accessor_builtin_names,
+    borrowing_builtin_names, copy_in_builtin_names, sharing_builtin_names, BuiltinOwnershipSets,
 };
 pub use callees::extract_callees;
 pub use derived::infer_derived_ownership;
@@ -68,17 +71,15 @@ use crate::ArcClassification;
 // Re-export for per_scc.rs (which uses `super::update_ownership_inner`).
 use update::update_ownership_inner;
 
-/// SCC-based borrow inference (replaces whole-program fixed-point).
+/// Infers borrow annotations per strongly connected component.
 ///
 /// Decomposes functions into SCCs via Tarjan's algorithm, then infers
-/// borrow annotations per-SCC in topological order. Produces identical
-/// results to the old whole-program fixed-point, but enables future
-/// incrementality (each SCC can be cached independently).
+/// borrow annotations per-SCC in topological order.
 ///
 /// # Arguments
 ///
 /// * `functions` — ARC IR functions to analyze (typically one module's worth).
-/// * `classifier` — type classifier for determining scalar vs ref types.
+/// * `classifier` — type classifier for scalar vs ownership-bearing values.
 /// * `builtins` — pre-interned builtin ownership sets (borrowing methods,
 ///   protocol builtins, etc.). Used to determine per-argument ownership
 ///   for compiler-internal callees.
@@ -129,46 +130,6 @@ fn _enforce_exhaustiveness(tag: ori_registry::TypeTag) {
         TypeTag::List | TypeTag::Map | TypeTag::Set | TypeTag::Range => {}
         TypeTag::Tuple | TypeTag::Option | TypeTag::Result | TypeTag::Channel => {}
         TypeTag::Function | TypeTag::Iterator | TypeTag::DoubleEndedIterator => {}
-    }
-}
-
-/// NEVER CALLED. Exists solely so that Rust's exhaustive match checker
-/// forces updates to this crate when a new `TypeTag` variant is added.
-/// If you see a compile error pointing here, a new `TypeTag` was added
-/// to `ori_registry` without updating the ARC pass's borrow inference.
-// Compile-time exhaustiveness guard (Roc pattern).
-#[allow(
-    dead_code,
-    unreachable_code,
-    reason = "compile-time exhaustiveness guard — never called"
-)]
-fn _enforce_type_tag_exhaustiveness(tag: ori_registry::TypeTag) {
-    match tag {
-        // All 23 TypeTag variants — Copy types (scalar), Arc types (borrow set),
-        // Iterator (excluded), Function (capture analysis)
-        ori_registry::TypeTag::Int
-        | ori_registry::TypeTag::Float
-        | ori_registry::TypeTag::Bool
-        | ori_registry::TypeTag::Char
-        | ori_registry::TypeTag::Byte
-        | ori_registry::TypeTag::Duration
-        | ori_registry::TypeTag::Size
-        | ori_registry::TypeTag::Ordering
-        | ori_registry::TypeTag::Range
-        | ori_registry::TypeTag::Unit
-        | ori_registry::TypeTag::Never
-        | ori_registry::TypeTag::Str
-        | ori_registry::TypeTag::Error
-        | ori_registry::TypeTag::List
-        | ori_registry::TypeTag::Map
-        | ori_registry::TypeTag::Set
-        | ori_registry::TypeTag::Tuple
-        | ori_registry::TypeTag::Option
-        | ori_registry::TypeTag::Result
-        | ori_registry::TypeTag::Channel
-        | ori_registry::TypeTag::Iterator
-        | ori_registry::TypeTag::DoubleEndedIterator
-        | ori_registry::TypeTag::Function => {}
     }
 }
 

@@ -8,13 +8,28 @@
 //! - **Multi-file** (`multi.rs`): dependency-graph-based compilation with LTO support
 
 #[cfg(feature = "llvm")]
+mod incremental_cache;
+#[cfg(feature = "llvm")]
 mod ir_capture;
 #[cfg(feature = "llvm")]
 mod multi;
 #[cfg(feature = "llvm")]
 mod multi_emission;
 #[cfg(feature = "llvm")]
+mod multi_imports;
+#[cfg(feature = "llvm")]
+mod multi_mono_state;
+#[cfg(feature = "llvm")]
 mod single;
+
+// Re-export cross-module imported-generic resolution helper so the
+// single-file build path (`single.rs` → `compile_to_llvm`) can construct
+// the same `ImportedMonoState` shape that the multi-file path constructs.
+// `build_imported_mono_state` works uniformly for stdlib imports (e.g.,
+// `use std.testing { assert_eq }` in a single-file program) and relative
+// imports — both flow through `resolve_imports`.
+#[cfg(feature = "llvm")]
+pub(crate) use multi_mono_state::build_imported_mono_state;
 
 #[cfg(test)]
 mod tests;
@@ -31,6 +46,30 @@ use super::read_file;
 pub use super::build_options::{
     parse_build_options, BuildOptions, DebugLevel, EmitType, LinkMode, LtoMode, OptLevel,
 };
+
+/// Whether a successfully checked module declares an executable entry point.
+#[cfg(feature = "llvm")]
+fn module_has_cli_entry(
+    parse: &crate::parser::ParseOutput,
+    types: &ori_types::TypeCheckResult,
+) -> bool {
+    crate::typeck::build_function_sigs(parse, types)
+        .iter()
+        .any(|signature| signature.is_main)
+}
+
+/// Reject executable linking before the system linker when no `@main` exists.
+#[cfg(feature = "llvm")]
+fn require_cli_entry(path: &str, options: &BuildOptions, has_cli_entry: bool) {
+    let links_executable = options.emit.is_none() && !options.lib && !options.dylib;
+    if links_executable && !has_cli_entry {
+        crate::problem::codegen::report_codegen_error(
+            crate::problem::codegen::CodegenProblem::MissingEntryPoint {
+                path: path.to_string(),
+            },
+        );
+    }
+}
 
 /// Check if source code has any imports.
 ///
@@ -79,6 +118,25 @@ pub fn build_file(path: &str, options: &BuildOptions) {
     use std::time::Instant;
 
     let start = Instant::now();
+
+    // Bridge the --emit-rc-remarks CLI flag to the ORI_RC_REMARKS env var so the
+    // ori_arc realization-time emitter (which cannot depend on oric) picks it up
+    // at first LazyLock access during codegen. Set before any codegen runs.
+    // Compose the burden-sole-path gating so the stream is a valid verdict
+    // surface (the default predicate-stack path is FALSE-GREEN); only set the
+    // gating vars when the user has not set them explicitly.
+    if let Some(remarks_path) = options.emit_rc_remarks.as_deref() {
+        std::env::set_var(crate::debug_flags::ORI_RC_REMARKS, remarks_path);
+        if std::env::var(crate::debug_flags::ORI_DISABLE_PREDICATE_STACK_RC).is_err() {
+            std::env::set_var(crate::debug_flags::ORI_DISABLE_PREDICATE_STACK_RC, "1");
+        }
+        if std::env::var(crate::debug_flags::ORI_VERIFY_ARC).is_err() {
+            std::env::set_var(crate::debug_flags::ORI_VERIFY_ARC, "1");
+        }
+        // Write the stream-header envelope first (truncating); the gating above
+        // makes its burden_path truthful. Remarks append after during codegen.
+        ori_arc::write_rc_remarks_header(path, env!("ORI_GIT_SHA"));
+    }
 
     check_clang_for_sanitizers(options.sanitizer_env.as_deref());
 
@@ -194,6 +252,33 @@ pub(crate) fn build_optimization_config(
         .with_verify_each(verify_each)
         .with_lint(lint_enabled)
         .with_sanitizer(sanitizer)
+}
+
+/// Build the wasm-opt post-processor requested via `--wasm-opt`.
+///
+/// Returns `Some` only when the build targets WebAssembly AND the user
+/// passed `--wasm-opt`; the runner's level mirrors `--opt`.
+#[cfg(feature = "llvm")]
+fn wasm_opt_runner(
+    options: &BuildOptions,
+    target_is_wasm: bool,
+) -> Option<ori_llvm::aot::WasmOptRunner> {
+    use ori_llvm::aot::{WasmOptLevel, WasmOptRunner};
+
+    if !(target_is_wasm && options.wasm_opt) {
+        return None;
+    }
+
+    let level = match options.opt_level {
+        OptLevel::O0 => WasmOptLevel::O0,
+        OptLevel::O1 => WasmOptLevel::O1,
+        OptLevel::O2 => WasmOptLevel::O2,
+        OptLevel::O3 => WasmOptLevel::O3,
+        OptLevel::Os => WasmOptLevel::Os,
+        OptLevel::Oz => WasmOptLevel::Oz,
+    };
+
+    Some(WasmOptRunner::with_level(level))
 }
 
 /// Determine the output path for the build.
@@ -316,6 +401,15 @@ fn link_and_finish(
 
     if let Err(e) = driver.link(&link_input) {
         crate::problem::codegen::report_codegen_error(e);
+    }
+
+    if let Some(runner) = wasm_opt_runner(options, target.is_wasm()) {
+        if options.verbose {
+            eprintln!("  Running wasm-opt on {}", output_path.display());
+        }
+        if let Err(e) = runner.run_in_place(output_path) {
+            crate::problem::codegen::report_codegen_error(e);
+        }
     }
 
     let elapsed = start.elapsed();

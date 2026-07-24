@@ -1,0 +1,68 @@
+// Regression: BUG-04-191. `assert_eq` / `assert_ne` / `dbg` on COMPOSITE
+// return types (Option<T>, struct, sum-type) force the derived `debug` mono
+// instance to be collected on the assert trace path — assert_eq's mismatch
+// message path calls derived `debug` on `actual`/`expected`, so even a PASSING
+// assertion requires the composite's derived-`debug` instance to be emitted at
+// LLVM codegen (else `unresolved function 'debug' in invoke — missing mono
+// instance`). Dual-backend: interp dispatches derived methods dynamically;
+// the LLVM derived-method mono walk must instantiate `debug` for the composite.
+// The dual-exec parity IS the reverted-fix guard — reverting the mono
+// collection fails the LLVM leg while interp stays green.
+
+use std.testing { assert, assert_eq, assert_ne }
+
+#derive(Eq, Debug) type Point = { x: int, y: int }
+
+#derive(Eq, Debug) type Shape = Circle(r: int) | Square(s: int);
+
+#derive(Eq, Debug) type Ranked = { rank: Ordering, id: int }
+
+@opt_int () -> Option<int> = Some(42);
+
+@opt_str () -> Option<str> = Some("hi");
+
+@make_point () -> Point = Point { x: 1, y: 2 };
+
+@make_shape () -> Shape = Circle(r: 5);
+
+// Option<int> x assert_eq — composite return through the assert trace path.
+@test_assert_eq_option_int tests _ () -> void = {
+    assert_eq(actual: opt_int(), expected: Some(42))
+}
+
+// Option<str> x assert_eq — heap-payload composite (str element).
+@test_assert_eq_option_str tests _ () -> void = {
+    assert_eq(actual: opt_str(), expected: Some("hi"))
+}
+
+// struct x assert_eq — derived Eq + derived Debug on the message path.
+@test_assert_eq_struct tests _ () -> void = {
+    assert_eq(actual: make_point(), expected: Point { x: 1, y: 2 })
+}
+
+// sum-type x assert_ne — the unequal-message path also calls derived debug.
+@test_assert_ne_sum tests _ () -> void = {
+    assert_ne(actual: make_shape(), unexpected: Square(s: 3))
+}
+
+// struct x derived-`debug` — `.debug()` on a struct composite return.
+@test_debug_struct tests _ () -> void = {
+    let $p = make_point();
+    let $d = p.debug();
+    assert(cond: d.contains(substr: "1"))
+}
+
+// derived `.debug()` directly on a composite return — the BUG-04-191 method.
+@test_debug_method_on_composite tests _ () -> void = {
+    let $s = make_shape();
+    let $d = s.debug();
+    assert(cond: d.contains(substr: "Circle"))
+}
+
+// An `Ordering`-typed FIELD in a derived composite renders its variant name
+// (Less/Equal/Greater), NOT the raw i8 tag ("0") — derived-field render path.
+@test_debug_ordering_field tests _ () -> void = {
+    let $h = Ranked { rank: compare(left: 1, right: 2), id: 7 };
+    let $d = h.debug();
+    assert(cond: d.contains(substr: "Less"))
+}

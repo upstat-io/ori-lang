@@ -1,0 +1,17 @@
+// (Over-fire negative) for...yield iter-consuming a borrowed [int] param whose
+// result is NOT returned — the param DIES at the iter-consume (single transfer
+// consume, no Return). The dup-inc cure for the live-across-Return shape MUST
+// NOT fire here: the iterator's `ori_iter_drop` is the sole release; injecting
+// a BurdenInc would leave the buffer leaked (rc never reaches 0). Guards the
+// over-fire boundary of the ttr-iter-consume duplication-inc.
+
+@borrow_int_consume_only (xs: [int]) -> int = {
+    let doubled = for x in xs yield x * 2;
+    doubled.len()
+};
+
+@main () -> int = {
+    let original = [1, 2, 3];
+    let n = borrow_int_consume_only(xs: original);
+    if n == 3 then 0 else 1
+}

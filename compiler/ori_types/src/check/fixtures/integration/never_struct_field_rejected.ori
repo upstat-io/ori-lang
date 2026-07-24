@@ -1,0 +1,4 @@
+
+type Bad = { value: int, impossible: Never }
+@use_it () -> int = 0;
+@test_use_it tests @use_it () -> void = ();

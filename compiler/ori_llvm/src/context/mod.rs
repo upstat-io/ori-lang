@@ -6,7 +6,7 @@
 //!
 //! # Architecture
 //!
-//! Following Rust's `rustc_codegen_llvm` pattern, `SimpleCx` is a thin
+//! Historical influence: the `rustc_codegen_llvm` SHAPE — `SimpleCx` is a thin
 //! wrapper around LLVM's `Context` + `Module`. Type computation is handled
 //! by `TypeInfoStore` + `TypeLayoutResolver` in `codegen/type_info.rs`.
 
@@ -15,10 +15,9 @@ use inkwell::module::Module;
 use inkwell::types::{BasicType, BasicTypeEnum, PointerType, StructType};
 use inkwell::AddressSpace;
 
-/// Minimal LLVM context with the module and commonly-used types.
-///
-/// Contains only the LLVM module, context, and commonly-used types.
-/// Used by `IrBuilder` and `FunctionCompiler` for all code generation.
+/// LLVM context, module, and common types shared by `IrBuilder` and
+/// `FunctionCompiler`.
+#[derive(Debug)]
 pub struct SimpleCx<'ll> {
     /// The LLVM context (owns all LLVM types and values).
     pub llcx: &'ll Context,
@@ -54,7 +53,7 @@ impl<'ll> SimpleCx<'ll> {
         self.llmod
     }
 
-    // -- Type constructors --
+    // Type constructors
 
     /// Get the i1 (boolean) type.
     #[inline]

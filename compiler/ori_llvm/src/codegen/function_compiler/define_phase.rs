@@ -14,29 +14,58 @@ use rustc_hash::FxHashMap;
 use tracing::{debug, trace};
 
 use super::FunctionCompiler;
-use crate::codegen::abi::{
-    compute_param_passing, compute_return_passing, CallConv, FunctionAbi, ParamAbi, ReturnAbi,
-};
-use crate::codegen::arc_emitter::ArcIrEmitter;
+use crate::codegen::abi::{compute_function_abi_from_shape, CallConvSite, FunctionAbi};
+use crate::codegen::arc_emitter::{ArcEmitterFunctionContext, ArcIrEmitter};
 use crate::codegen::value_id::FunctionId;
 
 impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
+    /// Dump a realized `ArcFunction`'s ARC IR to stderr when `ORI_DUMP_AFTER_ARC`
+    /// is set. Covers every JIT/test-compile emit path (immediate-emit impl
+    /// methods + prepared ordinary functions/lambdas); the AOT-only `oric`
+    /// finalize dump never reaches `compile_module_with_tests`.
+    pub(in crate::codegen::function_compiler) fn dump_arc_if_requested(
+        &self,
+        arc_func: &ori_arc::ArcFunction,
+        label: &str,
+    ) {
+        if std::env::var_os("ORI_DUMP_AFTER_ARC").is_some() {
+            eprintln!(
+                "=== ARC IR ({label}) ===\n{}",
+                ori_arc::ir::format::format_function(arc_func, self.pool, self.interner)
+            );
+        }
+    }
+
     // Monomorphized function support
 
     /// Declare monomorphized functions (phase 1).
     ///
     /// Each `MonoFunction` has a concrete (non-generic) `FunctionSig`, so the
     /// existing `declare_function` infrastructure works unchanged.
-    pub fn declare_mono_functions(&mut self, mono_functions: &[crate::monomorphize::MonoFunction]) {
+    pub fn declare_mono_functions(
+        &mut self,
+        mono_functions: &[ori_repr::monomorphize::MonoFunction],
+    ) {
         for mono_fn in mono_functions {
             self.declare_function(mono_fn.mangled_name, &mono_fn.sig, Span::DUMMY);
 
             // Build mono dispatch index: original_name -> [(param_types, mangled_name)]
+            // (legacy arg-type-matching fallback for `mono_instance_id: None`)
             self.codegen_ctx
                 .mono_dispatch
-                .entry(mono_fn.original_name)
+                .entry(mono_fn.identity.original_name())
                 .or_default()
                 .push((mono_fn.sig.param_types.clone(), mono_fn.mangled_name));
+
+            // Build abstract-index dispatch map: every contributing
+            // `MonoInstanceId` points at this function's mangled name.
+            // Multiple ids may map to the same mangled name when distinct
+            // instances dedup to one specialization (sub-step 1e).
+            for &instance_id in mono_fn.identity.instance_ids() {
+                self.codegen_ctx
+                    .mono_dispatch_by_id
+                    .insert(instance_id, mono_fn.mangled_name);
+            }
         }
     }
 
@@ -92,16 +121,19 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Step 1: Lower canonical IR -> ARC IR
         let mut problems = Vec::new();
         let (arc_func, lambdas) = lower_function_can(
-            name,
-            &params,
-            return_type,
-            body,
-            canon,
-            self.interner,
-            self.pool,
+            ori_arc::ArcLoweringInput {
+                name,
+                params: &params,
+                return_type,
+                body,
+                canon,
+                interner: self.interner,
+                pool: self.pool,
+                type_subst,
+                const_bindings: None,
+                is_fbip,
+            },
             &mut problems,
-            is_fbip,
-            type_subst,
         );
 
         for problem in &problems {
@@ -141,8 +173,18 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         func_id: FunctionId,
         abi: &FunctionAbi,
         mut arc_func: ori_arc::ArcFunction,
-        mut lambdas: Vec<ori_arc::ArcFunction>,
+        lambdas: Vec<ori_arc::ArcFunction>,
     ) -> Result<(), VerifyError> {
+        // Why: ORI_DUMP_AFTER_ARC's AOT surface (oric finalize) never reaches
+        // `compile_module_with_tests`, so the realized ArcFunction fed to LLVM
+        // on the JIT/test path was undumpable. This fills the gap — decision-tree
+        // / RC mis-lowering is now inspectable on the test path too.
+        self.dump_arc_if_requested(&arc_func, "emit path");
+        // Prepared lambda bodies on this path carry their own decision-tree / RC
+        // lowering.
+        for lambda in &lambdas {
+            self.dump_arc_if_requested(lambda, "emit path, lambda");
+        }
         // Compile lambda ArcFunctions (closures).
         // Each lambda is compiled as a separate LLVM function, registered in
         // self.codegen_ctx.functions so that emit_partial_apply can look it up by Name.
@@ -150,18 +192,6 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // declare_and_process_lambda renames each lambda to a globally unique
         // name. We collect the (old → new) mapping so we can update the
         // parent function's PartialApply references.
-        // Resolve BoundVar types in polymorphic lambdas before compilation.
-        // Must resolve ALL lambdas before compiling ANY, because nested lambdas
-        // may reference sibling lambdas' types (e.g., inner lambda's PartialApply
-        // is in outer lambda's body, not the parent function's body).
-        super::lambda_mono::resolve_all_lambda_bound_vars(
-            &mut arc_func,
-            &mut lambdas,
-            self.pool,
-            self.interner,
-            self.arc_classifier as &dyn ori_arc::ArcClassification,
-        );
-
         let mut lambda_renames: Vec<(Name, Name)> = Vec::new();
         for mut lambda in lambdas {
             let original_name = lambda.name;
@@ -175,7 +205,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // Remap PartialApply callee references in the parent function to use
         // the globally unique lambda names assigned during compilation.
         if !lambda_renames.is_empty() {
-            super::purity_analysis::remap_partial_apply_names(&mut arc_func, &lambda_renames);
+            super::lambda_rewrite::remap_partial_apply_names(&mut arc_func, &lambda_renames);
         }
 
         // Lambda compilation changes builder.current_function to the last
@@ -204,10 +234,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.interner,
             self.pool,
             self.arc_classifier as &dyn ori_arc::ArcClassification,
-            func_id,
-            &self.codegen_ctx,
+            ArcEmitterFunctionContext::new(func_id, &self.codegen_ctx, self.debug_context),
         );
         emitter.set_verify_arc(self.verify_arc);
+        emitter.set_func_contract(self.aims_contracts.get(&arc_func.name));
         emitter.emit_function(&arc_func, abi);
 
         // Post-emission CFG simplification: eliminate empty blocks and
@@ -257,8 +287,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         // duplicate check needed here.
 
         // Shared setup: declare, register, run ARC pipeline.
-        // On PC-2 violation, return early WITHOUT invoking run_arc_pipeline /
-        // ArcIrEmitter — the IR is not safe to process further.
+        // On PC-2 violation, return before ArcIrEmitter consumes the body.
         let (lambda_name, func_id, abi) = self.declare_and_process_lambda(lambda)?;
 
         let is_nounwind = self.is_arc_function_nounwind(lambda);
@@ -272,10 +301,10 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.interner,
             self.pool,
             self.arc_classifier as &dyn ori_arc::ArcClassification,
-            func_id,
-            &self.codegen_ctx,
+            ArcEmitterFunctionContext::new(func_id, &self.codegen_ctx, self.debug_context),
         );
         emitter.set_verify_arc(self.verify_arc);
+        emitter.set_func_contract(self.aims_contracts.get(&lambda.name));
         emitter.emit_function(lambda, &abi);
 
         // Post-emission CFG simplification
@@ -303,31 +332,37 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
     ///
     /// Used for lambda functions where no `FunctionSig` exists.
     pub(super) fn compute_arc_function_abi(&self, func: &ori_arc::ArcFunction) -> FunctionAbi {
-        let params: Vec<ParamAbi> = func
-            .params
-            .iter()
-            .map(|p| ParamAbi {
-                name: self.interner.intern(&format!("v{}", p.var.raw())),
-                ty: p.ty,
-                passing: compute_param_passing(p.ty, self.type_info, self.repr_plan()),
-                readonly: false,
-            })
-            .collect();
-
-        let return_abi = ReturnAbi {
-            ty: func.return_type,
-            passing: compute_return_passing(func.return_type, self.type_info, self.repr_plan()),
-        };
-
-        FunctionAbi {
+        let annotated = self.annotated_sigs.get(&func.name);
+        debug_assert!(annotated.is_none_or(|signature| {
+            signature.return_type == func.return_type
+                && signature.params.len() == func.params.len()
+                && signature
+                    .params
+                    .iter()
+                    .zip(&func.params)
+                    .all(|(fact, parameter)| fact.ty == parameter.ty)
+        }));
+        let params = func.params.iter().enumerate().map(|(index, parameter)| {
+            (
+                self.interner.intern(&format!("v{}", parameter.var.raw())),
+                parameter.ty,
+                annotated
+                    .and_then(|signature| signature.params.get(index))
+                    .map_or(ori_arc::Ownership::Owned, |fact| fact.ownership),
+            )
+        });
+        compute_function_abi_from_shape(
             params,
-            return_abi,
-            call_conv: CallConv::Fast,
-        }
+            func.return_type,
+            CallConvSite::OriFunction,
+            self.type_info,
+            annotated.map(|_| self.arc_classifier as &dyn ori_arc::ArcClassification),
+            self.repr_plan(),
+        )
     }
 
     // `process_arc_function`, `report_primary_seam_violation`,
-    // `apply_aims_param_ownership`, and `declare_and_process_lambda` live
+    // `process_arc_function`, and `declare_and_process_lambda` live
     // in the sibling [`super::shared_seam`] module — the shared primary
     // seam between the immediate-emit path (this file) and the two-pass
     // prepare path (`nounwind/prepare.rs`). See `shared_seam.rs` for

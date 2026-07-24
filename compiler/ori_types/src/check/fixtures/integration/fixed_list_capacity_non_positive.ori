@@ -1,0 +1,4 @@
+@non_positive_capacities () -> void = {
+    let zero: [int, max 0] = [];
+    let negative: [int, max -1] = [];
+}

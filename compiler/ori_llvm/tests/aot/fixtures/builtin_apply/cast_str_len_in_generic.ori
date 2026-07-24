@@ -1,0 +1,6 @@
+@measure <T> (marker: T, s: str) -> int = s.len() as int;
+
+@main () -> int = {
+    let n = measure(marker: 0, s: "hello");
+    if n == 5 then 0 else 1
+}

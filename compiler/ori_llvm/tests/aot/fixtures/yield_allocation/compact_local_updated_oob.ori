@@ -1,0 +1,6 @@
+@compact_oob () -> int = {
+    let doors = for _ in 0..4 yield false;
+    doors[4] = true;
+    0
+}
+@main () -> int = compact_oob();

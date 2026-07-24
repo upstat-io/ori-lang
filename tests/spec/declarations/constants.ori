@@ -29,17 +29,17 @@
 //
 // let $GOLDEN_RATIO = 1
 //
-// #skip("module-level config variables not registered in evaluator")
+// #skip("BUG-07-038: module-level config variables not registered in evaluator")
 // @test_module_const tests @_use_pi () -> void = {
 //     assert_eq(actual: $PI_APPROX, expected: 3),
 // }
 //
-// #skip("module-level config variables not registered in evaluator")
+// #skip("BUG-07-038: module-level config variables not registered in evaluator")
 // @test_module_e tests @_use_e () -> void = {
 //     assert_eq(actual: $E_APPROX, expected: 2),
 // }
 //
-// #skip("module-level config variables not registered in evaluator")
+// #skip("BUG-07-038: module-level config variables not registered in evaluator")
 // @test_module_golden tests @_use_golden () -> void = {
 //     assert_eq(actual: $GOLDEN_RATIO, expected: 1),
 // }
@@ -59,17 +59,17 @@
 // let $TYPED_STR: str = "hello"
 // let $TYPED_BOOL: bool = true
 //
-// #skip("typed constant syntax (let $NAME: Type = value) not implemented")
+// #skip("BUG-07-038: typed constant syntax (let $NAME: Type = value) not implemented")
 // @test_typed_int tests @_use_typed_int () -> void = {
 //     assert_eq(actual: $TYPED_INT, expected: 42),
 // }
 //
-// #skip("typed constant syntax not implemented")
+// #skip("BUG-07-038: typed constant syntax not implemented")
 // @test_typed_str tests @_use_typed_str () -> void = {
 //     assert_eq(actual: $TYPED_STR, expected: "hello"),
 // }
 //
-// #skip("typed constant syntax not implemented")
+// #skip("BUG-07-038: typed constant syntax not implemented")
 // @test_typed_bool tests @_use_typed_bool () -> void = {
 //     assert(cond: $TYPED_BOOL),
 // }

@@ -1,0 +1,5 @@
+// repeat(int) — scalar element, bounded by take, summed.
+@main () -> int = {
+    let total = repeat(7).take(4).fold(0, (acc, n) -> acc + n);
+    if total == 28 then 0 else 1
+}

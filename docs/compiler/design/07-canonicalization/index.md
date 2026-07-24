@@ -23,7 +23,7 @@ Compilers vary widely in how many intermediate representations they use and wher
 
 **Multi-IR compilers** use a pipeline of progressively simpler representations. GHC is the canonical example: source Haskell → Core (a tiny functional calculus) → STG (evaluation-order-explicit) → Cmm (imperative, C-like) → native code. Each IR level strips away more abstraction. This enables sophisticated optimizations at each level but creates a significant engineering burden — every language feature must be represented and tested across all IR levels.
 
-Ori sits in the **two-IR** category. The parser produces an `ExprArena` (rich, sugared AST). The canonicalization phase lowers this to a `CanArena` (sugar-free canonical IR). Both the tree-walking evaluator (`ori_eval`) and the ARC/LLVM pipeline (`ori_arc` + `ori_llvm`) consume the canonical form. This means desugaring, pattern compilation, and constant folding happen exactly once, and both backends operate on the same simplified representation.
+Ori uses a layered IR design. The parser produces an `ExprArena` (rich, sugared AST), and canonicalization lowers it to a `CanArena` (sugar-free canonical IR). The tree-walking evaluator (`ori_eval`) and ARC lowering (`ori_arc`) consume that canonical form. AIMS then produces one realized artifact for the VM and compiled backends. Desugaring, pattern compilation, ownership analysis, and realization each happen in one owning phase.
 
 ### What Canonicalization Encompasses
 
@@ -64,7 +64,7 @@ Both types are constrained to 24 bytes via `static_assert_size!`, ensuring that 
 
 ### Arc-Shared Decision Trees
 
-Decision trees are stored in a `DecisionTreePool` and wrapped in `Arc` for O(1) cloning. Both the tree-walking evaluator and the LLVM codegen share the exact same tree instances without copying. This matters because decision trees can be large for complex match expressions with nested patterns, and both backends need them simultaneously. The evaluator clones the `Arc` when entering a match (to release the borrow on `self`), and the AIMS pipeline receives the same shared reference during codegen.
+Decision trees are stored in a `DecisionTreePool` and wrapped in `Arc` for O(1) cloning. The tree-walking evaluator and ARC lowering share the exact same tree instances without copying. This matters because decision trees can be large for complex match expressions with nested patterns. The evaluator clones the `Arc` when entering a match (to release the borrow on `self`), while ARC lowering converts the shared tree into the control-flow plan consumed by every physical executor. LLVM and the VM do not independently reinterpret the source decision tree.
 
 ### Content-Addressed Constants
 
@@ -97,15 +97,21 @@ flowchart TB
     interprets CanExpr"]
     ARC["ori_arc
     CanExpr → ARC IR"]
-    LLVM["ori_llvm
-    ARC IR → native code"]
+    EXEC["shared executable carrier
+    ownership + drop plan"]
+    VM["ori_vm
+    bytecode execution"]
+    LLVM["compiled backends
+    native / WASM / JIT"]
 
     LEX --> PARSE
     PARSE --> TC
     TC --> CANON
     CANON --> EVAL
     CANON --> ARC
-    ARC --> LLVM
+    ARC --> EXEC
+    EXEC --> VM
+    EXEC --> LLVM
 
     classDef frontend fill:#1e3a5f,stroke:#60a5fa,color:#dbeafe
     classDef canon fill:#3b1f6e,stroke:#a78bfa,color:#e9d5ff
@@ -115,12 +121,12 @@ flowchart TB
     class LEX,PARSE,TC frontend
     class CANON canon
     class EVAL interpreter
-    class ARC,LLVM native
+    class ARC,EXEC,VM,LLVM native
 ```
 
-Canonicalization sits at the **fork point** between Ori's two execution paths. The tree-walking evaluator (`ori_eval`) consumes `CanonResult` directly for interpreted execution. The AIMS pipeline (`ori_arc`) also consumes `CanonResult`, lowering it further into ARC IR for reference-counting optimization before LLVM codegen.
+Canonicalization is the split between representation-abstract evaluation and physical execution. The tree-walking evaluator (`ori_eval`) consumes `CanonResult` directly. The AIMS pipeline (`ori_arc`) also consumes `CanonResult`, but lowers it once into the ownership and control-flow artifact used by VM and compiled backends. The evaluator intentionally does not consume post-AIMS storage mechanics.
 
-Canonicalization is **not** a separate Salsa query. It runs inside `evaluated()` for the interpreter path, inside `check_source()` for the AOT/LLVM path, and inside the `check` command for pattern problem detection. This avoids a Salsa caching boundary at the canonical IR level — the canonical form is always fresh, never stale.
+Canonicalization is **not** a separate Salsa query. It runs inside `evaluated()` for the evaluator path, inside `check_source()` for physical execution, and inside the `check` command for pattern problem detection. This avoids a Salsa caching boundary at the canonical IR level — the canonical form is always fresh, never stale.
 
 ### Crate Organization
 
@@ -143,7 +149,7 @@ ori_canon/src/
 ├── desugar/            # 7 sugar variant eliminators
 │   └── mod.rs          # CallNamed, Templates, Spreads → canonical form
 ├── patterns/           # Pattern matrix → decision tree compilation
-│   └── mod.rs          # Delegates to ori_arc::decision_tree::compile
+│   └── mod.rs          # Delegates to patterns::decision_tree::compile
 ├── const_fold/         # Compile-time constant folding
 │   └── mod.rs          # classify(), try_fold(), fold_binary(), fold_unary()
 ├── exhaustiveness/     # Pattern coverage analysis
@@ -166,11 +172,11 @@ After lowering, **exhaustiveness checking** (`exhaustiveness`) walks the compile
 
 ### Lowering Entry Points
 
-The lowerer has two entry points reflecting Ori's two evaluation modes:
+The lowerer has two entry points for expression-scoped and module-scoped consumers:
 
-**`lower()`** lowers a single expression — used by the interpreter path (`evaluated()`), which evaluates one expression at a time. Returns a `CanonResult` with a single `root` pointing to the lowered expression.
+**`lower()`** lowers a single expression for the evaluator query (`evaluated()`), which evaluates one expression at a time. It returns a `CanonResult` with a single `root` pointing to the lowered expression.
 
-**`lower_module()`** lowers an entire module — used by the AOT/LLVM path (`check_source()`), which needs all function and method bodies. Returns a `CanonResult` with named `roots` (one per function/test) and `method_roots` (one per `impl`/`extend`/`def impl` method).
+**`lower_module()`** lowers an entire module for physical execution; the shipped `check_source()` consumer currently drives LLVM/AOT, and the shared artifact path also needs all function and method bodies. It returns a `CanonResult` with named `roots` (one per function/test) and `method_roots` (one per `impl`/`extend`/`def impl` method).
 
 Both entry points create a `Lowerer` with pre-interned names (`to_str`, `concat`, `merge`) for desugaring efficiency, pre-allocated arena capacity based on source size, and sentinel constants in the `ConstantPool`.
 
@@ -323,7 +329,7 @@ This unification means there is exactly one code path for pattern compilation �
 
 **Opportunistic constant folding vs. dedicated pass.** Constants are folded inline during lowering via `try_fold()` rather than in a separate constant-folding pass. This means folding happens at most once per node (when the node is constructed), which is efficient but limits folding to single-step rewrites — `(1 + 2) + 3` folds to `3 + 3` then to `6` through recursive lowering, but cross-expression folding (propagating a constant across `let` bindings) is not performed. A dedicated constant propagation pass could catch more opportunities but would require an additional traversal.
 
-**Pattern compilation delegation.** The Maranget decision tree algorithm currently lives in `ori_arc::decision_tree::compile`, and `ori_canon::patterns` delegates to it. This is an architectural compromise — the algorithm logically belongs in `ori_canon`, but it was first implemented in `ori_arc` for the AIMS pipeline. Future work will move it to `ori_canon` as the single source of truth.
+**Pattern compilation ownership.** The Maranget decision tree compile/flatten algorithm lives in `ori_canon::patterns::decision_tree`, its logical home. `ori_arc::decision_tree` retains only the ARC IR emission side (`emit.rs`, `emit_switches/`), which consumes the compiled tree via the shared type definitions in `ori_ir::canon::tree`.
 
 ## Related Documents
 

@@ -6,19 +6,11 @@ use ori_patterns::{
     Value,
 };
 
+use super::arguments::{require_args, require_float_arg, require_scalar_int_arg};
 use super::compare::ordering_to_value;
-use super::helpers::{require_args, require_float_arg, require_scalar_int_arg};
 use super::DispatchCtx;
 
 /// Dispatch operator methods on integer values.
-#[expect(
-    clippy::too_many_lines,
-    reason = "exhaustive integer operator method dispatch"
-)]
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "exhaustive integer method dispatch — flat if-else chain"
-)]
 #[expect(
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
@@ -90,35 +82,8 @@ pub fn dispatch_int_method(
         a.checked_neg()
             .map(Value::Int)
             .ok_or_else(|| integer_overflow("negation").into())
-    // Bitwise operators
-    } else if method == n.bit_and {
-        require_args("bit_and", 1, args.len())?;
-        let b = require_scalar_int_arg("bit_and", &args, 0)?;
-        Ok(Value::Int(a & b))
-    } else if method == n.bit_or {
-        require_args("bit_or", 1, args.len())?;
-        let b = require_scalar_int_arg("bit_or", &args, 0)?;
-        Ok(Value::Int(a | b))
-    } else if method == n.bit_xor {
-        require_args("bit_xor", 1, args.len())?;
-        let b = require_scalar_int_arg("bit_xor", &args, 0)?;
-        Ok(Value::Int(a ^ b))
-    } else if method == n.bit_not {
-        require_args("bit_not", 0, args.len())?;
-        Ok(Value::Int(!a))
-    } else if method == n.shl {
-        require_args("shl", 1, args.len())?;
-        let b = require_scalar_int_arg("shl", &args, 0)?;
-        a.checked_shl(b).map(Value::Int).ok_or_else(|| {
-            EvalError::new(format!("shift amount {} out of range (0-63)", b.raw())).into()
-        })
-    } else if method == n.shr {
-        require_args("shr", 1, args.len())?;
-        let b = require_scalar_int_arg("shr", &args, 0)?;
-        a.checked_shr(b).map(Value::Int).ok_or_else(|| {
-            EvalError::new(format!("shift amount {} out of range (0-63)", b.raw())).into()
-        })
-    // Comparable trait
+    } else if let Some(result) = dispatch_int_bitwise(a, method, &args, ctx) {
+        result
     } else if method == n.compare {
         require_args("compare", 1, args.len())?;
         let b = require_scalar_int_arg("compare", &args, 0)?;
@@ -149,79 +114,112 @@ pub fn dispatch_int_method(
             reason = "int->float is the defined Into conversion"
         )]
         Ok(Value::Float(a.raw() as f64))
-    // abs
-    } else if method == n.abs {
+    } else {
+        dispatch_int_named_method(a, receiver, method, &args, ctx)
+    }
+}
+
+fn dispatch_int_bitwise(
+    a: ori_patterns::ScalarInt,
+    method: Name,
+    args: &[Value],
+    ctx: &DispatchCtx<'_>,
+) -> Option<EvalResult> {
+    let n = ctx.names;
+    if ![n.bit_and, n.bit_or, n.bit_xor, n.bit_not, n.shl, n.shr].contains(&method) {
+        return None;
+    }
+    Some((|| {
+        if method == n.bit_and {
+            require_args("bit_and", 1, args.len())?;
+            Ok(Value::Int(a & require_scalar_int_arg("bit_and", args, 0)?))
+        } else if method == n.bit_or {
+            require_args("bit_or", 1, args.len())?;
+            Ok(Value::Int(a | require_scalar_int_arg("bit_or", args, 0)?))
+        } else if method == n.bit_xor {
+            require_args("bit_xor", 1, args.len())?;
+            Ok(Value::Int(a ^ require_scalar_int_arg("bit_xor", args, 0)?))
+        } else if method == n.bit_not {
+            require_args("bit_not", 0, args.len())?;
+            Ok(Value::Int(!a))
+        } else {
+            let operation = if method == n.shl { "shl" } else { "shr" };
+            require_args(operation, 1, args.len())?;
+            let shift = require_scalar_int_arg(operation, args, 0)?;
+            let value = if method == n.shl {
+                a.checked_shl(shift)
+            } else {
+                a.checked_shr(shift)
+            };
+            value.map(Value::Int).ok_or_else(|| {
+                EvalError::new(format!("shift amount {} out of range (0-63)", shift.raw())).into()
+            })
+        }
+    })())
+}
+
+fn dispatch_int_named_method(
+    a: ori_patterns::ScalarInt,
+    receiver: Value,
+    method: Name,
+    args: &[Value],
+    ctx: &DispatchCtx<'_>,
+) -> EvalResult {
+    let n = ctx.names;
+    if method == n.abs {
         require_args("abs", 0, args.len())?;
         a.raw()
             .checked_abs()
             .map(Value::int)
             .ok_or_else(|| integer_overflow("absolute value").into())
-    // byte / to_byte
     } else if method == n.byte || method == n.to_byte {
         require_args("to_byte", 0, args.len())?;
         let raw = a.raw();
         u8::try_from(raw)
             .map(Value::Byte)
             .map_err(|_| EvalError::new(format!("integer {raw} out of byte range (0-255)")).into())
-    // clamp
     } else if method == n.clamp {
         require_args("clamp", 2, args.len())?;
-        let lo = require_scalar_int_arg("clamp", &args, 0)?;
-        let hi = require_scalar_int_arg("clamp", &args, 1)?;
-        let raw = a.raw();
-        let lo_raw = lo.raw();
-        let hi_raw = hi.raw();
-        Ok(Value::int(raw.clamp(lo_raw, hi_raw)))
-    // is_even
+        let lo = require_scalar_int_arg("clamp", args, 0)?;
+        let hi = require_scalar_int_arg("clamp", args, 1)?;
+        Ok(Value::int(a.raw().clamp(lo.raw(), hi.raw())))
     } else if method == n.is_even {
         require_args("is_even", 0, args.len())?;
         Ok(Value::Bool(a.raw() % 2 == 0))
-    // is_negative
     } else if method == n.is_negative {
         require_args("is_negative", 0, args.len())?;
         Ok(Value::Bool(a.raw() < 0))
-    // is_odd
     } else if method == n.is_odd {
         require_args("is_odd", 0, args.len())?;
         Ok(Value::Bool(a.raw() % 2 != 0))
-    // is_positive
     } else if method == n.is_positive {
         require_args("is_positive", 0, args.len())?;
         Ok(Value::Bool(a.raw() > 0))
-    // is_zero
     } else if method == n.is_zero {
         require_args("is_zero", 0, args.len())?;
         Ok(Value::Bool(a.is_zero()))
-    // max
     } else if method == n.max {
         require_args("max", 1, args.len())?;
-        let b = require_scalar_int_arg("max", &args, 0)?;
-        Ok(Value::Int(a.max(b)))
-    // min
+        Ok(Value::Int(a.max(require_scalar_int_arg("max", args, 0)?)))
     } else if method == n.min {
         require_args("min", 1, args.len())?;
-        let b = require_scalar_int_arg("min", &args, 0)?;
-        Ok(Value::Int(a.min(b)))
-    // pow
+        Ok(Value::Int(a.min(require_scalar_int_arg("min", args, 0)?)))
     } else if method == n.pow {
         require_args("pow", 1, args.len())?;
-        let exp = require_scalar_int_arg("pow", &args, 0)?;
-        let exp_raw = exp.raw();
-        if exp_raw < 0 {
-            return Err(EvalError::new(format!("exponent {exp_raw} must be non-negative")).into());
+        let exponent = require_scalar_int_arg("pow", args, 0)?.raw();
+        if exponent < 0 {
+            return Err(EvalError::new(format!("exponent {exponent} must be non-negative")).into());
         }
-        let Ok(exp_u32) = u32::try_from(exp_raw) else {
-            return Err(EvalError::new(format!("exponent {exp_raw} too large")).into());
+        let Ok(exponent) = u32::try_from(exponent) else {
+            return Err(EvalError::new(format!("exponent {exponent} too large")).into());
         };
         a.raw()
-            .checked_pow(exp_u32)
+            .checked_pow(exponent)
             .map(Value::int)
             .ok_or_else(|| integer_overflow("exponentiation").into())
-    // signum
     } else if method == n.signum {
         require_args("signum", 0, args.len())?;
         Ok(Value::int(a.raw().signum()))
-    // to_int (identity for int)
     } else if method == n.to_int {
         require_args("to_int", 0, args.len())?;
         Ok(receiver)
@@ -231,11 +229,6 @@ pub fn dispatch_int_method(
 }
 
 /// Dispatch operator methods on float values.
-#[expect(clippy::too_many_lines, reason = "exhaustive float method dispatch")]
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "exhaustive float method dispatch — flat if-else chain"
-)]
 #[expect(
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
@@ -303,131 +296,139 @@ pub fn dispatch_float_method(
         require_args("rem", 1, args.len())?;
         let b = require_float_arg("rem", &args, 0)?;
         Ok(Value::Float(a % b))
-    // Math: unary f64 methods
-    } else if method == n.abs {
-        require_args("abs", 0, args.len())?;
-        Ok(Value::Float(a.abs()))
-    } else if method == n.acos {
-        require_args("acos", 0, args.len())?;
-        Ok(Value::Float(a.acos()))
-    } else if method == n.asin {
-        require_args("asin", 0, args.len())?;
-        Ok(Value::Float(a.asin()))
-    } else if method == n.atan {
-        require_args("atan", 0, args.len())?;
-        Ok(Value::Float(a.atan()))
-    } else if method == n.atan2 {
-        require_args("atan2", 1, args.len())?;
-        let b = require_float_arg("atan2", &args, 0)?;
-        Ok(Value::Float(a.atan2(b)))
-    } else if method == n.cbrt {
-        require_args("cbrt", 0, args.len())?;
-        Ok(Value::Float(a.cbrt()))
-    } else if method == n.ceil {
-        require_args("ceil", 0, args.len())?;
-        Ok(Value::Float(a.ceil()))
-    } else if method == n.cos {
-        require_args("cos", 0, args.len())?;
-        Ok(Value::Float(a.cos()))
-    } else if method == n.exp {
-        require_args("exp", 0, args.len())?;
-        Ok(Value::Float(a.exp()))
-    } else if method == n.floor {
-        require_args("floor", 0, args.len())?;
-        Ok(Value::Float(a.floor()))
-    } else if method == n.ln {
-        require_args("ln", 0, args.len())?;
-        Ok(Value::Float(a.ln()))
-    } else if method == n.log10 {
-        require_args("log10", 0, args.len())?;
-        Ok(Value::Float(a.log10()))
-    } else if method == n.log2 {
-        require_args("log2", 0, args.len())?;
-        Ok(Value::Float(a.log2()))
-    } else if method == n.pow {
-        require_args("pow", 1, args.len())?;
-        let b = require_float_arg("pow", &args, 0)?;
-        Ok(Value::Float(a.powf(b)))
-    } else if method == n.round {
-        require_args("round", 0, args.len())?;
-        Ok(Value::Float(a.round()))
-    } else if method == n.sin {
-        require_args("sin", 0, args.len())?;
-        Ok(Value::Float(a.sin()))
-    } else if method == n.sqrt {
-        require_args("sqrt", 0, args.len())?;
-        Ok(Value::Float(a.sqrt()))
-    } else if method == n.tan {
-        require_args("tan", 0, args.len())?;
-        Ok(Value::Float(a.tan()))
-    } else if method == n.trunc {
-        require_args("trunc", 0, args.len())?;
-        Ok(Value::Float(a.trunc()))
-    // Float predicates
-    } else if method == n.is_finite {
-        require_args("is_finite", 0, args.len())?;
-        Ok(Value::Bool(a.is_finite()))
+    } else if let Some(result) = dispatch_float_math(a, method, &args, ctx) {
+        result
+    } else if let Some(result) = dispatch_float_predicate(a, method, &args, ctx) {
+        result
+    } else {
+        dispatch_float_named_method(a, method, &args, ctx)
+    }
+}
+
+fn dispatch_float_math(
+    a: f64,
+    method: Name,
+    args: &[Value],
+    ctx: &DispatchCtx<'_>,
+) -> Option<EvalResult> {
+    let n = ctx.names;
+    let unary = [
+        (n.abs, "abs", f64::abs as fn(f64) -> f64),
+        (n.acos, "acos", f64::acos),
+        (n.asin, "asin", f64::asin),
+        (n.atan, "atan", f64::atan),
+        (n.cbrt, "cbrt", f64::cbrt),
+        (n.ceil, "ceil", f64::ceil),
+        (n.cos, "cos", f64::cos),
+        (n.exp, "exp", f64::exp),
+        (n.floor, "floor", f64::floor),
+        (n.ln, "ln", f64::ln),
+        (n.log10, "log10", f64::log10),
+        (n.log2, "log2", f64::log2),
+        (n.round, "round", f64::round),
+        (n.sin, "sin", f64::sin),
+        (n.sqrt, "sqrt", f64::sqrt),
+        (n.tan, "tan", f64::tan),
+        (n.trunc, "trunc", f64::trunc),
+    ];
+    if let Some((_, name, operation)) = unary.iter().find(|(name, _, _)| *name == method) {
+        return Some((|| {
+            require_args(name, 0, args.len())?;
+            Ok(Value::Float(operation(a)))
+        })());
+    }
+    if method != n.atan2 && method != n.pow {
+        return None;
+    }
+    Some((|| {
+        let name = if method == n.atan2 { "atan2" } else { "pow" };
+        require_args(name, 1, args.len())?;
+        let operand = require_float_arg(name, args, 0)?;
+        Ok(Value::Float(if method == n.atan2 {
+            a.atan2(operand)
+        } else {
+            a.powf(operand)
+        }))
+    })())
+}
+
+fn dispatch_float_predicate(
+    a: f64,
+    method: Name,
+    args: &[Value],
+    ctx: &DispatchCtx<'_>,
+) -> Option<EvalResult> {
+    let n = ctx.names;
+    let (name, result) = if method == n.is_finite {
+        ("is_finite", a.is_finite())
     } else if method == n.is_infinite {
-        require_args("is_infinite", 0, args.len())?;
-        Ok(Value::Bool(a.is_infinite()))
+        ("is_infinite", a.is_infinite())
     } else if method == n.is_nan {
-        require_args("is_nan", 0, args.len())?;
-        Ok(Value::Bool(a.is_nan()))
+        ("is_nan", a.is_nan())
     } else if method == n.is_negative {
-        require_args("is_negative", 0, args.len())?;
-        Ok(Value::Bool(a.is_sign_negative() && a != 0.0))
+        ("is_negative", a.is_sign_negative() && a != 0.0)
     } else if method == n.is_normal {
-        require_args("is_normal", 0, args.len())?;
-        Ok(Value::Bool(a.is_normal()))
+        ("is_normal", a.is_normal())
     } else if method == n.is_positive {
-        require_args("is_positive", 0, args.len())?;
-        Ok(Value::Bool(a.is_sign_positive() && a != 0.0))
+        ("is_positive", a.is_sign_positive() && a != 0.0)
     } else if method == n.is_zero {
-        require_args("is_zero", 0, args.len())?;
-        Ok(Value::Bool(a == 0.0))
-    // Float binary: clamp, max, min
-    } else if method == n.clamp {
+        ("is_zero", a == 0.0)
+    } else {
+        return None;
+    };
+    Some((|| {
+        require_args(name, 0, args.len())?;
+        Ok(Value::Bool(result))
+    })())
+}
+
+fn dispatch_float_named_method(
+    a: f64,
+    method: Name,
+    args: &[Value],
+    ctx: &DispatchCtx<'_>,
+) -> EvalResult {
+    let n = ctx.names;
+    if method == n.clamp {
         require_args("clamp", 2, args.len())?;
-        let lo = require_float_arg("clamp", &args, 0)?;
-        let hi = require_float_arg("clamp", &args, 1)?;
+        let lo = require_float_arg("clamp", args, 0)?;
+        let hi = require_float_arg("clamp", args, 1)?;
         Ok(Value::Float(a.clamp(lo, hi)))
     } else if method == n.max {
         require_args("max", 1, args.len())?;
-        let b = require_float_arg("max", &args, 0)?;
-        Ok(Value::Float(a.max(b)))
+        Ok(Value::Float(a.max(require_float_arg("max", args, 0)?)))
     } else if method == n.min {
         require_args("min", 1, args.len())?;
-        let b = require_float_arg("min", &args, 0)?;
-        Ok(Value::Float(a.min(b)))
-    // Float conversion: to_int
+        Ok(Value::Float(a.min(require_float_arg("min", args, 0)?)))
     } else if method == n.to_int {
         require_args("to_int", 0, args.len())?;
-        if a.is_nan() {
-            Err(EvalError::new("cannot convert NaN to int").into())
-        } else if a.is_infinite() {
-            Err(EvalError::new("cannot convert infinity to int").into())
-        } else {
-            #[expect(
-                clippy::cast_possible_truncation,
-                reason = "float->int truncation is the defined conversion"
-            )]
-            let n = a as i64;
-            // Check if conversion is valid by round-tripping
-            #[expect(
-                clippy::cast_precision_loss,
-                reason = "checking round-trip for float->int conversion"
-            )]
-            if (n as f64 - a).abs() > 1.0 {
-                Err(EvalError::new(format!("float {a} out of range for int conversion")).into())
-            } else {
-                Ok(Value::int(n))
-            }
-        }
-    // Float signum
+        float_to_int(a)
     } else if method == n.signum {
         require_args("signum", 0, args.len())?;
         Ok(Value::Float(a.signum()))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "float").into())
     }
+}
+
+fn float_to_int(value: f64) -> EvalResult {
+    if value.is_nan() {
+        return Err(EvalError::new("cannot convert NaN to int").into());
+    }
+    if value.is_infinite() {
+        return Err(EvalError::new("cannot convert infinity to int").into());
+    }
+    let truncated = value.trunc();
+    // INVARIANT: The valid range is `-2^63 <= value < 2^63`.
+    let two_pow_63 = 2.0_f64.powi(63);
+    if truncated >= two_pow_63 || truncated < -two_pow_63 {
+        return Err(
+            EvalError::new(format!("float {value} out of range for int conversion")).into(),
+        );
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "bounds-checked: -2^63 <= truncated < 2^63"
+    )]
+    Ok(Value::int(truncated as i64))
 }

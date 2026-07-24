@@ -10,14 +10,18 @@ mod types;
 
 pub use extern_def::{ExternBlock, ExternItem, ExternParam};
 pub use function::{
-    CapabilityRef, CfgAttr, ConstDef, ExpectedError, FileAttr, Function, Module, Param,
-    PostContract, PreContract, TargetAttr, TestDef,
+    BackendSkip, CapabilityRef, CfgAttr, ConstDef, ExpectedError, FileAttr, Function, Module,
+    Param, PostContract, PreContract, TargetAttr, TestBackend, TestDef, TestId,
 };
 pub use imports::{
-    ExtensionImport, ExtensionImportItem, ImportErrorKind, ImportPath, UseDef, UseItem,
+    qualified_alias_name, ExtensionImport, ExtensionImportItem, ImportCycleGuard, ImportErrorKind,
+    ImportPath, UseDef, UseItem,
 };
 pub use traits::{
     DefImplDef, ExtendDef, GenericParam, ImplAssocType, ImplDef, ImplMethod, TraitAssocType,
     TraitBound, TraitDef, TraitDefaultMethod, TraitItem, TraitMethodSig, WhereClause,
 };
 pub use types::{ReprAttrKind, StructField, TypeDecl, TypeDeclKind, Variant, VariantField};
+
+#[cfg(test)]
+mod tests;

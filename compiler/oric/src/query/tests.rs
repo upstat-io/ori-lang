@@ -7,6 +7,52 @@ use ori_types::Idx;
 use salsa::Setter;
 use std::path::PathBuf;
 
+const ADD_BODY_EXTRA_ZERO: &str = include_str!("fixtures/add-body-extra-zero.ori");
+const ADD_COMPACT: &str = include_str!("fixtures/add-compact.ori");
+const ADD_INT: &str = include_str!("fixtures/add-int.ori");
+const ADD_MUL: &str = include_str!("fixtures/add-mul.ori");
+const ADD_SPACED: &str = include_str!("fixtures/add-spaced.ori");
+const ADD_TABBED: &str = include_str!("fixtures/add-tabbed.ori");
+const CALC_PRECEDENCE: &str = include_str!("fixtures/calc-precedence.ori");
+const FOO_BAR: &str = include_str!("fixtures/foo-bar.ori");
+const FOO_INT_100: &str = include_str!("fixtures/foo-int-100.ori");
+const MAIN_BLOCK_BINDINGS: &str = include_str!("fixtures/main-block-bindings.ori");
+const MAIN_BOOL_AND: &str = include_str!("fixtures/main-bool-and.ori");
+const MAIN_BOOL_TRUE: &str = include_str!("fixtures/main-bool-true.ori");
+const MAIN_COMMENT_V1: &str = include_str!("fixtures/main-comment-v1.ori");
+const MAIN_COMMENT_V2: &str = include_str!("fixtures/main-comment-v2.ori");
+const MAIN_DOC_COMMENT: &str = include_str!("fixtures/main-doc-comment.ori");
+const MAIN_EXTRA_SPACES: &str = include_str!("fixtures/main-extra-spaces.ori");
+const MAIN_FIELD_ARITHMETIC: &str = include_str!("fixtures/main-field-arithmetic.ori");
+const MAIN_IF: &str = include_str!("fixtures/main-if.ori");
+const MAIN_INT_1: &str = include_str!("fixtures/main-int-1.ori");
+const MAIN_INT_2: &str = include_str!("fixtures/main-int-2.ori");
+const MAIN_INT_42: &str = include_str!("fixtures/main-int-42.ori");
+const MAIN_INT_100: &str = include_str!("fixtures/main-int-100.ori");
+const MAIN_INT_ADD: &str = include_str!("fixtures/main-int-add.ori");
+const MAIN_INT_LIST: &str = include_str!("fixtures/main-int-list.ori");
+const MAIN_INVALID_IF_CONDITION: &str = include_str!("fixtures/main-invalid-if-condition.ori");
+const MAIN_LIST_INDEX: &str = include_str!("fixtures/main-list-index.ori");
+const MAIN_MAP_INDEX_COALESCE: &str = include_str!("fixtures/main-map-index-coalesce.ori");
+const MAIN_MISSING_EXPRESSION: &str = include_str!("fixtures/main-missing-expression.ori");
+const MAIN_NESTED_FIELD: &str = include_str!("fixtures/main-nested-field.ori");
+const MAIN_NEW_COMMENT: &str = include_str!("fixtures/main-new-comment.ori");
+const MAIN_OLD_COMMENT: &str = include_str!("fixtures/main-old-comment.ori");
+const MAIN_PRECEDENCE: &str = include_str!("fixtures/main-precedence.ori");
+const MAIN_RECURSE: &str = include_str!("fixtures/main-recurse.ori");
+const MAIN_REGULAR_COMMENT: &str = include_str!("fixtures/main-regular-comment.ori");
+const MAIN_RESULT_COALESCE: &str = include_str!("fixtures/main-result-coalesce.ori");
+const MAIN_STRUCT_FIELD: &str = include_str!("fixtures/main-struct-field.ori");
+const MAIN_TYPE_ERROR: &str = include_str!("fixtures/main-type-error.ori");
+
+fn fixture_source(source: &'static str) -> &'static str {
+    source.strip_suffix('\n').unwrap_or(source)
+}
+
+fn fixture_text(source: &'static str) -> String {
+    fixture_source(source).to_owned()
+}
+
 /// Find a function signature by name in the typed result.
 ///
 /// `typed.functions` may include imported/builtin signatures alongside
@@ -57,7 +103,7 @@ fn test_non_empty_line_count() {
         "line1\n\nline3\n".to_string(),
     );
 
-    assert_eq!(line_count(&db, file), 3); // "line1\n\nline3\n" = 3 lines
+    assert_eq!(line_count(&db, file), 3);
     assert_eq!(non_empty_line_count(&db, file), 2);
 }
 
@@ -65,11 +111,7 @@ fn test_non_empty_line_count() {
 fn test_first_line() {
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
     assert_eq!(first_line(&db, file), "@main () -> int = 42;");
 }
@@ -80,16 +122,12 @@ fn test_incremental_recomputation() {
 
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), "line1\nline2".to_string());
 
-    // Initial computation
     assert_eq!(line_count(&db, file), 2);
 
-    // Cached - same result, no recomputation
     assert_eq!(line_count(&db, file), 2);
 
-    // Mutate the input
     file.set_text(&mut db).to("line1\nline2\nline3".to_string());
 
-    // Now it should recompute
     assert_eq!(line_count(&db, file), 3);
 }
 
@@ -138,19 +176,17 @@ fn test_caching_verified_with_logs() {
 
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), "line1\nline2".to_string());
 
-    // First call - should execute
     let _ = line_count(&db, file);
     let logs1 = db.take_logs();
     assert!(!logs1.is_empty(), "First call should execute query");
 
-    // Second call - should be cached (no execution)
     let _ = line_count(&db, file);
     let logs2 = db.take_logs();
     assert!(logs2.is_empty(), "Second call should use cache");
 }
 
 #[test]
-fn test_tokens_basic() {
+fn tokens_classify_simple_let_binding() {
     use crate::ir::TokenKind;
 
     let db = CompilerDb::new();
@@ -159,7 +195,7 @@ fn test_tokens_basic() {
 
     let toks = tokens(&db, file);
 
-    assert_eq!(toks.len(), 5); // let, x, =, 42, EOF
+    assert_eq!(toks.len(), 5);
     assert!(matches!(toks[0].kind, TokenKind::Let));
     assert!(matches!(toks[1].kind, TokenKind::Ident(_)));
     assert!(matches!(toks[2].kind, TokenKind::Eq));
@@ -173,11 +209,7 @@ fn test_tokens_function_def() {
 
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
     let toks = tokens(&db, file);
 
@@ -198,12 +230,10 @@ fn test_tokens_caching() {
 
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), "let x = 1".to_string());
 
-    // First call - should execute
     let _ = tokens(&db, file);
     let logs1 = db.take_logs();
     assert!(!logs1.is_empty(), "First call should execute tokens query");
 
-    // Second call - should be cached
     let _ = tokens(&db, file);
     let logs2 = db.take_logs();
     assert!(logs2.is_empty(), "Second call should use cache");
@@ -217,11 +247,9 @@ fn test_tokens_incremental() {
 
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), "let x = 1".to_string());
 
-    // Initial tokens
     let toks1 = tokens(&db, file);
     assert!(matches!(toks1[3].kind, TokenKind::Int(1)));
 
-    // Modify the file
     file.set_text(&mut db).to("let x = 2".to_string());
 
     // Should get new tokens
@@ -265,24 +293,19 @@ fn test_tokens_with_patterns() {
 
     let toks = tokens(&db, file);
 
-    // map is now an identifier (library function), not a keyword
-    // map ( over : items , transform : fn )
+    // `map` is a library-function identifier rather than a keyword.
     assert!(matches!(toks[0].kind, TokenKind::Ident(_)));
     assert!(matches!(toks[1].kind, TokenKind::LParen));
     assert!(matches!(toks[2].kind, TokenKind::Ident(_)));
 }
 
 #[test]
-fn test_parsed_basic() {
+fn parsed_query_lowers_main_integer_body() {
     use crate::ir::ExprKind;
 
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
     let result = parsed(&db, file);
 
@@ -299,18 +322,12 @@ fn test_parsed_caching() {
     let db = CompilerDb::new();
     db.enable_logging();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 1 + 2;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_ADD));
 
-    // First call - should execute both tokens and parsed queries
     let _ = parsed(&db, file);
     let logs1 = db.take_logs();
     assert!(logs1.len() >= 2, "First call should execute queries");
 
-    // Second call - should be fully cached
     let _ = parsed(&db, file);
     let logs2 = db.take_logs();
     assert!(logs2.is_empty(), "Second call should use cache");
@@ -322,13 +339,8 @@ fn test_parsed_incremental() {
 
     let mut db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 1;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_1));
 
-    // Initial parse
     let result1 = parsed(&db, file);
     assert!(matches!(
         result1
@@ -338,11 +350,8 @@ fn test_parsed_incremental() {
         ExprKind::Int(1)
     ));
 
-    // Modify source
-    file.set_text(&mut db)
-        .to("@main () -> int = 2;".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_INT_2));
 
-    // Should re-parse with new value
     let result2 = parsed(&db, file);
     assert!(matches!(
         result2
@@ -358,27 +367,15 @@ fn test_parsed_early_cutoff() {
     let mut db = CompilerDb::new();
     db.enable_logging();
 
-    // Create file with some trailing whitespace
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
-    // First call
     let result1 = parsed(&db, file);
     let _ = db.take_logs();
 
-    // Add whitespace (tokens should be identical after lexing)
-    // Note: This depends on lexer behavior with whitespace
-    file.set_text(&mut db)
-        .to("@main () -> int = 42;".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_INT_42));
 
-    // Get tokens to verify they're the same semantically
-    // Even if tokens differ, parsed result should be equivalent
     let result2 = parsed(&db, file);
 
-    // Results should be functionally equivalent
     assert_eq!(
         result1.module.functions.len(),
         result2.module.functions.len()
@@ -394,7 +391,7 @@ fn test_parsed_with_expressions() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@calc () -> int = 1 + 2 * 3;".to_string(),
+        fixture_text(CALC_PRECEDENCE),
     );
 
     let result = parsed(&db, file);
@@ -432,14 +429,10 @@ fn test_parsed_with_expressions() {
 }
 
 #[test]
-fn test_typed_basic() {
+fn typed_query_infers_main_integer_return() {
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
     let result = typed(&db, file);
 
@@ -452,18 +445,12 @@ fn test_typed_caching() {
     let db = CompilerDb::new();
     db.enable_logging();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 1 + 2;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_ADD));
 
-    // First call - should execute tokens, parsed, and typed queries
     let _ = typed(&db, file);
     let logs1 = db.take_logs();
     assert!(logs1.len() >= 3, "First call should execute queries");
 
-    // Second call - should be fully cached
     let _ = typed(&db, file);
     let logs2 = db.take_logs();
     assert!(logs2.is_empty(), "Second call should use cache");
@@ -473,19 +460,12 @@ fn test_typed_caching() {
 fn test_typed_incremental() {
     let mut db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
-    // Initial type check
     let result1 = typed(&db, file);
     assert_eq!(find_fn(&db, &result1, "main").return_type, Idx::INT);
 
-    // Modify source to return bool
-    file.set_text(&mut db)
-        .to("@main () -> bool = true;".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_BOOL_TRUE));
 
     // Should re-type-check with new return type
     let result2 = typed(&db, file);
@@ -499,7 +479,7 @@ fn test_typed_with_error() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = if 42 then 1 else 2;".to_string(),
+        fixture_text(MAIN_INVALID_IF_CONDITION),
     );
 
     let result = typed(&db, file);
@@ -509,16 +489,12 @@ fn test_typed_with_error() {
 }
 
 #[test]
-fn test_evaluated_basic() {
+fn evaluated_query_returns_main_integer_value() {
     use crate::eval::EvalOutput;
 
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
     let result = evaluated(&db, file);
 
@@ -535,7 +511,7 @@ fn test_evaluated_arithmetic() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = 1 + 2 * 3;".to_string(),
+        fixture_text(MAIN_PRECEDENCE),
     );
 
     let result = evaluated(&db, file);
@@ -550,11 +526,7 @@ fn test_evaluated_boolean() {
 
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> bool = true && false;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_BOOL_AND));
 
     let result = evaluated(&db, file);
 
@@ -568,11 +540,7 @@ fn test_evaluated_if_expression() {
 
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = if true then 1 else 2;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_IF));
 
     let result = evaluated(&db, file);
 
@@ -586,11 +554,7 @@ fn test_evaluated_list() {
 
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> [int] = [1, 2, 3];".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_LIST));
 
     let result = evaluated(&db, file);
 
@@ -615,18 +579,12 @@ fn test_evaluated_caching() {
     let db = CompilerDb::new();
     db.enable_logging();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
-    // First call - should execute
     let _ = evaluated(&db, file);
     let logs1 = db.take_logs();
     assert!(!logs1.is_empty(), "First call should execute queries");
 
-    // Second call - should be cached
     let _ = evaluated(&db, file);
     let logs2 = db.take_logs();
     assert!(logs2.is_empty(), "Second call should use cache");
@@ -638,19 +596,12 @@ fn test_evaluated_incremental() {
 
     let mut db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 1;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_1));
 
-    // Initial evaluation
     let result1 = evaluated(&db, file);
     assert_eq!(result1.result, Some(EvalOutput::Int(1)));
 
-    // Modify source
-    file.set_text(&mut db)
-        .to("@main () -> int = 2;".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_INT_2));
 
     // Should re-evaluate with new value
     let result2 = evaluated(&db, file);
@@ -664,7 +615,7 @@ fn test_evaluated_parse_error() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int =;".to_string(), // Missing expression
+        fixture_text(MAIN_MISSING_EXPRESSION),
     );
 
     let result = evaluated(&db, file);
@@ -679,11 +630,7 @@ fn test_evaluated_no_main() {
 
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@foo () -> int = 100;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(FOO_INT_100));
 
     let result = evaluated(&db, file);
 
@@ -702,12 +649,7 @@ fn test_evaluated_block_expression() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        r"@main () -> int = {
-            let x: int = 1;
-            let y: int = 2;
-            x + y
-        }"
-        .to_string(),
+        fixture_text(MAIN_BLOCK_BINDINGS),
     );
 
     let result = evaluated(&db, file);
@@ -724,23 +666,13 @@ fn test_evaluated_block_expression() {
 }
 
 #[test]
-#[ignore = "recurse pattern self() not yet supported (needs Section 07)"]
 fn test_evaluated_recurse_pattern() {
     use crate::eval::EvalOutput;
 
     let db = CompilerDb::new();
 
     // Test basic recurse pattern - simplest case: always return base
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        r"@main () -> int = recurse(;
-            condition: true,
-            base: 42,
-            step: self()
-        )"
-        .to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_RECURSE));
 
     // Debug: print parse errors
     let parsed = parsed(&db, file);
@@ -767,11 +699,7 @@ fn test_evaluated_recurse_pattern() {
 fn test_typed_function_signatures() {
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@add (a: int, b: int) -> int = a + b;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(ADD_INT));
 
     let result = typed(&db, file);
 
@@ -810,11 +738,7 @@ fn test_typed_empty_module() {
 fn test_typed_multiple_functions() {
     let db = CompilerDb::new();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@foo () -> int = 1;\n@bar () -> bool = true;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(FOO_BAR));
 
     let result = typed(&db, file);
 
@@ -830,7 +754,7 @@ fn test_typed_multiple_functions() {
 fn test_typed_determinism() {
     let db = CompilerDb::new();
 
-    let source = "@add (x: int, y: int) -> int = x + y;\n@mul (a: int, b: int) -> int = a * b;";
+    let source = fixture_source(ADD_MUL);
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     // Call twice — should produce identical results
@@ -854,7 +778,7 @@ fn test_typed_determinism() {
 fn test_typed_list_indexing() {
     let db = CompilerDb::new();
 
-    let source = "@main () -> int = [10, 20, 30][0];";
+    let source = fixture_source(MAIN_LIST_INDEX);
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);
@@ -874,7 +798,7 @@ fn test_typed_list_indexing() {
 fn test_typed_map_indexing_with_coalesce() {
     let db = CompilerDb::new();
 
-    let source = r#"@main () -> int = {"a": 1}["a"] ?? 0;"#;
+    let source = fixture_source(MAIN_MAP_INDEX_COALESCE);
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);
@@ -894,7 +818,7 @@ fn test_typed_map_indexing_with_coalesce() {
 fn test_typed_struct_field_access() {
     let db = CompilerDb::new();
 
-    let source = "type Point = { x: int, y: int }\n@main () -> int = {\n    let p = Point { x: 10, y: 20 };\n    p.x\n}";
+    let source = fixture_source(MAIN_STRUCT_FIELD);
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);
@@ -914,7 +838,7 @@ fn test_typed_struct_field_access() {
 fn test_typed_nested_field_access() {
     let db = CompilerDb::new();
 
-    let source = "type Inner = { value: int }\ntype Outer = { inner: Inner }\n@main () -> int = {\n    let o = Outer { inner: Inner { value: 42 } };\n    o.inner.value\n}";
+    let source = fixture_source(MAIN_NESTED_FIELD);
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);
@@ -933,7 +857,7 @@ fn test_typed_nested_field_access() {
 fn test_typed_field_in_arithmetic() {
     let db = CompilerDb::new();
 
-    let source = "type Point = { x: int, y: int }\n@main () -> int = {\n    let p = Point { x: 5, y: 10 };\n    p.x + p.y\n}";
+    let source = fixture_source(MAIN_FIELD_ARITHMETIC);
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);
@@ -953,9 +877,9 @@ fn test_typed_field_in_arithmetic() {
 fn test_typed_whitespace_invariance() {
     // Different horizontal whitespace should produce identical TypeCheckResult.
     // The type checker output depends on semantic content (tokens), not formatting.
-    let compact = "@add (x: int, y: int) -> int = x + y;";
-    let spaced = "@add  ( x : int ,  y : int )  ->  int  =  x  +  y;";
-    let tabbed = "@add\t(x:\tint,\ty:\tint)\t->\tint\t=\tx\t+\ty;";
+    let compact = fixture_source(ADD_COMPACT);
+    let spaced = fixture_source(ADD_SPACED);
+    let tabbed = fixture_source(ADD_TABBED);
 
     let db1 = CompilerDb::new();
     let file1 = SourceFile::new(&db1, PathBuf::from("/test.ori"), compact.to_string());
@@ -983,19 +907,15 @@ fn test_typed_whitespace_invariance() {
     let sig_spaced = find_fn(&db2, &result_spaced, "add");
     let sig_tabbed = find_fn(&db3, &result_tabbed, "add");
 
-    // Same function name
     assert_eq!(sig_compact.name, sig_spaced.name);
     assert_eq!(sig_compact.name, sig_tabbed.name);
 
-    // Same parameter types
     assert_eq!(sig_compact.param_types, sig_spaced.param_types);
     assert_eq!(sig_compact.param_types, sig_tabbed.param_types);
 
-    // Same return type
     assert_eq!(sig_compact.return_type, sig_spaced.return_type);
     assert_eq!(sig_compact.return_type, sig_tabbed.return_type);
 
-    // Same error state (no errors)
     assert_eq!(
         result_compact.typed.errors.len(),
         result_spaced.typed.errors.len()
@@ -1010,11 +930,8 @@ fn test_typed_whitespace_invariance() {
 fn test_typed_result_coalesce() {
     let db = CompilerDb::new();
 
-    // Err type annotated explicitly so no unresolved `Tag::Var` survives body
-    // inference (typeck.md §PC-2 via `validate_body_types`). The test's
-    // subject is `??` coalescing on a Result; the choice of Err type is
-    // incidental — `str` stands in for any inhabited type.
-    let source = "@main () -> int = { let r: Result<int, str> = Ok(42); r ?? 0 }";
+    // Why: an explicit error type isolates coalescing from unresolved-variable checks.
+    let source = fixture_source(MAIN_RESULT_COALESCE);
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);
@@ -1038,7 +955,7 @@ fn test_tokens_with_metadata_returns_comments() {
 
     let db = CompilerDb::new();
 
-    let source = "// a regular comment\n@main () -> int = 42";
+    let source = fixture_source(MAIN_REGULAR_COMMENT);
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let output = tokens_with_metadata(&db, file);
@@ -1047,7 +964,6 @@ fn test_tokens_with_metadata_returns_comments() {
     assert_eq!(output.comments.len(), 1, "should capture 1 comment");
     assert_eq!(output.comments[0].kind, CommentKind::Regular);
 
-    // Tokens should also be present and valid
     assert!(
         output.tokens.len() >= 5,
         "should have tokens for the function"
@@ -1061,20 +977,17 @@ fn test_tokens_with_metadata_comment_only_edit() {
 
     let mut db = CompilerDb::new();
 
-    // Version 1: regular comment
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "// old comment\n@main () -> int = 42".to_string(),
+        fixture_text(MAIN_OLD_COMMENT),
     );
 
     let output1 = tokens_with_metadata(&db, file);
     assert_eq!(output1.comments.len(), 1);
     assert_eq!(output1.comments[0].kind, CommentKind::Regular);
 
-    // Version 2: different regular comment text (same comment kind)
-    file.set_text(&mut db)
-        .to("// new comment\n@main () -> int = 42".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_NEW_COMMENT));
 
     let output2 = tokens_with_metadata(&db, file);
     assert_eq!(output2.comments.len(), 1);
@@ -1092,9 +1005,7 @@ fn test_tokens_with_metadata_comment_only_edit() {
         "full LexOutput should differ due to comment text change"
     );
 
-    // Version 3: doc comment (comment kind changes → IS_DOC flag changes on @main)
-    file.set_text(&mut db)
-        .to("// * x: param doc\n@main () -> int = 42".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_DOC_COMMENT));
 
     let output3 = tokens_with_metadata(&db, file);
     assert_eq!(output3.comments.len(), 1);
@@ -1104,7 +1015,7 @@ fn test_tokens_with_metadata_comment_only_edit() {
         "comment kind should update after edit"
     );
 
-    // Token flags differ: @main now has IS_DOC set
+    // A doc marker changes the `@main` token's flags.
     assert_ne!(
         output2.tokens, output3.tokens,
         "regular→doc comment change should change code tokens (IS_DOC flag)"
@@ -1123,13 +1034,8 @@ fn test_tokens_early_cutoff_on_whitespace_edit() {
     db.enable_logging();
 
     // Start with single spaces between tokens
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
-    // First call — executes both tokens and parsed queries
     let _ = parsed(&db, file);
     let initial_logs = db.take_logs();
     assert!(
@@ -1141,8 +1047,7 @@ fn test_tokens_early_cutoff_on_whitespace_edit() {
     // Add extra spaces between tokens that already have SPACE_BEFORE.
     // This changes Span positions but NOT TokenKind or TokenFlags, so
     // position-independent equality holds and parsed() is not re-executed.
-    file.set_text(&mut db)
-        .to("@main  ()  ->  int  =  42;".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_EXTRA_SPACES));
 
     // Call parsed again — tokens query re-executes (text changed),
     // but position-independent Hash/Eq means tokens are "equal",
@@ -1161,7 +1066,7 @@ fn test_tokens_early_cutoff_on_whitespace_edit() {
     );
 }
 
-// --- Section 12.4: Salsa early cutoff verification tests ---
+// Salsa early cutoff verification tests
 
 #[test]
 fn test_comment_only_change_triggers_early_cutoff_for_parsed() {
@@ -1173,16 +1078,13 @@ fn test_comment_only_change_triggers_early_cutoff_for_parsed() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "// old comment\n@main () -> int = 42".to_string(),
+        fixture_text(MAIN_OLD_COMMENT),
     );
 
-    // First call — executes lex_result + tokens + parsed
     let _ = parsed(&db, file);
-    let _ = db.take_logs(); // Clear initial logs
+    let _ = db.take_logs();
 
-    // Change only the comment text (regular → regular, different text)
-    file.set_text(&mut db)
-        .to("// new comment\n@main () -> int = 42".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_NEW_COMMENT));
 
     let _ = parsed(&db, file);
     let logs = db.take_logs();
@@ -1208,30 +1110,24 @@ fn test_comment_only_change_triggers_early_cutoff_for_typed() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "// comment v1\n@main () -> int = 42".to_string(),
+        fixture_text(MAIN_COMMENT_V1),
     );
 
-    // First call — execute the full pipeline
     let result1 = typed(&db, file);
     let _ = db.take_logs();
 
-    // Change only comment text
-    file.set_text(&mut db)
-        .to("// comment v2\n@main () -> int = 42".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_COMMENT_V2));
 
     let result2 = typed(&db, file);
     let logs = db.take_logs();
 
-    // typed() should produce identical results
     assert_eq!(
         result1.typed.functions.len(),
         result2.typed.functions.len(),
         "typed results should be identical after comment-only change"
     );
 
-    // typed() should NOT be in the re-executed queries.
-    // We expect at most lex_result + tokens to re-execute (2 events).
-    // If parsed() also re-executes that's 3, but typed() should not.
+    // A comment-only edit may re-execute lexing and parsing, but never type checking.
     let typed_reexecuted = logs.iter().any(|l| l.contains("typed"));
     assert!(
         !typed_reexecuted,
@@ -1242,33 +1138,22 @@ fn test_comment_only_change_triggers_early_cutoff_for_typed() {
 #[test]
 #[cfg(feature = "llvm")]
 fn test_body_change_without_signature_change_produces_different_module_hash() {
-    // When a function's body changes but its signature stays the same,
-    // the module hash should change (different expr_types) but individual
-    // function signature hashes should be identical.
-    //
-    // This is the foundation of function-level incremental compilation:
-    // only the changed function needs recompilation, not its callers.
+    // INVARIANT: body-only edits change module hashes but preserve signature hashes.
 
     use ori_llvm::aot::incremental::function_hash::{compute_module_hash, extract_function_hashes};
 
     let db = CompilerDb::new();
 
-    // Version 1: body returns a + b
-    let file1 = SourceFile::new(
-        &db,
-        PathBuf::from("/test1.ori"),
-        "@add (a: int, b: int) -> int = a + b;".to_string(),
-    );
+    let file1 = SourceFile::new(&db, PathBuf::from("/test1.ori"), fixture_text(ADD_INT));
     let type1 = typed(&db, file1);
     let all_hashes1 = extract_function_hashes(&type1.typed.functions, &type1.typed.expr_types);
     let add_name = db.interner().intern("add");
     let hashes1: Vec<_> = all_hashes1.iter().filter(|(n, _)| *n == add_name).collect();
 
-    // Version 2: same signature, different body (extra operation)
     let file2 = SourceFile::new(
         &db,
         PathBuf::from("/test2.ori"),
-        "@add (a: int, b: int) -> int = a + b + 0;".to_string(),
+        fixture_text(ADD_BODY_EXTRA_ZERO),
     );
     let type2 = typed(&db, file2);
     let all_hashes2 = extract_function_hashes(&type2.typed.functions, &type2.typed.expr_types);
@@ -1277,12 +1162,10 @@ fn test_body_change_without_signature_change_produces_different_module_hash() {
     assert_eq!(hashes1.len(), 1, "should have 1 'add' function hash");
     assert_eq!(hashes2.len(), 1, "should have 1 'add' function hash");
 
-    // Module hash should differ (body expression types changed)
     let mh1 = compute_module_hash(&all_hashes1);
     let mh2 = compute_module_hash(&all_hashes2);
     assert_ne!(mh1, mh2, "module hash should differ when body changes");
 
-    // Signature hash should be identical (same params and return type)
     assert_eq!(
         hashes1[0].1.signature_hash(),
         hashes2[0].1.signature_hash(),
@@ -1292,37 +1175,26 @@ fn test_body_change_without_signature_change_produces_different_module_hash() {
 
 #[test]
 fn test_typed_early_cutoff_on_body_change() {
-    // Changing a function's body (but not its signature) should cause typed()
-    // to re-execute, producing a different TypeCheckResult with different
-    // expression types. This verifies the Salsa → codegen handoff works:
-    // Salsa detects the change, and downstream function hashing sees it.
+    // INVARIANT: body-only edits re-execute type checking and change expression types.
     let mut db = CompilerDb::new();
     db.enable_logging();
 
-    let file = SourceFile::new(
-        &db,
-        PathBuf::from("/test.ori"),
-        "@main () -> int = 42;".to_string(),
-    );
+    let file = SourceFile::new(&db, PathBuf::from("/test.ori"), fixture_text(MAIN_INT_42));
 
     let result1 = typed(&db, file);
     let _ = db.take_logs();
 
-    // Change body only (same signature: () -> int)
-    file.set_text(&mut db)
-        .to("@main () -> int = 100;".to_string());
+    file.set_text(&mut db).to(fixture_text(MAIN_INT_100));
 
     let result2 = typed(&db, file);
     let logs = db.take_logs();
 
-    // typed() SHOULD re-execute because the parsed AST changed
     let typed_reexecuted = logs.iter().any(|l| l.contains("typed"));
     assert!(
         typed_reexecuted,
         "typed() should re-execute when body changes; logs: {logs:#?}",
     );
 
-    // Return types should still match (signature unchanged)
     assert_eq!(
         find_fn(&db, &result1, "main").return_type,
         find_fn(&db, &result2, "main").return_type,
@@ -1338,48 +1210,294 @@ fn test_typed_early_cutoff_on_body_change() {
 fn test_watch_loop_simulation() {
     let mut db = CompilerDb::new();
 
+    let file = SourceFile::new(&db, PathBuf::from("/watch.ori"), fixture_text(MAIN_INT_1));
+
+    // The initial source type-checks.
+    let initial = typed(&db, file);
+    assert!(
+        !initial.has_errors(),
+        "initial source should have no errors"
+    );
+    assert_eq!(user_fn_count(&db, &initial, &["main"]), 1);
+
+    file.set_text(&mut db).to(fixture_text(MAIN_INT_2));
+
+    let body_edit = typed(&db, file);
+    assert!(
+        !body_edit.has_errors(),
+        "body-only edit should have no errors"
+    );
+    assert_eq!(find_fn(&db, &body_edit, "main").return_type, Idx::INT);
+
+    file.set_text(&mut db).to(fixture_text(MAIN_BOOL_TRUE));
+
+    let signature_edit = typed(&db, file);
+    assert!(
+        !signature_edit.has_errors(),
+        "signature edit should have no errors"
+    );
+    assert_eq!(find_fn(&db, &signature_edit, "main").return_type, Idx::BOOL);
+
+    // An invalid edit reports its type error.
+    file.set_text(&mut db).to(fixture_text(MAIN_TYPE_ERROR));
+
+    let invalid_edit = typed(&db, file);
+    assert!(
+        invalid_edit.has_errors(),
+        "invalid edit should detect type mismatch"
+    );
+
+    // A valid replacement recovers the database.
+    file.set_text(&mut db).to(fixture_text(MAIN_INT_42));
+
+    let recovered = typed(&db, file);
+    assert!(
+        !recovered.has_errors(),
+        "valid replacement should recover after an invalid edit"
+    );
+    assert_eq!(find_fn(&db, &recovered, "main").return_type, Idx::INT);
+}
+
+fn canonical_root_int(
+    db: &CompilerDb,
+    canon: &ori_ir::canon::SharedCanonResult,
+    root_name: &str,
+) -> i64 {
+    let name = db.interner().intern(root_name);
+    let root = canon
+        .root_for(name)
+        .unwrap_or_else(|| panic!("missing canonical root '{root_name}'"));
+    let ori_ir::canon::CanExpr::Constant(constant) = *canon.arena.kind(root) else {
+        panic!(
+            "module/imported constant must be frozen, got {:?}",
+            canon.arena.kind(root)
+        )
+    };
+    let ori_ir::canon::ConstValue::Int(value) = *canon.constants.get(constant) else {
+        panic!("expected frozen int value")
+    };
+    value
+}
+
+#[test]
+fn imported_provider_dependency_chain_freezes_selected_value() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let provider_path = dir.path().join("provider.ori");
+    let consumer_path = dir.path().join("consumer.ori");
+    std::fs::write(&provider_path, "$base = 20;\npub $derived = $base + 10;\n")
+        .unwrap_or_else(|e| panic!("write provider: {e}"));
+    std::fs::write(
+        &consumer_path,
+        "use \"./provider\" { $derived };\n@main () -> int = $derived;\n",
+    )
+    .unwrap_or_else(|e| panic!("write consumer: {e}"));
+
+    let db = CompilerDb::new();
+    let consumer = db
+        .load_file(&consumer_path)
+        .unwrap_or_else(|| panic!("load consumer"));
+    let parsed = parsed(&db, consumer);
+    let type_result = typed(&db, consumer);
+    let pool = typed_pool(&db, consumer).unwrap_or_else(|| panic!("consumer pool"));
+    assert!(
+        !type_result.has_errors(),
+        "provider dependency fixture must type-check: {:?}",
+        type_result.errors()
+    );
+
+    let canon = canonicalize_cached(&db, consumer, &parsed, &type_result, &pool);
+    assert!(canon.const_problems.is_empty());
+    assert_eq!(canonical_root_int(&db, &canon, "main"), 30);
+}
+
+#[test]
+fn failed_provider_dependency_blocks_selected_dependent_constant() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let provider_path = dir.path().join("provider.ori");
+    let consumer_path = dir.path().join("consumer.ori");
+    std::fs::write(
+        &provider_path,
+        "$unsupported = [1];\npub $derived = $unsupported;\n",
+    )
+    .unwrap_or_else(|e| panic!("write provider: {e}"));
+    std::fs::write(
+        &consumer_path,
+        "use \"./provider\" { $derived };\n@main () -> [int] = $derived;\n",
+    )
+    .unwrap_or_else(|e| panic!("write consumer: {e}"));
+
+    let db = CompilerDb::new();
+    let consumer = db
+        .load_file(&consumer_path)
+        .unwrap_or_else(|| panic!("load consumer"));
+    let parsed = parsed(&db, consumer);
+    let type_result = typed(&db, consumer);
+    let pool = typed_pool(&db, consumer).unwrap_or_else(|| panic!("consumer pool"));
+    assert!(
+        !type_result.has_errors(),
+        "unsupported value domain is a Canon error, not a type error: {:?}",
+        type_result.errors()
+    );
+
+    let canon = canonicalize_cached(&db, consumer, &parsed, &type_result, &pool);
+
+    let derived = db.interner().intern("derived");
+    assert!(canon.const_problems.iter().any(|problem| {
+        problem.name == derived
+            && matches!(
+                problem.kind,
+                ori_ir::canon::ConstEvalProblemKind::ImportedValueUnavailable { .. }
+            )
+    }));
+}
+
+#[test]
+fn any_provider_constant_failure_blocks_other_selected_exports() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let provider_path = dir.path().join("provider.ori");
+    let consumer_path = dir.path().join("consumer.ori");
+    std::fs::write(&provider_path, "$unsupported = [1];\npub $answer = 30;\n")
+        .unwrap_or_else(|e| panic!("write provider: {e}"));
+    std::fs::write(
+        &consumer_path,
+        "use \"./provider\" { $answer };\n@main () -> int = $answer;\n",
+    )
+    .unwrap_or_else(|e| panic!("write consumer: {e}"));
+
+    let db = CompilerDb::new();
+    let consumer = db
+        .load_file(&consumer_path)
+        .unwrap_or_else(|| panic!("load consumer"));
+    let parsed = parsed(&db, consumer);
+    let type_result = typed(&db, consumer);
+    let pool = typed_pool(&db, consumer).unwrap_or_else(|| panic!("consumer pool"));
+    assert!(
+        !type_result.has_errors(),
+        "type errors: {:?}",
+        type_result.errors()
+    );
+
+    let canon = canonicalize_cached(&db, consumer, &parsed, &type_result, &pool);
+
+    let answer = db.interner().intern("answer");
+    assert!(canon.const_problems.iter().any(|problem| {
+        problem.name == answer
+            && matches!(
+                problem.kind,
+                ori_ir::canon::ConstEvalProblemKind::ImportedValueUnavailable { .. }
+            )
+    }));
+    assert!(
+        canon.constant_inputs.is_empty(),
+        "a broken provider module must export no selected constant artifacts"
+    );
+}
+
+#[test]
+fn untracked_module_canonicalization_never_reads_or_writes_path_cache() {
+    let db = CompilerDb::new();
+    let path = PathBuf::from("/virtual/untracked-provider.ori");
+    let parse_source = |source: &str| {
+        let tokens = crate::lex(source, db.interner());
+        crate::parser::parse(&tokens, db.interner())
+    };
+    let first_parse = parse_source("pub $answer = 30;\n");
+    let first = canonicalize_module(&db, &first_parse, &path, None)
+        .unwrap_or_else(|| panic!("first untracked module must canonicalize"));
+    let answer = db.interner().intern("answer");
+    assert_eq!(
+        first
+            .named_constants
+            .iter()
+            .find(|constant| constant.name == answer)
+            .map(|constant| &constant.value),
+        Some(&ori_ir::canon::ConstValue::Int(30))
+    );
+    assert!(db.canon_cache().get(&path).is_none());
+
+    let second_parse = parse_source("pub $answer = 31;\n");
+    let second = canonicalize_module(&db, &second_parse, &path, None)
+        .unwrap_or_else(|| panic!("second untracked module must canonicalize"));
+
+    assert_eq!(
+        second
+            .named_constants
+            .iter()
+            .find(|constant| constant.name == answer)
+            .map(|constant| &constant.value),
+        Some(&ori_ir::canon::ConstValue::Int(31)),
+        "path identity alone must not reuse an untracked Canon artifact"
+    );
+    assert!(
+        db.canon_cache().get(&path).is_none(),
+        "untracked canonicalization must not populate the session cache"
+    );
+}
+
+#[test]
+fn evaluated_preserves_actionable_constant_failure_snapshot() {
+    let db = CompilerDb::new();
     let file = SourceFile::new(
         &db,
-        PathBuf::from("/watch.ori"),
-        "@main () -> int = 1;".to_string(),
+        PathBuf::from("/constant-eval-error.ori"),
+        "$unsupported = [1];\n@main () -> int = 0;\n".to_string(),
     );
 
-    // Cycle 1: initial check
-    let r1 = typed(&db, file);
-    assert!(!r1.has_errors(), "cycle 1 should have no errors");
-    assert_eq!(user_fn_count(&db, &r1, &["main"]), 1);
+    let result = evaluated(&db, file);
 
-    // Cycle 2: body change (same signature)
-    file.set_text(&mut db)
-        .to("@main () -> int = 2;".to_string());
-
-    let r2 = typed(&db, file);
-    assert!(!r2.has_errors(), "cycle 2 should have no errors");
-    assert_eq!(find_fn(&db, &r2, "main").return_type, Idx::INT);
-
-    // Cycle 3: signature change (int → bool)
-    file.set_text(&mut db)
-        .to("@main () -> bool = true;".to_string());
-
-    let r3 = typed(&db, file);
-    assert!(!r3.has_errors(), "cycle 3 should have no errors");
-    assert_eq!(find_fn(&db, &r3, "main").return_type, Idx::BOOL);
-
-    // Cycle 4: introduce a type error, verify it's caught
-    file.set_text(&mut db)
-        .to("@main () -> int = true;".to_string());
-
-    let r4 = typed(&db, file);
-    assert!(r4.has_errors(), "cycle 4 should detect type mismatch");
-
-    // Cycle 5: fix the error, verify recovery
-    file.set_text(&mut db)
-        .to("@main () -> int = 42;".to_string());
-
-    let r5 = typed(&db, file);
+    assert!(result.is_failure());
+    assert_eq!(result.const_problems.len(), 1);
+    assert!(result.eval_error.is_none());
+    let summary = result.error.as_deref().unwrap_or_default();
+    assert!(summary.contains("E2058"), "actual summary: {summary}");
     assert!(
-        !r5.has_errors(),
-        "cycle 5 should recover after fixing error"
+        summary.contains("composite value"),
+        "the query boundary must preserve the actionable cause: {summary}"
     );
-    assert_eq!(find_fn(&db, &r5, "main").return_type, Idx::INT);
+}
+
+#[test]
+fn value_only_provider_edit_invalidates_consumer_canon_cache() {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let provider_path = dir.path().join("provider.ori");
+    let consumer_path = dir.path().join("consumer.ori");
+    std::fs::write(&provider_path, "pub $answer = 30;\n")
+        .unwrap_or_else(|e| panic!("write provider: {e}"));
+    std::fs::write(
+        &consumer_path,
+        "use \"./provider\" { $answer };\n@main () -> int = $answer;\n",
+    )
+    .unwrap_or_else(|e| panic!("write consumer: {e}"));
+
+    let mut db = CompilerDb::new();
+    let provider = db
+        .load_file(&provider_path)
+        .unwrap_or_else(|| panic!("load provider"));
+    let consumer = db
+        .load_file(&consumer_path)
+        .unwrap_or_else(|| panic!("load consumer"));
+    let consumer_parse = parsed(&db, consumer);
+    let consumer_types = typed(&db, consumer);
+    let consumer_pool = typed_pool(&db, consumer).unwrap_or_else(|| panic!("consumer pool"));
+    let first = canonicalize_cached(
+        &db,
+        consumer,
+        &consumer_parse,
+        &consumer_types,
+        &consumer_pool,
+    );
+    assert_eq!(canonical_root_int(&db, &first, "main"), 30);
+
+    // Same provider type, different evaluated value: Salsa may cut off the
+    // consumer type result, but the exact constant-input cache key must not.
+    provider
+        .set_text(&mut db)
+        .to("pub $answer = 31;\n".to_string());
+    let second_parse = parsed(&db, consumer);
+    let second_types = typed(&db, consumer);
+    let second_pool = typed_pool(&db, consumer).unwrap_or_else(|| panic!("consumer pool"));
+    let second = canonicalize_cached(&db, consumer, &second_parse, &second_types, &second_pool);
+
+    assert_eq!(canonical_root_int(&db, &second, "main"), 31);
+    assert_ne!(first.constant_inputs, second.constant_inputs);
 }

@@ -1,0 +1,14 @@
+@main () -> int = {
+    let captured: Result<int, str> = Err("closure_captured_heap_string");
+    let lookup = () -> {
+        match captured {
+            Err(e) -> e,
+            Ok(_) -> panic(msg: "should be Err"),
+        }
+    };
+    let first = lookup();
+    let second = lookup();
+    let h1 = first.contains(substr: "captured");
+    let h2 = second.contains(substr: "heap");
+    if h1 && h2 then 0 else 1
+}

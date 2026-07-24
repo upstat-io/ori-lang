@@ -120,10 +120,16 @@ impl LexOutput {
     ///
     /// This is the preferred way to use `LexOutput` with `parse_with_metadata`:
     ///
-    /// ```ignore
+    /// ```
+    /// use ori_ir::StringInterner;
+    /// use ori_lexer::lex_with_comments;
+    ///
+    /// let source = "@main () -> int = 42;\n";
+    /// let interner = StringInterner::new();
     /// let lex_output = lex_with_comments(source, &interner);
     /// let (tokens, metadata) = lex_output.into_parts();
-    /// let parse_output = parse_with_metadata(&tokens, metadata, &interner);
+    /// assert!(!tokens.is_empty());
+    /// assert_eq!(metadata.newlines.len(), 1);
     /// ```
     pub fn into_parts(self) -> (TokenList, ModuleExtra) {
         let metadata = ModuleExtra {

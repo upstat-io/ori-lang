@@ -1,5 +1,5 @@
 // Spec: §3.17 Into Trait — No blanket identity conversion
-// There is no impl<T> Into<T> for T. A type does not automatically
+// There is no impl<T> T: Into<T>. A type does not automatically
 // convert to itself via .into().
 
 type Point = { x: int, y: int }

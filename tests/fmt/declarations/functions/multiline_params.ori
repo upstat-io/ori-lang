@@ -1,8 +1,14 @@
 // Golden test: Multi-line function parameters
 // Spec: 08-declarations.md § Function Declarations
 // Design: tooling/formatter/design/02-constructs/declarations.md
-// Note: Parser requires inline parameters; formatter breaks them if >100 chars
-
+// Note: grammar.ebnf `params` is newline-silent; formatter breaks them if >100 chars
+// Do not reformat this file, the entire point of this file is for the params to be on multiple lines
 @send_notification (user_id: int, message: str, priority: int, retry_count: int) -> int = 0;
 
-@process_data (input_data: str, output_format: str, compression_level: int, encryption_enabled: bool, max_retries: int) -> str = input_data;
+@process_data (
+    input_data: str,
+    output_format: str,
+    compression_level: int,
+    encryption_enabled: bool,
+    max_retries: int,
+) -> str = input_data;

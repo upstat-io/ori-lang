@@ -9,21 +9,64 @@
 //! for per-variant cleanup.
 
 use ori_ir::{FIELD_CAP, FIELD_DATA};
-use ori_types::Tag;
+use ori_types::{Idx, Tag};
 
+use super::context::is_boxed_enum_field;
+use super::field_walk::FieldWalkOps;
 use super::ArcIrEmitter;
+use crate::codegen::value_id::ValueId;
+
+/// [`FieldWalkOps`] for an inline aggregate VALUE (struct / tuple field, or
+/// enum-payload inline field reached via the value-traversal dec path).
+///
+/// `base` is the loaded aggregate value; `owner` parameterizes boxed-field
+/// detection. Fields are accessed via `extract_value` at the memory-order
+/// index carried in `walk`, and dec'd via `dec_value_rc` (value traversal).
+pub(super) struct InlineAggregateOps {
+    pub(super) base: ValueId,
+    pub(super) owner: Idx,
+}
+
+impl FieldWalkOps for InlineAggregateOps {
+    fn load<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        walk: &[(u32, Idx)],
+        idx: usize,
+    ) -> Option<(ValueId, bool)> {
+        let (mem_i, field_ty) = walk[idx];
+        let fv = emitter
+            .builder
+            .extract_value(self.base, mem_i, &format!("rc_dec.f.{mem_i}"))?;
+        let boxed = is_boxed_enum_field(emitter.pool, self.owner, field_ty);
+        Some((fv, boxed))
+    }
+
+    fn dec_boxed<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        rc_ptr: ValueId,
+        field_type: Idx,
+    ) {
+        let drop_fn = emitter.get_or_generate_drop_fn(field_type);
+        emitter.call_rc_dec_all(&[rc_ptr], drop_fn);
+    }
+
+    fn dec_children<'scx: 'ctx, 'ctx>(
+        &self,
+        emitter: &mut ArcIrEmitter<'_, 'scx, 'ctx, '_>,
+        field_value: ValueId,
+        field_type: Idx,
+    ) {
+        emitter.dec_value_rc(field_value, field_type);
+    }
+}
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Increment RC for a value of known type.
     ///
-    /// Dispatches by Pool tag to extract the correct data pointer(s) and call
-    /// `ori_rc_inc` on each. Handles nested aggregates recursively.
-    ///
-    /// Used by [`emit_rc_inc_aggregate`](Self::emit_rc_inc_aggregate) for
-    /// struct/tuple field traversal. This replaces the
-    /// `extract_rc_data_ptrs` → `ori_rc_inc` loop pattern for RC
-    /// operations. Pool queries are used for type tags and field
-    /// enumeration; these will be eliminated in Section 01.4.
+    /// Dispatches by pool tag, retaining nested aggregate fields recursively
+    /// and preserving each type's physical RC protocol.
     pub(super) fn inc_value_rc(&mut self, val: super::ValueId, ty: ori_types::Idx, count: u32) {
         ori_stack::ensure_sufficient_stack(|| self.inc_value_rc_inner(val, ty, count));
     }
@@ -32,7 +75,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let resolved = self.pool.resolve_fully(ty);
         let tag = self.pool.tag(resolved);
         match tag {
-            // Scalars: no RC action
+            // INVARIANT: Range stores only scalar start, end, step, and inclusivity fields.
             Tag::Int
             | Tag::Float
             | Tag::Bool
@@ -43,26 +86,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | Tag::Error
             | Tag::Duration
             | Tag::Size
-            | Tag::Ordering => {}
+            | Tag::Ordering
+            | Tag::Range => {}
 
-            // Iterators (Box-allocated, no RC header): Inc is a no-op.
-            // Iterators are unique-owned — they are moved through
-            // `iter_next`, never copied — so there is nothing to
-            // refcount. See and `emit_rc_inc_iterator` in
-            // `rc_ops.rs`.
+            // INVARIANT: Iterators are uniquely moved and have no RC header.
             Tag::Iterator | Tag::DoubleEndedIterator => {
                 let _ = val;
                 let _ = count;
                 tracing::trace!(?tag, "inc_value_rc on iterator — no-op (unique ownership)");
             }
 
-            // Result/Enum: tag-switch per variant, inc RC children
             Tag::Result | Tag::Enum => {
                 self.emit_inline_enum_inc(val, resolved, tag, count);
             }
 
-            // Str: slice-aware RC inc via ori_str_rc_inc(data, cap)
-            // Handles SSO, heap, and seamless slices from str.split().
             Tag::Str => {
                 if let Some(dp) = self.builder.extract_value(val, FIELD_DATA, "rc_inc.data") {
                     let cap = self
@@ -95,56 +132,29 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
 
-            // Struct: traverse RC fields (remap to memory order)
+            // Struct/Tuple: traverse RC fields/elements (remap to memory order)
             Tag::Struct => {
-                let fields = self.pool.struct_fields(resolved);
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "field count bounded by struct definition"
-                )]
-                for (i, (_, field_ty)) in fields.into_iter().enumerate() {
-                    if self.classifier.needs_rc(field_ty) {
-                        let mem_i = self.remap_struct_field(resolved, i as u32);
-                        if let Some(fv) =
-                            self.builder
-                                .extract_value(val, mem_i, &format!("rc_inc.f.{i}"))
-                        {
-                            self.inc_value_rc(fv, field_ty, count);
-                        }
-                    }
-                }
+                let fields: Vec<Idx> = self
+                    .pool
+                    .struct_fields(resolved)
+                    .into_iter()
+                    .map(|(_, t)| t)
+                    .collect();
+                self.inc_aggregate_fields(val, resolved, &fields, count);
             }
-
-            // Tuple: traverse RC elements (remap to memory order)
             Tag::Tuple => {
                 let elems = self.pool.tuple_elems(resolved);
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "element count bounded by tuple arity"
-                )]
-                for (i, elem_ty) in elems.into_iter().enumerate() {
-                    if self.classifier.needs_rc(elem_ty) {
-                        let mem_i = self.remap_struct_field(resolved, i as u32);
-                        if let Some(ev) =
-                            self.builder
-                                .extract_value(val, mem_i, &format!("rc_inc.e.{i}"))
-                        {
-                            self.inc_value_rc(ev, elem_ty, count);
-                        }
-                    }
-                }
+                self.inc_aggregate_fields(val, resolved, &elems, count);
             }
 
-            // Option: recurse into inner type at field 1
-            // NOTE: latent bug — doesn't check runtime tag. If value is None,
-            // field 1 is uninitialized. This matches the existing behavior and
-            // is tracked in the plan (Section 01.5 test items).
+            // Option: route through the tag-aware inline-enum path, which loads
+            // the discriminant and walks only the live variant's payload — a
+            // None incs nothing; a Some incs its inner. Covers boxed AND
+            // non-boxed inner; never an un-guarded field-1 payload read.
             Tag::Option => {
                 let inner = self.pool.option_inner(resolved);
-                if self.classifier.needs_rc(inner) {
-                    if let Some(field) = self.builder.extract_value(val, 1, "rc_inc.opt_inner") {
-                        self.inc_value_rc(field, inner, count);
-                    }
+                if self.classifier.has_managed_ownership_obligation(inner) {
+                    self.emit_inline_enum_inc(val, resolved, tag, count);
                 }
             }
 
@@ -167,7 +177,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let resolved = self.pool.resolve_fully(ty);
         let tag = self.pool.tag(resolved);
         match tag {
-            // Scalars: no RC action
+            // INVARIANT: Range stores only scalar start, end, step, and inclusivity fields.
             Tag::Int
             | Tag::Float
             | Tag::Bool
@@ -178,7 +188,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | Tag::Error
             | Tag::Duration
             | Tag::Size
-            | Tag::Ordering => {}
+            | Tag::Ordering
+            | Tag::Range => {}
 
             // Iterators: call `ori_iter_drop(ptr)` to free the
             // Box-allocated state. There is no RC header to decrement,
@@ -221,53 +232,28 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.emit_buffer_rc_dec_map(val, resolved);
             }
 
-            // Struct: traverse RC fields, per-field drop functions (remap to memory order)
+            // Struct/Tuple: traverse RC fields/elements (remap to memory order)
             Tag::Struct => {
-                let fields = self.pool.struct_fields(resolved);
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "field count bounded by struct definition"
-                )]
-                for (i, (_, field_ty)) in fields.into_iter().enumerate() {
-                    if self.classifier.needs_rc(field_ty) {
-                        let mem_i = self.remap_struct_field(resolved, i as u32);
-                        if let Some(fv) =
-                            self.builder
-                                .extract_value(val, mem_i, &format!("rc_dec.f.{i}"))
-                        {
-                            self.dec_value_rc(fv, field_ty);
-                        }
-                    }
-                }
+                let fields: Vec<Idx> = self
+                    .pool
+                    .struct_fields(resolved)
+                    .into_iter()
+                    .map(|(_, t)| t)
+                    .collect();
+                self.dec_aggregate_fields(val, resolved, &fields);
             }
-
-            // Tuple: traverse RC elements (remap to memory order)
             Tag::Tuple => {
                 let elems = self.pool.tuple_elems(resolved);
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "element count bounded by tuple arity"
-                )]
-                for (i, elem_ty) in elems.into_iter().enumerate() {
-                    if self.classifier.needs_rc(elem_ty) {
-                        let mem_i = self.remap_struct_field(resolved, i as u32);
-                        if let Some(ev) =
-                            self.builder
-                                .extract_value(val, mem_i, &format!("rc_dec.e.{i}"))
-                        {
-                            self.dec_value_rc(ev, elem_ty);
-                        }
-                    }
-                }
+                self.dec_aggregate_fields(val, resolved, &elems);
             }
 
-            // Option: recurse into inner (same latent bug as inc)
+            // Option: tag-aware via the shared inline-enum path (lockstep with
+            // the inc arm) — a None decs nothing; a Some decs its inner. Never
+            // an un-guarded field-1 payload read.
             Tag::Option => {
                 let inner = self.pool.option_inner(resolved);
-                if self.classifier.needs_rc(inner) {
-                    if let Some(field) = self.builder.extract_value(val, 1, "rc_dec.opt_inner") {
-                        self.dec_value_rc(field, inner);
-                    }
+                if self.classifier.has_managed_ownership_obligation(inner) {
+                    self.emit_inline_enum_dec(val, resolved, tag);
                 }
             }
 
@@ -277,5 +263,68 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 self.call_rc_dec_all(&[val], drop_fn);
             }
         }
+    }
+
+    /// Inc RC for each RC-managed field/element of an aggregate (struct/tuple).
+    ///
+    /// `owner` is the fully-resolved aggregate `Idx`; `field_types` is the
+    /// declaration-order list. A boxed recursive field's slot holds the RC box
+    /// pointer directly (inc it); a non-boxed field recurses.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "field/element count bounded by aggregate definition"
+    )]
+    fn inc_aggregate_fields(
+        &mut self,
+        val: super::ValueId,
+        owner: Idx,
+        field_types: &[Idx],
+        count: u32,
+    ) {
+        for (i, &field_ty) in field_types.iter().enumerate() {
+            if !self.classifier.has_managed_ownership_obligation(field_ty) {
+                continue;
+            }
+            let mem_i = self.remap_struct_field(owner, i as u32);
+            let Some(fv) = self
+                .builder
+                .extract_value(val, mem_i, &format!("rc_inc.f.{i}"))
+            else {
+                continue;
+            };
+            if is_boxed_enum_field(self.pool, owner, field_ty) {
+                self.call_rc_inc_all(&[fv], count);
+            } else {
+                self.inc_value_rc(fv, field_ty, count);
+            }
+        }
+    }
+
+    /// Dec RC for each RC-managed field/element of an aggregate (struct/tuple).
+    ///
+    /// A boxed recursive field's slot holds the RC box pointer directly (dec it
+    /// through the child drop fn); a non-boxed field recurses.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "field/element count bounded by aggregate definition"
+    )]
+    fn dec_aggregate_fields(&mut self, val: super::ValueId, owner: Idx, field_types: &[Idx]) {
+        // Build the REVERSE declaration-order (LIFO) RC-field walk per
+        // `drop-trait-proposal.md §Drop and panic` — matches the heap drop-fn
+        // walk (`emit_drop_fields`) so user `@drop` side effects observe the
+        // same field-teardown order. `(memory_index, field_type)` per field.
+        let mut decl_walk: Vec<(u32, Idx)> = Vec::new();
+        for (i, &field_ty) in field_types.iter().enumerate() {
+            if !self.classifier.has_managed_ownership_obligation(field_ty) {
+                continue;
+            }
+            decl_walk.push((self.remap_struct_field(owner, i as u32), field_ty));
+        }
+        let walk = super::emitter_utils::field_rc_walk_order(
+            &decl_walk,
+            super::emitter_utils::FieldRcWalkOrder::Teardown,
+        );
+        let ops = InlineAggregateOps { base: val, owner };
+        self.dec_fields_may_unwind(&ops, &walk, 0);
     }
 }

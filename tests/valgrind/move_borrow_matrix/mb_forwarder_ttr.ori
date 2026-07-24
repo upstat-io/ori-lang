@@ -1,0 +1,46 @@
+// Move/borrow matrix: MB05 — transfers-through-return forwarder chains.
+// Identity forwarders hand the SAME allocation back through Return; each
+// chained result is read exactly once. Verifies forwarder-identity alias
+// transparency — one allocation, chained twice, released exactly once.
+
+type Named = { name: str, id: int }
+
+@id_str (s: str) -> str = s;
+@id_list (xs: [int]) -> [int] = xs;
+@id_opt (o: Option<str>) -> Option<str> = o;
+@id_named (p: Named) -> Named = p;
+@id_fn (f: (int) -> int) -> (int) -> int = f;
+
+@main () -> int = {
+    // Row 1: heap str through a two-deep forwarder chain, read once
+    let s = id_str(s: id_str(s: "abcdefghijklmnopqrstuvwxyz1234"));
+    let ok1a = s.length() == 30;
+    let s2 = id_str(s: id_str(s: "prefix_marked_long_heap_payload"));
+    let ok1b = s2.starts_with(prefix: "prefix");
+    let ok1 = ok1a && ok1b;
+
+    // Row 2: [int] through the chain, read once per chained value
+    let xs = id_list(xs: id_list(xs: [1, 2, 3, 4]));
+    let ok2a = xs.length() == 4;
+    let xs2 = id_list(xs: id_list(xs: [5, 6, 7]));
+    let ok2b = xs2.contains(value: 6);
+    let ok2 = ok2a && ok2b;
+
+    // Row 3: Option<str> with heap payload through the chain, read once
+    let o = id_opt(o: id_opt(o: Some("abcdefghijklmnopqrstuvwxyz1234")));
+    let ok3 = match o {
+        Some(inner) -> inner.length() == 30,
+        None -> false,
+    };
+
+    // Row 4: closure through the chain, invoked once after
+    let base = "abcdefghijklmnopqrstuvwxyz1234";
+    let f = id_fn(f: id_fn(f: (n: int) -> int = base.length() + n));
+    let ok4 = f(2) == 32;
+
+    // Row 5: struct with heap field through a single forwarder hop, one read
+    let p = id_named(p: Named { name: "abcdefghijklmnopqrstuvwxyz1234", id: 7 });
+    let ok5 = p.name.length() == 30;
+
+    if ok1 && ok2 && ok3 && ok4 && ok5 then 0 else 1
+}

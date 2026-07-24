@@ -19,14 +19,14 @@ trait Container {
 
 type IntBox = { value: int }
 
-impl Container for IntBox {
+impl IntBox: Container {
     type Item = int;
     @first (self) -> Option<Self.Item> = Some(self.value);
 }
 
 type StrBox = { text: str }
 
-impl Container for StrBox {
+impl StrBox: Container {
     type Item = str;
     @first (self) -> Option<Self.Item> = Some(self.text);
 }
@@ -65,7 +65,7 @@ impl Container for StrBox {
 // Type with a non-Eq associated type (lambdas don't implement Eq)
 type FnBox = { func: () -> int }
 
-impl Container for FnBox {
+impl FnBox: Container {
     type Item = () -> int;
     @first (self) -> Option<Self.Item> = Some(self.func);
 }

@@ -1,0 +1,21 @@
+use std.testing { assert }
+
+type Pair<T> = { left: T, right: T };
+
+impl<T> Pair<T>: Eq where T: Eq {
+    @eq (self, other: Pair<T>) -> bool =
+        self.left == other.left && self.right == other.right;
+}
+
+impl<T> Pair<T>: Comparable where T: Comparable {
+    @compare (self, other: Pair<T>) -> Ordering =
+        compare(left: self.left, right: other.left)
+            .then(other: compare(left: self.right, right: other.right));
+}
+
+@pair_int_less () -> bool =
+    Pair { left: 1, right: 2 } < Pair { left: 1, right: 3 };
+
+@test_pair_int_less tests @pair_int_less () -> void = {
+    assert(cond: pair_int_less())
+}

@@ -1,3 +1,4 @@
+#derive(Eq)
 type Color = Red | Green | Blue;
 
 @main () -> int = {

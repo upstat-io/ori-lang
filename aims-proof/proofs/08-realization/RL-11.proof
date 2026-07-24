@@ -1,0 +1,33 @@
+Theorem RL-11: same-block donor-to-recipient owner-credit transfer
+
+  Preconditions:
+    - DP-6 identifies an Owned, non-Shared, shape-compatible candidate.
+    - The donor precedes the recipient in the block.
+    - No intervening throw, competing birth, or alias use occurs.
+    - The donor is statically Unique.
+
+  Soundness property:
+    Forall dying donor d and fresh same-type recipient r in one block:
+      (P1) RL-11 freezes the transfer relation iff all four conditions hold.
+      (P2) the donor's exact owner credit becomes the recipient's credit.
+      (P3) the relation is evaluator-equivalent to donor cleanup plus an
+           independent recipient birth.
+    Reset, Reuse, allocation identity, and storage recycling are transitional
+    carrier or projection details, not theorem premises.
+
+  Proof obligation:
+    Enumerate:
+      abc_all_hold_credit_transfer -> transfer
+      recipient_before_donor_no_transfer -> no transfer
+      intervening_hazard_no_transfer -> no transfer
+      non_unique_no_transfer -> no transfer
+    Coverage gate: 4 cases. A Shared donor is rejected.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl11_same_block_reuse)
+      rc_counting (SECONDARY — gracious-accept)
+      refinement (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: RL-11 freezes a same-block donor/recipient owner-credit transfer in four exhaustive condition cases without selecting a storage-reuse mechanism

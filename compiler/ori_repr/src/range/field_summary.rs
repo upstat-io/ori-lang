@@ -46,7 +46,7 @@ impl FieldSummaryTable {
     }
 
     /// Clear all accumulated field ranges. Used to recompute field summaries
-    /// from final (post-narrowing) variable ranges — see
+    /// from final (post-narrowing) variable ranges.
     pub fn clear(&mut self) {
         self.field_ranges.clear();
     }
@@ -263,7 +263,7 @@ pub fn update_element_summaries<S: std::hash::BuildHasher>(
     };
 
     // Check if the collection's inner element type is int.
-    // For `[int]`, `ty` is the list type idx; we need the inner element type.
+    // For `[int]`, `ty` is the list type idx; the inner element type is needed.
     let inner_ty = match pool.tag(ty) {
         Tag::List => Some(pool.list_elem(ty)),
         Tag::Set => Some(pool.set_elem(ty)),

@@ -1,0 +1,95 @@
+Theorem RL-4: edge-specific decs on CFG edges; Jump-argument ownership-transfer exemption
+
+  Preconditions:
+    - Edge decs are historical carrier names for logical releases; the proof's
+      integer ledger is backend-neutral, and a physical plan may realize it
+      without a reference counter
+    - RL-4 governs edge-specific logical release realization per Annex E
+      §AIMS: "An OWNED non-scalar variable alive at block exit but dead at the
+      successor entry SHALL receive a release on that specific CFG edge.
+      Jump argument exemption: variables passed as Jump args transfer
+      ownership to the successor block param — NOT dead at successor entry
+      (the block param IS the successor's name). Borrowed variables do NOT
+      receive releases."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - Shipped site: aims/class_ledger/emit/releases.rs::plan_releases, applied
+      via aims::class_ledger::apply_class_ledger_replacement at Step 4b,
+      before realize/mod.rs::realize_rc_reuse Phase 1 (Step 5) burden-op
+      emission runs. Edge decs are emitted pre-merge because they are
+      position-keyed against the pre-merge CFG (Annex E §AIMS PL-3).
+    - The Jump-arg exemption pairs with RL-2: a value passed as a Jump arg
+      is an ownership-transferring use (per emit_rc/helpers.rs
+      is_ownership_transfer), so neither RL-2 nor RL-4 emits a dec; the
+      successor block param inherits the RC obligation.
+    - Merge-point filtering (Annex E §AIMS.9
+      project_alias_sources): the CFG-merge demand union is an
+      over-approximation; emission filters so a variable live on only one
+      predecessor path receives its dec on that specific edge, not at the
+      merge block.
+
+  Soundness property:
+    Forall owned non-scalar value v and forall CFG edge (B -> S) where v is
+    live at B's exit:
+
+      (P1) Edge-dec decision: RL-4 emits an edge dec on (B -> S) iff
+           (Access(v) = Owned AND NOT is_scalar(v) AND v live at B's exit
+           AND v dead at S's entry AND v is NOT passed as a Jump arg on the
+           edge). Borrowed values, scalars, still-live values, and Jump args
+           do not receive edge decs.
+
+      (P2) RC-count preservation across edges: a value that dies across an
+           edge is released exactly once (by the edge dec) UNLESS it is a
+           Jump arg, in which case ownership transfers to the successor
+           block param (a handoff, no dec). The net reference count returns
+           to 0 with no double-release on the transfer path.
+
+    RL-4 freezes the exact edge release or Jump-argument handoff needed to
+    preserve evaluator behavior and logical event balance.
+
+  Proof obligation:
+    Constructive discharge by the rc_counting engine.
+
+    Part (P1) — edge-dec decision grid:
+
+      The verifier enumerates an edge-decision grid and asserts RL-4's
+      emit decision equals (Owned AND non-scalar AND live-at-exit AND
+      dead-at-succ AND NOT jump-arg) on every row:
+        owned_dead_across_edge_emits -> emit edge dec
+        jump_arg_exempt_no_edge_dec -> NO dec (ownership transfers to the
+                                          successor block param)
+        borrowed_no_edge_dec -> NO dec (caller manages)
+        live_at_succ_no_edge_dec -> NO dec (dec'd later)
+        scalar_no_edge_dec -> NO dec (no RC)
+      Coverage gate: 5 decisions (1 emit + 4 suppressed). A divergence fails
+      the proof.
+
+    Part (P2) — RC-count preservation (balance ledger):
+
+      Sound lifecycles discharged (net = 0):
+        dead_across_edge_balanced — alloc, edge dec releases the reference.
+        jump_arg_transfer_balanced — alloc, ownership transfers to the
+                                     successor block param (handoff, no dec).
+
+    Negative-direction witness (REJECTED):
+      NEG_edge_dec_on_jump_arg_double_free — RL-4 wrongly failing the
+                                             Jump-arg exemption (emitting
+                                             BOTH an edge dec AND the
+                                             ownership transfer): net = -1
+                                             (double-free). Rejected.
+      Coverage gate: 3 ledger cases (2 sound + 1 negative witness).
+
+    Engines dispatched:
+      rc_counting (PRIMARY — section_08::verify_rl4_edge_specific_decs;
+        edge-dec decision grid + RC-balance ledger with the Jump-arg
+        exemption; emits Fail on a decision divergence or a balance
+        violation)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      case_analysis (SECONDARY — gracious-accept per the coverage-manifest
+        RL row)
+
+  Expected:
+    status: valid
+    reason: section_08 rc_counting engine discharges RL-4 via (P1) the edge-dec decision grid (1 emit + 4 suppressed: jump-arg / borrowed / live / scalar) and (P2) the RC-count-preservation balance ledger (2 sound lifecycles + 1 negative-direction witness showing an edge dec on a jump arg double-frees), grounded in the shipped emit_rc/edge_cleanup.rs emission site with the is_ownership_transfer Jump-arg exemption

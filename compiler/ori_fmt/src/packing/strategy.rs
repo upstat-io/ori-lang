@@ -109,7 +109,6 @@ impl Packing {
 /// * `has_trailing_comma` - Whether source had a trailing comma (user intent)
 /// * `has_comments` - Whether there are comments inside the container
 /// * `has_empty_lines` - Whether there are blank lines between items
-/// * `item_count` - Number of items in the container
 ///
 /// # Returns
 ///
@@ -119,12 +118,29 @@ pub fn determine_packing(
     has_trailing_comma: bool,
     has_comments: bool,
     has_empty_lines: bool,
-    _item_count: usize,
 ) -> Packing {
-    // Determine the base strategy from the construct kind (exhaustive match
-    // ensures new variants must make an explicit packing decision)
-    let base = match construct {
-        // Always stacked (spec lines 78-90)
+    let base = base_packing(construct);
+
+    // Always-stacked constructs ignore metadata overrides.
+    if base == Packing::AlwaysStacked {
+        return base;
+    }
+
+    // Metadata overrides: user intent signals that force multiline
+    if has_empty_lines || has_trailing_comma || has_comments {
+        return Packing::AlwaysOnePerLine;
+    }
+
+    base
+}
+
+/// Base packing strategy for a construct, ignoring per-instance metadata.
+///
+/// Single source of truth for the always-stacked membership (`ConstructKind::is_always_stacked`
+/// derives from this). The exhaustive match forces every new variant to make a packing decision.
+pub(crate) fn base_packing(construct: ConstructKind) -> Packing {
+    match construct {
+        // Spec: Annex D, Always-Stacked Constructs
         ConstructKind::RunTopLevel
         | ConstructKind::Try
         | ConstructKind::Match
@@ -132,7 +148,7 @@ pub fn determine_packing(
         | ConstructKind::Parallel
         | ConstructKind::Spawn
         | ConstructKind::Nursery
-        | ConstructKind::MatchArms => return Packing::AlwaysStacked,
+        | ConstructKind::MatchArms => Packing::AlwaysStacked,
 
         // Simple lists can pack multiple per line
         ConstructKind::ListSimple => Packing::FitOrPackMultiple,
@@ -151,12 +167,5 @@ pub fn determine_packing(
         | ConstructKind::ImportItems
         | ConstructKind::ListComplex
         | ConstructKind::RunNested => Packing::FitOrOnePerLine,
-    };
-
-    // Metadata overrides: user intent signals that force multiline
-    if has_empty_lines || has_trailing_comma || has_comments {
-        return Packing::AlwaysOnePerLine;
     }
-
-    base
 }

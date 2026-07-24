@@ -1,4 +1,4 @@
-use ori_patterns::IteratorValue;
+use ori_patterns::{IteratorValue, RangeValue};
 
 use super::*;
 
@@ -37,6 +37,26 @@ fn test_list_filter_resolves() {
         result,
         MethodResolution::Collection(CollectionMethod::Filter)
     ));
+}
+
+#[test]
+fn direct_range_higher_order_methods_resolve_eagerly() {
+    let interner = StringInterner::new();
+    let resolver = CollectionMethodResolver::new(&interner);
+    let range = Value::Range(RangeValue::exclusive(0, 5));
+    let range_type = interner.intern("Range<int>");
+
+    for (name, expected) in [
+        ("map", CollectionMethod::Map),
+        ("filter", CollectionMethod::Filter),
+        ("fold", CollectionMethod::Fold),
+    ] {
+        let result = resolver.resolve(&range, range_type, interner.intern(name));
+        assert!(
+            matches!(result, MethodResolution::Collection(method) if method == expected),
+            "Range.{name} should resolve directly to eager {expected:?}, got {result:?}"
+        );
+    }
 }
 
 #[test]
@@ -80,9 +100,7 @@ fn resolve_iter(interner: &StringInterner, method: &str) -> MethodResolution {
 
 /// All iterator methods from `all_iterator_variants()` resolve correctly.
 ///
-/// Uses the canonical variant list as source of truth — if a new variant
-/// is added there but not wired into `resolve_iterator_method()`, this
-/// test will catch the drift.
+/// The canonical variant list must agree with `resolve_iterator_method()`.
 #[test]
 fn iterator_methods_resolve() {
     let interner = StringInterner::new();

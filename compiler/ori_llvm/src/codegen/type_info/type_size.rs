@@ -1,16 +1,76 @@
 //! LLVM type size utilities.
 //!
 //! Store size calculation for LLVM types including alignment padding.
-//! Must stay in sync with `pool_type_store_size()` in `ori_arc`.
+
+use std::cmp::Ordering;
 
 use inkwell::types::BasicTypeEnum;
+use ori_types::{Idx, Pool};
+
+use crate::codegen::type_info::{field_is_non_void, EnumVariantInfo};
+
+/// Maximum non-void-field payload bytes across all variants of an enum, where
+/// each non-void field occupies at least one full i64 slot (8 bytes).
+///
+/// The `[M x i64]` enum payload layout is shared between the LLVM struct-body
+/// computation (`enum_layout::resolve_enum_explicit`) and the ABI size walker
+/// (`codegen::abi::size`); both call this so a slot/round-up change cannot
+/// silently diverge. `field_size` resolves one field's byte size (the only
+/// per-caller divergence: LLVM-type store size vs ABI size, with each caller's
+/// boxing oracle applied inside its own closure).
+pub(crate) fn max_variant_payload_bytes(
+    variants: &[EnumVariantInfo],
+    pool: &Pool,
+    mut field_size: impl FnMut(Idx) -> u64,
+) -> u64 {
+    variants
+        .iter()
+        .map(|variant| {
+            variant
+                .fields
+                .iter()
+                .filter(|&&f| field_is_non_void(pool, f))
+                .map(|&f| {
+                    // Round up to the 8-byte i64 slot boundary.
+                    field_size(f).div_ceil(8) * 8
+                })
+                .sum::<u64>()
+        })
+        .max()
+        .unwrap_or(0)
+}
 
 /// Store size of an LLVM type in bytes, including trailing alignment padding.
-///
-/// **Sync point**: `pool_type_store_size()` in `ori_arc` mirrors
-/// this logic at the Pool level. Both must agree on sizes for all types.
 pub(crate) fn type_store_size(ty: BasicTypeEnum<'_>) -> u64 {
     type_store_size_inner(ty, 0)
+}
+
+/// Arm supplying the LLVM type for a shared payload slot.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SharedPayloadArm {
+    First,
+    Second,
+}
+
+/// Selects the arm whose LLVM type can represent a shared payload slot.
+///
+/// Store size wins; equal-size integer types use the greater LLVM bit width.
+pub(crate) fn select_shared_payload_arm(
+    first: BasicTypeEnum<'_>,
+    second: BasicTypeEnum<'_>,
+) -> SharedPayloadArm {
+    match type_store_size(first).cmp(&type_store_size(second)) {
+        Ordering::Greater => SharedPayloadArm::First,
+        Ordering::Less => SharedPayloadArm::Second,
+        Ordering::Equal => match (first, second) {
+            (BasicTypeEnum::IntType(first), BasicTypeEnum::IntType(second))
+                if first.get_bit_width() < second.get_bit_width() =>
+            {
+                SharedPayloadArm::Second
+            }
+            _ => SharedPayloadArm::First,
+        },
+    }
 }
 
 /// Inner implementation with depth tracking for recursive struct types.
@@ -61,6 +121,15 @@ fn type_store_size_inner(ty: BasicTypeEnum<'_>, depth: u32) -> u64 {
         }
         _ => 8,
     }
+}
+
+/// ABI alignment of an LLVM type in bytes (store-layout alignment).
+///
+/// Cross-check surface for the `abi_alignment` walker in `codegen::abi` —
+/// the abi sync tests compare the two over a type corpus.
+#[cfg(test)]
+pub(crate) fn type_abi_alignment(ty: BasicTypeEnum<'_>) -> u64 {
+    type_alignment(ty, 0)
 }
 
 /// Alignment of an LLVM type in bytes.

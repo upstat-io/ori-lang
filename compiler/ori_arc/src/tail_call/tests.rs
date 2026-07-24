@@ -28,6 +28,7 @@ fn apply(dst: u32, func: Name, args: Vec<ArcVarId>) -> ArcInstr {
         func,
         args,
         arg_ownership: vec![],
+        mono_instance_id: None,
     }
 }
 
@@ -35,6 +36,7 @@ fn rc_dec(var: u32) -> ArcInstr {
     ArcInstr::RcDec {
         var: v(var),
         strategy: RcStrategy::HeapPointer,
+        atomicity: crate::ir::RcAtomicity::default_atomic(),
     }
 }
 
@@ -976,6 +978,7 @@ fn invoke_block(
             func,
             args,
             arg_ownership: vec![],
+            mono_instance_id: None,
             normal: b(normal),
             unwind: b(unwind),
         },
@@ -1348,7 +1351,7 @@ fn invoke_rewrite_moves_rc_decs_from_normal_block() {
     );
 }
 
-// Pre-emission tail-position analysis (Section 12.2)
+// Pre-emission tail-position analysis
 
 #[test]
 fn constant_stack_non_recursive_is_false() {
@@ -1627,5 +1630,306 @@ fn constant_stack_invoke_cross_block_tail_is_false() {
     assert!(
         !has_non_tail_recursive_calls(&func, &scc_peers),
         "invoke in cross-block tail position should have constant stack"
+    );
+}
+
+// Burden-faithful release-cleanup tests — the release sites
+// co-emit a paired `BurdenDec` adjacent to each release `RcDec` (Spec: Annex
+// E §AIMS RL-2 / RL-4 / RL-5). Tail-call detection must treat a cleanup block
+// body of `[RcDec, BurdenDec]` (or any whole-var release mix) as release
+// cleanup, not as a non-tail instruction. Reverting `is_release_cleanup_instr`
+// to RcDec-only must fail the positive pins below.
+
+fn burden_dec(var: u32) -> ArcInstr {
+    ArcInstr::BurdenDec { var: v(var) }
+}
+
+#[test]
+fn apply_tail_call_with_burden_dec_after_apply_detected() {
+    // Semantic pin (site 2 — find_tail_apply_in_block):
+    // a burden-carrying release sequence `[RcDec(g), BurdenDec(g)]` after the
+    // self-recursive body Apply is release cleanup — the tail call IS detected.
+    //
+    // bb0: Branch ? bb1 : bb2
+    // bb1: Jump bb3(base)
+    // bb2: %r = Apply @f(x); RcDec(g); BurdenDec(g); Jump bb3(%r)  — g not an arg
+    // bb3(%ret): Return %ret
+    let interner = StringInterner::new();
+    let f = interner.intern("f");
+
+    let blocks = vec![
+        ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![let_bool(1)],
+            terminator: ArcTerminator::Branch {
+                cond: v(1),
+                then_block: b(1),
+                else_block: b(2),
+            },
+        },
+        ArcBlock {
+            id: b(1),
+            params: vec![],
+            body: vec![let_int(2)],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(2)],
+            },
+        },
+        ArcBlock {
+            id: b(2),
+            params: vec![],
+            body: vec![
+                apply(3, f, vec![v(0)]),
+                rc_dec(4),     // RcDec(g) — g (var 4) NOT in Apply args
+                burden_dec(4), // paired BurdenDec(g) — release cleanup
+            ],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(3)], // passes the Apply result
+            },
+        },
+        ArcBlock {
+            id: b(3),
+            params: vec![(v(5), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(5) },
+        },
+    ];
+
+    let func = make_func_named(
+        f,
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 6],
+    );
+
+    let sites = detect_tail_calls(&func);
+    assert_eq!(
+        sites.len(),
+        1,
+        "paired BurdenDec after Apply is release cleanup — tail call must be detected"
+    );
+    assert_eq!(sites[0].call_block, b(2));
+    assert_eq!(sites[0].kind, TailCallKind::Apply { instr_idx: 0 });
+}
+
+#[test]
+fn apply_tail_call_with_non_release_instr_after_apply_rejected() {
+    // Negative pin (site 2): a genuine non-release instruction (Let) mixed in
+    // with the burden release cleanup after the Apply still blocks detection —
+    // the helper must NOT over-match arbitrary instructions.
+    //
+    // bb2: %r = Apply @f(x); BurdenDec(g); %side = let 0; Jump bb3(%r)
+    let interner = StringInterner::new();
+    let f = interner.intern("f");
+
+    let blocks = vec![
+        ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![let_bool(1)],
+            terminator: ArcTerminator::Branch {
+                cond: v(1),
+                then_block: b(1),
+                else_block: b(2),
+            },
+        },
+        ArcBlock {
+            id: b(1),
+            params: vec![],
+            body: vec![let_int(2)],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(2)],
+            },
+        },
+        ArcBlock {
+            id: b(2),
+            params: vec![],
+            body: vec![
+                apply(3, f, vec![v(0)]),
+                burden_dec(4), // release cleanup …
+                let_int(6),    // … but a non-release Let still blocks detection
+            ],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(3)],
+            },
+        },
+        ArcBlock {
+            id: b(3),
+            params: vec![(v(5), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(5) },
+        },
+    ];
+
+    let func = make_func_named(
+        f,
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 7],
+    );
+
+    let sites = detect_tail_calls(&func);
+    assert!(
+        sites.is_empty(),
+        "non-release instruction after Apply must still block detection"
+    );
+}
+
+#[test]
+fn invoke_tail_call_with_burden_dec_in_normal_block_detected() {
+    // Semantic pin (site 3 — find_invoke_tail_calls):
+    // a burden-carrying release sequence `[RcDec(g), BurdenDec(g)]` in the
+    // Invoke's normal block is release cleanup — the tail call IS detected.
+    //
+    // bb0: Branch ? bb1 : bb2
+    // bb1: Jump bb3(base)
+    // bb2: Invoke @f(x) → normal: bb4, unwind: bb5
+    // bb3(%ret): Return %ret
+    // bb4: RcDec(g); BurdenDec(g); Jump bb3(%dst)   — g not in invoke args
+    // bb5: Resume
+    let interner = StringInterner::new();
+    let f = interner.intern("f");
+
+    let blocks = vec![
+        ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![let_bool(1)],
+            terminator: ArcTerminator::Branch {
+                cond: v(1),
+                then_block: b(1),
+                else_block: b(2),
+            },
+        },
+        ArcBlock {
+            id: b(1),
+            params: vec![],
+            body: vec![let_int(2)],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(2)],
+            },
+        },
+        invoke_block(2, vec![], 4, f, vec![v(0)], 4, 5),
+        ArcBlock {
+            id: b(3),
+            params: vec![(v(5), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(5) },
+        },
+        ArcBlock {
+            id: b(4),
+            params: vec![],
+            body: vec![
+                rc_dec(6),     // RcDec(g) — g (var 6) NOT in invoke args
+                burden_dec(6), // paired BurdenDec(g) — release cleanup
+            ],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(4)],
+            },
+        },
+        ArcBlock {
+            id: b(5),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Resume,
+        },
+    ];
+
+    let func = make_func_named(
+        f,
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 7],
+    );
+
+    let sites = detect_tail_calls(&func);
+    assert_eq!(
+        sites.len(),
+        1,
+        "paired BurdenDec in normal block is release cleanup — invoke tail call must be detected"
+    );
+    assert_eq!(sites[0].call_block, b(2));
+    assert_eq!(sites[0].kind, TailCallKind::Invoke);
+}
+
+#[test]
+fn invoke_tail_call_with_non_release_instr_in_normal_block_rejected() {
+    // Negative pin (site 3): a genuine non-release instruction (Apply) in the
+    // normal block alongside the burden release cleanup still blocks detection.
+    //
+    // bb4: BurdenDec(g); %side = Apply @other(); Jump bb3(%dst)
+    let interner = StringInterner::new();
+    let f = interner.intern("f");
+    let other = interner.intern("other");
+
+    let blocks = vec![
+        ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![let_bool(1)],
+            terminator: ArcTerminator::Branch {
+                cond: v(1),
+                then_block: b(1),
+                else_block: b(2),
+            },
+        },
+        ArcBlock {
+            id: b(1),
+            params: vec![],
+            body: vec![let_int(2)],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(2)],
+            },
+        },
+        invoke_block(2, vec![], 4, f, vec![v(0)], 4, 5),
+        ArcBlock {
+            id: b(3),
+            params: vec![(v(5), Idx::INT)],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(5) },
+        },
+        ArcBlock {
+            id: b(4),
+            params: vec![],
+            body: vec![
+                burden_dec(6),           // release cleanup …
+                apply(7, other, vec![]), // … but a non-release Apply blocks it
+            ],
+            terminator: ArcTerminator::Jump {
+                target: b(3),
+                args: vec![v(4)],
+            },
+        },
+        ArcBlock {
+            id: b(5),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Resume,
+        },
+    ];
+
+    let func = make_func_named(
+        f,
+        vec![owned_param(0, Idx::INT)],
+        Idx::INT,
+        blocks,
+        vec![Idx::INT; 8],
+    );
+
+    let sites = detect_tail_calls(&func);
+    assert!(
+        sites.is_empty(),
+        "non-release instruction in normal block must still block detection"
     );
 }

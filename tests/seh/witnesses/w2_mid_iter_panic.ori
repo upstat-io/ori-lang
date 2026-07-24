@@ -1,0 +1,3 @@
+@main (args: [str]) -> void =
+    for arg in args do
+        panic(msg: arg);

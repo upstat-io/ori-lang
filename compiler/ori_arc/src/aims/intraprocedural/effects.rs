@@ -1,4 +1,4 @@
-//! Effect accumulation during backward analysis (Section 09.2).
+//! Effect accumulation during backward analysis.
 //!
 //! Computes per-block [`EffectSummary`] by accumulating effects from
 //! instructions and terminators during the backward walk. Effects are
@@ -8,7 +8,7 @@
 use ori_ir::Name;
 use rustc_hash::FxHashMap;
 
-use crate::ir::ArcTerminator;
+use crate::ir::{ArcFunction, ArcTerminator, ArcValue};
 
 use super::super::contract::{EffectSummary, MemoryContract};
 use super::super::lattice::{AimsState, Locality};
@@ -20,6 +20,7 @@ use super::state_map::AimsStateMap;
 /// demand state BEFORE it is removed from the current state (captures the
 /// downstream demand including locality, needed for `HeapEscaping` → `may_share`).
 pub(super) fn accumulate_instr_effects(
+    func: &ArcFunction,
     instr: &crate::ir::ArcInstr,
     dst_demand: Option<AimsState>,
     state_map: &AimsStateMap,
@@ -27,9 +28,7 @@ pub(super) fn accumulate_instr_effects(
     effects: &mut EffectSummary,
 ) {
     match instr {
-        // Construct (non-scalar): may_allocate. If destination demand has
-        // locality > BlockLocal and the construct has args, may_share too
-        // (Section 09.1: HeapEscaping → may_share).
+        // Why: HeapEscaping locality propagates may_share to non-scalar constructor arguments.
         crate::ir::ArcInstr::Construct { dst, args, .. } => {
             if !state_map.is_excluded(*dst) {
                 effects.may_allocate = true;
@@ -43,17 +42,42 @@ pub(super) fn accumulate_instr_effects(
             }
         }
 
-        // PartialApply (non-scalar): may_allocate (closure env allocation).
+        // An escaping managed projection needs its own logical owner credit so
+        // it can outlive the borrowed aggregate that supplied the field.
+        crate::ir::ArcInstr::Project { dst, .. } => {
+            if !state_map.is_excluded(*dst)
+                && dst_demand.is_some_and(|demand| demand.locality > Locality::FunctionLocal)
+            {
+                effects.may_share = true;
+            }
+        }
+
+        // Why: Partial application allocates a closure environment on the heap.
         crate::ir::ArcInstr::PartialApply { dst, .. } => {
             if !state_map.is_excluded(*dst) {
                 effects.may_allocate = true;
             }
         }
 
-        // Apply with known contract: union callee's EffectSummary.
+        crate::ir::ArcInstr::Let {
+            dst,
+            value: ArcValue::PrimOp { .. },
+            ..
+        } => {
+            let fact = func.primitive_facts.get(*dst).unwrap_or_else(|| {
+                panic!("validated PrimOp v{} is missing its frozen fact", dst.raw())
+            });
+            if !matches!(
+                fact.descriptor.allocation,
+                ori_registry::PrimitiveAllocationEffect::None
+            ) {
+                effects.may_allocate = true;
+            }
+        }
+
         crate::ir::ArcInstr::Apply { func: callee, .. } => {
             if let Some(contract) = sigs.get(callee) {
-                *effects = effects.join(&contract.effects);
+                *effects = effects.join(contract.effects);
             }
         }
 
@@ -61,10 +85,7 @@ pub(super) fn accumulate_instr_effects(
     }
 }
 
-/// Accumulate effects from a terminator into the block-level summary.
-///
-/// `Invoke`: `may_throw` (Invoke exists because the call may unwind).
-/// Also unions callee's [`EffectSummary`] if known.
+/// Accumulates callee contract and unwind effects for a terminator.
 pub(super) fn accumulate_terminator_effects(
     term: &ArcTerminator,
     sigs: &FxHashMap<Name, MemoryContract>,
@@ -73,7 +94,7 @@ pub(super) fn accumulate_terminator_effects(
     if let ArcTerminator::Invoke { func: callee, .. } = term {
         effects.may_throw = true;
         if let Some(contract) = sigs.get(callee) {
-            *effects = effects.join(&contract.effects);
+            *effects = effects.join(contract.effects);
         }
     }
 }

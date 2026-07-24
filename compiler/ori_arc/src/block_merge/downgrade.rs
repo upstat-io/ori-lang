@@ -1,4 +1,4 @@
-//! Phase 2: Downgrade trivial `Invoke` terminators to `Apply` + `Jump`.
+//! Downgrades trivial `Invoke` terminators to `Apply` plus `Jump`.
 //!
 //! An invoke is trivial when:
 //! 1. `normal != unwind` (same block would route success to `Resume`)
@@ -28,21 +28,28 @@ pub(crate) fn downgrade_trivial_invokes(func: &mut ArcFunction) {
             continue;
         };
 
-        // Extract invoke fields. We know the terminator is Invoke from
-        // the check above.
-        let (dst, ty, callee, args, arg_ownership) = {
+        // INVARIANT: Downgrading preserves `mono_instance_id` for generic dispatch.
+        let (dst, ty, callee, args, arg_ownership, mono_instance_id) = {
             let ArcTerminator::Invoke {
                 dst,
                 ty,
                 func: callee,
                 args,
                 arg_ownership,
+                mono_instance_id,
                 ..
             } = &func.blocks[block_idx].terminator
             else {
                 continue;
             };
-            (*dst, *ty, *callee, args.clone(), arg_ownership.clone())
+            (
+                *dst,
+                *ty,
+                *callee,
+                args.clone(),
+                arg_ownership.clone(),
+                *mono_instance_id,
+            )
         };
 
         // Append Apply to body.
@@ -52,6 +59,7 @@ pub(crate) fn downgrade_trivial_invokes(func: &mut ArcFunction) {
             func: callee,
             args,
             arg_ownership,
+            mono_instance_id,
         });
 
         // Append None span for the new Apply.
@@ -110,7 +118,7 @@ fn is_trivial_invoke(func: &ArcFunction, block_idx: usize, pred_counts: &[usize]
 /// Check if all instructions are `RcDec` on non-capturing closures.
 fn is_all_noop_rc_decs(body: &[ArcInstr], func: &ArcFunction) -> bool {
     body.iter().all(|instr| {
-        matches!(instr, ArcInstr::RcDec { var, strategy: RcStrategy::Closure }
+        matches!(instr, ArcInstr::RcDec { var, strategy: RcStrategy::Closure, .. }
             if is_non_capturing_closure(func, *var))
     })
 }

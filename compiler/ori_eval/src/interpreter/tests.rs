@@ -9,13 +9,13 @@ fn print_handler_integration_println() {
     let handler = buffer_handler();
 
     let interpreter = InterpreterBuilder::new(&interner, &arena)
-        .print_handler(handler.clone())
+        .print_handler(handler)
         .build();
 
     // Directly call the print handler
     interpreter.print_handler.println("hello world");
 
-    assert_eq!(interpreter.get_print_output(), "hello world\n");
+    assert_eq!(interpreter.print_output(), "hello world\n");
 }
 
 #[test]
@@ -25,13 +25,13 @@ fn print_handler_integration_print() {
     let handler = buffer_handler();
 
     let interpreter = InterpreterBuilder::new(&interner, &arena)
-        .print_handler(handler.clone())
+        .print_handler(handler)
         .build();
 
     interpreter.print_handler.print("hello");
     interpreter.print_handler.print(" world");
 
-    assert_eq!(interpreter.get_print_output(), "hello world");
+    assert_eq!(interpreter.print_output(), "hello world");
 }
 
 #[test]
@@ -41,14 +41,14 @@ fn print_handler_integration_clear() {
     let handler = buffer_handler();
 
     let interpreter = InterpreterBuilder::new(&interner, &arena)
-        .print_handler(handler.clone())
+        .print_handler(handler)
         .build();
 
     interpreter.print_handler.println("first");
     interpreter.clear_print_output();
     interpreter.print_handler.println("second");
 
-    assert_eq!(interpreter.get_print_output(), "second\n");
+    assert_eq!(interpreter.print_output(), "second\n");
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn default_handler_is_stdout() {
     let interpreter = InterpreterBuilder::new(&interner, &arena).build();
 
     // Default stdout handler doesn't capture, returns empty
-    assert_eq!(interpreter.get_print_output(), "");
+    assert_eq!(interpreter.print_output(), "");
 }
 
 #[test]
@@ -80,7 +80,7 @@ fn handler_shared_between_interpreters() {
     interpreter2.print_handler.println("from 2");
 
     // Both wrote to the same handler
-    let output = handler.get_output();
+    let output = handler.output();
     assert!(output.contains("from 1"));
     assert!(output.contains("from 2"));
 }
@@ -92,7 +92,7 @@ fn call_method_println_uses_handler() {
     let handler = buffer_handler();
 
     let mut interpreter = InterpreterBuilder::new(&interner, &arena)
-        .print_handler(handler.clone())
+        .print_handler(handler)
         .build();
 
     let println_name = interner.intern("println");
@@ -106,7 +106,7 @@ fn call_method_println_uses_handler() {
     );
 
     assert!(result.is_ok());
-    assert_eq!(interpreter.get_print_output(), "test message\n");
+    assert_eq!(interpreter.print_output(), "test message\n");
 }
 
 #[test]
@@ -116,7 +116,7 @@ fn call_method_print_uses_handler() {
     let handler = buffer_handler();
 
     let mut interpreter = InterpreterBuilder::new(&interner, &arena)
-        .print_handler(handler.clone())
+        .print_handler(handler)
         .build();
 
     let print_name = interner.intern("print");
@@ -130,7 +130,7 @@ fn call_method_print_uses_handler() {
     );
 
     assert!(result.is_ok());
-    assert_eq!(interpreter.get_print_output(), "no newline");
+    assert_eq!(interpreter.print_output(), "no newline");
 }
 
 #[test]
@@ -140,7 +140,7 @@ fn call_method_builtin_println_uses_handler() {
     let handler = buffer_handler();
 
     let mut interpreter = InterpreterBuilder::new(&interner, &arena)
-        .print_handler(handler.clone())
+        .print_handler(handler)
         .build();
 
     let builtin_println_name = interner.intern("__builtin_println");
@@ -154,7 +154,7 @@ fn call_method_builtin_println_uses_handler() {
     );
 
     assert!(result.is_ok());
-    assert_eq!(interpreter.get_print_output(), "builtin test\n");
+    assert_eq!(interpreter.print_output(), "builtin test\n");
 }
 
 /// Every `DerivedTrait` must produce a `DeriveStrategy` whose `struct_body`

@@ -1,0 +1,210 @@
+// Spec: 10-declarations.md §10.3.2 Default Associated Types, §10.6.6 Associated Type Disambiguation
+// Regression: associated-type projection `Self.Item` in a method-return
+// position was not resolved to the impl's concrete `type Item =` binding —
+// `resolve_type_with_overlay_inner` lacked a `ParsedType::AssociatedType`
+// arm and fell through to `Idx::ERROR` even when the impl's concrete
+// self_type was known. `b.get()` typed to `<error>` (PC-3/UN-4 poison
+// suppresses the frontend diagnostic); the interpreter passed via dynamic
+// dispatch while the AOT/LLVM backend failed with `missing mono instance`.
+
+use std.testing { assert, assert_eq }
+
+// Item-type x projection-position matrix
+//
+// Each cell exercises a `@get (self) -> Self.Item` method whose concrete
+// `type Item =` binding differs, projected through several return positions.
+// Pre-fix dispositions (empirically confirmed):
+//   interp (parity oracle): PASS
+//   LLVM:                    FAIL — `unresolved function ... missing mono instance`
+
+trait Container {
+    type Item
+    @get (self) -> Self.Item
+}
+
+// A derived-Eq+Debug struct used as an Item type.
+#[derive(Eq, Debug)]
+type Point = { x: int, y: int }
+
+// Item = int  (bare Self.Item return)
+type IntBox = { value: int }
+
+impl IntBox: Container {
+    type Item = int;
+    @get (self) -> Self.Item = self.value;
+}
+
+// Positive semantic pin: projected int flows into assert_eq<T: Eq+Debug>
+// (the production nested-generic-body trigger).
+@test_int_projection_assert_eq tests _ () -> void = {
+    let b = IntBox { value: 42 };
+    assert_eq(actual: b.get(), expected: 42)
+}
+
+// Positive pin: direct .debug() on the projected int result.
+@test_int_projection_debug tests _ () -> void = {
+    let b = IntBox { value: 7 };
+    assert_eq(actual: b.get().debug(), expected: "7")
+}
+
+// Item = str  (bare Self.Item return)
+type StrBox = { text: str }
+
+impl StrBox: Container {
+    type Item = str;
+    @get (self) -> Self.Item = self.text;
+}
+
+@test_str_projection_assert_eq tests _ () -> void = {
+    let b = StrBox { text: "hello" };
+    assert_eq(actual: b.get(), expected: "hello")
+}
+
+// Item = Point  (derived Eq+Debug struct, bare Self.Item return)
+type PointBox = { pt: Point }
+
+impl PointBox: Container {
+    type Item = Point;
+    @get (self) -> Self.Item = self.pt;
+}
+
+// Positive pin: projected struct through assert_eq (requires Eq on Item).
+@test_struct_projection_assert_eq tests _ () -> void = {
+    let b = PointBox { pt: Point { x: 1, y: 2 } };
+    assert_eq(actual: b.get(), expected: Point { x: 1, y: 2 })
+}
+
+// Positive pin: direct .debug() on the projected struct result.
+@test_struct_projection_debug tests _ () -> void = {
+    let b = PointBox { pt: Point { x: 3, y: 4 } };
+    assert_eq(actual: b.get().debug(), expected: "Point { x: 3, y: 4 }")
+}
+
+// Item = [int]  (generic-composite, bare Self.Item return)
+type ListBox = { items: [int] }
+
+impl ListBox: Container {
+    type Item = [int];
+    @get (self) -> Self.Item = self.items;
+}
+
+@test_list_projection_assert_eq tests _ () -> void = {
+    let b = ListBox { items: [1, 2, 3] };
+    assert_eq(actual: b.get(), expected: [1, 2, 3])
+}
+
+// Projection-position dimension: Option<Self.Item> return
+//
+// The projection appears inside a returned composite (Option) rather than
+// bare — exercises the resolver in a nested type-constructor position.
+
+trait OptContainer {
+    type Item
+    @maybe (self) -> Option<Self.Item>
+}
+
+type OptIntBox = { value: int }
+
+impl OptIntBox: OptContainer {
+    type Item = int;
+    @maybe (self) -> Option<Self.Item> = Some(self.value);
+}
+
+@test_option_projection_int tests _ () -> void = {
+    let b = OptIntBox { value: 99 };
+    let r = b.maybe();
+    assert(cond: r.is_some());
+    assert_eq(actual: r.unwrap(), expected: 99)
+}
+
+type OptStrBox = { text: str }
+
+impl OptStrBox: OptContainer {
+    type Item = str;
+    @maybe (self) -> Option<Self.Item> = Some(self.text);
+}
+
+@test_option_projection_str tests _ () -> void = {
+    let b = OptStrBox { text: "world" };
+    let r = b.maybe();
+    assert(cond: r.is_some());
+    assert_eq(actual: r.unwrap(), expected: "world")
+}
+
+// Trait-disambiguation dimension: one type implements TWO traits, each
+// declaring a same-named associated type `Item` bound to a DIFFERENT concrete
+// type. Each trait's `Self.Item` projection MUST resolve to that trait's own
+// binding, keyed on `(trait_idx, self_type, assoc_name)`. The pre-fix
+// trait-blind first-match resolver returns whichever impl registered first for
+// BOTH methods — so this cell is the clamp that distinguishes the trait-keyed
+// fix from the first-match alternative (the rest of the corpus uses
+// single-trait types where first-match coincides with trait-matched).
+
+trait Producer {
+    type Item
+    @produce (self) -> Self.Item
+}
+
+trait Labeler {
+    type Item
+    @label (self) -> Self.Item
+}
+
+type Dual = { n: int, tag: str }
+
+impl Dual: Producer {
+    type Item = int;
+    @produce (self) -> Self.Item = self.n;
+}
+
+impl Dual: Labeler {
+    type Item = str;
+    @label (self) -> Self.Item = self.tag;
+}
+
+@test_two_trait_disambig_int tests _ () -> void = {
+    let d = Dual { n: 5, tag: "hi" };
+    assert_eq(actual: d.produce(), expected: 5)
+}
+
+@test_two_trait_disambig_str tests _ () -> void = {
+    let d = Dual { n: 5, tag: "hi" };
+    assert_eq(actual: d.label(), expected: "hi")
+}
+
+// Negative clamp distinguishing the trait-keyed fix from a first-match
+// alternative AT THE TYPE LEVEL. `Labeler.Item = str`; `Producer.Item = int`,
+// and Producer registers first. The two positive `assert_eq` cells above pass
+// at RUNTIME even under a first-match resolver — so they do not, on their own,
+// pin trait-keyed resolution. This cell does: `label()` MUST type as `str`, so
+// annotating its result `int` is E2001 ONLY when `(trait_idx, self_type,
+// assoc_name)` keying selected Labeler's `str` binding. A revert to trait-blind
+// first-match makes `label()` type as `int`, the mismatch disappears, and this
+// compile-fail stops firing — the permanent guard against the first-match
+// alternative.
+#[compile_fail(code: "E2001", message: "type mismatch")]
+@test_two_trait_disambig_label_typed_int_rejected tests _ () -> void = {
+    let d = Dual { n: 5, tag: "hi" };
+    let bad: int = d.label();
+    let _ = bad;
+}
+
+// Negative pin (Q4 diagnostic — poison-suppressed false-green):
+//
+// A CONCRETE-receiver projection result flows into a position whose type is
+// fixed (a `str` binding). `get()` returns `int`, so this MUST be a type
+// mismatch (E2001). PRE-FIX `b.get()` types to `<error>` and PC-3/UN-4 poison
+// suppresses the diagnostic — `ori check` reports `OK 0 errors` (false green).
+// POST-FIX the projection resolves to `int` and the mismatch against `str`
+// is correctly reported.
+//
+// This cell currently FALSE-GREENS (compiler silently accepts). It is a real
+// negative pin the fix must satisfy: pre-fix it does NOT produce E2001
+// (confirmed: `ori check` reports OK), post-fix it must.
+
+#[compile_fail(code: "E2001", message: "type mismatch")]
+@test_concrete_projection_type_mismatch_rejected tests _ () -> void = {
+    let b = IntBox { value: 42 };
+    let x: str = b.get();
+    let _ = x;
+}

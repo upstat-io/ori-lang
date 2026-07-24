@@ -254,9 +254,11 @@ fn msvc_lib_arch() -> &'static str {
 pub(super) fn find_msvc_toolchain() -> Option<MsvcToolchain> {
     let (host_dir, target_dir) = msvc_host_target_dirs();
 
-    // 1. VCToolsInstallDir — set by VS Developer Command Prompt and ilammy/msvc-dev-cmd
-    if let Ok(vc_tools) = std::env::var("VCToolsInstallDir") {
-        let vc_dir = PathBuf::from(&vc_tools);
+    // 1. VCToolsInstallDir — set by VS Developer Command Prompt and ilammy/msvc-dev-cmd.
+    // var_os: absence is the normal case (Option, no swallowed error) and
+    // non-UTF-8 install paths still resolve.
+    if let Some(vc_tools) = std::env::var_os("VCToolsInstallDir") {
+        let vc_dir = PathBuf::from(vc_tools);
         let link = vc_dir
             .join("bin")
             .join(host_dir)

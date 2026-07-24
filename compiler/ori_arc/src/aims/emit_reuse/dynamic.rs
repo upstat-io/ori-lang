@@ -1,8 +1,9 @@
 //! Dynamic reuse emission (`MaybeShared` → `IsShared` + `Branch`).
 //!
-//! When a dying value has `MaybeShared` uniqueness, the runtime must check
-//! whether the reference count is 1 before reusing the allocation. This module
-//! emits the conditional branch expansion: `IsShared` check → fast path
+//! When a dying value has `MaybeShared` uniqueness, a physical projection must
+//! query whether its validated plan can satisfy the unique-owner case before
+//! reusing storage. This module emits the neutral conditional expansion:
+//! `IsShared` check → fast path
 //! (in-place `Set` mutations with self-set elimination) / slow path (`RcDec`
 //! + fresh `Construct`).
 
@@ -10,7 +11,8 @@ use ori_ir::Span;
 use ori_types::Idx;
 
 use crate::ir::{
-    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind, RcStrategy,
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind, RcAtomicity,
+    RcStrategy,
 };
 
 use super::set_ops::{build_proj_map, is_self_set, ProjMap};
@@ -172,7 +174,6 @@ pub(super) fn apply_dynamic_reuse(func: &mut ArcFunction, opp: &ReuseOpportunity
 
     rewrite_original_block(func, opp, &ctx);
 
-    // Substitute dst → merge_param in existing blocks (before push).
     if let Some(mb) = &merge_block {
         let merge_param = mb.params[0].0;
         for block in &mut func.blocks {
@@ -207,9 +208,9 @@ fn build_dynamic_blocks(
         None
     };
 
-    // Merge block (built first — needs `func.fresh_var`).
+    // Merge block (built first — needs a metadata-preserving fresh value).
     let merge_block = merge_id.map(|mid| {
-        let merge_param = func.fresh_var(ctx.ty);
+        let merge_param = func.fresh_var_like_typed(ctx.dst, ctx.ty);
         let mut merge_body: Vec<ArcInstr> = ctx.suffix.clone();
         for instr in &mut merge_body {
             instr.substitute_var(ctx.dst, merge_param);
@@ -247,6 +248,7 @@ fn build_dynamic_blocks(
         ArcInstr::RcDec {
             var: opp.source_var,
             strategy: ctx.rc_strategy,
+            atomicity: RcAtomicity::default_atomic(),
         },
         ArcInstr::Construct {
             dst: ctx.dst,
@@ -290,7 +292,7 @@ fn rewrite_original_block(
     let fast_id = ArcBlockId::new(num_blocks as u32);
     let slow_id = ArcBlockId::new(fast_id.raw() + 1);
 
-    let is_shared_var = func.fresh_var(Idx::BOOL);
+    let is_shared_var = func.fresh_scalar_var(Idx::BOOL);
     let prefix = func.blocks[block_idx].body[..opp.source_instr].to_vec();
     let mut new_body = Vec::with_capacity(prefix.len() + ctx.between.len() + 1);
     new_body.extend(prefix);
@@ -306,7 +308,6 @@ fn rewrite_original_block(
         else_block: fast_id,
     };
 
-    // Update spans.
     if block_idx < func.spans.len() {
         let old_spans = &func.spans[block_idx];
         let prefix_end = opp.source_instr.min(old_spans.len());

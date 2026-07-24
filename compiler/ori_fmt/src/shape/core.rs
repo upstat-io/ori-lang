@@ -11,7 +11,10 @@ use crate::context::FormatConfig;
 ///
 /// # Usage Pattern
 ///
-/// ```ignore
+/// ```
+/// use ori_fmt::{FormatConfig, Shape};
+///
+/// let config = FormatConfig::default();
 /// let shape = Shape::from_config(&config);
 ///
 /// // Consume characters as we emit them
@@ -20,12 +23,8 @@ use crate::context::FormatConfig;
 /// // Indent for nested block
 /// let body_shape = shape.indent(config.indent_size);
 ///
-/// // Check if content fits
-/// if shape.fits(expr_width) {
-///     // Render inline
-/// } else {
-///     // Render broken
-/// }
+/// assert!(body_shape.fits(20));
+/// assert_eq!(body_shape.indent, config.indent_size);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Shape {
@@ -60,7 +59,9 @@ impl Shape {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// use ori_fmt::Shape;
+    ///
     /// let shape = Shape::new(100);
     /// // After emitting "let x = " (8 chars):
     /// let shape = shape.consume(8);
@@ -81,7 +82,9 @@ impl Shape {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// use ori_fmt::Shape;
+    ///
     /// let shape = Shape::new(100);
     /// let indented = shape.indent(4);
     /// assert_eq!(indented.indent, 4);
@@ -148,7 +151,7 @@ impl Shape {
 
     // Nested construct handling
 
-    /// Create shape for nested construct (Spec lines 93-95).
+    /// Create shape for nested construct (Spec: Annex D §Independent Breaking).
     ///
     /// "Nested constructs break independently based on their own width"
     ///
@@ -158,7 +161,7 @@ impl Shape {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```text
     /// // Even though outer is broken, inner call fits:
     /// let result = run(
     ///     process(items.map(x -> x * 2)),  // This fits, stays inline
@@ -201,7 +204,7 @@ impl Shape {
     /// Add visual offset without consuming width (for alignment).
     ///
     /// Used when content is placed at a specific column for alignment
-    /// but we haven't emitted characters to get there.
+    /// without emitting characters to reach it.
     #[inline]
     #[must_use = "with_offset returns a new Shape with the given offset"]
     pub fn with_offset(self, offset: usize) -> Self {

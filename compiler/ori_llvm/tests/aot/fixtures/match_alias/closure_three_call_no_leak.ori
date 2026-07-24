@@ -1,0 +1,21 @@
+// Three-call generalization edge case.
+// Closure captures Result<int, str>::Err(string) and is invoked THREE
+// times via ApplyIndirect in the same block. Generalizes the closure_env_alias
+// two-call shape — the spurious RcInc bug compounds with each additional
+// call. Pre-fix: leak. Post-fix: zero leaks.
+@main () -> int = {
+    let captured: Result<int, str> = Err("three_call_heap_string");
+    let lookup = () -> {
+        match captured {
+            Err(e) -> e,
+            Ok(_) -> panic(msg: "should be Err"),
+        }
+    };
+    let first = lookup();
+    let second = lookup();
+    let third = lookup();
+    let h1 = first.contains(substr: "three");
+    let h2 = second.contains(substr: "call");
+    let h3 = third.contains(substr: "heap");
+    if h1 && h2 && h3 then 0 else 1
+}

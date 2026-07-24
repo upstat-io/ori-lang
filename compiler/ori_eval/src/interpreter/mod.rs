@@ -1,50 +1,13 @@
-//! Tree-walking interpreter for Ori.
+//! Portable tree-walking evaluation of canonical Ori IR.
 //!
-//! This is the portable interpreter that can run in both native and WASM contexts.
-//! For the full Salsa-integrated evaluator, see `oric::Evaluator`.
+//! # Evaluation contract
 //!
-//! # Specification
-//!
-//! - Eval rules: `docs/ori_lang/v2026/spec/operator-rules.md`
-//! - Prose: `docs/ori_lang/v2026/spec/09-expressions.md`
-//!
-//! Implementation must match the evaluation rules in operator-rules.md.
-//!
-//! # Architecture
-//!
-//! All evaluation goes through `eval_can(CanId)` in `can_eval.rs`. The canonical
-//! IR (`CanExpr`) is the sole evaluation representation. Helper modules in
-//! `crate::exec` provide shared utilities:
-//!
-//! - `exec::expr` - Identifiers, indexing, field access, ranges
-//! - `exec::call` - Function calls, argument binding
-//! - `exec::control` - Pattern matching, loop actions, assignment
-//! - `exec::decision_tree` - Decision tree evaluation for multi-clause functions
-//!
-//! # Arena Threading Pattern
-//!
-//! Functions and methods in Ori carry their own expression arena (`SharedArena`)
-//! for thread safety. When evaluating a function or method call, we must use the
-//! callee's arena rather than the caller's, because:
-//!
-//! 1. **Thread Safety**: In parallel evaluation, different threads may evaluate
-//!    different functions simultaneously. Each function's arena contains only its
-//!    own expression nodes, avoiding shared mutable state.
-//!
-//! 2. **Expression IDs**: Each `ExprId` is valid only within its originating arena.
-//!    A function's body expression ID references nodes in that function's arena.
-//!
-//! 3. **Lambda Capture**: When a lambda is created, it captures a reference to the
-//!    current arena (via `imported_arena`). When the lambda is later called, we use
-//!    that captured arena to evaluate its body.
-//!
-//! The pattern appears in three places:
-//! - `function_call.rs`: Regular function calls
-//! - `method_dispatch.rs`: User-defined method calls
-//! - Lambda evaluation inherits from the arena captured at creation time
-//!
-//! Use `create_function_interpreter()` to correctly set up evaluation context
-//! with the callee's arena.
+//! [`Interpreter::eval_can`] is the sole expression evaluator and follows the
+//! operator and expression rules in the language specification. Function and
+//! method calls create a child interpreter over the callee's `SharedArena`;
+//! expression IDs are arena-local. Lambdas likewise evaluate against the arena
+//! captured at creation. These constraints preserve correctness under parallel
+//! native or WASM evaluation.
 
 mod builder;
 mod can_eval;
@@ -71,17 +34,16 @@ use crate::errors::no_member_in_module;
 use crate::eval_mode::{EvalMode, ModeState};
 use crate::print_handler::SharedPrintHandler;
 use crate::{Environment, Mutability, SharedMutableRegistry, UserMethodRegistry, Value};
-use ori_ir::canon::SharedCanonResult;
+use ori_ir::canon::{GenericConstValue, MonoConstBinding, SharedCanonResult};
 use ori_ir::{ExprArena, ExprId, Name, SharedArena, StringInterner};
 use ori_patterns::{
     recursion_limit_exceeded, ControlAction, EvalError, EvalResult, PatternExecutor,
 };
 
-pub(crate) use interned_names::{FormatNames, OpNames, PrintNames, PropNames, TypeNames};
+pub(crate) use interned_names::{OpNames, PrintNames, PropNames, TypeNames};
 
 /// Whether this interpreter owns a scoped environment that should be popped on drop.
 ///
-/// Replaces a bare `bool` flag for self-documenting intent at construction sites.
 /// - `Borrowed`: No scope cleanup on drop (default for top-level interpreters).
 /// - `Owned`: Pop the environment scope on drop (for function/method call interpreters).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,7 +64,8 @@ pub(crate) enum ScopeOwnership {
 /// The interpreter's behavior is parameterized by `EvalMode`:
 /// - `Interpret` — full I/O for `ori run`
 /// - `ConstEval` — budget-limited, no I/O, deterministic
-/// - `TestRun` — captures output, collects test results
+/// - `TestRun` — collects test results (output capture is the caller's
+///   print-handler choice, not the mode's)
 #[expect(
     clippy::disallowed_types,
     reason = "Arc<String> for source metadata shared across children"
@@ -125,8 +88,6 @@ pub struct Interpreter<'a> {
     pub(crate) prop_names: PropNames,
     /// Pre-interned operator trait method names for user-defined operator dispatch.
     pub(crate) op_names: OpNames,
-    /// Pre-interned format-related names for `FormatSpec` value construction.
-    pub(crate) format_names: FormatNames,
     /// Pre-interned builtin method names for `Name`-based dispatch.
     /// Avoids de-interning in `dispatch_builtin_method` on every call.
     pub(crate) builtin_method_names: crate::methods::BuiltinMethodNames,
@@ -139,7 +100,6 @@ pub struct Interpreter<'a> {
     pub(crate) mode_state: ModeState,
     /// Live call stack for recursion tracking and backtrace capture.
     ///
-    /// Replaces the old `call_depth: usize` with proper frame tracking.
     /// Depth is checked on `push()` against `mode.max_recursion_depth()`.
     /// On error, `capture()` produces an `EvalBacktrace` for diagnostics.
     pub(crate) call_stack: crate::diagnostics::CallStack,
@@ -166,15 +126,13 @@ pub struct Interpreter<'a> {
     pub(crate) imported_arena: SharedArena,
     /// Print handler for the Print capability.
     ///
-    /// Determined by evaluation mode:
-    /// - `Interpret`: stdout (default)
-    /// - `TestRun`: buffer for capture
-    /// - `ConstEval`: silent (discards output)
+    /// Defaults to stdout; callers override via
+    /// `InterpreterBuilder::print_handler` (buffer for capture, silent to
+    /// discard).
     pub(crate) print_handler: SharedPrintHandler,
     /// Scope ownership for RAII-style panic-safe scope cleanup.
     ///
-    /// When `Owned`, the interpreter was created for a function/method call
-    /// via `create_function_interpreter` and will pop its environment scope on drop.
+    /// An `Owned` interpreter pops its function-call environment scope on drop.
     pub(crate) scope_ownership: ScopeOwnership,
     /// Source file path for Traceable trait trace entries.
     ///
@@ -194,6 +152,20 @@ pub struct Interpreter<'a> {
     pub(crate) canon: Option<SharedCanonResult>,
 }
 
+// Registries, dispatchers, and output handlers intentionally remain opaque:
+// their shared interior state does not implement `Debug`. Report only stable
+// interpreter coordinates instead of inventing debug output for those owners.
+impl std::fmt::Debug for Interpreter<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Interpreter")
+            .field("self_name", &self.self_name)
+            .field("has_canon", &self.canon.is_some())
+            .field("has_source_path", &self.source_file_path.is_some())
+            .field("has_source_text", &self.source_text.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 /// RAII Drop implementation for panic-safe scope cleanup.
 ///
 /// When `scope_ownership` is `Owned`, this interpreter was created for a function/method
@@ -207,30 +179,15 @@ impl Drop for Interpreter<'_> {
     }
 }
 
-/// Implement `PatternExecutor` for Interpreter.
+/// `PatternExecutor` impl: lets patterns request function calls and variable
+/// operations without direct access to the interpreter's internals.
 ///
-/// This allows patterns to request function calls and variable operations
-/// without needing direct access to the interpreter's internals.
-///
-/// Note: `eval(ExprId)` is no longer supported — all evaluation goes through
-/// `eval_can(CanId)`. The trait method returns an error if called. All
-/// `FunctionExpKind` variants (Print, Panic, Catch, Recurse, Cache, Parallel,
-/// Spawn, Timeout, With) are now dispatched inline in `can_eval.rs`, so the
-/// `ori_patterns` execute functions (`fusion.rs`, `parallel.rs`, `spawn.rs`,
-/// `with_pattern.rs`, `recurse.rs`) are never reached through this Interpreter.
-///
-/// The trait now uses `Name` directly, so the impl is a zero-cost pass-through
-/// with no redundant interning.
+/// Evaluation goes through `eval_can(CanId)`; `eval(ExprId)` is unsupported and
+/// returns an error. `FunctionExpKind` variants dispatch inline in `can_eval`,
+/// so the `ori_patterns` execute functions are never reached through this impl.
 impl PatternExecutor for Interpreter<'_> {
-    /// Dead code path — returns an error unconditionally.
-    ///
-    /// This method is required by the `PatternExecutor` trait but is never called
-    /// in practice. The `ori_eval` Interpreter evaluates all expressions through
-    /// `eval_can(CanId)` (canonical IR), not `eval(ExprId)` (raw AST). All
-    /// `FunctionExpKind` patterns are dispatched inline in `can_eval.rs`.
-    ///
-    /// **Removal:** Once `ori_patterns` consumers migrate to canonical IR,
-    /// `PatternExecutor::eval(ExprId)` can be removed from the trait (cross-crate).
+    /// Required by the trait but never called — evaluation routes through
+    /// `eval_can(CanId)` (canonical IR), not `eval(ExprId)` (raw AST).
     fn eval(&mut self, _expr_id: ExprId) -> EvalResult {
         Err(EvalError::new(
             "legacy PatternExecutor::eval(ExprId) is not supported — use eval_can(CanId)"
@@ -276,12 +233,11 @@ impl<'a> Interpreter<'a> {
     /// Check if the current call depth exceeds the recursion limit.
     ///
     /// Depth is tracked via `call_stack.depth()`. Frame names for backtraces
-    /// are populated by `create_function_interpreter()` (placeholder names
-    /// for now; proper function names in Section 07 with `CanExpr` context).
+    /// come from `create_function_interpreter()`'s `call_name` argument — the
+    /// real method name, or `self` as a placeholder for a direct `eval_call`.
     ///
     /// The limit is determined by `EvalMode::max_recursion_depth()`:
-    /// - `Interpret` (native): `None` — stacker grows the stack dynamically
-    /// - `Interpret` (WASM): `Some(200)` — fixed stack
+    /// - `Interpret`: `None` on native (stacker grows the stack), `Some(200)` on WASM
     /// - `ConstEval`: `Some(64)` — tight budget
     /// - `TestRun`: `Some(500)` — generous but bounded
     #[inline]
@@ -337,19 +293,21 @@ impl<'a> Interpreter<'a> {
     ///
     /// For module namespaces, looks up the function and calls it directly.
     /// For other receivers, uses `eval_method_call`.
-    fn dispatch_method_call(
+    /// Dispatch one exact monomorphic method call with its solved const env.
+    fn dispatch_method_call_with_const_bindings(
         &mut self,
         receiver: Value,
         method: Name,
         args: Vec<Value>,
+        const_bindings: &[MonoConstBinding],
     ) -> EvalResult {
         if let Value::ModuleNamespace(ns) = &receiver {
             let func = ns
                 .get(&method)
                 .ok_or_else(|| no_member_in_module(self.interner.lookup(method)))?;
-            self.eval_call(func, &args)
+            self.eval_call_with_const_bindings(func, &args, const_bindings)
         } else {
-            self.eval_method_call(receiver, method, args)
+            self.eval_method_call_with_const_bindings(receiver, method, args, const_bindings)
         }
     }
 
@@ -419,7 +377,7 @@ impl<'a> Interpreter<'a> {
         // so this push cannot fail (depth < max at the check point).
         let mut child_stack = self.call_stack.clone();
         // Invariant: check_recursion_limit() passed, so depth < max_depth.
-        // push() cannot fail here.
+        // The push cannot fail after the recursion-limit check.
         #[expect(
             clippy::expect_used,
             reason = "Invariant: check_recursion_limit already passed"
@@ -440,7 +398,6 @@ impl<'a> Interpreter<'a> {
             print_names: self.print_names,
             prop_names: self.prop_names,
             op_names: self.op_names,
-            format_names: self.format_names,
             builtin_method_names: self.builtin_method_names,
             source_file_path: self.source_file_path.clone(),
             source_text: self.source_text.clone(),
@@ -462,13 +419,22 @@ impl<'a> Interpreter<'a> {
     /// Returns all output written via print/println since the last clear.
     /// For stdout handler, this returns an empty string (stdout doesn't capture).
     /// For buffer handler, this returns the accumulated output.
-    pub fn get_print_output(&self) -> String {
-        self.print_handler.get_output()
+    pub fn print_output(&self) -> String {
+        self.print_handler.output()
     }
 
     /// Clear captured print output.
     pub fn clear_print_output(&self) {
         self.print_handler.clear();
+    }
+}
+
+/// Convert the deliberately narrow generic-const domain to an evaluator value.
+#[inline]
+pub(super) fn mono_const_value_to_value(value: &GenericConstValue) -> Value {
+    match value {
+        GenericConstValue::Int(value) => Value::int(*value),
+        GenericConstValue::Bool(value) => Value::Bool(*value),
     }
 }
 

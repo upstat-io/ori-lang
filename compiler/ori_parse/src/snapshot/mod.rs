@@ -5,6 +5,9 @@
 //! - Examine the result
 //! - Decide whether to keep or discard it
 //!
+//! The snippets below are schematic parser-internal fragments, not standalone
+//! Rust programs.
+//!
 //! # When to Use Each Approach
 //!
 //! ## Simple Lookahead (prefer when possible)
@@ -14,7 +17,7 @@
 //! - The decision is based on token kinds, not parse success
 //! - No complex context switching is needed
 //!
-//! ```ignore
+//! ```text
 //! // Good: Simple 1-2 token lookahead
 //! fn is_typed_lambda_params(&self) -> bool {
 //!     self.check_ident() && self.next_is_colon()
@@ -28,7 +31,7 @@
 //! - The lookahead involves skipping newlines or complex token patterns
 //! - You want to run a predicate that consumes tokens but shouldn't affect state
 //!
-//! ```ignore
+//! ```text
 //! // Good: Complex multi-token lookahead
 //! let is_with_capability = self.look_ahead(|p| {
 //!     p.cursor.check(&TokenKind::With)
@@ -46,7 +49,7 @@
 //! - The decision requires evaluating parse success, not just tokens
 //! - You want automatic restoration on failure
 //!
-//! ```ignore
+//! ```text
 //! // Good: Try full parse, fall back on failure
 //! if let Some(ty) = self.try_parse(|p| p.parse_type()) {
 //!     // Type parsed successfully
@@ -62,7 +65,7 @@
 //! - You want to examine the parse result before deciding
 //! - You need to handle multiple alternative restorations
 //!
-//! ```ignore
+//! ```text
 //! // Good: Manual snapshot for complex decision
 //! let snapshot = self.snapshot();
 //! match self.parse_complex_syntax() {

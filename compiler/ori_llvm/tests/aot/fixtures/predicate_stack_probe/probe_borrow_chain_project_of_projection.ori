@@ -1,0 +1,11 @@
+type Inner = { tag: str }
+type Outer = { inner: Inner, count: int }
+
+@read_tag (o: Outer) -> str = o.inner.tag;
+
+@main () -> int = {
+    let o = Outer { inner: Inner { tag: "nested" }, count: 7 };
+    let t = read_tag(o: o);
+    print(msg: t);
+    0
+}

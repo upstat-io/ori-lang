@@ -34,7 +34,7 @@ use super::state_map::{AimsEvent, AimsStateMap};
 /// Also records `AllocCreditBalance` events at Switch terminators for per-branch
 /// FIP checking (`FIPTree` DMATCH! rule).
 ///
-/// Section 09.2 Effect Activation.
+/// Effect Activation.
 pub(crate) fn populate_fip_balance(state_map: &mut AimsStateMap, func: &ArcFunction) {
     let construct_count = count_reusable_constructs(state_map, func);
     let consumed_count = count_consumed_params(state_map, func);
@@ -139,11 +139,9 @@ pub(crate) fn compute_requires_unique_params(
         .collect()
 }
 
-/// Record per-branch allocation credit balance at Switch terminators.
+/// Records allocation credit balance for each `Switch` successor.
 ///
-/// For each Switch successor, computes the per-block allocation vs death count
-/// and records an `AllocCreditBalance` event. FIP certification requires each
-/// branch to independently maintain non-negative credit balance (`FIPTree` DMATCH! rule).
+/// FIP certification requires every branch to maintain non-negative credit.
 fn record_per_branch_balance(state_map: &mut AimsStateMap, func: &ArcFunction) {
     for (block_idx, block) in func.blocks.iter().enumerate() {
         let ArcTerminator::Switch { cases, default, .. } = &block.terminator else {
@@ -205,7 +203,34 @@ fn compute_block_fip_balance(
                 exit_state.consumption,
                 Consumption::Dead | Consumption::Unrestricted
             );
-            if is_consumed && matches!(exit_state.shape, ShapeClass::ReusableCtor(_)) {
+            // read shape via the per-variable side table
+            // (`var_shape`) instead of `exit_state.shape`. For forward-
+            // defined Apply/Invoke results, the lattice gives BOTTOM=
+            // NonReusable; the contract-derived shape lives in
+            // `var_shapes`, populated by `populate_call_result_states`
+            // / `populate_var_shapes`. For shape, BOTTOM coincides with
+            // CONSERVATIVE so no `effective_*` helper is needed —
+            // `var_shape` is already presence-aware.
+            if is_consumed && matches!(state_map.var_shape(dst), ShapeClass::ReusableCtor(_)) {
+                deaths = deaths.saturating_add(1);
+            }
+        }
+    }
+
+    // The body loop above does not visit `block.terminator`. Invoke is the
+    // only terminator that defines a `dst` variable, and
+    // `populate_call_result_states` can write `ReusableCtor(_)` to
+    // `var_shapes` for an Invoke result when the callee's `return_info.shape`
+    // narrows it; skipping the terminator visit would omit consumed reusable
+    // Invoke results from the deaths count, miscounting FIP balance.
+    if let ArcTerminator::Invoke { dst, .. } = &block.terminator {
+        if !state_map.is_excluded(*dst) {
+            let exit_state = state_map.var_state_at_block_exit(block_id, *dst);
+            let is_consumed = matches!(
+                exit_state.consumption,
+                Consumption::Dead | Consumption::Unrestricted
+            );
+            if is_consumed && matches!(state_map.var_shape(*dst), ShapeClass::ReusableCtor(_)) {
                 deaths = deaths.saturating_add(1);
             }
         }
@@ -222,7 +247,7 @@ fn compute_block_fip_balance(
 /// by replaying the backward walk within each block (same technique as
 /// emission passes). Records events in the sparse event table.
 ///
-/// Section 09.2: sparse event table records FIP gates.
+/// Sparse event table records FIP gates.
 pub(crate) fn populate_fip_gate_events(
     state_map: &mut AimsStateMap,
     func: &ArcFunction,
@@ -261,6 +286,11 @@ pub(crate) fn populate_fip_gate_events(
             // per-instruction state would require replay, but entry state
             // is sufficient — uniqueness can only widen from entry to the
             // instruction point).
+            //
+            // read uniqueness via `effective_uniqueness_at_block_entry`
+            // so prior-Apply-result args read contract-narrowed MaybeShared
+            // (instead of lattice BOTTOM=Unique) and FIP gates correctly
+            // decline to fire on may-be-shared call results.
             let all_unique =
                 args.iter()
                     .zip(requires_unique_params.iter())
@@ -268,8 +298,8 @@ pub(crate) fn populate_fip_gate_events(
                         if !required {
                             return true;
                         }
-                        let state = state_map.var_state_at_block_entry(blk, *arg);
-                        state.uniqueness == Uniqueness::Unique
+                        state_map.effective_uniqueness_at_block_entry(blk, *arg)
+                            == Uniqueness::Unique
                     });
 
             if all_unique {
@@ -277,6 +307,44 @@ pub(crate) fn populate_fip_gate_events(
                     block: blk,
                     instr: instr_idx,
                 });
+            }
+        }
+
+        //
+        // the body loop above only matches `ArcInstr::Apply`. Invoke
+        // terminators with `FipContract::Conditional` and Unique args
+        // also need FipGate events recorded; the body-only walk skips
+        // them. Symmetric to populate_sparse_events' Invoke-terminator
+        // walk and populate_call_result_states' body+terminator coverage.
+        if let ArcTerminator::Invoke {
+            func: callee_name,
+            args,
+            ..
+        } = &block.terminator
+        {
+            if let Some(contract) = sigs.get(callee_name) {
+                if let FipContract::Conditional {
+                    requires_unique_params,
+                } = &contract.fip
+                {
+                    let all_unique =
+                        args.iter()
+                            .zip(requires_unique_params.iter())
+                            .all(|(arg, &required)| {
+                                if !required {
+                                    return true;
+                                }
+                                state_map.effective_uniqueness_at_block_entry(blk, *arg)
+                                    == Uniqueness::Unique
+                            });
+                    if all_unique {
+                        state_map.record_event(AimsEvent::FipGate {
+                            block: blk,
+                            // Terminator notional instr_idx = body length.
+                            instr: block.body.len(),
+                        });
+                    }
+                }
             }
         }
     }

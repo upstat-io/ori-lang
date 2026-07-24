@@ -644,3 +644,59 @@ fn unresolved_generic_newtype_is_unknown() {
     // No resolution set — simulates unresolved generic parameter.
     assert_eq!(classify_triviality(wrapper, &pool), Triviality::Unknown);
 }
+
+// aggregate_type_is_recursive — distinguishes heap-boxed recursive aggregates
+// (self-referential → self-allocating per node) from inline non-recursive ones.
+
+#[test]
+fn recursive_enum_aggregate_is_recursive() {
+    // Simulate: type List = Nil | Cons(head: int, tail: List)
+    // Cons's `tail` payload reaches the enum itself → recursive (heap-boxed).
+    let mut pool = Pool::new();
+    let list_name = Name::from_raw(2300);
+    let list_named = pool.named(list_name);
+    let nil = EnumVariant {
+        name: Name::from_raw(2301),
+        field_types: vec![],
+    };
+    let cons = EnumVariant {
+        name: Name::from_raw(2302),
+        field_types: vec![Idx::INT, list_named],
+    };
+    let list_enum = pool.enum_type(list_name, &[nil, cons]);
+    pool.set_resolution(list_named, list_enum);
+
+    assert!(
+        pool.aggregate_type_is_recursive(list_named),
+        "a self-referential enum (Cons reaches List) must be recursive"
+    );
+    assert!(
+        pool.aggregate_type_is_recursive(list_enum),
+        "recursion holds whether queried via the Named ref or the resolved Enum"
+    );
+}
+
+#[test]
+fn inline_struct_with_heap_field_is_not_recursive() {
+    // Simulate: type Doc = { content: str } — a heap-bearing but NON-recursive
+    // inline struct. is_burden_carrying_aggregate would be true (NonTrivial), but
+    // it does NOT self-allocate, so aggregate_type_is_recursive is false.
+    let mut pool = Pool::new();
+    let doc_name = Name::from_raw(2400);
+    let doc = pool.struct_type(doc_name, &[(Name::from_raw(2401), Idx::STR)]);
+    assert!(
+        !pool.aggregate_type_is_recursive(doc),
+        "a non-recursive inline struct (Doc holds str, no self-reference) is not recursive"
+    );
+    // A scalar-only struct is likewise non-recursive.
+    let p = pool.struct_type(
+        Name::from_raw(2402),
+        &[
+            (Name::from_raw(2403), Idx::INT),
+            (Name::from_raw(2404), Idx::INT),
+        ],
+    );
+    assert!(!pool.aggregate_type_is_recursive(p));
+    // A plain primitive is not an aggregate → not recursive.
+    assert!(!pool.aggregate_type_is_recursive(Idx::INT));
+}

@@ -1,0 +1,43 @@
+Theorem RL-14: Locality freezes a backend-neutral LifetimeBound
+
+  Preconditions:
+    - RL-14 consumes the converged Locality lattice value.
+    - AIMS freezes a logical lifetime bound and allocation-site identity.
+    - Extent and all physical mechanisms remain outside AllocationFacts.
+
+  Soundness property:
+    Forall allocation site s, block id b, and Locality L:
+
+      (P1) lifetimeFromLocality(BlockLocal, b) = LifetimeBound.block(b).
+
+      (P2) lifetimeFromLocality(FunctionLocal, b) = LifetimeBound.function.
+
+      (P3) lifetimeFromLocality(HeapEscaping, b) = LifetimeBound.escaping.
+
+      (P4) lifetimeFromLocality(Unknown, b) = LifetimeBound.unknown.
+
+    The result constrains admissible physical lifetimes without selecting a
+    VM or compiled placement mechanism.
+
+  Proof obligation:
+    Constructive discharge by the case_analysis engine over all Locality
+    variants. The negative direction rejects any Unknown input mapped to a
+    shorter or more precise lifetime.
+
+    Part (P1/P2/P3/P4) - lifetime grid:
+      block_lifetime -> block(b)
+      function_lifetime -> function
+      caller_extent_lifetime -> callerExtent(exact uses)
+      escaping_lifetime -> escaping
+      unknown_lifetime -> unknown
+      Coverage gate: 5 lifetime cases.
+
+    Engines dispatched:
+      case_analysis (PRIMARY - section_08::verify_rl14_lifetime_facts;
+        Locality-to-LifetimeBound derivation)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL row)
+      refinement (SECONDARY - gracious-accept per the coverage-manifest RL row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-14 by deriving block, function, exact caller, escaping, and conservative unknown LifetimeBound facts without selecting physical storage

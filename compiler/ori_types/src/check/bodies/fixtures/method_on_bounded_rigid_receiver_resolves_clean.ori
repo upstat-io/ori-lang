@@ -1,0 +1,2 @@
+trait Greet { @hello (self) -> str }
+@f<T: Greet> (x: T) -> str = x.hello();

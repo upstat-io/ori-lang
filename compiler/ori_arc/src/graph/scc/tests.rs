@@ -45,6 +45,7 @@ fn calls(name: Name, callee: Name) -> crate::ir::ArcFunction {
                 func: callee,
                 args: vec![v(0)],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -65,6 +66,7 @@ fn calls_many(name: Name, callees: &[Name]) -> crate::ir::ArcFunction {
             func: *callee,
             args: vec![prev],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         });
     }
     #[expect(clippy::cast_possible_truncation, reason = "test code, small values")]

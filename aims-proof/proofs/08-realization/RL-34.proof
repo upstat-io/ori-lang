@@ -1,0 +1,23 @@
+Theorem RL-34: pre-tail-call ownership handoff or release
+
+  Preconditions:
+    - The callee parameter Access is Owned or Borrowed.
+
+  Soundness property:
+    Owned -> HandoffBeforeTail.
+    Borrowed -> ReleaseBeforeTail.
+    No logical release follows the tail call. A projection may realize the
+    action by any mechanism that preserves evaluator behavior and TCO.
+
+  Proof obligation:
+    Enumerate both Access cases. Coverage gate: 2 actions.
+    Negative-direction witness: a post-tail-call release is rejected.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl34_tail_call_preservation)
+      rc_counting (SECONDARY — gracious-accept)
+      refinement (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: RL-34 freezes handoff-before-tail for Owned and release-before-tail for Borrowed, never a post-call release

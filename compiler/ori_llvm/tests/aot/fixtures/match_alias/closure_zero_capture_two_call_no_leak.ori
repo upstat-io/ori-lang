@@ -1,0 +1,11 @@
+// Zero-capture closure called twice.
+// Closure with empty capture set called twice via ApplyIndirect. No
+// captured RC value to corrupt; the closure environment itself may still
+// leak under the spurious-RcInc bug. Pre-fix: closure env may leak.
+// Post-fix: zero leaks.
+@main () -> int = {
+    let lookup = () -> 42;
+    let first = lookup();
+    let second = lookup();
+    if first == 42 && second == 42 then 0 else 1
+}

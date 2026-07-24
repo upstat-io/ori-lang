@@ -1,0 +1,10 @@
+// take() truncation over adapter-produced elements: the untaken fresh element
+// must not leak and the taken ones must be freed exactly once by join.
+@main () -> void = {
+    let $joined = ["theta-theta-theta-theta-theta", "iota-iota-iota-iota-iota-iota", "kappa-kappa-kappa-kappa-kappa"]
+        .iter()
+        .map(transform: (s: str) -> str = s + "-suffix-suffix-suffix-suffix")
+        .take(count: 2)
+        .join(separator: ",");
+    print(msg: joined)
+}

@@ -12,6 +12,7 @@ fn test_duration_constants() {
 #[test]
 fn test_size_constants() {
     // SI units: powers of 1000
+    assert_eq!(size::MAX_BYTES, 9_223_372_036_854_775_807);
     assert_eq!(size::BYTES_PER_KB, 1_000);
     assert_eq!(size::BYTES_PER_MB, 1_000_000);
     assert_eq!(size::BYTES_PER_GB, 1_000_000_000);

@@ -1,0 +1,11 @@
+// Cross-module capability-provider specialization fixture.
+
+pub trait ImportedCounter {
+    @increment (self) -> int
+}
+
+pub @imported_increment () -> int uses ImportedCounter =
+    ImportedCounter.increment();
+
+pub @imported_forward () -> int uses ImportedCounter =
+    imported_increment();

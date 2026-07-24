@@ -1,0 +1,15 @@
+// Apply-alias Conditional shape (multi-param path-conditional alias: the
+// callee returns one of two Owned params based on a runtime condition) over
+// str elements. Caller `chosen = select(...)`: every candidate (a, b) is an
+// Owned arg whose ownership transfers at the Apply. Runs under
+// ORI_CHECK_LEAKS — exit 0 + zero leaks == every candidate's burden coverage
+// holds (the un-chosen candidate is released, the chosen one survives).
+
+@select<T> (pick_first: bool, a: T, b: T) -> T = if pick_first then a else b;
+
+@main () -> int = {
+    let x = "first choice";
+    let y = "second";
+    let chosen = select(pick_first: true, a: x, b: y);
+    if chosen.len() == 12 then 0 else 1
+}

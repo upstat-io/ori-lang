@@ -1,0 +1,23 @@
+// Genuine duplication from a transfers-through-return param: the alias `a`
+// is consumed at an owned Construct position (stored into Holder) while `w`
+// stays live (borrow-read after the store) and returns on BOTH arms. The
+// store creates a real second reference, so the duplication inc is
+// load-bearing; eliding it while keeping the paired dec over-releases the
+// allocation (double-free). The pair is atomic: kept together or removed
+// together, never split.
+type Wrapper = { items: [int] };
+type Holder = { kept: Wrapper };
+
+@stash_and_return (w: Wrapper) -> Wrapper = {
+    let a = w;
+    let h = Holder { kept: a };
+    let $n = h.kept.items.len() + w.items.len();
+
+    if n > 0 then w else w
+}
+
+@main () -> int = {
+    let w = Wrapper { items: [5, 6, 7] };
+    let w2 = stash_and_return(w: w);
+    if w2.items.len() == 3 && w2.items[2] == 7 then 0 else 1
+}

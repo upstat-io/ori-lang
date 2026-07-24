@@ -174,8 +174,6 @@ pub fn can_narrow_cross_module(agreement: CrossModuleAgreement) -> bool {
 /// Metadata about a function's ABI-relevant properties.
 ///
 /// Bundles the flags needed to classify a function's ABI boundary.
-/// Replaces individual boolean parameters per the ">3 params → config
-/// struct" and "no boolean flags" coding guidelines.
 ///
 /// # Note on ARC IR
 ///

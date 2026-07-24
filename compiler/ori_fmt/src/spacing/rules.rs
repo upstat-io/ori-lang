@@ -5,11 +5,10 @@
 //!
 //! # Spec Reference
 //!
-//! - Lines 25-30: Binary operators
-//! - Lines 31-35: Delimiters
-//! - Lines 36-41: Keywords and punctuation
-//! - Lines 42-47: Context-dependent
+//! Spacing rules cover binary operators, delimiters, keywords and punctuation,
+//! and context-dependent pairs. Spec: Annex D (formatting).
 
+use super::prelude::*;
 use super::{SpaceAction, TokenCategory, TokenMatcher};
 
 /// A declarative spacing rule.
@@ -68,11 +67,6 @@ impl SpaceRule {
 
 // Helper constants for rule definitions
 
-#[allow(
-    clippy::enum_glob_use,
-    reason = "70+ spacing rules are much more readable with short names"
-)]
-use TokenCategory::*;
 use TokenMatcher::{Any, Category, Exact};
 
 // Common token groups as static slices
@@ -172,10 +166,8 @@ pub static SPACE_RULES: &[SpaceRule] = &[
         SpaceAction::None,
     )
     .with_priority(30),
-    // Spread operator: no space after ...
-    // Note: DotDotDot doesn't exist in TokenKind, it's parsed as DotDot + Dot
-    // Priority 35: Special identifier-adjacent rules
-    // No space between @ and identifier (function names): @foo
+    // `...` is tokenized as DotDot + Dot. Priority 35 handles special
+    // identifier adjacency, including no space in function names like `@foo`.
     SpaceRule::new("AtIdent", Exact(At), Exact(Ident), SpaceAction::None).with_priority(35),
     // No space between $ and identifier (constants): $FOO
     SpaceRule::new(
@@ -369,6 +361,8 @@ pub static SPACE_RULES: &[SpaceRule] = &[
 ];
 
 /// Get the number of spacing rules.
+// test-only: the production lookup path is `RulesMap::lookup` / `lookup_spacing`.
+#[cfg(test)]
 pub fn rule_count() -> usize {
     SPACE_RULES.len()
 }
@@ -376,6 +370,8 @@ pub fn rule_count() -> usize {
 /// Find the first matching rule for a token pair.
 ///
 /// Rules are checked in priority order, then definition order.
+// test-only: linear-scan oracle cross-checked against the production `RulesMap::lookup`.
+#[cfg(test)]
 pub fn find_rule(left: TokenCategory, right: TokenCategory) -> &'static SpaceRule {
     // Rules are already sorted by priority in the static definition
     for rule in SPACE_RULES {
@@ -389,7 +385,8 @@ pub fn find_rule(left: TokenCategory, right: TokenCategory) -> &'static SpaceRul
 }
 
 /// Get the spacing action for a token pair.
-#[inline]
+// test-only: linear-scan oracle cross-checked against the production `RulesMap::lookup`.
+#[cfg(test)]
 pub fn spacing_between(left: TokenCategory, right: TokenCategory) -> SpaceAction {
     find_rule(left, right).action
 }

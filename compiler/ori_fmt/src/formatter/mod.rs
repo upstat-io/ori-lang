@@ -24,75 +24,49 @@
 //!
 //! # Layer Integration Points
 //!
-//! - `helpers::is_simple_item()` → Layer 2 `packing::is_simple_item()`
-//! - `helpers::format_receiver()` → Layer 4 `rules::needs_parens(Receiver)`
-//! - `helpers::format_call_target()` → Layer 4 `rules::needs_parens(CallTarget)`
-//! - `helpers::format_iter()` → Layer 4 `rules::needs_parens(IteratorSource)`
+//! - `operands::is_simple_item()` → Layer 2 `packing::is_simple_item()`
+//! - `operands::format_receiver()` → Layer 4 `rules::needs_parens(Receiver)`
+//! - `operands::format_call_target()` → Layer 4 `rules::needs_parens(CallTarget)`
+//! - `operands::format_iter()` → Layer 4 `rules::needs_parens(IteratorSource)`
 //!
 //! # Modules
 //!
-//! - [`inline`]: Single-line expression rendering
-//! - [`broken`]: Multi-line expression rendering
-//! - [`stacked`]: Always-multi-line constructs (run, try, match)
-//! - [`patterns`]: Match and binding pattern rendering
-//! - [`literals`]: Literal value rendering
-//! - [`helpers`]: Collection and wrapper helpers (Layer 2, 4 integration)
+//! - `inline`: Single-line expression rendering
+//! - `broken`: Multi-line expression rendering
+//! - `stacked`: Always-multi-line constructs (run, try, match)
+//! - `patterns`: Match and binding pattern rendering
+//! - `literals`: Literal value rendering
+//! - `operands`: Operand emission for collections, calls, and wrappers (Layer 2, 4 integration)
 
 mod broken;
-mod helpers;
 mod inline;
 mod literals;
+mod operands;
 mod patterns;
 mod stacked;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use literals::{char_escape, emit_escaped_str, string_escape};
+pub(crate) use patterns::BindingPrefix;
+
 use crate::context::{FormatConfig, FormatContext};
 use crate::emitter::StringEmitter;
 use crate::width::{WidthCalculator, ALWAYS_STACKED};
-use ori_ir::{BinaryOp, ExprArena, ExprId, ExprKind, StringLookup, UnaryOp};
+use ori_ir::{BinaryOp, ExprArena, ExprId, ExprKind, StringLookup};
 
-/// Get string representation of a binary operator.
-fn binary_op_str(op: BinaryOp) -> &'static str {
-    match op {
-        BinaryOp::Add => "+",
-        BinaryOp::Sub => "-",
-        BinaryOp::Mul => "*",
-        BinaryOp::Div => "/",
-        BinaryOp::Mod => "%",
-        BinaryOp::FloorDiv => "div",
-        BinaryOp::Eq => "==",
-        BinaryOp::NotEq => "!=",
-        BinaryOp::Lt => "<",
-        BinaryOp::LtEq => "<=",
-        BinaryOp::Gt => ">",
-        BinaryOp::GtEq => ">=",
-        BinaryOp::And => "&&",
-        BinaryOp::Or => "||",
-        BinaryOp::BitAnd => "&",
-        BinaryOp::BitOr => "|",
-        BinaryOp::BitXor => "^",
-        BinaryOp::Shl => "<<",
-        BinaryOp::Shr => ">>",
-        BinaryOp::Range => "..",
-        BinaryOp::RangeInclusive => "..=",
-        BinaryOp::Coalesce => "??",
-        BinaryOp::MatMul => "@",
-    }
+// Operator source-text tokens: `BinaryOp::as_symbol()` / `UnaryOp::as_symbol()`
+// in `ori_ir::ast::operators` are the canonical home; callers use those
+// directly rather than re-deriving the mapping here.
+
+// Delimiter decisions: see rules::needs_parens() + rules::ParenPosition +
+// rules::map_key_needs_brackets() (Layer 4).
+
+#[derive(Clone, Copy)]
+enum BinaryOperandSide {
+    Left,
+    Right,
 }
-
-/// Get string representation of a unary operator.
-fn unary_op_str(op: UnaryOp) -> &'static str {
-    match op {
-        UnaryOp::Neg => "-",
-        UnaryOp::Not => "!",
-        UnaryOp::BitNot => "~",
-        UnaryOp::Try => "?",
-    }
-}
-
-// Note: Parentheses logic moved to rules::ParenthesesRule (Layer 4)
-// See rules::needs_parens() and rules::ParenPosition
 
 /// Check if a binary operand needs parentheses based on precedence and associativity.
 ///
@@ -105,7 +79,7 @@ fn needs_binary_parens(
     arena: &ExprArena,
     operand: ExprId,
     parent_op: BinaryOp,
-    is_left: bool,
+    side: BinaryOperandSide,
 ) -> bool {
     let expr = arena.get_expr(operand);
 
@@ -119,9 +93,9 @@ fn needs_binary_parens(
                 std::cmp::Ordering::Equal => {
                     let is_right_assoc = matches!(parent_op, BinaryOp::Coalesce);
                     if is_right_assoc {
-                        is_left
+                        matches!(side, BinaryOperandSide::Left)
                     } else {
-                        !is_left
+                        matches!(side, BinaryOperandSide::Right)
                     }
                 }
                 std::cmp::Ordering::Less => false,
@@ -203,7 +177,7 @@ impl<'a, I: StringLookup> Formatter<'a, I> {
     /// Format an expression in broken mode (force multi-line).
     ///
     /// Use this when the caller has already decided the expression needs to break,
-    /// and we don't want the formatter to re-evaluate fit at the current position.
+    /// to avoid re-evaluating fit at the current position.
     pub fn format_broken(&mut self, expr_id: ExprId) {
         let width = self.width_calc.width(expr_id);
 

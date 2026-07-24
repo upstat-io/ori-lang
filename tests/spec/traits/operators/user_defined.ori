@@ -7,7 +7,7 @@ use std.testing { assert_eq }
 type Point = { x: int, y: int }
 
 // Implement Add trait for Point
-impl Add for Point {
+impl Point: Add {
     type Output = Point;
     @add (self, rhs: Point) -> Point = Point {
         x: self.x + rhs.x,
@@ -30,7 +30,7 @@ impl Add for Point {
 }
 
 // Implement Sub trait for Point
-impl Sub for Point {
+impl Point: Sub {
     type Output = Point;
     @subtract (self, rhs: Point) -> Point = Point {
         x: self.x - rhs.x,
@@ -51,7 +51,7 @@ impl Sub for Point {
 }
 
 // Implement Neg trait for Point (unary negation)
-impl Neg for Point {
+impl Point: Neg {
     type Output = Point;
     @negate (self) -> Point = Point {
         x: -self.x,
@@ -71,7 +71,7 @@ impl Neg for Point {
 }
 
 // Implement Mul with scalar (int)
-impl Mul<int> for Point {
+impl Point: Mul<int> {
     type Output = Point;
     @multiply (self, scalar: int) -> Point = Point {
         x: self.x * scalar,
@@ -91,7 +91,7 @@ impl Mul<int> for Point {
 }
 
 // Implement Div for Point (component-wise division)
-impl Div for Point {
+impl Point: Div {
     type Output = Point;
     @divide (self, rhs: Point) -> Point = Point {
         x: self.x / rhs.x,
@@ -112,7 +112,7 @@ impl Div for Point {
 }
 
 // Implement Rem for Point (component-wise remainder)
-impl Rem for Point {
+impl Point: Rem {
     type Output = Point;
     @remainder (self, rhs: Point) -> Point = Point {
         x: self.x % rhs.x,
@@ -136,7 +136,7 @@ impl Rem for Point {
 
 type Mask = { bits: int }
 
-impl BitAnd for Mask {
+impl Mask: BitAnd {
     type Output = Mask;
     @bit_and (self, rhs: Mask) -> Mask = Mask {
         bits: self.bits & rhs.bits,
@@ -154,7 +154,7 @@ impl BitAnd for Mask {
     assert_eq(actual: result.bits, expected: 0b1000)
 }
 
-impl BitOr for Mask {
+impl Mask: BitOr {
     type Output = Mask;
     @bit_or (self, rhs: Mask) -> Mask = Mask {
         bits: self.bits | rhs.bits,
@@ -172,7 +172,7 @@ impl BitOr for Mask {
     assert_eq(actual: result.bits, expected: 0b1110)
 }
 
-impl BitXor for Mask {
+impl Mask: BitXor {
     type Output = Mask;
     @bit_xor (self, rhs: Mask) -> Mask = Mask {
         bits: self.bits ^ rhs.bits,
@@ -190,7 +190,7 @@ impl BitXor for Mask {
     assert_eq(actual: result.bits, expected: 0b0110)
 }
 
-impl Shl for Mask {
+impl Mask: Shl {
     type Output = Mask;
     @shift_left (self, rhs: int) -> Mask = Mask {
         bits: self.bits << rhs,
@@ -207,7 +207,7 @@ impl Shl for Mask {
     assert_eq(actual: result.bits, expected: 0b1100)
 }
 
-impl Shr for Mask {
+impl Mask: Shr {
     type Output = Mask;
     @shift_right (self, rhs: int) -> Mask = Mask {
         bits: self.bits >> rhs,
@@ -224,7 +224,7 @@ impl Shr for Mask {
     assert_eq(actual: result.bits, expected: 0b0011)
 }
 
-impl BitNot for Mask {
+impl Mask: BitNot {
     type Output = Mask;
     @bit_not (self) -> Mask = Mask {
         bits: ~self.bits,
@@ -247,7 +247,7 @@ impl BitNot for Mask {
 
 type Toggle = { on: bool }
 
-impl Not for Toggle {
+impl Toggle: Not {
     type Output = Toggle;
     @not (self) -> Toggle = Toggle {
         on: !self.on,
@@ -266,7 +266,7 @@ impl Not for Toggle {
 
 // --- FloorDiv on custom type ---
 
-impl FloorDiv for Point {
+impl Point: FloorDiv {
     type Output = Point;
     @floor_divide (self, rhs: Point) -> Point = Point {
         x: self.x div rhs.x,

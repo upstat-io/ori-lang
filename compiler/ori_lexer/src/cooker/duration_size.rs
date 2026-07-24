@@ -2,9 +2,10 @@
 
 use ori_ir::{DurationUnit, SizeUnit, TokenKind};
 
-use super::{slice_source, span, CookResult, TokenCooker};
 use crate::lex_error::LexError;
 use crate::parse_helpers::parse_int_skip_underscores;
+
+use super::{slice_source, span, CookResult, TokenCooker};
 
 /// Trait abstracting over duration/size unit cooking behavior.
 ///
@@ -29,6 +30,14 @@ trait UnitCooking: Copy {
 
     /// Build a `TokenKind` for a decimal literal normalized to base units.
     fn make_decimal_kind(base_value: u64) -> TokenKind;
+}
+
+/// A recognized unit suffix, with its exact encoded width.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DetectedUnit<U> {
+    Missing,
+    OneByte(U),
+    TwoBytes(U),
 }
 
 impl UnitCooking for DurationUnit {
@@ -79,15 +88,18 @@ impl TokenCooker<'_> {
         &mut self,
         offset: u32,
         len: u32,
-        detect_suffix: fn(&str) -> (usize, U),
+        detect_suffix: fn(&str) -> DetectedUnit<U>,
     ) -> CookResult {
         let text = slice_source(self.source, offset, len);
 
-        let (suffix_len, unit) = detect_suffix(text);
-        if suffix_len == 0 {
-            self.errors.push(LexError::int_overflow(span(offset, len)));
-            return CookResult::with_error(TokenKind::Error);
-        }
+        let (suffix_len, unit) = match detect_suffix(text) {
+            DetectedUnit::Missing => {
+                self.errors.push(LexError::int_overflow(span(offset, len)));
+                return CookResult::with_error(TokenKind::Error);
+            }
+            DetectedUnit::OneByte(unit) => (1, unit),
+            DetectedUnit::TwoBytes(unit) => (2, unit),
+        };
 
         let num_part = &text[..text.len() - suffix_len];
 
@@ -182,44 +194,44 @@ pub(crate) fn parse_decimal_unit_value(num_part: &str, multiplier: u64) -> Optio
     integer_contribution.checked_add(frac_contribution)
 }
 
-/// Detect duration suffix and return (`suffix_len`, unit).
-pub(crate) fn detect_duration_suffix(text: &str) -> (usize, DurationUnit) {
+/// Detect a duration suffix and its encoded width.
+pub(crate) fn detect_duration_suffix(text: &str) -> DetectedUnit<DurationUnit> {
     let bytes = text.as_bytes();
     let n = bytes.len();
     if n >= 2 {
         match (bytes[n - 2], bytes[n - 1]) {
-            (b'n', b's') => return (2, DurationUnit::Nanoseconds),
-            (b'u', b's') => return (2, DurationUnit::Microseconds),
-            (b'm', b's') => return (2, DurationUnit::Milliseconds),
+            (b'n', b's') => return DetectedUnit::TwoBytes(DurationUnit::Nanoseconds),
+            (b'u', b's') => return DetectedUnit::TwoBytes(DurationUnit::Microseconds),
+            (b'm', b's') => return DetectedUnit::TwoBytes(DurationUnit::Milliseconds),
             _ => {}
         }
     }
     if n >= 1 {
         match bytes[n - 1] {
-            b's' => return (1, DurationUnit::Seconds),
-            b'm' => return (1, DurationUnit::Minutes),
-            b'h' => return (1, DurationUnit::Hours),
+            b's' => return DetectedUnit::OneByte(DurationUnit::Seconds),
+            b'm' => return DetectedUnit::OneByte(DurationUnit::Minutes),
+            b'h' => return DetectedUnit::OneByte(DurationUnit::Hours),
             _ => {}
         }
     }
-    (0, DurationUnit::Seconds)
+    DetectedUnit::Missing
 }
 
-/// Detect size suffix and return (`suffix_len`, unit).
-pub(crate) fn detect_size_suffix(text: &str) -> (usize, SizeUnit) {
+/// Detect a size suffix and its encoded width.
+pub(crate) fn detect_size_suffix(text: &str) -> DetectedUnit<SizeUnit> {
     let bytes = text.as_bytes();
     let n = bytes.len();
     if n >= 2 {
         match (bytes[n - 2], bytes[n - 1]) {
-            (b'k', b'b') => return (2, SizeUnit::Kilobytes),
-            (b'm', b'b') => return (2, SizeUnit::Megabytes),
-            (b'g', b'b') => return (2, SizeUnit::Gigabytes),
-            (b't', b'b') => return (2, SizeUnit::Terabytes),
+            (b'k', b'b') => return DetectedUnit::TwoBytes(SizeUnit::Kilobytes),
+            (b'm', b'b') => return DetectedUnit::TwoBytes(SizeUnit::Megabytes),
+            (b'g', b'b') => return DetectedUnit::TwoBytes(SizeUnit::Gigabytes),
+            (b't', b'b') => return DetectedUnit::TwoBytes(SizeUnit::Terabytes),
             _ => {}
         }
     }
     if n >= 1 && bytes[n - 1] == b'b' {
-        return (1, SizeUnit::Bytes);
+        return DetectedUnit::OneByte(SizeUnit::Bytes);
     }
-    (0, SizeUnit::Bytes)
+    DetectedUnit::Missing
 }

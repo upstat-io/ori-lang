@@ -1,9 +1,38 @@
-// Spec: §3.16 Formattable Trait — Format type validation
-// Hex format type is only valid for int, not str
+// Spec: 09-properties-of-types.md §9.7 Format Types — format type validation
+// The radix format types `x`/`X`/`b`/`o` are valid only for int (E2035);
+// applying any to a non-int value (str, float) is a compile error.
 
-#[compile_fail("not supported")]
+#[compile_fail(code: "E2035", message: "not supported")]
 @test_hex_on_string tests _ () -> void = {
     let name = "hello";
     let _ = `{name:x}`;
+    ()
+}
+
+#[compile_fail(code: "E2035", message: "not supported")]
+@test_hex_upper_on_string tests _ () -> void = {
+    let name = "hello";
+    let _ = `{name:X}`;
+    ()
+}
+
+#[compile_fail(code: "E2035", message: "not supported")]
+@test_binary_on_string tests _ () -> void = {
+    let name = "hello";
+    let _ = `{name:b}`;
+    ()
+}
+
+#[compile_fail(code: "E2035", message: "not supported")]
+@test_octal_on_string tests _ () -> void = {
+    let name = "hello";
+    let _ = `{name:o}`;
+    ()
+}
+
+#[compile_fail(code: "E2035", message: "not supported")]
+@test_hex_on_float tests _ () -> void = {
+    let pi = 3.14;
+    let _ = `{pi:x}`;
     ()
 }

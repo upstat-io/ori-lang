@@ -2,15 +2,19 @@
 //!
 //! Grammar:
 //! ```ebnf
-//! extern_block  = [ "pub" ] "extern" string_literal [ "from" string_literal ] "{" { extern_item } "}" .
+//! extern_block  = [ "pub" ] "extern" string_literal [ "from" string_literal ] [ free_attr ] "{" { extern_item } "}" .
+//! free_attr     = "#" "free" "(" identifier ")" .
 //! extern_item   = "@" identifier extern_params "->" type [ "as" string_literal ] .
 //! extern_params = "(" [ extern_param { "," extern_param } ] [ c_variadic ] ")" .
 //! extern_param  = identifier ":" type .
 //! c_variadic    = "," "..." .
 //! ```
+//!
+//! Spec: Annex E §FFI — `#free(fn)` declares the user-supplied
+//! deallocation function for opaque extern types.
 
 use crate::{committed, ParseError, ParseOutcome, ParseWarning, Parser};
-use ori_ir::{ExternBlock, ExternItem, ExternParam, TokenKind, Visibility};
+use ori_ir::{ExternBlock, ExternItem, ExternParam, Name, TokenKind, Visibility};
 
 impl Parser<'_> {
     /// Parse an extern block.
@@ -91,6 +95,17 @@ impl Parser<'_> {
             None
         };
 
+        // Optional: #free(symbol)
+        // Names the user-supplied deallocation function for opaque types
+        // declared by this block. See Spec: Annex E §FFI.
+        let free_fn = match self.parse_extern_free_attr() {
+            Ok(value) => value,
+            Err(error) => {
+                let span = error.span;
+                return ParseOutcome::consumed_err(error, span);
+            }
+        };
+
         // { ... }
         committed!(self.cursor.expect(&TokenKind::LBrace));
 
@@ -117,10 +132,89 @@ impl Parser<'_> {
         ParseOutcome::consumed_ok(ExternBlock {
             convention,
             library,
+            free_fn,
             items,
             visibility,
             span: start_span.merge(end_span),
         })
+    }
+
+    /// Parse an optional `#free(symbol)` attribute on an extern block.
+    ///
+    /// Grammar: `free_attr = "#" "free" "(" identifier ")" .`
+    ///
+    /// Returns `Ok(Some(name))` on a well-formed `#free(symbol)`,
+    /// `Ok(None)` when the attribute is absent, or `Err` for malformed
+    /// shapes (`#free` without parens, empty parens, non-identifier arg).
+    /// Spec: Annex E §FFI.
+    fn parse_extern_free_attr(&mut self) -> Result<Option<Name>, ParseError> {
+        if !self.cursor.check(&TokenKind::Hash) {
+            return Ok(None);
+        }
+        let hash_span = self.cursor.current_span();
+        self.cursor.advance(); // consume `#`
+
+        // After `#`, MUST see an identifier that is "free".
+        // If not, this is malformed for the extern-block attribute slot.
+        let TokenKind::Ident(name) = *self.cursor.current_kind() else {
+            return Err(ParseError::new(
+                ori_diagnostic::ErrorCode::E1002,
+                "expected `free` after `#` in extern block attribute",
+                self.cursor.current_span(),
+            ));
+        };
+        let attr_name = self.cursor.interner().lookup(name);
+        if attr_name != "free" {
+            return Err(ParseError::new(
+                ori_diagnostic::ErrorCode::E1002,
+                "unknown extern block attribute (only `#free` is supported)",
+                self.cursor.current_span(),
+            ));
+        }
+        self.cursor.advance(); // consume `free`
+
+        // Require `(`
+        if !self.cursor.check(&TokenKind::LParen) {
+            return Err(ParseError::new(
+                ori_diagnostic::ErrorCode::E1002,
+                "expected `(` after `#free`",
+                self.cursor.current_span(),
+            ));
+        }
+        self.cursor.advance(); // consume `(`
+
+        // Reject empty `#free()`.
+        if self.cursor.check(&TokenKind::RParen) {
+            return Err(ParseError::new(
+                ori_diagnostic::ErrorCode::E1004,
+                "`#free` requires a function-symbol identifier",
+                self.cursor.current_span(),
+            ));
+        }
+
+        // Require an identifier symbol — reject literals (`#free(123)`),
+        // strings, anything non-ident.
+        let TokenKind::Ident(symbol_name) = *self.cursor.current_kind() else {
+            return Err(ParseError::new(
+                ori_diagnostic::ErrorCode::E1004,
+                "expected function-symbol identifier in `#free(...)`",
+                self.cursor.current_span(),
+            ));
+        };
+        self.cursor.advance(); // consume identifier
+
+        // Require `)`
+        if !self.cursor.check(&TokenKind::RParen) {
+            return Err(ParseError::new(
+                ori_diagnostic::ErrorCode::E1002,
+                "expected `)` after `#free(symbol)`",
+                self.cursor.current_span(),
+            ));
+        }
+        self.cursor.advance(); // consume `)`
+
+        let _ = hash_span; // span tracked via outer extern-block span
+        Ok(Some(symbol_name))
     }
 
     /// Parse a single extern item (function declaration).
@@ -233,3 +327,6 @@ impl Parser<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

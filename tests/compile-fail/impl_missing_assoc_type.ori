@@ -12,7 +12,7 @@ trait Container {
 type EmptyBox = { }
 
 // This impl is missing `type Item`
-impl Container for EmptyBox {
+impl EmptyBox: Container {
     @first (self) -> Option<Self.Item> = None;
 }
 

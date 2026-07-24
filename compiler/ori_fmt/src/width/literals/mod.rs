@@ -7,7 +7,8 @@
 //! - String literals (including escape sequences and multi-byte chars)
 //! - Character literals (including escape sequences)
 
-use super::helpers::{char_display_width, decimal_digit_count};
+use super::metrics::{char_display_width, decimal_digit_count};
+use crate::formatter::{char_escape, string_escape};
 
 /// Calculate width of an integer literal.
 ///
@@ -40,11 +41,11 @@ pub(super) fn float_width(f: f64) -> usize {
     let mut buf = [0u8; 32];
     let mut cursor = std::io::Cursor::new(&mut buf[..]);
 
-    // Write will not fail for a buffer this size
+    // Infallible: a 32-byte buffer holds any f64 default format.
     let _ = write!(cursor, "{f}");
 
     // Safe: cursor position is at most 32, which fits in usize on all platforms
-    #[allow(
+    #[expect(
         clippy::cast_possible_truncation,
         reason = "Buffer is 32 bytes; position cannot exceed usize::MAX"
     )]
@@ -71,12 +72,13 @@ pub(super) fn bool_width(b: bool) -> usize {
 /// - Escape sequences which take 2 characters when rendered
 /// - Multi-byte characters (CJK, emoji) which take 2 columns
 /// - Zero-width characters (combining marks) which take 0 columns
-pub(super) fn string_width(s: &str) -> usize {
+pub(super) fn string_width(s: impl AsRef<str>) -> usize {
+    let s = s.as_ref();
     let mut width = 2; // Opening and closing quotes
     for c in s.chars() {
-        width += match c {
-            '\\' | '"' | '\n' | '\t' | '\r' | '\0' => 2, // Escaped
-            _ => char_display_width(c),
+        width += match string_escape(c) {
+            Some(esc) => esc.len(),
+            None => char_display_width(c),
         };
     }
     width
@@ -89,9 +91,9 @@ pub(super) fn string_width(s: &str) -> usize {
 /// - Multi-byte characters (CJK, emoji) which take 2 + quotes = 4 columns
 /// - Regular characters require 3 characters: `'a'`
 pub(super) fn char_width(c: char) -> usize {
-    match c {
-        '\\' | '\'' | '\n' | '\t' | '\r' | '\0' => 4, // '\n' etc
-        _ => 2 + char_display_width(c),               // quotes + display width
+    match char_escape(c) {
+        Some(esc) => 2 + esc.len(),        // quotes + escaped form
+        None => 2 + char_display_width(c), // quotes + display width
     }
 }
 

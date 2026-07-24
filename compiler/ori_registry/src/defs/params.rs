@@ -6,18 +6,15 @@
 
 use crate::{Ownership, ParamDef, ReturnTag, TypeTag};
 
-/// `(f: closure)` — higher-order closure param.
-///
-/// Used by: List, Option, Result.
+/// `(f: closure)` — higher-order callback borrowed for the duration of the call.
+/// A callee that stores the callback must retain its own closure-environment credit.
 pub static CLOSURE_PARAM: [ParamDef; 1] = [ParamDef {
     name: "f",
     ty: ReturnTag::Fresh,
-    ownership: Ownership::Owned,
+    ownership: Ownership::Borrow,
 }];
 
 /// `(count: int)` — integer count param.
-///
-/// Used by: Iterator (`take`, `skip`), str (`repeat`).
 pub static COUNT_PARAM: [ParamDef; 1] = [ParamDef {
     name: "count",
     ty: ReturnTag::Concrete(TypeTag::Int),
@@ -25,8 +22,6 @@ pub static COUNT_PARAM: [ParamDef; 1] = [ParamDef {
 }];
 
 /// `(separator: str)` — string separator param.
-///
-/// Used by: List (`join`), Iterator (`join`).
 pub static SEPARATOR_PARAM: [ParamDef; 1] = [ParamDef {
     name: "separator",
     ty: ReturnTag::Concrete(TypeTag::Str),
@@ -34,8 +29,6 @@ pub static SEPARATOR_PARAM: [ParamDef; 1] = [ParamDef {
 }];
 
 /// `(value: T)` — element param, borrowed.
-///
-/// Used by: List (`contains`), Set (`contains`, `remove`).
 pub static ELEMENT_BORROW_PARAM: [ParamDef; 1] = [ParamDef {
     name: "value",
     ty: ReturnTag::ElementType,
@@ -43,8 +36,6 @@ pub static ELEMENT_BORROW_PARAM: [ParamDef; 1] = [ParamDef {
 }];
 
 /// `(value: T)` — element param, owned.
-///
-/// Used by: List (`push`, `prepend`), Set (`insert`).
 pub static ELEMENT_OWNED_PARAM: [ParamDef; 1] = [ParamDef {
     name: "value",
     ty: ReturnTag::ElementType,
@@ -52,8 +43,6 @@ pub static ELEMENT_OWNED_PARAM: [ParamDef; 1] = [ParamDef {
 }];
 
 /// `(message: str)` — string message param.
-///
-/// Used by: Option (`expect`), Result (`expect`, `expect_err`).
 pub static MESSAGE_PARAM: [ParamDef; 1] = [ParamDef {
     name: "message",
     ty: ReturnTag::Concrete(TypeTag::Str),
@@ -61,8 +50,6 @@ pub static MESSAGE_PARAM: [ParamDef; 1] = [ParamDef {
 }];
 
 /// `(start: int, end: int)` — integer range params.
-///
-/// Used by: List (`slice`), str (`slice`, `substring`).
 pub static INT_RANGE_PARAMS: [ParamDef; 2] = [
     ParamDef {
         name: "start",

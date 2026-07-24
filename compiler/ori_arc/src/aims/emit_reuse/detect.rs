@@ -13,7 +13,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_types::Idx;
 
-use crate::aims::lattice::{ShapeClass, Uniqueness};
+use crate::aims::lattice::Uniqueness;
 use crate::ir::{ArcBlockId, ArcFunction};
 
 use super::planner::ReusePlanner;
@@ -78,11 +78,11 @@ fn match_same_block(
         consumed_deaths.insert((death.block, death.instr_idx));
 
         // Reuse eligibility is gated SOLELY by Uniqueness (spec §DP-6 +
-        // §RL-11/§RL-12). The former cross-dimensional path
-        // (`MaybeShared + Once + ReusableCtor → static reuse`) was removed
-        // as unsound per §RL-13 removal rationale — backward-analysis facts
-        // (consumption, cardinality) are FUTURE guarantees and cannot prove
-        // PAST uniqueness (the single use may be a store creating an alias).
+        // §RL-11/§RL-12): backward-analysis facts (consumption, cardinality)
+        // are FUTURE guarantees and cannot prove PAST uniqueness (the single
+        // use may be a store creating an alias), so a cross-dimensional path
+        // (`MaybeShared + Once + ReusableCtor → static reuse`) is unsound
+        // per §RL-13.
         let is_static = death.uniqueness == Uniqueness::Unique;
         opportunities.push(ReuseOpportunity {
             source_var: death.var,
@@ -111,11 +111,10 @@ pub(crate) fn find_reuse_opportunities_from_events(
         return (Vec::new(), total_deaths);
     }
 
-    // Phase 1: same-block matching.
     let (same_block_opps, consumed_deaths, consumed_allocs) =
         match_same_block(death_events, alloc_events, func);
 
-    // Phase 2: cross-block matching for unmatched events.
+    // Cross-block matching for events same-block matching left unmatched.
     let remaining_deaths: Vec<_> = death_events
         .iter()
         .filter(|d| !consumed_deaths.contains(&(d.block, d.instr_idx)))
@@ -135,25 +134,4 @@ pub(crate) fn find_reuse_opportunities_from_events(
     let mut all = same_block_opps;
     all.extend(cross_block_opps);
     (all, total_deaths)
-}
-
-/// Whether a constructor kind produces a reusable allocation.
-pub(crate) fn is_reusable_ctor(ctor: &crate::ir::CtorKind) -> bool {
-    matches!(
-        ctor,
-        crate::ir::CtorKind::Struct(_) | crate::ir::CtorKind::EnumVariant { .. }
-    )
-}
-
-/// Map a constructor kind to its shape classification.
-pub(crate) fn ctor_to_shape(ctor: &crate::ir::CtorKind) -> ShapeClass {
-    match ctor {
-        crate::ir::CtorKind::Struct(_) => {
-            ShapeClass::ReusableCtor(crate::aims::lattice::ReuseCtorKind::Struct)
-        }
-        crate::ir::CtorKind::EnumVariant { .. } => {
-            ShapeClass::ReusableCtor(crate::aims::lattice::ReuseCtorKind::EnumVariant)
-        }
-        _ => ShapeClass::NonReusable,
-    }
 }

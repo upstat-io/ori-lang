@@ -1,38 +1,4 @@
-//! Token index and per-token metadata flags.
-
-/// Typed index into a `TokenList`.
-///
-/// Provides type safety over raw `u32` indices when referring to tokens.
-/// Uses `u32::MAX` as a sentinel for "no token".
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-#[repr(transparent)]
-pub struct TokenIdx(u32);
-
-impl TokenIdx {
-    /// Sentinel value indicating no token.
-    pub const NONE: TokenIdx = TokenIdx(u32::MAX);
-
-    /// Create a `TokenIdx` from a raw index.
-    #[inline]
-    pub const fn from_raw(raw: u32) -> Self {
-        TokenIdx(raw)
-    }
-
-    /// Get the raw `u32` index.
-    #[inline]
-    pub const fn raw(self) -> u32 {
-        self.0
-    }
-
-    /// Check if this is a valid index (not the `NONE` sentinel).
-    #[inline]
-    pub const fn is_valid(self) -> bool {
-        self.0 != u32::MAX
-    }
-}
-
-// Compile-time assertion: TokenIdx is exactly 4 bytes.
-const _: () = assert!(size_of::<TokenIdx>() == 4);
+//! Per-token metadata flags.
 
 /// Per-token metadata flags packed into a single byte.
 ///
@@ -98,18 +64,6 @@ impl TokenFlags {
     #[inline]
     pub const fn has_newline_before(self) -> bool {
         self.contains(Self::NEWLINE_BEFORE)
-    }
-
-    /// Check if a comment preceded this token.
-    #[inline]
-    pub const fn has_trivia_before(self) -> bool {
-        self.contains(Self::TRIVIA_BEFORE)
-    }
-
-    /// Check if this token is first on its line.
-    #[inline]
-    pub const fn is_line_start(self) -> bool {
-        self.contains(Self::LINE_START)
     }
 
     /// Check if cooking detected an error.

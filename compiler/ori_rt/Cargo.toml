@@ -1,6 +1,6 @@
 [package]
 name = "ori_rt"
-version = "2026.4.26-alpha.1"
+version = "2026.7.24-alpha.1"
 edition = "2021"
 description = "Ori runtime library for AOT-compiled programs"
 license = "MIT OR Apache-2.0"
@@ -24,11 +24,14 @@ single-threaded = []
 cc = "1"
 
 [dependencies]
-# No dependencies - pure runtime functions
+# Shared scalar format-spec SSOT (std-only leaf; the sole non-runtime dep —
+# the C-ABI format wrappers call into it so interpreter<->runtime formatting is
+# one implementation, not a hand-maintained mirror).
+ori_format = { path = "../ori_format" }
 
 [dev-dependencies]
-# Cross-parser conformance tests: verify ori_rt's format spec parser
-# matches ori_ir's parser (the source of truth during compilation).
+# Cross-crate layout-constant conformance tests: verify ori_rt's runtime
+# constants (option/result tags, RC header offsets) match ori_ir's definitions.
 ori_ir = { path = "../ori_ir" }
 
 [lints.rust]

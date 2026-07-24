@@ -17,7 +17,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           token: ${{ secrets.ORILANG_RELEASE_TOKEN }}
           fetch-depth: 0
@@ -42,7 +42,21 @@ jobs:
         run: |
           PR=$(gh pr list --base master --head dev --state open --json number --jq '.[0].number // empty')
           if [ -n "$PR" ]; then
-            echo "PR #$PR already open. Skipping."
+            # A conflicting open PR blocks the nightly merge pipeline entirely:
+            # no merge ref -> no pull_request CI -> the full test suite never
+            # runs and master goes stale. Fail loudly so the stall surfaces
+            # instead of silently skipping every night.
+            MERGEABLE=$(gh pr view "$PR" --json mergeable --jq '.mergeable')
+            if [ "$MERGEABLE" = "CONFLICTING" ]; then
+              echo "::error::Nightly PR #$PR is CONFLICTING — dev/master must be reconciled (merge master into dev) before nightly releases can resume."
+              exit 1
+            fi
+            echo "PR #$PR already open and mergeable=$MERGEABLE. Skipping creation."
+            # Re-arm auto-merge on the existing PR — auto-merge is dropped by
+            # GitHub when a PR becomes conflicting, and the create-path's
+            # enable step never re-runs for an already-open PR. Idempotent;
+            # merge still waits on the required CI Success check (full tests).
+            gh pr merge "$PR" --auto --merge --delete-branch=false || true
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT

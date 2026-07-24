@@ -1,0 +1,10 @@
+// BUG-04-090 §03 cell B (2-hop): two-level forwarder chain.
+// Should produce one net dec (caller scope-exit) but produces three with the
+// bug: caller + wrap + id callee scope-exits.
+@id <T> (x: T) -> T = x;
+@wrap <T> (x: T) -> T = id(x: x);
+
+@main () -> int = {
+    let xs = wrap(x: [10, 20, 30]);
+    if xs.len() == 3 && xs[1] == 20 then 0 else 1
+}

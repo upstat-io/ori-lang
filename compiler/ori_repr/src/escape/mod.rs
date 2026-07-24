@@ -1,11 +1,37 @@
-//! Escape analysis types.
-//!
-//! **Placeholder** — exports `EscapeInfo` so that
-//! `ReprPlan::escape_info` compiles. Replaced when escape analysis
-//! is implemented with the full connection graph and escape state framework.
+//! AIMS-backed escape facts consumed by representation planning.
 
-/// Placeholder for per-function escape analysis information.
+use ori_arc::ir::{ArcVarId, YieldAllocationFact, YieldAllocationLocality};
+use rustc_hash::FxHashSet;
+
+/// Frozen per-function escape information for allocation-bearing variables.
 ///
-/// Replaced by the full `EscapeInfo` type when escape analysis is implemented.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct EscapeInfo;
+/// Absence remains conservative: only identities explicitly proven local by
+/// AIMS are members of `local_vars`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EscapeInfo {
+    local_vars: FxHashSet<ArcVarId>,
+}
+
+impl EscapeInfo {
+    /// Build an escape projection from the allocation identities frozen by AIMS.
+    #[must_use]
+    pub fn from_yield_allocations(facts: &[YieldAllocationFact]) -> Self {
+        let mut local_vars = FxHashSet::default();
+        for fact in facts {
+            match fact.locality {
+                YieldAllocationLocality::Local => {
+                    local_vars.insert(fact.builder);
+                    local_vars.insert(fact.result);
+                }
+                YieldAllocationLocality::Unknown | YieldAllocationLocality::Escaping => {}
+            }
+        }
+        Self { local_vars }
+    }
+
+    /// Query one stable SSA identity. Missing facts conservatively escape.
+    #[must_use]
+    pub fn escapes(&self, var: ArcVarId) -> bool {
+        !self.local_vars.contains(&var)
+    }
+}

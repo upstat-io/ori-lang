@@ -1,4 +1,4 @@
-// Workaround for BUG-04-024: assert_eq from std.testing silently dropped in AOT.
+// Workaround: assert_eq from std.testing silently dropped in AOT.
 // Uses exit-code-based assertions instead.
 @main () -> int = {
     let xs: [int] = [1, 2, 3];

@@ -1,0 +1,17 @@
+// BUG-04-090 edge: try{} return. try-block
+// returns may use Invoke terminators with unwind paths; verify the gate
+// doesn't suppress decs on the unwind side.
+@safe_first (xs: [int]) -> Option<int> = if xs.len() > 0 then Some(xs[0]) else None;
+
+@try_forward (xs: [int]) -> Option<[int]> = try {
+    let _first = safe_first(xs: xs)?;
+    Some(xs)
+};
+
+@main () -> int = {
+    let r = try_forward(xs: [11, 22, 33]);
+    match r {
+        Some(xs) -> if xs.len() == 3 && xs[1] == 22 then 0 else 1,
+        None -> 2,
+    }
+}

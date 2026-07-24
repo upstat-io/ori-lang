@@ -1,0 +1,15 @@
+// BUG-04-090 edge: param iter-consumed AND returned, str elements.
+// x is iter-consumed by `iter()` (an @iter [own] on an Owned parameter)
+// AND returned. The str element strings must survive the iter-consume so
+// the returned list is intact — the iter-consume/transfer-through-return
+// overlap cure keeps one keep-alive inc so x's allocation outlives the
+// iterator drop.
+@iter_then_return_str <T> (x: [T]) -> [T] = {
+    let n = x.iter().count();
+    x
+};
+
+@main () -> int = {
+    let xs = iter_then_return_str(x: ["alpha", "beta", "gamma"]);
+    if xs.len() == 3 && xs[2] == "gamma" then 0 else 1
+}

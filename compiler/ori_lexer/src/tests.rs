@@ -1,4 +1,5 @@
 use super::*;
+use ori_ir::StringInterner;
 
 // LexOutput Tests
 
@@ -122,12 +123,8 @@ fn test_blank_line_with_comment_between() {
 #[test]
 fn test_blank_line_after_comment() {
     let interner = StringInterner::new();
-    // Comment followed by blank line
-    // "a\n// comment\n\nb"
-    // Line 1: a
-    // Line 2: // comment
-    // Line 3: (blank)
-    // Line 4: b
+    // A line comment followed by a blank line must preserve all four logical
+    // lines in `a\n// comment\n\nb`.
     let output = lex_with_comments("a\n// comment\n\nb", &interner);
 
     // There should be a blank line (the line after the comment)
@@ -826,22 +823,22 @@ fn utf8_bom_only_produces_error() {
     let interner = StringInterner::new();
     let source = "\u{FEFF}";
     let output = lex_with_comments(source, &interner);
-    let bom_errors: Vec<_> = output
-        .errors
-        .iter()
-        .filter(|e| e.kind == lex_error::LexErrorKind::Utf8Bom)
-        .collect();
-    assert_eq!(bom_errors.len(), 1);
+    assert_eq!(
+        output
+            .errors
+            .iter()
+            .filter(|e| e.kind == lex_error::LexErrorKind::Utf8Bom)
+            .count(),
+        1
+    );
 }
 
 #[test]
 fn clean_source_no_encoding_errors() {
     let interner = StringInterner::new();
     let output = lex_with_comments("let x = 42", &interner);
-    let encoding_errors: Vec<_> = output
-        .errors
-        .iter()
-        .filter(|e| {
+    assert!(
+        !output.errors.iter().any(|e| {
             matches!(
                 e.kind,
                 lex_error::LexErrorKind::Utf8Bom
@@ -849,10 +846,7 @@ fn clean_source_no_encoding_errors() {
                     | lex_error::LexErrorKind::Utf16BeBom
                     | lex_error::LexErrorKind::InvalidNullByte
             )
-        })
-        .collect();
-    assert!(
-        encoding_errors.is_empty(),
+        }),
         "clean source should have no encoding errors"
     );
 }
@@ -880,12 +874,15 @@ fn multiple_interior_nulls_produce_errors() {
     let interner = StringInterner::new();
     let source = "\0a\0";
     let output = lex_with_comments(source, &interner);
-    let null_errors: Vec<_> = output
-        .errors
-        .iter()
-        .filter(|e| e.kind == lex_error::LexErrorKind::InvalidNullByte)
-        .collect();
-    assert_eq!(null_errors.len(), 2, "each null should produce an error");
+    assert_eq!(
+        output
+            .errors
+            .iter()
+            .filter(|e| e.kind == lex_error::LexErrorKind::InvalidNullByte)
+            .count(),
+        2,
+        "each null should produce an error"
+    );
 }
 
 #[test]
@@ -896,13 +893,11 @@ fn interior_null_no_duplicate_error() {
     let interner = StringInterner::new();
     let source = "let\0x";
     let output = lex_with_comments(source, &interner);
-    let invalid_byte_zero: Vec<_> = output
-        .errors
-        .iter()
-        .filter(|e| e.kind == lex_error::LexErrorKind::InvalidByte { byte: 0 })
-        .collect();
     assert!(
-        invalid_byte_zero.is_empty(),
+        !output
+            .errors
+            .iter()
+            .any(|e| e.kind == lex_error::LexErrorKind::InvalidByte { byte: 0 }),
         "interior null should not produce InvalidByte {{ byte: 0 }} — \
          the specific InvalidNullByte error already covers it"
     );
@@ -986,19 +981,21 @@ fn unicode_escape_char_bare_u_produces_error() {
     let output = lex_with_comments("'\\u'", &interner);
     assert!(output.has_errors());
     assert_eq!(output.tokens[0].kind, TokenKind::Char('\u{FFFD}'));
-    let unicode_errors: Vec<_> = output
-        .errors
-        .iter()
-        .filter(|e| {
-            matches!(
-                e.kind,
-                lex_error::LexErrorKind::InvalidUnicodeEscape {
-                    detail: lex_error::UnicodeEscapeDetail::MissingOpenBrace
-                }
-            )
-        })
-        .collect();
-    assert_eq!(unicode_errors.len(), 1);
+    assert_eq!(
+        output
+            .errors
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.kind,
+                    lex_error::LexErrorKind::InvalidUnicodeEscape {
+                        detail: lex_error::UnicodeEscapeDetail::MissingOpenBrace
+                    }
+                )
+            })
+            .count(),
+        1
+    );
 }
 
 #[test]
@@ -1008,12 +1005,14 @@ fn unicode_escape_char_malformed_no_brace_is_unterminated() {
     let output = lex_with_comments("'\\uX'", &interner);
     assert!(output.has_errors());
     assert_eq!(output.tokens[0].kind, TokenKind::Error);
-    let unterm_errors: Vec<_> = output
-        .errors
-        .iter()
-        .filter(|e| matches!(e.kind, lex_error::LexErrorKind::UnterminatedChar))
-        .collect();
-    assert_eq!(unterm_errors.len(), 1);
+    assert_eq!(
+        output
+            .errors
+            .iter()
+            .filter(|e| matches!(e.kind, lex_error::LexErrorKind::UnterminatedChar))
+            .count(),
+        1
+    );
 }
 
 #[test]
@@ -1023,19 +1022,21 @@ fn unicode_escape_char_surrogate_produces_error() {
     let output = lex_with_comments("'\\u{D800}'", &interner);
     assert!(output.has_errors());
     assert_eq!(output.tokens[0].kind, TokenKind::Char('\u{FFFD}'));
-    let surrogate_errors: Vec<_> = output
-        .errors
-        .iter()
-        .filter(|e| {
-            matches!(
-                e.kind,
-                lex_error::LexErrorKind::InvalidUnicodeEscape {
-                    detail: lex_error::UnicodeEscapeDetail::SurrogateCodepoint { .. }
-                }
-            )
-        })
-        .collect();
-    assert_eq!(surrogate_errors.len(), 1);
+    assert_eq!(
+        output
+            .errors
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.kind,
+                    lex_error::LexErrorKind::InvalidUnicodeEscape {
+                        detail: lex_error::UnicodeEscapeDetail::SurrogateCodepoint { .. }
+                    }
+                )
+            })
+            .count(),
+        1
+    );
 }
 
 #[test]

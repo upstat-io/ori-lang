@@ -1,0 +1,26 @@
+// Pin 1 (EnumVariant family, no-sink): the crasher. A fresh recursive sum
+// `Tree = Leaf | Node([Tree])` is built and borrowed into a recursive
+// `sum_tree` user call returning int (Scalar result). The root tree's lineage
+// dies on the borrowing call's successor edges with NO dead-param sink. The base
+// walk's BARE inline dec (net -1) frees the live tree before the borrowing read
+// -> the variant's recursive drop-glue frees the [Tree] children, the recursive
+// walk re-incs freed buffers -> UAF/SIGSEGV. The EnumVariant-root admission
+// suppresses the bare dec + claims the carrier for the Cat-2 per-edge release.
+// Spec: Annex E §AIMS RL-2 + RL-4.
+type Tree = Leaf(value: int) | Node(children: [Tree]);
+
+@sum_tree (t: Tree) -> int = match t {
+    Leaf(value:) -> value,
+    Node(children:) -> children.fold(initial: 0, op: (acc, child) -> acc + sum_tree(t: child)),
+};
+
+@main () -> int = {
+    let t = Node(children: [
+        Leaf(value: 1),
+        Node(children: [Leaf(value: 2), Leaf(value: 3)]),
+        Leaf(value: 4),
+    ]);
+    let total = sum_tree(t: t);
+
+    if total == 10 then 0 else 1
+}

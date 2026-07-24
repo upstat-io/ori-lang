@@ -19,6 +19,7 @@ use super::ParseError;
 ///
 /// Includes a `tags` slice for fast O(1) discriminant checks without
 /// touching the full 16-byte `TokenKind`.
+#[derive(Debug)]
 pub struct Cursor<'a> {
     tokens: &'a TokenList,
     /// Dense array of discriminant tags, parallel to `tokens`.
@@ -68,13 +69,13 @@ impl<'a> Cursor<'a> {
     ///
     /// # Panics
     ///
-    /// Panics if `pos` is greater than the token count.
+    /// Panics (debug builds) if `pos` is not a valid token index (`pos >= tokens.len()`).
     pub fn set_position(&mut self, pos: usize) {
         debug_assert!(
-            pos <= self.tokens.len(),
+            pos < self.tokens.len(),
             "cursor position {} out of bounds (max {})",
             pos,
-            self.tokens.len()
+            self.tokens.len() - 1
         );
         self.pos = pos;
     }
@@ -198,19 +199,6 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    /// Peek at the next token (one-token lookahead).
-    /// Returns the EOF token if at the end of the stream.
-    pub fn peek_next_token(&self) -> &Token {
-        self.tokens
-            .get(self.pos + 1)
-            .unwrap_or(&self.tokens[self.tokens.len() - 1])
-    }
-
-    /// Get the next token's span.
-    pub fn peek_next_span(&self) -> Span {
-        self.peek_next_token().span
-    }
-
     /// Check if the next token is adjacent to the current one (no whitespace).
     ///
     /// Uses the pre-computed `TokenFlags::ADJACENT` flag from the lexer,
@@ -235,14 +223,6 @@ impl<'a> Cursor<'a> {
     #[inline]
     pub fn has_newline_before(&self) -> bool {
         self.flags[self.pos].has_newline_before()
-    }
-
-    /// True if the current token is the first non-trivia token on its line.
-    ///
-    /// Used for layout-sensitive constructs where indentation matters.
-    #[inline]
-    pub fn at_line_start(&self) -> bool {
-        self.flags[self.pos].is_line_start()
     }
 
     /// True if a doc comment preceded the current token (`IS_DOC` flag).
@@ -368,14 +348,25 @@ impl<'a> Cursor<'a> {
         is_ident && matches!(self.peek_kind_at(n + 1), TokenKind::Colon)
     }
 
+    /// Check if the token at offset `n` is an identifier or a keyword usable as
+    /// an identifier (soft or positional).
+    ///
+    /// A valid bare map-key / field name per grammar.ebnf § `map_key` (the
+    /// `identifier` alternative). Consume the text via [`Cursor::expect_ident_or_keyword`].
+    pub fn peek_is_ident_or_keyword(&self, n: usize) -> bool {
+        let kind = self.peek_kind_at(n);
+        matches!(kind, TokenKind::Ident(_)) || is_keyword_usable_as_ident(kind)
+    }
+
     /// Advance to the next token and return the consumed token.
     ///
     /// # Safety invariant
     ///
-    /// The lexer always appends an EOF token, and grammar rules always check
-    /// the current token kind before calling `advance()`. This means the parser
-    /// can never advance past the last token. The unconditional increment avoids
-    /// a branch on every token consumption.
+    /// The lexer always appends an EOF token, so `pos` saturates at the EOF
+    /// index: advancing at EOF is idempotent and keeps `pos` in
+    /// `0..tokens.len()`. Every same-offset accessor (`current_tag`,
+    /// `current()`, the `flags[pos]` readers) relies on this invariant
+    /// rather than bounds-checking each read.
     #[inline]
     pub fn advance(&mut self) -> &Token {
         let current = self.pos;
@@ -391,7 +382,12 @@ impl<'a> Cursor<'a> {
             span_end = token.span.end,
             "advance"
         );
-        self.pos += 1;
+        // Sticky EOF: never advance past the EOF sentinel (the last token), so
+        // `pos` stays in `0..tokens.len()` for every accessor. The lexer always
+        // appends EOF, so `tokens.len() >= 1` and the `- 1` cannot underflow.
+        if self.pos < self.tokens.len() - 1 {
+            self.pos += 1;
+        }
         token
     }
 
@@ -399,8 +395,10 @@ impl<'a> Cursor<'a> {
 
     /// Mark the current position for starting a token capture.
     ///
-    /// Use with `complete_capture()` to capture a range of tokens:
-    /// ```ignore
+    /// Use with `complete_capture()` to capture a range of tokens. This is a
+    /// schematic parser-internal fragment, not a standalone program:
+    ///
+    /// ```text
     /// let start = cursor.start_capture();
     /// // ... parse some tokens ...
     /// let capture = cursor.complete_capture(start);

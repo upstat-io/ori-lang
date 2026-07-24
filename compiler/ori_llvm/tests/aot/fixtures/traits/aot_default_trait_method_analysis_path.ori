@@ -4,7 +4,7 @@ trait Describable {
 
 type Widget = { id: int }
 
-impl Describable for Widget {
+impl Widget: Describable {
 }
 
 impl Widget {

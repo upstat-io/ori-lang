@@ -29,7 +29,7 @@ pub struct EnumRepr {
 /// `EnumTag` should only be constructed in:
 /// - `canonical::type_repr::canonical_enum()` (initial explicit/tagless tag)
 /// - `layout::niche::optimize_option_repr()` / `optimize_result_repr()` (niche tags)
-/// - `layout::tagged_ptr::optimize_tagged_ptr_repr()` (§07.3.A — tagged pointer tag)
+/// - `layout::tagged_ptr::optimize_tagged_ptr_repr()` (tagged pointer tag)
 ///
 /// Consumers should use predicate methods (`is_niche()`, `is_tagless()`,
 /// `is_tagged_ptr()`, `needs_tag_field()`, `payload_gep_index()`) rather than
@@ -56,7 +56,7 @@ pub enum EnumTag {
         niche_variant_idx: u32,
     },
     /// Tagged pointer — discriminant encoded in the low 3 bits of an
-    /// 8-byte-aligned pointer slot. Spec: §07.3 (tagged pointer optimization).
+    /// 8-byte-aligned pointer slot (tagged pointer optimization).
     ///
     /// The enum value is a single 64-bit slot:
     /// `[63:3] pointer (or 0 for unit variants)  [2:0] variant index`
@@ -84,7 +84,7 @@ impl EnumTag {
         matches!(self, Self::Niche { .. })
     }
 
-    /// Whether this is a tagged-pointer encoded tag (§07.3).
+    /// Whether this is a tagged-pointer encoded tag.
     ///
     /// Tagged-pointer enums have NO struct layout — the entire enum is a
     /// single 64-bit value with the discriminant in the low 3 bits.

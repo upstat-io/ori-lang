@@ -1,7 +1,7 @@
 use super::*;
 use crate::{Idx, ModuleChecker, ObjectSafetyViolation};
 use ori_ir::{
-    DerivedTrait, ExprArena, Module, Name, ParsedType, ReprAttrKind, Span, StringInterner,
+    DerivedTrait, ExprArena, ExprId, Module, Name, ParsedType, ReprAttrKind, Span, StringInterner,
 };
 
 #[test]
@@ -257,8 +257,10 @@ fn object_safe_trait_has_no_violations() {
         super_traits: vec![],
         items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
             name: method_name,
+            generics: ori_ir::GenericParamRange::EMPTY,
             params,
             return_ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(3)), // str
+            where_clauses: vec![],
             span: ori_ir::Span::DUMMY,
         })],
         span: ori_ir::Span::DUMMY,
@@ -288,8 +290,10 @@ fn self_return_violates_object_safety() {
         super_traits: vec![],
         items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
             name: method_name,
+            generics: ori_ir::GenericParamRange::EMPTY,
             params,
             return_ty: ParsedType::SelfType,
+            where_clauses: vec![],
             span: ori_ir::Span::DUMMY,
         })],
         span: ori_ir::Span::DUMMY,
@@ -325,8 +329,10 @@ fn self_param_violates_object_safety() {
         super_traits: vec![],
         items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
             name: method_name,
+            generics: ori_ir::GenericParamRange::EMPTY,
             params,
             return_ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(2)), // bool
+            where_clauses: vec![],
             span: ori_ir::Span::DUMMY,
         })],
         span: ori_ir::Span::DUMMY,
@@ -368,14 +374,18 @@ fn multiple_violations_in_single_trait() {
         items: vec![
             ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
                 name: clone_name,
+                generics: ori_ir::GenericParamRange::EMPTY,
                 params: params1,
                 return_ty: ParsedType::SelfType,
+                where_clauses: vec![],
                 span: ori_ir::Span::DUMMY,
             }),
             ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
                 name: eq_name,
+                generics: ori_ir::GenericParamRange::EMPTY,
                 params: params2,
                 return_ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(2)),
+                where_clauses: vec![],
                 span: ori_ir::Span::DUMMY,
             }),
         ],
@@ -413,8 +423,10 @@ fn self_in_receiver_position_is_allowed() {
         super_traits: vec![],
         items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
             name: method_name,
+            generics: ori_ir::GenericParamRange::EMPTY,
             params,
             return_ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(3)), // str
+            where_clauses: vec![],
             span: ori_ir::Span::DUMMY,
         })],
         span: ori_ir::Span::DUMMY,
@@ -429,7 +441,271 @@ fn self_in_receiver_position_is_allowed() {
     );
 }
 
-// ── E2029: Derive Hashable without Eq ────────────────────────────────
+// Super-trait inheritance (Phase B.1 — register_object_safety_violations)
+
+/// Helper: build a `TraitDef` with one generic method `@<method_name><T> (self) -> T`.
+/// The trait's direct items therefore violate object-safety Rule 3 (`GenericMethod`).
+fn make_trait_with_generic_method(
+    arena: &mut ExprArena,
+    interner: &StringInterner,
+    trait_name: Name,
+    method_name: Name,
+    super_traits: Vec<ori_ir::TraitBound>,
+) -> ori_ir::TraitDef {
+    let self_name = interner.intern("self");
+    let t_param_name = interner.intern("T");
+    let params = arena.alloc_params(vec![make_param(self_name, None)]);
+    let method_generics = arena.alloc_generic_params(vec![ori_ir::GenericParam {
+        name: t_param_name,
+        bounds: vec![],
+        default_type: None,
+        is_const: false,
+        const_type: None,
+        default_value: None,
+        span: ori_ir::Span::DUMMY,
+    }]);
+    ori_ir::TraitDef {
+        name: trait_name,
+        generics: ori_ir::GenericParamRange::EMPTY,
+        super_traits,
+        items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
+            name: method_name,
+            generics: method_generics,
+            params,
+            // Return type is `int` here for simplicity — the GenericMethod
+            // violation is triggered by the method's own generics being
+            // non-empty, not by what the return type is.
+            return_ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(0)),
+            where_clauses: vec![],
+            span: ori_ir::Span::DUMMY,
+        })],
+        span: ori_ir::Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+    }
+}
+
+/// Helper: build a non-generic trait with optional super-trait list. Direct
+/// items are object-safe; violations only appear via inheritance from
+/// `super_traits` after `register_object_safety_violations` runs.
+fn make_trait_no_generic_method(
+    arena: &mut ExprArena,
+    interner: &StringInterner,
+    trait_name: Name,
+    method_name: Name,
+    super_traits: Vec<ori_ir::TraitBound>,
+) -> ori_ir::TraitDef {
+    let self_name = interner.intern("self");
+    let params = arena.alloc_params(vec![make_param(self_name, None)]);
+    ori_ir::TraitDef {
+        name: trait_name,
+        generics: ori_ir::GenericParamRange::EMPTY,
+        super_traits,
+        items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
+            name: method_name,
+            generics: ori_ir::GenericParamRange::EMPTY,
+            params,
+            return_ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(0)), // int
+            where_clauses: vec![],
+            span: ori_ir::Span::DUMMY,
+        })],
+        span: ori_ir::Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+    }
+}
+
+#[test]
+fn super_trait_propagates_generic_method_parent_first() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let super_name = interner.intern("Super");
+    let sub_name = interner.intern("Sub");
+    let generic_method = interner.intern("generic");
+    let ok_method = interner.intern("ok");
+
+    let super_def =
+        make_trait_with_generic_method(&mut arena, &interner, super_name, generic_method, vec![]);
+    let super_bound = ori_ir::TraitBound {
+        first: super_name,
+        rest: vec![],
+        span: ori_ir::Span::DUMMY,
+    };
+    let sub_def = make_trait_no_generic_method(
+        &mut arena,
+        &interner,
+        sub_name,
+        ok_method,
+        vec![super_bound],
+    );
+
+    let module = Module {
+        traits: vec![super_def, sub_def], // parent first
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_traits(&mut checker, &module);
+    register_object_safety_violations(&mut checker, &module);
+
+    let sub_entry = checker
+        .trait_registry()
+        .get_trait_by_name(sub_name)
+        .expect("Sub registered");
+    assert_eq!(
+        sub_entry.object_safety_violations.len(),
+        1,
+        "Sub should inherit one GenericMethod violation from Super"
+    );
+    assert!(
+        matches!(
+            &sub_entry.object_safety_violations[0],
+            ObjectSafetyViolation::GenericMethod { method, .. } if *method == generic_method
+        ),
+        "inherited violation must be the GenericMethod from Super.@generic<T>"
+    );
+}
+
+#[test]
+fn super_trait_propagates_generic_method_child_first() {
+    // Order-independence: declaring Sub before Super must still produce the
+    // inherited violation, because two-phase registration computes violations
+    // AFTER all traits are registered.
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let super_name = interner.intern("Super");
+    let sub_name = interner.intern("Sub");
+    let generic_method = interner.intern("generic");
+    let ok_method = interner.intern("ok");
+
+    let super_bound = ori_ir::TraitBound {
+        first: super_name,
+        rest: vec![],
+        span: ori_ir::Span::DUMMY,
+    };
+    let sub_def = make_trait_no_generic_method(
+        &mut arena,
+        &interner,
+        sub_name,
+        ok_method,
+        vec![super_bound],
+    );
+    let super_def =
+        make_trait_with_generic_method(&mut arena, &interner, super_name, generic_method, vec![]);
+
+    let module = Module {
+        traits: vec![sub_def, super_def], // child first
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_traits(&mut checker, &module);
+    register_object_safety_violations(&mut checker, &module);
+
+    let sub_entry = checker
+        .trait_registry()
+        .get_trait_by_name(sub_name)
+        .expect("Sub registered");
+    assert_eq!(
+        sub_entry.object_safety_violations.len(),
+        1,
+        "child-first ordering must still inherit Super's GenericMethod"
+    );
+    assert!(matches!(
+        &sub_entry.object_safety_violations[0],
+        ObjectSafetyViolation::GenericMethod { method, .. } if *method == generic_method
+    ));
+}
+
+#[test]
+fn super_trait_propagates_through_multi_level_chain() {
+    // C: B, B: A, A has generic method. C MUST inherit transitively.
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let a_name = interner.intern("A");
+    let b_name = interner.intern("B");
+    let c_name = interner.intern("C");
+    let generic_method = interner.intern("generic");
+    let ok_b = interner.intern("ok_b");
+    let ok_c = interner.intern("ok_c");
+
+    let a_def =
+        make_trait_with_generic_method(&mut arena, &interner, a_name, generic_method, vec![]);
+    let a_bound = ori_ir::TraitBound {
+        first: a_name,
+        rest: vec![],
+        span: ori_ir::Span::DUMMY,
+    };
+    let b_def = make_trait_no_generic_method(&mut arena, &interner, b_name, ok_b, vec![a_bound]);
+    let b_bound = ori_ir::TraitBound {
+        first: b_name,
+        rest: vec![],
+        span: ori_ir::Span::DUMMY,
+    };
+    let c_def = make_trait_no_generic_method(&mut arena, &interner, c_name, ok_c, vec![b_bound]);
+
+    let module = Module {
+        traits: vec![a_def, b_def, c_def],
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_traits(&mut checker, &module);
+    register_object_safety_violations(&mut checker, &module);
+
+    // Both B and C must inherit A's GenericMethod via the transitive DAG walk.
+    let b_entry = checker
+        .trait_registry()
+        .get_trait_by_name(b_name)
+        .expect("B registered");
+    assert_eq!(
+        b_entry.object_safety_violations.len(),
+        1,
+        "B inherits A's GenericMethod"
+    );
+
+    let c_entry = checker
+        .trait_registry()
+        .get_trait_by_name(c_name)
+        .expect("C registered");
+    assert_eq!(
+        c_entry.object_safety_violations.len(),
+        1,
+        "C inherits A's GenericMethod transitively through B"
+    );
+}
+
+#[test]
+fn no_super_trait_means_no_inheritance() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    let plain_name = interner.intern("Plain");
+    let plain_method = interner.intern("plain");
+    let plain_def =
+        make_trait_no_generic_method(&mut arena, &interner, plain_name, plain_method, vec![]);
+
+    let module = Module {
+        traits: vec![plain_def],
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_traits(&mut checker, &module);
+    register_object_safety_violations(&mut checker, &module);
+
+    let entry = checker
+        .trait_registry()
+        .get_trait_by_name(plain_name)
+        .expect("Plain registered");
+    assert!(
+        entry.object_safety_violations.is_empty(),
+        "trait with no super-traits and no own violations stays object-safe"
+    );
+}
+
+// E2029: Derive Hashable without Eq
 
 #[test]
 fn derive_hashable_without_eq_emits_error() {
@@ -458,6 +734,10 @@ fn derive_hashable_without_eq_emits_error() {
     let errors = checker.errors();
     assert_eq!(errors.len(), 1, "expected exactly one error");
     assert_eq!(errors[0].code(), ori_diagnostic::ErrorCode::E2029);
+    assert!(
+        checker.accepted_derives.is_empty(),
+        "a rejected derive must not publish an executable fact"
+    );
 }
 
 #[test]
@@ -490,6 +770,74 @@ fn derive_eq_and_hashable_succeeds() {
 
     let errors = checker.errors();
     assert!(errors.is_empty(), "expected no errors, got: {errors:?}");
+    assert_eq!(checker.accepted_derives.len(), 2);
+    assert_eq!(checker.accepted_derives[0].id.raw(), 0);
+    assert_eq!(checker.accepted_derives[1].id.raw(), 1);
+    assert_eq!(checker.accepted_derives[0].owner_name, type_name);
+    assert_eq!(
+        checker.accepted_derives[0].method_name,
+        interner.intern("eq")
+    );
+    assert_eq!(checker.accepted_derives[0].signature.param_types.len(), 2);
+    assert_eq!(checker.accepted_derives[0].signature.return_type, Idx::BOOL);
+}
+
+#[test]
+fn duplicate_accepted_derive_publishes_one_fact() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+
+    let eq = interner.intern("Eq");
+    let type_decl = ori_ir::TypeDecl {
+        name: interner.intern("Point"),
+        kind: ori_ir::TypeDeclKind::Struct(vec![]),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        where_clauses: vec![],
+        span: Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+        derives: vec![eq],
+        repr_attrs: vec![],
+        target_attr: None,
+        cfg_attr: None,
+    };
+
+    register_derived_impl(&mut checker, &type_decl, eq);
+    register_derived_impl(&mut checker, &type_decl, eq);
+
+    assert_eq!(checker.accepted_derives.len(), 1);
+}
+
+#[test]
+fn newtype_derive_requires_underlying_trait() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+
+    let eq = interner.intern("Eq");
+    let type_decl = ori_ir::TypeDecl {
+        name: interner.intern("Opaque"),
+        kind: ori_ir::TypeDeclKind::Newtype(ParsedType::Named {
+            name: interner.intern("NoEq"),
+            type_args: ori_ir::ParsedTypeRange::EMPTY,
+        }),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        where_clauses: vec![],
+        span: Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+        derives: vec![eq],
+        repr_attrs: vec![],
+        target_attr: None,
+        cfg_attr: None,
+    };
+
+    register_derived_impl(&mut checker, &type_decl, eq);
+
+    assert_eq!(checker.errors().len(), 1);
+    assert_eq!(checker.errors()[0].code(), ori_diagnostic::ErrorCode::E2032);
+    assert!(checker.accepted_derives.is_empty());
 }
 
 // resolve_type_with_params — compound Self recursion tests
@@ -698,7 +1046,7 @@ fn resolve_type_with_params_nested_self_in_list_of_tuples() {
     assert_eq!(checker.pool().tag(first), crate::Tag::Named);
 }
 
-// --- Cross-crate sync enforcement ---
+// Cross-crate sync enforcement
 
 #[test]
 fn all_derived_traits_have_type_signatures() {
@@ -714,7 +1062,15 @@ fn all_derived_traits_have_type_signatures() {
         let type_name = interner.intern("TestType");
         let self_type = checker.pool_mut().named(type_name);
 
-        let methods = build_derived_methods(&mut checker, trait_kind, self_type, Span::DUMMY);
+        let trait_name = interner.intern(trait_kind.trait_name());
+        let (methods, signature) = build_derived_methods(
+            &mut checker,
+            trait_kind,
+            self_type,
+            &[],
+            trait_name,
+            Span::DUMMY,
+        );
 
         assert!(
             !methods.is_empty(),
@@ -728,6 +1084,11 @@ fn all_derived_traits_have_type_signatures() {
         assert!(
             methods.contains_key(&method_name),
             "DerivedTrait::{trait_kind:?} registered method name doesn't match method_name()",
+        );
+        assert_eq!(signature.name, method_name);
+        assert_eq!(
+            signature.param_types.len(),
+            trait_kind.shape().param_count()
         );
     }
 }
@@ -892,5 +1253,621 @@ fn repr_c_plus_aligned_still_valid() {
     assert!(
         errors.is_empty(),
         "c + aligned should be valid, got errors: {errors:?}"
+    );
+}
+
+// E2049: Value + Drop mutual exclusion
+
+/// Helper: build a minimal `impl Point: Drop { @drop (self) -> void = ... }`
+/// `ImplDef` over a struct named `Point`. The body `ExprId` is `INVALID`
+/// (Phase 4 body-check skipped); only the `trait_path`/`self_path` are
+/// load-bearing for the conflict-detection wire-up.
+fn make_drop_impl_for(
+    arena: &mut ExprArena,
+    interner: &StringInterner,
+    type_name: Name,
+) -> ori_ir::ImplDef {
+    let drop_name = interner.intern("Drop");
+    let drop_method = interner.intern("drop");
+    let self_name = interner.intern("self");
+    let params = arena.alloc_params(vec![make_param(self_name, None)]);
+    // TY-5: Idx::UNIT corresponds to TypeId::from_raw(6) (pre-interned primitive index).
+    let unit_primitive = ParsedType::Primitive(ori_ir::TypeId::from_raw(6));
+    ori_ir::ImplDef {
+        generics: ori_ir::GenericParamRange::EMPTY,
+        trait_path: Some(vec![drop_name]),
+        trait_type_args: ori_ir::ParsedTypeRange::EMPTY,
+        self_path: vec![type_name],
+        self_ty: ParsedType::Named {
+            name: type_name,
+            type_args: ori_ir::ParsedTypeRange::EMPTY,
+        },
+        where_clauses: vec![],
+        methods: vec![ori_ir::ImplMethod {
+            name: drop_method,
+            generics: ori_ir::GenericParamRange::EMPTY,
+            params,
+            return_ty: unit_primitive,
+            capabilities: vec![],
+            where_clauses: vec![],
+            body: ExprId::INVALID,
+            span: Span::DUMMY,
+        }],
+        assoc_types: vec![],
+        span: Span::DUMMY,
+        target_attr: None,
+        cfg_attr: None,
+    }
+}
+
+/// Helper: build a minimal `trait Drop { @drop (self) -> void }` `TraitDef`.
+/// Sufficient for `register_traits` + `register_impl` to wire Drop's
+/// trait `Idx`; method signature shape is not consumed by the conflict
+/// checks.
+fn make_drop_trait(arena: &mut ExprArena, interner: &StringInterner) -> ori_ir::TraitDef {
+    let drop_method = interner.intern("drop");
+    let self_name = interner.intern("self");
+    let params = arena.alloc_params(vec![make_param(self_name, None)]);
+    let unit_primitive = ParsedType::Primitive(ori_ir::TypeId::from_raw(6));
+    ori_ir::TraitDef {
+        name: interner.intern("Drop"),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        super_traits: vec![],
+        items: vec![ori_ir::TraitItem::MethodSig(ori_ir::TraitMethodSig {
+            name: drop_method,
+            generics: ori_ir::GenericParamRange::EMPTY,
+            params,
+            return_ty: unit_primitive,
+            where_clauses: vec![],
+            span: Span::DUMMY,
+        })],
+        span: Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+    }
+}
+
+/// Helper: build a `type T = { x: int }` struct decl carrying the named
+/// derives (e.g., `["Value", "Eq"]`).
+fn make_struct_decl_with_derives(
+    interner: &StringInterner,
+    type_name: &str,
+    derive_names: &[&str],
+) -> ori_ir::TypeDecl {
+    let derives: Vec<Name> = derive_names.iter().map(|n| interner.intern(n)).collect();
+    ori_ir::TypeDecl {
+        name: interner.intern(type_name),
+        kind: ori_ir::TypeDeclKind::Struct(vec![ori_ir::StructField {
+            name: interner.intern("x"),
+            ty: ParsedType::Primitive(ori_ir::TypeId::from_raw(0)), // int
+            span: Span::DUMMY,
+        }]),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        where_clauses: vec![],
+        span: Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+        derives,
+        repr_attrs: vec![],
+        target_attr: None,
+        cfg_attr: None,
+    }
+}
+
+/// Surface 1 — `register_user_types` detects an existing `impl T: Drop`
+/// and emits E2049 with span at the type declaration.
+///
+/// Order: Drop impl registered FIRST, then `type T: Value, ...` declared.
+/// Second registration (the type-decl) is the one rejected.
+#[test]
+fn value_type_decl_with_drop_impl_emits_e2049_at_user_types_surface() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let point_name = interner.intern("Point");
+    // Drop trait must exist for impl registration to wire correctly.
+    let drop_trait = make_drop_trait(&mut arena, &interner);
+    // Drop impl over Point — Point must be in the pool already, which
+    // `register_impls` handles via `pool_mut().named(...)`.
+    let drop_impl = make_drop_impl_for(&mut arena, &interner, point_name);
+    // Type decl with `derives = ["Value"]` (Surface 1 trigger).
+    let point_decl = make_struct_decl_with_derives(&interner, "Point", &["Value"]);
+
+    // Order: Drop impl FIRST (parent already has type registered as Named
+    // via pool); then `type Point: Value, ...` lands second AND collides.
+    let module = Module {
+        traits: vec![drop_trait],
+        impls: vec![drop_impl],
+        types: vec![point_decl],
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+    register_traits(&mut checker, &module);
+    register_impls(&mut checker, &module);
+    register_user_types(&mut checker, &module);
+
+    let errors = checker.errors();
+    let e2049_count = errors
+        .iter()
+        .filter(|e| e.code() == ori_diagnostic::ErrorCode::E2049)
+        .count();
+    assert_eq!(
+        e2049_count, 1,
+        "expected exactly one E2049 at Surface 1, got errors: {errors:?}"
+    );
+}
+
+/// Surface 2 — `register_impl` detects an existing `Value` marker on the
+/// type and emits E2049 with span at the impl declaration.
+///
+/// Order: `type Point: Value, ...` declared FIRST, then `impl Point: Drop`
+/// registered SECOND. The impl registration is the one rejected.
+#[test]
+fn drop_impl_for_value_type_emits_e2049_at_register_impl_surface() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let point_name = interner.intern("Point");
+    let drop_trait = make_drop_trait(&mut arena, &interner);
+    let drop_impl = make_drop_impl_for(&mut arena, &interner, point_name);
+    let point_decl = make_struct_decl_with_derives(&interner, "Point", &["Value"]);
+
+    // Order: type decl FIRST (Surface 1 records the marker), then impl
+    // SECOND (Surface 2 reads it + emits).
+    let module = Module {
+        types: vec![point_decl],
+        traits: vec![drop_trait],
+        impls: vec![drop_impl],
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+    register_user_types(&mut checker, &module);
+    register_traits(&mut checker, &module);
+    register_impls(&mut checker, &module);
+
+    let errors = checker.errors();
+    let e2049_count = errors
+        .iter()
+        .filter(|e| e.code() == ori_diagnostic::ErrorCode::E2049)
+        .count();
+    assert_eq!(
+        e2049_count, 1,
+        "expected exactly one E2049 at Surface 2, got errors: {errors:?}"
+    );
+}
+
+/// Positive — clean Value type (no Drop impl) registers without error
+/// AND populates an empty `UserBurdenSpec`.
+#[test]
+fn value_type_without_drop_impl_registers_empty_user_burden_spec() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    let point_decl = make_struct_decl_with_derives(&interner, "Point", &["Value"]);
+    let module = Module {
+        types: vec![point_decl],
+        ..Module::default()
+    };
+
+    register_builtin_types(&mut checker);
+    register_user_types(&mut checker, &module);
+
+    let errors = checker.errors();
+    let e2049_count = errors
+        .iter()
+        .filter(|e| e.code() == ori_diagnostic::ErrorCode::E2049)
+        .count();
+    assert_eq!(
+        e2049_count, 0,
+        "Value-only type must NOT emit E2049, got errors: {errors:?}"
+    );
+
+    // Verify the marker was recorded.
+    let point_name = interner.intern("Point");
+    let point_idx = checker.type_registry().get_by_name(point_name).unwrap().idx;
+    assert!(
+        checker.type_registry().carries_value_marker(point_idx),
+        "Value-marker registration must record the type in the value_marker_types set"
+    );
+
+    // Verify an empty UserBurdenSpec was registered (Value types have no
+    // heap, no owned fields, no variant payloads).
+    let burden = checker.type_registry().burden(point_idx);
+    assert!(
+        burden.is_some(),
+        "Value type must register an empty UserBurdenSpec (vs leaving burden=None)"
+    );
+    let burden = burden.unwrap();
+    assert!(
+        !burden.self_owned_identity,
+        "Value spec self_owned_identity must be false"
+    );
+    assert!(
+        burden.owned_fields.is_empty(),
+        "Value spec owned_fields must be empty"
+    );
+    assert!(
+        burden.borrowed_fields.is_empty(),
+        "Value spec borrowed_fields must be empty"
+    );
+    assert!(
+        burden.variant_burdens.is_empty(),
+        "Value spec variant_burdens must be empty"
+    );
+    assert!(
+        burden.element_burden.is_none(),
+        "Value spec element_burden must be None"
+    );
+    assert!(
+        burden.drop_operation.is_none(),
+        "Value spec drop_operation must be None"
+    );
+    assert!(
+        burden.user_drop.is_none(),
+        "Value spec user_drop must be None"
+    );
+}
+
+/// Helper: build a struct decl carrying the named derives with an explicit
+/// field list `(field_name, field_type)`. Mirrors `make_struct_decl_with_derives`
+/// but lets the caller pin field shapes for the transitive-Value field-walk pins.
+fn make_struct_decl_with_fields(
+    interner: &StringInterner,
+    type_name: &str,
+    derive_names: &[&str],
+    fields: Vec<(&str, ParsedType)>,
+) -> ori_ir::TypeDecl {
+    let derives: Vec<Name> = derive_names.iter().map(|n| interner.intern(n)).collect();
+    let struct_fields: Vec<ori_ir::StructField> = fields
+        .into_iter()
+        .map(|(fname, fty)| ori_ir::StructField {
+            name: interner.intern(fname),
+            ty: fty,
+            span: Span::DUMMY,
+        })
+        .collect();
+    ori_ir::TypeDecl {
+        name: interner.intern(type_name),
+        kind: ori_ir::TypeDeclKind::Struct(struct_fields),
+        generics: ori_ir::GenericParamRange::EMPTY,
+        where_clauses: vec![],
+        span: Span::DUMMY,
+        visibility: ori_ir::Visibility::Public,
+        derives,
+        repr_attrs: vec![],
+        target_attr: None,
+        cfg_attr: None,
+    }
+}
+
+/// Helper: `ParsedType::Named { name, type_args: [] }` — a nullary nominal
+/// reference (e.g. a field `inner: Pt`). Allocates the empty type-arg list.
+fn named_no_args(arena: &mut ExprArena, interner: &StringInterner, name: &str) -> ParsedType {
+    let empty_args = arena.alloc_parsed_type_list(vec![]);
+    ParsedType::Named {
+        name: interner.intern(name),
+        type_args: empty_args,
+    }
+}
+
+/// Positive (field-walk) — every field of a `Value`-marked type is itself
+/// `Value` (two `float` fields): registers the empty `UserBurdenSpec` with
+/// NO field-constraint diagnostic (E2032) and NO E2049.
+#[test]
+fn value_type_all_value_fields_registers_empty_burden() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    // type Pt: Value = { x: float, y: float }
+    let pt_decl = make_struct_decl_with_fields(
+        &interner,
+        "Pt",
+        &["Value"],
+        vec![
+            ("x", ParsedType::Primitive(ori_ir::TypeId::from_raw(1))), // float
+            ("y", ParsedType::Primitive(ori_ir::TypeId::from_raw(1))), // float
+        ],
+    );
+    let module = Module {
+        types: vec![pt_decl],
+        ..Module::default()
+    };
+
+    register_builtin_types(&mut checker);
+    register_user_types(&mut checker, &module);
+
+    let errors = checker.errors();
+    let field_constraint_count = errors
+        .iter()
+        .filter(|e| e.code() == ori_diagnostic::ErrorCode::E2032)
+        .count();
+    assert_eq!(
+        field_constraint_count, 0,
+        "all-Value-fields type must NOT emit the field-constraint diagnostic, got: {errors:?}"
+    );
+
+    // Empty UserBurdenSpec still registered (the sound empty-burden path).
+    let pt_idx = checker
+        .type_registry()
+        .get_by_name(interner.intern("Pt"))
+        .unwrap()
+        .idx;
+    let burden = checker.type_registry().burden(pt_idx);
+    assert!(
+        burden.is_some(),
+        "all-Value-fields type must register the empty UserBurdenSpec"
+    );
+    assert!(
+        !burden.unwrap().self_owned_identity,
+        "all-Value-fields Value spec self_owned_identity must be false"
+    );
+}
+
+/// Negative (field-walk) — a `Value`-marked type with a `str` field is
+/// rejected with the field-constraint diagnostic (E2032) naming the
+/// offending `name: str` field. The empty `UserBurdenSpec` for a heap-bearing
+/// field would be the latent silent-RC-drop; the validator forbids it.
+#[test]
+fn value_type_with_str_field_rejected() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    // type Bad: Value = { name: str }
+    let bad_decl = make_struct_decl_with_fields(
+        &interner,
+        "Bad",
+        &["Value"],
+        vec![("name", ParsedType::Primitive(ori_ir::TypeId::from_raw(3)))], // str
+    );
+    let module = Module {
+        types: vec![bad_decl],
+        ..Module::default()
+    };
+
+    register_builtin_types(&mut checker);
+    register_user_types(&mut checker, &module);
+
+    let errors = checker.errors();
+    let field_constraint: Vec<_> = errors
+        .iter()
+        .filter(|e| e.code() == ori_diagnostic::ErrorCode::E2032)
+        .collect();
+    assert_eq!(
+        field_constraint.len(),
+        1,
+        "Value type with a `str` field must emit exactly one field-constraint diagnostic, got: {errors:?}"
+    );
+    // The diagnostic names the offending field.
+    let name_field = interner.intern("name");
+    let names_field = matches!(
+        &field_constraint[0].kind,
+        crate::TypeErrorKind::FieldMissingTraitInDerive { field_name, .. } if *field_name == name_field
+    );
+    assert!(
+        names_field,
+        "field-constraint diagnostic must name the offending `name` field, got: {:?}",
+        field_constraint[0].kind
+    );
+}
+
+/// Transitive (field-walk) — a `Value`-marked type whose field is another
+/// `Value`-marked struct (`inner: Pt` where `Pt: Value`) is accepted via the
+/// transitive Value-membership lookup (the field's resolved Idx carries the
+/// Value marker). Pt is declared FIRST so its marker is recorded before Outer.
+#[test]
+fn value_type_with_nested_value_struct_field_accepts() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    // type Pt: Value = { x: float, y: float }
+    let pt_decl = make_struct_decl_with_fields(
+        &interner,
+        "Pt",
+        &["Value"],
+        vec![
+            ("x", ParsedType::Primitive(ori_ir::TypeId::from_raw(1))),
+            ("y", ParsedType::Primitive(ori_ir::TypeId::from_raw(1))),
+        ],
+    );
+    // type Outer: Value = { inner: Pt }
+    let inner_ty = named_no_args(&mut arena, &interner, "Pt");
+    let outer_decl =
+        make_struct_decl_with_fields(&interner, "Outer", &["Value"], vec![("inner", inner_ty)]);
+
+    // Declaration order: Pt FIRST (marker recorded), then Outer.
+    let module = Module {
+        types: vec![pt_decl, outer_decl],
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+    register_user_types(&mut checker, &module);
+
+    let errors = checker.errors();
+    let field_constraint_count = errors
+        .iter()
+        .filter(|e| e.code() == ori_diagnostic::ErrorCode::E2032)
+        .count();
+    assert_eq!(
+        field_constraint_count, 0,
+        "Value type with a nested Value-struct field must be accepted transitively, got: {errors:?}"
+    );
+
+    // Outer still gets its empty UserBurdenSpec.
+    let outer_idx = checker
+        .type_registry()
+        .get_by_name(interner.intern("Outer"))
+        .unwrap()
+        .idx;
+    assert!(
+        checker.type_registry().burden(outer_idx).is_some(),
+        "transitively-Value Outer must register the empty UserBurdenSpec"
+    );
+}
+
+/// Cycle (field-walk) — a `Value`-marked type whose field-walk transitively
+/// revisits the same type `Idx` (a self-referential Value struct) terminates
+/// via the visited-set memo: no infinite recursion, no stack overflow. The
+/// self-reference resolves as Value-in-progress (treated as Value), so the
+/// walk accepts without the field-constraint diagnostic.
+#[test]
+fn value_type_with_recursive_value_field_terminates() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+
+    // type SelfRef: Value = { me: SelfRef, x: float }
+    // A field referencing the declaring type itself — the cycle the
+    // visited-set memo must short-circuit. `x: float` keeps a genuine
+    // Value field alongside the self-reference.
+    let self_ty = named_no_args(&mut arena, &interner, "SelfRef");
+    let self_decl = make_struct_decl_with_fields(
+        &interner,
+        "SelfRef",
+        &["Value"],
+        vec![
+            ("me", self_ty),
+            ("x", ParsedType::Primitive(ori_ir::TypeId::from_raw(1))),
+        ],
+    );
+    let module = Module {
+        types: vec![self_decl],
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+    // Must terminate — a non-cycle-aware walk would recurse forever on `me`.
+    register_user_types(&mut checker, &module);
+
+    // The walk terminated (we reached here). The self-referential field
+    // resolves as Value-in-progress, so no field-constraint diagnostic fires.
+    let errors = checker.errors();
+    let field_constraint_count = errors
+        .iter()
+        .filter(|e| e.code() == ori_diagnostic::ErrorCode::E2032)
+        .count();
+    assert_eq!(
+        field_constraint_count, 0,
+        "recursive Value field must terminate via the visited-set memo with no field-constraint diagnostic, got: {errors:?}"
+    );
+}
+
+/// Negative — `impl T: Drop` on a NON-Value type registers `user_drop`
+/// AND emits no E2049 (the conflict requires BOTH markers).
+#[test]
+fn drop_impl_for_non_value_type_registers_user_drop_no_e2049() {
+    let mut arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let point_name = interner.intern("Point");
+    let drop_trait = make_drop_trait(&mut arena, &interner);
+    let drop_impl = make_drop_impl_for(&mut arena, &interner, point_name);
+    // Type decl WITHOUT Value in derives.
+    let point_decl = make_struct_decl_with_derives(&interner, "Point", &[]);
+
+    let module = Module {
+        types: vec![point_decl],
+        traits: vec![drop_trait],
+        impls: vec![drop_impl],
+        ..Module::default()
+    };
+
+    let mut checker = ModuleChecker::new(&arena, &interner);
+    register_builtin_types(&mut checker);
+    register_user_types(&mut checker, &module);
+    register_traits(&mut checker, &module);
+    register_impls(&mut checker, &module);
+
+    let errors = checker.errors();
+    let e2049_count = errors
+        .iter()
+        .filter(|e| e.code() == ori_diagnostic::ErrorCode::E2049)
+        .count();
+    assert_eq!(
+        e2049_count, 0,
+        "Drop without Value must NOT emit E2049, got errors: {errors:?}"
+    );
+
+    // Verify Point does not carry the Value marker.
+    let point_idx = checker.type_registry().get_by_name(point_name).unwrap().idx;
+    assert!(
+        !checker.type_registry().carries_value_marker(point_idx),
+        "Non-Value type must NOT carry Value marker"
+    );
+
+    // Verify the Drop impl was registered (user_drop populated).
+    let burden = checker.type_registry().burden(point_idx);
+    assert!(
+        burden.is_some(),
+        "Drop type's burden must be populated by populate_drop_burden_if_applicable"
+    );
+    let burden = burden.unwrap();
+    assert!(
+        burden.user_drop.is_some(),
+        "Drop type's user_drop must be set by populate_drop_burden_if_applicable"
+    );
+}
+
+#[test]
+fn error_struct_registers_heap_field_burden() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    register_builtin_types(&mut checker);
+
+    let error_idx = checker
+        .pool()
+        .error_struct_idx()
+        .unwrap_or_else(|| panic!("Error struct idx must be recorded"));
+    let burden = checker
+        .type_registry()
+        .burden(error_idx)
+        .unwrap_or_else(|| {
+            panic!("Error owns message: str + trace: [TraceEntry] — burden required")
+        });
+    let mut paths: Vec<u32> = burden
+        .owned_fields
+        .iter()
+        .map(|f| f.field_path[0])
+        .collect();
+    paths.sort_unstable();
+    assert_eq!(
+        paths,
+        vec![0, 1],
+        "Error burden must own both message (field 0) and trace (field 1)"
+    );
+}
+
+#[test]
+fn trace_entry_registers_heap_field_burden() {
+    let arena = ExprArena::new();
+    let interner = StringInterner::new();
+    let mut checker = ModuleChecker::new(&arena, &interner);
+
+    register_builtin_types(&mut checker);
+
+    let te_name = interner.intern("TraceEntry");
+    let entry = checker
+        .type_registry()
+        .get_by_name(te_name)
+        .unwrap_or_else(|| panic!("TraceEntry must be registered"));
+    let burden = checker
+        .type_registry()
+        .burden(entry.idx)
+        .unwrap_or_else(|| panic!("TraceEntry owns function: str + file: str — burden required"));
+    let mut paths: Vec<u32> = burden
+        .owned_fields
+        .iter()
+        .map(|f| f.field_path[0])
+        .collect();
+    paths.sort_unstable();
+    assert_eq!(
+        paths,
+        vec![0, 1],
+        "TraceEntry burden must own function (field 0) and file (field 1)"
     );
 }

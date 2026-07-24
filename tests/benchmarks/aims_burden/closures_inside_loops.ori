@@ -1,0 +1,31 @@
+// Benchmark: Closures inside loops (closure-env BurdenSpec composition)
+// Shape: tight loop creating + invoking
+// closures with captured-by-value bindings. Isolates closure-env BurdenSpec
+// composition + the capture-transfer points where an owned heap binding
+// (str) is moved into the closure environment each iteration.
+//
+// RC focus: each iteration captures `cap` (a str) into a fresh closure env,
+// then the closure is invoked + dropped. Phase 5 emits BurdenInc on the
+// capture-transfer + BurdenDec at the closure's end-of-life; Phase 6's
+// DP-3 (Once + Linear) elides the inc where the capture is the binding's
+// single move, and DP-2 (Dead/Absent) elides the dec where the env dies
+// unused after the call. The loop multiplies the per-iteration burden ops.
+
+@apply (f: (int) -> int, x: int) -> int = f(x);
+
+@main () -> int = {
+    let prefix: str = "burden-tracking-capture";
+    let total = 0;
+    let i = 0;
+    loop {
+        if i >= 100000 then break;
+        let cap: str = prefix;
+        let add_len: (int) -> int = (x: int) -> x + cap.len();
+        total = total + apply(f: add_len, x: i);
+        i = i + 1;
+    };
+    // Verify: each iteration adds i + prefix.len(); total must be positive
+    // and the loop must have run all 100000 iterations.
+    let expected_min = 100000 * 23;
+    if total >= expected_min then 0 else 1
+}

@@ -12,18 +12,20 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `dual-exec-debug.sh` | Compare interpreter vs AOT output | Wrong output — is it eval or codegen? |
 | `dual-exec-verify.sh` | Batch interpreter vs LLVM verification | CI parity gate, coverage audits |
 | `codegen-audit.sh` | Static RC/COW/ABI analysis of LLVM IR | RC corruption, double-free, ABI mismatch |
-| `rc-stats.sh` | RC operation count per function | Leak or over-release suspicion (`--block-level`, `--optimized`) |
+| `rc-stats.sh` | RC operation count per function | Leak or over-release suspicion (`--block-level`, `--optimized`, `--rc-remarks`) |
 | `ir-dump.sh` | Annotated LLVM IR with color-coded RC ops | Understanding what codegen actually emits |
 | `arc-dump.sh` | Annotated ARC IR (post-lowering, pre-RC) | Debugging AIMS pipeline: alias chains, take-projects, lineage |
+| `entry-ownership.sh` | Entry-point ownership seam: `@main`'s AIMS param facts beside the C wrapper's argv cleanup decision and every cleanup site's EMIT/SKIP verdict (`--compare a.ori b.ori` diffs two programs' seams in one command) | An `@main (args:)` double-free, leak, or "why does the wrapper free this" question |
 | `ir-diff.sh` | Side-by-side IR comparison of two programs | Regression hunting, before/after comparison |
 | `disasm-ori.sh` | Native disassembly with Ori symbol demangling | Instruction-level debugging |
 | `bisect-passes.sh` | Identify which AIMS pipeline phase introduced an RC or structural change | After `diagnose-aot.sh` finds a leak/crash (`--function`, `--rc-only`) |
+| `burden-balance.sh` | VF-1 `verify_burden_balance` imbalance count (default, per-var) OR per-same-alloc-lineage post-lowering RC-net (`--lineage-net`, cross-var) over a corpus | Measuring faithful Phase-5 burden-emission residual (`--files`, `--raw`, `--release`); `--lineage-net` surfaces dup-alias double-frees (net<0) VF-1's per-var count is blind to (a lineage nets 0 per-var, -N cross-var); REBUILD the dev binary first — a stale binary yields false counts |
 | `debug-release-compare.sh` | Compare debug vs release build output | FastISel-only bugs, optimization divergences |
+| `class-ledger-census.sh` | Single-leg readiness census: per-function replaced vs fallback counts + ranked fallback-reason table over a corpus, under the gated burden-sole env; `--run` adds plain + leak-check behavior verdicts | The drain worklist for retiring the legacy fallback walk (`--limit`, `--family`, `--run`, `--timeout`) |
 | `check-debug-flags.sh` | Validate `ORI_*` flag consistency | After adding/removing debug flags |
+| `check-tracing-coverage.sh` | Validate tracing dependencies, literal registry entries, and required parser spans | After changing tracing calls, dependencies, or parser boundaries |
 | `repo-hygiene.sh` | Detect/clean untracked temp files | Subsection close-out, section completion (`--check`, `--clean`) |
-| `tpr-failure-summary.sh` | Summarize TPR failure patterns across runs | Investigating Gemini/Codex failures, capacity errors |
-| `tpr-liveness.sh` | Classify a TPR reviewer sub-agent as alive/quiet/dead | `/tpr-review` §9 retry decision — BEFORE deciding a silent reviewer is hung |
-| `state.sh` | Read/write the global repo state indicator (test totals, known-failing set, clippy, hygiene) at `.claude/state/known-state.json` | First query on any new session — skips the rediscover-from-scratch loop (`show`, `check`, `known-failing`, `refresh --sha-only`/`--full`/`--hygiene-only`) |
+| `verify-build-stamp-freshness.sh` | Verify `oric`'s `build.rs` re-executes and refreshes its git-identity stamp on an ordinary rebuild | After touching `compiler/oric/build.rs` or its `git()`-based stamping logic |
 | `self-test.sh` | Self-test all scripts against fixtures | After modifying any diagnostic script |
 
 ## Usage
@@ -40,6 +42,8 @@ diagnostics/diagnose-aot.sh --both-builds file.ori # Full battery on BOTH debug 
 ```
 
 Runs 5-7 checks in sequence: compilation, execution, leak check (`ORI_CHECK_LEAKS=1`), RC stats, LLVM IR dump, and optionally Valgrind and disassembly. With `--both-builds`, runs the full battery twice (debug then release) and shows a per-section comparison table.
+
+RC Stats is a static heuristic, not a memory-safety verdict. A WARN keeps the command successful when all gating checks pass, but the terminal summary preserves the warning and names the confirmation probes: `--rc-trace --valgrind` for runtime safety and `rc-stats.sh --rc-remarks` for burden-sole survivors. Reported durations use a monotonic clock.
 
 ### dual-exec-debug.sh — Backend Comparison
 
@@ -96,9 +100,34 @@ diagnostics/rc-stats.sh --block-level file.ori               # Per-block breakdo
 diagnostics/rc-stats.sh --optimized file.ori                  # After LLVM optimization passes
 diagnostics/rc-stats.sh --block-level --optimized file.ori   # Per-block on optimized IR
 diagnostics/rc-stats.sh --compare-awk file.ori               # Migration check: compare JSON vs legacy awk
+diagnostics/rc-stats.sh --rc-remarks file.ori                # Per-function surviving-RC summary from the burden-sole remark stream
 ```
 
 Consumes compiler JSON via `ORI_AUDIT_CODEGEN=1` — SSOT is `RcOpKind` in `rc_histogram.rs`. Balance = `(alloc + inc) - (dec + free)`. Positive = potential leak. Negative = potential over-release. Per-block balance is informational; only function-level balance affects exit code.
+
+`--rc-remarks` is a separate path: it builds the file with `--emit-rc-remarks <tmp>` (which auto-sets the burden-sole gating `ORI_DISABLE_PREDICATE_STACK_RC=1` + `ORI_VERIFY_ARC=1`), then prints a per-function count of surviving RC operations parsed from the emitted JSONL stream. A surviving op is one the AIMS burden path could not prove redundant; each carries a `cause` (proof-failure + lattice dimension). The RC verdict is valid ONLY on the burden-sole path.
+
+### RC-survivor remark stream
+
+The compiler emits one JSONL `missed` remark per surviving RC operation when given a sink path:
+
+```bash
+ori build file.ori --emit-rc-remarks survivors.jsonl   # CLI flag (auto-composes burden-sole gating)
+ORI_RC_REMARKS=survivors.jsonl ori build file.ori       # env var (compose the gating yourself)
+```
+
+The stream opens with a `header` record (`schema_version`, `compiler_sha`, `source_file`, `burden_path`) followed by per-op `missed` remarks (`rc_op`, `function`, `debug_loc`, `cause`, `cow_mode`). It is the AIMS analog of LLVM's `-fsave-optimization-record`.
+
+Analyze the stream with the `ori-rc-remarks` tool (standalone crate at `compiler_repo/tools/ori-rc-remarks`):
+
+```bash
+cargo run --manifest-path tools/ori-rc-remarks/Cargo.toml -- survivors.jsonl              # summary
+cargo run --manifest-path tools/ori-rc-remarks/Cargo.toml -- --stats survivors.jsonl      # cause-cluster ranking
+cargo run --manifest-path tools/ori-rc-remarks/Cargo.toml -- --view survivors.jsonl        # source-annotated survivor view
+cargo run --manifest-path tools/ori-rc-remarks/Cargo.toml -- --diff base.jsonl cand.jsonl  # two-build comparison
+```
+
+These are the opt-stats / opt-viewer / opt-diff analogs for AIMS RC survivors.
 
 ### ir-dump.sh — LLVM IR Dump
 
@@ -118,6 +147,18 @@ diagnostics/arc-dump.sh --function main file.ori    # Single function only
 ```
 
 Captures the typed ARC IR via `ORI_DUMP_AFTER_ARC=1` — the IR after CanExpr lowering but before AIMS RC emission. Use this when debugging take-projects, alias chains, block params (phi merges), and `Project` / `Construct` / `Apply` / RC instructions. For LLVM IR (post-codegen) use `ir-dump.sh` instead.
+
+### entry-ownership.sh — Entry-Point Ownership Seam
+
+```bash
+diagnostics/entry-ownership.sh file.ori                    # Seam report for @main
+diagnostics/entry-ownership.sh --compare a.ori b.ori       # Two programs side by side
+diagnostics/entry-ownership.sh --raw file.ori              # No header decoration
+```
+
+Captures the seam via `ORI_DUMP_ENTRY_OWNERSHIP=1` — the C `main()` wrapper's argv cleanup decision beside the AIMS facts that govern it. The C wrapper decides argv cleanup from the physical `ParamPassing` alone; this report puts that physical decision next to the semantic `ParamContract` (access, consumption, cardinality, iter-consume, return-transfer, read-only, escape, share, uniqueness, exact-transfer), the RL-2 boundary verdict (`callee_owner_demand`), the realized `ArcParam` ownership, the borrowed-rooted flag, and the EMIT/SKIP verdict of every `ori_args_cleanup` site across both exception-handling legs. The `seam:` line reads `CONSISTENT` when the physical decision agrees with the semantic owner demand and `DIVERGENT` when it does not. Read-only: it changes no cleanup emission.
+
+`--compare` answers "do these two programs' seams differ, and where" in one command — the direct cure for reaching for three commands to correlate an `@main (args:)` double-free. Two programs with identical `param_passing` and identical `wrapper_owns_on_normal` can still differ in the semantic columns; that contrast is what the report surfaces.
 
 ### ir-diff.sh — IR Comparison
 
@@ -152,6 +193,27 @@ Compiles with `ORI_LOG=ori_arc::aims::pipeline=info`, captures per-phase checkpo
 
 **Workflow integration**: Use after `diagnose-aot.sh` identifies a leak or crash to narrow down to the specific pipeline phase.
 
+### class-ledger-census.sh — Class-Ledger Readiness Census
+
+```bash
+diagnostics/class-ledger-census.sh                        # Default: tests/spec @main programs (limit 100)
+diagnostics/class-ledger-census.sh --limit 2500 tests/spec
+diagnostics/class-ledger-census.sh compiler/ori_llvm/tests/aot/fixtures --limit 2500
+diagnostics/class-ledger-census.sh --family traits -v     # Filter corpus + show every result
+diagnostics/class-ledger-census.sh --run                  # Also execute: plain run + ORI_CHECK_LEAKS=1 run
+```
+
+Single-leg readiness census for the (unconditional) class-ledger emitter: builds each corpus program under the gated burden-sole env (`ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1`) with `ORI_LOG=ori_arc::aims::class_ledger=debug`, then tallies per-function `mode=replaced` vs `mode=fallback` counts and a ranked `fallback_reason` table with per-site detail — the drain worklist for retiring the legacy fallback walk. `--run` adds a behavior verdict per program: a plain run AND an `ORI_CHECK_LEAKS=1` run (leak checking can mask use-after-free, so both runs are required for a verdict).
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| `0` | Census completed (fallbacks are the worklist, not failures) |
+| `1` | Behavior failures under `--run` |
+| `2` | Infrastructure error (binary not found, bad arguments) |
+| `3` | Zero programs censused — misleading "all clear" |
+
 ### debug-release-compare.sh — Debug vs Release Comparison
 
 ```bash
@@ -169,7 +231,7 @@ Compiles and runs through both `target/debug/ori` and `target/release/ori`, comp
 diagnostics/check-debug-flags.sh                   # Validate all ORI_* flags
 ```
 
-Checks: stale flags (defined but unused), orphan checks (used but undefined), undocumented flags (missing from CLAUDE.md).
+Checks: stale flags (defined but unused), orphan checks (used but undefined), undocumented flags (missing from project guidance).
 
 ### repo-hygiene.sh — Worktree Cleanliness
 
@@ -180,7 +242,16 @@ diagnostics/repo-hygiene.sh --clean                # Remove detected temp files
 diagnostics/repo-hygiene.sh --gitignore            # Suggest .gitignore patterns for detected files
 ```
 
-Detects untracked temp files by category: **DUMP** (debug/IR dumps), **SCRATCH** (one-off test scripts), **BACKUP** (editor merge artifacts), **ARTIFACT** (stray build outputs), **STALE** (core dumps). Integrated into `/continue-roadmap` subsection close-out and section completion checklists.
+Detects untracked temp files by category: **DUMP** (debug/IR dumps), **SCRATCH** (one-off test scripts), **BACKUP** (editor merge artifacts), **ARTIFACT** (stray build outputs), **STALE** (core dumps). Integrated into close-out and completion checks.
+
+### verify-build-stamp-freshness.sh — Build-Stamp Regression Check
+
+```bash
+diagnostics/verify-build-stamp-freshness.sh                # Static gate + informational live-rebuild demo
+diagnostics/verify-build-stamp-freshness.sh --no-color      # Disable color output
+```
+
+Static check (gating): `compiler/oric/build.rs` must emit no `cargo:rerun-if-changed=` / `cargo:rerun-if-env-changed=` line — the absence of any such line is what makes Cargo's default whole-package rebuild fallback govern. Informational check (non-gating): a warm build, an unstaged mtime touch on a tracked file, and a rebuild, reporting whether the build script visibly reran and whether the stamped `ORI_GIT_DIRTY` matches a live `git status --porcelain` reading; a miss reports exit 3 without failing the script. Exit 1 (the static regression) is the only failure.
 
 ### self-test.sh — Script Self-Test
 
@@ -188,75 +259,6 @@ Detects untracked temp files by category: **DUMP** (debug/IR dumps), **SCRATCH**
 diagnostics/self-test.sh                           # Run all fixture tests
 diagnostics/self-test.sh --verbose                  # Detailed output
 ```
-
-### tpr-failure-summary.sh — TPR Failure Patterns
-
-```bash
-diagnostics/tpr-failure-summary.sh                    # Full summary (both reviewers)
-diagnostics/tpr-failure-summary.sh --reviewer gemini  # Gemini only
-diagnostics/tpr-failure-summary.sh --failures         # Only failed runs
-diagnostics/tpr-failure-summary.sh --verbose          # Per-run failure details
-diagnostics/tpr-failure-summary.sh --reviewer gemini --verbose --failures  # All flags
-```
-
-Scans `/tmp/ori-tpr-*/` run directories for failure patterns. Reports success rates, API capacity errors, watchdog kills, envelope repair/rescue stats, and per-run failure details. Extracts the actual API error message from JSONL result events.
-
-### tpr-liveness.sh — TPR Reviewer Liveness Probe
-
-```bash
-diagnostics/tpr-liveness.sh /tmp/tpr-round-ori_lang-abc123 codex --human
-diagnostics/tpr-liveness.sh /tmp/tpr-round-ori_lang-abc123 gemini --json
-diagnostics/tpr-liveness.sh "$scratch" codex --grace-seconds 300 --tail-lines 20
-```
-
-Classifies a `/tpr-review` sub-agent as `alive` (exit 0), `quiet` (exit 1), or `dead` (exit 2) by inspecting `$scratch/{reviewer}-stdout.txt` — the tee'd CLI output guaranteed by invariant I14 (dual-path transport).
-
-**When to use:** consult this BEFORE retrying or aborting a silent reviewer. The orchestrator in `.claude/skills/tpr-review/SKILL.md §9` invokes this probe as the first step of failure handling — it prevents the "kill deep-investigating agent" bias where reviewer silence during a long `cargo build` or `grep` looks identical to a hang.
-
-**How it decides:**
-
-| Condition | Verdict |
-|---|---|
-| `<<<TPR-REPORT` sentinel in tail | `alive` (final report in progress) |
-| Empty stdout, mtime < grace | `alive` (CLI cold-starting) |
-| mtime < grace | `alive` |
-| mtime ∈ [grace, 2·grace), tail shows `tool_call` / `thinking` | `alive` (deep work in flight) |
-| mtime ∈ [grace, 2·grace), no signal | `quiet` |
-| mtime ∈ [2·grace, 4·grace), tail shows `tool_call` | `quiet` (slow Bash invocation suspected) |
-| mtime ≥ 2·grace, no strong signal | `dead` |
-
-Default grace is 300s (5 min). The 45-min ceiling on the reviewer CLI (`block-banned-commands.sh`) bounds the absolute worst case externally — the probe never extends that ceiling.
-
-### state.sh — Global State Indicator
-
-```bash
-diagnostics/state.sh show                         # Human-readable summary
-diagnostics/state.sh show --json                  # JSON for skill consumption
-diagnostics/state.sh check                        # Exit 0 fresh / 1 dirty / 2 obsolete / 3 missing
-diagnostics/state.sh known-failing                # List expected-failing files
-diagnostics/state.sh known-failing --json         # Same as JSON array
-diagnostics/state.sh refresh --sha-only --by commit-push   # Cheap: update HEAD SHA only
-diagnostics/state.sh refresh --hygiene-only                # Run repo-hygiene.sh + update notes
-diagnostics/state.sh refresh --full --by section-close     # Slow: re-run test-all.sh + clippy-all.sh
-```
-
-Caches the result of `./test-all.sh`, `./clippy-all.sh`, and `diagnostics/repo-hygiene.sh --check` in `.claude/state/known-state.json` (schema v1) so new sessions skip the rediscover-from-scratch loop.
-
-**When to use:**
-- **First query on any fresh session** — skills that need to know "is the tree known-failing?" should consult `state.sh show --json` before running tests.
-- **At every commit** (`/commit-push` post-commit hook) — refresh the cached HEAD SHA so `check` correctly reports OBSOLETE when the commit isn't yet reflected.
-- **At section close** (`/continue-roadmap` close-out) — `refresh --full --by section-close` captures a fresh baseline.
-- **Before any TPR or review** — reviewers should see current known-state instead of flagging expected failures as regressions.
-
-**Freshness semantics:** `check` returns:
-- `0 / fresh` — cache SHA matches HEAD, working tree clean → trust the cache
-- `1 / stale` — SHA matches but working tree is dirty → consult but verify for current task
-- `2 / obsolete` — SHA mismatch → run `refresh --sha-only` (cheap) or `refresh --full` (truthful)
-- `3 / missing` — state file absent → run `refresh --full`
-
-**Source of truth:** plan-documented "Known Failing Tests" sections remain the SSOT for intent. This cache is an index over that intent. `refresh --full` does NOT auto-populate `known_failing_files` from test output — that list is an editorial decision tied to plan remediation sections.
-
-**Design log:** `.claude/skills/improve-tooling/script-state-design.md` (schema v1 invariants, load-bearing rules, improvement log).
 
 ## Environment Variables
 
@@ -278,6 +280,7 @@ These environment variables control the compiler and runtime instrumentation. Th
 | `ORI_DUMP_AFTER_TYPECK=1` | Compiler | Dump typed IR after type checking |
 | `ORI_DUMP_AFTER_ARC=1` | Compiler | Dump ARC IR with RC strategy annotations |
 | `ORI_DUMP_AFTER_LLVM=1` | Compiler | Dump annotated LLVM IR (superset of `ORI_DEBUG_LLVM`) |
+| `ORI_TRACE_IDX=<n>` | Compiler | Provenance DAG (structure/resolution/mono edges, generic-leaf divergence, drop-glue attribution) for type-pool index `<n>` to stderr. CLI equivalent: `ori explain idx <n> <file.ori>` (DAG to stdout). Discover `<n>` with `ORI_DUMP_AFTER_TYPECK=1 ORI_DUMP_TYPE_IDX=1` |
 | `ORI_AUDIT_CODEGEN=1` | Compiler | In-pipeline RC/COW/ABI verification |
 | `ORI_AUDIT_STRICT=1` | Compiler | Pessimistic audit mode (with `ORI_AUDIT_CODEGEN`) |
 | `ORI_AUDIT_FUNCTION=name` | Compiler | Filter audit to functions matching substring |

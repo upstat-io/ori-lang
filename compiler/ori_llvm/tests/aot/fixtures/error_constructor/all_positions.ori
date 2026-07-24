@@ -1,0 +1,12 @@
+@id_err (e: Error) -> Error = e;
+@make_err (s: str) -> Error = Error(s);
+@first_err () -> Result<int, Error> = Err(Error("boom"));
+@main () -> void = {
+    let direct = Error("direct");
+    let via_arg = id_err(e: Error("arg"));
+    let via_ret = make_err(s: "ret");
+    match first_err() {
+        Ok(_) -> print(msg: "unexpected"),
+        Err(e) -> print(msg: e.message),
+    }
+}

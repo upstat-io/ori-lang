@@ -35,7 +35,7 @@ pub struct BlockId(u32);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FunctionId(u32);
 
-// -- Sentinel constants and helpers --
+// Sentinel constants and helpers
 
 impl ValueId {
     /// Sentinel for "no value".
@@ -162,7 +162,7 @@ impl<'ctx> ValueArena<'ctx> {
         }
     }
 
-    // -- Values --
+    // Values
 
     /// Store a value, returning its ID.
     #[inline]
@@ -184,7 +184,7 @@ impl<'ctx> ValueArena<'ctx> {
         self.values[id.0 as usize]
     }
 
-    // -- Types --
+    // Types
 
     /// Store a type, returning its ID.
     #[inline]
@@ -206,7 +206,7 @@ impl<'ctx> ValueArena<'ctx> {
         self.types[id.0 as usize]
     }
 
-    // -- Blocks --
+    // Blocks
 
     /// Store a basic block, returning its ID.
     #[inline]
@@ -228,7 +228,7 @@ impl<'ctx> ValueArena<'ctx> {
         self.blocks[id.0 as usize]
     }
 
-    // -- Functions --
+    // Functions
 
     /// Store a function, returning its ID.
     #[inline]
@@ -250,7 +250,7 @@ impl<'ctx> ValueArena<'ctx> {
         self.functions[id.0 as usize]
     }
 
-    // -- Tokens (SEH pad results) --
+    // Tokens (SEH pad results)
 
     /// Store a token-typed instruction result, returning its `TokenId`.
     #[inline]

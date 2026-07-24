@@ -1,4 +1,4 @@
-// Regression: BUG-04-022 — str() prelude function on compound types through LLVM.
+// Regression: str() prelude function on compound types through LLVM.
 // The type checker desugars .debug() to str() in some generic contexts.
 
 @fmt<T: Eq + Debug> (a: T, b: T) -> str =

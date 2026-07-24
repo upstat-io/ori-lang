@@ -1,0 +1,25 @@
+// A borrowed aggregate callee consumes its projected list field through the
+// iterator protocol. The caller keeps the shell and later reads the other
+// field, so its release must skip `items` while still releasing `label`.
+
+type Bundle = { items: [str], label: str }
+
+@consume_items (bundle: Bundle) -> int = {
+    let total = 0;
+    for item in bundle.items do {
+        total += item.length()
+    };
+
+    total
+}
+
+@main () -> int = {
+    let bundle = Bundle {
+        items: ["abcdefghijklmnopqrstuvwxyz", "0123456789abcdefghijklmnop"],
+        label: "boundary-field-shell-remains-live",
+    };
+    let total = consume_items(bundle: bundle);
+    let label_length = bundle.label.length();
+
+    if total == 52 && label_length == 33 then 0 else 1
+}

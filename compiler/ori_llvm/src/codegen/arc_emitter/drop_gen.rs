@@ -7,14 +7,14 @@
 //!
 //! # Drop function variants
 //!
-//! | `DropKind`     | IR pattern                                       |
+//! | `DropKind` | IR pattern |
 //! |----------------|--------------------------------------------------|
-//! | `Trivial`      | `ori_rc_free(ptr, size, align)` + ret             |
-//! | `Fields`       | GEP+load+`ori_rc_dec` per RC'd field, then free  |
-//! | `ClosureEnv`   | Same as Fields (different naming)                 |
-//! | `Enum`         | Switch on tag → per-variant field drops, then free|
-//! | `Collection`   | Loop: dec each element, free buffer, then free    |
-//! | `Map`          | Loop: dec keys/values, free buffer, then free     |
+//! | `Trivial` | `ori_rc_free(ptr, size, align)` + ret |
+//! | `Fields` | GEP+load+`ori_rc_dec` per RC'd field, then free |
+//! | `ClosureEnv` | Same as Fields (different naming) |
+//! | `Enum` | Switch on tag → per-variant field drops, then free|
+//! | `Collection` | Loop: dec each element, free buffer, then free |
+//! | `Map` | Loop: dec keys/values, free buffer, then free |
 //!
 //! # Cycle safety
 //!
@@ -24,11 +24,12 @@
 //! itself for child decrements.
 
 use ori_arc::{DropInfo, DropKind};
-use ori_ir::{CLOSURE_FIELD_ENV, FIELD_CAP, FIELD_DATA, FIELD_LEN};
 use ori_types::Idx;
 
-use super::ArcIrEmitter;
 use crate::codegen::value_id::{FunctionId, ValueId};
+
+use super::context::is_boxed_enum_field;
+use super::ArcIrEmitter;
 
 /// Generate an LLVM drop function for the given type.
 ///
@@ -36,13 +37,13 @@ use crate::codegen::value_id::{FunctionId, ValueId};
 /// caches the `FunctionId` immediately (cycle safety), then generates the
 /// body based on `DropKind`.
 ///
-/// Naming: `_ori_drop$<idx_raw>` — unique per type pool index.
+/// Naming is an LLVM projection owned by [`crate::drop_glue_symbol`].
 pub(super) fn generate_drop_fn<'a, 'scx: 'ctx, 'ctx, 'tcx>(
     emitter: &mut ArcIrEmitter<'a, 'scx, 'ctx, 'tcx>,
     ty: Idx,
     drop_info: &DropInfo,
 ) -> FunctionId {
-    let func_name = format!("_ori_drop${}", ty.raw());
+    let func_name = crate::drop_glue_symbol(ty);
 
     // Get-or-declare: reuse an existing function from a previous emitter instance
     // to avoid duplicate definitions (LLVM would auto-rename with `.1`, `.2`, etc.)
@@ -58,8 +59,20 @@ pub(super) fn generate_drop_fn<'a, 'scx: 'ctx, 'ctx, 'tcx>(
         return func_id;
     }
 
-    emitter.builder.set_ccc(func_id);
-    emitter.builder.add_nounwind_attribute(func_id);
+    emitter.builder.set_module_local(func_id);
+    // A may-unwind drop fn (its drop tree reaches a user `@drop` that may raise
+    // a foreign Ori exception) MUST NOT be `nounwind` — it threads the
+    // exception out via a cleanup landing pad that runs the field walk and
+    // free before resuming. SEH drop-function cleanup pads are not emitted;
+    // other drop functions remain `nounwind`.
+    let drop_unwinds = emitter.drop_may_unwind(ty)
+        && emitter.builder.eh_model() == crate::codegen::eh_model::EhModel::Itanium;
+    if drop_unwinds {
+        let personality = emitter.builder.runtime_fn("ori_eh_personality");
+        emitter.builder.set_personality(func_id, personality);
+    } else {
+        emitter.builder.add_nounwind_attribute(func_id);
+    }
     emitter.builder.add_cold_attribute(func_id);
     emitter.builder.add_uwtable_attribute(func_id);
     // noundef on data pointer param — Ori never passes poison pointers.
@@ -87,12 +100,21 @@ pub(super) fn generate_drop_fn<'a, 'scx: 'ctx, 'ctx, 'tcx>(
             emitter.builder.ret_void();
         }
 
-        DropKind::Fields(fields) | DropKind::ClosureEnv(fields) => {
-            emitter.emit_drop_fields(data_ptr, ty, fields);
+        DropKind::Fields { fields, user_drop } => {
+            emitter.emit_drop_fields(data_ptr, ty, fields, *user_drop);
         }
 
-        DropKind::Enum(variants) => {
-            emitter.emit_drop_enum(func_id, data_ptr, ty, variants);
+        DropKind::ClosureEnv(fields) => {
+            // Closure environments cannot carry user @drop (closures
+            // are not nominal types). Pass None.
+            emitter.emit_drop_fields(data_ptr, ty, fields, None);
+        }
+
+        DropKind::Enum {
+            variants,
+            user_drop,
+        } => {
+            emitter.emit_drop_enum(func_id, data_ptr, ty, variants, *user_drop);
         }
 
         DropKind::Collection { element_type } => {
@@ -138,284 +160,147 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     // Body generators
 
     /// Emit drop body for struct/tuple/closure-env with specific RC'd fields.
-    fn emit_drop_fields(&mut self, data_ptr: ValueId, ty: Idx, fields: &[(u32, Idx)]) {
+    ///
+    /// When the type implements `Drop` (resolved via [`Self::user_drop_method`]
+    /// on the canonical method map), codegen materializes the AUGMENT body per
+    /// `drop-trait-proposal.md` Execution Timing section: run the user `@drop`
+    /// FIRST (sees fields valid), then walk owned fields in REVERSE declaration
+    /// order (LIFO), then free. Without a user `@drop`, the plain field walk +
+    /// free is emitted.
+    ///
+    /// When the type's own `@drop` may unwind (Itanium), the user `@drop` is
+    /// emitted as an `invoke`: on normal return the reverse field walk + free
+    /// run in the continuation block; on a `@drop` panic the cleanup landing
+    /// pad re-runs the field walk + free (so owned fields are freed — no leak),
+    /// then `resume`s the foreign exception to the caller. Otherwise the user
+    /// `@drop` is a plain `call` (a panic aborts via the `call_drop_fn` runtime
+    /// guard on the non-unwinding path).
+    fn emit_drop_fields(
+        &mut self,
+        data_ptr: ValueId,
+        ty: Idx,
+        fields: &[(u32, Idx)],
+        _user_drop: Option<ori_registry::burden::FnSym>,
+    ) {
+        let reversed: Vec<(u32, Idx)> = super::emitter_utils::field_rc_walk_order(
+            fields,
+            super::emitter_utils::FieldRcWalkOrder::Teardown,
+        );
+
+        // Recoverable path: the type's OWN `@drop` may unwind (a panicking
+        // user `@drop`). A field-only may-unwind (no own `@drop`) takes the
+        // plain field-walk path — the per-field drops propagate through this
+        // frame's personality without a local landing pad.
+        let own_drop_unwinds = self.user_drop_method(ty).is_some()
+            && self.drop_may_unwind(ty)
+            && self.builder.eh_model() == crate::codegen::eh_model::EhModel::Itanium;
+
+        if own_drop_unwinds {
+            let cont_bb = self
+                .builder
+                .append_block(self.current_function, "udrop.cont");
+            let cleanup_bb = self
+                .builder
+                .append_block(self.current_function, "udrop.cleanup");
+            // invoke @drop → cont_bb (normal) / cleanup_bb (unwind)
+            if self.invoke_user_drop_via_pointer(ty, data_ptr, cont_bb, cleanup_bb) {
+                // Normal continuation: field walk + free + ret.
+                self.builder.position_at_end(cont_bb);
+                self.emit_drop_field_loop(data_ptr, ty, &reversed, None, "f");
+                self.emit_drop_rc_free(data_ptr, ty);
+                self.builder.ret_void();
+
+                // Cleanup pad: field walk + free still run (no leak), then
+                // re-raise the foreign exception to the caller's cleanup pad.
+                self.builder.position_at_end(cleanup_bb);
+                let personality = self.builder.runtime_fn("ori_eh_personality");
+                let lp = self.builder.landingpad(personality, true, "udrop.lp");
+                let enter = self.builder.runtime_fn("ori_drop_cleanup_enter");
+                self.builder.call(enter, &[], "");
+                self.emit_drop_field_loop(data_ptr, ty, &reversed, None, "f.cl");
+                self.emit_drop_rc_free(data_ptr, ty);
+                let exit = self.builder.runtime_fn("ori_drop_cleanup_exit");
+                self.builder.call(exit, &[], "");
+                self.builder.resume(lp);
+                return;
+            }
+            // No user `@drop` resolved after all — fall through to plain path.
+        }
+
+        // Plain path: user `@drop` (if any) as a plain call, then field walk.
+        self.emit_user_drop_via_pointer(ty, data_ptr);
+        self.emit_drop_field_loop(data_ptr, ty, &reversed, None, "f");
+        self.emit_drop_rc_free(data_ptr, ty);
+        self.builder.ret_void();
+    }
+
+    /// SSOT for "iterate struct/tuple-shaped RC'd fields, optionally skipping
+    /// indices, and emit `GEP+load+emit_drop_rc_dec` per included field."
+    ///
+    /// Exit invariant: NO `emit_drop_rc_free`, NO `ret_void` — callers own
+    /// finalization. Used by:
+    ///   - [`Self::emit_drop_fields`] (drop-fn body; caller adds free+ret).
+    ///   - `BurdenDecField` arm at `instr_dispatch.rs` (single-field
+    ///     cleanup before `Set` mutation; mid-block, no finalization).
+    ///   - `BurdenDecPartial` arm at `instr_dispatch.rs` (partial-move
+    ///     cleanup with `skip` containing moved-out indices; mid-block,
+    ///     no finalization).
+    ///
+    /// `remap_struct_field` is consulted per-field so memory-order matches
+    /// `ReprPlan`'s reordering (closure envs are exempt — their tag is
+    /// neither Struct nor Tuple, so `remap_struct_field` returns the
+    /// declaration index unchanged).
+    pub(super) fn emit_drop_field_loop(
+        &mut self,
+        data_ptr: ValueId,
+        ty: Idx,
+        fields: &[(u32, Idx)],
+        skip: Option<&[u32]>,
+        name_prefix: &str,
+    ) {
         let struct_llvm_ty = self.resolve_type(ty);
 
         for &(field_index, field_type) in fields {
-            // Remap declaration-order field index to memory-order.
-            // Closure envs are not subject to reordering (remap_struct_field
-            // checks Tag::Struct/Tuple, closure envs have a different tag).
+            if let Some(skipped) = skip {
+                if skipped.contains(&field_index) {
+                    continue;
+                }
+            }
             let mem_index = self.remap_struct_field(ty, field_index);
-            let field_llvm_ty = self.resolve_type(field_type);
             let field_ptr = self.builder.struct_gep(
                 struct_llvm_ty,
                 data_ptr,
                 mem_index,
-                &format!("f{field_index}.ptr"),
+                &format!("{name_prefix}.{field_index}.ptr"),
             );
-            let field_val = self
-                .builder
-                .load(field_llvm_ty, field_ptr, &format!("f{field_index}"));
-            self.emit_drop_rc_dec(field_val, field_type);
+            if is_boxed_enum_field(self.pool, ty, field_type) {
+                // Recursive back-edge: the slot holds an RC pointer to the
+                // heap-boxed child, not the inline aggregate. Load the box
+                // pointer and dec through the field type's drop fn.
+                let ptr_ty = self.builder.ptr_type();
+                let rc_ptr = self.builder.load(
+                    ptr_ty,
+                    field_ptr,
+                    &format!("{name_prefix}.{field_index}.rc"),
+                );
+                let drop_fn = self.get_or_generate_drop_fn(field_type);
+                self.emit_drop_rc_dec_with_fn(rc_ptr, drop_fn);
+            } else {
+                let field_llvm_ty = self.resolve_type(field_type);
+                let field_val = self.builder.load(
+                    field_llvm_ty,
+                    field_ptr,
+                    &format!("{name_prefix}.{field_index}"),
+                );
+                // Inline struct/enum field with a user `@drop` (e.g. a closure-
+                // env capture, or a not-yet-walked sibling in a cleanup pad):
+                // run its `@drop` before the field walk. Plain (non-invoking)
+                // call — this loop is used on the closure-env drop path and the
+                // cleanup-pad tail walk, neither of which threads an invoke
+                // edge per field.
+                self.emit_user_drop_for_inline_value(field_type, field_val);
+                self.emit_drop_rc_dec(field_val, field_type);
+            }
         }
-
-        self.emit_drop_rc_free(data_ptr, ty);
-        self.builder.ret_void();
-    }
-
-    /// Emit drop body for a collection type ([T], set[T]).
-    fn emit_drop_collection(
-        &mut self,
-        func_id: FunctionId,
-        data_ptr: ValueId,
-        ty: Idx,
-        element_type: Idx,
-    ) {
-        let list_llvm_ty = self.resolve_type(ty);
-        let i64_ty = self.builder.i64_type();
-        let ptr_ty = self.builder.ptr_type();
-
-        // Load len (field 0), cap (field 1), data pointer (field 2)
-        let len_ptr = self
-            .builder
-            .struct_gep(list_llvm_ty, data_ptr, FIELD_LEN, "len.ptr");
-        let len = self.builder.load(i64_ty, len_ptr, "len");
-
-        let cap_ptr = self
-            .builder
-            .struct_gep(list_llvm_ty, data_ptr, FIELD_CAP, "cap.ptr");
-        let cap = self.builder.load(i64_ty, cap_ptr, "cap");
-
-        let data_field_ptr =
-            self.builder
-                .struct_gep(list_llvm_ty, data_ptr, FIELD_DATA, "data.field.ptr");
-        let elem_data = self.builder.load(ptr_ty, data_field_ptr, "elem_data");
-
-        // Get element drop function (may recursively generate)
-        let elem_drop_fn = self.get_or_generate_drop_fn(element_type);
-
-        // Emit dec loop
-        self.emit_drop_element_loop(func_id, elem_data, len, element_type, elem_drop_fn, "elem");
-
-        // Free element buffer + collection struct
-        // Pass collection type for narrowed element size.
-        let resolved_ty = self.pool.resolve_fully(ty);
-        self.emit_drop_list_free_data(elem_data, cap, element_type, Some(resolved_ty));
-        self.emit_drop_rc_free(data_ptr, ty);
-        self.builder.ret_void();
-    }
-
-    /// Emit drop body for a map type ({K: V}).
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "mirrors DropKind::Map fields; grouping would add indirection"
-    )]
-    fn emit_drop_map(
-        &mut self,
-        func_id: FunctionId,
-        data_ptr: ValueId,
-        ty: Idx,
-        key_type: Idx,
-        value_type: Idx,
-        dec_keys: bool,
-        dec_values: bool,
-    ) {
-        let map_llvm_ty = self.resolve_type(ty);
-        let i64_ty = self.builder.i64_type();
-        let ptr_ty = self.builder.ptr_type();
-
-        // Map layout: { i64 len, i64 cap, ptr keys, ptr values }
-        let len_ptr = self
-            .builder
-            .struct_gep(map_llvm_ty, data_ptr, FIELD_LEN, "len.ptr");
-        let len = self.builder.load(i64_ty, len_ptr, "len");
-
-        if dec_keys {
-            let keys_ptr = self
-                .builder
-                .struct_gep(map_llvm_ty, data_ptr, 2, "keys.field.ptr");
-            let keys_data = self.builder.load(ptr_ty, keys_ptr, "keys_data");
-            let key_drop_fn = self.get_or_generate_drop_fn(key_type);
-            self.emit_drop_element_loop(func_id, keys_data, len, key_type, key_drop_fn, "key");
-        }
-
-        if dec_values {
-            let vals_ptr = self
-                .builder
-                .struct_gep(map_llvm_ty, data_ptr, 3, "vals.field.ptr");
-            let vals_data = self.builder.load(ptr_ty, vals_ptr, "vals_data");
-            let val_drop_fn = self.get_or_generate_drop_fn(value_type);
-            self.emit_drop_element_loop(func_id, vals_data, len, value_type, val_drop_fn, "val");
-        }
-
-        self.emit_drop_rc_free(data_ptr, ty);
-        self.builder.ret_void();
-    }
-
-    /// Emit a loop that decrements RC for each element in an array.
-    ///
-    /// Shared between collection and map drop.
-    fn emit_drop_element_loop(
-        &mut self,
-        func_id: FunctionId,
-        array_ptr: ValueId,
-        len: ValueId,
-        element_type: Idx,
-        elem_drop_fn: ValueId,
-        prefix: &str,
-    ) {
-        let i64_ty = self.builder.i64_type();
-        let elem_llvm_ty = self.resolve_type(element_type);
-
-        let entry_block = self.builder.current_block().expect("current block");
-        let loop_header = self
-            .builder
-            .append_block(func_id, &format!("{prefix}.loop.hdr"));
-        let loop_body = self
-            .builder
-            .append_block(func_id, &format!("{prefix}.loop.body"));
-        let loop_done = self
-            .builder
-            .append_block(func_id, &format!("{prefix}.loop.done"));
-
-        let zero = self.builder.const_i64(0);
-        let one = self.builder.const_i64(1);
-
-        // entry → loop.header
-        self.builder.br(loop_header);
-
-        // loop.header: phi + cmp + branch
-        self.builder.position_at_end(loop_header);
-        let i_phi = self.builder.phi(i64_ty, &format!("{prefix}.i"));
-        let done = self.builder.icmp_sge(i_phi, len, &format!("{prefix}.done"));
-        self.builder.cond_br(done, loop_done, loop_body);
-
-        // loop.body: load element, extract data ptr(s), dec, increment, loop back
-        self.builder.position_at_end(loop_body);
-        let elem_ptr =
-            self.builder
-                .gep(elem_llvm_ty, array_ptr, &[i_phi], &format!("{prefix}.ptr"));
-        let elem_val = self
-            .builder
-            .load(elem_llvm_ty, elem_ptr, &format!("{prefix}.val"));
-        let data_ptrs = self.extract_rc_data_ptrs(elem_val, element_type);
-        for ptr in data_ptrs {
-            self.emit_drop_rc_dec_with_fn(ptr, elem_drop_fn);
-        }
-        let i_next = self.builder.add(i_phi, one, &format!("{prefix}.i.next"));
-        self.builder.br(loop_header);
-
-        // Patch phi: entry → 0, loop.body → i.next
-        self.builder
-            .add_phi_incoming(i_phi, &[(zero, entry_block), (i_next, loop_body)]);
-
-        // Position at loop.done for caller to continue
-        self.builder.position_at_end(loop_done);
-    }
-
-    // Runtime call helpers
-
-    /// Emit `ori_rc_dec` for a child field value.
-    ///
-    /// Extracts embedded data pointer(s) from aggregate types (Str, List, etc.)
-    /// before calling `ori_rc_dec`, since the runtime expects raw pointers.
-    ///
-    /// Closures (`Tag::Function`) are special: the drop function is stored
-    /// dynamically in the env header (field 0 of the heap allocation), not
-    /// generated statically. Uses the same pattern as `emit_rc_dec_closure`.
-    pub(super) fn emit_drop_rc_dec(&mut self, val: ValueId, field_type: Idx) {
-        let resolved = self.pool.resolve_fully(field_type);
-        let tag = self.pool.tag(resolved);
-
-        // Closures need dynamic drop fn from env header, not a static one.
-        if tag == ori_types::Tag::Function {
-            self.emit_closure_field_rc_dec(val);
-            return;
-        }
-
-        let data_ptrs = self.extract_rc_data_ptrs(val, field_type);
-        if data_ptrs.is_empty() {
-            return;
-        }
-        let drop_fn = self.get_or_generate_drop_fn(field_type);
-        for ptr in data_ptrs {
-            self.emit_drop_rc_dec_with_fn(ptr, drop_fn);
-        }
-    }
-
-    /// Emit RC dec for a closure field value `{ fn_ptr, env_ptr }`.
-    ///
-    /// Extracts `env_ptr` (field 1), null-checks it, loads the dynamic
-    /// drop function from `env_ptr[0]`, and calls `ori_rc_dec(env_ptr, drop_fn)`.
-    fn emit_closure_field_rc_dec(&mut self, closure_val: ValueId) {
-        let Some(env_ptr) = self
-            .builder
-            .extract_value(closure_val, CLOSURE_FIELD_ENV, "clos.env")
-        else {
-            return;
-        };
-
-        // Non-capturing closures have a constant null env — skip entirely.
-        if self.builder.is_const_null_ptr(env_ptr) {
-            return;
-        }
-
-        let is_null = self.builder.is_null_ptr(env_ptr, "clos.null");
-        let do_dec = self.builder.append_block(self.current_function, "clos.dec");
-        let skip = self
-            .builder
-            .append_block(self.current_function, "clos.skip");
-        self.builder.cond_br(is_null, skip, do_dec);
-
-        self.builder.position_at_end(do_dec);
-        let ptr_ty = self.builder.ptr_type();
-        let drop_fn = self.builder.load(ptr_ty, env_ptr, "clos.drop_fn");
-        let rc_dec_id = self.builder.runtime_fn("ori_rc_dec");
-        self.emit_rt_call(rc_dec_id, &[env_ptr, drop_fn], "");
-        self.builder.br(skip);
-
-        self.builder.position_at_end(skip);
-    }
-
-    /// Emit `ori_rc_dec(val, drop_fn_ptr)` with a pre-computed drop function.
-    pub(super) fn emit_drop_rc_dec_with_fn(&mut self, val: ValueId, drop_fn_ptr: ValueId) {
-        let func_id = self.builder.runtime_fn("ori_rc_dec");
-        self.builder.call(func_id, &[val, drop_fn_ptr], "");
-    }
-
-    /// Emit `ori_rc_free(data_ptr, size, align)` to deallocate an RC object.
-    pub(super) fn emit_drop_rc_free(&mut self, data_ptr: ValueId, ty: Idx) {
-        let size = self.element_store_size(ty);
-        let align = u64::from(self.type_info.get(ty).alignment());
-
-        let size_val = self.builder.const_i64(size as i64);
-        let align_val = self.builder.const_i64(align as i64);
-
-        let func_id = self.builder.runtime_fn("ori_rc_free");
-        self.builder
-            .call(func_id, &[data_ptr, size_val, align_val], "");
-    }
-
-    /// Emit `ori_list_free_data(data, cap, elem_size)` to free a collection buffer.
-    ///
-    /// `collection_ty` is the resolved collection type (e.g., `[int]`), used
-    /// for narrowed element size lookup. Falls back to canonical
-    /// size when `None`.
-    fn emit_drop_list_free_data(
-        &mut self,
-        data: ValueId,
-        cap: ValueId,
-        element_type: Idx,
-        collection_ty: Option<Idx>,
-    ) {
-        let elem_size = if let Some(coll_ty) = collection_ty {
-            self.collection_elem_size(coll_ty, element_type)
-        } else {
-            self.element_store_size(element_type)
-        };
-        let elem_size_val = self.builder.const_i64(elem_size as i64);
-
-        let func_id = self.builder.runtime_fn("ori_list_free_data");
-        self.builder.call(func_id, &[data, cap, elem_size_val], "");
     }
 }

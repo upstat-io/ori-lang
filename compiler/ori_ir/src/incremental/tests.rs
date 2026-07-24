@@ -1,6 +1,6 @@
 use super::*;
 
-// === TextChange tests ===
+// TextChange tests
 
 #[test]
 fn test_text_change_insert() {
@@ -86,7 +86,7 @@ fn test_text_change_is_before_after() {
     assert!(!change.is_after(Span::new(15, 25))); // Overlaps
 }
 
-// === ChangeMarker tests ===
+// ChangeMarker tests
 
 #[test]
 fn test_change_marker_from_change() {

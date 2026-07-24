@@ -1,0 +1,19 @@
+// Pin 10 (negative GREEN guard): an iter-consuming borrowed arg. The callee
+// iterates the borrowed collection (`for x in coll` -> `@iter` [own] ->
+// `ori_iter_drop` frees the buffer INSIDE the callee per RL-2 iter-consume
+// transfer). The caller emits NO dec, so the no-sink edge-death mode (gate c2)
+// must DECLINE this lineage — a caller release here double-frees.
+@sum_iter (coll: [int]) -> int = {
+    let total = 0;
+    for x in coll do {
+        total = total + x;
+    };
+
+    total
+}
+
+@main () -> int = {
+    let s = sum_iter(coll: [7, 8]);
+
+    if s == 15 then 0 else 1
+}

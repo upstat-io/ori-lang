@@ -1,0 +1,14 @@
+use std.testing { assert_eq }
+
+// Heap-element method-level generic (T = str, returns [T]).
+type Boxer = { tag: int }
+
+impl Boxer {
+    @wrap<T> (self, item: T) -> [T] = [item];
+}
+
+@t tests @wrap () -> void = {
+    let b = Boxer { tag: 1 };
+    let $r = b.wrap(item: "hi");
+    assert_eq(actual: r[0], expected: "hi")
+}

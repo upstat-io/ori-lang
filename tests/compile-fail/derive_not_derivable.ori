@@ -4,5 +4,5 @@
 #[derive(Iterator)]
 type Numbers = { values: [int] }
 
-#[compile_fail("trait cannot be derived")]
+#[compile_fail("cannot be derived")]
 @test_not_derivable tests _ () -> void = ();

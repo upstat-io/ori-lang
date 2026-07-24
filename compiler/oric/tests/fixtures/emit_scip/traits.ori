@@ -1,0 +1,7 @@
+trait Describable {
+    @describe (self) -> str
+}
+
+trait Measurable {
+    @measure (self) -> int
+}

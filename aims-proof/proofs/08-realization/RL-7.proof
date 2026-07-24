@@ -1,0 +1,31 @@
+Theorem RL-7: MaybeShared requires a sharing observation absent caller proof
+
+  Preconditions:
+    - DP-4 `needs_sharing_observation` is true exactly for MaybeShared.
+    - DP-9 composes the DP-5 local result with IC-3 parameter uniqueness.
+    - The projection may observe sharing by any validated mechanism.
+
+  Soundness property:
+    Forall owned MaybeShared value v at a mutation point:
+      (P1) absent an IC-3 Unique guarantee, SharingObservationRequired.
+      (P2) an IC-3 Unique guarantee plus DP-5 may admit same identity.
+      (P3) the observed one-owner outcome may admit same identity; the
+           multiple-owner outcome requires isolation.
+    This theorem freezes outcomes and obligations, not IsShared, branching,
+    copying, or representation.
+
+  Proof obligation:
+    Enumerate three cases:
+      maybeshared_dynamic_check -> SharingObservationRequired
+      maybeshared_param_unique_static -> SameIdentityAdmissible
+      unique_no_dynamic_check -> SameIdentityAdmissible
+    Coverage gate: 3 cases, each value-semantics checked.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl7_dynamic_cow)
+      rc_counting (SECONDARY — gracious-accept)
+      refinement (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: RL-7 checks the DP-4 observation gate and DP-9 outcomes without prescribing a runtime check or isolation mechanism

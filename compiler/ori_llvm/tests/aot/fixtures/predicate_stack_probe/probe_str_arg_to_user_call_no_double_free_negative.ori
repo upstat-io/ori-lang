@@ -1,0 +1,6 @@
+@first_char_is_p (label: str) -> bool = label.contains(substr: "positive");
+
+@main () -> int = {
+    let s = "this is a long positive label!!";
+    if first_char_is_p(label: s) then 0 else 1
+}

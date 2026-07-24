@@ -1,4 +1,4 @@
-// Regression: BUG-04-013 — Option.unwrap must RC-retain heap string payload
+// Regression: Option.unwrap must RC-retain heap string payload
 @make () -> Option<str> = Some("hello world this is a long heap string");
 
 @main () -> int = {

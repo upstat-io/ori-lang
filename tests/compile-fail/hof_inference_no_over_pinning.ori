@@ -1,0 +1,13 @@
+// Negative pin for generic-return higher-order method inference. The fix that
+// lets .map/.filter/.find infer their result type from the closure/receiver
+// element WITHOUT an outer annotation must NOT auto-derive Eq: a no-derive
+// structural `==` must STILL require an explicit Eq impl.
+
+type Widget = { id: int }
+#[compile_fail(code: "E2020")]
+@neg_no_derive_eq_still_errors tests _ () -> void = {
+    let $a = Widget { id: 1 };
+    let $b = Widget { id: 2 };
+    let _: bool = a == b;
+    ()
+}

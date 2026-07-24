@@ -1,0 +1,14 @@
+// Spec: 10-patterns.md § Function-Level Contracts
+//
+// pre() condition must have type `bool`. A non-bool condition (e.g., an `int`
+// expression) is rejected by the type checker with error E2044.
+
+@bad_pre (x: int) -> int
+    pre(x)
+= x + 1;
+
+#[compile_fail(code: "E2044")]
+@test_pre_not_bool tests _ () -> void = {
+    let _ = bad_pre(x: 5);
+    ()
+}

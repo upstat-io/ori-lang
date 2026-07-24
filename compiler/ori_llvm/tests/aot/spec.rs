@@ -18,7 +18,7 @@
 use crate::util::{assert_aot_success, compile_and_run_capture};
 
 #[test]
-fn test_aot_let_binding_basic() {
+fn test_aot_let_binding_reads_back() {
     assert_aot_success(
         include_str!("fixtures/spec/aot_let_binding_basic.ori"),
         "let_binding_basic",
@@ -927,7 +927,7 @@ fn test_aot_string_interpolation() {
 // While-like loops (loop + conditional break)
 
 #[test]
-fn test_aot_while_pattern_basic() {
+fn test_aot_loop_conditional_break_counts_to_ten() {
     assert_aot_success(
         include_str!("fixtures/spec/aot_while_pattern_basic.ori"),
         "while_pattern_basic",
@@ -961,7 +961,6 @@ fn test_aot_catch_panic() {
 }
 
 #[test]
-#[ignore = "AOT gap: inline panic in catch — invoke only intercepts callee-function panics, not same-function inline code"]
 fn test_aot_catch_div_by_zero() {
     assert_aot_success(
         include_str!("fixtures/spec/aot_catch_div_by_zero.ori"),
@@ -1153,7 +1152,7 @@ fn test_aot_derive_comparable_struct() {
 // Panic and error handling (non-catch)
 
 #[test]
-fn test_aot_panic_basic() {
+fn test_aot_panic_branch_not_taken_succeeds() {
     let source = include_str!("fixtures/spec/aot_panic_basic.ori");
     // Should succeed (panic branch not taken)
     assert_aot_success(source, "panic_basic");
@@ -1290,9 +1289,17 @@ fn test_aot_byte_from_int() {
 }
 
 #[test]
-fn test_aot_hash_combine_basic() {
+fn test_aot_hash_combine_nonzero_inputs_nonzero() {
     assert_aot_success(
         include_str!("fixtures/spec/aot_hash_combine_basic.ori"),
         "hash_combine_basic",
+    );
+}
+
+#[test]
+fn test_aot_concrete_and_generic_extension_methods() {
+    assert_aot_success(
+        include_str!("fixtures/spec/aot_extension_methods.ori"),
+        "extension_methods",
     );
 }

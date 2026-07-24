@@ -1,0 +1,12 @@
+// Higher-order map with str capture no-leak.
+// `xs.map(transform: lambda)` invokes lambda N times via ApplyIndirect,
+// exercising the multi-call closure path that triggers the spurious
+// RcInc on the closure receiver pre-fix. Under ORI_CHECK_LEAKS=1 the
+// captured str + closure environment must show zero leaks post-fix.
+@main () -> int = {
+    let captured = "captured_heap_string_for_map";
+    let lambda = (x: int) -> int = if captured.contains(substr: "captured") then x * 2 else 0;
+    let xs: [int] = [1, 2, 3];
+    let ys: [int] = xs.iter().map(lambda).collect();
+    if len(collection: ys) == 3 then 0 else 1
+}

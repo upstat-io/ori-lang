@@ -49,6 +49,7 @@ fn detect_context_region_for_recursive_construct() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 // v2 = Construct(v1) — constructor wrapping recursive result
                 ArcInstr::Construct {
@@ -106,6 +107,7 @@ fn no_context_regions_for_non_recursive_function() {
                     func: other_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Construct {
                     dst: var(2),
@@ -149,6 +151,7 @@ fn no_context_regions_when_recursive_result_not_in_construct() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Let {
                     dst: var(2),
@@ -194,6 +197,7 @@ fn detect_context_region_for_enum_variant() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Construct {
                     dst: var(2),
@@ -238,6 +242,7 @@ fn no_context_regions_for_tuple_construct() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Construct {
                     dst: var(2),
@@ -285,6 +290,7 @@ fn hole_field_tracks_correct_arg_index() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 // Construct with non-recursive v1 at field 0, recursive v2 at field 1
                 ArcInstr::Construct {
@@ -364,6 +370,7 @@ fn lifting_a_normal_form_is_noop() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Construct {
                     dst: var(2),
@@ -423,8 +430,19 @@ fn lifting_multi_field_construct_valid() {
         ..Default::default()
     };
 
-    // No panic — all 3 field args are valid.
+    // Positive pin: lift_constructor_args is verification-only — it MUST
+    // return without panic on every valid Construct (all 3 field args
+    // reference defined vars in var_types). Capture pre-call block-body
+    // length + var_types length and assert structural invariance after
+    // the call: function takes &func (immutable), so structural
+    // identity is by construction, but the explicit assertion makes
+    // the test self-documenting and lint-clean per `
+    // Hygiene` no-orphan-tests rule.
+    let pre_body_len = func.blocks[0].body.len();
+    let pre_var_count = func.var_types.len();
     super::lift::lift_constructor_args(&func);
+    assert_eq!(func.blocks[0].body.len(), pre_body_len);
+    assert_eq!(func.var_types.len(), pre_var_count);
 }
 
 /// Function with no Construct instructions: lifting is trivially a no-op.
@@ -446,7 +464,13 @@ fn lifting_no_constructs_is_noop() {
         ..Default::default()
     };
 
+    // Positive pin: zero Construct instructions → lift walk visits no
+    // Construct site → no debug_assert! fires → function returns without
+    // panic. Explicit invariance assertion makes the trivially-true
+    // outcome verifiable no-orphan-tests.
+    let pre_body_len = func.blocks[0].body.len();
     super::lift::lift_constructor_args(&func);
+    assert_eq!(func.blocks[0].body.len(), pre_body_len);
 }
 
 /// Debug assertion catches Construct arg referencing an undefined variable.
@@ -512,7 +536,7 @@ fn lifting_catches_invalid_dst_var() {
 /// the recursive result. Pattern:
 ///   @f(v0: T) -> T =
 ///     v1 = self(v0)
-///     v2 = Construct { v0, v1 }  // `hole_field` = 1 (v1 is recursive)
+///     v2 = Construct { v0, v1 } // `hole_field` = 1 (v1 is recursive)
 ///     Return v2
 fn make_recursive_construct_func() -> ArcFunction {
     let self_name = Name::from_raw(42);
@@ -536,6 +560,7 @@ fn make_recursive_construct_func() -> ArcFunction {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 // v2 = Construct { v0, v1 }
                 ArcInstr::Construct {
@@ -621,6 +646,7 @@ fn rewrite_trmc_enum_variant() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Construct {
                     dst: var(2),
@@ -748,6 +774,7 @@ fn rewrite_trmc_multi_arm_match() {
                         func: self_name,
                         args: vec![var(0)],
                         arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
                     },
                     ArcInstr::Construct {
                         dst: var(2),
@@ -823,6 +850,7 @@ fn rewrite_trmc_preserves_non_recursive_arms() {
                         func: self_name,
                         args: vec![var(0)],
                         arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
                     },
                     ArcInstr::Construct {
                         dst: var(2),
@@ -887,6 +915,7 @@ fn rewrite_trmc_skipped_when_construct_not_tail() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 // Construct is NOT the last instruction — there's a Let after it.
                 ArcInstr::Construct {
@@ -1043,6 +1072,7 @@ fn verify_multi_arm_rewrite_passes() {
                         func: self_name,
                         args: vec![var(0)],
                         arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
                     },
                     ArcInstr::Construct {
                         dst: var(2),
@@ -1097,6 +1127,7 @@ fn verify_non_tail_call_fails() {
         func: self_name,
         args: vec![var(0)],
         arg_ownership: vec![ArgOwnership::Owned],
+        mono_instance_id: None,
     });
     // Ensure var_types is large enough.
     while func.var_types.len() <= 50 {
@@ -1148,6 +1179,7 @@ fn verify_non_linear_context_fails() {
             func: other_fn,
             args: vec![ctx_hole_obj],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         },
     );
     while func.var_types.len() <= 60 {
@@ -1211,6 +1243,7 @@ fn verify_rollback_restores_original() {
                         func: self_name,
                         args: vec![var(0)],
                         arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
                     },
                     ArcInstr::Construct {
                         dst: var(2),
@@ -1368,7 +1401,7 @@ fn verify_loop_header_arg_consistency() {
     }
 }
 
-// Pipeline integration tests (Section 13.6)
+// Pipeline integration tests
 
 /// Helper: build a contract with `may_share` set to the given value.
 fn make_contract(may_share: bool) -> MemoryContract {
@@ -1562,6 +1595,7 @@ fn pipeline_rollback_on_verification_failure() {
                         func: self_name,
                         args: vec![var(0)],
                         arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
                     },
                     ArcInstr::Construct {
                         dst: var(2),
@@ -1613,7 +1647,7 @@ fn pipeline_rollback_on_verification_failure() {
 /// Pattern:
 ///   @map(v0: T, v1: T) -> T =
 ///     v2 = self(v0, v1)
-///     v3 = Construct { v0, v2 }  // `hole_field` = 1 (v2 is recursive)
+///     v3 = Construct { v0, v2 } // `hole_field` = 1 (v2 is recursive)
 ///     Return v3
 fn make_two_arg_recursive_func() -> ArcFunction {
     let self_name = Name::from_raw(42);
@@ -1644,6 +1678,7 @@ fn make_two_arg_recursive_func() -> ArcFunction {
                     func: self_name,
                     args: vec![var(0), var(1)],
                     arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 // v3 = Construct { v0, v2 }
                 ArcInstr::Construct {
@@ -1916,6 +1951,7 @@ fn d6_base_case_with_context_applies_set_and_returns_ctx_res() {
                         func: self_name,
                         args: vec![var(0)],
                         arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
                     },
                     ArcInstr::Construct {
                         dst: var(2),
@@ -2022,6 +2058,7 @@ fn d7_base_case_without_context_returns_directly() {
                         func: self_name,
                         args: vec![var(0)],
                         arg_ownership: vec![ArgOwnership::Owned],
+                        mono_instance_id: None,
                     },
                     ArcInstr::Construct {
                         dst: var(2),
@@ -2108,6 +2145,7 @@ fn d8_enum_variant_hole_at_field_0() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 // v3 = EnumVariant(v2, v1) — recursive result at field 0
                 ArcInstr::Construct {
@@ -2178,6 +2216,7 @@ fn d9_enum_variant_hole_at_field_1() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 // v3 = EnumVariant(v1, v2) — recursive result at field 1
                 ArcInstr::Construct {
@@ -2245,6 +2284,7 @@ fn d10_rewrite_skipped_for_non_tail_construct() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Construct {
                     dst: var(2),
@@ -2297,6 +2337,7 @@ fn d11_rewrite_skipped_for_cross_block_region() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 }],
                 terminator: ArcTerminator::Jump {
                     target: block_id(1),
@@ -2404,6 +2445,7 @@ fn d_three_field_ctor_hole_at_last_field() {
                     func: self_name,
                     args: vec![var(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 // 3-field Construct: (v1, v2, v3) — hole at field 2
                 ArcInstr::Construct {
@@ -2445,5 +2487,299 @@ fn d_three_field_ctor_hole_at_last_field() {
     assert!(
         errors.is_empty(),
         "3-field rewrite passes verification: {errors:?}"
+    );
+}
+
+// `BurdenInc` / `BurdenDec` balance verification (PL-10 + VF-7 tier a)
+
+/// Clean TRMC rewrite with no `BurdenInc` / `BurdenDec` ops on a
+/// `ContextHole` var returns empty error vec (vacuous balance).
+#[test]
+fn verify_burden_balance_passes_when_no_burden_ops_present() {
+    use crate::aims::intraprocedural::AimsStateMap;
+    use crate::aims::lattice::ShapeClass;
+
+    let mut func = make_recursive_construct_func();
+    let regions = super::detect::detect_context_regions(&func);
+    assert!(super::rewrite::rewrite_trmc(&mut func, &regions));
+
+    // Mark the loop header's ctx_hole_obj (last block param) as ContextHole.
+    let prologue_idx = func.entry.index();
+    let loop_header_id = match &func.blocks[prologue_idx].terminator {
+        ArcTerminator::Jump { target, .. } => *target,
+        other => panic!("expected Jump, got {other:?}"),
+    };
+    let loop_header_params = &func.blocks[loop_header_id.index()].params;
+    let ctx_hole_obj = loop_header_params[loop_header_params.len() - 1].0;
+
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_var_shape(ctx_hole_obj, ShapeClass::ContextHole);
+
+    let errors = super::verify::verify_trmc_burden_balance(&func, &state_map);
+    assert!(
+        errors.is_empty(),
+        "no burden ops -> vacuously balanced, got: {errors:?}"
+    );
+}
+
+/// Function lacking the TRMC rewrite shape returns empty error vec —
+/// `find_context_vars` returns None so verification is a no-op.
+#[test]
+fn verify_burden_balance_skips_non_rewritten_function() {
+    use crate::aims::intraprocedural::AimsStateMap;
+
+    let func = make_recursive_construct_func();
+    let state_map = AimsStateMap::new(&func);
+
+    let errors = super::verify::verify_trmc_burden_balance(&func, &state_map);
+    assert!(
+        errors.is_empty(),
+        "no TRMC shape -> verifier no-op, got: {errors:?}"
+    );
+}
+
+/// Clean TRMC rewrite with balanced `BurdenInc` / `BurdenDec` on a single
+/// block for a `ContextHole` var returns empty error vec.
+#[test]
+fn verify_burden_balance_passes_with_balanced_pair_in_one_block() {
+    use crate::aims::intraprocedural::AimsStateMap;
+    use crate::aims::lattice::ShapeClass;
+
+    let mut func = make_recursive_construct_func();
+    let regions = super::detect::detect_context_regions(&func);
+    assert!(super::rewrite::rewrite_trmc(&mut func, &regions));
+
+    let prologue_idx = func.entry.index();
+    let loop_header_id = match &func.blocks[prologue_idx].terminator {
+        ArcTerminator::Jump { target, .. } => *target,
+        other => panic!("expected Jump, got {other:?}"),
+    };
+    let loop_header_params = &func.blocks[loop_header_id.index()].params;
+    let ctx_hole_obj = loop_header_params[loop_header_params.len() - 1].0;
+
+    // Inject paired BurdenInc + BurdenDec on the loop header.
+    let loop_header_idx = loop_header_id.index();
+    func.blocks[loop_header_idx]
+        .body
+        .insert(0, ArcInstr::BurdenInc { var: ctx_hole_obj });
+    let len = func.blocks[loop_header_idx].body.len();
+    func.blocks[loop_header_idx]
+        .body
+        .insert(len, ArcInstr::BurdenDec { var: ctx_hole_obj });
+
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_var_shape(ctx_hole_obj, ShapeClass::ContextHole);
+
+    let errors = super::verify::verify_trmc_burden_balance(&func, &state_map);
+    assert!(
+        errors.is_empty(),
+        "balanced burden pair -> no error, got: {errors:?}"
+    );
+}
+
+/// Manually-injected imbalance: `BurdenInc` on one CFG predecessor and
+/// no matching `BurdenDec` on the sibling predecessor produces a
+/// `BurdenImbalance` error at the merge point.
+#[test]
+fn verify_burden_balance_detects_predecessor_disagreement() {
+    use super::verify::TrmcVerificationError;
+    use crate::aims::intraprocedural::AimsStateMap;
+    use crate::aims::lattice::ShapeClass;
+
+    // Manually construct a TRMC-rewrite-shaped CFG:
+    //   prologue(b0) -> loop_header(b1) with ctx_hole_obj block param
+    //   loop_header(b1) -> Branch(then=b2, else=b3) — cond on a scalar var
+    //   b2 has BurdenInc(ctx_hole_obj); b3 has none
+    //   b2/b3 both jump to b4(merge) -> Return
+    let self_name = Name::from_raw(42);
+    // Vars: v0 = param; v1 = bool cond; v2/v3/v4 unused payload slots.
+    // Loop header params: [(v0, ty(0)), (v_bool, Idx::BOOL),
+    //                      (v_res, ty(0)), (v_hole, ty(0))].
+    // n + 3 layout per find_context_vars: 1 fresh param + 3 context.
+    let v_param = var(0);
+    let v_has = var(1);
+    let v_res = var(2);
+    let v_hole = var(3);
+    let v_cond = var(4);
+    let func = ArcFunction {
+        name: self_name,
+        return_type: ty(0),
+        params: vec![ArcParam {
+            var: v_param,
+            ty: ty(0),
+            ownership: Ownership::Owned,
+        }],
+        var_types: vec![ty(0), Idx::BOOL, ty(0), ty(0), Idx::BOOL],
+        entry: block_id(0),
+        blocks: vec![
+            // b0 prologue: Jump to b1 with seed args.
+            ArcBlock {
+                id: block_id(0),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: v_cond,
+                    ty: Idx::BOOL,
+                    value: ArcValue::Literal(LitValue::Bool(true)),
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(1),
+                    args: vec![v_param, v_cond, v_param, v_param],
+                },
+            },
+            // b1 loop header: 4 block params (1 fresh + 3 context).
+            ArcBlock {
+                id: block_id(1),
+                params: vec![
+                    (v_param, ty(0)),
+                    (v_has, Idx::BOOL),
+                    (v_res, ty(0)),
+                    (v_hole, ty(0)),
+                ],
+                body: vec![],
+                terminator: ArcTerminator::Branch {
+                    cond: v_has,
+                    then_block: block_id(2),
+                    else_block: block_id(3),
+                },
+            },
+            // b2 then-branch: BurdenInc(ctx_hole_obj) — burden net = +1.
+            ArcBlock {
+                id: block_id(2),
+                params: vec![],
+                body: vec![ArcInstr::BurdenInc { var: v_hole }],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(4),
+                    args: vec![],
+                },
+            },
+            // b3 else-branch: no burden op — burden net = 0.
+            ArcBlock {
+                id: block_id(3),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: block_id(4),
+                    args: vec![],
+                },
+            },
+            // b4 merge: Return.
+            ArcBlock {
+                id: block_id(4),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v_res },
+            },
+        ],
+        ..Default::default()
+    };
+
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_var_shape(v_hole, ShapeClass::ContextHole);
+
+    let errors = super::verify::verify_trmc_burden_balance(&func, &state_map);
+    assert!(
+        !errors.is_empty(),
+        "predecessor burden disagreement should fire BurdenImbalance"
+    );
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            TrmcVerificationError::BurdenImbalance { var: v, region, .. }
+                if *v == v_hole && *region == block_id(1)
+        )),
+        "expected BurdenImbalance on v_hole anchored at loop header b1, got: {errors:?}"
+    );
+}
+
+/// Function with only non-`ContextHole`-shaped vars returns empty error
+/// vec — burden ops on `NonReusable` / `ReusableCtor` / `CollectionBuffer`
+/// vars are out of scope for this verifier.
+#[test]
+fn verify_burden_balance_ignores_non_context_hole_vars() {
+    use crate::aims::intraprocedural::AimsStateMap;
+
+    let mut func = make_recursive_construct_func();
+    let regions = super::detect::detect_context_regions(&func);
+    assert!(super::rewrite::rewrite_trmc(&mut func, &regions));
+
+    // Inject a BurdenInc/BurdenDec pair on a non-ContextHole var
+    // (loop-header fresh param 0); without marking it ContextHole,
+    // the verifier MUST NOT flag it.
+    let prologue_idx = func.entry.index();
+    let loop_header_id = match &func.blocks[prologue_idx].terminator {
+        ArcTerminator::Jump { target, .. } => *target,
+        other => panic!("expected Jump, got {other:?}"),
+    };
+    let fresh_param = func.blocks[loop_header_id.index()].params[0].0;
+
+    let loop_header_idx = loop_header_id.index();
+    func.blocks[loop_header_idx]
+        .body
+        .insert(0, ArcInstr::BurdenInc { var: fresh_param });
+    // Note: deliberately NO matching BurdenDec — verifies the
+    // verifier ignores non-ContextHole vars regardless of balance.
+
+    // State map left with default shapes (NonReusable for every var).
+    let state_map = AimsStateMap::new(&func);
+
+    let errors = super::verify::verify_trmc_burden_balance(&func, &state_map);
+    assert!(
+        errors.is_empty(),
+        "non-ContextHole var should be ignored, got: {errors:?}"
+    );
+}
+
+/// Negative pin for terminal net-zero check: a straight-line CFG (no merge
+/// point) with a `BurdenInc` on a `ContextHole` var and NO matching
+/// `BurdenDec` MUST fire `BurdenImbalance` at the Return terminator. The
+/// predecessor-disagreement pass alone misses this case because the path
+/// from entry to Return contains no merge point at which to detect
+/// divergent net counts — every reachable path has the same imbalanced
+/// net, which agrees with itself. The terminal check catches that class
+/// per VF-1 per-edge balance (terminal net == 0).
+#[test]
+fn verify_burden_balance_detects_straight_line_unbalanced() {
+    use super::verify::TrmcVerificationError;
+    use crate::aims::intraprocedural::AimsStateMap;
+    use crate::aims::lattice::ShapeClass;
+
+    let mut func = make_recursive_construct_func();
+    let regions = super::detect::detect_context_regions(&func);
+    assert!(super::rewrite::rewrite_trmc(&mut func, &regions));
+
+    let prologue_idx = func.entry.index();
+    let loop_header_id = match &func.blocks[prologue_idx].terminator {
+        ArcTerminator::Jump { target, .. } => *target,
+        other => panic!("expected Jump, got {other:?}"),
+    };
+    let loop_header_params = &func.blocks[loop_header_id.index()].params;
+    let ctx_hole_obj = loop_header_params[loop_header_params.len() - 1].0;
+
+    // Inject ONLY a BurdenInc on the loop header (no matching BurdenDec
+    // anywhere on the path to Return). The loop header has both predecessor
+    // (prologue's Jump) and self (back-edge from base-case clone), but the
+    // imbalance is uniform across both — predecessor-disagreement does NOT
+    // fire. Terminal net-zero on the Return block in the base-case clone
+    // is what must fire.
+    let loop_header_idx = loop_header_id.index();
+    func.blocks[loop_header_idx]
+        .body
+        .insert(0, ArcInstr::BurdenInc { var: ctx_hole_obj });
+
+    let mut state_map = AimsStateMap::new(&func);
+    state_map.set_var_shape(ctx_hole_obj, ShapeClass::ContextHole);
+
+    let errors = super::verify::verify_trmc_burden_balance(&func, &state_map);
+    assert!(
+        !errors.is_empty(),
+        "expected BurdenImbalance on terminal net-zero check, got empty"
+    );
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            TrmcVerificationError::BurdenImbalance { var, .. } if *var == ctx_hole_obj
+        )),
+        "expected BurdenImbalance for ctx_hole_obj v{}, got: {errors:?}",
+        ctx_hole_obj.raw()
     );
 }

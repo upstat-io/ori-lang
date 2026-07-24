@@ -1,0 +1,195 @@
+Theorem PL-7: TRMC normalization (Step 3a) detects tail-recursive constructor candidates, carrying the ContextBehavior 4-field record
+
+  Preconditions:
+    - The AIMS pipeline is a 12-step strictly-ordered sequence per
+      Annex E §AIMS §6. PL-7 is the first rule of the
+      §07.4 TRMC cluster (PL-7 through PL-11), governing Step 3a TRMC
+      normalization detection.
+    - PL-7 statement (per Annex E §AIMS PL-7 + Leijen & Lorenzen,
+      "Tail Recursion Modulo Context", JFP 2025): Step 3a TRMC normalization
+      SHALL detect tail-recursive functions returning constructor
+      applications. The `ContextBehavior` contract on `MemoryContract` tracks
+      four fields: `preserves_context`, `consumes_hole`,
+      `requires_unique_context`, `may_resume_nonlinearly`.
+    - PL-7 type signature (per Pipeline.proof lines 59-65, the sorry
+      obligation this theorem discharges):
+        type : Function -> Option ContextRegion
+        Step 3a TRMC normalization detects tail-recursive fns returning
+        constructor applications; ContextBehavior 4-field record carries
+        preserves_context / consumes_hole / requires_unique_context /
+        may_resume_nonlinearly.
+    - Shipped detection driver: ori_arc::aims::intraprocedural::
+      post_convergence::detect_trmc_candidates (compiler/
+      ori_arc/src/aims/intraprocedural/post_convergence.rs lines 442-526).
+      The admissibility filter that selects a `Construct` as a TRMC candidate:
+        (a) the constructor kind is a struct or enum variant —
+            `matches!(ctor, CtorKind::Struct(_) | CtorKind::EnumVariant { .. })`
+            (post_convergence.rs lines 484-487); tuple / closure ctors
+            (NonReusable shape) are NOT candidates;
+        (b) at least one field argument was produced by a self-recursive call —
+            `args.iter().any(|arg| recursive_defs.contains(arg))`
+            (post_convergence.rs lines 493-497), where `recursive_defs` is the
+            set of variables defined by `Apply`/`Invoke` whose callee is the
+            current function (collected via collect_recursive_call_sites,
+            post_convergence.rs lines 449-450);
+        (c) the constructor destination is `Uniqueness::Unique` at the mutation
+            point — `if state.uniqueness != Uniqueness::Unique { continue; }`
+            (post_convergence.rs lines 511-514). This is the SOLE enforced
+            soundness gate (Lemma 2, Leijen & Lorenzen JFP 2025) — no other
+            references exist at the mutation point so the in-place hole fill is
+            safe.
+      When all three hold, the constructor's shape is upgraded to
+      `ShapeClass::ContextHole` (post_convergence.rs lines 516-517:
+      `state_map.set_var_shape(*dst, ShapeClass::ContextHole)`).
+    - Shipped ContextBehavior record: ori_arc::aims::contract::context::
+      ContextBehavior (compiler/ori_arc/src/aims/contract/
+      context.rs lines 33-50) carries EXACTLY four boolean fields:
+        - `preserves_context` (context.rs line 37)
+        - `consumes_hole` (context.rs line 40)
+        - `requires_unique_context` (context.rs line 44)
+        - `may_resume_nonlinearly` (context.rs line 49)
+      Re-exported as ori_arc::aims::contract::ContextBehavior (contract/mod.rs
+      line 25) and carried on `MemoryContract.context_behavior` (contract/
+      mod.rs line 53).
+    - Locality is deliberately NOT a detection gate: TRMC constructors are
+      typically returned (`HeapEscaping`), which is expected — the whole point
+      of TRMC is to build the result in place and return it
+      (post_convergence.rs lines 433-435 + 503-505). Function-level
+      `may_share` is logged but NOT enforced (post_convergence.rs lines
+      455-466 + 507-510) because the `HeapEscaping -> may_share` accumulation
+      rule makes every TRMC candidate trigger `may_share`; the per-variable
+      `Unique` guarantee is the actual soundness condition.
+
+  Soundness property:
+    Forall function F processed by Step 3a TRMC normalization, and forall
+    `Construct` instruction c in F.
+      Let admitted(c) = Step 3a upgrades c's shape to ContextHole.
+      Two conjuncts SHALL hold:
+
+      (P1) Detection scope:
+        admitted(c) iff (c.ctor in {Struct, EnumVariant})
+                      AND (exists arg in c.args. arg in recursive_defs(F))
+                      AND (uniqueness(c.dst) = Unique).
+        No constructor outside this conjunction is upgraded to ContextHole; no
+        constructor inside it is skipped.
+
+      (P2) ContextBehavior record shape:
+        The `ContextBehavior` contract carries exactly the four boolean fields
+        {preserves_context, consumes_hole, requires_unique_context,
+        may_resume_nonlinearly} — no more, no fewer.
+
+  Proof obligation:
+    Two-part constructive discharge corresponding to (P1) and (P2), by
+    case analysis over the constructor-admissibility grid (case_analysis-led
+    per the §00 PL row) + structural confirmation of the contract record shape.
+
+    Part (P1) — Detection scope (case analysis over the admissibility grid):
+
+      The verifier models the shipped `detect_trmc_candidates` filter as the
+      conjunction
+        pl7_is_detected(s) = s.is_struct_or_enum_variant
+                             AND s.has_recursive_arg
+                             AND s.dst_unique
+      and exercises it over a five-row constructor grid spanning every
+      single-conjunct failure plus the all-hold case:
+
+        Row 1 struct_recursive_unique — all three hold -> DETECTED
+        Row 2 enum_variant_recursive_unique — all three hold -> DETECTED
+        Row 3 tuple_ctor_rejected — ctor not struct/enum -> REJECTED
+        Row 4 struct_no_recursive_arg — no recursive arg -> REJECTED
+        Row 5 struct_recursive_non_unique — dst not Unique -> REJECTED
+
+      For each row the verifier asserts pl7_is_detected agrees with the row's
+      expected detection. Rows 1-2 are the positive cases (the two ReusableCtor
+      shapes); rows 3-5 are the three negative cases, one per dropped conjunct,
+      mirroring the shipped early-`continue` guards (post_convergence.rs lines
+      485-487 for the ctor-kind gate, 495-497 for the recursive-arg gate,
+      512-514 for the uniqueness gate). The case-by-case agreement discharges
+      (P1).
+
+    Part (P2) — ContextBehavior record shape (structural confirmation):
+
+      The verifier enumerates the four field names
+      {preserves_context, consumes_hole, requires_unique_context,
+      may_resume_nonlinearly} and asserts the count is exactly 4, matching the
+      shipped struct (context.rs lines 33-50). A field added or removed in the
+      shipped record would diverge the count and Fail the check. (P2)
+      discharged.
+
+    Coverage gate — constructor-admissibility enumeration:
+
+      The verifier discharges exactly 5 constructor-admissibility sites
+      (require_count("PL-7", 5, ...)). Coverage axes:
+        Detection scope (P1): the 5 grid rows — 2 positive (struct + enum
+          variant), 3 negative (non-ctor-kind, no-recursive-arg, non-unique).
+        Record shape (P2): the 4-field ContextBehavior count check.
+
+    Negative-direction witness — non-struct ctor rejected:
+
+      A tuple- or closure-shaped constructor (NonReusable shape) with a
+      recursive field arg and a Unique dst is NOT a TRMC candidate — the
+      shipped filter gates on `CtorKind::Struct | CtorKind::EnumVariant`
+      (post_convergence.rs lines 485-487). The verifier's row 3
+      (tuple_ctor_rejected) pins this: a non-struct/enum ctor with the other
+      two conjuncts satisfied still yields pl7_is_detected = false.
+
+    Negative-direction witness — non-unique dst rejected:
+
+      A struct constructor with a recursive arg but a `dst` whose uniqueness is
+      MaybeShared or Shared is rejected by the Lemma 2 gate
+      (post_convergence.rs lines 511-514). The verifier's row 5
+      (struct_recursive_non_unique) pins this: the sole enforced soundness
+      condition is per-variable Unique; dropping it blocks detection.
+
+    Cycle-soundness witness — PL-7 antecedes the rest of the TRMC cluster:
+
+      PL-7 (detection scope + ContextBehavior record) is the antecedent of
+      PL-8 (candidate predicate refines the detection conjunction with the
+      context-region span), PL-9 (rewrite of detected candidates), PL-10
+      (structural verification of the rewrite), and PL-11 (ContextBehavior
+      initialization + join over the record PL-7 introduces). PL-7 consumes no
+      output of any later TRMC rule. The dependency chain is acyclic:
+        PL-7 --> PL-8 (predicate over the detected candidate set)
+        PL-7 --> PL-9 (rewrite of detected candidates)
+        PL-7 --> PL-11 (join over the ContextBehavior record)
+      PL-7 is the leaf of this dependency tree.
+
+    Algorithm-citation declaration:
+      property: TRMC candidate detection scope — a Construct is a
+                           context-hole candidate iff struct/enum-variant ctor
+                           + self-recursive field arg + Unique dst; the
+                           ContextBehavior contract carries exactly four
+                           boolean fields
+      published: Leijen & Lorenzen, "Tail Recursion Modulo Context",
+                           JFP 2025 (the four-field constructor-context
+                           behavior; Lemma 2 uniqueness soundness for in-place
+                           hole fill); the Perceus reuse lineage (Reinking,
+                           Lorenzen, Leijen & de Moura, PLDI 2021) cited in
+                           Annex E §AIMS prior-art table
+      determinism: deterministic — detect_trmc_candidates scans blocks
+                           in index order, applies a fixed three-conjunct
+                           filter, and sets ContextHole shape deterministically;
+                           no schedule or hash-order freedom
+      reference impl: ori_arc::aims::intraprocedural::post_convergence::
+                           detect_trmc_candidates (post_convergence.rs lines
+                           442-526: ctor-kind gate lines 485-487, recursive-arg
+                           gate lines 493-497, uniqueness gate lines 511-514,
+                           ContextHole upgrade lines 516-517) +
+                           ori_arc::aims::contract::context::ContextBehavior
+                           (context.rs lines 33-50)
+
+    Engines dispatched:
+      structural_induction (PRIMARY — confirms the detection-scope conjunction
+        and the ContextBehavior record shape over the §07.4 TRMC structural
+        model per section_07::verify_pl7_trmc_detect_candidate; agrees with
+        case_analysis on the constructive verifier)
+      case_analysis (LED — per the §00 PL-row pair per the proof-checker design-proof-
+        checker-design.md:102, the TRMC cluster is case_analysis-heavy; the
+        verifier discharges (P1) via the five-row constructor-admissibility
+        grid — 2 positive ReusableCtor rows + 3 negative single-conjunct-drop
+        rows — and (P2) via the four-field record-shape count; constructive,
+        NOT gracious-accept)
+
+  Expected:
+    status: valid
+    reason: section_07 case_analysis-led discharge of PL-7 via the constructor-admissibility grid — (P1) detect_trmc_candidates admits a Construct as a ContextHole candidate iff struct/enum-variant ctor (post_convergence.rs lines 485-487) AND self-recursive field arg (lines 493-497) AND Unique dst (lines 511-514), verified over a five-row grid (2 positive ReusableCtor rows + 3 negative single-conjunct-drop rows), and (P2) the ContextBehavior contract carries exactly the four fields preserves_context / consumes_hole / requires_unique_context / may_resume_nonlinearly (context.rs lines 33-50); grounded in the shipped Step 3a detection driver + the 4-field record; structural_induction PRIMARY confirms over the same verifier

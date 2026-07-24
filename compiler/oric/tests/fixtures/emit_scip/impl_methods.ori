@@ -1,0 +1,6 @@
+type Point = { x: int, y: int }
+
+impl Point {
+    @get_x (self) -> int = self.x;
+    @sum (self) -> int = self.x + self.y;
+}

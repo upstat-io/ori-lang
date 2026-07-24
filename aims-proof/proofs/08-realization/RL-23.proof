@@ -1,0 +1,57 @@
+Theorem RL-23: KnownSafe flag propagation at joins (AND across predecessors)
+
+  Preconditions:
+    - RL-23 governs KnownSafe join propagation per Annex E §AIMS
+      KnownSafe Pair Elimination: "KnownSafe flag propagation at joins: true
+      only if ALL predecessors agree."
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - RL-23 is the dataflow-merge rule for the RL-22 KnownSafe flag; it is a
+      POST-PIPELINE pass over realized IR.
+    - depends-on RL-22 (the KnownSafe flag definition).
+
+  Soundness property:
+    Forall CFG join J with predecessor KnownSafe flags p_1, ..., p_n:
+
+      (P1) Join value: KnownSafe(J) = AND(p_1, ..., p_n) — true iff EVERY
+           predecessor is KnownSafe.
+
+      (P2) Soundness: if ANY predecessor lacks the outstanding logical owner-
+           credit evidence, pair removal is not proven to preserve the later
+           owner-credit floor. The conservative AND-join therefore marks J NOT
+           KnownSafe. An OR-join would UNSOUNDLY import evidence from one
+           predecessor onto a path where it was never established.
+
+    RL-23 is the meet operation that keeps the RL-22 elimination sound across
+    control-flow merges.
+
+  Proof obligation:
+    Constructive discharge by the rc_counting engine.
+
+    Part (P1) — AND-join grid:
+      all_preds_safe_join_safe -> true
+      one_pred_unsafe_join_unsafe -> false
+      all_preds_unsafe_join_unsafe -> false
+      single_safe_pred_safe -> true
+      Coverage gate: 4 join cases.
+
+    Part (P2) — AND-not-OR witness:
+      The verifier confirms the join uses AND (conservative), not OR: an
+      OR-join over [true, false] would yield true (unsound), while the
+      required AND-join yields false. The negative-direction witness asserts
+      AND is used (the OR result is rejected as the join semantics).
+
+    Engines dispatched:
+      rc_counting (PRIMARY —
+        section_08::verify_rl23_knownsafe_join_propagation; AND-join
+        enumeration + AND-not-OR witness; emits Fail on a wrong join value or
+        OR-join semantics)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      case_analysis (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+
+  Expected:
+    status: valid
+    reason: section_08 rc_counting engine discharges RL-23 via the KnownSafe AND-join grid (any unsafe predecessor -> unsafe join) with a negative-direction witness confirming AND (conservative meet), not OR, is the join semantics — keeping RL-22 elimination sound across CFG merges

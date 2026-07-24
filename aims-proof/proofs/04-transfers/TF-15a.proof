@@ -1,0 +1,68 @@
+Theorem TF-15a: SetTag transfer produces no dst (in-place tag mutation; row "—")
+
+  Preconditions:
+    - Instruction is `SetTag { base, tag }` per Annex E §AIMS TF-15a +
+      Appendix A row 15
+    - `SetTag` performs in-place tag mutation of `base`'s discriminant
+      field; the `tag` operand is a scalar `u64` discriminant value
+    - Appendix A row 15 carries "—" across every per-dimension column —
+      no forward transfer (the instruction defines no SSA value)
+    - Backward demand `(base, Once)` ONLY (no `value` operand — `tag` is
+      a scalar u64 with no RC interaction) is proven at §04.3 TF-11
+    - SetTag has NO IA-5 step (1) alias-transfer (no value operand;
+      tag is a SCALAR-equivalent u64). Per Annex E §AIMS IA-5 step
+      (1) clause (e): "SetTag: no value operand."
+
+  Soundness property:
+    Forall SetTag { base, tag }.
+      transfer_tf15a(SetTag) = NoDst (no AimsState emitted)
+    AND Appendix A row 15 carries "—" across every per-dimension column.
+    Backward demand restricted to `(base, Once)` — no `value` operand.
+    L-6 layer (b) monotonicity holds trivially — no output state to
+    monotone over.
+
+  Proof obligation:
+    Three-part discharge:
+      (a) No-dst confirmation — verify TF-15a emits NoDst (the "—"
+          marker in Appendix A row 15). The state map MUST NOT acquire
+          a new entry from this instruction.
+      (b) Per-dimension "—" verification — every Appendix A row 15
+          column reads "—" verbatim.
+      (c) L-6 layer (b) monotonicity — vacuously holds (same argument
+          as TF-15 part (c)).
+
+    Part (a) — no-dst confirmation:
+      Per Annex E §AIMS TF-15a: "SetTag { base, tag }: in-place tag
+      mutation. No `dst`. `tag` = scalar `u64`."
+      Verified: transfer_tf15a() returns a NoDst marker (not Tagged::State,
+      not Tagged::Scalar). The state map MUST be UNCHANGED by SetTag.
+      Distinct from TF-15: SetTag has NO `value` operand to forward,
+      hence no IA-5 step (1) alias-transfer on a value operand (the
+      tag is a SCALAR-equivalent u64 with no RC interaction).
+
+    Part (b) — Appendix A row "—" verification:
+      Appendix A row 15 columns:
+        Access: —; Consumption: —; Cardinality: —; Uniqueness: —;
+        Locality: —; Shape: —; Effect: —.
+      Verified: TF-15a enumeration emits no per-dimension column.
+
+    Part (c) — vacuous monotonicity:
+      Same vacuous argument as TF-15 part (c): the forward-transfer
+      codomain is empty for no-dst instructions; L-6 layer (b)
+      monotonicity holds trivially.
+      Cross-reference: backward-demand monotonicity (TF-11 emits
+      `(base, Once)` ONLY for SetTag — no value operand) is proven at
+      §04.3 TF-11.
+
+    Engines dispatched:
+      monotonicity (PRIMARY — vacuous L-6 layer (b) discharge for
+        no-dst instructions per section_04::verify_tf15a_settag_no_dst)
+      case_analysis (PRIMARY — Appendix A row 15 "—" enumeration per
+        section_04::verify_tf15a_settag_no_dst)
+      lattice (SECONDARY — accepts gracefully; no codomain element)
+      refinement (SECONDARY — accepts gracefully; TF-15a emits no dst,
+        no refine() applicable)
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-15a via no-dst confirmation + Appendix A row 15 per-dimension "—" enumeration + vacuous L-6 layer (b) monotonicity + no-value-operand restriction

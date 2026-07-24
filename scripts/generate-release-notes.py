@@ -2,8 +2,8 @@
 """Generate release notes for Ori releases.
 
 Gathers commit log and PR descriptions, then generates structured release
-notes using AI (Copilot SDK with Claude Sonnet 4.6) when available, falling
-back to conventional-commit categorization.
+notes using an automated drafting service when available, falling back to
+conventional-commit categorization.
 
 Usage:
     # From git tag range (CI or local):
@@ -16,7 +16,7 @@ Usage:
     ./scripts/generate-release-notes.py --tag v2026.03.23.1-Alpha -o /tmp/notes.md
 
 Environment:
-    COPILOT_GITHUB_TOKEN  — enables AI generation (CI only)
+    COPILOT_GITHUB_TOKEN  — enables automated drafting (CI only)
     GH_TOKEN / GITHUB_TOKEN — needed for PR body fetching via `gh`
 """
 
@@ -72,7 +72,7 @@ def gather_pr_bodies(prev_tag):
 
 
 def generate_ai_notes(tag, prev_tag, commit_log, pr_bodies):
-    """Try AI generation via Copilot SDK. Returns notes or None on failure."""
+    """Try automated drafting. Returns notes or None on failure."""
     if not os.environ.get("COPILOT_GITHUB_TOKEN"):
         return None
 
@@ -93,6 +93,20 @@ Your entire response becomes the release notes verbatim. There is no post-proces
 
 Violating this contract ships broken release notes to real users on GitHub. There is no second chance.
 
+## Analysis Process — Be Thorough, Not Hurried
+
+Before writing a single bullet, do the following analysis in full. Take the time it takes — release notes are a permanent public record, and rushing the analysis ships an incomplete log.
+
+1. Read every PR description in full. For each PR, identify the distinct user-facing changes it delivers AND the supporting work (refactors, hardening, internal cleanup) it absorbs into those changes.
+2. Walk the commit log in full. For every commit that does not trace back to an already-categorized PR, classify whether it represents a distinct user-visible change. If unclear, lean toward including it — surfacing a real change as a small bullet beats dropping it.
+3. Cross-reference PRs and commits. When a PR mentions a feature, confirm the commits exist; when a commit subject hints at a feature, confirm the PR explains it. Discrepancies often surface work the PR forgot to document.
+4. Enumerate every distinct feature, behavior change, bug fix, performance improvement, diagnostic refinement, stdlib addition, and tooling change.
+5. For each change, classify into a Format section below.
+6. Within each section, sequence bullets by user impact — most impactful first, smaller refinements after.
+7. Translate every internal identifier (bug IDs, plan refs, phase names, review-cycle codes) into user-facing language per the Anonymization section before writing the bullet.
+
+Do not skim. Do not stop early. If the input is large, the analysis is large.
+
 ## Format
 
 Start with a 1-3 sentence summary describing the theme of this release.
@@ -111,28 +125,73 @@ For each bullet:
 - **Bold title** followed by 1-2 sentences explaining what changed and why it matters to users
 - Use past tense ("Added", "Fixed", "Improved")
 - Frame everything through user impact — if a change has no user-visible effect, omit it entirely
+- For new syntax, include a tiny inline code example showing the user-facing shape
+- For breaking changes, include a brief migration note (before -> after)
+- For performance changes with data, include the numbers ("2.3x faster", "95 to 128 MiB/s")
+- For diagnostic improvements, briefly contrast the before/after experience
 
 ## Core Principle: Deliverables, Not Process
 
 Release notes describe what was DELIVERED, not the process of delivery. Think of it like a code review: when a PR merges, the release notes say "Added feature X" — not "Added feature X, then fixed 8 things the reviewer caught." Review feedback is part of delivering X correctly.
 
-Apply this to ALL process artifacts:
+Apply this to process artifacts:
 - **TPR (Third-Party Review) findings** — fold into the feature they harden. "Conditional compilation now works on all item types, with proper validation and no incremental parse leakage" — NOT 8 separate TPR bullets. Only surface a TPR as a standalone Bug Fix if it reveals broken behavior that existed in a PREVIOUS release and affected users.
-- **Internal plan references** — strip section numbers, plan IDs, and internal tracking codes (no "§02.1", "TPR-01-062", "Phase A"). Use plain English: "representation optimization" not "repr-opt §02".
 - **Iterative refinements** — hardening, edge case fixes, and polish done during development are part of the feature, not separate items.
 
 **The test**: would an outside contributor who has never seen our plans, TPR system, or internal tracking understand every bullet? If not, rewrite it.
 
+## Anonymization — Strip All Internal Identifiers
+
+Release notes are public-facing. The following internal identifiers MUST NOT appear anywhere in the output — not in headings, not in bullets, not in the summary, not in the "What's Next" section:
+
+- **Bug tracker IDs of any shape**: `BUG-XX-NNN`, `BUG-04-077`, `BUG-07-100`, internal tracker codes, etc.
+- **Plan directory names**: `plans/<feature>/`, `bug-tracker/plans/BUG-XX-NNN/`, any path under `plans/`
+- **Plan section and subsection references**: `§02.1`, `§04A`, `Section 5`, `Subsection 04.2`, `section-NN-<name>.md`
+- **Phase references**: `Phase A`, `Phase 1.5`, `Phase 4`, `Phase 9`
+- **Review cycle IDs**: `TPR-01-062`, `Round 3`, `Cycle 2`, `Iteration N`
+- **Internal SSOT or rule citations**: `routing.md §1`, `impl-hygiene.md §SSOT`, any reference to `.claude/rules/`
+- **Internal proposal codes**: `<name>-proposal.md` paths, internal proposal IDs
+- **Sprint, milestone, or iteration codes**
+
+**Refer to bugs by what they did to users — by name, by behavior — never by ID.**
+Wrong: "Fixed BUG-04-077"
+Wrong: "Fixed the issue tracked in BUG-04-077"
+Right: "Fixed a crash when destructuring a map with a missing key"
+
+**Refer to features by their user-facing name or title — never by plan, proposal, or section code.**
+Wrong: "Implemented byte-literal-proposal §3"
+Wrong: "Completed Phase 4 of repr-opt §02"
+Right: "Added byte literal syntax (`b'x'`)"
+Right: "Layout decisions now reuse a single computed plan across the codegen pipeline"
+
+If a commit message or PR description contains internal tracking codes, translate them into user-facing language for the bullet. Internal codes are scaffolding for the development process — they have no business appearing in a public release announcement.
+
+## Length and Completeness — No Truncation
+
+If the analysis surfaces 40 distinct user-visible changes, ship 40 bullets. If it surfaces 100, ship 100. If it surfaces 12, ship 12. The list length is determined by the work delivered, not by an editorial budget. There is no "too long" — readers scan headings, skim sections, and read the bullets they care about. A complete release log serves both the developer celebrating shipped work and the researcher tracking language evolution.
+
+The ONLY consolidation permitted is folding **non-user-facing process artifacts** (TPR review cycles, internal refactor commits, lint fixes done during a feature implementation, plan-section housekeeping) into the feature they harden. A distinct feature plus its TPR hardening is ONE bullet describing the delivered feature. Two distinct features are TWO bullets, even when they shipped in adjacent commits or touched the same file.
+
+**Banned shortcuts** — these phrases admit defeat on the analysis and ship a worse release log:
+- "Many small bug fixes" — name each fix and what it broke
+- "Various improvements to X" — describe each improvement
+- "Multiple performance optimizations" — list each one with its impact
+- "Several diagnostic improvements" — describe each diagnostic that improved
+- "Additional polish and stability work" — describe each piece of polish
+- "Cleaned up internal X" — if it has no user impact, omit; if it does, describe the impact
+- "And more" / "among other changes" — name the others or remove the phrase
+- Any ellipsis indicating omitted items
+
+If two distinct features happen to land in the same area, they get two bullets. If the same feature lands across 8 commits with iterative refinement, it gets one bullet that describes the delivered feature.
+
 ## Rules
 - The PR descriptions are your PRIMARY source — they contain human-written summaries of what changed and why
 - The commit log is supplementary — use it to catch anything the PRs missed
-- Curate ruthlessly — 4 meaningful bullets beats 12 granular ones. Combine related work into single entries.
-- Never dump the git log — every entry must be written for humans
+- Every distinct user-visible change gets its own bullet — do NOT aggregate distinct work to shorten the list
+- Every entry must be written for humans — no raw git log dumps, no commit hashes, no PR numbers in the body
 - Never say "Internal improvements and maintenance" — if it matters, describe the impact; if it doesn't, omit it
-- Skip version-bump commits and nightly automation PRs
+- Skip version-bump commits and nightly automation PRs entirely
 - Do not reproduce test plan checklists
-- Quantify performance improvements when data is available ("2.3x faster", "95 to 128 MiB/s")
-- For diagnostic improvements, briefly describe the before/after experience
 - If a change has no user-visible effect (pure refactoring, internal code movement), omit it entirely
 
 ## Input
@@ -161,12 +220,12 @@ Commit log ({prev_tag or 'beginning'}..{tag}):
                     streaming=False,
                     on_permission_request=approve_all,
                 )
-                reply = await session.send_and_wait(prompt, timeout=120.0)
+                reply = await session.send_and_wait(prompt, timeout=600.0)
                 if reply is None:
                     return None
                 text = reply.data.content
                 if not text or len(text) < 50:
-                    print(f"AI returned suspiciously short response ({text!r}), using fallback", file=sys.stderr)
+                    print(f"drafting service returned suspiciously short response ({text!r}), using fallback", file=sys.stderr)
                     return None
                 return text
             finally:
@@ -174,7 +233,7 @@ Commit log ({prev_tag or 'beginning'}..{tag}):
 
         return asyncio.run(_generate())
     except Exception as e:
-        print(f"AI generation failed ({e}), using fallback", file=sys.stderr)
+        print(f"automated drafting failed ({e}), using fallback", file=sys.stderr)
         return None
 
 
@@ -209,7 +268,7 @@ _META_PREFIXES = (
 
 
 def _looks_like_meta(paragraph):
-    """Return True if a paragraph looks like AI 'thinking aloud' preamble."""
+    """Return True if a paragraph looks like drafting-service 'thinking aloud' preamble."""
     lower = paragraph.strip().lower()
     if not lower:
         return False
@@ -219,14 +278,14 @@ def _looks_like_meta(paragraph):
 
 
 def strip_preamble(text):
-    """Strip AI meta-commentary and bare leading separators from release notes.
+    """Strip drafting-service meta-commentary and bare leading separators from release notes.
 
-    The Copilot SDK + Claude pipeline occasionally emits preamble like
+    The drafting pipeline occasionally emits preamble like
     "Now I have enough context to write the release notes..." or a bare
     leading horizontal rule (`---`) before the real content. Both patterns
     have shipped to GitHub releases in the wild (v2026.04.08.1-alpha and
     v2026.04.07.1-alpha respectively). This function is a defensive
-    post-processor that runs on every AI-generated notes string.
+    post-processor that runs on every drafted notes string.
 
     Strategy:
     1. Drop a leading bare `---` separator if present.
@@ -426,11 +485,11 @@ def main():
     commit_log = gather_commit_log(prev_tag, args.tag)
     pr_bodies = gather_pr_bodies(prev_tag)
 
-    # Try AI, fall back to structured categorization
+    # Try automated drafting, fall back to structured categorization
     notes = generate_ai_notes(args.tag, prev_tag, commit_log, pr_bodies)
     if notes:
-        # Defense-in-depth: strip any AI meta-commentary/preamble that
-        # slipped past the prompt-level instructions. See strip_preamble().
+        # Defense-in-depth: strip any drafting-service meta-commentary/preamble
+        # that slipped past the prompt-level instructions. See strip_preamble().
         notes = strip_preamble(notes)
     if not notes:
         notes = generate_fallback_notes(args.tag, commit_log)

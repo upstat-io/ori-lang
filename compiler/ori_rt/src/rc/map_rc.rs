@@ -83,6 +83,64 @@ fn map_buffer_cleanup(
     ori_rc_free(data, layout.total_size, 8);
 }
 
+// Codegen map two-channel drop-loop accessors.
+//
+// Expose `HashTableLayout::for_map` offsets + bucket occupancy as thin
+// nounwind C-ABI accessors so codegen owns the two-channel per-occupied-bucket
+// invoke loop for a may-unwind key/value `@drop` without duplicating the layout
+// formula (SSOT stays in `HashTableLayout::for_map`).
+
+/// Byte offset where keys start in a map data buffer.
+#[no_mangle]
+pub extern "C" fn ori_map_keys_offset(cap: i64, key_size: i64, val_size: i64) -> i64 {
+    use crate::map::hash_table::HashTableLayout;
+    let layout = HashTableLayout::for_map(
+        cap.max(0) as usize,
+        key_size.max(1) as usize,
+        val_size.max(1) as usize,
+    );
+    layout.keys_offset as i64
+}
+
+/// Byte offset where values start in a map data buffer.
+#[no_mangle]
+pub extern "C" fn ori_map_vals_offset(cap: i64, key_size: i64, val_size: i64) -> i64 {
+    use crate::map::hash_table::HashTableLayout;
+    let layout = HashTableLayout::for_map(
+        cap.max(0) as usize,
+        key_size.max(1) as usize,
+        val_size.max(1) as usize,
+    );
+    layout.vals_offset as i64
+}
+
+/// Total byte size of a map data buffer (for `ori_rc_free`).
+#[no_mangle]
+pub extern "C" fn ori_map_total_size(cap: i64, key_size: i64, val_size: i64) -> i64 {
+    use crate::map::hash_table::HashTableLayout;
+    let layout = HashTableLayout::for_map(
+        cap.max(0) as usize,
+        key_size.max(1) as usize,
+        val_size.max(1) as usize,
+    );
+    layout.total_size as i64
+}
+
+/// Returns 1 if `bucket` is OCCUPIED, else 0.
+///
+/// # Safety
+///
+/// `data` must be valid and `bucket` within `0..cap`.
+#[no_mangle]
+pub extern "C" fn ori_map_bucket_occupied(data: *const u8, bucket: i64) -> i8 {
+    use crate::map::hash_table::{get_meta, META_OCCUPIED};
+    if data.is_null() || bucket < 0 {
+        return 0;
+    }
+    // SAFETY: caller guarantees data valid + bucket < cap.
+    i8::from(unsafe { get_meta(data, bucket as usize) } == META_OCCUPIED)
+}
+
 /// Drop a map buffer that is known to be uniquely owned (RC == 1).
 ///
 /// Skips the atomic RC decrement. Directly cleans up keys and values,

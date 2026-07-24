@@ -17,6 +17,33 @@ fn test_alloc_expr() {
 }
 
 #[test]
+fn test_access_step_range_roundtrips_through_arena() {
+    use crate::ast::AccessStep;
+    use crate::Name;
+
+    let mut arena = ExprArena::new();
+    let idx = arena.alloc_expr(Expr::new(ExprKind::Int(7), Span::new(0, 1)));
+    let field = Name::new(0, 3);
+
+    let steps = [AccessStep::Field(field), AccessStep::Index(idx)];
+    let range = arena.alloc_access_steps(steps);
+
+    assert_eq!(range.len(), 2);
+    let read = arena.get_access_steps(range);
+    assert_eq!(read, &[AccessStep::Field(field), AccessStep::Index(idx)]);
+}
+
+#[test]
+fn test_access_step_range_empty_is_empty() {
+    use crate::ast::AccessStep;
+
+    let mut arena = ExprArena::new();
+    let range = arena.alloc_access_steps(std::iter::empty::<AccessStep>());
+    assert!(range.is_empty());
+    assert_eq!(arena.get_access_steps(range), &[]);
+}
+
+#[test]
 fn test_alloc_expr_list() {
     let mut arena = ExprArena::new();
 

@@ -1,0 +1,63 @@
+// Lattice alias-tracking on a Result<Inner, Err> shape where the Ok
+// payload contains `inner` whose lifetime survives the Result's
+// destructure. Verifies that burden-op elimination consuming DP-2/DP-3
+// from the converged AimsStateMap does NOT over-eliminate `inner`'s
+// BurdenDec when `inner` outlives the outer class's destructuring point
+// (Spec: Annex E §AIMS DP-2 / DP-3).
+//
+// Repro shape: build a heap-allocated inner ({str: int}), wrap into
+// Result, match out the inner via pattern binding, then USE the inner
+// after the match arm completes. The use AFTER the match is what extends
+// the inner's lifetime past the Result class's destructuring.
+//
+// Positive-pin (this test): asserts NO double-free + correct values
+// survive past the destructure. Test passes = `inner`'s BurdenDec was
+// NOT over-eliminated; its allocation is freed exactly once at the
+// extended use point.
+//
+// Negative-pin: see header comment block at bottom of file. This spec
+// corpus has no env-var control surface, so the negative pin lives at
+// the AOT harness level (ori_llvm/tests/aot/aims_burden_alias.rs),
+// mirroring this same fixture under ORI_FORCE_OVERELIMINATE=1.
+
+use std.testing { assert_eq };
+
+@build_map () -> {str: int} = {
+    let m = {"alpha": 1, "beta": 2, "gamma": 3};
+    m
+}
+
+@wrap_ok (m: {str: int}) -> Result<{str: int}, str> = Ok(m);
+
+@extract_and_sum_after_destructure () -> int = {
+    let m = build_map();
+    let result = wrap_ok(m: m);
+    let extracted = match result {
+        Ok(inner) -> inner,
+        Err(_) -> panic(msg: "should be Ok"),
+    };
+    // The borrow below extends `extracted`'s lifetime PAST the match's
+    // destructure of `result`. Without correct DP-2/DP-3 elimination on
+    // the burden baseline, `inner`'s BurdenDec would fire inside the
+    // match arm before this use, double-freeing the map allocation.
+    let a = extracted["alpha"].unwrap_or(default: 0);
+    let b = extracted["beta"].unwrap_or(default: 0);
+    let g = extracted["gamma"].unwrap_or(default: 0);
+    a + b + g
+}
+
+@test_burden_alias_tracking_inner_survives_result_destructure tests @extract_and_sum_after_destructure () -> void = {
+    let sum = extract_and_sum_after_destructure();
+    assert_eq(actual: sum, expected: 6)
+};
+
+// Negative-pin verification — wired at the AOT harness level:
+//
+// ori_llvm/tests/aot/aims_burden_alias.rs::force_overeliminate_inner_survives_result_leaks_negative_pin
+// compiles + runs this exact fixture (inner_survives_result_destructure.ori)
+// under ORI_FORCE_OVERELIMINATE=1, which deliberately drops the DP-2 guard
+// eliminate_burden_ops otherwise preserves (see burden_elim.rs
+// FORCE_OVERELIMINATE) so `inner`'s BurdenDec is over-eliminated. The
+// negative pin asserts the run then trips ORI_CHECK_LEAKS (exit != 0),
+// proving this positive pin actively catches the over-elimination
+// regression class rather than trivially passing.

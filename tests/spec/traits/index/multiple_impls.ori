@@ -6,11 +6,11 @@ use std.testing { assert_eq }
 // A type implementing Index for both int and str keys
 type JsonValue = { data: str }
 
-impl Index<int, str> for JsonValue {
+impl JsonValue: Index<int, str> {
     @index (self, key: int) -> str = "int_" + self.data;
 }
 
-impl Index<str, str> for JsonValue {
+impl JsonValue: Index<str, str> {
     @index (self, key: str) -> str = "str_" + self.data;
 }
 

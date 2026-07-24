@@ -1,0 +1,39 @@
+// Journey 16: "I am fat and moving"
+// Slug: fat-ownership-transfer
+// Difficulty: complex
+// Features: strings, arc, function_calls, multiple_functions
+// Expected: check_pass() + check_return() + check_multi() = 5 + 26 + 11 = 42
+
+@get_len (s: str) -> int = s.length();
+
+@check_pass () -> int = {
+    let s = "hello";
+    get_len(s: s)
+}
+
+@make_string () -> str = "abcdefghijklmnopqrstuvwxyz";
+
+@check_return () -> int = {
+    let s = make_string();
+    s.length()
+}
+
+@longer (a: str, b: str) -> int = {
+    let la = a.length();
+    let lb = b.length();
+    if la > lb then la else lb
+}
+
+@check_multi () -> int = {
+    let x = "hello";
+    let y = "wonderful";
+    let z = "ab";
+    longer(a: x, b: y) + z.length()
+}
+
+@main () -> int = {
+    let a = check_pass();
+    let b = check_return();
+    let c = check_multi();
+    a + b + c
+}

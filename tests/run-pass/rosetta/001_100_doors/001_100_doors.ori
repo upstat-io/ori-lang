@@ -1,29 +1,25 @@
-// 100 Doors — Rosetta Code
-//
-// Simulate toggling 100 doors through 100 passes.
-// Pass k toggles every k-th door. The doors that remain
-// open are exactly the perfect squares (1, 4, 9, ..., 100).
-
-// Mathematical approach: open doors are i² for i in 1..10
+// The open doors are the perfect squares from 1 through 100.
 @open_doors () -> [int] = {
     for i in 1..=10 yield i * i
 }
 
-// Simulation: toggle doors through 100 passes
+// Simulate all 100 passes independently to verify the result.
 @simulate () -> [int] = {
     let doors = for _ in 0..100 yield false;
+
     for pass in 1..=100 do {
         for idx in (pass - 1)..100 by pass do {
-            doors[idx] = !doors[idx]
+            doors[idx] = !doors[idx];
         }
-    };
+    }
 
     for i in 0..100 if doors[i] yield i + 1
 }
 
 @main () -> void = {
     let $doors = open_doors();
+
     for door in doors do {
-        print(msg: `Door {door} is open`)
+        print(msg: `Door {door} is open`);
     }
 }

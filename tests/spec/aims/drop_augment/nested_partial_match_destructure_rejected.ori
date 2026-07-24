@@ -1,0 +1,33 @@
+// A NESTED partial by-value `match`-destructure of a Drop-typed field is the
+// same double-free / leak hazard as a top-level partial destructure, one level
+// down. The OUTER pattern `Outer { inner: ... }` binds every field of `Outer`
+// (whole-value consume at the top level), so the top-level field-count check
+// alone does not flag it. The NESTED sub-pattern `Inner { x, .. }` binds a
+// proper subset of `Inner`'s fields via a rest-pattern: `inner.x` moves out
+// while the residual `Inner` still owns the type's `@drop` glue, which would
+// re-drop the moved-out field. Typeck rejects with E2048 by recursing into
+// nested struct/variant sub-patterns over Drop-typed fields.
+//
+// Companion positive case (bind-all nested) lives in
+// `nested_partial_match_destructure_accepted.ori`.
+//
+// Spec: drop-trait-proposal.md §Execution Timing.
+
+#compile_fail(code: "E2048")
+@nested_partial_match_destructure_rejected tests _ () -> void = { () }
+
+type Inner = { x: int, y: int }
+
+type Outer = { inner: Inner }
+
+impl Inner: Drop {
+    @drop (self) -> void = ();
+}
+
+impl Outer: Drop {
+    @drop (self) -> void = ();
+}
+
+@bad (o: Outer) -> int = match o {
+    Outer { inner: Inner { x, .. } } -> x,
+};

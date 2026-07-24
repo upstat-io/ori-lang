@@ -1,0 +1,53 @@
+// Valgrind test: BUG-04-090 — generic forwarder + heap-typed param surface.
+// Independent leak oracle against ORI_CHECK_LEAKS=1; runs through Valgrind
+// when the `valgrind` corpus is exercised by compiler_repo/scripts/valgrind-test.sh.
+//
+// Verifies: no leaks, double-frees, or use-after-free across the four
+// matrix cells most exposed to the BUG-04-090 fix surface (1-hop / 3-hop
+// generic chain over [int] + heap-element [str] + path-sensitive select).
+//
+// Without the fix, the 3-hop chain double-frees at the caller's scope exit
+// (FATAL ori_rc_dec called on already-freed allocation, exit 134/SIGSEGV);
+// the path-sensitive select leaks the non-returned arm under naive global
+// suppression. Both shapes must run cleanly under Valgrind for closure.
+
+@id <T> (x: T) -> T = x;
+
+@wrap <T> (x: T) -> T = id(x: x);
+
+@double_wrap <T> (x: T) -> T = wrap(x: x);
+
+@select <T> (cond: bool, x: T, y: T) -> T = if cond then x else y;
+
+// 1-hop generic forwarder over [int] — minimal repro shape.
+@test_1hop_list_int () -> bool = {
+    let xs = id(x: [1, 2, 3, 4, 5]);
+    xs.len() == 5 && xs[0] == 1 && xs[4] == 5
+};
+
+// 3-hop generic forwarder chain over [int] — original repro.
+@test_3hop_list_int () -> bool = {
+    let xs = double_wrap(x: [10, 20, 30, 40, 50]);
+    xs.len() == 5 && xs[0] == 10 && xs[4] == 50
+};
+
+// 1-hop generic forwarder over [str] — heap element drop interaction.
+@test_1hop_list_str () -> bool = {
+    let xs = id(x: ["alpha", "beta", "gamma"]);
+    xs.len() == 3 && xs[0] == "alpha" && xs[2] == "gamma"
+};
+
+// Path-sensitive select<T> — both arms must run cleanly.
+@test_select_both_arms () -> bool = {
+    let true_arm = select(cond: true, x: [1, 2, 3], y: [9, 9, 9]);
+    let false_arm = select(cond: false, x: [1, 2, 3], y: [9, 9, 9]);
+    true_arm[0] == 1 && false_arm[0] == 9
+};
+
+@main () -> int = {
+    let r1 = test_1hop_list_int();
+    let r2 = test_3hop_list_int();
+    let r3 = test_1hop_list_str();
+    let r4 = test_select_both_arms();
+    if r1 && r2 && r3 && r4 then 0 else 1
+}

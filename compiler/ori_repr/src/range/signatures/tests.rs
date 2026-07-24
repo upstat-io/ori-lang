@@ -1,4 +1,4 @@
-//! Tests for interprocedural range propagation (§03.5).
+//! Tests for interprocedural range propagation.
 
 use super::*;
 use ori_arc::ir::{
@@ -52,8 +52,13 @@ fn build_simple_func(
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -111,6 +116,7 @@ fn run_branch_call_scenario(
                 func: ori_ir::Name::from_raw(base_name + 1),
                 args: vec![v_a0],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
             ArcInstr::Let {
                 dst: v_ahi,
@@ -123,6 +129,7 @@ fn run_branch_call_scenario(
                 func: ori_ir::Name::from_raw(base_name + 1),
                 args: vec![v_ahi],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_rhi,
@@ -170,6 +177,7 @@ fn build_branch_blocks(
         func: ori_ir::Name::from_raw(helper_name),
         args: vec![x_param],
         arg_ownership: vec![ArgOwnership::Owned],
+        mono_instance_id: None,
     };
     let zero_instr = ArcInstr::Let {
         dst: v_zero,
@@ -259,12 +267,17 @@ fn build_branching_caller(
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 
-// ─── Non-recursive: constant argument narrows parameter ──────
+// Non-recursive: constant argument narrows parameter
 
 /// Semantic pin: private function called only as `helper(42)` should have
 /// parameter range [42, 42]. This ONLY passes with interprocedural propagation;
@@ -298,6 +311,7 @@ fn single_call_site_constant_arg() {
                 func: ori_ir::Name::from_raw(100),
                 args: vec![v_arg],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_result,
@@ -321,7 +335,7 @@ fn single_call_site_constant_arg() {
     );
 }
 
-// ─── Non-recursive: two call sites join parameter ranges ──────
+// Non-recursive: two call sites join parameter ranges
 
 /// Two call sites with different constant args → parameter range is their join.
 #[test]
@@ -355,6 +369,7 @@ fn two_call_sites_join_param_ranges() {
                 func: ori_ir::Name::from_raw(101),
                 args: vec![v_arg1],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
             ArcInstr::Let {
                 dst: v_arg2,
@@ -367,6 +382,7 @@ fn two_call_sites_join_param_ranges() {
                 func: ori_ir::Name::from_raw(101),
                 args: vec![v_arg2],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_r2,
@@ -390,7 +406,7 @@ fn two_call_sites_join_param_ranges() {
     );
 }
 
-// ─── Return range propagation ──────
+// Return range propagation
 
 /// Return range from a function with a constant return value.
 #[test]
@@ -425,13 +441,15 @@ fn return_range_constant() {
     );
 }
 
-// ─── Budget exceeded ──────
+// Recursive convergence budget
 
-/// Budget exceeded: >N SCC iterations → remaining SCCs get Top.
+/// Acyclic functions require one topological pass, not a convergence budget.
+/// Setting the recursive limit to zero must therefore leave their parameter
+/// propagation intact.
 #[test]
-fn budget_exceeded_gives_top() {
+fn recursive_budget_does_not_apply_to_acyclic_sccs() {
     let v_param = ArcVarId::new(0);
-    let func = build_simple_func(
+    let helper = build_simple_func(
         103,
         &[(0, ori_types::Idx::INT)],
         vec![],
@@ -440,27 +458,138 @@ fn budget_exceeded_gives_top() {
         1,
     );
 
+    let v_arg = ArcVarId::new(0);
+    let v_result = ArcVarId::new(1);
+    let caller = build_simple_func(
+        203,
+        &[],
+        vec![
+            ArcInstr::Let {
+                dst: v_arg,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(37)),
+            },
+            ArcInstr::Apply {
+                dst: v_result,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(103),
+                args: vec![v_arg],
+                arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
+            },
+        ],
+        v_result,
+        ori_types::Idx::INT,
+        2,
+    );
+
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig {
-        max_total_scc_iterations: 0,
+        max_scc_iterations: 0,
         ..Default::default()
     };
     let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
 
-    propagate_ranges(&mut plan, &pool, &[func], &config);
+    propagate_ranges(&mut plan, &pool, &[helper, caller], &config);
 
-    // Budget exhausted — should not panic. With 0 budget, the SCC is skipped
-    // and params get Top, but intraprocedural results should still be stored.
-    let func_name = ori_ir::Name::from_raw(103);
-    let param_range = plan.var_range(func_name, v_param);
     assert_eq!(
-        param_range,
-        ValueRange::Top,
-        "Budget exceeded should not panic, param should be Top"
+        plan.var_range(ori_ir::Name::from_raw(103), v_param),
+        ValueRange::Bounded { lo: 37, hi: 37 },
+        "the recursive convergence limit must not suppress an acyclic SCC"
     );
 }
 
-// ─── Self-recursive function ──────
+/// Regression pin for the former fixed 50-SCC program-size cutoff. All
+/// acyclic components must be processed even when a separate recursive SCC
+/// exhausts immediately, and adding unrelated components must not make a
+/// previously precise parameter become `Top`.
+#[test]
+fn acyclic_sccs_remain_precise_past_former_global_cutoff() {
+    const PAIRS: u32 = 64;
+    const HELPER_BASE: u32 = 10_000;
+    const CALLER_BASE: u32 = 20_000;
+    const EXTERNAL_BASE: u32 = 40_000;
+
+    let mut functions = Vec::new();
+    functions.push(build_self_recursive_func(30_000));
+
+    for offset in 0..PAIRS {
+        let helper_name = HELPER_BASE + offset;
+        let caller_name = CALLER_BASE + offset;
+        let value = i64::from(offset) - 32;
+        let v_unknown_return = ArcVarId::new(1);
+        functions.push(build_simple_func(
+            helper_name,
+            &[(0, ori_types::Idx::INT)],
+            vec![ArcInstr::Apply {
+                dst: v_unknown_return,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(EXTERNAL_BASE + offset),
+                args: vec![],
+                arg_ownership: vec![],
+                mono_instance_id: None,
+            }],
+            v_unknown_return,
+            ori_types::Idx::INT,
+            2,
+        ));
+
+        let v_arg = ArcVarId::new(0);
+        let v_result = ArcVarId::new(1);
+        functions.push(build_simple_func(
+            caller_name,
+            &[],
+            vec![
+                ArcInstr::Let {
+                    dst: v_arg,
+                    ty: ori_types::Idx::INT,
+                    value: ArcValue::Literal(LitValue::Int(value)),
+                },
+                ArcInstr::Apply {
+                    dst: v_result,
+                    ty: ori_types::Idx::INT,
+                    func: ori_ir::Name::from_raw(helper_name),
+                    args: vec![v_arg],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
+                },
+            ],
+            v_result,
+            ori_types::Idx::INT,
+            2,
+        ));
+    }
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig {
+        max_scc_iterations: 0,
+        ..Default::default()
+    };
+    let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
+    propagate_ranges(&mut plan, &pool, &functions, &config);
+
+    assert_eq!(
+        plan.var_range(ori_ir::Name::from_raw(30_000), ArcVarId::new(0)),
+        ValueRange::Top,
+        "the recursive SCC must honor its zero-iteration convergence limit"
+    );
+    for offset in 0..PAIRS {
+        let value = i64::from(offset) - 32;
+        assert_eq!(
+            plan.var_range(
+                ori_ir::Name::from_raw(HELPER_BASE + offset),
+                ArcVarId::new(0),
+            ),
+            ValueRange::Bounded {
+                lo: value,
+                hi: value,
+            },
+            "acyclic helper {offset} lost precision after an unrelated recursive exhaustion"
+        );
+    }
+}
+
+// Self-recursive function
 
 /// Self-recursive function: should converge or widen to Top within budget.
 #[test]
@@ -523,6 +652,7 @@ fn self_recursive_converges_or_widens() {
                 func: ori_ir::Name::from_raw(104),
                 args: vec![v_sub],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         terminator: ArcTerminator::Return { value: v_rec },
@@ -551,8 +681,13 @@ fn self_recursive_converges_or_widens() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     let pool = ori_types::Pool::new();
@@ -572,7 +707,7 @@ fn self_recursive_converges_or_widens() {
     );
 }
 
-// ─── Empty function list ──────
+// Empty function list
 
 /// Empty function list: should not panic.
 #[test]
@@ -585,7 +720,7 @@ fn empty_functions_no_panic() {
     // No assertions needed — just verifying it doesn't panic.
 }
 
-// ─── Transitive A→B→C propagation ──────
+// Transitive A->B->C propagation
 
 /// Semantic pin: A calls B(42), B calls C(x). C's parameter should narrow to
 /// [42, 42] even though C is only called by B. This ONLY passes with parameter
@@ -615,6 +750,7 @@ fn transitive_propagation_a_b_c() {
             func: ori_ir::Name::from_raw(300),
             args: vec![v_bx],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         }],
         v_br,
         ori_types::Idx::INT,
@@ -639,6 +775,7 @@ fn transitive_propagation_a_b_c() {
                 func: ori_ir::Name::from_raw(200),
                 args: vec![v_a42],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_ar,
@@ -672,7 +809,7 @@ fn transitive_propagation_a_b_c() {
     );
 }
 
-// ─── Caller/callee return-range narrowing ──────
+// Caller/callee return-range narrowing
 
 /// Semantic pin: callee returns constant 99, caller's Apply dst should narrow
 /// to [99, 99] from the callee's return range. This ONLY passes with Phase 6
@@ -705,6 +842,7 @@ fn caller_dst_narrows_from_callee_return_range() {
             func: ori_ir::Name::from_raw(400),
             args: vec![],
             arg_ownership: vec![],
+            mono_instance_id: None,
         }],
         v_dst,
         ori_types::Idx::INT,
@@ -727,7 +865,7 @@ fn caller_dst_narrows_from_callee_return_range() {
     );
 }
 
-// ─── Mutually recursive SCC tightening ──────
+// Mutually recursive SCC tightening
 
 /// Two mutually recursive functions with an external seed. When seeded with
 /// a constant call, parameter ranges should converge tighter than Top.
@@ -796,6 +934,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
                 func: ori_ir::Name::from_raw(601),
                 args: vec![v_fsub],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         terminator: ArcTerminator::Return { value: v_frec },
@@ -823,8 +962,13 @@ fn mutually_recursive_scc_tightens_from_seed() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     // G: same structure as F but calls F(x - 1)
@@ -883,6 +1027,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
                 func: ori_ir::Name::from_raw(600),
                 args: vec![v_gsub],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         terminator: ArcTerminator::Return { value: v_grec },
@@ -910,8 +1055,13 @@ fn mutually_recursive_scc_tightens_from_seed() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     // External caller: main calls F(10)
@@ -932,6 +1082,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
                 func: ori_ir::Name::from_raw(600),
                 args: vec![v_m10],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_mr,
@@ -966,7 +1117,7 @@ fn mutually_recursive_scc_tightens_from_seed() {
     );
 }
 
-// ─── SCC budget exhaustion clears stale results ──────
+// SCC budget exhaustion clears stale results
 
 /// Semantic pin: when a recursive SCC hits the iteration budget, ALL exported
 /// ranges (`var_ranges`, `return_range`, `field_summaries`) must be conservative
@@ -1047,6 +1198,7 @@ fn scc_budget_exhaustion_clears_stale_results() {
                 func: ori_ir::Name::from_raw(800),
                 args: vec![v_sub],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         terminator: ArcTerminator::Return { value: v_rec },
@@ -1075,8 +1227,13 @@ fn scc_budget_exhaustion_clears_stale_results() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     let pool = ori_types::Pool::new();
@@ -1112,7 +1269,55 @@ fn scc_budget_exhaustion_clears_stale_results() {
     );
 }
 
-// ─── Return-range feedback into downstream propagation ──────
+/// Return-range feedback runs after recursive SCC processing. It must not
+/// repopulate an exhausted SCC with a bounded callee result after that SCC was
+/// deliberately cleared to `Top`.
+#[test]
+fn return_feedback_cannot_resurrect_exhausted_scc_results() {
+    let helper_return = ArcVarId::new(0);
+    let helper = build_simple_func(
+        31_000,
+        &[],
+        vec![ArcInstr::Let {
+            dst: helper_return,
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(99)),
+        }],
+        helper_return,
+        ori_types::Idx::INT,
+        1,
+    );
+
+    let mut recursive = build_self_recursive_func(31_001);
+    let helper_result = ArcVarId::new(6);
+    recursive.blocks[0].body.push(ArcInstr::Apply {
+        dst: helper_result,
+        ty: ori_types::Idx::INT,
+        func: ori_ir::Name::from_raw(31_000),
+        args: vec![],
+        arg_ownership: vec![],
+        mono_instance_id: None,
+    });
+    recursive.var_types.push(ori_types::Idx::INT);
+    recursive.var_reprs.push(ValueRepr::Scalar);
+    recursive.spans[0].push(None);
+
+    let pool = ori_types::Pool::new();
+    let config = RangeAnalysisConfig {
+        max_scc_iterations: 0,
+        ..Default::default()
+    };
+    let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
+    propagate_ranges(&mut plan, &pool, &[recursive, helper], &config);
+
+    assert_eq!(
+        plan.var_range(ori_ir::Name::from_raw(31_001), helper_result),
+        ValueRange::Top,
+        "feedback must not restore a bounded result inside an exhausted recursive SCC"
+    );
+}
+
+// Return-range feedback into downstream propagation
 
 /// Semantic pin: A calls `helper()` which returns bounded [99, 99], then passes
 /// that result to C. C's parameter should narrow to [99, 99] because the
@@ -1160,6 +1365,7 @@ fn return_range_feeds_downstream_parameter_collection() {
                 func: ori_ir::Name::from_raw(900),
                 args: vec![],
                 arg_ownership: vec![],
+                mono_instance_id: None,
             },
             ArcInstr::Apply {
                 dst: v_c_result,
@@ -1167,6 +1373,7 @@ fn return_range_feeds_downstream_parameter_collection() {
                 func: ori_ir::Name::from_raw(901),
                 args: vec![v_h_result],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_c_result,
@@ -1195,7 +1402,7 @@ fn return_range_feeds_downstream_parameter_collection() {
     );
 }
 
-// ─── Multi-hop return-range chain ──────
+// Multi-hop return-range chain
 
 /// Build a passthrough function: `f(x) = callee(x)`.
 /// Takes one int param, calls `callee_id` with it, returns the result.
@@ -1211,6 +1418,7 @@ fn build_passthrough_func(name: u32, callee_id: u32) -> ArcFunction {
             func: ori_ir::Name::from_raw(callee_id),
             args: vec![v_x],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         }],
         v_r,
         ori_types::Idx::INT,
@@ -1267,6 +1475,7 @@ fn multi_hop_return_range_chain() {
                 func: ori_ir::Name::from_raw(800),
                 args: vec![],
                 arg_ownership: vec![],
+                mono_instance_id: None,
             },
             ArcInstr::Apply {
                 dst: v_ab,
@@ -1274,6 +1483,7 @@ fn multi_hop_return_range_chain() {
                 func: ori_ir::Name::from_raw(803),
                 args: vec![v_h],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_ab,
@@ -1303,7 +1513,7 @@ fn multi_hop_return_range_chain() {
     }
 }
 
-// ─── Derived locals from call-result narrowing ──────
+// Derived locals from call-result narrowing
 
 /// Semantic pin: `helper()` returns 99. Caller does:
 ///   `let x = helper()`   — dst var, narrowed by return-range feedback
@@ -1347,6 +1557,7 @@ fn callee_return_derived_local_propagates() {
                 func: ori_ir::Name::from_raw(900),
                 args: vec![],
                 arg_ownership: vec![],
+                mono_instance_id: None,
             },
             ArcInstr::Let {
                 dst: v_one,
@@ -1447,6 +1658,7 @@ fn callee_return_derived_local_forwards_to_callee_param() {
                 func: ori_ir::Name::from_raw(910),
                 args: vec![],
                 arg_ownership: vec![],
+                mono_instance_id: None,
             },
             ArcInstr::Let {
                 dst: v_one,
@@ -1467,6 +1679,7 @@ fn callee_return_derived_local_forwards_to_callee_param() {
                 func: ori_ir::Name::from_raw(911),
                 args: vec![v_y],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_r,
@@ -1491,7 +1704,7 @@ fn callee_return_derived_local_forwards_to_callee_param() {
     );
 }
 
-// ─── refresh_return_ranges must skip unreachable blocks ──────
+// refresh_return_ranges must skip unreachable blocks
 
 /// Build a function that calls `callee_id`, has an unreachable Return block,
 /// and returns the call result. CFG: B0 → Apply → Jump B2, B1 (unreachable
@@ -1511,6 +1724,7 @@ fn build_func_with_unreachable_return(name: u32, callee_id: u32) -> ArcFunction 
             func: ori_ir::Name::from_raw(callee_id),
             args: vec![],
             arg_ownership: vec![],
+            mono_instance_id: None,
         }],
         terminator: ArcTerminator::Jump {
             target: ArcBlockId::new(2),
@@ -1541,8 +1755,13 @@ fn build_func_with_unreachable_return(name: u32, callee_id: u32) -> ArcFunction 
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -1561,6 +1780,7 @@ fn build_two_call_caller(name: u32, callee_a: u32, callee_b: u32) -> ArcFunction
                 func: ori_ir::Name::from_raw(callee_a),
                 args: vec![],
                 arg_ownership: vec![],
+                mono_instance_id: None,
             },
             ArcInstr::Apply {
                 dst: v_cb,
@@ -1568,6 +1788,7 @@ fn build_two_call_caller(name: u32, callee_a: u32, callee_b: u32) -> ArcFunction
                 func: ori_ir::Name::from_raw(callee_b),
                 args: vec![v_ca],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_cb,
@@ -1633,7 +1854,7 @@ fn feedback_refresh_skips_unreachable_return_blocks() {
     );
 }
 
-// ─── Total SCC budget must limit recursive SCC iterations ──────
+// Total SCC budget must limit recursive SCC iterations
 
 /// Build a self-recursive `rec(x: int)`: if x > 0 then `rec(x - 1)` else 0.
 fn build_self_recursive_func(name: u32) -> ArcFunction {
@@ -1696,6 +1917,7 @@ fn build_self_recursive_func(name: u32) -> ArcFunction {
                 func: ori_ir::Name::from_raw(name),
                 args: vec![v_sub],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         terminator: ArcTerminator::Return { value: v_rec },
@@ -1724,16 +1946,20 @@ fn build_self_recursive_func(name: u32) -> ArcFunction {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 
-/// regression: with `max_total_scc_iterations: 2` and
-/// `max_scc_iterations: 10`, `process_recursive_scc` uses
-/// `min(10, remaining_budget=1) = 1` as effective cap.
+/// The recursive convergence limit remains a conservative safety valve even
+/// though acyclic SCCs no longer consume a global program-size budget.
 #[test]
-fn total_scc_budget_caps_recursive_scc() {
+fn per_scc_budget_caps_recursive_scc() {
     let rec = build_self_recursive_func(950);
 
     let v_arg = ArcVarId::new(0);
@@ -1753,6 +1979,7 @@ fn total_scc_budget_caps_recursive_scc() {
                 func: ori_ir::Name::from_raw(950),
                 args: vec![v_arg],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_result,
@@ -1762,8 +1989,7 @@ fn total_scc_budget_caps_recursive_scc() {
 
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig {
-        max_scc_iterations: 10,
-        max_total_scc_iterations: 2,
+        max_scc_iterations: 1,
         ..Default::default()
     };
     let mut plan = ReprPlan::new(crate::NarrowingPolicy::Conservative);
@@ -1773,11 +1999,11 @@ fn total_scc_budget_caps_recursive_scc() {
     assert_eq!(
         rec_param,
         ValueRange::Top,
-        "rec should be Top-widened with tight total budget, got {rec_param:?}"
+        "rec should fall back to Top at its per-SCC convergence limit, got {rec_param:?}"
     );
 }
 
-// ─── Invoke dst must receive call_result_narrowings ──────
+// Invoke dst must receive call_result_narrowings
 
 /// Build a caller that uses `ArcTerminator::Invoke` to call `callee_id`,
 /// then performs `let y = x + 1` and returns y. Three blocks:
@@ -1804,6 +2030,7 @@ fn build_invoke_caller(name: u32, callee_id: u32, num_vars: usize) -> ArcFunctio
             func: ori_ir::Name::from_raw(callee_id),
             args: vec![],
             arg_ownership: vec![],
+            mono_instance_id: None,
             normal: ArcBlockId::new(1),
             unwind: ArcBlockId::new(2),
         },
@@ -1851,8 +2078,98 @@ fn build_invoke_caller(name: u32, callee_id: u32, num_vars: usize) -> ArcFunctio
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
+    }
+}
+
+/// Builds a 3-block function:
+///   B0: `Invoke(helper_id)` → normal: B1, unwind: B2
+///   B1: [let one = 1; let y = x + one; apply `callee_id(y)` → r] → Return(r)
+///   B2: Unreachable
+fn build_invoke_apply_caller(helper_id: u32, callee_id: u32, name: u32) -> ArcFunction {
+    use ori_arc::ir::{ArcBlock, ArcTerminator, PrimOp, ValueRepr};
+    use ori_arc::ArcBlockId;
+    use ori_ir::BinaryOp;
+
+    let v_x = ArcVarId::new(0);
+    let v_one = ArcVarId::new(1);
+    let v_y = ArcVarId::new(2);
+    let v_r = ArcVarId::new(3);
+
+    let block0 = ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Invoke {
+            dst: v_x,
+            ty: ori_types::Idx::INT,
+            func: ori_ir::Name::from_raw(helper_id),
+            args: vec![],
+            arg_ownership: vec![],
+            mono_instance_id: None,
+            normal: ArcBlockId::new(1),
+            unwind: ArcBlockId::new(2),
+        },
+    };
+    let block1 = ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: v_one,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(1)),
+            },
+            ArcInstr::Let {
+                dst: v_y,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Add),
+                    args: vec![v_x, v_one],
+                },
+            },
+            ArcInstr::Apply {
+                dst: v_r,
+                ty: ori_types::Idx::INT,
+                func: ori_ir::Name::from_raw(callee_id),
+                args: vec![v_y],
+                arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
+            },
+        ],
+        terminator: ArcTerminator::Return { value: v_r },
+    };
+    let block2 = ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![],
+        terminator: ArcTerminator::Unreachable,
+    };
+    ArcFunction {
+        name: ori_ir::Name::from_raw(name),
+        params: vec![],
+        return_type: ori_types::Idx::INT,
+        blocks: vec![block0, block1, block2],
+        entry: ArcBlockId::new(0),
+        var_types: vec![ori_types::Idx::INT; 4],
+        var_reprs: vec![ValueRepr::Scalar; 4],
+        spans: vec![vec![None; 0], vec![None; 3], vec![None; 0]],
+        is_fbip: false,
+        num_captures: 0,
+        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
+        drop_hints: ori_arc::uniqueness::DropHints::default(),
+        tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     }
 }
 
@@ -1943,76 +2260,7 @@ fn invoke_dst_forwards_to_callee_param() {
 
     // caller: invoke helper → x; let one = 1; let y = x + one; apply callee(y) → r; return r
     // Uses Invoke for helper call, Apply for callee call.
-    let v_x = ArcVarId::new(0);
-    let v_one = ArcVarId::new(1);
-    let v_y = ArcVarId::new(2);
-    let v_r = ArcVarId::new(3);
-
-    let block0 = ArcBlock {
-        id: ArcBlockId::new(0),
-        params: vec![],
-        body: vec![],
-        terminator: ArcTerminator::Invoke {
-            dst: v_x,
-            ty: ori_types::Idx::INT,
-            func: ori_ir::Name::from_raw(940),
-            args: vec![],
-            arg_ownership: vec![],
-            normal: ArcBlockId::new(1),
-            unwind: ArcBlockId::new(2),
-        },
-    };
-
-    let block1 = ArcBlock {
-        id: ArcBlockId::new(1),
-        params: vec![],
-        body: vec![
-            ArcInstr::Let {
-                dst: v_one,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Literal(LitValue::Int(1)),
-            },
-            ArcInstr::Let {
-                dst: v_y,
-                ty: ori_types::Idx::INT,
-                value: ori_arc::ir::ArcValue::PrimOp {
-                    op: ori_arc::ir::PrimOp::Binary(ori_ir::BinaryOp::Add),
-                    args: vec![v_x, v_one],
-                },
-            },
-            ArcInstr::Apply {
-                dst: v_r,
-                ty: ori_types::Idx::INT,
-                func: ori_ir::Name::from_raw(941),
-                args: vec![v_y],
-                arg_ownership: vec![ArgOwnership::Owned],
-            },
-        ],
-        terminator: ArcTerminator::Return { value: v_r },
-    };
-
-    let block2 = ArcBlock {
-        id: ArcBlockId::new(2),
-        params: vec![],
-        body: vec![],
-        terminator: ArcTerminator::Unreachable,
-    };
-
-    let caller = ArcFunction {
-        name: ori_ir::Name::from_raw(942),
-        params: vec![],
-        return_type: ori_types::Idx::INT,
-        blocks: vec![block0, block1, block2],
-        entry: ArcBlockId::new(0),
-        var_types: vec![ori_types::Idx::INT; 4],
-        var_reprs: vec![ori_arc::ir::ValueRepr::Scalar; 4],
-        spans: vec![vec![None; 0], vec![None; 3], vec![None; 0]],
-        is_fbip: false,
-        num_captures: 0,
-        cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
-        drop_hints: ori_arc::uniqueness::DropHints::default(),
-        tail_calls: vec![],
-    };
+    let caller = build_invoke_apply_caller(940, 941, 942);
 
     let pool = ori_types::Pool::new();
     let config = RangeAnalysisConfig::default();
@@ -2030,7 +2278,7 @@ fn invoke_dst_forwards_to_callee_param() {
     );
 }
 
-// ─── Call-site-specific range propagation ──────
+// Call-site-specific range propagation
 
 /// Semantic pin: helper(x) called in true branch of `x < 5`.
 /// With call-site-specific propagation: helper.param = [0, 4].
@@ -2067,7 +2315,7 @@ fn call_site_without_branch_uses_global_range() {
     );
 }
 
-// Unconstrained function tests (§03.5 — pub/trait/closure params → Top)
+// Unconstrained function tests (— pub/trait/closure params → Top)
 
 /// `pub` function → parameter range remains Top regardless of call-site args.
 ///
@@ -2107,6 +2355,7 @@ fn pub_function_params_top_regardless_of_call_sites() {
                 func: ori_ir::Name::from_raw(980),
                 args: vec![v_arg],
                 arg_ownership: vec![ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_ret,
@@ -2183,6 +2432,7 @@ fn trait_impl_method_params_top() {
                 func: ori_ir::Name::from_raw(990),
                 args: vec![v_a0, v_a1],
                 arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_ret,
@@ -2258,6 +2508,7 @@ fn closure_params_top_via_num_captures() {
                 func: ori_ir::Name::from_raw(1000),
                 args: vec![v_a0, v_a1],
                 arg_ownership: vec![ArgOwnership::Owned, ArgOwnership::Owned],
+                mono_instance_id: None,
             },
         ],
         v_ret,
@@ -2285,8 +2536,8 @@ fn closure_params_top_via_num_captures() {
 /// When two impl blocks define the same method on the same type (e.g.,
 /// `impl Point: Index<int>` and `impl Point: Index<str>`, both with `@index`),
 /// the analysis-only ARC lowering assigns ordinal-qualified names:
-/// - First: `__impl_42_index` (ordinal 0)
-/// - Second: `__impl_42_index_1` (ordinal 1)
+/// - First: `__impl_<type-hash>_index` (ordinal 0)
+/// - Second: `__impl_<type-hash>_index_1` (ordinal 1)
 ///
 /// Both must be recognized by `is_qualified_unconstrained()`.
 #[test]
@@ -2295,8 +2546,8 @@ fn ordinal_qualified_unconstrained_names() {
 
     // Simulate what `collect_unconstrained_fn_names()` now produces for
     // two same-type same-name trait impls:
-    let base_name = ori_ir::Name::from_raw(500); // __impl_42_index
-    let ordinal_name = ori_ir::Name::from_raw(501); // __impl_42_index_1
+    let base_name = ori_ir::Name::from_raw(500); // __impl_<type-hash>_index
+    let ordinal_name = ori_ir::Name::from_raw(501); // __impl_<type-hash>_index_1
 
     plan.set_unconstrained_fn_names(vec![
         (None, base_name),    // ordinal 0 (base)

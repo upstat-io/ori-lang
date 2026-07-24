@@ -133,6 +133,47 @@ fn format_invalid_source_returns_diagnostics() {
     assert!(!output.diagnostics.is_empty());
 }
 
+// A multi-param signature that fits on one line at the default width (100) must
+// stack one-param-per-line when a narrow `max_width` is requested. Pins the
+// `max_width: Some(width)` branch of `format_source` (the `None` branch is
+// covered above); a fix that ignored the width would reproduce the default
+// single-line output and fail the inequality assertion.
+#[test]
+fn format_narrow_max_width_stacks_params() {
+    let source = "@add (alpha: int, beta: int, gamma: int) -> int = alpha + beta + gamma;";
+
+    let default_output = format_source(source, None);
+    assert!(
+        default_output.success,
+        "default-width format failed: {:?}",
+        default_output.diagnostics
+    );
+    let Some(default_formatted) = default_output.formatted else {
+        panic!("default-width format produced no output");
+    };
+
+    let narrow_output = format_source(source, Some(20));
+    assert!(
+        narrow_output.success,
+        "narrow-width format failed: {:?}",
+        narrow_output.diagnostics
+    );
+    let Some(narrow_formatted) = narrow_output.formatted else {
+        panic!("narrow-width format produced no output");
+    };
+
+    // The narrow width forces stacking the parameters onto separate lines, so
+    // the narrow output has strictly more lines than the default single-line form.
+    assert!(
+        default_formatted.lines().count() < narrow_formatted.lines().count(),
+        "narrow max_width did not change formatting\ndefault:\n{default_formatted}\nnarrow:\n{narrow_formatted}"
+    );
+    assert!(
+        narrow_formatted.contains("alpha: int,\n"),
+        "expected stacked params at narrow width, got:\n{narrow_formatted}"
+    );
+}
+
 // render_diagnostics tests
 
 #[test]

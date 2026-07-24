@@ -1,3 +1,4 @@
+#derive(Eq)
 type Shape = Circle(r: int) | Square(s: int);
 
 @main () -> int = {

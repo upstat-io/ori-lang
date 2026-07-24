@@ -1,0 +1,15 @@
+// (Cross-pattern) for...yield interaction: borrowed [int] param + for-yield
+// iteration consuming the iterator + Return original param. Verifies the
+// pre-compute set tracks the borrow across iterator-driven control flow.
+
+@borrow_for_yield_then_return (xs: [int]) -> [int] = {
+    let _doubled = for x in xs yield x * 2;
+    print(msg: `doubled-len: {_doubled.len()}`);
+    xs
+};
+
+@main () -> int = {
+    let original = [11, 22, 33];
+    let returned = borrow_for_yield_then_return(xs: original);
+    if returned.len() == 3 && returned[0] == 11 && returned[2] == 33 then 0 else 1
+}

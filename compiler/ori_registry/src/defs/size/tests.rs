@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn size_method_count() {
-    assert_eq!(SIZE.methods.len(), 34);
+    assert_eq!(SIZE.methods.len(), 35);
 }
 
 #[test]
@@ -133,9 +133,9 @@ fn size_alias_accessors_return_int() {
 #[test]
 fn size_ops_int_instr_for_arithmetic() {
     let ops = &SIZE.operators;
-    assert_eq!(ops.add, OpStrategy::IntInstr);
-    assert_eq!(ops.sub, OpStrategy::IntInstr);
-    assert_eq!(ops.mul, OpStrategy::IntInstr);
-    assert_eq!(ops.div, OpStrategy::IntInstr);
-    assert_eq!(ops.rem, OpStrategy::IntInstr);
+    assert_eq!(ops.add, OpStrategy::SignedInteger);
+    assert_eq!(ops.sub, OpStrategy::SignedInteger);
+    assert_eq!(ops.mul, OpStrategy::SignedInteger);
+    assert_eq!(ops.div, OpStrategy::SignedInteger);
+    assert_eq!(ops.rem, OpStrategy::SignedInteger);
 }

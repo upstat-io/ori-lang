@@ -296,8 +296,8 @@ field       = identifier ":" type .
 
 trait_def      = "trait" identifier [ generics ] [ ":" bounds ] "{" { trait_item } "}" .
 trait_item     = method_sig | default_method | assoc_type .
-method_sig     = "@" identifier params "->" type ";" .
-default_method = "@" identifier params "->" type "=" expression [ ";" ] .
+method_sig     = "@" identifier [ generics ] params "->" type [ where_clause ] ";" .
+default_method = "@" identifier [ generics ] params "->" type [ where_clause ] "=" expression [ ";" ] .
 /* Semicolon rule: same as function — ";" required unless body ends with "}" */
 assoc_type     = "type" identifier [ ":" bounds ] [ "=" type ] .
 params         = "(" [ param { "," param } ] ")" .
@@ -311,8 +311,8 @@ impl_block    = inherent_impl | trait_impl | def_impl .
 inherent_impl = "impl" [ generics ] type_path [ where_clause ] "{" { method } "}" .
 trait_impl    = "impl" [ generics ] type ":" type_path [ where_clause ] "{" { method } "}" .
 def_impl      = "def" "impl" identifier "{" { def_impl_method } "}" .
-method        = "@" identifier params "->" type [ uses_clause ] "=" expression [ ";" ] .
-def_impl_method = "@" identifier params "->" type "=" expression [ ";" ] .  /* no self, no uses */
+method        = "@" identifier [ generics ] params "->" type [ uses_clause ] [ where_clause ] "=" expression [ ";" ] .
+def_impl_method = "@" identifier [ generics ] params "->" type [ where_clause ] "=" expression [ ";" ] .  /* no self, no uses */
 /* Semicolon rule: same as function — ";" required unless body ends with "}" */
 
 // --- Tests ---
@@ -506,8 +506,20 @@ handler_operation   = identifier ":" expression .
 
 // --- Let Binding ---
 // See: 09-expressions.md § Let Binding, 05-variables.md
+// The fallible form "let?" is one token (no interior whitespace, like "as?");
+// it admits refutable patterns and appears only in block-statement position.
+// See: 13-variables.md § Fallible Bindings, 16-control-flow.md § 16.5.
 
-let_expr = "let" binding_pattern [ ":" type ] "=" expression .
+let_expr = "let" binding_pattern [ ":" type ] "=" expression
+         | "let?" fallible_pattern [ ":" type ] "=" expression .
+
+fallible_pattern = match_pattern .
+/* fallible_pattern IS match_pattern (one shared grammar). The optional "$"
+   immutable-binding markers admitted at binding positions inside
+   identifier_pattern, at_pattern, and the list rest slot are legal ONLY in
+   fallible ("let?") context; a "$" binding marker in a match arm is rejected
+   semantically. const_pattern's "$" identifier (constant REFERENCE, range
+   endpoints only) is unchanged and distinct. */
 assignment        = assignment_target "=" expression
                   | assignment_target compound_op expression .
 assignment_target = identifier { "[" expression "]" | "." identifier } .
@@ -547,10 +559,12 @@ label = ":" identifier .  /* no space around colon */
 // --- Lambda ---
 // See: 09-expressions.md § Lambda
 
-lambda        = simple_lambda | typed_lambda .
-simple_lambda = lambda_params "->" expression .
-typed_lambda  = "(" [ typed_param { "," typed_param } ] ")" "->" type "=" expression .
-lambda_params = identifier | "(" [ identifier { "," identifier } ] ")" .
+lambda        = lambda_params "->" lambda_tail .
+lambda_params = bare_params | typed_params .
+bare_params   = identifier | "(" [ identifier { "," identifier } ] ")" .
+typed_params  = "(" [ typed_param { "," typed_param } ] ")" .
+// lambda_tail: first alt = explicit return type; second alt = inferred return.
+lambda_tail   = type "=" expression | expression .
 typed_param   = identifier ":" type .
 
 // --- Control Flow ---
@@ -631,7 +645,9 @@ match_pattern = literal_pattern
               | at_pattern .
 
 literal_pattern     = [ "-" ] int_literal | string_literal | char_literal | byte_literal | bool_literal .
-identifier_pattern  = identifier .
+identifier_pattern  = [ "$" ] identifier .
+/* The "$" immutable-binding marker is admitted only in fallible ("let?")
+   context; in match arms identifier_pattern is a bare identifier. */
 wildcard_pattern    = "_" .
 variant_pattern     = type_path [ "(" [ variant_field { "," variant_field } ] ")" ] .
 variant_field       = identifier ":" [ match_pattern ]   /* named; punned if pattern omitted */
@@ -640,12 +656,12 @@ struct_pattern      = [ type_path ] "{" [ field_pattern { "," field_pattern } ] 
 field_pattern       = identifier [ ":" match_pattern ] .
 tuple_pattern       = "(" [ match_pattern { "," match_pattern } ] ")" .
 list_pattern        = "[" [ list_pattern_elems ] "]" .
-list_pattern_elems  = match_pattern { "," match_pattern } [ "," ".." [ identifier ] ]
-                    | ".." [ identifier ] .
+list_pattern_elems  = match_pattern { "," match_pattern } [ "," ".." [ [ "$" ] identifier ] ]
+                    | ".." [ [ "$" ] identifier ] .
 range_pattern       = const_pattern ( ".." | "..=" ) const_pattern .
 const_pattern       = literal_pattern | "$" identifier .
 or_pattern          = match_pattern "|" match_pattern .
-at_pattern          = identifier "@" match_pattern .
+at_pattern          = [ "$" ] identifier "@" match_pattern .
 
 // --- Binding Patterns ---
 // See: 05-variables.md § Destructuring

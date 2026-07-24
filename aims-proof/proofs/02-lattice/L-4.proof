@@ -1,0 +1,63 @@
+Theorem L-4: Partial order reflexive antisymmetric transitive
+
+  Preconditions:
+    - a, b, c are AimsState elements per the canonical proof notation
+      sec-Per-Dimension-Symbol-Set
+    - Partial order le is defined as a le b iff join(a, b) = b
+      per Annex E §AIMS.8 L-4
+
+  Soundness property:
+    Forall a, b, c in AimsState.
+      reflexive: a le a
+      antisymmetric: (a le b) and (b le a) implies a = b
+      transitive: (a le b) and (b le c) implies a le c
+
+  Proof obligation:
+    Each axiom follows mechanically from the lattice operations already
+    proven sound at L-1, L-2, L-3 + the join-defined order encoding.
+
+    Reflexivity:
+      a le a iff join(a, a) = a; the right-hand side is exactly L-3
+      (idempotence), already discharged. Witness: cite L-3.
+
+    Antisymmetry:
+      Suppose join(a, b) = b AND join(b, a) = a. By L-1 (commutativity),
+      join(a, b) = join(b, a), so b = a. Discharge: cite L-1 + the
+      definitional unfolding.
+
+    Transitivity:
+      Suppose join(a, b) = b AND join(b, c) = c. Compute
+      join(a, c) using L-2 (associativity):
+        join(a, c) = join(a, join(b, c)) (b le c hyp)
+                   = join(join(a, b), c) (L-2)
+                   = join(b, c) (a le b hyp)
+                   = c (b le c hyp)
+      Therefore join(a, c) = c, i.e. a le c. Discharge: cite L-2 +
+      stepwise rewriting.
+
+    Componentwise consistency:
+      The order le on AimsState is componentwise: a le b iff
+      a_d le_d b_d for every dimension d. Per-dimension order
+      reflexivity / antisymmetry / transitivity all hold on the
+      totally ordered carriers (Access, Consumption, Cardinality,
+      Uniqueness, Locality), on the flat Shape lattice (every element
+      is comparable only to itself and to Phi), and on the
+      componentwise-OR Effect product. Per-dimension finite
+      enumeration of the three axioms:
+        Access 2 reflexivity + 4 antisymmetry + 8 transitivity
+        Consumption 4 + 16 + 64
+        Cardinality 3 + 9 + 27
+        Uniqueness 3 + 9 + 27
+        Locality 5 + 25 + 125
+        Shape 5 + 25 + 125
+        Effect 8 + 64 + 512
+
+    Engines dispatched:
+      lattice (per-dimension finite enumeration discharge per
+        section_02::verify_l4_partial_order)
+      monotonicity (validates the join-derived order is monotone:
+        x le y implies join(x, z) le join(y, z) for any z)
+
+  Expected:
+    status: valid
+    reason: sec-02 lattice engine discharges L-4 via L-1/L-2/L-3 composition and per-dimension order enumeration

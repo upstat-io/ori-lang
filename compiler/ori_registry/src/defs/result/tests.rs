@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn result_method_count() {
-    assert_eq!(RESULT.methods.len(), 21);
+    assert_eq!(RESULT.methods.len(), 22);
 }
 
 #[test]
@@ -56,6 +56,34 @@ fn result_unwrap_returns_ok_type() {
             m.returns,
             ReturnTag::OkType,
             "Result.{name} should return OkType"
+        );
+    }
+}
+
+#[test]
+fn result_unwrap_or_has_closed_runtime_identity() {
+    let method = RESULT
+        .methods
+        .iter()
+        .find(|method| method.name == "unwrap_or")
+        .unwrap_or_else(|| panic!("unwrap_or method should exist"));
+    assert_eq!(
+        method.runtime,
+        Some(MethodRuntime::Result(ResultRuntime::UnwrapOr))
+    );
+}
+
+#[test]
+fn every_result_method_has_exact_runtime_arity() {
+    for method in RESULT.methods {
+        let runtime = method
+            .runtime
+            .unwrap_or_else(|| panic!("Result.{} lacks a runtime identity", method.name));
+        assert_eq!(
+            runtime.arity(),
+            method.params.len() + 1,
+            "Result.{} runtime arity",
+            method.name
         );
     }
 }

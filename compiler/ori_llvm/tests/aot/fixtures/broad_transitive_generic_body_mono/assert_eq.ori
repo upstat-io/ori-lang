@@ -1,0 +1,11 @@
+use std.testing { assert_eq }
+
+#derive(Eq, Debug)
+type Box<T> = { item: T }
+
+@check_box<T: Eq + Debug> (a: Box<T>, b: Box<T>) -> void = assert_eq(actual: a, expected: b);
+
+@main () -> int = {
+    check_box(a: Box { item: 1 }, b: Box { item: 1 });
+    0
+}

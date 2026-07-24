@@ -1,0 +1,17 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 Cross-type coverage — bounded type var <T: Eq>
+
+use std.testing { assert, assert_eq }
+
+type List<T> = { items: [T] }
+
+impl<U: Eq> List<U> {
+    @find_eq<T: Eq> (self, other: T) -> bool = false;
+}
+
+@test_bounded_single tests _ () -> void = {
+    let l = List { items: [1, 2, 3] };
+    let r: bool = l.find_eq(other: 5);
+    assert_eq(actual: r, expected: false)
+}

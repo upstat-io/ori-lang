@@ -5,9 +5,8 @@
 //! The algorithm works on reverse postorder and converges in O(n * d) where
 //! d is the loop nesting depth — typically 2-3 iterations.
 //!
-//! Used by cross-block reset/reuse detection and FBIP diagnostics to verify
-//! that a token defined in block A can be used in block B (requires A
-//! dominates B).
+//! Cross-block reset/reuse detection and FBIP diagnostics require dominance
+//! before a token defined in block A may be used in block B.
 //!
 //! Reference: Cooper, Harvey, Kennedy — "A Simple, Fast Dominance Algorithm" (2001)
 

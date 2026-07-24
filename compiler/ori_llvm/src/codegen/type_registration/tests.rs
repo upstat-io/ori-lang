@@ -59,6 +59,7 @@ fn make_type_entry(name: Name, idx: Idx, kind: TypeKind) -> TypeEntry {
         visibility: Visibility::Public,
         merkle_hash: 0,
         repr: None,
+        burden: None,
     }
 }
 
@@ -78,7 +79,8 @@ fn register_struct_creates_named_llvm_type() {
             category: ValueCategory::default(),
         }),
     );
-    register_user_types(&resolver, &[entry]);
+    let registered = register_user_types(&resolver, &[entry]);
+    assert_eq!(registered, 1, "concrete struct entry must be registered");
 
     // Verify: the resolved type is a struct type in LLVM
     let resolved = resolver.resolve(struct_idx);
@@ -101,7 +103,8 @@ fn register_enum_creates_named_llvm_type() {
         enum_idx,
         TypeKind::Enum { variants: vec![] },
     );
-    register_user_types(&resolver, &[entry]);
+    let registered = register_user_types(&resolver, &[entry]);
+    assert_eq!(registered, 1, "concrete enum entry must be registered");
 
     // Verify: the resolved type is a struct type (enums are { tag, payload })
     let resolved = resolver.resolve(enum_idx);
@@ -131,10 +134,12 @@ fn generic_types_are_skipped() {
         visibility: Visibility::Public,
         merkle_hash: 0,
         repr: None,
+        burden: None,
     };
 
-    // Should not panic — generic types are skipped
-    register_user_types(&resolver, &[entry]);
+    // Generic entries (non-empty type_params) are skipped, never resolved.
+    let registered = register_user_types(&resolver, &[entry]);
+    assert_eq!(registered, 0, "generic type entry must be skipped");
 }
 
 #[test]
@@ -145,5 +150,6 @@ fn empty_type_list_is_noop() {
     let store = TypeInfoStore::new(&pool);
     let resolver = TypeLayoutResolver::new(&store, &scx, None, None);
 
-    register_user_types(&resolver, &[]);
+    let registered = register_user_types(&resolver, &[]);
+    assert_eq!(registered, 0, "empty type list registers nothing");
 }

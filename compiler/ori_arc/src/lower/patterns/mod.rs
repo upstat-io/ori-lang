@@ -11,8 +11,15 @@ use ori_ir::Name;
 use ori_types::Idx;
 
 use crate::ir::ArcVarId;
+use crate::lower::collections::{emit_list_element, emit_list_rest_slice};
 
 use super::expr::ArcLowerer;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BindingMutabilityPolicy {
+    PatternDeclared,
+    ForceImmutable,
+}
 
 impl ArcLowerer<'_> {
     // Pattern binding (shared infrastructure)
@@ -28,7 +35,7 @@ impl ArcLowerer<'_> {
         init_id: CanId,
     ) {
         let ty = self.expr_type(init_id);
-        self.bind_pattern_inner(pattern, value, ty, false);
+        self.bind_pattern_inner(pattern, value, ty, BindingMutabilityPolicy::PatternDeclared);
     }
 
     /// Bind a for-loop iteration pattern — always immutable.
@@ -44,14 +51,18 @@ impl ArcLowerer<'_> {
         elem_ty: Idx,
     ) {
         let pat = *self.arena.get_binding_pattern(pattern);
-        self.bind_pattern_inner(&pat, value, elem_ty, true);
+        self.bind_pattern_inner(
+            &pat,
+            value,
+            elem_ty,
+            BindingMutabilityPolicy::ForceImmutable,
+        );
     }
 
     /// Shared recursive pattern binding.
     ///
-    /// When `force_immutable` is true, all name bindings use `scope.bind()`
-    /// regardless of the pattern's mutability flag. This is used for for-loop
-    /// variables which are semantically rebound each iteration.
+    /// The mutability policy either honors each pattern binding's declaration
+    /// or forces all bindings immutable for loop iteration variables.
     #[expect(
         clippy::cast_possible_truncation,
         reason = "field/variant/element indices never exceed u32"
@@ -61,14 +72,15 @@ impl ArcLowerer<'_> {
         pattern: &CanBindingPattern,
         value: ArcVarId,
         ty: Idx,
-        force_immutable: bool,
+        mutability_policy: BindingMutabilityPolicy,
     ) {
         match pattern {
             CanBindingPattern::Name {
                 name,
                 mutable: pat_mutable,
             } => {
-                let is_mut = !force_immutable && pat_mutable.is_mutable();
+                let is_mut = mutability_policy == BindingMutabilityPolicy::PatternDeclared
+                    && pat_mutable.is_mutable();
                 tracing::trace!(
                     name = self.name_str(*name),
                     var = value.raw(),
@@ -95,7 +107,7 @@ impl ArcLowerer<'_> {
                     let sub_pattern = self.arena.get_binding_pattern(sub_pat_id);
                     let elem_ty = self.tuple_elem_type(ty, i);
                     let proj = self.builder.emit_project(elem_ty, value, i as u32, None);
-                    self.bind_pattern_inner(sub_pattern, proj, elem_ty, force_immutable);
+                    self.bind_pattern_inner(sub_pattern, proj, elem_ty, mutability_policy);
                 }
             }
 
@@ -105,7 +117,7 @@ impl ArcLowerer<'_> {
                     let field_ty = self.struct_field_type(ty, fb.name, i);
                     let proj = self.builder.emit_project(field_ty, value, i as u32, None);
                     let sub_pattern = self.arena.get_binding_pattern(fb.pattern);
-                    self.bind_pattern_inner(sub_pattern, proj, field_ty, force_immutable);
+                    self.bind_pattern_inner(sub_pattern, proj, field_ty, mutability_policy);
                 }
             }
 
@@ -114,20 +126,38 @@ impl ArcLowerer<'_> {
                 let elem_ids: Vec<_> = self.arena.get_binding_pattern_list(*elements).to_vec();
                 for (i, &sub_pat_id) in elem_ids.iter().enumerate() {
                     let sub_pattern = self.arena.get_binding_pattern(sub_pat_id);
-                    let proj = self
-                        .builder
-                        .emit_project(elem_ty_inner, value, i as u32, None);
-                    self.bind_pattern_inner(sub_pattern, proj, elem_ty_inner, force_immutable);
+                    let elem_var = emit_list_element(
+                        self.builder,
+                        self.interner,
+                        value,
+                        i as u32,
+                        elem_ty_inner,
+                        None,
+                    );
+                    self.bind_pattern_inner(
+                        sub_pattern,
+                        elem_var,
+                        elem_ty_inner,
+                        mutability_policy,
+                    );
                 }
                 if let Some((rest_name, rest_mut)) = rest {
-                    let rest_is_mut = !force_immutable && rest_mut.is_mutable();
+                    let rest_is_mut = mutability_policy == BindingMutabilityPolicy::PatternDeclared
+                        && rest_mut.is_mutable();
+                    let rest_val = emit_list_rest_slice(
+                        self.builder,
+                        self.interner,
+                        value,
+                        elem_ids.len() as u32,
+                        ty,
+                        None,
+                    );
                     if rest_is_mut {
                         self.block_let_names.insert(*rest_name);
-                        self.scope.bind_mutable(*rest_name, value);
+                        self.scope.bind_mutable(*rest_name, rest_val);
                     } else {
-                        self.scope.bind(*rest_name, value);
+                        self.scope.bind(*rest_name, rest_val);
                     }
-                    tracing::debug!("list rest pattern bound to full value (subslice pending)");
                 }
             }
         }

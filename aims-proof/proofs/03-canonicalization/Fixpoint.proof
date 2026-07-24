@@ -1,0 +1,55 @@
+Theorem CN-Fixpoint-OneRound: 1-round empirical convergence
+
+  Preconditions:
+    - Active CN rule set: {CN-1, CN-3, CN-6, CN-8} (CN-2 subsumed by CN-1;
+      CN-4, CN-7 REMOVED; CN-5 implicit absence-check)
+    - canonicalize_single_pass orders CN-8 before CN-6 per CN-Ordering
+    - Compiler doc at ori_arc/src/aims/lattice/mod.rs:228-230,300-302
+      one pass always suffices; no rule creates a precondition for another
+      rule to re-fire
+
+  Soundness property:
+    Forall s in reachable AimsState.
+      canonicalize_full(canonicalize_full(s)) = canonicalize_full(s)
+
+  Proof obligation:
+    Exhaustive product-lattice enumeration over 1800 reachable AimsState
+    tuples (Access x Consumption x Cardinality x Uniqueness x Locality
+    x Shape = 2 x 4 x 3 x 3 x 5 x 5). For each state, verify
+    canonicalize_full applied once equals canonicalize_full applied twice.
+
+    Engines dispatched:
+      case_analysis (1800-state product-lattice exhaustive enumeration per
+        section_03::verify_fixpoint_one_round_empirical)
+
+  Expected:
+    status: valid
+    reason: section_03 case_analysis engine discharges CN-Fixpoint-OneRound via 1800-state product-lattice exhaustive enumeration
+
+Theorem CN-Fixpoint-ThreeRoundBound: ≤3-round defensive convergence bound
+
+  Preconditions:
+    - MAX_ROUNDS = 3 per ori_arc/src/aims/lattice/mod.rs:251
+    - 5 lattice dimensions actively mutated by CN rules
+      (Consumption, Cardinality, Uniqueness, Locality, Shape)
+    - Chain-height argument: each cross-dimension rule consumes one
+      canonicalization round to fire; 3 rounds cover up to 2 rounds of
+      cross-dimension chaining + 1 round of fixpoint check
+
+  Soundness property:
+    Forall s in reachable AimsState.
+      canonicalize_full applied at most 3 times reaches fixpoint.
+
+  Proof obligation:
+    Chain-height bound: mutated_dims * max_cross_chain_per_round - 2 <= 3.
+    Exhaustive: forall state in the 1800-state product lattice, iterating
+    canonicalize_full at most 3 times yields a state s such that
+    canonicalize_full(s) = s.
+
+    Engines dispatched:
+      case_analysis (chain-height + 1800-state ≤3-round convergence per
+        section_03::verify_fixpoint_three_round_defensive_bound)
+
+  Expected:
+    status: valid
+    reason: section_03 case_analysis engine discharges CN-Fixpoint-ThreeRoundBound via chain-height bound plus 1800-state ≤3-round convergence verification

@@ -1,0 +1,29 @@
+Theorem RL-9: explicit and compact sharing observations select identical outcomes
+
+  Preconditions:
+    - RL-7 freezes a SharingObservationRequired obligation.
+    - A projection may encode the observation explicitly or compactly.
+
+  Soundness property:
+    Forall sharing-observation result r:
+      (P1) explicit_observation_outcome(r) = compact_observation_outcome(r).
+      (P2) one owner selects SameIdentityAdmissible and multiple owners select
+           IsolationRequired.
+      (P3) both outcomes preserve evaluator value semantics when satisfied.
+    The theorem does not freeze a diamond, branch, compound instruction, copy,
+    or sharing-observation mechanism.
+
+  Proof obligation:
+    Enumerate both observation results:
+      one_owner_observed = true -> SameIdentityAdmissible
+      one_owner_observed = false -> IsolationRequired
+    Coverage gate: 2 results with explicit/compact equality and soundness.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — section_08::verify_rl9_cow_compound_contraction)
+      rc_counting (SECONDARY — gracious-accept)
+      refinement (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: RL-9 proves explicit and compact representations choose identical neutral outcomes for both sharing-observation results

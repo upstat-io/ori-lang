@@ -1,0 +1,67 @@
+// Spec: Annex E — Error builtin struct constructor across construction positions.
+// The `Error` constructor is typed `(str) -> Error`; an inline `Error(...)`
+// (tail-return / function-arg / Result-wrap) lowers to an indirect call the AOT
+// backend cannot resolve (null fn ptr -> SIGSEGV). ARC recognizes the
+// constructor and emits a direct struct Construct. These pins assert the
+// message survives in EVERY construction position (positive pins, interp == LLVM).
+
+use std.testing { assert_eq }
+
+// Position 1: direct let-bound construction (worked pre-fix — control).
+@t_direct tests @direct () -> void = {
+    let e = Error("direct");
+    assert_eq(actual: e.message, expected: "direct")
+}
+
+// Position 2: inline construction as a function argument (SIGSEGV'd in AOT pre-fix).
+@id_err (e: Error) -> Error = e;
+@t_inline_arg tests @inline_arg () -> void = {
+    assert_eq(actual: id_err(e: Error("arg")).message, expected: "arg")
+}
+
+// Position 3: inline construction in tail-return position (SIGSEGV'd in AOT pre-fix).
+@make_err (s: str) -> Error = Error(s);
+@t_tail_return tests @tail_return () -> void = {
+    assert_eq(actual: make_err(s: "ret").message, expected: "ret")
+}
+
+// Position 4: inline construction wrapped in Result Err (SIGSEGV'd in AOT pre-fix).
+@first_err () -> Result<int, Error> = Err(Error("boom"));
+@t_in_result tests @in_result () -> void = {
+    match first_err() {
+        Ok(_) -> assert_eq(actual: 0, expected: 1),
+        Err(e) -> assert_eq(actual: e.message, expected: "boom"),
+    }
+}
+
+// Position 5: construction as a struct field value (worked pre-fix — control).
+type ErrBox = { e: Error }
+@t_in_struct tests @in_struct () -> void = {
+    let b = ErrBox { e: Error("boxed") };
+    assert_eq(actual: b.e.message, expected: "boxed")
+}
+
+// Position 6: `Error` bound as a first-class function value, then called
+// indirectly (SIGSEGV'd in AOT pre-fix — the bare reference lowers to
+// `PartialApply @Error`, which the synthesized `@Error` constructor resolves).
+@t_first_class tests @first_class () -> void = {
+    let f = Error;
+    assert_eq(actual: f("first-class").message, expected: "first-class")
+}
+
+// Negative-boundary pins: the `Error` constructor takes exactly one `str`.
+// A wrong-arity call stays an E2004 typeck arity error — the ARC
+// `try_emit_struct_ctor` arity gate falls through to the typeck diagnostic
+// rather than emitting a malformed direct `Construct`. These clamp the
+// arg_vars.len() != 1 boundary from both sides (too-many / zero).
+#compile_fail(code: "E2004")
+@t_too_many_args_rejected tests _ () -> void = {
+    let e = Error("a", "b");
+    assert_eq(actual: e.message, expected: "a")
+}
+
+#compile_fail(code: "E2004")
+@t_zero_args_rejected tests _ () -> void = {
+    let e = Error();
+    assert_eq(actual: e.message, expected: "x")
+}

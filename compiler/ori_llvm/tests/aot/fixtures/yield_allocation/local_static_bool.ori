@@ -1,0 +1,6 @@
+@local_doors () -> int = {
+    let doors = for _ in 0..100 yield false;
+    doors[3] = true;
+    if doors[3] then doors.length() else 0
+}
+@main () -> int = if local_doors() == 100 then 0 else 1;

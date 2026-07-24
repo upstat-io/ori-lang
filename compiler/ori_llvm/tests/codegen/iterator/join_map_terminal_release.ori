@@ -1,0 +1,13 @@
+// FileCheck test: join passes no generated ownership-provenance argument.
+// Runtime iterator state releases each mapped yield after copying its bytes.
+//
+// CHECK-LABEL: define void @_ori_main
+// CHECK: ptr null, i64 24, ptr %join.out)
+
+@main () -> void = {
+    let $mapped = ["alpha-alpha-alpha-alpha-alpha", "beta-beta-beta-beta-beta-beta"]
+        .iter()
+        .map(transform: (s: str) -> str = s + "-suffix-suffix-suffix-suffix")
+        .join(separator: ", ");
+    print(msg: mapped)
+}

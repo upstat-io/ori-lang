@@ -9,6 +9,7 @@
 pub mod change_detection;
 mod discovery;
 mod error_matching;
+pub mod protocol;
 mod result;
 mod runner;
 
@@ -20,4 +21,6 @@ pub use error_matching::{
 pub use result::{
     CoverageReport, FileSummary, FunctionCoverage, TestOutcome, TestResult, TestSummary,
 };
-pub use runner::{run_test_file, run_tests, Backend, TestRunner, TestRunnerConfig};
+#[cfg(feature = "llvm")]
+pub use runner::run_worker;
+pub use runner::{run_test_file, run_tests, Backend, OutputFormat, TestRunner, TestRunnerConfig};

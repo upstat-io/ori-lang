@@ -1,0 +1,13 @@
+type MaybeIter = Empty | Holds(it: Iterator<int>);
+
+@build (use_holds: bool) -> MaybeIter =
+    if use_holds then Holds(it: [1, 2, 3].iter()) else Empty;
+
+@main () -> int = {
+    let x = build(use_holds: true);
+    let n = match x {
+        Empty -> 0,
+        Holds(it) -> it.count()
+    };
+    if n == 3 then 0 else 1
+}

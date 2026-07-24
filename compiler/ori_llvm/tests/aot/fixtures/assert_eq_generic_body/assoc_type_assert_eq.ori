@@ -1,0 +1,33 @@
+// Regression: §05 ROOT-B transitive-mono-worklist. `assert_eq<T: Eq + Debug>`
+// whose concrete `T` arrives through an associated-type resolution
+// (`Self.Item = int`) is recorded against rigid/error `T`, never per concrete
+// `int`. At true AOT (`ori build` -> native binary) the dispatch path
+// (apply.rs:resolve_callee -> lookup_mono_dispatch) supplies
+// `mono_instance_id = None` and the arg-type fallback structural-matches an
+// `Idx::ERROR` param against the concrete-int arg, failing -> emission aborts
+// with `unresolved function 'assert_eq' in apply -- missing mono instance?`
+// (cascading to `debug`). Pre-fix: AOT compile FAIL. The fix (w-0371395b)
+// resolves the nested generic/trait call per concrete instantiation from
+// `Pool.resolutions`. This drives the REAL production entry point (`ori build`)
+// asserting a clean-exit native binary (L8/L12), not a seam-injected unit test.
+trait Container {
+    type Item
+    @first (self) -> Option<Self.Item>
+}
+
+type IntBox = { value: int }
+
+impl IntBox: Container {
+    type Item = int;
+    @first (self) -> Option<Self.Item> = Some(self.value);
+}
+
+@check_eq<T: Eq> (a: T, b: T) -> bool = a == b;
+
+@main () -> int = {
+    let b = IntBox { value: 42 };
+    let got = b.first().unwrap();
+    // `check_eq<int>`'s body calls `equals(int)` on its rigid `T`; the concrete
+    // `int` arrives via the associated-type-resolved `b.first().unwrap()`.
+    if check_eq(a: got, b: 42) then 0 else 1
+}

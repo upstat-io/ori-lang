@@ -1,0 +1,14 @@
+// Pin 9 (negative GREEN guard): an Option-valued borrowed compare — the arg
+// is a niche-family sum, not a fresh-collection-Construct root, so the no-sink
+// collection mode (gate a) declines it. Must stay clean.
+@is_some_ref (a: Option<int>) -> bool = {
+    let r = a == Some(7);
+
+    r
+}
+
+@main () -> int = {
+    let ok = is_some_ref(a: Some(7));
+
+    if ok then 0 else 1
+}

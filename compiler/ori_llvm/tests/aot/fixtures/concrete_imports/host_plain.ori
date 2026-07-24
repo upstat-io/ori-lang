@@ -1,0 +1,3 @@
+use "./mathlib" { double }
+
+@main () -> void = print(msg: `{double(x: 21)}`);

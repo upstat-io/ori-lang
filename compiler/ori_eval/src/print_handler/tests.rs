@@ -4,14 +4,14 @@ use super::*;
 fn buffer_handler_println_captures_with_newline() {
     let handler = BufferPrintHandler::new();
     handler.println("hello");
-    assert_eq!(handler.get_output(), "hello\n");
+    assert_eq!(handler.output(), "hello\n");
 }
 
 #[test]
 fn buffer_handler_print_captures_without_newline() {
     let handler = BufferPrintHandler::new();
     handler.print("hello");
-    assert_eq!(handler.get_output(), "hello");
+    assert_eq!(handler.output(), "hello");
 }
 
 #[test]
@@ -20,22 +20,22 @@ fn buffer_handler_multiple_prints() {
     handler.print("hello");
     handler.print(" ");
     handler.println("world");
-    assert_eq!(handler.get_output(), "hello world\n");
+    assert_eq!(handler.output(), "hello world\n");
 }
 
 #[test]
 fn buffer_handler_clear_empties_buffer() {
     let handler = BufferPrintHandler::new();
     handler.println("hello");
-    assert!(!handler.get_output().is_empty());
+    assert!(!handler.output().is_empty());
     handler.clear();
-    assert!(handler.get_output().is_empty());
+    assert!(handler.output().is_empty());
 }
 
 #[test]
-fn stdout_handler_get_output_returns_empty() {
+fn stdout_handler_output_returns_empty() {
     let handler = StdoutPrintHandler;
-    assert_eq!(handler.get_output(), "");
+    assert_eq!(handler.output(), "");
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn stdout_handler_clear_is_noop() {
 fn buffer_handler_factory_creates_working_handler() {
     let handler = buffer_handler();
     handler.println("test");
-    assert_eq!(handler.get_output(), "test\n");
+    assert_eq!(handler.output(), "test\n");
 }
 
 #[test]
@@ -57,7 +57,7 @@ fn silent_handler_discards_output() {
     let handler = silent_handler();
     handler.println("hello");
     handler.print("world");
-    assert_eq!(handler.get_output(), "");
+    assert_eq!(handler.output(), "");
 }
 
 #[test]
@@ -65,7 +65,7 @@ fn silent_handler_clear_is_noop() {
     let handler = silent_handler();
     handler.println("hello");
     handler.clear(); // Should not panic
-    assert_eq!(handler.get_output(), "");
+    assert_eq!(handler.output(), "");
 }
 
 #[test]
@@ -87,7 +87,7 @@ fn buffer_handler_is_thread_safe() {
 
     t1.join().unwrap();
 
-    let output = handler.get_output();
+    let output = handler.output();
     let line_count = output.lines().count();
     assert_eq!(line_count, 200);
 }

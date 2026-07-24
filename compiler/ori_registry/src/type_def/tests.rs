@@ -12,6 +12,7 @@ static TEST_METHODS: [MethodDef; 2] = [
         receiver: Ownership::Borrow,
         params: &[],
         returns: ReturnTag::SelfType,
+        runtime: None,
         trait_name: None,
         pure: true,
         backend_required: true,
@@ -24,6 +25,7 @@ static TEST_METHODS: [MethodDef; 2] = [
         receiver: Ownership::Borrow,
         params: &[],
         returns: ReturnTag::Concrete(TypeTag::Str),
+        runtime: None,
         trait_name: Some("Printable"),
         pure: true,
         backend_required: true,
@@ -40,26 +42,26 @@ static TEST_TYPE_DEF: TypeDef = TypeDef {
     type_params: TypeParamArity::Fixed(0),
     methods: &TEST_METHODS,
     operators: OpDefs {
-        add: OpStrategy::IntInstr,
-        sub: OpStrategy::IntInstr,
-        mul: OpStrategy::IntInstr,
-        div: OpStrategy::IntInstr,
-        rem: OpStrategy::IntInstr,
-        floor_div: OpStrategy::IntInstr,
-        eq: OpStrategy::IntInstr,
-        neq: OpStrategy::IntInstr,
-        lt: OpStrategy::IntInstr,
-        gt: OpStrategy::IntInstr,
-        lt_eq: OpStrategy::IntInstr,
-        gt_eq: OpStrategy::IntInstr,
-        neg: OpStrategy::IntInstr,
+        add: OpStrategy::SignedInteger,
+        sub: OpStrategy::SignedInteger,
+        mul: OpStrategy::SignedInteger,
+        div: OpStrategy::SignedInteger,
+        rem: OpStrategy::SignedInteger,
+        floor_div: OpStrategy::SignedInteger,
+        eq: OpStrategy::SignedInteger,
+        neq: OpStrategy::SignedInteger,
+        lt: OpStrategy::SignedInteger,
+        gt: OpStrategy::SignedInteger,
+        lt_eq: OpStrategy::SignedInteger,
+        gt_eq: OpStrategy::SignedInteger,
+        neg: OpStrategy::SignedInteger,
         not: OpStrategy::Unsupported,
-        bit_and: OpStrategy::IntInstr,
-        bit_or: OpStrategy::IntInstr,
-        bit_xor: OpStrategy::IntInstr,
-        bit_not: OpStrategy::IntInstr,
-        shl: OpStrategy::IntInstr,
-        shr: OpStrategy::IntInstr,
+        bit_and: OpStrategy::SignedInteger,
+        bit_or: OpStrategy::SignedInteger,
+        bit_xor: OpStrategy::SignedInteger,
+        bit_not: OpStrategy::SignedInteger,
+        shl: OpStrategy::SignedInteger,
+        shr: OpStrategy::SignedInteger,
     },
     traits: &[],
 };
@@ -72,7 +74,7 @@ fn type_def_const_constructible() {
     assert_eq!(TEST_TYPE_DEF.type_params, TypeParamArity::Fixed(0));
     assert_eq!(TEST_TYPE_DEF.methods.len(), 2);
     assert_eq!(TEST_TYPE_DEF.methods[0].name, "abs");
-    assert_eq!(TEST_TYPE_DEF.operators.add, OpStrategy::IntInstr);
+    assert_eq!(TEST_TYPE_DEF.operators.add, OpStrategy::SignedInteger);
     assert_eq!(TEST_TYPE_DEF.operators.not, OpStrategy::Unsupported);
 }
 

@@ -73,7 +73,7 @@ impl IteratorValue {
             IteratorValue::Map { entries, pos } => {
                 if *pos < entries.len() {
                     let (key, val) = &entries[*pos];
-                    let tuple = Value::tuple(vec![Value::from_map_key(key), val.clone()]);
+                    let tuple = Value::tuple(vec![key.clone(), val.clone()]);
                     let new_iter = IteratorValue::Map {
                         entries: entries.clone(),
                         pos: pos + 1,

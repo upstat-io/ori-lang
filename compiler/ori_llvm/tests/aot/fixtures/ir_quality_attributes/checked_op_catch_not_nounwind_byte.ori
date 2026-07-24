@@ -1,0 +1,13 @@
+// IR pin: a same-frame `catch(expr: byte(100) + byte(100))` makes @main
+// may-unwind. byte routes through the same checked-integer-arithmetic LLVM
+// path as int/Duration/Size (Spec: Clause 14.3), so the checked-add panic
+// must be emitted as `invoke @ori_panic_cstr` to a catch landing pad —
+// `_ori_main` MUST NOT be marked `nounwind` and MUST carry a `landingpad`.
+// Pins byte's catch-scoped-checked-op tracking without depending on
+// byte's signed-vs-unsigned overflow threshold (a separately-tracked
+// question) — 100 + 100 overflows under the currently-shipped signed i8
+// representation regardless of that question's resolution.
+@main () -> int = {
+    let result = catch(expr: byte(100) + byte(100));
+    if result.is_err() then 0 else 1
+}

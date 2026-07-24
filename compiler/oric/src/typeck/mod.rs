@@ -1,32 +1,22 @@
-//! Type Checking Bridge.
+//! Bridge from `oric` queries to `ori_types` module checking.
 //!
-//! Wires `ori_types::check_module_with_imports` into oric's Salsa query
-//! pipeline. This module handles the oric-specific concerns (import resolution,
-//! prelude loading, Salsa queries) while delegating type checking to `ori_types`.
-//!
-//! # Architecture
-//!
-//! ```text
-//! typed() query
-//!   └── type_check_with_imports_and_pool()
-//!       └── resolve_imports()  ← unified import pipeline
-//!           └── ori_types::check_module_with_imports(module, arena, interner, |checker| {
-//!                   register_builtins()
-//!                   register_resolved_imports()  ← consumes ResolvedImports
-//!               })
-//! ```
-//!
-//! The closure-based API decouples `ori_types` from oric-specific types
-//! (Salsa, file resolution). oric orchestrates import resolution; `ori_types`
-//! handles type resolution internally via `ModuleChecker`.
+//! `oric` resolves imports and the prelude, then supplies those surfaces through
+//! the checker callback. `ori_types` remains independent of Salsa and file lookup.
+
+mod metadata;
+
+pub(crate) use metadata::{
+    build_function_sigs, collect_metadata_from_results, collect_surfaces_from_results,
+};
 
 use std::path::{Path, PathBuf};
 
-use ori_types::{FunctionSig, TypeCheckResult};
+use ori_types::TypeCheckResult;
 
 use crate::db::Db;
 use crate::imports;
-use crate::ir::{Name, Span, StringInterner};
+use crate::input::SourceFile;
+use crate::ir::{Span, StringInterner};
 use crate::parser::ParseOutput;
 
 // Prelude Auto-Loading
@@ -34,32 +24,32 @@ use crate::parser::ParseOutput;
 /// Generate candidate paths for the prelude by walking up from the current file.
 ///
 /// Search order:
-/// 1. `$ORI_STDLIB/std/prelude.ori` (if env var set)
+/// 1. `$ORI_STDLIB/std/prelude.ori` (if env var set). A value pointing
+///    directly at `library/std/` also resolves (parent treated as the root).
 /// 2. Walk up from `current_file` looking for `<ancestor>/library/std/prelude.ori`
 /// 3. User-local install: `~/.local/share/ori/library/std/prelude.ori`
 /// 4. System locations: `/usr/local/lib/ori/stdlib/std/prelude.ori`
 pub(crate) fn prelude_candidates(current_file: &Path) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
-    // 1. ORI_STDLIB override
     if let Ok(stdlib) = std::env::var("ORI_STDLIB") {
-        candidates.push(PathBuf::from(&stdlib).join("std").join("prelude.ori"));
+        for root in imports::ori_stdlib_library_roots(&stdlib) {
+            candidates.push(root.join("std").join("prelude.ori"));
+        }
     }
 
-    // 2. Walk up directory tree
     let mut dir = current_file.parent();
     while let Some(d) = dir {
         candidates.push(d.join("library").join("std").join("prelude.ori"));
         dir = d.parent();
     }
 
-    // 3. User-local install (XDG-compliant)
     if let Ok(home) = std::env::var("HOME") {
         candidates.push(PathBuf::from(&home).join(".local/share/ori/library/std/prelude.ori"));
     }
 
     // 4. System locations
-    for base in ["/usr/local/lib/ori/stdlib", "/usr/lib/ori/stdlib"] {
+    for base in crate::imports::SYSTEM_STDLIB_ROOTS {
         candidates.push(PathBuf::from(base).join("std").join("prelude.ori"));
     }
 
@@ -94,7 +84,6 @@ pub(crate) fn type_check_with_imports_and_pool(
 ) -> (TypeCheckResult, ori_types::Pool) {
     let interner = db.interner();
 
-    // Resolve all imports via the unified pipeline.
     let resolved = imports::resolve_imports(db, parse_result, current_file);
 
     // Use closure-based API: oric orchestrates import resolution,
@@ -105,16 +94,16 @@ pub(crate) fn type_check_with_imports_and_pool(
         interner,
         |checker| {
             register_builtins(interner, checker);
-            register_resolved_imports(db, &resolved, checker, interner);
+            register_resolved_imports(db, &resolved, current_file, checker, interner);
         },
     )
 }
 
 /// Register built-in functions that are implemented natively in the evaluator.
 ///
-/// These functions (type conversions, print, panic, etc.) are not defined in
-/// the prelude `.ori` file but are available in every Ori program. Their type
-/// signatures are registered here so type checking can validate calls.
+/// Compiler-provided functions such as type conversions, print, and panic are
+/// available in every Ori program. Their registered type signatures let type
+/// checking validate calls.
 pub(crate) fn register_builtins(
     interner: &StringInterner,
     checker: &mut ori_types::ModuleChecker<'_>,
@@ -162,42 +151,126 @@ pub(crate) fn register_builtins(
     }
 }
 
+/// Type-check `sf` via `crate::query::typed`, or synthesize a poisoned
+/// result carrying a `CircularImport` diagnostic when `sf` is already
+/// mid-typecheck on the current call stack.
+///
+/// Salsa's own cycle detector fires at the CALL SITE (before a `#[salsa::tracked]`
+/// query's body runs), so this check MUST happen before `crate::query::typed`
+/// is invoked — checking inside `typed()`'s own body would be too late.
+fn typed_or_poison(db: &dyn Db, sf: SourceFile) -> TypeCheckResult {
+    let path = sf.path(db);
+    match db.typing_stack().cycle_path(path) {
+        Some(cycle) => poisoned_circular_import_result(&cycle),
+        None => crate::query::typed(db, sf),
+    }
+}
+
+/// Build a poisoned `TypeCheckResult` carrying one `CircularImport` error
+/// naming the full cycle (per spec 18.7 "reports all cycles found").
+fn poisoned_circular_import_result(cycle: &[PathBuf]) -> TypeCheckResult {
+    let joined = cycle
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(" -> ");
+    let error = ori_types::TypeCheckError::import_error(
+        format!("circular import detected: {joined}"),
+        Span::DUMMY,
+        ori_types::ImportErrorKind::CircularImport,
+    );
+    ori_types::TypeCheckResult::from_typed(ori_types::TypedModule {
+        errors: vec![error],
+        ..ori_types::TypedModule::default()
+    })
+}
+
+/// Copy every `CircularImport` diagnostic found among `results` into
+/// `checker`'s own error list.
+///
+/// A cyclic import is discovered at whichever recursion level directly
+/// attempts the doomed `typed()` call (via [`typed_or_poison`]'s poisoned
+/// fallback); without this propagation step the diagnostic stays trapped in
+/// that one result and never reaches the entry file the user actually asked
+/// to check. Called uniformly at every level of the `register_resolved_imports`
+/// recursion, so the diagnostic bubbles all the way up regardless of which
+/// file in the cycle is the driver's entry point.
+fn propagate_circular_import_errors<'a>(
+    checker: &mut ori_types::ModuleChecker<'_>,
+    results: impl Iterator<Item = &'a TypeCheckResult>,
+) {
+    for result in results {
+        for error in result.errors() {
+            if matches!(
+                error.kind,
+                ori_types::TypeErrorKind::ImportError {
+                    kind: ori_types::ImportErrorKind::CircularImport,
+                    ..
+                }
+            ) {
+                checker.push_error(error.clone());
+            }
+        }
+    }
+}
+
+/// Register public imported traits before their provider-owned impl templates.
+///
+/// The ordering makes foreign trait names available while each impl is
+/// reconstructed in the consumer pool. The resolver-owned module path supplies
+/// the stable producer identity used by later method realization.
+fn register_imported_impl_templates(
+    resolved: &imports::ResolvedImports,
+    checker: &mut ori_types::ModuleChecker<'_>,
+) {
+    for module in &resolved.modules {
+        checker.register_imported_traits(&module.parse_output.module, &module.parse_output.arena);
+    }
+    for module in &resolved.modules {
+        checker.register_imported_impls(
+            &module.parse_output.module,
+            &module.parse_output.arena,
+            &module.module_path.to_string_lossy(),
+        );
+    }
+}
+
 /// Register prelude and imported functions with the type checker from resolved imports.
 ///
 /// Consumes a `ResolvedImports` produced by the unified import pipeline.
 /// Uses `resolved.imported_functions` directly — each entry already tracks the
 /// local name, original name, source module, and whether it's a module alias.
-fn register_resolved_imports(
+/// Register every public prelude function and trait, propagating any
+/// circular-import errors surfaced while type-checking the prelude itself.
+fn register_prelude(
     db: &dyn Db,
     resolved: &imports::ResolvedImports,
     checker: &mut ori_types::ModuleChecker<'_>,
-    interner: &StringInterner,
 ) {
-    // 1a. Register prelude functions (all public)
-    if let Some(ref prelude) = resolved.prelude {
-        // Get prelude's type-checked signatures for hash-first resolution.
-        // Triggers prelude type checking (or returns cached result) via Salsa.
-        let prelude_tcr = prelude.source_file.map(|sf| crate::query::typed(db, sf));
+    let Some(ref prelude) = resolved.prelude else {
+        return;
+    };
+    // Why: prelude signatures use the cached hash-first resolution path.
+    let prelude_tcr = prelude.source_file.map(|sf| typed_or_poison(db, sf));
+    propagate_circular_import_errors(checker, prelude_tcr.iter());
 
-        for func in &prelude.parse_output.module.functions {
-            if func.visibility.is_public() {
-                let imported_sig = prelude_tcr
-                    .as_ref()
-                    .and_then(|r| r.typed.functions.iter().find(|s| s.name == func.name));
-                checker.register_imported_function(func, &prelude.parse_output.arena, imported_sig);
-            }
+    for func in &prelude.parse_output.module.functions {
+        if func.visibility.is_public() {
+            let imported_sig = prelude_tcr
+                .as_ref()
+                .and_then(|r| r.typed.functions.iter().find(|s| s.name == func.name));
+            checker.register_imported_function(func, &prelude.parse_output.arena, imported_sig);
         }
     }
+    checker.register_imported_traits(&prelude.parse_output.module, &prelude.parse_output.arena);
+}
 
-    // 1b. Register prelude traits (all public)
-    if let Some(ref prelude) = resolved.prelude {
-        checker.register_imported_traits(&prelude.parse_output.module, &prelude.parse_output.arena);
-    }
-
-    // 2. Report any import resolution errors
-    //
-    // Span is guaranteed present: resolve_imports() always fills in the
-    // use-statement span via `e.span.unwrap_or(imp.span)` (imports.rs).
+/// Push every resolved-import error onto the checker, guarding the
+/// invariant that `resolve_imports` always attaches a span.
+fn push_import_errors(
+    resolved: &imports::ResolvedImports,
+    checker: &mut ori_types::ModuleChecker<'_>,
+) {
     for error in &resolved.errors {
         debug_assert!(
             error.span.is_some(),
@@ -216,54 +289,191 @@ fn register_resolved_imports(
             error.kind,
         ));
     }
+}
 
-    // 3. Register explicitly imported functions
-    // Each imported_function ref maps directly to a resolved module and function.
-    //
-    // Pre-compute type check results for hash-first signature resolution.
-    // One result per module (not per function) — avoids repeated Salsa clones.
+/// Type-check every imported module once (caching the result for signature
+/// resolution) and collect each module's frozen pool alongside it.
+fn collect_module_results_and_pools(
+    db: &dyn Db,
+    resolved: &imports::ResolvedImports,
+    checker: &mut ori_types::ModuleChecker<'_>,
+) -> (
+    Vec<Option<TypeCheckResult>>,
+    Vec<Option<std::sync::Arc<ori_types::Pool>>>,
+) {
     let module_results: Vec<Option<TypeCheckResult>> = resolved
         .modules
         .iter()
-        .map(|m| m.source_file.map(|sf| crate::query::typed(db, sf)))
+        .map(|m| m.source_file.map(|sf| typed_or_poison(db, sf)))
         .collect();
+    propagate_circular_import_errors(checker, module_results.iter().flatten());
+    let module_pools: Vec<Option<std::sync::Arc<ori_types::Pool>>> = resolved
+        .modules
+        .iter()
+        .map(|module| {
+            module
+                .source_file
+                .and_then(|source_file| crate::query::typed_pool(db, source_file))
+        })
+        .collect();
+    (module_results, module_pools)
+}
 
-    // 3a. Collect imported metadata for transitive forwarding.
-    // Both type metadata and collection surfaces flow through the same sources.
-    {
-        let prelude_result = resolved
-            .prelude
-            .as_ref()
-            .and_then(|p| p.source_file.map(|sf| crate::query::typed(db, sf)));
+/// Collect imported type metadata and collection surfaces for transitive
+/// forwarding, from the prelude plus every imported module's results.
+fn register_imported_metadata(
+    db: &dyn Db,
+    resolved: &imports::ResolvedImports,
+    module_results: &[Option<TypeCheckResult>],
+    checker: &mut ori_types::ModuleChecker<'_>,
+) {
+    debug_assert!(
+        resolved
+            .imported_types
+            .iter()
+            .all(|imported| imported.module_index < resolved.modules.len()),
+        "resolved type imports must reference an imported module"
+    );
+    let prelude_result = resolved
+        .prelude
+        .as_ref()
+        .and_then(|p| p.source_file.map(|sf| typed_or_poison(db, sf)));
+    propagate_circular_import_errors(checker, prelude_result.iter());
 
-        let imported_metadata =
-            collect_metadata_from_results(prelude_result.as_ref(), &module_results);
-        let imported_surfaces =
-            collect_surfaces_from_results(prelude_result.as_ref(), &module_results);
+    let imported_metadata = collect_metadata_from_results(prelude_result.as_ref(), module_results);
+    let imported_surfaces = collect_surfaces_from_results(prelude_result.as_ref(), module_results);
 
-        if !imported_metadata.is_empty() {
-            checker.set_imported_type_metadata(imported_metadata);
+    if !imported_metadata.is_empty() {
+        checker.set_imported_type_metadata(imported_metadata);
+    }
+    if !imported_surfaces.is_empty() {
+        checker.set_imported_collection_surfaces(imported_surfaces);
+    }
+}
+
+/// Register every explicitly-imported function (or whole-module alias)
+/// against its resolved source module and cached signature.
+/// Collect every nominal type name reachable from a parsed type annotation.
+fn collect_named_type_names(
+    arena: &ori_ir::ExprArena,
+    ty: &ori_ir::ParsedType,
+    out: &mut Vec<ori_ir::Name>,
+) {
+    let walk_id = |id: ori_ir::ParsedTypeId, out: &mut Vec<ori_ir::Name>| {
+        collect_named_type_names(arena, arena.get_parsed_type(id), out);
+    };
+    let walk_range = |range: ori_ir::ParsedTypeRange, out: &mut Vec<ori_ir::Name>| {
+        for &id in arena.get_parsed_type_list(range) {
+            collect_named_type_names(arena, arena.get_parsed_type(id), out);
         }
-        if !imported_surfaces.is_empty() {
-            checker.set_imported_collection_surfaces(imported_surfaces);
+    };
+    match ty {
+        ori_ir::ParsedType::Named { name, type_args } => {
+            if !out.contains(name) {
+                out.push(*name);
+            }
+            walk_range(*type_args, out);
+        }
+        ori_ir::ParsedType::List(elem) | ori_ir::ParsedType::FixedList { elem, .. } => {
+            walk_id(*elem, out);
+        }
+        ori_ir::ParsedType::Tuple(elems) | ori_ir::ParsedType::TraitBounds(elems) => {
+            walk_range(*elems, out);
+        }
+        ori_ir::ParsedType::Function { params, ret } => {
+            walk_range(*params, out);
+            walk_id(*ret, out);
+        }
+        ori_ir::ParsedType::Map { key, value } => {
+            walk_id(*key, out);
+            walk_id(*value, out);
+        }
+        ori_ir::ParsedType::AssociatedType { base, .. } => walk_id(*base, out),
+        ori_ir::ParsedType::Primitive(_)
+        | ori_ir::ParsedType::Infer
+        | ori_ir::ParsedType::SelfType
+        | ori_ir::ParsedType::ConstExpr(_) => {}
+    }
+}
+
+/// Register the provider nominal types an imported function's signature
+/// references but `resolved.imported_types` does not carry.
+///
+/// Without this, field access on such a value resolves to `Tag::Error`, whose
+/// poison suppresses the diagnostic — the evaluator runs while the compiled
+/// backend cannot realize the body.
+fn register_signature_types(
+    func: &ori_ir::Function,
+    imported_module: &ori_ir::Module,
+    foreign_arena: &ori_ir::ExprArena,
+    checker: &mut ori_types::ModuleChecker<'_>,
+) {
+    let mut names: Vec<ori_ir::Name> = Vec::new();
+    for param in foreign_arena.get_params(func.params) {
+        if let Some(ty) = &param.ty {
+            collect_named_type_names(foreign_arena, ty, &mut names);
         }
     }
+    if let Some(ty) = &func.return_ty {
+        collect_named_type_names(foreign_arena, ty, &mut names);
+    }
+    for name in names {
+        // Why: re-registering a name the consumer already carries would clobber
+        // a local type with the provider's, and shift the registry ordinals
+        // driver-parity compares.
+        if checker.type_registry().get_by_name(name).is_some() {
+            continue;
+        }
+        if let Some(decl) = imported_module.types.iter().find(|decl| decl.name == name) {
+            checker.register_imported_type(decl, foreign_arena);
+        }
+    }
+}
 
+fn register_imported_functions(
+    resolved: &imports::ResolvedImports,
+    module_results: &[Option<TypeCheckResult>],
+    checker: &mut ori_types::ModuleChecker<'_>,
+    interner: &StringInterner,
+) {
     for func_ref in &resolved.imported_functions {
         let module = &resolved.modules[func_ref.module_index];
         let imported_parsed = &module.parse_output;
 
-        // Module alias imports: register the entire module under an alias name
         if func_ref.is_module_alias {
+            // A qualified call returns the provider's type under its own name,
+            // so the alias's public signatures need the same transitive
+            // registration the selected-import path performs.
+            for func in &imported_parsed.module.functions {
+                if func.visibility == ori_ir::Visibility::Public {
+                    register_signature_types(
+                        func,
+                        &imported_parsed.module,
+                        &imported_parsed.arena,
+                        checker,
+                    );
+                }
+            }
+            // The module's resolved path identifies the declarations it owns, so
+            // the same module imported under several aliases registers one
+            // nominal type per declaration rather than one per alias. The path
+            // is normalized first: `module_path` keeps the resolver's spelling,
+            // so two equivalent spellings of one module would otherwise key
+            // apart and register the declaration twice.
+            let module_key = interner.intern_owned(
+                imports::normalize_path(&module.module_path)
+                    .display()
+                    .to_string(),
+            );
             checker.register_module_alias(
                 func_ref.local_name,
+                module_key,
                 &imported_parsed.module,
                 &imported_parsed.arena,
             );
             continue;
         }
 
-        // Find the function by its original name in the source module
         let Some(func) = imported_parsed
             .module
             .functions
@@ -274,7 +484,6 @@ fn register_resolved_imports(
             continue;
         };
 
-        // Look up the imported signature from the type check result
         let imported_sig = module_results[func_ref.module_index]
             .as_ref()
             .and_then(|r| {
@@ -284,7 +493,13 @@ fn register_resolved_imports(
                     .find(|s| s.name == func_ref.original_name)
             });
 
-        // Register with alias support
+        register_signature_types(
+            func,
+            &imported_parsed.module,
+            &imported_parsed.arena,
+            checker,
+        );
+
         if func_ref.local_name == func_ref.original_name {
             checker.register_imported_function(func, &imported_parsed.arena, imported_sig);
         } else {
@@ -296,6 +511,182 @@ fn register_resolved_imports(
             );
         }
     }
+}
+
+/// Register each selected type import into the consumer's `TypeRegistry`.
+///
+/// A type import inserts a `TypeEntry` under the local (possibly aliased) name so
+/// `get_by_name` resolves it for struct-literal / field / variant typing — the
+/// type-namespace analogue of `register_imported_functions`. Visibility is
+/// enforced like the constant path: a non-`pub` type is a private-access error
+/// unless a parent-test import grants access. `resolved.imported_types` only
+/// carries names present in the provider's `types`, so the lookup always finds
+/// its declaration.
+fn register_imported_types(
+    resolved: &imports::ResolvedImports,
+    current_file: &Path,
+    checker: &mut ori_types::ModuleChecker<'_>,
+    interner: &StringInterner,
+) {
+    for type_ref in &resolved.imported_types {
+        let module = &resolved.modules[type_ref.module_index];
+        let imported_module = &module.parse_output.module;
+
+        let Some(type_decl) = imported_module
+            .types
+            .iter()
+            .find(|decl| decl.name == type_ref.original_name)
+        else {
+            continue;
+        };
+
+        let parent_test_access = imports::is_test_module(current_file)
+            && imports::is_parent_module_import(current_file, &module.module_path);
+        if !type_decl.visibility.is_public() && !parent_test_access {
+            let name = interner.lookup(type_ref.original_name);
+            checker.push_error(ori_types::TypeCheckError::import_error(
+                format!(
+                    "type '{name}' is private in module '{}'; add `pub` to the type definition before importing it",
+                    module.module_path.display()
+                ),
+                type_ref.span,
+                ori_types::ImportErrorKind::PrivateAccess,
+            ));
+            continue;
+        }
+
+        let foreign_arena = &module.parse_output.arena;
+        if type_ref.local_name == type_ref.original_name {
+            checker.register_imported_type(type_decl, foreign_arena);
+        } else {
+            checker.register_imported_type_as(type_decl, foreign_arena, type_ref.local_name);
+        }
+    }
+}
+
+fn register_resolved_imports(
+    db: &dyn Db,
+    resolved: &imports::ResolvedImports,
+    current_file: &Path,
+    checker: &mut ori_types::ModuleChecker<'_>,
+    interner: &StringInterner,
+) {
+    register_prelude(db, resolved, checker);
+    push_import_errors(resolved, checker);
+
+    let (module_results, module_pools) = collect_module_results_and_pools(db, resolved, checker);
+
+    // Imported impl selection is consumer-owned. Register the complete direct
+    // import graph before local registration and derive closure run.
+    register_imported_impl_templates(resolved, checker);
+
+    register_imported_metadata(db, resolved, &module_results, checker);
+
+    register_imported_constants(
+        resolved,
+        current_file,
+        &module_results,
+        &module_pools,
+        checker,
+        interner,
+    );
+
+    register_imported_functions(resolved, &module_results, checker, interner);
+
+    register_imported_types(resolved, current_file, checker, interner);
+}
+
+/// Register selected constant types in the consumer pool.
+///
+/// The provider owns inference of its initializer. The import boundary only
+/// transfers that already-resolved type into the consumer pool, mirroring the
+/// cross-pool signature handling for imported functions without moving
+/// constant-value evaluation into `ori_types`.
+fn register_imported_constants(
+    resolved: &imports::ResolvedImports,
+    current_file: &Path,
+    module_results: &[Option<TypeCheckResult>],
+    module_pools: &[Option<std::sync::Arc<ori_types::Pool>>],
+    checker: &mut ori_types::ModuleChecker<'_>,
+    interner: &StringInterner,
+) {
+    for constant_ref in &resolved.imported_constants {
+        let module = &resolved.modules[constant_ref.module_index];
+        let imported_module = &module.parse_output.module;
+        let Some(constant) = imported_module
+            .consts
+            .iter()
+            .find(|constant| constant.name == constant_ref.original_name)
+        else {
+            report_missing_constant(checker, interner, constant_ref, &module.module_path);
+            continue;
+        };
+
+        let parent_test_access = imports::is_test_module(current_file)
+            && imports::is_parent_module_import(current_file, &module.module_path);
+        if !constant.visibility.is_public() && !parent_test_access {
+            let name = interner.lookup(constant_ref.original_name);
+            checker.push_error(ori_types::TypeCheckError::import_error(
+                format!(
+                    "constant '${name}' is private in module '{}'; add `pub` to the constant definition before importing it",
+                    module.module_path.display()
+                ),
+                constant_ref.span,
+                ori_types::ImportErrorKind::PrivateAccess,
+            ));
+            continue;
+        }
+
+        let Some(source_result) = module_results[constant_ref.module_index].as_ref() else {
+            continue;
+        };
+        let Some(source_pool) = module_pools[constant_ref.module_index].as_deref() else {
+            checker.push_error(ori_types::TypeCheckError::import_error(
+                format!(
+                    "cannot import constant '${}': the provider type pool is unavailable; check the provider module for type errors",
+                    interner.lookup(constant_ref.original_name)
+                ),
+                constant_ref.span,
+                ori_types::ImportErrorKind::ItemNotFound,
+            ));
+            continue;
+        };
+        let Some(source_ty) = source_result.typed.expr_type(constant.value.index()) else {
+            checker.push_error(ori_types::TypeCheckError::import_error(
+                format!(
+                    "cannot import constant '${}': its initializer has no resolved type; fix errors in '{}' first",
+                    interner.lookup(constant_ref.original_name),
+                    module.module_path.display()
+                ),
+                constant_ref.span,
+                ori_types::ImportErrorKind::ItemNotFound,
+            ));
+            continue;
+        };
+
+        let mut cache = rustc_hash::FxHashMap::default();
+        let consumer_ty =
+            ori_types::re_intern_type(source_pool, source_ty, checker.pool_mut(), &mut cache);
+        checker.register_const_type(constant_ref.local_name, consumer_ty);
+    }
+}
+
+#[cold]
+fn report_missing_constant(
+    checker: &mut ori_types::ModuleChecker<'_>,
+    interner: &StringInterner,
+    constant_ref: &imports::ImportedConstantRef,
+    module_path: &Path,
+) {
+    let name = interner.lookup(constant_ref.original_name);
+    checker.push_error(ori_types::TypeCheckError::import_error(
+        format!(
+            "constant '${name}' not found in module '{}'; export that constant or correct the name in the `use` list",
+            module_path.display()
+        ),
+        constant_ref.span,
+        ori_types::ImportErrorKind::ItemNotFound,
+    ));
 }
 
 /// Report a missing imported function to the type checker.
@@ -315,117 +706,6 @@ fn report_missing_import(
         func_ref.span,
         ori_types::ImportErrorKind::ItemNotFound,
     ));
-}
-
-/// Build function signatures aligned with `module.functions` source order.
-///
-/// `typed.functions` is sorted by name (for Salsa determinism), while
-/// `module.functions` is in source order. `FunctionCompiler::declare_all`
-/// zips them, so they must be aligned.
-#[cfg_attr(
-    not(feature = "llvm"),
-    expect(
-        dead_code,
-        reason = "consumed by #[cfg(feature = \"llvm\")] paths in compile_common and test runner"
-    )
-)]
-pub(crate) fn build_function_sigs(
-    parse_result: &ParseOutput,
-    type_result: &TypeCheckResult,
-) -> Vec<FunctionSig> {
-    let sig_map: rustc_hash::FxHashMap<Name, &FunctionSig> = type_result
-        .typed
-        .functions
-        .iter()
-        .map(|ft| (ft.name, ft))
-        .collect();
-
-    parse_result
-        .module
-        .functions
-        .iter()
-        .map(|func| {
-            sig_map
-                .get(&func.name)
-                .copied()
-                .cloned()
-                .unwrap_or_else(|| dummy_sig(func.name))
-        })
-        .collect()
-}
-
-/// Fallback signature for functions missing from the type check result.
-///
-/// Should never be reached after successful type checking — only exists to
-/// prevent panics if the signature map is incomplete.
-#[cold]
-fn dummy_sig(name: Name) -> FunctionSig {
-    use ori_types::Idx;
-
-    debug_assert!(false, "function {name:?} has no type-checked signature");
-    tracing::warn!(
-        name = ?name,
-        "function missing from type check result — using dummy signature"
-    );
-    FunctionSig {
-        name,
-        type_params: vec![],
-        const_params: vec![],
-        param_names: vec![],
-        param_types: vec![],
-        return_type: Idx::UNIT,
-        capabilities: vec![],
-        is_public: false,
-        is_test: false,
-        is_main: false,
-        is_fbip: false,
-        type_param_bounds: vec![],
-        where_clauses: vec![],
-        generic_param_mapping: vec![],
-        scheme_var_ids: vec![],
-        required_params: 0,
-        param_defaults: vec![],
-        param_hashes: vec![],
-        return_hash: 0,
-    }
-}
-
-/// Collect exported type metadata from prelude and imported module results.
-///
-/// Gathers `ExportedTypeMetadata` from the prelude (if present) and all
-/// imported module `TypeCheckResult` objects for transitive forwarding.
-pub(crate) fn collect_metadata_from_results(
-    prelude: Option<&ori_types::TypeCheckResult>,
-    module_results: &[Option<ori_types::TypeCheckResult>],
-) -> Vec<ori_types::ExportedTypeMetadata> {
-    let mut metadata = Vec::new();
-    if let Some(tcr) = prelude {
-        metadata.extend(tcr.typed.exported_type_metadata.iter().cloned());
-    }
-    for tcr in module_results.iter().flatten() {
-        metadata.extend(tcr.typed.exported_type_metadata.iter().cloned());
-    }
-    metadata
-}
-
-/// Collect exported collection surface hashes from prelude and imported module results.
-///
-/// Gathers merkle hashes of collection types (List, Set) from the prelude (if
-/// present) and all imported module `TypeCheckResult` objects for transitive
-/// forwarding. The collected hashes are passed to `ModuleChecker::set_imported_collection_surfaces()`
-/// which feeds them into `generate_exported_collection_surfaces()` for A→B→C propagation.
-pub(crate) fn collect_surfaces_from_results(
-    prelude: Option<&ori_types::TypeCheckResult>,
-    module_results: &[Option<ori_types::TypeCheckResult>],
-) -> Vec<u64> {
-    let mut surfaces = Vec::new();
-    if let Some(tcr) = prelude {
-        surfaces.extend(tcr.typed.exported_collection_surfaces.iter().copied());
-    }
-    for tcr in module_results.iter().flatten() {
-        surfaces.extend(tcr.typed.exported_collection_surfaces.iter().copied());
-    }
-    surfaces
 }
 
 #[cfg(test)]

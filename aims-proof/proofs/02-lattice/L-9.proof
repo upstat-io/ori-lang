@@ -1,0 +1,78 @@
+Theorem L-9: SCALAR sentinel excluded from lattice operations
+
+  Preconditions:
+    - SCALAR is the scalar sentinel per Annex E §AIMS.8 L-9
+    - SCALAR is NOT a lattice element (not in any per-dimension carrier)
+    - Per Appendix A: SCALAR is emitted by TF-1 (Let { Literal }), TF-2a
+      (Let { PrimOp }), TF-10 (IsShared), TF-10a (Reset)
+    - Per sec-3 TF-8 (Select): when one operand is SCALAR, the rule
+      pre-filters SCALAR before invoking join (i.e. join is NEVER called
+      on a SCALAR operand)
+
+  Soundness property:
+    Forall a in AimsState. join(a, SCALAR) is undefined.
+    Analysis SHALL exclude scalars from the state map.
+    TF-8 (Select) excludes SCALAR operand BEFORE join (pre-filter, not
+    lattice join with SCALAR).
+
+  Proof obligation:
+    Two-part discharge:
+      (a) SCALAR is not in any per-dimension carrier; join is total only
+          over the carrier product; therefore join(a, SCALAR) is
+          definitionally outside the join's domain.
+      (b) Every TF-N call site that could pair a SCALAR with a non-SCALAR
+          state pre-filters SCALAR before invoking join.
+
+    Part (a) — domain enumeration:
+      Per-dimension carriers (per Annex E §AIMS §3.1 through §AIMS §3.7):
+        Access = {B, O} — SCALAR not in
+        Consumption = {empty, L, A, U} — SCALAR not in
+        Cardinality = {absent, 1, omega} — SCALAR not in
+        Uniqueness = {u, ms, s} — SCALAR not in
+        Locality = {bl, fl, ae, he, top} — SCALAR not in
+        Shape = {Phi, R_S, R_V, C, H} — SCALAR not in
+        Effect = 3-bit flag set — SCALAR not in
+
+      Total carrier-product domain: 2 * 4 * 3 * 3 * 5 * 5 * 8 = 14,400
+      states. SCALAR is not any of them. Per-dimension membership
+      enumeration: 30 element checks across the 7 carriers, each
+      confirming SCALAR not equal to any value.
+
+    Part (b) — pre-filter enumeration at TF-N call sites:
+      Appendix A enumerates TF-1 / TF-2a / TF-10 / TF-10a as the only
+      SCALAR producers. TF-8 (Select) is the only join site that can
+      receive a SCALAR operand (because Select's operands are
+      arbitrary previously-defined variables). Per sec-3 TF-8 spec:
+        - both SCALAR -> dst := SCALAR; no join.
+        - one SCALAR -> exclude SCALAR; dst inherits non-SCALAR with
+          uniqueness := max(MaybeShared, non_scalar.uniqueness)
+          (downgrade ensures monotonicity per L-6).
+        - neither SCALAR -> standard join.
+      In NO case does join receive a SCALAR operand. The TF-11
+      backward-demand discipline mirrors this: TF-11 emits Once-demand
+      on operands; SCALAR operands generate no RC demand (per
+      DP-1 is_rc_needed = false on is_scalar()).
+
+    Pipeline-level enforcement per sec-6 IA-8:
+      Variables carrying the logical Immortal classification and SCALAR
+      variables are excluded from the AimsStateMap. The map's
+      key set is a subset of non-SCALAR, non-immortal ArcVarId
+      indices, so every map entry's value is in the carrier domain
+      defined in Part (a).
+
+    SCALAR semantics summary:
+      - SCALAR is a TF-output marker, NOT a join input
+      - canonicalize MUST NOT propagate SCALAR (Appendix B / sec-2)
+      - the state map's keys are filtered to non-SCALAR vars per IA-8
+      - L-9 holds by construction: the join function's domain is the
+        carrier product, which excludes SCALAR
+
+    Engines dispatched:
+      lattice (per-dimension carrier-membership enumeration + TF-8
+        pre-filter enumeration per section_02::verify_l9_scalar_exclusion)
+      monotonicity (validates TF-8 SCALAR-pre-filter downgrade
+        preserves monotonicity per the L-6 specification)
+
+  Expected:
+    status: valid
+    reason: sec-02 lattice engine discharges L-9 via carrier-membership enumeration + TF-8 pre-filter call-site enumeration

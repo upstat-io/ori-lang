@@ -1,0 +1,6 @@
+type Doc = { content: str }
+
+@main () -> int = {
+    let a = Doc { content: "owned-heap-string-not-sso-xxxxxxxxxxxxxxxx" };
+    0
+}

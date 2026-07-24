@@ -8,8 +8,6 @@
 //! For repeated lookups on the same source, use [`LineOffsetTable`] which
 //! pre-computes line offsets for O(log L) lookup instead of O(n) scanning.
 
-use ori_ir::Span;
-
 /// Pre-computed line offset table for efficient line/column lookup.
 ///
 /// Builds a table of byte offsets for each line start, enabling O(log L)
@@ -130,37 +128,6 @@ impl LineOffsetTable {
     pub fn line_count(&self) -> usize {
         self.offsets.len()
     }
-}
-
-/// Compute the 1-based line number from a span and source text.
-///
-/// Returns the line number where the span starts.
-///
-/// Note: For repeated lookups, use [`LineOffsetTable`] instead.
-pub fn line_number(source: &str, span: Span) -> u32 {
-    line_from_offset(source, span.start)
-}
-
-/// Compute 1-based line number from a byte offset.
-///
-/// Counts newlines before the offset to determine the line.
-///
-/// Note: For repeated lookups, use [`LineOffsetTable`] instead.
-pub fn line_from_offset(source: &str, offset: u32) -> u32 {
-    let offset = offset as usize;
-    let bytes = source.as_bytes();
-    let mut line = 1u32;
-
-    for (i, &byte) in bytes.iter().enumerate() {
-        if i >= offset {
-            break;
-        }
-        if byte == b'\n' {
-            line += 1;
-        }
-    }
-
-    line
 }
 
 /// Compute 1-based (line, column) from a byte offset.

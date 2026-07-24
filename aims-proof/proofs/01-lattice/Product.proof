@@ -1,0 +1,77 @@
+Theorem L-2: Product lattice + AimsState + AimsStateMap + sentinels
+
+  Preconditions:
+    - The 7 per-dimension lattices are authored at
+      aims-proof/proofs/01-lattice/Lattice.proof (theorem L-1)
+    - Product lattice = componentwise join over the 7 dimensions
+      + canonicalization per Annex E §AIMS
+    - AimsState = the 7-tuple state value per the canonical proof notation
+      sec-AimsState-Representation
+    - AimsStateMap = per-block / per-instruction map carrying AimsState values
+      per Annex E §AIMS §7 AimsStateMap row
+    - Sentinels SCALAR, FRESH, CONSERVATIVE, ALL, NONE are special-cased
+      per Annex E §AIMS + Appendix A + L-9
+
+  Soundness property:
+    AimsState definition (7-tuple in canonical dimension order; per
+    the canonical proof notation:42):
+
+      AimsState = <Access, Consumption, Cardinality, Uniqueness, Locality, Shape, Effect>
+
+      Canonical authored form for a single state (parenthesized, comma-separated):
+        (O, L, 1, u, bl, R_S, {alloc})
+
+    AimsStateMap definition (per Annex E §AIMS §7 AimsStateMap row +
+    Annex E §AIMS IA backward dataflow):
+
+      AimsStateMap = CfgNode -> AimsState
+
+      Concretely the per-function backward-dataflow result carrying:
+        - block_entry_states: BlockIndex -> Map ArcVarId AimsState
+        - block_exit_states: BlockIndex -> Map ArcVarId AimsState
+        - converged value: Map ArcVarId AimsState at function exit
+
+      Position-keyed entries (entry_states, exit_states, instr_states) are
+      invalidated by merge_blocks() per Annex E §AIMS §6 PL-3 invariant;
+      step 10 realize_annotations() consults AimsStateMap via ArcVarId-keyed
+      lookups exclusively.
+
+    Sentinel definitions (per the canonical proof notation sec-AimsState-Representation
+    lines 54-58):
+
+      SCALAR:
+        per-dimension sentinel; NOT a lattice element per L-9
+        analysis SHALL exclude SCALAR-marked variables from the state map
+        join with SCALAR is undefined; canonicalize MUST NOT propagate SCALAR
+        emitted by TF-1, TF-2a, TF-10, TF-10a per Appendix A
+
+      FRESH(shape):
+        canonical TF-3 output for newly-allocated values
+        FRESH(shape) = (O, L, 1, u, bl, shape, {alloc})
+        all 7 dimensions instantiated; Effect set carries may_alloc only
+        Uniqueness = u is load-bearing for DP-6 reuse eligibility
+
+      CONSERVATIVE:
+        canonical TF-5 default for unknown calls / indirect dispatch
+        CONSERVATIVE = (O, U, omega, ms, top, Phi, ALL)
+        Uniqueness = ms (NOT s) enables dynamic COW per DP-4
+        NOT lattice TOP; operationally correct default
+
+      ALL:
+        Effect flag set = {may_alloc, may_share, may_throw}
+        unknown-call effect default per TF-5 / TF-5a / TF-6b / TF-6c
+
+      NONE:
+        Effect flag set = {} (empty)
+        TF-4 Project + TF-10 IsShared + TF-10a Reset default
+
+  Proof obligation:
+    sorry -- discharged by sec-02 lattice algebra proofs (product correctness)
+
+    Engines dispatched:
+      lattice (product-join componentwise definition + canonicalization)
+      monotonicity (validates product join preserves L-6 from per-dim joins)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-02 discharges product lattice + sentinel theorems

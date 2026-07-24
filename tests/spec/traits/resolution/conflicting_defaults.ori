@@ -18,11 +18,11 @@ trait Pipeline: Source + Sink {
 
 type Stream = { id: int }
 
-impl Source for Stream {}
-impl Sink for Stream {}
+impl Stream: Source {}
+impl Stream: Sink {}
 
 // Explicit override resolves the conflict between Source.tag and Sink.tag
-impl Pipeline for Stream {
+impl Stream: Pipeline {
     @tag (self) -> str = "overridden";
     @run (self) -> str = "running:" + str(self.id);
 }
@@ -48,12 +48,12 @@ trait Gamma: Alpha + Beta {
 
 type Widget = { name: str }
 
-impl Alpha for Widget {}
-impl Beta for Widget {
+impl Widget: Alpha {}
+impl Widget: Beta {
     @process (self) -> str = "processed:" + self.name;
 }
 
-impl Gamma for Widget {
+impl Widget: Gamma {
     @label (self) -> str = "widget:" + self.name;
 }
 

@@ -1,0 +1,1 @@
+@bump (xs: [int]) -> [int] = xs.iter().map(x -> x + 1).collect();

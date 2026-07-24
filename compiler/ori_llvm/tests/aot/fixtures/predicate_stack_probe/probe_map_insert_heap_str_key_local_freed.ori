@@ -1,0 +1,5 @@
+@main () -> int = {
+    let m: {str: int} = {};
+    let m = m.insert("this is a long key that definitely exceeds the SSO threshold", 42);
+    if m.len() == 1 then 0 else 1
+}

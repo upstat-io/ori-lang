@@ -1,10 +1,8 @@
-use ori_types::{Idx, Pool};
+use ori_types::{Idx, Pool, TypeRegistry};
 
 use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArgOwnership, CtorKind};
 use crate::ownership::Ownership;
 use crate::test_helpers::{b, make_func, v};
-use rustc_hash::FxHashMap;
-
 use ori_ir::Name;
 
 /// Run the full ARC pipeline via the public orchestration function.
@@ -13,30 +11,27 @@ fn run_full_pipeline(
     classifier: &dyn crate::ArcClassification,
     pool: &Pool,
 ) {
-    let sigs = FxHashMap::default();
     let interner = ori_ir::StringInterner::new();
-    crate::annotate_arg_ownership(
-        func,
-        &sigs,
-        &interner,
-        &crate::BuiltinOwnershipSets::empty(),
-        pool,
-    );
-    let uniqueness_summaries = FxHashMap::default();
-    let aims_contracts = FxHashMap::default();
+    let builtins = crate::BuiltinOwnershipSets::new(&interner);
+    let type_registry = TypeRegistry::default();
+    let external_contracts = rustc_hash::FxHashMap::default();
+    let callable_boundaries = crate::CallableBoundaryFacts::default();
     #[expect(
         clippy::expect_used,
         reason = "test helper — panicking on verification ICE is correct"
     )]
-    let _problems = crate::run_arc_pipeline(
-        func,
-        classifier,
-        &sigs,
-        pool,
-        &interner,
-        &uniqueness_summaries,
-        &aims_contracts,
-        false,
+    let _outcome = crate::realize_closed_program(
+        std::slice::from_mut(func),
+        &crate::ArcPipelineContext {
+            classifier,
+            interner: &interner,
+            pool,
+            builtins: &builtins,
+            type_registry: &type_registry,
+            callable_boundaries: &callable_boundaries,
+            verify_arc: false,
+            external_contracts: &external_contracts,
+        },
     )
     .expect("ARC pipeline should not produce verification errors in tests");
 }
@@ -115,6 +110,7 @@ fn full_pipeline_on_reuse_pattern() {
                     func: Name::from_raw(99),
                     args: vec![v(1)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Construct {
                     dst: v(4),
@@ -152,9 +148,7 @@ fn full_pipeline_on_reuse_pattern() {
     );
 
     // Run FBIP analysis on the result
-    let dom_tree = crate::DominatorTree::build(&func);
-    let (refined, _) = crate::compute_refined_liveness(&func, &classifier);
-    let _fbip_report = analyze_fbip(&func, &classifier, &dom_tree, &refined);
+    let _fbip_report = analyze_fbip(&func, &classifier);
 }
 
 /// Pipeline output must be identical across multiple runs on the same input.
@@ -192,6 +186,7 @@ fn pipeline_determinism() {
                     func: Name::from_raw(99),
                     args: vec![v(1)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 },
                 ArcInstr::Construct {
                     dst: v(4),

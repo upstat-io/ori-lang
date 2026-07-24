@@ -3,7 +3,9 @@
 //! Verify range specialization (single icmp), compound assignment CSE,
 //! and loop-invariant block param elimination.
 
-use crate::util::{compile_and_capture_ir, extract_function_ir};
+use crate::util::{
+    compile_and_capture_ir, compile_and_capture_ir_no_repr_opt, extract_function_ir,
+};
 
 // Range specialization
 
@@ -139,7 +141,7 @@ fn test_range_variable_step_general_condition() {
 /// `emit_checked_binop` should detect the duplicate and reuse the result.
 #[test]
 fn test_cse_loop_duplicate_add_eliminated() {
-    let ir = compile_and_capture_ir(include_str!(
+    let ir = compile_and_capture_ir_no_repr_opt(include_str!(
         "fixtures/ir_quality_loops/cse_loop_duplicate_add_eliminated.ori"
     ));
 
@@ -162,7 +164,7 @@ fn test_cse_loop_duplicate_add_eliminated() {
 /// the same ARC block.
 #[test]
 fn test_cse_different_operands_not_eliminated() {
-    let ir = compile_and_capture_ir(include_str!(
+    let ir = compile_and_capture_ir_no_repr_opt(include_str!(
         "fixtures/ir_quality_loops/cse_different_operands_not_eliminated.ori"
     ));
 
@@ -184,7 +186,7 @@ fn test_cse_different_operands_not_eliminated() {
 /// (sadd vs ssub), so they must not be merged.
 #[test]
 fn test_cse_different_intrinsics_not_merged() {
-    let ir = compile_and_capture_ir(include_str!(
+    let ir = compile_and_capture_ir_no_repr_opt(include_str!(
         "fixtures/ir_quality_loops/cse_different_intrinsics_not_merged.ori"
     ));
 
@@ -209,7 +211,7 @@ fn test_cse_different_intrinsics_not_merged() {
 /// separate `const_i64(1)` calls should match in the cache.
 #[test]
 fn test_cse_identical_constant_operands() {
-    let ir = compile_and_capture_ir(include_str!(
+    let ir = compile_and_capture_ir_no_repr_opt(include_str!(
         "fixtures/ir_quality_loops/cse_identical_constant_operands.ori"
     ));
 
@@ -356,4 +358,49 @@ fn find_loop_header(fn_ir: &str) -> String {
     }
 
     header_lines.join("\n")
+}
+
+// Diverging while-condition codegen (break / continue in condition position)
+
+/// A `continue` in while-CONDITION position diverges before the desugared
+/// `!cond` ever applies. Pre-fix, ARC lowering emitted the unit result +
+/// `Not` into the already-terminated block and the `If` branch blocks went
+/// dead-orphan, producing `E5001: Referring to a basic block in another
+/// function`. Post-fix the module compiles (the program is a semantic
+/// infinite loop; compile-only pin — never run).
+#[test]
+fn test_while_condition_continue_diverging_operand_compiles() {
+    let source = r"
+@main () -> void = {
+    loop {
+        while (continue) do { };
+        break
+    };
+    print(msg: `done`)
+}
+";
+    let ir = compile_and_capture_ir(source);
+    assert!(
+        !ir.is_empty(),
+        "expected LLVM IR for diverging while-condition"
+    );
+}
+
+/// Bare `break` in while-CONDITION position: same diverging-operand shape,
+/// targeting the while itself (exits immediately). Compiles AND terminates;
+/// pinned at IR level for symmetry with the continue cell.
+#[test]
+fn test_while_condition_break_diverging_operand_compiles() {
+    let source = r"
+@main () -> void = {
+    loop {
+        while (break) do { };
+        break
+    };
+    print(msg: `ok`)
+}
+";
+    let ir = compile_and_capture_ir(source);
+    let main_ir = extract_function_ir(&ir, "main");
+    assert!(!main_ir.is_empty());
 }

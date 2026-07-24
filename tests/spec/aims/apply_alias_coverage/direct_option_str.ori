@@ -1,0 +1,20 @@
+// Apply-alias Direct shape (`@id<T>(x: T) -> T = x`) over an Option<str>
+// element — interpreter parity sibling of the AOT direct_option_str cell.
+
+use std.testing { assert_eq };
+
+@id<T> (x: T) -> T = x;
+
+@aliased_len () -> int = {
+    let o = Some("present");
+    let aliased = id(x: o);
+    match aliased {
+        Some(s) -> s.len(),
+        None -> 0,
+    }
+}
+
+@test_apply_alias_direct_option_str_aliases_arg tests @aliased_len () -> void = {
+    let n = aliased_len();
+    assert_eq(actual: n, expected: 7)
+};

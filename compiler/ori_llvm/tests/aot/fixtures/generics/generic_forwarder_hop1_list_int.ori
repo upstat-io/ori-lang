@@ -1,0 +1,10 @@
+// BUG-04-090 §03 cell B (1-hop): minimal repro.
+// Generic identity forwarder applied to [int] should produce a single net RC
+// delta (caller's scope-exit dec). Currently produces TWO decs: caller scope-exit
+// + spurious callee scope-exit, hitting an already-freed allocation -> SIGSEGV.
+@id <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let xs = id(x: [1, 2, 3]);
+    if xs.len() == 3 && xs[0] == 1 && xs[2] == 3 then 0 else 1
+}

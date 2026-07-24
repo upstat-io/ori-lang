@@ -96,3 +96,33 @@ fn flag_categories_dont_overlap() {
     assert!(!category.intersects(capability));
     assert!(!optimization.intersects(capability));
 }
+
+/// Regression: the monomorphization recorder minted a phantom `MonoInstance` over
+/// a poison (`HAS_ERROR`) substitution because the concreteness gate keyed only on
+/// `has_any_var_or_infer` (which excludes `HAS_ERROR`), materializing `assert_eq` method
+/// invokes on a poison receiver (AOT missing-mono). `is_recordable` adds the poison
+/// half — reverting `&& !has_errors()` flips the `HAS_ERROR` cases to true.
+#[test]
+fn is_recordable_concrete_true_poison_and_var_false() {
+    // Concrete, no poison, no var -> recordable.
+    assert!(TypeFlags::IS_PRIMITIVE.is_recordable());
+    assert!(TypeFlags::IS_RESOLVED.is_recordable());
+
+    // Poison (HAS_ERROR) -> NOT recordable (the load-bearing distinction; the
+    // var/infer-only gate would wrongly accept this).
+    assert!(!TypeFlags::HAS_ERROR.is_recordable());
+
+    // Var / infer holes -> NOT recordable (the existing var/infer half preserved).
+    // Every flavor `has_any_var_or_infer` unions is clamped: HAS_VAR, HAS_INFER,
+    // HAS_BOUND_VAR, and HAS_RIGID_VAR (a generic body's surviving rigid leaf is the
+    // exact `Tag::rigid_var` shape the receiver/binder gates exclude).
+    assert!(!TypeFlags::HAS_VAR.is_recordable());
+    assert!(!TypeFlags::HAS_INFER.is_recordable());
+    assert!(!TypeFlags::HAS_BOUND_VAR.is_recordable());
+    assert!(!TypeFlags::HAS_RIGID_VAR.is_recordable());
+
+    // Compound poison: HAS_ERROR rides PROPAGATE_MASK, so a container carrying a
+    // poison child (e.g. List<Idx::ERROR>) is also refused.
+    let compound_poison = TypeFlags::IS_CONTAINER | TypeFlags::HAS_ERROR;
+    assert!(!compound_poison.is_recordable());
+}

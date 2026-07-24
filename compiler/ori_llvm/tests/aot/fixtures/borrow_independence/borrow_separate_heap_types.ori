@@ -1,0 +1,9 @@
+type Mixed = { s: str, xs: [int] }
+
+@main () -> int = {
+    let m = Mixed { s: "string_field_value", xs: [10, 20, 30] };
+    let s_field = m.s;
+    let xs_field = m.xs;
+    let result = s_field.len() + xs_field.len();
+    if result == 21 then 0 else 1
+}

@@ -1,0 +1,26 @@
+// Spec: 07-properties-of-types.md § Traceable
+// Oracle for the trace_entries-in-match regression: `has_trace()` is a SCALAR
+// (bool) Traceable accessor on the `Error` payload `e` in the SAME match shape.
+// Its dedicated codegen emitter forces bool_ty, so the arm phi stays scalar and
+// LLVM build succeeds. This isolates the sibling bug to non-scalar accessors:
+// this file stays green pre-fix AND post-fix.
+
+use std.testing { assert }
+
+@fail () -> Result<int, Error> = Err(Error("fail"));
+
+@one_hop () -> Result<int, Error> = {
+    let x = fail()?;
+    Ok(x)
+}
+
+@has_via_match () -> bool = {
+    match one_hop() {
+        Ok(_) -> false,
+        Err(e) -> e.has_trace(),
+    }
+}
+
+@test_has_accessor tests @has_via_match () -> void = {
+    assert(cond: has_via_match())
+}

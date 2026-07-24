@@ -1,0 +1,1 @@
+@f () -> int = if true then match [1, 2, 3] { [x, ..rest] -> { let sum = x + for r in rest yield r; sum }, [] -> 0 } else 0;

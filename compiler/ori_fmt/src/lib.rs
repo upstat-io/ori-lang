@@ -4,10 +4,19 @@
 //!
 //! # Quick Start
 //!
-//! ```ignore
-//! use ori_fmt::{format_module, FormatConfig};
+//! ```
+//! use ori_fmt::format_module;
+//! use ori_ir::StringInterner;
 //!
-//! let formatted = format_module(&module, &arena, &interner);
+//! let source = "@main () -> int = 42;\n";
+//! let interner = StringInterner::new();
+//! let tokens = ori_lexer::lex(source, &interner);
+//! let parsed = ori_parse::parse(&tokens, &interner);
+//! assert!(!parsed.has_errors());
+//!
+//! let formatted = format_module(&parsed.module, &parsed.arena, &interner);
+//! assert!(formatted.contains("@main"));
+//! assert!(formatted.ends_with('\n'));
 //! ```
 //!
 //! # API Stability
@@ -58,6 +67,8 @@ pub mod packing;
 pub mod rules;
 pub mod shape;
 pub mod spacing;
+pub mod template_escape;
+pub mod whitespace;
 pub mod width;
 
 pub use comments::{format_comment, CommentIndex};
@@ -75,58 +86,15 @@ pub use packing::{
 };
 pub use rules::{
     needs_parens, BooleanBreakRule, BreakPoint, ChainedElseIfRule, ElseIfBranch, ForChain,
-    ForLevel, IfChain, LoopRule, MethodChainRule, NestedForRule, ParenPosition, ParenthesesRule,
-    ShortBodyRule,
+    ForLevel, IfChain, MethodChainRule, NestedForRule, ParenPosition, ShortBodyRule,
 };
 pub use shape::Shape;
 pub use spacing::{lookup_spacing, SpaceAction, TokenCategory, TokenMatcher, SPACE_RULES};
+pub use template_escape::escape_template_text;
+pub use whitespace::tabs_to_spaces;
 pub use width::{WidthCalculator, ALWAYS_STACKED};
 
-/// Convert tabs to spaces in source text.
-///
-/// Each tab character is replaced with spaces to reach the next multiple of 4 columns.
-/// This is a preprocessing step for source text normalization.
-///
-/// # Example
-///
-/// ```
-/// use ori_fmt::tabs_to_spaces;
-///
-/// let source = "\t@foo () = 42";
-/// let normalized = tabs_to_spaces(source);
-/// assert_eq!(normalized, "    @foo () = 42");
-/// ```
-pub fn tabs_to_spaces(source: &str) -> String {
-    let mut result = String::with_capacity(source.len());
-    let mut column = 0;
-
-    for c in source.chars() {
-        match c {
-            '\t' => {
-                // Calculate spaces needed to reach next multiple of INDENT_WIDTH
-                let spaces = INDENT_WIDTH - (column % INDENT_WIDTH);
-                for _ in 0..spaces {
-                    result.push(' ');
-                }
-                column += spaces;
-            }
-            '\n' => {
-                result.push('\n');
-                column = 0;
-            }
-            '\r' => {
-                result.push('\r');
-                // Don't reset column for \r alone (handle \r\n case)
-            }
-            _ => {
-                result.push(c);
-                column += 1;
-            }
-        }
-    }
-
-    result
-}
-
+#[cfg(test)]
+mod test_util;
 #[cfg(test)]
 mod tests;

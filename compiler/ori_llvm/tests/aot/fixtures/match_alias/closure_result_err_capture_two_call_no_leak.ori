@@ -1,0 +1,25 @@
+// Matrix pin (capture-variant-deadness, cross-variant): the closure captures
+// `Result<int, str>::Err(str)` by value and extracts the Err-arm str payload via
+// a match-Switch, invoked twice via ApplyIndirect. The Ok arm returns a fresh
+// owned str (`"ok_branch"`), so the whole-param `return_alias` POISONS — the
+// caller's single-variant `Construct Variant(Result.1)(..)` (Err = tag 1) proves
+// the Ok arm DEAD, so the live return resolves to `Project field` and the two
+// results are same-allocation borrow-views of the captured str. The closure-extract
+// borrow-view scan suppresses the surplus per-result decs (the closure env's drop
+// cascade-frees the captured str once). Cross-variant sibling of
+// closure_option_str_capture_two_call_no_leak (Some = tag 0). Fails (double-free,
+// exit 134) if the capture-variant-deadness refinement reverts.
+@main () -> int = {
+    let captured: Result<int, str> = Err("captured_err_str_payload");
+    let lookup = () -> {
+        match captured {
+            Ok(n) -> "ok_branch",
+            Err(e) -> e,
+        }
+    };
+    let first = lookup();
+    let second = lookup();
+    let h1 = first.contains(substr: "captured");
+    let h2 = second.contains(substr: "payload");
+    if h1 && h2 then 0 else 1
+}

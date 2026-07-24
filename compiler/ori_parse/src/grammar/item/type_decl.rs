@@ -7,21 +7,10 @@ use ori_ir::{
     StructField, TokenKind, TypeDecl, TypeDeclKind, Variant, VariantField, Visibility,
 };
 
-/// Convert parser-level `ReprAttr` to IR-level `ReprAttrKind`.
-fn convert_repr_attr(attr: &ReprAttr) -> ReprAttrKind {
-    match *attr {
-        ReprAttr::C => ReprAttrKind::C,
-        ReprAttr::Packed => ReprAttrKind::Packed,
-        ReprAttr::Transparent => ReprAttrKind::Transparent,
-        // CAligned is never produced by the parser — it's merged in type checking
-        ReprAttr::Aligned(n) => ReprAttrKind::Aligned(n),
-    }
-}
-
 impl Parser<'_> {
     /// Parse a type declaration.
     ///
-    /// Syntax:
+    /// # Syntax
     /// - Struct: `type Name = { field: Type, ... }`
     /// - Sum type: `type Name = Variant1 | Variant2(field: Type) | ...`
     /// - Newtype: `type Name = ExistingType`
@@ -29,6 +18,7 @@ impl Parser<'_> {
     /// - With derives: `#[derive(Eq, Clone)] type Name = ...`
     ///
     /// Returns `EmptyErr` if no `type` keyword is present.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_type_decl(
         &mut self,
         attrs: ParsedAttrs,
@@ -63,7 +53,20 @@ impl Parser<'_> {
             GenericParamRange::EMPTY
         };
 
+        // Optional where clause. grammar.ebnf `type_def` places `where_clause`
+        // before `=`, and the formatter emits it there; parse it here so a
+        // formatted `type Foo<T> where T: Bound = Body` re-parses.
+        let where_clauses = if self.cursor.check(&TokenKind::Where) {
+            committed!(self.parse_where_clauses().into_result())
+        } else {
+            Vec::new()
+        };
+
         committed!(self.cursor.expect(&TokenKind::Eq));
+        // Type body is newline-silent per grammar.ebnf: a newline after `=` (the
+        // formatter's multi-line shape) must parse — else `check_ident()` below is
+        // false and the body mis-dispatches to a newtype parse.
+        self.cursor.skip_newlines();
 
         // Determine kind based on what follows
         let kind = if self.cursor.check(&TokenKind::LBrace) {
@@ -76,13 +79,6 @@ impl Parser<'_> {
             // Try to parse as a newtype with a primitive type
             let ty = committed!(self.parse_type_required().into_result());
             TypeDeclKind::Newtype(ty)
-        };
-
-        // Optional where clause (not common for type decls but supported)
-        let where_clauses = if self.cursor.check(&TokenKind::Where) {
-            committed!(self.parse_where_clauses().into_result())
-        } else {
-            Vec::new()
         };
 
         let end_span = self.cursor.previous_span();
@@ -156,6 +152,10 @@ impl Parser<'_> {
     fn parse_sum_or_newtype(&mut self) -> Result<TypeDeclKind, ParseError> {
         let first_name = self.cursor.expect_ident()?;
         let first_span = self.cursor.previous_span();
+        // a bare first variant on its own line puts a newline
+        // between the variant name and its `|`/`(`; skip it so the sum-vs-newtype
+        // disambiguation below still sees the continuation.
+        self.cursor.skip_newlines();
 
         // Check for generic args on newtype: MyType<T>
         if self.cursor.check(&TokenKind::Lt) {
@@ -184,39 +184,26 @@ impl Parser<'_> {
             }));
         }
 
-        // Check if this is a sum type (has | following)
-        if self.cursor.check(&TokenKind::Pipe) {
-            // Sum type - parse first variant and continue
+        // Sum type when a `|` (bare first variant) or `(` (first variant has
+        // fields) follows the first variant name. `make_variant` parses the
+        // optional `(fields)`, so both cases share one continuation loop.
+        if self.cursor.check(&TokenKind::Pipe) || self.cursor.check(&TokenKind::LParen) {
             let first_variant = self.make_variant(first_name, first_span)?;
             let mut variants = vec![first_variant];
 
-            while self.cursor.check(&TokenKind::Pipe) {
+            // Continuation: `| variant` repeated — skip newlines before EACH
+            // pipe check so a variant on its own line is accepted.
+            loop {
+                self.cursor.skip_newlines();
+                if !self.cursor.check(&TokenKind::Pipe) {
+                    break;
+                }
                 self.cursor.advance(); // |
                 self.cursor.skip_newlines();
 
                 let var_name = self.cursor.expect_ident()?;
                 let var_span = self.cursor.previous_span();
-                let variant = self.make_variant(var_name, var_span)?;
-                variants.push(variant);
-            }
-
-            return Ok(TypeDeclKind::Sum(variants));
-        }
-
-        // Check if first variant has fields (indicates sum type)
-        if self.cursor.check(&TokenKind::LParen) {
-            // Sum type with fields on first variant
-            let first_variant = self.make_variant(first_name, first_span)?;
-            let mut variants = vec![first_variant];
-
-            while self.cursor.check(&TokenKind::Pipe) {
-                self.cursor.advance(); // |
-                self.cursor.skip_newlines();
-
-                let var_name = self.cursor.expect_ident()?;
-                let var_span = self.cursor.previous_span();
-                let variant = self.make_variant(var_name, var_span)?;
-                variants.push(variant);
+                variants.push(self.make_variant(var_name, var_span)?);
             }
 
             return Ok(TypeDeclKind::Sum(variants));
@@ -253,3 +240,17 @@ impl Parser<'_> {
         })
     }
 }
+
+/// Convert parser-level `ReprAttr` to IR-level `ReprAttrKind`.
+fn convert_repr_attr(attr: &ReprAttr) -> ReprAttrKind {
+    match *attr {
+        ReprAttr::C => ReprAttrKind::C,
+        ReprAttr::Packed => ReprAttrKind::Packed,
+        ReprAttr::Transparent => ReprAttrKind::Transparent,
+        // CAligned is never produced by the parser — it's merged in type checking
+        ReprAttr::Aligned(n) => ReprAttrKind::Aligned(n),
+    }
+}
+
+#[cfg(test)]
+mod tests;

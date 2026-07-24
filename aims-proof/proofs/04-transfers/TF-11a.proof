@@ -1,0 +1,61 @@
+Theorem TF-11a: Terminator backward demand table
+
+  Preconditions:
+    - TF-11a emits backward demand at terminator boundaries per
+      Annex E §AIMS TF-11a
+    - Terminator set per ArcTerminator enumeration: Return / Jump / Branch /
+      Switch / Invoke / InvokeIndirect / Resume / Unreachable (8 terminators)
+    - Invoke + InvokeIndirect demands are IC-3 refined identically to
+      Apply + ApplyIndirect at TF-11 (interprocedural-contract refinement
+      shared between the call-instruction TF-11 path and the unwinding-
+      terminator TF-11a path)
+    - Resume and Unreachable are TERMINAL — neither defines a dst nor reads
+      operands as USES; backward demand is empty
+    - Per Annex E §AIMS TF-11a + IA-3: terminal blocks (Return / Resume /
+      Unreachable) seed block exit state from TF-11a demand
+
+  Soundness property:
+    Forall terminator in ArcTerminator.
+      backward_demand_tf11a(terminator) = expected per the §3 TF-11a table row
+    AND L-6 monotonicity vacuous for terminator demands — each entry is a
+    constant demand list (no input state to monotone over).
+
+  Proof obligation:
+    Two-part discharge:
+      (a) Per-terminator demand-table enumeration — 8 terminators per the
+          §3 TF-11a table.
+      (b) Coverage closure — verify the 8-entry table is exhaustive over the
+          ArcTerminator enumeration (no missing variant).
+
+    Part (a) — per-terminator demand-table enumeration:
+      Per Annex E §AIMS TF-11a table:
+        Return { value } -> (value, Once)
+        Jump { args } -> (arg, Once) per arg
+        Branch { cond } -> (cond, Once)
+        Switch { scrutinee } -> (scrutinee, Once)
+        Invoke { args } -> (arg, Once) per arg (IC-3 refined)
+        InvokeIndirect { closure, args } -> (closure, Once) + (arg, Once)/arg
+        Resume -> none (terminal)
+        Unreachable -> none (terminal)
+      Verified: backward_demand_tf11a_lookup() enumerates every row above
+      EXACTLY and produces the demand list verbatim. 8-row table closed.
+
+    Part (b) — coverage closure:
+      The ArcTerminator enumeration has cardinality 8 per Annex E §AIMS
+      TF-11a. Verified: tf11a_member_set() returns the 8-element
+      {Return, Jump, Branch, Switch, Invoke, InvokeIndirect, Resume,
+      Unreachable} set; no additional variants exist; no Annex E §AIMS TF
+      enum extension is missing.
+
+    Engines dispatched:
+      monotonicity (PRIMARY — vacuous monotonicity for constant terminator
+        demand lists per section_04::verify_tf11a_terminator_demand)
+      case_analysis (PRIMARY — 8-row terminator demand-table enumeration per
+        section_04::verify_tf11a_terminator_demand)
+      lattice (SECONDARY — accepts gracefully; no codomain state to compare)
+      refinement (SECONDARY — accepts gracefully; TF-11a Invoke/InvokeIndirect
+        IC-3 refinement modeled at TF-11 — TF-11a row inherits)
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-11a via 8-row terminator demand-table enumeration + coverage closure over ArcTerminator

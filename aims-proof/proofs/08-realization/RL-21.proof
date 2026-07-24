@@ -1,0 +1,33 @@
+Theorem RL-21: no thread boundary makes all values Confined
+
+  Preconditions:
+    - Whole-program analysis proves no spawn, channel transfer, foreign export,
+      or other thread-boundary capability.
+    - The proof is stronger than per-value uncertainty.
+
+  Soundness property:
+    Forall Locality L and local crossing flag X:
+
+      (P1) programThreadReachability(true, L, X) = confined.
+
+      (P2) P1 includes Locality.Unknown.
+
+    Physical planners remain free to select any capability satisfying confined.
+
+  Proof obligation:
+    Exhaustive Locality x local-signal enumeration under the program proof.
+
+    Part (P1/P2) - whole-program grid:
+      every Locality with crossing=false -> confined
+      every Locality with crossing=true -> confined
+      Coverage gate: all Locality x local-signal cases.
+
+    Engines dispatched:
+      case_analysis (PRIMARY - section_08::verify_rl21_no_thread_boundary;
+        no_thread_boundary_all_confined)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL row)
+      refinement (SECONDARY - gracious-accept per the coverage-manifest RL row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-21 because a whole-program no-thread-boundary proof freezes every Locality case as ThreadReachability.confined

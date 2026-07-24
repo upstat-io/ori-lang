@@ -1,0 +1,22 @@
+Theorem CN-3: Shared blocks reuse
+
+  Preconditions:
+    - s.uniqueness = Shared
+    - s.shape in {ReusableStruct, ReusableEnum, CollectionBuffer, ContextHole}
+    - canonicalize_cn3 applies the Shape-collapse rule per Annex E §AIMS
+
+  Soundness property:
+    Forall s with (Shared, reusable_shape). canonicalize_cn3(s).shape = NonReusable.
+
+  Proof obligation:
+    Finite enumeration over 4 reusable Shape variants x Uniqueness=Shared
+    = 4 trigger input states. Negative-case enumeration over (Unique,
+    MaybeShared) x 4 reusable shapes verifies non-trigger preservation.
+
+    Engines dispatched:
+      case_analysis (finite-state enumeration over the 4-state Shared trigger
+        x 8-state negative product per section_03::verify_cn3_shared_blocks_reuse)
+
+  Expected:
+    status: valid
+    reason: section_03 case_analysis engine discharges CN-3 via 4-state trigger + 8-state negative enumeration

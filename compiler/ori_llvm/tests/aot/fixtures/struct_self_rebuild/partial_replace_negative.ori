@@ -1,0 +1,13 @@
+// Over-fire negative: only one field is self-forwarded; the OTHER is built
+// fresh each iteration (not a self-projection). The fresh field must keep its
+// own lifecycle (no full-move suppression of a field that did NOT move out of
+// the loop-carried struct). Must run leak-clean.
+type Pair = { a: [int], b: [int] }
+
+@main () -> int = {
+    let r = Pair { a: [1], b: [2] };
+    for i in 0..30 do {
+        r = Pair { a: r.a, b: [9, 9, 9] };
+    };
+    if r.a.len() == 1 then 0 else 1
+}

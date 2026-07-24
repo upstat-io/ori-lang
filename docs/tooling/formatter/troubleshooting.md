@@ -233,7 +233,7 @@ If you encounter an issue not covered here:
    ```bash
    ori fmt --diff file.ori 2>&1 | less
    ```
-4. Report bugs at: https://github.com/ori-lang/ori/issues
+4. Report bugs at: https://github.com/upstat-io/ori-lang/issues
 
 ## See Also
 

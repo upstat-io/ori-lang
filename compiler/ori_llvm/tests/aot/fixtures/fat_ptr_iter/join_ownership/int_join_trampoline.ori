@@ -1,0 +1,8 @@
+// Scalar elements through the to_str trampoline. The produced strings here
+// fit inline small-string storage (no heap RC), so this cell pins behavior
+// (clean exit, exact output); the trampoline's produced-string release is
+// pinned structurally by the codegen checks.
+@main () -> void = {
+    let $joined = [1, 2, 3].iter().join(separator: ", ");
+    print(msg: joined)
+}

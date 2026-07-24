@@ -1,0 +1,5 @@
+@main () -> int = {
+    let nums = [2, 3, 4];
+    let squares = for i in nums yield i * i;
+    if squares[0] == 4 && squares[1] == 9 && squares[2] == 16 then 0 else 1
+}

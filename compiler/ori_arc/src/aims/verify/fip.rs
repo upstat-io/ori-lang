@@ -98,7 +98,7 @@ impl std::fmt::Display for FipVerificationError {
 /// 2. **`Bounded(n)`**: net allocation count (from evidence) <= n.
 /// 3. **`Conditional`**: no additional checks (params are checked at call sites).
 /// 4. **`Never`**: always passes (no FIP claim to verify).
-pub fn verify_fip_contract(
+pub(crate) fn verify_fip_contract(
     func_name: Name,
     contract: &MemoryContract,
     evidence: &FipEvidence,
@@ -113,8 +113,7 @@ pub fn verify_fip_contract(
             verify_bounded(func_name, *n, evidence, &mut errors);
         }
         FipContract::Conditional { .. } | FipContract::Never => {
-            // Conditional: params are checked at call sites, not here.
-            // Never: no FIP claim to verify.
+            // Why: Conditional params are checked at call sites; Never carries no FIP claim.
         }
     }
 
@@ -142,7 +141,7 @@ fn verify_certified(
         });
     }
 
-    // Section 12.2: constant stack.
+    // Constant stack.
     if contract.effects.has_unbounded_stack {
         errors.push(FipVerificationError::CertifiedButUnboundedStack {
             function: func_name,
@@ -189,7 +188,7 @@ fn verify_bounded(
 /// - `Never` — already bottom, no change
 ///
 /// Returns `true` if the contract was downgraded.
-pub fn recompute_fip_for_may_deallocate(contract: &mut MemoryContract) -> bool {
+pub(crate) fn recompute_fip_for_may_deallocate(contract: &mut MemoryContract) -> bool {
     if !contract.effects.may_deallocate {
         return false;
     }

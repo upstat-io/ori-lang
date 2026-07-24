@@ -1,0 +1,13 @@
+// Spec: Clause 8.11 (conversions) — `str.into()` resolves the registered
+// `str -> Error` conversion, yielding an `Error`-typed value; assigning it to
+// `int` then mismatches and must be REJECTED with E2001 (not silently accepted
+// via the dual-purpose `Idx::ERROR` poison-absorption path). E2036 fires only
+// when into-dispatch finds no conversion at all; `str -> Error` is registered,
+// so into() succeeds and the reject is the Error-vs-int unify mismatch (E2001).
+// Regression: bug-tracker/plans/BUG-02-028/
+
+#compile_fail(code: "E2001")
+@into_to_int_no_conversion tests _ () -> void = {
+    let _n: int = "x".into();
+    ()
+}

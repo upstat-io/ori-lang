@@ -1,0 +1,15 @@
+// Journey 1: "I am arithmetic"
+// Slug: arithmetic
+// Difficulty: simple
+// Features: arithmetic, function_calls, let_bindings, int_literals, multiple_functions
+// Expected: (3 + 4) * 5 - 2 = 33
+
+@add (a: int, b: int) -> int = a + b;
+
+@main () -> int = {
+    let x = 3;
+    let y = 4;
+    let sum = add(a: x, b: y);   // = 7
+    let result = sum * 5 - 2;  // = 35 - 2 = 33
+    result
+}

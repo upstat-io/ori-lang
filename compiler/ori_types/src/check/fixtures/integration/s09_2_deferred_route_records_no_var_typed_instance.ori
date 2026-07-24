@@ -1,0 +1,5 @@
+
+@p6_id <T> (x: T) -> T = x;
+@p6_wrap <U> (y: U) -> U = p6_id(x: y);
+@p6_caller () -> int = p6_wrap(y: 42);
+@test_p6 tests @p6_caller () -> void = ();

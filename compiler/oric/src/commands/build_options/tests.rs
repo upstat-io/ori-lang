@@ -485,14 +485,14 @@ fn explicit_disabled_survives_trailing_release() {
 
 /// semantic pin: `parse_build_options` does NOT inject env-var
 /// policy. This test verifies that parsing an unrelated flag does NOT
-/// produce a Disabled policy — the env var check was removed from
-/// `parse_build_options()` and moved to the caller.
+/// produce a Disabled policy — the `ORI_NO_REPR_OPT` env var check
+/// lives in the caller, not in `parse_build_options()`.
 #[test]
 fn parse_build_options_does_not_inject_env_policy() {
     // Parsing --release should yield default policy (Aggressive),
     // NOT Disabled (even if ORI_NO_REPR_OPT=1 is set in the environment).
-    // We can't set env vars in unit tests safely (race conditions), but
-    // we CAN verify the output has the correct default and explicit flag.
+    // Setting env vars in unit tests is racy; this verifies only that the
+    // parsed output carries the correct default and explicit flag.
     let parsed = parse_build_options(&["--release".to_string()]);
     assert_eq!(
         parsed.narrowing_policy,
@@ -547,6 +547,56 @@ fn accumulate_with_output_only() {
         options.narrowing_policy,
         NarrowingPolicy::Aggressive,
         "-o only must still yield default Aggressive"
+    );
+}
+
+#[test]
+fn accumulate_emit_rc_remarks_lookahead_form() {
+    // Simulates: ori build file.ori --emit-rc-remarks /tmp/rc.jsonl
+    let args = vec![
+        "ori".to_string(),
+        "build".to_string(),
+        "file.ori".to_string(),
+        "--emit-rc-remarks".to_string(),
+        "/tmp/rc.jsonl".to_string(),
+    ];
+    let options = accumulate_build_options(&args);
+    assert_eq!(
+        options.emit_rc_remarks,
+        Some(std::path::PathBuf::from("/tmp/rc.jsonl")),
+        "--emit-rc-remarks <path> two-token form must populate emit_rc_remarks"
+    );
+}
+
+#[test]
+fn accumulate_emit_rc_remarks_equals_form() {
+    // Simulates: ori build file.ori --emit-rc-remarks=/tmp/rc.jsonl
+    let args = vec![
+        "ori".to_string(),
+        "build".to_string(),
+        "file.ori".to_string(),
+        "--emit-rc-remarks=/tmp/rc.jsonl".to_string(),
+    ];
+    let options = accumulate_build_options(&args);
+    assert_eq!(
+        options.emit_rc_remarks,
+        Some(std::path::PathBuf::from("/tmp/rc.jsonl")),
+        "--emit-rc-remarks=<path> form must populate emit_rc_remarks"
+    );
+}
+
+#[test]
+fn emit_rc_remarks_default_none() {
+    // No flag → emit_rc_remarks stays None (the dev ORI_RC_REMARKS surface is unaffected).
+    let args = vec![
+        "ori".to_string(),
+        "build".to_string(),
+        "file.ori".to_string(),
+    ];
+    let options = accumulate_build_options(&args);
+    assert_eq!(
+        options.emit_rc_remarks, None,
+        "absent --emit-rc-remarks must leave emit_rc_remarks None"
     );
 }
 

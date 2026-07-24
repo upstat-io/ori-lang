@@ -1,0 +1,1 @@
+@bad (name: str) -> int = name + 1;

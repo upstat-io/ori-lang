@@ -61,6 +61,76 @@ fn use_before_def_detected() {
 }
 
 #[test]
+fn instruction_cannot_use_its_own_destination() {
+    let func = make_func(
+        vec![],
+        Idx::NONE,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Let {
+                dst: v(0),
+                ty: Idx::NONE,
+                value: ArcValue::Var(v(0)),
+            }],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![Idx::NONE],
+    );
+
+    let errors = check_function(&func);
+    assert!(errors.iter().any(|error| {
+        matches!(
+            error,
+            VerifyError::UseBeforeDef { var, block, .. }
+                if *var == v(0) && *block == b(0)
+        )
+    }));
+}
+
+#[test]
+fn invoke_cannot_use_its_own_destination_as_argument() {
+    let func = make_func(
+        vec![],
+        Idx::NONE,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(0),
+                    ty: Idx::NONE,
+                    func: ori_ir::Name::from_raw(1),
+                    args: vec![v(0)],
+                    arg_ownership: vec![],
+                    mono_instance_id: None,
+                    normal: b(1),
+                    unwind: b(2),
+                },
+            },
+            simple_return_block(1, v(0)),
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        vec![Idx::NONE],
+    );
+
+    let errors = check_function(&func);
+    assert!(errors.iter().any(|error| {
+        matches!(
+            error,
+            VerifyError::UseBeforeDef { var, block, .. }
+                if *var == v(0) && *block == b(0)
+        )
+    }));
+}
+
+#[test]
 fn block_param_counts_as_def() {
     // Block 1 has param v(2), uses it in return.
     let func = make_func(
@@ -109,6 +179,7 @@ fn invoke_dst_counts_as_def() {
                     func: ori_ir::Name::from_raw(1),
                     args: vec![v(0)],
                     arg_ownership: vec![],
+                    mono_instance_id: None,
                     normal: b(1),
                     unwind: b(2),
                 },
@@ -232,10 +303,12 @@ fn rc_on_scalar_detected() {
                     var: v(0),
                     count: 1,
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
                 ArcInstr::RcDec {
                     var: v(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
             ],
             terminator: ArcTerminator::Return { value: v(0) },
@@ -243,7 +316,7 @@ fn rc_on_scalar_detected() {
         vec![Idx::NONE; 1],
     );
     // Mark v(0) as Scalar.
-    func.var_reprs = vec![ValueRepr::Scalar];
+    func.replace_variable_representations(vec![ValueRepr::Scalar]);
 
     let errors = check_function(&func);
     assert_eq!(
@@ -272,17 +345,19 @@ fn rc_on_non_scalar_ok() {
                     var: v(0),
                     count: 1,
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
                 ArcInstr::RcDec {
                     var: v(0),
                     strategy: RcStrategy::HeapPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 },
             ],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
         vec![Idx::NONE; 1],
     );
-    func.var_reprs = vec![ValueRepr::RcPointer];
+    func.replace_variable_representations(vec![ValueRepr::RcPointer]);
 
     let errors = check_function(&func);
     assert!(
@@ -305,6 +380,7 @@ fn skips_rc_check_when_var_reprs_empty() {
                 var: v(0),
                 count: 1,
                 strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             }],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
@@ -335,6 +411,7 @@ fn dec_on_borrowed_detected() {
             body: vec![ArcInstr::RcDec {
                 var: v(0),
                 strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             }],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
@@ -361,6 +438,7 @@ fn inc_on_borrowed_ok() {
                 var: v(0),
                 count: 1,
                 strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             }],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
@@ -386,6 +464,7 @@ fn dec_on_owned_param_ok() {
             body: vec![ArcInstr::RcDec {
                 var: v(0),
                 strategy: RcStrategy::HeapPointer,
+                atomicity: crate::ir::RcAtomicity::default_atomic(),
             }],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
@@ -470,6 +549,8 @@ fn make_contract(params: Vec<ParamContract>) -> MemoryContract {
             preserves_freshness: false,
             locality: Locality::Unknown,
             shape: ShapeClass::NonReusable,
+            returns_fresh_self_alloc: false,
+            returns_sharing_view: false,
         },
         effects: EffectSummary::default(),
         context_behavior: ContextBehavior::default(),
@@ -487,6 +568,14 @@ fn absent_param() -> ParamContract {
         may_share: false,
         locality_bound: Locality::BlockLocal,
         uniqueness: AimsUniqueness::MaybeShared,
+        transfers_through_return: false,
+        return_alias: None,
+        return_payload_contains_param: false,
+        iter_consumes: false,
+        borrowed_read_only: false,
+        borrowed_cow_consumed: false,
+        borrowed_cow_mutated: false,
+        exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
     }
 }
 
@@ -499,6 +588,14 @@ fn used_param() -> ParamContract {
         may_share: false,
         locality_bound: Locality::FunctionLocal,
         uniqueness: AimsUniqueness::MaybeShared,
+        transfers_through_return: false,
+        return_alias: None,
+        return_payload_contains_param: false,
+        iter_consumes: false,
+        borrowed_read_only: false,
+        borrowed_cow_consumed: false,
+        borrowed_cow_mutated: false,
+        exact_transfer: crate::aims::contract::ExactTransferState::Unproven,
     }
 }
 
@@ -589,6 +686,7 @@ fn absent_param_used_in_instruction_detected() {
                 func: ori_ir::Name::from_raw(2),
                 args: vec![v(0)],
                 arg_ownership: vec![],
+                mono_instance_id: None,
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],

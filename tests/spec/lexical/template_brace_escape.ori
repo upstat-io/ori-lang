@@ -1,0 +1,66 @@
+// Spec: 09-expressions.md § Template Literals (brace escapes)
+// grammar.ebnf line 108: `{{` -> `{`, `}}` -> `}` for literal braces in templates.
+// A doubled brace is a literal brace, NOT an interpolation boundary.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Escaped open brace `{{` -> `{`
+// =============================================================================
+
+@brace_open () -> str = `{{`;
+
+@test_brace_open tests @brace_open () -> void = {
+    assert_eq(actual: brace_open(), expected: "{")
+}
+
+// =============================================================================
+// Escaped close brace `}}` -> `}`
+// =============================================================================
+
+@brace_close () -> str = `}}`;
+
+@test_brace_close tests @brace_close () -> void = {
+    assert_eq(actual: brace_close(), expected: "}")
+}
+
+// =============================================================================
+// Doubled braces around text: `{{literal}}` -> `{literal}` (no interpolation)
+// =============================================================================
+
+@brace_literal () -> str = `{{literal}}`;
+
+@test_brace_literal tests @brace_literal () -> void = {
+    assert_eq(actual: brace_literal(), expected: "{literal}")
+}
+
+// =============================================================================
+// Escaped braces embedded in surrounding text: `a{{b}}c` -> `a{b}c`
+// =============================================================================
+
+@brace_in_text () -> str = `a{{b}}c`;
+
+@test_brace_in_text tests @brace_in_text () -> void = {
+    assert_eq(actual: brace_in_text(), expected: "a{b}c")
+}
+
+// =============================================================================
+// Escaped braces ALONGSIDE a real interpolation in one template:
+// `{{x}} = {x}` with x bound -> `{x} = <value>` (escape vs interp disambiguated)
+// =============================================================================
+
+@brace_with_interp (x: int) -> str = `{{x}} = {x}`;
+
+@test_brace_with_interp tests @brace_with_interp () -> void = {
+    assert_eq(actual: brace_with_interp(x: 5), expected: "{x} = 5")
+}
+
+// =============================================================================
+// Triple-brace interpolation: `{{{x}}}` -> `{` + value + `}` (escape, interp, escape)
+// =============================================================================
+
+@brace_triple (x: int) -> str = `{{{x}}}`;
+
+@test_brace_triple tests @brace_triple () -> void = {
+    assert_eq(actual: brace_triple(x: 7), expected: "{7}")
+}

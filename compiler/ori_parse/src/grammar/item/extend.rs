@@ -1,9 +1,7 @@
 //! Extend block parsing.
 
 use crate::{committed, ParseOutcome, Parser};
-use ori_ir::{
-    ExtendDef, GenericParamRange, ParsedType, ParsedTypeId, ParsedTypeRange, TokenKind, TypeId,
-};
+use ori_ir::{ExtendDef, GenericParamRange, ParsedType, ParsedTypeId, ParsedTypeRange, TokenKind};
 
 impl Parser<'_> {
     /// Parse an extend block.
@@ -56,16 +54,14 @@ impl Parser<'_> {
                 self.cursor.interner().intern("list"),
             )
         } else if self.cursor.check_type_keyword() {
-            // Primitive type keywords: str, int, float, bool, etc.
-            let (ty, type_name_str) = match self.cursor.current_kind() {
-                TokenKind::StrType => (ParsedType::Primitive(TypeId::STR), "str"),
-                TokenKind::IntType => (ParsedType::Primitive(TypeId::INT), "int"),
-                TokenKind::FloatType => (ParsedType::Primitive(TypeId::FLOAT), "float"),
-                TokenKind::BoolType => (ParsedType::Primitive(TypeId::BOOL), "bool"),
-                TokenKind::CharType => (ParsedType::Primitive(TypeId::CHAR), "char"),
-                TokenKind::ByteType => (ParsedType::Primitive(TypeId::BYTE), "byte"),
-                _ => (ParsedType::Infer, "unknown"),
-            };
+            // Primitive type keywords: str, int, float, bool, etc. The shared helper maps the
+            // 6 value-bearing primitives; never/void pass check_type_keyword() but map to None,
+            // preserving the legacy (Infer, "unknown") fallback for those two tokens.
+            let (ty, type_name_str) =
+                crate::grammar::item::generics::primitive_type_keyword(self.cursor.current_kind())
+                    .map_or((ParsedType::Infer, "unknown"), |(id, name)| {
+                        (ParsedType::Primitive(id), name)
+                    });
             self.cursor.advance();
             (ty, self.cursor.interner().intern(type_name_str))
         } else {
@@ -115,7 +111,8 @@ impl Parser<'_> {
 
         let mut methods = Vec::new();
         while !self.cursor.check(&TokenKind::RBrace) && !self.cursor.is_at_end() {
-            let method = committed!(self.parse_impl_method());
+            // Extension methods follow the regular impl method grammar — `uses` clause allowed.
+            let method = committed!(self.parse_impl_method(false));
             methods.push(method);
             self.cursor.skip_newlines();
         }

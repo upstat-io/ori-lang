@@ -187,10 +187,13 @@ fn test_conv_int_to_byte() {
 }
 
 #[test]
-fn test_conv_int_to_byte_truncates() {
-    assert_aot_success(
-        include_str!("fixtures/conversions/conv_int_to_byte_truncates.ori"),
-        "conv_int_to_byte_trunc",
+fn test_conv_int_to_byte_out_of_range_panics() {
+    // Parity with the interpreter: 256 errors ("out of byte range (0-255)")
+    // rather than truncating to 0.
+    assert_cast_panics(
+        include_str!("fixtures/conversions/conv_int_to_byte_out_of_range_panics.ori"),
+        "conv_int_to_byte_oor",
+        "range (0-255)",
     );
 }
 
@@ -385,5 +388,156 @@ fn test_conv_multiple_to_str() {
     assert_aot_success(
         include_str!("fixtures/conversions/conv_multiple_to_str.ori"),
         "conv_multiple_to_str",
+    );
+}
+
+// ─── `as` casts: int -> byte / int -> char (range-checked) ───
+
+/// Panic-expectation helper for range-checked casts: the binary must
+/// terminate via panic (per `util::assert_panic_exit`) and the panic
+/// message must name the cause.
+fn assert_cast_panics(source: &str, test_name: &str, expected_msg: &str) {
+    let (exit_code, _, stderr) = crate::util::compile_and_run_capture(source);
+    crate::util::assert_panic_exit(exit_code, test_name, &stderr);
+    assert!(
+        stderr.contains(expected_msg),
+        "{test_name}: panic message missing '{expected_msg}':\n{stderr}"
+    );
+}
+
+#[test]
+fn test_cast_int_to_byte_boundary_values_round_trip() {
+    assert_aot_success(
+        include_str!("fixtures/conversions/cast_int_byte_round_trip.ori"),
+        "cast_int_byte_round_trip",
+    );
+}
+
+#[test]
+fn test_cast_int_to_byte_above_range_panics() {
+    assert_cast_panics(
+        include_str!("fixtures/conversions/cast_int_byte_above_range_panics.ori"),
+        "cast_int_byte_above_range",
+        "out of range for byte",
+    );
+}
+
+#[test]
+fn test_cast_int_to_byte_negative_panics() {
+    assert_cast_panics(
+        include_str!("fixtures/conversions/cast_int_byte_negative_panics.ori"),
+        "cast_int_byte_negative",
+        "out of range for byte",
+    );
+}
+
+#[test]
+fn test_cast_int_to_char_scalar_boundaries_round_trip() {
+    assert_aot_success(
+        include_str!("fixtures/conversions/cast_int_char_round_trip.ori"),
+        "cast_int_char_round_trip",
+    );
+}
+
+#[test]
+fn test_cast_int_to_char_surrogate_panics() {
+    assert_cast_panics(
+        include_str!("fixtures/conversions/cast_int_char_surrogate_panics.ori"),
+        "cast_int_char_surrogate",
+        "not a valid Unicode codepoint",
+    );
+}
+
+/// 2^32 + 65 wraps to 'A' if validation runs after a u32 truncation;
+/// the check must reject the full i64 value.
+#[test]
+fn test_cast_int_to_char_beyond_u32_panics() {
+    assert_cast_panics(
+        include_str!("fixtures/conversions/cast_int_char_beyond_u32_panics.ori"),
+        "cast_int_char_beyond_u32",
+        "not a valid Unicode codepoint",
+    );
+}
+
+#[test]
+fn test_checked_conversion_panics_are_catchable() {
+    assert_aot_success(
+        include_str!("fixtures/conversions/checked_conversion_panics_are_catchable.ori"),
+        "checked_conversion_panics_are_catchable",
+    );
+}
+
+// ─── checked float -> int (to_int / int()) panic guards ───
+//
+// `to_int` / `int()` are CHECKED conversions: NaN / infinity /
+// out-of-i64-range panic with eval-matching messages (dual-execution
+// parity; raw fptosi would be poison on those inputs). Panic-termination
+// semantics documented on `util::assert_panic_exit`.
+
+use crate::util::{assert_panic_exit, compile_and_run_capture};
+
+#[test]
+fn test_to_int_in_range_truncates_toward_zero() {
+    assert_aot_success(
+        include_str!("fixtures/conversions/to_int_in_range_round_trip.ori"),
+        "to_int_in_range",
+    );
+}
+
+#[test]
+fn test_to_int_nan_panics() {
+    let (exit_code, _stdout, stderr) =
+        compile_and_run_capture(include_str!("fixtures/conversions/to_int_nan_panics.ori"));
+    assert_panic_exit(exit_code, "float.to_int(NaN)", &stderr);
+    assert!(
+        stderr.contains("cannot convert NaN to int"),
+        "panic message should match eval's NaN message, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_to_int_infinity_panics() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/conversions/to_int_infinity_panics.ori"
+    ));
+    assert_panic_exit(exit_code, "float.to_int(inf)", &stderr);
+    assert!(
+        stderr.contains("cannot convert infinity to int"),
+        "panic message should match eval's infinity message, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_to_int_out_of_range_panics() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/conversions/to_int_out_of_range_panics.ori"
+    ));
+    assert_panic_exit(exit_code, "float.to_int(1e30)", &stderr);
+    assert!(
+        stderr.contains("out of range for int"),
+        "panic message should match eval's range message, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_int_function_nan_panics() {
+    let (exit_code, _stdout, stderr) =
+        compile_and_run_capture(include_str!("fixtures/conversions/int_fn_nan_panics.ori"));
+    assert_panic_exit(exit_code, "int(NaN)", &stderr);
+    assert!(
+        stderr.contains("cannot convert NaN to int"),
+        "panic message should match eval's NaN message, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_int_function_out_of_range_panics() {
+    let (exit_code, _stdout, stderr) = compile_and_run_capture(include_str!(
+        "fixtures/conversions/int_fn_out_of_range_panics.ori"
+    ));
+    assert_panic_exit(exit_code, "int(-1e30)", &stderr);
+    assert!(
+        stderr.contains("out of range for int"),
+        "panic message should match eval's range message, got: {stderr}"
     );
 }

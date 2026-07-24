@@ -1,0 +1,3 @@
+// Regular comment
+// #Doc comment
+@main () -> int = 42;

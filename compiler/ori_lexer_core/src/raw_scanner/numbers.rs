@@ -5,6 +5,21 @@
 
 use crate::tag::{RawTag, RawToken};
 
+#[derive(Clone, Copy)]
+enum NumberKind {
+    Integer,
+    Float,
+}
+
+impl NumberKind {
+    const fn raw_tag(self) -> RawTag {
+        match self {
+            Self::Integer => RawTag::Int,
+            Self::Float => RawTag::Float,
+        }
+    }
+}
+
 impl super::RawScanner<'_> {
     #[inline]
     pub(super) fn number(&mut self, start: u32) -> RawToken {
@@ -33,17 +48,17 @@ impl super::RawScanner<'_> {
             self.cursor.advance(); // consume '.'
             self.eat_decimal_digits();
             self.eat_exponent();
-            return self.check_suffix(start, true);
+            return self.check_suffix(start, NumberKind::Float);
         }
 
         // Check for exponent without dot (e.g., 1e5)
         if matches!(self.cursor.current(), b'e' | b'E') {
             self.eat_exponent();
-            return self.check_suffix(start, true);
+            return self.check_suffix(start, NumberKind::Float);
         }
 
         // Integer — check for duration/size suffix
-        self.check_suffix(start, false)
+        self.check_suffix(start, NumberKind::Integer)
     }
 
     fn hex_number(&mut self, start: u32) -> RawToken {
@@ -81,9 +96,8 @@ impl super::RawScanner<'_> {
     }
 
     /// Check for duration/size suffix after a numeric literal.
-    /// `is_float` indicates whether a decimal point was consumed.
-    fn check_suffix(&mut self, start: u32, is_float: bool) -> RawToken {
-        let default_tag = if is_float { RawTag::Float } else { RawTag::Int };
+    fn check_suffix(&mut self, start: u32, number_kind: NumberKind) -> RawToken {
+        let default_tag = number_kind.raw_tag();
 
         match self.cursor.current() {
             // ns, us — 2-char duration suffixes

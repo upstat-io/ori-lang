@@ -14,7 +14,8 @@
 //! Both `ori_eval` (`interpreter/derived_methods.rs`) and `ori_llvm`
 //! (`codegen/derive_codegen/mod.rs`) must exhaustively match these enums.
 //! Adding `#[non_exhaustive]` would allow backends to use `_ =>` catch-all
-//! arms, silently bypassing Rust's compile-time sync enforcement.
+//! arms, silently bypassing the compile-time exhaustive-match check that forces
+//! every backend to handle a new variant.
 //! DO NOT add `#[non_exhaustive]` to `StructBody` or `SumBody`.
 
 /// The high-level strategy for deriving a trait.
@@ -90,9 +91,9 @@ pub enum CombineOp {
     ///
     /// Initial: `Ordering::Equal`. Used by Comparable.
     Lexicographic,
-    /// FNV-1a: `hash = (hash ^ field_hash) * FNV_PRIME`.
+    /// Prelude `hash_combine`: `hash = hash_combine(hash, field_hash)`.
     ///
-    /// Initial: `FNV_OFFSET_BASIS`. Used by Hashable.
+    /// Initial: `0`. Used by Hashable.
     HashCombine,
 }
 

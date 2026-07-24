@@ -14,9 +14,6 @@ use crate::bless;
 use crate::directive::{self, DirectiveLine};
 use crate::revision;
 
-#[cfg(test)]
-mod tests;
-
 // TestStrategy trait
 
 /// Consumer-provided strategy for test execution.
@@ -26,8 +23,8 @@ mod tests;
 /// compiler-specific behavior.
 ///
 /// Implementations:
-/// - `ori_arc` provides `AimsSnapshotStrategy` (§03)
-/// - `ori_llvm` provides `FileCheckStrategy` (§07)
+/// - `ori_arc` provides `AimsSnapshotStrategy`
+/// - `ori_llvm` provides `FileCheckStrategy`
 pub trait TestStrategy {
     /// The type of error this strategy can produce.
     type Error: fmt::Display;
@@ -46,8 +43,8 @@ pub trait TestStrategy {
 
     /// Compare the actual output against expectations.
     ///
-    /// For snapshot tests (§03): compare against baseline files.
-    /// For `FileCheck` tests (§07): match CHECK directives against IR.
+    /// For snapshot tests: compare against baseline files.
+    /// For `FileCheck` tests: match CHECK directives against IR.
     fn verify(
         &self,
         test_path: &Path,
@@ -320,3 +317,6 @@ fn discover_test_files(dir: &Path, errors: &mut Vec<String>) -> Vec<PathBuf> {
     files.sort();
     files
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,0 +1,11 @@
+@main () -> int = {
+    let primary: Option<[int]> = Some([1, 2, 3]);
+    let fallback: Option<[int]> = Some([99]);
+    let pick_primary = true;
+    let chosen = if pick_primary then primary else fallback;
+    let value = match chosen {
+        Some(xs) -> xs,
+        None -> panic(msg: "should be Some"),
+    };
+    if value.len() == 3 then 0 else 1
+}

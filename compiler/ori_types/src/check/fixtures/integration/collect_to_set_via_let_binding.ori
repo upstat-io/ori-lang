@@ -1,0 +1,6 @@
+
+@via_let () -> bool = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    s == s
+}
+@test_via_let tests @via_let () -> void = ();

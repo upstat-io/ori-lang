@@ -1,0 +1,26 @@
+// Diagonal 3: trait-impl method x derived-Debug on a composite. `p.norm()`
+// is the trait-impl method (Norm on Point); `p.debug()` is the derived-Debug
+// method synthesized by derive_codegen over the composite's fields; derived
+// `==` (Eq) compares two instances. Reads stay on scalars + the debug string
+// (`.contains`) — assert_eq on a struct/Option argument is blocked by open
+// BUG-04-191, so the composite is never passed to assert_eq. The printed
+// value is the semantic pin (norm + derived-Eq result + debug-field presence).
+
+#[derive(Eq, Debug)]
+type Point = { x: int, y: int }
+
+trait Norm {
+    @norm (self) -> int
+}
+
+impl Point: Norm {
+    @norm (self) -> int = self.x * self.x + self.y * self.y;
+}
+
+@main () -> void = {
+    let $p = Point { x: 3, y: 4 };
+    let $q = Point { x: 3, y: 4 };
+    let $d = p.debug();
+    let $has_fields = d.contains(substr: "3") && d.contains(substr: "4");
+    print(msg: `{p.norm()} {p == q} {has_fields}`);
+}

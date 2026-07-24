@@ -1,0 +1,5 @@
+
+@p7_id <T> (x: T) -> T = x;
+@p7_wrap <U> (y: U) -> U = p7_id(x: y);
+@p7_caller () -> int = p7_wrap(y: 42);
+@test_p7 tests @p7_caller () -> void = ();

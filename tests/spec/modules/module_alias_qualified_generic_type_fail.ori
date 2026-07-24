@@ -1,0 +1,27 @@
+// Spec: grammar.ebnf `type = type_path [ type_args ]`
+//
+// Negative pins for the generic argument on a module-qualified type path. The
+// argument must reach type checking as an applied argument, not be parsed and
+// discarded: a dropped argument makes `alias.Boxed<int>` and `alias.Boxed<str>`
+// the same type, so a mismatched instantiation would be silently accepted.
+
+use std.testing { assert_eq }
+use "./struct_lib" as geom
+
+@want_int (b: geom.Boxed<int>) -> int = b.item;
+
+@make_str () -> geom.Boxed<str> = geom.Boxed { item: "x" };
+
+// A different instantiation of the same qualified generic -> E2001.
+#compile_fail(code: "E2001")
+@test_qualified_generic_rejects_other_instantiation tests _ () -> void = {
+    let $n = want_int(b: make_str());
+    assert_eq(actual: n, expected: 0)
+}
+
+// A non-generic value against a qualified generic annotation -> E2001.
+#compile_fail(code: "E2001")
+@test_qualified_generic_rejects_non_struct tests _ () -> void = {
+    let $n = want_int(b: 42);
+    assert_eq(actual: n, expected: 0)
+}

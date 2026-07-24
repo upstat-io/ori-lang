@@ -4,26 +4,26 @@
 //! constructor contexts. [`ContextRegion`] describes a region of code where
 //! a self-recursive function builds a constructor in tail context.
 //!
-//! Both types are produced during contract extraction (Section 13.1) and
+//! Both types are produced during contract extraction and
 //! consumed by intraprocedural analysis and the TRMC normalize pass.
 
 /// Constructor-context behavior for TRMC (Stage 3a).
 ///
 /// Describes whether a function preserves/consumes constructor contexts.
-/// Computed from `ContextRegion` metadata during contract extraction
-/// (Section 13.1). Functions without TRMC candidates get `default()`.
+/// Computed from `ContextRegion` metadata during contract extraction.
+/// Functions without TRMC candidates get `default()`.
 ///
 /// When the TRMC rewrite fires (`was_transformed`), the function is
 /// converted to a loop with context block params. The context behavior
 /// then describes the original function's structure (pre-rewrite).
 ///
-/// **Soundness gate (Section 09.2):** In-place TRMC requires the context
+/// **Soundness gate:** In-place TRMC requires the context
 /// variable to be unique (Lemma 2 — unique linear chain). When
 /// `may_resume_nonlinearly == true`, effect handlers could capture the
 /// context non-linearly, breaking uniqueness. The per-variable
 /// `Uniqueness::Unique` gate in `detect_trmc_candidates()` is the enforced
 /// soundness condition; the effect gate is out of scope (blocked on
-/// effect-handler language feature — see Section 13.2).
+/// effect-handler language feature).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[expect(
     clippy::struct_excessive_bools,
@@ -91,9 +91,10 @@ impl ContextBehavior {
 ///
 /// # Soundness (Lemma 2, Leijen & Lorenzen JFP 2025)
 ///
-/// In-place TRMC requires the context variable to be `Unique` (refcount == 1)
-/// at every point between context creation and application. The intraprocedural
-/// analysis verifies this via the converged `Uniqueness` dimension.
+/// In-place TRMC requires the context variable to have exactly one logical
+/// owner at every point between context creation and application. The
+/// intraprocedural analysis verifies this via the converged `Uniqueness`
+/// dimension; physical count representation is outside this contract.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ContextRegion {
     /// Block containing the `Construct` instruction (context open).

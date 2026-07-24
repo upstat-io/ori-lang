@@ -112,36 +112,46 @@ echo -e "${C_BOLD}=== Debug build ===${C_NC}"
 echo -e "${C_DIM}Binary: $ORI_DEBUG${C_NC}"
 
 debug_exit=0
-"$ORI_DEBUG" build "$FILE" -o "$tmpdir/debug_bin" 2>"$tmpdir/debug_build_err.txt" || debug_exit=$?
+"$ORI_DEBUG" build "$FILE" -o "$tmpdir/debug_bin" \
+    >"$tmpdir/debug_build_stdout.txt" 2>"$tmpdir/debug_build_err.txt" || debug_exit=$?
 
 if [[ $debug_exit -ne 0 ]]; then
     echo -e "${C_RED}Debug build failed (exit $debug_exit)${C_NC}"
     cat "$tmpdir/debug_build_err.txt"
     exit 2
 fi
+render_captured_stream "Build stdout" "$tmpdir/debug_build_stdout.txt"
+render_captured_stream "Build stderr" "$tmpdir/debug_build_err.txt"
 
 debug_run_exit=0
 "$tmpdir/debug_bin" >"$tmpdir/debug_stdout.txt" 2>"$tmpdir/debug_stderr.txt" || debug_run_exit=$?
 
 echo -e "  Exit: $debug_run_exit"
+render_captured_stream "Stdout" "$tmpdir/debug_stdout.txt"
+render_captured_stream "Stderr" "$tmpdir/debug_stderr.txt"
 
 # --- Step 2: Release build ---
 echo -e "${C_BOLD}=== Release build ===${C_NC}"
 echo -e "${C_DIM}Binary: $ORI_RELEASE${C_NC}"
 
 release_exit=0
-"$ORI_RELEASE" build "$FILE" -o "$tmpdir/release_bin" 2>"$tmpdir/release_build_err.txt" || release_exit=$?
+"$ORI_RELEASE" build "$FILE" -o "$tmpdir/release_bin" \
+    >"$tmpdir/release_build_stdout.txt" 2>"$tmpdir/release_build_err.txt" || release_exit=$?
 
 if [[ $release_exit -ne 0 ]]; then
     echo -e "${C_RED}Release build failed (exit $release_exit)${C_NC}"
     cat "$tmpdir/release_build_err.txt"
     exit 2
 fi
+render_captured_stream "Build stdout" "$tmpdir/release_build_stdout.txt"
+render_captured_stream "Build stderr" "$tmpdir/release_build_err.txt"
 
 release_run_exit=0
 "$tmpdir/release_bin" >"$tmpdir/release_stdout.txt" 2>"$tmpdir/release_stderr.txt" || release_run_exit=$?
 
 echo -e "  Exit: $release_run_exit"
+render_captured_stream "Stdout" "$tmpdir/release_stdout.txt"
+render_captured_stream "Stderr" "$tmpdir/release_stderr.txt"
 
 # --- Step 3: Compare ---
 echo ""

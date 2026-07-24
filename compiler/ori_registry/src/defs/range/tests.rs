@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn range_method_count() {
-    assert_eq!(RANGE.methods.len(), 8);
+    assert_eq!(RANGE.methods.len(), 11);
 }
 
 #[test]
@@ -34,6 +34,17 @@ fn range_no_operators() {
     assert_eq!(RANGE.operators, OpDefs::UNSUPPORTED);
 }
 
+// Range has no equality operator or method; typechecking dispatches equality
+// through its element type, which justifies the `no_unsupported_eq` exemption.
+#[test]
+fn range_has_no_equals_method() {
+    assert!(
+        !RANGE.methods.iter().any(|m| m.name == "equals"),
+        "Range declares an `equals` method; the no_unsupported_eq Range \
+         exemption is now stale and must be removed"
+    );
+}
+
 #[test]
 fn range_iter_returns_dei() {
     let m = RANGE
@@ -61,6 +72,44 @@ fn range_to_list_and_collect_return_list_of_element() {
             "Range.{name} should return ListOf(Element)"
         );
     }
+}
+
+#[test]
+fn range_eager_higher_order_methods_match_annex_c() {
+    let map = RANGE
+        .methods
+        .iter()
+        .find(|m| m.name == "map")
+        .unwrap_or_else(|| panic!("map method should exist"));
+    assert_eq!(map.params.len(), 1);
+    assert_eq!(map.params[0].name, "transform");
+    assert_eq!(map.params[0].ty, ReturnTag::Fresh);
+    assert_eq!(map.params[0].ownership, Ownership::Borrow);
+    assert_eq!(map.returns, ReturnTag::Fresh);
+
+    let filter = RANGE
+        .methods
+        .iter()
+        .find(|m| m.name == "filter")
+        .unwrap_or_else(|| panic!("filter method should exist"));
+    assert_eq!(filter.params.len(), 1);
+    assert_eq!(filter.params[0].name, "predicate");
+    assert_eq!(filter.params[0].ty, ReturnTag::Fresh);
+    assert_eq!(filter.params[0].ownership, Ownership::Borrow);
+    assert_eq!(filter.returns, ReturnTag::ListOf(TypeProjection::Element));
+
+    let fold = RANGE
+        .methods
+        .iter()
+        .find(|m| m.name == "fold")
+        .unwrap_or_else(|| panic!("fold method should exist"));
+    assert_eq!(fold.params.len(), 2);
+    assert_eq!(fold.params[0].name, "initial");
+    assert_eq!(fold.params[1].name, "op");
+    assert!(fold.params.iter().all(|param| param.ty == ReturnTag::Fresh));
+    assert_eq!(fold.params[0].ownership, Ownership::Owned);
+    assert_eq!(fold.params[1].ownership, Ownership::Borrow);
+    assert_eq!(fold.returns, ReturnTag::Fresh);
 }
 
 #[test]

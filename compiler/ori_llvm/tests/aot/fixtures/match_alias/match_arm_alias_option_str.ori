@@ -1,0 +1,14 @@
+@maybe_message (have: bool) -> Option<str> = {
+    if have then Some("present_value_with_heap_payload") else None
+}
+
+@main () -> int = {
+    let result = maybe_message(have: true);
+    let value = match result {
+        Some(s) -> s,
+        None -> "fallback_value",
+    };
+    let h = value.contains(substr: "present");
+    let p = value.contains(substr: "payload");
+    if h && p then 0 else 1
+}

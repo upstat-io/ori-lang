@@ -48,7 +48,7 @@ fn test_pattern_or_in_loop() {
 // ─── Guard clauses ───
 
 #[test]
-fn test_pattern_guard_basic() {
+fn test_pattern_guard_selects_first_passing_arm() {
     assert_aot_success(
         include_str!("fixtures/patterns/pattern_guard_basic.ori"),
         "pattern_guard_basic",
@@ -82,7 +82,7 @@ fn test_pattern_guard_in_loop() {
 // ─── Tuple patterns in match ───
 
 #[test]
-fn test_pattern_tuple_basic() {
+fn test_pattern_tuple_first_matching_arm_binds() {
     assert_aot_success(
         include_str!("fixtures/patterns/pattern_tuple_basic.ori"),
         "pattern_tuple_basic",

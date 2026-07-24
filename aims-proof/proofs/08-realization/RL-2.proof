@@ -1,0 +1,153 @@
+Theorem RL-2: RC dec at last use / scope exit; ownership-transfer exclusion; unused-owned cleanup
+
+  Preconditions:
+    - RcInc/RcDec and refcount are historical carrier terms for logical
+      owner-credit/release events and their running balance; this theorem does
+      not prescribe a physical counter
+    - RL-2 governs logical release realization per Annex E §AIMS:
+      "A release SHALL be realized at last use of an owned value or scope exit,
+      UNLESS the last use is ownership-transferring (Return, Construct /
+      Reuse / CollectionReuse arg, Set value, PartialApply capture, Apply /
+      Invoke to an Owned param, Jump arg per the RL-4 exemption, Apply /
+      Invoke to an iter-consuming param). RL-2 includes UNUSED owned
+      non-scalar values (Dead / Absent) -> immediate RcDec at definition."
+    - An iter-consuming param transfers ownership inward despite a Borrowed
+      parameter contract: a collection passed at a borrowed terminator
+      Invoke arg to a callee that iter-consumes it (`for x in coll`
+      lowering -> `@iter` [owned] -> `ori_iter_drop` frees the collection
+      inside the callee) is released by the callee's iterator machinery, so
+      the caller emits NO dec. The distinction from a borrow-read
+      (`xs.fold(..)`, does not free -> caller decs) is the proof basis: one
+      terminal-use kind cannot yield both verdicts, so the iter-consuming
+      kind is a DISTINCT transfer kind.
+    - Iter-consume AND transfer-through-return OVERLAP: an owned param both
+      iter-consumed via an inline `@iter(arg [own])` call AND transferred
+      through the function's OWN Return (`@f(x) = { let _ = x.iter().count();
+      x }`) is a distinct shape. The iter-consume frees the param, but the
+      param ALSO survives as the Return value. The base walk's premature
+      normal-path source dec (the [burden_inc, burden_dec] pair before
+      `@iter`) frees the param before the Return -> caller UAF. The keep-alive
+      burden_inc is correct (funds the iter-consume); ONLY the normal-path
+      source burden_dec is the over-emission. The cure strips the normal-path
+      source dec on a transfers_through_return AND Owned param that is
+      iter-consumed-and-returned, keeping the keep-alive inc and the
+      unwind-path decs. Exactly one keep-alive inc is necessary and
+      sufficient: zero incs nets the returned allocation to refcount 0 (UAF),
+      one inc restores the live +1.
+    - Signature ArcFunction x AimsStateMap -> ArcFunction per
+      the canonical proof notation:264; discharged against the sec-01
+      Realization.proof sorry obligation.
+    - The ownership-transfer exclusion list is the shipped predicate
+      emit_rc/helpers.rs::is_ownership_transfer; last-use dec emission is
+      realize/walk_dec.rs; unused-owned definitional cleanup is
+      emit_rc/dead_cleanup/mod.rs (emit_dead_invoke_dsts +
+      emit_dead_at_entry_decs). All routed through
+      realize/mod.rs::realize_rc_reuse Sub-step B (line 140).
+    - SetTag is NOT in the exclusion list — it has no value operand
+      (Annex E §AIMS RL-2).
+    - RL-2 states logical ownership-transfer and release obligations
+      independently of physical placement or metadata. A validated target
+      may omit or coalesce physical operations only when RL-18 Satisfies and
+      RL-18a trace parity preserve the exact OwnershipObservationFacts and
+      CleanupObligation identities. This proof reasons over that logical
+      release contract.
+    - DP-2 (is_rc_dec_unnecessary, Appendix C) gates SUPPLEMENTARY decs only
+      (Cardinality = Absent OR Consumption = Dead); the terminal RL-2 /
+      RL-4 / RL-5 emissions and the definitional cleanup dec own their own
+      logic and are NOT suppressed by DP-2 (Annex E §AIMS DP-2 note +
+      sec-8 RL-1 "DP-2 does NOT suppress definitional cleanup dec").
+
+  Soundness property:
+    Forall owned non-scalar value v created with one logical ownership
+    credit:
+
+      (P1) Emission decision: at v's terminal use, RL-2 emits an RcDec iff
+           the use is NOT ownership-transferring (per
+           is_ownership_transfer). An ownership-transferring use hands off
+           v's reference to the consumer, which inherits the dec
+           obligation; emitting a dec there would double-release. An unused
+           owned non-scalar (Dead / Absent) receives an immediate cleanup
+           dec at definition.
+
+      (P2) Count-event preservation: every owned non-scalar value's initial
+           logical credit is discharged exactly once — by an RL-2 last-use
+           dec, an RL-2 definitional cleanup dec, an RL-4 edge dec, OR an
+           ownership handoff to a consumer. The net logical count returns
+           to 0. Physical counting and reclamation are projection choices.
+
+    RL-2 preserves canonical evaluator behavior and exact event balance: an
+    ownership-transferring use hands off the existing credit rather than
+    releasing and recreating it.
+
+  Proof obligation:
+    Constructive discharge by the rc_counting engine.
+
+    Part (P1) — terminal-use decision (cross-check against
+    is_ownership_transfer):
+
+      The verifier enumerates the terminal-use kinds and asserts RL-2's
+      emit-dec decision equals NOT rl2_use_transfers_ownership(kind):
+        Return / ConstructArg / ReuseArg / CollectionReuseArg / SetValue /
+        PartialApplyCapture / ApplyToOwnedParam / JumpArg /
+        ApplyToIterConsumingParam
+                                              -> NO dec (ownership transfers)
+        LastReadBeforeScopeExit / ScopeExit / ApplyToBorrowedParam
+                                              -> dec emitted (terminal,
+                                                 non-transfer)
+      Coverage gate: 12 use decisions (9 transfer + 3 non-transfer). The
+      RL-2 exclusion list must match the shipped is_ownership_transfer
+      exactly; any divergence fails the proof. The iter-consume GAP
+      (ApplyToBorrowedParam alone cannot split the caller-dec and
+      no-caller-dec verdicts) and the iter-consuming-kind soundness (a
+      transfer kind -> caller emits no dec; the callee's ori_iter_drop
+      releases) are discharged by the Lean mirror theorems
+      RL2_iter_consuming_no_caller_dec, RL2_borrowed_param_emits_caller_dec,
+      and RL2_iter_consuming_caller_dec_splits.
+
+    Part (P2) — RC-count preservation (balance ledger):
+
+      Sound lifecycles discharged (net = 0):
+        last_use_dec_balanced — alloc, dec at last use.
+        ownership_transfer_no_dec_balanced — alloc, ownership transfers out,
+                                             no dec.
+        unused_owned_cleanup_dec_balanced — alloc, immediate cleanup dec on
+                                             an unused owned non-scalar.
+        iter_consume_return_overlap_cured — an owned param both iter-consumed
+                                            via `@iter [own]` AND transferred
+                                            through the function's own Return:
+                                            alloc(+1), keep-alive inc(+1),
+                                            iter-drop(-1) leaves the returned
+                                            value at +1; the caller's
+                                            scope-exit dec(-1) is the single
+                                            release. Net = 0.
+
+    Negative-direction witnesses (REJECTED):
+      NEG_dec_after_transfer_double_free — emitting a dec AFTER an ownership
+                                           transfer: net = -1 (double-free).
+                                           Rejected.
+      NEG_unused_owned_no_cleanup_leaks — an unused owned value with no
+                                           cleanup dec: net = +1 (leak).
+                                           Rejected.
+      NEG_iter_consume_return_overlap_gap — keeping the premature normal-path
+                                            source dec on an iter-consumed-and-
+                                            returned param: alloc(+1),
+                                            keep-alive inc(+1), source dec(-1),
+                                            iter-drop(-1) nets the returned
+                                            value to refcount 0 — a freed
+                                            allocation handed to the caller
+                                            (UAF). Rejected.
+      Coverage gate: 7 ledger cases (4 sound + 3 negative witnesses).
+
+    Engines dispatched:
+      rc_counting (PRIMARY — section_08::verify_rl2_dec_at_last_use;
+        terminal-use decision cross-check against the ownership-transfer
+        model + RC-balance ledger; emits Fail on a balance violation or an
+        exclusion-list divergence)
+      refinement (SECONDARY — gracious-accept per the coverage-manifest RL
+        row)
+      case_analysis (SECONDARY — gracious-accept per the coverage-manifest
+        RL row)
+
+  Expected:
+    status: valid
+    reason: section_08 rc_counting engine discharges RL-2 via (P1) the terminal-use dec decision cross-checked against the is_ownership_transfer exclusion list over a 12-row grid (9 transfer + 3 non-transfer, the 9th transfer kind being ApplyToIterConsumingParam) and (P2) the RC-count-preservation balance ledger (3 sound lifecycles + 2 negative-direction witnesses covering double-free and leak), grounded in the shipped realize/walk_dec.rs + emit_rc/helpers.rs is_ownership_transfer + emit_rc/dead_cleanup emission sites

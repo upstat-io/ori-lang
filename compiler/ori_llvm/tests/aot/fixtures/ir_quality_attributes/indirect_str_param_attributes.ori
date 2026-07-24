@@ -1,0 +1,7 @@
+
+@greet (name: str) -> str = `Hello, {name}`;
+
+@main () -> void = {
+    let msg = greet(name: "world");
+    print(msg: msg)
+}

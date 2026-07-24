@@ -1,0 +1,13 @@
+@count_loop<T> (c: Set<T>) -> int = {
+    let total = 0;
+    for x in c do {
+        total = total + 1
+    };
+    total
+}
+
+@main () -> int = {
+    let s: Set<int> = [1, 2, 3, 4].iter().collect();
+    let n = count_loop(c: s);
+    if n == 4 then 0 else 1
+}

@@ -1,0 +1,24 @@
+// Whole-value `match`-destructure of a Drop type is the sound consumption
+// form: binding EVERY owned field by value consumes the value exactly once,
+// so the user `@drop` runs exactly once. Typeck MUST accept.
+//
+// Spec: drop-trait-proposal.md §Execution Timing — the compiler walks owned
+// fields in reverse declaration order AFTER the user `@drop` body; a
+// whole-value destructure leaves no residual carrying the drop glue.
+
+use std.testing { assert_eq }
+
+type Pair = { a: int, b: int }
+
+impl Pair: Drop {
+    @drop (self) -> void = ();
+}
+
+@sum_fields (p: Pair) -> int = match p {
+    Pair { a, b } -> a + b,
+};
+
+@test_whole_value_destructure_accepted tests @sum_fields () -> void = {
+    let $p = Pair { a: 3, b: 4 };
+    assert_eq(actual: sum_fields(p: p), expected: 7)
+};

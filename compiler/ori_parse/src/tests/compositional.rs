@@ -338,6 +338,70 @@ mod expression_context {
         );
     }
 
+    // Qualified struct literals `module.Type { .. }`. The grammar defines
+    // `struct_literal = type_path "{" ...` with `type_path = identifier
+    // { "." identifier }`, so a dotted head before `{` is grammar-valid; these
+    // pin that the `PostfixOp::StructLit` arm accepts a whole `type_path` head,
+    // not a bare `Ident` alone.
+
+    #[test]
+    fn test_qualified_struct_literal_parses() {
+        // Single-dot qualified head: `geom.P { x: 1 }`.
+        let result = parse_source("@test () -> int = geom.P { x: 1 }.x;");
+        assert!(
+            !result.has_errors(),
+            "Qualified struct literal `geom.P {{ x: 1 }}` should parse; errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_multi_segment_qualified_struct_literal_parses() {
+        // Multi-dot qualified head: `a.b.P { x: 1 }`.
+        let result = parse_source("@test () -> int = a.b.P { x: 1 }.x;");
+        assert!(
+            !result.has_errors(),
+            "Multi-segment qualified struct literal `a.b.P {{ x: 1 }}` should parse; errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_qualified_struct_literal_spread_parses() {
+        // Qualified head with spread: `geom.P { ...base, x: 1 }`.
+        let result = parse_source("@test () -> int = geom.P { ...base, x: 1 }.x;");
+        assert!(
+            !result.has_errors(),
+            "Qualified struct-literal spread `geom.P {{ ...base, x: 1 }}` should parse; errors: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn test_qualified_struct_literal_in_if_condition_still_suppressed() {
+        // FLOW-123 clamp: a dotted head followed by `{` in `if`-CONDITION
+        // position must STAY suppressed (NO_STRUCT_LIT), exactly like the
+        // bare-name form above — the fix must not re-open the block ambiguity.
+        let result = parse_source("@test () -> int = if geom.P { x: 1 }.x > 0 then 1 else 0;");
+        assert!(
+            result.has_errors(),
+            "Qualified struct literal in if condition must stay suppressed (FLOW-123)"
+        );
+    }
+
+    #[test]
+    fn test_multi_segment_type_annotation_parses() {
+        // `type_path = identifier { "." identifier }` admits N segments, so
+        // `parse_named_type` consumes every dotted segment in annotation
+        // position, nesting one `AssociatedType` per segment.
+        let result = parse_source("@test () -> a.b.C = todo();");
+        assert!(
+            !result.has_errors(),
+            "Multi-segment type path `a.b.C` in annotation position should parse; errors: {:?}",
+            result.errors
+        );
+    }
+
     #[test]
     fn test_lambda_contexts() {
         let lambdas = &[
@@ -563,7 +627,7 @@ mod mixed_declarations {
             // Impl with where clause
             "impl<T> Box<T> where T: Clone { @clone_inner (self) -> T = self.value.clone(); }",
             // Trait impl for generic type
-            "impl<T: Clone> Clone for Box<T> { @clone (self) -> Self = Box { value: self.value.clone() } }",
+            "impl<T: Clone> Box<T>: Clone { @clone (self) -> Self = Box { value: self.value.clone() } }",
             // Impl with multiple bounds
             "impl<T: Eq + Hashable> Box<T> { @hash_value (self) -> int = self.value.hash(); }",
             // Impl for nested generic
@@ -646,8 +710,9 @@ mod mixed_declarations {
             "#skip(\"not implemented\")\n@test_something tests @target () -> void = ();",
             // Multiple attributes
             "#derive(Eq)\n#derive(Clone)\ntype Data = { value: int }",
-            // Compile fail attribute
-            "#compile_fail(\"type error\")\n@bad () -> int = \"not an int\";",
+            // Compile fail attribute (test-only attr requires a `tests` host —
+            // a plain-function host is rejected at parse time)
+            "#compile_fail(\"type error\")\n@bad tests _ () -> void = { () }",
             // Fail attribute
             "#fail(\"expected panic\")\n@test_panic tests @target () -> void = panic(msg: \"oops\");",
         ];
@@ -1206,7 +1271,7 @@ mod mixed_expressions {
 
     #[test]
     fn test_unsafe_requires_block() {
-        // Parenthesized form is no longer valid
+        // Parenthesized form is rejected; `unsafe` requires a block body.
         let result = parse_source("@test () -> int = unsafe(42);");
         assert!(
             result.has_errors(),

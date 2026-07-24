@@ -1,0 +1,17 @@
+// Derived Comparable + Hashable over a Result field.
+// Returns 0 only when the Result field actually participates in compare + hash.
+// If the Result field fails to participate (compare->Equal, hash->0) every
+// check collapses, so the program returns 1 and assert_aot_success fails.
+#[derive(Eq, Comparable, Hashable)]
+type ResHolder = { tag: int, r: Result<int, int> }
+
+@main () -> int = {
+    let a = ResHolder { tag: 0, r: Ok(1) };
+    let b = ResHolder { tag: 0, r: Ok(2) };
+    let c = ResHolder { tag: 0, r: Err(0) };
+    if a.compare(other: b).is_less()
+        && a.compare(other: c).is_less()
+        && a.hash() != b.hash()
+        && a.hash() != c.hash()
+    then 0 else 1
+}

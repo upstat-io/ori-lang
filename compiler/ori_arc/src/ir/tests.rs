@@ -45,7 +45,17 @@ fn arc_var_id_ordering() {
 #[test]
 fn id_sizes() {
     assert_eq!(mem::size_of::<ArcVarId>(), 4);
+    assert_eq!(mem::size_of::<Option<ArcVarId>>(), 4);
     assert_eq!(mem::size_of::<ArcBlockId>(), 4);
+    assert_eq!(mem::size_of::<Option<ArcBlockId>>(), 4);
+}
+
+#[test]
+fn invalid_ids_preserve_the_raw_sentinel() {
+    assert_eq!(ArcVarId::INVALID.raw(), u32::MAX);
+    assert_eq!(ArcVarId::new(u32::MAX), ArcVarId::INVALID);
+    assert_eq!(ArcBlockId::INVALID.raw(), u32::MAX);
+    assert_eq!(ArcBlockId::new(u32::MAX), ArcBlockId::INVALID);
 }
 
 // LitValue
@@ -214,6 +224,7 @@ fn instr_apply() {
         func: Name::from_raw(10),
         args: vec![ArcVarId::new(0)],
         arg_ownership: vec![ArgOwnership::Owned],
+        mono_instance_id: None,
     };
     assert!(matches!(instr, ArcInstr::Apply { .. }));
 }
@@ -255,10 +266,12 @@ fn instr_rc_ops() {
         var: ArcVarId::new(0),
         count: 2,
         strategy: RcStrategy::HeapPointer,
+        atomicity: RcAtomicity::default_atomic(),
     };
     let dec = ArcInstr::RcDec {
         var: ArcVarId::new(0),
         strategy: RcStrategy::HeapPointer,
+        atomicity: RcAtomicity::default_atomic(),
     };
     assert!(matches!(inc, ArcInstr::RcInc { count: 2, .. }));
     assert!(matches!(dec, ArcInstr::RcDec { .. }));
@@ -421,12 +434,17 @@ fn arc_function_var_type_single() {
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::INT],
         var_reprs: Vec::new(),
+        var_rc_strategies: Vec::new(),
         spans: vec![vec![]],
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
+        ..Default::default()
     };
     assert_eq!(func.var_type(ArcVarId::new(0)), Idx::INT);
 }
@@ -463,12 +481,17 @@ fn arc_function_var_type_multiple() {
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::INT, Idx::STR, Idx::BOOL],
         var_reprs: Vec::new(),
+        var_rc_strategies: Vec::new(),
         spans: vec![vec![None]],
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
+        ..Default::default()
     };
     assert_eq!(func.var_type(ArcVarId::new(0)), Idx::INT);
     assert_eq!(func.var_type(ArcVarId::new(1)), Idx::STR);
@@ -495,6 +518,7 @@ fn defined_var_apply() {
         func: Name::from_raw(10),
         args: vec![ArcVarId::new(0)],
         arg_ownership: vec![ArgOwnership::Owned],
+        mono_instance_id: None,
     };
     assert_eq!(instr.defined_var(), Some(ArcVarId::new(3)));
 }
@@ -569,6 +593,7 @@ fn defined_var_rc_inc_is_none() {
         var: ArcVarId::new(0),
         count: 1,
         strategy: RcStrategy::HeapPointer,
+        atomicity: RcAtomicity::default_atomic(),
     };
     assert_eq!(instr.defined_var(), None);
 }
@@ -578,8 +603,167 @@ fn defined_var_rc_dec_is_none() {
     let instr = ArcInstr::RcDec {
         var: ArcVarId::new(0),
         strategy: RcStrategy::HeapPointer,
+        atomicity: RcAtomicity::default_atomic(),
     };
     assert_eq!(instr.defined_var(), None);
+}
+
+// BurdenInc / BurdenDec — trivial Phase 5 burden markers.
+
+#[test]
+fn defined_var_burden_inc_is_none() {
+    let instr = ArcInstr::BurdenInc {
+        var: ArcVarId::new(0),
+    };
+    assert_eq!(instr.defined_var(), None);
+}
+
+#[test]
+fn defined_var_burden_dec_is_none() {
+    let instr = ArcInstr::BurdenDec {
+        var: ArcVarId::new(0),
+    };
+    assert_eq!(instr.defined_var(), None);
+}
+
+#[test]
+fn used_vars_burden_inc() {
+    let instr = ArcInstr::BurdenInc {
+        var: ArcVarId::new(7),
+    };
+    assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(7)]);
+}
+
+#[test]
+fn used_vars_burden_dec() {
+    let instr = ArcInstr::BurdenDec {
+        var: ArcVarId::new(11),
+    };
+    assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(11)]);
+}
+
+#[test]
+fn uses_var_burden_inc() {
+    let instr = ArcInstr::BurdenInc {
+        var: ArcVarId::new(3),
+    };
+    assert!(instr.uses_var(ArcVarId::new(3)));
+    assert!(!instr.uses_var(ArcVarId::new(2)));
+    assert!(!instr.uses_var(ArcVarId::new(4)));
+}
+
+#[test]
+fn uses_var_burden_dec() {
+    let instr = ArcInstr::BurdenDec {
+        var: ArcVarId::new(5),
+    };
+    assert!(instr.uses_var(ArcVarId::new(5)));
+    assert!(!instr.uses_var(ArcVarId::new(0)));
+}
+
+/// BurdenInc/BurdenDec are RC-class operations on `var`, NOT transfer
+/// points.: the var is the SUBJECT of the burden op, not an
+/// ownership transfer slot, so `is_owned_position` returns false for
+/// every queried position (mirrors `RcInc` / `RcDec` semantics).
+#[test]
+fn is_owned_position_burden_inc_is_false() {
+    let instr = ArcInstr::BurdenInc {
+        var: ArcVarId::new(0),
+    };
+    assert!(!instr.is_owned_position(0));
+    assert!(!instr.is_owned_position(1));
+    assert!(!instr.is_owned_position(100));
+}
+
+#[test]
+fn is_owned_position_burden_dec_is_false() {
+    let instr = ArcInstr::BurdenDec {
+        var: ArcVarId::new(0),
+    };
+    assert!(!instr.is_owned_position(0));
+    assert!(!instr.is_owned_position(1));
+    assert!(!instr.is_owned_position(100));
+}
+
+#[test]
+fn substitute_var_burden_inc() {
+    let mut instr = ArcInstr::BurdenInc {
+        var: ArcVarId::new(5),
+    };
+    instr.substitute_var(ArcVarId::new(5), ArcVarId::new(42));
+    if let ArcInstr::BurdenInc { var } = &instr {
+        assert_eq!(*var, ArcVarId::new(42));
+    } else {
+        panic!("expected BurdenInc");
+    }
+}
+
+#[test]
+fn substitute_var_burden_dec() {
+    let mut instr = ArcInstr::BurdenDec {
+        var: ArcVarId::new(7),
+    };
+    instr.substitute_var(ArcVarId::new(7), ArcVarId::new(99));
+    if let ArcInstr::BurdenDec { var } = &instr {
+        assert_eq!(*var, ArcVarId::new(99));
+    } else {
+        panic!("expected BurdenDec");
+    }
+}
+
+#[test]
+fn burden_dec_partial_threads_through_consumer_match_arms() {
+    // `BurdenDecPartial { var, skip_fields }` exists as a sibling to
+    // `BurdenDec` and threads through every consumer match-arm ladder
+    // (used_vars / uses_var / is_owned_position / substitute_var /
+    // defined_var / Debug / validator) with semantics identical to
+    // `BurdenDec`, differentiating field-aware partial-drop behavior.
+    //
+    // Pin checks: (a) construction with non-empty skip_fields compiles,
+    // (b) used_vars returns the var (parity with BurdenDec — side-effect-only,
+    // var IS the subject of the burden op), (c) defined_var returns None
+    // (no dst), (d) is_owned_position returns false (parity with BurdenDec;
+    // not a transfer point — fields named in skip_fields were ALREADY moved
+    // out at earlier transfer sites, this is just the partial-drop instruction).
+    let instr = ArcInstr::BurdenDecPartial {
+        var: ArcVarId::new(13),
+        skip_fields: vec![0u32, 2u32],
+    };
+    assert_eq!(instr.defined_var(), None);
+    assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(13)]);
+    assert!(instr.uses_var(ArcVarId::new(13)));
+    assert!(!instr.uses_var(ArcVarId::new(0)));
+    assert!(!instr.is_owned_position(0));
+    assert!(!instr.is_owned_position(1));
+    assert!(!instr.is_owned_position(100));
+}
+
+/// Negative pin: substituting a non-matching old var leaves the
+/// BurdenInc/BurdenDec var field unchanged.
+#[test]
+fn substitute_var_burden_inc_no_match_unchanged() {
+    let mut instr = ArcInstr::BurdenInc {
+        var: ArcVarId::new(5),
+    };
+    instr.substitute_var(ArcVarId::new(6), ArcVarId::new(42));
+    if let ArcInstr::BurdenInc { var } = &instr {
+        assert_eq!(*var, ArcVarId::new(5));
+    } else {
+        panic!("expected BurdenInc");
+    }
+}
+
+#[test]
+fn substitute_var_burden_dec_no_match_unchanged() {
+    let mut instr = ArcInstr::BurdenDec {
+        var: ArcVarId::new(7),
+    };
+    instr.substitute_var(ArcVarId::new(6), ArcVarId::new(42));
+    if let ArcInstr::BurdenDec { var } = &instr {
+        assert_eq!(*var, ArcVarId::new(7));
+    } else {
+        panic!("expected BurdenDec");
+    }
 }
 
 #[test]
@@ -647,6 +831,7 @@ fn used_vars_apply() {
         func: Name::from_raw(10),
         args: vec![ArcVarId::new(0), ArcVarId::new(1)],
         arg_ownership: vec![ArgOwnership::Owned; 2],
+        mono_instance_id: None,
     };
     assert_eq!(
         instr.used_vars().as_slice(),
@@ -700,6 +885,7 @@ fn used_vars_rc_inc() {
         var: ArcVarId::new(3),
         count: 2,
         strategy: RcStrategy::HeapPointer,
+        atomicity: RcAtomicity::default_atomic(),
     };
     assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(3)]);
 }
@@ -709,6 +895,7 @@ fn used_vars_rc_dec() {
     let instr = ArcInstr::RcDec {
         var: ArcVarId::new(7),
         strategy: RcStrategy::HeapPointer,
+        atomicity: RcAtomicity::default_atomic(),
     };
     assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(7)]);
 }
@@ -832,6 +1019,7 @@ fn terminator_used_vars_invoke() {
         func: Name::from_raw(1),
         args: vec![ArcVarId::new(0), ArcVarId::new(1)],
         arg_ownership: vec![ArgOwnership::Owned; 2],
+        mono_instance_id: None,
         normal: ArcBlockId::new(1),
         unwind: ArcBlockId::new(2),
     };
@@ -880,22 +1068,169 @@ fn fresh_var_sequential_ids() {
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::INT],
         var_reprs: Vec::new(),
+        var_rc_strategies: Vec::new(),
         spans: vec![vec![]],
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
+        ..Default::default()
     };
 
-    let v1 = func.fresh_var(Idx::STR);
+    let v1 = func.fresh_unrealized_var(Idx::STR);
     assert_eq!(v1, ArcVarId::new(1));
     assert_eq!(func.var_type(v1), Idx::STR);
 
-    let v2 = func.fresh_var(Idx::BOOL);
+    let v2 = func.fresh_unrealized_var(Idx::BOOL);
     assert_eq!(v2, ArcVarId::new(2));
     assert_eq!(func.var_type(v2), Idx::BOOL);
     assert_eq!(func.var_types.len(), 3);
+}
+
+#[test]
+fn realized_fresh_vars_preserve_all_parallel_metadata() {
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR],
+        var_reprs: vec![ValueRepr::FatValue],
+        var_rc_strategies: vec![Some(RcStrategy::FatPointer)],
+        var_metadata_state: VariableMetadataState::Realized,
+        ..ArcFunction::default()
+    };
+
+    let alias = func.fresh_var_like(ArcVarId::new(0));
+    let scalar = func.fresh_scalar_var(Idx::BOOL);
+
+    assert_eq!(alias, ArcVarId::new(1));
+    assert_eq!(func.var_type(alias), Idx::STR);
+    assert_eq!(func.var_repr(alias), Some(ValueRepr::FatValue));
+    assert_eq!(
+        func.var_rc_strategies[alias.index()],
+        Some(RcStrategy::FatPointer)
+    );
+    assert_eq!(scalar, ArcVarId::new(2));
+    assert_eq!(func.var_repr(scalar), Some(ValueRepr::Scalar));
+    assert_eq!(func.var_rc_strategies[scalar.index()], None);
+    assert_eq!(func.var_types.len(), func.var_reprs.len());
+    assert_eq!(func.var_types.len(), func.var_rc_strategies.len());
+}
+
+#[test]
+fn realized_zero_var_function_allocates_scalar_metadata_atomically() {
+    let mut func = ArcFunction::default();
+    func.replace_realized_variable_metadata(Vec::new(), Vec::new());
+
+    let scalar = func.fresh_scalar_var(Idx::UNIT);
+
+    assert_eq!(scalar, ArcVarId::new(0));
+    assert_eq!(func.var_types, [Idx::UNIT]);
+    assert_eq!(func.var_reprs, [ValueRepr::Scalar]);
+    assert_eq!(func.var_rc_strategies, [None]);
+}
+
+#[test]
+fn representation_ready_allocations_preserve_only_ready_metadata() {
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR],
+        ..ArcFunction::default()
+    };
+    func.replace_variable_representations(vec![ValueRepr::FatValue]);
+
+    let alias = func.fresh_var_like(ArcVarId::new(0));
+    let scalar = func.fresh_scalar_var(Idx::BOOL);
+
+    assert_eq!(
+        func.var_metadata_state,
+        VariableMetadataState::RepresentationsReady
+    );
+    assert_eq!(
+        func.var_reprs,
+        [ValueRepr::FatValue, ValueRepr::FatValue, ValueRepr::Scalar]
+    );
+    assert!(func.var_rc_strategies.is_empty());
+    assert_eq!(func.var_repr(alias), Some(ValueRepr::FatValue));
+    assert_eq!(func.var_repr(scalar), Some(ValueRepr::Scalar));
+}
+
+#[test]
+fn representation_ready_zero_var_state_is_not_unrealized() {
+    let mut func = ArcFunction::default();
+    func.replace_variable_representations(Vec::new());
+
+    assert_eq!(
+        func.var_metadata_state,
+        VariableMetadataState::RepresentationsReady
+    );
+    let scalar = func.fresh_scalar_var(Idx::UNIT);
+    assert_eq!(func.var_repr(scalar), Some(ValueRepr::Scalar));
+    assert!(func.var_rc_strategies.is_empty());
+}
+
+#[test]
+fn type_rewrite_invalidation_clears_ready_derived_metadata() {
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR],
+        ..ArcFunction::default()
+    };
+    func.replace_variable_representations(vec![ValueRepr::FatValue]);
+
+    func.invalidate_variable_metadata_for_type_rewrite();
+
+    assert_eq!(func.var_metadata_state, VariableMetadataState::Unrealized);
+    assert!(func.var_reprs.is_empty());
+    assert!(func.var_rc_strategies.is_empty());
+    assert_eq!(func.var_types, [Idx::STR]);
+}
+
+#[test]
+fn type_rewrite_invalidation_preserves_unrealized_metadata() {
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR],
+        ..ArcFunction::default()
+    };
+
+    func.invalidate_variable_metadata_for_type_rewrite();
+
+    assert_eq!(func.var_metadata_state, VariableMetadataState::Unrealized);
+    assert!(func.var_reprs.is_empty());
+    assert!(func.var_rc_strategies.is_empty());
+}
+
+#[test]
+#[should_panic(expected = "fully realized variable metadata is immutable")]
+fn type_rewrite_invalidation_rejects_realized_metadata() {
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR],
+        ..ArcFunction::default()
+    };
+    func.replace_realized_variable_metadata(
+        vec![ValueRepr::FatValue],
+        vec![Some(RcStrategy::FatPointer)],
+    );
+
+    func.invalidate_variable_metadata_for_type_rewrite();
+}
+
+#[test]
+#[should_panic(expected = "fully realized metadata cannot be downgraded")]
+fn realized_zero_var_metadata_cannot_be_downgraded() {
+    let mut func = ArcFunction::default();
+    func.replace_realized_variable_metadata(Vec::new(), Vec::new());
+    func.replace_variable_representations(Vec::new());
+}
+
+#[test]
+#[should_panic(expected = "metadata-preserving alias type must match")]
+fn typed_metadata_alias_rejects_source_type_mismatch() {
+    let mut func = ArcFunction {
+        var_types: vec![Idx::STR],
+        ..ArcFunction::default()
+    };
+    func.replace_variable_representations(vec![ValueRepr::FatValue]);
+    let _ = func.fresh_var_like_typed(ArcVarId::new(0), Idx::BOOL);
 }
 
 // Serde roundtrip tests (cache feature)
@@ -926,12 +1261,17 @@ fn test_arc_ir_roundtrip() {
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::INT, Idx::INT],
         var_reprs: Vec::new(),
+        var_rc_strategies: Vec::new(),
         spans: vec![vec![Some(ori_ir::Span::new(10, 20))]],
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
+        ..Default::default()
     };
 
     let bytes = bincode::serialize(&func).unwrap_or_else(|e| panic!("serialize failed: {e}"));
@@ -982,6 +1322,7 @@ fn test_arc_ir_all_instr_variants() {
             func: Name::from_raw(10),
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         },
         ArcInstr::ApplyIndirect {
             dst: ArcVarId::new(4),
@@ -1012,10 +1353,12 @@ fn test_arc_ir_all_instr_variants() {
             var: ArcVarId::new(0),
             count: 3,
             strategy: RcStrategy::HeapPointer,
+            atomicity: RcAtomicity::default_atomic(),
         },
         ArcInstr::RcDec {
             var: ArcVarId::new(0),
             strategy: RcStrategy::HeapPointer,
+            atomicity: RcAtomicity::default_atomic(),
         },
         ArcInstr::IsShared {
             dst: ArcVarId::new(8),
@@ -1082,6 +1425,7 @@ fn test_arc_ir_all_terminator_variants() {
             func: Name::from_raw(10),
             args: vec![ArcVarId::new(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
             normal: ArcBlockId::new(1),
             unwind: ArcBlockId::new(2),
         },
@@ -1118,12 +1462,17 @@ fn next_block_id_and_push() {
         entry: ArcBlockId::new(0),
         var_types: vec![],
         var_reprs: Vec::new(),
+        var_rc_strategies: Vec::new(),
         spans: vec![vec![]],
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        primitive_facts: crate::ir::PrimitiveFacts::default(),
         drop_hints: crate::uniqueness::DropHints::default(),
         tail_calls: Vec::new(),
+        burden_emitted: Vec::new(),
+        reassign_deaths: Vec::new(),
+        ..Default::default()
     };
 
     assert_eq!(func.next_block_id(), ArcBlockId::new(1));
@@ -1202,6 +1551,7 @@ fn is_owned_position_apply_respects_arg_ownership() {
         func: Name::new(1, 1),
         args: vec![ArcVarId::new(0), ArcVarId::new(1)],
         arg_ownership: vec![ArgOwnership::Borrowed, ArgOwnership::Owned],
+        mono_instance_id: None,
     };
     assert!(!instr.is_owned_position(0), "borrowed arg is not owned");
     assert!(instr.is_owned_position(1), "owned arg is owned");
@@ -1224,7 +1574,7 @@ fn is_owned_position_construct_all_owned() {
 
 #[test]
 fn is_owned_position_apply_indirect_with_ownership() {
-    // ApplyIndirect used_vars = [closure, ...args] → pos 0 = closure (always borrowed),
+    // ApplyIndirect used_vars = [closure,...args] → pos 0 = closure (always borrowed),
     // pos 1 = args[0], pos 2 = args[1]. arg_ownership parallels args with +1 offset.
     let instr = ArcInstr::ApplyIndirect {
         dst: ArcVarId::new(5),
@@ -1276,7 +1626,7 @@ fn is_owned_position_apply_indirect_out_of_bounds() {
     };
     assert!(!instr.is_owned_position(0), "closure");
     assert!(instr.is_owned_position(1), "args[0] is Owned");
-    assert!(!instr.is_owned_position(2), "beyond args.len()");
+    assert!(!instr.is_owned_position(2), "beyond args.len");
     assert!(!instr.is_owned_position(100), "way beyond");
 }
 
@@ -1284,7 +1634,7 @@ fn is_owned_position_apply_indirect_out_of_bounds() {
 
 #[test]
 fn is_owned_position_invoke_indirect_with_ownership() {
-    // InvokeIndirect used_vars = [closure, ...args] — closure FIRST
+    // InvokeIndirect used_vars = [closure,...args] — closure FIRST
     // (matches ApplyIndirect). pos=0 is closure (always borrowed).
     // arg_ownership[i] corresponds to used_vars position i+1.
     let term = ArcTerminator::InvokeIndirect {
@@ -1334,6 +1684,7 @@ fn is_owned_position_invoke_with_ownership() {
         func: Name::new(1, 1),
         args: vec![ArcVarId::new(0), ArcVarId::new(1)],
         arg_ownership: vec![ArgOwnership::Borrowed, ArgOwnership::Owned],
+        mono_instance_id: None,
         normal: ArcBlockId::new(1),
         unwind: ArcBlockId::new(2),
     };
@@ -1352,8 +1703,42 @@ fn is_owned_position_invoke_empty_defaults_owned() {
         func: Name::new(1, 1),
         args: vec![ArcVarId::new(0)],
         arg_ownership: vec![],
+        mono_instance_id: None,
         normal: ArcBlockId::new(1),
         unwind: ArcBlockId::new(2),
     };
     assert!(term.is_owned_position(0), "empty ownership → default Owned");
+}
+
+#[test]
+fn is_owned_position_reuse_args_owned_token_not() {
+    // Reuse: used_vars() = [token, ...args]. The token at pos 0 is a consumed
+    // scalar reuse token (not an owned RC position); args at 1..=args.len()
+    // are stored into the reused allocation — RL-2 transfers, mirroring
+    // Construct args and CollectionReuse args.
+    let instr = ArcInstr::Reuse {
+        token: ArcVarId::new(10),
+        dst: ArcVarId::new(11),
+        ty: Idx::STR,
+        ctor: CtorKind::Tuple,
+        args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+    };
+    assert!(!instr.is_owned_position(0), "token (pos 0) is not owned");
+    assert!(instr.is_owned_position(1), "first stored arg is owned");
+    assert!(instr.is_owned_position(2), "second stored arg is owned");
+    assert!(!instr.is_owned_position(3), "out of bounds is not owned");
+}
+
+#[test]
+fn is_owned_position_collection_reuse_args_owned_old_var_not() {
+    let instr = ArcInstr::CollectionReuse {
+        old_var: ArcVarId::new(10),
+        dst: ArcVarId::new(11),
+        ty: Idx::STR,
+        ctor: CtorKind::ListLiteral,
+        args: vec![ArcVarId::new(0)],
+    };
+    assert!(!instr.is_owned_position(0), "old_var (pos 0) is not owned");
+    assert!(instr.is_owned_position(1), "stored arg is owned");
+    assert!(!instr.is_owned_position(2), "out of bounds is not owned");
 }

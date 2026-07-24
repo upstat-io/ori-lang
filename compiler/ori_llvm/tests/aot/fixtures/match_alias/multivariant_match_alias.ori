@@ -1,0 +1,17 @@
+type Payload = A(s: str) | B(xs: [int]) | C;
+
+@main () -> int = {
+    let p = A(s: "alpha_payload_with_heap");
+    let len = match p {
+        A(s) -> {
+            let owned = s;
+            owned.len()
+        },
+        B(xs) -> {
+            let owned = xs;
+            owned.len()
+        },
+        C -> 0,
+    };
+    if len == 23 then 0 else 1
+}

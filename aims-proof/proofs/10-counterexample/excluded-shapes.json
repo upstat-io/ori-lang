@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "description": "Intentionally-omitted shapes per §10.1 SC #7. Each entry MUST carry shape_id, exclusion_rationale, proof_anchor (§02-§09 rule ID + proof artifact path), and source citation. Routing per §10.0 Excluded Shapes table: §10 records the omission, NOT a verdict. Coverage proven by cited §02-§09 anchor.",
+  "excluded_shapes": [
+    {
+      "shape_id": "shape-04B.4a-cross-pattern-categories",
+      "source": "docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md cross-pattern evaluation",
+      "exclusion_rationale": "This is an EVALUATION CRITERION (scoped 150s regression matrix run with full burden-construction machinery active), NOT a novel calculus FAILURE SHAPE. The empirical outcome was THREE distinct BUILD BREAKs in the burden-construction machinery (E0061 arity mismatch in burden_lower.rs:240; E0425 cfg-test-gated reference in burden_lattice_smoke.rs:276,281; transitive blocker on cargo stf burden). Build breaks in the impl are CONSTRUCTION-side defects, not shapes the calculus needs to refute — there is no semantic IR for the SMT solver to evaluate. The criterion's spirit ('zero NEW failures introduced by the burden-construction machinery') is operational (regression-matrix execution), not calculus-level (no new IR pattern the proven calculus must cover).",
+      "proof_anchor": {
+        "rule_id": "VF-5",
+        "rule_path": "aims-proof/proofs/09-verification/VF-5.proof",
+        "rule_summary": "Every active subsystem SHALL be end-to-end verified: implementation + invariant enforcement + tests. Missing any = incomplete. Build breaks fall under 'implementation incomplete', not 'calculus admits failure'."
+      },
+      "alternative_coverage_anchor": {
+        "rule_id": "VF-1",
+        "rule_path": "aims-proof/proofs/09-verification/VF-1.proof",
+        "rule_summary": "Layer 1 (Structural) ARC IR well-formedness — well-formedness presupposes a buildable compiler; a non-buildable impl cannot emit ARC IR for verification to run against."
+      }
+    },
+    {
+      "shape_id": "shape-04B.4b-cross-pattern-categories",
+      "source": "docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md cross-pattern evaluation",
+      "exclusion_rationale": "This is the './test-all.sh' EVALUATION CRITERION (full corpus regression). Per the burden-prototype evidence: 'test-all.sh execution NOT attempted because the prior cross-pattern criterion (evaluated immediately prior, same session) confirmed two BUILD BREAK sites'. Same exclusion rationale as the build-break criterion above — this is an evaluation criterion that surfaced a CONSTRUCTION-side build-break, not a calculus shape requiring SMT encoding. No semantic IR exists for the SMT solver to evaluate. The four cross-pattern categories already encoded (mono-pipeline-ordering, under-elim leaks, cross-class UAF, over-elim closure-env) cover the calculus surface; the excluded criteria would re-execute those categories' empirical reproductions, not introduce new shapes.",
+      "proof_anchor": {
+        "rule_id": "VF-5",
+        "rule_path": "aims-proof/proofs/09-verification/VF-5.proof",
+        "rule_summary": "End-to-end verification requires a buildable impl + test execution. The criterion's outcome (transitive build-break blocker) falls outside the calculus's purview — calculus assumes a well-formed ARC IR input."
+      },
+      "shape_overlap_with_encoded_shapes": [
+        "shape-04B.2-mono-pipeline-ordering",
+        "shape-04B.2-under-elimination-leaks",
+        "shape-04B.2-cross-class-uaf",
+        "shape-04B.2-over-elimination-closure-env"
+      ]
+    }
+  ]
+}

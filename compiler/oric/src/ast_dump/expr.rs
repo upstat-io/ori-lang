@@ -2,7 +2,7 @@
 //!
 //! Contains the core dispatch table for all `ExprKind` variants.
 
-use std::fmt::Write;
+use std::fmt::{self, Write};
 
 use ori_ir::ast::{ExprKind, Mutability, Stmt, StmtKind, StructLitField};
 use ori_ir::{ExprArena, ExprId, Name, StringInterner};
@@ -13,10 +13,6 @@ use super::patterns::{dump_binding_pattern, dump_match_pattern, format_label, fo
 ///
 /// This is a dispatch table over all `ExprKind` variants — each arm formats
 /// its variant and recursively dumps child expressions at increased depth.
-#[expect(
-    clippy::too_many_lines,
-    reason = "dispatch table over ~30 ExprKind variants"
-)]
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]
 pub(super) fn dump_expr(
     out: &mut String,
@@ -31,27 +27,100 @@ pub(super) fn dump_expr(
     let indent = "  ".repeat(depth);
     let kind = arena.expr_kind(id);
     match kind {
-        // Literals
-        ExprKind::Int(n) => writeln!(out, "{indent}Int({n})"),
-        ExprKind::Float(bits) => {
-            writeln!(out, "{indent}Float({bits:?})")
+        kind @ (ExprKind::Int(_)
+        | ExprKind::Float(_)
+        | ExprKind::Bool(_)
+        | ExprKind::String(_)
+        | ExprKind::Char(_)
+        | ExprKind::Unit
+        | ExprKind::None
+        | ExprKind::Duration { .. }
+        | ExprKind::Size { .. }
+        | ExprKind::Ident(_)
+        | ExprKind::Const(_)
+        | ExprKind::SelfRef
+        | ExprKind::FunctionRef(_)
+        | ExprKind::HashLength) => dump_leaf(out, kind, interner, &indent),
+
+        kind @ (ExprKind::Binary { .. } | ExprKind::Unary { .. }) => {
+            dump_operator(out, kind, arena, interner, depth, &indent)
         }
-        ExprKind::Bool(b) => writeln!(out, "{indent}Bool({b})"),
-        ExprKind::String(s) => {
-            let val = interner.lookup(*s);
-            writeln!(out, "{indent}String(\"{val}\")")
+        kind @ (ExprKind::Call { .. }
+        | ExprKind::CallNamed { .. }
+        | ExprKind::MethodCall { .. }
+        | ExprKind::MethodCallNamed { .. }) => {
+            dump_call(out, kind, arena, interner, depth, &indent)
         }
-        ExprKind::Char(c) => writeln!(out, "{indent}Char('{c}')"),
-        ExprKind::Unit => writeln!(out, "{indent}Unit"),
-        ExprKind::None => writeln!(out, "{indent}None"),
-        ExprKind::Duration { value, unit } => {
-            writeln!(out, "{indent}Duration({value}{unit:?})")
-        }
-        ExprKind::Size { value, unit } => {
-            writeln!(out, "{indent}Size({value}{unit:?})")
+        kind @ (ExprKind::Field { .. } | ExprKind::Index { .. }) => {
+            dump_access(out, kind, arena, interner, depth, &indent)
         }
 
-        // Identifiers
+        kind @ (ExprKind::If { .. } | ExprKind::Match { .. } | ExprKind::For { .. }) => {
+            dump_branching(out, kind, arena, interner, depth, &indent)
+        }
+        kind @ (ExprKind::Loop { .. }
+        | ExprKind::While { .. }
+        | ExprKind::Break { .. }
+        | ExprKind::Continue { .. }) => {
+            dump_loop_control(out, kind, arena, interner, depth, &indent)
+        }
+
+        kind @ (ExprKind::Block { .. } | ExprKind::Let { .. } | ExprKind::Lambda { .. }) => {
+            dump_binding(out, kind, arena, interner, depth, &indent)
+        }
+
+        kind @ (ExprKind::List(_)
+        | ExprKind::Tuple(_)
+        | ExprKind::Map(_)
+        | ExprKind::Struct { .. }) => {
+            dump_basic_collection(out, kind, arena, interner, depth, &indent)
+        }
+        kind @ (ExprKind::StructWithSpread { .. }
+        | ExprKind::ListWithSpread(_)
+        | ExprKind::MapWithSpread(_)) => {
+            dump_spread_collection(out, kind, arena, interner, depth, &indent)
+        }
+
+        kind
+        @ (ExprKind::Range { .. } | ExprKind::Ok(_) | ExprKind::Err(_) | ExprKind::Some(_)) => {
+            dump_value_form(out, kind, arena, interner, depth, &indent)
+        }
+
+        kind @ (ExprKind::Cast { .. }
+        | ExprKind::Try(_)
+        | ExprKind::Unsafe(_)
+        | ExprKind::Await(_)) => dump_type_operation(out, kind, arena, interner, depth, &indent),
+        kind @ (ExprKind::Assign { .. }
+        | ExprKind::AssignTarget { .. }
+        | ExprKind::WithCapability { .. }) => {
+            dump_effect(out, kind, arena, interner, depth, &indent)
+        }
+
+        kind @ (ExprKind::TemplateFull(_)
+        | ExprKind::TemplateLiteral { .. }
+        | ExprKind::FunctionSeq(_)
+        | ExprKind::FunctionExp(_)
+        | ExprKind::Error) => dump_terminal_form(out, kind, arena, interner, depth, &indent),
+    }
+    .unwrap();
+}
+
+fn dump_leaf(
+    out: &mut String,
+    kind: &ExprKind,
+    interner: &StringInterner,
+    indent: &str,
+) -> fmt::Result {
+    match kind {
+        ExprKind::Int(n) => writeln!(out, "{indent}Int({n})"),
+        ExprKind::Float(bits) => writeln!(out, "{indent}Float({bits:?})"),
+        ExprKind::Bool(value) => writeln!(out, "{indent}Bool({value})"),
+        ExprKind::String(name) => writeln!(out, "{indent}String(\"{}\")", interner.lookup(*name)),
+        ExprKind::Char(value) => writeln!(out, "{indent}Char('{value}')"),
+        ExprKind::Unit => writeln!(out, "{indent}Unit"),
+        ExprKind::None => writeln!(out, "{indent}None"),
+        ExprKind::Duration { value, unit } => writeln!(out, "{indent}Duration({value}{unit:?})"),
+        ExprKind::Size { value, unit } => writeln!(out, "{indent}Size({value}{unit:?})"),
         ExprKind::Ident(name) => writeln!(out, "{indent}Ident({})", interner.lookup(*name)),
         ExprKind::Const(name) => writeln!(out, "{indent}Const(${})", interner.lookup(*name)),
         ExprKind::SelfRef => writeln!(out, "{indent}SelfRef"),
@@ -59,122 +128,162 @@ pub(super) fn dump_expr(
             writeln!(out, "{indent}FunctionRef(@{})", interner.lookup(*name))
         }
         ExprKind::HashLength => writeln!(out, "{indent}HashLength"),
+        _ => unreachable!("leaf dumper called with non-leaf expression"),
+    }
+}
 
-        // Binary / Unary
+fn dump_operator(
+    out: &mut String,
+    kind: &ExprKind,
+    arena: &ExprArena,
+    interner: &StringInterner,
+    depth: usize,
+    indent: &str,
+) -> fmt::Result {
+    match kind {
         ExprKind::Binary { op, left, right } => {
-            writeln!(out, "{indent}Binary({})", op.as_symbol()).unwrap();
+            writeln!(out, "{indent}Binary({})", op.as_symbol())?;
             dump_expr(out, *left, arena, interner, depth + 1);
             dump_expr(out, *right, arena, interner, depth + 1);
-            return;
         }
         ExprKind::Unary { op, operand } => {
-            writeln!(out, "{indent}Unary({})", op.as_symbol()).unwrap();
+            writeln!(out, "{indent}Unary({})", op.as_symbol())?;
             dump_expr(out, *operand, arena, interner, depth + 1);
-            return;
         }
+        _ => unreachable!("operator dumper called with non-operator expression"),
+    }
+    Ok(())
+}
 
-        // Calls
+fn dump_call(
+    out: &mut String,
+    kind: &ExprKind,
+    arena: &ExprArena,
+    interner: &StringInterner,
+    depth: usize,
+    indent: &str,
+) -> fmt::Result {
+    match kind {
         ExprKind::Call { func, args } => {
-            writeln!(out, "{indent}Call").unwrap();
+            writeln!(out, "{indent}Call")?;
             dump_expr(out, *func, arena, interner, depth + 1);
-            for arg_id in arena.get_expr_list(*args) {
-                dump_expr(out, *arg_id, arena, interner, depth + 1);
+            for arg in arena.get_expr_list(*args) {
+                dump_expr(out, *arg, arena, interner, depth + 1);
             }
-            return;
         }
         ExprKind::CallNamed { func, args } => {
-            writeln!(out, "{indent}CallNamed").unwrap();
+            writeln!(out, "{indent}CallNamed")?;
             dump_expr(out, *func, arena, interner, depth + 1);
-            for arg in arena.get_call_args(*args) {
-                let label = arg
-                    .name
-                    .filter(|n| *n != Name::EMPTY)
-                    .map(|n| format!("{}:", interner.lookup(n)))
-                    .unwrap_or_default();
-                writeln!(out, "{indent}  Arg {label}").unwrap();
-                dump_expr(out, arg.value, arena, interner, depth + 2);
-            }
-            return;
+            dump_named_args(out, *args, arena, interner, depth, indent)?;
         }
-
-        // Method calls
         ExprKind::MethodCall {
             receiver,
             method,
             args,
         } => {
-            let method_name = interner.lookup(*method);
-            writeln!(out, "{indent}MethodCall .{method_name}()").unwrap();
+            writeln!(out, "{indent}MethodCall .{}()", interner.lookup(*method))?;
             dump_expr(out, *receiver, arena, interner, depth + 1);
-            for arg_id in arena.get_expr_list(*args) {
-                dump_expr(out, *arg_id, arena, interner, depth + 1);
+            for arg in arena.get_expr_list(*args) {
+                dump_expr(out, *arg, arena, interner, depth + 1);
             }
-            return;
         }
         ExprKind::MethodCallNamed {
             receiver,
             method,
             args,
         } => {
-            let method_name = interner.lookup(*method);
-            writeln!(out, "{indent}MethodCallNamed .{method_name}()").unwrap();
+            writeln!(
+                out,
+                "{indent}MethodCallNamed .{}()",
+                interner.lookup(*method)
+            )?;
             dump_expr(out, *receiver, arena, interner, depth + 1);
-            for arg in arena.get_call_args(*args) {
-                let label = arg
-                    .name
-                    .filter(|n| *n != Name::EMPTY)
-                    .map(|n| format!("{}:", interner.lookup(n)))
-                    .unwrap_or_default();
-                writeln!(out, "{indent}  Arg {label}").unwrap();
-                dump_expr(out, arg.value, arena, interner, depth + 2);
-            }
-            return;
+            dump_named_args(out, *args, arena, interner, depth, indent)?;
         }
+        _ => unreachable!("call dumper called with non-call expression"),
+    }
+    Ok(())
+}
 
-        // Field / Index
+fn dump_named_args(
+    out: &mut String,
+    args: ori_ir::CallArgRange,
+    arena: &ExprArena,
+    interner: &StringInterner,
+    depth: usize,
+    indent: &str,
+) -> fmt::Result {
+    for arg in arena.get_call_args(args) {
+        let label = arg
+            .name
+            .filter(|name| *name != Name::EMPTY)
+            .map(|name| format!("{}:", interner.lookup(name)))
+            .unwrap_or_default();
+        writeln!(out, "{indent}  Arg {label}")?;
+        dump_expr(out, arg.value, arena, interner, depth + 2);
+    }
+    Ok(())
+}
+
+fn dump_access(
+    out: &mut String,
+    kind: &ExprKind,
+    arena: &ExprArena,
+    interner: &StringInterner,
+    depth: usize,
+    indent: &str,
+) -> fmt::Result {
+    match kind {
         ExprKind::Field { receiver, field } => {
-            let field_name = interner.lookup(*field);
-            writeln!(out, "{indent}Field .{field_name}").unwrap();
+            writeln!(out, "{indent}Field .{}", interner.lookup(*field))?;
             dump_expr(out, *receiver, arena, interner, depth + 1);
-            return;
         }
         ExprKind::Index { receiver, index } => {
-            writeln!(out, "{indent}Index").unwrap();
+            writeln!(out, "{indent}Index")?;
             dump_expr(out, *receiver, arena, interner, depth + 1);
             dump_expr(out, *index, arena, interner, depth + 1);
-            return;
         }
+        _ => unreachable!("access dumper called with non-access expression"),
+    }
+    Ok(())
+}
 
-        // Control flow
+fn dump_branching(
+    out: &mut String,
+    kind: &ExprKind,
+    arena: &ExprArena,
+    interner: &StringInterner,
+    depth: usize,
+    indent: &str,
+) -> fmt::Result {
+    match kind {
         ExprKind::If {
             cond,
             then_branch,
             else_branch,
         } => {
-            writeln!(out, "{indent}If").unwrap();
+            writeln!(out, "{indent}If")?;
             dump_expr(out, *cond, arena, interner, depth + 1);
-            writeln!(out, "{indent}  Then").unwrap();
+            writeln!(out, "{indent}  Then")?;
             dump_expr(out, *then_branch, arena, interner, depth + 2);
             if else_branch.is_present() {
-                writeln!(out, "{indent}  Else").unwrap();
+                writeln!(out, "{indent}  Else")?;
                 dump_expr(out, *else_branch, arena, interner, depth + 2);
             }
-            return;
         }
         ExprKind::Match { scrutinee, arms } => {
-            writeln!(out, "{indent}Match").unwrap();
+            writeln!(out, "{indent}Match")?;
             dump_expr(out, *scrutinee, arena, interner, depth + 1);
             for arm in arena.get_arms(*arms) {
-                write!(out, "{indent}  Arm ").unwrap();
+                write!(out, "{indent}  Arm ")?;
                 dump_match_pattern(out, &arm.pattern, arena, interner);
-                writeln!(out).unwrap();
+                writeln!(out)?;
                 if let Some(guard) = arm.guard {
-                    writeln!(out, "{indent}    Guard").unwrap();
+                    writeln!(out, "{indent}    Guard")?;
                     dump_expr(out, guard, arena, interner, depth + 3);
                 }
                 dump_expr(out, arm.body, arena, interner, depth + 2);
             }
-            return;
         }
         ExprKind::For {
             label,
@@ -184,50 +293,73 @@ pub(super) fn dump_expr(
             body,
             is_yield,
         } => {
-            let label_str = format_label(*label, interner);
-            let yield_str = if *is_yield { " yield" } else { "" };
-            write!(out, "{indent}For{label_str}{yield_str} ").unwrap();
+            let label = format_label(*label, interner);
+            let yield_marker = if *is_yield { " yield" } else { "" };
+            write!(out, "{indent}For{label}{yield_marker} ")?;
             dump_binding_pattern(out, arena.get_binding_pattern(*pattern), interner);
-            writeln!(out, " in").unwrap();
+            writeln!(out, " in")?;
             dump_expr(out, *iter, arena, interner, depth + 1);
             if guard.is_present() {
-                writeln!(out, "{indent}  Guard").unwrap();
+                writeln!(out, "{indent}  Guard")?;
                 dump_expr(out, *guard, arena, interner, depth + 2);
             }
             dump_expr(out, *body, arena, interner, depth + 1);
-            return;
         }
+        _ => unreachable!("branch dumper called with non-branching expression"),
+    }
+    Ok(())
+}
+
+fn dump_loop_control(
+    out: &mut String,
+    kind: &ExprKind,
+    arena: &ExprArena,
+    interner: &StringInterner,
+    depth: usize,
+    indent: &str,
+) -> fmt::Result {
+    match kind {
         ExprKind::Loop { label, body } => {
-            let label_str = format_label(*label, interner);
-            writeln!(out, "{indent}Loop{label_str}").unwrap();
+            writeln!(out, "{indent}Loop{}", format_label(*label, interner))?;
             dump_expr(out, *body, arena, interner, depth + 1);
-            return;
+        }
+        ExprKind::While { label, cond, body } => {
+            writeln!(out, "{indent}While{}", format_label(*label, interner))?;
+            dump_expr(out, *cond, arena, interner, depth + 1);
+            dump_expr(out, *body, arena, interner, depth + 1);
         }
         ExprKind::Break { label, value } => {
-            let label_str = format_label(*label, interner);
-            writeln!(out, "{indent}Break{label_str}").unwrap();
+            writeln!(out, "{indent}Break{}", format_label(*label, interner))?;
             if value.is_present() {
                 dump_expr(out, *value, arena, interner, depth + 1);
             }
-            return;
         }
         ExprKind::Continue { label, value } => {
-            let label_str = format_label(*label, interner);
-            writeln!(out, "{indent}Continue{label_str}").unwrap();
+            writeln!(out, "{indent}Continue{}", format_label(*label, interner))?;
             if value.is_present() {
                 dump_expr(out, *value, arena, interner, depth + 1);
             }
-            return;
         }
+        _ => unreachable!("loop dumper called with non-loop expression"),
+    }
+    Ok(())
+}
 
-        // Blocks and bindings
+fn dump_binding(
+    out: &mut String,
+    kind: &ExprKind,
+    arena: &ExprArena,
+    interner: &StringInterner,
+    depth: usize,
+    indent: &str,
+) -> fmt::Result {
+    match kind {
         ExprKind::Block { stmts, result } => {
-            writeln!(out, "{indent}Block").unwrap();
+            writeln!(out, "{indent}Block")?;
             dump_stmts(out, *stmts, arena, interner, depth + 1);
             if result.is_present() {
                 dump_expr(out, *result, arena, interner, depth + 1);
             }
-            return;
         }
         ExprKind::Let {
             pattern,
@@ -235,142 +367,170 @@ pub(super) fn dump_expr(
             init,
             mutable,
         } => {
-            let mut_str = match mutable {
+            let mutability = match mutable {
                 Mutability::Immutable => "$",
                 Mutability::Mutable => "",
             };
-            write!(out, "{indent}Let {mut_str}").unwrap();
+            write!(out, "{indent}Let {mutability}")?;
             dump_binding_pattern(out, arena.get_binding_pattern(*pattern), interner);
             if ty.is_valid() {
                 let parsed_ty = arena.get_parsed_type(*ty);
-                write!(out, ": {}", format_parsed_type(parsed_ty, arena, interner)).unwrap();
+                write!(out, ": {}", format_parsed_type(parsed_ty, arena, interner))?;
             }
-            writeln!(out, " =").unwrap();
+            writeln!(out, " =")?;
             dump_expr(out, *init, arena, interner, depth + 1);
-            return;
         }
         ExprKind::Lambda {
             params,
             ret_ty,
             body,
         } => {
-            let param_list: Vec<String> = arena
+            let params: Vec<_> = arena
                 .get_params(*params)
                 .iter()
-                .map(|p| interner.lookup(p.name).to_string())
+                .map(|param| interner.lookup(param.name))
                 .collect();
-            let ret = if ret_ty.is_valid() {
+            let return_type = if ret_ty.is_valid() {
                 let ty = arena.get_parsed_type(*ret_ty);
                 format!(" -> {}", format_parsed_type(ty, arena, interner))
             } else {
                 String::new()
             };
-            writeln!(out, "{indent}Lambda ({}){ret}", param_list.join(", ")).unwrap();
+            writeln!(out, "{indent}Lambda ({}){return_type}", params.join(", "))?;
             dump_expr(out, *body, arena, interner, depth + 1);
-            return;
         }
+        _ => unreachable!("binding dumper called with non-binding expression"),
+    }
+    Ok(())
+}
 
-        // Collections
+fn dump_basic_collection(
+    out: &mut String,
+    kind: &ExprKind,
+    arena: &ExprArena,
+    interner: &StringInterner,
+    depth: usize,
+    indent: &str,
+) -> fmt::Result {
+    match kind {
         ExprKind::List(items) => {
-            let exprs = arena.get_expr_list(*items);
-            writeln!(out, "{indent}List [{} items]", exprs.len()).unwrap();
-            for item_id in exprs {
-                dump_expr(out, *item_id, arena, interner, depth + 1);
+            let items = arena.get_expr_list(*items);
+            writeln!(out, "{indent}List [{} items]", items.len())?;
+            for item in items {
+                dump_expr(out, *item, arena, interner, depth + 1);
             }
-            return;
         }
         ExprKind::Tuple(items) => {
-            let exprs = arena.get_expr_list(*items);
-            writeln!(out, "{indent}Tuple ({} items)", exprs.len()).unwrap();
-            for item_id in exprs {
-                dump_expr(out, *item_id, arena, interner, depth + 1);
+            let items = arena.get_expr_list(*items);
+            writeln!(out, "{indent}Tuple ({} items)", items.len())?;
+            for item in items {
+                dump_expr(out, *item, arena, interner, depth + 1);
             }
-            return;
         }
         ExprKind::Map(entries) => {
-            let entries_list = arena.get_map_entries(*entries);
-            writeln!(out, "{indent}Map {{{} entries}}", entries_list.len()).unwrap();
-            for entry in entries_list {
+            let entries = arena.get_map_entries(*entries);
+            writeln!(out, "{indent}Map {{{} entries}}", entries.len())?;
+            for entry in entries {
                 dump_expr(out, entry.key, arena, interner, depth + 1);
                 dump_expr(out, entry.value, arena, interner, depth + 1);
             }
-            return;
         }
-        ExprKind::Struct { name, fields } => {
-            let sname = interner.lookup(*name);
-            writeln!(out, "{indent}Struct {sname}").unwrap();
+        ExprKind::Struct { type_path, fields } => {
+            let path = format_parsed_type(arena.get_parsed_type(*type_path), arena, interner);
+            writeln!(out, "{indent}Struct {path}")?;
             for init in arena.get_field_inits(*fields) {
-                let fname = interner.lookup(init.name);
-                if let Some(val) = init.value {
-                    writeln!(out, "{indent}  {fname}:").unwrap();
-                    dump_expr(out, val, arena, interner, depth + 2);
+                let field = interner.lookup(init.name);
+                if let Some(value) = init.value {
+                    writeln!(out, "{indent}  {field}:")?;
+                    dump_expr(out, value, arena, interner, depth + 2);
                 } else {
-                    writeln!(out, "{indent}  {fname} (shorthand)").unwrap();
+                    writeln!(out, "{indent}  {field} (shorthand)")?;
                 }
             }
-            return;
         }
-        ExprKind::StructWithSpread { name, fields } => {
-            let sname = interner.lookup(*name);
-            writeln!(out, "{indent}StructWithSpread {sname}").unwrap();
+        _ => unreachable!("collection dumper called with non-collection expression"),
+    }
+    Ok(())
+}
+
+fn dump_spread_collection(
+    out: &mut String,
+    kind: &ExprKind,
+    arena: &ExprArena,
+    interner: &StringInterner,
+    depth: usize,
+    indent: &str,
+) -> fmt::Result {
+    match kind {
+        ExprKind::StructWithSpread { type_path, fields } => {
+            let path = format_parsed_type(arena.get_parsed_type(*type_path), arena, interner);
+            writeln!(out, "{indent}StructWithSpread {path}")?;
             for field in arena.get_struct_lit_fields(*fields) {
                 match field {
                     StructLitField::Field(init) => {
-                        let fname = interner.lookup(init.name);
-                        writeln!(out, "{indent}  {fname}:").unwrap();
-                        if let Some(val) = init.value {
-                            dump_expr(out, val, arena, interner, depth + 2);
+                        writeln!(out, "{indent}  {}:", interner.lookup(init.name))?;
+                        if let Some(value) = init.value {
+                            dump_expr(out, value, arena, interner, depth + 2);
                         }
                     }
                     StructLitField::Spread { expr, .. } => {
-                        writeln!(out, "{indent}  ...").unwrap();
+                        writeln!(out, "{indent}  ...")?;
                         dump_expr(out, *expr, arena, interner, depth + 2);
                     }
                 }
             }
-            return;
         }
         ExprKind::ListWithSpread(elements) => {
-            writeln!(out, "{indent}ListWithSpread").unwrap();
-            for elem in arena.get_list_elements(*elements) {
-                match elem {
+            writeln!(out, "{indent}ListWithSpread")?;
+            for element in arena.get_list_elements(*elements) {
+                match element {
                     ori_ir::ast::ListElement::Expr { expr, .. } => {
                         dump_expr(out, *expr, arena, interner, depth + 1);
                     }
                     ori_ir::ast::ListElement::Spread { expr, .. } => {
-                        writeln!(out, "{indent}  ...").unwrap();
+                        writeln!(out, "{indent}  ...")?;
                         dump_expr(out, *expr, arena, interner, depth + 2);
                     }
                 }
             }
-            return;
         }
         ExprKind::MapWithSpread(elements) => {
-            writeln!(out, "{indent}MapWithSpread").unwrap();
-            for elem in arena.get_map_elements(*elements) {
-                match elem {
+            writeln!(out, "{indent}MapWithSpread")?;
+            for element in arena.get_map_elements(*elements) {
+                match element {
                     ori_ir::ast::MapElement::Entry(entry) => {
                         dump_expr(out, entry.key, arena, interner, depth + 1);
                         dump_expr(out, entry.value, arena, interner, depth + 1);
                     }
                     ori_ir::ast::MapElement::Spread { expr, .. } => {
-                        writeln!(out, "{indent}  ...").unwrap();
+                        writeln!(out, "{indent}  ...")?;
                         dump_expr(out, *expr, arena, interner, depth + 2);
                     }
                 }
             }
-            return;
         }
+        _ => unreachable!("spread dumper called with non-spread expression"),
+    }
+    Ok(())
+}
 
-        // Range
+fn dump_value_form(
+    out: &mut String,
+    kind: &ExprKind,
+    arena: &ExprArena,
+    interner: &StringInterner,
+    depth: usize,
+    indent: &str,
+) -> fmt::Result {
+    match kind {
         ExprKind::Range {
             start,
             end,
             step,
             inclusive,
         } => {
-            let kind = if *inclusive { "..=" } else { ".." };
-            writeln!(out, "{indent}Range({kind})").unwrap();
+            let operator = if *inclusive { "..=" } else { ".." };
+            writeln!(out, "{indent}Range({operator})")?;
             if start.is_present() {
                 dump_expr(out, *start, arena, interner, depth + 1);
             }
@@ -378,38 +538,41 @@ pub(super) fn dump_expr(
                 dump_expr(out, *end, arena, interner, depth + 1);
             }
             if step.is_present() {
-                writeln!(out, "{indent}  step:").unwrap();
+                writeln!(out, "{indent}  step:")?;
                 dump_expr(out, *step, arena, interner, depth + 2);
             }
-            return;
         }
-
-        // Result / Option
-        ExprKind::Ok(inner) => {
+        ExprKind::Ok(inner) | ExprKind::Err(inner) => {
+            let name = if matches!(kind, ExprKind::Ok(_)) {
+                "Ok"
+            } else {
+                "Err"
+            };
             if inner.is_present() {
-                writeln!(out, "{indent}Ok").unwrap();
+                writeln!(out, "{indent}{name}")?;
                 dump_expr(out, *inner, arena, interner, depth + 1);
             } else {
-                writeln!(out, "{indent}Ok(())").unwrap();
+                writeln!(out, "{indent}{name}(())")?;
             }
-            return;
-        }
-        ExprKind::Err(inner) => {
-            if inner.is_present() {
-                writeln!(out, "{indent}Err").unwrap();
-                dump_expr(out, *inner, arena, interner, depth + 1);
-            } else {
-                writeln!(out, "{indent}Err(())").unwrap();
-            }
-            return;
         }
         ExprKind::Some(inner) => {
-            writeln!(out, "{indent}Some").unwrap();
+            writeln!(out, "{indent}Some")?;
             dump_expr(out, *inner, arena, interner, depth + 1);
-            return;
         }
+        _ => unreachable!("value-form dumper called with non-value-form expression"),
+    }
+    Ok(())
+}
 
-        // Type operations
+fn dump_type_operation(
+    out: &mut String,
+    kind: &ExprKind,
+    arena: &ExprArena,
+    interner: &StringInterner,
+    depth: usize,
+    indent: &str,
+) -> fmt::Result {
+    match kind {
         ExprKind::Cast {
             expr, ty, fallible, ..
         } => {
@@ -419,85 +582,113 @@ pub(super) fn dump_expr(
                 out,
                 "{indent}Cast({keyword} {})",
                 format_parsed_type(parsed_ty, arena, interner)
-            )
-            .unwrap();
+            )?;
             dump_expr(out, *expr, arena, interner, depth + 1);
-            return;
         }
-        ExprKind::Try(inner) => {
-            writeln!(out, "{indent}Try(?)").unwrap();
+        ExprKind::Try(inner) | ExprKind::Unsafe(inner) | ExprKind::Await(inner) => {
+            let label = match kind {
+                ExprKind::Try(_) => "Try(?)",
+                ExprKind::Unsafe(_) => "Unsafe",
+                ExprKind::Await(_) => "Await",
+                _ => unreachable!(),
+            };
+            writeln!(out, "{indent}{label}")?;
             dump_expr(out, *inner, arena, interner, depth + 1);
-            return;
         }
-        ExprKind::Unsafe(inner) => {
-            writeln!(out, "{indent}Unsafe").unwrap();
-            dump_expr(out, *inner, arena, interner, depth + 1);
-            return;
-        }
-        ExprKind::Await(inner) => {
-            writeln!(out, "{indent}Await").unwrap();
-            dump_expr(out, *inner, arena, interner, depth + 1);
-            return;
-        }
+        _ => unreachable!("type-operation dumper called with other expression"),
+    }
+    Ok(())
+}
+
+fn dump_effect(
+    out: &mut String,
+    kind: &ExprKind,
+    arena: &ExprArena,
+    interner: &StringInterner,
+    depth: usize,
+    indent: &str,
+) -> fmt::Result {
+    match kind {
         ExprKind::Assign { target, value } => {
-            writeln!(out, "{indent}Assign").unwrap();
+            writeln!(out, "{indent}Assign")?;
             dump_expr(out, *target, arena, interner, depth + 1);
             dump_expr(out, *value, arena, interner, depth + 1);
-            return;
         }
-
-        // Capabilities
+        ExprKind::AssignTarget { root, steps } => {
+            writeln!(out, "{indent}AssignTarget")?;
+            dump_expr(out, *root, arena, interner, depth + 1);
+            for step in arena.get_access_steps(*steps) {
+                match step {
+                    ori_ir::AccessStep::Field(field) => {
+                        writeln!(out, "{indent}  .{}", interner.lookup(*field))?;
+                    }
+                    ori_ir::AccessStep::Index(index) => {
+                        dump_expr(out, *index, arena, interner, depth + 1);
+                    }
+                }
+            }
+        }
         ExprKind::WithCapability {
             capability,
             provider,
             body,
         } => {
-            let cap_name = interner.lookup(*capability);
-            writeln!(out, "{indent}WithCapability {cap_name}").unwrap();
-            writeln!(out, "{indent}  provider:").unwrap();
+            writeln!(
+                out,
+                "{indent}WithCapability {}",
+                interner.lookup(*capability)
+            )?;
+            writeln!(out, "{indent}  provider:")?;
             dump_expr(out, *provider, arena, interner, depth + 2);
-            writeln!(out, "{indent}  body:").unwrap();
+            writeln!(out, "{indent}  body:")?;
             dump_expr(out, *body, arena, interner, depth + 2);
-            return;
         }
+        _ => unreachable!("effect dumper called with non-effect expression"),
+    }
+    Ok(())
+}
 
-        // Templates
-        ExprKind::TemplateFull(s) => {
-            let val = interner.lookup(*s);
-            writeln!(out, "{indent}Template(`{val}`)")
+fn dump_terminal_form(
+    out: &mut String,
+    kind: &ExprKind,
+    arena: &ExprArena,
+    interner: &StringInterner,
+    depth: usize,
+    indent: &str,
+) -> fmt::Result {
+    match kind {
+        ExprKind::TemplateFull(name) => {
+            writeln!(out, "{indent}Template(`{}`)", interner.lookup(*name))
         }
         ExprKind::TemplateLiteral { head, parts } => {
-            let head_str = interner.lookup(*head);
-            writeln!(out, "{indent}TemplateLiteral(`{head_str}...`)").unwrap();
+            writeln!(
+                out,
+                "{indent}TemplateLiteral(`{}...`)",
+                interner.lookup(*head)
+            )?;
             for part in arena.get_template_parts(*parts) {
                 dump_expr(out, part.expr, arena, interner, depth + 1);
             }
-            return;
+            Ok(())
         }
-
-        // Function patterns (complex pattern forms)
         ExprKind::FunctionSeq(id) => {
-            let seq = arena.get_function_seq(*id);
-            match seq {
-                ori_ir::ast::FunctionSeq::Try { .. } => {
-                    writeln!(out, "{indent}FunctionSeq(try)")
-                }
-                ori_ir::ast::FunctionSeq::Match { .. } => {
-                    writeln!(out, "{indent}FunctionSeq(match)")
-                }
-                ori_ir::ast::FunctionSeq::ForPattern { .. } => {
-                    writeln!(out, "{indent}FunctionSeq(for_pattern)")
-                }
-            }
+            let label = match arena.get_function_seq(*id) {
+                ori_ir::ast::FunctionSeq::Try { .. } => "try",
+                ori_ir::ast::FunctionSeq::Match { .. } => "match",
+                ori_ir::ast::FunctionSeq::ForPattern { .. } => "for_pattern",
+            };
+            writeln!(out, "{indent}FunctionSeq({label})")
         }
         ExprKind::FunctionExp(id) => {
-            let exp = arena.get_function_exp(*id);
-            writeln!(out, "{indent}FunctionExp({:?})", exp.kind)
+            writeln!(
+                out,
+                "{indent}FunctionExp({:?})",
+                arena.get_function_exp(*id).kind
+            )
         }
-
         ExprKind::Error => writeln!(out, "{indent}Error"),
+        _ => unreachable!("terminal dumper called with non-terminal expression"),
     }
-    .unwrap();
 }
 
 /// Dump an expression inline (single-line, no indentation).

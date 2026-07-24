@@ -3,8 +3,6 @@
 //! Quantifies how much value the product lattice provides over any single
 //! dimension alone. Accumulated during realization (Phases 1+2) and reported
 //! via `tracing::info!` and [`RealizationResult::synergy_metrics`].
-//!
-//! References: Section 11.2 of the AIMS plan.
 
 /// Metrics tracking cross-dimensional decision contributions.
 ///
@@ -17,7 +15,7 @@
 /// (analysis-stage rule firings that required 2+ lattice dimensions). The
 /// prior realization-stage counters `cow_upgrades` and `cross_dim_reuse`
 /// were removed together with the unsound cross-dimensional promotions
-/// they tracked (`aims-rules.md` §DP-10 + §RL-13 removal).
+/// they tracked (RL-13).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SynergyMetrics {
     /// Reuse decisions made during realization (any non-None reuse).

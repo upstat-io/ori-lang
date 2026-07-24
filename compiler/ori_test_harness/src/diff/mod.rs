@@ -4,9 +4,6 @@
 
 use similar::TextDiff;
 
-#[cfg(test)]
-mod tests;
-
 /// Generate a unified diff between expected and actual text.
 ///
 /// Uses standard unified diff format with 3 lines of context,
@@ -18,3 +15,6 @@ pub fn generate_diff(expected: &str, actual: &str) -> String {
         .header("expected", "actual")
         .to_string()
 }
+
+#[cfg(test)]
+mod tests;

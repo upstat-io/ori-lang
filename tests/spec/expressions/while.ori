@@ -1,0 +1,466 @@
+// Spec: 14-expressions.md § While Expression
+// Spec: 16-control-flow.md § Loop Control
+// while cond do body — sugar for loop { if !cond then break; body }; type void.
+// grammar.ebnf: while_expr = "while" [label] expression "do" expression
+
+use std.testing { assert, assert_eq }
+
+// While Basic — block body
+
+@test_while_counting_accumulates_sum tests @while_counting_accumulates_sum () -> void = {
+    assert_eq(actual: while_counting_accumulates_sum(), expected: 10)
+}
+
+@while_counting_accumulates_sum () -> int = {
+    let i = 0;
+    let sum = 0;
+    while i < 5 do {
+        sum = sum + i;
+        i = i + 1
+    };
+    sum  // 0 + 1 + 2 + 3 + 4
+}
+
+// While Basic — bare expression body
+
+@test_while_bare_body tests @while_bare_body () -> void = {
+    assert_eq(actual: while_bare_body(), expected: 4)
+}
+
+@while_bare_body () -> int = {
+    let i = 0;
+    while i < 4 do i = i + 2;
+    i  // 0 -> 2 -> 4; exits when 4 < 4 is false
+}
+
+// While that never enters (condition false at entry)
+
+@test_while_never_enters tests @while_never_enters () -> void = {
+    assert(cond: !while_never_enters())
+}
+
+@while_never_enters () -> bool = {
+    let entered = false;
+    while false do entered = true;
+    entered
+}
+
+// While returns void — floating test (inline body, no separate target needed)
+
+@test_while_is_void tests _ () -> void = {
+    let i = 0;
+    while i < 3 do i = i + 1;
+    assert_eq(actual: i, expected: 3)
+}
+
+// While with break (early exit from body)
+
+@test_while_break tests @while_break () -> void = {
+    assert_eq(actual: while_break(), expected: 6)
+}
+
+@while_break () -> int = {
+    let i = 0;
+    let sum = 0;
+    while i < 100 do {
+        if i == 4 then break;
+        sum = sum + i;
+        i = i + 1
+    };
+    sum  // 0 + 1 + 2 + 3
+}
+
+// While with continue (skip rest of body)
+
+@test_while_continue tests @while_continue () -> void = {
+    assert_eq(actual: while_continue(), expected: 25)
+}
+
+@while_continue () -> int = {
+    let i = 0;
+    let sum = 0;
+    while i < 10 do {
+        i = i + 1;
+        if i % 2 == 0 then continue;
+        sum = sum + i
+    };
+    sum  // 1 + 3 + 5 + 7 + 9
+}
+
+// While with && condition (multi-clause guard)
+
+@test_while_and_condition tests @while_and_condition () -> void = {
+    assert_eq(actual: while_and_condition(), expected: 4)
+}
+
+@while_and_condition () -> int = {
+    let i = 0;
+    let count = 0;
+    while i < 100 && count < 4 do {
+        i = i + 1;
+        count = count + 1
+    };
+    count
+}
+
+// Nested while
+
+@test_nested_while tests @nested_while () -> void = {
+    assert_eq(actual: nested_while(), expected: 90)
+}
+
+@nested_while () -> int = {
+    let outer = 0;
+    let sum = 0;
+    while outer < 2 do {
+        let inner = 0;
+        while inner < 2 do {
+            sum = sum + (outer + 1) * (inner + 1) * 10;
+            inner = inner + 1
+        };
+        outer = outer + 1
+    };
+    sum  // 1*1*10 + 1*2*10 + 2*1*10 + 2*2*10 = 10+20+20+40
+}
+
+// Negative pins — `break value` / `continue value` rejected inside `while`
+// Spec: 16-control-flow.md § Loop Control — `while...do` is void-typed:
+// `break value` is E0860, `continue value` is E0861.
+
+#compile_fail(code: "E0860")
+@test_while_break_value_rejected tests _ () -> void = {
+    let i = 0;
+    while i < 5 do break 5
+}
+
+#compile_fail(code: "E0861")
+@test_while_continue_value_rejected tests _ () -> void = {
+    let i = 0;
+    while i < 5 do continue 5
+}
+
+// Positive pin — bare `break` / `continue` inside `while` still type-check.
+// (The negative pins above must NOT make the compiler reject valueless forms.)
+
+@test_while_bare_break_continue tests @while_bare_break_continue () -> void = {
+    assert_eq(actual: while_bare_break_continue(), expected: 4)
+}
+
+@while_bare_break_continue () -> int = {
+    let i = 0;
+    let sum = 0;
+    while i < 10 do {
+        i = i + 1;
+        if i == 5 then break;
+        if i % 2 == 0 then continue;
+        sum = sum + i
+    };
+    sum  // i = 1,2,3,4 then breaks at 5; odd contributions 1 + 3 = 4
+}
+
+// Labeled break/continue value-permission resolves against the LABELED target
+// loop's form, NOT the innermost loop.
+// Spec: 16-control-flow.md §16.3 — a labeled `break:name`/`continue:name`
+// targets the named loop; value-permission follows that loop's form.
+// The labeled branches below are guarded by `go = false`, so the labeled
+// break/continue never fires at run time — the constant-false guard makes the
+// branch dead at run time but still type-checked. These cells pin the TYPECK
+// rule only: a labeled break/continue to an OUTER value-permitting loop from
+// inside an inner void/non-collecting loop type-checks (no spurious E0860/E0861).
+// Runtime nested-labeled-loop propagation is exercised by no cell here.
+
+// `break:outer value` targets `loop:outer` (permits break value) from inside an
+// inner `while...do` (forbids break value). Must NOT emit E0860.
+@test_labeled_break_outer_from_while tests @labeled_break_outer_from_while () -> void = {
+    assert_eq(actual: labeled_break_outer_from_while(), expected: 99)
+}
+
+@labeled_break_outer_from_while () -> int = {
+    let go = false;
+    loop:outer {
+        let n = 0;
+        while n < 1 do {
+            if go then break:outer 7;
+            break
+        };
+        break 99
+    }
+}
+
+// `continue:outer value` targets `for:outer...yield` (permits continue value
+// per spec 16.3.6) from inside an inner `for...do` (forbids it).
+// Must NOT emit E0861.
+@test_labeled_continue_outer_from_for_do tests @labeled_continue_outer_from_for_do () -> void = {
+    // Operands let-bound before assert_eq: a heap-list temporary passed directly
+    // as a call argument is not RcDec'd under the LLVM backend; let-binding gives
+    // each list a scope-exit drop. Pin value is unchanged.
+    let got = labeled_continue_outer_from_for_do();
+    let want = [1, 2];
+    assert_eq(actual: got, expected: want)
+}
+
+@labeled_continue_outer_from_for_do () -> [int] = {
+    let go = false;
+    for:outer x in [1, 2] yield {
+        for y in [10] do {
+            if go then continue:outer x * y
+        };
+        x
+    }
+}
+
+// Negative clamp: a labeled `continue:outer value` resolving to an outer `loop`
+// (non-collecting) MUST still be E0861 — labeled resolution checks the TARGET
+// loop's form, it does not blanket-accept every labeled continue value.
+#compile_fail(code: "E0861")
+@test_labeled_continue_value_outer_loop_rejected tests _ () -> void = {
+    loop:outer {
+        for x in [1, 2] do {
+            continue:outer 5
+        };
+        break
+    }
+}
+
+// ----------------------------------------------------------------------------
+// break / continue in while-CONDITION position.
+// The spec desugar `loop { if !cond then break; body }` (16-control-flow.md
+// §16.2.4) places the condition inside the while's own loop, so a condition-
+// position break/continue targets THIS while. Typeck pushes the LoopForm::While
+// context before inferring the condition; the parser parses the condition with
+// IN_LOOP so the construct is valid even with no enclosing loop.
+// ----------------------------------------------------------------------------
+
+// Semantic pin: a bare `break` as the entire condition exits the while
+// immediately on first condition-eval; the enclosing loop continues. The while
+// body never runs.
+@cond_break_exits_while () -> int = {
+    let count = 0;
+    let iters = 0;
+    loop {
+        iters = iters + 1;
+        while (break) do { count = count + 1 };
+        if iters >= 3 then break
+    };
+    count * 100 + iters
+}
+
+@test_cond_break_exits_while tests @cond_break_exits_while () -> void = {
+    // body never runs (count stays 0); enclosing loop runs 3 iterations.
+    assert_eq(actual: cond_break_exits_while(), expected: 3)
+}
+
+// Top-level `while (break)` with NO enclosing loop — valid because the
+// condition is inside the while's own loop (parser IN_LOOP fix).
+@cond_break_no_enclosing_loop () -> int = {
+    let touched = 0;
+    while (break) do { touched = 1 };
+    touched
+}
+
+@test_cond_break_no_enclosing_loop tests @cond_break_no_enclosing_loop () -> void = {
+    assert_eq(actual: cond_break_no_enclosing_loop(), expected: 0)
+}
+
+// Conditional break inside the condition expression: exits the while when the
+// branch is taken; otherwise the boolean condition drives iteration.
+@cond_conditional_break () -> int = {
+    let i = 0;
+    while (if i >= 3 then break else i < 100) do { i = i + 1 };
+    i
+}
+
+@test_cond_conditional_break tests @cond_conditional_break () -> void = {
+    assert_eq(actual: cond_conditional_break(), expected: 3)
+}
+
+
+// Negative pin: `break value` in condition position is E0860 (while is void).
+#compile_fail(code: "E0860")
+@test_cond_break_value_rejected tests _ () -> void = {
+    while (if true then break 5 else true) do { }
+}
+
+// Negative pin: `continue value` in condition position is E0861.
+#compile_fail(code: "E0861")
+@test_cond_continue_value_rejected tests _ () -> void = {
+    let i = 0;
+    while (if i > 0 then continue 5 else i < 3) do { i = i + 1 }
+}
+
+// ----------------------------------------------------------------------------
+// Labeled `while` — value-permission resolves against the labeled while's form.
+// Spec: 16-control-flow.md §16.3.1 (`while:name` label syntax), §16.10 summary —
+// `while...do` is void: a labeled `continue:name value` targeting a labeled
+// `while` is E0861, and a labeled `break:name value` is E0860. `while:name`
+// labels are valid (16.3.1); a bare `break:name` / `continue:name` to a labeled
+// while is permitted.
+// ----------------------------------------------------------------------------
+
+// Negative pin: `continue:outer value` targeting a labeled `while` (void, no
+// collection) is E0861 — labeled resolution checks the TARGET loop's form, and
+// a labeled while accumulates no value.
+#compile_fail(code: "E0861")
+@test_while_labeled_continue_value_rejected tests _ () -> void = {
+    let go = false;
+    while:outer go do {
+        while false do {
+            if go then continue:outer 5
+        }
+    }
+}
+
+// Negative pin: `break:outer value` targeting a labeled `while` (void) is E0860.
+#compile_fail(code: "E0860")
+@test_while_labeled_break_value_rejected tests _ () -> void = {
+    let go = false;
+    while:outer go do {
+        while false do {
+            if go then break:outer 5
+        }
+    }
+}
+
+// Positive pin: a labeled `while` with a guarded-false `break:outer` / bare
+// labeled control type-checks (no spurious E0860/E0861) and the function
+// evaluates normally. The labeled branch is guarded false so the run-time
+// labeled-break path is not exercised here (see the labeled-loop note above).
+@test_while_labeled_typeck_ok tests @while_labeled_typeck_ok () -> void = {
+    assert_eq(actual: while_labeled_typeck_ok(), expected: 42)
+}
+
+@while_labeled_typeck_ok () -> int = {
+    let go = false;
+    let r = 0;
+    while:outer go do {
+        while false do {
+            if go then break:outer
+        }
+    };
+    r = 42;
+    r
+}
+
+// ----------------------------------------------------------------------------
+// Interaction matrix: `while` body × other language features.
+// Each cell asserts an observable result and is verified interpreter == LLVM.
+// ----------------------------------------------------------------------------
+
+// Interaction: `while` body in METHOD context mutates a local seeded from a
+// field; the caller observes the mutated count through the return value.
+type Counter = { start: int }
+
+impl Counter {
+    @count_to (self, limit: int) -> int = {
+        let n = self.start;
+        while n < limit do {
+            n = n + 1
+        };
+        n
+    }
+}
+
+@method_while_drive () -> int = {
+    let c = Counter { start: 2 };
+    c.count_to(limit: 7)
+}
+@test_method_while_drive tests @method_while_drive () -> void = {
+    assert_eq(actual: method_while_drive(), expected: 7)
+}
+
+// Interaction: `?` inside a `while` body propagates `Err`; the loop exits on the
+// error path and the function returns the propagated error.
+@checked (n: int) -> Result<int, str> = {
+    if n >= 3 then Err("too big") else Ok(n)
+}
+
+@while_body_try_err () -> Result<int, str> = {
+    let i = 0;
+    let sum = 0;
+    while i < 100 do {
+        let v = checked(n: i)?;   // propagates Err once i reaches 3
+        sum = sum + v;
+        i = i + 1
+    };
+    Ok(sum)
+}
+@test_while_body_try_err tests _ () -> void = {
+    let r = while_body_try_err();
+    assert(cond: r.is_err())
+}
+
+// Companion success path: the `?` never trips, so the loop runs to completion.
+@while_body_try_ok () -> Result<int, str> = {
+    let i = 0;
+    let sum = 0;
+    while i < 3 do {
+        let v = checked(n: i)?;
+        sum = sum + v;
+        i = i + 1
+    };
+    Ok(sum)
+}
+@test_while_body_try_ok tests _ () -> void = {
+    let r = while_body_try_ok();
+    assert(cond: r.is_ok());  // success path: ? never short-circuits — clear diagnostic on regression to Err
+    assert_eq(actual: r.unwrap_or(default: -1), expected: 3)  // 0 + 1 + 2
+}
+
+// Interaction: a `match` inside the `while` body drives per-iteration branch
+// selection; assert the branch-selected accumulation.
+@while_body_match () -> int = {
+    let i = 0;
+    let acc = 0;
+    while i < 6 do {
+        let delta = match i % 3 {
+            0 -> 100,
+            1 -> 10,
+            _ -> 1,
+        };
+        acc = acc + delta;
+        i = i + 1
+    };
+    acc  // i=0..5: (100+10+1) * 2 = 222
+}
+@test_while_body_match tests @while_body_match () -> void = {
+    assert_eq(actual: while_body_match(), expected: 222)
+}
+
+// Interaction: a closure created inside the `while` body captures the loop
+// variable BY VALUE. The closure is stashed on one iteration; the loop variable
+// keeps changing afterward; the stashed closure still observes its capture-time
+// value (Ori captures by value), not the loop's final value.
+@while_closure_by_value () -> int = {
+    let i = 0;
+    let stash = () -> -1;
+    while i < 5 do {
+        if i == 2 then {
+            let snapshot = i;
+            stash = () -> snapshot
+        };
+        i = i + 1
+    };
+    // i is now 5; the closure captured at i == 2 must still return 2.
+    stash()
+}
+@test_while_closure_by_value tests @while_closure_by_value () -> void = {
+    assert_eq(actual: while_closure_by_value(), expected: 2)
+}
+
+// Interaction (memory floor + non-vacuous leak gate): the `while` body grows a
+// heap `[int]` each iteration (push allocates / COWs), exercising loop-body ARC
+// inc/dec on the back-edge. The list is read back AFTER the loop via scalar
+// reduction so the assertion stays leak-clean under both backends.
+@while_grow_heap_list () -> int = {
+    let acc: [int] = [];
+    let i = 0;
+    while i < 5 do {
+        acc = acc.push(value: i * i);
+        i = i + 1
+    };
+    let total = acc.fold(initial: 0, op: (s, x) -> s + x);
+    total + acc.len() * 1000  // (0+1+4+9+16) + 5*1000 = 5030
+}
+@test_while_grow_heap_list tests @while_grow_heap_list () -> void = {
+    assert_eq(actual: while_grow_heap_list(), expected: 5030)
+}

@@ -1,0 +1,5 @@
+@main () -> void = {
+    let $mk = Error;
+    let $e = mk(msg: "boom");
+    print(msg: e.message);
+}

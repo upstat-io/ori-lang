@@ -1,0 +1,1 @@
+type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);

@@ -1,0 +1,54 @@
+// Spec: 08-declarations.md § Associated Functions
+// Proposal: docs/ori_lang/proposals/approved/call-site-method-generics-grammar-alignment-proposal.md
+//
+// `Type<args>.method()` call-site syntax — type-instantiation turbofish on a
+// type path — parses, type-checks, and runs. `Box<int>.new(v: 5)` instantiates
+// `Box<T>` at `T=int` before resolving the associated function `.new`. The
+// dual-execution gate (interp + LLVM) asserts identical observable behavior.
+// Negative pin: a bare comparison `a < b` (no trailing `.`) stays comparison.
+
+use std.testing { assert_eq, assert }
+
+type Box<T> = { value: T }
+type Pair<A, B> = { first: A, second: B }
+
+impl<T> Box<T> {
+    @new (v: T) -> Box<T> = Box { value: v };
+}
+
+impl<A, B> Pair<A, B> {
+    @new (a: A, b: B) -> Pair<A, B> = Pair { first: a, second: b };
+}
+
+// Positive: direct type-path turbofish on a single-param generic.
+@test_box_int_turbofish tests _ () -> void = {
+    let r: Box<int> = Box<int>.new(v: 5);
+    assert_eq(actual: r.value, expected: 5)
+}
+
+// Positive: type-path turbofish with a non-int payload type.
+@test_box_str_turbofish tests _ () -> void = {
+    let r: Box<str> = Box<str>.new(v: "hi");
+    assert_eq(actual: r.value, expected: "hi")
+}
+
+// Positive: multi-parameter generic type path.
+@test_pair_turbofish tests _ () -> void = {
+    let p: Pair<int, str> = Pair<int, str>.new(a: 7, b: "x");
+    assert_eq(actual: p.first, expected: 7);
+    assert_eq(actual: p.second, expected: "x")
+}
+
+// Negative pin: bare comparison with no trailing `.` stays a comparison
+// expression — the speculative type-arg path must restore.
+@test_comparison_stays_comparison tests _ () -> void = {
+    let a = 3;
+    let b = 5;
+    assert(cond: a < b)
+}
+
+// Regression guard: the bare associated-function form (no turbofish) still works.
+@test_bare_assoc_fn_still_works tests _ () -> void = {
+    let r: Box<int> = Box.new(v: 9);
+    assert_eq(actual: r.value, expected: 9)
+}

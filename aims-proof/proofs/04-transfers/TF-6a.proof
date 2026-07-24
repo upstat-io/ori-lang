@@ -1,0 +1,72 @@
+Theorem TF-6a: Invoke (with contract) transfer = refine(CONSERVATIVE, contract)
+
+  Preconditions:
+    - Instruction is `Invoke { dst, func, args, normal, unwind }` per
+      Annex E §AIMS TF-6a + Appendix A row 19
+    - `func` has `MemoryContract` available (same condition as TF-6)
+    - Same refine() definition as TF-6 — TF-6a is the unwinding-aware
+      sibling of TF-6 at the instruction-set level (Invoke vs Apply); the
+      transfer function for the normal-edge `dst` is identical
+
+  Soundness property:
+    Forall contract in ReturnContract.
+      transfer_tf6a(Invoke { _ }, contract) = transfer_tf6(Apply { _ }, contract)
+        = refine(CONSERVATIVE, contract).
+    L-6 layer (b) monotonicity: identical to TF-6 — constant in first
+    argument for fixed contract.
+
+  Proof obligation:
+    Two-part discharge:
+      (a) Parity with TF-6 — for ANY contract, transfer_tf6a(contract) =
+          transfer_tf6(contract). Both pass CONSERVATIVE as the first refine
+          argument; both depend solely on the contract argument.
+      (b) L-6 layer (b) monotonicity — discharged by reduction to TF-6:
+          TF-6a has the same constant-in-first-arg structure as TF-6;
+          monotonicity follows by the same argument.
+
+    Part (a) — TF-6 / TF-6a parity:
+      For representative contracts (2 samples sufficient — Unique-narrowing
+      + MaybeShared-preserving):
+        contract_a = { uniqueness: Unique, locality: BlockLocal,
+                       shape: ReusableStruct }
+        contract_b = { uniqueness: MaybeShared, locality: Unknown,
+                       shape: NonReusable }
+      Verify transfer_tf6a(contract) == transfer_tf6(contract) for each
+      sample. Engine asserts byte-for-byte equality across all 7
+      per-dimension carriers (Access x Consumption x Cardinality x
+      Uniqueness x Locality x Shape x Effect).
+
+      Per Annex E §AIMS TF-6a + Appendix A row 19: TF-6a emits
+      "(Owned, Unrestricted, Many, contract.uniq, contract.loc,
+       contract.shape, ALL)" — exactly the same row as TF-6 (Appendix A
+      row 7). The rules are stated separately because Invoke is a
+      terminator with unwind-edge handling distinct from Apply, but the
+      forward transfer on the normal-edge `dst` is identical.
+
+    Part (b) — monotonicity by reduction:
+      TF-6a is constant in its first argument (CONSERVATIVE) for fixed
+      contract — identical structure to TF-6. By L-4 reflexivity on
+      refine(CONSERVATIVE, c), the function f(_) = refine(CONSERVATIVE, c)
+      is monotone for any state input.
+
+    Rationale for separate TF rule:
+      Invoke + InvokeIndirect carry unwind-edge cleanup obligations
+      (RL-2 + RL-4 emit edge-specific decs on the unwind path) that Apply
+      + ApplyIndirect do not. These cleanup obligations are orthogonal to
+      the normal-edge forward transfer — TF-6a handles only the normal-edge
+      `dst` state; unwind-edge cleanup ships at RL-2 / RL-4 / Step 8a
+      (`unwind_cleanup`) per Annex E §AIMS PL-4a.
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) discharged via reduction to
+        TF-6 monotonicity per section_04::verify_tf6a_invoke_contract_refine)
+      case_analysis (PRIMARY — TF-6 / TF-6a parity enumeration on 2
+        sample contracts per
+        section_04::verify_tf6a_invoke_contract_refine)
+      refinement (PRIMARY — refine() narrowing-correctness inherited from
+        TF-6 discharge per Part (a) parity check)
+      lattice (SECONDARY — accepts gracefully)
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis + refinement engines discharge TF-6a via TF-6 parity enumeration + reduction-to-TF-6 monotonicity

@@ -4,15 +4,15 @@
 //! transforms the [`AimsState`] of variables it touches:
 //!
 //! - **Forward (definition)**: what state does the destination variable get?
-//! - **Backward (demand)**: what cardinality demand does each use add?
+//! - **Backward (demand)**: what cardinality and consumption does each use add?
 //!
-//! The dataflow analysis engine (Section 02) applies these functions in
+//! The dataflow analysis engine applies these functions in
 //! its worklist iteration. This module defines only the mathematical rules.
 //!
 //! References:
 //! - Perceus dup/drop placement (Reinking et al., PLDI 2021)
 //! - GHC demand analysis `seq_add`/`alt_join` (Sergey et al., POPL 2014)
-//! - Lean 4 `updateLiveVars` / `addInc` / `addDec` (Ullrich & de Moura, IFL 2019)
+//! - `updateLiveVars` / `addInc` / `addDec` borrow-liveness shape (Ullrich & de Moura, IFL 2019, Lean 4)
 
 #[cfg(test)]
 #[expect(
@@ -21,9 +21,17 @@
 )]
 mod tests;
 
-use smallvec::SmallVec;
+mod capture;
+mod demand;
 
-use crate::ir::{ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind};
+pub(crate) use capture::capture_state_update;
+pub(crate) use demand::{backward_demands, backward_terminator_demands, BackwardDemand};
+
+use crate::ir::{
+    ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind, PrimitiveFact,
+};
+
+use ori_registry::{PrimitiveAllocationEffect, PrimitiveResultOwnership};
 
 use super::lattice::{
     AccessClass, AimsState, BorrowSource, Cardinality, Consumption, EffectClass, Locality,
@@ -68,12 +76,93 @@ impl DefTransfer {
 ///
 /// The `get_state` closure retrieves the current state of any variable.
 /// For unconstrained variables, it should return [`AimsState::TOP`].
-pub fn transfer_def(
+#[cfg(test)]
+pub(crate) fn transfer_def(
     instr: &ArcInstr,
     get_state: &impl Fn(ArcVarId) -> AimsState,
 ) -> Option<DefTransfer> {
+    transfer_def_impl(
+        instr,
+        get_state,
+        &|_| None,
+        PrimitiveFactRequirement::OptionalForUnitTransfer,
+    )
+}
+
+/// Compute a definition transfer from the exact primitive facts frozen on the
+/// ARC artifact.
+///
+/// Production analysis uses this entry point. Primitive facts are validated at
+/// the AIMS input seam; a missing fact here is therefore an internal phase-order
+/// violation and cannot fall back to scalar behavior.
+pub(crate) fn transfer_def_resolved(
+    func: &ArcFunction,
+    instr: &ArcInstr,
+    get_state: &impl Fn(ArcVarId) -> AimsState,
+) -> Option<DefTransfer> {
+    if let ArcInstr::Let {
+        dst,
+        value: ArcValue::PrimOp { .. },
+        ..
+    } = instr
+    {
+        if func.primitive_facts.get(*dst).is_none() {
+            let frozen_destinations = func
+                .primitive_facts
+                .iter()
+                .map(|(destination, _)| destination.raw())
+                .collect::<Vec<_>>();
+            panic!(
+                "validated PrimOp v{} in function {:?} is missing its frozen fact; frozen destinations: {frozen_destinations:?}; rerun whole-program AIMS primitive-fact freezing before analysis",
+                dst.raw(),
+                func.name
+            );
+        }
+    }
+    transfer_def_impl(
+        instr,
+        get_state,
+        &|dst| func.primitive_facts.get(dst),
+        PrimitiveFactRequirement::Required,
+    )
+}
+
+#[derive(Clone, Copy)]
+enum PrimitiveFactRequirement {
+    #[cfg(test)]
+    OptionalForUnitTransfer,
+    Required,
+}
+
+fn transfer_def_impl(
+    instr: &ArcInstr,
+    get_state: &impl Fn(ArcVarId) -> AimsState,
+    get_primitive_fact: &impl Fn(ArcVarId) -> Option<PrimitiveFact>,
+    primitive_fact_requirement: PrimitiveFactRequirement,
+) -> Option<DefTransfer> {
     match instr {
-        ArcInstr::Let { value, .. } => Some(transfer_let(value, get_state)),
+        ArcInstr::Let { dst, value, .. } => Some(match value {
+            ArcValue::Var(v) => DefTransfer::state(get_state(*v)),
+            ArcValue::Literal(_) => DefTransfer::state(AimsState::SCALAR),
+            ArcValue::PrimOp { .. } => {
+                if let Some(fact) = get_primitive_fact(*dst) {
+                    transfer_primitive(value, fact, get_state)
+                } else {
+                    match primitive_fact_requirement {
+                        #[cfg(test)]
+                        PrimitiveFactRequirement::OptionalForUnitTransfer => {
+                            transfer_let(value, get_state)
+                        }
+                        PrimitiveFactRequirement::Required => {
+                            panic!(
+                                "validated PrimOp v{} is missing its frozen fact; rerun whole-program AIMS primitive-fact freezing before analysis",
+                                dst.raw()
+                            )
+                        }
+                    }
+                }
+            }
+        }),
         ArcInstr::Construct { ctor, .. } => Some(transfer_construct(ctor)),
         ArcInstr::Project { value, field, .. } => Some(transfer_project(*value, *field, get_state)),
         ArcInstr::Apply { .. } => Some(transfer_apply_conservative()),
@@ -89,12 +178,48 @@ pub fn transfer_def(
             Some(DefTransfer::state(AimsState::SCALAR))
         }
         ArcInstr::Reuse { ctor, .. } => Some(transfer_reuse(ctor)),
-
-        // Side-effect-only — no defined variable.
         ArcInstr::RcInc { .. }
         | ArcInstr::RcDec { .. }
+        | ArcInstr::RcDecPartial { .. }
+        | ArcInstr::RcDecField { .. }
+        | ArcInstr::RcDecVariant { .. }
+        | ArcInstr::BurdenInc { .. }
+        | ArcInstr::BurdenDec { .. }
+        | ArcInstr::BurdenDecPartial { .. }
+        | ArcInstr::BurdenDecField { .. }
+        | ArcInstr::BurdenDecVariant { .. }
         | ArcInstr::Set { .. }
         | ArcInstr::SetTag { .. } => None,
+    }
+}
+
+fn transfer_primitive(
+    value: &ArcValue,
+    fact: PrimitiveFact,
+    get_state: &impl Fn(ArcVarId) -> AimsState,
+) -> DefTransfer {
+    let ArcValue::PrimOp { args, .. } = value else {
+        unreachable!("primitive transfer requires PrimOp")
+    };
+    match fact.descriptor.result {
+        PrimitiveResultOwnership::Scalar => DefTransfer::state(AimsState::SCALAR),
+        PrimitiveResultOwnership::IndependentOwned
+        | PrimitiveResultOwnership::OwnedFromConsumedOrIndependent { .. } => {
+            let mut state = AimsState::FRESH;
+            state.shape = ShapeClass::NonReusable;
+            state.effect = EffectClass {
+                may_alloc: !matches!(fact.descriptor.allocation, PrimitiveAllocationEffect::None),
+                ..EffectClass::NONE
+            };
+            state.canonicalize();
+            DefTransfer::state(state)
+        }
+        PrimitiveResultOwnership::Alias { operand } => {
+            let source = args.get(usize::from(operand)).copied().unwrap_or_else(|| {
+                panic!("validated primitive alias operand {operand} is out of bounds")
+            });
+            DefTransfer::state(get_state(source))
+        }
     }
 }
 
@@ -103,6 +228,7 @@ pub fn transfer_def(
 /// - `Var(v)` → inherit source state
 /// - `Literal(_)` → `SCALAR` (no RC)
 /// - `PrimOp { .. }` → `SCALAR` (arithmetic on primitives)
+#[cfg(test)]
 fn transfer_let(value: &ArcValue, get_state: &impl Fn(ArcVarId) -> AimsState) -> DefTransfer {
     match value {
         ArcValue::Var(v) => DefTransfer::state(get_state(*v)),
@@ -119,7 +245,7 @@ fn transfer_let(value: &ArcValue, get_state: &impl Fn(ArcVarId) -> AimsState) ->
 /// - `Tuple`/`Closure` → `NonReusable`
 ///
 /// Per-variable effect: `may_alloc = true` — construction allocates heap memory.
-/// (Section 09.2: precise effect computation.)
+/// (Effect computation: precise effect computation.)
 fn transfer_construct(ctor: &CtorKind) -> DefTransfer {
     let shape = shape_from_ctor(ctor);
     let mut state = AimsState::FRESH;
@@ -159,9 +285,9 @@ fn transfer_project(
 
 /// `Apply { func, args }` — direct function call (conservative).
 ///
-/// Without interprocedural information (Section 03), the return value
+/// Without interprocedural information, the return value
 /// is conservatively `(Owned, Unrestricted, Many, MaybeShared)`.
-/// Section 03 refines this using `MemoryContract`.
+/// Interprocedural analysis refines this using `MemoryContract`.
 fn transfer_apply_conservative() -> DefTransfer {
     let mut state = AimsState {
         access: AccessClass::Owned,
@@ -179,11 +305,11 @@ fn transfer_apply_conservative() -> DefTransfer {
 /// `PartialApply { func, args }` — create a closure capturing args.
 ///
 /// Destination gets `FRESH` with `may_alloc` effect (closure environment
-/// allocation). The analysis engine (Section 02) separately updates
+/// allocation). The analysis engine separately updates
 /// captured args' states via [`capture_state_update`].
 ///
 /// Per-variable effect: `may_alloc = true` — closure creation allocates.
-/// (Section 09.2: precise effect computation.)
+/// (Effect computation: precise effect computation.)
 fn transfer_partial_apply() -> DefTransfer {
     let mut state = AimsState::FRESH;
     state.effect = EffectClass {
@@ -238,189 +364,54 @@ pub fn transfer_terminator_def(term: &ArcTerminator) -> Option<DefTransfer> {
     }
 }
 
-// Backward demand
+// Logical ownership-event predicates
 
-/// Compute backward demand contributions for an instruction.
-///
-/// Each `(var, cardinality)` pair means the instruction adds that much
-/// demand on the variable. The analysis engine applies this via
-/// [`Cardinality::seq_add`] when walking backward.
-///
-/// Based on GHC demand analysis (Sergey et al., POPL 2014):
-/// - Sequential: `seq_add` along one execution path
-/// - Alternative: `alt_join` at control-flow merge points
-pub fn backward_demands(instr: &ArcInstr) -> SmallVec<[(ArcVarId, Cardinality); 4]> {
-    match instr {
-        ArcInstr::Let { value, .. } => match value {
-            ArcValue::Var(v) => SmallVec::from_buf_and_len([(*v, Cardinality::Once); 4], 1),
-            ArcValue::Literal(_) => SmallVec::new(),
-            ArcValue::PrimOp { args, .. } => args.iter().map(|v| (*v, Cardinality::Once)).collect(),
-        },
-
-        // Construct/Apply: each arg consumed once.
-        ArcInstr::Construct { args, .. } | ArcInstr::Apply { args, .. } => {
-            args.iter().map(|v| (*v, Cardinality::Once)).collect()
-        }
-
-        // ApplyIndirect: closure + all args demanded once.
-        ArcInstr::ApplyIndirect { closure, args, .. } => {
-            let mut d = SmallVec::with_capacity(1 + args.len());
-            d.push((*closure, Cardinality::Once));
-            d.extend(args.iter().map(|v| (*v, Cardinality::Once)));
-            d
-        }
-
-        // PartialApply: captured arg demand is handled entirely by
-        // `capture_state_update` in block.rs, which sets precise
-        // access/consumption/cardinality/locality based on the closure's
-        // own demand state. Returning demand here would double-count.
-        // RC operations: AIMS outputs. During migration, no demand.
-        ArcInstr::PartialApply { .. } | ArcInstr::RcInc { .. } | ArcInstr::RcDec { .. } => {
-            SmallVec::new()
-        }
-
-        // Project: one read of the source.
-        ArcInstr::Project { value, .. } => {
-            SmallVec::from_buf_and_len([(*value, Cardinality::Once); 4], 1)
-        }
-
-        // Select: cond + both branches each read once.
-        // When true_val == false_val, emit one demand to avoid double-counting
-        // (seq_add would produce Many instead of the correct Once).
-        ArcInstr::Select {
-            cond,
-            true_val,
-            false_val,
-            ..
-        } => {
-            let mut d = SmallVec::new();
-            d.push((*cond, Cardinality::Once));
-            d.push((*true_val, Cardinality::Once));
-            if true_val != false_val {
-                d.push((*false_val, Cardinality::Once));
-            }
-            d
-        }
-
-        // CollectionReuse: old_var consumed + args consumed once.
-        ArcInstr::CollectionReuse { old_var, args, .. } => {
-            let mut d = SmallVec::with_capacity(1 + args.len());
-            d.push((*old_var, Cardinality::Once));
-            d.extend(args.iter().map(|v| (*v, Cardinality::Once)));
-            d
-        }
-
-        // IsShared/Reset: one read (refcount check / var consumed).
-        ArcInstr::IsShared { var, .. } | ArcInstr::Reset { var, .. } => {
-            SmallVec::from_buf_and_len([(*var, Cardinality::Once); 4], 1)
-        }
-
-        // Set: base + value each read once.
-        ArcInstr::Set { base, value, .. } => {
-            let mut d = SmallVec::new();
-            d.push((*base, Cardinality::Once));
-            d.push((*value, Cardinality::Once));
-            d
-        }
-
-        // SetTag: base read once.
-        ArcInstr::SetTag { base, .. } => {
-            SmallVec::from_buf_and_len([(*base, Cardinality::Once); 4], 1)
-        }
-
-        // Reuse: token consumed + args consumed once.
-        ArcInstr::Reuse { token, args, .. } => {
-            let mut d = SmallVec::with_capacity(1 + args.len());
-            d.push((*token, Cardinality::Once));
-            d.extend(args.iter().map(|v| (*v, Cardinality::Once)));
-            d
-        }
-    }
-}
-
-/// Compute backward demand contributions for a terminator.
-pub fn backward_terminator_demands(term: &ArcTerminator) -> SmallVec<[(ArcVarId, Cardinality); 4]> {
-    match term {
-        // Return: value demanded once.
-        ArcTerminator::Return { value } => {
-            SmallVec::from_buf_and_len([(*value, Cardinality::Once); 4], 1)
-        }
-
-        // Jump: args flow to target block params.
-        ArcTerminator::Jump { args, .. } => args.iter().map(|v| (*v, Cardinality::Once)).collect(),
-
-        // Branch: cond read once.
-        ArcTerminator::Branch { cond, .. } => {
-            SmallVec::from_buf_and_len([(*cond, Cardinality::Once); 4], 1)
-        }
-
-        // Switch: scrutinee read once (tag check).
-        ArcTerminator::Switch { scrutinee, .. } => {
-            SmallVec::from_buf_and_len([(*scrutinee, Cardinality::Once); 4], 1)
-        }
-
-        // Invoke: all args demanded once (conservative).
-        ArcTerminator::Invoke { args, .. } => {
-            args.iter().map(|v| (*v, Cardinality::Once)).collect()
-        }
-
-        // InvokeIndirect: closure + all args demanded once.
-        ArcTerminator::InvokeIndirect { closure, args, .. } => {
-            let mut d = SmallVec::with_capacity(1 + args.len());
-            d.push((*closure, Cardinality::Once));
-            d.extend(args.iter().map(|v| (*v, Cardinality::Once)));
-            d
-        }
-
-        // Terminal: no uses.
-        ArcTerminator::Resume | ArcTerminator::Unreachable => SmallVec::new(),
-    }
-}
-
-// RC reasoning predicates
-
-/// Whether an RC decrement is unnecessary at this program point.
+/// Whether a logical release event is unnecessary at this program point.
 ///
 /// If cardinality is `Absent` or consumption is `Dead`, the value has
-/// no future uses — a dec would be redundant.
-pub fn is_rc_dec_unnecessary(state: &AimsState) -> bool {
+/// no future uses and no surviving ownership obligation at this point.
+pub fn is_release_event_unnecessary(state: &AimsState) -> bool {
     state.cardinality == Cardinality::Absent || state.consumption == Consumption::Dead
 }
 
-/// Whether an RC increment can be elided at a use site.
+/// Whether an additional logical owner-credit event can be elided at a use
+/// site.
 ///
-/// If cardinality is `Once` and consumption is `Linear`, the value has
-/// a single consumer that moves it — no inc needed.
-pub fn is_rc_inc_elidable(state: &AimsState) -> bool {
-    state.cardinality == Cardinality::Once && state.consumption == Consumption::Linear
+/// DP-3: `cardinality = Once ∧ consumption ∈ {Linear, Affine}`. A value used
+/// exactly once is not duplicated, so no additional credit is required at its
+/// single use, whether that use MOVES it (`Linear`: the consumer takes
+/// ownership and assumes its release) or BORROWS it (`Affine`: read
+/// non-consumingly, then released by its own RL-2 scope-exit event). Neither
+/// creates a new owner. `Unrestricted` is excluded (co-occurs only with
+/// `Many`); `Dead` is excluded by the `Once` gate. The historical proof name
+/// is `DP3_is_rc_inc_elidable_table`.
+pub fn is_additional_credit_elidable(state: &AimsState) -> bool {
+    state.cardinality == Cardinality::Once
+        && (state.consumption == Consumption::Linear || state.consumption == Consumption::Affine)
 }
 
-/// Determine COW mode from the uniqueness dimension.
+/// Determine the logical COW mutation obligation from uniqueness.
 ///
-/// - `Unique` → static unique (no runtime check)
-/// - `MaybeShared` → dynamic (runtime uniqueness check)
-/// - `Shared` → static shared (always copy)
-pub fn cow_mode_from_uniqueness(uniqueness: Uniqueness) -> CowModeFromAims {
+/// - `Unique` → same-identity mutation is permitted
+/// - `MaybeShared` → a physical sharing observation is required
+/// - `Shared` → mutation must be isolated from aliases
+pub fn cow_obligation_from_uniqueness(uniqueness: Uniqueness) -> CowMutationObligation {
     match uniqueness {
-        Uniqueness::Unique => CowModeFromAims::StaticUnique,
-        Uniqueness::MaybeShared => CowModeFromAims::Dynamic,
-        Uniqueness::Shared => CowModeFromAims::StaticShared,
+        Uniqueness::Unique => CowMutationObligation::SameIdentityPermitted,
+        Uniqueness::MaybeShared => CowMutationObligation::SharingObservationRequired,
+        Uniqueness::Shared => CowMutationObligation::AliasIsolationRequired,
     }
 }
 
-/// COW mode as determined by AIMS analysis.
-///
-/// Maps to [`crate::uniqueness::CowMode`] at pipeline integration
-/// (Section 06). Defined separately to avoid coupling the lattice
-/// module to the existing uniqueness pass.
+/// Backend-neutral COW obligation frozen by AIMS.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CowModeFromAims {
-    /// RC provably 1 — mutate in place, no check.
-    StaticUnique,
-    /// Runtime uniqueness check needed.
-    Dynamic,
-    /// RC provably > 1 — always copy.
-    StaticShared,
+pub enum CowMutationObligation {
+    /// The facts permit mutation while preserving the same logical identity.
+    SameIdentityPermitted,
+    /// The physical plan must observe sharing before selecting an action.
+    SharingObservationRequired,
+    /// The physical plan must isolate the mutation from existing aliases.
+    AliasIsolationRequired,
 }
 
 // Constraint predicates
@@ -441,65 +432,6 @@ pub fn is_owned_and_unique(state: &AimsState) -> bool {
     state.access == AccessClass::Owned && state.uniqueness == Uniqueness::Unique
 }
 
-// State update helpers
-
-/// Update a captured variable's state for `PartialApply`.
-///
-/// Locality is closure-aware (Section 09.2): captured args inherit the
-/// closure's own locality — if the closure stays function-local, captured
-/// args need only `FunctionLocal`; if it escapes to the heap, captured
-/// args get `HeapEscaping`. The closure's state comes from the backward
-/// analysis (how the closure variable is demanded downstream).
-///
-/// If the closure is invoked at most once (`cardinality <= Once`),
-/// captured values preserve uniqueness — this is the `OxCaml` "lock"
-/// mechanism (LAM rule). A once-closure invokes captured values exactly
-/// once, so no duplication occurs. The consumption dimension is
-/// orthogonal: a closure with `Affine` consumption (may be dropped
-/// without use) still only invokes captured values at most once.
-///
-/// Returns the input unchanged for scalar variables.
-pub fn capture_state_update(current: &AimsState, closure_state: &AimsState) -> AimsState {
-    if current.is_scalar() {
-        return *current;
-    }
-    let mut state = *current;
-    state.access = AccessClass::Owned;
-
-    // Once-closure optimization (OxCaml LAM rule): if the closure is
-    // invoked at most once (cardinality <= Once), captured variables are
-    // used at most once through the closure, preserving linearity and
-    // uniqueness. The consumption dimension (whether the closure may be
-    // dropped) is orthogonal — a dropped closure uses captured vars
-    // zero times, not additionally.
-    if closure_state.cardinality <= Cardinality::Once {
-        // Captured var is used through the closure at most once.
-        // Keep consumption/cardinality from current state (don't widen).
-        // Only ensure at least Affine (may be dropped if closure is dropped).
-        if state.consumption < Consumption::Affine {
-            state.consumption = Consumption::Affine;
-        }
-        if state.cardinality < Cardinality::Once {
-            state.cardinality = Cardinality::Once;
-        }
-    } else {
-        // Multi-use closure: captured values may be used many times.
-        state.consumption = Consumption::Unrestricted;
-        state.cardinality = Cardinality::Many;
-    }
-
-    // Closure-aware locality: captured vars inherit the closure's locality.
-    // No artificial FunctionLocal floor — a block-local closure capturing a
-    // block-local variable preserves BlockLocal (both scoped to the same block).
-    // Per aims-rules.md TF-13.
-    if state.locality < closure_state.locality {
-        state.locality = closure_state.locality;
-    }
-
-    state.canonicalize();
-    state
-}
-
 /// State for a consumed variable (after `CollectionReuse` consumes `old_var`,
 /// or `Reset` consumes its source).
 pub fn consumed_state() -> AimsState {
@@ -518,8 +450,11 @@ pub fn consumed_state() -> AimsState {
 
 // Helpers
 
-/// Map a [`CtorKind`] to a [`ShapeClass`].
-fn shape_from_ctor(ctor: &CtorKind) -> ShapeClass {
+/// Map a [`CtorKind`] to a [`ShapeClass`]. Canonical home for the
+/// ctor-to-shape classification (collection literals → `CollectionBuffer`,
+/// struct/variant → `ReusableCtor`, tuple/closure → `NonReusable`); consumed
+/// by `TF-3` Construct/Reuse transfer and post-convergence shape backfill.
+pub(crate) fn shape_from_ctor(ctor: &CtorKind) -> ShapeClass {
     match ctor {
         CtorKind::Struct(_) => ShapeClass::ReusableCtor(ReuseCtorKind::Struct),
         CtorKind::EnumVariant { .. } => ShapeClass::ReusableCtor(ReuseCtorKind::EnumVariant),

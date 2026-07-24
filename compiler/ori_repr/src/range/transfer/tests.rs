@@ -6,7 +6,7 @@
 use super::*;
 use crate::range::ValueRange::Bottom;
 
-// ─── range_add ─────────────────────────────────────────────────
+// range_add
 
 #[test]
 fn add_positive_bounded() {
@@ -58,7 +58,7 @@ fn add_overflow_returns_top() {
     );
 }
 
-// ─── range_sub ─────────────────────────────────────────────────
+// range_sub
 
 #[test]
 fn sub_basic() {
@@ -87,7 +87,7 @@ fn sub_overflow_returns_top() {
     );
 }
 
-// ─── range_mul ─────────────────────────────────────────────────
+// range_mul
 
 #[test]
 fn mul_positive_positive() {
@@ -148,7 +148,7 @@ fn mul_bottom_propagates() {
     assert_eq!(range_mul(Bottom, Bounded { lo: 1, hi: 2 }), Bottom);
 }
 
-// ─── range_div ─────────────────────────────────────────────────
+// range_div
 
 #[test]
 fn div_positive_positive() {
@@ -183,7 +183,7 @@ fn div_negative_positive() {
     );
 }
 
-// ─── range_div — i64::MIN / -1 overflow ──────────
+// range_div — i64::MIN / -1 overflow
 
 #[test]
 fn div_i64_min_by_neg1_returns_top() {
@@ -249,7 +249,7 @@ fn floordiv_i64_min_by_neg1_returns_top() {
     );
 }
 
-// ─── range_mod ─────────────────────────────────────────────────
+// range_mod
 
 #[test]
 fn mod_basic() {
@@ -265,7 +265,7 @@ fn mod_divisor_spans_zero_returns_top() {
     );
 }
 
-// ─── range_neg ─────────────────────────────────────────────────
+// range_neg
 
 #[test]
 fn neg_basic() {
@@ -291,7 +291,7 @@ fn neg_bottom() {
     assert_eq!(range_neg(Bottom), Bottom);
 }
 
-// ─── range_abs ─────────────────────────────────────────────────
+// range_abs
 
 #[test]
 fn abs_all_positive() {
@@ -328,7 +328,7 @@ fn abs_i64_min_returns_top() {
     );
 }
 
-// ─── Bitwise ───────────────────────────────────────────────────
+// Bitwise
 
 #[test]
 fn bitand_non_negative() {
@@ -393,7 +393,7 @@ fn bitnot_bottom() {
     assert_eq!(range_bitnot(Bottom), Bottom);
 }
 
-// ─── range_bitnot — i64::MIN overflow ────────────
+// range_bitnot — i64::MIN overflow
 
 #[test]
 fn bitnot_i64_min_returns_top() {
@@ -444,7 +444,7 @@ fn bitnot_negative_range() {
     );
 }
 
-// ─── Literals & built-in ranges ────────────────────────────────
+// Literals & built-in ranges
 
 #[test]
 fn literal_exact() {
@@ -479,7 +479,7 @@ fn char_to_int_range() {
     );
 }
 
-// ─── transfer_primop dispatcher ────────────────────────────────
+// transfer_primop dispatcher
 
 #[test]
 fn primop_add_routes_correctly() {
@@ -522,7 +522,7 @@ fn primop_try_returns_top() {
     assert_eq!(result, Top);
 }
 
-// ─── range_floordiv soundness ────────────────────
+// range_floordiv soundness
 
 #[test]
 fn floordiv_mixed_sign_exact() {
@@ -596,7 +596,7 @@ fn floordiv_bottom_propagates() {
     assert_eq!(range_floordiv(Bounded { lo: 1, hi: 2 }, Bottom), Bottom);
 }
 
-// ─── range_shr sign-aware monotonicity ───────────
+// range_shr sign-aware monotonicity
 
 #[test]
 fn shr_negative_range_with_shift_range() {

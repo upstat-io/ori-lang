@@ -7,10 +7,10 @@
 //!
 //! Types are allocated in the parser's arena. For recursive types (lists, maps,
 //! functions, associated types), child types are allocated first and referenced
-//! by ID. This enables flat storage without Box<ParsedType>.
+//! by ID. This enables flat storage without `Box<ParsedType>`.
 
 use ori_diagnostic::ErrorCode;
-use ori_ir::{ParsedType, ParsedTypeId, ParsedTypeRange, TokenKind, TypeId};
+use ori_ir::{Name, ParsedType, ParsedTypeId, ParsedTypeRange, TokenKind, TypeId};
 
 // Tag constants for type keyword dispatch (avoids cloning TokenKind).
 use ori_ir::TokenKind as TK;
@@ -23,174 +23,158 @@ impl Parser<'_> {
     /// Returns a `ParsedType` representing the full type structure.
     ///
     /// Recursive types use arena-allocated IDs for their children.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "exhaustive type token dispatch covering all primitive, container, and user-defined type forms"
-    )]
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_type(&mut self) -> Option<ParsedType> {
         if self.cursor.check_type_keyword() {
-            // Read discriminant tag before advancing to avoid cloning the 16-byte TokenKind.
-            let tag = self.cursor.current_tag();
-            self.cursor.advance();
-            match tag {
-                TK::TAG_INT_TYPE => Some(ParsedType::primitive(TypeId::INT)),
-                TK::TAG_FLOAT_TYPE => Some(ParsedType::primitive(TypeId::FLOAT)),
-                TK::TAG_BOOL_TYPE => Some(ParsedType::primitive(TypeId::BOOL)),
-                TK::TAG_STR_TYPE => Some(ParsedType::primitive(TypeId::STR)),
-                TK::TAG_CHAR_TYPE => Some(ParsedType::primitive(TypeId::CHAR)),
-                TK::TAG_BYTE_TYPE => Some(ParsedType::primitive(TypeId::BYTE)),
-                TK::TAG_VOID => Some(ParsedType::primitive(TypeId::VOID)),
-                TK::TAG_NEVER_TYPE => Some(ParsedType::primitive(TypeId::NEVER)),
-                _ => None,
-            }
+            self.parse_primitive_type()
         } else if self.cursor.check(&TokenKind::SelfUpper) {
-            // Self type - used in trait/impl contexts
-            self.cursor.advance();
-            // Check for associated type access: Self.Item
-            if self.cursor.check(&TokenKind::Dot) {
-                self.cursor.advance(); // consume .
-                if self.cursor.check_ident() {
-                    let assoc_name = if let TokenKind::Ident(n) = &self.cursor.current().kind {
-                        *n
-                    } else {
-                        return Some(ParsedType::SelfType);
-                    };
-                    self.cursor.advance();
-                    // Allocate SelfType in arena for associated type base
-                    let base_id = self.arena.alloc_parsed_type(ParsedType::SelfType);
-                    Some(ParsedType::associated_type(base_id, assoc_name))
-                } else {
-                    Some(ParsedType::SelfType)
-                }
-            } else {
-                Some(ParsedType::SelfType)
-            }
+            Some(self.parse_self_type())
         } else if self.cursor.check_ident() {
-            // Named type (possibly generic like Option<T>)
-            let name = if let TokenKind::Ident(n) = &self.cursor.current().kind {
-                *n
-            } else {
-                return None;
-            };
-            self.cursor.advance();
-            // Check for generic parameters
-            let type_args = self.parse_optional_generic_args_range();
-            let base_type = ParsedType::Named { name, type_args };
-
-            // Check for associated type access: T.Item
-            let result = if self.cursor.check(&TokenKind::Dot) {
-                self.cursor.advance(); // consume .
-                if let TokenKind::Ident(n) = self.cursor.current_kind() {
-                    let assoc_name = *n;
-                    self.cursor.advance();
-                    let base_id = self.arena.alloc_parsed_type(base_type);
-                    ParsedType::associated_type(base_id, assoc_name)
-                } else {
-                    base_type
-                }
-            } else {
-                base_type
-            };
-
-            // Check for bounded trait object: Trait1 + Trait2 [+ Trait3 ...]
-            if self.cursor.check(&TokenKind::Plus) {
-                let first_id = self.arena.alloc_parsed_type(result);
-                let mut bound_ids = vec![first_id];
-                while self.cursor.check(&TokenKind::Plus) {
-                    self.cursor.advance(); // consume +
-                                           // Parse next bound as a named type (ident + optional generics)
-                    if self.cursor.check_ident() {
-                        let bound_name = if let TokenKind::Ident(n) = &self.cursor.current().kind {
-                            *n
-                        } else {
-                            break;
-                        };
-                        self.cursor.advance();
-                        let bound_args = self.parse_optional_generic_args_range();
-                        let bound_type = ParsedType::Named {
-                            name: bound_name,
-                            type_args: bound_args,
-                        };
-                        bound_ids.push(self.arena.alloc_parsed_type(bound_type));
-                    } else {
-                        break;
-                    }
-                }
-                let bounds = self.arena.alloc_parsed_type_list(bound_ids);
-                Some(ParsedType::trait_bounds(bounds))
-            } else {
-                Some(result)
-            }
+            self.parse_named_type()
         } else if self.cursor.check(&TokenKind::LBracket) {
-            // [T] list type or [T, max N] fixed-capacity list type
-            self.cursor.advance(); // [
-            let inner = self.parse_type()?;
-
-            // Check for fixed-capacity syntax: [T, max N]
-            if self.cursor.check(&TokenKind::Comma) {
-                self.cursor.advance(); // ,
-                                       // Expect `max` identifier
-                if let TokenKind::Ident(name) = self.cursor.current_kind() {
-                    if *name == self.known.max {
-                        self.cursor.advance(); // max
-                                               // Parse capacity as const expression ($N, 42, $N + 1)
-                        if let Ok(capacity_expr) = self.parse_non_comparison_expr().into_result() {
-                            if self.cursor.check(&TokenKind::RBracket) {
-                                self.cursor.advance(); // ]
-                            }
-                            let elem_id = self.arena.alloc_parsed_type(inner);
-                            return Some(ParsedType::fixed_list(elem_id, capacity_expr));
-                        }
-                    }
-                }
-                // If we get here, malformed fixed-capacity syntax - just return list
-                if self.cursor.check(&TokenKind::RBracket) {
-                    self.cursor.advance(); // ]
-                }
-                let elem_id = self.arena.alloc_parsed_type(inner);
-                return Some(ParsedType::list(elem_id));
-            }
-
-            if self.cursor.check(&TokenKind::RBracket) {
-                self.cursor.advance(); // ]
-            }
-            // Allocate element type in arena
-            let elem_id = self.arena.alloc_parsed_type(inner);
-            Some(ParsedType::list(elem_id))
+            self.parse_list_type()
         } else if self.cursor.check(&TokenKind::LBrace) {
-            // {K: V} map type
             self.parse_map_type()
         } else if self.cursor.check(&TokenKind::LParen) {
-            // (T, U) tuple or () unit or (T) -> U function type
             self.parse_paren_type()
         } else if self.cursor.check(&TokenKind::Amp) {
-            // &T — borrowed references are reserved for future use.
-            // Consume & and try to parse the inner type for recovery.
-            let amp_span = self.cursor.current().span;
-            self.cursor.advance(); // consume &
-            self.deferred_errors.push(ParseError::new(
-                ErrorCode::E1001,
-                "borrowed references (`&T`) are reserved for a future version of Ori",
-                amp_span,
-            ));
-            // Try to parse the inner type so parsing can recover
-            self.parse_type().or(Some(ParsedType::Infer))
+            Some(self.parse_reserved_borrowed_type())
         } else {
             None
         }
     }
 
-    /// Parse a type and allocate it in the arena, returning its ID.
-    ///
-    /// This is a convenience method for cases where the parsed type
-    /// needs to be stored as an ID (e.g., in lists, maps, functions).
-    #[allow(
-        dead_code,
-        reason = "helper reserved for parsing nested types in future grammar rules"
-    )]
-    pub(crate) fn parse_type_id(&mut self) -> Option<ParsedTypeId> {
-        let ty = self.parse_type()?;
-        Some(self.arena.alloc_parsed_type(ty))
+    fn parse_primitive_type(&mut self) -> Option<ParsedType> {
+        let tag = self.cursor.current_tag();
+        self.cursor.advance();
+        match tag {
+            TK::TAG_INT_TYPE => Some(ParsedType::primitive(TypeId::INT)),
+            TK::TAG_FLOAT_TYPE => Some(ParsedType::primitive(TypeId::FLOAT)),
+            TK::TAG_BOOL_TYPE => Some(ParsedType::primitive(TypeId::BOOL)),
+            TK::TAG_STR_TYPE => Some(ParsedType::primitive(TypeId::STR)),
+            TK::TAG_CHAR_TYPE => Some(ParsedType::primitive(TypeId::CHAR)),
+            TK::TAG_BYTE_TYPE => Some(ParsedType::primitive(TypeId::BYTE)),
+            TK::TAG_VOID => Some(ParsedType::primitive(TypeId::VOID)),
+            TK::TAG_NEVER_TYPE => Some(ParsedType::primitive(TypeId::NEVER)),
+            _ => None,
+        }
+    }
+
+    fn parse_self_type(&mut self) -> ParsedType {
+        self.cursor.advance();
+        if !self.cursor.check(&TokenKind::Dot) {
+            return ParsedType::SelfType;
+        }
+        self.cursor.advance();
+        let TokenKind::Ident(associated) = self.cursor.current_kind() else {
+            return ParsedType::SelfType;
+        };
+        let associated = *associated;
+        self.cursor.advance();
+        let type_args = self.parse_optional_generic_args_range();
+        let base = self.arena.alloc_parsed_type(ParsedType::SelfType);
+        ParsedType::associated_type(base, associated, type_args)
+    }
+
+    fn parse_named_type(&mut self) -> Option<ParsedType> {
+        let TokenKind::Ident(name) = self.cursor.current_kind() else {
+            return None;
+        };
+        let name = *name;
+        self.cursor.advance();
+        // `type = type_path [ type_args ]` and
+        // `type_path = identifier { "." identifier }` (Spec: grammar.ebnf),
+        // so the dotted path is consumed in full FIRST and the generic args
+        // bind to its terminal segment: `a.b.C<int>` puts `<int>` on `C`.
+        let mut segments: Vec<Name> = Vec::new();
+        while self.cursor.check(&TokenKind::Dot) {
+            self.cursor.advance();
+            let TokenKind::Ident(associated) = self.cursor.current_kind() else {
+                break;
+            };
+            segments.push(*associated);
+            self.cursor.advance();
+        }
+        let type_args = self.parse_optional_generic_args_range();
+        let mut head = ParsedType::Named {
+            name,
+            type_args: if segments.is_empty() {
+                type_args
+            } else {
+                ParsedTypeRange::EMPTY
+            },
+        };
+        let last = segments.len().saturating_sub(1);
+        for (index, associated) in segments.into_iter().enumerate() {
+            let base = self.arena.alloc_parsed_type(head);
+            let args = if index == last {
+                type_args
+            } else {
+                ParsedTypeRange::EMPTY
+            };
+            head = ParsedType::associated_type(base, associated, args);
+        }
+        if !self.cursor.check(&TokenKind::Plus) {
+            return Some(head);
+        }
+
+        let first = self.arena.alloc_parsed_type(head);
+        let mut bounds = vec![first];
+        while self.cursor.check(&TokenKind::Plus) {
+            self.cursor.advance();
+            let TokenKind::Ident(name) = self.cursor.current_kind() else {
+                break;
+            };
+            let name = *name;
+            self.cursor.advance();
+            let type_args = self.parse_optional_generic_args_range();
+            bounds.push(
+                self.arena
+                    .alloc_parsed_type(ParsedType::Named { name, type_args }),
+            );
+        }
+        let bounds = self.arena.alloc_parsed_type_list(bounds);
+        Some(ParsedType::trait_bounds(bounds))
+    }
+
+    fn parse_list_type(&mut self) -> Option<ParsedType> {
+        self.cursor.advance();
+        let inner = self.parse_type()?;
+        if self.cursor.check(&TokenKind::Comma) {
+            self.cursor.advance();
+            if matches!(self.cursor.current_kind(), TokenKind::Ident(name) if *name == self.known.max)
+            {
+                self.cursor.advance();
+                if let Ok(capacity) = self.parse_non_comparison_expr().into_result() {
+                    self.consume_type_delimiter_if(&TokenKind::RBracket);
+                    let element = self.arena.alloc_parsed_type(inner);
+                    return Some(ParsedType::fixed_list(element, capacity));
+                }
+            }
+            self.consume_type_delimiter_if(&TokenKind::RBracket);
+            let element = self.arena.alloc_parsed_type(inner);
+            return Some(ParsedType::list(element));
+        }
+        self.consume_type_delimiter_if(&TokenKind::RBracket);
+        let element = self.arena.alloc_parsed_type(inner);
+        Some(ParsedType::list(element))
+    }
+
+    fn parse_reserved_borrowed_type(&mut self) -> ParsedType {
+        let span = self.cursor.current().span;
+        self.cursor.advance();
+        self.deferred_errors.push(ParseError::new(
+            ErrorCode::E1001,
+            "borrowed references (`&T`) are reserved for a future version of Ori",
+            span,
+        ));
+        self.parse_type().unwrap_or(ParsedType::Infer)
+    }
+
+    fn consume_type_delimiter_if(&mut self, kind: &TokenKind) {
+        if self.cursor.check(kind) {
+            self.cursor.advance();
+        }
     }
 
     /// Parse optional generic arguments: `<T, U, ...>`
@@ -206,13 +190,21 @@ impl Parser<'_> {
         // Type arg lists use a Vec because nested generic args share the
         // same `parsed_type_lists` buffer (e.g., `Map<str, List<int>>`).
         let mut type_args: Vec<ParsedTypeId> = Vec::new();
+        // The series error is intentionally discarded: this helper is invoked
+        // speculatively to disambiguate generic args (`Foo<T>`) from a comparison
+        // (`a < b`). A soft failure here is the disambiguation signal; the caller
+        // recovers via the `Gt` fallthrough below. Surfacing it would leak a
+        // speculative-path error into the real diagnostic list (per §SN-1).
         let _ = self.series_direct(&SeriesConfig::comma(TokenKind::Gt).no_newlines(), |p| {
             if p.cursor.check(&TokenKind::Gt) {
                 return Ok(false);
             }
             let tag = p.cursor.current_tag();
-            if tag == TK::TAG_DOLLAR || tag == TK::TAG_INT {
-                // Const expression in type argument position: $N, $N + 1, 42
+            if matches!(
+                tag,
+                TK::TAG_DOLLAR | TK::TAG_INT | TK::TAG_MINUS | TK::TAG_TRUE | TK::TAG_FALSE
+            ) {
+                // Const expression in type argument position: $N, $N + 1, 42, -1, true
                 let expr_id = p.parse_non_comparison_expr().into_result()?;
                 type_args.push(p.arena.alloc_parsed_type(ParsedType::const_expr(expr_id)));
                 Ok(true)
@@ -275,15 +267,15 @@ impl Parser<'_> {
         }
 
         // Parse first element (could be tuple or function param)
-        let mut element_ids = Vec::new();
-        if let Some(first) = self.parse_type() {
-            let id = self.arena.alloc_parsed_type(first);
-            element_ids.push(id);
-        }
+        let first = self.parse_type()?;
+        let first_id = self.arena.alloc_parsed_type(first.clone());
+        let mut element_ids = vec![first_id];
 
         // Collect remaining elements if tuple
+        let mut saw_comma = false;
         while self.cursor.check(&TokenKind::Comma) {
             self.cursor.advance();
+            saw_comma = true;
             if self.cursor.check(&TokenKind::RParen) {
                 break; // trailing comma
             }
@@ -306,8 +298,12 @@ impl Parser<'_> {
             return Some(ParsedType::function(params, ret_id));
         }
 
-        // If single element without arrow, it could be a parenthesized type or 1-tuple
-        // We treat it as a tuple for consistency
+        // If single element without arrow, check if trailing comma was consumed.
+        // If no comma was seen, it is a parenthesized type, not a tuple.
+        if element_ids.len() == 1 && !saw_comma {
+            return Some(first);
+        }
+
         let elems = self.arena.alloc_parsed_type_list(element_ids);
         Some(ParsedType::tuple(elems))
     }

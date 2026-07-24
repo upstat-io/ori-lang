@@ -11,7 +11,7 @@
 
 Patterns invoke the evaluator only through the `PatternExecutor` trait — never a direct evaluator reference. This keeps new patterns addable without touching the evaluator core (Open/Closed).
 
-**Not this crate**: match-arm pattern compilation (Maranget decision trees) lives in `ori_canon::patterns/` with primitives currently in `ori_arc::decision_tree/`.
+**Not this crate**: match-arm pattern compilation (Maranget decision trees) lives in `ori_canon::patterns/`, with the compile/flatten primitives in `ori_canon::patterns::decision_tree/`.
 
 ## Architecture
 

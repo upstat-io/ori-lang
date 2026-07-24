@@ -1,0 +1,163 @@
+Theorem TF-Composition: TF chain + CN per instruction produces monotone block output
+
+  Preconditions:
+    - A basic block B is a finite sequence of ArcInstr instructions
+      [i_1, i_2, ..., i_N] with N >= 0 and a single terminator
+      ArcTerminator t per Annex E §AIMS (Forward Transfer Functions)
+      + §6 IA-1 (Bidirectional interaction: forward TF defines state on
+      definition; backward demand accumulates state on use).
+    - For each instruction i_k that defines dst_k, the per-instruction
+      forward transfer TF_k(s_{k-1}) -> s_k produces a post-state per
+      Appendix A row for the instr variant; the row is monotone by
+      L-6 layer (b) discharged at §04.1 / §04.2 (per-TF-N monotonicity
+      one obligation per TF-1..TF-15a per `aims-proof/proofs/02-lattice/L-6.proof:14,20`
+      split — §02 owns layer (a), §04 owns layer (b)).
+    - After each TF step, the canonicalize() function from §03 fires
+      the active CN-1..CN-8 rule set (CN-1, CN-3, CN-6, CN-8 currently
+      active; CN-2 subsumed by CN-1; CN-4, CN-7 REMOVED). Canonicalize
+      is monotone + idempotent per §02 L-7 + L-8 + §03 CN soundness.
+    - Block-output AimsStateMap is the per-variable state at block exit:
+      forall v in block_vars(B). state_at_exit(v) = TF chain of v's
+      definition forward then canonicalize, composed across the block's
+      instruction sequence.
+    - L-6 layer (a) abstract lattice-operation monotonicity (per-
+      dimension join + canonicalize) discharged at §02 L-6.proof Part (a);
+      L-6 layer (b) per-instruction TF-N monotonicity discharged at
+      §04.1 TF-1..TF-8 + §04.2 TF-7/TF-9..TF-15a + §04.3 TF-11..TF-14
+      + IA-5-step-1. The composition theorem composes layer (a) +
+      layer (b) over a finite sequence of instructions.
+
+  Soundness property:
+    Forall basic blocks B = [i_1, ..., i_N] over ArcInstr.
+      Forall input states s_in_1, s_in_2 in AimsState with s_in_1 <= s_in_2.
+        compose_block(B, s_in_1) <= compose_block(B, s_in_2)
+    where compose_block(B, s) folds the block:
+      compose_block([], s) = s (base)
+      compose_block(i :: rest, s) = compose_block(rest,
+                                              canonicalize(TF(i, s)))
+    AND for the per-variable state map: forall v in block_vars(B).
+        state_at_exit(v) is the monotone composition of TF_v + canonicalize
+        across the block's instruction sequence.
+
+  Proof obligation:
+    Three-part discharge:
+      (a) Induction on block length — base case (empty block) trivially
+          monotone (identity function); inductive step (block of length
+          N+1) composes per-TF-N monotonicity with canonicalize
+          monotonicity.
+      (b) Per-instruction step soundness — verify that for each
+          ArcInstr i_k and any pair of input states s1 <= s2:
+            canonicalize(TF(i_k, s1)) <= canonicalize(TF(i_k, s2))
+          This composes (i) L-6 layer (b) for TF (per-TF-N monotonicity
+          proven at §04.1 + §04.2 + §04.3) with (ii) §02 L-6 layer (a)
+          + §03 CN soundness for canonicalize (canonicalize is monotone
+          per §02 L-6 layer (a) — abstract lattice-operation monotonicity
+          covers canonicalize composition; per-rule CN-N monotonicity
+          proven at §03 CN-1.proof / CN-3.proof / CN-6.proof / CN-8.proof).
+      (c) Block-output AimsStateMap monotonicity — fold the per-step
+          monotonicity claim across the finite instruction sequence; the
+          composition of monotone functions is monotone (universal
+          property of <= preserved under sequential composition).
+
+    Part (a) — induction on block length:
+      Base case N=0 (empty block):
+        compose_block([], s_in) = s_in
+        s_in_1 <= s_in_2 => s_in_1 <= s_in_2 (reflexivity, L-4).
+      Inductive step:
+        Assume compose_block(rest, s) monotone in s for rest of length
+        N (induction hypothesis). For block i :: rest of length N+1:
+          compose_block(i :: rest, s_in) =
+            compose_block(rest, canonicalize(TF(i, s_in)))
+        By per-step monotonicity (Part (b)):
+          s_in_1 <= s_in_2
+            => TF(i, s_in_1) <= TF(i, s_in_2) (L-6 layer (b))
+            => canonicalize(TF(i, s_in_1))
+                 <= canonicalize(TF(i, s_in_2)) (canonicalize mono)
+        Then by induction hypothesis on rest:
+          compose_block(rest, canonicalize(TF(i, s_in_1)))
+            <= compose_block(rest, canonicalize(TF(i, s_in_2)))
+        Concluding compose_block(i :: rest, s_in_1)
+                     <= compose_block(i :: rest, s_in_2).
+
+    Part (b) — per-instruction step soundness:
+      For each ArcInstr variant the per-step monotonicity claim is:
+        s1 <= s2 => canonicalize(TF(i, s1)) <= canonicalize(TF(i, s2))
+      Per the §04.1 + §04.2 + §04.3 dispatch table:
+        TF-1 (Let { Literal }): constant SCALAR, monotone trivially
+        TF-2 (Let { Var(v) }): identity, monotone trivially
+        TF-2a (Let { PrimOp }): constant SCALAR, monotone trivially
+        TF-3 (Construct): constant FRESH(shape), monotone trivially
+        TF-4 (Project): per-dim inheritance from src, monotone
+        TF-5 (Apply no contract): constant CONSERVATIVE, monotone trivially
+        TF-5a (ApplyIndirect): constant CONSERVATIVE, monotone trivially
+        TF-6 (Apply contract): refine(CONSERVATIVE, callee.return_contract)
+                                    monotone over contract (§04.1 TF-6)
+        TF-6a (Invoke contract): same as TF-6
+        TF-6b (Invoke no contract):constant CONSERVATIVE, monotone trivially
+        TF-6c (InvokeIndirect): constant CONSERVATIVE, monotone trivially
+        TF-7 (PartialApply): constant FRESH(NonReusable), monotone trivially
+        TF-8 (Select): componentwise join with SCALAR exclusion,
+                                    monotone per §04.1 TF-8
+        TF-9 (Reuse): constant FRESH(inherited shape), monotone
+        TF-9a (CollectionReuse): constant FRESH(CollectionBuffer), monotone
+        TF-10 (IsShared): constant SCALAR, monotone trivially
+        TF-10a (Reset): constant SCALAR, monotone trivially
+        TF-15 (Set): no dst — composition skips dst-update
+        TF-15a (SetTag): no dst — composition skips dst-update
+        TF-N/A (RcInc, RcDec): no dst — composition skips dst-update
+      Each TF-N has its proof of monotonicity (L-6 layer (b)) at
+      §04.1 / §04.2 / §04.3 verifier functions enumerated in
+      `aims-proof/checker/src/engine/section_04.rs`.
+      Canonicalize is monotone per §02 L-6 layer (a) (`aims-proof/proofs/02-lattice/L-6.proof`
+      lines 64-73): canonicalize is built from per-dimension rewrite
+      rules CN-1..CN-8; each rule moves the dimensional value within the
+      partial order in a direction that preserves the join structure.
+      L-8 (canonicalize preserves joins) discharged at §02 L-8.proof
+      lifts directly to monotonicity of the canonicalize-after-join
+      operation.
+      Composition of two monotone functions f, g is monotone:
+        a <= b => f(a) <= f(b) => g(f(a)) <= g(f(b))
+      Hence canonicalize . TF_i is monotone for every ArcInstr i.
+
+    Part (c) — block-output AimsStateMap monotonicity:
+      For each variable v defined in block B, its per-variable state
+      at block exit is the composition of canonicalize . TF_v across
+      the block's instruction sequence + the per-variable carrier of
+      that composition. The composition of N monotone functions is
+      monotone (universal property of <=). Hence the block-output
+      AimsStateMap is monotone in the block-input AimsStateMap.
+
+      Negative witness (why composition matters): if any TF-N were
+      anti-monotone (i.e. s1 <= s2 but TF_N(s1) > TF_N(s2)), the
+      composed block transfer would be anti-monotone, breaking the
+      backward dataflow convergence guarantee at §06 IA-7. The
+      removed CN-4 rule (which would have promoted MaybeShared ->
+      Unique under certain conditions) is anti-monotone for exactly
+      this reason — removed at §03 CN-4-REMOVED.proof. The Composition
+      theorem confirms that the active rule set (TF-1..TF-15a, CN-1,
+      CN-3, CN-6, CN-8) preserves monotonicity end-to-end.
+
+    Witness — 3-instruction basic block:
+      Concrete witness covering forward dimensions: instruction sequence
+      [Let { Var(v) }, Construct(Struct), Project { v, field=0 }] over
+      a 3-variable state map (v: source, dst_construct, dst_project).
+      The per-step TF dispatch + canonicalize produces a monotone
+      block-output AimsStateMap; the verifier
+      `verify_composition_tf_chain_monotone()` at
+      `aims-proof/checker/src/engine/section_04.rs` enumerates the
+      transfer chain over a representative input-state pair to confirm
+      the composition theorem holds.
+
+    Engines dispatched:
+      monotonicity (PRIMARY — composition of monotone functions is
+        monotone; per section_04::verify_composition_tf_chain_monotone)
+      case_analysis (PRIMARY — TF-N dispatch per ArcInstr variant +
+        canonicalize per active CN rule per section_04)
+      lattice (SECONDARY — accepts gracefully; consumes §02 L-1..L-9
+        + L-6 layer (a) + §03 CN-1..CN-8 as proven regressions)
+      refinement (SECONDARY — accepts gracefully; TF-6 + TF-6a refine()
+        narrowing folded into per-step monotonicity per §04.1 TF-6)
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-Composition via induction on block length + per-step monotonicity (TF-N L-6 layer (b) per §04.1+§04.2+§04.3 composed with canonicalize monotonicity per §02 L-6 layer (a) + §03 CN soundness) + concrete 3-instruction basic-block witness

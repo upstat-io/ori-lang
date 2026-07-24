@@ -48,6 +48,7 @@ pub enum TokenKind {
     Let,
     Loop,
     Match,
+    While,
     Pub,
     SelfLower, // self
     SelfUpper, // Self
@@ -199,6 +200,7 @@ impl TokenKind {
                 | TokenKind::For
                 | TokenKind::Match
                 | TokenKind::Loop
+                | TokenKind::While
                 | TokenKind::Let
                 | TokenKind::LParen
                 | TokenKind::LBracket

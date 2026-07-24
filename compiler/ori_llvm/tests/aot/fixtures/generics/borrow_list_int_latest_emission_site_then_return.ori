@@ -1,0 +1,27 @@
+// (Canonical-rep semantics) Latest-emission-site pin:
+// when multiple SSA alias class members exist with
+// different emission sites, canonical_rep_for picks the LATEST-emitting
+// member. Positive pin — exercises post-fix selection semantics; both
+// pre- and post-fix should produce correct RC behavior here, but the
+// fix's selection logic must continue to satisfy this case.
+
+@latest_emission (xs: [int], flag: bool) -> [int] = {
+    let alias_a = xs;
+    if flag then {
+        let alias_b = alias_a;
+        let alias_c = alias_b;
+        alias_c
+    } else {
+        alias_a
+    }
+};
+
+@main () -> int = {
+    let original_t = [55, 66, 77];
+    let r_t = latest_emission(xs: original_t, flag: true);
+    let original_f = [88, 99];
+    let r_f = latest_emission(xs: original_f, flag: false);
+    let t_ok = r_t.len() == 3 && r_t[0] == 55 && r_t[2] == 77;
+    let f_ok = r_f.len() == 2 && r_f[0] == 88 && r_f[1] == 99;
+    if t_ok && f_ok then 0 else 1
+}

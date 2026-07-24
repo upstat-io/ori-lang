@@ -1,0 +1,25 @@
+// Nested generic-receiver inherent methods: `Wrapper<Box<int>>.inner()` returns
+// the inner `Box<int>`, then `Box<int>.unwrap()` returns the int. Two distinct
+// monomorphized inherent-method bodies on two distinct generic types in one call.
+
+type Box<T> = { value: T };
+
+type Wrapper<T> = { inner: T };
+
+impl<T> Box<T> {
+    @unwrap (self) -> T = self.value;
+}
+
+impl<T> Wrapper<T> {
+    @inner (self) -> T = self.inner;
+}
+
+@unwrap_nested (w: Wrapper<Box<int>>) -> int = {
+    let b = w.inner();
+    b.unwrap()
+}
+
+@main () -> int = {
+    let w = Wrapper { inner: Box { value: 42 } };
+    if unwrap_nested(w: w) == 42 then 0 else 1
+}

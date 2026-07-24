@@ -1,0 +1,9 @@
+type Wrapper = { s: str }
+
+@main () -> int = {
+    let r: Result<Wrapper, int> = Ok(Wrapper { s: "abcdefghijklmnopqrstuvwxyz1234" });
+    match r {
+        Ok(w) -> if w.s.length() == 30 then 0 else 1,
+        Err(e) -> e,
+    }
+}

@@ -1,0 +1,14 @@
+// A concrete `with` provider must implement the registered capability trait,
+// even when the body does not happen to call one of its methods.
+
+trait Counter {
+    @increment (self) -> int
+}
+
+type NotACounter = { value: int }
+
+#compile_fail(code: "E2001", message: "provider for capability `Counter` does not implement `Counter`")
+@test_reject_wrong_provider tests _ () -> void = {
+    let _ = with Counter = NotACounter { value: 1 } in 1;
+    ()
+}

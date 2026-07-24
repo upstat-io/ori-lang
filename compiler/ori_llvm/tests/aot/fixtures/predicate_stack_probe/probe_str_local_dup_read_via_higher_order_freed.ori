@@ -1,0 +1,10 @@
+@apply (f: (str) -> int, s: str) -> int = f(s);
+
+@get_len (s: str) -> int = s.length();
+
+@main () -> int = {
+    let s = "abcdefghijklmnopqrstuvwxyz1234";
+    let a = apply(f: get_len, s: s);
+    let b = apply(f: get_len, s: s);
+    if a + b == 60 then 0 else 1
+}

@@ -634,7 +634,7 @@ mod aims_state_join {
         // Test all pairs from a subset (full cross-product is ~25M pairs)
         for (i, a) in states.iter().enumerate() {
             for b in states.iter().skip(i) {
-                assert_eq!(a.join(b), b.join(a), "commutative:\n  a={a:?}\n  b={b:?}");
+                assert_eq!(a.join(b), b.join(a), "commutative:\n a={a:?}\n b={b:?}");
             }
         }
     }
@@ -651,7 +651,7 @@ mod aims_state_join {
                 for c in &sample {
                     let ab_c = a.join(b).join(c);
                     let a_bc = a.join(&b.join(c));
-                    assert_eq!(ab_c, a_bc, "associative:\n  a={a:?}\n  b={b:?}\n  c={c:?}");
+                    assert_eq!(ab_c, a_bc, "associative:\n a={a:?}\n b={b:?}\n c={c:?}");
                 }
             }
         }
@@ -719,17 +719,24 @@ mod canonicalization {
     }
 
     #[test]
-    fn shared_collection_buffer_preserved() {
-        // CollectionBuffer is not collapsed by shared uniqueness
-        // (only ReusableCtor is affected)
+    fn shared_collection_buffer_collapses_to_nonreusable() {
+        // Per §2 CN-3: Shared values cannot be reused via
+        // ANY reusable shape. The pre-fix implementation only handled
+        // `ReusableCtor(_)` and silently left `CollectionBuffer` alone —
+        // a CN-3 violation that allowed Shared collections to claim
+        // reusable shape, breaking the invariant that downstream reuse
+        // emission depends on. surfaced this; the fix
+        // broadened the canonicalize check to `shape != NonReusable`.
+        //
+        // See `canonicalize_cn3_shared_collection_buffer_demoted_to_nonreusable`
+        // in the cross_dimensional submodule for the explicit pin form.
         let mut s = AimsState {
             uniqueness: Uniqueness::Shared,
             shape: ShapeClass::CollectionBuffer,
             ..AimsState::TOP
         };
-        let before_shape = s.shape;
         s.canonicalize();
-        assert_eq!(s.shape, before_shape);
+        assert_eq!(s.shape, ShapeClass::NonReusable);
     }
 
     // Rule 4: REMOVED — was anti-monotone, broke join associativity.
@@ -1158,7 +1165,10 @@ mod feasibility {
     fn borrowed_never_rc_needed() {
         for s in representative_states() {
             if s.access == AccessClass::Borrowed {
-                assert!(!s.is_rc_needed(), "borrowed should not need RC: {s:?}");
+                assert!(
+                    !s.needs_ownership_events(),
+                    "borrowed values should not require ownership events: {s:?}"
+                );
             }
         }
     }
@@ -1191,13 +1201,13 @@ mod queries {
     }
 
     #[test]
-    fn scalar_no_rc() {
-        assert!(!AimsState::SCALAR.is_rc_needed());
+    fn scalar_has_no_ownership_events() {
+        assert!(!AimsState::SCALAR.needs_ownership_events());
     }
 
     #[test]
-    fn fresh_needs_rc() {
-        assert!(AimsState::FRESH.is_rc_needed());
+    fn fresh_needs_ownership_events() {
+        assert!(AimsState::FRESH.needs_ownership_events());
     }
 
     #[test]
@@ -1207,7 +1217,7 @@ mod queries {
             cardinality: Cardinality::Absent,
             ..AimsState::TOP
         };
-        assert!(!dead.is_rc_needed());
+        assert!(!dead.needs_ownership_events());
     }
 
     #[test]
@@ -1218,7 +1228,7 @@ mod queries {
             cardinality: Cardinality::Once,
             ..AimsState::FRESH
         };
-        assert!(!borrowed.is_rc_needed());
+        assert!(!borrowed.needs_ownership_events());
     }
 
     #[test]
@@ -1293,7 +1303,7 @@ mod queries {
             shape: ShapeClass::NonReusable,
             effect: EffectClass::NONE,
         };
-        assert!(state.is_rc_skip_eligible());
+        assert!(state.is_event_pair_elision_eligible());
     }
 
     #[test]
@@ -1307,7 +1317,7 @@ mod queries {
             shape: ShapeClass::NonReusable,
             effect: EffectClass::NONE,
         };
-        assert!(!state.is_rc_skip_eligible());
+        assert!(!state.is_event_pair_elision_eligible());
     }
 
     #[test]
@@ -1321,7 +1331,7 @@ mod queries {
             shape: ShapeClass::NonReusable,
             effect: EffectClass::NONE,
         };
-        assert!(!state.is_rc_skip_eligible());
+        assert!(!state.is_event_pair_elision_eligible());
     }
 
     #[test]
@@ -1335,7 +1345,7 @@ mod queries {
             shape: ShapeClass::NonReusable,
             effect: EffectClass::NONE,
         };
-        assert!(!state.is_rc_skip_eligible());
+        assert!(!state.is_event_pair_elision_eligible());
     }
 
     #[test]
@@ -1350,7 +1360,7 @@ mod queries {
             shape: ShapeClass::NonReusable,
             effect: EffectClass::NONE,
         };
-        assert!(state.is_rc_skip_eligible());
+        assert!(state.is_event_pair_elision_eligible());
     }
 }
 
@@ -1363,7 +1373,7 @@ mod from_arc_class {
     fn scalar_maps_to_scalar() {
         let s = AimsState::from_arc_class(ArcClass::Scalar);
         assert!(s.is_scalar());
-        assert!(!s.is_rc_needed());
+        assert!(!s.needs_ownership_events());
     }
 
     #[test]
@@ -1522,8 +1532,8 @@ mod dimension_interactions {
                 effect: EffectClass::ALL,
             };
             assert!(
-                !s.is_rc_needed(),
-                "borrowed + {consumption:?} should not need RC"
+                !s.needs_ownership_events(),
+                "borrowed + {consumption:?} should not require ownership events"
             );
         }
     }
@@ -1626,10 +1636,11 @@ mod pairwise_interactions {
                 };
                 s.canonicalize();
                 // Only owned + non-dead should need RC
-                let expected_rc = access == AccessClass::Owned && consumption != Consumption::Dead;
+                let expected_events =
+                    access == AccessClass::Owned && consumption != Consumption::Dead;
                 assert_eq!(
-                    s.is_rc_needed(),
-                    expected_rc,
+                    s.needs_ownership_events(),
+                    expected_events,
                     "access={access:?}, consumption={consumption:?}"
                 );
             }
@@ -1667,13 +1678,67 @@ mod pairwise_interactions {
                     ..AimsState::FRESH
                 };
                 s.canonicalize();
-                // Shared + ReusableCtor → NonReusable
-                if uniqueness == Uniqueness::Shared && matches!(shape, ShapeClass::ReusableCtor(_))
-                {
-                    assert_eq!(s.shape, ShapeClass::NonReusable);
+                // CN-3: Shared + ANY reusable shape → NonReusable. Per
+                // §2 CN-3, applies to ALL reusable shapes —
+                // `ReusableCtor(Struct)`, `ReusableCtor(EnumVariant)`,
+                // `CollectionBuffer`, AND `ContextHole`. A Shared value has
+                // multiple logical owners; resetting any reusable allocation
+                // type would corrupt other views regardless of which reusable
+                // variant it carries.
+                if uniqueness == Uniqueness::Shared && shape != ShapeClass::NonReusable {
+                    assert_eq!(
+                        s.shape,
+                        ShapeClass::NonReusable,
+                        "CN-3 violation: Shared + {shape:?} should canonicalize to NonReusable"
+                    );
                 }
             }
         }
+    }
+
+    /// CN-3 explicit pin: Shared + `CollectionBuffer` → `NonReusable`.
+    /// Pre-fix bug: the canonicalize check used
+    /// `matches!(self.shape, ShapeClass::ReusableCtor(_))` which only
+    /// covered `ReusableCtor` variants, leaving `CollectionBuffer` + Shared
+    /// uncanonicalized — a Shared collection's `var_shape` would still
+    /// claim `CollectionBuffer`, contradicting CN-3 spec.
+    #[test]
+    fn canonicalize_cn3_shared_collection_buffer_demoted_to_nonreusable() {
+        let mut s = AimsState {
+            uniqueness: Uniqueness::Shared,
+            shape: ShapeClass::CollectionBuffer,
+            ..AimsState::FRESH
+        };
+        s.canonicalize();
+        assert_eq!(
+            s.shape,
+            ShapeClass::NonReusable,
+            "CN-3: Shared values cannot be reused — CollectionBuffer must \
+             demote to NonReusable (applies to \
+             ALL reusable shapes, not just ReusableCtor)"
+        );
+    }
+
+    /// CN-3 explicit pin: Shared + `ContextHole` → `NonReusable`.
+    /// Same pre-fix bug as `canonicalize_cn3_shared_collection_buffer`:
+    /// the narrow `matches!(_, ReusableCtor(_))` left `ContextHole` +
+    /// Shared uncanonicalized.
+    #[test]
+    fn canonicalize_cn3_shared_context_hole_demoted_to_nonreusable() {
+        let mut s = AimsState {
+            uniqueness: Uniqueness::Shared,
+            shape: ShapeClass::ContextHole,
+            ..AimsState::FRESH
+        };
+        s.canonicalize();
+        assert_eq!(
+            s.shape,
+            ShapeClass::NonReusable,
+            "CN-3: Shared + ContextHole must demote to NonReusable. The \
+             TRMC ContextHole is a reusable shape; resetting it on a \
+             Shared value would corrupt the constructor context across \
+             aliases."
+        );
     }
 }
 
@@ -1829,8 +1894,8 @@ mod soundness {
                 };
                 s.canonicalize();
                 assert!(
-                    !s.is_rc_needed(),
-                    "borrowed + {consumption:?} + {cardinality:?} should not need RC"
+                    !s.needs_ownership_events(),
+                    "borrowed + {consumption:?} + {cardinality:?} should not require ownership events"
                 );
             }
         }
@@ -1844,7 +1909,7 @@ mod soundness {
             ..AimsState::TOP
         };
         s.canonicalize();
-        assert!(!s.is_rc_needed());
+        assert!(!s.needs_ownership_events());
     }
 
     #[test]
@@ -1881,7 +1946,7 @@ mod soundness {
             uniqueness: Uniqueness::Unique,
             ..AimsState::FRESH
         };
-        assert!(crate::aims::transfer::is_rc_inc_elidable(&s));
+        assert!(crate::aims::transfer::is_additional_credit_elidable(&s));
     }
 }
 
@@ -2112,17 +2177,17 @@ fn fresh_is_optimistic_owned() {
     assert_eq!(f.consumption, Consumption::Linear);
     assert_eq!(f.cardinality, Cardinality::Once);
     assert_eq!(f.uniqueness, Uniqueness::Unique);
-    // Section 09.2: FRESH starts BlockLocal (hasn't escaped the block).
+    // FRESH starts BlockLocal (hasn't escaped the block).
     // Cross-block flow widens to FunctionLocal; return widens to HeapEscaping.
     assert_eq!(f.locality, Locality::BlockLocal);
     assert_eq!(f.shape, ShapeClass::NonReusable);
     assert_eq!(f.effect, EffectClass::NONE);
-    assert!(f.is_rc_needed());
+    assert!(f.needs_ownership_events());
     assert!(!f.needs_cow_check());
     assert!(!f.is_reuse_candidate()); // NonReusable shape
 }
 
-// Section 09.5: Convergence Feedback tests
+// Convergence Feedback tests
 
 mod convergence_feedback {
     use super::*;
@@ -2225,7 +2290,7 @@ mod convergence_feedback {
 
     #[test]
     fn feedback_no_cross_dimension_for_representative_states() {
-        // With current rules (Section 09.3), no cross-dimension chain
+        // With current rules, no cross-dimension chain
         // should fire (at most 1 changing round). This is the termination
         // guarantee.
         for mut s in representative_states() {
@@ -2360,7 +2425,7 @@ mod convergence_feedback {
 
     #[test]
     fn canonicalize_with_feedback_matches_canonicalize() {
-        // canonicalize() and canonicalize_with_feedback() must produce the
+        // canonicalize and canonicalize_with_feedback must produce the
         // same state.
         for s in representative_states() {
             let mut via_plain = s;

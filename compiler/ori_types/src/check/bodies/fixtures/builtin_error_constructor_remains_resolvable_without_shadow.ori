@@ -1,0 +1,1 @@
+@make () -> Error = Error("boom");

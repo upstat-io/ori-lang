@@ -1,0 +1,4 @@
+trait Drop { @drop (self) -> void; }
+         type Point = { x: float, y: float }
+         impl Point: Drop { @drop (self) -> void = (); }
+         @main () -> int = 0;

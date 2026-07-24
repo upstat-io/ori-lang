@@ -1,0 +1,12 @@
+@get_len (s: str) -> int = s.length();
+
+@pick () -> str = {
+    let s = "abcdefghijklmnopqrstuvwxyz1234";
+    let n = get_len(s: s);
+    if n == 30 then s else "fallback_string_value_padding"
+}
+
+@main () -> int = {
+    let r = pick();
+    if r.length() == 30 then 0 else 1
+}

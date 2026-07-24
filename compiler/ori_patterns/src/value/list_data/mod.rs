@@ -66,7 +66,7 @@ impl ListData {
         self.offset
     }
 
-    // --- Zero-copy slice operations ---
+    // Zero-copy slice operations
 
     /// Create a zero-copy sub-slice sharing the same backing buffer.
     ///
@@ -96,7 +96,7 @@ impl ListData {
         self.slice(n, self.len)
     }
 
-    // --- Mutation methods (materialize + COW) ---
+    // Mutation methods (materialize + COW)
 
     /// Materialize the slice into an owned Vec if this is a slice view.
     ///

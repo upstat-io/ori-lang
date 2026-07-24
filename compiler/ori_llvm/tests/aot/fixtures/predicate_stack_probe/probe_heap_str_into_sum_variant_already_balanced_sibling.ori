@@ -1,0 +1,7 @@
+@len_of (s: str) -> int = s.length();
+
+@main () -> int = {
+    let heap = "this is a long string that exceeds SSO threshold!!!";
+    let n = len_of(s: heap);
+    if n == 51 then 0 else 1
+}

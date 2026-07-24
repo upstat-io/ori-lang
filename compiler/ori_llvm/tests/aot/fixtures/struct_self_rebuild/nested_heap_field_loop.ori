@@ -1,0 +1,14 @@
+// Nested heap-carrying field (top-level grain): the outer struct's nested
+// struct field carries heap data; both top-level fields self-projected in the
+// rebuild. The union operates at top-level field grain; the outer drop-glue
+// releases nested owned fields exactly once.
+type Inner = { a: [int] }
+type Outer = { inner: Inner, b: [int] }
+
+@main () -> int = {
+    let r = Outer { inner: Inner { a: [1] }, b: [2] };
+    for i in 0..30 do {
+        r = Outer { inner: r.inner, b: r.b };
+    };
+    if r.b.len() == 1 then 0 else 1
+}

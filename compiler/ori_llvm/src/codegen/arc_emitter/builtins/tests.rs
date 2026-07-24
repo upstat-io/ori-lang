@@ -12,19 +12,50 @@
 
 use std::collections::HashSet;
 
-use ori_registry::legacy_type_name;
+use ori_registry::lowercase_type_name;
 
 use super::builtin_table;
+
+#[test]
+fn option_result_handlers_have_closed_runtime_identities() {
+    let table = builtin_table();
+    for tag in [ori_registry::TypeTag::Option, ori_registry::TypeTag::Result] {
+        let type_def = ori_registry::find_type(tag)
+            .unwrap_or_else(|| panic!("{tag:?} registry definition should exist"));
+        for method in type_def.methods {
+            let has_handler = table.has(type_def.name, method.name)
+                || super::traceable::TRACELESS_TRACEABLE_METHODS.contains(&method.name);
+            assert!(
+                has_handler,
+                "{}.{} has no LLVM handler or traceable intercept",
+                type_def.name, method.name
+            );
+            let runtime = method.runtime.unwrap_or_else(|| {
+                panic!(
+                    "{}.{} has LLVM behavior but no closed runtime identity",
+                    type_def.name, method.name
+                )
+            });
+            assert_eq!(
+                runtime.arity(),
+                method.params.len() + 1,
+                "{}.{} runtime arity",
+                type_def.name,
+                method.name
+            );
+        }
+    }
+}
 
 /// Build the set of `(type_name, method_name)` pairs from the registry.
 ///
 /// DEI-only methods are listed under `"DoubleEndedIterator"` to match
 /// the naming convention used by the codegen table. Type names are normalized
-/// to the legacy lowercase convention via [`legacy_type_name()`].
+/// to the lowercase convention via [`lowercase_type_name()`].
 fn registry_method_set() -> HashSet<(&'static str, &'static str)> {
     let mut set = HashSet::new();
     for td in ori_registry::BUILTIN_TYPES {
-        let type_name = legacy_type_name(td.name);
+        let type_name = lowercase_type_name(td.name);
         for m in td.methods {
             if m.dei_only {
                 set.insert(("DoubleEndedIterator", m.name));
@@ -205,9 +236,22 @@ fn backend_required_methods_in_llvm() {
     let mut missing = Vec::new();
 
     for type_def in ori_registry::BUILTIN_TYPES {
-        let type_name = legacy_type_name(type_def.name);
+        let type_name = lowercase_type_name(type_def.name);
         for method in type_def.methods {
             if !method.backend_required {
+                continue;
+            }
+
+            // The 4 Traceable read-accessors + generic struct-clone have real
+            // codegen coverage on "error" outside declare_builtins!/BuiltinTable
+            // (super::traceable's early intercept + dispatch.rs's generic
+            // TypeInfo::Struct clone fallback) — SSOT'd from traceable.rs's own
+            // method-name list, never a duplicated string list here.
+            let has_error_side_coverage = type_name == "error"
+                && (super::traceable::TRACELESS_TRACEABLE_METHODS.contains(&method.name)
+                    || method.name == "clone");
+
+            if has_error_side_coverage {
                 continue;
             }
 
@@ -245,7 +289,7 @@ fn registry_op_strategies_cover_all_operators() {
 
     for type_def in BUILTIN_TYPES {
         let ops = &type_def.operators;
-        for (field_name, strategy) in [
+        for (_field_name, strategy) in [
             ("add", ops.add),
             ("sub", ops.sub),
             ("mul", ops.mul),
@@ -269,28 +313,24 @@ fn registry_op_strategies_cover_all_operators() {
         ] {
             match strategy {
                 OpStrategy::Unsupported
-                | OpStrategy::IntInstr
-                | OpStrategy::FloatInstr
-                | OpStrategy::UnsignedCmp
-                | OpStrategy::BoolLogic => {} // Unsupported or handled by emit_{int,float,unsigned,bool}_*_op
-                OpStrategy::RuntimeCall { fn_name, .. } => {
-                    assert!(
-                        !fn_name.is_empty(),
-                        "{}.operators.{field_name} has empty RuntimeCall fn_name",
-                        type_def.name
-                    );
-                }
+                | OpStrategy::SignedInteger
+                | OpStrategy::FloatingPoint
+                | OpStrategy::UnsignedComparison
+                | OpStrategy::BooleanLogic
+                | OpStrategy::StructuralEquality
+                | OpStrategy::StructuralOrdering
+                | OpStrategy::RuntimeCall(_) => {}
             }
         }
     }
 }
 
-/// All registry iterator methods (except protocol methods `next` and
-/// `next_back`) must have entries in the `BuiltinTable`.
-///
-/// Protocol methods are intercepted by `try_emit_protocol` before reaching
-/// builtin method dispatch — they are NOT in the registry and do not need
-/// `BuiltinTable` entries.
+/// Every registry iterator method must have a `BuiltinTable` entry, including
+/// the raw protocol methods `next` (forward) and `next_back`
+/// (`DoubleEndedIterator` backward) — both emit the user-facing `(Option<T>,
+/// Self)` tuple via `emit_iter_next_protocol` / `emit_iter_next_back_protocol`.
+/// The for-loop iteration protocol (`__iter_next`) is a separate
+/// `try_emit_protocol` interception and is not a registry method.
 ///
 /// This is stricter than `backend_required_methods_in_llvm` — it verifies
 /// ALL iterator methods are registered, regardless of `backend_required`.
@@ -301,11 +341,6 @@ fn iterator_emit_covers_all_registry_methods() {
     let mut missing = Vec::new();
 
     for method in ori_registry::methods_for(ori_registry::TypeTag::Iterator) {
-        // Protocol methods are handled by try_emit_protocol, not BuiltinTable
-        if method.name == "next" || method.name == "next_back" {
-            continue;
-        }
-
         let type_name = if method.dei_only {
             "DoubleEndedIterator"
         } else {

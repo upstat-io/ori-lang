@@ -36,22 +36,22 @@ const J20_COW_PATTERNS: i32 = 105;
 /// Get the path to a journey `.ori` file. Panics if the file doesn't exist.
 ///
 /// Walks ancestors from `CARGO_MANIFEST_DIR` and returns the first one that
-/// contains `plans/code-journeys/<name>.ori`. Robust to the
-/// compiler-vs-wrapper root separation — `plans/` may live at the compiler
-/// root or one level above it.
+/// contains `docs/code-journeys/<name>.ori`. Robust to the
+/// compiler-vs-wrapper root separation — `docs/code-journeys/` may live at
+/// the compiler root or one level above it.
 fn journey_path(name: &str) -> PathBuf {
     let file_name = format!("{name}.ori");
     let resolved = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .find_map(|p| {
-            let candidate = p.join("plans/code-journeys").join(&file_name);
+            let candidate = p.join("docs/code-journeys").join(&file_name);
             candidate.exists().then_some(candidate)
         });
 
     match resolved {
         Some(path) => path,
         None => panic!(
-            "Journey file missing: plans/code-journeys/{file_name} — journey guard \
+            "Journey file missing: docs/code-journeys/{file_name} — journey guard \
              tests require all journey .ori files to be present. This is a hard \
              failure, not a skip.",
         ),

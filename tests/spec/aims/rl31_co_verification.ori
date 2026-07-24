@@ -1,0 +1,96 @@
+// RL-31 metadata × Phase-6 (KnownSafe / PRE-style motion / selective barrier)
+// co-verification sweep. Spec: Annex E §AIMS RL-31 + RL-22..RL-27.
+//
+// RL-31 `noalias` is a PARAMETER-level claim derived from type-level
+// disjointness at function-declaration time. The Phase-6 passes below operate
+// on RC-OPERATION placement (KnownSafe pair elimination RL-22/23, PRE-style RC
+// motion RL-24..26, selective barrier flush RL-27), NOT on parameter
+// attributes — so the RL-31 metadata is structurally invariant to each
+// interaction. This file proves (behaviorally) that every shape compiles, runs
+// with correct results, and leaks zero memory; the AOT mirror
+// `compiler/ori_llvm/tests/aot/rl31_co_verification.rs` additionally asserts
+// the `noalias` metadata is correctly OMITTED in the emitted IR for each shape
+// (RL-31 requires both the type-level disjointness facet AND the call-site
+// provenance facet; the latter is not yet shipped, so noalias is conservatively
+// withheld — Spec: Annex E §AIMS RL-31, RL-31.proof P2).
+//
+// Each shape passes two DISTINCT-type collection params ({str:int} + [int]) to
+// a function the RL-31 8-clause rule proves disjoint — Worked Example 1b shape.
+
+use std.testing { assert_eq };
+
+// merge over a disjoint Borrowed pair — the RL-31 noalias-claimed callee.
+@merge (a: {str: int}, b: [int]) -> int = {
+    let av = a["x"].unwrap_or(default: 0);
+    let bv = b.len();
+    av + bv
+}
+
+// Shape (a) — KnownSafe pair elimination interaction.
+// `m` is used multiple times (the outer RcInc keeps physical RC ≥ 2 across the
+// call), so any inner inc/dec pair on `m` at the merge call site is KnownSafe-
+// eliminable (RL-22/23). The RL-31 noalias on merge's params MUST survive the
+// elimination. Result MUST be correct + leak-free.
+@rl31_known_safe_pair_elim () -> int = {
+    let m = {"x": 10};
+    let l = [1, 2, 3];
+    let first = merge(a: m, b: l);
+    // Second use of `m` keeps it live past the first call — the multi-use is
+    // what makes the inner inc/dec pair around the first call KnownSafe.
+    let again = m["x"].unwrap_or(default: 0);
+    first + again
+}
+
+// Owned-consuming sink — passing a value here is an RC-observable barrier
+// (callee Owned param per RL-26).
+@consume_map (a: {str: int}) -> int = a["x"].unwrap_or(default: 0);
+
+// Shape (b) — PRE-style RC motion across an RC-observable barrier.
+// `m` is passed to merge (noalias-claimed) AND to an Owned-consuming sink. The
+// Owned hand-off is an RC-observable barrier (RL-26): RC motion across it is
+// REJECTED. The RL-31 noalias on merge's params MUST survive the blocked
+// motion. Result MUST be correct + leak-free.
+@rl31_pre_motion_barrier_blocked () -> int = {
+    let m = {"x": 7};
+    let l = [4, 5];
+    let merged = merge(a: m, b: l);
+    let consumed = consume_map(a: m);
+    merged + consumed
+}
+
+// A callee whose param may be shared (read multiple times → may_share) — the
+// selective-barrier flush site per Spec: Annex E §AIMS RL-27.
+@may_share_reader (a: {str: int}) -> int = {
+    let one = a["x"].unwrap_or(default: 0);
+    let two = a["y"].unwrap_or(default: 0);
+    one + two
+}
+
+// Shape (c) — selective barrier flush at a call site where RL-31 applies.
+// `m` flows into a may_share callee (forces a selective-barrier flush of
+// pending RC ops before the call per RL-27) AND into merge (RL-31 noalias).
+// The disjointness proof is parameter-level, so it remains valid post-flush —
+// the flush moves RC ops, not param attributes. Result MUST be correct +
+// leak-free.
+@rl31_selective_barrier_flush () -> int = {
+    let m = {"x": 2, "y": 3};
+    let l = [9];
+    let shared = may_share_reader(a: m);
+    let merged = merge(a: m, b: l);
+    shared + merged
+}
+
+@rl31_known_safe_pair_elim_correct tests @rl31_known_safe_pair_elim () -> void = {
+    // m["x"] = 10, l.len() = 3 → first = 13; again = 10 → 23.
+    assert_eq(actual: rl31_known_safe_pair_elim(), expected: 23)
+}
+
+@rl31_pre_motion_barrier_blocked_correct tests @rl31_pre_motion_barrier_blocked () -> void = {
+    // merged = 7 + 2 = 9; consumed = 7 → 16.
+    assert_eq(actual: rl31_pre_motion_barrier_blocked(), expected: 16)
+}
+
+@rl31_selective_barrier_flush_correct tests @rl31_selective_barrier_flush () -> void = {
+    // shared = 2 + 3 = 5; merged = 2 + 1 = 3 → 8.
+    assert_eq(actual: rl31_selective_barrier_flush(), expected: 8)
+}

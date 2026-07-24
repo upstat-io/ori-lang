@@ -21,13 +21,14 @@ trait C: B {
 
 type Item = { name: str }
 
-impl A for Item {}  // uses default greet from A
+impl Item: A {}  // uses default greet from A
 
-impl B for Item {
+
+impl Item: B {
     @info (self) -> str = "info:" + self.name;
 }
 
-impl C for Item {
+impl Item: C {
     @label (self) -> str = "label:" + self.name;
 }
 

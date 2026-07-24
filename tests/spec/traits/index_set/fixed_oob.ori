@@ -1,0 +1,78 @@
+// Spec: 13-variables.md §13.6.2 — [T, max N].updated parallels [T].updated
+// A fixed-capacity list erases to TypeTag::List at registration, so it resolves
+// the same `updated` registration. OOB-of-length panics (key >= length), matching
+// [T] index semantics — NOT the fixed-list try_push capacity-overflow path.
+//
+// Construction uses the `[T, max N]`-annotated literal form per 8.2.2; the
+// `.to_fixed<$N>()` conversion method is a separate not-yet-implemented surface.
+
+use std.testing { assert_eq, assert_panics }
+
+// =============================================================================
+// Positive: in-bounds replacement on a fixed-capacity list
+// =============================================================================
+
+@fixed_updated_middle () -> [int, max 3] = {
+    let fixed: [int, max 3] = [1, 2, 3];
+
+    fixed.updated(key: 1, value: 9)
+}
+
+@test_fixed_updated_middle tests @fixed_updated_middle () -> void = {
+    let $expected: [int, max 3] = [1, 9, 3];
+
+    assert_eq(actual: fixed_updated_middle(), expected: expected)
+}
+
+@fixed_updated_first () -> [int, max 3] = {
+    let fixed: [int, max 3] = [1, 2, 3];
+
+    fixed.updated(key: 0, value: 9)
+}
+
+@test_fixed_updated_first tests @fixed_updated_first () -> void = {
+    let $expected: [int, max 3] = [9, 2, 3];
+
+    assert_eq(actual: fixed_updated_first(), expected: expected)
+}
+
+@fixed_updated_last () -> [int, max 3] = {
+    let fixed: [int, max 3] = [1, 2, 3];
+
+    fixed.updated(key: 2, value: 9)
+}
+
+@test_fixed_updated_last tests @fixed_updated_last () -> void = {
+    let $expected: [int, max 3] = [1, 2, 9];
+
+    assert_eq(actual: fixed_updated_last(), expected: expected)
+}
+
+// =============================================================================
+// COW: aliased fixed-capacity receiver — alias unchanged after update
+// =============================================================================
+
+@fixed_aliased_update_alias_unchanged () -> [int, max 3] = {
+    let a: [int, max 3] = [1, 2, 3];
+    let b = a;
+    let c = a.updated(key: 0, value: 99);
+
+    b
+}
+
+@test_fixed_aliased_update_alias_unchanged tests @fixed_aliased_update_alias_unchanged () -> void = {
+    let $expected: [int, max 3] = [1, 2, 3];
+
+    assert_eq(actual: fixed_aliased_update_alias_unchanged(), expected: expected)
+}
+
+// =============================================================================
+// Negative: key >= length panics (in-bounds-of-capacity is still out-of-bounds
+// of length — matches [T] index semantics, not the try_push overflow path)
+// =============================================================================
+
+@test_fixed_updated_oob_panics tests _ () -> void = {
+    let fixed: [int, max 3] = [1, 2, 3];
+
+    assert_panics(f: () -> fixed.updated(key: 5, value: 0))
+}

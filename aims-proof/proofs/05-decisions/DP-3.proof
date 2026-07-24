@@ -1,0 +1,86 @@
+Theorem DP-3: is_rc_inc_elidable truth table — Once AND (Linear OR Affine)
+
+  Preconditions:
+    - s is a canonical AimsState per Annex E §AIMS product lattice
+    - is_rc_inc_elidable : AimsState -> Bool per Annex E §AIMS DP-3 +
+      Appendix C truth table
+    - CN-1 invariant (Annex E §AIMS CN-1): Consumption = Dead <=>
+      Cardinality = Absent bidirectional; canonical states satisfy the
+      bidirectional equivalence
+    - DP-3 is a pure boolean predicate over Cardinality x Consumption;
+      Access / Uniqueness / Locality / Shape / Effect are non-load-bearing
+      for the DP-3 obligation
+
+  Soundness property:
+    Forall s in AimsState (canonical, post-CN-1).
+      is_rc_inc_elidable(s)
+        <=> (s.cardinality = Once AND s.consumption IN {Linear, Affine})
+
+    DP-3 captures single-use no-duplication semantics: a value used exactly
+    once (Cardinality = Once) is not duplicated, so the duplicate-inc at its
+    single use is unnecessary — whether that use MOVES it (Linear: the consumer
+    takes ownership and decs) or BORROWS it (Affine: read non-consumingly, then
+    released by its own RL-2 scope-exit dec). Neither creates a new owned
+    reference. Unrestricted is excluded (co-occurs only with Many cardinality);
+    Dead is excluded by the Once gate (CN-1).
+
+  Proof obligation:
+    Three-part discharge:
+      (a) Enumerate the 4 Consumption x 3 Cardinality = 12 product states.
+      (b) Apply CN-1 canonical filter; 7 canonical states remain (mirrors
+          DP-2 filter structure).
+      (c) For each canonical row, verify the predicate value equals the
+          Appendix C row partition value.
+
+    Part (a) — Appendix C row partition (3 rows, exhaustive):
+      Row 1: Cardinality = Once, Consumption IN {Linear, Affine} -> true
+        Soundness: single-use, no duplication; move (Linear) or borrow (Affine).
+      Row 2: Cardinality = Once, Consumption IN {Dead, Unrestricted} -> false
+        Soundness: predicate false (consumption disjunct fails); Unrestricted is
+        a multi-use signal, Dead excluded by the Once gate.
+      Row 3: Cardinality != Once (Absent / Many), any Consumption -> false
+        Soundness: predicate false (first conjunct fails).
+
+    Part (b) — CN-1 canonical filter (identical to DP-2):
+      Product cardinality: 4 x 3 = 12.
+      Infeasible (eliminated by CN-1): 5 states.
+      Canonical subset: 7 states.
+        Canonical rows: (Dead, Absent),
+                       (Linear, Once), (Linear, Many),
+                       (Affine, Once), (Affine, Many),
+                       (Unrestricted, Once), (Unrestricted, Many).
+
+    Part (c) — soundness equality on canonical rows:
+      Canonical rows (Linear, Once), (Affine, Once) -> DP-3 = true (Appendix
+        Row 1: Once + (Linear OR Affine)).
+      Canonical row (Unrestricted, Once) -> DP-3 = false (Appendix Row 2:
+        Once + Unrestricted, a multi-use signal).
+      Canonical rows (Dead, Absent), (Linear, Many), (Affine, Many),
+        (Unrestricted, Many) -> DP-3 = false (Appendix Row 3: != Once).
+      Negative-direction witness: DP-3 = true on EXACTLY the canonical
+      (Once, Linear) + (Once, Affine) rows; the 5 other canonical rows return
+      false. The single-use (Once) gate is the load-bearing conjunct.
+
+    DP-3 vs former DP-10 distinction:
+      DP-10 (REMOVED) claimed `O AND L AND 1 ==> one logical owner`, unsound:
+      backward analysis proves no future duplication but NOT no existing
+      aliases. DP-3 is the SOUND inc-elision predicate: a value with
+      Cardinality = Once has no future duplication at its single use; the
+      duplicate-inc is unnecessary whether the use moves (Linear) or borrows
+      (Affine) it. Uniqueness != Unique is permitted by DP-3 (the existing
+      alias from upstream RcInc is decoupled from the inc-elision decision —
+      the existing alias has its own ref count entry and DP-3 only affects the
+      duplicate inc that would otherwise be emitted at this use site). This
+      decoupling is what makes the Affine extension sound: a borrow at the
+      single use creates no new owned reference, exactly as a move does not on
+      the caller side.
+
+    Engines dispatched:
+      case_analysis (PRIMARY — 12-product / 7-canonical enumeration per
+        section_05::verify_dp3_rc_inc_elidable; the verifier applies the
+        CN-1 canonical filter and checks the soundness equality on every
+        canonical row + asserts exactly 2 canonical rows yield true)
+
+  Expected:
+    status: valid
+    reason: section_05 case_analysis engine discharges DP-3 via 12-product / 7-canonical-post-CN-1 enumeration per Annex E §AIMS DP-3 + Appendix C; exactly 2 canonical rows (Once, Linear) + (Once, Affine) satisfy the predicate

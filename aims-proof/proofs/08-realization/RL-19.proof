@@ -1,0 +1,37 @@
+Theorem RL-19: ThreadReachability derives from Locality and the call graph
+
+  Preconditions:
+    - Locality is the converged escape dimension.
+    - The call graph supplies a thread-boundary reachability signal.
+
+  Soundness property:
+    Forall value v:
+
+      (P1) known Locality with no crossing yields ThreadReachability.confined.
+
+      (P2) a proven crossing yields potentiallyShared.
+
+      (P3) Unknown Locality yields potentiallyShared even without a crossing.
+
+    The fact constrains physical safety capability without selecting an opcode,
+    synchronization primitive, or memory ordering.
+
+  Proof obligation:
+    Constructive Locality x call-graph enumeration with Unknown fail-closed.
+
+    Part (P1/P2/P3) - reachability grid:
+      function local + no crossing -> confined
+      escaping + no crossing -> confined
+      escaping + crossing -> potentiallyShared
+      unknown + no crossing -> potentiallyShared
+      Coverage gate: 4 reachability cases.
+
+    Engines dispatched:
+      case_analysis (PRIMARY - section_08::verify_rl19_thread_reachability;
+        threadReachabilityFrom derivation)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL row)
+      refinement (SECONDARY - gracious-accept per the coverage-manifest RL row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-19 by deriving ThreadReachability from Locality and call-graph boundary evidence with Unknown mapped to potentiallyShared

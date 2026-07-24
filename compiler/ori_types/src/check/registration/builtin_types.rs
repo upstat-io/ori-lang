@@ -8,6 +8,7 @@
 
 use ori_ir::{Name, Span};
 
+use super::burden_compute::{compute_enum_burden, compute_struct_burden};
 use crate::{EnumVariant, FieldDef, Idx, ModuleChecker, VariantDef, VariantFields, Visibility};
 
 /// Register built-in types that user code may reference.
@@ -26,6 +27,68 @@ pub fn register_builtin_types(checker: &mut ModuleChecker<'_>) {
     register_sign_type(checker);
     register_format_type_type(checker);
     register_format_spec_type(checker);
+    register_error_type(checker);
+}
+
+/// Register the user-facing `Error` struct (`{ message: str }`) as a distinct
+/// interned struct, separate from the `Idx::ERROR` poison sentinel.
+/// The struct does NOT carry `TypeFlags::HAS_ERROR` (its only field `str` carries
+/// none), so `unify(Error_struct, T)` reaches the real mismatch path instead of
+/// the poison early-exit. `pool.error_struct_idx` records the Idx as the SSOT for
+/// routing the registered Error back to its `TypeTag::Error` behavior table.
+fn register_error_type(checker: &mut ModuleChecker<'_>) {
+    let error_name = checker.interner().intern("Error");
+    let message_name = checker.interner().intern("message");
+    let trace_name = checker.interner().intern("trace");
+
+    let named_idx = checker.pool_mut().named(error_name);
+
+    let te_name = checker.interner().intern("TraceEntry");
+    let te_idx = checker.pool_mut().named(te_name);
+    let trace_list_ty = checker.pool_mut().list(te_idx);
+
+    let pool_fields = [(message_name, Idx::STR), (trace_name, trace_list_ty)];
+    let struct_idx = checker.pool_mut().struct_type(error_name, &pool_fields);
+    checker.pool_mut().set_resolution(named_idx, struct_idx);
+    // SSOT: surface `Error` annotations + `str.into()` returns resolve to
+    // `named_idx`; record it so engine-less bridges route it to TypeTag::Error.
+    checker.pool_mut().set_error_struct_idx(named_idx);
+
+    let field_defs = vec![
+        FieldDef {
+            name: message_name,
+            ty: Idx::STR,
+            span: Span::DUMMY,
+            visibility: Visibility::Public,
+        },
+        FieldDef {
+            name: trace_name,
+            ty: trace_list_ty,
+            span: Span::DUMMY,
+            visibility: Visibility::Public,
+        },
+    ];
+
+    let hash = checker.pool().hash(named_idx);
+    let burden = compute_struct_burden(&field_defs, checker.pool());
+    checker.type_registry_mut().register_struct(
+        error_name,
+        named_idx,
+        vec![], // No type params
+        field_defs,
+        Span::DUMMY,
+        Visibility::Public,
+        hash,
+        None,
+        burden.clone(),
+    );
+    // Inv: burden is keyed under BOTH the decl idx and its resolved pool
+    // idx — ARC var types carry the resolved idx.
+    if let Some(spec) = burden {
+        checker
+            .type_registry_mut()
+            .register_user_burden(struct_idx, spec);
+    }
 }
 
 /// Register the `Ordering` enum (Less, Equal, Greater).
@@ -75,6 +138,7 @@ fn register_ordering_type(checker: &mut ModuleChecker<'_>) {
     let _enum_idx = checker.pool_mut().enum_type(ordering_name, &pool_variants);
 
     let hash = checker.pool().hash(ordering_idx);
+    let burden = compute_enum_burden(&variants, checker.pool());
     checker.type_registry_mut().register_enum(
         ordering_name,
         ordering_idx,
@@ -84,6 +148,7 @@ fn register_ordering_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
+        burden,
     );
 }
 
@@ -141,6 +206,7 @@ fn register_trace_entry_type(checker: &mut ModuleChecker<'_>) {
     ];
 
     let hash = checker.pool().hash(named_idx);
+    let burden = compute_struct_burden(&field_defs, checker.pool());
     checker.type_registry_mut().register_struct(
         te_name,
         named_idx,
@@ -150,7 +216,15 @@ fn register_trace_entry_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
+        burden.clone(),
     );
+    // Inv: burden is keyed under BOTH the decl idx and its resolved pool
+    // idx — ARC var types carry the resolved idx.
+    if let Some(spec) = burden {
+        checker
+            .type_registry_mut()
+            .register_user_burden(struct_idx, spec);
+    }
 }
 
 /// Register the `Alignment` enum (Left, Center, Right) for the Formattable trait.
@@ -198,6 +272,7 @@ fn register_alignment_type(checker: &mut ModuleChecker<'_>) {
     ];
 
     let hash = checker.pool().hash(named_idx);
+    let burden = compute_enum_burden(&variants, checker.pool());
     checker.type_registry_mut().register_enum(
         type_name,
         named_idx,
@@ -207,6 +282,7 @@ fn register_alignment_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
+        burden,
     );
 }
 
@@ -255,6 +331,7 @@ fn register_sign_type(checker: &mut ModuleChecker<'_>) {
     ];
 
     let hash = checker.pool().hash(named_idx);
+    let burden = compute_enum_burden(&variants, checker.pool());
     checker.type_registry_mut().register_enum(
         type_name,
         named_idx,
@@ -264,6 +341,7 @@ fn register_sign_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
+        burden,
     );
 }
 
@@ -302,6 +380,7 @@ fn register_format_type_type(checker: &mut ModuleChecker<'_>) {
         .collect();
 
     let hash = checker.pool().hash(named_idx);
+    let burden = compute_enum_burden(&variants, checker.pool());
     checker.type_registry_mut().register_enum(
         type_name,
         named_idx,
@@ -311,6 +390,7 @@ fn register_format_type_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
+        burden,
     );
 }
 
@@ -393,6 +473,7 @@ fn register_format_spec_type(checker: &mut ModuleChecker<'_>) {
     ];
 
     let hash = checker.pool().hash(named_idx);
+    let burden = compute_struct_burden(&field_defs, checker.pool());
     checker.type_registry_mut().register_struct(
         spec_name,
         named_idx,
@@ -402,5 +483,13 @@ fn register_format_spec_type(checker: &mut ModuleChecker<'_>) {
         Visibility::Public,
         hash,
         None,
+        burden.clone(),
     );
+    // Inv: burden is keyed under BOTH the decl idx and its resolved pool
+    // idx — ARC var types carry the resolved idx.
+    if let Some(spec) = burden {
+        checker
+            .type_registry_mut()
+            .register_user_burden(struct_idx, spec);
+    }
 }

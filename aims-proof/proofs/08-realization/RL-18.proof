@@ -1,0 +1,41 @@
+Theorem RL-18: LayoutCapabilities must Satisfy frozen facts
+
+  Preconditions:
+    - AllocationFacts and representation-owned ExtentClass are frozen.
+    - VmLayoutPlan and CompiledLayoutPlan carry LayoutCapabilities.
+
+  Soundness property:
+    Forall facts F, extent E, and capabilities C:
+
+      (P1) Satisfies(F, E, C) requires site and lifetime coverage.
+
+      (P2) Satisfies requires extent support and sufficient OwnerBound capacity.
+
+      (P3) Satisfies preserves exact OwnershipObservationFacts and cleanup identities.
+
+      (P4) Satisfies covers unwind, ThreadReachability, and ExternalVisibility.
+
+      (P5) A stronger capability preserves satisfaction only under the same
+           logical event and external contract identities.
+
+  Proof obligation:
+    Constructive positive case with negative witnesses for insufficient owner
+    capacity, missing runtime extent, and changed logical events.
+
+    Part (P1..P5) - capability grid:
+      adequate capabilities -> true
+      insufficient owner capacity -> false
+      missing runtime extent -> false
+      changed event protocol -> false
+      stronger same-contract capability -> true
+      Coverage gate: 5 capability cases.
+
+    Engines dispatched:
+      case_analysis (PRIMARY - section_08::verify_rl18_layout_satisfaction;
+        validated_vm_plan_sound and validated_compiled_plan_sound obligations)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL row)
+      refinement (SECONDARY - gracious-accept per the coverage-manifest RL row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-18 through Satisfies over lifetime, extent, owners, exact events, cleanup, unwind, thread reachability, visibility, and same-contract strengthening

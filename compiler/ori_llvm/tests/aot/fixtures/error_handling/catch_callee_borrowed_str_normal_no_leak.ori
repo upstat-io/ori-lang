@@ -1,0 +1,11 @@
+@check (s: str, xs: [int], i: int) -> int = {
+    let _n = s.len();
+    xs[i]
+}
+
+@main () -> int = {
+    let s = "hello world heap allocated string here";
+    let xs = [1, 2, 3];
+    let result = catch(expr: check(s: s, xs: xs, i: 1));
+    match result { Ok(_) -> 0, Err(_) -> 1 }
+}

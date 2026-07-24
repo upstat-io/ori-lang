@@ -19,16 +19,19 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```no_run
 //! use ori_llvm::aot::{SysLibConfig, TargetConfig};
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
-//! let target = TargetConfig::from_triple("aarch64-linux-gnu")?;
-//! let syslib = SysLibConfig::for_target(&target)?;
+//! let target = TargetConfig::from_triple("aarch64-unknown-linux-gnu")?;
+//! let syslib = SysLibConfig::for_target(&target.components)?;
 //!
 //! // Get library search paths
 //! for path in syslib.library_paths() {
 //!     println!("Search path: {}", path.display());
 //! }
+//! # Ok(())
+//! # }
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -115,7 +118,7 @@ pub fn home_wasi_sdk_sysroot() -> PathBuf {
 ///
 /// This is the SSOT for "what env var name does the per-target sysroot
 /// override use". Both the discovery side
-/// ([`SysLibConfig::detect_sysroot`]) and any documentation that tells
+/// (`SysLibConfig::detect_sysroot`) and any documentation that tells
 /// users to `export ORI_SYSROOT_X=...` MUST query this function so they
 /// always agree.
 ///
@@ -390,15 +393,14 @@ impl SysLibConfig {
         // macOS SDK locations
         if target.is_macos() {
             // Xcode SDK paths
-            if let Ok(output) = std::process::Command::new("xcrun")
+            let xcode_sdk = std::process::Command::new("xcrun")
                 .args(["--sdk", "macosx", "--show-sdk-path"])
                 .output()
-            {
-                if output.status.success() {
-                    if let Ok(path) = String::from_utf8(output.stdout) {
-                        candidates.push(PathBuf::from(path.trim()));
-                    }
-                }
+                .ok()
+                .filter(|output| output.status.success())
+                .and_then(|output| String::from_utf8(output.stdout).ok());
+            if let Some(path) = xcode_sdk {
+                candidates.push(PathBuf::from(path.trim()));
             }
 
             // Common SDK locations

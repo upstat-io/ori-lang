@@ -1,12 +1,9 @@
-//! V2 Codegen Module
-//!
-//! Modular, type-driven code generation following the LLVM V2 architecture.
+//! Type-driven LLVM code generation.
 //!
 //! # Design
 //!
-//! The V2 codegen architecture centralizes type-specific logic behind `TypeInfo`,
-//! an enum with one variant per Ori type category. This replaces the scattered
-//! type matching in the current `compute_llvm_type` with exhaustive enum dispatch.
+//! [`TypeInfo`] centralizes type-specific representation, layout, and ABI logic
+//! through exhaustive dispatch over Ori type categories.
 //!
 //! Key types:
 //! - [`TypeInfo`] — LLVM-specific type information (representation, layout, ABI)
@@ -47,26 +44,28 @@
 //!
 //! # Architecture Note
 //!
-//! ARC classification is NOT in this module — it lives in `ori_arc::ArcClassification`
-//! (no LLVM dependency). This module is purely about LLVM code generation.
+//! [`ori_arc::ArcClassification`] owns backend-neutral classification. This
+//! module consumes that classification for LLVM code generation.
 
-// -- Core infrastructure --
+// Core infrastructure
 pub mod eh_model;
 pub mod ir_builder;
 pub mod type_info;
 pub mod value_id;
 
-// -- Function compilation --
+// Function compilation
 pub mod abi;
 pub mod derive_codegen;
 pub mod function_compiler;
 pub mod runtime_decl;
 pub mod type_registration;
 
-// -- ARC IR emission --
+// ARC IR emission
 pub mod arc_emitter;
 
-// -- Public re-exports --
+// Shared mono-dispatch discriminators (consumed by prepare + apply)
+
+// Public re-exports
 pub use ir_builder::IrBuilder;
 pub use type_info::{EnumVariantInfo, TypeInfo, TypeInfoStore, TypeLayoutResolver};
 pub use value_id::{BlockId, FunctionId, LLVMTypeId, TokenId, ValueId};

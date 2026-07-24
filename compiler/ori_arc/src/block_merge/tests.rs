@@ -1,7 +1,7 @@
 //! Unit tests for the block merge pass.
 
-use ori_ir::Name;
-use ori_types::Idx;
+use ori_ir::{BinaryOp, Name};
+use ori_types::{Idx, Pool};
 
 use crate::ir::{
     ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, ArgOwnership, LitValue,
@@ -35,6 +35,7 @@ fn trivial_invoke_downgrades_to_apply_jump() {
                     func: Name::from_raw(100),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                     normal: b(1),
                     unwind: b(2),
                 },
@@ -94,6 +95,7 @@ fn nontrivial_invoke_unwind_has_cleanup() {
                     func: Name::from_raw(100),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                     normal: b(1),
                     unwind: b(2),
                 },
@@ -111,6 +113,7 @@ fn nontrivial_invoke_unwind_has_cleanup() {
                 body: vec![ArcInstr::RcDec {
                     var: v(0),
                     strategy: RcStrategy::FatPointer,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 }],
                 terminator: ArcTerminator::Resume,
             },
@@ -158,6 +161,7 @@ fn invoke_with_noop_closure_rc_dec_downgrades() {
                     func: Name::from_raw(100),
                     args: vec![v(2), v(0)],
                     arg_ownership: vec![ArgOwnership::Borrowed, ArgOwnership::Owned],
+                    mono_instance_id: None,
                     normal: b(1),
                     unwind: b(2),
                 },
@@ -175,6 +179,7 @@ fn invoke_with_noop_closure_rc_dec_downgrades() {
                 body: vec![ArcInstr::RcDec {
                     var: v(2),
                     strategy: RcStrategy::Closure,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 }],
                 terminator: ArcTerminator::Resume,
             },
@@ -231,6 +236,7 @@ fn invoke_with_capturing_closure_rc_dec_preserved() {
                     func: Name::from_raw(100),
                     args: vec![v(2)],
                     arg_ownership: vec![ArgOwnership::Borrowed],
+                    mono_instance_id: None,
                     normal: b(1),
                     unwind: b(2),
                 },
@@ -247,6 +253,7 @@ fn invoke_with_capturing_closure_rc_dec_preserved() {
                 body: vec![ArcInstr::RcDec {
                     var: v(2),
                     strategy: RcStrategy::Closure,
+                    atomicity: crate::ir::RcAtomicity::default_atomic(),
                 }],
                 terminator: ArcTerminator::Resume,
             },
@@ -284,6 +291,7 @@ fn nontrivial_invoke_unwind_is_jump() {
                     func: Name::from_raw(100),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                     normal: b(1),
                     unwind: b(2),
                 },
@@ -335,6 +343,7 @@ fn invoke_with_normal_params_not_downgraded() {
                     func: Name::from_raw(100),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                     normal: b(1),
                     unwind: b(2),
                 },
@@ -411,6 +420,7 @@ fn invoke_with_multi_pred_normal_not_downgraded() {
                     func: Name::from_raw(100),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                     normal: b(3),
                     unwind: b(4),
                 },
@@ -480,6 +490,7 @@ fn invoke_normal_equals_unwind_not_downgraded() {
                     func: Name::from_raw(100),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                     normal: b(1),
                     unwind: b(1), // same block
                 },
@@ -833,6 +844,53 @@ fn dead_block_compaction() {
     assert_eq!(func.blocks.len(), 1);
 }
 
+#[test]
+fn dead_block_compaction_retires_frozen_primitive_fact() {
+    let pool = Pool::new();
+    let classifier = crate::ArcClassifier::new(&pool);
+    let mut func = make_func(
+        vec![owned_param(0, Idx::INT), owned_param(1, Idx::INT)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(0) },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![ArcInstr::Let {
+                    dst: v(2),
+                    ty: Idx::BOOL,
+                    value: ArcValue::PrimOp {
+                        op: PrimOp::Binary(BinaryOp::Eq),
+                        args: vec![v(0), v(1)],
+                    },
+                }],
+                terminator: ArcTerminator::Return { value: v(2) },
+            },
+        ],
+        vec![Idx::INT, Idx::INT, Idx::BOOL],
+    );
+    let Ok(()) = crate::aims::freeze_primitive_facts(std::slice::from_mut(&mut func), &classifier)
+    else {
+        panic!("the dead instruction still has valid typed input semantics");
+    };
+    assert_eq!(func.primitive_facts.len(), 1);
+
+    merge_blocks(&mut func);
+
+    assert!(
+        func.primitive_facts.is_empty(),
+        "removing an instruction must mechanically retire its keyed fact"
+    );
+    let Ok(()) = crate::aims::validate_primitive_facts(&func, &classifier) else {
+        panic!("the transformed function must retain exact primitive-fact coverage");
+    };
+}
+
 /// Dead cycle: unreachable SCC (dead blocks targeting each other).
 #[test]
 fn dead_cycle_compaction() {
@@ -957,6 +1015,7 @@ fn cow_annotations_preserved_after_body_apply_merge() {
                     func: Name::from_raw(200),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 }],
                 terminator: ArcTerminator::Return { value: v(1) },
             },
@@ -1014,6 +1073,7 @@ fn cow_annotations_preserved_after_invoke_downgrade_and_merge() {
                     func: Name::from_raw(200),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                     normal: b(2),
                     unwind: b(3),
                 },
@@ -1070,6 +1130,7 @@ fn cow_annotations_compaction_remaps_and_drops() {
                     func: Name::from_raw(200),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 }],
                 terminator: ArcTerminator::Return { value: v(1) },
             },
@@ -1083,6 +1144,7 @@ fn cow_annotations_compaction_remaps_and_drops() {
                     func: Name::from_raw(201),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 }],
                 terminator: ArcTerminator::Resume,
             },
@@ -1129,6 +1191,7 @@ fn auto_fbip_preserved_after_merge() {
                     func: Name::from_raw(200),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 }],
                 terminator: ArcTerminator::Jump {
                     target: b(1),
@@ -1144,6 +1207,7 @@ fn auto_fbip_preserved_after_merge() {
                     func: Name::from_raw(201),
                     args: vec![v(1)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 }],
                 terminator: ArcTerminator::Return { value: v(2) },
             },
@@ -1192,6 +1256,7 @@ fn drop_hints_valid_after_merge() {
                     func: Name::from_raw(100),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                     normal: b(1),
                     unwind: b(2),
                 },
@@ -1258,6 +1323,7 @@ fn three_sequential_calls_merge_to_single_block() {
                     func: Name::from_raw(100),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                     normal: b(1),
                     unwind: b(4),
                 },
@@ -1272,6 +1338,7 @@ fn three_sequential_calls_merge_to_single_block() {
                     func: Name::from_raw(101),
                     args: vec![v(1)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                     normal: b(2),
                     unwind: b(5),
                 },
@@ -1286,6 +1353,7 @@ fn three_sequential_calls_merge_to_single_block() {
                     func: Name::from_raw(102),
                     args: vec![v(2)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                     normal: b(3),
                     unwind: b(6),
                 },
@@ -1415,6 +1483,7 @@ fn trivial_body_mixed_instructions() {
             var: v(0),
             count: 1,
             strategy: RcStrategy::FatPointer,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         },
     ]));
 }
@@ -1888,6 +1957,7 @@ fn select_fold_preserves_branch_block_cow_annotations() {
                     func: Name::from_raw(200),
                     args: vec![v(1)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 }],
                 terminator: ArcTerminator::Branch {
                     cond: v(0),
@@ -1949,6 +2019,7 @@ fn select_not_folded_with_apply() {
             func: Name::from_raw(100),
             args: vec![v(0)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         }],
         then_args: vec![v(1)],
         else_body: vec![],
@@ -1979,6 +2050,7 @@ fn select_not_folded_with_rc_ops() {
             var: v(1),
             count: 1,
             strategy: RcStrategy::FatPointer,
+            atomicity: crate::ir::RcAtomicity::default_atomic(),
         }],
         then_args: vec![v(1)],
         else_body: vec![],
@@ -2189,6 +2261,7 @@ fn select_not_folded_one_arm_nontrivial() {
             func: Name::from_raw(100),
             args: vec![v(3)],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
         }],
         else_args: vec![v(2)],
         merge_params: vec![(v(4), Idx::INT)],
@@ -2456,6 +2529,7 @@ fn phase5_cow_annotations_preserved_on_param_elim() {
                     func: Name::from_raw(200),
                     args: vec![v(0)],
                     arg_ownership: vec![ArgOwnership::Owned],
+                    mono_instance_id: None,
                 }],
                 terminator: ArcTerminator::Return { value: v(1) },
             },
@@ -3040,12 +3114,12 @@ fn select_not_folded_non_scalar_merge_param() {
     });
     // Set the merge param's repr to FatValue (heap-allocated).
     // var_reprs must cover all vars (0..4).
-    func.var_reprs = vec![
+    func.replace_variable_representations(vec![
         ValueRepr::Scalar,   // v(0) — cond
         ValueRepr::FatValue, // v(1) — then arm
         ValueRepr::FatValue, // v(2) — else arm
         ValueRepr::FatValue, // v(3) — merge param
-    ];
+    ]);
 
     fold_select_diamonds(&mut func);
 

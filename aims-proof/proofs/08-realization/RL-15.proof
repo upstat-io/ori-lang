@@ -1,0 +1,35 @@
+Theorem RL-15: ExtentClass is representation-owned evidence
+
+  Preconditions:
+    - AIMS supplies AllocationFacts.
+    - Representation analysis separately supplies ExtentClass.
+    - ProjectionInput pairs the two products without merging their authority.
+
+  Soundness property:
+    Forall AllocationFacts F and extents E1, E2:
+
+      (P1) ProjectionInput(F, E1).facts = F.
+
+      (P2) ProjectionInput(F, E2).facts = F.
+
+    Runtime-sized evidence can constrain a physical plan but cannot mutate the
+    frozen AIMS fact product.
+
+  Proof obligation:
+    Definitional projection plus a negative witness that changing ExtentClass
+    never changes AllocationFacts.
+
+    Part (P1/P2) - extent seam:
+      StaticShape -> same AllocationFacts
+      RuntimeSized -> same AllocationFacts
+      Coverage gate: 2 extent cases.
+
+    Engines dispatched:
+      case_analysis (PRIMARY - section_08::verify_rl15_extent_seam;
+        ExtentClass and AllocationFacts authority separation)
+      rc_counting (SECONDARY - gracious-accept per the coverage-manifest RL row)
+      refinement (SECONDARY - gracious-accept per the coverage-manifest RL row)
+
+  Expected:
+    status: valid
+    reason: section_08 case_analysis engine discharges RL-15 because StaticShape and RuntimeSized ExtentClass evidence remain separate from immutable AllocationFacts

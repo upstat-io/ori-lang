@@ -1,0 +1,9 @@
+@build () -> [int] = {
+    let xs = [3, 1, 2];
+    xs.sort()
+}
+
+@main () -> int = {
+    let ys = build();
+    if ys.length() == 3 then 0 else 1
+}

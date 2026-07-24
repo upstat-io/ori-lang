@@ -1,0 +1,17 @@
+// Apply-alias Direct shape (`@id<T>(x: T) -> T = x`) over a [int] element —
+// interpreter parity sibling of the AOT direct_intlist cell.
+
+use std.testing { assert_eq };
+
+@id<T> (x: T) -> T = x;
+
+@aliased_len () -> int = {
+    let xs = [10, 20, 30];
+    let aliased = id(x: xs);
+    aliased.len()
+}
+
+@test_apply_alias_direct_intlist_aliases_arg tests @aliased_len () -> void = {
+    let n = aliased_len();
+    assert_eq(actual: n, expected: 3)
+};

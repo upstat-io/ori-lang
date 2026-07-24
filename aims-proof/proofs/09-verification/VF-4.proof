@@ -1,0 +1,88 @@
+Theorem VF-4: Layer 4 FIP certification — Certified iff zero unmatched alloc/dealloc in realized IR
+
+  Preconditions:
+    - VF-4 governs the Layer-4 FIP-certification verifier per Annex E §AIMS VF-4: "proves FipContract::Certified functions have zero unmatched
+      alloc/dealloc. Failures wrapped as FipStructural." Restated by sec-5 IC-6:
+      "FipContract::Certified iff zero unmatched alloc/dealloc in realized IR."
+    - VF-4's concrete shape is ArcFunction x FipContract -> Result ()
+      (List FipVerificationError) per
+      aims-proof/proofs/01-verification/Verification.proof. Failures are wrapped
+      as VerifyError::FipStructural by the pipeline runner. Discharged here
+      against the sec-01 Verification.proof sorry obligation.
+    - This is the alloc-balance analogue of the sec-08 RC-balance ledger: a
+      function's allocation lifecycle is a sequence of AllocEvents; the verifier
+      computes (allocs - deallocs) and asserts a Certified function balances to
+      net 0 (every allocation matched by an in-place reuse or a paired
+      deallocation).
+    - Shipped verifier site:
+        * compiler/ori_arc/src/aims/verify/fip.rs
+          verify_fip_contract proves Certified functions have zero unmatched
+          alloc/dealloc in the realized IR.
+    - depends-on sec-06: IC-6 FipContract soundness is load-bearing; the
+      provisional FipContract assigned during interprocedural extraction is
+      verified or downgraded here (Step 5a) against the realized IR.
+
+  Soundness property:
+    Forall realized ArcFunction F with FipContract claim:
+
+      (P1) Certification iff balance: F is FipContract::Certified IFF F's
+           realized IR has zero unmatched allocations — the allocation ledger
+           (allocs created minus deallocations + in-place reuses) nets 0. A
+           function with an unmatched allocation (net != 0) MUST NOT be
+           Certified.
+
+      (P2) Reuse counts as matching: a Reset+Reuse pair (the dying allocation
+           reused IN PLACE for a fresh same-type allocation) is allocation-
+           neutral (net 0) — this is the FIP win, allocation-free via reuse. A
+           pure FIP function with no allocations also nets 0.
+
+    VF-4 is the FIP layer: it proves the alloc-balance the FipContract claims.
+    A Certified function that allocates without freeing (net > 0) is a leak
+    relative to the contract; one that frees more than it allocates (net < 0)
+    is a double-free relative to the contract. Either disqualifies certification.
+
+  Proof obligation:
+    Constructive discharge by the rc_counting engine via per-instruction
+    allocation-delta arithmetic + balance-equation witness construction (per
+    the proof-checker design sec-Engine-per-Category-Inventory VF row; the foundational-axiom policy
+    sec-Per-Engine-Constructive-Proof-Shape — structural induction on the
+    instruction list, allocation-delta arithmetic over integers; forbids
+    classical existence of a balancing witness — the witness is constructed).
+
+    Part (P1/P2) — FIP alloc-balance ledger:
+
+      A function's allocation lifecycle is modeled as an ordered AllocEvent
+      sequence (Alloc = +1, Dealloc = -1, ReuseInPlace = 0); the verifier
+      computes net = (allocs) - (deallocs) and asserts net = 0 for every
+      Certified function. Discharged cases:
+        alloc_matched_dealloc_certified — alloc, matching dealloc -> net 0.
+        reuse_in_place_certified — a Reset+Reuse pair (allocation-free
+                                          via in-place reuse) -> net 0.
+        mixed_balanced_certified — balanced alloc/dealloc pairs + an
+                                          in-place reuse -> net 0.
+        no_allocations_certified — a pure FIP function, empty ledger
+                                          -> net 0.
+
+    Negative-direction witnesses (the balance check has teeth — an unbalanced
+    function is REJECTED for certification):
+      NEG_unmatched_alloc_not_certified — an allocation with no paired dealloc
+                                          and no reuse: net = +1 (a leak relative
+                                          to the contract). NOT Certified.
+      NEG_unmatched_dealloc_not_certified — more deallocations than allocations:
+                                          net = -1 (a double-free relative to the
+                                          contract). NOT Certified.
+      Coverage gate: 6 ledger cases (4 Certified net-0 + 2 non-certified
+      witnesses).
+
+    Engines dispatched:
+      rc_counting (PRIMARY — section_09::verify_vf4_fip_certification;
+        per-instruction allocation-delta arithmetic over the FIP balance ledger;
+        emits Fail on a certification/balance mismatch)
+      structural_induction (SECONDARY — gracious-accept per the
+        coverage-manifest VF row)
+      refinement (SECONDARY — gracious-accept)
+      interprocedural_summary (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: section_09 rc_counting engine discharges VF-4 via the FIP alloc-balance ledger (Certified iff zero unmatched alloc/dealloc): 4 Certified net-0 lifecycles (alloc+dealloc, Reset+Reuse in-place, mixed balanced, empty) plus 2 non-certified negative-direction witnesses (unmatched alloc = leak, unmatched dealloc = double-free), grounded in the shipped compiler/ori_arc/src/aims/verify/fip.rs verify_fip_contract certification verifier

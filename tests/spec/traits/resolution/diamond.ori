@@ -30,19 +30,19 @@ trait Bottom: Left + Right {
 type Widget = { name: str }
 
 // Single impl of Base satisfies both Left and Right paths
-impl Base for Widget {
+impl Widget: Base {
     @id (self) -> str = "widget:" + self.name;
 }
 
-impl Left for Widget {
+impl Widget: Left {
     @left_info (self) -> str = "L:" + self.id();
 }
 
-impl Right for Widget {
+impl Widget: Right {
     @right_info (self) -> str = "R:" + self.id();
 }
 
-impl Bottom for Widget {
+impl Widget: Bottom {
     @combined (self) -> str = self.left_info() + "|" + self.right_info();
 }
 

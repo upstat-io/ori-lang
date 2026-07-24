@@ -1,0 +1,7 @@
+// Pins exact interpreted output capture independently of the main result.
+
+@main () -> int = {
+    print(msg: "vm output pin");
+
+    41
+}

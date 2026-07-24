@@ -1,0 +1,8 @@
+@make () -> [int] = {
+    loop {
+        let opt = Some(5);
+        let values = for x in opt if (if x == 5 then break else true) yield x * 10;
+        break values
+    }
+}
+@main () -> int = if make().length() == 0 then 0 else 1;

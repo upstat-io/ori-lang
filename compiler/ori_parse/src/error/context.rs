@@ -8,14 +8,16 @@
 ///
 /// # Usage
 ///
-/// ```ignore
-/// self.in_error_context(ErrorContext::IfExpression, |p| {
-///     p.parse_if_expr_inner()
-/// })
+/// ```
+/// use ori_parse::ErrorContext;
+///
+/// let context = ErrorContext::IfExpression;
+/// assert_eq!(context.description(), "an if expression");
+/// assert_eq!(context.label(), "if expression");
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ErrorContext {
-    // === Top-level ===
+    // Top-level
     /// Parsing a module (top-level declarations).
     Module,
     /// Parsing a function definition.
@@ -31,7 +33,7 @@ pub enum ErrorContext {
     /// Parsing an extern block.
     ExternBlock,
 
-    // === Expressions ===
+    // Expressions
     /// Parsing an expression (generic).
     Expression,
     /// Parsing an if expression.
@@ -67,7 +69,7 @@ pub enum ErrorContext {
     /// Parsing a field access.
     FieldAccess,
 
-    // === Patterns ===
+    // Patterns
     /// Parsing a pattern (generic).
     Pattern,
     /// Parsing a match arm.
@@ -77,7 +79,7 @@ pub enum ErrorContext {
     /// Parsing function parameters.
     FunctionParams,
 
-    // === Types ===
+    // Types
     /// Parsing a type annotation.
     TypeAnnotation,
     /// Parsing generic type parameters.
@@ -85,7 +87,7 @@ pub enum ErrorContext {
     /// Parsing a function signature.
     FunctionSignature,
 
-    // === Other ===
+    // Other
     /// Parsing an attribute.
     Attribute,
     /// Parsing a test definition.

@@ -18,16 +18,20 @@ use crate::ownership::{AnnotatedSig, DerivedOwnership, Ownership};
 /// single forward pass (no fixed-point needed — SSA guarantees each variable
 /// is defined exactly once).
 ///
-/// The result is a `Vec<DerivedOwnership>` indexed by `ArcVarId::raw()`,
-/// enabling RC insertion to skip `RcInc`/`RcDec` for:
+/// The result is a `Vec<DerivedOwnership>` indexed by `ArcVarId::raw`,
+/// enabling realization to avoid redundant owner-credit events for:
 /// - Variables borrowed from a still-live owner (`BorrowedFrom`)
-/// - Freshly constructed values with refcount = 1 (`Fresh`)
+/// - Freshly constructed values with exactly one logical owner (`Fresh`)
 ///
 /// # Arguments
 ///
 /// * `func` — the ARC IR function to analyze.
 /// * `sigs` — annotated signatures from borrow inference (for callee param ownership).
 #[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive ArcInstr match — one arm per variant family; SSOT for derived ownership transfer per `borrow/derived.rs` design"
+)]
 pub fn infer_derived_ownership(
     func: &ArcFunction,
     sigs: &FxHashMap<Name, AnnotatedSig>,
@@ -104,7 +108,7 @@ pub fn infer_derived_ownership(
                 }
 
                 ArcInstr::Construct { dst, .. } => {
-                    // A newly constructed value has refcount = 1.
+                    // A newly constructed value has one logical owner and no prior alias.
                     let dst_idx = dst.index();
                     if dst_idx < num_vars {
                         ownership[dst_idx] = DerivedOwnership::Fresh;
@@ -112,7 +116,7 @@ pub fn infer_derived_ownership(
                 }
 
                 ArcInstr::PartialApply { dst, .. } => {
-                    // A new closure has refcount = 1.
+                    // A new closure has one logical owner and no prior alias.
                     let dst_idx = dst.index();
                     if dst_idx < num_vars {
                         ownership[dst_idx] = DerivedOwnership::Fresh;
@@ -136,8 +140,7 @@ pub fn infer_derived_ownership(
                     }
                 }
 
-                // CollectionReuse recycles a buffer — result is a fresh
-                // allocation (RC = 1, same as Construct).
+                // CollectionReuse recycles storage; the result is logically fresh.
                 ArcInstr::CollectionReuse { dst, .. } => {
                     let dst_idx = dst.index();
                     if dst_idx < num_vars {
@@ -145,10 +148,19 @@ pub fn infer_derived_ownership(
                     }
                 }
 
-                // RC/reuse ops don't define new variables (or their dst
-                // is a token which is always Owned).
+                // RC/reuse ops define no new vars (or define a token always
+                // Owned). Burden* are Phase 5 markers — no
+                // dst, no ownership effect on derived ownership state.
                 ArcInstr::RcInc { .. }
                 | ArcInstr::RcDec { .. }
+                | ArcInstr::RcDecPartial { .. }
+                | ArcInstr::RcDecField { .. }
+                | ArcInstr::RcDecVariant { .. }
+                | ArcInstr::BurdenInc { .. }
+                | ArcInstr::BurdenDec { .. }
+                | ArcInstr::BurdenDecPartial { .. }
+                | ArcInstr::BurdenDecField { .. }
+                | ArcInstr::BurdenDecVariant { .. }
                 | ArcInstr::IsShared { .. }
                 | ArcInstr::Set { .. }
                 | ArcInstr::SetTag { .. }

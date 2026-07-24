@@ -1,0 +1,15 @@
+// Spec: 09-expressions.md § Lambda
+//
+// Bare `(x: int) -> int` (no `=`, no body) is parse-ambiguous with the valid
+// inferred-return form `(x: int) -> x`, so it parses as an inferred-return
+// lambda whose body is the type name `int`. The type-name-as-value fails type
+// inference (E2005) when the lambda is used. The parser accepts the shape — the
+// rejection is at typeck, NOT a parse diagnostic.
+// Proposal: typed-lambda-inferred-return Errata 2026-05-31.
+
+#compile_fail(code: "E2005")
+@bare_return_type_no_body tests _ () -> void = {
+    let f = (x: int) -> int;
+    let r = f(x: 5);
+    print(msg: r)
+}

@@ -1,0 +1,10 @@
+type Vec<T> = { items: [T] }
+
+impl<T> Vec<T> {
+    @first_n<$N: int> (self) -> [T, max N] = self.items.take(count: N).to_fixed<$N>();
+
+    @bad_capacity<$N: int> (self) -> int = {
+        let bounded: [T, max M] = self.first_n();
+        bounded.len()
+    }
+}

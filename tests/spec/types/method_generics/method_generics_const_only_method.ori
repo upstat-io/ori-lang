@@ -1,0 +1,19 @@
+// Spec: 08-types.md § 8.3.1 Const Generic Parameters
+
+use std.testing { assert_eq }
+
+type Counter = { value: int }
+
+impl Counter {
+    @repeat_value<$N: int> (self) -> [int, max N] = self.spread().take(count: N).to_fixed<$N>();
+    @spread (self) -> [int] = [self.value, self.value, self.value, self.value, self.value];
+}
+
+@test_const_only_method tests _ () -> void = {
+    let c = Counter { value: 7 };
+    let three: [int, max 3] = c.repeat_value();
+    assert_eq(actual: three.len(), expected: 3);
+    assert_eq(actual: three[0], expected: 7);
+    assert_eq(actual: three[1], expected: 7);
+    assert_eq(actual: three[2], expected: 7)
+}

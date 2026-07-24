@@ -1,10 +1,11 @@
 //! Reuse emission from converged AIMS state map.
 //!
-//! Detects reuse opportunities where a dying unique value can be recycled
-//! for a subsequent same-type allocation, then emits in-place `Set`
-//! instructions (static-unique path) or expanded `IsShared`+`Branch` CFG
-//! (dynamic path). Replaces `reset_reuse` + `expand_reuse` from the old
-//! pipeline.
+//! Detects logical reuse eligibility where a dying single-owner value can fund
+//! a subsequent compatible construction. The current transitional carrier
+//! materializes that fact as in-place `Set` instructions or an
+//! `IsShared`+`Branch` CFG. Production AIMS freezes only the eligibility and
+//! sharing-observation obligation; VM and compiled physical planners choose
+//! and validate the storage-recycling mechanism.
 //!
 //! # Algorithm
 //!
@@ -32,22 +33,19 @@ use ori_ir::Name;
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
 
-use crate::aims::contract::{FipContract, MemoryContract};
+use crate::aims::contract::{ContractMapExt, FipContract, MemoryContract};
 
 pub use fip::{FipGateDecision, FipGateRecord};
 
-use crate::aims::lattice::{Cardinality, ShapeClass, SizeClass, Uniqueness};
+use crate::aims::lattice::{Cardinality, ShapeClass, Uniqueness};
 use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId};
 
 use set_ops::{build_proj_map, build_set_instructions, extract_construct_info, substitute_var_all};
 
-// Re-exports for `realize/` unified forward walk (Section 10.2).
-pub(crate) use detect::{ctor_to_shape, is_reusable_ctor};
-
 /// A matched reuse opportunity: a dying value paired with a compatible allocation.
 #[derive(Clone, Debug)]
 pub struct ReuseOpportunity {
-    /// The variable being consumed (source of the reuse token).
+    /// The variable being consumed (source of the logical reuse witness).
     pub source_var: ArcVarId,
     /// The block where the source dies.
     pub source_block: ArcBlockId,
@@ -55,7 +53,8 @@ pub struct ReuseOpportunity {
     pub source_instr: usize,
     /// The block and instruction index of the target `Construct`.
     pub target_instr: (ArcBlockId, usize),
-    /// Whether the source is provably unique (skip `IsShared` check).
+    /// Whether the source has one logical owner, so no sharing observation is
+    /// required.
     pub is_static_unique: bool,
 }
 
@@ -72,14 +71,12 @@ pub struct DeathEvent {
     pub uniqueness: Uniqueness,
     /// Cardinality (backward demand) — used for cross-dimensional
     /// uniqueness proof: `Once + ReusableCtor → static reuse`.
-    /// Section 09.2 Shape Activation.
+    /// Shape Activation.
     pub cardinality: Cardinality,
     /// Type of the dying variable.
     pub ty: Idx,
     /// Shape classification (from per-variable shape map, not block state).
     pub shape: ShapeClass,
-    /// Allocation size class (Stage 2+ cross-type matching).
-    pub size_class: SizeClass,
 }
 
 /// An allocation event: a `Construct` instruction creating a new value.
@@ -95,8 +92,6 @@ pub struct AllocEvent {
     pub ty: Idx,
     /// Shape classification.
     pub shape: ShapeClass,
-    /// Allocation size class (Stage 2+ cross-type matching).
-    pub size_class: SizeClass,
 }
 
 /// Result of reuse emission.
@@ -110,7 +105,7 @@ pub struct EmitReuseResult {
     /// Number of fields skipped via self-set elimination.
     pub fields_skipped: usize,
     /// FIP gate records: reuse decisions influenced by FIP certification.
-    /// Consumed by verification (Section 08).
+    /// Consumed by verification.
     pub fip_gates: Vec<FipGateRecord>,
     /// Death events with no compatible allocation found.
     /// Used for FBIP enrichment diagnostics.
@@ -120,7 +115,7 @@ pub struct EmitReuseResult {
 /// Emit reuse operations from pre-collected death and allocation events.
 ///
 /// Used by `realize/` when events are collected inline during the unified
-/// forward walk (Section 10.2). Matches death→alloc pairs, then applies
+/// forward walk. Matches death→alloc pairs, then applies
 /// reuse instructions.
 pub(crate) fn emit_reuse_from_events(
     func: &mut ArcFunction,
@@ -142,8 +137,8 @@ fn emit_reuse_from_raw(
     total_deaths: usize,
     contracts: &FxHashMap<Name, MemoryContract>,
 ) -> EmitReuseResult {
-    // Consult FIP contract for this function (Section 05.4).
-    let fip = contracts.get(&func.name).map(|c| &c.fip);
+    // Consult FIP contract for this function.
+    let fip = &contracts.get_required(&func.name, "emit_reuse_fip").fip;
     let (opportunities, fip_gates) = fip::apply_fip_upgrades(raw_opportunities, fip);
 
     // Partition into same-block and cross-block.
@@ -176,7 +171,6 @@ fn emit_reuse_from_raw(
     let mut cross_block_reuses = 0;
     let mut fields_skipped = 0;
 
-    // Phase 1: same-block opportunities.
     for opp in &same_block {
         if opp.is_static_unique {
             fields_skipped += apply_static_reuse_same_block(func, opp);
@@ -187,7 +181,6 @@ fn emit_reuse_from_raw(
         }
     }
 
-    // Phase 2: cross-block opportunities (static-unique only in v1).
     for opp in &cross_block {
         fields_skipped += apply_static_reuse_cross_block(func, opp);
         cross_block_reuses += 1;
@@ -210,7 +203,7 @@ fn emit_reuse_from_raw(
     }
 
     // FBIP enrichment: warn if FIP-certified function has unmatched deaths.
-    if missed_reuses > 0 && matches!(fip, Some(FipContract::Certified)) {
+    if missed_reuses > 0 && matches!(fip, FipContract::Certified) {
         tracing::warn!(
             function = func.name.raw(),
             missed_reuses,
@@ -232,7 +225,7 @@ fn emit_reuse_from_raw(
 
 /// Apply same-block static-unique reuse with self-set elimination.
 ///
-/// For the static-unique path (source is provably RC == 1):
+/// For the static-unique path (source has exactly one logical owner):
 /// 1. Build projection map from `Project` instructions before the death site
 /// 2. For each `Construct` arg, skip `Set` if it's a self-set (unchanged field)
 /// 3. Emit `Set` only for changed fields, `SetTag` for enum variant changes

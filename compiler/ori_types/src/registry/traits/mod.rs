@@ -1,19 +1,17 @@
 //! Registry for traits and their implementations.
 //!
-//! The `TraitRegistry` stores trait definitions and their implementations,
-//! enabling efficient lookup for method resolution and coherence checking.
-//!
-//! # Design
-//!
-//! - Traits indexed by name for definition lookup
-//! - Implementations indexed by self type for method resolution
-//! - Secondary index by trait for coherence checking
-//! - All types derive Salsa-required traits
+//! [`TraitRegistry`] indexes definitions by name and type, and implementations
+//! by receiver and trait. Lookup, coherence, supertrait traversal, and mutation
+//! operate on the same indexed entry vectors.
+
+mod lookup;
+mod registration;
+mod supertraits;
 
 use std::collections::BTreeMap;
 
 use ori_ir::{ExprId, Name, Span};
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
 use crate::Idx;
 
@@ -28,24 +26,51 @@ use crate::Idx;
 #[derive(Clone, Debug, Default)]
 pub struct TraitRegistry {
     /// All registered trait definitions.
-    traits: Vec<TraitEntry>,
+    pub(super) traits: Vec<TraitEntry>,
 
     /// Name → trait index (`BTreeMap` for deterministic iteration).
-    traits_by_name: BTreeMap<Name, usize>,
+    pub(super) traits_by_name: BTreeMap<Name, usize>,
 
     /// Pool `Idx` → trait index.
-    traits_by_idx: FxHashMap<Idx, usize>,
+    pub(super) traits_by_idx: FxHashMap<Idx, usize>,
 
     /// All implementations.
-    impls: Vec<ImplEntry>,
+    pub(super) impls: Vec<ImplEntry>,
+
+    /// Type-checker-owned semantic origin parallel to `impls`.
+    pub(super) impl_origins: Vec<Option<RegisteredImplOrigin>>,
 
     /// Quick lookup: `self_type` -> impl indices.
     /// Enables O(1) lookup of implementations for a given type.
-    impls_by_type: FxHashMap<Idx, Vec<usize>>,
+    pub(super) impls_by_type: FxHashMap<Idx, Vec<usize>>,
 
     /// Quick lookup: `trait_idx` -> impl indices.
     /// Enables coherence checking and trait method resolution.
-    impls_by_trait: FxHashMap<Idx, Vec<usize>>,
+    pub(super) impls_by_trait: FxHashMap<Idx, Vec<usize>>,
+}
+
+/// Module-local semantic origin of one registered implementation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum RegisteredImplOrigin {
+    /// Source or inherited-default body in a parsed impl block.
+    Source { impl_index: usize },
+    /// Source body in an extension block. Extension owners occupy the
+    /// module-local index range immediately after parsed impl blocks.
+    Extension {
+        owner_index: usize,
+        target_name: Name,
+    },
+    /// Compiler-generated accepted derive.
+    Derived(ori_ir::DerivedImplId),
+    /// Method templates imported from another producer module.
+    Imported(FxHashMap<ExprId, ImportedMethodOrigin>),
+}
+
+/// Stable imported producer identity for one method body.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ImportedMethodOrigin {
+    pub(crate) symbol: Box<str>,
+    pub(crate) signature_hash: u64,
 }
 
 /// A registered trait definition.
@@ -139,11 +164,35 @@ pub struct TraitMethodDef {
     /// Method signature as a function type index.
     pub signature: Idx,
 
+    /// Whether the method's first parameter is `self` (an instance method) vs a
+    /// no-`self` associated function (e.g. a capability method `@get (url: str)`
+    /// or `Default::default () -> Self`). Read by bound-chain dispatch to set
+    /// `LookupOutcome::has_self` so the arity check skips `self` only when the
+    /// method actually declares it.
+    pub has_self: bool,
+
     /// Whether this method has a default implementation.
     pub has_default: bool,
 
     /// Default implementation body (if `has_default` is true).
     pub default_body: Option<ExprId>,
+
+    /// Pool `var_id`s for the method's own quantified type variables.
+    /// Mirrors `FunctionSig.scheme_var_ids` — empty for non-generic methods.
+    pub scheme_var_ids: Vec<u32>,
+
+    /// Method-level generic parameter metadata, deep-copied from the AST's
+    /// `GenericParamRange` into arena-independent owned form.
+    /// Empty when the method has no generic parameters.
+    pub generic_param_metadata: Vec<GenericParamMeta>,
+
+    /// Method-level where-clause constraints, deep-copied into resolved form.
+    /// Empty when the method has no where clause.
+    pub where_clause_metadata: Vec<WhereConstraint>,
+
+    /// Fixed-list capacity expressions that depend on this method's const
+    /// binders, retained for concrete call-site validation.
+    pub fixed_list_capacity_constraints: Vec<crate::GenericConstExpr>,
 
     /// Source location.
     pub span: Span,
@@ -182,6 +231,16 @@ pub struct ImplEntry {
 
     /// Generic type parameters on this impl.
     pub type_params: Vec<Name>,
+
+    /// Trait bounds per type parameter, index-aligned with `type_params`
+    /// (mirrors `FunctionSig.type_param_bounds`). Captures the inline
+    /// `impl<T: Eq>` bound and the derive-implied conditional bound that the
+    /// trailing `where_clause` surface does not carry. Empty inner vec = an
+    /// unbounded parameter. The operator-presence gate validates these against
+    /// the instantiation so an unsatisfied generic impl does not count as
+    /// implementing the trait.
+    /// Spec: operator-rules.md "Equality"/"Ordering" — operands shall implement the trait.
+    pub type_param_bounds: Vec<Vec<Name>>,
 
     /// Method implementations.
     pub methods: FxHashMap<Name, ImplMethodDef>,
@@ -229,6 +288,30 @@ pub struct ImplMethodDef {
     /// Method body expression.
     pub body: ExprId,
 
+    /// Pool `var_id`s for the method's own quantified type variables.
+    /// Mirrors `FunctionSig.scheme_var_ids` — empty for non-generic methods.
+    pub scheme_var_ids: Vec<u32>,
+
+    /// Method-level generic parameter metadata, deep-copied from the AST's
+    /// `GenericParamRange` into arena-independent owned form.
+    /// Empty when the method has no generic parameters.
+    pub generic_param_metadata: Vec<GenericParamMeta>,
+
+    /// Method-level where-clause constraints, deep-copied into resolved form.
+    /// Empty when the method has no where clause.
+    pub where_clause_metadata: Vec<WhereConstraint>,
+
+    /// Fixed-list capacity expressions that depend on this method's const
+    /// binders, retained for concrete call-site validation.
+    pub fixed_list_capacity_constraints: Vec<crate::GenericConstExpr>,
+
+    /// Count of non-`self` parameters WITH a default value.
+    /// A call is arity-valid when `arg_count` is in
+    /// `[total_non_self - optional_param_count, total_non_self]`; omitted
+    /// trailing defaults are filled in canon. `0` = all params required
+    /// (the natural value for derived / no-default methods → strict arity).
+    pub optional_param_count: usize,
+
     /// Source location.
     pub span: Span,
 }
@@ -243,449 +326,46 @@ pub struct WhereConstraint {
     pub bounds: Vec<Idx>,
 }
 
+/// Method-level generic parameter metadata, arena-independent.
+///
+/// Deep-copied from the AST's `GenericParamRange` at registration time so
+/// the registry-side definition does not leak arena lifetimes — mirrors the
+/// `FunctionSig.scheme_var_ids` precedent of resolving AST data into owned
+/// form. All trait/index fields use the type pool's stable `Idx` and the
+/// existing `WhereConstraint` shape.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct GenericParamMeta {
+    /// Parameter name (e.g., `T` in `<T: Eq>`).
+    pub name: Name,
+
+    /// `false` for type-generic params (`<T>`); `true` for const-generic
+    /// params (`<$N: int>`).
+    pub is_const: bool,
+
+    /// Trait bounds for this parameter, fully resolved.
+    /// `T: Eq + Clone` becomes `vec![Idx_of_Eq, Idx_of_Clone]`.
+    pub bounds: Vec<Idx>,
+
+    /// Default type for type-generic parameters (e.g., `<T = int>`).
+    pub default_type: Option<Idx>,
+
+    /// Type of a const-generic parameter (e.g., the `int` in `<$N: int>`).
+    /// Always `None` when `is_const == false`.
+    pub const_type: Option<Idx>,
+
+    /// Default value of a const-generic parameter (e.g., `<$N: int = 42>`).
+    /// Always `None` when `is_const == false`.
+    pub const_default_value: Option<crate::GenericConstExpr>,
+
+    /// Projection-bound constraints attached to this parameter
+    /// (e.g., `T.Item: Eq` shape per associated-type clarification note).
+    pub projection_bounds: Vec<WhereConstraint>,
+}
+
 impl TraitRegistry {
     /// Create a new empty registry.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    // === Trait Registration ===
-
-    /// Register a trait definition.
-    pub fn register_trait(&mut self, entry: TraitEntry) {
-        let name = entry.name;
-        let idx = entry.idx;
-        let trait_idx = self.traits.len();
-        self.traits_by_name.insert(name, trait_idx);
-        self.traits_by_idx.insert(idx, trait_idx);
-        self.traits.push(entry);
-    }
-
-    /// Register a trait implementation.
-    ///
-    /// Returns the impl index for reference.
-    pub fn register_impl(&mut self, entry: ImplEntry) -> usize {
-        let impl_idx = self.impls.len();
-
-        // Index by self type
-        self.impls_by_type
-            .entry(entry.self_type)
-            .or_default()
-            .push(impl_idx);
-
-        // Index by trait (if not an inherent impl)
-        if let Some(trait_idx) = entry.trait_idx {
-            self.impls_by_trait
-                .entry(trait_idx)
-                .or_default()
-                .push(impl_idx);
-        }
-
-        self.impls.push(entry);
-        impl_idx
-    }
-
-    // === Trait Lookup ===
-
-    /// Look up a trait by name.
-    #[inline]
-    pub fn get_trait_by_name(&self, name: Name) -> Option<&TraitEntry> {
-        self.traits_by_name
-            .get(&name)
-            .and_then(|&i| self.traits.get(i))
-    }
-
-    /// Look up a trait by pool index.
-    #[inline]
-    pub fn get_trait_by_idx(&self, idx: Idx) -> Option<&TraitEntry> {
-        self.traits_by_idx
-            .get(&idx)
-            .and_then(|&i| self.traits.get(i))
-    }
-
-    /// Check if a trait with the given name exists.
-    #[inline]
-    pub fn contains_trait(&self, name: Name) -> bool {
-        self.traits_by_name.contains_key(&name)
-    }
-
-    /// Get a trait method signature.
-    pub fn trait_method(&self, trait_idx: Idx, method_name: Name) -> Option<&TraitMethodDef> {
-        self.get_trait_by_idx(trait_idx)
-            .and_then(|t| t.methods.get(&method_name))
-    }
-
-    /// Get an associated type definition from a trait.
-    pub fn trait_assoc_type(&self, trait_idx: Idx, assoc_name: Name) -> Option<&TraitAssocTypeDef> {
-        self.get_trait_by_idx(trait_idx)
-            .and_then(|t| t.assoc_types.get(&assoc_name))
-    }
-
-    // === Super-trait Queries ===
-
-    /// Collect all super-traits transitively (DAG walk with cycle protection).
-    ///
-    /// Returns a de-duplicated list of all ancestor trait indices, in
-    /// breadth-first order. Gracefully handles missing traits (returns empty
-    /// for unknown indices, allowing registration-order independence).
-    pub fn all_super_traits(&self, trait_idx: Idx) -> Vec<Idx> {
-        let mut visited = FxHashSet::default();
-        let mut result = Vec::new();
-        let mut queue = std::collections::VecDeque::new();
-
-        // Seed with direct super-traits
-        if let Some(entry) = self.get_trait_by_idx(trait_idx) {
-            for &st in &entry.super_traits {
-                if visited.insert(st) {
-                    queue.push_back(st);
-                }
-            }
-        }
-
-        while let Some(idx) = queue.pop_front() {
-            result.push(idx);
-            if let Some(entry) = self.get_trait_by_idx(idx) {
-                for &st in &entry.super_traits {
-                    if visited.insert(st) {
-                        queue.push_back(st);
-                    }
-                }
-            }
-        }
-
-        result
-    }
-
-    /// Gather methods from a trait and all its ancestors, deduplicating by name.
-    ///
-    /// Closest override wins: methods defined on the trait itself take priority
-    /// over those inherited from super-traits. Returns `(method_name,
-    /// owning_trait_idx, &TraitMethodDef)` tuples.
-    pub fn collected_methods(&self, trait_idx: Idx) -> Vec<(Name, Idx, &TraitMethodDef)> {
-        let mut seen = FxHashSet::default();
-        let mut result = Vec::new();
-
-        // Direct methods first (highest priority)
-        if let Some(entry) = self.get_trait_by_idx(trait_idx) {
-            for (name, method) in &entry.methods {
-                if seen.insert(*name) {
-                    result.push((*name, trait_idx, method));
-                }
-            }
-        }
-
-        // Walk ancestors in BFS order; skip already-seen names
-        for ancestor_idx in self.all_super_traits(trait_idx) {
-            if let Some(entry) = self.get_trait_by_idx(ancestor_idx) {
-                for (name, method) in &entry.methods {
-                    if seen.insert(*name) {
-                        result.push((*name, ancestor_idx, method));
-                    }
-                }
-            }
-        }
-
-        result
-    }
-
-    /// Find methods with conflicting defaults from different super-trait paths.
-    ///
-    /// Returns `(method_name, [conflicting_trait_indices])` for each method
-    /// that has default implementations from multiple unrelated super-trait
-    /// paths. Only includes methods where the conflict isn't resolved by the
-    /// trait itself (i.e., the trait's own methods are excluded from conflict
-    /// detection since they are the resolution).
-    pub fn find_conflicting_defaults(&self, trait_idx: Idx) -> Vec<(Name, Vec<Idx>)> {
-        // Track which methods we've seen defaults for, and from which traits
-        let mut defaults_by_method: FxHashMap<Name, Vec<Idx>> = FxHashMap::default();
-
-        // Collect defaults from all direct super-traits and their ancestors.
-        // Only look at direct super-traits' collected_methods — each super-trait
-        // provides its resolved set (closest override wins within its branch).
-        let direct_supers = self
-            .get_trait_by_idx(trait_idx)
-            .map(|e| e.super_traits.clone())
-            .unwrap_or_default();
-
-        for &super_idx in &direct_supers {
-            for (name, _owner, method) in self.collected_methods(super_idx) {
-                if method.has_default {
-                    defaults_by_method.entry(name).or_default().push(super_idx);
-                }
-            }
-        }
-
-        // Methods defined directly on this trait are NOT conflicting — they
-        // serve as the resolution. Also, if this trait declares a method
-        // (default or not), it overrides any inherited version.
-        if let Some(entry) = self.get_trait_by_idx(trait_idx) {
-            for name in entry.methods.keys() {
-                defaults_by_method.remove(name);
-            }
-        }
-
-        // Conflicting: >1 distinct super-trait provides a default for the same method
-        defaults_by_method
-            .into_iter()
-            .filter(|(_, providers)| providers.len() > 1)
-            .collect()
-    }
-
-    // === Impl Lookup ===
-
-    /// Get all implementations for a given self type.
-    pub fn impls_for_type(&self, self_type: Idx) -> impl Iterator<Item = &ImplEntry> {
-        self.impls_by_type
-            .get(&self_type)
-            .into_iter()
-            .flat_map(|indices| indices.iter())
-            .filter_map(|&i| self.impls.get(i))
-    }
-
-    /// Get all implementations of a specific trait.
-    pub fn impls_of_trait(&self, trait_idx: Idx) -> impl Iterator<Item = &ImplEntry> {
-        self.impls_by_trait
-            .get(&trait_idx)
-            .into_iter()
-            .flat_map(|indices| indices.iter())
-            .filter_map(|&i| self.impls.get(i))
-    }
-
-    /// Get an impl entry by index.
-    #[inline]
-    pub fn get_impl(&self, impl_idx: usize) -> Option<&ImplEntry> {
-        self.impls.get(impl_idx)
-    }
-
-    /// Get a mutable impl entry by index.
-    #[inline]
-    pub fn get_impl_mut(&mut self, impl_idx: usize) -> Option<&mut ImplEntry> {
-        self.impls.get_mut(impl_idx)
-    }
-
-    /// Find an impl of a specific trait for a specific type.
-    pub fn find_impl(&self, trait_idx: Idx, self_type: Idx) -> Option<(usize, &ImplEntry)> {
-        self.find_impl_with_args(trait_idx, self_type, &[])
-    }
-
-    /// Find an implementation of a generic trait for a specific type, matching
-    /// concrete type arguments.
-    ///
-    /// For non-generic traits, pass an empty `trait_type_args` slice.
-    /// For generic traits like `Index<Key, Value>`, pass the resolved type
-    /// arguments to distinguish between different instantiations.
-    pub fn find_impl_with_args(
-        &self,
-        trait_idx: Idx,
-        self_type: Idx,
-        trait_type_args: &[Idx],
-    ) -> Option<(usize, &ImplEntry)> {
-        self.impls_by_type.get(&self_type).and_then(|indices| {
-            indices.iter().find_map(|&i| {
-                let entry = &self.impls[i];
-                if entry.trait_idx == Some(trait_idx)
-                    && (trait_type_args.is_empty()
-                        || entry.trait_type_args.is_empty()
-                        || entry.trait_type_args == trait_type_args)
-                {
-                    Some((i, entry))
-                } else {
-                    None
-                }
-            })
-        })
-    }
-
-    /// Find the inherent impl for a type (impl without a trait).
-    pub fn inherent_impl(&self, self_type: Idx) -> Option<(usize, &ImplEntry)> {
-        self.impls_by_type.get(&self_type).and_then(|indices| {
-            indices.iter().find_map(|&i| {
-                let entry = &self.impls[i];
-                if entry.trait_idx.is_none() {
-                    Some((i, entry))
-                } else {
-                    None
-                }
-            })
-        })
-    }
-
-    /// Look up a method implementation for a given type.
-    ///
-    /// Searches inherent impls first, then trait impls.
-    pub fn lookup_method(&self, self_type: Idx, method_name: Name) -> Option<MethodLookup<'_>> {
-        // 1. Check inherent impl first
-        if let Some((impl_idx, impl_entry)) = self.inherent_impl(self_type) {
-            if let Some(method) = impl_entry.methods.get(&method_name) {
-                return Some(MethodLookup::Inherent { impl_idx, method });
-            }
-        }
-
-        // 2. Check trait impls
-        for (impl_idx, impl_entry) in self
-            .impls_by_type
-            .get(&self_type)
-            .into_iter()
-            .flat_map(|indices| indices.iter())
-            .filter_map(|&i| Some((i, self.impls.get(i)?)))
-        {
-            if let Some(method) = impl_entry.methods.get(&method_name) {
-                // Non-inherent impls should always have a trait_idx
-                let Some(trait_idx) = impl_entry.trait_idx else {
-                    continue;
-                };
-                return Some(MethodLookup::Trait {
-                    trait_idx,
-                    impl_idx,
-                    method,
-                });
-            }
-        }
-
-        None
-    }
-
-    /// Look up a method with ambiguity detection.
-    ///
-    /// Like `lookup_method()`, but instead of returning the first trait match,
-    /// collects ALL trait impls that provide the method. Returns `Ambiguous`
-    /// when multiple trait impls match.
-    pub fn lookup_method_checked(
-        &self,
-        self_type: Idx,
-        method_name: Name,
-    ) -> MethodLookupResult<'_> {
-        // 1. Inherent impl always wins (no ambiguity possible)
-        if let Some((impl_idx, impl_entry)) = self.inherent_impl(self_type) {
-            if let Some(method) = impl_entry.methods.get(&method_name) {
-                return MethodLookupResult::Found(MethodLookup::Inherent { impl_idx, method });
-            }
-        }
-
-        // 2. Collect ALL trait impls with the method + their specificity
-        let mut candidates: Vec<(usize, Idx, &ImplMethodDef, ImplSpecificity)> = Vec::new();
-        for (impl_idx, impl_entry) in self
-            .impls_by_type
-            .get(&self_type)
-            .into_iter()
-            .flat_map(|indices| indices.iter())
-            .filter_map(|&i| Some((i, self.impls.get(i)?)))
-        {
-            if let Some(method) = impl_entry.methods.get(&method_name) {
-                if let Some(trait_idx) = impl_entry.trait_idx {
-                    candidates.push((impl_idx, trait_idx, method, impl_entry.specificity));
-                }
-            }
-        }
-
-        match candidates.len() {
-            0 => MethodLookupResult::NotFound,
-            1 => {
-                let (impl_idx, trait_idx, method, _) = candidates[0];
-                MethodLookupResult::Found(MethodLookup::Trait {
-                    trait_idx,
-                    impl_idx,
-                    method,
-                })
-            }
-            _ => {
-                // Multiple candidates: first filter by super-trait relationships.
-                // If trait A is a super-trait of trait B and both provide the method,
-                // keep only B (the sub-trait inherits or overrides A's method).
-                let trait_idxs: Vec<Idx> = candidates.iter().map(|c| c.1).collect();
-                let mut superseded: FxHashSet<Idx> = FxHashSet::default();
-                for &t in &trait_idxs {
-                    let supers = self.all_super_traits(t);
-                    for &s in &supers {
-                        if trait_idxs.contains(&s) {
-                            superseded.insert(s);
-                        }
-                    }
-                }
-                let candidates: Vec<_> = candidates
-                    .into_iter()
-                    .filter(|c| !superseded.contains(&c.1))
-                    .collect();
-
-                if candidates.len() == 1 {
-                    let (impl_idx, trait_idx, method, _) = candidates[0];
-                    return MethodLookupResult::Found(MethodLookup::Trait {
-                        trait_idx,
-                        impl_idx,
-                        method,
-                    });
-                }
-
-                // Then try to disambiguate by specificity.
-                // Keep only the most-specific candidates.
-                let max_spec = candidates
-                    .iter()
-                    .map(|c| c.3)
-                    .max()
-                    .unwrap_or(ImplSpecificity::Generic);
-                let best: Vec<_> = candidates.iter().filter(|c| c.3 == max_spec).collect();
-
-                if best.len() == 1 {
-                    let (impl_idx, trait_idx, method, _) = *best[0];
-                    MethodLookupResult::Found(MethodLookup::Trait {
-                        trait_idx,
-                        impl_idx,
-                        method,
-                    })
-                } else {
-                    let trait_candidates: Vec<(Idx, Name)> = best
-                        .iter()
-                        .filter_map(|&&(_, trait_idx, _, _)| {
-                            let name = self.get_trait_by_idx(trait_idx)?.name;
-                            Some((trait_idx, name))
-                        })
-                        .collect();
-                    MethodLookupResult::Ambiguous {
-                        candidates: trait_candidates,
-                    }
-                }
-            }
-        }
-    }
-
-    // === Coherence ===
-
-    /// Check if implementing a trait for a type would be a duplicate.
-    ///
-    /// Returns `true` if an implementation already exists.
-    pub fn has_impl(&self, trait_idx: Idx, self_type: Idx) -> bool {
-        self.find_impl(trait_idx, self_type).is_some()
-    }
-
-    /// Check if an inherent impl exists for a type.
-    pub fn has_inherent_impl(&self, self_type: Idx) -> bool {
-        self.inherent_impl(self_type).is_some()
-    }
-
-    // === Iteration ===
-
-    /// Iterate over all registered traits in name order.
-    pub fn iter_traits(&self) -> impl Iterator<Item = &TraitEntry> {
-        self.traits_by_name
-            .values()
-            .filter_map(|&i| self.traits.get(i))
-    }
-
-    /// Iterate over all implementations.
-    pub fn iter_impls(&self) -> impl Iterator<Item = &ImplEntry> {
-        self.impls.iter()
-    }
-
-    /// Get the number of registered traits.
-    #[inline]
-    pub fn trait_count(&self) -> usize {
-        self.traits.len()
-    }
-
-    /// Get the number of registered implementations.
-    #[inline]
-    pub fn impl_count(&self) -> usize {
-        self.impls.len()
     }
 }
 
@@ -709,6 +389,14 @@ pub enum MethodLookup<'a> {
         /// The method definition.
         method: &'a ImplMethodDef,
     },
+
+    /// Method from an extension block.
+    Extension {
+        /// Index of the registered extension provider.
+        impl_idx: usize,
+        /// The method definition.
+        method: &'a ImplMethodDef,
+    },
 }
 
 impl<'a> MethodLookup<'a> {
@@ -716,7 +404,9 @@ impl<'a> MethodLookup<'a> {
     #[inline]
     pub fn method(&self) -> &'a ImplMethodDef {
         match self {
-            Self::Inherent { method, .. } | Self::Trait { method, .. } => method,
+            Self::Inherent { method, .. }
+            | Self::Trait { method, .. }
+            | Self::Extension { method, .. } => method,
         }
     }
 
@@ -724,7 +414,9 @@ impl<'a> MethodLookup<'a> {
     #[inline]
     pub fn impl_idx(&self) -> usize {
         match self {
-            Self::Inherent { impl_idx, .. } | Self::Trait { impl_idx, .. } => *impl_idx,
+            Self::Inherent { impl_idx, .. }
+            | Self::Trait { impl_idx, .. }
+            | Self::Extension { impl_idx, .. } => *impl_idx,
         }
     }
 
@@ -738,7 +430,7 @@ impl<'a> MethodLookup<'a> {
     #[inline]
     pub fn trait_idx(&self) -> Option<Idx> {
         match self {
-            Self::Inherent { .. } => None,
+            Self::Inherent { .. } | Self::Extension { .. } => None,
             Self::Trait { trait_idx, .. } => Some(*trait_idx),
         }
     }
@@ -760,6 +452,38 @@ pub enum MethodLookupResult<'a> {
     NotFound,
 }
 
+/// Result of a bound-chain method lookup.
+///
+/// Returned by `TraitRegistry::find_trait_method_via_bound_chain`. Distinct
+/// from `MethodLookupResult` because the resolved method is a trait-level
+/// `TraitMethodDef` (signature only — no concrete body), not an
+/// `ImplMethodDef` from a registered impl. Dispatch sites consume this
+/// when the receiver is `Tag::RigidVar` and translate the trait-method
+/// signature into a callable shape (substituting the rigid var for `Self`
+/// at the call site).
+#[derive(Clone, Debug)]
+pub enum BoundChainLookup<'a> {
+    /// Exactly one bound provides this method.
+    Found {
+        /// The trait that contributes the method.
+        trait_idx: Idx,
+        /// The method definition (signature, default body if any).
+        method: &'a TraitMethodDef,
+    },
+
+    /// Multiple bounds provide the same method name — ambiguous.
+    Ambiguous {
+        /// Trait indices and names that provide the method.
+        candidates: Vec<(Idx, Name)>,
+    },
+
+    /// No bound on the rigid var provides the method.
+    NotFound,
+}
+
 #[cfg(test)]
-#[expect(clippy::expect_used, reason = "Test code uses expect for clarity")]
+#[expect(
+    clippy::expect_used,
+    reason = "trait-registry tests abort when a required fixture method is absent"
+)]
 mod tests;

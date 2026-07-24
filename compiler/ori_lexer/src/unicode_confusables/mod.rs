@@ -6,8 +6,6 @@
 //!
 //! This is NOT Unicode identifier support — Ori source is ASCII-only per spec.
 //! This table exists solely for better error messages.
-//!
-//! Inspired by Rust's `unicode_chars.rs` and Go's curly quote detection.
 
 /// Maps Unicode characters that are visually similar to ASCII to their
 /// ASCII equivalents. Sorted by Unicode codepoint for binary search.

@@ -1,0 +1,3 @@
+@add (x: int, y: int) -> int = x + y;
+
+@caller () -> int = ad(1, 2);

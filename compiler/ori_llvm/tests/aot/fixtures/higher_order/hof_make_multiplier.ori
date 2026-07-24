@@ -1,5 +1,5 @@
 @make_multiplier (factor: int) -> (int) -> int = {
-    (n: int) -> factor * n
+    (n: int) -> int = factor * n
 };
 
 @main () -> int = {

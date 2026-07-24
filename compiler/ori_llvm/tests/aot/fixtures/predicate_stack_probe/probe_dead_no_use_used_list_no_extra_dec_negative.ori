@@ -1,0 +1,5 @@
+@main () -> int = {
+    let xs = ["alpha long heap element here exceeds sso", "beta long heap element here exceeds sso"];
+    let n = xs.length();
+    if n == 2 then 0 else 1
+}

@@ -9,7 +9,7 @@ use std.testing { assert_eq }
 
 type Celsius = { degrees: int }
 
-impl Into<str> for Celsius {
+impl Celsius: Into<str> {
     @into (self) -> str = `{self.degrees}°C`;
 }
 
@@ -27,7 +27,7 @@ impl Into<str> for Celsius {
 
 type Wrapper = { value: int }
 
-impl Into<int> for Wrapper {
+impl Wrapper: Into<int> {
     @into (self) -> int = self.value;
 }
 

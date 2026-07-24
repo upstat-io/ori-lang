@@ -1,8 +1,8 @@
 @apply (f: (int) -> int, x: int) -> int = f(x);
-@make_adder (n: int) -> (int) -> int = (x: int) -> x + n;
+@make_adder (n: int) -> (int) -> int = (x: int) -> int = x + n;
 
 @main () -> int = {
-    let $double = (x: int) -> x * 2;
+    let $double = (x: int) -> int = x * 2;
     let $a = apply(f: double, x: 5);
     let $add10 = make_adder(n: 10);
     let $b = add10(7);

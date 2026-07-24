@@ -2,7 +2,7 @@
 
 use super::*;
 
-// ─── widen ────────────────────────────────────────────────────
+// widen
 
 #[test]
 fn widen_bottom_identity() {
@@ -79,7 +79,7 @@ fn widen_terminates_in_two_steps() {
     assert_eq!(w1, ValueRange::Top);
 }
 
-// ─── narrow ──────────────────────────────────────────────────
+// narrow
 
 #[test]
 fn narrow_tightens() {
@@ -106,7 +106,276 @@ fn narrow_bottom_stays_bottom() {
     );
 }
 
-// ─── range_fixpoint ──────────────────────────────────────────
+#[test]
+fn direct_range_intervals_distinguish_header_overshoot_from_body() {
+    use super::direct_range::direct_range_intervals;
+
+    assert_eq!(
+        direct_range_intervals(
+            ValueRange::Bounded { lo: 0, hi: 0 },
+            ValueRange::Bounded { lo: 100, hi: 100 },
+            ValueRange::Bounded { lo: 1, hi: 1 },
+            Some(0),
+        ),
+        Some((
+            ValueRange::Bounded { lo: 0, hi: 100 },
+            ValueRange::Bounded { lo: 0, hi: 99 },
+        ))
+    );
+    assert_eq!(
+        direct_range_intervals(
+            ValueRange::Bounded { lo: 10, hi: 10 },
+            ValueRange::Bounded { lo: 0, hi: 0 },
+            ValueRange::Bounded { lo: -2, hi: -2 },
+            Some(0),
+        ),
+        Some((
+            ValueRange::Bounded { lo: -1, hi: 10 },
+            ValueRange::Bounded { lo: 1, hi: 10 },
+        ))
+    );
+}
+
+#[test]
+fn fixpoint_direct_range_projection_does_not_join_other_range_values() {
+    use ori_arc::ir::{
+        ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue, ValueRepr,
+    };
+    use ori_arc::ArcBlockId;
+
+    let mut pool = ori_types::Pool::new();
+    let range_ty = pool.range(ori_types::Idx::INT);
+    let vars: Vec<_> = (0..11).map(ArcVarId::new).collect();
+    let ints = [0, 10, 1, 0, 50, 100, 1, 0];
+    let mut body: Vec<_> = ints
+        .iter()
+        .enumerate()
+        .map(|(index, value)| ArcInstr::Let {
+            dst: vars[index],
+            ty: ori_types::Idx::INT,
+            value: ArcValue::Literal(LitValue::Int(*value)),
+        })
+        .collect();
+    body.extend([
+        ArcInstr::Construct {
+            dst: vars[8],
+            ty: range_ty,
+            ctor: CtorKind::Tuple,
+            args: vars[0..4].to_vec(),
+        },
+        ArcInstr::Construct {
+            dst: vars[9],
+            ty: range_ty,
+            ctor: CtorKind::Tuple,
+            args: vars[4..8].to_vec(),
+        },
+        ArcInstr::Project {
+            dst: vars[10],
+            ty: ori_types::Idx::INT,
+            value: vars[8],
+            field: 1,
+        },
+    ]);
+    let func = ArcFunction {
+        name: ori_ir::Name::from_raw(50_001),
+        return_type: ori_types::Idx::INT,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body,
+            terminator: ArcTerminator::Return { value: vars[10] },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: [
+            vec![ori_types::Idx::INT; 8],
+            vec![range_ty; 2],
+            vec![ori_types::Idx::INT],
+        ]
+        .concat(),
+        var_reprs: vec![ValueRepr::Scalar; 11],
+        spans: vec![vec![None; 11]],
+        ..Default::default()
+    };
+
+    let result = range_fixpoint(&func, &pool, &RangeAnalysisConfig::default(), None, None);
+    assert_eq!(
+        result.var_ranges.get(&vars[10]),
+        Some(&ValueRange::Bounded { lo: 10, hi: 10 })
+    );
+}
+
+fn direct_range_entry_block(vars: &[ArcVarId], range_ty: ori_types::Idx) -> ori_arc::ir::ArcBlock {
+    use ori_arc::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue};
+    use ori_arc::ArcBlockId;
+
+    ArcBlock {
+        id: ArcBlockId::new(0),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: vars[0],
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(0)),
+            },
+            ArcInstr::Let {
+                dst: vars[1],
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(100)),
+            },
+            ArcInstr::Let {
+                dst: vars[2],
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(1)),
+            },
+            ArcInstr::Let {
+                dst: vars[3],
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(0)),
+            },
+            ArcInstr::Construct {
+                dst: vars[4],
+                ty: range_ty,
+                ctor: CtorKind::Tuple,
+                args: vars[0..4].to_vec(),
+            },
+            ArcInstr::Project {
+                dst: vars[5],
+                ty: ori_types::Idx::INT,
+                value: vars[4],
+                field: 0,
+            },
+            ArcInstr::Project {
+                dst: vars[6],
+                ty: ori_types::Idx::INT,
+                value: vars[4],
+                field: 1,
+            },
+            ArcInstr::Project {
+                dst: vars[7],
+                ty: ori_types::Idx::INT,
+                value: vars[4],
+                field: 2,
+            },
+        ],
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: vec![vars[5]],
+        },
+    }
+}
+
+fn direct_range_header_block(vars: &[ArcVarId]) -> ori_arc::ir::ArcBlock {
+    use ori_arc::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, PrimOp};
+    use ori_arc::ArcBlockId;
+    use ori_ir::BinaryOp;
+
+    ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![(vars[8], ori_types::Idx::INT)],
+        body: vec![ArcInstr::Let {
+            dst: vars[9],
+            ty: ori_types::Idx::BOOL,
+            value: ArcValue::PrimOp {
+                op: PrimOp::Binary(BinaryOp::Lt),
+                args: vec![vars[8], vars[6]],
+            },
+        }],
+        terminator: ArcTerminator::Branch {
+            cond: vars[9],
+            then_block: ArcBlockId::new(2),
+            else_block: ArcBlockId::new(3),
+        },
+    }
+}
+
+fn direct_range_body_block(vars: &[ArcVarId]) -> ori_arc::ir::ArcBlock {
+    use ori_arc::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, PrimOp};
+    use ori_arc::ArcBlockId;
+    use ori_ir::BinaryOp;
+
+    ArcBlock {
+        id: ArcBlockId::new(2),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: vars[10],
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(vars[8]),
+            },
+            ArcInstr::Let {
+                dst: vars[11],
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Add),
+                    args: vec![vars[8], vars[7]],
+                },
+            },
+        ],
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: vec![vars[11]],
+        },
+    }
+}
+
+fn direct_range_exit_block(vars: &[ArcVarId]) -> ori_arc::ir::ArcBlock {
+    ori_arc::ir::ArcBlock {
+        id: ori_arc::ArcBlockId::new(3),
+        params: vec![],
+        body: vec![],
+        terminator: ori_arc::ir::ArcTerminator::Return { value: vars[8] },
+    }
+}
+
+#[test]
+fn fixpoint_direct_range_loop_refines_only_the_body_to_endpoint() {
+    use ori_arc::ir::{ArcFunction, ValueRepr};
+    use ori_arc::ArcBlockId;
+
+    let mut pool = ori_types::Pool::new();
+    let range_ty = pool.range(ori_types::Idx::INT);
+    let vars: Vec<_> = (0..12).map(ArcVarId::new).collect();
+    let func = ArcFunction {
+        name: ori_ir::Name::from_raw(50_002),
+        return_type: ori_types::Idx::INT,
+        blocks: vec![
+            direct_range_entry_block(&vars, range_ty),
+            direct_range_header_block(&vars),
+            direct_range_body_block(&vars),
+            direct_range_exit_block(&vars),
+        ],
+        entry: ArcBlockId::new(0),
+        var_types: vec![
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+            range_ty,
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+            ori_types::Idx::BOOL,
+            ori_types::Idx::INT,
+            ori_types::Idx::INT,
+        ],
+        var_reprs: vec![ValueRepr::Scalar; 12],
+        spans: vec![vec![None; 8], vec![None], vec![None; 2], vec![]],
+        ..Default::default()
+    };
+
+    let result = range_fixpoint(&func, &pool, &RangeAnalysisConfig::default(), None, None);
+    assert_eq!(
+        result.var_ranges.get(&vars[8]),
+        Some(&ValueRange::Bounded { lo: 0, hi: 100 })
+    );
+    assert_eq!(
+        result.var_ranges.get(&vars[10]),
+        Some(&ValueRange::Bounded { lo: 0, hi: 99 })
+    );
+}
+
+// range_fixpoint
 
 /// Budget exceeded: function with too many blocks returns all-Top.
 #[test]
@@ -143,8 +412,13 @@ fn fixpoint_budget_exceeded() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     let pool = ori_types::Pool::new();
@@ -185,8 +459,13 @@ fn fixpoint_constant_let() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     let pool = ori_types::Pool::new();
@@ -274,8 +553,13 @@ fn fixpoint_return_range_join() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     let pool = ori_types::Pool::new();
@@ -372,8 +656,13 @@ fn fixpoint_block_param_merging() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     let pool = ori_types::Pool::new();
@@ -387,7 +676,7 @@ fn fixpoint_block_param_merging() {
     );
 }
 
-// ─── block-entry refinements for non-param vars ─────
+// block-entry refinements for non-param vars
 
 /// Semantic pin: non-parameter variable refined via Branch.
 /// Block 0: let x = constant [0, 200], let cond = x < 100, Branch(cond, b1, b2)
@@ -470,8 +759,13 @@ fn fixpoint_branch_refines_non_param_variable() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     let pool = ori_types::Pool::new();
@@ -549,8 +843,13 @@ fn fixpoint_switch_refines_non_param_variable() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     let pool = ori_types::Pool::new();
@@ -566,7 +865,7 @@ fn fixpoint_switch_refines_non_param_variable() {
     );
 }
 
-// ─── field summary recompute after narrowing ────────
+// field summary recompute after narrowing
 
 /// Field summary reflects post-narrowing ranges, not pre-narrowing widened ranges.
 /// Construct a function with a Construct that uses a variable. After analysis,
@@ -618,8 +917,13 @@ fn fixpoint_field_summary_uses_final_ranges() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     let pool = ori_types::Pool::new();
@@ -634,7 +938,7 @@ fn fixpoint_field_summary_uses_final_ranges() {
     );
 }
 
-// ─── Switch multi-case same-block must join, not overwrite ───
+// Switch multi-case same-block must join, not overwrite
 
 /// When multiple Switch cases target the same successor block, the scrutinee
 /// refinement should be the JOIN of all case values, not just the last one.
@@ -658,6 +962,7 @@ fn fixpoint_switch_multi_case_same_block_joins() {
             func: ori_ir::Name::from_raw(99),
             args: vec![],
             arg_ownership: vec![],
+            mono_instance_id: None,
         }],
         // Cases 0 and 1 both target block 1; case 2 targets block 2.
         terminator: ArcTerminator::Switch {
@@ -714,8 +1019,13 @@ fn fixpoint_switch_multi_case_same_block_joins() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     let pool = ori_types::Pool::new();
@@ -730,7 +1040,7 @@ fn fixpoint_switch_multi_case_same_block_joins() {
     );
 }
 
-// ─── Switch default block gets complement refinement ─────
+// Switch default block gets complement refinement
 
 /// The default successor of a Switch should receive a complement refinement
 /// that excludes contiguous case values from the scrutinee's edges.
@@ -820,8 +1130,13 @@ fn fixpoint_switch_default_gets_complement() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     let pool = ori_types::Pool::new();
@@ -838,7 +1153,7 @@ fn fixpoint_switch_default_gets_complement() {
     );
 }
 
-// ─── multi-predecessor switch default must join, not meet ─
+// multi-predecessor switch default must join, not meet
 
 /// Build a diamond CFG where two switch blocks target the same default.
 /// entry: x ∈ [0,10]; branch → left, right
@@ -935,8 +1250,13 @@ fn build_multi_pred_switch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
     (func, v_y)
 }
@@ -959,7 +1279,7 @@ fn fixpoint_switch_default_multi_predecessor_joins() {
     );
 }
 
-// ─── Narrowing pass recovers loop-bound block parameters ─
+// Narrowing pass recovers loop-bound block parameters
 
 /// Build a simple bounded loop: `for i in 0..<limit` with increment 1.
 /// Returns `(function, loop_var)` for assertion.
@@ -1055,8 +1375,13 @@ fn build_bounded_loop_func(limit: i64) -> (ori_arc::ir::ArcFunction, ArcVarId) {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     (func, v_i)
@@ -1087,66 +1412,112 @@ fn fixpoint_narrowing_recovers_loop_bound() {
     );
 }
 
-// ─── Branch refinement overwrite + stale iterations ──
+// Branch refinement overwrite + stale iterations
 
-/// Build a multi-predecessor Branch refinement CFG. Returns `(func, v_y)`.
-fn build_multi_pred_branch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
-    use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, PrimOp};
-    use {ori_arc::ArcBlockId, ori_ir::BinaryOp};
-    let (int, bool_t) = (ori_types::Idx::INT, ori_types::Idx::BOOL);
-    let v = ArcVarId::new;
-    let (v_x, v_cond, v_b1, v_c2, v_b2, v_c3, v_y) = (v(0), v(1), v(2), v(3), v(4), v(5), v(6));
+struct MultiPredBranch {
+    id: u32,
+    bound_var: ArcVarId,
+    comparison_var: ArcVarId,
+    bound: i64,
+    true_block: u32,
+    false_block: u32,
+}
 
-    let block0 = ArcBlock {
+fn multi_pred_entry_block(subject: ArcVarId, condition: ArcVarId) -> ori_arc::ir::ArcBlock {
+    use ori_arc::ir::{ArcBlock, ArcInstr, ArcTerminator};
+    use ori_arc::ArcBlockId;
+
+    ArcBlock {
         id: ArcBlockId::new(0),
         params: vec![],
         body: vec![
             ArcInstr::Apply {
-                dst: v_x,
+                dst: subject,
                 ty: ori_types::Idx::INT,
                 func: ori_ir::Name::from_raw(99),
                 args: vec![],
                 arg_ownership: vec![],
+                mono_instance_id: None,
             },
             ArcInstr::IsShared {
-                dst: v_cond,
-                var: v_x,
+                dst: condition,
+                var: subject,
             },
         ],
         terminator: ArcTerminator::Branch {
-            cond: v_cond,
+            cond: condition,
             then_block: ArcBlockId::new(1),
             else_block: ArcBlockId::new(2),
         },
-    };
+    }
+}
 
-    let make_lt_branch = |id, bvar, cvar, bound, true_b, false_b| ArcBlock {
-        id: ArcBlockId::new(id),
+fn multi_pred_less_than_block(
+    subject: ArcVarId,
+    branch: &MultiPredBranch,
+) -> ori_arc::ir::ArcBlock {
+    use ori_arc::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, PrimOp};
+    use ori_arc::ArcBlockId;
+    use ori_ir::BinaryOp;
+
+    ArcBlock {
+        id: ArcBlockId::new(branch.id),
         params: vec![],
         body: vec![
             ArcInstr::Let {
-                dst: bvar,
+                dst: branch.bound_var,
                 ty: ori_types::Idx::INT,
-                value: ArcValue::Literal(ori_arc::ir::LitValue::Int(bound)),
+                value: ArcValue::Literal(ori_arc::ir::LitValue::Int(branch.bound)),
             },
             ArcInstr::Let {
-                dst: cvar,
+                dst: branch.comparison_var,
                 ty: ori_types::Idx::BOOL,
                 value: ArcValue::PrimOp {
                     op: PrimOp::Binary(BinaryOp::Lt),
-                    args: vec![v_x, bvar],
+                    args: vec![subject, branch.bound_var],
                 },
             },
         ],
         terminator: ArcTerminator::Branch {
-            cond: cvar,
-            then_block: ArcBlockId::new(true_b),
-            else_block: ArcBlockId::new(false_b),
+            cond: branch.comparison_var,
+            then_block: ArcBlockId::new(branch.true_block),
+            else_block: ArcBlockId::new(branch.false_block),
         },
-    };
+    }
+}
 
-    let block1 = make_lt_branch(1, v_b1, v_c2, 0, 3, 4);
-    let block2 = make_lt_branch(2, v_b2, v_c3, 100, 5, 3);
+/// Build a multi-predecessor Branch refinement CFG. Returns `(func, v_y)`.
+fn build_multi_pred_branch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
+    use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue};
+    use ori_arc::ArcBlockId;
+
+    let (int, bool_t) = (ori_types::Idx::INT, ori_types::Idx::BOOL);
+    let v = ArcVarId::new;
+    let (v_x, v_cond, v_b1, v_c2, v_b2, v_c3, v_y) = (v(0), v(1), v(2), v(3), v(4), v(5), v(6));
+
+    let block0 = multi_pred_entry_block(v_x, v_cond);
+    let block1 = multi_pred_less_than_block(
+        v_x,
+        &MultiPredBranch {
+            id: 1,
+            bound_var: v_b1,
+            comparison_var: v_c2,
+            bound: 0,
+            true_block: 3,
+            false_block: 4,
+        },
+    );
+    let block2 = multi_pred_less_than_block(
+        v_x,
+        &MultiPredBranch {
+            id: 2,
+            bound_var: v_b2,
+            comparison_var: v_c3,
+            bound: 100,
+            true_block: 5,
+            false_block: 3,
+        },
+    );
     let ret_block = |id, var| ArcBlock {
         id: ArcBlockId::new(id),
         params: vec![],
@@ -1189,8 +1560,13 @@ fn build_multi_pred_branch_func() -> (ori_arc::ir::ArcFunction, ArcVarId) {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
     (func, v_y)
 }
@@ -1223,7 +1599,7 @@ fn fixpoint_branch_multi_predecessor_refinement_joins() {
     );
 }
 
-// ─── return_range must be recomputed after narrowing ──────
+// return_range must be recomputed after narrowing
 
 /// Semantic pin: a bounded loop function's `return_range` should narrow along
 /// with the loop variable. The loop returns `v_i` which narrows to [0, 10].
@@ -1247,7 +1623,7 @@ fn fixpoint_return_range_recomputed_after_narrowing() {
     );
 }
 
-// ─── projection refresh after field-summary recompute ──────
+// projection refresh after field-summary recompute
 
 /// Build a bounded loop where the exit block constructs a struct from the
 /// loop variable, projects field 0, and returns the projection.
@@ -1343,7 +1719,7 @@ fn fixpoint_projection_refreshed_after_field_summary_recompute() {
     );
 }
 
-// ─── return_range must not include unreachable blocks ──────
+// return_range must not include unreachable blocks
 
 /// Semantic pin: a function with an unreachable return block must NOT have
 /// its `return_range` polluted by the dead block's return variable.
@@ -1412,8 +1788,13 @@ fn fixpoint_return_range_excludes_unreachable_blocks() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     let pool = ori_types::Pool::new();
@@ -1504,8 +1885,13 @@ fn fixpoint_return_range_includes_all_reachable_returns() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     let pool = ori_types::Pool::new();
@@ -1520,7 +1906,7 @@ fn fixpoint_return_range_includes_all_reachable_returns() {
     );
 }
 
-// ─── Invoke terminator must define dst variable range ──────
+// Invoke terminator must define dst variable range
 
 /// Semantic pin: an Invoke terminator defines a `dst` variable and its
 /// range must appear in the fixpoint result. For an unknown function,
@@ -1550,6 +1936,7 @@ fn fixpoint_invoke_defines_dst_variable() {
             func: ori_ir::Name::from_raw(99), // unknown function
             args: vec![v_arg],
             arg_ownership: vec![ArgOwnership::Owned],
+            mono_instance_id: None,
             normal: ArcBlockId::new(1),
             unwind: ArcBlockId::new(2),
         },
@@ -1586,8 +1973,13 @@ fn fixpoint_invoke_defines_dst_variable() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
     let pool = ori_types::Pool::new();
@@ -1614,7 +2006,153 @@ fn fixpoint_invoke_defines_dst_variable() {
     );
 }
 
-// ─── Loop convergence: SSA body vars must not be widened ──────────
+// Loop convergence: SSA body vars must not be widened
+
+struct RealLoopVars {
+    i_init: ArcVarId,
+    sum_init: ArcVarId,
+    i: ArcVarId,
+    sum: ArcVarId,
+    i_copy: ArcVarId,
+    limit: ArcVarId,
+    condition: ArcVarId,
+    sum_copy: ArcVarId,
+    i_sum_copy: ArcVarId,
+    new_sum: ArcVarId,
+    new_sum_copy: ArcVarId,
+    i_increment_copy: ArcVarId,
+    one: ArcVarId,
+    next: ArcVarId,
+    next_copy: ArcVarId,
+    return_sum: ArcVarId,
+    return_value: ArcVarId,
+}
+
+impl RealLoopVars {
+    fn new() -> Self {
+        Self {
+            i_init: ArcVarId::new(0),
+            sum_init: ArcVarId::new(2),
+            i: ArcVarId::new(4),
+            sum: ArcVarId::new(5),
+            i_copy: ArcVarId::new(6),
+            limit: ArcVarId::new(7),
+            condition: ArcVarId::new(8),
+            sum_copy: ArcVarId::new(13),
+            i_sum_copy: ArcVarId::new(14),
+            new_sum: ArcVarId::new(15),
+            new_sum_copy: ArcVarId::new(16),
+            i_increment_copy: ArcVarId::new(18),
+            one: ArcVarId::new(19),
+            next: ArcVarId::new(20),
+            next_copy: ArcVarId::new(21),
+            return_sum: ArcVarId::new(26),
+            return_value: ArcVarId::new(27),
+        }
+    }
+}
+
+fn real_loop_header(vars: &RealLoopVars, limit: i64) -> ori_arc::ir::ArcBlock {
+    use ori_arc::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, LitValue, PrimOp};
+    use ori_arc::ArcBlockId;
+    use ori_ir::BinaryOp;
+
+    ArcBlock {
+        id: ArcBlockId::new(1),
+        params: vec![
+            (vars.i, ori_types::Idx::INT),
+            (vars.sum, ori_types::Idx::INT),
+        ],
+        body: vec![
+            ArcInstr::Let {
+                dst: vars.i_copy,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(vars.i),
+            },
+            ArcInstr::Let {
+                dst: vars.limit,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(limit)),
+            },
+            ArcInstr::Let {
+                dst: vars.condition,
+                ty: ori_types::Idx::BOOL,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::GtEq),
+                    args: vec![vars.i_copy, vars.limit],
+                },
+            },
+        ],
+        terminator: ArcTerminator::Branch {
+            cond: vars.condition,
+            then_block: ArcBlockId::new(2),
+            else_block: ArcBlockId::new(3),
+        },
+    }
+}
+
+fn real_loop_body(vars: &RealLoopVars) -> ori_arc::ir::ArcBlock {
+    use ori_arc::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, LitValue, PrimOp};
+    use ori_arc::ArcBlockId;
+    use ori_ir::BinaryOp;
+
+    ArcBlock {
+        id: ArcBlockId::new(3),
+        params: vec![],
+        body: vec![
+            ArcInstr::Let {
+                dst: vars.sum_copy,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(vars.sum),
+            },
+            ArcInstr::Let {
+                dst: vars.i_sum_copy,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(vars.i),
+            },
+            ArcInstr::Let {
+                dst: vars.new_sum,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Add),
+                    args: vec![vars.sum_copy, vars.i_sum_copy],
+                },
+            },
+            ArcInstr::Let {
+                dst: vars.new_sum_copy,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(vars.new_sum),
+            },
+            ArcInstr::Let {
+                dst: vars.i_increment_copy,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(vars.i),
+            },
+            ArcInstr::Let {
+                dst: vars.one,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(1)),
+            },
+            ArcInstr::Let {
+                dst: vars.next,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: PrimOp::Binary(BinaryOp::Add),
+                    args: vec![vars.i_increment_copy, vars.one],
+                },
+            },
+            ArcInstr::Let {
+                dst: vars.next_copy,
+                ty: ori_types::Idx::INT,
+                value: ArcValue::Var(vars.next),
+            },
+        ],
+        terminator: ArcTerminator::Jump {
+            target: ArcBlockId::new(1),
+            args: vec![vars.next_copy, vars.new_sum_copy],
+        },
+    }
+}
 
 /// Build a loop that matches real ARC IR structure: copy variables in body.
 ///
@@ -1623,10 +2161,6 @@ fn fixpoint_invoke_defines_dst_variable() {
 /// when body variables are treated as phi nodes.
 ///
 /// Returns `(func, v_i, v_sum, v_i_copy, v_next)`.
-#[expect(
-    clippy::too_many_lines,
-    reason = "ARC IR test builder — block construction is inherently verbose"
-)]
 fn build_real_loop_func(
     limit: i64,
 ) -> (
@@ -1636,27 +2170,10 @@ fn build_real_loop_func(
     ArcVarId,
     ArcVarId,
 ) {
-    use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, LitValue, PrimOp};
+    use ori_arc::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, LitValue};
     use ori_arc::ArcBlockId;
-    use ori_ir::BinaryOp;
 
-    let v_i_init = ArcVarId::new(0); // %0: sum init = 0 in real IR (both inits are 0)
-    let v_s_init = ArcVarId::new(2); // %2: i init = 0 in real IR (both inits are 0)
-    let v_i = ArcVarId::new(4); // %4: loop counter phi
-    let v_sum = ArcVarId::new(5); // %5: accumulator phi
-    let v_i_copy = ArcVarId::new(6); // %6: copy of %4 (for comparison)
-    let v_limit = ArcVarId::new(7); // %7: limit constant
-    let v_cond = ArcVarId::new(8); // %8: comparison result
-    let v_s_copy = ArcVarId::new(13); // %13: copy of sum for add
-    let v_i_copy2 = ArcVarId::new(14); // %14: copy of i for sum add
-    let v_new_sum = ArcVarId::new(15); // %15: sum + i
-    let v_new_sum2 = ArcVarId::new(16); // %16: copy of new_sum
-    let v_i_copy3 = ArcVarId::new(18); // %18: copy of i for increment
-    let v_one = ArcVarId::new(19); // %19: constant 1
-    let v_next = ArcVarId::new(20); // %20: i + 1
-    let v_next2 = ArcVarId::new(21); // %21: copy of next
-    let v_ret_s = ArcVarId::new(26); // %26: copy of sum for return
-    let v_ret = ArcVarId::new(27); // %27: return value
+    let vars = RealLoopVars::new();
 
     // bb0: entry — both inits are 0, ordering doesn't affect result
     let block0 = ArcBlock {
@@ -1664,129 +2181,43 @@ fn build_real_loop_func(
         params: vec![],
         body: vec![
             ArcInstr::Let {
-                dst: v_i_init,
+                dst: vars.i_init,
                 ty: ori_types::Idx::INT,
                 value: ArcValue::Literal(LitValue::Int(0)),
             },
             ArcInstr::Let {
-                dst: v_s_init,
+                dst: vars.sum_init,
                 ty: ori_types::Idx::INT,
                 value: ArcValue::Literal(LitValue::Int(0)),
             },
         ],
         terminator: ArcTerminator::Jump {
             target: ArcBlockId::new(1),
-            args: vec![v_i_init, v_s_init],
+            args: vec![vars.i_init, vars.sum_init],
         },
     };
 
-    // bb1: loop header — phi(i, sum), compare, branch
-    let block1 = ArcBlock {
-        id: ArcBlockId::new(1),
-        params: vec![(v_i, ori_types::Idx::INT), (v_sum, ori_types::Idx::INT)],
-        body: vec![
-            ArcInstr::Let {
-                dst: v_i_copy,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Var(v_i),
-            },
-            ArcInstr::Let {
-                dst: v_limit,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Literal(LitValue::Int(limit)),
-            },
-            ArcInstr::Let {
-                dst: v_cond,
-                ty: ori_types::Idx::BOOL,
-                value: ArcValue::PrimOp {
-                    op: PrimOp::Binary(BinaryOp::GtEq),
-                    args: vec![v_i_copy, v_limit],
-                },
-            },
-        ],
-        terminator: ArcTerminator::Branch {
-            cond: v_cond,
-            then_block: ArcBlockId::new(2),
-            else_block: ArcBlockId::new(3),
-        },
-    };
-
-    // bb2: exit (i >= limit) — return sum
+    let block1 = real_loop_header(&vars, limit);
     let block2 = ArcBlock {
         id: ArcBlockId::new(2),
         params: vec![],
         body: vec![
             ArcInstr::Let {
-                dst: v_ret_s,
+                dst: vars.return_sum,
                 ty: ori_types::Idx::INT,
-                value: ArcValue::Var(v_sum),
+                value: ArcValue::Var(vars.sum),
             },
             ArcInstr::Let {
-                dst: v_ret,
+                dst: vars.return_value,
                 ty: ori_types::Idx::INT,
-                value: ArcValue::Var(v_ret_s),
+                value: ArcValue::Var(vars.return_sum),
             },
         ],
-        terminator: ArcTerminator::Return { value: v_ret },
-    };
-
-    // bb3: body (i < limit) — sum = sum + i; i = i + 1; jump back
-    let block3 = ArcBlock {
-        id: ArcBlockId::new(3),
-        params: vec![],
-        body: vec![
-            ArcInstr::Let {
-                dst: v_s_copy,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Var(v_sum),
-            },
-            ArcInstr::Let {
-                dst: v_i_copy2,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Var(v_i),
-            },
-            ArcInstr::Let {
-                dst: v_new_sum,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::PrimOp {
-                    op: PrimOp::Binary(BinaryOp::Add),
-                    args: vec![v_s_copy, v_i_copy2],
-                },
-            },
-            ArcInstr::Let {
-                dst: v_new_sum2,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Var(v_new_sum),
-            },
-            ArcInstr::Let {
-                dst: v_i_copy3,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Var(v_i),
-            },
-            ArcInstr::Let {
-                dst: v_one,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Literal(LitValue::Int(1)),
-            },
-            ArcInstr::Let {
-                dst: v_next,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::PrimOp {
-                    op: PrimOp::Binary(BinaryOp::Add),
-                    args: vec![v_i_copy3, v_one],
-                },
-            },
-            ArcInstr::Let {
-                dst: v_next2,
-                ty: ori_types::Idx::INT,
-                value: ArcValue::Var(v_next),
-            },
-        ],
-        terminator: ArcTerminator::Jump {
-            target: ArcBlockId::new(1),
-            args: vec![v_next2, v_new_sum2],
+        terminator: ArcTerminator::Return {
+            value: vars.return_value,
         },
     };
+    let block3 = real_loop_body(&vars);
 
     let mut var_types = vec![ori_types::Idx::INT; 28];
     var_types[8] = ori_types::Idx::BOOL;
@@ -1802,21 +2233,21 @@ fn build_real_loop_func(
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::uniqueness::CowAnnotations::default(),
+        primitive_facts: ori_arc::ir::PrimitiveFacts::default(),
         drop_hints: ori_arc::uniqueness::DropHints::default(),
         tail_calls: vec![],
+        burden_emitted: vec![],
+        reassign_deaths: vec![],
+        var_rc_strategies: Vec::new(),
+        ..Default::default()
     };
 
-    (func, v_i, v_sum, v_i_copy, v_next)
+    (func, vars.i, vars.sum, vars.i_copy, vars.next)
 }
 
 /// Semantic pin: loop counter phi with `GtEq` comparison and copy chains
 /// must converge to [0, limit]. This is the exact structure generated by
 /// the Ori compiler for `loop { if i >= N then break; ... i = i + 1 }`.
-///
-/// BUG: Before fix, body copy variables (%6 = %4) get widened because
-/// `update_range()` applies join+widening to ALL variables. SSA body vars
-/// should use direct assignment. The widened copy poisons downstream:
-/// %20 = %6 + 1 feeds back to phi %4, causing %4 to diverge to Top.
 #[test]
 fn fixpoint_real_loop_converges_with_copies() {
     let (func, v_i, v_sum, _v_i_copy, v_next) = build_real_loop_func(10);
@@ -1837,7 +2268,6 @@ fn fixpoint_real_loop_converges_with_copies() {
          If lo < 0: body copy vars are being widened — fix update_range for SSA body vars."
     );
 
-    // v_next (i+1) should be [1, 10] — the back-edge argument
     let next_range = result
         .var_ranges
         .get(&v_next)
@@ -1849,17 +2279,12 @@ fn fixpoint_real_loop_converges_with_copies() {
         "i+1 should be exactly [1, 10], got {next_range:?}"
     );
 
-    // sum accumulator doesn't have a branch refinement (no comparison on sum),
-    // so the narrowing pass can't tighten it. It may stay wide or Top.
-    // The critical assertion is on the loop counter and v_next above.
+    // Why: The sum has no branch refinement, so only its non-negative bound is stable.
     let sum_range = result
         .var_ranges
         .get(&v_sum)
         .copied()
         .unwrap_or(ValueRange::Top);
-    // After the fix, sum should at least have a non-negative lower bound because
-    // sum starts at 0 and only adds non-negative values (i in [0,9]).
-    // If this still fails, it's acceptable — sum convergence is a separate optimization.
     if let ValueRange::Bounded { lo, .. } = sum_range {
         assert!(
             lo >= 0,

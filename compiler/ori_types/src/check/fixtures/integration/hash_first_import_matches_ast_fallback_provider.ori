@@ -1,0 +1,5 @@
+@add (a: int, b: int) -> int = a + b;
+@greet (name: str) -> str = name;
+@noop () -> void = ();
+@identity<T> (x: T) -> T = x;
+@pair_first<T, U> (a: T, b: U) -> T = a;

@@ -1,0 +1,13 @@
+@pick (ok: bool) -> Result<str, str> = {
+    if ok then Ok("ok_payload_heap_string_value!") else Err("err_payload_heap_string_value")
+}
+
+@main () -> int = {
+    let r = pick(ok: true);
+    let v = match r {
+        Ok(s) -> s,
+        Err(e) -> e,
+    };
+    let h = v.contains(substr: "ok_payload");
+    if h then 0 else 1
+}

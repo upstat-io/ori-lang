@@ -19,7 +19,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         let indices = comment_index.take_comments_before(pos);
         for idx in indices {
             let comment = &comments[idx];
-            self.ctx.emit(&format_comment(comment, self.interner));
+            self.ctx.emit(format_comment(comment, self.interner));
             self.ctx.emit_newline();
         }
     }
@@ -33,9 +33,9 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
     ) {
         // Get param names from the function
         let params_list = self.arena.get_params(func.params);
-        let param_names: Vec<&str> = params_list
+        let param_names: Vec<String> = params_list
             .iter()
-            .map(|p| self.interner.lookup(p.name))
+            .map(|p| self.interner.lookup(p.name).to_string())
             .collect();
 
         let indices = comment_index.take_comments_before_function(
@@ -46,7 +46,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         );
         for idx in indices {
             let comment = &comments[idx];
-            self.ctx.emit(&format_comment(comment, self.interner));
+            self.ctx.emit(format_comment(comment, self.interner));
             self.ctx.emit_newline();
         }
     }
@@ -59,10 +59,10 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         comment_index: &mut CommentIndex,
     ) {
         // Get field names from struct type, if applicable
-        let field_names: Vec<&str> = match &type_decl.kind {
+        let field_names: Vec<String> = match &type_decl.kind {
             TypeDeclKind::Struct(fields) => fields
                 .iter()
-                .map(|f| self.interner.lookup(f.name))
+                .map(|f| self.interner.lookup(f.name).to_string())
                 .collect(),
             _ => Vec::new(),
         };
@@ -75,7 +75,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         );
         for idx in indices {
             let comment = &comments[idx];
-            self.ctx.emit(&format_comment(comment, self.interner));
+            self.ctx.emit(format_comment(comment, self.interner));
             self.ctx.emit_newline();
         }
     }
@@ -92,7 +92,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             self.ctx.emit_newline();
             for idx in indices {
                 let comment = &comments[idx];
-                self.ctx.emit(&format_comment(comment, self.interner));
+                self.ctx.emit(format_comment(comment, self.interner));
                 self.ctx.emit_newline();
             }
         }
@@ -109,7 +109,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         for idx in indices {
             let comment = &comments[idx];
             self.ctx.emit_indent();
-            self.ctx.emit(&format_comment(comment, self.interner));
+            self.ctx.emit(format_comment(comment, self.interner));
             self.ctx.emit_newline();
         }
     }

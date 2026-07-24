@@ -1,0 +1,11 @@
+@main () -> int = {
+    let m = {
+        "long key string that exceeds the SSO threshold of twenty three": 10,
+        "another long key string that also exceeds SSO threshold clearly": 20
+    };
+    let count1 = 0;
+    for entry in m do count1 = count1 + 1;
+    let count2 = 0;
+    for entry in m do count2 = count2 + 1;
+    if count1 == 2 && count2 == 2 then 0 else 1
+}

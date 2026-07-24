@@ -1,0 +1,9 @@
+type Box<T> = { value: T };
+
+@id <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let b: Box<[int]> = Box { value: [7, 8, 9] };
+    let b2 = id(x: b);
+    if b2.value.len() == 3 && b2.value[2] == 9 then 0 else 1
+}

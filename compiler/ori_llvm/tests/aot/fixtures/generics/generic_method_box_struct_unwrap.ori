@@ -1,0 +1,18 @@
+// Inherent method on a generic type whose element is a user struct (`Box<Point>`);
+// the monomorphized `unwrap` returns an aggregate by value (sret path for >16B).
+
+type Box<T> = { value: T };
+
+type Point = { x: int, y: int };
+
+impl<T> Box<T> {
+    @unwrap (self) -> T = self.value;
+}
+
+@unbox (b: Box<Point>) -> Point = b.unwrap();
+
+@main () -> int = {
+    let p = Box { value: Point { x: 3, y: 4 } };
+    let out = unbox(b: p);
+    if out.x == 3 && out.y == 4 then 0 else 1
+}

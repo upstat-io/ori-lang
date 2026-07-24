@@ -1,8 +1,6 @@
 //! COW annotation helpers for AIMS state map.
 //!
 //! Contains helper functions used by `realize/` for COW annotation decisions.
-//! The legacy `compute_aims_cow_annotations()` entry point has been removed —
-//! COW annotations are now computed by `realize_annotations()` (Section 10).
 
 use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::aims::lattice::{BorrowSource, Uniqueness};
@@ -28,13 +26,9 @@ pub(crate) fn has_borrows_from_aggregate(state_map: &AimsStateMap, aggregate: Ar
 /// Spec §DP-5 + §RL-10 (local field-disjoint mutation) require that the
 /// source is provably uniquely owned at the receiver's program point AND
 /// the receiver's borrow field is disjoint from every sibling borrow.
-/// Source uniqueness is established SOLELY by the Uniqueness dimension —
-/// the former cross-dimensional path using `is_cow_aware_unique`
-/// (`Owned + Linear + Once`) was removed as unsound per §DP-10 removal
-/// rationale (derived past uniqueness from future consumption, which
-/// cannot prove RC == 1 at the present program point). §RL-31 is the
-/// related interprocedural rule for `noalias` metadata on disjoint
-/// borrowed parameters; this helper implements the local mutation case.
+/// Source uniqueness is established SOLELY by the Uniqueness dimension.
+/// §RL-31 is the related interprocedural rule for backend-neutral disjointness
+/// facts on borrowed parameters; this helper implements the local mutation case.
 ///
 /// For the optimization to apply, ALL of:
 /// 1. The receiver has `BorrowSource::Exact { source, field: Some(f) }`
@@ -43,7 +37,7 @@ pub(crate) fn has_borrows_from_aggregate(state_map: &AimsStateMap, aggregate: Ar
 ///    where `g != f` — i.e., they borrow different fields
 ///
 /// If any sibling borrow targets the same field or has `None` (whole-object
-/// borrow), the optimization is unsound and we return `false`.
+/// borrow), the optimization is unsound and returns `false`.
 pub(crate) fn is_borrow_disjoint_from_siblings(
     state_map: &AimsStateMap,
     receiver: ArcVarId,
@@ -61,10 +55,13 @@ pub(crate) fn is_borrow_disjoint_from_siblings(
     // AT THE RECEIVER'S ACTUAL PROGRAM POINT — not at function entry. A
     // source may be Unique at entry but become MaybeShared later via
     // RcInc; using the entry state would incorrectly promote a MaybeShared
-    // receiver to StaticUnique (pre-existing bug
-    // exposed by removal of the `is_cow_aware_unique` fallback).
-    let source_state = state_map.var_state_at_block_entry(block, source);
-    if source_state.uniqueness != Uniqueness::Unique {
+    // receiver to StaticUnique.
+    //
+    // Query `effective_uniqueness_at_block_entry` (NOT raw
+    // lattice uniqueness) so a contract-derived MaybeShared from a callee's
+    // ReturnContract reaches this gate. The JOIN semantics preserve any
+    // backward-demand widening the lattice already captured.
+    if state_map.effective_uniqueness_at_block_entry(block, source) != Uniqueness::Unique {
         return false;
     }
 

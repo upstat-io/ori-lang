@@ -55,7 +55,7 @@
 // // Struct that can be used as an Http provider
 // type MockHttp = { base_url: str }
 //
-// impl Http for MockHttp {
+// impl MockHttp: Http {
 //     @get (self, url: str) -> str = self.base_url + url
 //     @post (self, url: str, body: str) -> str = self.base_url + url + ":" + body
 // }
@@ -63,7 +63,7 @@
 // // Struct that can be used as a Logger provider
 // type ConsoleLogger = { prefix: str }
 //
-// impl Logger for ConsoleLogger {
+// impl ConsoleLogger: Logger {
 //     @log (self, level: str, msg: str) -> void = ()
 // }
 //

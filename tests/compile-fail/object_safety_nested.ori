@@ -7,5 +7,6 @@ trait Clone {
 
 // Clone used inside a list type — still a trait object usage
 #[compile_fail("cannot be made into an object")]
+@object_safety_nested tests _ () -> void = { () }
 @process_all (items: [Clone]) -> void =
     print(msg: "processing");

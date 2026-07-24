@@ -120,6 +120,13 @@ pub enum ParsedType {
         base: ParsedTypeId,
         /// The associated type name (e.g., `Item`).
         assoc_name: Name,
+        /// Generic arguments applied to the terminal segment.
+        ///
+        /// `grammar.ebnf:337` is `type = type_path [ type_args ]`, so the args
+        /// bind to the whole dotted path and land on its terminal segment:
+        /// `a.b.C<int>` yields `type_args = [int]`. Empty for a bare path and
+        /// for every associated-type projection (`Self.Item`).
+        type_args: ParsedTypeRange,
     },
 
     /// A const expression in a type position: `$N`, `$N + 1`, `42`.
@@ -192,8 +199,16 @@ impl ParsedType {
 
     /// Create an associated type projection with base type ID (already allocated in arena).
     #[inline]
-    pub fn associated_type(base: ParsedTypeId, assoc_name: Name) -> Self {
-        ParsedType::AssociatedType { base, assoc_name }
+    pub fn associated_type(
+        base: ParsedTypeId,
+        assoc_name: Name,
+        type_args: ParsedTypeRange,
+    ) -> Self {
+        ParsedType::AssociatedType {
+            base,
+            assoc_name,
+            type_args,
+        }
     }
 
     /// Create a const expression in a type position.

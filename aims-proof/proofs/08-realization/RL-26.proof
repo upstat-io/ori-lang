@@ -1,0 +1,24 @@
+Theorem RL-26: ownership-event ordering barriers
+
+  Preconditions:
+    - A pending logical event refers to value v.
+    - The intervening operation is a contract boundary, sharing observation,
+      containing-value mutation, or transparent operation.
+
+  Soundness property:
+    Event order is preserved across every operation that may observe or change
+    v's ownership state. A release remains after v's last use. Physical counter
+    motion is permitted only as a projection that refines this order.
+
+  Proof obligation:
+    Enumerate three ordering barriers and one transparent case.
+    Coverage gate: 4 cases plus release-after-last-use negative witness.
+
+    Engines dispatched:
+      rc_counting (PRIMARY — section_08::verify_rl26_event_ordering_barriers)
+      refinement (SECONDARY — gracious-accept)
+      case_analysis (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: RL-26 freezes logical ownership-event order across observation boundaries and keeps release after last use

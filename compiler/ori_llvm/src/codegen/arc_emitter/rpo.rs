@@ -57,17 +57,36 @@ fn rpo_dfs(
 ///
 /// RPO guarantees that a block's dominators (and thus variable definitions
 /// from preceding blocks) are visited before the block itself.
-pub(super) fn compute_block_rpo(func: &ArcFunction, dead: &FxHashSet<usize>) -> Vec<usize> {
+///
+/// # Extra roots
+///
+/// `extra_roots` seeds the DFS from additional entry points beyond
+/// `func.entry`. Metadata-referenced landing blocks have no CFG predecessor,
+/// so each must be seeded as a block root. Extra-root RPO follows the
+/// entry-reachable RPO so cleanup operands are materialized first.
+pub(super) fn compute_block_rpo(
+    func: &ArcFunction,
+    dead: &FxHashSet<usize>,
+    extra_roots: &[usize],
+) -> Vec<usize> {
     let n = func.blocks.len();
     let mut visited = vec![false; n];
-    let mut post_order = Vec::with_capacity(n);
+    let mut entry_post_order = Vec::with_capacity(n);
     rpo_dfs(
         func,
         func.entry.index(),
         &mut visited,
-        &mut post_order,
+        &mut entry_post_order,
         dead,
     );
-    post_order.reverse();
-    post_order
+    entry_post_order.reverse();
+
+    let mut rpo = entry_post_order;
+    for &root in extra_roots {
+        let mut extra_post_order = Vec::new();
+        rpo_dfs(func, root, &mut visited, &mut extra_post_order, dead);
+        extra_post_order.reverse();
+        rpo.extend(extra_post_order);
+    }
+    rpo
 }

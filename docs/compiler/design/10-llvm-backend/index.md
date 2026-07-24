@@ -33,17 +33,25 @@ Ori uses LLVM as its native code generation backend. The `ori_llvm` crate transl
 - **Multi-target support** — a single codegen implementation targets x86-64, AArch64, WebAssembly, and any other LLVM-supported architecture
 - **JIT and AOT** — the same LLVM module can be executed immediately in-process (JIT for `ori run`) or compiled to an object file for linking into a native executable (AOT for `ori build`)
 
-But Ori's LLVM backend is not a straightforward AST-to-LLVM translator. Between the type-checked program and LLVM IR sits an entire memory management layer — the [AIMS pipeline](../09-aims/index.md) — and this shapes the backend's architecture in fundamental ways.
+But Ori's LLVM backend is not a straightforward AST-to-LLVM translator.
+
+AIMS sits upstream of physical-executor selection and freezes one ownership,
+lifetime, cleanup, and effect plan for every executor. LLVM receives one
+validated projection of that shared artifact, so the
+[AIMS pipeline](../09-aims/index.md) shapes this backend without belonging to
+it or terminating here.
 
 ## What Makes Ori's LLVM Backend Distinctive
 
-### The AIMS-First Pipeline: One Codegen Path
+### Projecting the Shared AIMS Plan
 
 Most compilers that use LLVM translate their high-level IR directly into LLVM IR. Rust lowers its MIR (Mid-level IR) to LLVM IR. Swift lowers its SIL (Swift Intermediate Language) to LLVM IR. Zig lowers its AIR (Analyzed Intermediate Representation) to LLVM IR. In each case, there is a relatively direct correspondence between the compiler's own IR and the LLVM instructions that result.
 
 Ori takes a different path. **Ordinary function bodies** — user-defined functions, closures, and lowered control flow — are first lowered from canonical IR to ARC IR by the `ori_arc` crate, and only then translated to LLVM IR by the `ArcIrEmitter`. The LLVM backend never sees high-level expressions like `a + b` or `if x then y else z` for these functions — it sees basic blocks with explicit reference counting instructions, ownership annotations, and reuse tokens.
 
-**Derived trait methods** (`Eq`, `Clone`, `Debug`, `Printable`, `Default`, `Comparable`, `Hashable`) take a separate direct-codegen path: `compiler/ori_llvm/src/codegen/derive_codegen/` generates LLVM IR structurally from `TypeRegistry` metadata (invoked from `FunctionCompiler::compile_derives`), bypassing the canonical IR → ARC IR pipeline entirely. The componentwise semantics are synthesized from registry fields, not from a body `CanExpr`. This split keeps the ordinary path uniformly managed by AIMS while letting mechanical trait synthesis skip the lowering overhead where there is no user body to analyze.
+**Derived trait methods** (`Eq`, `Clone`, `Debug`, `Printable`, `Default`, `Comparable`, `Hashable`) currently take a separate direct-codegen path: `compiler/ori_llvm/src/codegen/derive_codegen/` generates LLVM IR structurally from `TypeRegistry` metadata, bypassing canonical IR and ARC IR.
+
+> **Current gap — direct derive codegen.** The direct path is a truthful description of the shipped LLVM backend, not the production architecture. It leaves the VM without the same derived body and allows ownership-sensitive behavior to exist outside the shared AIMS carrier. Production convergence must synthesize derived semantics once as a typed body or executable operation, pass it through the shared ownership plan, and leave LLVM responsible only for physical emission.
 
 The ordinary-function managed pipeline still eliminates an entire class of bugs that plague fully-dual-path backends for hand-written code: one consistent instruction-selection, calling-convention, and RC-lifecycle surface for every user-written function. The direct derive-codegen surface is narrow and trait-family scoped, with its own test suite.
 
@@ -55,13 +63,17 @@ Ori's `IrBuilder` wraps inkwell with **opaque ID types**: `ValueId`, `BlockId`, 
 
 The trade-off is an extra indirection on every LLVM operation — but the payoff is that higher-level code (the ARC emitter, builtin handlers, drop function generators) can work with simple value types instead of fighting inkwell's lifetime requirements.
 
-### Two-Phase Compilation with Nounwind Analysis
+### Two-Phase Compilation with Nounwind Projection
 
 LLVM requires that a function be declared before it can be called. In a language like C, forward declarations handle this explicitly. Ori has no forward declaration syntax — any function can call any other function in the same module, including mutual recursion.
 
-The backend solves this with a two-phase approach: first declare all functions (computing their ABI and LLVM signatures), then define all function bodies. But Ori adds a twist that most LLVM backends don't have: **nounwind analysis** between the two phases.
+The backend solves declaration ordering with two phases: first declare all functions (computing their ABI and LLVM signatures), then define all function bodies.
 
-When the compiler can prove that a function never panics (never calls `panic`, `assert`, or any function that might panic), it marks that function `nounwind`. This allows call sites to use LLVM `call` instead of `invoke`, eliminating unnecessary landing pads and cleanup code. The analysis is a fixed-point computation over the call graph: a function is `nounwind` if all its callees are `nounwind`. This must run after all functions are declared (so the call graph is complete) but before any are defined (so the `invoke`-vs-`call` decision is correct from the start).
+Unwind behavior is not an LLVM-owned analysis. AIMS freezes each function's backend-neutral control-effect facts in the executable artifact; LLVM projects a proven non-unwinding fact to the `nounwind` attribute and chooses `call` or `invoke` mechanically.
+
+The shipped LLVM path still performs a local fixed-point call-graph scan between declaration and definition. That scan is a migration gap, not a second source of semantic truth: it must be replaced by validation of the bound executable artifact.
+
+A missing, stale, or incomplete AIMS fact fails closed to the unwinding path. This preserves cleanup correctness while keeping the optimization available to LLVM, native, compiled-WASM, and JIT projections without asking any backend to re-analyze the program.
 
 ### EmittedValue: Tagged Representation Through the Pipeline
 
@@ -83,7 +95,15 @@ The distinction matters everywhere. Incrementing an `Immediate(i64)` is a no-op;
 
 The LLVM backend is organized around a linear pipeline where each stage feeds the next:
 
-`ori_llvm`'s architectural input is **realized `ArcFunction`** (produced by `ori_arc` phase 7 — see `.claude/rules/missions.md §ori_llvm` and `.claude/rules/compiler.md §Architecture`: `ori_llvm` depends on `ori_arc` and `ori_repr`, **not on `ori_canon`**). `oric` runs the Canon → ARC Lower → AIMS Analyze → ARC Realize pipeline BEFORE invoking `ori_llvm`; the realized IR + `ReprPlan` are the boundary `ori_llvm` consumes. The subgraph below shows the codegen-internal stages inside `ori_llvm`:
+- `ori_llvm`'s production architectural input is a validated
+  `ExecutableProgram` plus `CompiledLayoutPlan(TargetSpec)`.
+- `ori_arc` owns Canon → ARC Lower → AIMS Analyze → ARC Realize and freezes logical facts.
+- Representation analysis supplies neutral evidence; the compiled planner owns physical layout/ABI.
+- LLVM owns only faithful encoding and LLVM-private optimization.
+
+The LLVM projection consumes those results and may not rerun either policy. The subgraph below shows that target seam:
+
+> **Current gap — pipeline orchestration inside `ori_llvm`.** The shipped `FunctionCompiler` still accepts `CanId`/`CanonResult` and calls `ori_arc::run_arc_pipeline` from `function_compiler/shared_seam.rs` before invoking `ArcIrEmitter`. The analysis implementation is shared rather than duplicated, but the dependency direction is not yet the production seam. Convergence moves orchestration above `ori_llvm` and passes a closed realized carrier into both VM and compiled projections.
 
 ```mermaid
 flowchart TB
@@ -159,7 +179,7 @@ flowchart TB
 
 **IrBuilder** is the ID-based instruction builder that wraps inkwell. It maintains a `ValueArena` of all LLVM values, types, blocks, and functions, returning `Copy` ID handles. Methods are organized by category: constants, memory, arithmetic, comparisons, conversions, control flow, aggregates, calls, and PHI/type/block operations. It also tracks codegen errors (type mismatches during IR construction) and supports the `codegen_errors` diagnostic.
 
-**FunctionCompiler** orchestrates the two-phase compilation. In Phase 1, it walks all functions, computes their `FunctionAbi` (parameter passing conventions, sret returns, calling convention), and declares LLVM functions. Between phases, it runs nounwind analysis. In Phase 2, it defines each function body by invoking the AIMS pipeline and emitting the result via `ArcIrEmitter`. It holds function resolution lookup tables, the symbol `Mangler`, ARC caches, and borrow inference results.
+**FunctionCompiler** orchestrates the two-phase LLVM projection. Before construction, `oric` closes and validates one backend-neutral `ExecutableProgram`; the constructor cannot accept an arbitrary AIMS contract map, and `bind_executable_program` is the only production binding seam. In Phase 1, it walks artifact-backed functions, computes their `FunctionAbi` (parameter passing conventions, sret returns, calling convention), and declares LLVM functions. The shipped path still runs an LLVM-local nounwind scan between phases; that duplicated effect analysis is migration debt. In Phase 2, it reads exact post-AIMS bodies and facts from the bound artifact and emits them via `ArcIrEmitter`. Its production responsibilities are artifact validation, LLVM declaration, ABI and attribute projection, and mechanical body emission—never AIMS invocation or ownership reclassification.
 
 **ArcIrEmitter** is the core translation engine. It maps ARC IR variables to LLVM values (`ArcVarId` → `ValueId`), ARC IR blocks to LLVM basic blocks (`ArcBlockId` → `BlockId`), and walks each block's instructions in RPO (Reverse Post-Order) order, emitting LLVM IR. It caches drop functions, element RC callbacks, comparison thunks, and equality thunks per type. Every instruction type — `Apply`, `Construct`, `Project`, `RcInc`, `RcDec`, `IsShared`, `Reuse` — has a dedicated emission method in one of its submodules.
 
@@ -212,33 +232,33 @@ All functions are declared before any are defined. The compiler walks every func
 
 User-defined types are also registered in this phase. The `register_user_types()` function eagerly resolves each `TypeEntry` from the type checker through the `TypeLayoutResolver`, creating named LLVM struct types in the module. Generic types are skipped — they are resolved later during monomorphization when concrete type arguments are known.
 
-### Nounwind Analysis
+### Nounwind Projection and the Current Local-Scan Gap
 
-Between declaration and definition, the compiler runs a fixed-point nounwind analysis over the call graph. A function is `nounwind` if it never calls a function that might panic. The analysis starts by marking all leaf functions (those making no calls) and runtime functions annotated as `Nounwind`, then propagates upward: if all of a function's callees are `nounwind`, the function itself is `nounwind`.
+The production contract carries a closed AIMS effect fact for every function and typed runtime operation. A function may receive LLVM `nounwind` only when that bound artifact proves that the function and every reachable operation cannot unwind.
 
-This information determines whether call sites use LLVM `call` (for nounwind callees — no landing pad needed) or `invoke` (for callees that might unwind — generates a landing pad for cleanup). The optimization is significant: eliminating unnecessary landing pads reduces code size and gives LLVM's optimizer more freedom.
+Runtime declarations contribute neutral `may_unwind` facts through their typed operation descriptors; the LLVM declaration table merely projects those facts to ABI attributes.
+
+The shipped backend still reconstructs this closure with a fixed-point scan over its declared functions and an LLVM-local runtime table. That behavior is retained here as an implementation observation, but it is not architectural authority.
+
+Convergence removes the scan, validates exact artifact identity and coverage, and projects `call` only for a proven non-unwinding callee; every other call uses `invoke` with the shared `ExecutableDropPlan` cleanup obligations. Eliminating unnecessary landing pads then remains an LLVM optimization, while the proof and cleanup policy stay shared.
 
 ### Phase 2: Definition
 
-Each function body is compiled through the AIMS pipeline — the sole codegen path:
+Ordinary function bodies enter the single closed-program AIMS realization upstream in `oric`; `FunctionCompiler` receives the resulting bound artifact and cannot invoke the calculus. Every other physical executor must receive that same artifact identity. Derived bodies remain the explicit convergence gap described above until their semantics and ownership obligations are represented in the shared batch.
 
 ```mermaid
 flowchart LR
     Can["CanExpr"] --> Lower["Lower to
     ARC IR"]
-    Lower --> Borrow["Borrow
-    Inference"]
-    Borrow --> Live["Liveness
-    Analysis"]
-    Live --> RC["RC
-    Insertion"]
-    RC --> Reset["Reset /
-    Reuse"]
-    Reset --> Expand["Expand
-    Reuse"]
-    Expand --> Elim["RC
-    Elimination"]
-    Elim --> Emit["ArcIrEmitter
+    Lower --> Contracts["Interprocedural
+    Contracts"]
+    Contracts --> Analyze["Unified AIMS
+    Lattice Fixpoint"]
+    Analyze --> Realize["Unified Realization
+    RC / Reuse / COW / Drop"]
+    Realize --> Verify["Verify + Close
+    Executable Facts"]
+    Verify --> Emit["ArcIrEmitter
     → LLVM IR"]
 
     classDef canon fill:#3b1f6e,stroke:#a78bfa,color:#e9d5ff
@@ -246,16 +266,14 @@ flowchart LR
 
     class Can canon
     class Lower canon
-    class Borrow canon
-    class Live canon
-    class RC canon
-    class Reset canon
-    class Expand canon
-    class Elim canon
+    class Contracts canon
+    class Analyze canon
+    class Realize canon
+    class Verify canon
     class Emit native
 ```
 
-The `run_arc_pipeline()` function enforces correct pass ordering — consumers never sequence passes manually. Each pass creates opportunities for the next: borrow inference determines ownership, which drives RC insertion, which creates inc/dec pairs that reset/reuse can optimize, which RC elimination then cleans up.
+The shipped `run_arc_pipeline()` entry point enforces AIMS ordering inside the shared crate. Its unified analysis computes the complete product state before realization freezes logical ownership, reuse, COW, and drop operations. LLVM then applies a validated compiled physical plan; the current carrier's `Rc*` spellings do not make counter selection part of AIMS.
 
 ## Control Flow Compilation
 
@@ -321,9 +339,9 @@ The `RT_FUNCTIONS` table serves as a single source of truth — the [codegen ver
 
 Ori's LLVM backend draws from several established compiler implementations, each of which influenced different aspects of the design:
 
-**[rustc_codegen_llvm](https://github.com/rust-lang/rust/tree/master/compiler/rustc_codegen_llvm)** (Rust) — Ori's `SimpleCx` follows rustc's pattern of a minimal context wrapper that holds LLVM handles. Rust's codegen also uses a two-phase declare-then-define approach for the same reason: enabling mutual recursion without forward declarations. The key difference is that Rust's codegen lowers MIR (which already has explicit drops and borrow checking) directly to LLVM IR, while Ori interposes an ARC IR layer that performs its own reference counting analysis.
+**[rustc_codegen_llvm](https://github.com/rust-lang/rust/tree/master/compiler/rustc_codegen_llvm)** (Rust) — Ori's `SimpleCx` follows rustc's pattern of a minimal context wrapper that holds LLVM handles. Rust's codegen also uses a two-phase declare-then-define approach for the same reason: enabling mutual recursion without forward declarations. The key difference is that Rust's codegen lowers MIR (which already has explicit drops and borrow checking) directly to LLVM IR, while Ori interposes an ARC IR layer for its backend-neutral AIMS ownership calculus before selecting a physical plan.
 
-**[Swift SIL](https://github.com/apple/swift/tree/main/lib/SIL)** (Swift) — Swift's compiler lowers to SIL (Swift Intermediate Language) before going to LLVM IR, similar to Ori's ARC IR interposition. Swift's SIL carries ARC operations explicitly (`strong_retain`, `strong_release`), and Swift's SIL optimizer eliminates redundant RC operations before LLVM IR emission. Ori's AIMS pipeline serves the same purpose but is structurally different — it uses basic-block IR with ownership annotations rather than Swift's instruction-level approach.
+**[Swift SIL](https://github.com/apple/swift/tree/main/lib/SIL)** (Swift) — Swift's compiler lowers to SIL (Swift Intermediate Language) before going to LLVM IR, similar to Ori's ARC IR interposition. Swift's SIL carries ARC operations explicitly (`strong_retain`, `strong_release`), and Swift's SIL optimizer eliminates redundant RC operations before LLVM IR emission. AIMS instead freezes backend-neutral ownership, cleanup, COW/reuse, effect, unwind, and provenance facts over basic-block IR; a counter-selecting Ori plan may then produce analogous physical operations.
 
 **[Lean 4 LCNF](https://github.com/leanprover/lean4/tree/master/src/Lean/Compiler/LCNF)** (Lean) — Lean's compiler lowers to LCNF (Lambda Calculus Normal Form) and then to C code (not LLVM IR directly). Lean's RC insertion algorithm (Perceus-inspired, like Ori's) operates on LCNF, and Lean's borrow inference is interprocedural — the same approach Ori uses. Ori adopted Lean's SCC-based borrow analysis and adapted it for a different target IR.
 
@@ -335,15 +353,15 @@ Ori's LLVM backend draws from several established compiler implementations, each
 
 ## Design Tradeoffs
 
-**ARC IR interposition vs. direct lowering.** Routing everything through ARC IR adds a compilation step — canonical IR must be lowered to basic blocks before LLVM IR emission. A direct lowering (from canonical expressions to LLVM IR) would be faster to compile but would require duplicating memory management logic. Ori chose the ARC path because correctness is non-negotiable for reference counting: a single missed decrement is a memory leak, a single extra decrement is a use-after-free. Having one path means one place to get RC right.
+**ARC IR interposition vs. direct lowering.** Routing ordinary bodies through ARC IR adds a compilation step — canonical IR must be lowered to basic blocks before physical projection. A direct LLVM lowering would duplicate ownership policy. Ori's production architecture requires one AIMS calculus because a missing logical release can leak and an extra one can permit premature cleanup; each physical plan must then prove exact satisfaction. The current derived-method bypass above remains a gap until it enters that same carrier.
 
 **ID-based builder vs. direct inkwell.** The `IrBuilder`'s ID abstraction adds an indirection on every LLVM operation. Direct inkwell usage would be slightly faster at compile time but would thread lifetime parameters through every function signature in the backend. Ori chose IDs because the complexity reduction in higher-level code (the ARC emitter, builtin handlers, drop generators) outweighs the per-operation overhead of arena lookups.
 
-**Nounwind analysis vs. conservative invoke.** The two-pass nounwind analysis adds compilation time but reduces generated code size. An alternative — always using `invoke` for every call — would be simpler but would generate landing pads for functions that can never unwind, bloating the binary and inhibiting LLVM's optimizations. The analysis is a fixed-point computation that converges quickly (most programs have shallow call graphs relative to the nounwind propagation).
+**Nounwind projection vs. conservative invoke.** The shared AIMS effect closure avoids forcing every compiled call through `invoke`. LLVM's projection is cheap: validate the function identity and emit `call` only for a proven non-unwinding callee. The shipped LLVM-local fixed point duplicates ownership-adjacent semantic analysis and is therefore a migration gap, even when it reaches the same answer.
 
 **Uniform collection layout vs. specialized types.** Using `{ i64, i64, ptr }` for all collections simplifies the ABI but means the LLVM type system cannot distinguish a list from a map at the IR level. A more precise type mapping (different LLVM struct types for different collection kinds) would enable LLVM to catch certain errors and might enable specialized optimizations. Ori chose uniformity because the runtime already handles the distinction (the `ptr` field points to different backing structures), and the ABI simplification reduces the surface area for calling convention bugs.
 
-**JIT via LLVM vs. dedicated JIT.** Using LLVM for JIT compilation provides production-quality code but has high startup latency — LLVM's optimization pipeline is not designed for interactive response times. An alternative would be a lightweight bytecode interpreter for development (like Lua's VM) with LLVM reserved for AOT builds. Ori uses LLVM for both because the existing tree-walking interpreter handles the interactive case (`ori run`), and the LLVM JIT serves as a test harness for the native code path rather than a user-facing feature. The LLVM JIT is particularly valuable for running spec tests against native codegen, catching bugs that the interpreter would mask.
+**JIT via LLVM vs. bytecode and tiered JIT.** LLVM JIT provides production-quality code but has high startup latency. The bytecode VM now supplies the strict interpreted physical path, while LLVM JIT remains valuable for native-code verification. A future hot tier may compile selected VM regions, but it must consume the same post-AIMS ownership plan; tiering is not permission to fork semantic or memory analysis.
 
 ## Chapter Guide
 

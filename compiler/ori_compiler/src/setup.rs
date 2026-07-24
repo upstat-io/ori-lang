@@ -2,14 +2,13 @@
 //!
 //! Extracts the common boilerplate for registering module functions, variant
 //! constructors, newtype constructors, `impl`/`extend`/`def_impl` methods, and
-//! derived traits into a single function. Used by both the playground WASM
-//! and (optionally) the `oric` CLI.
+//! derived traits into a single function. Intended for WASM and embedder hosts
+//! that drive the portable pipeline.
 
 use ori_eval::{
     collect_def_impl_methods_with_config, collect_extend_methods_with_config,
-    collect_impl_methods_with_config, process_derives, register_module_functions,
-    register_newtype_constructors, register_variant_constructors, DefaultFieldTypeRegistry,
-    Interpreter, MethodCollectionConfig, UserMethodRegistry,
+    collect_impl_methods_with_config, process_derives, register_module_bindings,
+    DefaultFieldTypeRegistry, Interpreter, MethodCollectionConfig, UserMethodRegistry,
 };
 use ori_ir::canon::SharedCanonResult;
 use ori_ir::StringInterner;
@@ -28,19 +27,14 @@ pub fn setup_module(
 ) {
     let shared_arena = parse_result.arena.clone();
 
-    // Register all functions from the module into the environment
-    register_module_functions(
+    // Constructors precede functions so same-named prelude values cannot be
+    // frozen into top-level function captures.
+    register_module_bindings(
         &parse_result.module,
         &shared_arena,
         interpreter.env_mut(),
         canon,
     );
-
-    // Register variant constructors from sum type declarations
-    register_variant_constructors(&parse_result.module, interpreter.env_mut());
-
-    // Register newtype constructors from type declarations
-    register_newtype_constructors(&parse_result.module, interpreter.env_mut());
 
     // Build user method registry from impl and extend blocks
     let mut user_methods = UserMethodRegistry::new();

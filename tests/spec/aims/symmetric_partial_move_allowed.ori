@@ -1,0 +1,26 @@
+// Symmetric partial moves — both branches bind the same field of the
+// same aggregate via `let f = v.field` — are statically computable.
+// Typeck MUST accept.
+//
+// Both arms project `p.data` via a let-binding, so
+// `moved_out_fields[p]` is `{data}` on every CFG path through this
+// expression — well within Phase 5's static-computability invariant.
+
+use std.testing { assert_eq };
+
+type Pair = { data: str, name: str };
+
+@pick_data (cond: bool, p: Pair) -> str = if cond then {
+    let $a = p.data;
+    a
+} else {
+    let $b = p.data;
+    b
+};
+
+@test_symmetric_partial_move_returns_data tests @pick_data () -> void = {
+    let p1 = Pair { data: "left", name: "one" };
+    assert_eq(actual: pick_data(cond: true, p: p1), expected: "left");
+    let p2 = Pair { data: "right", name: "two" };
+    assert_eq(actual: pick_data(cond: false, p: p2), expected: "right")
+};

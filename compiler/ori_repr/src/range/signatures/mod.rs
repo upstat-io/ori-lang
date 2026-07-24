@@ -9,19 +9,21 @@
 //!
 //! 1. Build a call graph from the set of `ArcFunction`s.
 //! 2. Decompose into SCCs (strongly connected components) via Tarjan's algorithm.
-//! 3. Process SCCs in forward topological order (leaves first):
+//! 3. Process SCCs in reverse topological order (callers first):
 //!    - **Non-recursive SCC**: single pass — collect argument ranges at all call
 //!      sites, join into parameter ranges.
 //!    - **Recursive SCC**: iterate — re-run `range_fixpoint()` with parameter
-//!      constraints until parameter + return ranges stabilize or budget exhausted.
-//! 4. Store results in `ReprPlan::function_var_ranges`.
+//!      constraints until parameter ranges stabilize or the per-SCC limit is reached.
+//! 4. Feed stabilized callee return ranges back into callers.
+//! 5. Store results in `ReprPlan::function_var_ranges`.
 //!
 //! # Budget
 //!
-//! - `max_scc_iterations` (default 10): per-SCC iteration cap.
-//! - `max_total_scc_iterations` (default 50): cross-SCC cap.
-//! - If either is exceeded, remaining parameters get `Top` (safe fallback).
+//! - Every non-recursive SCC is processed exactly once.
+//! - `max_scc_iterations` (default 10) caps each recursive SCC independently.
+//! - A recursive SCC that reaches its cap gets `Top` summaries (safe fallback).
 
+mod analysis_context;
 mod feedback;
 mod scc;
 
@@ -31,11 +33,13 @@ use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator};
 use ori_arc::{ArcBlockId, ArcVarId};
 use ori_ir::Name;
 use ori_types::Pool;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::{is_int_typed, RangeAnalysisConfig, ValueRange};
 use crate::plan::ReprPlan;
 use crate::range::fixpoint::range_fixpoint;
+
+use super::{is_int_typed, RangeAnalysisConfig, ValueRange};
+use analysis_context::{RangePropagationContext, RangePropagationState};
 
 /// Reason a function's parameters are unconstrained (all params → Top).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,64 +118,49 @@ pub fn propagate_ranges(
     let func_map: FxHashMap<Name, &ArcFunction> =
         arc_functions.iter().map(|f| (f.name, f)).collect();
 
-    // Phase 1: Intraprocedural analysis for each function (no seeds).
     let mut results: FxHashMap<Name, super::fixpoint::RangeFixpointResult> = FxHashMap::default();
     for func in arc_functions {
         let result = range_fixpoint(func, pool, config, None, None);
         results.insert(func.name, result);
     }
 
-    // Phase 2: Build call graph and compute SCCs.
     let call_graph = CallGraph::build(arc_functions);
     let sccs = compute_sccs(&call_graph);
 
-    // Phase 3: Process SCCs in reverse topological order (callers first).
-    // Parameter ranges flow top-down (caller → callee), so callers must be
-    // processed first: when we seed callee C's fixpoint, all callers of C
-    // must already have their final ranges so C's param seed is accurate.
-    // `compute_sccs()` returns forward order (leaves first); we reverse it.
+    // Why: Parameter seeds require completed caller ranges, while `compute_sccs` returns callees first.
     let mut func_infos: FxHashMap<Name, FunctionRangeInfo> = FxHashMap::default();
-    let mut total_scc_iters: usize = 0;
+    let mut recursive_scc_iters: usize = 0;
+    let mut exhausted_recursive_sccs: usize = 0;
+    let mut exhausted_functions: FxHashSet<Name> = FxHashSet::default();
+
+    let analysis = RangePropagationContext {
+        sccs: &sccs,
+        call_graph: &call_graph,
+        func_map: &func_map,
+        pool,
+        config,
+        plan,
+    };
 
     for scc in sccs.iter().rev() {
-        if total_scc_iters >= config.max_total_scc_iterations {
-            tracing::warn!(
-                remaining_sccs = sccs.len(),
-                "SCC budget exhausted — remaining functions get Top"
-            );
-            // Assign Top to all remaining unprocessed functions.
-            for member in &scc.members {
-                if let Some(func) = func_map.get(member) {
-                    func_infos.insert(*member, FunctionRangeInfo::new_top(func.params.len()));
-                }
-            }
-            continue;
-        }
-
         if scc.is_recursive(&call_graph) {
-            // Recursive SCC: iterate to fixpoint with parameter seeding.
-            // pass remaining total budget so the SCC doesn't
-            // overshoot max_total_scc_iterations.
-            let remaining_budget = config
-                .max_total_scc_iterations
-                .saturating_sub(total_scc_iters);
-            total_scc_iters += scc::process_recursive_scc(
-                scc,
-                &func_map,
-                pool,
-                config,
-                &mut results,
-                &mut func_infos,
-                remaining_budget,
-                plan,
-            );
+            let mut state = RangePropagationState {
+                results: &mut results,
+                func_infos: &mut func_infos,
+            };
+            let outcome = scc::process_recursive_scc(scc, analysis, &mut state);
+            recursive_scc_iters += outcome.iterations;
+            if outcome.exhausted {
+                exhausted_recursive_sccs += 1;
+                exhausted_functions.extend(scc.members.iter().copied());
+            }
         } else {
             // Non-recursive SCC (single function): collect param ranges, then
             // re-run fixpoint with seeds so interprocedural facts propagate.
             debug_assert_eq!(scc.members.len(), 1);
             let name = scc.members[0];
             if let Some(func) = func_map.get(&name) {
-                let info = collect_param_ranges(func, &results, &func_infos, &func_map, pool, plan);
+                let info = collect_param_ranges(func, &results, &func_map, &call_graph, pool, plan);
                 // Build seed map from collected param ranges.
                 let seeds = build_param_seed_map(func, &info);
                 // Re-run fixpoint with seeded parameters.
@@ -185,30 +174,35 @@ pub fn propagate_ranges(
                 );
                 results.insert(name, result);
             }
-            total_scc_iters += 1;
         }
     }
 
-    // Phase 3.5: Return-range feedback.
-    // Phase 3 processes callers first (reverse topo) for parameter propagation,
-    // so callee return ranges aren't in callers' var_ranges. This pass feeds
-    // callee return ranges back into results, then re-collects parameter ranges
-    // and re-runs fixpoints for functions whose seeds changed.
+    if exhausted_recursive_sccs > 0 {
+        tracing::warn!(
+            exhausted_recursive_sccs,
+            affected_functions = exhausted_functions.len(),
+            recursive_scc_iters,
+            per_scc_iteration_limit = config.max_scc_iterations,
+            "integer range analysis reached its recursive convergence limit; affected values \
+             will keep canonical 64-bit representations, so program behavior is unchanged but \
+             optimization may be lower. Set \
+             ORI_LOG=ori_repr::range::signatures=debug to list affected function IDs; pass \
+             --no-repr-opt to bypass this optimization, or report the source if this recurs"
+        );
+    }
+
+    // Why: Caller-first parameter propagation initially lacks callee return ranges.
     feedback::feed_return_ranges_and_reprocess(
-        &sccs,
-        &func_map,
-        pool,
-        config,
-        &mut results,
-        &mut func_infos,
-        plan,
+        analysis,
+        RangePropagationState {
+            results: &mut results,
+            func_infos: &mut func_infos,
+        },
+        &exhausted_functions,
     );
 
-    // Phase 4: Store results in ReprPlan.
-    // Per-variable ranges are only stored when narrowing is safe for codegen.
-    // The ARC emitter reads var_range() to insert trunc/sext for local variables —
-    // without ABI widening and overflow guards, applying narrowed widths to locals
-    // is unsound. Field-range summaries are always stored because they are consumed
+    // INVARIANT: Local narrowing requires ABI widening and overflow guards; field summaries remain safe.
+    // Field-range summaries are always stored because they are consumed
     // by integer narrowing itself, not by codegen directly.
     if plan.is_narrowing_safe_for_codegen() {
         for (name, result) in &results {
@@ -220,8 +214,23 @@ pub fn propagate_ranges(
         result.element_summaries.flush_to_repr_plan(plan);
     }
 
-    // Phase 5: Merge interprocedural parameter ranges into ReprPlan.
-    for (name, info) in &func_infos {
+    merge_param_ranges_into_plan(plan, &func_infos, &func_map);
+
+    tracing::debug!(
+        functions = arc_functions.len(),
+        sccs = sccs.len(),
+        recursive_scc_iters,
+        exhausted_recursive_sccs,
+        "interprocedural range propagation complete"
+    );
+}
+
+fn merge_param_ranges_into_plan(
+    plan: &mut ReprPlan,
+    func_infos: &FxHashMap<Name, FunctionRangeInfo>,
+    func_map: &FxHashMap<Name, &ArcFunction>,
+) {
+    for (name, info) in func_infos {
         if let Some(func) = func_map.get(name) {
             for pr in &info.param_ranges {
                 if pr.param_index < func.params.len() {
@@ -235,33 +244,21 @@ pub fn propagate_ranges(
             }
         }
     }
-
-    tracing::debug!(
-        functions = arc_functions.len(),
-        sccs = sccs.len(),
-        total_scc_iters,
-        "interprocedural range propagation complete"
-    );
 }
 
-/// Collect parameter ranges for a single function from all call sites.
-///
-/// For each call site targeting this function, joins the argument ranges
-/// into the corresponding parameter range.
+/// Join every call-site argument range into the target parameter range.
 fn collect_param_ranges(
     target_func: &ArcFunction,
     results: &FxHashMap<Name, super::fixpoint::RangeFixpointResult>,
-    _func_infos: &FxHashMap<Name, FunctionRangeInfo>,
     func_map: &FxHashMap<Name, &ArcFunction>,
+    call_graph: &CallGraph,
     pool: &Pool,
     plan: &ReprPlan,
 ) -> FunctionRangeInfo {
     let num_params = target_func.params.len();
 
-    // Check if this function is unconstrained — pub, trait impl, or closure.
     // Unconstrained functions may be called from external code or via dynamic
-    // dispatch, so their parameter ranges must stay Top (full i64 range).
-    // Check if this function is unconstrained. We check:
+    // dispatch, so their parameter ranges must stay Top (full i64 range). Check:
     // 1. (None, name) for pub top-level functions
     // 2. (Some(self_type), name) for trait impl methods (self-type from first param)
     // 3. (None, qualified_name) for type-qualified analysis-only functions
@@ -277,7 +274,7 @@ fn collect_param_ranges(
         false
     };
     // Also check by the ARC function's own name as a qualified key —
-    // analysis-only functions use __impl_{idx}_{method} names that are
+    // analysis-only functions use __impl_{type_hash}_{method} names that are
     // registered in the unconstrained set.
     let is_qualified_unconstrained = plan.is_qualified_unconstrained(target_func.name);
     let unconstrained =
@@ -305,8 +302,13 @@ fn collect_param_ranges(
 
     let mut info = FunctionRangeInfo::new_bottom(num_params);
 
-    // Scan all functions for call sites targeting this function.
-    for caller_func in func_map.values() {
+    // The call graph's reverse index avoids rescanning unrelated functions for
+    // every target. The body scan remains necessary to recover argument vars
+    // and block-local refinements for each direct call site.
+    for caller_name in call_graph.callers_of(target_func.name) {
+        let Some(caller_func) = func_map.get(caller_name) else {
+            continue;
+        };
         let Some(caller_result) = results.get(&caller_func.name) else {
             continue;
         };

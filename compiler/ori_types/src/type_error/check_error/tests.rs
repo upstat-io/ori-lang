@@ -85,6 +85,13 @@ fn code_for_unknown_ident() {
 }
 
 #[test]
+fn code_for_missing_assoc_type_uses_specific_code() {
+    let error =
+        TypeCheckError::missing_assoc_type(Span::new(0, 5), Name::from_raw(30), Name::from_raw(31));
+    assert_eq!(error.code(), ori_diagnostic::ErrorCode::E2018);
+}
+
+#[test]
 fn span_method_matches_field() {
     let error = TypeCheckError::mismatch(
         Span::new(10, 20),
@@ -210,6 +217,114 @@ fn rich_message_missing_assoc_type() {
     );
 }
 
+// Refutable-pattern (CF-3) tests
+
+#[test]
+fn create_refutable_pattern_error_list_length() {
+    use crate::infer::RefutableReason;
+
+    let error = TypeCheckError::refutable_pattern(
+        Span::new(0, 30),
+        RefutableReason::ListLength {
+            required: 2,
+            has_rest: true,
+        },
+    );
+
+    assert!(matches!(error.kind, TypeErrorKind::RefutablePattern { .. }));
+    assert_eq!(error.code(), ori_diagnostic::ErrorCode::E2001);
+    assert!(!error.suggestions.is_empty());
+    assert!(error
+        .suggestions
+        .iter()
+        .any(|s| s.message.contains("match")));
+}
+
+#[test]
+fn refutable_pattern_message_list_length_required_two() {
+    use crate::infer::RefutableReason;
+
+    let error = TypeCheckError::refutable_pattern(
+        Span::new(0, 30),
+        RefutableReason::ListLength {
+            required: 2,
+            has_rest: true,
+        },
+    );
+    let msg = error.message();
+    assert!(
+        msg.contains("refutable pattern in let-binding"),
+        "got: {msg}"
+    );
+    assert!(msg.contains("at least"), "got: {msg}");
+    assert!(msg.contains("match"), "got: {msg}");
+}
+
+#[test]
+fn refutable_pattern_message_list_length_zero_no_rest() {
+    use crate::infer::RefutableReason;
+
+    let error = TypeCheckError::refutable_pattern(
+        Span::new(0, 5),
+        RefutableReason::ListLength {
+            required: 0,
+            has_rest: false,
+        },
+    );
+    let msg = error.message();
+    assert!(
+        msg.contains("refutable pattern in let-binding"),
+        "got: {msg}"
+    );
+    assert!(msg.contains("empty-list"), "got: {msg}");
+    assert!(msg.contains("match"), "got: {msg}");
+}
+
+#[test]
+fn refutable_pattern_message_nested_struct_field() {
+    use crate::infer::{NestedPathStep, RefutableReason};
+
+    let error = TypeCheckError::refutable_pattern(
+        Span::new(0, 30),
+        RefutableReason::NestedRefutable {
+            path: vec![NestedPathStep::StructField(Name::from_raw(11))],
+            inner: Box::new(RefutableReason::ListLength {
+                required: 2,
+                has_rest: false,
+            }),
+        },
+    );
+    let msg = error.format_message_rich(&identity_type, &test_name_resolver);
+    // RefutablePattern has no pool-dependent rich formatting, so the rich path
+    // delegates to the SSOT `message()` renderer — yielding the spec-conformant
+    // generic "struct field" prefix (Spec: Clause 15), not the field name.
+    assert!(msg.contains("at struct field"), "got: {msg}");
+    assert!(msg.contains("requires"), "got: {msg}");
+    assert!(msg.contains("element"), "got: {msg}");
+}
+
+#[test]
+fn refutable_pattern_message_nested_tuple_index() {
+    use crate::infer::{NestedPathStep, RefutableReason};
+
+    let error = TypeCheckError::refutable_pattern(
+        Span::new(0, 30),
+        RefutableReason::NestedRefutable {
+            path: vec![NestedPathStep::TupleIndex(1)],
+            inner: Box::new(RefutableReason::ListLength {
+                required: 2,
+                has_rest: false,
+            }),
+        },
+    );
+    let msg = error.message();
+    assert!(msg.contains("refutable pattern"), "got: {msg}");
+    assert!(
+        msg.contains("element 1") || msg.contains("at element"),
+        "got: {msg}"
+    );
+}
+
 #[test]
 fn format_with_uses_pool_and_interner() {
     let pool = crate::Pool::new();
@@ -219,4 +334,39 @@ fn format_with_uses_pool_and_interner() {
     let error = TypeCheckError::unknown_ident(Span::new(0, 6), name, vec![]);
     let msg = error.format_with(&pool, &interner);
     assert_eq!(msg, "unknown identifier `my_var`");
+}
+
+#[test]
+fn format_with_renders_named_type_where_message_falls_back_to_placeholder() {
+    // SSOT pin: the Pool-aware renderer resolves a non-primitive type Idx to its
+    // real name; the Pool-less `message()` falls back to `<type>`. Harness error
+    // rendering must route through `format_with`, never `message()`.
+    let mut pool = crate::Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let widget = interner.intern("Widget");
+    let widget_ty = pool.named(widget);
+
+    let error = TypeCheckError::unsupported_operator(Span::new(0, 5), widget_ty, "==", "Eq");
+
+    // Lossy Pool-less path: the documented `<type>` fallback (the bug surface).
+    let lossy = error.message();
+    assert!(
+        lossy.contains("<type>"),
+        "message() falls back to <type>; got: {lossy}"
+    );
+    assert!(
+        !lossy.contains("Widget"),
+        "message() has no Pool, cannot name Widget; got: {lossy}"
+    );
+
+    // Pool-aware path: resolves the real type name (the fix target).
+    let rich = error.format_with(&pool, &interner);
+    assert!(
+        rich.contains("Widget"),
+        "format_with names Widget; got: {rich}"
+    );
+    assert!(
+        !rich.contains("<type>"),
+        "format_with must not emit the placeholder; got: {rich}"
+    );
 }

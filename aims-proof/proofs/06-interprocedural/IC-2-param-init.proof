@@ -1,0 +1,453 @@
+Theorem IC-2: ParamContract initialization at most-optimistic state
+
+  Preconditions:
+    - IC-1 has decomposed the CallGraph into SCCs in forward
+      topological order (callees before callers) per
+      Annex E §AIMS IC-1 + sec-7 PL-1a; the shipped
+      ori_arc::aims::interprocedural::analyze_program iterates
+      that list before any per-function step runs
+    - SCC fixpoint iteration is BOTTOM-UP over the partial order
+      `≤` defined componentwise on each lattice dimension; per
+      Annex E §AIMS.8 L-4 partial order `a ≤ b ⟺ a ⊔ b = b`
+    - IC-3 (proven separately) provides the componentwise join
+      operator used to PROMOTE param contracts toward conservative
+      across call sites; IC-2 fixes only the INITIAL state, before
+      any join has fired
+    - IC-2 type signature (per Interprocedural.proof lines 21-25):
+        initial_param_contract : Unit -> ParamContract
+      whose output is the bottom of the per-parameter sub-lattice
+      across every dimension simultaneously
+    - Spec statement (Annex E §AIMS IC-2): "Each parameter
+      initializes most optimistic: (Borrowed, Dead, Absent,
+      BlockLocal, Unique, may_share=false). Fixpoint promotes
+      toward conservative."
+    - Shipped engine: `ParamContract::OPTIMISTIC` const at
+      compiler/ori_arc/src/aims/contract/mod.rs:368
+      lines 368-386; consumed by IC-2 seeding inside
+      ori_arc::aims::interprocedural::analyze_program at the
+      SCC-entry point before backward dataflow runs
+    - Target-vs-shipped axis carve-out (per Annex E §AIMS
+      "Target-only / partially-shipped subsystems" top-of-file):
+      spec ParamContract removed `may_escape` (derived from
+      Locality dimension); shipped ParamContract retains
+      `may_escape` + `locality_bound` as parallel fields. IC-2
+      proof discharges the 5-dim spec statement; shipped struct
+      carries 5 spec dims + 1 target-vs-shipped legacy field
+      (`may_escape: false`) + 3 IC-4 return-flow fields
+      (`transfers_through_return: false`, `return_alias: None`,
+      `return_payload_contains_param: false`) that initialize to
+      their own bottoms
+
+  Soundness property:
+    Forall ParamContract instance pc emitted as the SCC fixpoint
+    seed for any parameter of any function in any SCC.
+      pc = initial_param_contract() SHALL hold along five
+      dimensions enumerated by spec Annex E §AIMS IC-2:
+
+      (P1) Access dimension bottom:
+        pc.access = AccessClass::Borrowed
+        (per Annex E §AIMS §3.1: `Borrowed < Owned`; Borrowed
+        is the unique minimum element of the Access lattice).
+
+      (P2) Consumption dimension bottom:
+        pc.consumption = Consumption::Dead
+        (per Annex E §AIMS.2:
+        `Dead < Linear < Affine < Unrestricted`;
+        Dead is the unique minimum element of the Consumption
+        lattice).
+
+      (P3) Cardinality dimension bottom:
+        pc.cardinality = Cardinality::Absent
+        (per Annex E §AIMS.3:
+        `Absent < Once < Many`; Absent is the unique minimum
+        element of the Cardinality lattice).
+
+      (P4) Locality dimension bottom:
+        pc.locality_bound = Locality::BlockLocal
+        (per Annex E §AIMS.5:
+        `BlockLocal < FunctionLocal < ArgEscaping < HeapEscaping
+        < Unknown`; BlockLocal is the unique minimum element of
+        the Locality lattice).
+
+      (P5) Uniqueness dimension bottom:
+        pc.uniqueness = Uniqueness::Unique
+        (per Annex E §AIMS.4:
+        `Unique < MaybeShared < Shared`; Unique is the unique
+        minimum element of the Uniqueness lattice).
+
+      (P6) Per-parameter sharing flag bottom:
+        pc.may_share = false
+        (per Annex E §AIMS IC-3: `may_share` is joined by
+        OR across call sites; `false` is the OR-identity, hence
+        the unique minimum element of the boolean
+        sub-lattice).
+
+      Conjunction over (P1)..(P6) IS the spec statement
+      "(Borrowed, Dead, Absent, BlockLocal, Unique,
+      may_share=false)".
+
+  Proof obligation:
+    Six-part discharge corresponding to (P1)..(P6); each grounded
+    in (a) the per-dimension partial order defined in Annex E §AIMS §3.1 through §AIMS §3.5 and sec-5 IC-3, and (b) the structural
+    match between spec values and the `ParamContract::OPTIMISTIC`
+    Rust const at compiler/ori_arc/src/aims/contract/
+    mod.rs lines 368-386.
+
+    Part (P1) — Access bottom:
+
+      Access is a 2-element chain `Borrowed < Owned` with join
+      defined as `max` (Annex E §AIMS §3.1). Bottom of a
+      finite chain under `max` join is the smallest element by
+      definition; here that is `Borrowed`.
+
+      The shipped const at mod.rs:369 reads:
+        `access: AccessClass::Borrowed`
+      which structurally matches the spec value. (P1) discharged.
+
+    Part (P2) — Consumption bottom:
+
+      Consumption is a 4-element chain
+      `Dead < Linear < Affine < Unrestricted` with join `max`
+      (Annex E §AIMS.2). Bottom is `Dead`.
+
+      The shipped const at mod.rs:370 reads:
+        `consumption: Consumption::Dead`
+      structurally matching spec. (P2) discharged.
+
+    Part (P3) — Cardinality bottom:
+
+      Cardinality is a 3-element chain `Absent < Once < Many`
+      with join `max` (Annex E §AIMS.3). Bottom is
+      `Absent`.
+
+      The shipped const at mod.rs:371 reads:
+        `cardinality: Cardinality::Absent`
+      structurally matching spec. (P3) discharged.
+
+      Coherence side-condition (per Annex E §AIMS CN-1):
+      `Cardinality = Absent ⟹ Consumption := Dead` is enforced
+      by canonicalization. The shipped OPTIMISTIC const sets
+      Consumption = Dead AND Cardinality = Absent simultaneously,
+      so the (Dead, Absent) pair is already CN-1-canonical at
+      initialization; no canonicalization round mutates the seed.
+
+    Part (P4) — Locality bottom:
+
+      Locality is a 5-element chain
+      `BlockLocal < FunctionLocal < ArgEscaping < HeapEscaping
+      < Unknown` with join `max` (Annex E §AIMS.5).
+      Bottom is `BlockLocal`.
+
+      The shipped const at mod.rs:374 reads:
+        `locality_bound: Locality::BlockLocal`
+      structurally matching spec. (P4) discharged.
+
+      Coherence side-condition (per Annex E §AIMS CN-8):
+      `Access = Borrowed ∧ Locality > FunctionLocal ⟹
+      Locality := FunctionLocal` does NOT fire at initialization
+      because Locality = BlockLocal < FunctionLocal. The seed is
+      already CN-8-canonical; no canonicalization round mutates
+      it. (CN-6's `Locality ≥ HeapEscaping ∧ Uniqueness = Unique
+      ⟹ Uniqueness := MaybeShared` also does NOT fire because
+      Locality = BlockLocal < HeapEscaping.)
+
+    Part (P5) — Uniqueness bottom:
+
+      Uniqueness is a 3-element chain
+      `Unique < MaybeShared < Shared` with join `max`
+      (Annex E §AIMS.4). Bottom is `Unique`.
+
+      The shipped const at mod.rs:375 reads:
+        `uniqueness: Uniqueness::Unique`
+      structurally matching spec. (P5) discharged.
+
+      Coherence side-condition (per Annex E §AIMS CN-6):
+      already discharged in (P4) — Locality = BlockLocal is
+      far below HeapEscaping, so the CN-6 implication is
+      vacuously true at initialization.
+
+    Part (P6) — `may_share` boolean bottom:
+
+      `may_share` is a boolean joined by OR across call sites
+      (Annex E §AIMS IC-3 "may_share(OR)"). Under OR-join,
+      the unique minimum element is `false`.
+
+      The shipped const at mod.rs:373 reads:
+        `may_share: false`
+      structurally matching spec. (P6) discharged.
+
+      Coherence side-condition: `may_share` is orthogonal to the
+      five lattice dimensions per Annex E §AIMS.5 note
+      ("may_share = per-parameter property (orthogonal to
+      Locality)"); no canonicalization rule mutates `may_share`
+      based on other dimensions, so the seed survives CN-1
+      through CN-8 unchanged.
+
+    Per-dimension lattice height (informational, consumed by IC-7):
+      Access height 1 (Borrowed → Owned)
+      Consumption height 3 (Dead → Linear → Affine → Unrestricted)
+      Cardinality height 2 (Absent → Once → Many)
+      Locality height 4 (BlockLocal → FunctionLocal →
+                            ArgEscaping → HeapEscaping → Unknown)
+      Uniqueness height 2 (Unique → MaybeShared → Shared)
+      may_share height 1 (false → true)
+    Sum: 13 per-parameter promotion steps maximum before the
+    five-dim+boolean tuple reaches the conservative top
+    `(Owned, Unrestricted, Many, Unknown, Shared, true)`. IC-7
+    convergence bound consumes this sum (`param_count × 13 + ...`
+    per the spec formula; shipped formula uses `× 17` to absorb
+    the three IC-4 return-flow dims and the target-vs-shipped
+    `may_escape` field — see Target-vs-shipped axis carve-out
+    above).
+
+    Bottom-up SCC fixpoint soundness witness:
+
+      IC-2 seeds the bottom; IC-3 joins component-wise toward
+      conservative. Three soundness properties cascade:
+
+      (S1) Seed is bottom of the product lattice.
+        Per Birkhoff (Lattice Theory, 3rd ed., 1967, Theorem II.6)
+        the product of finite chains under componentwise `max`
+        has unique minimum element equal to the componentwise
+        product of per-chain minima. Parts (P1)..(P6) verify each
+        component is at its minimum; conjunction is therefore
+        the product-lattice bottom.
+
+      (S2) Monotone promotion preserves the partial order.
+        Per Annex E §AIMS.8 L-6 transfer functions SHALL
+        be monotone: `a ≤ b ⟹ f(a) ≤ f(b)`. Starting at bottom,
+        every subsequent join via IC-3 produces a state
+        `pc' ≥ pc` componentwise. Anti-monotone moves (downward
+        flip on any dim) are LATTICE-PROHIBITED; CN-4 was removed
+        from the canonicalization ruleset precisely because it
+        anti-monotonically promoted `MaybeShared → Unique` on
+        local+linear+unique states (Annex E §AIMS CN-4
+        removal note).
+
+      (S3) Bottom seed ensures fixpoint reaches the LEAST
+      conservative bound consistent with observed call sites.
+        Per Tarski (Pacific J. Math., 1955, "A lattice-theoretical
+        fixpoint theorem") any monotone function on a complete
+        lattice has a least fixpoint, and that least fixpoint is
+        the supremum of the iterates starting from bottom. IC-2
+        FIXES the start as bottom; IC-3 iterates monotonically;
+        IC-7 (proven separately) bounds the iteration count at
+        sum-of-heights. The converged ParamContract is therefore
+        the least upper bound of observed call-site demands —
+        any more-conservative seed (e.g., starting at TOP or at
+        `Owned`/`Many`/`Shared`) would converge to a strictly
+        weaker (more conservative) contract, missing legitimate
+        elision opportunities.
+
+    Coverage gate — corpus enumeration:
+
+      The shipped const + seeding contract is exercised by the
+      interprocedural test surface in
+      compiler/ori_arc/src/aims/interprocedural/
+      tests.rs and adjacent test modules. Each row below pins
+      one or more (P1)..(P6) conjuncts:
+
+        Row A: no_params — function with zero params;
+                                     IC-2 vacuously satisfied
+                                     (no seed needed)
+        Row B: single_owned_param — caller passes Owned arg;
+                                     IC-2 seeds Borrowed; IC-3
+                                     promotes to Owned; (P1)
+                                     monotonicity pin
+        Row C: borrowed_dead_param — callee never uses param;
+                                     IC-2 seeds Dead/Absent;
+                                     IC-3 keeps Dead/Absent;
+                                     (P2)+(P3) seed-survival pin
+        Row D: locality_promote — callee escapes param to
+                                     heap; IC-2 seeds BlockLocal;
+                                     IC-3 promotes to
+                                     HeapEscaping; (P4)
+                                     monotonicity pin
+        Row E: uniqueness_promote — caller passes MaybeShared
+                                     arg; IC-2 seeds Unique;
+                                     IC-3 promotes to
+                                     MaybeShared; (P5)
+                                     monotonicity pin
+        Row F: may_share_promote — callee RcInc's param; IC-2
+                                     seeds may_share=false;
+                                     IC-3 promotes to true;
+                                     (P6) OR-monotonicity pin
+        Row G: recursive_scc — self-recursive function;
+                                     SCC fixpoint iterates IC-2
+                                     seed against own
+                                     conservative use; (S2)+(S3)
+                                     pin
+        Row H: mutual_recursion — A calls B, B calls A; IC-1
+                                     produces 1 SCC of size 2;
+                                     IC-2 seeds both bottoms;
+                                     IC-3 joins across the cycle;
+                                     full IC-2+IC-3+IC-7
+                                     interaction pin
+
+      Coverage axes:
+        (P1)..(P6) per-dim bottom:
+          Rows B, C, D, E, F directly pin one dimension each;
+          Row A vacuously covers all six
+        (S1) product-lattice bottom:
+          Row C is the dedicated pin — Borrowed+Dead+Absent+
+          BlockLocal+Unique+may_share=false survives backward
+          dataflow when callee never uses the param
+        (S2) monotone promotion:
+          Rows B, D, E, F each demonstrate one dimension's
+          monotone advance from bottom under IC-3 join
+        (S3) least-fixpoint:
+          Rows G, H exercise multi-iteration SCC convergence;
+          test asserts the converged contract is exactly the
+          join of observed call-site demands, not a strictly
+          weaker bound
+
+    Negative-direction witness — anti-monotone seed rejected:
+
+      Take Row B (single_owned_param). The correct IC-2 seed is
+      `(Borrowed, Dead, Absent, BlockLocal, Unique, false)`.
+      Suppose hypothetical implementer seeds instead with the
+      CONSERVATIVE const at mod.rs:340 lines 340-361:
+      `(Owned, Unrestricted, Many, Unknown, MaybeShared, true)`.
+
+      Per L-6 monotonicity, every subsequent IC-3 join produces
+      `pc' ≥ pc`. Starting at CONSERVATIVE, `pc'` STAYS at
+      CONSERVATIVE across every iteration (CONSERVATIVE is the
+      product-lattice top, fixed by `max`-join). The fixpoint
+      converges immediately to CONSERVATIVE for EVERY parameter
+      of EVERY function — regardless of actual call-site demand.
+
+      Downstream consequence: DP-1 (`is_rc_needed`) evaluates
+      `access = Owned ∧ consumption ≠ Dead` → true for every
+      param; RC inc/dec emitted at every call site. DP-2
+      (`is_rc_dec_unnecessary`) evaluates
+      `cardinality = Absent ∨ consumption = Dead` → false for
+      every param; no dec elision. The AIMS mission ("RC rare,
+      not RC ops faster" per Annex E §AIMS §1 + Annex E §AIMS
+      Mission) collapses — every RC op survives to emitted IR
+      because the lattice can no longer prove any dim is below
+      conservative.
+
+      Tarski's least-fixpoint theorem (cited in S3) is the
+      formal reason this fails: anti-monotone (or already-top)
+      seeds violate the precondition that the iteration sequence
+      starts AT or BELOW the desired least fixpoint. IC-2's
+      most-optimistic seed is the soundness foundation IC-3 +
+      IC-7 build on; weakening it weakens every downstream RC
+      elision predicate.
+
+    Negative-direction witness — wrong-dimension seed rejected:
+
+      Take Row C (borrowed_dead_param). Suppose hypothetical
+      implementer seeds Consumption = Linear instead of Dead.
+      Per CN-1 (Annex E §AIMS): `Cardinality = Absent ⟹
+      Consumption := Dead`. The canonicalization round overwrites
+      the wrong seed back to Dead — observable behavior IS
+      preserved at this scale, but the round-trip violates the
+      "seed is already canonical" invariant (P3 coherence
+      side-condition above), causing one extra canonicalization
+      pass per function during fixpoint init.
+
+      Conversely, suppose hypothetical implementer seeds
+      Cardinality = Once but keeps Consumption = Dead. CN-1
+      contrapositive: `Consumption = Dead ⟹ Cardinality :=
+      Absent`. Canonicalization again overwrites — but this
+      time the (Dead, Once) intermediate is incoherent per
+      CN-1, and a buggy canonicalizer skipping CN-1 would
+      permit it. The shipped const at mod.rs:368-386 sets BOTH
+      simultaneously, so the (Dead, Absent) pair is already
+      coherent — no canonicalization round can produce a
+      different result.
+
+    Negative-direction witness — `may_share=true` seed rejected:
+
+      Take Row F (may_share_promote). Suppose hypothetical
+      implementer seeds `may_share = true` instead of false.
+      OR-join with any subsequent call-site demand keeps
+      `may_share = true` — no observed demand can promote
+      true → false (anti-monotone). Downstream consequence:
+      DP-9 (`cow_mode`) evaluates `MaybeShared ∧ caller may
+      have RcInc'd` for every param; static-unique fast path
+      via `IC-3 ParamContract.uniqueness = Unique ⟹ StaticUnique`
+      becomes unreachable for any parameter, because the
+      converged `may_share = true` poisons the freshness
+      argument.
+
+      The `may_share = false` seed at mod.rs:373 is therefore
+      load-bearing for the entire COW fast-path infrastructure;
+      promoting it ELSEWHERE (e.g., in CN-* canonicalization)
+      would require co-evolving DP-9 + RL-30 neutral access-fact
+      derivation. The cleanest discipline is IC-2's seed at
+      OR-identity, IC-3's monotone promotion via observed
+      call-site evidence only.
+
+    IC-2 has no upstream dependencies on AIMS contract layer:
+
+      IC-2 consumes the CallGraph (via IC-1's topological
+      ordering) and produces ParamContract seeds. It reads NO
+      AimsStateMap, NO per-variable lattice state, NO prior
+      ParamContract from any other function (the OPTIMISTIC const
+      is hardcoded). The dependency chain at the proof-obligation
+      level is acyclic:
+        IC-1 --> IC-2 (parameter contract seeding per function)
+        IC-2 --> IC-3 (parameter contract componentwise join)
+        IC-2 --> IC-4 (return contract structural extraction)
+        IC-2 --> IC-5 (effect summary derivation)
+
+      IC-2 is the leaf of this dependency sub-tree (IC-1 is the
+      leaf of the FULL tree, but IC-2 has no AIMS-layer parent).
+
+    Algorithm-citation declaration:
+      algorithm: bottom-of-product-lattice seeding for
+                           SCC-topological monotone interprocedural
+                           dataflow
+      published basis: Birkhoff, G., "Lattice Theory", 3rd ed.,
+                           American Mathematical Society Colloquium
+                           Publications, vol. XXV, 1967, Theorem
+                           II.6 (product lattice has componentwise
+                           minimum); Tarski, A., "A lattice-
+                           theoretical fixpoint theorem and its
+                           applications", Pacific Journal of
+                           Mathematics, vol. 5, no. 2, pp. 285-309,
+                           1955 (least fixpoint of monotone function
+                           on complete lattice equals supremum of
+                           bottom-iterates)
+      complexity: O(1) per parameter — single struct-literal
+                           emission
+      determinism: deterministic; the `OPTIMISTIC` const is
+                           compile-time-fixed across all targets
+                           and all compilation sessions (deterministic
+                           query contract)
+      reference impl: `ParamContract::OPTIMISTIC` const at
+                           compiler/ori_arc/src/aims/
+                           contract/mod.rs lines 368-386; consumed
+                           by ori_arc::aims::interprocedural::
+                           analyze_program at SCC-entry seeding
+      cross-language Lean 4 src/Lean/Compiler/IR/Borrow.lean
+      prior art: seeds borrow inference parameters at
+                           `Borrowed` (the analogue of Ori's IC-2
+                           Access dim bottom); Lean's fixpoint
+                           promotes to `Owned` based on demand
+                           evidence, identical bottom-up monotone
+                           shape to IC-2+IC-3
+
+    Engines dispatched:
+      interprocedural_summary (PRIMARY — emits the OPTIMISTIC
+        seed for every parameter of every function in every SCC
+        produced by IC-1; the verifier checks all six conjuncts
+        (P1)..(P6) plus side-conditions:
+          - (P1) AccessClass::Borrowed structural equality
+          - (P2) Consumption::Dead structural equality
+          - (P3) Cardinality::Absent structural equality +
+            CN-1 coherence with (P2)
+          - (P4) Locality::BlockLocal structural equality +
+            CN-8 vacuous-implication check + CN-6 vacuous-
+            implication check
+          - (P5) Uniqueness::Unique structural equality
+          - (P6) may_share=false structural equality + OR-
+            identity check
+        emits Fail on any divergence from the spec values OR
+        on any CN-* coherence violation surfaced by the seed)
+
+  Expected:
+    status: valid
+    reason: section_06 interprocedural_summary engine discharges IC-2 via six-conjunct verification ((P1) Borrowed access + (P2) Dead consumption + (P3) Absent cardinality + (P4) BlockLocal locality + (P5) Unique uniqueness + (P6) may_share=false) plus three cascading soundness properties ((S1) product-lattice bottom + (S2) monotone promotion + (S3) Tarski least-fixpoint reachability) over an 8-test corpus covering zero-param / single-dim-promotion / multi-dim-promotion / recursive-SCC / mutual-recursion cases; algorithm soundness inherited from Birkhoff 1967 Theorem II.6 (product lattice minimum) + Tarski 1955 (least-fixpoint of monotone function); shipped engine `ParamContract::OPTIMISTIC` const at compiler/ori_arc/src/aims/contract/mod.rs lines 368-386 emits the seed in O(1) per parameter, deterministically across all targets (deterministic query contract); target-vs-shipped axis carve-out (`may_escape` legacy field initialized false, IC-4 return-flow fields initialized to None/false) preserves spec conformance on the 5 dims + may_share enumerated in Annex E §AIMS IC-2

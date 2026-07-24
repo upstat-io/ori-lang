@@ -1,0 +1,4 @@
+@main () -> int = {
+    let words = ["hello", "world"];
+    if words[0][0] == "h" && words[1][0] == "w" then 0 else 1
+}

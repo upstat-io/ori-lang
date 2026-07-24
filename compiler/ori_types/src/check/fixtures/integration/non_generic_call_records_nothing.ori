@@ -1,0 +1,5 @@
+
+@add (a: int, b: int) -> int = a + b;
+@caller () -> int = add(a: 1, b: 2);
+@test_caller tests @caller () -> void = ();
+@test_add tests @add () -> void = ();

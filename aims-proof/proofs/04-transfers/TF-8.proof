@@ -1,0 +1,118 @@
+Theorem TF-8: Select transfer with SCALAR exclusion + componentwise join
+
+  Preconditions:
+    - Instruction is `Select { dst, cond, true_val, false_val }` per
+      Annex E §AIMS TF-8 + Appendix A row 10
+    - SCALAR is the L-9 sentinel — NOT a lattice element; `join(a, SCALAR)`
+      undefined per Annex E §AIMS L-9
+    - Per §3 TF-8 explicit guidance: TF-8 pre-filters SCALAR BEFORE
+      invoking join (i.e. join is NEVER called on a SCALAR operand)
+    - Per Annex E §AIMS L-9: SCALAR sentinel excluded from lattice
+      operations; analysis SHALL exclude scalars from state map; TF-8 is
+      the only join site that can receive a SCALAR operand
+
+  Soundness property:
+    Forall (true_val_state, false_val_state) in (AimsState union {SCALAR})^2.
+      CASE 1 (both SCALAR): dst.state := SCALAR
+      CASE 2 (exactly one SCALAR): dst inherits non-SCALAR with
+        uniqueness := max(MaybeShared, non_scalar.uniqueness)
+        (preserves Shared, downgrades Unique — monotone per L-6)
+      CASE 3 (both non-SCALAR): dst := join(true_val.state, false_val.state)
+        (standard componentwise join per L-1.proof Lift to product)
+    L-6 layer (b) monotonicity: the one-SCALAR downgrade preserves the
+    product order on the Uniqueness chain.
+
+  Proof obligation:
+    Four-part discharge:
+      (a) Three-branch case analysis covering the (true_val, false_val) x
+          (SCALAR, non-SCALAR) product (4 combinations collapse to 3
+          equivalence classes per L-9 SCALAR sentinel handling).
+      (b) CASE 2 uniqueness-downgrade enumeration: verify max(MaybeShared,
+          non_scalar.uniqueness) produces the correct value for each of
+          the 3 Uniqueness carrier values {Unique, MaybeShared, Shared}.
+      (c) CASE 3 componentwise-join enumeration: verify the join is
+          commutative (L-1) and matches componentwise per-dimension max
+          per L-1.proof per-dimension argument.
+      (d) L-6 layer (b) monotonicity for the CASE 2 downgrade: enumerate
+          the Uniqueness chain {Unique < MaybeShared < Shared} pairs;
+          verify max(MaybeShared, u1) ≤ max(MaybeShared, u2) whenever
+          u1 ≤ u2.
+
+    Part (a) — three-branch case enumeration:
+      CASE 1: (SCALAR, SCALAR) -> SCALAR (L-9 sentinel propagation).
+        Verified by transfer_tf8(Tagged::Scalar, Tagged::Scalar) ==
+        Tagged::Scalar.
+      CASE 2: (SCALAR, non_scalar) OR (non_scalar, SCALAR) -> non_scalar
+        with uniqueness downgrade. Symmetric in argument order — verified
+        by transfer_tf8(Scalar, ns) == transfer_tf8(ns, Scalar).
+      CASE 3: (non_scalar_a, non_scalar_b) -> componentwise join.
+        join is total on the carrier product (excludes SCALAR by L-9).
+
+    Part (b) — CASE 2 uniqueness-downgrade enumeration:
+      non_scalar.uniqueness = Unique:
+        max(MaybeShared, Unique) = MaybeShared (downgrade)
+        — Unique past-guarantee invalidated by Select branch where the
+          other branch returned a scalar (not RC-tracked); the non-scalar
+          value's uniqueness narrows toward MaybeShared.
+      non_scalar.uniqueness = MaybeShared:
+        max(MaybeShared, MaybeShared) = MaybeShared (preserve)
+      non_scalar.uniqueness = Shared:
+        max(MaybeShared, Shared) = Shared (preserve)
+      All other dimensions inherited as-is from the non-SCALAR operand.
+      6 cases enumerated (3 uniqueness x 2 argument orders).
+
+    Part (c) — CASE 3 componentwise-join enumeration:
+      Two representative non-SCALAR pairs spanning the per-dimension
+      carriers:
+        pair_1: (FRESH-like, CONSERVATIVE-leaning) — Access transition
+          Owned -> Owned (idempotent), Consumption Linear -> Affine
+          (downward), Cardinality Once -> Many (downward), Uniqueness
+          Unique -> MaybeShared (downward), Locality BlockLocal ->
+          FunctionLocal (downward), Shape ReusableStruct -> ReusableStruct
+          (preserved), Effect 0b001 -> 0b010 (componentwise OR).
+        pair_2: (CONSERVATIVE-like with HeapEscaping, CONSERVATIVE-like
+          with Shared) — verifies Uniqueness MaybeShared -> Shared
+          (downward) + Effect 0b100 -> 0b001 (componentwise OR).
+      For each pair (a, b):
+        - L-1 commutativity check: transfer_tf8(a, b) == transfer_tf8(b, a).
+        - Componentwise max check: result = (dim_max(ACCESS, a, b),
+          dim_max(CONSUMPTION, a, b), dim_max(CARDINALITY, a, b),
+          dim_max(UNIQUENESS, a, b), dim_max(LOCALITY, a, b),
+          (if shapes equal: shape; else: NonReusable),
+          (effect_a OR effect_b)).
+      2 pairs enumerated; covers the full per-dimension product order
+      lift per L-1.proof.
+
+    Part (d) — L-6 layer (b) monotonicity for CASE 2 downgrade:
+      Uniqueness chain {Unique < MaybeShared < Shared} has 3 elements,
+      6 ordered pairs (u1, u2) with u1 ≤ u2. For each pair:
+        d1 := max(MaybeShared, u1)
+        d2 := max(MaybeShared, u2)
+        Verify d1 ≤ d2.
+      Specifically:
+        (Unique, Unique) -> (MaybeShared, MaybeShared) — MaybeShared ≤ MaybeShared OK
+        (Unique, MaybeShared) -> (MaybeShared, MaybeShared) — ≤ OK
+        (Unique, Shared) -> (MaybeShared, Shared) — MaybeShared ≤ Shared OK
+        (MaybeShared, MaybeShared) -> (MaybeShared, MaybeShared) — ≤ OK
+        (MaybeShared, Shared) -> (MaybeShared, Shared) — ≤ OK
+        (Shared, Shared) -> (Shared, Shared) — ≤ OK
+      All 6 pairs satisfy monotonicity. Per L-6.proof per-dimension
+      monotonicity argument: max on a totally-ordered carrier is monotone
+      (proved generally there); TF-8 downgrade is a specific instance.
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) per-rule discharge per
+        section_04::verify_tf8_select_scalar_exclusion — Part (d)
+        Uniqueness-chain enumeration)
+      case_analysis (PRIMARY — three-branch case enumeration (CASE 1 / 2 / 3)
+        + 6-pair Uniqueness-downgrade enumeration + 2-pair componentwise-
+        join enumeration per
+        section_04::verify_tf8_select_scalar_exclusion)
+      lattice (SECONDARY — gracefully accepts; L-9 SCALAR pre-filter +
+        L-1 commutativity discharged at §02 lattice engine)
+      refinement (SECONDARY — accepts gracefully; TF-8 is a join site,
+        not a refine() site)
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-8 via three-branch case enumeration (both-SCALAR / one-SCALAR / both-non-SCALAR) + L-9 SCALAR pre-filter call-site enumeration + Uniqueness-chain monotone-downgrade discharge

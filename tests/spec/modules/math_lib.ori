@@ -1,4 +1,4 @@
-// Spec: 12-modules.md Module Alias
+// Spec: 18-modules.md Module Alias
 // Design: (modules not yet in design docs)
 //
 // Helper module for testing module alias imports and qualified access.

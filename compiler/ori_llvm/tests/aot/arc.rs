@@ -293,12 +293,12 @@ fn test_arc_lambda_capture_bool() {
     );
 }
 
-// ─── Curried closure RC captures (TPR-04B-014 regression) ───
+// ─── Curried closure RC captures ───
 
 #[test]
 fn test_arc_curried_closure_capture_list() {
-    // Regression: TPR-04B-014 — curried closure capturing list.
-    // Fixed by closure-ownership Section 02: arg_ownership on ApplyIndirect.
+    // Regression: curried closure capturing list.
+    // Fixed by closure-ownership arg_ownership on ApplyIndirect.
     assert_aot_success(
         include_str!("fixtures/arc/arc_curried_closure_capture_list.ori"),
         "arc_curried_closure_capture_list",
@@ -307,7 +307,7 @@ fn test_arc_curried_closure_capture_list() {
 
 #[test]
 fn test_arc_curried_closure_capture_str() {
-    // Fixed by closure-ownership Section 02: arg_ownership on ApplyIndirect.
+    // Fixed by closure-ownership arg_ownership on ApplyIndirect.
     assert_aot_success(
         include_str!("fixtures/arc/arc_curried_closure_capture_str.ori"),
         "arc_curried_closure_capture_str",
@@ -317,7 +317,7 @@ fn test_arc_curried_closure_capture_str() {
 #[test]
 fn test_arc_curried_closure_capture_nested() {
     // Nested curried closures: outer captures list, inner returns it.
-    // Fixed by closure-ownership Section 02: arg_ownership on ApplyIndirect.
+    // Fixed by closure-ownership arg_ownership on ApplyIndirect.
     assert_aot_success(
         include_str!("fixtures/arc/arc_curried_closure_capture_nested.ori"),
         "arc_curried_closure_capture_nested",
@@ -333,13 +333,13 @@ fn test_arc_curried_closure_scalar_no_inc() {
     );
 }
 
-// ─── Opaque closure wrapper (Section 02 soundness proof) ───
+// ─── Opaque closure wrapper (closure-ownership soundness proof) ───
 
 #[test]
 fn test_arc_opaque_closure_wrapper() {
     // Opaque higher-order wrapper: closure passed as function parameter,
     // called indirectly. Verifies all-Borrowed fallback is RC-balanced.
-    // closure-ownership Section 02 soundness proof.
+    // closure-ownership soundness proof.
     assert_aot_success(
         include_str!("fixtures/arc/arc_opaque_closure_wrapper.ori"),
         "arc_opaque_closure_wrapper",
@@ -428,7 +428,7 @@ fn test_arc_alias_chain_three_way_use() {
 // - Path-sensitive cleanup (Switch / branch successors)
 // - Exact RcInc placement in the unified forward walk
 //
-// AIMS verification Matrix A: RC placement correctness
+// Current compiled-counter projection Matrix A: RC placement correctness
 
 // A1: Scalar Project from aliased scrutinee.
 // catch(expr:) returns Result<str, str>. Matching on the result creates an
@@ -703,9 +703,9 @@ fn test_rc_project_merge_edge_two_fields_escape() {
     }
 }
 
-// ─── Trivial inline enum ARC elision (§02 ) ───
+// ─── Trivial inline enum ARC elision — ───
 
-/// §02 regression pin: trivial `Option<int>` must emit NO `ori_rc_inc`,
+/// Regression pin: trivial `Option<int>` must emit NO `ori_rc_inc`,
 /// `ori_rc_dec`, or `_ori_drop$` in the generated LLVM IR. This proves
 /// that the transitive triviality classification correctly identifies
 /// `Option<int>` as trivial and elides all ARC operations.
@@ -729,7 +729,7 @@ fn test_trivial_option_int_no_rc_ops() {
     );
 }
 
-/// §02 regression pin: trivial `Result<int, int>` must emit NO RC ops.
+/// Regression pin: trivial `Result<int, int>` must emit NO RC ops.
 /// Both `Ok` and `Err` payloads are trivial scalars.
 #[test]
 fn test_trivial_result_int_int_no_rc_ops() {
@@ -747,7 +747,7 @@ fn test_trivial_result_int_int_no_rc_ops() {
     );
 }
 
-/// §02 negative pin: non-trivial `Option<str>` MUST emit RC ops.
+/// Negative pin: non-trivial `Option<str>` MUST emit RC ops.
 /// `str` is heap-allocated with RC, so `Option<str>` is non-trivial.
 /// This is the companion to `test_trivial_option_int_no_rc_ops`.
 #[test]
@@ -762,7 +762,7 @@ fn test_nontrivial_option_str_has_rc_ops() {
     );
 }
 
-/// §02 negative pin: non-trivial `Result<int, str>` MUST emit RC ops.
+/// Negative pin: non-trivial `Result<int, str>` MUST emit RC ops.
 /// The `Err` variant payload is `str` (non-trivial).
 #[test]
 fn test_nontrivial_result_int_str_has_rc_ops() {

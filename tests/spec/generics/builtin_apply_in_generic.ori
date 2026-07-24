@@ -1,0 +1,13 @@
+// A protocol-builtin `__index` Apply emitted inside a generic-`<T>`-bodied
+// function resolves its mono via codegen interception (no E5001).
+// Dual-backend (interpreter + LLVM).
+
+use std.testing { assert_eq };
+
+@first_int <T> (marker: T, xs: [int]) -> int = xs[0];
+
+@test_index_list_in_generic_body tests _ () -> void = {
+    let v = first_int(marker: "z", xs: [10, 20, 30]);
+
+    assert_eq(actual: v, expected: 10)
+}

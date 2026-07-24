@@ -1,0 +1,8 @@
+// Cross-facet helper module — generic free functions imported across the
+// module boundary (the proven `import_sig_by_name` mono-dispatch path). The
+// host instantiates them at a complex generic arg and casts the result,
+// crossing cross-module-import x complex-generic-arg x builtin-cast.
+
+pub @id<T> (x: T) -> T = x;
+
+pub @first<T> (items: [T]) -> T = items[0];

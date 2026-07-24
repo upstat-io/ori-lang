@@ -1,0 +1,16 @@
+// NEGATIVE PIN — use-after-`drop_early` across a branch join (E2054).
+// `s` is consumed on the `then` branch; after the `if` join the binding is
+// consumed-on-some-path, so a later use reads possibly-reclaimed memory.
+// Typeck rejects with E2054 (branch-union dataflow).
+//
+// Spec: 13-variables.md §13.7 (Variable Lifetime).
+
+#compile_fail(code: "E2054", message: "after `drop_early` consumed it")
+@drop_early_use_after_consume_branch_rejected tests @_anchor () -> void = {
+    let $s = "hello";
+    if true then { drop_early(value: s); } else { () };
+    print(msg: s);
+    ()
+}
+
+@_anchor () -> bool = true;

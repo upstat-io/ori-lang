@@ -1,0 +1,16 @@
+type Boom = { tag: str }
+
+impl Boom: Drop {
+    @drop (self) -> void = {
+        print(msg: `boom-{self.tag}`);
+        panic(msg: "boom")
+    }
+}
+
+type Inner = { payload: Boom }
+
+type Outer = { inner: Inner }
+
+@main () -> void = {
+    let w = Outer { inner: Inner { payload: Boom { tag: "N" } } }
+}

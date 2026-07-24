@@ -1,0 +1,4 @@
+trait Addable<Rhs = Self> {
+    type Output = Self;
+    @add (self, rhs: Rhs) -> Self.Output
+}

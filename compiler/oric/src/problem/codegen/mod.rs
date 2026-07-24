@@ -78,6 +78,9 @@ pub enum CodegenProblem {
         stderr: String,
     },
 
+    /// An executable build has no Ori entry point.
+    MissingEntryPoint { path: String },
+
     // ── Debug Info (E5007) ──────────────────────────────────────────
     /// Debug info creation failed.
     DebugInfoFailed { message: String },
@@ -170,6 +173,13 @@ impl CodegenProblem {
                 diag
             }
 
+            Self::MissingEntryPoint { path } => Diagnostic::error(ErrorCode::E5006)
+                .with_message(format!(
+                    "cannot build executable '{path}': no @main function was declared"
+                ))
+                .with_note("executable builds require one Ori @main entry point")
+                .with_suggestion("add an @main function, or pass --lib/--dylib to build a library"),
+
             // ── Debug Info (E5007) ───────────────────────────────
             Self::DebugInfoFailed { message } => Diagnostic::error(ErrorCode::E5007)
                 .with_message(format!("debug info creation failed: {message}"))
@@ -204,7 +214,7 @@ impl CodegenProblem {
                 .with_label(span, "while lowering this expression")
                 .with_note(
                     "this is likely a compiler bug — please report it at \
-                         https://github.com/oriproject/ori/issues",
+                         https://github.com/upstat-io/ori-lang/issues",
                 ),
 
             Self::ArcFbipViolation {
@@ -382,9 +392,10 @@ impl From<ori_llvm::aot::OptimizationError> for CodegenProblem {
                 pipeline: String::new(),
                 message,
             },
-            OptimizationError::InvalidPipeline { pipeline, message } => {
-                Self::OptimizationFailed { pipeline, message }
-            }
+            OptimizationError::InvalidPipeline { pipeline, source } => Self::OptimizationFailed {
+                pipeline,
+                message: source.to_string(),
+            },
             OptimizationError::BitcodeWriteFailed { path } => Self::EmissionFailed {
                 format: "bitcode".into(),
                 path,

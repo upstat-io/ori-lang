@@ -6,8 +6,9 @@
 
 use ori_ir::{Name, TokenKind};
 
+use crate::cook_escape::{unescape_char, unescape_string, unescape_template};
+
 use super::{slice_source, CookResult, TokenCooker};
-use crate::cook_escape::{unescape_char_v2, unescape_string_v2, unescape_template_v2};
 
 impl TokenCooker<'_> {
     /// Cook a string literal: strip quotes, unescape, intern.
@@ -19,7 +20,7 @@ impl TokenCooker<'_> {
         // base_offset is one past the opening quote
         let content_offset = offset + 1;
 
-        let name = match unescape_string_v2(content, content_offset, &mut self.errors) {
+        let name = match unescape_string(content, content_offset, &mut self.errors) {
             Some(unescaped) => self.interner.intern_owned(unescaped),
             None => {
                 // Fast path: no escapes, intern source slice directly
@@ -42,7 +43,7 @@ impl TokenCooker<'_> {
         let content = &text[1..text.len() - 1];
         let content_offset = offset + 1;
 
-        let c = unescape_char_v2(content, content_offset, &mut self.errors);
+        let c = unescape_char(content, content_offset, &mut self.errors);
         let kind = TokenKind::Char(c);
         if self.errors.len() > errors_before {
             CookResult::with_error(kind)
@@ -52,7 +53,7 @@ impl TokenCooker<'_> {
     }
 
     /// Shared skeleton for all template segment cooking: strip surrounding
-    /// delimiters, unescape via `unescape_template_v2`, intern, check errors.
+    /// delimiters, unescape via `unescape_template`, intern, check errors.
     ///
     /// The four template variants (`Head`, `Middle`, `Tail`, `Full`) share this
     /// exact algorithm and differ only in which `TokenKind` wraps the result.
@@ -67,7 +68,7 @@ impl TokenCooker<'_> {
         let content = &text[1..text.len() - 1];
         let content_offset = offset + 1;
 
-        let name = match unescape_template_v2(content, content_offset, &mut self.errors) {
+        let name = match unescape_template(content, content_offset, &mut self.errors) {
             Some(unescaped) => self.interner.intern_owned(unescaped),
             None => self.interner.intern(content),
         };

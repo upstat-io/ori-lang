@@ -1,7 +1,7 @@
 //! Simple type-building helpers on [`InferEngine`].
 //!
 //! Literal inference returns the pre-interned primitive `Idx`s
-//! (`types.md §TY-5`); collection/compound helpers delegate straight to the
+//! ; collection/compound helpers delegate straight to the
 //! pool constructors. Grouped here to keep `infer/mod.rs` as the thin engine
 //! facade.
 

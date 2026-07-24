@@ -1,0 +1,73 @@
+Theorem TF-5: Apply (no contract) transfer produces CONSERVATIVE
+
+  Preconditions:
+    - Instruction is `Apply { dst, func, args }` per Annex E §AIMS TF-5
+    - `func` has NO `MemoryContract` available (unknown callee — direct call
+      to unresolved fn, dyn-trait dispatch lacking contract, opaque FFI)
+    - CONSERVATIVE per Annex E §AIMS TF-5 + Appendix A row 6:
+      `(Owned, Unrestricted, Many, MaybeShared, Unknown, NonReusable, ALL)`
+      where ALL = 0b111 = {may_alloc=true, may_share=true, may_throw=true}
+
+  Soundness property:
+    transfer_tf5(Apply { _, _, _ }) = CONSERVATIVE (constant function,
+    independent of input state and arg values).
+    L-6 layer (b) monotonicity: f(_) = CONSERVATIVE is constant; trivially
+    monotone per L-4 reflexivity.
+
+  Proof obligation:
+    Three-part discharge:
+      (a) Output enumeration — verify Appendix A row 6 emission column-wise:
+          access = Owned; consumption = Unrestricted; cardinality = Many;
+          uniqueness = MaybeShared; locality = Unknown;
+          shape = NonReusable; effect = ALL = 0b111.
+      (b) CONSERVATIVE design correctness check — verify the value is
+          operationally correct, NOT lattice TOP per Annex E §AIMS TF-5:
+          "MaybeShared NOT Shared — enables dynamic COW. CONSERVATIVE NOT
+          lattice TOP for Uniqueness." Shared would be TOP for Uniqueness
+          (Unique ≤ MaybeShared ≤ Shared); CONSERVATIVE picks MaybeShared
+          to enable runtime IsShared (DP-4) check vs forcing static copy.
+      (c) L-6 layer (b) monotonicity — constant function f(_) = CONSERVATIVE
+          trivially monotone: forall a, b in AimsState input domain,
+          f(a) = f(b) = CONSERVATIVE; CONSERVATIVE ≤ CONSERVATIVE by L-4
+          reflexivity; hence f(a) ≤ f(b).
+
+    Part (a) — column-wise verification:
+      Access = Owned: Apply result is owned by the caller (callee returned
+        a fresh reference, OR transferred ownership of a callee-local).
+      Consumption = Unrestricted: caller may use the result arbitrarily.
+      Cardinality = Many: backward analysis refines actual usage; forward
+        emits the most-permissive value.
+      Uniqueness = MaybeShared: NOT Shared — preserves the runtime
+        IsShared check option for dynamic COW (RL-7).
+      Locality = Unknown: unknown callee may return any locality.
+      Shape = NonReusable: no shape information available without contract.
+      Effect = ALL: unknown callee may allocate / share / throw.
+
+    Part (b) — non-TOP-for-Uniqueness check per §3 TF-5 explicit guidance:
+      Verifier ensures CONSERVATIVE.uniqueness != Shared.
+      Per UNIQUENESS_CARRIER chain {Unique, MaybeShared, Shared}, Shared is
+      the chain's top element. CONSERVATIVE picks MaybeShared — a deliberate
+      design choice to preserve dynamic-COW eligibility (DP-4 returns true
+      on MaybeShared, false on Shared). Engine verifies this invariant by
+      asserting CONSERVATIVE.uniqueness == "MaybeShared" — not "Shared".
+
+    Part (c) — constant-function monotonicity:
+      f(_) = CONSERVATIVE = (Owned, Unrestricted, Many, MaybeShared, Unknown,
+      NonReusable, 0b111). For any state pair (a, b) with a ≤ b in the
+      input domain, f(a) = f(b) = CONSERVATIVE. By L-4 reflexivity,
+      CONSERVATIVE ≤ CONSERVATIVE on the product lattice (every dimension
+      reflexively comparable). Hence f(a) ≤ f(b).
+
+    Engines dispatched:
+      monotonicity (PRIMARY — L-6 layer (b) constant-function discharge per
+        section_04::verify_tf5_apply_no_contract_conservative)
+      case_analysis (PRIMARY — Appendix A row 6 forward-transfer column
+        verification + non-TOP design-correctness check per
+        section_04::verify_tf5_apply_no_contract_conservative)
+      lattice (SECONDARY — accepts gracefully)
+      refinement (SECONDARY — accepts gracefully; TF-5 emits CONSERVATIVE
+        directly; refine() is TF-6 / TF-6a territory)
+
+  Expected:
+    status: valid
+    reason: section_04 monotonicity + case_analysis engines discharge TF-5 via Appendix A row 6 column-wise emission + non-TOP-for-Uniqueness design check + constant-function monotonicity

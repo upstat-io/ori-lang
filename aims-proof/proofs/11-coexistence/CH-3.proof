@@ -1,0 +1,259 @@
+Theorem CH-3: Per-class coexistence with active stack burden — three sub-classes
+
+  Preconditions:
+    - depends-on CH-1 (Burden-registry-lattice composition soundness) at
+      aims-proof/proofs/11-coexistence/CH-1.proof — CH-1's Part (P3) per-class
+      coexistence well-formedness skeleton is the partition-discharge premise
+      CH-3 expands here in detail (CH-1 cites the partition's well-formedness
+      as a precondition for the lattice-bridge consistency; CH-3 discharges
+      the partition itself)
+    - Three AIMS variable classes per the §11 coexistence section Per-CH Proof-Status Tracking
+      table CH-3 row + the sec-11 success_criterion 12 IC-3 binding:
+        sub-class A: Owned x Linear x Once x Unique — RL-2 logical-release
+                     class (burden-emission-eligible)
+        sub-class B: Borrowed x Linear x Once x Unique — caller-owned class
+                     (no callee-owned release emission; borrowed locality
+                      clamped to FunctionLocal per CN-8)
+        sub-class C: MaybeShared x Many — RL-7 dynamic COW candidate
+                     (IsShared runtime check; alloc-and-copy slow path)
+    - depends-on sec-06 IC-3 ParamContract at aims-proof/proofs/06-interprocedural/
+      IC-3-param-join.proof — class identification per callee-parameter
+      contract dimensions (Access, Consumption, Cardinality, Uniqueness,
+      Locality, may_share); the burden registry's class_covered annotation
+      consumes the IC-3 contract dimensions to classify a variable's AIMS
+      class
+    - depends-on sec-02 L-9 (SCALAR exclusion) at aims-proof/proofs/02-lattice/
+      L-9.proof — SCALAR is a sentinel, NOT a lattice element; analysis
+      excludes scalars from state map; CH-3's class partition operates only
+      on non-SCALAR variables
+    - depends-on sec-02 L-5 (finite height) at aims-proof/proofs/02-lattice/
+      L-5.proof — every lattice dimension has bounded height; the (Access x
+      Uniqueness x Cardinality x Consumption) sub-product has finite
+      cardinality (2 x 3 x 3 x 4 = 72 raw rows; CN-1..CN-8 prune to canonical
+      subset), enabling exhaustive case-analysis enumeration
+    - depends-on sec-02 L-7 (canonicalization idempotence) at aims-proof/proofs/
+      02-lattice/L-7.proof — class membership predicates are computed on
+      canonical states post-CN-1..CN-8; repeated class-membership queries
+      are stable
+    - depends-on sec-08 RL-2 (last-use dec) at aims-proof/proofs/08-realization/
+      RL-2.proof — RC dec at last use or scope exit; sub-class A's
+      realization invariant
+    - depends-on sec-08 RL-14a (exact cleanup obligation) at aims-proof/proofs/
+      08-realization/RL-14a.proof — logical release-event identities and field
+      traversal order are preserved exactly for sub-class A. RL-14 lifetime
+      facts and RL-15 representation extent are orthogonal to this ownership
+      partition; RL-18 validates any target-owned physical mechanism
+    - depends-on sec-08 RL-7 at aims-proof/proofs/08-realization/RL-7.proof —
+      MaybeShared values retain a sharing-observation obligation whose
+      outcomes admit same identity or require isolation; sub-class C's invariant
+    - depends-on CN-8 (Borrowed locality ceiling) at aims-proof/proofs/03-
+      canonicalization/CN-8.proof — Access = Borrowed and Locality > FunctionLocal
+      implies Locality := FunctionLocal; sub-class B's locality is canonically
+      bounded
+    - depends-on CN-6 (wide-locality uniqueness ceiling) at aims-proof/proofs/
+      03-canonicalization/CN-6.proof — Locality >= HeapEscaping and Uniqueness
+      = Unique implies Uniqueness := MaybeShared; sub-class C variables with
+      HeapEscaping locality are automatically demoted to MaybeShared (the
+      class C entry condition)
+
+  Soundness property:
+    Forall ArcFunction F. Forall AimsStateMap L (converged). Forall variable v in vars(F)
+    with L[v] != SCALAR.
+
+      (P1) Total partition: every non-SCALAR variable v belongs to exactly
+        one of the three sub-classes:
+
+          class_of(v) = A iff L[v].access = Owned
+                          and L[v].uniqueness = Unique
+                          and L[v].cardinality = Once
+                          and L[v].consumption = Linear
+          class_of(v) = B iff L[v].access = Borrowed
+                          and L[v].uniqueness = Unique
+                          and L[v].cardinality = Once
+                          and L[v].consumption = Linear
+          class_of(v) = C iff L[v].uniqueness = MaybeShared
+                          and L[v].cardinality = Many
+
+        Variables that do not match any of A / B / C are non-burden-
+        eligible (the burden registry's class_covered annotation excludes
+        them); the three named classes carve out the burden-relevant subset
+        of the lattice state space.
+
+      (P2) Disjointness: Forall v in vars(F) with L[v] != SCALAR.
+        not(class_of(v) = A and class_of(v) = B)
+        and not(class_of(v) = A and class_of(v) = C)
+        and not(class_of(v) = B and class_of(v) = C)
+
+        The three sub-classes are pairwise disjoint via mutually-exclusive
+        lattice-dimension witnesses (A disjoint B via Access; A disjoint C via Uniqueness
+        + Cardinality; B disjoint C via Uniqueness + Cardinality).
+
+      (P3) Per-class realization invariant + burden agreement: for each
+        sub-class, the lattice's claim AND the burden registry's annotation
+        agree:
+
+          class_of(v) = A implies consume_stack honors RL-2 last-use release AND
+                              RL-14a exact cleanup-event identity;
+                              burden registry annotation MUST agree
+                              (BR.burden_emitted[v] = true)
+          class_of(v) = B implies consume_stack honors Borrowed caller ownership
+                              (no callee-owned release emission); burden annotation
+                              MUST agree (BR.burden_emitted[v] = false —
+                              Borrowed values never enter burden_emission_path)
+          class_of(v) = C implies consume_stack honors RL-7 dynamic COW slow-path
+                              (IsShared runtime check); burden registry
+                              annotation MUST flag MaybeShared (BR.burden_
+                              emitted[v] = false — MaybeShared values are
+                              outside the burden-owned conjunction per
+                              Handshake.proof Predicate 1)
+
+  Proof obligation:
+    Three-part constructive discharge via case_analysis (PRIMARY engine)
+    enumerating canonical states post-CN-1..CN-8 in Appendix B + Appendix C
+    of Annex E §AIMS, mirroring the sec-09 VF-3 oracle re-derivation shape.
+
+    Part (P1) — total partition:
+
+      Per L-5 finite height, the (Access x Uniqueness x Cardinality x
+      Consumption) sub-product has finite cardinality:
+        |Access| = 2 (Borrowed, Owned)
+        |Uniqueness| = 3 (Unique, MaybeShared, Shared)
+        |Cardinality| = 3 (Absent, Once, Many)
+        |Consumption| = 4 (Dead, Linear, Affine, Unrestricted)
+        Raw product = 2 x 3 x 3 x 4 = 72 rows.
+
+      Per CN-1 (Dead iff Absent), the (Dead, !=Absent) and (!=Dead, Absent) rows
+      collapse to (Dead, Absent), reducing 24 raw rows to 6 canonical rows
+      with Consumption = Dead and Cardinality = Absent (one per Access x
+      Uniqueness combination). The non-Dead non-Absent rows total
+      2 x 3 x 2 x 3 = 36.
+
+      Per CN-3 (Shared implies NonReusable), Shared is preserved on the input but
+      Shape is forced NonReusable; Shape is orthogonal to the (Access x
+      Uniqueness x Cardinality x Consumption) sub-product, so CN-3 does NOT
+      reduce row count for this enumeration.
+
+      Per CN-6 (HeapEscaping and Unique implies MaybeShared), variables with wide
+      locality demote Unique -> MaybeShared in their lattice state; the demoted
+      states naturally enter sub-class C (Uniqueness = MaybeShared).
+
+      Per CN-8 (Borrowed and Locality > FunctionLocal implies FunctionLocal), sub-
+      class B's locality is canonically bounded to FunctionLocal; sub-class
+      B never coexists with wide locality.
+
+      Class A row exactly matches the (Owned, Unique, Once, Linear) cell of
+      the canonical sub-product:
+        Owned x Unique x Once x Linear = exactly 1 canonical row, satisfies
+        burden-owned per Handshake.proof Predicate 1.
+
+      Class B row exactly matches the (Borrowed, Unique, Once, Linear) cell:
+        Borrowed x Unique x Once x Linear = exactly 1 canonical row, fails
+        burden-owned's first conjunct (Access = Owned), excluded from
+        burden_emission_path.
+
+      Class C row matches the (*, MaybeShared, Many, *) slice:
+        any Access x MaybeShared x Many x any Consumption = 2 x 1 x 1 x 4 = 8
+        canonical rows, fail burden-owned's third conjunct (Uniqueness =
+        Unique), excluded from burden_emission_path.
+
+      Conclusion (P1): every non-SCALAR variable's canonical L[v] falls into
+      exactly one of three carved subsets of the sub-product. Burden
+      registry's class_covered predicate identifies sub-class A as the
+      burden-eligible class; sub-classes B + C are non-burden-eligible by
+      construction.
+
+    Part (P2) — disjointness:
+
+      Pairwise disjointness reduces to per-dimension witness contradictions:
+
+        A disjoint B: L[v].access = Owned != Borrowed = L[v].access (Access dim
+        witness contradiction; canonical states have a single Access value
+        per L-1 idempotence of join).
+
+        A disjoint C: L[v].uniqueness = Unique != MaybeShared = L[v].uniqueness
+        (Uniqueness dim witness contradiction; per L-1 + L-9, scalars are
+        excluded and remaining Uniqueness values are pairwise distinct).
+        Additional witness: L[v].cardinality = Once != Many = L[v].cardinality
+        (Cardinality dim).
+
+        B disjoint C: L[v].uniqueness = Unique != MaybeShared (Uniqueness dim);
+        L[v].cardinality = Once != Many (Cardinality dim). Two witnesses
+        amplify confidence; either alone suffices.
+
+      Per L-9 SCALAR exclusion, all non-class-eligible variables (variables
+      whose L[v] does not match A / B / C) are either SCALAR (excluded from
+      analysis per sec-6 IA-1) or fall into the non-burden-eligible complement
+      (Shared, Dead, partial states, etc.) — outside CH-3's discharge scope.
+
+      Conclusion (P2): the three sub-classes are pairwise disjoint at the
+      lattice-dimension level; no variable v with non-SCALAR L[v] can satisfy
+      two distinct class membership predicates simultaneously.
+
+    Part (P3) — per-class realization invariant + burden agreement:
+
+      Per CH-1 Part (P3) per-class coexistence well-formedness, the burden
+      registry's class_covered annotation IS derived from the same lattice-
+      bridge predicate (burden-owned per Handshake.proof Predicate 1) that
+      identifies sub-class A. Therefore burden agreement is automatic for
+      classes A / B / C:
+
+        Class A: burden-owned holds (the full conjunction satisfied);
+          BR.burden_emitted[v] = true per the lattice-bridge consistency
+          (CH-1 P1); consume_stack reads BR's annotation and emits the
+          single elimination decision per CH-2 (P1). RL-2's last-use release
+          is derived from L's converged state; RL-14a freezes the exact release
+          and field-traversal identities. Burden-emission and predicate-stack-
+          derived ops both honor that logical contract (per CH-2 P2
+          composition commutativity). LifetimeBound, ExtentClass, and target
+          placement are independent of this class judgment.
+
+        Class B: burden-owned fails on the Access = Owned conjunct (L[v].
+          access = Borrowed); BR.burden_emitted[v] = false (the burden walk
+          skips Borrowed variables per the shipped burden_lower.rs
+          DerivedOwnership side-table consumption per
+          docs/ori_lang/proposals/approved/aims-burden-tracking-proposal.md
+          coverage shape); Borrowed caller ownership carries no callee-owned
+          release at this use; consume_stack does NOT enter
+          burden_emission_path for Class B variables.
+
+        Class C: burden-owned fails on the Uniqueness = Unique conjunct
+          (L[v].uniqueness = MaybeShared); BR.burden_emitted[v] = false;
+          RL-7 dynamic COW IsShared runtime check is emitted per sec-08
+          RL-7.proof; consume_stack does NOT enter burden_emission_path
+          for Class C variables. Burden elimination would race-invalidate
+          the logical sharing observation that `IsShared` requires, while
+          burden elimination assumes that observation is unnecessary — a
+          contradiction. Header shape and the physical sharing probe belong
+          to the selected layout, not to this AIMS judgment.
+
+      Conclusion (P3): per-class realization invariant + burden agreement
+      holds across all three sub-classes. Class A is the burden-emission-
+      eligible class; Classes B + C are non-burden-eligible by lattice-bridge
+      predicate exclusion (CH-1 P1 inherited); consume_stack's per-class
+      emission honors the lattice's realization invariants AND the burden
+      registry's annotation simultaneously.
+
+    Coverage gate: the three Parts (P1, P2, P3) together discharge the
+    partition's totality + disjointness invariant + per-class realization
+    invariant per the sec-01 Composition.proof:69 sorry obligation. A regression
+    dropping any Part leaves the partition unverified — the joined CH-3
+    claim is no stronger than its weakest part.
+
+    Engines dispatched:
+      structural_induction (CO-PRIMARY — per the §11 coexistence section Per-CH Proof-Status
+        Tracking table CH-3 row + Composition.proof:93-97 skeleton dispatch;
+        per-instruction structural-check soundness over (P3) per-class
+        realization invariant emission)
+      interprocedural_summary (CO-PRIMARY — per Composition.proof:93-97;
+        SCC-level class identification under IC-3 ParamContract dimensions)
+      case_analysis (PRIMARY — per the §11 coexistence section table CH-3 row + the partition's
+        canonical-state enumeration in Part (P1) over Appendix B + Appendix
+        C truth tables; pairwise disjointness in (P2) via lattice-dimension
+        witness contradictions)
+      lattice (CO-PRIMARY — L-5 finite height for the sub-product
+        enumeration; L-1 join idempotence for the canonical-state witness
+        argument; L-9 SCALAR exclusion gating the analysis subspace)
+
+  Expected:
+    status: valid
+    reason: section_11 case_analysis (PRIMARY) + structural_induction + interprocedural_summary + lattice engines discharge CH-3 via (P1) total partition proven by canonical-state enumeration over the (Access x Uniqueness x Cardinality x Consumption) sub-product post- CN-1..CN-8 reduction, with sub-classes A / B / C each matching exactly one canonical row (A) or row slice (C); (P2) pairwise disjointness proven by per-dimension witness contradictions (Access for A disjoint B; Uniqueness + Cardinality for A disjoint C, B disjoint C); (P3) per-class logical realization invariant + burden agreement proven from CH-1 Part P3 inherited lattice-bridge predicate + sec-08 RL-2 / RL-14a / RL-7 invariants + the burden registry's lattice-bridge-derived class_covered annotation, with lifetime/extent/physical projection explicitly orthogonal; coverage gate: exactly 3 Parts discharged, a dropped Part fails CH-3 (the joined claim is no stronger than its weakest part)

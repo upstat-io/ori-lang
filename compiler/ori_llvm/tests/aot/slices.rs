@@ -15,7 +15,7 @@ use crate::util::assert_aot_success;
 // ─── list.slice(start:, end:) ───
 
 #[test]
-fn test_list_slice_basic() {
+fn test_list_slice_middle_range_bounds() {
     assert_aot_success(
         include_str!("fixtures/slices/list_slice_basic.ori"),
         "list_slice_basic",
@@ -65,7 +65,7 @@ fn test_list_slice_to_end() {
 // ─── list.take(count:) ───
 
 #[test]
-fn test_list_take_basic() {
+fn test_list_take_prefix_keeps_first_three() {
     assert_aot_success(
         include_str!("fixtures/slices/list_take_basic.ori"),
         "list_take_basic",
@@ -91,7 +91,7 @@ fn test_list_take_all() {
 // ─── list.drop(count:) ───
 
 #[test]
-fn test_list_drop_basic() {
+fn test_list_drop_prefix_keeps_tail_three() {
     assert_aot_success(
         include_str!("fixtures/slices/list_drop_basic.ori"),
         "list_drop_basic",
@@ -117,7 +117,7 @@ fn test_list_drop_all() {
 // ─── str.substring(start:, end:) ───
 
 #[test]
-fn test_str_substring_basic() {
+fn test_str_substring_prefix_five_chars() {
     assert_aot_success(
         include_str!("fixtures/slices/str_substring_basic.ori"),
         "str_substring_basic",
@@ -143,7 +143,7 @@ fn test_str_substring_empty() {
 // ─── str.slice(start:, end:) — alias for substring ───
 
 #[test]
-fn test_str_slice_basic() {
+fn test_str_slice_middle_range_chars() {
     assert_aot_success(
         include_str!("fixtures/slices/str_slice_basic.ori"),
         "str_slice_basic",

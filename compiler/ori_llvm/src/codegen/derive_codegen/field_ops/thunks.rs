@@ -11,7 +11,9 @@ use crate::codegen::function_compiler::FunctionCompiler;
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
 
-use super::{compute_elem_size, needs_deep_comparison};
+use super::option_thunk::get_or_create_option_eq_thunk;
+use super::result_thunk::get_or_create_result_eq_thunk;
+use super::runtime_calls::{compute_elem_size, needs_deep_comparison};
 use crate::codegen::derive_codegen::verify_derive_function;
 
 /// Get a function pointer to an equality thunk for use in map/list comparison.
@@ -74,7 +76,7 @@ pub(super) fn get_or_create_derive_eq_thunk<'a>(
         let saved_pos = fc.builder_mut().save_position();
         let saved_func = fc.builder_mut().current_function();
 
-        fc.builder_mut().set_ccc(func_id);
+        fc.builder_mut().set_module_local(func_id);
         fc.builder_mut().add_nounwind_attribute(func_id);
         let entry = fc.builder_mut().append_block(func_id, "entry");
         fc.builder_mut().position_at_end(entry);
@@ -108,18 +110,17 @@ pub(super) fn get_or_create_derive_eq_thunk<'a>(
 /// (str, nested collections), calls `ori_list_eq_deep` with an inner eq thunk.
 fn get_or_create_list_eq_thunk<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    _list_ty: Idx,
+    list_ty: Idx,
     element_ty: Idx,
 ) -> Option<ValueId> {
     let elem_info = fc.type_info().get(element_ty);
     let use_deep = needs_deep_comparison(&elem_info);
-    let elem_size = compute_elem_size(fc, element_ty, &elem_info);
+    let elem_size = compute_elem_size(fc, list_ty, element_ty, &elem_info);
 
-    // For deep comparison, we need an inner thunk for element equality
+    // Why: Deep comparisons dispatch through an element equality thunk.
     let inner_thunk = if use_deep {
         get_or_create_derive_eq_thunk(fc, element_ty, &elem_info)?
     } else {
-        // Not used — just a placeholder
         fc.builder_mut().const_null_ptr()
     };
 
@@ -137,7 +138,7 @@ fn get_or_create_list_eq_thunk<'a>(
         let saved_pos = fc.builder_mut().save_position();
         let saved_func = fc.builder_mut().current_function();
 
-        fc.builder_mut().set_ccc(func_id);
+        fc.builder_mut().set_module_local(func_id);
         fc.builder_mut().add_nounwind_attribute(func_id);
         let entry = fc.builder_mut().append_block(func_id, "entry");
         fc.builder_mut().position_at_end(entry);
@@ -158,177 +159,6 @@ fn get_or_create_list_eq_thunk<'a>(
                 .call(eq_fn, &[a_ptr, b_ptr, elem_size_val], "eq")
                 .unwrap_or_else(|| fc.builder_mut().const_bool(false))
         };
-        fc.builder_mut().ret(result);
-
-        verify_derive_function(fc, func_id, "derive_thunk");
-        fc.builder_mut().restore_position(saved_pos);
-        if let Some(f) = saved_func {
-            fc.builder_mut().set_current_function(f);
-        }
-    }
-
-    Some(fc.builder_mut().get_function_ptr(func_id))
-}
-
-/// Generate a thunk `(ptr, ptr) -> bool` for Option<T> equality.
-///
-/// Loads the tag (i64 at offset 0) from each pointer, compares tags,
-/// then if both Some, compares payloads at offset 8 using the inner eq thunk.
-fn get_or_create_option_eq_thunk<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    ty: Idx,
-    inner_ty: Idx,
-) -> Option<ValueId> {
-    let inner_info = fc.type_info().get(inner_ty);
-    let inner_eq_thunk = get_or_create_derive_eq_thunk(fc, inner_ty, &inner_info)?;
-
-    let func_name = format!("_ori_eq_option_{}", ty.raw());
-    let ptr_ty = fc.builder_mut().ptr_type();
-    let bool_ty = fc.builder_mut().bool_type();
-    let func_id = fc
-        .builder_mut()
-        .get_or_declare_function(&func_name, &[ptr_ty, ptr_ty], bool_ty);
-
-    if !fc.builder_mut().function_has_body(func_id) {
-        let saved_pos = fc.builder_mut().save_position();
-        let saved_func = fc.builder_mut().current_function();
-
-        fc.builder_mut().set_ccc(func_id);
-        fc.builder_mut().add_nounwind_attribute(func_id);
-        let entry = fc.builder_mut().append_block(func_id, "entry");
-        fc.builder_mut().position_at_end(entry);
-        fc.builder_mut().set_current_function(func_id);
-
-        let a_ptr = fc.builder_mut().get_param(func_id, 0);
-        let b_ptr = fc.builder_mut().get_param(func_id, 1);
-
-        // Load tags (i64 at offset 0)
-        let i64_ty_id = fc.builder_mut().i64_type();
-        let a_tag = fc.builder_mut().load(i64_ty_id, a_ptr, "a_tag");
-        let b_tag = fc.builder_mut().load(i64_ty_id, b_ptr, "b_tag");
-        let tags_eq = fc.builder_mut().icmp_eq(a_tag, b_tag, "tags_eq");
-
-        // Payload pointers at byte offset 8 (after i64 tag)
-        let i8_ty_id = fc.builder_mut().i8_type();
-        let offset_8 = fc.builder_mut().const_i64(8);
-        let a_payload = fc.builder_mut().gep(i8_ty_id, a_ptr, &[offset_8], "a_pay");
-        let b_payload = fc.builder_mut().gep(i8_ty_id, b_ptr, &[offset_8], "b_pay");
-
-        // Compare payloads using inner thunk (indirect call through fn ptr)
-        let bool_ty_id = fc.builder_mut().bool_type();
-        let payload_eq = fc
-            .builder_mut()
-            .call_indirect(
-                bool_ty_id,
-                &[ptr_ty, ptr_ty],
-                inner_eq_thunk,
-                &[a_payload, b_payload],
-                "pay_eq",
-            )
-            .unwrap_or_else(|| fc.builder_mut().const_bool(false));
-
-        // None tag = 1: both None -> true. Some tag = 0: compare payloads.
-        let one = fc.builder_mut().const_i64(1);
-        let is_none = fc.builder_mut().icmp_eq(a_tag, one, "is_none");
-        let true_val = fc.builder_mut().const_bool(true);
-        let same_result = fc
-            .builder_mut()
-            .select(is_none, true_val, payload_eq, "same_eq");
-        let false_val = fc.builder_mut().const_bool(false);
-        let result = fc
-            .builder_mut()
-            .select(tags_eq, same_result, false_val, "eq");
-        fc.builder_mut().ret(result);
-
-        verify_derive_function(fc, func_id, "derive_thunk");
-        fc.builder_mut().restore_position(saved_pos);
-        if let Some(f) = saved_func {
-            fc.builder_mut().set_current_function(f);
-        }
-    }
-
-    Some(fc.builder_mut().get_function_ptr(func_id))
-}
-
-/// Generate a thunk `(ptr, ptr) -> bool` for Result<T, E> equality.
-///
-/// Loads the tag (i64 at offset 0) from each pointer, compares tags,
-/// then if same variant, compares payloads using Ok or Err eq thunk.
-fn get_or_create_result_eq_thunk<'a>(
-    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
-    ty: Idx,
-    ok_ty: Idx,
-    err_ty: Idx,
-) -> Option<ValueId> {
-    let ok_info = fc.type_info().get(ok_ty);
-    let err_info = fc.type_info().get(err_ty);
-    let ok_eq = get_or_create_derive_eq_thunk(fc, ok_ty, &ok_info)?;
-    let err_eq = get_or_create_derive_eq_thunk(fc, err_ty, &err_info)?;
-
-    let func_name = format!("_ori_eq_result_{}", ty.raw());
-    let ptr_ty = fc.builder_mut().ptr_type();
-    let bool_ty = fc.builder_mut().bool_type();
-    let func_id = fc
-        .builder_mut()
-        .get_or_declare_function(&func_name, &[ptr_ty, ptr_ty], bool_ty);
-
-    if !fc.builder_mut().function_has_body(func_id) {
-        let saved_pos = fc.builder_mut().save_position();
-        let saved_func = fc.builder_mut().current_function();
-
-        fc.builder_mut().set_ccc(func_id);
-        fc.builder_mut().add_nounwind_attribute(func_id);
-        let entry = fc.builder_mut().append_block(func_id, "entry");
-        fc.builder_mut().position_at_end(entry);
-        fc.builder_mut().set_current_function(func_id);
-
-        let a_ptr = fc.builder_mut().get_param(func_id, 0);
-        let b_ptr = fc.builder_mut().get_param(func_id, 1);
-
-        // Load tags
-        let i64_ty_id = fc.builder_mut().i64_type();
-        let a_tag = fc.builder_mut().load(i64_ty_id, a_ptr, "a_tag");
-        let b_tag = fc.builder_mut().load(i64_ty_id, b_ptr, "b_tag");
-        let tags_eq = fc.builder_mut().icmp_eq(a_tag, b_tag, "tags_eq");
-
-        // Payload pointers at byte offset 8
-        let i8_ty_id = fc.builder_mut().i8_type();
-        let offset_8 = fc.builder_mut().const_i64(8);
-        let a_payload = fc.builder_mut().gep(i8_ty_id, a_ptr, &[offset_8], "a_pay");
-        let b_payload = fc.builder_mut().gep(i8_ty_id, b_ptr, &[offset_8], "b_pay");
-
-        // Compare as Ok (always evaluate both; branchless)
-        let bool_ty_id = fc.builder_mut().bool_type();
-        let ok_result = fc
-            .builder_mut()
-            .call_indirect(
-                bool_ty_id,
-                &[ptr_ty, ptr_ty],
-                ok_eq,
-                &[a_payload, b_payload],
-                "ok_eq",
-            )
-            .unwrap_or_else(|| fc.builder_mut().const_bool(false));
-        // Compare as Err
-        let err_result = fc
-            .builder_mut()
-            .call_indirect(
-                bool_ty_id,
-                &[ptr_ty, ptr_ty],
-                err_eq,
-                &[a_payload, b_payload],
-                "err_eq",
-            )
-            .unwrap_or_else(|| fc.builder_mut().const_bool(false));
-
-        // Ok tag = 0, Err tag = 1
-        let zero = fc.builder_mut().const_i64(0);
-        let is_ok = fc.builder_mut().icmp_eq(a_tag, zero, "is_ok");
-        let same_eq = fc
-            .builder_mut()
-            .select(is_ok, ok_result, err_result, "same_eq");
-        let false_val = fc.builder_mut().const_bool(false);
-        let result = fc.builder_mut().select(tags_eq, same_eq, false_val, "eq");
         fc.builder_mut().ret(result);
 
         verify_derive_function(fc, func_id, "derive_thunk");
@@ -368,7 +198,7 @@ fn get_or_create_tuple_eq_thunk<'a>(
         let saved_pos = fc.builder_mut().save_position();
         let saved_func = fc.builder_mut().current_function();
 
-        fc.builder_mut().set_ccc(func_id);
+        fc.builder_mut().set_module_local(func_id);
         fc.builder_mut().add_nounwind_attribute(func_id);
         let entry = fc.builder_mut().append_block(func_id, "entry");
         fc.builder_mut().position_at_end(entry);
@@ -455,7 +285,7 @@ fn get_or_create_user_type_eq_thunk<'a>(
         let saved_pos = fc.builder_mut().save_position();
         let saved_func = fc.builder_mut().current_function();
 
-        fc.builder_mut().set_ccc(func_id);
+        fc.builder_mut().set_module_local(func_id);
         fc.builder_mut().add_nounwind_attribute(func_id);
         let entry = fc.builder_mut().append_block(func_id, "entry");
         fc.builder_mut().position_at_end(entry);
@@ -533,7 +363,7 @@ pub(super) fn get_or_create_derive_hash_thunk<'a>(
         let saved_pos = fc.builder_mut().save_position();
         let saved_func = fc.builder_mut().current_function();
 
-        fc.builder_mut().set_ccc(func_id);
+        fc.builder_mut().set_module_local(func_id);
         fc.builder_mut().add_nounwind_attribute(func_id);
         let entry = fc.builder_mut().append_block(func_id, "entry");
         fc.builder_mut().position_at_end(entry);
@@ -549,7 +379,9 @@ pub(super) fn get_or_create_derive_hash_thunk<'a>(
             TypeInfo::Float => fc.builder_mut().bitcast(val, i64_ty, "h"),
             TypeInfo::Bool | TypeInfo::Byte => fc.builder_mut().zext(val, i64_ty, "h"),
             TypeInfo::Char => fc.builder_mut().sext(val, i64_ty, "h"),
-            _ => unreachable!(),
+            other => {
+                unreachable!("non-primitive TypeInfo {other:?} passed to primitive hash thunk")
+            }
         };
         fc.builder_mut().ret(result);
 
@@ -581,7 +413,7 @@ fn get_or_create_constant_hash_thunk<'a>(
         let saved_pos = fc.builder_mut().save_position();
         let saved_func = fc.builder_mut().current_function();
 
-        fc.builder_mut().set_ccc(func_id);
+        fc.builder_mut().set_module_local(func_id);
         fc.builder_mut().add_nounwind_attribute(func_id);
         let entry = fc.builder_mut().append_block(func_id, "entry");
         fc.builder_mut().position_at_end(entry);

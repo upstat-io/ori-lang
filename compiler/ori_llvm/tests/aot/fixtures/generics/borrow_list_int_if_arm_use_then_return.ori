@@ -1,0 +1,24 @@
+// (B-1) Branched control-flow extension: borrowed [int] param + use in
+// `if` arm + Return. Each arm independently exercises Return-as-transfer;
+// verifies the pre-compute set covers diverging then/else paths
+// (B-1 within one branch).
+
+@borrow_if_use (xs: [int], flag: bool) -> [int] = {
+    if flag then {
+        print(msg: `using-then: {xs.len()}`);
+        xs
+    } else {
+        print(msg: `using-else: {xs[0]}`);
+        xs
+    }
+};
+
+@main () -> int = {
+    let original_a = [11, 22, 33];
+    let returned_a = borrow_if_use(xs: original_a, flag: true);
+    let original_b = [44, 55];
+    let returned_b = borrow_if_use(xs: original_b, flag: false);
+    let a_ok = returned_a.len() == 3 && returned_a[0] == 11;
+    let b_ok = returned_b.len() == 2 && returned_b[0] == 44;
+    if a_ok && b_ok then 0 else 1
+}

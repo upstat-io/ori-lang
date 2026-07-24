@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn tuple_method_count() {
-    assert_eq!(TUPLE.methods.len(), 6);
+    assert_eq!(TUPLE.methods.len(), 7);
 }
 
 #[test]

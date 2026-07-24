@@ -1,0 +1,13 @@
+type Box = { rows: [int], tags: [int] }
+
+@relay (rows: [int], fail: bool) -> [int] =
+    if fail then panic(msg: "negative") else rows;
+
+@update (box: Box, fail: bool) -> Box =
+    Box { rows: relay(rows: box.rows, fail:), tags: box.tags };
+
+@main () -> void = {
+    let box = Box { rows: [1, 2], tags: [3, 4] };
+    let result = catch(expr: update(box:, fail: true));
+    print(msg: result.is_err().to_str())
+}

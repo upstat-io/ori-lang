@@ -1,0 +1,19 @@
+// Pin 8 (negative GREEN guard): non-Scalar-result carrier. The borrowing Invoke
+// returns `[Tree]` (a heap value) — a possible same-allocation VIEW of the
+// carrier. The no-sink mode (the heap-result carrier gate) must DECLINE; only a
+// provably-Scalar borrowing-call result is admissible. The lineage's release
+// stays with the existing dead-param / whole-var path. Must stay clean.
+type Tree = Leaf(value: int) | Node(children: [Tree]);
+
+@first_children (t: Tree) -> [Tree] = match t {
+    Leaf(value:) -> [Leaf(value: value)],
+    Node(children:) -> children,
+};
+
+@main () -> int = {
+    let t = Node(children: [Leaf(value: 1), Leaf(value: 2)]);
+    let kids = first_children(t: t);
+    let n = kids.len();
+
+    if n == 2 then 0 else 1
+}

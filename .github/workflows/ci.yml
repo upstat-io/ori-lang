@@ -3,11 +3,15 @@ name: CI
 on:
   pull_request:
     branches: [main, master]
+  # Per-commit lint gate on dev: format + clippy run on every dev push so a
+  # lint failure surfaces immediately, not at the nightly dev->master PR.
+  # The heavy test + cross-platform jobs stay PR-only (see their `if:` guards).
+  push:
+    branches: [dev]
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
-  RUST_VERSION: "1.93.1"
   ORI_VERIFY_ARC: "1"
   ORI_VERIFY_EACH: "1"
 
@@ -17,6 +21,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Resolve the pinned toolchain from rust-toolchain.toml so CI and local
+  # `cargo` share one source of truth. Downstream jobs consume the output
+  # instead of a hardcoded version.
+  setup:
+    name: Resolve toolchain
+    if: "!startsWith(github.event.head_commit.message, 'chore: release v')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      rust_version: ${{ steps.tc.outputs.rust_version }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: tc
+        run: |
+          V=$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' rust-toolchain.toml)
+          if [ -z "$V" ]; then
+            echo "could not parse channel from rust-toolchain.toml" >&2
+            exit 1
+          fi
+          echo "rust_version=$V" >> "$GITHUB_OUTPUT"
+
   # Fast checks - run first, fail fast
   version-check:
     name: Version Sync
@@ -24,30 +49,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Check version synchronization
         run: ./scripts/sync-version.sh --check
 
   format:
     name: Format
+    needs: setup
     if: "!startsWith(github.event.head_commit.message, 'chore: release v')"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.RUST_VERSION }}
+          toolchain: ${{ needs.setup.outputs.rust_version }}
           components: rustfmt
       - run: cargo fmt --all -- --check
 
   clippy:
     name: Clippy
+    needs: setup
     if: "!startsWith(github.event.head_commit.message, 'chore: release v')"
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install LLVM 21
         run: |
@@ -60,7 +87,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.RUST_VERSION }}
+          toolchain: ${{ needs.setup.outputs.rust_version }}
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
@@ -69,14 +96,20 @@ jobs:
         env:
           LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
 
-  # Main test suite
+  # Main test suite - PR-only (skipped on dev push; the nightly dev->master PR
+  # runs it before release).
+  #
+  # Runs ./test-all.sh - the same script developers run locally.
   test:
     name: Test
-    if: "!startsWith(github.event.head_commit.message, 'chore: release v')"
+    needs: setup
+    # head_commit does not exist on pull_request events, so no release-commit
+    # guard here (it would always evaluate vacuously true).
+    if: "github.event_name == 'pull_request'"
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install LLVM 21
         run: |
@@ -89,113 +122,31 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.RUST_VERSION }}
+          toolchain: ${{ needs.setup.outputs.rust_version }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: test
 
-      - name: Build
-        run: cargo build --workspace
+      - name: Full test suite
+        run: ./test-all.sh --json=test-results.json
         env:
           LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
-
-      - name: Rust unit tests
-        id: rust-tests
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          cargo test --workspace 2>&1 | tee rust-test-output.txt
-          # Sum all "X passed" counts from "test result:" lines
-          RUST_TESTS=$(grep -oE '[0-9]+ passed' rust-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
-          RUST_FAILED=$(grep -oE '[0-9]+ failed' rust-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
-          echo "RUST_TESTS=$RUST_TESTS" >> $GITHUB_ENV
-          echo "RUST_FAILED=$RUST_FAILED" >> $GITHUB_ENV
-        env:
-          LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
-
-      - name: Ori language tests
-        id: ori-tests
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          cargo run -p oric --bin ori -- test tests/ 2>&1 | tee ori-test-output.txt
-          # Extract from "1677 passed, 0 failed" format
-          ORI_TESTS=$(grep -oE '[0-9]+ passed' ori-test-output.txt | grep -oE '^[0-9]+' | tail -1 || echo "0")
-          ORI_FAILED=$(grep -oE '[0-9]+ failed' ori-test-output.txt | grep -oE '^[0-9]+' | tail -1 || echo "0")
-          echo "ORI_TESTS=$ORI_TESTS" >> $GITHUB_ENV
-          echo "ORI_FAILED=$ORI_FAILED" >> $GITHUB_ENV
-        env:
-          LLVM_SYS_211_PREFIX: /usr/lib/llvm-21
-
-      - name: Ori runtime tests
-        id: rt-tests
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          cargo test -p ori_rt 2>&1 | tee rt-test-output.txt
-          RT_TESTS=$(grep -oE '[0-9]+ passed' rt-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
-          RT_FAILED=$(grep -oE '[0-9]+ failed' rt-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
-          RT_SKIPPED=$(grep -oE '[0-9]+ ignored' rt-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
-          echo "RT_TESTS=$RT_TESTS" >> $GITHUB_ENV
-          echo "RT_FAILED=$RT_FAILED" >> $GITHUB_ENV
-          echo "RT_SKIPPED=$RT_SKIPPED" >> $GITHUB_ENV
-
-      - name: Extract Rust skipped count
-        if: always()
-        run: |
-          RUST_SKIPPED=$(grep -oE '[0-9]+ ignored' rust-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
-          ORI_SKIPPED=$(grep -oE '[0-9]+ skipped' ori-test-output.txt | grep -oE '^[0-9]+' | tail -1 || echo "0")
-          echo "RUST_SKIPPED=$RUST_SKIPPED" >> $GITHUB_ENV
-          echo "ORI_SKIPPED=$ORI_SKIPPED" >> $GITHUB_ENV
-
-      - name: Save test results
-        if: always()
-        run: |
-          RUST_P=${RUST_TESTS:-0}
-          RUST_F=${RUST_FAILED:-0}
-          RUST_S=${RUST_SKIPPED:-0}
-          RT_P=${RT_TESTS:-0}
-          RT_F=${RT_FAILED:-0}
-          RT_S=${RT_SKIPPED:-0}
-          ORI_P=${ORI_TESTS:-0}
-          ORI_F=${ORI_FAILED:-0}
-          ORI_S=${ORI_SKIPPED:-0}
-          TOTAL_P=$((RUST_P + RT_P + ORI_P))
-          TOTAL_F=$((RUST_F + RT_F + ORI_F))
-          TOTAL_S=$((RUST_S + RT_S + ORI_S))
-          OVERALL="passed"
-          if [ "$TOTAL_F" -gt 0 ]; then OVERALL="failed"; fi
-          cat > test-results.json << EOF
-          {
-            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "overall": "$OVERALL",
-            "suites": [
-              { "name": "Rust unit tests (workspace)", "passed": $RUST_P, "failed": $RUST_F, "skipped": $RUST_S, "lcfail": null },
-              { "name": "Runtime library (ori_rt)", "passed": $RT_P, "failed": $RT_F, "skipped": $RT_S, "lcfail": null },
-              { "name": "Ori spec (interpreter)", "passed": $ORI_P, "failed": $ORI_F, "skipped": $ORI_S, "lcfail": null }
-            ],
-            "totals": { "passed": $TOTAL_P, "failed": $TOTAL_F, "skipped": $TOTAL_S, "lcfail": 0 }
-          }
-          EOF
-          cat test-results.json
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test-results
-          path: test-results.json
+          path: |
+            test-results.json
+            test-all.log
           retention-days: 90
 
-      - name: Fail if tests failed
-        if: steps.rust-tests.outcome == 'failure' || steps.ori-tests.outcome == 'failure' || steps.rt-tests.outcome == 'failure'
-        run: exit 1
-
-
-  # Cross-platform — full test suite including AOT
+  # Cross-platform - full test suite including AOT. PR-only.
   cross-platform:
     name: ${{ matrix.os }}
-    # No needs — format/clippy are platform-independent, don't gate cross-platform builds
+    needs: setup
+    if: "github.event_name == 'pull_request'"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -203,7 +154,7 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install LLVM 21 (macOS)
         if: runner.os == 'macOS'
@@ -225,10 +176,14 @@ jobs:
       - name: Set up MSVC environment (Windows)
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
+        # No node24 release exists upstream; force the runtime per GitHub's
+        # node20-deprecation guidance (default behavior from 2026-06-16 anyway).
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ env.RUST_VERSION }}
+          toolchain: ${{ needs.setup.outputs.rust_version }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.os }}
@@ -242,21 +197,46 @@ jobs:
       - name: Ori language tests
         run: cargo run -p oric --bin ori -- test tests/
 
-  # Single status check for branch protection
+  # Single status check for branch protection. PR-only: a push-event run must
+  # NEVER emit a check named "CI Success" — both event runs attach checks to the
+  # same head SHA, so a push-run "CI Success" (which waives the heavy jobs)
+  # would satisfy branch protection and let a PR merge without tests.
   ci-success:
     name: CI Success
-    needs: [version-check, format, clippy, test, cross-platform]
+    needs: [setup, version-check, format, clippy, test, cross-platform]
     runs-on: ubuntu-latest
-    if: "always() && !startsWith(github.event.head_commit.message, 'chore: release v')"
+    if: "always() && github.event_name == 'pull_request'"
     steps:
       - name: Check all jobs passed
         run: |
           if [[ "${{ needs.version-check.result }}" != "success" ]] || \
              [[ "${{ needs.format.result }}" != "success" ]] || \
-             [[ "${{ needs.clippy.result }}" != "success" ]] || \
-             [[ "${{ needs.test.result }}" != "success" ]] || \
+             [[ "${{ needs.clippy.result }}" != "success" ]]; then
+            echo "A required lint/version job failed"
+            exit 1
+          fi
+          if [[ "${{ needs.test.result }}" != "success" ]] || \
              [[ "${{ needs.cross-platform.result }}" != "success" ]]; then
-            echo "One or more required jobs failed"
+            echo "A required test/cross-platform job failed"
             exit 1
           fi
           echo "All required checks passed!"
+
+  # Per-commit gate for dev pushes — lint-only by design (heavy jobs run on the
+  # nightly dev->master PR). Distinct check name so it can never stand in for
+  # "CI Success" in branch protection.
+  lint-success:
+    name: Lint Success
+    needs: [version-check, format, clippy]
+    runs-on: ubuntu-latest
+    if: "always() && github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore: release v')"
+    steps:
+      - name: Check lint jobs passed
+        run: |
+          if [[ "${{ needs.version-check.result }}" != "success" ]] || \
+             [[ "${{ needs.format.result }}" != "success" ]] || \
+             [[ "${{ needs.clippy.result }}" != "success" ]]; then
+            echo "A required lint/version job failed"
+            exit 1
+          fi
+          echo "All lint checks passed!"

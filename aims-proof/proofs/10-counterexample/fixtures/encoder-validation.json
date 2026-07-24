@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "description": "Encoder-validation fixtures for §10 counterexample search per the counterexample search §10.1 checkbox 8 + success_criterion #6. Two fixtures in the companion encoder-validation.smt2 file. The §10 runner executes both BEFORE any real-shape fixture every invocation. Asymmetric causal link per Annex E §AIMS §VF-3: only the witness-surfacing known-SAT fixture proves absence of vacuity; the known-UNSAT fixture is an independent soundness sanity check that cannot detect over-constraint.",
+  "fixtures": [
+    {
+      "id": "fixture-known-sat-vacuity-guard",
+      "smt_block": "known-sat",
+      "expected": "SAT",
+      "rationale": "Load-bearing vacuous-UNSAT guard. Encodes an intentionally-unsound combination (Owned + Linear + Once + MaybeShared) that the REMOVED DP-10 inference would have refuted by deriving Uniqueness=Unique from the triple. The proven calculus does NOT carry that inference (DP-10 REMOVED per Annex E §AIMS — unsound since backward analysis proves no future duplication but NOT no existing aliases). A SAT verdict proves the encoder can express + discover counterexample states; the constraint surface is not over-constrained into vacuous UNSAT. Failure → ENCODER_INVALID halt; no real-shape UNSAT is trusted as 'calculus adequate'.",
+      "failure_mode": "non-SAT → ENCODER_INVALID halt; vacuous-UNSAT hazard active",
+      "proof_anchor": {
+        "rule_id": "DP-10-REMOVED",
+        "rule_path": "Annex E §AIMS DP-10",
+        "rule_summary": "DP-10 (Owned ∧ Linear ∧ Once ⟹ Uniqueness=Unique) was REMOVED for unsoundness; backward analysis proves no future duplication but NOT no existing aliases. Uniqueness ONLY via Uniqueness dimension OR fresh allocation (TF-3)."
+      }
+    },
+    {
+      "id": "fixture-known-unsat-soundness-sanity",
+      "smt_block": "known-unsat",
+      "expected": "UNSAT",
+      "rationale": "Independent soundness sanity check. Encodes a trivially-contradictory constraint (single AccessClass-valued variable simultaneously Owned AND Borrowed). UNSAT proves the encoder + solver return UNSAT on a known-contradictory shape; catches `assert false`-style encoder bugs where the solver incorrectly returns SAT on a contradictory encoding. Does NOT detect vacuity — a vacuously-unsat encoder ALSO returns UNSAT here; only the known-SAT fixture proves absence of vacuity. Failure → ENCODER_INVALID halt; soundness sanity rejected a sound shape.",
+      "failure_mode": "non-UNSAT → ENCODER_INVALID halt; soundness sanity rejected a sound shape",
+      "proof_anchor": {
+        "rule_id": "datatype-disjointness",
+        "rule_path": "SMT-LIB2 §3.6 (algebraic datatypes)",
+        "rule_summary": "Constructors of a single algebraic datatype are mutually-disjoint values; a single variable cannot equal two distinct constructors simultaneously."
+      }
+    }
+  ],
+  "execution_order": ["fixture-known-sat-vacuity-guard", "fixture-known-unsat-soundness-sanity"],
+  "halt_contract": {
+    "any_fixture_failing": "ENCODER_INVALID halt — runner emits exit_reason: encoder_invalid_halt per scripts/plan_corpus/exit_reasons.py:CANONICAL_EXIT_REASONS",
+    "both_fixtures_passing": "proceed to real-shape fixture run; real-shape UNSAT verdicts are trusted as 'calculus adequate'"
+  }
+}

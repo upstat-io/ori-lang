@@ -12,6 +12,7 @@ impl Parser<'_> {
     /// Syntax: [pub] trait Name [<T>] [: Super] { items }
     ///
     /// Returns `EmptyErr` if no `trait` keyword is present.
+    #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn parse_trait(&mut self, visibility: Visibility) -> ParseOutcome<TraitDef> {
         if !self.cursor.check(&TokenKind::Trait) {
             return ParseOutcome::empty_err_expected(
@@ -94,10 +95,17 @@ impl Parser<'_> {
                 span: start_span.merge(self.cursor.previous_span()),
             }))
         } else if self.cursor.check(&TokenKind::At) {
-            // Method: @name (params) -> Type [= body]
+            // Method: @name [<generics>] (params) -> Type [where ...] [= body]
             let start_span = self.cursor.current_span();
             self.cursor.advance(); // consume `@`
             let name = self.cursor.expect_ident()?;
+
+            // Optional method-level generics: <T, U: Bound>
+            let generics = if self.cursor.check(&TokenKind::Lt) {
+                self.parse_generics().into_result()?
+            } else {
+                GenericParamRange::EMPTY
+            };
 
             // (params)
             self.cursor.expect(&TokenKind::LParen)?;
@@ -108,6 +116,15 @@ impl Parser<'_> {
             self.cursor.expect(&TokenKind::Arrow)?;
             let return_ty = self.parse_type_required().into_result()?;
 
+            // Optional method-level where clauses: where T: Clone
+            // Spec grammar.ebnf §method_sig / §default_method: trait method
+            // productions carry `[ where_clause ]` but no `[ uses_clause ]`.
+            let where_clauses = if self.cursor.check(&TokenKind::Where) {
+                self.parse_where_clauses().into_result()?
+            } else {
+                Vec::new()
+            };
+
             // Check for default implementation: = body
             if self.cursor.check(&TokenKind::Eq) {
                 self.cursor.advance();
@@ -117,8 +134,10 @@ impl Parser<'_> {
                 self.eat_optional_item_semicolon();
                 Ok(TraitItem::DefaultMethod(TraitDefaultMethod {
                     name,
+                    generics,
                     params,
                     return_ty,
+                    where_clauses,
                     body,
                     span: start_span.merge(end_span),
                 }))
@@ -126,8 +145,10 @@ impl Parser<'_> {
                 self.eat_optional_semicolon();
                 Ok(TraitItem::MethodSig(TraitMethodSig {
                     name,
+                    generics,
                     params,
                     return_ty,
+                    where_clauses,
                     span: start_span.merge(self.cursor.previous_span()),
                 }))
             }
@@ -143,3 +164,6 @@ impl Parser<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

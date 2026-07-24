@@ -3,10 +3,57 @@
 //! Formatting for type expressions (`ParsedType`) used in function signatures,
 //! type declarations, and other contexts.
 
-use ori_ir::{ExprArena, ExprId, ExprKind, ParsedType, StringLookup, TypeId};
+use ori_ir::{ExprArena, ExprId, ExprKind, ParsedType, ParsedTypeRange, StringLookup, TypeId};
 
 use crate::context::FormatContext;
 use crate::emitter::Emitter;
+
+/// Emit a `<A, B>` generic-argument list; emits nothing when the range is empty.
+///
+/// Shared by `Named` and `AssociatedType`, whose terminal segment carries the
+/// args of the whole dotted path (Spec: grammar.ebnf `type_path`).
+fn format_type_args<I: StringLookup, E: Emitter>(
+    type_args: ParsedTypeRange,
+    arena: &ExprArena,
+    interner: &I,
+    ctx: &mut FormatContext<E>,
+) {
+    let args = arena.get_parsed_type_list(type_args);
+    if args.is_empty() {
+        return;
+    }
+    ctx.emit("<");
+    for (i, arg_id) in args.iter().enumerate() {
+        if i > 0 {
+            ctx.emit(", ");
+        }
+        let arg = arena.get_parsed_type(*arg_id);
+        format_parsed_type(arg, arena, interner, ctx);
+    }
+    ctx.emit(">");
+}
+
+/// Width of the `<A, B>` list `format_type_args` would emit; `0` when empty.
+fn type_args_width<I: StringLookup>(
+    type_args: ParsedTypeRange,
+    arena: &ExprArena,
+    interner: &I,
+    width_of_expr: &mut dyn FnMut(ExprId) -> usize,
+) -> usize {
+    let args = arena.get_parsed_type_list(type_args);
+    if args.is_empty() {
+        return 0;
+    }
+    let mut width = 2; // "<>"
+    for (i, arg_id) in args.iter().enumerate() {
+        if i > 0 {
+            width += 2; // ", "
+        }
+        let arg = arena.get_parsed_type(*arg_id);
+        width += calculate_type_width(arg, arena, interner, width_of_expr);
+    }
+    width
+}
 
 /// Format a parsed type expression.
 pub(crate) fn format_parsed_type<I: StringLookup, E: Emitter>(
@@ -21,18 +68,7 @@ pub(crate) fn format_parsed_type<I: StringLookup, E: Emitter>(
         }
         ParsedType::Named { name, type_args } => {
             ctx.emit(interner.lookup(*name));
-            let args = arena.get_parsed_type_list(*type_args);
-            if !args.is_empty() {
-                ctx.emit("<");
-                for (i, arg_id) in args.iter().enumerate() {
-                    if i > 0 {
-                        ctx.emit(", ");
-                    }
-                    let arg = arena.get_parsed_type(*arg_id);
-                    format_parsed_type(arg, arena, interner, ctx);
-                }
-                ctx.emit(">");
-            }
+            format_type_args(*type_args, arena, interner, ctx);
         }
         ParsedType::List(elem) => {
             ctx.emit("[");
@@ -89,11 +125,16 @@ pub(crate) fn format_parsed_type<I: StringLookup, E: Emitter>(
         ParsedType::SelfType => {
             ctx.emit("Self");
         }
-        ParsedType::AssociatedType { base, assoc_name } => {
+        ParsedType::AssociatedType {
+            base,
+            assoc_name,
+            type_args,
+        } => {
             let base_ty = arena.get_parsed_type(*base);
             format_parsed_type(base_ty, arena, interner, ctx);
             ctx.emit(".");
             ctx.emit(interner.lookup(*assoc_name));
+            format_type_args(*type_args, arena, interner, ctx);
         }
         ParsedType::ConstExpr(expr_id) => {
             format_const_expr(*expr_id, arena, interner, ctx);
@@ -112,36 +153,34 @@ pub(crate) fn format_parsed_type<I: StringLookup, E: Emitter>(
 }
 
 /// Calculate the width of a parsed type expression.
-pub(super) fn calculate_type_width<I: StringLookup>(
+///
+/// `width_of_expr` measures const expressions appearing inside types
+/// (`FixedList` capacity, `ConstExpr` type-arg). Callers pass
+/// `&mut |e| const_expr_render_width(arena, interner, e)` so the measure
+/// matches what `format_const_expr` would render — no measure-vs-render
+/// asymmetry on any reachable const-expression shape.
+pub(crate) fn calculate_type_width<I: StringLookup>(
     ty: &ParsedType,
     arena: &ExprArena,
     interner: &I,
+    width_of_expr: &mut dyn FnMut(ExprId) -> usize,
 ) -> usize {
     match ty {
         ParsedType::Primitive(type_id) => type_id_to_str(*type_id).len(),
         ParsedType::Named { name, type_args } => {
-            let mut width = interner.lookup(*name).len();
-            let args = arena.get_parsed_type_list(*type_args);
-            if !args.is_empty() {
-                width += 2; // "<>"
-                for (i, arg_id) in args.iter().enumerate() {
-                    if i > 0 {
-                        width += 2; // ", "
-                    }
-                    let arg = arena.get_parsed_type(*arg_id);
-                    width += calculate_type_width(arg, arena, interner);
-                }
-            }
-            width
+            interner.lookup(*name).len()
+                + type_args_width(*type_args, arena, interner, width_of_expr)
         }
         ParsedType::List(elem) => {
             let elem_ty = arena.get_parsed_type(*elem);
-            2 + calculate_type_width(elem_ty, arena, interner) // "[]"
+            2 + calculate_type_width(elem_ty, arena, interner, width_of_expr) // "[]"
         }
-        ParsedType::FixedList { elem, .. } => {
+        ParsedType::FixedList { elem, capacity } => {
             let elem_ty = arena.get_parsed_type(*elem);
-            // "[" + elem + ", max " + expr + "]" — estimate expr width as 10
-            2 + calculate_type_width(elem_ty, arena, interner) + 6 + 10
+            // "[" + elem + ", max " + capacity + "]" — capacity measured exactly.
+            2 + calculate_type_width(elem_ty, arena, interner, width_of_expr)
+                + 6
+                + width_of_expr(*capacity)
         }
         ParsedType::Tuple(elems) => {
             let elem_list = arena.get_parsed_type_list(*elems);
@@ -151,7 +190,7 @@ pub(super) fn calculate_type_width<I: StringLookup>(
                     width += 2; // ", "
                 }
                 let elem = arena.get_parsed_type(*elem_id);
-                width += calculate_type_width(elem, arena, interner);
+                width += calculate_type_width(elem, arena, interner, width_of_expr);
             }
             width
         }
@@ -163,28 +202,35 @@ pub(super) fn calculate_type_width<I: StringLookup>(
                     width += 2; // ", "
                 }
                 let param = arena.get_parsed_type(*param_id);
-                width += calculate_type_width(param, arena, interner);
+                width += calculate_type_width(param, arena, interner, width_of_expr);
             }
             width += 4; // " -> "
             let ret_ty = arena.get_parsed_type(*ret);
-            width += calculate_type_width(ret_ty, arena, interner);
+            width += calculate_type_width(ret_ty, arena, interner, width_of_expr);
             width
         }
         ParsedType::Map { key, value } => {
             let key_ty = arena.get_parsed_type(*key);
             let value_ty = arena.get_parsed_type(*value);
-            2 + calculate_type_width(key_ty, arena, interner)
+            2 + calculate_type_width(key_ty, arena, interner, width_of_expr)
                 + 2
-                + calculate_type_width(value_ty, arena, interner)
+                + calculate_type_width(value_ty, arena, interner, width_of_expr)
             // "{" + key + ": " + value + "}"
         }
         ParsedType::Infer => 1,    // "_"
         ParsedType::SelfType => 4, // "Self"
-        ParsedType::AssociatedType { base, assoc_name } => {
+        ParsedType::AssociatedType {
+            base,
+            assoc_name,
+            type_args,
+        } => {
             let base_ty = arena.get_parsed_type(*base);
-            calculate_type_width(base_ty, arena, interner) + 1 + interner.lookup(*assoc_name).len()
+            calculate_type_width(base_ty, arena, interner, width_of_expr)
+                + 1
+                + interner.lookup(*assoc_name).len()
+                + type_args_width(*type_args, arena, interner, width_of_expr)
         }
-        ParsedType::ConstExpr(_) => 10, // Estimate for const expressions
+        ParsedType::ConstExpr(expr_id) => width_of_expr(*expr_id),
         ParsedType::TraitBounds(bounds) => {
             let bound_ids = arena.get_parsed_type_list(*bounds);
             let mut width = 0;
@@ -193,7 +239,7 @@ pub(super) fn calculate_type_width<I: StringLookup>(
                     width += 3; // " + "
                 }
                 let bound = arena.get_parsed_type(*bound_id);
-                width += calculate_type_width(bound, arena, interner);
+                width += calculate_type_width(bound, arena, interner, width_of_expr);
             }
             width
         }
@@ -209,7 +255,7 @@ pub(crate) fn format_const_expr<I: StringLookup, E: Emitter>(
 ) {
     let expr = arena.get_expr(expr_id);
     match &expr.kind {
-        ExprKind::Int(n) => ctx.emit(&n.to_string()),
+        ExprKind::Int(n) => ctx.emit(n.to_string()),
         ExprKind::Const(name) => {
             ctx.emit("$");
             ctx.emit(interner.lookup(*name));
@@ -223,6 +269,36 @@ pub(crate) fn format_const_expr<I: StringLookup, E: Emitter>(
             format_const_expr(*right, arena, interner, ctx);
         }
         _ => ctx.emit("<const>"),
+    }
+}
+
+/// Measure width of a const expression — sibling of `format_const_expr`.
+///
+/// Mirrors `format_const_expr`'s coverage exactly. For every variant the
+/// renderer handles, this function returns the exact rendered character
+/// count; for the `_` fallback, both emit/measure `"<const>"` (7 chars).
+/// The measure-vs-render symmetry is the load-bearing property: a
+/// formatter pass that measures `width_of(e)` then renders `e` cannot
+/// produce different widths, so width-based break decisions stay
+/// idempotent across `format → parse → format` round-trips.
+pub(crate) fn const_expr_render_width<I: StringLookup>(
+    arena: &ExprArena,
+    interner: &I,
+    expr_id: ExprId,
+) -> usize {
+    let expr = arena.get_expr(expr_id);
+    match &expr.kind {
+        ExprKind::Int(n) => n.to_string().len(),
+        ExprKind::Const(name) => 1 + interner.lookup(*name).len(), // "$" + name
+        ExprKind::Ident(name) => interner.lookup(*name).len(),
+        ExprKind::Binary { op, left, right } => {
+            const_expr_render_width(arena, interner, *left)
+                + 1
+                + op.as_symbol().len()
+                + 1
+                + const_expr_render_width(arena, interner, *right)
+        }
+        _ => 7, // "<const>"
     }
 }
 

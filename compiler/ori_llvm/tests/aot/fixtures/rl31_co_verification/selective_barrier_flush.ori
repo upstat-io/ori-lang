@@ -1,0 +1,24 @@
+// Shape (c) — selective barrier flush at a call site (Spec: Annex E §AIMS RL-27 × RL-31).
+// `m` flows into a may_share callee (forces a selective-barrier flush of pending
+// RC ops before the call) AND into merge (noalias-claimed). The disjointness
+// proof is parameter-level, so it remains valid post-flush — the flush moves RC
+// ops, not param attributes.
+@merge (a: {str: int}, b: [int]) -> int = {
+    let av = a["x"].unwrap_or(default: 0);
+    let bv = b.len();
+    av + bv
+}
+
+@may_share_reader (a: {str: int}) -> int = {
+    let one = a["x"].unwrap_or(default: 0);
+    let two = a["y"].unwrap_or(default: 0);
+    one + two
+}
+
+@main () -> void = {
+    let m = {"x": 2, "y": 3};
+    let l = [9];
+    let shared = may_share_reader(a: m);
+    let merged = merge(a: m, b: l);
+    print(msg: (shared + merged).to_str())
+}

@@ -20,7 +20,7 @@ bitflags! {
     /// Used to gate expensive operations (substitution, occurs check, etc.).
     #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
     pub struct TypeFlags: u32 {
-        // === Presence Flags (bits 0-7) ===
+        // Presence Flags (bits 0-7)
         // Track what elements a type contains.
 
         /// Contains unbound type variables (unification targets).
@@ -38,7 +38,7 @@ bitflags! {
         /// Contains type projections (associated types).
         const HAS_PROJECTION = 1 << 6;
 
-        // === Category Flags (bits 8-15) ===
+        // Category Flags (bits 8-15)
         // Classify types for fast dispatch.
 
         /// Built-in primitive type (int, bool, etc.).
@@ -54,7 +54,7 @@ bitflags! {
         /// Type scheme (quantified).
         const IS_SCHEME = 1 << 13;
 
-        // === Optimization Flags (bits 16-23) ===
+        // Optimization Flags (bits 16-23)
         // Enable optimization shortcuts.
 
         /// Has variables needing substitution.
@@ -66,7 +66,7 @@ bitflags! {
         /// Known to be a Copy type.
         const IS_COPYABLE = 1 << 19;
 
-        // === Capability Flags (bits 24-31) ===
+        // Capability Flags (bits 24-31)
         // Track Ori's capability/effect information.
 
         /// Uses capabilities.
@@ -109,6 +109,19 @@ impl TypeFlags {
         )
     }
 
+    /// Check if the type contains any unresolved or generic type variable: an
+    /// unbound `Var`, an AST `Infer` placeholder, a scheme `BoundVar`, or a
+    /// `RigidVar`. False means a fully-concrete monomorphic type.
+    #[inline]
+    pub const fn has_any_var_or_infer(self) -> bool {
+        self.intersects(
+            Self::HAS_VAR
+                .union(Self::HAS_INFER)
+                .union(Self::HAS_BOUND_VAR)
+                .union(Self::HAS_RIGID_VAR),
+        )
+    }
+
     /// Check if the type contains unbound variables.
     #[inline]
     pub const fn has_vars(self) -> bool {
@@ -119,6 +132,16 @@ impl TypeFlags {
     #[inline]
     pub const fn has_errors(self) -> bool {
         self.contains(Self::HAS_ERROR)
+    }
+
+    /// Recordable as a monomorphization instance: fully concrete AND not poison.
+    // INVARIANT: a substitution carrying HAS_ERROR is a type-error poison artifact
+    // (the Idx::ERROR pool slot) and must never be monomorphized — the var/infer
+    // half alone (has_any_var_or_infer) excludes HAS_ERROR, so the poison half is
+    // required. HAS_ERROR rides PROPAGATE_MASK, so compound poison is caught.
+    #[inline]
+    pub const fn is_recordable(self) -> bool {
+        !self.has_any_var_or_infer() && !self.has_errors()
     }
 
     /// Check if the type needs substitution work.

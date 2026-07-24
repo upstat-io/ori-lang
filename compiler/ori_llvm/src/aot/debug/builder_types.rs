@@ -155,7 +155,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
             .as_type()
     }
 
-    // -- Ori-specific type helpers --
+    // Ori-specific type helpers
 
     /// Create debug info for Ori's string type: `{ len: int, cap: int, data: *byte }`.
     ///

@@ -8,11 +8,33 @@
 
 use ori_types::Idx;
 
+use crate::codegen::ir_builder::IntegerSignedness;
 use crate::codegen::value_id::ValueId;
 
 use super::super::super::ArcIrEmitter;
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
+    /// Extract an Option payload after control flow has proved the value is
+    /// `Some`. Recursive struct/enum payloads occupy the slot as an RC box
+    /// pointer, so materialize the semantic payload value through that box.
+    fn extract_active_option_payload(
+        &mut self,
+        option: ValueId,
+        inner_ty: Idx,
+        name: &str,
+    ) -> Option<ValueId> {
+        let payload = self.builder.extract_value(option, 1, name)?;
+        if crate::codegen::type_info::repr_box_oracle::payload_type_is_rc_boxed(self.pool, inner_ty)
+        {
+            let inner_llvm_ty = self.resolve_type(inner_ty);
+            return Some(
+                self.builder
+                    .load(inner_llvm_ty, payload, &format!("{name}.boxed")),
+            );
+        }
+        Some(payload)
+    }
+
     /// `Option<T>.equals(other) -> bool`
     ///
     /// Tags differ → false. Both None → true. Both Some → payload equals.
@@ -26,25 +48,60 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let rhs_tag = self.builder.extract_value(rhs, 0, "opt.rhs.tag")?;
         let tags_eq = self.builder.icmp_eq(lhs_tag, rhs_tag, "tags_eq");
 
-        let lhs_val = self.builder.extract_value(lhs, 1, "opt.lhs.val")?;
-        let rhs_val = self.builder.extract_value(rhs, 1, "opt.rhs.val")?;
-        let payload_eq = self.emit_element_equals(lhs_val, rhs_val, inner_ty)?;
+        let same_tag_bb = self
+            .builder
+            .append_block(self.current_function, "opt_eq.same");
+        let some_cmp_bb = self
+            .builder
+            .append_block(self.current_function, "opt_eq.some");
+        let none_bb = self
+            .builder
+            .append_block(self.current_function, "opt_eq.none");
+        let diff_bb = self
+            .builder
+            .append_block(self.current_function, "opt_eq.diff");
+        let merge_bb = self
+            .builder
+            .append_block(self.current_function, "opt_eq.merge");
 
-        // Both None → equal. Both Some → check payload.
+        // Never inspect inactive payload storage when the tags differ.
+        self.builder.cond_br(tags_eq, same_tag_bb, diff_bb);
+
+        // Equal tags: None is immediately equal; Some compares active payloads.
+        self.builder.position_at_end(same_tag_bb);
         let none_tag = self
             .builder
             .const_int_matching(lhs_tag, ori_ir::OPTION_TAG_NONE as u64);
         let is_none = self.builder.icmp_eq(lhs_tag, none_tag, "is_none");
-        let true_val = self.builder.const_bool(true);
-        let same_tag_result = self
-            .builder
-            .select(is_none, true_val, payload_eq, "same_eq");
+        self.builder.cond_br(is_none, none_bb, some_cmp_bb);
 
+        self.builder.position_at_end(some_cmp_bb);
+        let lhs_val = self.extract_active_option_payload(lhs, inner_ty, "opt.lhs.val")?;
+        let rhs_val = self.extract_active_option_payload(rhs, inner_ty, "opt.rhs.val")?;
+        let payload_eq = self.emit_element_equals(lhs_val, rhs_val, inner_ty)?;
+        let some_exit_bb = self.builder.current_block()?;
+        self.builder.br(merge_bb);
+
+        self.builder.position_at_end(none_bb);
+        let true_val = self.builder.const_bool(true);
+        self.builder.br(merge_bb);
+
+        self.builder.position_at_end(diff_bb);
         let false_val = self.builder.const_bool(false);
-        Some(
-            self.builder
-                .select(tags_eq, same_tag_result, false_val, "opt_eq"),
-        )
+        self.builder.br(merge_bb);
+
+        self.builder.position_at_end(merge_bb);
+        let bool_ty = self.builder.bool_type();
+        let result = self.builder.phi(bool_ty, "opt_eq");
+        self.builder.add_phi_incoming(
+            result,
+            &[
+                (payload_eq, some_exit_bb),
+                (true_val, none_bb),
+                (false_val, diff_bb),
+            ],
+        );
+        Some(result)
     }
 
     /// `Option<T>.compare(other) -> Ordering`
@@ -63,9 +120,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let tags_eq = self.builder.icmp_eq(lhs_tag, rhs_tag, "tags_eq");
 
         // Tags differ: reversed order (None(1) < Some(0) semantically).
-        let tag_cmp = self
-            .builder
-            .emit_icmp_ordering(rhs_tag, lhs_tag, "tag_cmp", false);
+        let tag_cmp = self.builder.emit_icmp_ordering(
+            rhs_tag,
+            lhs_tag,
+            "tag_cmp",
+            IntegerSignedness::Unsigned,
+        );
 
         // Tags equal: None+None → Equal, Some+Some → compare payloads.
         let lhs_val = self.builder.extract_value(lhs, 1, "opt.lhs.val")?;

@@ -1,0 +1,8 @@
+@main () -> int = {
+    let m = {
+        "a very long map key string exceeding the sso threshold for sure": 1,
+        "another long map key string for conversion clamp coverage": 2
+    };
+    let ks = m.keys();
+    if ks.len() == 2 then 0 else 1
+}

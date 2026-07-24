@@ -1,0 +1,96 @@
+Theorem IC-2: Interprocedural contract rule signatures — IC-1 through IC-7 + IC-8a + IC-8 confirmation-of-removal
+
+  Preconditions:
+    - Interprocedural contracts are the per-function MemoryContract summary
+      computed via SCC fixpoint per Annex E §AIMS
+    - Step 1 of the AIMS pipeline (analyze_program) runs this analysis
+      per Annex E §AIMS §6 (interprocedural-first)
+    - Convergence depends on monotone componentwise max + finite domain
+      per IC-7
+    - 8 active IC rules + 1 IC-8a address-taken / closure rule govern
+      SCC decomposition / contract initialization / fixpoint / return /
+      effect / FIP / convergence / address-taken-init
+    - IC-8 was REMOVED from Annex E §AIMS (same root cause as DP-10)
+
+  Soundness property:
+    IC-1 (SCC decomposition + topological ordering):
+      type : CallGraph -> List (List FunctionId)
+      call graph decomposed into SCCs; processed in topological order
+      (callees before callers).
+
+    IC-2 (ParamContract initialization at most-optimistic state):
+      type : FunctionId -> List ParamContract
+      each parameter initializes (B, empty, absent, bl, u, may_share=false);
+      fixpoint promotes toward conservative.
+
+    IC-3 (ParamContract componentwise max join + may_share OR):
+      type : List ParamContract -> List ParamContract
+      iterate until no dim changes; access(max), consumption(max),
+      cardinality(max), locality(max), uniqueness(max), may_share(OR).
+
+    IC-4 (ReturnContract per-dim join over return paths):
+      type : List ReturnContract -> ReturnContract
+      uniqueness(join), preserves_freshness(AND), locality(join), shape(join);
+      freshness requires ALL paths preserve.
+
+    IC-5 (EffectSummary derivation):
+      type : FunctionId -> EffectSummary
+      derived from instruction stream + callee contracts per Annex E §AIMS
+      IC-5 procedure (7-field OR-join over instructions; NOT joined from
+      per-variable EffectClass per §AIMS §3.7 CRITICAL note).
+
+    IC-6 (FipContract sum-type tier join):
+      type : List FipContract -> FipContract
+      Never absorbs all; Conditional absorbs Bounded / Certified;
+      Bounded(n) join Bounded(m) = Bounded(max(n, m));
+      Certified IFF zero unmatched alloc / dealloc in realized IR;
+      timing POST-REALIZATION (step 5a).
+
+    IC-7 (convergence iteration limit):
+      type : FunctionId -> Int
+      iteration limit = param_count x 13 + 8 + 6 + 4
+        (param=13, return=8, EffectSummary=6, ContextBehavior=4);
+      FipContract excluded (post-realization);
+      on exceeded -> widen all to most conservative + emit diagnostic.
+
+    IC-8a (address-taken / closure non-enumerable call sites):
+      type : FunctionId -> List ParamContract
+      address-taken / closures with non-enumerable call sites SHALL
+      initialize parameters CONSERVATIVE:
+        (O, U, omega, top, ms, may_share=true)
+      closures with known call sites (immediately-invoked / single-use)
+      participate normally.
+
+    IC-8 confirmation-of-removal entry:
+
+      IC-8 — Parameter-uniqueness from caller-consumption (REMOVED)
+
+      Removed in: Annex E §AIMS IC-8 removal note
+        (same root cause as DP-10)
+
+      Root cause: a caller with a MaybeShared argument used linearly may
+        still carry multiple logical owner credits through upstream aliases;
+        deriving callee parameter uniqueness from caller consumption patterns
+        was unsound.
+
+      Subsumed by: IC-2 + IC-3 SCC fixpoint as natural convergence
+        (parameter uniqueness established by joined caller-side state,
+        not by inference from caller consumption patterns).
+
+      No theorem skeleton to discharge; this is a CONFIRMATION entry only.
+
+  Proof obligation:
+    sorry -- discharged by sec-06 interprocedural contract proofs
+            (8 active theorems: IC-1, IC-2, IC-3, IC-4, IC-5, IC-6, IC-7,
+            IC-8a + IC-8 confirmation entry)
+
+    Engines dispatched:
+      fixpoint (IC-3 + IC-4 + IC-5 monotone fixpoint convergence)
+      interprocedural_summary (SCC topological ordering + per-function
+                               contract composition)
+      case_analysis (IC-6 FipContract 4-tier join + IC-8a closure
+                     non-enumerable detection)
+
+  Expected:
+    status: unimplemented_engine_shape
+    reason: sec-01 skeleton; sec-06 discharges per-rule IC proofs

@@ -1,0 +1,19 @@
+// Spec: 08-declarations.md § Method-level Generics
+// Proposal: docs/ori_lang/proposals/approved/method-generics-grammar-alignment-proposal.md
+// BUG-01-002 §03 Cross-pattern coverage — impl method (full body)
+//
+// The repro case from BUG-01-002 entry, with names cleaned.
+
+use std.testing { assert_eq }
+
+type Box<T> = { value: T }
+
+impl<U> Box<U> {
+    @transform<T> (self, f: (U) -> T) -> Box<T> = Box { value: f(self.value) };
+}
+
+@test_full_body tests _ () -> void = {
+    let b = Box { value: 5 };
+    let r: Box<int> = b.transform(f: x -> x * 2);
+    assert_eq(actual: r.value, expected: 10)
+}

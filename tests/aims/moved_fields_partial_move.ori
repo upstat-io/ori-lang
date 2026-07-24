@@ -1,0 +1,20 @@
+use std.testing { assert_eq }
+
+// Exercises the Phase-5 moved-out-fields INTERSECT fixpoint (rule IA-MF1):
+// `pick` returns a different heap str field of `b` on each branch, so field
+// `name` is moved out on the then-path and `tag` on the else-path — at the
+// return-block merge the INTERSECT of the two per-path moved-sets is empty, so
+// neither field is definitely-moved (the partial-move partition RL-2 depends
+// on). The release-active convergence guard runs on this real function; a
+// spurious abort would crash the build/run.
+type Box = { name: str, tag: str }
+
+@pick (b: Box, flag: bool) -> str = if flag then b.name else b.tag;
+
+@moved_fields_partial_move tests _ () -> void = {
+    let $b = Box { name: "alpha", tag: "beta" };
+    assert_eq(actual: pick(b, true), expected: "alpha");
+
+    let $c = Box { name: "gamma", tag: "delta" };
+    assert_eq(actual: pick(c, false), expected: "delta")
+}

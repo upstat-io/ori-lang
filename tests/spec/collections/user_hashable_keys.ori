@@ -1,0 +1,118 @@
+// Regression: user-Hashable struct/enum types as map keys and set elements.
+// A non-primitive key reaches map/set codegen (insert/get/contains_key/remove,
+// set collect/contains/union/intersection/difference) and must hash + compare
+// via the user `@hash` + `@eq` impls. The codegen previously emitted a null
+// key_hash/key_eq thunk for non-primitive keys, faulting at runtime; these
+// tests pin that the user impls drive bucket resolution.
+//
+// Construction note: struct/enum keys are built through a type-annotated empty
+// map + `.insert`, or a set via `.iter().collect()`. Computed-key map literals
+// `{[expr]: v}` and set literals are separate, not-yet-implemented surface
+// (computed-map-keys-proposal); they share the same thunk path, so this fix
+// covers them prospectively once that surface ships.
+
+use std.testing { assert_eq, assert }
+
+// --- struct key >16 bytes (indirect self ABI: {tag: str} is 24B), manual Hashable ---
+
+type Name = { tag: str }
+impl Name: Eq {
+    @eq (self, other: Name) -> bool = self.tag == other.tag;
+}
+impl Name: Hashable {
+    @hash (self) -> int = self.tag.length();
+}
+
+@test_struct_key_24b_insert_get_returns_value tests _ () -> void = {
+    let m: {Name: int} = {};
+    let m2 = m.insert(key: Name { tag: "alice" }, value: 1).insert(key: Name { tag: "bo" }, value: 2);
+    assert_eq(actual: m2.get(key: Name { tag: "alice" }).unwrap_or(default: -1), expected: 1);
+    assert_eq(actual: m2.get(key: Name { tag: "bo" }).unwrap_or(default: -1), expected: 2)
+}
+
+@test_struct_key_24b_contains_key tests _ () -> void = {
+    let m: {Name: int} = {};
+    let m2 = m.insert(key: Name { tag: "alice" }, value: 1);
+    assert(cond: m2.contains_key(key: Name { tag: "alice" }));
+    assert(cond: !m2.contains_key(key: Name { tag: "zzz" }))
+}
+
+@test_struct_key_24b_remove tests _ () -> void = {
+    let m: {Name: int} = {};
+    let m2 = m.insert(key: Name { tag: "alice" }, value: 1).insert(key: Name { tag: "bo" }, value: 2);
+    let m3 = m2.remove(key: Name { tag: "alice" });
+    assert_eq(actual: m3.length(), expected: 1);
+    assert(cond: !m3.contains_key(key: Name { tag: "alice" }));
+    assert(cond: m3.contains_key(key: Name { tag: "bo" }))
+}
+
+// --- semantic pin: an independently-built structurally-equal key resolves ---
+// Proves the user @hash + @eq drive bucket resolution, not a degenerate constant.
+
+@test_struct_key_independent_equal_key_resolves tests _ () -> void = {
+    let inserted = Name { tag: "shared" };
+    let m: {Name: int} = {};
+    let m2 = m.insert(key: inserted, value: 42);
+    // Built independently (different binding), structurally equal.
+    let lookup = Name { tag: "shared" };
+    assert_eq(actual: m2.get(key: lookup).unwrap_or(default: -1), expected: 42)
+}
+
+// --- struct key <=16 bytes (by-value self ABI: {id: int} is 8B), derived Hashable ---
+
+#derive(Eq, Hashable)
+type Id = { id: int }
+
+@test_struct_key_8b_derived_hashable tests _ () -> void = {
+    let m: {Id: str} = {};
+    let m2 = m.insert(key: Id { id: 7 }, value: "seven");
+    assert_eq(actual: m2.get(key: Id { id: 7 }).unwrap_or(default: "?"), expected: "seven");
+    assert(cond: m2.contains_key(key: Id { id: 7 }));
+    assert(cond: !m2.contains_key(key: Id { id: 8 }))
+}
+
+// --- enum key, unit variants (derived Hashable) ---
+
+#derive(Eq, Hashable)
+type Color = Red | Green | Blue;
+
+@test_enum_unit_variant_key tests _ () -> void = {
+    let m: {Color: int} = {};
+    let m2 = m.insert(key: Red, value: 10).insert(key: Blue, value: 30);
+    assert_eq(actual: m2.get(key: Red).unwrap_or(default: -1), expected: 10);
+    assert_eq(actual: m2.get(key: Blue).unwrap_or(default: -1), expected: 30);
+    assert(cond: !m2.contains_key(key: Green))
+}
+
+// --- enum key, payload variant >16 bytes (Go(dir: str) carries a 24B str) ---
+
+#derive(Eq, Hashable)
+type Cmd = Stop | Go(dir: str);
+
+@test_enum_payload_variant_key tests _ () -> void = {
+    let m: {Cmd: int} = {};
+    let m2 = m.insert(key: Stop, value: 1).insert(key: Go(dir: "north"), value: 2);
+    assert_eq(actual: m2.get(key: Stop).unwrap_or(default: -1), expected: 1);
+    assert_eq(actual: m2.get(key: Go(dir: "north")).unwrap_or(default: -1), expected: 2);
+    assert(cond: !m2.contains_key(key: Go(dir: "south")))
+}
+
+// --- set: collect + contains over user-Hashable elements (dedup proves hashing) ---
+
+@test_set_collect_dedups_user_hashable tests _ () -> void = {
+    let xs = [Name { tag: "a" }, Name { tag: "bb" }, Name { tag: "a" }];
+    let s: Set<Name> = xs.iter().collect();
+    assert_eq(actual: s.length(), expected: 2);
+    assert(cond: s.contains(value: Name { tag: "a" }));
+    assert(cond: !s.contains(value: Name { tag: "zzz" }))
+}
+
+// --- set binary ops over user-Hashable elements ---
+
+@test_set_binary_ops_user_hashable tests _ () -> void = {
+    let s1: Set<Name> = [Name { tag: "a" }, Name { tag: "bb" }].iter().collect();
+    let s2: Set<Name> = [Name { tag: "bb" }, Name { tag: "ccc" }].iter().collect();
+    assert_eq(actual: s1.union(other: s2).length(), expected: 3);
+    assert_eq(actual: s1.intersection(other: s2).length(), expected: 1);
+    assert_eq(actual: s1.difference(other: s2).length(), expected: 1)
+}

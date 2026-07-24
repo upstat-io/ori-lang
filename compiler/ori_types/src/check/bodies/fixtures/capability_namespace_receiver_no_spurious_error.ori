@@ -1,0 +1,2 @@
+trait Http { @get (url: str) -> str }
+@fetch (url: str) -> str uses Http = Http.get(url: url);

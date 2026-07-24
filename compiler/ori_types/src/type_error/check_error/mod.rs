@@ -1,4 +1,4 @@
-//! Comprehensive type checking error structure.
+//! Type checking error structure.
 //!
 //! This module defines `TypeCheckError`, the rich error type used throughout
 //! type checking. It combines:
@@ -22,6 +22,7 @@
 //! - [`constructors`]: Type/struct/operator/derive error factories
 //! - [`constructors_expr`]: Impl/trait/expression error factories
 
+mod aux_kinds;
 mod constructors;
 mod constructors_expr;
 mod format;
@@ -29,7 +30,9 @@ pub(crate) mod kind;
 mod message;
 
 pub use kind::{
-    AmbiguousTypeSite, ArityMismatchKind, ErrorContext, ImportErrorKind, TypeErrorKind,
+    AmbiguousTypeSite, ArityMismatchKind, ErrorContext, ImportErrorKind,
+    InvalidFixedListCapacityReason, NonCollectingLoopKind, OrBindingMismatchReason, TypeErrorKind,
+    VoidLoopKind,
 };
 
 use ori_diagnostic::Suggestion;
@@ -40,7 +43,7 @@ use crate::Idx;
 
 /// A type checking error with full context.
 ///
-/// This is the comprehensive error type used throughout type checking.
+/// This is the error type used throughout type checking.
 /// It contains all information needed to render a helpful error message.
 ///
 /// # Salsa Compatibility
@@ -58,6 +61,20 @@ pub struct TypeCheckError {
 }
 
 impl TypeCheckError {
+    /// Build an error carrying exactly one priority-0 suggestion — the
+    /// canonical shape shared by most single-suggestion error-kind
+    /// constructors across this module family (`constructors.rs`,
+    /// `constructors_expr.rs`). Constructors needing a computed or
+    /// multi-item suggestion list build `Self` directly instead.
+    fn new_with_suggestion(span: Span, kind: TypeErrorKind, suggestion: impl Into<String>) -> Self {
+        Self {
+            span,
+            kind,
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(suggestion, 0)],
+        }
+    }
+
     /// Create a new type mismatch error.
     pub fn mismatch(
         span: Span,
@@ -82,14 +99,15 @@ impl TypeCheckError {
     /// Create an unknown identifier error.
     pub fn unknown_ident(span: Span, name: Name, similar: Vec<Name>) -> Self {
         let suggestions = if similar.is_empty() {
-            vec![Suggestion::text(
-                format!("check spelling or add a definition for `{name:?}`"),
+            vec![Suggestion::text_with_names(
+                "check spelling or add a definition for `{0}`",
+                vec![name],
                 1,
             )]
         } else {
             similar
                 .iter()
-                .map(|s| Suggestion::did_you_mean(format!("{s:?}")))
+                .map(|s| Suggestion::text_with_names("did you mean `{0}`?", vec![*s], 0))
                 .collect()
         };
 
@@ -106,11 +124,13 @@ impl TypeCheckError {
         let suggestions = if available.is_empty() {
             vec![Suggestion::text("this type has no fields", 1)]
         } else {
-            // Try to find a similar field name
             let mut suggestions = Vec::new();
             for &avail in &available {
-                // In real implementation, we'd use edit_distance here
-                suggestions.push(Suggestion::text(format!("available field: `{avail:?}`"), 2));
+                suggestions.push(Suggestion::text_with_names(
+                    "available field: `{0}`",
+                    vec![avail],
+                    2,
+                ));
             }
             if suggestions.len() > 5 {
                 suggestions.truncate(5);
@@ -127,6 +147,24 @@ impl TypeCheckError {
             },
             context: ErrorContext::default(),
             suggestions,
+        }
+    }
+
+    /// Create an unknown-method error for a concrete receiver.
+    ///
+    /// Emitted when a method call on a concrete (non-generic, non-placeholder)
+    /// receiver resolves to no builtin method, no trait/inherent impl method,
+    /// and no callable struct field — a genuine absence.
+    pub fn unknown_method(span: Span, ty: Idx, method: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::UnknownMethod { ty, method },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text_with_names(
+                "check spelling, or implement `{0}` via an `impl` block",
+                vec![method],
+                1,
+            )],
         }
     }
 
@@ -211,8 +249,9 @@ impl TypeCheckError {
                 available: available.to_vec(),
             },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                format!("add `uses {required:?}` to the function signature"),
+            suggestions: vec![Suggestion::text_with_names(
+                "add `uses {0}` to the function signature",
+                vec![required],
                 0,
             )],
         }
@@ -238,19 +277,170 @@ impl TypeCheckError {
     ///
     /// `site` classifies the expression position so the consumer
     /// (`TypeCheckError::message()`) can dispatch on the `AmbiguousTypeSite`
-    /// variant and produce site-specific wording per plan §06.1. Callers in
+    /// variant and produce site-specific wording. Callers in
     /// the validator compute the site from the `ExprKind` at the error
     /// position; signature positions (no `ExprKind` in scope) pass
     /// `AmbiguousTypeSite::Expression`.
     pub fn ambiguous_type(span: Span, var_id: u32, site: AmbiguousTypeSite) -> Self {
+        Self::new_with_suggestion(
+            span,
+            TypeErrorKind::AmbiguousType { var_id, site },
+            "add a type annotation to clarify the expected type",
+        )
+    }
+
+    /// Create a conditional partial-move error (E2043).
+    ///
+    /// Emitted by `validate_partial_move` when a non-Drop owned aggregate's
+    /// field is projected on one branch of an `if`/`match` but not on a
+    /// sibling branch (or differently across arms). The Phase 5 ARC lowering
+    /// invariant (`moved_out_fields[v]` statically computable per-CFG-path)
+    /// forbids these patterns; rejecting at typeck keeps Phase 5 emission
+    /// trivial.
+    pub fn conditional_partial_move(span: Span, aggregate: Name, field: Name) -> Self {
         Self {
             span,
-            kind: TypeErrorKind::AmbiguousType { var_id, site },
+            kind: TypeErrorKind::ConditionalPartialMove { aggregate, field },
             context: ErrorContext::default(),
-            suggestions: vec![Suggestion::text(
-                "add a type annotation to clarify the expected type",
+            suggestions: vec![
+                Suggestion::text(
+                    "move the field projection out of the conditional so it runs unconditionally",
+                    0,
+                ),
+                Suggestion::text(
+                    "OR mirror the same projection on every branch so the move set is symmetric",
+                    1,
+                ),
+            ],
+        }
+    }
+
+    /// Create a use-after-`drop_early` error (E2054).
+    ///
+    /// Emitted by `validate_consumed_binding` when a binding is used after a
+    /// `drop_early(value: x)` call consumed it. Per Spec Clause 13 §13.7 the
+    /// binding is inaccessible after the consume; a later use would read
+    /// reclaimed memory (use-after-free).
+    pub fn use_after_drop_early(span: Span, binding: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::UseAfterDropEarly { binding },
+            context: ErrorContext::default(),
+            suggestions: vec![
+                Suggestion::text(
+                    "use the value before the `drop_early` call, or remove the later use",
+                    0,
+                ),
+                Suggestion::text(
+                    "OR re-bind the name with a fresh `let` after the drop to make it accessible again",
+                    1,
+                ),
+            ],
+        }
+    }
+
+    /// Create an undeclared fixed-list capacity const error (E2056).
+    pub fn undeclared_fixed_list_capacity_const(span: Span, name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::UndeclaredFixedListCapacityConst { name },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text_with_names(
+                "declare it in `<${0}: int>` or use a declared const",
+                vec![name],
                 0,
             )],
+        }
+    }
+
+    /// Create a non-positive fixed-list capacity error (E2057).
+    pub fn non_positive_fixed_list_capacity(span: Span, value: i64) -> Self {
+        Self::new_with_suggestion(
+            span,
+            TypeErrorKind::NonPositiveFixedListCapacity { value },
+            "use a capacity greater than zero (Spec: Clause 8.2.2)",
+        )
+    }
+
+    /// Create an invalid fixed-list capacity expression error (E2059).
+    pub fn invalid_fixed_list_capacity_expression(
+        span: Span,
+        reason: InvalidFixedListCapacityReason,
+    ) -> Self {
+        Self::new_with_suggestion(
+            span,
+            TypeErrorKind::InvalidFixedListCapacityExpression { reason },
+            "use a positive integer literal or an allowed expression over declared int consts",
+        )
+    }
+
+    /// Create a partial-move-on-Drop-type error (E2048).
+    ///
+    /// Emitted by `validate_drop_partial_move` when `let $f = v.field` projects
+    /// a field of a type implementing `Drop`. Per
+    /// `drop-trait-proposal.md §Execution Timing`, the compiler walks owned
+    /// fields in reverse declaration order AFTER invoking the user `@drop`
+    /// body; a partial move would leave `@drop` observing absent fields.
+    ///
+    /// The axis is disjoint from E2043 (`conditional_partial_move`): every
+    /// `Drop` partial move is forbidden regardless of CFG path.
+    pub fn drop_partial_move(span: Span, aggregate: Name, field: Name, type_name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::DropPartialMove {
+                aggregate,
+                field,
+                type_name,
+            },
+            context: ErrorContext::default(),
+            suggestions: vec![
+                Suggestion::text(
+                    "consume the value as a whole via `let owned = v` then access fields on `owned`",
+                    0,
+                ),
+                Suggestion::text(
+                    "OR access the field as a read-only operand (e.g., `v.field.length()`) instead of binding it",
+                    1,
+                ),
+                Suggestion::text(
+                    "OR match-destructure the value: `match v { T { f1, f2, .. } -> ... }`",
+                    2,
+                ),
+            ],
+        }
+    }
+
+    /// Create a `Value` + `Drop` mutual-exclusion error (E2049).
+    ///
+    /// Emitted at TWO non-derived registration surfaces (`register_user_types`
+    /// for type declarations carrying the `Value` marker AND a registered
+    /// `impl T: Drop`; `register_impl` for `impl T: Drop` blocks when T's
+    /// trait set already carries `Value`). The span always points at the
+    /// second registration so users see the rejected declaration.
+    ///
+    /// Per Spec: Annex E §AIMS: `Value` declares inline storage with
+    /// bitwise copy and no ARC. The refcount-zero
+    /// cleanup path that `@drop` hooks into never fires for `Value`
+    /// types; the two markers are mutually exclusive.
+    pub fn value_drop_conflict(span: Span, type_name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::ValueDropConflict { type_name },
+            context: ErrorContext::default(),
+            suggestions: vec![
+                Suggestion::text(
+                    "remove the `Value` marker from the type declaration if `Drop` is required",
+                    0,
+                ),
+                Suggestion::text(
+                    "OR remove the `impl T: Drop` block if `Value` semantics are intended (inline, bitwise copy, no cleanup)",
+                    1,
+                ),
+                Suggestion::text(
+                    "OR split into two types — one carrying `Value` for inline data, another carrying `Drop` for the resource",
+                    2,
+                ),
+            ],
         }
     }
 

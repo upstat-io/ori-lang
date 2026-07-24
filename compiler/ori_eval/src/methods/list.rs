@@ -3,8 +3,10 @@
 use ori_ir::Name;
 use ori_patterns::{no_such_method, EvalResult, IteratorValue, ListData, Value};
 
+use super::arguments::{nonnegative_usize, require_args, require_int_arg, require_list_arg};
 use super::compare::{compare_lists, compare_values, equals_values, hash_value, ordering_to_value};
-use super::helpers::{debug_value, len_to_value, require_args, require_int_arg, require_list_arg};
+use super::debug_format::debug_value;
+use super::length::len_to_value;
 use super::DispatchCtx;
 
 /// Dispatch methods on list values.
@@ -40,6 +42,8 @@ pub fn dispatch_list_method(
         Ok(Value::List(list))
     } else if method == n.set {
         list_set(list, args)
+    } else if method == n.updated {
+        list_updated(list, args)
     } else if method == n.insert {
         list_insert(list, args)
     } else if method == n.remove {
@@ -137,6 +141,17 @@ fn dispatch_list_method_str(
             sort_list(list, ctx)
         }
         "unique" => list_unique(&list, &args),
+        // Fixed-capacity conversions are value-identity at runtime: `[T]` and
+        // `[T, max N]` share the same `Value::List` representation; the capacity
+        // constraint is enforced at the type level. Spec: Clause 8.2.2.
+        "to_dynamic" => {
+            require_args("to_dynamic", 0, args.len())?;
+            Ok(Value::List(list))
+        }
+        "to_fixed" => {
+            require_args("to_fixed", 0, args.len())?;
+            Ok(Value::List(list))
+        }
         "count" => {
             require_args("count", 0, args.len())?;
             len_to_value(list.len(), "list")
@@ -216,8 +231,7 @@ fn list_flatten(list: &[Value], args: &[Value]) -> EvalResult {
 fn list_chunk_or_window(list: &[Value], method: &str, args: &[Value]) -> EvalResult {
     require_args(method, 1, args.len())?;
     let n = require_int_arg(method, args, 0)?;
-    let n_usize =
-        usize::try_from(n).map_err(|_| ori_patterns::wrong_arg_type(method, "positive int"))?;
+    let n_usize = nonnegative_usize(n, method, "positive int")?;
     if n_usize == 0 {
         return Err(ori_patterns::wrong_arg_type(method, "positive int").into());
     }
@@ -239,8 +253,7 @@ fn list_chunk_or_window(list: &[Value], method: &str, args: &[Value]) -> EvalRes
 fn list_set(mut list: ListData, mut args: Vec<Value>) -> EvalResult {
     require_args("set", 2, args.len())?;
     let index = require_int_arg("set", &args, 0)?;
-    let uindex = usize::try_from(index)
-        .map_err(|_| ori_patterns::wrong_arg_type("set", "non-negative int"))?;
+    let uindex = nonnegative_usize(index, "set", "non-negative int")?;
     if uindex >= list.len() {
         return Err(ori_patterns::wrong_arg_type("set", "index within bounds").into());
     }
@@ -248,12 +261,27 @@ fn list_set(mut list: ListData, mut args: Vec<Value>) -> EvalResult {
     Ok(Value::List(list))
 }
 
+/// `IndexSet.updated` — replace element at key (materializes slice if needed, then COW).
+///
+/// Out-of-bounds keys panic with the same `IndexOutOfBounds` error as `list[i]`
+/// indexing — `updated` is the desugar target for `list[i] = v`.
+fn list_updated(mut list: ListData, mut args: Vec<Value>) -> EvalResult {
+    require_args("updated", 2, args.len())?;
+    let key = require_int_arg("updated", &args, 0)?;
+    let length = list.len();
+    let ukey = usize::try_from(key)
+        .ok()
+        .filter(|&i| i < length)
+        .ok_or_else(|| ori_patterns::index_out_of_bounds(key, length))?;
+    list.set(ukey, args.swap_remove(1));
+    Ok(Value::List(list))
+}
+
 /// Insert element at index (materializes slice if needed, then COW).
 fn list_insert(mut list: ListData, mut args: Vec<Value>) -> EvalResult {
     require_args("insert", 2, args.len())?;
     let index = require_int_arg("insert", &args, 0)?;
-    let uindex = usize::try_from(index)
-        .map_err(|_| ori_patterns::wrong_arg_type("insert", "non-negative int"))?;
+    let uindex = nonnegative_usize(index, "insert", "non-negative int")?;
     if uindex > list.len() {
         return Err(ori_patterns::wrong_arg_type("insert", "index within bounds").into());
     }
@@ -265,8 +293,7 @@ fn list_insert(mut list: ListData, mut args: Vec<Value>) -> EvalResult {
 fn list_remove(mut list: ListData, args: &[Value]) -> EvalResult {
     require_args("remove", 1, args.len())?;
     let index = require_int_arg("remove", args, 0)?;
-    let uindex = usize::try_from(index)
-        .map_err(|_| ori_patterns::wrong_arg_type("remove", "non-negative int"))?;
+    let uindex = nonnegative_usize(index, "remove", "non-negative int")?;
     if uindex >= list.len() {
         return Err(ori_patterns::wrong_arg_type("remove", "index within bounds").into());
     }
@@ -279,10 +306,8 @@ fn list_slice(list: &ListData, args: &[Value]) -> EvalResult {
     require_args("slice", 2, args.len())?;
     let start = require_int_arg("slice", args, 0)?;
     let end = require_int_arg("slice", args, 1)?;
-    let ustart = usize::try_from(start)
-        .map_err(|_| ori_patterns::wrong_arg_type("slice", "non-negative int"))?;
-    let uend = usize::try_from(end)
-        .map_err(|_| ori_patterns::wrong_arg_type("slice", "non-negative int"))?;
+    let ustart = nonnegative_usize(start, "slice", "non-negative int")?;
+    let uend = nonnegative_usize(end, "slice", "non-negative int")?;
     Ok(Value::List(list.slice(ustart, uend)))
 }
 
@@ -290,8 +315,7 @@ fn list_slice(list: &ListData, args: &[Value]) -> EvalResult {
 fn list_take(list: &ListData, args: &[Value]) -> EvalResult {
     require_args("take", 1, args.len())?;
     let count = require_int_arg("take", args, 0)?;
-    let n = usize::try_from(count)
-        .map_err(|_| ori_patterns::wrong_arg_type("take", "non-negative int"))?;
+    let n = nonnegative_usize(count, "take", "non-negative int")?;
     Ok(Value::List(list.take(n)))
 }
 
@@ -299,8 +323,7 @@ fn list_take(list: &ListData, args: &[Value]) -> EvalResult {
 fn list_skip(list: &ListData, args: &[Value], name: &str) -> EvalResult {
     require_args(name, 1, args.len())?;
     let count = require_int_arg(name, args, 0)?;
-    let n = usize::try_from(count)
-        .map_err(|_| ori_patterns::wrong_arg_type(name, "non-negative int"))?;
+    let n = nonnegative_usize(count, name, "non-negative int")?;
     Ok(Value::List(list.skip(n)))
 }
 

@@ -1,0 +1,23 @@
+Theorem RL-25: logical event-pair eliminability
+
+  Preconditions:
+    - RL-24 identifies a logical owner-credit/release pair.
+    - KnownSafe or both-path safety evidence is available.
+
+  Soundness property:
+    A matched pair is eliminable iff KnownSafe holds OR both directions are
+    safe with no CFG multiplicity hazard. Elimination preserves exact logical
+    balance and evaluator behavior.
+
+  Proof obligation:
+    Enumerate KnownSafe, both-safe/no-hazard, CFG-hazard, and one-path-unsafe.
+    Coverage gate: 4 cases. A CFG hazard blocks elimination.
+
+    Engines dispatched:
+      rc_counting (PRIMARY — section_08::verify_rl25_pair_eliminable_conditions)
+      refinement (SECONDARY — gracious-accept)
+      case_analysis (SECONDARY — gracious-accept)
+
+  Expected:
+    status: valid
+    reason: RL-25 eliminates only logically matched owner-credit/release pairs with KnownSafe or hazard-free bidirectional evidence

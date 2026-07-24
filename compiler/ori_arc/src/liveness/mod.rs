@@ -1,9 +1,10 @@
-//! Backward dataflow liveness analysis on ARC IR (Section 07.1).
+//! Backward dataflow liveness analysis on ARC IR.
 //!
 //! Computes which variables are **live** (will be read in the future) at
-//! every basic block boundary. This information drives RC insertion
-//! (Section 07.2): a variable's last use is where its `RcDec` goes, and
-//! additional uses require `RcInc`.
+//! every basic block boundary. This information drives logical ownership-event
+//! placement: a variable's last use is where its release/cleanup obligation
+//! goes, and additional owned uses require additional owner credits. The
+//! transitional carrier spells those events `RcDec` and `RcInc`.
 //!
 //! # Algorithm
 //!
@@ -22,15 +23,17 @@
 //! and block params are definitions in the successor (in `kill`). No
 //! explicit substitution is needed.
 //!
-//! Only RC'd variables (those where `classifier.needs_rc()` is true) are
-//! tracked. Scalar variables are excluded because they never need
-//! `RcInc`/`RcDec`.
+//! Only variables with managed ownership obligations (those where
+//! `classifier.has_managed_ownership_obligation()` is true) are tracked.
+//! Scalars are excluded because they carry no ownership events.
 //!
-//! # References
+//! # Historical design influences
 //!
-//! - Lean 4: `src/Lean/Compiler/IR/LiveVars.lean`
-//! - Koka: Perceus paper §3.2 (liveness-based RC insertion)
-//! - Appel: "Modern Compiler Implementation" §10.1 (dataflow analysis)
+//! The liveness-based RC-insertion SHAPE drew on prior work as historical
+//! influences; Ori's formulation is its own (see Spec: Annex E §AIMS).
+//! Influence shapes: Lean 4 LCNF liveness-driven RC insertion; Koka Perceus
+//! (Reinking et al., PLDI 2021) §3.2; Appel, "Modern Compiler Implementation"
+//! §10.1 (dataflow analysis).
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -59,25 +62,23 @@ pub struct BlockLiveness {
 
 /// Compute liveness for all blocks in an ARC IR function.
 ///
-/// Only tracks variables whose types satisfy `classifier.needs_rc()`.
+/// Only tracks variables whose types satisfy
+/// `classifier.has_managed_ownership_obligation()`.
 /// Scalar variables (int, float, bool, etc.) are excluded entirely.
 ///
 /// # Arguments
 ///
 /// * `func` — the ARC IR function to analyze.
-/// * `classifier` — type classifier that determines which variables need RC.
+/// * `classifier` — type classifier that determines which variables carry
+///   managed ownership obligations.
 pub fn compute_liveness(func: &ArcFunction, classifier: &dyn ArcClassification) -> BlockLiveness {
     let num_blocks = func.blocks.len();
 
     tracing::debug!(function = func.name.raw(), num_blocks, "computing liveness");
 
-    // Step 0.5: Build Invoke dst mapping.
-    // An Invoke terminator defines `dst` at the normal successor's entry,
-    // not at the invoking block. Precompute which blocks receive Invoke
-    // definitions so gen/kill can account for them.
+    // INVARIANT: `Invoke` destinations enter scope only at their normal successors.
     let invoke_defs = crate::graph::collect_invoke_defs(func);
 
-    // Step 1: Precompute gen/kill for each block.
     let mut gen: Vec<LiveSet> = Vec::with_capacity(num_blocks);
     let mut kill: Vec<LiveSet> = Vec::with_capacity(num_blocks);
 
@@ -87,10 +88,8 @@ pub fn compute_liveness(func: &ArcFunction, classifier: &dyn ArcClassification) 
         kill.push(block_kill);
     }
 
-    // Step 2: Compute postorder for convergence ordering.
     let postorder = compute_postorder(func);
 
-    // Step 3: Fixed-point iteration.
     let mut live_in: Vec<LiveSet> = (0..num_blocks).map(|_| LiveSet::default()).collect();
     let mut live_out: Vec<LiveSet> = (0..num_blocks).map(|_| LiveSet::default()).collect();
 
@@ -162,7 +161,7 @@ fn compute_gen_kill(
 
     // Block parameters are definitions.
     for &(param_var, _) in &block.params {
-        if needs_rc_var(param_var, func, classifier) {
+        if has_managed_ownership_var(param_var, func, classifier) {
             kill.insert(param_var);
         }
     }
@@ -172,7 +171,7 @@ fn compute_gen_kill(
     // successor — that definition acts like a block parameter.
     if let Some(dsts) = invoke_defs.get(&block.id) {
         for &dst in dsts {
-            if needs_rc_var(dst, func, classifier) {
+            if has_managed_ownership_var(dst, func, classifier) {
                 kill.insert(dst);
             }
         }
@@ -182,13 +181,13 @@ fn compute_gen_kill(
     for instr in &block.body {
         // Uses before definitions go into gen.
         for var in instr.used_vars() {
-            if needs_rc_var(var, func, classifier) && !kill.contains(&var) {
+            if has_managed_ownership_var(var, func, classifier) && !kill.contains(&var) {
                 gen.insert(var);
             }
         }
         // Definitions go into kill.
         if let Some(dst) = instr.defined_var() {
-            if needs_rc_var(dst, func, classifier) {
+            if has_managed_ownership_var(dst, func, classifier) {
                 kill.insert(dst);
             }
         }
@@ -196,7 +195,7 @@ fn compute_gen_kill(
 
     // Terminator uses.
     for var in block.terminator.used_vars() {
-        if needs_rc_var(var, func, classifier) && !kill.contains(&var) {
+        if has_managed_ownership_var(var, func, classifier) && !kill.contains(&var) {
             gen.insert(var);
         }
     }
@@ -204,12 +203,16 @@ fn compute_gen_kill(
     (gen, kill)
 }
 
-/// Check whether a variable needs RC tracking.
+/// Check whether a variable carries a managed ownership obligation.
 #[inline]
-fn needs_rc_var(var: ArcVarId, func: &ArcFunction, classifier: &dyn ArcClassification) -> bool {
+fn has_managed_ownership_var(
+    var: ArcVarId,
+    func: &ArcFunction,
+    classifier: &dyn ArcClassification,
+) -> bool {
     let idx = var.index();
     if idx < func.var_types.len() {
-        classifier.needs_rc(func.var_types[idx])
+        classifier.has_managed_ownership_obligation(func.var_types[idx])
     } else {
         // Out-of-bounds variable — conservative fallback.
         true
@@ -224,8 +227,8 @@ fn needs_rc_var(var: ArcVarId, func: &ArcFunction, classifier: &dyn ArcClassific
 /// a variable that is only live-for-drop can be safely reset without risking
 /// a use-after-free, whereas a variable that is live-for-use cannot.
 ///
-/// Inspired by Lean 4's distinction between "consumed" and "dropped" in
-/// `Lean.Compiler.IR.RC` and Koka's `CheckFBIP.hs` ownership analysis.
+/// Historical influence: Lean 4's distinction between "consumed" and "dropped" in
+/// `Lean.Compiler.IR.RC` and Koka's `CheckFBIP.hs` ownership-analysis SHAPE.
 pub struct RefinedLiveness {
     /// Variables live because they will be read as an operand (not just dropped).
     pub live_for_use: LiveSet,
@@ -243,7 +246,7 @@ pub struct RefinedLiveness {
 /// - **`live_for_drop`**: the variable only appears in `RcDec` instructions.
 ///
 /// At join points (blocks with multiple predecessors), `live_for_use` wins
-/// conservatively — if any successor path reads the variable, we treat it
+/// conservatively — a read on any successor path classifies the variable
 /// as live-for-use at the join.
 ///
 /// Returns both the refined classification and the standard `BlockLiveness`
@@ -256,37 +259,20 @@ pub fn compute_refined_liveness(
     let standard = compute_liveness(func, classifier);
     let num_blocks = func.blocks.len();
 
-    // For each block, classify each live_out variable.
-    // We do a backward walk per block: a var is "use" if we see it used
-    // as a real operand, "drop" if we only see it in RcDec.
     let mut refined: Vec<RefinedLiveness> = Vec::with_capacity(num_blocks);
 
     for block_idx in 0..num_blocks {
         let block = &func.blocks[block_idx];
         let live_out = &standard.live_out[block_idx];
 
-        // Start from live_out classification of successors.
-        // At joins, live_for_use wins (conservative).
         let mut use_set = LiveSet::default();
         let mut drop_set = LiveSet::default();
 
-        // Seed from successor blocks' refined classification.
-        // Since we process in block order (not RPO), we use the standard
-        // live_out and then classify within this block.
+        // Why: Block-order traversal starts conservatively; operand uses promote values below.
         for &var in live_out {
-            // Default: check if successors use this var as an operand.
-            // We approximate conservatively: anything in live_out that
-            // appears in a successor's gen set as a real operand → use.
-            // This is a simplified approach; for full precision we'd need
-            // backward dataflow on the classification itself.
             drop_set.insert(var);
         }
 
-        // Backward walk through the block body.
-        // If we see a real use of a var, promote it from drop to use.
-        // If we see only RcDec, it stays in drop.
-
-        // Check terminator first (backward walk: terminator is "last").
         for var in block.terminator.used_vars() {
             if live_out.contains(&var) || standard.live_in[block_idx].contains(&var) {
                 drop_set.remove(&var);
@@ -294,7 +280,6 @@ pub fn compute_refined_liveness(
             }
         }
 
-        // Walk instructions backward.
         for instr in block.body.iter().rev() {
             match instr {
                 crate::ir::ArcInstr::RcDec { var, .. } => {
@@ -310,7 +295,7 @@ pub fn compute_refined_liveness(
                         if drop_set.contains(&var) {
                             drop_set.remove(&var);
                             use_set.insert(var);
-                        } else if needs_rc_var(var, func, classifier) {
+                        } else if has_managed_ownership_var(var, func, classifier) {
                             use_set.insert(var);
                         }
                     }

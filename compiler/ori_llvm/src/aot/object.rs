@@ -19,17 +19,25 @@
 //!
 //! # Usage
 //!
-//! ```ignore
-//! use ori_llvm::aot::{TargetConfig, ObjectEmitter, EmitOptions};
+//! ```no_run
+//! use ori_llvm::aot::{ObjectEmitter, TargetConfig};
+//! use ori_llvm::inkwell::context::Context;
+//! use std::path::Path;
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!
+//! let context = Context::create();
+//! let module = context.create_module("example");
 //! let target = TargetConfig::native()?;
 //! let emitter = ObjectEmitter::new(&target)?;
+//! emitter.configure_module(&module)?;
 //!
 //! // Emit object file
 //! emitter.emit_object(&module, Path::new("output.o"))?;
 //!
 //! // Emit assembly (for debugging)
 //! emitter.emit_assembly(&module, Path::new("output.s"))?;
+//! # Ok(())
+//! # }
 //! ```
 
 use std::fmt;
@@ -319,38 +327,33 @@ impl ObjectEmitter {
         format: OutputFormat,
         hooks: CaptureHooks<'_>,
     ) -> Result<(), ModulePipelineError> {
-        // Step 0: Early Clang availability check when sanitizers are enabled
         if opt_config.sanitizer.any_enabled() {
             super::passes::check_clang_available().map_err(ModulePipelineError::Optimization)?;
         }
 
-        // Step 1: Verify
         if let Err(msg) = module.verify() {
             return Err(ModulePipelineError::Verification(msg.to_string()));
         }
 
-        // Step 1.5: Pre-optimization IR capture (after verify, before opt)
         if let Some(pre_opt) = hooks.pre_opt {
             pre_opt(module).map_err(ModulePipelineError::Capture)?;
         }
 
-        // Step 2: Optimize
         super::passes::run_optimization_passes(module, &self.machine, opt_config)
             .map_err(ModulePipelineError::Optimization)?;
 
-        // Step 2.5a: Post-optimization IR capture (after opt, before emit)
         if let Some(post_opt) = hooks.post_opt {
             post_opt(module).map_err(ModulePipelineError::Capture)?;
         }
 
-        // Step 2.5b: Post-optimization RC histogram (gated behind audit flag).
+        // Post-optimization RC histogram.
         if crate::verify::audit_requested() {
             let options = crate::verify::AuditOptions::from_env();
             let stats = crate::verify::audit_module_histogram_only(module, &options);
             stats.emit_to_stderr();
         }
 
-        // Step 3: Emit (with optional sanitizer delegation)
+        // Emit, delegating to clang when sanitizers are enabled.
         if opt_config.sanitizer.any_enabled() && format == OutputFormat::Object {
             // Sanitizer path: emit LLVM IR, invoke Clang with -fsanitize,
             // clean up intermediate IR (handled by clang_sanitize_object).
@@ -394,7 +397,7 @@ impl ObjectEmitter {
         self.emit_to_memory(module, FileType::Assembly)
     }
 
-    // -- Internal helpers --
+    // Internal helpers
 
     /// Emit to a file using LLVM's target machine.
     fn emit_to_file(

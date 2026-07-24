@@ -1,0 +1,12 @@
+@main () -> int = {
+    let base = [2, 3];
+    let prepended = base.prepend(1);
+
+    if base.length() == 2
+    && base[0] == 2
+    && base[1] == 3
+    && prepended.length() == 3
+    && prepended[0] == 1
+    && prepended[1] == 2
+    && prepended[2] == 3 then 0 else 1
+}

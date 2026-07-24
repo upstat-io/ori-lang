@@ -5,7 +5,7 @@
 // - `??` coalesce operator type checking
 // - `is_empty`, `is_none` prelude function polymorphism
 // - Nested collection type inference
-// - Mutable variable tracking (`let mut`)
+// - Reassignable binding tracking (Ori bindings are mutable by default; `$` marks immutable — no `let mut`)
 //
 // Uncomment when type checker supports these features.
 
@@ -95,7 +95,7 @@
 //
 // // SKIP: Computed map key syntax {[expr]: value} not fully implemented.
 // // Parser treats [expr] as list literal, not computed key.
-// #skip("computed map key syntax not implemented")
+// #skip("BUG-07-038: computed map key syntax not implemented")
 // @test_map_computed_key tests @map_computed_key () -> void = {
 //     let m = map_computed_key(),
 //     assert_eq(actual: m["key_1"] ?? 0, expected: 100),
