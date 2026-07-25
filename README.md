@@ -242,7 +242,9 @@ cargo build --release
 cp target/release/ori ~/.local/bin/
 ```
 
-**Requires**: Rust 1.70+ and **LLVM 21** (the `llvm` feature is on by default for `oric` and `compile_error!` guards against disabling it). Install LLVM 21 via your system package manager (`apt install llvm-21-dev`, `brew install llvm@21`, etc.) and ensure `llvm-config-21` is on `PATH`.
+**Requires**: Rust 1.70+ and **LLVM 21** (the `llvm` feature is on by default for `oric` and `compile_error!` guards against disabling it). Install LLVM 21 via your system package manager (`dnf install llvm21-devel clang21`, `apt install llvm-21-dev clang-21`, `brew install llvm@21`) and ensure a version-qualified `llvm-config-21` is reachable.
+
+Run `./setup.sh` first: it verifies every prerequisite, resolves this host's LLVM 21 prefix, and installs the git hooks. Distributions disagree on the prefix (`/usr/lib64/llvm21` on Fedora, `/usr/lib/llvm-21` on Debian), so when the local prefix differs from the `.cargo/config.toml` default, `setup.sh` writes a `.llvm-env.sh` to `source` before building. Use `./setup.sh --check` to verify without making changes.
 
 ## Documentation
 
