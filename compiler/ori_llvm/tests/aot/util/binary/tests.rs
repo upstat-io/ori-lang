@@ -12,7 +12,7 @@ use super::{
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 fn write_file(path: &Path, content: &str) {
     if let Some(parent) = path.parent() {
@@ -434,4 +434,136 @@ fn stale_dead_pid_stage_dirs_are_cleaned() {
     assert!(!stale.exists(), "dead-pid stage dir must be removed");
     assert!(live.exists(), "live-pid stage dir must be kept");
     let _ = fs::remove_dir_all(&live);
+}
+
+// --- sealed-snapshot stage source: validated bytes are the executed bytes ---
+
+#[test]
+fn debug_stages_from_the_sealed_snapshot_when_pinned() {
+    let sealed = std::ffi::OsString::from("/tmp/ori-sealed-pin-probe");
+    let resolved = super::stage_source_dir_for("debug", Some(sealed.as_os_str()));
+    assert_eq!(resolved, PathBuf::from("/tmp/ori-sealed-pin-probe"));
+}
+
+#[test]
+fn debug_stages_from_cargo_target_when_unpinned() {
+    let resolved = super::stage_source_dir_for("debug", None);
+    assert_eq!(resolved, super::cargo_target_dir().join("debug"));
+}
+
+#[test]
+fn release_never_resolves_to_the_sealed_snapshot() {
+    // The sealed manifest carries debug artifacts only, so a release stage
+    // ALWAYS leaves the sealed set. This is why `ori_binary` refuses the
+    // cross-profile fallback while the sealed pin is set: taking it would
+    // execute bytes the run's integrity verdict does not describe.
+    let sealed = std::ffi::OsString::from("/tmp/ori-sealed-pin-probe");
+    let resolved = super::stage_source_dir_for("release", Some(sealed.as_os_str()));
+    assert_ne!(resolved, PathBuf::from("/tmp/ori-sealed-pin-probe"));
+    assert_eq!(resolved, super::cargo_target_dir().join("release"));
+}
+
+#[test]
+fn sealed_run_refuses_cross_profile_fallback() {
+    // The load-bearing arm: an unusable profile-matched binary under a seal must
+    // REFUSE, never resolve CrossProfile (whose bytes come from CARGO_TARGET_DIR
+    // and sit outside the validated sealed set).
+    let sealed = std::ffi::OsString::from("/tmp/ori-sealed-pin-probe");
+    assert_eq!(
+        super::resolve_binary_choice(false, Some(sealed.as_os_str())),
+        super::BinaryResolution::RefuseSealed,
+    );
+}
+
+#[test]
+fn unsealed_run_still_allows_cross_profile_fallback() {
+    // Negative control: without a seal the legacy fallback is preserved.
+    assert_eq!(
+        super::resolve_binary_choice(false, None),
+        super::BinaryResolution::CrossProfile,
+    );
+}
+
+#[test]
+fn usable_staged_binary_is_used_regardless_of_seal() {
+    let sealed = std::ffi::OsString::from("/tmp/ori-sealed-pin-probe");
+    assert_eq!(
+        super::resolve_binary_choice(true, Some(sealed.as_os_str())),
+        super::BinaryResolution::Staged,
+    );
+    assert_eq!(
+        super::resolve_binary_choice(true, None),
+        super::BinaryResolution::Staged,
+    );
+}
+
+#[test]
+fn sealed_source_set_excludes_sanitizer_runtime() {
+    // Sanitizer AOT is NOT admitted under a sealed run. The sealed directory
+    // holds exactly the compiler binary + non-sanitizer runtime staticlib, so
+    // the sanitizer lib is an absent OPTIONAL. The absent-optional arm must
+    // DROP any stale staged copy rather than leave a sanitizer artifact whose
+    // bytes came from the mutable target dir — otherwise a run could link a
+    // sanitizer runtime the sealed integrity verdict never described.
+    let root = temp_test_dir("sealed-no-asan");
+    let (src, stage) = (root.join("sealed"), root.join("stage"));
+    write_file(&src.join("ori"), "binary-v1");
+    write_file(&src.join("libori_rt.a"), "lib-v1");
+    // A prior unsealed run left a sanitizer staticlib in the stage.
+    write_file(
+        &stage.join("libori_rt_asan.a"),
+        "stale-asan-from-mutable-target",
+    );
+
+    let staged = match stage_snapshot(
+        &src,
+        &stage,
+        &["ori", "libori_rt.a"],
+        &["libori_rt_asan.a"],
+        SnapshotStrategy::Copy,
+    ) {
+        Ok(a) => a,
+        Err(e) => panic!("stage_snapshot: {e}"),
+    };
+
+    assert!(
+        !staged.iter().any(|a| a.name == "libori_rt_asan.a"),
+        "sanitizer runtime must not be staged from a sealed source set",
+    );
+    assert!(
+        !stage.join("libori_rt_asan.a").exists(),
+        "stale sanitizer staticlib must be removed, never left linkable",
+    );
+}
+
+#[test]
+fn unsealed_source_set_still_stages_sanitizer_runtime() {
+    // Negative control: the exclusion above is a property of the sealed source
+    // SET, not a broken optional path. When the source dir genuinely carries a
+    // sanitizer staticlib it is staged normally.
+    let root = temp_test_dir("unsealed-asan");
+    let (src, stage) = (root.join("target-debug"), root.join("stage"));
+    write_file(&src.join("ori"), "binary-v1");
+    write_file(&src.join("libori_rt.a"), "lib-v1");
+    write_file(&src.join("libori_rt_asan.a"), "asan-v1");
+
+    let staged = match stage_snapshot(
+        &src,
+        &stage,
+        &["ori", "libori_rt.a"],
+        &["libori_rt_asan.a"],
+        SnapshotStrategy::Copy,
+    ) {
+        Ok(a) => a,
+        Err(e) => panic!("stage_snapshot: {e}"),
+    };
+
+    assert!(
+        staged.iter().any(|a| a.name == "libori_rt_asan.a"),
+        "sanitizer runtime present in source must be staged",
+    );
+    assert_eq!(
+        read_to_string_required(&stage.join("libori_rt_asan.a")),
+        "asan-v1"
+    );
 }

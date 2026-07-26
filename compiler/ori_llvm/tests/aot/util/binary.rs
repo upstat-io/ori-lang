@@ -360,11 +360,75 @@ fn pid_is_alive(_pid: u32) -> bool {
     true
 }
 
+/// The harness-exported path of the immutable per-run artifact snapshot.
+pub(super) const SEALED_SNAPSHOT_ENV: &str = "ORI_AOT_ARTIFACT_SNAPSHOT_DIR";
+
+/// Which artifact source `ori_binary` resolves for the current process.
+#[derive(Debug, PartialEq, Eq)]
+enum BinaryResolution {
+    /// The profile-matched staged binary is usable.
+    Staged,
+    /// Stage the other profile from `CARGO_TARGET_DIR` and use it.
+    CrossProfile,
+    /// Refuse: the other profile's bytes are outside the sealed set.
+    RefuseSealed,
+}
+
+/// Resolve which artifact source to use, given staged usability + the seal.
+///
+/// `CrossProfile` reads `CARGO_TARGET_DIR`, and the sealed snapshot carries the
+/// debug profile only, so taking it under a seal would execute bytes the run's
+/// integrity verdict does not describe. A pure function so every arm is
+/// pinnable without `set_var` (this suite runs parallel and forbids env
+/// mutation).
+fn resolve_binary_choice(
+    staged_usable: bool,
+    sealed: Option<&std::ffi::OsStr>,
+) -> BinaryResolution {
+    if staged_usable {
+        return BinaryResolution::Staged;
+    }
+    if sealed.is_some() {
+        return BinaryResolution::RefuseSealed;
+    }
+    BinaryResolution::CrossProfile
+}
+
+fn stage_source_dir(profile: &str) -> PathBuf {
+    stage_source_dir_for(profile, std::env::var_os(SEALED_SNAPSHOT_ENV).as_deref())
+}
+
+/// The `stage_source_dir` path policy, with the sealed path passed in.
+///
+/// Staging from the sealed path is what makes a run's snapshot integrity
+/// verdict describe the artifacts the tests actually executed rather than an
+/// unread copy. A set-but-unusable sealed path is NOT silently ignored: the
+/// missing-required-artifact error in [`stage_snapshot`] is the loud failure.
+///
+/// The sealed set carries debug `ori` + the non-sanitizer runtime staticlib
+/// only, so two things follow. The release profile always resolves from
+/// `CARGO_TARGET_DIR`. Sanitizer AOT is not admitted under a seal: the
+/// sanitizer staticlib is an absent optional whose stale staged copy is
+/// dropped, never linked from the mutable target dir the verdict does not
+/// describe.
+///
+/// Keeping the environment lookup at the single caller leaves the policy a pure
+/// function of `(profile, sealed)`, so it is pinnable without `set_var` (this
+/// suite runs parallel and forbids env mutation).
+fn stage_source_dir_for(profile: &str, sealed: Option<&std::ffi::OsStr>) -> PathBuf {
+    if profile == "debug" {
+        if let Some(sealed) = sealed {
+            return PathBuf::from(sealed);
+        }
+    }
+    cargo_target_dir().join(profile)
+}
+
 /// Snapshot the freshly-built `ori` binary + runtime staticlib into a
 /// per-test-process staging directory and return that directory.
 ///
 /// A concurrent `cargo build` in the shared `target/` replaces those artifacts
-/// via write-temp-then-rename; a suite resolving them from `target/<profile>/`
+/// via write-temp-then-rename; a suite resolving them from a mutable source
 /// mid-run sees the swap and aborts en masse (hundreds of bogus failures that
 /// look like real test results). The snapshot pins the ORIGINAL inodes, so the
 /// whole run executes against one immutable view. The staticlib is staged NEXT
@@ -385,7 +449,7 @@ fn staged_artifacts_dir(release: bool) -> &'static Path {
         let profile = if release { "release" } else { "debug" };
         let stage =
             std::env::temp_dir().join(format!("ori-aot-stage-{}-{profile}", std::process::id()));
-        let profile_dir = cargo_target_dir().join(profile);
+        let profile_dir = stage_source_dir(profile);
         let exe = format!("ori{}", std::env::consts::EXE_SUFFIX);
         let (lib, asan_lib) = if cfg!(windows) {
             ("ori_rt.lib", "ori_rt_asan.lib")
@@ -473,9 +537,21 @@ pub fn ori_binary() -> PathBuf {
         return staged;
     }
 
-    // The profile-matched binary lacks LLVM support: build + stage the other
-    // profile and use its snapshot instead.
     let profile = if release { "release" } else { "debug" };
+    if let BinaryResolution::RefuseSealed =
+        resolve_binary_choice(false, std::env::var_os(SEALED_SNAPSHOT_ENV).as_deref())
+    {
+        let sealed = std::env::var_os(SEALED_SNAPSHOT_ENV).unwrap_or_default();
+        panic!(
+            "AOT harness: the sealed {profile} `ori` at {} has no LLVM support, and \
+             cross-profile fallback is refused while ORI_AOT_ARTIFACT_SNAPSHOT_DIR is \
+             set ({}) — the other profile resolves from CARGO_TARGET_DIR, whose bytes \
+             are outside the sealed set this run validates. Seal an LLVM-enabled \
+             {profile} `ori` instead.",
+            staged.display(),
+            PathBuf::from(sealed).display(),
+        );
+    }
     eprintln!("warning: {profile} ori binary has no LLVM support, falling back to other profile");
     ensure_ori_binary_fresh_for_profile(!release);
     let fallback = staged_artifacts_dir(!release).join(&exe);
