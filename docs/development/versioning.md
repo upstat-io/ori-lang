@@ -84,6 +84,7 @@ All Cargo.toml versions are derived from `BUILD_NUMBER` via `sync-version.sh`. W
 | `compiler/ori_llvm/Cargo.toml` | CalVer → Cargo (workspace member, not in default-members) |
 | `compiler/ori_rt/Cargo.toml` | CalVer → Cargo (workspace member, not in default-members) |
 | `tools/ori-lsp/Cargo.toml` | CalVer → Cargo (excluded from workspace) |
+| `tools/ori-rc-remarks/Cargo.toml` | CalVer → Cargo (excluded from workspace) |
 | `website/playground-wasm/Cargo.toml` | CalVer → Cargo (standalone) |
 | `website/src/layouts/BaseLayout.astro` | CalVer → Cargo |
 | `website/package.json` | CalVer → NPM (`2026.2.28`) |

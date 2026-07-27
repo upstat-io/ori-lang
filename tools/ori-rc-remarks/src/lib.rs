@@ -101,28 +101,77 @@ pub struct Stream {
 /// wrong semantics.
 pub const SUPPORTED_SCHEMA_VERSIONS: &[u32] = &[1, 2];
 
-/// A JSONL ingest failure, with the 1-based stream line that failed.
+/// A malformed line: not valid JSON, or not the header / remark shape.
 #[derive(Debug)]
+pub struct JsonFailure {
+    line: usize,
+    source: serde_json::Error,
+}
+
+impl JsonFailure {
+    /// The 1-based stream line that failed to parse.
+    #[must_use]
+    pub fn line(&self) -> usize {
+        self.line
+    }
+
+    /// The underlying parse error.
+    #[must_use]
+    pub fn source(&self) -> &serde_json::Error {
+        &self.source
+    }
+}
+
+/// A header declaring a schema version outside [`SUPPORTED_SCHEMA_VERSIONS`].
+#[derive(Debug)]
+pub struct UnsupportedVersion {
+    line: usize,
+    found: u32,
+}
+
+impl UnsupportedVersion {
+    /// The 1-based stream line carrying the header.
+    #[must_use]
+    pub fn line(&self) -> usize {
+        self.line
+    }
+
+    /// The version the stream declared.
+    #[must_use]
+    pub fn found(&self) -> u32 {
+        self.found
+    }
+}
+
+/// A remark reached before any header, so its wire generation is unknown.
+#[derive(Debug)]
+pub struct MissingHeader {
+    line: usize,
+}
+
+impl MissingHeader {
+    /// The 1-based stream line of the first unversioned remark.
+    #[must_use]
+    pub fn line(&self) -> usize {
+        self.line
+    }
+}
+
+/// A JSONL ingest failure, with the 1-based stream line that failed.
+///
+/// `non_exhaustive` because the failure taxonomy is expected to grow: a caller
+/// that must branch on kind can, but a future variant is not a breaking change.
+/// Each variant carries a named payload whose fields are private, so adding or
+/// reshaping a field is likewise not a breaking change (NAME-42).
+#[derive(Debug)]
+#[non_exhaustive]
 pub enum IngestError {
     /// A line was not valid JSON, or did not match the header / remark shape.
-    Json {
-        /// 1-based line number in the stream.
-        line: usize,
-        /// The underlying JSON parse error.
-        source: serde_json::Error,
-    },
-    /// The header declared a schema version outside [`SUPPORTED_SCHEMA_VERSIONS`].
-    UnsupportedSchemaVersion {
-        /// 1-based line number of the header.
-        line: usize,
-        /// The version the stream declared.
-        found: u32,
-    },
-    /// A remark was reached before any header, so its wire generation is unknown.
-    MissingStreamHeader {
-        /// 1-based line number of the first unversioned remark.
-        line: usize,
-    },
+    Json(JsonFailure),
+    /// The header declared a schema version this build does not understand.
+    UnsupportedSchemaVersion(UnsupportedVersion),
+    /// A remark preceded any header, so its wire generation is unknown.
+    MissingStreamHeader(MissingHeader),
 }
 
 impl IngestError {
@@ -130,9 +179,9 @@ impl IngestError {
     #[must_use]
     pub fn line(&self) -> usize {
         match self {
-            Self::Json { line, .. }
-            | Self::UnsupportedSchemaVersion { line, .. }
-            | Self::MissingStreamHeader { line } => *line,
+            Self::Json(e) => e.line(),
+            Self::UnsupportedSchemaVersion(e) => e.line(),
+            Self::MissingStreamHeader(e) => e.line(),
         }
     }
 }
@@ -140,10 +189,11 @@ impl IngestError {
 impl std::fmt::Display for IngestError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Json { line, source } => {
-                write!(f, "rc-remarks ingest: line {line}: {source}")
+            Self::Json(e) => {
+                write!(f, "rc-remarks ingest: line {}: {}", e.line(), e.source())
             }
-            Self::UnsupportedSchemaVersion { line, found } => {
+            Self::UnsupportedSchemaVersion(e) => {
+                let (line, found) = (e.line(), e.found());
                 let supported: Vec<String> = SUPPORTED_SCHEMA_VERSIONS
                     .iter()
                     .map(u32::to_string)
@@ -157,13 +207,14 @@ impl std::fmt::Display for IngestError {
                     supported.join(", ")
                 )
             }
-            Self::MissingStreamHeader { line } => write!(
+            Self::MissingStreamHeader(e) => write!(
                 f,
                 "rc-remarks ingest: line {line}: a remark appears before any \
                  `{{\"record\":\"header\"}}` line, so the stream declares no schema \
                  version and its records cannot be safely interpreted.\n  \
                  Regenerate the stream with `ori build --emit-rc-remarks <path>`, \
-                 which always writes the header first."
+                 which always writes the header first.",
+                line = e.line()
             ),
         }
     }
@@ -190,19 +241,19 @@ pub fn ingest(input: &str) -> Result<Stream, IngestError> {
         let line_no = idx + 1;
         let value: serde_json::Value =
             serde_json::from_str(line)
-                .map_err(|source| IngestError::Json { line: line_no, source })?;
+                .map_err(|source| IngestError::Json(JsonFailure { line: line_no, source }))?;
         let is_header = value.get("record").and_then(serde_json::Value::as_str) == Some("header");
         if is_header {
             let header: StreamHeader = serde_json::from_value(value)
-                .map_err(|source| IngestError::Json { line: line_no, source })?;
+                .map_err(|source| IngestError::Json(JsonFailure { line: line_no, source }))?;
             // Gate at the ingest boundary, before any remark is admitted, so no
             // consumer can compute a verdict over records whose shape this
             // build does not understand.
             if !SUPPORTED_SCHEMA_VERSIONS.contains(&header.schema_version) {
-                return Err(IngestError::UnsupportedSchemaVersion {
+                return Err(IngestError::UnsupportedSchemaVersion(UnsupportedVersion {
                     line: line_no,
                     found: header.schema_version,
-                });
+                }));
             }
             stream.header = Some(header);
         } else {
@@ -211,11 +262,11 @@ pub fn ingest(input: &str) -> Result<Stream, IngestError> {
             // never checked -- the same fail-open the version gate above closes,
             // reached by omitting the header instead of declaring a bad one.
             if stream.header.is_none() {
-                return Err(IngestError::MissingStreamHeader { line: line_no });
+                return Err(IngestError::MissingStreamHeader(MissingHeader { line: line_no }));
             }
             stream.remarks.push(
                 serde_json::from_value(value)
-                    .map_err(|source| IngestError::Json { line: line_no, source })?,
+                    .map_err(|source| IngestError::Json(JsonFailure { line: line_no, source }))?,
             );
         }
     }

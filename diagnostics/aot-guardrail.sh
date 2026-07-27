@@ -87,10 +87,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# --floor preset: validate against the corpus_under_flag_gate baseline under the
-# burden-path-sole-emitter probe env. Prepend the probe flag (explicit --env still
-# wins, since --env entries follow these in the `env` invocation) and default the
-# baseline to the checked-in corpus floor when unset.
+# --floor preset: validate against the corpus_under_flag_gate baseline. It adds no
+# environment of its own; the run uses the script-wide ORI_VERIFY_ARC=1
+# ORI_VERIFY_EACH=1 verification env plus whatever --env supplies. The preset only
+# defaults the baseline to the checked-in corpus floor and the emitted JSON path.
 FLOOR_BASELINE="compiler/ori_llvm/tests/aot/fixtures/corpus_under_flag_gate/baseline_failing_ids.txt"
 if [[ "$FLOOR" == "1" ]]; then
     [[ -z "$BASELINE" ]] && BASELINE="$FLOOR_BASELINE"
@@ -127,7 +127,7 @@ fi
 export ORI_VERIFY_ARC=1
 export ORI_VERIFY_EACH=1
 
-echo "=== AOT suite (env: ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1 ${EXTRA_ENV:-<burden default>}; threads $THREADS) ==="
+echo "=== AOT suite (env: ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1 ${EXTRA_ENV:-<no extra env>}; threads $THREADS) ==="
 # shellcheck disable=SC2086
 env $EXTRA_ENV cargo test -p ori_llvm --test aot -- --test-threads "$THREADS" 2>&1 \
     | tee "$RUN_LOG" | tail -3

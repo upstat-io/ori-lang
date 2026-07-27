@@ -16,7 +16,7 @@ checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 
 [[package]]
 name = "ori-rc-remarks"
-version = "2026.4.26-alpha.1"
+version = "2026.7.27-alpha.1"
 dependencies = [
  "serde",
  "serde_json",
