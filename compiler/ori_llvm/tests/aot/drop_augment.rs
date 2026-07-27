@@ -344,9 +344,9 @@ impl Logged: Hashable {
 
 // A `@drop`-typed value created inside a `for ... do` body drops at each loop
 // iteration's scope exit.
-// BUG-05-006 regression matrix — `.iter().collect()` result + element
-// ownership. The gated burden probe (`ORI_DISABLE_PREDICATE_STACK_RC=1`) is the
-// RC/AOT verdict surface for both cleanup admission and transfer accounting.
+// Regression matrix: `.iter().collect()` result + element ownership. The RC/AOT
+// verdict for both cleanup admission and transfer accounting comes from the
+// verifier (`ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1`) plus a leak check.
 
 const BUG_05_006_GATED: &[(&str, &str)] = &[
     ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
@@ -1040,9 +1040,9 @@ impl Resource: Drop {
 // completeness dec for the never-used case. Spec: Annex E §AIMS RL-DROP
 // (`RLDROP_scalar_lifecycle_sound` / `RLDROP_exactly_once_on_glue`).
 //
-// Gated burden probe (`ORI_DISABLE_PREDICATE_STACK_RC=1` + `ORI_VERIFY_ARC=1`)
-// is the RC/AOT verdict surface; these pins are non-ignored (the
-// bug is fixed) and revert-detecting (revert -> DEAD loses its drop, READ ICEs).
+// The RC/AOT verdict comes from `ORI_VERIFY_ARC=1` plus a leak check; the
+// RC-disable var only labels the run. These pins are non-ignored (the defect is
+// fixed) and revert-detecting (revert -> DEAD loses its drop, READ ICEs).
 
 const SCALAR_DROP_GATED: &[(&str, &str)] = &[
     ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),

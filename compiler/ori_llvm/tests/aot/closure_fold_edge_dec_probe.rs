@@ -5,7 +5,7 @@
 //! caller's compensating `RcDec` lands once on EVERY dead successor edge (the
 //! normal `Return` edge AND the unwind `Resume` edge), never just one.
 //!
-//! Defect (burden-sole path): the Phase-5 burden walk places the owned closure's
+//! Defect (under the labelled probe env): the Phase-5 burden walk places the owned closure's
 //! release as an INLINE self-cancelling `BurdenInc`/`BurdenDec` pair in the
 //! defining block; Phase-3 coalesce erases it, losing the NORMAL-path release.
 //! Phase-6.98 (`emit_invoke_unwind_pair_release`) supplies the UNWIND edge only;
@@ -17,13 +17,13 @@
 //! to Phase-6.65 `relocate_borrowed_terminator_arg_dec_to_edges`) — never re-derive
 //! edge-deadness from a separate per-edge model (narrowing Cat-2 would double-dec).
 //!
-//! COMPILED-COUNTER VERDICT SURFACE — burden-sole ONLY: the default codegen path co-emits the
-//! legacy predicate-stack RC, which masks this burden-path leak (FALSE-GREEN), so
-//! it is NOT a valid current-adapter RC verdict for these cells. Every cell
-//! compiles with `ORI_DISABLE_PREDICATE_STACK_RC=1` (burden is this adapter's
-//! sole real-RC emitter) + runs under the always-on `ORI_CHECK_LEAKS=1`.
-//! `assert_aot_success` (default path) is WRONG for this bug; this probe uses the
-//! burden-sole harness. Neither mode establishes AIMS or sibling-executor
+//! COMPILED-COUNTER VERDICT SURFACE: every cell compiles with
+//! `ORI_DISABLE_PREDICATE_STACK_RC=1` `ORI_VERIFY_ARC=1` + runs under the
+//! always-on `ORI_CHECK_LEAKS=1`. The verification vars and the leak check carry
+//! the verdict; ORI_DISABLE_PREDICATE_STACK_RC no longer selects an RC emitter
+//! and is retained for truthful remark labelling.
+//! `assert_aot_success` alone is insufficient for these cells because it omits
+//! the leak check, not because of a second emitter. Neither mode establishes AIMS or sibling-executor
 //! conformance.
 //!
 //! Matrix: captured-type dimension (heap str / [int] / Option<str> / {str:int} /
@@ -41,9 +41,9 @@
 
 use crate::util::compile_and_run_with_build_env;
 
-/// Compile `source` on the complete gated current-adapter burden probe:
-/// predicate-stack RC emitter OFF (`ORI_DISABLE_PREDICATE_STACK_RC=1` — burden
-/// is this compiled-counter adapter's sole real-RC emitter) plus the per-
+/// Compile `source` under the complete probe env: the remark-metadata label
+/// (`ORI_DISABLE_PREDICATE_STACK_RC=1`, which selects no emitter — the
+/// class-ledger path is unconditional) plus the per-
 /// function LLVM verification (`ORI_VERIFY_ARC=1`) + post-pass verification
 /// (`ORI_VERIFY_EACH=1`) so a burden-imbalance that compiles to wrong-but-non-
 /// crashing IR (VR-1 checkpoints + VF-1 burden-balance residual) is caught, not
@@ -72,7 +72,7 @@ fn assert_no_closure_leak_burden_sole(source: &str, label: &str) {
 
 // Positive pins: capture-bearing closure folded over a list. The closure
 // env holds the RC-bearing capture; the missing normal-edge RcDec leaks the env
-// + cascades to the capture. Each LEAKS pre-fix on the burden-sole path.
+// + cascades to the capture. Each LEAKS pre-fix under the labelled probe env.
 
 /// Captured-type = heap `str` (>23 bytes, no SSO). Env (32B) + str buffer leak
 /// on the normal path pre-fix. The confirmed repro shape.
@@ -223,7 +223,7 @@ fn all_capture_heap_str_no_leak() {
 
 /// Captured-type = user-defined struct `Rec { val: str, count: int }`. Env drop
 /// cascades through the struct's drop glue to the captured str. Leaks #1 size=44
-/// (str) + #2 size=40 (struct/env) pre-fix on the burden-sole path.
+/// (str) + #2 size=40 (struct/env) pre-fix under the labelled probe env.
 #[test]
 fn fold_capture_user_struct_no_leak() {
     let src = r#"
@@ -248,7 +248,7 @@ type Rec = { val: str, count: int }
 // is the masking shape from the seed snapshot.
 
 /// Capture-less lambda folded over a list — the gate emits NO closure dec (null
-/// env). Clean on the burden-sole path before AND after the fix.
+/// env). Clean under the labelled probe env before AND after the fix.
 #[test]
 fn fold_captureless_clean_no_regression() {
     let src = r#"

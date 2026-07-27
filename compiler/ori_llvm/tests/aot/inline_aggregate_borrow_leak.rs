@@ -300,7 +300,7 @@ fn inline_option_list_eq_burden_ops_disabled_fails_loud() {
 }
 
 /// Burden-only: `ORI_DISABLE_PREDICATE_STACK_RC=1` leaves the burden path as
-/// the current compiled-counter adapter's sole real-RC emitter; the Phase-6
+/// the current compiled-counter adapter's RC lowering; the Phase-6
 /// eliminator fix must clear the leak.
 #[test]
 fn inline_option_list_eq_burden_only_no_leak() {

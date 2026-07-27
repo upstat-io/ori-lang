@@ -40,9 +40,9 @@ fn fixture_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/provenance/wrap_nested.ori")
 }
 
-/// The index/field-assignment matrix fixture (`BUG-02-090`): list-index,
-/// map-index, struct-field, and a mixed index-then-field chain, all in one
-/// program so a single dump run exercises every `AssignTarget` shape.
+/// The index/field-assignment matrix fixture: list-index, map-index,
+/// struct-field, and a mixed index-then-field chain, all in one program so a
+/// single dump run exercises every `AssignTarget` shape.
 fn assign_target_fixture_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/provenance/assign_target.ori")
 }
@@ -204,11 +204,10 @@ fn ori_dump_after_typeck_pins_typed_ir_driver_block() {
     assert_golden("typeck", &block);
 }
 
-/// `BUG-02-090`: the `AssignTarget` node's own stored type must be the
-/// resolved `()` (assignment statements type as unit per `typeck.md
-/// §EX-17`), never the poison `<error>` sentinel — across every access-step
-/// shape (list index, map index, struct field, and a mixed index-then-field
-/// chain) in one dump run.
+/// Regression: the `AssignTarget` node's own stored type must be the resolved
+/// `()` — assignment statements type as unit — never the poison `<error>`
+/// sentinel, across every access-step shape (list index, map index, struct
+/// field, and a mixed index-then-field chain) in one dump run.
 #[test]
 fn ori_dump_after_typeck_pins_assign_target_type() {
     let fixture = assign_target_fixture_path();

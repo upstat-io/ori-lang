@@ -7,11 +7,10 @@ impl RcRemarkStreamEnvelope {
     pub(super) fn to_jsonl(&self) -> String {
         format!(
             "{{\"record\":\"header\",\"schema_version\":{},\"compiler_sha\":\"{}\",\
-             \"source_file\":\"{}\",\"burden_path\":{}}}",
+             \"source_file\":\"{}\"}}",
             self.schema_version,
             json_escape(&self.compiler_sha),
             json_escape(&self.source_file),
-            self.burden_path,
         )
     }
 }

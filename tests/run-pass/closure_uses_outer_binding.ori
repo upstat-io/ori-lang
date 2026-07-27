@@ -1,6 +1,5 @@
 // Test that closures can use outer bindings (not self-capture)
-// Spec: 15-memory-model.md § Compile-Time Cycle Prevention
-// Design: 04-memory-management/02-arc.md § Cycle Detection
+// Spec: Clause 21.1.4
 //
 // A closure using a variable from outer scope is NOT self-capture.
 // This should compile and run without error.

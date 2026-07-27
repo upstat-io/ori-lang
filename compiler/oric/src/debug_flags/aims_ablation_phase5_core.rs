@@ -34,27 +34,15 @@ flags! {
     /// Usage: `ORI_DUMP_AFTER_BURDEN_ELIM=1 ori build file.ori`
     ORI_DUMP_AFTER_BURDEN_ELIM
 
-    /// Disable the predicate-stack `RcInc` / `RcDec` realization phases, leaving
-    /// the burden path (elimination + mechanical `BurdenInc → RcInc` /
-    /// `BurdenDec → RcDec` lowering) as the sole real-RC emitter in the current
-    /// compiled-counter adapter.
-    ///
-    /// Consumed in `ori_arc::aims::realize::emit_unified` to drive the burden-path
-    /// self-sufficiency probe. When set, the predicate-stack emission is suppressed
-    /// and surviving whole-var burden ops lower to real RC; default (unset) leaves
-    /// the default emission path byte-identical.
-    /// Usage: `ORI_DISABLE_PREDICATE_STACK_RC=1 ori build file.ori`
-    ORI_DISABLE_PREDICATE_STACK_RC
-
     /// Output path for the compiled-counter RC-survivor remark stream (JSONL).
     ///
     /// Consumed in `ori_arc::aims::realize::rc_remark` (which can't depend on
     /// `oric`). Defined here for documentation and `check-debug-flags.sh`
-    /// consistency. CLI alternative: `--emit-rc-remarks <path>` (composes the
-    /// burden-sole-path gating so the stream is a valid compiled-counter verdict
-    /// surface). Valid only for that adapter on the burden-sole path
-    /// (`ORI_DISABLE_PREDICATE_STACK_RC=1`); it is not an AIMS-wide verdict.
-    /// Usage: `ORI_RC_REMARKS=out.jsonl ORI_DISABLE_PREDICATE_STACK_RC=1 ori build file.ori`
+    /// consistency. CLI alternative: `--emit-rc-remarks <path>`, which composes
+    /// `ORI_RC_REMARKS` + `ORI_VERIFY_ARC=1` (`oric::commands::build`); the
+    /// verification comes from `ORI_VERIFY_ARC`. The stream describes the
+    /// current compiled-counter adapter, never an AIMS-wide verdict.
+    /// Usage: `ORI_RC_REMARKS=out.jsonl ori build file.ori`
     ORI_RC_REMARKS
 
     /// Disable the `lower_match` merge-param divergence pruning: every

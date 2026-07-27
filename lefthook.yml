@@ -129,6 +129,27 @@ pre-commit:
       # heuristics), gated blocking on Rust source changes.
       glob: "**/*.rs"
       run: bash diagnostics/check-debug-flags.sh
+    diagnostics-corpus-self-test:
+      # The absence/negative-filter proofs decide their verdict from a corpus
+      # the shared helper enumerates, so a silent enumeration hole makes every
+      # verdict vacuously clean. Their --self-test suites carry the pins for
+      # that helper (ignore-negation enumeration, mixed tracked/untracked
+      # corpus, scanner-error-is-not-a-verdict) and are otherwise run by hand
+      # only, which leaves the pins unable to fail anything. Gated blocking on
+      # the helper and on the proofs themselves.
+      # The pattern stays brace-free and single-segment (`*`, never `{a,b}` or
+      # `**`): a brace alternation behind a path prefix is the one shape whose
+      # support varies across lefthook's glob backends, and a pattern that
+      # matches nothing makes the hook report `skip` — indistinguishable from a
+      # gate that ran and passed. `diagnostics/*.sh` is a superset of the three
+      # named files, so it is armed under either backend.
+      # `_common-contract-self-test.sh` pins the helper's OWN surface. The two
+      # proof suites exercise only the helpers they happen to call, so a
+      # regression isolated to another exported helper passes both and reaches
+      # consumers unchallenged. The contract suite names no consumer, so it
+      # holds in a standalone checkout of this repository.
+      glob: "diagnostics/*.sh"
+      run: bash diagnostics/predicate-stack-absence.sh --self-test && bash diagnostics/sweep-negative-filter.sh --self-test && bash diagnostics/_common-contract-self-test.sh
     tracing-coverage:
       # Direct tracing dependencies must have live production use. ori_parse
       # additionally pins the public/module/grammar spans justified by the

@@ -20,8 +20,8 @@
 # `--lineage-net` mode surfaces the COMPLEMENTARY per-same-alloc-lineage RC-net
 # (post-burden-lowering `fresh-alloc(+1) + RcInc - RcDec` per rep) — a cross-var
 # signal VF-1's per-var count is blind to: a dup-alias lineage nets 0 per-var
-# while the lineage nets +N (leak) / -N (double-free), per `arc.md §Debugging`
-# alias-lineage net + AIMS RL-2 release-once-per-lineage.
+# while the lineage nets +N (leak) / -N (double-free). Pairs the alias-lineage
+# net with AIMS RL-2 release-once-per-lineage.
 #
 # Exit 0 always (measurement tool). The count is printed to stdout.
 set -uo pipefail

@@ -45,41 +45,18 @@ pub(crate) fn rc_remarks_enabled() -> bool {
     RC_REMARKS_PATH.is_some()
 }
 
-/// Whether compilation is on the burden-sole RC path
-/// (`ORI_DISABLE_PREDICATE_STACK_RC=1`) — the only surface where a burden
-/// remark is a valid verdict on the current compiled-counter adapter; a
-/// default-path run still co-emits the legacy predicate-stack RC and is
-/// false-green on floor cells. This never establishes AIMS or sibling-executor
-/// conformance. The envelope's
-/// `burden_path` is derived from this so `burden_path: true` is truthful and a
-/// default-path stream is honestly `false`.
-pub(crate) fn on_burden_sole_path() -> bool {
-    report_predicate_stack_rc_toggle(
-        std::env::var("ORI_DISABLE_PREDICATE_STACK_RC").as_deref() == Ok("1"),
-    )
-}
-
-fn report_predicate_stack_rc_toggle(disabled: bool) -> bool {
-    if disabled {
-        tracing::info!(
-            toggle = "ORI_DISABLE_PREDICATE_STACK_RC",
-            effect = "compile through the burden-only RC projection",
-            "ablation toggle fired"
-        );
-    }
-    disabled
-}
-
 /// Version of the RC-remark record + envelope schema. Bumped when a field is
 /// added/removed/retyped so consumers can detect producer drift.
-pub(crate) const RC_SCHEMA_VERSION: u32 = 1;
+///
+/// Version 2 drops the path label the header carried through version 1. The
+/// class ledger is the sole logical ownership-event placement authority, so no
+/// path distinction exists for the header to record.
+pub(crate) const RC_SCHEMA_VERSION: u32 = 2;
 
 /// The once-per-stream header for a JSONL remark stream: schema version,
-/// producing compiler SHA, source file, and the `burden_path` assertion (true
-/// only when produced on the burden-sole path, the valid compiled-counter
-/// adapter verdict surface). Emitted as the first JSONL line; the remark
-/// objects follow, one per line. Constructed by the cli-producer stream driver
-/// (`write_rc_remarks_header`).
+/// producing compiler SHA, and source file. Emitted as the first JSONL line;
+/// the remark objects follow, one per line. Constructed by the cli-producer
+/// stream driver (`write_rc_remarks_header`).
 #[derive(Clone, Debug)]
 pub(crate) struct RcRemarkStreamEnvelope {
     /// Schema version (`RC_SCHEMA_VERSION` at production time).
@@ -88,28 +65,22 @@ pub(crate) struct RcRemarkStreamEnvelope {
     pub compiler_sha: String,
     /// The source file the stream describes.
     pub source_file: String,
-    /// `true` iff produced on the current adapter's burden-sole verdict surface.
-    pub burden_path: bool,
 }
 
 impl RcRemarkStreamEnvelope {
-    /// Build a header for the current schema version. `burden_path` is derived
-    /// from [`on_burden_sole_path`] so `burden_path: true` is truthful — the
-    /// stream is a valid current-adapter RC verdict only on the burden-sole path.
+    /// Build a header for the current schema version.
     fn new(compiler_sha: String, source_file: String) -> Self {
         Self {
             schema_version: RC_SCHEMA_VERSION,
             compiler_sha,
             source_file,
-            burden_path: on_burden_sole_path(),
         }
     }
 }
 
 /// Write the stream-header envelope as the first line of the RC-remark stream,
 /// TRUNCATING any prior content. The cli-producer stream driver (`oric
-/// --emit-rc-remarks`) calls this once before codegen, after composing the
-/// burden-sole-path gating, so `burden_path` is truthful. No-op when
+/// --emit-rc-remarks`) calls this once before codegen. No-op when
 /// `ORI_RC_REMARKS` is unset. Remarks are appended after by the emitter.
 pub fn write_rc_remarks_header(source_file: &str, compiler_sha: &str) {
     let Some(path) = RC_REMARKS_PATH.as_ref() else {
@@ -427,14 +398,4 @@ pub(crate) fn emit_rc_survivor_remark(site: &RcSurvivorSite) {
             );
         }
     }
-}
-
-#[cfg(test)]
-mod toggle_tests {
-    crate::test_helpers::ablation_env_event_test!(
-        predicate_stack_rc_toggle_reports_effect,
-        "ORI_DISABLE_PREDICATE_STACK_RC",
-        "compile through the burden-only RC projection",
-        super::on_burden_sole_path,
-    );
 }

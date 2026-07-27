@@ -122,10 +122,9 @@ fn function_of(remark: &ori_rc_remarks::Remark) -> &str {
 fn print_summary(path: &str, stream: &Stream) {
     match &stream.header {
         Some(header) => println!(
-            "{}: schema v{}, burden_path={}, {} surviving RC ops (compiler {})",
+            "{}: schema v{}, {} surviving RC ops (compiler {})",
             header.source_file,
             header.schema_version,
-            header.burden_path,
             stream.remarks.len(),
             header.compiler_sha,
         ),

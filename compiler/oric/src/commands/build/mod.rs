@@ -122,19 +122,15 @@ pub fn build_file(path: &str, options: &BuildOptions) {
     // Bridge the --emit-rc-remarks CLI flag to the ORI_RC_REMARKS env var so the
     // ori_arc realization-time emitter (which cannot depend on oric) picks it up
     // at first LazyLock access during codegen. Set before any codegen runs.
-    // Compose the burden-sole-path gating so the stream is a valid verdict
-    // surface (the default predicate-stack path is FALSE-GREEN); only set the
-    // gating vars when the user has not set them explicitly.
+    // ORI_VERIFY_ARC carries the verification. Only set the vars the user has
+    // not set explicitly.
     if let Some(remarks_path) = options.emit_rc_remarks.as_deref() {
         std::env::set_var(crate::debug_flags::ORI_RC_REMARKS, remarks_path);
-        if std::env::var(crate::debug_flags::ORI_DISABLE_PREDICATE_STACK_RC).is_err() {
-            std::env::set_var(crate::debug_flags::ORI_DISABLE_PREDICATE_STACK_RC, "1");
-        }
         if std::env::var(crate::debug_flags::ORI_VERIFY_ARC).is_err() {
             std::env::set_var(crate::debug_flags::ORI_VERIFY_ARC, "1");
         }
-        // Write the stream-header envelope first (truncating); the gating above
-        // makes its burden_path truthful. Remarks append after during codegen.
+        // Write the stream-header envelope first (truncating). Remarks append
+        // after during codegen.
         ori_arc::write_rc_remarks_header(path, env!("ORI_GIT_SHA"));
     }
 

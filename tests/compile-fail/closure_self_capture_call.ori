@@ -1,6 +1,5 @@
 // Test that closure self-capture through call is detected
-// Spec: 15-memory-model.md § Compile-Time Cycle Prevention
-// Design: 04-memory-management/02-arc.md § Cycle Detection
+// Spec: Clause 21.6
 //
 // A closure calling itself would require capturing itself.
 

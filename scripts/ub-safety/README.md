@@ -74,14 +74,12 @@ gap cites a hardening anchor.** It does NOT certify that every foreclosure is
 
 The checker's pin resolution proves a pin **exists** (the file, or `file::symbol`,
 is present), not that it **passes**. This matters most for `aims-obligation`
-rows: they pin into the AIMS realization surface, where the only valid RC/AOT
-verdict is the gated burden-sole probe
-(`ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1`) — a
-default-path result is never a verdict (see `arc.md §STOP`). A green matrix
-therefore means "the safety frontier is mapped and every claim is anchored,"
-never "every claim is proven discharged." Read an `aims-obligation` row as an
-*obligation declared and pinned*, and run its pin's real verdict surface to
-confirm discharge.
+rows: they pin into the AIMS realization surface, whose RC/AOT verdict comes
+from the verifier (`ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1`) plus a leak check, not
+from any single build. A green matrix therefore means "the safety frontier is
+mapped and every claim is anchored," never "every claim is proven discharged."
+Read an `aims-obligation` row as an *obligation declared and pinned*, and run its
+pin's real verdict surface to confirm discharge.
 
 ## Regression gate
 

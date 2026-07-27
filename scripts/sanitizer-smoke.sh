@@ -133,6 +133,6 @@ fi
 
 if [ "$FAIL_COUNT" -gt 0 ]; then
     echo "ERROR: $FAIL_COUNT sanitizer smoke test(s) FAILED"
-    echo "If failures are pre-existing memory bugs in generated code, file via /add-bug."
+    echo "Inspect the failing program's ASan/UBSan report before changing codegen."
     exit 1
 fi

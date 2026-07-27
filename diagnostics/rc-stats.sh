@@ -8,9 +8,9 @@
 #   --block-level      Show per-block RC operation breakdown
 #   --optimized        Analyze optimized IR (post-optimization histogram)
 #   --compare-awk      Compare JSON totals with legacy awk parser (migration verification)
-#   --rc-remarks       Consume the burden-sole --emit-rc-remarks survivor stream
+#   --rc-remarks       Consume the --emit-rc-remarks survivor stream
 #                      (per-function surviving-RC-op summary; the eventual-supersede
-#                      of the ORI_AUDIT histogram — the burden-sole RC verdict surface)
+#                      of the ORI_AUDIT histogram)
 #   --no-color         Disable color output
 #   --color            Force color output (default: auto-detect terminal)
 #   -h, --help         Show this help
@@ -120,10 +120,13 @@ echo "Analyzing $(basename "$FILE")..." >&2
 
 ORI_BIN="${ORI_BIN:-cargo run -p oric --bin ori --}"
 
-# --- RC-remarks mode: consume the burden-sole --emit-rc-remarks survivor stream.
-# The remark stream is the burden-sole RC verdict surface (arc.md §STOP); this
-# is the eventual-supersede of the ORI_AUDIT histogram below. The flag
-# auto-composes the burden-sole gating, so the header's burden_path is true.
+# --- RC-remarks mode: consume the --emit-rc-remarks survivor stream, the
+# eventual-supersede of the ORI_AUDIT histogram below. The stream reports which
+# RC ops survived; whether that survivor set is CORRECT is decided by the
+# verifier (ORI_VERIFY_ARC / ORI_VERIFY_EACH) plus a leak check, not by this
+# summary. The class-ledger path is unconditional; ORI_DISABLE_PREDICATE_STACK_RC
+# only sets the header's burden_path label, so burden_path reports whether the
+# capture ran under the labelled env, not which emitter produced the stream.
 if [[ "$RC_REMARKS" -eq 1 ]]; then
     remarks="$tmpdir/rc-remarks.jsonl"
     # shellcheck disable=SC2086

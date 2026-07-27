@@ -5,8 +5,9 @@
 //! `Option<RC-inner>` dec-walk matrix under the current compiled-counter
 //! adapter's gated verdict surface (`ORI_DISABLE_PREDICATE_STACK_RC=1`
 //! `ORI_VERIFY_ARC=1` `ORI_VERIFY_EACH=1`), run under `ORI_CHECK_LEAKS=1`
-//! (leak -> exit 2). The plain default path is FALSE-GREEN and is never a
-//! verdict.
+//! (leak -> exit 2). The verdict is carried by ORI_VERIFY_ARC/ORI_VERIFY_EACH
+//! plus the leak check; ORI_DISABLE_PREDICATE_STACK_RC no longer selects an RC
+//! emitter and is retained for truthful remark labelling.
 //!
 //! Matrix: inner in {`str`, `[int]`, struct-with-RC field, closure} x variant
 //! in {None, Some} x dec walk. Each `None` cell pins that the converged
@@ -22,9 +23,9 @@
 
 use crate::util::compile_and_run_with_build_env;
 
-/// Gated burden probe — the valid current-adapter RC/AOT verdict surface (the
-/// predicate stack is legacy; the plain default path is false-green for this
-/// adapter). It does not establish shared-calculus or cross-executor parity.
+/// Gated probe — the current-adapter RC/AOT verdict surface. The verification
+/// vars carry the verdict; ORI_DISABLE_PREDICATE_STACK_RC no longer selects an
+/// RC emitter. It does not establish shared-calculus or cross-executor parity.
 const GATED_PROBE: &[(&str, &str)] = &[
     ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
     ("ORI_VERIFY_ARC", "1"),

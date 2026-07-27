@@ -19,7 +19,7 @@ fn lookup(stream: &Stream) -> &super::Remark {
 }
 
 #[test]
-fn ingest_parses_header_burden_path_true() {
+fn ingest_parses_header_fields() {
     let stream = ingest(SAMPLE).unwrap_or_else(|e| panic!("ingest failed: {e}"));
     let Some(header) = &stream.header else {
         panic!("expected a stream header");
@@ -27,7 +27,6 @@ fn ingest_parses_header_burden_path_true() {
     assert_eq!(header.schema_version, 1, "schema_version");
     assert_eq!(header.compiler_sha, "000de0232", "compiler_sha");
     assert_eq!(header.source_file, "survivor.ori", "source_file");
-    assert!(header.burden_path, "burden_path must parse true");
 }
 
 #[test]
@@ -79,5 +78,76 @@ fn ingest_reports_line_on_malformed_json() {
     let Err(err) = ingest(&malformed) else {
         panic!("malformed JSON must error");
     };
-    assert_eq!(err.line, 3, "error line is the malformed line (1-based)");
+    assert_eq!(err.line(), 3, "error line is the malformed line (1-based)");
+}
+
+/// A schema-2 header: the legacy path-label field is absent.
+const HEADER_V2: &str = concat!(
+    r#"{"record":"header","schema_version":2,"compiler_sha":"000de0232","source_file":"survivor.ori"}"#,
+    "\n",
+);
+
+/// A header declaring a version this analyzer does not understand.
+const HEADER_UNSUPPORTED: &str = concat!(
+    r#"{"record":"header","schema_version":999,"compiler_sha":"000de0232","source_file":"survivor.ori"}"#,
+    "\n",
+);
+
+#[test]
+fn ingest_accepts_legacy_schema_v1() {
+    // A v1 stream still carries the retired path-label field. Ingest ignores
+    // the extra field rather than rejecting the stream.
+    let stream = ingest(SAMPLE).unwrap_or_else(|e| panic!("v1 ingest failed: {e}"));
+    let Some(header) = &stream.header else {
+        panic!("expected a stream header");
+    };
+    assert_eq!(header.schema_version, 1, "schema_version");
+    assert_eq!(stream.remarks.len(), 1, "v1 remarks still ingest");
+}
+
+#[test]
+fn ingest_accepts_schema_v2() {
+    let stream = ingest(HEADER_V2).unwrap_or_else(|e| panic!("v2 ingest failed: {e}"));
+    let Some(header) = &stream.header else {
+        panic!("expected a stream header");
+    };
+    assert_eq!(header.schema_version, 2, "schema_version");
+}
+
+#[test]
+fn ingest_rejects_unsupported_schema_version() {
+    // Negative pin: an unknown schema is REJECTED, never analyzed under the
+    // current version's semantics. Analysis of a stream whose shape is not
+    // understood yields a confident wrong verdict, which is worse than an error.
+    let Err(err) = ingest(HEADER_UNSUPPORTED) else {
+        panic!("an unsupported schema version must be rejected, not analyzed");
+    };
+    assert_eq!(err.line(), 1, "the header line is the rejection site");
+
+    let rendered = err.to_string();
+    assert!(
+        rendered.contains("999"),
+        "the message names the version found\nmessage: {rendered}"
+    );
+    assert!(
+        rendered.contains('1') && rendered.contains('2'),
+        "the message names the supported versions\nmessage: {rendered}"
+    );
+    assert!(
+        rendered.contains("rebuild") || rendered.contains("regenerate"),
+        "the message names an action the reader can take\nmessage: {rendered}"
+    );
+}
+
+#[test]
+fn ingest_rejects_unsupported_version_before_reading_remarks() {
+    // The gate sits at the ingest boundary, so no consumer (summary, stats,
+    // view, diff) can reach remark data from an unsupported stream.
+    let with_remark = format!(
+        "{HEADER_UNSUPPORTED}{}",
+        SAMPLE.lines().nth(1).unwrap_or_else(|| panic!("SAMPLE has a remark line"))
+    );
+    let Err(_) = ingest(&with_remark) else {
+        panic!("an unsupported schema must be rejected even when remarks parse");
+    };
 }

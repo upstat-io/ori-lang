@@ -29,8 +29,10 @@ use std::process::Command;
 
 use crate::util::{compile_and_run_with_build_env, ori_binary, stdlib_path};
 
-/// The gated burden-sole probe — the sanctioned verdict surface for the
-/// current compiled-counter adapter, not for AIMS or sibling executors.
+/// The probe env for the current compiled-counter adapter. The verdict comes
+/// from `ORI_VERIFY_ARC` + `ORI_VERIFY_EACH` (verify LLVM IR after every opt
+/// pass); the RC-disable var pins the class-ledger path so the run is labelled
+/// as that adapter's. Never a verdict for AIMS or a sibling executor.
 const PROBE: &[(&str, &str)] = &[
     ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
     ("ORI_VERIFY_ARC", "1"),

@@ -34,9 +34,12 @@
 #                      The FIXED set is relabeled "STALE (prune from baseline)": a
 #                      baseline cell no longer failing under the gated env is NOT
 #                      live floor. THE floor env is
-#                      ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1;
-#                      a plain `cargo test`/`ori build` runs the DEFAULT path
-#                      (predicate stack emits RC) where floor cells PASS (false-green).
+#                      ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1.
+#                      ORI_DISABLE_PREDICATE_STACK_RC no longer selects an RC
+#                      emitter — measured, the default and gated envs produce
+#                      identical failing-ID sets — so the floor reading is carried
+#                      by ORI_VERIFY_ARC/ORI_VERIFY_EACH. The flag is retained for
+#                      truthful remark labelling and baseline-capture continuity.
 #   --emit-json FILE   Write the gated-floor reading {head_sha, failing_ids,
 #                      baseline_ids} to FILE — the artifact the disposition gate
 #                      (scripts/plan_orchestrator/rc_floor_verdict.py) consumes as
@@ -50,10 +53,9 @@
 #                      (burden-sole probe) — and tags each cell:
 #                        burden-only  = PASS burden-disabled AND FAIL pred-disabled
 #                                       (a Phase-5 burden grind cell).
-#                        independent  = FAIL burden-disabled (predicate-stack bug;
-#                                       route via /add-bug + /fix-bug, never a
-#                                       burden grind — the two-env screen IS the
-#                                       arc.md §STOP independence check).
+#                        independent  = FAIL burden-disabled (a defect outside the
+#                                       burden path; the two-env screen IS the
+#                                       independence check).
 #                        stale-or-mismatch = in neither fail set (prune candidate).
 #                      Emits `<cell> <tag>` per line + a SUMMARY. Exit 0.
 #   --threads N        cargo test --test-threads (default 8).
@@ -148,7 +150,7 @@ export ORI_VERIFY_ARC=1
 export ORI_VERIFY_EACH=1
 
 # --classify: tag each baseline-floor cell burden-only vs independent via a
-# two-env screen (the dead-end-165 / arc.md §STOP independence check). A cell is
+# two-env screen (the independence check). A cell is
 # burden-only iff it PASSES under ORI_DISABLE_BURDEN_OPS=1 (predicate-stack
 # baseline) AND FAILS under ORI_DISABLE_PREDICATE_STACK_RC=1 (burden-sole probe);
 # it is independent iff it FAILS under ORI_DISABLE_BURDEN_OPS=1 (the leak is in

@@ -1,6 +1,5 @@
 // Test that closure self-capture is detected on an annotated let-binding
-// Spec: 15-memory-model.md § Compile-Time Cycle Prevention
-// Design: 04-memory-management/02-arc.md § Cycle Detection
+// Spec: Clause 21.6
 //
 // An annotated let-binding (`let f: T = ...`) must report the same cycle
 // diagnostic as the unannotated form when its initializer self-references

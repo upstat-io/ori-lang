@@ -21,7 +21,9 @@ Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These 
 | `bisect-passes.sh` | Identify which AIMS pipeline phase introduced an RC or structural change | After `diagnose-aot.sh` finds a leak/crash (`--function`, `--rc-only`) |
 | `burden-balance.sh` | VF-1 `verify_burden_balance` imbalance count (default, per-var) OR per-same-alloc-lineage post-lowering RC-net (`--lineage-net`, cross-var) over a corpus | Measuring faithful Phase-5 burden-emission residual (`--files`, `--raw`, `--release`); `--lineage-net` surfaces dup-alias double-frees (net<0) VF-1's per-var count is blind to (a lineage nets 0 per-var, -N cross-var); REBUILD the dev binary first — a stale binary yields false counts |
 | `debug-release-compare.sh` | Compare debug vs release build output | FastISel-only bugs, optimization divergences |
-| `class-ledger-census.sh` | Single-leg readiness census: per-function replaced vs fallback counts + ranked fallback-reason table over a corpus, under the gated burden-sole env; `--run` adds plain + leak-check behavior verdicts | The drain worklist for retiring the legacy fallback walk (`--limit`, `--family`, `--run`, `--timeout`) |
+| `class-ledger-census.sh` | Single-leg readiness census: per-function replaced vs fallback counts + ranked fallback-reason table over a corpus, under the labelled probe env; `--run` adds plain + leak-check behavior verdicts | The drain worklist for retiring the legacy fallback walk (`--limit`, `--family`, `--run`, `--timeout`) |
+| `predicate-stack-absence.sh` | Absence proof for the deleted predicate-stack emitter symbols, gated on a positive control so an empty scan cannot report a clean sweep (`--self-test`, `--compiler-dir`) | Before any sweep keyed on those symbols, and as a standing regression gate against their resurrection |
+| `sweep-negative-filter.sh` | Negative filters protecting live code a terminology sweep must not touch: `burden_lowering` and the `ssa_alias_classes` alias substrate. Floor-based (growth fine, shrinkage fails); `--is-protected PATH` is the predicate a sweep consumes per hit (`--check`, `--list`, `--self-test`, `--compiler-dir`) | Before and after any predicate-stack terminology sweep; per-hit disposition during one |
 | `check-debug-flags.sh` | Validate `ORI_*` flag consistency | After adding/removing debug flags |
 | `check-tracing-coverage.sh` | Validate tracing dependencies, literal registry entries, and required parser spans | After changing tracing calls, dependencies, or parser boundaries |
 | `repo-hygiene.sh` | Detect/clean untracked temp files | Subsection close-out, section completion (`--check`, `--clean`) |
@@ -43,7 +45,7 @@ diagnostics/diagnose-aot.sh --both-builds file.ori # Full battery on BOTH debug 
 
 Runs 5-7 checks in sequence: compilation, execution, leak check (`ORI_CHECK_LEAKS=1`), RC stats, LLVM IR dump, and optionally Valgrind and disassembly. With `--both-builds`, runs the full battery twice (debug then release) and shows a per-section comparison table.
 
-RC Stats is a static heuristic, not a memory-safety verdict. A WARN keeps the command successful when all gating checks pass, but the terminal summary preserves the warning and names the confirmation probes: `--rc-trace --valgrind` for runtime safety and `rc-stats.sh --rc-remarks` for burden-sole survivors. Reported durations use a monotonic clock.
+RC Stats is a static heuristic, not a memory-safety verdict. A WARN keeps the command successful when all gating checks pass, but the terminal summary preserves the warning and names the confirmation probes: `--rc-trace --valgrind` for runtime safety and `rc-stats.sh --rc-remarks` for surviving RC ops. Reported durations use a monotonic clock.
 
 ### dual-exec-debug.sh — Backend Comparison
 
@@ -100,20 +102,20 @@ diagnostics/rc-stats.sh --block-level file.ori               # Per-block breakdo
 diagnostics/rc-stats.sh --optimized file.ori                  # After LLVM optimization passes
 diagnostics/rc-stats.sh --block-level --optimized file.ori   # Per-block on optimized IR
 diagnostics/rc-stats.sh --compare-awk file.ori               # Migration check: compare JSON vs legacy awk
-diagnostics/rc-stats.sh --rc-remarks file.ori                # Per-function surviving-RC summary from the burden-sole remark stream
+diagnostics/rc-stats.sh --rc-remarks file.ori                # Per-function surviving-RC summary from the remark stream
 ```
 
 Consumes compiler JSON via `ORI_AUDIT_CODEGEN=1` — SSOT is `RcOpKind` in `rc_histogram.rs`. Balance = `(alloc + inc) - (dec + free)`. Positive = potential leak. Negative = potential over-release. Per-block balance is informational; only function-level balance affects exit code.
 
-`--rc-remarks` is a separate path: it builds the file with `--emit-rc-remarks <tmp>` (which auto-sets the burden-sole gating `ORI_DISABLE_PREDICATE_STACK_RC=1` + `ORI_VERIFY_ARC=1`), then prints a per-function count of surviving RC operations parsed from the emitted JSONL stream. A surviving op is one the AIMS burden path could not prove redundant; each carries a `cause` (proof-failure + lattice dimension). The RC verdict is valid ONLY on the burden-sole path.
+`--rc-remarks` is a separate path: it builds the file with `--emit-rc-remarks <tmp>` (which auto-sets the remark-metadata label `ORI_DISABLE_PREDICATE_STACK_RC=1` and the verifier env `ORI_VERIFY_ARC=1`), then prints a per-function count of surviving RC operations parsed from the emitted JSONL stream. A surviving op is one the AIMS burden path could not prove redundant; each carries a `cause` (proof-failure + lattice dimension). Whether the surviving set is CORRECT is decided by the verifier (`ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1`) plus a leak check, never by this summary.
 
 ### RC-survivor remark stream
 
 The compiler emits one JSONL `missed` remark per surviving RC operation when given a sink path:
 
 ```bash
-ori build file.ori --emit-rc-remarks survivors.jsonl   # CLI flag (auto-composes burden-sole gating)
-ORI_RC_REMARKS=survivors.jsonl ori build file.ori       # env var (compose the gating yourself)
+ori build file.ori --emit-rc-remarks survivors.jsonl   # CLI flag (auto-sets the metadata label + verifier env)
+ORI_RC_REMARKS=survivors.jsonl ori build file.ori       # env var (set the verifier env yourself)
 ```
 
 The stream opens with a `header` record (`schema_version`, `compiler_sha`, `source_file`, `burden_path`) followed by per-op `missed` remarks (`rc_op`, `function`, `debug_loc`, `cause`, `cow_mode`). It is the AIMS analog of LLVM's `-fsave-optimization-record`.
@@ -203,7 +205,7 @@ diagnostics/class-ledger-census.sh --family traits -v     # Filter corpus + show
 diagnostics/class-ledger-census.sh --run                  # Also execute: plain run + ORI_CHECK_LEAKS=1 run
 ```
 
-Single-leg readiness census for the (unconditional) class-ledger emitter: builds each corpus program under the gated burden-sole env (`ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1`) with `ORI_LOG=ori_arc::aims::class_ledger=debug`, then tallies per-function `mode=replaced` vs `mode=fallback` counts and a ranked `fallback_reason` table with per-site detail — the drain worklist for retiring the legacy fallback walk. `--run` adds a behavior verdict per program: a plain run AND an `ORI_CHECK_LEAKS=1` run (leak checking can mask use-after-free, so both runs are required for a verdict).
+Single-leg readiness census for the (unconditional) class-ledger emitter: builds each corpus program under the labelled probe env (`ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1`) with `ORI_LOG=ori_arc::aims::class_ledger=debug`, then tallies per-function `mode=replaced` vs `mode=fallback` counts and a ranked `fallback_reason` table with per-site detail — the drain worklist for retiring the legacy fallback walk. `--run` adds a behavior verdict per program: a plain run AND an `ORI_CHECK_LEAKS=1` run (leak checking can mask use-after-free, so both runs are required for a verdict).
 
 **Exit codes:**
 

@@ -1,11 +1,12 @@
 //! Burden-path self-sufficiency probe for the compiled-counter adapter.
 //!
-//! Compiles real Ori programs with `ORI_DISABLE_PREDICATE_STACK_RC=1` — which
-//! suppresses the predicate-stack `RcInc`/`RcDec` emission and lowers surviving
-//! `BurdenInc → RcInc` / `BurdenDec → RcDec` mechanically, then runs
-//! each under `ORI_CHECK_LEAKS=1`. A pass proves only that this adapter's burden
-//! path produces a VF-1-balanced, leak-free, double-free-free binary for the
-//! covered shape; it is not an AIMS-wide or cross-executor verdict.
+//! Compiles real Ori programs with `ORI_DISABLE_PREDICATE_STACK_RC=1` — a
+//! remark-metadata label that selects no emitter; the class-ledger path is
+//! unconditional and `BurdenInc → RcInc` / `BurdenDec → RcDec` lowering runs
+//! either way — then runs each under `ORI_CHECK_LEAKS=1`. A pass proves only
+//! that this adapter produces a VF-1-balanced, leak-free, double-free-free
+//! binary for the covered shape; it is not an AIMS-wide or cross-executor
+//! verdict.
 //!
 //! Matrix dimensions (burden-lowering completeness shapes): move-alias chain,
 //! duplication-alias with live source, collection-buffer last-use
@@ -18,7 +19,7 @@
 use crate::util::compile_and_run_with_build_env;
 
 /// Compile `source` with the predicate-stack RC emitter OFF (the burden path is
-/// the current compiled-counter adapter's sole real-RC emitter) and run under
+/// the current compiled-counter adapter's RC lowering) and run under
 /// leak checking. Asserts the program exits 0 with no FATAL double-free / leak
 /// diagnostic on stderr.
 fn assert_burden_path_self_sufficient(source: &str, label: &str) {
@@ -106,10 +107,9 @@ fn probe_closure_capture_last_use_str() {
 }
 
 /// With `ORI_DISABLE_BURDEN_OPS=1`, class-ledger Step-4b emission is disabled.
-/// Because the class ledger is the sole emitter,
-/// class-ledger Step-4b emission. Because the class ledger is the sole emitter,
-/// realization must fail loud instead of synthesizing a fallback or producing
-/// an under-released executable. Spec: Annex E §AIMS RL-2.
+/// Because the class ledger is the sole emitter, realization must fail loud
+/// instead of synthesizing a fallback or producing an under-released
+/// executable. Spec: Annex E §AIMS RL-2.
 #[test]
 fn probe_closure_capture_last_use_str_burden_ops_disabled_fails_loud() {
     use crate::util::compile_and_run_with_build_env;

@@ -1,5 +1,5 @@
 // Walking-skeleton fixture: produces >=1 surviving (non-elidable) RC op on the
-// burden-sole path. `s` is stored into a collection literal while STILL LIVE
+// labelled probe env. `s` is stored into a collection literal while STILL LIVE
 // (read after the store), so the RL-1 duplication inc is genuinely required —
 // the container drop releases the funded ref while the source keeps its own
 // release — and survives to the remark stream as a `missed` remark.

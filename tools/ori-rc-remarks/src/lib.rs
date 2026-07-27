@@ -22,8 +22,6 @@ pub struct StreamHeader {
     pub compiler_sha: String,
     /// Source file the stream describes.
     pub source_file: String,
-    /// `true` iff produced on the burden-sole path (the valid RC verdict surface).
-    pub burden_path: bool,
 }
 
 /// Resolved source location of a remark (absent for synthetic ops).
@@ -96,18 +94,63 @@ pub struct Stream {
     pub remarks: Vec<Remark>,
 }
 
-/// A JSONL ingest failure, with the 1-based stream line that failed to parse.
+/// Schema versions this analyzer can interpret.
+///
+/// A stream declaring any other version is rejected at ingest: its record
+/// shapes are unknown, so analyzing it would report a verdict derived from the
+/// wrong semantics.
+pub const SUPPORTED_SCHEMA_VERSIONS: &[u32] = &[1, 2];
+
+/// A JSONL ingest failure, with the 1-based stream line that failed.
 #[derive(Debug)]
-pub struct IngestError {
-    /// 1-based line number in the stream.
-    pub line: usize,
-    /// The underlying JSON parse error.
-    pub source: serde_json::Error,
+pub enum IngestError {
+    /// A line was not valid JSON, or did not match the header / remark shape.
+    Json {
+        /// 1-based line number in the stream.
+        line: usize,
+        /// The underlying JSON parse error.
+        source: serde_json::Error,
+    },
+    /// The header declared a schema version outside [`SUPPORTED_SCHEMA_VERSIONS`].
+    UnsupportedSchemaVersion {
+        /// 1-based line number of the header.
+        line: usize,
+        /// The version the stream declared.
+        found: u32,
+    },
+}
+
+impl IngestError {
+    /// The 1-based stream line the failure occurred on.
+    #[must_use]
+    pub fn line(&self) -> usize {
+        match self {
+            Self::Json { line, .. } | Self::UnsupportedSchemaVersion { line, .. } => *line,
+        }
+    }
 }
 
 impl std::fmt::Display for IngestError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "rc-remarks ingest: line {}: {}", self.line, self.source)
+        match self {
+            Self::Json { line, source } => {
+                write!(f, "rc-remarks ingest: line {line}: {source}")
+            }
+            Self::UnsupportedSchemaVersion { line, found } => {
+                let supported: Vec<String> = SUPPORTED_SCHEMA_VERSIONS
+                    .iter()
+                    .map(u32::to_string)
+                    .collect();
+                write!(
+                    f,
+                    "rc-remarks ingest: line {line}: stream declares schema version {found}, \
+                     which this analyzer does not understand (it supports {}).\n  \
+                     Rebuild ori-rc-remarks from the compiler revision that produced this \
+                     stream, or regenerate the stream with the current compiler.",
+                    supported.join(", ")
+                )
+            }
+        }
     }
 }
 
@@ -131,17 +174,26 @@ pub fn ingest(input: &str) -> Result<Stream, IngestError> {
         }
         let line_no = idx + 1;
         let value: serde_json::Value =
-            serde_json::from_str(line).map_err(|source| IngestError { line: line_no, source })?;
+            serde_json::from_str(line)
+                .map_err(|source| IngestError::Json { line: line_no, source })?;
         let is_header = value.get("record").and_then(serde_json::Value::as_str) == Some("header");
         if is_header {
-            stream.header = Some(
-                serde_json::from_value(value)
-                    .map_err(|source| IngestError { line: line_no, source })?,
-            );
+            let header: StreamHeader = serde_json::from_value(value)
+                .map_err(|source| IngestError::Json { line: line_no, source })?;
+            // Gate at the ingest boundary, before any remark is admitted, so no
+            // consumer can compute a verdict over records whose shape this
+            // build does not understand.
+            if !SUPPORTED_SCHEMA_VERSIONS.contains(&header.schema_version) {
+                return Err(IngestError::UnsupportedSchemaVersion {
+                    line: line_no,
+                    found: header.schema_version,
+                });
+            }
+            stream.header = Some(header);
         } else {
             stream.remarks.push(
                 serde_json::from_value(value)
-                    .map_err(|source| IngestError { line: line_no, source })?,
+                    .map_err(|source| IngestError::Json { line: line_no, source })?,
             );
         }
     }
