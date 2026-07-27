@@ -13,7 +13,7 @@
 //! (list / str / map / Result / user sum-type with heap field); cross-pattern
 //! (LHS inline, comparison operators via `Comparable::compare`, cross-block);
 //! cross-feature (`map.updated` assertion site, nested aggregate); sole-emitter
-//! paths (burden-only, default) plus the fail-loud burden-disabled negative pin;
+//! paths (compiled-counter, default) plus the fail-loud burden-disabled negative pin;
 //! negative pins (bound-var alias clean, scalar payload clean, multi-consumer
 //! retains inc, fresh value duplicated into one call retains inc).
 //!
@@ -299,11 +299,10 @@ fn inline_option_list_eq_burden_ops_disabled_fails_loud() {
     );
 }
 
-/// Burden-only: `ORI_DISABLE_PREDICATE_STACK_RC=1` leaves the burden path as
-/// the current compiled-counter adapter's RC lowering; the Phase-6
-/// eliminator fix must clear the leak.
+/// The class-ledger path is the current compiled-counter adapter's RC
+/// lowering; the Phase-6 eliminator fix must clear the leak.
 #[test]
-fn inline_option_list_eq_burden_only_no_leak() {
+fn inline_option_list_eq_no_leak() {
     assert_leak_free_under(
         r#"
 @main () -> int = {
@@ -311,8 +310,8 @@ fn inline_option_list_eq_burden_only_no_leak() {
     if x == Some([7, 8, 9]) then 0 else 1
 }
 "#,
-        &[("ORI_DISABLE_PREDICATE_STACK_RC", "1")],
-        "inline_option_list_eq_burden_only_no_leak",
+        &[],
+        "inline_option_list_eq_no_leak",
     );
 }
 

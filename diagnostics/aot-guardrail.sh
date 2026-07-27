@@ -16,8 +16,8 @@
 #                      lines (`[def=.. exit=.. repr=.. ops=..]`) consumed by
 #                      burden-imbalance classification.
 #   --env "V=1 W=2"    Extra env vars exported into the AOT run (e.g.
-#                      "ORI_DISABLE_BURDEN_OPS=1 ORI_DISABLE_PREDICATE_STACK_RC=0"
-#                      for the predicate-stack path). Default: burden default.
+#                      "ORI_DISABLE_BURDEN_OPS=1" for the sole-emitter fail-loud
+#                      probe). Default: no extra env.
 #
 # METRIC CONTRACT: the run ALWAYS exports ORI_VERIFY_ARC=1 + ORI_VERIFY_EACH=1
 # (the same verification gates test-all.sh and CI export), so the failing-ID
@@ -27,37 +27,18 @@
 # failure -- an under-count that MUST NOT be used as a floor or baseline.
 # Diagnostic-bisection override: --env "ORI_VERIFY_ARC=0 ORI_VERIFY_EACH=0".
 #   --floor            Floor-validation preset for the corpus_under_flag_gate
-#                      baseline. Prepends ORI_DISABLE_PREDICATE_STACK_RC=1 to the
-#                      run env (the burden-path-sole-emitter probe the baseline was
-#                      captured under) and, when --baseline is unset, defaults it to
+#                      baseline. When --baseline is unset, defaults it to
 #                      compiler/ori_llvm/tests/aot/fixtures/corpus_under_flag_gate/baseline_failing_ids.txt.
 #                      The FIXED set is relabeled "STALE (prune from baseline)": a
-#                      baseline cell no longer failing under the gated env is NOT
-#                      live floor. THE floor env is
-#                      ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1.
-#                      ORI_DISABLE_PREDICATE_STACK_RC no longer selects an RC
-#                      emitter — measured, the default and gated envs produce
-#                      identical failing-ID sets — so the floor reading is carried
-#                      by ORI_VERIFY_ARC/ORI_VERIFY_EACH. The flag is retained for
-#                      truthful remark labelling and baseline-capture continuity.
+#                      baseline cell no longer failing is NOT live floor. THE floor
+#                      env is ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1, which carry the
+#                      floor reading.
 #   --emit-json FILE   Write the gated-floor reading {head_sha, failing_ids,
 #                      baseline_ids} to FILE — the artifact the disposition gate
 #                      (scripts/plan_orchestrator/rc_floor_verdict.py) consumes as
 #                      the aims-burden RC/AOT verdict. --floor defaults FILE to
 #                      build/aot-floor-gated.json. Written on both the clean and
 #                      the regression path.
-#   --classify         Per-cell burden-only|independent tag over the baseline
-#                      cells (default the corpus floor). Runs the AOT suite twice
-#                      — once under ORI_DISABLE_BURDEN_OPS=1 (predicate-stack
-#                      baseline), once under ORI_DISABLE_PREDICATE_STACK_RC=1
-#                      (burden-sole probe) — and tags each cell:
-#                        burden-only  = PASS burden-disabled AND FAIL pred-disabled
-#                                       (a Phase-5 burden grind cell).
-#                        independent  = FAIL burden-disabled (a defect outside the
-#                                       burden path; the two-env screen IS the
-#                                       independence check).
-#                        stale-or-mismatch = in neither fail set (prune candidate).
-#                      Emits `<cell> <tag>` per line + a SUMMARY. Exit 0.
 #   --threads N        cargo test --test-threads (default 8).
 #   --no-build         Skip the oric+ori_rt rebuild + staticlib confirm (caller
 #                      already built this cycle).
@@ -89,7 +70,6 @@ THREADS=8
 DO_BUILD=1
 RUN_LOG=""
 FLOOR=0
-CLASSIFY=0
 EMIT_JSON=""
 
 while [[ $# -gt 0 ]]; do
@@ -99,7 +79,6 @@ while [[ $# -gt 0 ]]; do
         --env) EXTRA_ENV="${2:-}"; shift 2 ;;
         --floor) FLOOR=1; shift ;;
         --emit-json) EMIT_JSON="${2:-}"; shift 2 ;;
-        --classify) CLASSIFY=1; shift ;;
         --threads) THREADS="${2:-}"; shift 2 ;;
         --no-build) DO_BUILD=0; shift ;;
         --log) RUN_LOG="${2:-}"; shift 2 ;;
@@ -114,7 +93,6 @@ done
 # baseline to the checked-in corpus floor when unset.
 FLOOR_BASELINE="compiler/ori_llvm/tests/aot/fixtures/corpus_under_flag_gate/baseline_failing_ids.txt"
 if [[ "$FLOOR" == "1" ]]; then
-    EXTRA_ENV="ORI_DISABLE_PREDICATE_STACK_RC=1 ${EXTRA_ENV}"
     [[ -z "$BASELINE" ]] && BASELINE="$FLOOR_BASELINE"
     # Default the recorded gated-floor reading the disposition gate
     # (scripts/plan_orchestrator/rc_floor_verdict.py) consumes, so a plain
@@ -148,50 +126,6 @@ fi
 # follow these in the `env` invocation, so an explicit override still wins.
 export ORI_VERIFY_ARC=1
 export ORI_VERIFY_EACH=1
-
-# --classify: tag each baseline-floor cell burden-only vs independent via a
-# two-env screen (the independence check). A cell is
-# burden-only iff it PASSES under ORI_DISABLE_BURDEN_OPS=1 (predicate-stack
-# baseline) AND FAILS under ORI_DISABLE_PREDICATE_STACK_RC=1 (burden-sole probe);
-# it is independent iff it FAILS under ORI_DISABLE_BURDEN_OPS=1 (the leak is in
-# the predicate stack, uncurable by a Phase-5 burden scan). Runs the AOT suite
-# twice (one per env) — far cheaper than 37 single-test rebuilds — and emits one
-# `<cell> burden-only|independent` line per baseline cell.
-if [[ "$CLASSIFY" == "1" ]]; then
-    CLS_BASELINE="${BASELINE:-$FLOOR_BASELINE}"
-    if [[ ! -f "$CLS_BASELINE" ]]; then
-        echo "Error: --classify needs a baseline (default $FLOOR_BASELINE not found)" >&2
-        exit 2
-    fi
-    run_env_fails() {
-        local extra="$1" out="$2"
-        # shellcheck disable=SC2086
-        env $extra cargo test -p ori_llvm --test aot -- --test-threads "$THREADS" 2>&1 \
-            | grep -E '^test .* \.\.\. FAILED' | sed -E 's/^test //; s/ \.\.\. FAILED$//' \
-            | sort -u > "$out"
-    }
-    BURDEN_OFF_FAILS="$(mktemp /tmp/aot-classify-burdenoff.XXXXXX.txt)"
-    PRED_OFF_FAILS="$(mktemp /tmp/aot-classify-predoff.XXXXXX.txt)"
-    echo "=== --classify env A: ORI_DISABLE_BURDEN_OPS=1 (predicate-stack baseline) ==="
-    run_env_fails "ORI_DISABLE_BURDEN_OPS=1" "$BURDEN_OFF_FAILS"
-    echo "=== --classify env B: ORI_DISABLE_PREDICATE_STACK_RC=1 (burden-sole probe) ==="
-    run_env_fails "ORI_DISABLE_PREDICATE_STACK_RC=1" "$PRED_OFF_FAILS"
-    echo "=== PER-CELL CLASSIFICATION (baseline: $CLS_BASELINE) ==="
-    CLS_BURDEN=0; CLS_INDEP=0
-    while IFS= read -r cell; do
-        [[ -z "$cell" || "$cell" == \#* ]] && continue
-        if grep -qxF "$cell" "$BURDEN_OFF_FAILS"; then
-            echo "$cell independent"; CLS_INDEP=$((CLS_INDEP + 1))
-        elif grep -qxF "$cell" "$PRED_OFF_FAILS"; then
-            echo "$cell burden-only"; CLS_BURDEN=$((CLS_BURDEN + 1))
-        else
-            echo "$cell stale-or-mismatch"
-        fi
-    done < "$CLS_BASELINE"
-    echo "=== CLASSIFY SUMMARY: burden-only=$CLS_BURDEN independent=$CLS_INDEP ==="
-    rm -f "$BURDEN_OFF_FAILS" "$PRED_OFF_FAILS"
-    exit 0
-fi
 
 echo "=== AOT suite (env: ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1 ${EXTRA_ENV:-<burden default>}; threads $THREADS) ==="
 # shellcheck disable=SC2086

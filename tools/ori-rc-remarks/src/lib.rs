@@ -118,6 +118,11 @@ pub enum IngestError {
         /// The version the stream declared.
         found: u32,
     },
+    /// A remark was reached before any header, so its wire generation is unknown.
+    MissingStreamHeader {
+        /// 1-based line number of the first unversioned remark.
+        line: usize,
+    },
 }
 
 impl IngestError {
@@ -125,7 +130,9 @@ impl IngestError {
     #[must_use]
     pub fn line(&self) -> usize {
         match self {
-            Self::Json { line, .. } | Self::UnsupportedSchemaVersion { line, .. } => *line,
+            Self::Json { line, .. }
+            | Self::UnsupportedSchemaVersion { line, .. }
+            | Self::MissingStreamHeader { line } => *line,
         }
     }
 }
@@ -150,6 +157,14 @@ impl std::fmt::Display for IngestError {
                     supported.join(", ")
                 )
             }
+            Self::MissingStreamHeader { line } => write!(
+                f,
+                "rc-remarks ingest: line {line}: a remark appears before any \
+                 `{{\"record\":\"header\"}}` line, so the stream declares no schema \
+                 version and its records cannot be safely interpreted.\n  \
+                 Regenerate the stream with `ori build --emit-rc-remarks <path>`, \
+                 which always writes the header first."
+            ),
         }
     }
 }
@@ -191,6 +206,13 @@ pub fn ingest(input: &str) -> Result<Stream, IngestError> {
             }
             stream.header = Some(header);
         } else {
+            // A remark before any header is UNVERSIONED. Admitting it would let a
+            // consumer compute a verdict over records whose generation this build
+            // never checked -- the same fail-open the version gate above closes,
+            // reached by omitting the header instead of declaring a bad one.
+            if stream.header.is_none() {
+                return Err(IngestError::MissingStreamHeader { line: line_no });
+            }
             stream.remarks.push(
                 serde_json::from_value(value)
                     .map_err(|source| IngestError::Json { line: line_no, source })?,

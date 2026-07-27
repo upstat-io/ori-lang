@@ -18,7 +18,7 @@
 #
 #
 # Captured: 2026-06-16 re-bless to the TRUE current failing set under the gated
-# floor env (ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1).
+# floor env (ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1).
 # Prior baseline (520 entries) was heavily stale: 462 now pass, 18 failing-at-HEAD
 # were unlisted. elem_dec_scope::test_str_list_explicit_last_owner pruned: cured by
 # the Phase-6.66e @iter-survivor-surplus suppress + 4 over-fire guards.

@@ -1,8 +1,8 @@
 //! End-to-end correctness for the class-ledger emitter's walking-skeleton
 //! program family (the emitter is unconditional at the Step-4b slot).
 //!
-//! Each fixture compiles + runs under the gated burden-sole probe
-//! (`ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1`).
+//! Each fixture compiles + runs under the verification env
+//! (`ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1`).
 //! `ORI_VERIFY_ARC=1` makes VF-1 / VF-1.1 burden-balance violations abort
 //! compilation, so a clean compile + run IS the burden-balance-zero
 //! evidence. The run step always sets `ORI_CHECK_LEAKS=1` (see
@@ -31,13 +31,9 @@ use crate::util::{compile_and_run_with_build_env, ori_binary, stdlib_path};
 
 /// The probe env for the current compiled-counter adapter. The verdict comes
 /// from `ORI_VERIFY_ARC` + `ORI_VERIFY_EACH` (verify LLVM IR after every opt
-/// pass); the RC-disable var pins the class-ledger path so the run is labelled
+/// pass); the verification env pins the class-ledger path so the run is labelled
 /// as that adapter's. Never a verdict for AIMS or a sibling executor.
-const PROBE: &[(&str, &str)] = &[
-    ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
-    ("ORI_VERIFY_ARC", "1"),
-    ("ORI_VERIFY_EACH", "1"),
-];
+const PROBE: &[(&str, &str)] = &[("ORI_VERIFY_ARC", "1"), ("ORI_VERIFY_EACH", "1")];
 
 /// Assert `stderr` carries no leak / double-free report (the run step always
 /// sets `ORI_CHECK_LEAKS=1`).
@@ -65,7 +61,7 @@ fn interpreter_run(source: &str) -> (i32, String) {
     (run.status.code().unwrap_or(-1), stdout)
 }
 
-/// Compile + run `source` under the gated burden-sole probe, asserting:
+/// Compile + run `source` under the verification env, asserting:
 ///
 /// 1. The run compiles and exits 0 (under `ORI_VERIFY_ARC=1` a VF-1 / VF-1.1
 ///    burden-balance violation aborts compilation, so exit 0 IS the
@@ -77,12 +73,12 @@ fn assert_class_ledger_green(source: &str, label: &str) {
     let (exit, stdout, stderr) = compile_and_run_with_build_env(source, PROBE);
     assert_eq!(
         exit, 0,
-        "[{label}] burden-sole run must compile and exit 0 (ORI_VERIFY_ARC \
+        "[{label}] run must compile and exit 0 (ORI_VERIFY_ARC \
          aborts compilation on a burden-balance violation, so a non-zero \
          exit here is a class-ledger planning defect), got \
          {exit}\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert_leak_free(&stderr, label, "burden-sole");
+    assert_leak_free(&stderr, label, "leak-check");
     assert!(
         !stdout.trim().is_empty(),
         "[{label}] fixture must print a deterministic value (empty stdout \

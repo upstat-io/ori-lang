@@ -107,7 +107,7 @@ diagnostics/rc-stats.sh --rc-remarks file.ori                # Per-function surv
 
 Consumes compiler JSON via `ORI_AUDIT_CODEGEN=1` — SSOT is `RcOpKind` in `rc_histogram.rs`. Balance = `(alloc + inc) - (dec + free)`. Positive = potential leak. Negative = potential over-release. Per-block balance is informational; only function-level balance affects exit code.
 
-`--rc-remarks` is a separate path: it builds the file with `--emit-rc-remarks <tmp>` (which auto-sets the remark-metadata label `ORI_DISABLE_PREDICATE_STACK_RC=1` and the verifier env `ORI_VERIFY_ARC=1`), then prints a per-function count of surviving RC operations parsed from the emitted JSONL stream. A surviving op is one the AIMS burden path could not prove redundant; each carries a `cause` (proof-failure + lattice dimension). Whether the surviving set is CORRECT is decided by the verifier (`ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1`) plus a leak check, never by this summary.
+`--rc-remarks` is a separate path: it builds the file with `--emit-rc-remarks <tmp>` (which auto-sets the verifier env `ORI_VERIFY_ARC=1`), then prints a per-function count of surviving RC operations parsed from the emitted JSONL stream. A surviving op is one the AIMS burden path could not prove redundant; each carries a `cause` (proof-failure + lattice dimension). Whether the surviving set is CORRECT is decided by the verifier (`ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1`) plus a leak check, never by this summary.
 
 ### RC-survivor remark stream
 
@@ -118,7 +118,7 @@ ori build file.ori --emit-rc-remarks survivors.jsonl   # CLI flag (auto-sets the
 ORI_RC_REMARKS=survivors.jsonl ori build file.ori       # env var (set the verifier env yourself)
 ```
 
-The stream opens with a `header` record (`schema_version`, `compiler_sha`, `source_file`, `burden_path`) followed by per-op `missed` remarks (`rc_op`, `function`, `debug_loc`, `cause`, `cow_mode`). It is the AIMS analog of LLVM's `-fsave-optimization-record`.
+The stream opens with a `header` record (`schema_version`, `compiler_sha`, `source_file`) followed by per-op `missed` remarks (`rc_op`, `function`, `debug_loc`, `cause`, `cow_mode`). It is the AIMS analog of LLVM's `-fsave-optimization-record`.
 
 Analyze the stream with the `ori-rc-remarks` tool (standalone crate at `compiler_repo/tools/ori-rc-remarks`):
 
@@ -205,7 +205,7 @@ diagnostics/class-ledger-census.sh --family traits -v     # Filter corpus + show
 diagnostics/class-ledger-census.sh --run                  # Also execute: plain run + ORI_CHECK_LEAKS=1 run
 ```
 
-Single-leg readiness census for the (unconditional) class-ledger emitter: builds each corpus program under the labelled probe env (`ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1`) with `ORI_LOG=ori_arc::aims::class_ledger=debug`, then tallies per-function `mode=replaced` vs `mode=fallback` counts and a ranked `fallback_reason` table with per-site detail — the drain worklist for retiring the legacy fallback walk. `--run` adds a behavior verdict per program: a plain run AND an `ORI_CHECK_LEAKS=1` run (leak checking can mask use-after-free, so both runs are required for a verdict).
+Single-leg readiness census for the (unconditional) class-ledger emitter: builds each corpus program under the verification env (`ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1`) with `ORI_LOG=ori_arc::aims::class_ledger=debug`, then tallies per-function `mode=replaced` vs `mode=fallback` counts and a ranked `fallback_reason` table with per-site detail — the drain worklist for retiring the legacy fallback walk. `--run` adds a behavior verdict per program: a plain run AND an `ORI_CHECK_LEAKS=1` run (leak checking can mask use-after-free, so both runs are required for a verdict).
 
 **Exit codes:**
 

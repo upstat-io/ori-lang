@@ -14,8 +14,11 @@ fn remark(dim: &str, proof_failure: &str) -> String {
 /// A remark with no cause object at all.
 const NO_CAUSE: &str = r#"{"kind":"missed","pass":"p","name":"n","rc_op":"burden_dec","function":"g","debug_loc":null,"ssa_value":2,"exit_block":null,"cause":null,"burden_net":null,"args":[],"cow_mode":null}"#;
 
+/// Every fixture carries a current-generation header; ingest refuses remarks without one.
+const HEADER: &str = r#"{"record":"header","schema_version":2,"compiler_sha":"000de0232","source_file":"t.ori"}"#;
+
 fn build(lines: &[String]) -> Stream {
-    let body = lines.join("\n");
+    let body = format!("{HEADER}\n{}", lines.join("\n"));
     ingest(&body).unwrap_or_else(|e| panic!("ingest failed: {e}"))
 }
 

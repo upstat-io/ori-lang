@@ -140,6 +140,39 @@ fn ingest_rejects_unsupported_schema_version() {
 }
 
 #[test]
+fn ingest_refuses_a_remark_with_no_preceding_header() {
+    // This assertion was INVERTED deliberately. It previously admitted a
+    // headerless stream and let the analysis rest on an assumed generation,
+    // which is the version gate reached by OMITTING a header instead of
+    // declaring a bad one -- the same fail-open, one spelling out.
+    // "No version claim" is not a weaker claim than a wrong one; it is an
+    // unchecked one, so it refuses.
+    let headerless = SAMPLE
+        .lines()
+        .nth(1)
+        .unwrap_or_else(|| panic!("SAMPLE has a remark line"));
+    let Err(err) = ingest(headerless) else {
+        panic!("an unversioned remark must be refused, not analyzed on an assumption");
+    };
+    assert_eq!(err.line(), 1, "refusal names the offending line");
+}
+
+#[test]
+fn ingest_accepts_a_header_only_stream() {
+    // The refusal above is scoped to REMARKS. A header with no remarks is a
+    // legitimate empty capture and must still ingest, or the gate would turn
+    // "nothing to report" into an error.
+    let header_only = SAMPLE
+        .lines()
+        .next()
+        .unwrap_or_else(|| panic!("SAMPLE has a header line"));
+    let stream =
+        ingest(header_only).unwrap_or_else(|e| panic!("header-only ingest failed: {e}"));
+    assert!(stream.header.is_some(), "header claimed");
+    assert!(stream.remarks.is_empty(), "no remarks");
+}
+
+#[test]
 fn ingest_rejects_unsupported_version_before_reading_remarks() {
     // The gate sits at the ingest boundary, so no consumer (summary, stats,
     // view, diff) can reach remark data from an unsupported stream.

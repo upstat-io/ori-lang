@@ -18,10 +18,8 @@
 //! edge-deadness from a separate per-edge model (narrowing Cat-2 would double-dec).
 //!
 //! COMPILED-COUNTER VERDICT SURFACE: every cell compiles with
-//! `ORI_DISABLE_PREDICATE_STACK_RC=1` `ORI_VERIFY_ARC=1` + runs under the
-//! always-on `ORI_CHECK_LEAKS=1`. The verification vars and the leak check carry
-//! the verdict; ORI_DISABLE_PREDICATE_STACK_RC no longer selects an RC emitter
-//! and is retained for truthful remark labelling.
+//! `ORI_VERIFY_ARC=1` + runs under the always-on `ORI_CHECK_LEAKS=1`. The
+//! verification vars and the leak check carry the verdict.
 //! `assert_aot_success` alone is insufficient for these cells because it omits
 //! the leak check, not because of a second emitter. Neither mode establishes AIMS or sibling-executor
 //! conformance.
@@ -41,32 +39,26 @@
 
 use crate::util::compile_and_run_with_build_env;
 
-/// Compile `source` under the complete probe env: the remark-metadata label
-/// (`ORI_DISABLE_PREDICATE_STACK_RC=1`, which selects no emitter — the
-/// class-ledger path is unconditional) plus the per-
+/// Compile `source` under the complete probe env: the per-
 /// function LLVM verification (`ORI_VERIFY_ARC=1`) + post-pass verification
 /// (`ORI_VERIFY_EACH=1`) so a burden-imbalance that compiles to wrong-but-non-
 /// crashing IR (VR-1 checkpoints + VF-1 burden-balance residual) is caught, not
 /// silently passed. Runs under the always-on `ORI_CHECK_LEAKS=1`. Asserts exit 0
 /// with no FATAL double-free / leak diagnostic on stderr.
-fn assert_no_closure_leak_burden_sole(source: &str, label: &str) {
+fn assert_no_closure_leak(source: &str, label: &str) {
     let (exit, stdout, stderr) = compile_and_run_with_build_env(
         source,
-        &[
-            ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
-            ("ORI_VERIFY_ARC", "1"),
-            ("ORI_VERIFY_EACH", "1"),
-        ],
+        &[("ORI_VERIFY_ARC", "1"), ("ORI_VERIFY_EACH", "1")],
     );
     assert!(
         exit == 0,
-        "[{label}] burden-sole run exited {exit}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        "[{label}] run exited {exit}\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
     assert!(
         !stderr.contains("FATAL")
             && !stderr.contains("already-freed")
             && !stderr.to_lowercase().contains("leak"),
-        "[{label}] burden-sole run reported a closure-env leak / double-free\nstderr:\n{stderr}"
+        "[{label}] run reported a closure-env leak / double-free\nstderr:\n{stderr}"
     );
 }
 
@@ -89,7 +81,7 @@ fn fold_capture_heap_str_no_leak() {
     0
 }
 "#;
-    assert_no_closure_leak_burden_sole(src, "fold_capture_heap_str");
+    assert_no_closure_leak(src, "fold_capture_heap_str");
 }
 
 /// Captured-type = `[int]` (heap list buffer). Env + list buffer leak pre-fix.
@@ -106,7 +98,7 @@ fn fold_capture_list_no_leak() {
     0
 }
 "#;
-    assert_no_closure_leak_burden_sole(src, "fold_capture_list");
+    assert_no_closure_leak(src, "fold_capture_list");
 }
 
 /// Captured-type = `Option<str>` (sum-aggregate capture; niche-payload `elem_dec`).
@@ -129,7 +121,7 @@ fn fold_capture_option_str_no_leak() {
     0
 }
 "#;
-    assert_no_closure_leak_burden_sole(src, "fold_capture_option_str");
+    assert_no_closure_leak(src, "fold_capture_option_str");
 }
 
 /// Captured-type = `{str: int}` map (fat-pointer buffer + key `elem_dec`).
@@ -146,7 +138,7 @@ fn fold_capture_map_no_leak() {
     0
 }
 "#;
-    assert_no_closure_leak_burden_sole(src, "fold_capture_map");
+    assert_no_closure_leak(src, "fold_capture_map");
 }
 
 /// Captured-type = nested `[[int]]` (deep `elem_dec` cascade through the closure
@@ -164,7 +156,7 @@ fn fold_capture_nested_list_no_leak() {
     0
 }
 "#;
-    assert_no_closure_leak_burden_sole(src, "fold_capture_nested_list");
+    assert_no_closure_leak(src, "fold_capture_nested_list");
 }
 
 // Scalar-only-capture cell: ISOLATES the env-allocation dec from the
@@ -189,7 +181,7 @@ fn fold_capture_scalar_env_only_no_leak() {
     0
 }
 "#;
-    assert_no_closure_leak_burden_sole(src, "fold_capture_scalar_env_only");
+    assert_no_closure_leak(src, "fold_capture_scalar_env_only");
 }
 
 // Second consumer axis: `all` (a borrowed predicate-closure consumer
@@ -211,7 +203,7 @@ fn all_capture_heap_str_no_leak() {
     0
 }
 "#;
-    assert_no_closure_leak_burden_sole(src, "all_capture_heap_str");
+    assert_no_closure_leak(src, "all_capture_heap_str");
 }
 
 // User-defined-struct capture cell: covers the NON-BUILTIN aggregate capture
@@ -239,7 +231,7 @@ type Rec = { val: str, count: int }
     0
 }
 "#;
-    assert_no_closure_leak_burden_sole(src, "fold_capture_user_struct");
+    assert_no_closure_leak(src, "fold_capture_user_struct");
 }
 
 // Negative pin: capture-less fold. The env is null -> the missing
@@ -262,7 +254,7 @@ fn fold_captureless_clean_no_regression() {
     0
 }
 "#;
-    assert_no_closure_leak_burden_sole(src, "fold_captureless_clean");
+    assert_no_closure_leak(src, "fold_captureless_clean");
 }
 
 // Negative pins: the EXCLUSION boundary the relocation gate must DECLINE.
@@ -273,7 +265,7 @@ fn fold_captureless_clean_no_regression() {
 // over-fired here it would relocate a dec it does not own -> double-free of the
 // captured str. Each is clean BEFORE and AFTER the fix (the relocation never
 // fires); a regression that widens the gate onto these categories crashes /
-// leaks under the burden-sole probe. Spec: Annex E §AIMS RL-2 + RL-4.
+// leaks under the probe. Spec: Annex E §AIMS RL-2 + RL-4.
 
 /// Excluded category = PARAMETER closure. The `op` folded inside `apply_fold` is
 /// a borrowed PARAM (in `params`), created + owned by `@main`. The relocation
@@ -293,7 +285,7 @@ fn fold_param_closure_no_overfire() {
     0
 }
 "#;
-    assert_no_closure_leak_burden_sole(src, "fold_param_closure");
+    assert_no_closure_leak(src, "fold_param_closure");
 }
 
 /// Excluded category = BORROWED-VIEW closure. `red.f` is a `Project` of a struct
@@ -318,7 +310,7 @@ type Reducer = { f: (int, int) -> int }
     0
 }
 "#;
-    assert_no_closure_leak_burden_sole(src, "fold_borrowed_view_closure");
+    assert_no_closure_leak(src, "fold_borrowed_view_closure");
 }
 
 /// Excluded category = ITER-ELEMENT closure. `g` is each element of the `[closure]`
@@ -342,5 +334,5 @@ fn fold_iter_element_closure_no_overfire() {
     0
 }
 "#;
-    assert_no_closure_leak_burden_sole(src, "fold_iter_element_closure");
+    assert_no_closure_leak(src, "fold_iter_element_closure");
 }

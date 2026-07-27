@@ -124,9 +124,7 @@ ORI_BIN="${ORI_BIN:-cargo run -p oric --bin ori --}"
 # eventual-supersede of the ORI_AUDIT histogram below. The stream reports which
 # RC ops survived; whether that survivor set is CORRECT is decided by the
 # verifier (ORI_VERIFY_ARC / ORI_VERIFY_EACH) plus a leak check, not by this
-# summary. The class-ledger path is unconditional; ORI_DISABLE_PREDICATE_STACK_RC
-# only sets the header's burden_path label, so burden_path reports whether the
-# capture ran under the labelled env, not which emitter produced the stream.
+# summary. The class-ledger path is unconditional.
 if [[ "$RC_REMARKS" -eq 1 ]]; then
     remarks="$tmpdir/rc-remarks.jsonl"
     # shellcheck disable=SC2086
@@ -142,20 +140,20 @@ import json, sys
 from collections import Counter, defaultdict
 survivors = defaultdict(int)
 causes = defaultdict(Counter)
-burden_path = None
+schema_version = None
 for line in open(sys.argv[1]):
     line = line.strip()
     if not line:
         continue
     o = json.loads(line)
     if o.get("record") == "header":
-        burden_path = o.get("burden_path")
+        schema_version = o.get("schema_version")
         continue
     fn = o.get("function") or "<unknown>"
     survivors[fn] += 1
     c = o.get("cause") or {}
     causes[fn][f"{c.get('lattice_dim', '-')}/{c.get('proof_failure', '-')}"] += 1
-print(f"RC survivors (burden_path={burden_path}):")
+print(f"RC survivors (stream schema v{schema_version}):")
 print(f"{'survivors':>10}  function  [top cause]")
 for fn, n in sorted(survivors.items(), key=lambda kv: (-kv[1], kv[0])):
     top = causes[fn].most_common(1)[0][0] if causes[fn] else "-"

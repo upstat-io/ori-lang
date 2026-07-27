@@ -40,7 +40,7 @@
 #      release) are present IN THE PARALLEL BLOCK on non-comment lines (a
 #      sequential-block or comment mention cannot satisfy this).
 #  (h) POSITIVE ENV PIN — run_aot exports the gated verification env
-#      (ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1)
+#      (ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1)
 #      around its rust_test_leg call, AND the exports stay subshell-scoped
 #      (the caller's environment is unchanged after run_aot returns).
 #  (i) FAIL-SEMANTICS PIN — a failing warm makes prebuild_leg_shapes return
@@ -204,7 +204,7 @@ fi
 echo "OK: (e) selection arrays are selection-only; warm argv is run-flag-free"
 
 # (f) the warm is env-clean — no runtime verification env inside the warm body
-if declare -f prebuild_leg_shapes | grep -qE 'ORI_DISABLE_PREDICATE_STACK_RC|ORI_VERIFY_ARC|ORI_VERIFY_EACH'; then
+if declare -f prebuild_leg_shapes | grep -qE 'ORI_VERIFY_ARC|ORI_VERIFY_EACH'; then
     echo "FAIL: (f) prebuild_leg_shapes references the aot leg's runtime env (run-only, never a warm input)"
     exit 1
 fi
@@ -266,18 +266,18 @@ ENV_CAPTURE="$(mktemp)"
 rust_test_leg() {
     shift
     printf '%s %s\n' "$#" "$*" >> "$RUN_CAPTURE"
-    printf '%s|%s|%s|%s\n' \
-        "${ORI_DISABLE_PREDICATE_STACK_RC:-}" "${ORI_VERIFY_ARC:-}" \
+    printf '%s|%s|%s\n' \
+        "${ORI_VERIFY_ARC:-}" \
         "${ORI_VERIFY_EACH:-}" "$*" >> "$ENV_CAPTURE"
     return 0
 }
-unset ORI_DISABLE_PREDICATE_STACK_RC ORI_VERIFY_ARC ORI_VERIFY_EACH 2>/dev/null || true
+unset ORI_VERIFY_ARC ORI_VERIFY_EACH 2>/dev/null || true
 RUST_OUTPUT="$(mktemp)"; RUST_RT_OUTPUT="$(mktemp)"; RUST_LLVM_OUTPUT="$(mktemp)"; AOT_OUTPUT="$(mktemp)"
 run_rust_workspace >/dev/null
 run_rust_rt >/dev/null
 run_rust_llvm >/dev/null
 run_aot >/dev/null
-if [ -n "${ORI_DISABLE_PREDICATE_STACK_RC:-}" ] || [ -n "${ORI_VERIFY_ARC:-}" ] || [ -n "${ORI_VERIFY_EACH:-}" ]; then
+if [ -n "${ORI_VERIFY_ARC:-}" ] || [ -n "${ORI_VERIFY_EACH:-}" ]; then
     echo "FAIL: (h) run_aot leaked the gated verification env into the caller (exports must stay subshell-scoped)"
     exit 1
 fi
@@ -292,9 +292,9 @@ fi
 aot_env_line="$(grep -F -- "$EXPECTED_AOT" "$ENV_CAPTURE" | head -1)"
 rm -f "$RUN_CAPTURE" "$ENV_CAPTURE" "$RUST_OUTPUT" "$RUST_RT_OUTPUT" "$RUST_LLVM_OUTPUT" "$AOT_OUTPUT" "$CARGO_CAPTURE"
 case "$aot_env_line" in
-    "1|1|1|"*) ;;
+    "1|1|"*) ;;
     *)
-        echo "FAIL: (h) run_aot did not export the gated verification env around its rust_test_leg call (captured '$aot_env_line'; expected prefix '1|1|1|')"
+        echo "FAIL: (h) run_aot did not export the gated verification env around its rust_test_leg call (captured '$aot_env_line'; expected prefix '1|1|')"
         exit 1
         ;;
 esac

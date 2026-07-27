@@ -147,7 +147,6 @@ run_aot() {
         # shellcheck source=scripts/test_all/verification.env
         . "$(dirname "${BASH_SOURCE[0]}")/verification.env"
         set +a
-        export ORI_DISABLE_PREDICATE_STACK_RC=1
         rust_test_leg "$AOT_OUTPUT" "${LEG_SEL_AOT[@]}"
     ); then
         echo "  [ok] AOT integration tests passed"

@@ -364,7 +364,7 @@ printf "${C_BOLD}aot-guardrail.sh${C_NC}\n"
 run_test_output_contains "aot-guardrail.sh --help shows --floor" "--floor" \
     "$SCRIPT_DIR/aot-guardrail.sh" --help
 run_test_output_contains "aot-guardrail.sh --help documents the gated floor env" \
-    "ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1" \
+    "ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1" \
     "$SCRIPT_DIR/aot-guardrail.sh" --help
 run_test_exit_code "aot-guardrail.sh rejects unknown flag (exit 2)" 2 \
     "$SCRIPT_DIR/aot-guardrail.sh" --bogus-flag

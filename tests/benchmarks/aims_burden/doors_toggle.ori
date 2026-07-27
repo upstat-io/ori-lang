@@ -8,7 +8,7 @@
 // value: !doors[idx])` — the COW in-place path. Phase 5 emits the burden ops
 // for the reassignment; Phase 6 DP-6 (Uniqueness != Shared) proves `doors`
 // is the sole owner so the update mutates in place (no per-iteration realloc,
-// no per-toggle RC traffic). A predicate-stack / non-unique verdict would copy
+// no per-toggle RC traffic). A non-unique verdict would copy
 // the whole n-element buffer per toggle — this benchmark isolates that.
 
 @run_doors (n: int) -> int = {

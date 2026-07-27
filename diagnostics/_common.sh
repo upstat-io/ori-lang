@@ -214,10 +214,16 @@ enumerate_corpus() {
     # from any shell that can source the file. A missing builtin here would
     # print to stderr, emit an EMPTY corpus, and still return 0 -- a clean
     # absence verdict for a corpus that was never scanned.
+    # The corpus is the set of files present in the WORKING TREE. `git ls-files`
+    # reports the INDEX, so a tracked path deleted or renamed without staging is
+    # listed but absent on disk. Emitting it hands a scanner a path it cannot
+    # open: `rg` exits 2, and a chunked caller discards its whole batch. Filtering
+    # here makes that state unrepresentable rather than detected downstream.
     local -A __seen=()
     local __f
     while IFS= read -r -d '' __f; do
         [[ -n "$__f" ]] || continue
+        [[ -e "$__f" ]] || continue
         if [[ -z "${__seen[$__f]:-}" ]]; then
             __seen["$__f"]=1
             printf '%s\0' "$__f"

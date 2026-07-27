@@ -1,8 +1,7 @@
 //! Tests for [`super`]: Phase-7 mechanical burden-lowering and return-block
 //! scope-exit dec ordering.
 //!
-//! Pins [`super::lower_burden_ops_to_rc`]: under the probe
-//! (`predicate_stack_rc_disabled`), surviving whole-var `BurdenInc` /
+//! Pins [`super::lower_burden_ops_to_rc`]: surviving whole-var `BurdenInc` /
 //! `BurdenDec` lower to real `RcInc` / `RcDec`, and the field-grain
 //! `BurdenDecPartial` / `BurdenDecField` / `BurdenDecVariant` variants
 //! lower by RE-SPELLING to `RcDecPartial` / `RcDecField` / `RcDecVariant`

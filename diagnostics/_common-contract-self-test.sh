@@ -111,6 +111,62 @@ rc=$?
 [[ $rc -eq 2 ]] && ok "scanner error returns 2, not empty success" \
                 || bad "scanner error returned $rc, expected 2"
 
+# 8. THE CORPUS IS THE WORKING TREE, NOT THE INDEX. `git ls-files` reports the
+#    index, so a tracked path deleted or renamed without staging is listed while
+#    absent on disk. Emitting it hands a scanner a path it cannot open: `rg`
+#    exits 2, and a chunked caller discards its whole batch -- so ONE unstaged
+#    rename makes an entire scope unscannable.
+GITWORK="$WORK/tree"
+mkdir -p "$GITWORK"
+(
+    cd "$GITWORK" || exit 2
+    git init -q .
+    git config user.email t@t
+    git config user.name t
+    printf 'kept predicate stack\n' > kept.txt
+    printf 'gone predicate stack\n' > gone.txt
+    git add kept.txt gone.txt
+    git commit -qm seed
+    rm gone.txt          # tracked in the index, absent from the worktree
+) >/dev/null 2>&1
+
+# CWD must be INSIDE the temp repo: `enumerate_corpus` probes
+# `git rev-parse --is-inside-work-tree` in the CURRENT directory. Run from
+# elsewhere it finds no work tree, falls back to `find`, and `find` only ever
+# returns files that exist -- so the git branch under test is never reached and
+# the case passes whether or not the filter is present.
+ORIG_PWD="$PWD"
+cd "$GITWORK" || { echo "Error: cannot enter $GITWORK" >&2; exit 2; }
+corpus=()
+if corpus_files_into corpus .; then
+    phantom=0
+    for entry in "${corpus[@]}"; do
+        case "$entry" in gone.txt|*/gone.txt) phantom=1; break ;; esac
+    done
+    [[ $phantom -eq 0 ]] && ok "tracked-but-deleted path is absent from the corpus" \
+                         || bad "corpus emitted a path that does not exist on disk"
+
+    kept_present=0
+    for entry in "${corpus[@]}"; do
+        case "$entry" in kept.txt|*/kept.txt) kept_present=1; break ;; esac
+    done
+    [[ $kept_present -eq 1 ]] && ok "present tracked path is retained" \
+                              || bad "corpus dropped a path that DOES exist"
+
+    # The consequence the filter exists to prevent: a scan over this corpus must
+    # SUCCEED. Before the filter it returned 2 and lost every result in the batch.
+    res=()
+    if scan_pattern_into res 'predicate.stack' "${corpus[@]}"; then
+        [[ ${#res[@]} -eq 1 ]] && ok "scan over a partially-deleted tree succeeds" \
+                               || bad "scan succeeded but matched ${#res[@]} files, expected 1"
+    else
+        bad "scan over a partially-deleted tree returned an error"
+    fi
+else
+    bad "corpus enumeration over a partially-deleted tree errored"
+fi
+cd "$ORIG_PWD" || exit 2
+
 echo "---"
 echo "contract self-test: $PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]] || exit 1

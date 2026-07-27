@@ -14,7 +14,8 @@
 use ori_types::Idx;
 
 use super::emit_survivor_remarks_all_kept;
-use super::{AimsRcRemark, Cause, LatticeDim, RcRemarkOp, RemarkKind};
+use super::RC_SCHEMA_VERSION;
+use super::{AimsRcRemark, Cause, LatticeDim, RcRemarkOp, RcRemarkStreamEnvelope, RemarkKind};
 use crate::aims::intraprocedural::state_map::AimsStateMap;
 use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, ValueRepr};
 
@@ -48,6 +49,41 @@ fn emit_survivor_remarks_all_kept_walks_burden_inc_without_panic() {
     let state_map = AimsStateMap::new(&func);
     let interner = ori_ir::StringInterner::new();
     emit_survivor_remarks_all_kept(&func, &state_map, &interner);
+}
+
+/// Header envelope shape pin: the emitted first line carries the current
+/// schema version, the `record`/`schema_version`/`compiler_sha`/`source_file`
+/// fields, and not the retired path label. Field PRESENCE is asserted, not
+/// exhaustiveness — an unrelated added field would pass.
+///
+/// The negative half is the load-bearing one. A consumer distinguishes stream
+/// generations by `schema_version` alone, so emitting a retired field under a
+/// bumped version, or a bumped field set under an unchanged version, silently
+/// desynchronizes every reader.
+#[test]
+fn stream_header_to_jsonl_carries_current_schema_and_no_retired_field() {
+    let envelope = RcRemarkStreamEnvelope::new("000de0232".to_string(), "survivor.ori".to_string());
+    let json = envelope.to_jsonl();
+
+    assert!(json.contains("\"record\":\"header\""), "json = {json}");
+    assert!(
+        json.contains(&format!("\"schema_version\":{RC_SCHEMA_VERSION}")),
+        "header declares the current schema version\njson = {json}"
+    );
+    assert_eq!(RC_SCHEMA_VERSION, 2, "current wire generation");
+    assert!(
+        json.contains("\"compiler_sha\":\"000de0232\""),
+        "json = {json}"
+    );
+    assert!(
+        json.contains("\"source_file\":\"survivor.ori\""),
+        "json = {json}"
+    );
+
+    assert!(
+        !json.contains("burden_path"),
+        "the retired path label must not appear in a schema-2 header\njson = {json}"
+    );
 }
 
 /// JSONL record shape pin: `AimsRcRemark::to_jsonl` emits the

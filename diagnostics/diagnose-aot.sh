@@ -334,7 +334,7 @@ else
     has_warning=1
     echo -e "  ${SYM_WARN}  Static RC counts are imbalanced; this is not a memory-safety verdict."
     echo -e "  ${C_DIM}Confirm with: diagnose-aot.sh --rc-trace --valgrind ${FILE}${C_NC}"
-    echo -e "  ${C_DIM}Inspect burden-sole survivors with: rc-stats.sh --rc-remarks ${FILE}${C_NC}"
+    echo -e "  ${C_DIM}Inspect surviving RC ops with: rc-stats.sh --rc-remarks ${FILE}${C_NC}"
 fi
 sed 's/^/  │ /' "$tmpdir/rc_stats.txt"
 echo ""

@@ -4,7 +4,7 @@
 # Usage:
 #   diagnostics/class-ledger-census.sh [options] [corpus-path]
 #
-# Builds every corpus program once under the gated burden-sole env with the
+# Builds every corpus program once under the verification env with the
 # class-ledger readiness trace enabled, then tallies per-function
 # mode="replaced" vs mode="fallback" counts and a ranked fallback_reason
 # table — the drain worklist. Optionally runs each binary (plain + leak
@@ -38,7 +38,7 @@ STEP_TIMEOUT=30
 DO_RUN=0
 VERBOSE=0
 
-GATED_ENV=(ORI_DISABLE_PREDICATE_STACK_RC=1 ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1)
+GATED_ENV=(ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1)
 TRACE_TARGET="ori_arc::aims::class_ledger=debug"
 
 while [[ $# -gt 0 ]]; do

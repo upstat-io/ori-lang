@@ -90,7 +90,7 @@
       "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::PointerUseAfterFree",
       "disposition": "aims-obligation",
       "ori_mechanism": "ARC forecloses use-after-free and double-free at the source level (no manual free, no raw dereference). The no-double-free / no-UAF guarantee is the reference-count-balance obligation discharged at codegen, proven sound in the AIMS proof corpus: Coexistence CH-1 (the lattice == burden bridge) + CH-2 (single elimination) + Realization RL-comp (lowered burden ops preserve RC net balance). The RC verdict surface is the verifier (ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1) plus a leak check, never an unverified build; some realization cells remain open obligations under active repair. Spec Clause 4.5.",
-      "pin_ref": "compiler/ori_llvm/tests/aot/predicate_stack_probe.rs"
+      "pin_ref": "compiler/ori_llvm/tests/aot/memory_lifecycle_probe.rs"
     },
     {
       "class_id": "AlignmentCheckFailed",
@@ -104,7 +104,7 @@
       "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::InvalidTag",
       "disposition": "aims-obligation",
       "ori_mechanism": "Enum discriminants are type-checked, so an invalid tag is unrepresentable in source; but the codegen reference-count walk must read the discriminant before projecting a payload. Honoring the tag during the RC walk is an obligation discharged at codegen and verified by the verifier (ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1) plus a leak check; a tag-blind walk is an open obligation under active repair, not a clean foreclosure. Spec Clause 4.5.",
-      "pin_ref": "compiler/ori_llvm/tests/aot/predicate_stack_probe.rs"
+      "pin_ref": "compiler/ori_llvm/tests/aot/memory_lifecycle_probe.rs"
     },
     {
       "class_id": "DataRace",
@@ -272,7 +272,7 @@
       "miri_source": "rust: rustc_middle/src/mir/interpret/error.rs UndefinedBehaviorInfo::InvalidNichedEnumVariantWritten",
       "disposition": "aims-obligation",
       "ori_mechanism": "Niche-encoded enum discriminants (e.g. Option<CPtr>) are written and read through compiler-managed tag logic; correctness of the niche write is a runtime AIMS realization obligation, sharing the invalid-tag surface. The RC/AOT verdict comes from the verifier (ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1) plus a leak check over the pinned probe, never from an unverified build.",
-      "pin_ref": "compiler/ori_llvm/tests/aot/predicate_stack_probe.rs"
+      "pin_ref": "compiler/ori_llvm/tests/aot/memory_lifecycle_probe.rs"
     },
     {
       "class_id": "ValidationError",

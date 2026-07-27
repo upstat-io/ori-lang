@@ -1,8 +1,7 @@
 //! End-to-end non-empty-stream assertion for the RC-remarks walking skeleton.
 //!
-//! Compiles a fixture that produces >=1 surviving (non-elidable) RC op on the
-//! labelled probe env (`ORI_DISABLE_PREDICATE_STACK_RC=1`) with `ORI_RC_REMARKS`
-//! set, then asserts the JSONL remark stream is non-empty and well-formed —
+//! Compiles a fixture that produces >=1 surviving (non-elidable) RC op with
+//! `ORI_RC_REMARKS` set, then asserts the JSONL remark stream is non-empty and well-formed —
 //! proving the current adapter's emit -> file -> read-back pipe end to end.
 //! This is physical-projection observability, not an AIMS conformance verdict
 //! (Spec: Annex E §AIMS).
@@ -20,14 +19,10 @@ fn rc_remarks_survivor_fixture_emits_nonempty_stream() {
     let remarks_path = temp.path().join("rc-remarks.jsonl");
     let remarks_path_str = remarks_path.to_str().expect("utf-8 temp path");
 
-    // Compile the survivor fixture under the labelled probe env with remark emission
-    // enabled. The run step is incidental; the remark emits during codegen.
+    // Compile the survivor fixture with remark emission enabled. The run step is incidental; the remark emits during codegen.
     let _ = compile_and_run_with_build_env(
         include_str!("fixtures/rc_remarks/survivor.ori"),
-        &[
-            ("ORI_RC_REMARKS", remarks_path_str),
-            ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
-        ],
+        &[("ORI_RC_REMARKS", remarks_path_str)],
     );
 
     let stream = fs::read_to_string(&remarks_path).unwrap_or_default();
@@ -36,7 +31,7 @@ fn rc_remarks_survivor_fixture_emits_nonempty_stream() {
     // Positive pin: the survivor fixture produces a non-empty remark stream.
     assert!(
         !remark_lines.is_empty(),
-        "expected >=1 surviving-RC-op remark under the labelled probe env; stream was empty.\n\
+        "expected >=1 surviving-RC-op remark; stream was empty.\n\
          stream path: {remarks_path_str}\nstream:\n{stream}"
     );
     // Negative pin: every emitted line is a well-formed `missed` remark object.
@@ -55,11 +50,10 @@ fn rc_remarks_survivor_fixture_emits_nonempty_stream() {
 
 /// Production-path (L12): the real `ori build --emit-rc-remarks <path>` CLI flag
 /// (not the `ORI_RC_REMARKS` env seam) writes the remark stream to the named
-/// file on a real build of a real target. The flag ALONE — with NO probe env
-/// set — must auto-set the metadata label and the verifier env, evidenced by
-/// the header's `burden_path: true`. Pins the CLI entry point (subcommand) and
-/// that env composition, distinct from the env-driven dev surface above. The
-/// header evidences the label var only; `ORI_VERIFY_ARC` is asserted separately.
+/// file on a real build of a real target. The flag ALONE — with NO env set by
+/// the test — must auto-set the verifier env. Pins the CLI entry point
+/// (subcommand) and that env composition, distinct from the env-driven dev
+/// surface above.
 #[test]
 fn rc_remarks_cli_flag_emits_stream_to_file() {
     let temp = TempDir::new().expect("create temp dir for rc-remarks CLI build");
@@ -75,7 +69,7 @@ fn rc_remarks_cli_flag_emits_stream_to_file() {
     .expect("write survivor fixture");
 
     // Drive the real production CLI: `ori build <file> --emit-rc-remarks <path>`.
-    // No env is set by the test — the flag must auto-set the label + verifier env.
+    // No env is set by the test — the flag must auto-set the verifier env.
     let build = Command::new(ori_binary())
         .args([
             "build",
@@ -100,17 +94,15 @@ fn rc_remarks_cli_flag_emits_stream_to_file() {
         remarks_path.display()
     );
 
-    // First line is the schema header; its burden_path evidences the label var
-    // was auto-set (the test set no ORI_DISABLE_PREDICATE_STACK_RC).
+    // First line is the schema header, carrying the version this build produces.
     let header = lines[0];
     assert!(
         header.contains("\"record\":\"header\""),
         "first stream line is not the schema header: {header}"
     );
     assert!(
-        header.contains("\"burden_path\":true"),
-        "--emit-rc-remarks did not auto-set the metadata label + verifier env \
-         (header burden_path must be true, evidencing the label var was set): {header}"
+        header.contains("\"schema_version\":2"),
+        "header must declare the current stream schema version: {header}"
     );
 
     // Every subsequent line is a well-formed missed remark.
@@ -142,7 +134,7 @@ fn collect_ori_fixtures(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>
 
 /// The producer runs against the whole AIMS fixture corpus (`tests/aims/**`),
 /// not just the single survivor fixture: every scenario produces a valid
-/// verifier-backed stream (auto-set label + verifier env). Enumerates the
+/// verifier-backed stream (auto-set verifier env). Enumerates the
 /// corpus by recursive discovery + a self-verifying visited-count assertion so
 /// a silently-skipped fixture fails the test (matrix completeness).
 #[test]
@@ -167,7 +159,7 @@ fn rc_remarks_producer_runs_over_aims_corpus() {
         let binary_path = temp
             .path()
             .join(format!("bin-{i}{}", std::env::consts::EXE_SUFFIX));
-        // Producer over each corpus fixture; the flag alone sets label + verifier env.
+        // Producer over each corpus fixture; the flag alone sets the verifier env.
         let build = Command::new(ori_binary())
             .args([
                 "build",
@@ -186,7 +178,7 @@ fn rc_remarks_producer_runs_over_aims_corpus() {
         let stream = fs::read_to_string(&remarks_path).unwrap_or_default();
         let first = stream.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
         assert!(
-            first.contains("\"record\":\"header\"") && first.contains("\"burden_path\":true"),
+            first.contains("\"record\":\"header\"") && first.contains("\"schema_version\":2"),
             "producer did not emit a valid verdict-surface header for corpus fixture {}.\n\
              build stderr:\n{}\nheader line: {first:?}",
             fixture.display(),

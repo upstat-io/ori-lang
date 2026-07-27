@@ -4,6 +4,9 @@ use crate::{ingest, Stream};
 
 use super::diff_streams;
 
+/// Every fixture carries a current-generation header; ingest refuses remarks without one.
+const HEADER: &str = r#"{"record":"header","schema_version":2,"compiler_sha":"000de0232","source_file":"t.ori"}"#;
+
 /// A remark line identified by `function` + `ssa_value`; other fields fixed.
 fn remark(function: &str, ssa: u64) -> String {
     format!(
@@ -12,7 +15,10 @@ fn remark(function: &str, ssa: u64) -> String {
 }
 
 fn build(lines: &[String]) -> Stream {
-    ingest(&lines.join("\n")).unwrap_or_else(|e| panic!("ingest failed: {e}"))
+    // A header is MANDATORY: ingest refuses an unversioned remark, so a fixture
+    // without one would exercise the refusal path instead of the case under test.
+    let body = format!("{HEADER}\n{}", lines.join("\n"));
+    ingest(&body).unwrap_or_else(|e| panic!("ingest failed: {e}"))
 }
 
 #[test]

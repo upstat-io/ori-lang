@@ -10,8 +10,7 @@
 // heap field LEAKS (rc never reaches 0).
 //
 // dual-exec parity: interp and LLVM produce identical results.
-// leak-free: zero RC leaks under ORI_CHECK_LEAKS=1 on BOTH the default and
-//   the gated burden probe (ORI_DISABLE_PREDICATE_STACK_RC=1) paths.
+// leak-free: zero RC leaks under ORI_CHECK_LEAKS=1.
 // These cells PASS their value assertions even on the unfixed code (the leak does
 // not corrupt values) — the leak-check is the failing-on-unfixed pin.
 //

@@ -4,6 +4,9 @@ use crate::{ingest, Stream};
 
 use super::source_annotated_view;
 
+/// Every fixture carries a current-generation header; ingest refuses remarks without one.
+const HEADER: &str = r#"{"record":"header","schema_version":2,"compiler_sha":"000de0232","source_file":"t.ori"}"#;
+
 /// A span-less remark (synthetic op) attributed to `function`.
 fn fn_remark(function: &str, ssa: u64) -> String {
     format!(
@@ -19,7 +22,8 @@ fn loc_remark(file: &str, line: u32, column: u32) -> String {
 }
 
 fn build(lines: &[String]) -> Stream {
-    ingest(&lines.join("\n")).unwrap_or_else(|e| panic!("ingest failed: {e}"))
+    ingest(&format!("{HEADER}\n{}", lines.join("\n")))
+        .unwrap_or_else(|e| panic!("ingest failed: {e}"))
 }
 
 #[test]

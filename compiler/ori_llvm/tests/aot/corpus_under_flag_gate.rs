@@ -1,7 +1,6 @@
 //! Predicate-stack-retirement certificate: the ordinary AOT corpus is the gate.
 //!
-//! The predicate-stack RC emitter has been retired from production realization;
-//! `ORI_DISABLE_PREDICATE_STACK_RC` remains only as legacy diagnostic metadata.
+//! The predicate-stack RC emitter has been retired from production realization.
 //! Therefore the normal AOT run under test-all's verification environment is
 //! already the full burden-path gate. Re-executing this test binary from inside
 //! itself would merely duplicate the same corpus and obscure its real counts.

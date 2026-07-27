@@ -348,10 +348,7 @@ impl Logged: Hashable {
 // verdict for both cleanup admission and transfer accounting comes from the
 // verifier (`ORI_VERIFY_ARC=1 ORI_VERIFY_EACH=1`) plus a leak check.
 
-const BUG_05_006_GATED: &[(&str, &str)] = &[
-    ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
-    ("ORI_VERIFY_ARC", "1"),
-];
+const BUG_05_006_GATED: &[(&str, &str)] = &[("ORI_VERIFY_ARC", "1")];
 
 /// P2 — USED set-collect with an `@drop` element: the element `@drop` must fire
 /// EXACTLY ONCE (set teardown), not twice (source-list + set). Pre-fix: `drop`
@@ -1033,21 +1030,19 @@ impl Resource: Drop {
 //   * READ local (`let r = Guard{7}; print(r.id)`): the surviving scope-exit
 //     whole-var `RcDec` on a Scalar repr tripped VF-1 `RcOnScalar` -> compile
 //     ICE under `ORI_VERIFY_ARC=1`.
-//   * DEAD local (`let r = Guard{7}` never read): no last-use anchor + the
-//     predicate stack skips scalars -> the `@drop` was silently elided.
+//   * DEAD local (`let r = Guard{7}` never read): no last-use anchor, and a
+//     scalar repr carries no RC op to hang one on -> the `@drop` was elided.
 // The fix routes a scalar+`@drop` scope-exit op through `RcStrategy::UserDrop`
 // (the `@drop` CALL alone, balance-neutral, exempt from VF-1) and emits a
 // completeness dec for the never-used case. Spec: Annex E §AIMS RL-DROP
 // (`RLDROP_scalar_lifecycle_sound` / `RLDROP_exactly_once_on_glue`).
 //
-// The RC/AOT verdict comes from `ORI_VERIFY_ARC=1` plus a leak check; the
-// RC-disable var only labels the run. These pins are non-ignored (the defect is
-// fixed) and revert-detecting (revert -> DEAD loses its drop, READ ICEs).
+// The RC/AOT verdict comes from `ORI_VERIFY_ARC=1`, which ENABLES the ARC
+// correctness checks (VF-1 among them), plus a leak check. These pins are
+// non-ignored (the defect is fixed) and revert-detecting (revert -> DEAD loses
+// its drop, READ ICEs).
 
-const SCALAR_DROP_GATED: &[(&str, &str)] = &[
-    ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
-    ("ORI_VERIFY_ARC", "1"),
-];
+const SCALAR_DROP_GATED: &[(&str, &str)] = &[("ORI_VERIFY_ARC", "1")];
 
 /// Semantic pin (filed bug): a DEAD scalar-repr struct local's `@drop` runs at
 /// scope exit. Pre-fix: nothing prints (the `@drop` was elided).

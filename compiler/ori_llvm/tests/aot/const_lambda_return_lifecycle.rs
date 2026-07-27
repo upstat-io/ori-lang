@@ -9,11 +9,7 @@
 
 use crate::util::compile_and_run_with_build_env;
 
-const CLASS_LEDGER_PROBE: &[(&str, &str)] = &[
-    ("ORI_DISABLE_PREDICATE_STACK_RC", "1"),
-    ("ORI_VERIFY_ARC", "1"),
-    ("ORI_VERIFY_EACH", "1"),
-];
+const CLASS_LEDGER_PROBE: &[(&str, &str)] = &[("ORI_VERIFY_ARC", "1"), ("ORI_VERIFY_EACH", "1")];
 
 fn assert_class_ledger_aot_success(source: &str, label: &str) {
     let (exit, stdout, stderr) = compile_and_run_with_build_env(source, CLASS_LEDGER_PROBE);

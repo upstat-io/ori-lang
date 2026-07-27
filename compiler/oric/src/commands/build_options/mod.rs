@@ -91,8 +91,7 @@ pub struct BuildOptions {
     /// When set, `build_file` bridges it to the `ORI_RC_REMARKS` env var so the
     /// `ori_arc` realization-time emitter (which cannot depend on `oric`) emits
     /// the JSONL stream. The env var is the dev surface; this is the production
-    /// CLI surface. The remark-metadata label (`ORI_DISABLE_PREDICATE_STACK_RC`)
-    /// and the verifier env (`ORI_VERIFY_ARC`) are set alongside it.
+    /// CLI surface. The verifier env (`ORI_VERIFY_ARC`) is set alongside it.
     pub emit_rc_remarks: Option<PathBuf>,
 }
 

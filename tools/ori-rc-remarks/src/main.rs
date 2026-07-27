@@ -128,10 +128,10 @@ fn print_summary(path: &str, stream: &Stream) {
             stream.remarks.len(),
             header.compiler_sha,
         ),
-        None => println!(
-            "{path}: no header (raw dev stream), {} surviving RC ops",
-            stream.remarks.len()
-        ),
+        // `ingest` refuses any remark that precedes a header, so the only
+        // headerless stream it can return is one with no records at all. There
+        // is no unversioned-remark mode left to qualify.
+        None => println!("{path}: empty stream (no header, no remarks)"),
     }
 }
 
