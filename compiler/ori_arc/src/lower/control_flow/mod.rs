@@ -341,9 +341,10 @@ impl ArcLowerer<'_> {
         let reassigned = reassign_scan::collect_reassigned_mutable_names(
             self.arena, self.canon, &arm_ids, &tree,
         );
+        let pruning_disabled = reassign_scan::match_param_pruning_disabled();
         let mut mutable_var_merge: Vec<(Name, ArcVarId)> = Vec::new();
         for (name, var) in pre_scope.mutable_bindings() {
-            if !reassigned.contains(&name) {
+            if !reassign_scan::merge_param_survives(name, &reassigned, pruning_disabled) {
                 continue;
             }
             let var_ty = self.builder.var_type(var);

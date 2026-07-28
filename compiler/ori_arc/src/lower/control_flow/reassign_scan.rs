@@ -19,6 +19,37 @@ use ori_ir::canon::{CanArena, CanExpr, CanId, CanonResult, DecisionTree};
 use ori_ir::Name;
 use rustc_hash::FxHashSet;
 
+// Env: ORI_DISABLE_MATCH_PARAM_PRUNING - threads every in-scope mutable binding
+// into the match merge block-params, debug-only.
+pub(super) fn match_param_pruning_disabled() -> bool {
+    report_match_param_pruning_toggle(
+        std::env::var("ORI_DISABLE_MATCH_PARAM_PRUNING").as_deref() == Ok("1"),
+    )
+}
+
+fn report_match_param_pruning_toggle(disabled: bool) -> bool {
+    if disabled {
+        tracing::info!(
+            toggle = "ORI_DISABLE_MATCH_PARAM_PRUNING",
+            effect = "thread every in-scope mutable binding into the match merge block-params",
+            "ablation toggle fired"
+        );
+    }
+    disabled
+}
+
+/// Whether `name`'s merge block-param survives into the match merge block.
+///
+/// Returns true when pruning is disabled (every binding threads, the pre-cure
+/// arrangement) or when an arm can reassign the binding.
+pub(super) fn merge_param_survives(
+    name: Name,
+    reassigned: &FxHashSet<Name>,
+    pruning_disabled: bool,
+) -> bool {
+    pruning_disabled || reassigned.contains(&name)
+}
+
 /// Collect every name a `CanExpr::Assign` under the match's arm bodies (or
 /// decision-tree guard expressions, including nested matches' guards) could
 /// rebind. Mutable bindings OUTSIDE the returned set cannot diverge in any

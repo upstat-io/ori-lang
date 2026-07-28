@@ -13,6 +13,34 @@ use tempfile::TempDir;
 
 use crate::util::{compile_and_run_with_build_env, ori_binary, stdlib_path};
 
+/// Replace every `"span=<start>:<end>"` argument with `"span=<offsets>"`.
+///
+/// Returns the input unchanged when no well-formed span argument is present,
+/// so the caller can assert the argument survived.
+fn normalize_span_offsets(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(start) = rest.find("\"span=") {
+        let (before, tail) = rest.split_at(start);
+        let Some(close) = tail[1..].find('"').map(|i| i + 1) else {
+            break;
+        };
+        let digits = &tail[6..close];
+        let well_formed = digits.split_once(':').is_some_and(|(a, b)| {
+            !a.is_empty() && !b.is_empty() && a.chars().chain(b.chars()).all(|c| c.is_ascii_digit())
+        });
+        out.push_str(before);
+        if well_formed {
+            out.push_str("\"span=<offsets>\"");
+        } else {
+            out.push_str(&tail[..=close]);
+        }
+        rest = &tail[close + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
 #[test]
 fn rc_remarks_survivor_fixture_emits_nonempty_stream() {
     let temp = TempDir::new().expect("create temp dir for rc-remarks stream");
@@ -41,9 +69,18 @@ fn rc_remarks_survivor_fixture_emits_nonempty_stream() {
             "remark line is not a well-formed missed-remark object: {line}"
         );
     }
+    // The span carries the fixture's absolute byte offsets, which shift on any
+    // edit to the fixture's own comments. Assert its SHAPE, then normalize it
+    // out so the remaining byte-exact contract pins the field set and values.
+    let actual = stream.trim();
+    let normalized = normalize_span_offsets(actual);
+    assert_ne!(
+        normalized, actual,
+        "remark lost its `span=<start>:<end>` argument: {actual}"
+    );
     assert_eq!(
-        stream.trim(),
-        r#"{"kind":"missed","pass":"aims-burden-elim","name":"rc-inc-not-elided","rc_op":"burden_inc","function":"main","debug_loc":null,"ssa_value":2,"exit_block":null,"cause":{"proof_failure":"burden_inc_kept_by_whole_var_disposition","lattice_dim":"locality","detail":"consumption=Linear locality=FunctionLocal cardinality=Once"},"burden_net":null,"args":["def_kind=alias","var_repr=fat-value","span=494:497"],"cow_mode":null}"#,
+        normalized,
+        r#"{"kind":"missed","pass":"aims-burden-elim","name":"rc-inc-not-elided","rc_op":"burden_inc","function":"main","debug_loc":null,"ssa_value":2,"exit_block":null,"cause":{"proof_failure":"burden_inc_kept_by_whole_var_disposition","lattice_dim":"locality","detail":"consumption=Linear locality=FunctionLocal cardinality=Once"},"burden_net":null,"args":["def_kind=alias","var_repr=fat-value","span=<offsets>"],"cow_mode":null}"#,
         "survivor-walk relocation changed the JSONL byte contract"
     );
 }
@@ -194,4 +231,29 @@ fn rc_remarks_producer_runs_over_aims_corpus() {
         "producer-corpus enumeration skipped fixtures: visited {visited} of {}",
         fixtures.len()
     );
+}
+
+/// The normalizer is the check the byte-exact contract rests on, so it is
+/// itself pinned: it must replace a well-formed span and leave anything else
+/// untouched, so a dropped or malformed span reaches the caller's `assert_ne!`.
+#[test]
+fn normalize_span_offsets_replaces_only_well_formed_spans() {
+    assert_eq!(
+        normalize_span_offsets(r#"["a","span=494:497","b"]"#),
+        r#"["a","span=<offsets>","b"]"#,
+        "a well-formed span must normalize"
+    );
+    let no_span = r#"["def_kind=alias","var_repr=fat-value"]"#;
+    assert_eq!(
+        normalize_span_offsets(no_span),
+        no_span,
+        "a remark with no span must pass through unchanged so the caller catches it"
+    );
+    for malformed in [r#"["span=abc:def"]"#, r#"["span=494"]"#, r#"["span=:497"]"#] {
+        assert_eq!(
+            normalize_span_offsets(malformed),
+            malformed,
+            "a malformed span must pass through unchanged: {malformed}"
+        );
+    }
 }

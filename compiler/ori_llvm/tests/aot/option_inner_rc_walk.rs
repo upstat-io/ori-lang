@@ -4,7 +4,7 @@
 //! option_*_field_*_tag_guarded.ori`) with end-to-end runs of the
 //! `Option<RC-inner>` dec-walk matrix under the verification env
 //! (`ORI_VERIFY_ARC=1` `ORI_VERIFY_EACH=1`), run under `ORI_CHECK_LEAKS=1`
-//! (leak -> exit 2). The verdict is carried by ORI_VERIFY_ARC/ORI_VERIFY_EACH
+//! (leak -> exit 2). The verdict is carried by `ORI_VERIFY_ARC`/`ORI_VERIFY_EACH`
 //! plus the leak check.
 //!
 //! Matrix: inner in {`str`, `[int]`, struct-with-RC field, closure} x variant

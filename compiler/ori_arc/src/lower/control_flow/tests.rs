@@ -1413,3 +1413,39 @@ fn match_guard_assignment_keeps_merge_param() {
             .collect::<Vec<_>>()
     );
 }
+
+// The ablation toggle's effect, pinned without env mutation: the decision is a
+// pure function of (name, reassigned-set, pruning_disabled).
+
+#[test]
+fn merge_param_survives_truth_table() {
+    use super::reassign_scan::merge_param_survives;
+    use rustc_hash::FxHashSet;
+
+    let interner = StringInterner::new();
+    let base = interner.intern("base");
+    let touched = interner.intern("touched");
+    let mut reassigned = FxHashSet::default();
+    reassigned.insert(touched);
+
+    // Pruning ACTIVE (default): only a reassigned binding keeps its merge param.
+    assert!(
+        !merge_param_survives(base, &reassigned, false),
+        "unchanged `base` must be pruned when pruning is active"
+    );
+    assert!(
+        merge_param_survives(touched, &reassigned, false),
+        "reassigned `touched` must keep its merge param"
+    );
+
+    // Pruning DISABLED (ORI_DISABLE_MATCH_PARAM_PRUNING=1): the pre-cure
+    // arrangement threads every in-scope mutable binding, reassigned or not.
+    assert!(
+        merge_param_survives(base, &reassigned, true),
+        "the toggle must restore the unpruned arrangement for an unchanged binding"
+    );
+    assert!(
+        merge_param_survives(touched, &reassigned, true),
+        "a reassigned binding survives regardless of the toggle"
+    );
+}
